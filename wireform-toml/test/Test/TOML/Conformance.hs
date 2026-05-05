@@ -38,13 +38,15 @@ import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as AKM
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
+import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import System.Directory
   ( doesDirectoryExist, doesFileExist, listDirectory )
 import System.Environment (lookupEnv)
-import System.FilePath ((</>), dropExtension, takeExtension)
+import System.FilePath
+  ( (</>), dropExtension, takeDirectory, takeExtension )
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, assertFailure, (@?=))
 
@@ -132,17 +134,59 @@ externalSuite = do
   case mDir of
     Nothing  -> pure (testGroup "toml-test (skipped, set TOML_TEST_SUITE)" [])
     Just dir -> do
-      validCases   <- discoverValid   dir
-      invalidCases <- discoverInvalid dir
-      let validCount   = length validCases
+      -- The official suite ships per-version manifest files
+      -- @files-toml-1.0.0@ / @files-toml-1.1.0@. We default to the
+      -- 1.1 manifest (the latest the decoder targets) so that
+      -- version-only differences (e.g. \\xNN in basic strings,
+      -- seconds-less times) don't show up as false-rejects.
+      -- Override with @TOML_TEST_VERSION=1.0.0@ to test strict 1.0.
+      ver  <- fromMaybe "1.1.0" <$> lookupEnv "TOML_TEST_VERSION"
+      let manifest = takeDirectory dir </> "tests" </> ("files-toml-" ++ ver)
+      manifestExists <- doesFileExist manifest
+      let manifest' = if manifestExists
+                        then manifest
+                        else dir </> ("files-toml-" ++ ver)
+      m2Exists <- doesFileExist manifest'
+      paths <- if m2Exists
+                 then readManifest dir manifest'
+                 else (++) <$> discoverValid dir <*> discoverInvalid dir
+      let (validCases, invalidCases) =
+            partitionPaths dir paths
+          validCount   = length validCases
           invalidCount = length invalidCases
       pure $ testGroup
         ("toml-test ("
             ++ show validCount   ++ " valid, "
-            ++ show invalidCount ++ " invalid)")
+            ++ show invalidCount ++ " invalid"
+            ++ (if m2Exists then ", v" ++ ver else "")
+            ++ ")")
         [ testGroup "valid"   (map mkValidCase   validCases)
         , testGroup "invalid" (map mkInvalidCase invalidCases)
         ]
+
+-- | Read a manifest file produced by toml-test. Each line is a
+-- relative path under the suite root; we keep only the @.toml@
+-- entries (the manifest also lists the companion @.json@ /
+-- @.event@ fixtures).
+readManifest :: FilePath -> FilePath -> IO [FilePath]
+readManifest root manifest = do
+  bs <- BS.readFile manifest
+  let txt    = TE.decodeUtf8Lenient bs
+      lns    = filter (not . T.null) (T.lines txt)
+      paths  = map (\l -> root </> T.unpack (T.strip l)) lns
+      tomls  = filter (\p -> takeExtension p == ".toml") paths
+  pure tomls
+
+partitionPaths :: FilePath -> [FilePath] -> ([FilePath], [FilePath])
+partitionPaths _root = goP ([], [])
+  where
+    goP (vs, is) [] = (reverse vs, reverse is)
+    goP (vs, is) (p : rest)
+      | "valid"   `isPart` p = goP (p : vs, is) rest
+      | "invalid" `isPart` p = goP (vs, p : is) rest
+      | otherwise            = goP (vs, is) rest
+    isPart needle p = needle `elem` splitDirs p
+    splitDirs = words . map (\c -> if c == '/' then ' ' else c)
 
 -- | Look at @TOML_TEST_SUITE@ first, falling back to @TOML_TEST_DIR@.
 -- The canonical layout has the actual cases under @\<root\>/tests/@,
@@ -203,8 +247,7 @@ collectToml = walk
 mkValidCase :: FilePath -> TestTree
 mkValidCase tomlPath = testCase tomlPath $ do
   bytes <- BS.readFile tomlPath
-  let txt = TE.decodeUtf8Lenient bytes
-  res <- try (evaluate (TD.decode txt))
+  res <- try (evaluate (TD.decodeBS bytes))
            :: IO (Either SomeException (Either String TV.Value))
   case res of
     Left e          -> assertFailure ("exception: " ++ show e)
@@ -225,8 +268,7 @@ mkValidCase tomlPath = testCase tomlPath $ do
 mkInvalidCase :: FilePath -> TestTree
 mkInvalidCase tomlPath = testCase tomlPath $ do
   bytes <- BS.readFile tomlPath
-  let txt = TE.decodeUtf8Lenient bytes
-  res <- try (evaluate (TD.decode txt))
+  res <- try (evaluate (TD.decodeBS bytes))
            :: IO (Either SomeException (Either String TV.Value))
   case res of
     Left  _          -> pure ()                    -- exception counts as fail
@@ -234,11 +276,120 @@ mkInvalidCase tomlPath = testCase tomlPath $ do
     Right (Right _)  -> assertFailure "expected parse error, got success"
 
 -- | Compare actual decoded JSON against the expected typed JSON
--- from the toml-test suite. Currently a strict equality check; we
--- could relax in the future to be tolerant of e.g. float
--- formatting differences.
+-- from the toml-test suite. Floats / integers / datetime values are
+-- compared by parse-equality on the string payload (matching the
+-- behaviour of the upstream Go @toml-test@ runner) rather than by
+-- byte-for-byte string equality.
 compareJSON :: A.Value -> A.Value -> IO ()
-compareJSON = (@?=)
+compareJSON a b
+  | jsonEq a b = pure ()
+  | otherwise  = a @?= b
+
+jsonEq :: A.Value -> A.Value -> Bool
+jsonEq a b
+  | Just (ta, va) <- typedScalar a
+  , Just (tb, vb) <- typedScalar b
+  , ta == tb
+  = typedEq ta va vb
+jsonEq (A.Object oA) (A.Object oB)
+  | AKM.size oA /= AKM.size oB = False
+  | otherwise = all matchKey (AKM.toList oA)
+  where
+    matchKey (k, va) = case AKM.lookup k oB of
+      Just vb -> jsonEq va vb
+      Nothing -> False
+jsonEq (A.Array xs) (A.Array ys)
+  | V.length xs /= V.length ys = False
+  | otherwise = all (uncurry jsonEq) (zip (V.toList xs) (V.toList ys))
+jsonEq a b = a == b
+
+typedScalar :: A.Value -> Maybe (T.Text, T.Text)
+typedScalar (A.Object o) = case (AKM.lookup (AK.fromText (T.pack "type")) o,
+                                  AKM.lookup (AK.fromText (T.pack "value")) o) of
+  (Just (A.String t), Just (A.String v)) -> Just (t, v)
+  _                                       -> Nothing
+typedScalar _ = Nothing
+
+-- | Type-aware equality on scalar payloads.
+typedEq :: T.Text -> T.Text -> T.Text -> Bool
+typedEq ty va vb = case T.unpack ty of
+  "float"   -> case (parseFloat va, parseFloat vb) of
+                 (Just a, Just b) -> floatBitsEq a b
+                 _                -> va == vb
+  "integer" -> case (reads (T.unpack va), reads (T.unpack vb)) of
+                 ([(a :: Integer, "")], [(b, "")]) -> a == b
+                 _                                  -> va == vb
+  "datetime"
+    | normaliseDT va == normaliseDT vb -> True
+    | otherwise                        -> va == vb
+  "datetime-local"
+    | normaliseDT va == normaliseDT vb -> True
+    | otherwise                        -> va == vb
+  "time-local"
+    | normaliseTime va == normaliseTime vb -> True
+    | otherwise                            -> va == vb
+  _         -> va == vb
+  where
+    normaliseTime t
+      | T.length t == 5 = t <> T.pack ":00"
+      | otherwise       = t
+
+    parseFloat t = case T.toLower t of
+      "inf"  -> Just (1/0 :: Double)
+      "+inf" -> Just (1/0)
+      "-inf" -> Just (-1/0)
+      "nan"  -> Just (0/0)
+      "+nan" -> Just (0/0)
+      "-nan" -> Just (negate (0/0))
+      _      -> case reads (T.unpack t) :: [(Double, String)] of
+                  [(d, "")] -> Just d
+                  _         -> Nothing
+
+    floatBitsEq a b
+      | isNaN a && isNaN b = True
+      | otherwise          = a == b
+
+    normaliseDT s =
+      -- Canonicalise: T separator, Z (uppercase) for UTC, pad
+      -- missing seconds with @:00@, and strip trailing zeros from
+      -- fractional seconds so that @.6@ and @.600@ compare equal.
+      let s1 = case T.splitAt 10 s of
+            (d, rest) -> case T.uncons rest of
+              Just (c, r) | c == ' ' || c == 't' -> d <> T.cons 'T' r
+              _                                  -> s
+          s2 = case T.unsnoc s1 of
+            Just (rest, 'z') -> T.snoc rest 'Z'
+            _                -> s1
+          s3 = padDTSeconds s2
+      in stripTrailingZerosInFrac s3
+
+    -- Pad @YYYY-MM-DDTHH:MM(±|Z|.|<eol>)@ → insert @:00@.
+    padDTSeconds t
+      | T.length t < 16              = t
+      | T.index t 13 /= ':'          = t
+      | not (digitsAt t 14 16)       = t
+      | T.length t == 16             = T.take 16 t <> T.pack ":00"
+      | T.length t > 16
+        , let nxt = T.index t 16
+        , nxt == 'Z' || nxt == '+' || nxt == '-' =
+            T.take 16 t <> T.pack ":00" <> T.drop 16 t
+      | otherwise = t
+
+    digitsAt t a b = and (map (\i -> i < T.length t
+                                      && let c = T.index t i
+                                         in c >= '0' && c <= '9')
+                              [a .. b - 1])
+
+    stripTrailingZerosInFrac t = case T.breakOn (T.pack ".") t of
+      (a, dotRest)
+        | T.null dotRest -> t
+        | otherwise ->
+            let (frac, after) = T.span (\c -> c >= '0' && c <= '9')
+                                  (T.drop 1 dotRest)
+                frac' = T.dropWhileEnd (== '0') frac
+            in if T.null frac'
+                 then a <> after
+                 else a <> T.pack "." <> frac' <> after
 
 -- ---------------------------------------------------------------------------
 -- TOML.Value -> toml-test typed JSON
@@ -270,17 +421,46 @@ toTypedJSON = \case
       ]
 
 -- | The toml-test suite canonicalises floats: special values are
--- emitted as @inf@ / @-inf@ / @nan@; ordinary values are decimal.
+-- emitted as @inf@ / @-inf@ / @nan@; integer-valued floats are
+-- printed without a fractional part (so @1.0@ becomes @1@); other
+-- values use the default Haskell 'Double' rendering, with one
+-- adjustment: a scientific exponent is rendered as @5e+22@ to
+-- match the toml-test reference (Haskell's @show@ produces
+-- @5.0e22@).
 renderFloat :: Double -> T.Text
 renderFloat d
-  | isNaN d                  = T.pack "nan"
-  | isInfinite d && d > 0    = T.pack "inf"
-  | isInfinite d             = T.pack "-inf"
-  | otherwise                = T.pack (show d)
+  | isNaN d                       = T.pack "nan"
+  | isInfinite d && d > 0         = T.pack "inf"
+  | isInfinite d                  = T.pack "-inf"
+  | d == 0                        = if isNegativeZero d
+                                       then T.pack "-0"
+                                       else T.pack "0"
+  | fromIntegral (truncate d :: Integer) == d
+      && abs d < 1e16             = T.pack (show (truncate d :: Integer))
+  | otherwise                     = canonicalExp (T.pack (show d))
 
--- | The decoder currently returns 'TDateTime' as the original
--- source text. Distinguish offset-bearing vs. local-only based on
--- a trailing @Z@ / @+@ / @-@ in the time portion.
+-- | Rewrite Haskell's @5.0e22@ as @5e+22@ to match the toml-test
+-- canonical form. A bare integer mantissa keeps no trailing
+-- @.0@; a non-negative exponent is prefixed with @+@.
+canonicalExp :: T.Text -> T.Text
+canonicalExp t = case T.breakOn (T.pack "e") t of
+  (mant, expPart)
+    | T.null expPart -> t
+    | otherwise ->
+        let mant' = case T.unsnoc mant of
+              Just (_, '0') | T.isSuffixOf (T.pack ".0") mant
+                              -> T.dropEnd 2 mant
+              _                  -> mant
+            expBody = T.drop 1 expPart
+            expSigned = case T.uncons expBody of
+              Just ('+', _) -> expBody
+              Just ('-', _) -> expBody
+              _             -> T.cons '+' expBody
+        in mant' <> T.pack "e" <> expSigned
+
+-- | The decoder returns 'TDateTime' as the source text. Distinguish
+-- offset-bearing vs. local-only based on a trailing @Z@ / @+@ / @-@
+-- in the time portion.
 classifyDT :: T.Text -> T.Text
 classifyDT t
   | hasOffset t = T.pack "datetime"
@@ -294,7 +474,39 @@ classifyDT t
                       || c == '+' || c == '-'
           in T.any ends timepart
 
--- | Strip whitespace separators so @T@ vs space-as-separator both
--- normalise, and lowercase the final @Z@ for consistency.
+-- | Canonicalise a TOML datetime to the toml-test reference form
+-- (@YYYY-MM-DDTHH:MM:SS[.fff][Z|±HH:MM]@): replace a space
+-- separator with @T@, uppercase a trailing @z@, and pad missing
+-- seconds with @:00@.
 canonDT :: T.Text -> T.Text
-canonDT = id   -- Decoder preserves source text verbatim.
+canonDT t0 =
+  let t1 = padSeconds (replaceSep (uppercaseZ t0))
+  in t1
+  where
+    replaceSep t = case T.splitAt 10 t of
+      (date, rest) -> case T.uncons rest of
+        Just (' ', r) -> date <> T.cons 'T' r
+        Just ('t', r) -> date <> T.cons 'T' r
+        _             -> t
+
+    uppercaseZ t = case T.unsnoc t of
+      Just (rest, 'z') -> T.snoc rest 'Z'
+      _                -> t
+
+    -- @YYYY-MM-DDTHH:MM(±|Z|.|<eol>)@ → insert @:00@ between MM and
+    -- the trailing portion.
+    padSeconds t
+      | T.length t < 16     = t
+      | T.index t 13 /= ':' = t
+      | not (hasMinSecShape t) = t
+      | T.length t == 16    = T.take 16 t <> T.pack ":00"
+      | T.length t > 16
+        , let nxt = T.index t 16
+        , nxt == 'Z' || nxt == '+' || nxt == '-' =
+            T.take 16 t <> T.pack ":00" <> T.drop 16 t
+      | otherwise = t
+      where
+        hasMinSecShape s =
+          isDigitC (T.index s 11) && isDigitC (T.index s 12)
+          && isDigitC (T.index s 14) && isDigitC (T.index s 15)
+        isDigitC c = c >= '0' && c <= '9'
