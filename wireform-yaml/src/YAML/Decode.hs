@@ -291,7 +291,11 @@ dispatch l =
   in case T.uncons body of
        Just ('!', _)  -> parseTagged
        Just ('&', _)  -> parseAnchored
-       Just ('*', _)  -> parseAlias
+       Just ('*', _)  -> case findAliasKeySplit body of
+                           Just (aliasName, vRest) ->
+                             parseBlockMapAliasFirst (lineIndent l)
+                               aliasName vRest
+                           Nothing -> parseAlias
        Just ('|', _)  -> parseBlockScalar Literal
        Just ('>', _)  -> parseBlockScalar Folded
        Just ('[', _)  -> consumeFlowFromHead
@@ -313,7 +317,15 @@ parseQuotedScalarLine q l = case findKeyValueSplit (lineBody l) of
   Just (k, vRest) -> parseBlockMap (lineIndent l) k vRest
   Nothing -> do
     _ <- popLine
-    consumeQuoted q (lineBody l)
+    consumeQuoted q (preserveTrailingEscape (lineBody l) (lineRawBody l))
+
+-- | If the trimmed line body ends in @\\@, prefer the raw form
+-- (so an escape argument like @\\<TAB>@ survives the trailing-WS
+-- strip done by 'preprocess'). Otherwise the trimmed form is fine.
+preserveTrailingEscape :: Text -> Text -> Text
+preserveTrailingEscape stripped raw = case T.unsnoc stripped of
+  Just (_, '\\') -> raw
+  _              -> stripped
 
 -- | Greedily extend a quoted-scalar buffer with successor lines
 -- until the matching close quote is found. Per YAML 1.2 §7.3.1-2:
@@ -346,8 +358,11 @@ consumeQuoted q = go0
         []       -> failP "YAML: unterminated quoted scalar"
         (l' : rest) -> do
           setLines rest
-          let body  = T.dropWhileEnd
-                        (\c -> c == ' ' || c == '\t') (lineBody l')
+          let body0 = lineBody l'
+              raw   = lineRawBody l'
+              -- Use the raw body when the trimmed line body ends
+              -- in '\\' so that '\\<TAB>' survives.
+              body  = preserveTrailingEscape body0 raw
               isBlank = T.null (T.strip body)
               body' = T.dropWhile (\c -> c == ' ' || c == '\t') body
               -- DQ-only: a bare trailing backslash on the previous
@@ -428,7 +443,7 @@ parseAnchored = do
              then do
                mNext <- peekLine
                case mNext of
-                 Just l2 | lineIndent l2 > lineIndent l ->
+                 Just l2 | lineIndent l2 >= lineIndent l ->
                      parseNode (lineIndent l2)
                  _ -> pure YNull
              else do
