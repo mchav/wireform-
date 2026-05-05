@@ -146,6 +146,7 @@ idiomaticFor b
   | b == backendBencode     = NoStyle  -- byte-string keys, verbatim
   | b == backendFlatBuffers = SnakeCase
   | b == backendCapnProto   = CamelCase
+  | b == backendFury        = SnakeCase
   | otherwise               = NoStyle
 
 -- | Apply a style. 'Idiomatic' constructors that have not been
