@@ -156,12 +156,15 @@ test-suite wireform-proto-derive-test
     Test.Proto.Derive.Golden
     Test.Proto.Derive.TopEnumInstances
     Test.Proto.Derive.TopEnum
+    Test.Proto.Derive.Metadata
   build-depends:
     base,
     wireform-proto,
     wireform-derive,
+    aeson,
     bytestring,
     containers,
+    hashable,
     text,
     template-haskell,
     vector,
