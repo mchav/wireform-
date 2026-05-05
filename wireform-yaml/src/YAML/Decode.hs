@@ -73,6 +73,11 @@ data PLine = PLine
   , lineIndent :: !Int
   , lineKind   :: !LineKind
   , lineBody   :: !Text       -- ^ content after stripping indent
+                              --   AND trailing whitespace (the form
+                              --   most parser paths want)
+  , lineRawBody :: !Text      -- ^ content after stripping indent
+                              --   only — trailing whitespace kept,
+                              --   for block-scalar collection
   } deriving (Show)
 
 data LineKind
@@ -101,7 +106,7 @@ preprocess = go 1 . dropFinalEmpty . T.split (== '\n')
           !body0    = T.drop ind stripped
           !body     = T.dropWhileEnd (\c -> c == ' ' || c == '\t') body0
           !kind     = classify body
-      in PLine n ind kind body : go (n+1) ls
+      in PLine n ind kind body body0 : go (n+1) ls
 
 stripCR :: Text -> Text
 stripCR t = case T.unsnoc t of
@@ -242,7 +247,7 @@ parseDocument = do
           in if T.null tail_
                then (True, rest)
                else (True,
-                     PLine (lineNo l) (lineIndent l) LContent tail_ : rest)
+                     PLine (lineNo l) (lineIndent l) LContent tail_ tail_ : rest)
         _ -> (False, ls0)
   setLines ls1
   resetAnchors
@@ -376,7 +381,7 @@ consumeQuoted q = go0
       in if T.null s
            then pure v
            else do
-             pushLine (PLine 0 0 LContent s)
+             pushLine (PLine 0 0 LContent s s)
              pure v
 
 parseTagged :: P Value
@@ -445,7 +450,7 @@ parseAlias = do
   if T.null after
     then resolveAnchor name
     else do
-      pushLine (PLine (lineNo l) (lineIndent l) LContent after)
+      pushLine (PLine (lineNo l) (lineIndent l) LContent after after)
       resolveAnchor name
 
 -- | Characters legal in an anchor / alias name (YAML 1.2 §6.9.2).
@@ -501,7 +506,7 @@ consumeFlow = go
           Nothing -> pure v
           Just _  -> do
             -- push remaining content as a virtual line at column 0
-            pushLine (PLine 0 0 LContent s)
+            pushLine (PLine 0 0 LContent s s)
             pure v
       ScanIncomplete -> do
         mNext <- popLine
@@ -864,7 +869,7 @@ parseSeqItem !ind = do
       -- whose indent is @ind + 2@ (the position the value would
       -- normally appear at). All branches — nested sequence, nested
       -- mapping, scalar, flow — fall out of regular dispatch.
-      let virt = PLine (lineNo l) (ind + 2) LContent after'
+      let virt = PLine (lineNo l) (ind + 2) LContent after' after'
       pushLine virt
       parseNode (ind + 2)
 
@@ -944,25 +949,25 @@ parseImplicitMapValue !ind vRest =
            -- (== ind here). Encode that with a virtual line at @ind@
            -- so parseBlockScalar's collectScalarLines uses the right
            -- comparison.
-           pushLine (PLine 0 ind LContent after)
+           pushLine (PLine 0 ind LContent after after)
            parseBlockScalar Literal
          Just ('>', _) -> do
-           pushLine (PLine 0 ind LContent after)
+           pushLine (PLine 0 ind LContent after after)
            parseBlockScalar Folded
          Just ('[', _) -> do
-           pushLine (PLine 0 (ind + 2) LContent after)
+           pushLine (PLine 0 (ind + 2) LContent after after)
            consumeFlowFromHead
          Just ('{', _) -> do
-           pushLine (PLine 0 (ind + 2) LContent after)
+           pushLine (PLine 0 (ind + 2) LContent after after)
            consumeFlowFromHead
          Just ('&', _) -> do
-           pushLine (PLine 0 (ind + 2) LContent after)
+           pushLine (PLine 0 (ind + 2) LContent after after)
            parseAnchored
          Just ('*', _) -> do
-           pushLine (PLine 0 (ind + 2) LContent after)
+           pushLine (PLine 0 (ind + 2) LContent after after)
            parseAlias
          Just ('!', _) -> do
-           pushLine (PLine 0 (ind + 2) LContent after)
+           pushLine (PLine 0 (ind + 2) LContent after after)
            parseTagged
          Just ('"', _)  -> consumeQuoted '"'  after
          Just ('\'', _) -> consumeQuoted '\'' after
@@ -999,7 +1004,7 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
             Just l2 | lineIndent l2 > lineIndent l -> parseNode (lineIndent l2)
             _ -> pure YNull
         else do
-          pushLine (PLine (lineNo l) (lineIndent l + 2) LContent rest)
+          pushLine (PLine (lineNo l) (lineIndent l + 2) LContent rest rest)
           parseNode (lineIndent l + 2)
 
     readExplicitValue = do
@@ -1112,6 +1117,10 @@ collectScalarLines !parent = collect Nothing []
         []     -> pure (reverse acc)
         (l:_)
           | lineKind l == LBlank ->
+              -- Blank lines belong to the scalar regardless of
+              -- their column. They can never terminate it; only a
+              -- non-blank, non-comment line at or below the base
+              -- indent can.
               do _ <- consumeOne
                  let ind = lineIndent l
                      isMoreIndented = case mBase of
@@ -1143,14 +1152,14 @@ collectScalarLines !parent = collect Nothing []
                             Nothing -> do
                               _ <- consumeOne
                               collect (Just ind)
-                                ((ind, lineBody l) : acc)
+                                ((ind, lineRawBody l) : acc)
                           else do
                             _ <- consumeOne
                             let mBase' = case mBase of
                                   Just _  -> mBase
                                   Nothing -> Just ind
                             collect mBase'
-                              ((ind, lineBody l) : acc)
+                              ((ind, lineRawBody l) : acc)
 
     consumeOne = do
       ls <- getLines
