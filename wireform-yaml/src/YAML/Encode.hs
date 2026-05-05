@@ -27,7 +27,6 @@ import qualified Data.Text.Lazy as TL
 import Data.Text.Lazy.Builder
   ( Builder, fromString, fromText, singleton, toLazyText )
 import qualified Data.Text.Lazy.Builder.Int as BI
-import qualified Data.Text.Lazy.Builder.RealFloat as BR
 import qualified Data.Vector as V
 import Numeric (showHex)
 
@@ -111,7 +110,14 @@ seqLine !ind v =
          | otherwise  -> fromText "- " <> firstKvLine (ind + 2) kvs
        YSeq ys
          | V.null ys  -> fromText "- []\n"
-         | otherwise  -> fromText "- " <> firstSeqLine (ind + 2) ys
+         | otherwise  ->
+             -- Nested block sequences inside a block sequence are
+             -- emitted in flow style. The compact "- - x" form is
+             -- valid YAML but round-trips ambiguously through
+             -- plain-scalar resolution.
+             fromText "- ["
+               <> commaSep (V.map buildFlow ys)
+               <> fromText "]\n"
        _ ->
          fromText "- " <> buildScalar inner <> singleton '\n'
 
@@ -267,7 +273,7 @@ safePlain t
   | T.null t                 = False
   | parsesAsScalar t         = False
   | startBad (T.head t)      = False
-  | endsWithSpace t          = False
+  | endsWithSpace             = False
   | T.any unsafePlainChar t  = False
   | T.any isControl t        = False
   | T.isInfixOf ": " t       = False

@@ -31,8 +31,8 @@ import System.Directory
   (doesFileExist, doesDirectoryExist, listDirectory, getCurrentDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
-import Test.Tasty (TestTree, testGroup, testCase)
-import Test.Tasty.HUnit (assertBool, assertFailure, (@?=))
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (testCase, assertFailure, (@?=))
 
 import qualified YAML.Decode as YD
 import qualified YAML.Value as YV

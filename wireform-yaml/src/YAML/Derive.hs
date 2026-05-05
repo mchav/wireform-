@@ -351,6 +351,7 @@ sumNAry cVar conName arity = do
     hd
     [1 .. arity - 1]
   let conNameStr = nameBase conName
+      arityStr   = show arity
   [| case $(varE cVar) of
        Just inner -> case YV.unwrap inner of
          YV.YSeq $(varP arr)
@@ -358,7 +359,7 @@ sumNAry cVar conName arity = do
                -> $(pure body)
            | otherwise
                -> Left ("YAML.Derive: " ++ conNameStr
-                        ++ " expected " ++ show arity ++ " contents, got "
+                        ++ " expected " ++ arityStr ++ " contents, got "
                         ++ show (V.length $(varE arr)))
          _ -> Left ("YAML.Derive: " ++ conNameStr
                     ++ " expected YSeq contents")

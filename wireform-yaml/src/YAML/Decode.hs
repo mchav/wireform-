@@ -151,14 +151,14 @@ instance Monad P where
     Left e        -> Left e
     Right (x, s') -> unP (k x) s'
 
+instance MonadFail P where
+  fail = failP
+
 failP :: String -> P a
 failP msg = P (const (Left msg))
 
 getS :: P PS
 getS = P (\s -> Right (s, s))
-
-putS :: PS -> P ()
-putS s = P (const (Right ((), s)))
 
 modifyS :: (PS -> PS) -> P ()
 modifyS f = P (\s -> Right ((), f s))
@@ -265,14 +265,33 @@ dispatch :: PLine -> P Value
 dispatch l =
   let body = lineBody l
   in case T.uncons body of
-       Just ('!', _) -> parseTagged
-       Just ('&', _) -> parseAnchored
-       Just ('*', _) -> parseAlias
-       Just ('|', _) -> parseBlockScalar Literal
-       Just ('>', _) -> parseBlockScalar Folded
-       Just ('[', _) -> consumeFlowFromHead
-       Just ('{', _) -> consumeFlowFromHead
-       _             -> parseBlockOrPlain l
+       Just ('!', _)  -> parseTagged
+       Just ('&', _)  -> parseAnchored
+       Just ('*', _)  -> parseAlias
+       Just ('|', _)  -> parseBlockScalar Literal
+       Just ('>', _)  -> parseBlockScalar Folded
+       Just ('[', _)  -> consumeFlowFromHead
+       Just ('{', _)  -> consumeFlowFromHead
+       Just ('"', _)  -> parseQuotedScalarLine '"'  l
+       Just ('\'', _) -> parseQuotedScalarLine '\'' l
+       _              -> parseBlockOrPlain l
+
+-- | Quoted scalars can be the entire node body, or the start of a
+-- @key: \"…\"@ pair when the closing quote is followed by a colon. We
+-- look ahead for a top-level @:@ after the closing quote and dispatch
+-- to 'parseBlockMap' if found, otherwise consume the quoted scalar.
+parseQuotedScalarLine :: Char -> PLine -> P Value
+parseQuotedScalarLine q l = case findKeyValueSplit (lineBody l) of
+  Just (k, vRest) -> parseBlockMap (lineIndent l) k vRest
+  Nothing -> do
+    Just _ <- popLine
+    let res = case q of
+                '"'  -> parseDQ 0 (lineBody l)
+                _    -> parseSQ 0 (lineBody l)
+    case res of
+      Just (v, _) -> pure v
+      Nothing     -> failP $ "YAML: unterminated quoted scalar at line "
+                              ++ show (lineNo l)
 
 parseTagged :: P Value
 parseTagged = do
@@ -516,18 +535,15 @@ parseSeqItem !ind = do
       case mNext of
         Just l2 | lineIndent l2 > ind -> parseNode (lineIndent l2)
         _ -> pure YNull
-    else
-      -- Could be an inline scalar / flow / nested mapping starting after "- "
-      case findKeyValueSplit after' of
-        Just (k, vRest) -> do
-          -- nested mapping starting on same line as @-@
-          let virt = PLine (lineNo l) (ind + 2) LContent after'
-          pushLine virt
-          parseBlockMap (ind + 2) k vRest
-        Nothing -> do
-          let virt = PLine (lineNo l) (ind + 2) LContent after'
-          pushLine virt
-          parseNode (ind + 2)
+    else do
+      -- The value sits on the same physical line as the dash. We
+      -- expose it to the regular dispatcher via a virtual line
+      -- whose indent is @ind + 2@ (the position the value would
+      -- normally appear at). All branches — nested sequence, nested
+      -- mapping, scalar, flow — fall out of regular dispatch.
+      let virt = PLine (lineNo l) (ind + 2) LContent after'
+      pushLine virt
+      parseNode (ind + 2)
 
 -- ---------------------------------------------------------------------------
 -- Block mapping
@@ -570,10 +586,14 @@ parseImplicitMapValue !ind vRest =
            _ -> pure YNull
        else case T.uncons after of
          Just ('|', _) -> do
-           pushLine (PLine 0 (ind + 2) LContent after)
+           -- Block scalar body lines must be at indent > parent
+           -- (== ind here). Encode that with a virtual line at @ind@
+           -- so parseBlockScalar's collectScalarLines uses the right
+           -- comparison.
+           pushLine (PLine 0 ind LContent after)
            parseBlockScalar Literal
          Just ('>', _) -> do
-           pushLine (PLine 0 (ind + 2) LContent after)
+           pushLine (PLine 0 ind LContent after)
            parseBlockScalar Folded
          Just ('[', _) -> do
            pushLine (PLine 0 (ind + 2) LContent after)
@@ -702,7 +722,8 @@ parseBlockScalar k = do
       in case hs of
            []                          -> (Clip,    Nothing)
            [c] | c == '-' || c == '+'  -> (chompOf c, Nothing)
-           [d] | isDigit d             -> (Clip, Just (digitToInt d))
+               | isDigit c             -> (Clip, Just (digitToInt c))
+               | otherwise             -> (Clip, Nothing)
            (a:b:_)
              | (a == '-' || a == '+') && isDigit b
                  -> (chompOf a, Just (digitToInt b))
@@ -870,7 +891,7 @@ expandTag t
 -- ---------------------------------------------------------------------------
 
 findKeyValueSplit :: Text -> Maybe (Text, Text)
-findKeyValueSplit t = go 0 0 0 (0 :: Int)
+findKeyValueSplit t = go (0 :: Int) (0 :: Int) (0 :: Int) (0 :: Int)
   where
     !len = T.length t
     go !i !depth !brace !inStr

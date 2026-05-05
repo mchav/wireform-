@@ -3,7 +3,7 @@ module Test.YAML.Roundtrip (tests) where
 
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Hedgehog (Property, forAll, property, tripping, (===))
+import Hedgehog (Property, forAll, property, tripping)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
