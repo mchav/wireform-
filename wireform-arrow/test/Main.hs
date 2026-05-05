@@ -32,6 +32,7 @@ import Arrow.Column
   ( ColumnArray (..)
   , columnLength
   , materializeRecordBatch
+  , validateMapKeysSorted
   )
 import Arrow.File (asBatches, asSchema, readArrowStream)
 import Arrow.Stream
@@ -431,6 +432,10 @@ flatBufRoundTrip = do
 
   -- Schema fingerprint: determinism + structural equivalence.
   schemaFingerprintTests
+
+  -- Record helpers: subsetTable / projectTable /
+  -- columnDWithDefault / NameStrategy / validateMapKeysSorted.
+  recordHelperTests
 
   -- Streaming reader: pull batches one at a time, then drain.
   streamingRoundTrip
@@ -852,6 +857,122 @@ schemaFingerprintTests = do
     (schemaEquivalent sch1 sch2 == (fp1 == fp2))
   expect "schemaEquivalent matches fingerprint equality (1==3)"
     (schemaEquivalent sch1 sch3 == (fp1 == fp3))
+
+-- | 'NameStrategy', 'columnDWithDefault', 'projectTable',
+-- 'subsetTable', and 'validateMapKeysSorted' tests.
+fst3 :: (a, b, c) -> a
+fst3 (a, _, _) = a
+
+snd3 :: (a, b, c) -> b
+snd3 (_, b, _) = b
+
+recordHelperTests :: IO ()
+recordHelperTests = do
+  -- NameStrategy
+  expect "NameAsIs is identity"
+    (AR.applyNameStrategy AR.NameAsIs "userId" == "userId")
+  expect "NameSnakeCase userId -> user_id"
+    (AR.applyNameStrategy AR.NameSnakeCase "userId" == "user_id")
+  expect "NameSnakeCase userIDValue -> user_id_value (acronym boundary)"
+    (AR.applyNameStrategy AR.NameSnakeCase "userIDValue" == "user_id_value")
+  expect "NameSnakeCase XMLHttpRequest -> xml_http_request"
+    (AR.applyNameStrategy AR.NameSnakeCase "XMLHttpRequest" == "xml_http_request")
+  expect "NameCamelCase user_id -> userId"
+    (AR.applyNameStrategy AR.NameCamelCase "user_id" == "userId")
+  expect "NameUpperSnakeCase userId -> USER_ID"
+    (AR.applyNameStrategy AR.NameUpperSnakeCase "userId" == "USER_ID")
+
+  -- validateMapKeysSorted
+  -- Build a ColMap with sorted keys vs unsorted keys.
+  let !sortedKeys = ColUtf8 (V.fromList ["a", "b", "c"])
+      !unsortedKeys = ColUtf8 (V.fromList ["b", "a", "c"])
+      !vals     = ColInt32 (VP.fromList [1, 2, 3 :: Int32])
+      !offsets  = VP.fromList [0, 3 :: Int32]
+      !sortedMap   = ColMap offsets sortedKeys vals
+      !unsortedMap = ColMap offsets unsortedKeys vals
+  case validateMapKeysSorted sortedMap of
+    Right () -> putStrLn "OK: validateMapKeysSorted accepts sorted keys"
+    Left e   -> failTest $ "expected sorted accept, got " ++ e
+  case validateMapKeysSorted unsortedMap of
+    Left _  -> putStrLn "OK: validateMapKeysSorted rejects unsorted keys"
+    Right () -> failTest "validateMapKeysSorted should have rejected unsorted"
+
+  -- columnDWithDefault: missing column substitutes the default.
+  -- Build a writer that emits only (name, age); the reader
+  -- expects (name, age, opt) and falls back on the default
+  -- for the missing 'opt' column.
+  let !partialEnc =
+              AR.fieldE "name" (fst3 :: (Text, Int32, Text) -> Text)  AR.utf8E
+           <> AR.fieldE "age"  (snd3 :: (Text, Int32, Text) -> Int32) AR.int32E
+      !partialDec =
+              (\n a -> (n, a, "" :: Text))
+            <$> AR.columnD "name" AR.utf8D
+            <*> AR.columnD "age"  AR.int32D
+      !partialTbl = AR.table partialEnc partialDec
+        :: AR.Table (Text, Int32, Text)
+      !partialRows = V.fromList
+        [ ("Alice" :: Text, 30 :: Int32, "ignored" :: Text)
+        , ("Bob",          45,           "ignored")
+        ]
+      (!partialSch, !partialCols) = AR.encodeTable partialTbl partialRows
+      !fullDec =
+              (\n a o -> (n, a, o))
+            <$> AR.columnD "name" AR.utf8D
+            <*> AR.columnD "age"  AR.int32D
+            <*> AR.columnDWithDefault "opt" ("default" :: Text) AR.utf8D
+  case AR.runRowDecoder fullDec (arrowFields partialSch) partialCols of
+    Right got
+      | V.toList got == [("Alice", 30, "default"), ("Bob", 45, "default")] ->
+          putStrLn "OK: columnDWithDefault substitutes for missing column"
+      | otherwise ->
+          failTest $ "columnDWithDefault wrong values: " ++ show (V.toList got)
+    Left e -> failTest $ "columnDWithDefault decode: " ++ e
+
+  -- projectTable: pick a subset of columns by name
+  let (!schWide, !colsWide) =
+        let !enc = AR.fieldE "a" (\(x, _, _) -> x :: Int32) AR.int32E
+                <> AR.fieldE "b" (\(_, y, _) -> y :: Int32) AR.int32E
+                <> AR.fieldE "c" (\(_, _, z) -> z :: Int32) AR.int32E
+            !dec = (,,) <$> AR.columnD "a" AR.int32D
+                       <*> AR.columnD "b" AR.int32D
+                       <*> AR.columnD "c" AR.int32D
+            !tbl = AR.table enc dec :: AR.Table (Int32, Int32, Int32)
+            !rs = V.fromList [(1, 10, 100), (2, 20, 200)]
+        in AR.encodeTable tbl rs
+  case AR.projectTable ["c", "a"] schWide colsWide of
+    Just (sch', cols') -> do
+      let !names = V.toList (V.map fieldName (arrowFields sch'))
+      expect ("projectTable preserves order: got " ++ show names)
+             (names == ["c", "a"])
+      expect "projectTable yields matching column count"
+             (V.length cols' == 2)
+    Nothing -> failTest "projectTable returned Nothing for present cols"
+  case AR.projectTable ["c", "missing"] schWide colsWide of
+    Nothing -> putStrLn "OK: projectTable returns Nothing for missing column"
+    Just _  -> failTest "projectTable should have returned Nothing"
+
+  -- subsetTable: build a Table whose encoder emits only some
+  -- columns
+  let !custTbl = AR.table
+        (    AR.fieldE "name" (fst :: (Text, Int32) -> Text) AR.utf8E
+          <> AR.fieldE "age"  (snd :: (Text, Int32) -> Int32) AR.int32E)
+        ((,) <$> AR.columnD "name" AR.utf8D
+             <*> AR.columnD "age"  AR.int32D)
+        :: AR.Table (Text, Int32)
+  case AR.subsetTable ["name"] custTbl of
+    Just sub -> do
+      let !rsSub = V.fromList [("Alice" :: Text, 30 :: Int32), ("Bob", 45)]
+          (!schSub, !colsSub) = AR.encodeTable sub rsSub
+      expect "subsetTable schema has 1 field"
+             (V.length (arrowFields schSub) == 1)
+      expect "subsetTable schema field is 'name'"
+             (V.toList (V.map fieldName (arrowFields schSub)) == ["name"])
+      expect "subsetTable encoded 1 column"
+             (V.length colsSub == 1)
+    Nothing -> failTest "subsetTable returned Nothing for ['name']"
+  case AR.subsetTable ["nope"] custTbl of
+    Nothing -> putStrLn "OK: subsetTable returns Nothing for missing column"
+    Just _  -> failTest "subsetTable should have returned Nothing"
 
 projectionRoundTrip :: IO ()
 projectionRoundTrip = do

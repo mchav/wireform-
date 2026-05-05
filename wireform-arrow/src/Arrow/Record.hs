@@ -602,14 +602,31 @@ applyNameStrategy :: NameStrategy -> Text -> Text
 applyNameStrategy NameAsIs        = id
 applyNameStrategy NameSnakeCase   = T.toLower . toSnake
   where
-    toSnake t = T.pack (go (T.unpack t))
-    go []                       = []
-    go (c : cs)
-      | isUp c, not (null prev) = '_' : c : go cs
-      | otherwise               = c : go cs
-      where prev = takeWhile (not . isUp) cs `asTypeOf` ""
-    -- Use Data.Char.isUpper; T.unpack handles it.
-    isUp c = c >= 'A' && c <= 'Z'
+    toSnake t = T.pack (go ' ' (T.unpack t))
+    -- Walk char-by-char carrying the previous character so we
+    -- can decide whether to insert an underscore before an
+    -- uppercase letter:
+    --
+    --   * insert when the previous char was lowercase (the
+    --     usual word-boundary case: userId -> user_id)
+    --   * insert when the next char is lowercase /and/ the
+    --     previous char was uppercase (acronym→word boundary:
+    --     userIDValue -> user_id_value, where the _ before V
+    --     comes from this rule)
+    --
+    -- Simple, deterministic, and matches what 'inflection' /
+    -- ActiveSupport / serde do.
+    go _    []           = []
+    go prev (c : cs)
+      | isUp c
+      , isLow prev
+        || (isUp prev && case cs of
+                           (n:_) -> isLow n
+                           []    -> False)
+      = '_' : c : go c cs
+      | otherwise = c : go c cs
+    isUp  c = c >= 'A' && c <= 'Z'
+    isLow c = c >= 'a' && c <= 'z'
 applyNameStrategy NameCamelCase   = toCamel
   where
     toCamel t =
