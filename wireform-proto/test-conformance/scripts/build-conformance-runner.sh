@@ -55,10 +55,15 @@ mkdir -p "$CACHE_DIR"
 
 if [[ ! -d "$PROTOBUF_DIR/.git" ]]; then
   echo ">> cloning protocolbuffers/protobuf @ $PROTOBUF_TAG"
+  # --recurse-submodules pulls third_party/googletest, abseil-cpp,
+  # etc. without which the cmake conformance target won't even
+  # configure. --shallow-submodules keeps the clone fast.
   git clone --depth 1 --branch "$PROTOBUF_TAG" \
+    --recurse-submodules --shallow-submodules \
     https://github.com/protocolbuffers/protobuf.git "$PROTOBUF_DIR"
 else
   echo ">> reusing existing checkout at $PROTOBUF_DIR"
+  (cd "$PROTOBUF_DIR" && git submodule update --init --recursive --depth 1)
 fi
 
 mkdir -p "$BUILD_DIR"

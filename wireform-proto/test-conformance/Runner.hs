@@ -44,8 +44,9 @@ import qualified Proto.Encode as PE
 import Test.Conformance.Handler (handleRequest)
 import Test.Conformance.Schema
   ( ConformanceResponse
+  , ConformanceResponse'Result (..)
   , defaultConformanceResponse
-  , conformanceResponseRuntimeError
+  , conformanceResponseResult
   )
 
 import qualified Data.Text as T
@@ -89,7 +90,7 @@ evaluateOrCatch r = pure r
 
 runtimeErr :: T.Text -> ConformanceResponse
 runtimeErr t = defaultConformanceResponse
-  { conformanceResponseRuntimeError = t }
+  { conformanceResponseResult = Just (ConformanceResponse'Result'RuntimeError t) }
 
 writeResponse :: ConformanceResponse -> IO ()
 writeResponse resp = do

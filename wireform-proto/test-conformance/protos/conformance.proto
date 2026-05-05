@@ -44,16 +44,16 @@ message FailureSet {
 }
 
 message ConformanceRequest {
-  // Note: the upstream schema makes this a oneof. We model the
-  // four payload arms as four singular fields and inspect at the
-  // handler side which one is set, because the loadProto bridge
-  // can't generate two records (ConformanceRequest, the oneof
-  // sum carrier) that the upstream wire schema expects when the
-  // oneof field types don't all live in the same Haskell module.
-  bytes  protobuf_payload = 1;
-  string json_payload     = 2;
-  string jspb_payload     = 7;
-  string text_payload     = 8;
+  // The upstream schema models payload as a oneof; we honour
+  // that. The bridge's auto-detected oneof codec generates a
+  // sum-of-tagged-singletons carrier (ConformanceRequest'Payload)
+  // plus the wire round-trip in 'Proto.Derive.Internal'.
+  oneof payload {
+    bytes  protobuf_payload = 1;
+    string json_payload     = 2;
+    string jspb_payload     = 7;
+    string text_payload     = 8;
+  }
 
   WireFormat requested_output_format = 3;
   string message_type = 4;
@@ -64,15 +64,22 @@ message ConformanceRequest {
 }
 
 message ConformanceResponse {
-  string parse_error      = 1;
-  string serialize_error  = 6;
-  string timeout_error    = 9;
-  string runtime_error    = 2;
-  bytes  protobuf_payload = 3;
-  string json_payload     = 4;
-  string skipped          = 5;
-  string jspb_payload     = 7;
-  string text_payload     = 8;
+  // The upstream schema is also a oneof. Routing our response
+  // through the oneof carrier means the wire-format presence of
+  // the chosen arm is preserved end-to-end, which the conformance
+  // runner relies on (an empty 'protobuf_payload' must be
+  // distinguishable from an absent one).
+  oneof result {
+    string parse_error      = 1;
+    string serialize_error  = 6;
+    string timeout_error    = 9;
+    string runtime_error    = 2;
+    bytes  protobuf_payload = 3;
+    string json_payload     = 4;
+    string skipped          = 5;
+    string jspb_payload     = 7;
+    string text_payload     = 8;
+  }
 }
 
 message JspbEncodingConfig {

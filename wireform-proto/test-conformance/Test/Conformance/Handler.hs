@@ -58,7 +58,7 @@ handleRequest req
       handleTestAllTypesProto3 req
   | otherwise = skipped ("Unknown message type: " <> mt)
   where
-    mt = req.conformanceRequestMessageType
+    mt = conformanceRequestMessageType req
 
 -- | First-request sentinel: the runner asks for the FailureSet
 -- before any real test. We always return an empty set; the
@@ -68,7 +68,8 @@ failureSetResponse :: ConformanceResponse
 failureSetResponse =
   let payload = PE.encodeMessage defaultFailureSet
   in defaultConformanceResponse
-       { conformanceResponseProtobufPayload = payload
+       { conformanceResponseResult =
+           Just (ConformanceResponse'Result'ProtobufPayload payload)
        }
 
 handleTestAllTypesProto3 :: ConformanceRequest -> ConformanceResponse
@@ -84,7 +85,7 @@ handleTestAllTypesProto3 req =
     PayloadJspb _ -> skipped "JSPB input not supported"
     PayloadNone   -> skipped "no payload set"
   where
-    outFmt = req.conformanceRequestRequestedOutputFormat
+    outFmt = conformanceRequestRequestedOutputFormat req
 
 -- | Encode a parsed TestAllTypesProto3 in the requested output
 -- format and wrap the bytes / string in the appropriate
@@ -92,15 +93,17 @@ handleTestAllTypesProto3 req =
 serializeTAT :: WireFormat -> TestAllTypesProto3 -> ConformanceResponse
 serializeTAT fmt tm = case fmt of
   Protobuf -> defaultConformanceResponse
-    { conformanceResponseProtobufPayload = PE.encodeMessage tm }
+    { conformanceResponseResult = Just
+        (ConformanceResponse'Result'ProtobufPayload (PE.encodeMessage tm)) }
   Json
     | hasUnknownFields tm -> skipped
         "JSON output skipped: payload contains fields outside the spliced \
         \schema (e.g. WKT arms); their JSON shape isn't recoverable from \
         \the unknown-fields slot."
     | otherwise -> defaultConformanceResponse
-        { conformanceResponseJsonPayload =
-            decodeUtf8Lazy (Aeson.encode tm) }
+        { conformanceResponseResult = Just
+            (ConformanceResponse'Result'JsonPayload
+              (decodeUtf8Lazy (Aeson.encode tm))) }
   TextFormat  -> skipped "TEXT_FORMAT output not implemented"
   Jspb        -> skipped "JSPB output not supported"
   Unspecified -> serializeError "UNSPECIFIED requested_output_format"
@@ -130,24 +133,21 @@ data PayloadInput
   | PayloadNone
 
 payloadInputFormat :: ConformanceRequest -> PayloadInput
-payloadInputFormat r
-  | not (BS.null pb)   = PayloadProtobuf pb
-  | not (T.null js)    = PayloadJson js
-  | not (T.null tx)    = PayloadText tx
-  | not (T.null jspb)  = PayloadJspb jspb
-  | otherwise          = PayloadNone
-  where
-    pb   = r.conformanceRequestProtobufPayload
-    js   = r.conformanceRequestJsonPayload
-    tx   = r.conformanceRequestTextPayload
-    jspb = r.conformanceRequestJspbPayload
+payloadInputFormat r = case r.conformanceRequestPayload of
+  Just (ConformanceRequest'Payload'ProtobufPayload bs) -> PayloadProtobuf bs
+  Just (ConformanceRequest'Payload'JsonPayload     t)  -> PayloadJson t
+  Just (ConformanceRequest'Payload'TextPayload     t)  -> PayloadText t
+  Just (ConformanceRequest'Payload'JspbPayload     t)  -> PayloadJspb t
+  Nothing                                              -> PayloadNone
 
 skipped :: T.Text -> ConformanceResponse
-skipped t = defaultConformanceResponse { conformanceResponseSkipped = t }
+skipped t = defaultConformanceResponse
+  { conformanceResponseResult = Just (ConformanceResponse'Result'Skipped t) }
 
 parseErr :: T.Text -> ConformanceResponse
-parseErr t = defaultConformanceResponse { conformanceResponseParseError = t }
+parseErr t = defaultConformanceResponse
+  { conformanceResponseResult = Just (ConformanceResponse'Result'ParseError t) }
 
 serializeError :: T.Text -> ConformanceResponse
 serializeError t = defaultConformanceResponse
-  { conformanceResponseSerializeError = t }
+  { conformanceResponseResult = Just (ConformanceResponse'Result'SerializeError t) }
