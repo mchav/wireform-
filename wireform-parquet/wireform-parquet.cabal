@@ -102,9 +102,14 @@ library
   if flag(zstd)
     cpp-options: -DHAVE_ZSTD
     build-depends: zstd >= 0.1 && < 0.2
+  -- LZ4 support is provided by Columnar.LZ4 (FFI bindings to
+  -- system liblz4 from wireform-columnar). The Cabal flag
+  -- still gates the codec at compile time so callers can drop
+  -- it; the package dep stays via wireform-columnar regardless,
+  -- so the only thing this controls is whether 'tryLZ4Raw' is
+  -- compiled in.
   if flag(lz4)
     cpp-options: -DHAVE_LZ4
-    build-depends: lz4 >= 0.2 && < 0.3
   if flag(brotli)
     cpp-options: -DHAVE_BROTLI
     build-depends: brotli >= 0.0.0.3 && < 0.0.1

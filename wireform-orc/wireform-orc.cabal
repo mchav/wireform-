@@ -87,9 +87,24 @@ library
   if flag(zstd)
     cpp-options: -DHAVE_ZSTD
     build-depends: zstd >= 0.1 && < 0.2
+  -- LZ4 support is provided by Columnar.LZ4 (FFI bindings to
+  -- system liblz4 from wireform-columnar). See the Parquet
+  -- cabal for the same comment.
   if flag(lz4)
     cpp-options: -DHAVE_LZ4
-    build-depends: lz4 >= 0.2 && < 0.3
+
+executable wireform-orc-interop-probe
+  import: defaults
+  hs-source-dirs: probe
+  main-is: Probe.hs
+  ghc-options: -O1
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-arrow,
+    wireform-orc,
+    bytestring >= 0.11 && < 0.13,
+    filepath >= 1.4 && < 1.6,
+    vector >= 0.13 && < 0.14
 
 test-suite wireform-orc-test
   import: defaults

@@ -37,7 +37,8 @@ data Stream = Stream
   , stLength :: !Word64
   } deriving stock (Show, Eq)
 
--- | Parsed @StripeFooter@ (streams only; column encodings omitted for now).
+-- | Parsed @StripeFooter@ (streams only; column encodings
+-- omitted for now — separate work to wire that through).
 newtype StripeFooter = StripeFooter
   { sfStreams :: V.Vector Stream
   } deriving stock (Show, Eq)

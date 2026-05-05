@@ -108,7 +108,7 @@ module Parquet.Read
 
 import Control.Exception (SomeException, evaluate, try)
 import Control.Monad.ST (ST, runST)
-import Data.Bits (shiftL, shiftR, (.&.), (.|.))
+import Data.Bits (shiftL, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -117,7 +117,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as VM
 import qualified Data.Vector.Primitive as VP
 import qualified Data.Vector.Primitive.Mutable as MVP
-import Data.Word (Word8, Word32, Word64)
+import Data.Word (Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -139,7 +139,7 @@ import Codec.Compression.Zstd (Decompress (..), decompress)
 import qualified Codec.Compression.Snappy as Snappy
 #endif
 #ifdef HAVE_LZ4
-import qualified Codec.Compression.LZ4 as LZ4
+import qualified Columnar.LZ4 as LZ4
 #endif
 #ifdef HAVE_BROTLI
 import qualified Codec.Compression.Brotli as Brotli
@@ -723,35 +723,19 @@ tryZstd bs =
 #endif
 
 #ifdef HAVE_LZ4
--- | Decompress an LZ4_RAW block. Parquet's @LZ4_RAW@ codec
--- uses raw LZ4 block format (no headers); the 'lz4' Haskell
--- package expects an 8-byte header
--- @[uncompSize:u32_le][compSize:u32_le]@ before the block
--- (matching what its own @compress@ emits). We synthesize
--- that header from the page-header uncompressed size and the
--- chunk's actual compressed length.
+-- | Decompress an LZ4_RAW block — the codec Parquet's spec
+-- numbers as 7. The block is in raw LZ4 block format with no
+-- header at all; 'Columnar.LZ4.decompress' wraps a direct FFI
+-- call to @LZ4_decompress_safe@ from @liblz4@.
 tryLZ4Raw :: Int -> ByteString -> Either String ByteString
-tryLZ4Raw uncompSize bs =
-  let !compSize = BS.length bs
-      le32 :: Int -> [Word8]
-      le32 n =
-        [ fromIntegral (n           .&. 0xFF) :: Word8
-        , fromIntegral ((n `shiftR`  8) .&. 0xFF) :: Word8
-        , fromIntegral ((n `shiftR` 16) .&. 0xFF) :: Word8
-        , fromIntegral ((n `shiftR` 24) .&. 0xFF) :: Word8
-        ]
-      !hdr = BS.pack (le32 uncompSize ++ le32 compSize)
-      !framed = hdr <> bs
-  in case LZ4.decompress framed of
-       Nothing -> Left $
-         "Parquet.Read: LZ4_RAW block decompression failed (input "
-           ++ show compSize ++ " bytes, expected output "
-           ++ show uncompSize ++ " bytes)"
-       Just out
-         | BS.length out == uncompSize -> Right out
-         | otherwise -> Left $
-             "Parquet.Read: LZ4_RAW size mismatch (header said "
-               ++ show uncompSize ++ ", got " ++ show (BS.length out) ++ ")"
+tryLZ4Raw uncompSize bs = case LZ4.decompress uncompSize bs of
+  Right out
+    | BS.length out == uncompSize -> Right out
+    | otherwise -> Left $
+        "Parquet.Read: LZ4_RAW size mismatch (page header said "
+          ++ show uncompSize ++ ", got " ++ show (BS.length out)
+          ++ "; the file is malformed or the page header is wrong)"
+  Left e -> Left ("Parquet.Read: " ++ e)
 #endif
 
 #ifdef HAVE_BROTLI

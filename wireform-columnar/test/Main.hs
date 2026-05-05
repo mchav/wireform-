@@ -19,11 +19,14 @@ import Test.Tasty.Hedgehog (testProperty)
 import Test.Tasty.HUnit (testCase, (@?=))
 
 import qualified Columnar.IO as CIO
+import qualified Columnar.LZ4 as LZ4
 import qualified Columnar.Predicate as Pred
 import qualified Columnar.Stream as IS
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
+import qualified Data.Word as W
 import System.IO.Temp (withSystemTempFile)
 import System.IO (hClose)
 
@@ -34,6 +37,72 @@ main = defaultMain $ testGroup "wireform-columnar"
   , predicateProps
   , predicateUnits
   , columnarIOUnits
+  , lz4Tests
+  ]
+
+-- ============================================================
+-- Columnar.LZ4 — pure-Haskell raw block codec
+-- ============================================================
+
+lz4Tests :: TestTree
+lz4Tests = testGroup "Columnar.LZ4"
+  [ testCase "decompress empty -> empty" $
+      LZ4.decompress 0 BS.empty @?= Right BS.empty
+
+  , testCase "decompress: single all-literals sequence" $
+      -- token = (5 << 4) | 0 = 0x50, then 5 literal bytes.
+      let !block = BS.pack [0x50, 0x68, 0x65, 0x6c, 0x6c, 0x6f]  -- "hello"
+      in LZ4.decompress 16 block @?= Right (BSC.pack "hello")
+
+  , testCase "decompress: literal extension" $
+      -- 20 literals: nibble=15, ext=[5], then 20 bytes.
+      let !lits = BS.replicate 20 0x41  -- 'A' x 20
+          !block = BS.pack (0xF0 : 5 : BS.unpack lits)
+      in LZ4.decompress 32 block @?= Right (BS.replicate 20 0x41)
+
+  , -- Back-reference + overlapping-match wire-byte tests are
+    -- exercised through the round-trip property below; we
+    -- can't hand-write a "minimal" block here because liblz4
+    -- (rightly) enforces the spec's "last 5 bytes literal +
+    -- match ends >= 12 bytes from end" rule and our minimal
+    -- sequences violated those constraints.
+    testCase "compress . decompress = id (short text)" $
+      let !payload = BSC.pack "hello world hello world hello world"
+          !compressed = LZ4.compress payload
+      in LZ4.decompress (BS.length payload) compressed @?= Right payload
+
+  , testCase "compress . decompress = id (highly repetitive)" $
+      let !payload = BS.replicate 1024 0xAB
+          !compressed = LZ4.compress payload
+      in do
+        BS.length compressed < BS.length payload @?= True  -- did compress
+        LZ4.decompress (BS.length payload) compressed @?= Right payload
+
+  , testProperty "compress . decompress = id (random bytes)" $ property $ do
+      bs <- forAll
+        (BS.pack <$> Gen.list (Range.linear 0 4096) (Gen.word8 Range.linearBounded))
+      let !c = LZ4.compress bs
+      LZ4.decompress (BS.length bs) c === Right bs
+
+  , testProperty "decompress refuses output > maxOutput" $ property $ do
+      let !payload = BS.replicate 64 0x21
+          !c = LZ4.compress payload
+      -- maxOutput one byte too small
+      case LZ4.decompress (BS.length payload - 1) c of
+        Left _  -> H.success
+        Right _ -> H.failure
+
+  , testProperty "decompress detects truncated blocks" $ property $ do
+      bs <- forAll
+        (BS.pack <$> Gen.list (Range.linear 16 256) (Gen.word8 Range.linearBounded))
+      let !c = LZ4.compress bs
+      -- Drop the last byte: result might or might not parse,
+      -- but if it parses it must NOT equal the original.
+      cutBy <- forAll (Gen.int (Range.linear 1 (max 1 (BS.length c - 1))))
+      let !truncated = BS.take (BS.length c - cutBy) c
+      case LZ4.decompress (BS.length bs) truncated of
+        Left _ -> H.success
+        Right back -> H.diff back (/=) bs
   ]
 
 -- ============================================================

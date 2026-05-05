@@ -29,12 +29,20 @@ library
   hs-source-dirs: src
   exposed-modules:
     Columnar.IO
+    Columnar.LZ4
     Columnar.Predicate
     Columnar.SIMD
     Columnar.Stream
   c-sources: cbits/columnar_simd.c
   include-dirs: ../wireform-core/include/simde
   cc-options: -O3 -march=native
+  -- liblz4 is the system C library that backs Columnar.LZ4.
+  -- On Debian / Ubuntu install with `apt install liblz4-dev`;
+  -- on macOS `brew install lz4`. The library is light enough
+  -- (< 100 KiB) that we don't gate it behind a Cabal flag —
+  -- if it's missing the link will fail with a clear "cannot
+  -- find -llz4" message.
+  extra-libraries: lz4
   build-depends:
     base >= 4.16 && < 5,
     async >= 2.2 && < 2.3,
