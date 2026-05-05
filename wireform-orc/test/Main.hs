@@ -474,6 +474,65 @@ main = do
                        && BF.bfNumHashFunctions a == BF.bfNumHashFunctions b)
                  back idx))
 
+  -- ORC RLE v2 sub-encoding decoder: hand-craft each
+  -- sub-encoding's wire bytes and verify the decoder
+  -- produces the expected values. The DIRECT path is the
+  -- only one our writer emits today; the other three
+  -- (SHORT_REPEAT / DELTA / PATCHED_BASE) are
+  -- read-side-only, exercised when consuming files written
+  -- by the Java/C++/Rust ORC writers.
+  do
+    -- SHORT_REPEAT: encoding=0, widthBytes 1, count=5 -> emit 0x42 5 times.
+    --   first byte = 0b00_000_010 (encoding=0, widthBytes-1=0, count-3=2)
+    --              = 0x02
+    let !shortRepeatBytes = BS.pack [0x02, 0x42]
+    case ORC.Read.decodeRLEv2Int False 5 shortRepeatBytes of
+      Right vs ->
+        expect "RLEv2 SHORT_REPEAT decodes 5x 0x42"
+               (VP.toList vs == [0x42, 0x42, 0x42, 0x42, 0x42])
+      Left e -> failTest $ "SHORT_REPEAT decode: " ++ e
+
+    -- DIRECT: encoded width=8 (8 bits), len=5, values [1,2,3,4,5].
+    --   encodedW for w=8: lookup table maps 8 -> 7 (per ORC v2 spec)
+    --   first byte  = 0b01_xxxxx_L where xxxxx = encodedW (7), L = lenHigh
+    --     w=8 -> encodedW=7. lenHigh=0. firstByte = 0b01_00111_0 = 0x4E
+    --   second byte = (len-1) low 8 bits = 4
+    --   data: 1 2 3 4 5 packed at 8 bits each = 5 bytes
+    let !directBytes = BS.pack
+          [ 0x4E    -- 0100_1110  -> encoding=01, encodedW=7 (w=8), lenHigh=0
+          , 0x04    -- len-1 = 4
+          , 1, 2, 3, 4, 5
+          ]
+    case ORC.Read.decodeRLEv2Int False 5 directBytes of
+      Right vs ->
+        expect "RLEv2 DIRECT decodes 5 byte-wide values"
+               (VP.toList vs == [1, 2, 3, 4, 5])
+      Left e -> failTest $ "DIRECT decode: " ++ e
+
+    -- DELTA: simplest case — base value 100, fixed delta 1,
+    --   length 5 -> sequence [100, 101, 102, 103, 104].
+    -- Header (2 bytes): encoding=11, deltaWidth=0 (no varying-deltas),
+    --   length-1 = 4 (lo bits 8). first byte = 0b11_00000_0 = 0xC0,
+    --   second byte = 4.
+    -- Then base value as zigzag varint (signed=False so plain varint),
+    --   then delta as zigzag varint.
+    let !deltaBytes = BS.pack
+          [ 0xC0    -- encoding=11, deltaWidth=0, lenHigh=0
+          , 0x04    -- len-1 = 4
+          , 100     -- base = 100 (varint)
+          , 1       -- delta = 1 (signed varint -> zigzag 2)... ORC spec says delta is signed varint
+          ]
+    -- The delta is encoded as a zigzag varint: zigzag(1)=2.
+    let !deltaBytes' = BS.pack [0xC0, 0x04, 100, 2]
+    -- The unused 'deltaBytes' above kept for documentation;
+    -- silence the warning by binding it to ().
+    let !_ = deltaBytes
+    case ORC.Read.decodeRLEv2Int False 5 deltaBytes' of
+      Right vs ->
+        expect "RLEv2 DELTA decodes monotonic +1 sequence"
+               (VP.toList vs == [100, 101, 102, 103, 104])
+      Left e -> failTest $ "DELTA decode: " ++ e
+
   putStrLn "All ORC writer tests passed."
 
 expect :: String -> Bool -> IO ()
