@@ -25,3 +25,9 @@ result-*
 /*.tsv
 /bench-*.html
 /bench-*.json
+
+# Scratch files created by the upstream conformance_test_runner.
+nonexistent_tests.txt
+failing_tests.txt
+**/nonexistent_tests.txt
+**/failing_tests.txt
