@@ -113,14 +113,16 @@ leadingSpaces = T.length . T.takeWhile (== ' ')
 
 classify :: Text -> LineKind
 classify t
-  | T.null t                              = LBlank
-  | T.head t == '#'                       = LComment
+  | T.null t                                  = LBlank
+  | T.head t == '#'                           = LComment
   | t == T.pack "---"
-      || T.isPrefixOf (T.pack "--- ") t   = LDocStart
+      || T.isPrefixOf (T.pack "--- ")  t
+      || T.isPrefixOf (T.pack "---\t") t      = LDocStart
   | t == T.pack "..."
-      || T.isPrefixOf (T.pack "... ") t   = LDocEnd
-  | T.head t == '%'                       = LDirective
-  | otherwise                             = LContent
+      || T.isPrefixOf (T.pack "... ")  t
+      || T.isPrefixOf (T.pack "...\t") t      = LDocEnd
+  | T.head t == '%'                           = LDirective
+  | otherwise                                 = LContent
 
 isSkippable :: PLine -> Bool
 isSkippable l = case lineKind l of
@@ -309,35 +311,54 @@ parseQuotedScalarLine q l = case findKeyValueSplit (lineBody l) of
     consumeQuoted q (lineBody l)
 
 -- | Greedily extend a quoted-scalar buffer with successor lines
--- (joined by single spaces, blank lines becoming a literal newline)
--- until the matching close quote is found. Returns the parsed value;
--- any text after the close quote on the final line is pushed back as
--- a virtual line.
+-- until the matching close quote is found. Per YAML 1.2 §7.3.1-2:
+--
+-- * A single line break between non-empty lines folds to a single
+--   space.
+-- * A run of @n@ empty lines between non-empty content yields @n@
+--   line breaks (the surrounding break itself is consumed).
+--
+-- Any text after the close quote on the final line is pushed back
+-- as a virtual line so the surrounding context can keep parsing.
 consumeQuoted :: Char -> Text -> P Value
-consumeQuoted q = go
+consumeQuoted q = go0
   where
     parser = case q of '"' -> parseDQ; _ -> parseSQ
-    go !buf = case parser 0 buf of
-      Just (v, p) -> do
-        let rest = T.stripStart (T.drop p buf)
-        if T.null rest
-          then pure v
-          else do
-            pushLine (PLine 0 0 LContent rest)
-            pure v
-      Nothing -> do
-        mNext <- popLine
-        case mNext of
-          Nothing -> failP "YAML: unterminated quoted scalar"
-          Just l' -> do
-            -- Per YAML 6.7: blank lines within a quoted scalar fold
-            -- to a literal newline; otherwise lines join with a
-            -- single space.
-            let body = lineBody l'
-                join_ = if T.null (T.strip body)
-                          then T.pack "\n"
-                          else T.pack " "
-            go (buf <> join_ <> body)
+
+    -- The very first attempt; no fold prefix has been emitted yet.
+    go0 !buf = case parser 0 buf of
+      Just (v, p)   -> finish v (T.drop p buf)
+      Nothing       -> readMore buf 0
+
+    -- @blanks@ counts consecutive empty continuation lines we've
+    -- absorbed since the last non-empty (or the opening) line.
+    readMore !buf !blanks = do
+      mNext <- popLine
+      case mNext of
+        Nothing -> failP "YAML: unterminated quoted scalar"
+        Just l' -> do
+          let body = T.dropWhileEnd
+                       (\c -> c == ' ' || c == '\t') (lineBody l')
+              isBlank = T.null (T.strip body)
+              body' = T.dropWhile (\c -> c == ' ' || c == '\t') body
+          if isBlank
+            then readMore buf (blanks + 1)
+            else
+              let joinSep
+                    | blanks == 0 = T.pack " "    -- single break → space
+                    | otherwise   = T.replicate blanks (T.pack "\n")
+                  buf' = buf <> joinSep <> body'
+              in case parser 0 buf' of
+                   Just (v, p)   -> finish v (T.drop p buf')
+                   Nothing       -> readMore buf' 0
+
+    finish v rest =
+      let s = T.stripStart rest
+      in if T.null s
+           then pure v
+           else do
+             pushLine (PLine 0 0 LContent s)
+             pure v
 
 parseTagged :: P Value
 parseTagged = do
@@ -967,7 +988,13 @@ collectScalarLines !parent = collect []
         (l:_)
           | lineKind l == LBlank ->
               do _ <- consumeOne
-                 collect ((-1, T.empty) : acc)
+                 -- A whitespace-only line whose indent exceeds the
+                 -- parent counts as a "more-indented blank" and
+                 -- contributes its extra whitespace to the body.
+                 let ind = lineIndent l
+                 if ind > parent
+                   then collect ((ind, T.empty) : acc)
+                   else collect ((-1, T.empty) : acc)
           | lineKind l == LDocStart || lineKind l == LDocEnd
               -> pure (reverse acc)
           | lineKind l == LComment
@@ -1025,16 +1052,19 @@ joinFolded chomp xs =
           let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
           in txt : foldNext rest bi (i > bi)
 
--- | Smallest non-negative indent in the collected line list, or 0 if
--- there are no non-blank lines.
+-- | Smallest indent from a non-blank line in the collected list,
+-- or 0 if there are no non-blank lines. Blank lines (including
+-- "more-indented blanks" we keep around for spacing) do not
+-- contribute, since the spec defines the body indent as the indent
+-- of the first non-empty line.
 minNonNegative :: [(Int, Text)] -> Int
 minNonNegative = go Nothing
   where
     go acc [] = case acc of
       Nothing -> 0
       Just !n -> n
-    go acc ((i, _) : rest)
-      | i < 0     = go acc rest
+    go acc ((i, b) : rest)
+      | i < 0 || T.null b = go acc rest
       | otherwise = case acc of
           Nothing             -> go (Just i) rest
           Just !n | i < n     -> go (Just i) rest
