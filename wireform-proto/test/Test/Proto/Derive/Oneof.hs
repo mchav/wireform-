@@ -30,34 +30,34 @@ tests = testGroup "Proto.TH oneof bridge"
       PD.decodeMessage bs @?= Right e
 
   , testCase "label only: round-trips" $ do
-      let e = defaultEnvelope { envelopeLabel = T.pack "labelled" }
+      let e = defaultEnvelope { envelopeEnvelopeLabel = T.pack "labelled" }
       PD.decodeMessage (PE.encodeMessage e) @?= Right e
 
   , testCase "choice_url variant round-trips" $ do
       let e = defaultEnvelope
-            { envelopeLabel  = T.pack "withUrl"
-            , envelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceUrl
+            { envelopeEnvelopeLabel  = T.pack "withUrl"
+            , envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceUrl
                                        (T.pack "https://example.test/x"))
             }
       PD.decodeMessage (PE.encodeMessage e) @?= Right e
 
   , testCase "choice_blob variant round-trips" $ do
       let e = defaultEnvelope
-            { envelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceBlob
+            { envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceBlob
                                        (BS.pack [0xCA, 0xFE, 0xBA, 0xBE]))
             }
       PD.decodeMessage (PE.encodeMessage e) @?= Right e
 
   , testCase "choice_seed variant round-trips" $ do
       let e = defaultEnvelope
-            { envelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceSeed 12345) }
+            { envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceSeed 12345) }
       PD.decodeMessage (PE.encodeMessage e) @?= Right e
 
   , testCase "choice_inner submessage variant round-trips" $ do
-      let inner = defaultInner { innerId = 99 }
+      let inner = defaultInner { innerInnerId = 99 }
           e    = defaultEnvelope
-            { envelopeLabel  = T.pack "nested"
-            , envelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceInner inner)
+            { envelopeEnvelopeLabel  = T.pack "nested"
+            , envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceInner inner)
             }
       PD.decodeMessage (PE.encodeMessage e) @?= Right e
 
@@ -65,10 +65,10 @@ tests = testGroup "Proto.TH oneof bridge"
       -- Concatenate two encodings that each set a different
       -- variant; per proto3 the last one wins on decode.
       let eUrl  = defaultEnvelope
-            { envelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceUrl
+            { envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceUrl
                                        (T.pack "old")) }
           eSeed = defaultEnvelope
-            { envelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceSeed 7) }
+            { envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceSeed 7) }
           combined = PE.encodeMessage eUrl `BS.append` PE.encodeMessage eSeed
       PD.decodeMessage combined @?= Right eSeed
   ]

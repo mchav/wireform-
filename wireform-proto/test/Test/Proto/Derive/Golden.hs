@@ -39,8 +39,8 @@ tests = testGroup "Proto.Derive byte-exact golden vectors"
 
   , testCase "RegItem { regi_name = \"widget\", regi_count = 99 }" $ do
       let p = defaultRegItem
-            { regiName  = T.pack "widget"
-            , regiCount = 99
+            { regItemRegiName  = T.pack "widget"
+            , regItemRegiCount = 99
             }
       PE.encodeMessage p @?= bytes
         [ 0x0A, 0x06             -- field 1 (string), len 6
@@ -50,7 +50,7 @@ tests = testGroup "Proto.Derive byte-exact golden vectors"
         ]
 
   , testCase "RegItem { regi_count = 1 } skips empty name" $ do
-      let p = defaultRegItem { regiCount = 1 }
+      let p = defaultRegItem { regItemRegiCount = 1 }
       PE.encodeMessage p @?= bytes
         [ 0x10, 0x01 ]
 
@@ -59,7 +59,7 @@ tests = testGroup "Proto.Derive byte-exact golden vectors"
       PE.encodeMessage p @?= BS.empty
 
   , testCase "RegInventory { name = \"warehouse-7\" }" $ do
-      let p = defaultRegInventory { reginvName = T.pack "warehouse-7" }
+      let p = defaultRegInventory { regInventoryReginvName = T.pack "warehouse-7" }
       PE.encodeMessage p @?= bytes
         [ 0x0A, 0x0B
         , 0x77, 0x61, 0x72, 0x65, 0x68, 0x6F, 0x75, 0x73, 0x65, 0x2D, 0x37
@@ -67,11 +67,11 @@ tests = testGroup "Proto.Derive byte-exact golden vectors"
 
   , testCase "RegInventory { name = \"depot\", items = 3 entries }" $ do
       let p = defaultRegInventory
-            { reginvName  = T.pack "depot"
-            , reginvItems = V.fromList
-                [ defaultRegItem { regiName = T.pack "alpha", regiCount = 1 }
-                , defaultRegItem { regiName = T.pack "beta",  regiCount = 2 }
-                , defaultRegItem { regiName = T.pack "gamma", regiCount = 3 }
+            { regInventoryReginvName  = T.pack "depot"
+            , regInventoryReginvItems = V.fromList
+                [ defaultRegItem { regItemRegiName = T.pack "alpha", regItemRegiCount = 1 }
+                , defaultRegItem { regItemRegiName = T.pack "beta",  regItemRegiCount = 2 }
+                , defaultRegItem { regItemRegiName = T.pack "gamma", regItemRegiCount = 3 }
                 ]
             }
       PE.encodeMessage p @?= bytes

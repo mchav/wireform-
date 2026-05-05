@@ -110,8 +110,8 @@ tests = testGroup "loadProto satellite instances"
 
       , testCase "Account ToJSON / FromJSON round-trip" $ do
           let a = defaultAccount
-                { acctName   = T.pack "alice"
-                , acctStatus = StatusActive
+                { accountAcctName   = T.pack "alice"
+                , accountAcctStatus = StatusActive
                 }
           let v = Aeson.toJSON a
           case Aeson.fromJSON v of
@@ -127,7 +127,7 @@ tests = testGroup "loadProto satellite instances"
           Aeson.fromJSON (Aeson.Number 1) @?= Aeson.Success StatusActive
 
       , testCase "PackedBag ToJSON / FromJSON round-trip" $ do
-          let p = defaultPackedBag { bagNums = V.fromList [1, 2, 3, 4, 5] }
+          let p = defaultPackedBag { packedBagBagNums = V.fromList [1, 2, 3, 4, 5] }
           case Aeson.fromJSON (Aeson.toJSON p) of
             Aeson.Success p' -> p' @?= p
             Aeson.Error e    -> error ("fromJSON failed: " <> e)
@@ -135,13 +135,13 @@ tests = testGroup "loadProto satellite instances"
 
   , testGroup "Hashable"
       [ testCase "equal Accounts hash equal" $ do
-          let a1 = defaultAccount { acctName = T.pack "x", acctStatus = StatusActive }
-              a2 = defaultAccount { acctName = T.pack "x", acctStatus = StatusActive }
+          let a1 = defaultAccount { accountAcctName = T.pack "x", accountAcctStatus = StatusActive }
+              a2 = defaultAccount { accountAcctName = T.pack "x", accountAcctStatus = StatusActive }
           hash a1 @?= hash a2
 
       , testCase "different Accounts hash differently (sanity)" $ do
-          let a1 = defaultAccount { acctName = T.pack "x", acctStatus = StatusActive }
-              a2 = defaultAccount { acctName = T.pack "y", acctStatus = StatusActive }
+          let a1 = defaultAccount { accountAcctName = T.pack "x", accountAcctStatus = StatusActive }
+              a2 = defaultAccount { accountAcctName = T.pack "y", accountAcctStatus = StatusActive }
           assertBool "names differ -> hashes should differ"
             (hash a1 /= hash a2)
 
@@ -152,8 +152,8 @@ tests = testGroup "loadProto satellite instances"
           hashWithSalt 0 StatusActive      @?= hashWithSalt 0 (1 :: Int)
 
       , testCase "PackedBag hashes survive vector permutation differences" $ do
-          let p1 = defaultPackedBag { bagNums = V.fromList [1, 2, 3] }
-              p2 = defaultPackedBag { bagNums = V.fromList [3, 2, 1] }
+          let p1 = defaultPackedBag { packedBagBagNums = V.fromList [1, 2, 3] }
+              p2 = defaultPackedBag { packedBagBagNums = V.fromList [3, 2, 1] }
           assertBool "vector order matters in the hash"
             (hash p1 /= hash p2)
       ]

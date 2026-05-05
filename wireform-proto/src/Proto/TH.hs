@@ -125,6 +125,35 @@ import Wireform.Derive.Modifier (MapKeyScalar (..))
 hsFieldName :: Text -> Text
 hsFieldName = escapeReserved . snakeToCamel
 
+-- | Message-scoped field name, mirroring the convention the pure-
+-- text codegen in 'Proto.CodeGen.scopedFieldName' uses:
+--
+-- @scopedHsFieldName \"Account\" \"acct_name\" = "accountAcctName"@
+--
+-- Two messages in the same file with overlapping field names
+-- (@ConformanceRequest.protobuf_payload@ vs
+-- @ConformanceResponse.protobuf_payload@) would otherwise both
+-- emit a record selector @protobufPayload@ at the top level,
+-- which GHC rejects.
+scopedHsFieldName :: Text -> Text -> Text
+scopedHsFieldName parentMsg fldName =
+  let prefix = lowerFirst (hsTypeName parentMsg)
+  in escapeReserved (prefix <> upperFirstT (snakeToCamel fldName))
+
+upperFirstT :: Text -> Text
+upperFirstT t = case T.uncons t of
+  Just (c, rest) -> T.cons (Data.Char.toUpper c) rest
+  Nothing        -> t
+
+-- | Enum constructor name. The proto-side value names already
+-- typically carry an enum-prefixing convention
+-- (@STATUS_UNSPECIFIED@, @STATUS_ACTIVE@, …); we just snake-to-
+-- Pascal them, matching what 'Proto.CodeGen' does for the
+-- single-name (un-scoped) variant. Cross-enum collisions on bare
+-- value names (e.g. two enums each declaring @UNSPECIFIED@) need
+-- to be resolved by the user via proto-side renaming; the TH
+-- bridge stays lean rather than emitting always-prefixed names
+-- nobody asked for.
 hsEnumCon :: Text -> Text -> Text
 hsEnumCon _enumName = snakeToPascal
 
@@ -286,7 +315,7 @@ messageToDecls'' scopeCtx cfg hooks msg = do
       fqName  = case scPackage scopeCtx of
         p | T.null p  -> msgName msg
           | otherwise -> p <> T.singleton '.' <> msgName msg
-      metaFields = fmap (fieldSpecToMetaField scopeCtx) fields
+      metaFields = fmap (fieldSpecToMetaField scopeCtx tyName) fields
   protoMsgDecs <- PTM.mkProtoMessageInstance tyName fqName
                     (scPackage scopeCtx) defName metaFields
   aesonDecs    <- PTM.mkAesonInstancesForMessage tyName defName metaFields
@@ -425,19 +454,20 @@ mkDataDec scope tyName fields = do
   dataD (pure []) tyName [] Nothing [con]
     [derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Generic]]
   where
+    parentName = T.pack (nameBase tyName)
     mkField :: FieldSpec -> Q [VarBangType]
     mkField (FSField name _ lbl ft rep _) = do
-      let fname = mkName (T.unpack (hsFieldName name))
+      let fname = mkName (T.unpack (scopedHsFieldName parentName name))
       ty <- fieldTypeToTH scope lbl ft rep
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
     mkField (FSMap name _ kt vt) = do
-      let fname = mkName (T.unpack (hsFieldName name))
+      let fname = mkName (T.unpack (scopedHsFieldName parentName name))
       kty <- scalarToTH kt
       vty <- fieldTypeInnerQ vt
       t <- appT (appT (conT ''Map) (pure kty)) (pure vty)
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, t)]
     mkField (FSOneof name _ofs) = do
-      let fname       = mkName (T.unpack (hsFieldName name))
+      let fname       = mkName (T.unpack (scopedHsFieldName parentName name))
           oneofTyName = oneofSumName tyName name
       ty <- appT (conT ''Maybe) (conT oneofTyName)
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
@@ -599,10 +629,11 @@ scalarToTH = \case
 mkDefaultDec :: ScopeCtx -> Name -> [FieldSpec] -> Q [Dec]
 mkDefaultDec scope tyName fields = do
   let defName = mkName ("default" <> nameBase tyName)
+      parentName = T.pack (nameBase tyName)
   sig <- sigD defName (conT tyName)
   defFields <- mapM (\fs -> do
     val <- defaultValueExpr scope fs
-    pure (mkName (T.unpack (hsFieldName (fsFieldName fs))), val)) fields
+    pure (mkName (T.unpack (scopedHsFieldName parentName (fsFieldName fs))), val)) fields
   -- Every TH-generated record now carries an empty unknown-fields
   -- list. Proto2 extensions travel through this field; see
   -- "Proto.Extension" for the typed accessors.
@@ -966,8 +997,9 @@ upperFirst t = case T.uncons t of
 -- generate the matching sum-type 'Name' (see 'oneofSumName' and
 -- 'oneofConTHName').
 fieldSpecToProtoField :: ScopeCtx -> Name -> FieldSpec -> Q PDI.ProtoField
-fieldSpecToProtoField scope _ (FSField name num lbl ft rep opts) = do
-  let sel    = mkName (T.unpack (hsFieldName name))
+fieldSpecToProtoField scope parentTy (FSField name num lbl ft rep opts) = do
+  let parentName = T.pack (nameBase parentTy)
+      sel    = mkName (T.unpack (scopedHsFieldName parentName name))
       pft    = fieldTypeToBridge scope ft
       mode   = case (lbl, pft) of
         (Just Repeated, PDI.PFScalar sc)
@@ -992,19 +1024,21 @@ fieldSpecToProtoField scope _ (FSField name num lbl ft rep opts) = do
     { PDI.pfStringRep = frString rep
     , PDI.pfBytesRep  = frBytes rep
     }
-fieldSpecToProtoField scope _ (FSMap name num kt vt) =
+fieldSpecToProtoField scope parentTy (FSMap name num kt vt) =
   case scalarToBridgeMapKey kt of
     Nothing  -> fail
       ("Proto.TH: map field '" <> T.unpack name
        <> "' has an invalid map-key type (" <> scalarStr kt
        <> "). Proto3 only permits integral and string map keys.")
     Just mks ->
-      let sel   = mkName (T.unpack (hsFieldName name))
+      let parentName = T.pack (nameBase parentTy)
+          sel   = mkName (T.unpack (scopedHsFieldName parentName name))
           pft   = fieldTypeToBridge scope vt
           inner = innerHsType vt defaultFieldRep
       in pure (PDI.protoField sel num (PDI.FKMap mks) pft inner)
 fieldSpecToProtoField scope parentTy (FSOneof name ofs) = do
-  let sel       = mkName (T.unpack (hsFieldName name))
+  let parentName = T.pack (nameBase parentTy)
+      sel       = mkName (T.unpack (scopedHsFieldName parentName name))
       sumTy     = oneofSumName parentTy name
       carrier   = AppT (ConT ''Maybe) (ConT sumTy)
       variants  = fmap (oneofVariantToBridge scope parentTy name) ofs
@@ -1160,10 +1194,10 @@ scalarToBridgeMapKey = \case
 -- | Translate a 'FieldSpec' into the condensed 'PTM.MetaField'
 -- shape consumed by the @ProtoMessage@ \/ JSON \/ Hashable
 -- emitters in "Proto.TH.Metadata".
-fieldSpecToMetaField :: ScopeCtx -> FieldSpec -> PTM.MetaField
-fieldSpecToMetaField scope fs = case fs of
+fieldSpecToMetaField :: ScopeCtx -> Name -> FieldSpec -> PTM.MetaField
+fieldSpecToMetaField scope parentTy fs = case fs of
   FSField name num lbl ft _rep opts ->
-    let sel      = mkName (T.unpack (hsFieldName name))
+    let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
         jsonNm   = jsonNameFromOpts opts (snakeToCamel name)
         kind     = case lbl of
           Just Repeated -> PTM.MFKVector  -- default Vector container
@@ -1172,9 +1206,16 @@ fieldSpecToMetaField scope fs = case fs of
             FTNamed n
               | not (isEnumName scope n) -> PTM.MFKMaybe
             _ -> PTM.MFKBare
-        jsonKind = case ft of
-          FTScalar SBytes -> PTM.JKBytes
-          _               -> PTM.JKNormal
+        -- 'bytes' has no Aeson instance because the JSON shape is
+        -- base64-encoded, not natural strings. We dispatch on the
+        -- container shape so the right splice helper handles each
+        -- variant (singular @ByteString@, @Vector ByteString@,
+        -- @[ByteString]@). Map<_, bytes> is handled separately
+        -- in the FSMap arm.
+        jsonKind = case (lbl, ft) of
+          (Just Repeated, FTScalar SBytes) -> PTM.JKBytesVector
+          (_,             FTScalar SBytes) -> PTM.JKBytes
+          _                                -> PTM.JKNormal
     in PTM.MetaField
          { PTM.mfSelector  = sel
          , PTM.mfProtoName = name
@@ -1186,7 +1227,7 @@ fieldSpecToMetaField scope fs = case fs of
          , PTM.mfJsonKind  = jsonKind
          }
   FSMap name num kt vt ->
-    let sel      = mkName (T.unpack (hsFieldName name))
+    let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
         jsonNm   = snakeToCamel name
         jsonKind = case vt of
           FTScalar SBytes -> PTM.JKBytesMap
@@ -1202,7 +1243,7 @@ fieldSpecToMetaField scope fs = case fs of
          , PTM.mfJsonKind  = jsonKind
          }
   FSOneof name _ofs ->
-    let sel      = mkName (T.unpack (hsFieldName name))
+    let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
         jsonNm   = snakeToCamel name
     in PTM.MetaField
          { PTM.mfSelector  = sel
@@ -1220,6 +1261,8 @@ fieldSpecToMetaField scope fs = case fs of
          , PTM.mfKind      = PTM.MFKOneof
          , PTM.mfJsonKind  = PTM.JKNormal
          }
+  where
+    parentName = T.pack (nameBase parentTy)
 
 -- | Per-shape splice for 'PS.FieldTypeDescriptor'.
 fieldTypeDescE :: ScopeCtx -> FieldType -> Q Exp

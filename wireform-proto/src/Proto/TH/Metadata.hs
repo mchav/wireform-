@@ -39,8 +39,17 @@ module Proto.TH.Metadata
   , MetaField (..)
   , MetaFieldKind (..)
   , JsonKind (..)
+
+    -- * Internal helpers used by spliced code
+    -- | Re-exported so the splice doesn't have to qualify them
+    -- across module boundaries.
+  , bytesVectorToJSON
+  , bytesListToJSON
+  , parseBytesVectorMaybe
+  , parseBytesListMaybe
   ) where
 
+import Data.ByteString (ByteString)
 import Data.Hashable (Hashable, hashWithSalt)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
@@ -49,6 +58,9 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as AesonT
+
+import qualified Proto.JSON as PJI
 
 import Language.Haskell.TH
 
@@ -113,6 +125,11 @@ data JsonKind
     -- 'PJ.bytesFieldToJSON' / 'PJ.parseBytesFieldMaybe' helpers.
   | JKBytesMap
     -- ^ A @map\<K, bytes\>@ — values must base64.
+  | JKBytesVector
+    -- ^ A @repeated bytes@ field carried as @Vector ByteString@.
+    -- JSON shape is an array of base64 strings.
+  | JKBytesList
+    -- ^ A @repeated bytes@ field carried as @[ByteString]@.
 
 -- ---------------------------------------------------------------------------
 -- ProtoMessage
@@ -216,6 +233,12 @@ toJSONEntry msgVar mf =
       AppE (AppE (VarE 'PJ.bytesFieldToJSON) jsonKey) fieldExpr
     JKBytesMap ->
       AppE (AppE (VarE 'PJ.bytesMapFieldToJSON) jsonKey) fieldExpr
+    JKBytesVector ->
+      let valExp = AppE (VarE 'bytesVectorToJSON) fieldExpr
+      in TupE [Just jsonKey, Just valExp]
+    JKBytesList ->
+      let valExp = AppE (VarE 'bytesListToJSON) fieldExpr
+      in TupE [Just jsonKey, Just valExp]
     JKNormal ->
       let valExp = AppE (VarE 'Aeson.toJSON) fieldExpr
       in TupE [Just jsonKey, Just valExp]
@@ -241,9 +264,11 @@ mkFromJSONForMessage tyName defName fields = do
 parseBindStmt :: Name -> MetaField -> Name -> Stmt
 parseBindStmt objVar mf fldVar =
   let parseFn = case mfJsonKind mf of
-        JKBytes    -> VarE 'PJ.parseBytesFieldMaybe
-        JKBytesMap -> VarE 'PJ.parseBytesMapFieldMaybe
-        JKNormal   -> VarE 'PJ.parseFieldMaybe
+        JKBytes       -> VarE 'PJ.parseBytesFieldMaybe
+        JKBytesMap    -> VarE 'PJ.parseBytesMapFieldMaybe
+        JKBytesVector -> VarE 'parseBytesVectorMaybe
+        JKBytesList   -> VarE 'parseBytesListMaybe
+        JKNormal      -> VarE 'PJ.parseFieldMaybe
       call = AppE (AppE parseFn (VarE objVar)) (textLit (mfJsonName mf))
   in BindS (VarP fldVar) call
 
@@ -306,6 +331,37 @@ hashStep msgVar acc mf =
 -- versions).
 foldlSeq :: (a -> b -> a) -> a -> Seq b -> a
 foldlSeq f = foldl f
+
+-- ---------------------------------------------------------------------------
+-- bytes-vector / bytes-list JSON helpers
+-- ---------------------------------------------------------------------------
+
+-- | A @repeated bytes@ field as a JSON array of base64 strings.
+bytesVectorToJSON :: V.Vector ByteString -> Aeson.Value
+bytesVectorToJSON =
+  Aeson.toJSON . fmap PJI.protoBytesToJSON . V.toList
+
+-- | A list-backed @repeated bytes@ field as a JSON array.
+bytesListToJSON :: [ByteString] -> Aeson.Value
+bytesListToJSON = Aeson.toJSON . fmap PJI.protoBytesToJSON
+
+-- | Parse @Maybe (Vector ByteString)@ from a JSON object key.
+parseBytesVectorMaybe
+  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector ByteString))
+parseBytesVectorMaybe obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing -> pure Nothing
+    Just vs -> Just . V.fromList <$> traverse PJI.protoBytesFromJSON (vs :: [Aeson.Value])
+
+-- | Parse @Maybe [ByteString]@ from a JSON object key.
+parseBytesListMaybe
+  :: Aeson.Object -> Text -> AesonT.Parser (Maybe [ByteString])
+parseBytesListMaybe obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing -> pure Nothing
+    Just vs -> Just <$> traverse PJI.protoBytesFromJSON (vs :: [Aeson.Value])
 
 -- ---------------------------------------------------------------------------
 -- Oneof: ToJSON / FromJSON / Hashable for the carrier sum

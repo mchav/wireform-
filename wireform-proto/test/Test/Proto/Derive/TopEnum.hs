@@ -28,7 +28,7 @@ tests = testGroup "Proto.TH top-level enum + packed scalar"
           PE.encodeMessage a @?= BS.empty
 
       , testCase "Status = STATUS_ACTIVE encodes as varint 1, not as a submessage" $ do
-          let a = defaultAccount { acctStatus = StatusActive }
+          let a = defaultAccount { accountAcctStatus = StatusActive }
           -- field 2 (varint) tag = (2<<3)|0 = 0x10; payload = 1.
           -- If the bridge had wrongly chosen PFSubmessage we'd
           -- see 0x12 ((2<<3)|2) followed by a length prefix here.
@@ -36,14 +36,14 @@ tests = testGroup "Proto.TH top-level enum + packed scalar"
 
       , testCase "Status = STATUS_BANNED round-trips" $ do
           let a = defaultAccount
-                { acctName   = T.pack "anon"
-                , acctStatus = StatusBanned
+                { accountAcctName   = T.pack "anon"
+                , accountAcctStatus = StatusBanned
                 }
           PD.decodeMessage (PE.encodeMessage a) @?= Right a
 
       , testCase "all four Status values round-trip" $ do
           let go st = do
-                let a = defaultAccount { acctStatus = st }
+                let a = defaultAccount { accountAcctStatus = st }
                 PD.decodeMessage (PE.encodeMessage a) @?= Right a
           mapM_ go [ StatusUnspecified, StatusActive
                    , StatusRetired,    StatusBanned ]
@@ -54,7 +54,7 @@ tests = testGroup "Proto.TH top-level enum + packed scalar"
           PE.encodeMessage defaultPackedBag @?= BS.empty
 
       , testCase "Vector [1,2,3] is one length-delimited block" $ do
-          let p = defaultPackedBag { bagNums = V.fromList [1, 2, 3] }
+          let p = defaultPackedBag { packedBagBagNums = V.fromList [1, 2, 3] }
           PE.encodeMessage p @?= BS.pack [0x0A, 0x03, 0x01, 0x02, 0x03]
           PD.decodeMessage (PE.encodeMessage p) @?= Right p
 
@@ -63,7 +63,7 @@ tests = testGroup "Proto.TH top-level enum + packed scalar"
           -- the same Vector.
           let unpacked = BS.pack
                 [ 0x08, 0x01, 0x08, 0x02, 0x08, 0x03 ]
-              expected = defaultPackedBag { bagNums = V.fromList [1, 2, 3] }
+              expected = defaultPackedBag { packedBagBagNums = V.fromList [1, 2, 3] }
           PD.decodeMessage unpacked @?= Right expected
 
       , testCase "encoded length stays small as element count grows" $ do
@@ -75,7 +75,7 @@ tests = testGroup "Proto.TH top-level enum + packed scalar"
           --   1 tag byte + 1 length byte + 1 payload byte each.
           -- So 100 single-byte values should fit in well under
           -- the 200 bytes an unpacked stream would take.
-          let p = defaultPackedBag { bagNums = V.fromList [1 .. 100] }
+          let p = defaultPackedBag { packedBagBagNums = V.fromList [1 .. 100] }
               bs = PE.encodeMessage p
           assertBool ("expected packed encoding (≤ 110 bytes), got "
                        <> show (BS.length bs))
