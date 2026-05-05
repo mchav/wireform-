@@ -79,8 +79,7 @@ module Arrow.Record
   , runRowEncoder
   , fieldE
   , structE
-  , encoderFromRowEncoder
-  , decoderFromRowDecoder
+  , structEMaybe
     -- * Row-level decoder
   , RowDecoder
   , runRowDecoder
@@ -88,6 +87,7 @@ module Arrow.Record
   , columnD
   , columnDWithDefault
   , structD
+  , structDMaybe
     -- * Column-name strategies
   , NameStrategy (..)
   , applyNameStrategy
@@ -114,6 +114,7 @@ import qualified Data.Vector.Primitive as VP
 import Data.Word (Word8, Word16, Word32, Word64)
 
 import qualified Arrow.Column as AC
+import Data.Maybe (fromMaybe, isJust)
 import Arrow.Column (ColumnArray (..))
 import Arrow.Types
   ( ArrowType (..)
@@ -461,60 +462,39 @@ structE name sel inner = RowEncoder
       in  [ColStruct named]
   }
 
--- | Lift a 'RowEncoder' for a nested record into an 'Encoder'.
--- The encoder treats every input row as a struct of the
--- 'RowEncoder' columns; on the read side, pair with
--- 'decoderFromRowDecoder' for the inverse.
+-- | Like 'structE' but the parent rows are @Maybe c@: emits
+-- a 'ColStructMaybe' with a top-level validity mask + child
+-- columns. Child slots whose parent validity bit is unset are
+-- arbitrary on the wire (Arrow spec, Layout.rst, "Struct
+-- Layout") so we fill them by substituting the first present
+-- row's value; if every row is 'Nothing' the children are
+-- empty (the validity mask is all @False@ and consumers won't
+-- index into them).
 --
--- Together with the 'HasRowEncoder' / 'HasRowDecoder' classes
--- in "Arrow.Record.Generic", this lets a Generic-derivable
--- nested record become an 'Encoder' / 'Decoder' that the
--- existing 'fieldE' / 'columnD' combinators consume — so the
--- 'Arrow.Derive' deriver doesn't need any special handling
--- for nested records.
-encoderFromRowEncoder :: RowEncoder a -> Encoder a
-encoderFromRowEncoder inner = Encoder
-  { encoderType      = AStruct
-  , encoderNullable  = False
-  , encoderRequired  = \rs ->
-      let !innerCols = runRowEncoder inner rs
-          !childNames = map fieldName (rowEncoderFields inner)
-          !named = V.fromList (zip childNames innerCols)
-      in  ColStruct named
-  , encoderOptional  = \_ ->
-      error "Arrow.Record.encoderFromRowEncoder: nullable nested struct \
-            \isn't yet wired through the encoder; use a manual \
-            \'nullable . encoderFromRowEncoder' if your Arrow \
-            \consumers handle ColStructMaybe."
-  }
-
-decoderFromRowDecoder :: RowDecoder a -> Decoder a
-decoderFromRowDecoder inner = Decoder
-  { decoderType     = AStruct
-  , decoderRequired = \col -> case col of
-      ColStruct childCols -> do
-        let !childFields = V.fromList (map mkSyntheticField (V.toList childCols))
-            !values      = V.map snd childCols
-        runRowDecoder inner childFields values
-      other ->
-        Left $ "Arrow.Record.decoderFromRowDecoder: expected ColStruct, got "
-                ++ takeWhile (/= ' ') (show other)
-  , decoderOptional = \_ ->
-      Left "Arrow.Record.decoderFromRowDecoder: nullable nested struct \
-            \decoding requires a ColStructMaybe shim — not wired yet."
-  }
-  where
-    -- The inner RowDecoder consults childFields by name only;
-    -- type/nullable info isn't checked. Synthesise a
-    -- placeholder Field with the right name.
-    mkSyntheticField (nm, _) = Field
-      { fieldName       = nm
-      , fieldNullable   = False
+-- Pair with 'structDMaybe' on the read side. Together they
+-- give @Maybe c@ a clean nested-record encoding without
+-- requiring per-encoder children metadata on every primitive.
+structEMaybe :: Text -> (r -> Maybe c) -> RowEncoder c -> RowEncoder r
+structEMaybe name sel inner = RowEncoder
+  { rowEncoderFields = [Field
+      { fieldName       = name
+      , fieldNullable   = True
       , fieldType       = AStruct
-      , fieldChildren   = V.empty
+      , fieldChildren   = V.fromList (rowEncoderFields inner)
       , fieldDictionary = Nothing
       , fieldMetadata   = V.empty
-      }
+      }]
+  , runRowEncoder = \rs ->
+      let !mvs   = V.map sel rs
+          !valid = V.map isJust mvs
+          !cs    = case V.find isJust mvs of
+                     Just (Just present) -> V.map (fromMaybe present) mvs
+                     _                   -> V.empty
+          !innerCols  = runRowEncoder inner cs
+          !childNames = map fieldName (rowEncoderFields inner)
+          !named      = V.fromList (zip childNames innerCols)
+      in  [ColStructMaybe valid named]
+  }
 
 -- ============================================================
 -- RowDecoder
@@ -668,6 +648,41 @@ structD name inner = RowDecoder [name] $ \fs cs -> do
     other ->
       Left $ "Arrow.Record.structD " ++ show name
               ++ ": expected ColStruct, got " ++ takeWhile (/= ' ') (show other)
+
+-- | Like 'structD' but the column may be a 'ColStructMaybe' —
+-- decodes per-row to @Maybe c@ honouring the parent validity
+-- mask. Required-struct columns are accepted too (every row
+-- becomes 'Just').
+structDMaybe :: Text -> RowDecoder c -> RowDecoder (Maybe c)
+structDMaybe name inner = RowDecoder [name] $ \fs cs -> do
+  idx <- case V.findIndex ((== name) . fieldName) fs of
+    Just i  -> Right i
+    Nothing -> Left $ "Arrow.Record.structDMaybe: no column named " ++ show name
+  let !parentField = V.unsafeIndex fs idx
+      !col         = V.unsafeIndex cs idx
+      !childFields = fieldChildren parentField
+      mask vs valid =
+        if V.length vs /= V.length valid
+          then Left $ "Arrow.Record.structDMaybe " ++ show name
+                ++ ": child length " ++ show (V.length vs)
+                ++ " /= validity length " ++ show (V.length valid)
+          else Right $ V.zipWith
+                 (\b v -> if b then Just v else Nothing) valid vs
+  case col of
+    ColStruct childCols -> do
+      let !childCols' = V.map snd childCols
+      case runRowDecoder inner childFields childCols' of
+        Right rs -> Right (V.map Just rs)
+        Left  e  -> Left $ "Arrow.Record.structDMaybe " ++ show name ++ ": " ++ e
+    ColStructMaybe valid childCols -> do
+      let !childCols' = V.map snd childCols
+      case runRowDecoder inner childFields childCols' of
+        Right rs -> mask rs valid
+        Left  e  -> Left $ "Arrow.Record.structDMaybe " ++ show name ++ ": " ++ e
+    other ->
+      Left $ "Arrow.Record.structDMaybe " ++ show name
+        ++ ": expected ColStruct/ColStructMaybe, got "
+        ++ takeWhile (/= ' ') (show other)
 
 -- | Vector length of a 'ColumnArray'. Now delegates to
 -- 'Arrow.Column.columnLength' (originally re-implemented here

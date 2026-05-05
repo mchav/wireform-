@@ -76,6 +76,15 @@ data Customer = Customer
   , ageF  :: Int32
   } deriving (Show, Eq)
 
+-- | Customer with an optional address — exercises the
+-- 'encoderFromRowEncoder' / 'decoderFromRowDecoder' nullable
+-- nested-struct path.
+data CustomerOpt = CustomerOpt
+  { coNameF     :: Text
+  , maybeAddrF  :: Maybe Address
+  , coAgeF      :: Int32
+  } deriving (Show, Eq)
+
 main :: IO ()
 main = do
   putStrLn "wireform-arrow writer/reader round-trip suite"
@@ -415,6 +424,10 @@ flatBufRoundTrip = do
 
   -- Nested struct via Arrow.Record.structE / structD
   nestedStructRoundTrip
+
+  -- Nullable nested struct via encoderFromRowEncoder /
+  -- decoderFromRowDecoder + Arrow.Record.nullable / nullableD.
+  nullableNestedStructRoundTrip
 
   -- Streaming reader: pull batches one at a time, then drain.
   streamingRoundTrip
@@ -759,6 +772,47 @@ nestedStructRoundTrip = do
                           ++ show (V.toList got)
                           ++ "\n exp " ++ show (V.toList rows)
       _ -> failTest "nested struct: expected 1 batch"
+
+-- | Nullable nested record. Same shape as 'nestedStructRoundTrip'
+-- but the @addr@ column is @Maybe Address@; the encoder builds
+-- a 'ColStructMaybe' with a top-level validity mask, and the
+-- decoder reconstructs the @Just@/@Nothing@ pattern.
+nullableNestedStructRoundTrip :: IO ()
+nullableNestedStructRoundTrip = do
+  let !addrEnc = AR.fieldE "city" cityF AR.utf8E
+              <> AR.fieldE "zip"  zipF  AR.utf8E
+      !addrDec = Address
+              <$> AR.columnD "city" AR.utf8D
+              <*> AR.columnD "zip"  AR.utf8D
+      !custEnc =     AR.fieldE      "name"     coNameF    AR.utf8E
+                  <> AR.structEMaybe "addr_opt" maybeAddrF addrEnc
+                  <> AR.fieldE      "age"      coAgeF     AR.int32E
+      !custDec = CustomerOpt
+              <$> AR.columnD      "name"     AR.utf8D
+              <*> AR.structDMaybe "addr_opt" addrDec
+              <*> AR.columnD      "age"      AR.int32D
+      !tbl  = AR.table custEnc custDec :: AR.Table CustomerOpt
+      !rows = V.fromList
+        [ CustomerOpt "Alice" (Just (Address "Atlantis" "00001")) 30
+        , CustomerOpt "Bob"   Nothing                              45
+        , CustomerOpt "Carol" (Just (Address "Calcutta" "700001")) 28
+        , CustomerOpt "Dave"  Nothing                              50
+        ]
+      (!sch, !cols) = AR.encodeTable tbl rows
+      !bytes = encodeArrowStream defaultWriteOptions sch [cols]
+  case decodeArrowStream bytes of
+    Left e -> failTest $ "nullable nested struct decode: " ++ e
+    Right (sch', batches) -> case batches of
+      [batch] -> case AR.decodeTable tbl sch' batch of
+        Left e -> failTest $ "nullable nested decodeTable: " ++ e
+        Right got
+          | got == rows ->
+              putStrLn "OK: nullable nested struct via structEMaybe / structDMaybe"
+          | otherwise ->
+              failTest $ "nullable nested mismatch:\n got "
+                          ++ show (V.toList got)
+                          ++ "\n exp " ++ show (V.toList rows)
+      _ -> failTest "nullable nested struct: expected 1 batch"
 
 projectionRoundTrip :: IO ()
 projectionRoundTrip = do
