@@ -280,18 +280,47 @@ dispatch l =
 -- @key: \"…\"@ pair when the closing quote is followed by a colon. We
 -- look ahead for a top-level @:@ after the closing quote and dispatch
 -- to 'parseBlockMap' if found, otherwise consume the quoted scalar.
+--
+-- Quoted scalars may span multiple lines per YAML 1.2; if the close
+-- quote is not on the same line we splice continuation lines into
+-- the buffer until it is.
 parseQuotedScalarLine :: Char -> PLine -> P Value
 parseQuotedScalarLine q l = case findKeyValueSplit (lineBody l) of
   Just (k, vRest) -> parseBlockMap (lineIndent l) k vRest
   Nothing -> do
-    Just _ <- popLine
-    let res = case q of
-                '"'  -> parseDQ 0 (lineBody l)
-                _    -> parseSQ 0 (lineBody l)
-    case res of
-      Just (v, _) -> pure v
-      Nothing     -> failP $ "YAML: unterminated quoted scalar at line "
-                              ++ show (lineNo l)
+    _ <- popLine
+    consumeQuoted q (lineBody l)
+
+-- | Greedily extend a quoted-scalar buffer with successor lines
+-- (joined by single spaces, blank lines becoming a literal newline)
+-- until the matching close quote is found. Returns the parsed value;
+-- any text after the close quote on the final line is pushed back as
+-- a virtual line.
+consumeQuoted :: Char -> Text -> P Value
+consumeQuoted q = go
+  where
+    parser = case q of '"' -> parseDQ; _ -> parseSQ
+    go !buf = case parser 0 buf of
+      Just (v, p) -> do
+        let rest = T.stripStart (T.drop p buf)
+        if T.null rest
+          then pure v
+          else do
+            pushLine (PLine 0 0 LContent rest)
+            pure v
+      Nothing -> do
+        mNext <- popLine
+        case mNext of
+          Nothing -> failP "YAML: unterminated quoted scalar"
+          Just l' -> do
+            -- Per YAML 6.7: blank lines within a quoted scalar fold
+            -- to a literal newline; otherwise lines join with a
+            -- single space.
+            let body = lineBody l'
+                join_ = if T.null (T.strip body)
+                          then T.pack "\n"
+                          else T.pack " "
+            go (buf <> join_ <> body)
 
 parseTagged :: P Value
 parseTagged = do
@@ -315,8 +344,8 @@ parseTagged = do
 parseAnchored :: P Value
 parseAnchored = do
   Just l <- popLine
-  let (an, rest) = breakOnSpace (lineBody l)
-      name = T.drop 1 an
+  let body = lineBody l
+      (name, rest) = T.span isAnchorChar (T.drop 1 body)
       after = T.stripStart rest
   v <- if T.null after
          then do
@@ -334,11 +363,25 @@ parseAnchored = do
 parseAlias :: P Value
 parseAlias = do
   Just l <- popLine
-  let (al, rest) = breakOnSpace (lineBody l)
-      name = T.drop 1 al
-  unless (T.null (T.strip rest)) $
-    failP ("YAML: trailing content after alias *" ++ T.unpack name)
-  resolveAnchor name
+  let body = lineBody l
+      (al, rest) = T.span isAnchorChar (T.drop 1 body)
+      name = al
+      after = T.stripStart rest
+  -- An alias appearing as a mapping value will be followed by ":"
+  -- (or other dispatch chars) on the same line. Push remaining
+  -- content back as a virtual line so the surrounding context can
+  -- continue parsing.
+  if T.null after
+    then resolveAnchor name
+    else do
+      pushLine (PLine (lineNo l) (lineIndent l) LContent after)
+      resolveAnchor name
+
+-- | Characters legal in an anchor / alias name (YAML 1.2 §6.9.2).
+isAnchorChar :: Char -> Bool
+isAnchorChar c =
+  not (c == ',' || c == '[' || c == ']' || c == '{' || c == '}'
+       || c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ':')
 
 breakOnSpace :: Text -> (Text, Text)
 breakOnSpace = T.break (\c -> c == ' ' || c == '\t')
@@ -397,7 +440,7 @@ parseFlowSeq !p0 t = goV (skipFlowWS p0 t) []
     goV !p acc
       | p >= T.length t = Nothing
       | T.index t p == ']' = Just (YSeq (V.fromList (reverse acc)), p + 1)
-      | otherwise = case parseFlowValue p t of
+      | otherwise = case parseFlowEntry p t of
           Nothing      -> Nothing
           Just (v, p1) ->
             let p2 = skipFlowWS p1 t
@@ -408,31 +451,76 @@ parseFlowSeq !p0 t = goV (skipFlowWS p0 t) []
                         ']' -> Just (YSeq (V.fromList (reverse (v : acc))), p2 + 1)
                         _   -> Nothing
 
+-- | A flow-sequence entry can be a single value or a one-pair
+-- mapping (with @key: value@ syntax, or just @: value@ for an empty
+-- key).
+parseFlowEntry :: Int -> Text -> Maybe (Value, Int)
+parseFlowEntry !p0 t =
+  let p = skipFlowWS p0 t
+  in if p >= T.length t
+       then Nothing
+       else case T.index t p of
+              ':' ->
+                -- Bare colon: empty key, value follows.
+                let p1 = skipFlowWS (p + 1) t
+                in if p1 >= T.length t
+                     then Nothing
+                     else case T.index t p1 of
+                       ',' -> Just (YMap (V.singleton (YNull, YNull)), p1)
+                       ']' -> Just (YMap (V.singleton (YNull, YNull)), p1)
+                       _   -> case parseFlowValue p1 t of
+                         Nothing -> Just (YMap (V.singleton (YNull, YNull)), p1)
+                         Just (v, p2) ->
+                           Just (YMap (V.singleton (YNull, v)), p2)
+              _ -> case parseFlowValue p t of
+                Nothing -> Nothing
+                Just (k, p1) ->
+                  let p2 = skipFlowWS p1 t
+                  in if p2 < T.length t && T.index t p2 == ':'
+                       then case parseFlowValue (skipFlowWS (p2 + 1) t) t of
+                              Nothing      -> Just (YMap (V.singleton (k, YNull)), p2 + 1)
+                              Just (v, p3) -> Just (YMap (V.singleton (k, v)), p3)
+                       else Just (k, p1)
+
 parseFlowMap :: Int -> Text -> Maybe (Value, Int)
 parseFlowMap !p0 t = goV (skipFlowWS p0 t) []
   where
     goV !p acc
       | p >= T.length t = Nothing
       | T.index t p == '}' = Just (YMap (V.fromList (reverse acc)), p + 1)
-      | otherwise = case parseFlowValue p t of
-          Nothing      -> Nothing
-          Just (k, p1) ->
-            let p2 = skipFlowWS p1 t
-            in if p2 < T.length t && T.index t p2 == ':'
-                 then case parseFlowValue (skipFlowWS (p2 + 1) t) t of
-                        Nothing      -> Nothing
-                        Just (v, p3) ->
-                          let p4 = skipFlowWS p3 t
-                          in if p4 >= T.length t
-                               then Nothing
-                               else case T.index t p4 of
-                                 ',' -> goV (skipFlowWS (p4 + 1) t) ((k, v) : acc)
-                                 '}' -> Just (YMap (V.fromList (reverse ((k, v) : acc))), p4 + 1)
-                                 _   -> Nothing
-                 else case T.index t p2 of
-                   ',' -> goV (skipFlowWS (p2 + 1) t) ((k, YNull) : acc)
-                   '}' -> Just (YMap (V.fromList (reverse ((k, YNull) : acc))), p2 + 1)
-                   _   -> Nothing
+      | T.index t p == ',' = goV (skipFlowWS (p + 1) t) acc   -- tolerate empty entries
+      | otherwise =
+          let p0' = p
+              (k, p1) = case T.index t p of
+                ':' -> (YNull, p)
+                _   -> case parseFlowValue p t of
+                  Just (k', q) -> (k', q)
+                  Nothing      -> (YNull, p)
+          in if p1 == p0' && T.index t p1 /= ':'
+               then Nothing
+               else
+                 let p2 = skipFlowWS p1 t
+                     skipColon = if p2 < T.length t && T.index t p2 == ':'
+                                   then Just (skipFlowWS (p2 + 1) t)
+                                   else Nothing
+                 in case skipColon of
+                      Just p2'
+                        | p2' < T.length t
+                          && (T.index t p2' == ',' || T.index t p2' == '}') ->
+                            finish p2' k YNull acc
+                        | otherwise -> case parseFlowValue p2' t of
+                            Nothing -> finish p2' k YNull acc
+                            Just (v, p3) -> finish p3 k v acc
+                      Nothing -> finish p2 k YNull acc
+
+    finish !p k v acc =
+      let p' = skipFlowWS p t
+      in if p' >= T.length t
+           then Nothing
+           else case T.index t p' of
+                  ',' -> goV (skipFlowWS (p' + 1) t) ((k, v) : acc)
+                  '}' -> Just (YMap (V.fromList (reverse ((k, v) : acc))), p' + 1)
+                  _   -> Nothing
 
 parseDQ :: Int -> Text -> Maybe (Value, Int)
 parseDQ !p0 t = go (p0 + 1) []

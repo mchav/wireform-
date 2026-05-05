@@ -28,7 +28,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import System.Directory
-  (doesFileExist, doesDirectoryExist, listDirectory, getCurrentDirectory)
+  (doesFileExist, doesDirectoryExist, listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
@@ -136,19 +136,29 @@ externalSuite = do
 
 -- | Each case-id is a path relative to the test-suite root.
 discoverCases :: FilePath -> IO [FilePath]
-discoverCases root = do
-  -- A "case directory" is one that contains an @in.yaml@ or has
-  -- numbered subdirectories that do.
-  walk root
+discoverCases root = walk root
   where
-    walk d = do
-      entries <- listDirectory d
-      let absEntries = map (d </>) entries
-      dirs    <- filterM doesDirectoryExist absEntries
-      hasIn   <- doesFileExist (d </> "in.yaml")
-      let here = if hasIn then [d] else []
-      subs <- mapM walk dirs
-      pure (here ++ concat subs)
+    -- "tags/" is a symlink farm grouping the same cases by category;
+    -- skip it to avoid double-counting.
+    isTagDir d = case reverse (splitPath d) of
+      (last_:_) -> dropTrailingSlash last_ == "tags"
+      []        -> False
+
+    splitPath = words . map (\c -> if c == '/' then ' ' else c)
+    dropTrailingSlash s = case reverse s of
+      ('/' : rs) -> reverse rs
+      _          -> s
+
+    walk d
+      | isTagDir d = pure []
+      | otherwise = do
+          entries <- listDirectory d
+          let absEntries = map (d </>) entries
+          dirs    <- filterM doesDirectoryExist absEntries
+          hasIn   <- doesFileExist (d </> "in.yaml")
+          let here = if hasIn then [d] else []
+          subs <- mapM walk dirs
+          pure (here ++ concat subs)
 
 mkCase :: FilePath -> FilePath -> TestTree
 mkCase _root caseDir = testCase caseDir $ do
