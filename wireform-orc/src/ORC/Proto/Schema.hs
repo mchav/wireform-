@@ -132,6 +132,11 @@ module ORC.Proto.Schema
   , pattern DecimalStatistics_Sum
     -- * StripeFooter
   , pattern StripeFooter_Streams
+  , pattern StripeFooter_Columns
+    -- * ColumnEncoding
+  , pattern ColumnEncoding_Kind
+  , pattern ColumnEncoding_DictionarySize
+  , pattern ColumnEncoding_BloomEncoding
     -- * Stream
   , pattern Stream_Kind
   , pattern Stream_Column
@@ -646,6 +651,34 @@ pattern DecimalStatistics_Sum = (3, 2)
 
 pattern StripeFooter_Streams :: (Int, WireType)
 pattern StripeFooter_Streams = (1, 2)
+
+pattern StripeFooter_Columns :: (Int, WireType)
+pattern StripeFooter_Columns = (2, 2)
+
+-- ============================================================
+-- ColumnEncoding
+-- ============================================================
+--
+-- Per orc.proto:
+--
+-- @
+-- message ColumnEncoding {
+--   enum Kind { DIRECT = 0; DICTIONARY = 1;
+--               DIRECT_V2 = 2; DICTIONARY_V2 = 3; }
+--   required Kind kind = 1;
+--   optional uint32 dictionarySize = 2;
+--   optional bytes bloomEncoding = 3;
+-- }
+-- @
+
+pattern ColumnEncoding_Kind :: (Int, WireType)
+pattern ColumnEncoding_Kind = (1, 0)
+
+pattern ColumnEncoding_DictionarySize :: (Int, WireType)
+pattern ColumnEncoding_DictionarySize = (2, 0)
+
+pattern ColumnEncoding_BloomEncoding :: (Int, WireType)
+pattern ColumnEncoding_BloomEncoding = (3, 0)
 
 -- ============================================================
 -- Stream
