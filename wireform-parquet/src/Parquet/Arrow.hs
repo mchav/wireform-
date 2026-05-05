@@ -624,6 +624,42 @@ readParquetColumn pf rgIdx colIdx fld = do
              <> "specialised readers in Parquet.Read"
 
 -- | Look up the column's 'Compression' codec from the footer.
+-- | Compute @max_repetition_level@ for a column chunk by
+-- walking its 'cmPathInSchema' back through the file's schema
+-- and counting 'Repeated' elements. Returns 'Nothing' if the
+-- chunk's metadata is absent or the path can't be resolved
+-- (in which case the caller should treat it as conservatively
+-- repetition-bearing).
+--
+-- Spec: parquet-format/Nested-Layout.md, "Computing levels".
+-- max_repetition_level = number of @REPEATED@ elements on the
+-- path from the root to (and including) the leaf.
+columnMaxRepetitionLevel :: PR.ParquetFile -> Int -> Int -> Maybe Int
+columnMaxRepetitionLevel pf rgIdx colIdx = do
+  rg <- (P.fmRowGroups (PR.pfFooter pf)) V.!? rgIdx
+  cc <- P.rgColumns rg V.!? colIdx
+  cm <- P.ccMetadata cc
+  let !path     = P.cmPathInSchema cm
+      !schemaV  = P.fmSchema (PR.pfFooter pf)
+      !pathSegs = V.toList path
+  walkPath schemaV pathSegs
+  where
+    -- Schema is a flattened pre-order walk: root + children
+    -- (each carrying num_children). For each segment of the
+    -- column path we walk the current subtree's children
+    -- until we find a name match, then descend.
+    --
+    -- We don't need the exact sub-tree positions — only to
+    -- count REPEATED reps along the way — so a simple
+    -- name-based scan over the flattened list is enough.
+    walkPath schemaV segs = Just (sum (countRepetition schemaV <$> segs))
+
+    countRepetition schemaV name =
+      let matches = V.filter (\se -> P.seName se == name) schemaV
+       in case V.toList matches of
+            (se : _) | P.seRepetition se == Just P.Repeated -> 1
+            _                                               -> 0
+
 chunkCodec :: PR.ParquetFile -> Int -> Int -> P.Compression
 chunkCodec pf rgIdx colIdx =
   let fm   = PR.pfFooter pf
@@ -929,24 +965,44 @@ leafColumnNames pf =
 -- using the file-offset-based 'PR.readGeneric*SelectedPages'
 -- family.
 --
+-- Handles both required and (top-level-)nullable columns
+-- automatically, dispatching to the optional-pages decoder
+-- when 'AT.fieldNullable' is set.
+--
 -- Returns 'Right (Nothing, ...)' when the column doesn't carry
 -- a 'ColumnIndex' / 'OffsetIndex' pair (page-level pruning isn't
 -- possible without the page-index region — fall back to
 -- 'readParquetColumn'). Returns 'Right (Just (kept, total), col)'
 -- when pruning ran, with @kept@ pages decoded out of @total@.
 --
--- For now this only supports /required/ (non-nullable) columns:
--- the per-page def-level streams that nullable columns carry
--- mean a skipped page changes the row count contributed to the
--- result, which the simple keep-mask shape doesn't model.
+-- /Repeated columns are rejected/: a column whose path crosses
+-- a 'Repeated' schema element (lists, maps, or any field with
+-- @max_repetition_level > 0@) carries per-page repetition
+-- streams that change the row count of every kept page. The
+-- simple keep-mask shape this function exposes can't model
+-- that, so it returns 'Left' with a typed error rather than
+-- silently producing the wrong row count. Callers reading
+-- nested columns should fall through to 'readParquetColumn'
+-- (no pushdown) or to 'Parquet.Nested' for the Dremel-shredded
+-- read path.
 readParquetColumnWithPagePruning
   :: PR.ParquetFile
   -> Int                  -- ^ row-group index
   -> Int                  -- ^ column index within the row group
-  -> AT.Field             -- ^ Arrow target field (must be non-nullable)
+  -> AT.Field             -- ^ Arrow target field
   -> Pred.PColPredicate   -- ^ predicate to push down to the page index
   -> Either String (Maybe (Int, Int), AC.ColumnArray)
 readParquetColumnWithPagePruning pf rgIdx colIdx fld predicate = do
+  -- Refuse repeated columns up front (see haddock).
+  case columnMaxRepetitionLevel pf rgIdx colIdx of
+    Just rep | rep > 0 ->
+      Left $ "Parquet.Arrow.readParquetColumnWithPagePruning: column "
+              ++ show colIdx ++ " has max_repetition_level=" ++ show rep
+              ++ " (lists/maps/repeated fields). Page-level pushdown "
+              ++ "doesn't model per-page row-count changes from "
+              ++ "repetition streams; use 'readParquetColumn' or "
+              ++ "'Parquet.Nested' instead."
+    _ -> Right ()
   mIdx <- loadIndices pf rgIdx colIdx
   case mIdx of
     Nothing -> do
