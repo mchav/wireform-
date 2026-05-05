@@ -123,6 +123,7 @@ library
     Wireform.EDN
     Wireform.Bencode
     Wireform.TOML
+    Wireform.YAML
     Wireform.CSV
     Wireform.NDJSON
   other-modules:
@@ -152,6 +153,7 @@ library
     , wireform-edn
     , wireform-bencode
     , wireform-toml
+    , wireform-yaml
     , wireform-csv
     , wireform-ndjson
     , bytestring
@@ -327,6 +329,7 @@ test-suite wireform-test
     , wireform-edn
     , wireform-bencode
     , wireform-toml
+    , wireform-yaml
     , wireform-csv
     , wireform-ndjson
     , bytestring
