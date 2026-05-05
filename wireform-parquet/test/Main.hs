@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
+import qualified Aggregate
 import Control.Monad (unless)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
@@ -873,6 +874,9 @@ main = do
 
   -- Property-style round-trips for every encoding family
   encodingRoundTripProperties
+
+  -- Parquet.Aggregate: count(*) / count(col) / min / max
+  Aggregate.run
 
   -- Auto-populated bloom filters via the high-level writer
   highLevelBloomFilters

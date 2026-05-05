@@ -50,8 +50,8 @@ rowGroupRowCount = P.rgNumRows
 -- contributing row group lacks a populated 'Statistics.statNullCount'
 -- (in which case the value can't be safely computed without
 -- decoding the column).
-columnNonNullCount :: V.Vector Pred.PValue -> P.FileMetadata -> Int -> Maybe Int64
-columnNonNullCount _ fm colIdx =
+columnNonNullCount :: P.FileMetadata -> Int -> Maybe Int64
+columnNonNullCount fm colIdx =
   V.foldl' step (Just 0) (P.fmRowGroups fm)
   where
     step Nothing _ = Nothing
@@ -62,49 +62,60 @@ columnNonNullCount _ fm colIdx =
           Just (acc + (P.rgNumRows rg - nulls))
         _ -> Nothing
 
--- | Minimum value of a column across the whole file. Returns
--- 'Nothing' if any row group lacks min statistics for the
--- column.
+-- | Minimum value of a column across the whole file. Reads
+-- each row group's @min_value@ (or legacy @min@) statistic
+-- and folds them under the 'PValue' ordering. Returns
+-- 'Nothing' if /any/ contributing row group lacks min stats —
+-- otherwise the result might be the min over a strict subset
+-- of the row groups.
 columnMin :: P.FileMetadata -> Int -> Maybe Pred.PValue
-columnMin = aggCmp pickMin
-  where
-    pickMin _ acc v = case Pred.pvLess v acc of
-      True  -> Just v
-      False -> Just acc
+columnMin = aggCmp takeMinStat (\acc v -> if Pred.pvLess v acc then v else acc)
 
--- | Maximum value of a column across the whole file.
+-- | Maximum value of a column across the whole file. Same
+-- soundness rule as 'columnMin': any row group without max
+-- stats poisons the result to 'Nothing'.
 columnMax :: P.FileMetadata -> Int -> Maybe Pred.PValue
-columnMax = aggCmp pickMax
-  where
-    pickMax _ acc v = case Pred.pvLess acc v of
-      True  -> Just v
-      False -> Just acc
+columnMax = aggCmp takeMaxStat (\acc v -> if Pred.pvLess acc v then v else acc)
 
+-- | Common driver for column-wise stat aggregation. Polls the
+-- supplied stat extractor on every row group; if any returns
+-- 'Nothing' the whole result is 'Nothing' (we can't be sound
+-- about a min / max otherwise).
 aggCmp
-  :: (P.ParquetType -> Pred.PValue -> Pred.PValue -> Maybe Pred.PValue)
+  :: (P.ParquetType -> P.Statistics -> Maybe Pred.PValue)
+  -> (Pred.PValue -> Pred.PValue -> Pred.PValue)
   -> P.FileMetadata
   -> Int
   -> Maybe Pred.PValue
-aggCmp pick fm colIdx = V.foldl' step Nothing (P.fmRowGroups fm)
+aggCmp takeStat combine fm colIdx =
+  V.foldl' step (Just Nothing) (P.fmRowGroups fm) >>= id
   where
-    step acc rg = case P.rgColumns rg V.!? colIdx of
-      Nothing -> acc
+    -- Outer Maybe: did any row group fail to produce a stat?
+    -- Inner Maybe: have we accumulated a value yet?
+    step Nothing _ = Nothing
+    step (Just inner) rg = case P.rgColumns rg V.!? colIdx of
+      Nothing -> Nothing
       Just cc -> case P.ccMetadata cc of
-        Nothing -> acc
-        Just md ->
-          let stats = P.cmStatistics md
-              ty    = P.cmType md
-              minV  = stats >>= takeMin ty
-          in case (acc, minV) of
-               (Nothing, Just v) -> Just v
-               (Just a,  Just v) -> pick ty a v
-               _                  -> acc
+        Nothing -> Nothing
+        Just md -> case P.cmStatistics md >>= takeStat (P.cmType md) of
+          Nothing -> Nothing  -- this row group has no stat -> poison
+          Just v  -> case inner of
+            Nothing  -> Just (Just v)
+            Just acc -> Just (Just (combine acc v))
 
-    takeMin ty s =
-      let !raw = case P.statMinValue s of
-                   Just b  -> Just b
-                   Nothing -> P.statMin s
-      in raw >>= PPred.decodePValueLE ty
+takeMinStat :: P.ParquetType -> P.Statistics -> Maybe Pred.PValue
+takeMinStat ty s =
+  let !raw = case P.statMinValue s of
+               Just b  -> Just b
+               Nothing -> P.statMin s
+  in raw >>= PPred.decodePValueLE ty
+
+takeMaxStat :: P.ParquetType -> P.Statistics -> Maybe Pred.PValue
+takeMaxStat ty s =
+  let !raw = case P.statMaxValue s of
+               Just b  -> Just b
+               Nothing -> P.statMax s
+  in raw >>= PPred.decodePValueLE ty
 
 -- | @sum(col)@ — Parquet's standard 'Statistics' message
 -- doesn't carry sums (only ORC does), so this is currently
