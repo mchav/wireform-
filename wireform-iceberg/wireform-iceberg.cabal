@@ -184,6 +184,20 @@ test-suite wireform-iceberg-derive-test
     tasty,
     tasty-hunit
 
+executable wireform-iceberg-interop-probe
+  import: defaults
+  hs-source-dirs: probe
+  main-is: Probe.hs
+  ghc-options: -O1
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-iceberg,
+    bytestring,
+    containers,
+    filepath >= 1.4 && < 1.6,
+    text,
+    vector
+
 executable iceberg
   import: defaults
   hs-source-dirs: app

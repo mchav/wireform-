@@ -45,6 +45,35 @@ Drivers:
 - `wireform-orc/scripts/orc_interop.py` (forward)
 - `wireform-orc/scripts/orc_reverse_interop.py` (reverse)
 
+## Apache Iceberg
+
+|                                                | pyiceberg 0.11 + fastavro |
+| ---------------------------------------------- | :-----------------------: |
+| **wireform → engine** (3 metadata files)       |          ✓ 3/3            |
+
+The 3 files cover the three Iceberg metadata file types:
+
+* `manifest_v2.avro` — manifest file (Avro container of
+  `manifest_entry` records, full v2 statistics including
+  `column_sizes`, `value_counts`, `null_value_counts`,
+  `lower_bounds`, `upper_bounds`).
+* `manifest_list_v2.avro` — manifest list (Avro container of
+  `manifest_file` records).
+* `table_metadata_v2.json` — `TableMetadata` JSON pyiceberg
+  parses through `TableMetadataUtil.parse_raw`, surfacing
+  `format_version`, `table_uuid`, `location`,
+  `current_snapshot_id`, schemas, and snapshot list.
+
+Reverse-direction (read pyiceberg-emitted metadata into
+wireform) is the next bite-sized follow-up; the writer-side
+matrix above is the higher-impact one because it validates
+that wireform-emitted Iceberg tables are consumable by every
+downstream Iceberg client.
+
+Drivers:
+
+- `wireform-iceberg/scripts/iceberg_interop.py`
+
 ## Apache Arrow IPC
 
 |                              | pyarrow 24 | arrow-rs 53 |
