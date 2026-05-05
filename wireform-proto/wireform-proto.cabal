@@ -100,6 +100,7 @@ library
     Proto.SizedBuilder
     Proto.TDP
     Proto.TH
+    Proto.TH.Metadata
     Proto.TextFormat
     Proto.VectorBuilder
     Proto.Wire

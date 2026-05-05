@@ -80,7 +80,7 @@ import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile, addModFinalizer)
 
 import Proto.AST
-import Proto.Annotations (lookupSimpleOption, optionAsBool)
+import Proto.Annotations (lookupSimpleOption, optionAsBool, optionAsString)
 import Proto.Parser (parseProtoFile, renderParseError)
 import Proto.CodeGen (hsTypeName, snakeToCamel, snakeToPascal, lowerFirst, escapeReserved)
 import Proto.CodeGen.Hooks
@@ -88,6 +88,8 @@ import qualified Proto.Derive.Internal as PDI
 import qualified Proto.Decode as Decode
 import qualified Proto.Extension as Ext
 import Proto.Repr
+import qualified Proto.Schema as PS
+import qualified Proto.TH.Metadata as PTM
 import Wireform.Derive.Modifier (MapKeyScalar (..))
 
 -- | Produce a Haskell-valid record-field name from a proto field.
@@ -153,6 +155,7 @@ protoFileToDecls' cfg hooks pf = do
   let scope = ScopeCtx
         { scSyntax    = protoSyntax pf
         , scTopLevels = protoTopLevels pf
+        , scPackage   = maybe T.empty id (protoPackage pf)
         }
   concat <$> mapM (topLevelToDecls scope cfg hooks) (protoTopLevels pf)
 
@@ -165,6 +168,11 @@ protoFileToDecls' cfg hooks pf = do
 data ScopeCtx = ScopeCtx
   { scSyntax    :: !Syntax
   , scTopLevels :: ![TopLevel]
+  , scPackage   :: !Text
+    -- ^ Proto package as declared in the file (empty string when
+    -- the file has no @package@ statement). Drives the
+    -- @protoMessageName@ \/ @protoPackageName@ outputs in the
+    -- generated 'PS.ProtoMessage' instance.
   }
 
 -- | Walk a 'ScopeCtx' looking for an enum named @t@ at any
@@ -193,7 +201,7 @@ isEnumName scope t = anyTopLevel (scTopLevels scope)
 topLevelToDecls :: ScopeCtx -> RepConfig -> THHooks -> TopLevel -> Q [Dec]
 topLevelToDecls scope cfg hooks = \case
   TLMessage msg -> messageToDecls'' scope cfg hooks msg
-  TLEnum ed     -> enumToDecls' hooks ed
+  TLEnum ed     -> enumToDecls'' (scPackage scope) hooks ed
   TLExtend owner fields -> extendToDecls owner fields
   _             -> pure []
 
@@ -206,8 +214,10 @@ messageToDecls = messageToDecls' defaultRepConfig defaultTHHooks
 -- builds the scope from the whole file) for new call sites.
 messageToDecls' :: RepConfig -> THHooks -> MessageDef -> Q [Dec]
 messageToDecls' cfg hooks msg =
-  let scope = ScopeCtx { scSyntax = Proto3
-                       , scTopLevels = [TLMessage msg] }
+  let scope = ScopeCtx { scSyntax    = Proto3
+                       , scTopLevels = [TLMessage msg]
+                       , scPackage   = T.empty
+                       }
   in messageToDecls'' scope cfg hooks msg
 
 messageToDecls'' :: ScopeCtx -> RepConfig -> THHooks -> MessageDef -> Q [Dec]
@@ -225,7 +235,7 @@ messageToDecls'' scopeCtx cfg hooks msg = do
 
   nestedDecls <- concat <$> mapM (\case
     MEMessage inner -> messageToDecls'' scopeCtx cfg hooks inner
-    MEEnum ed       -> enumToDecls' hooks ed
+    MEEnum ed       -> enumToDecls'' (scPackage scopeCtx) hooks ed
     _               -> pure []) (msgElements msg)
 
   -- Sum types backing each oneof. Must precede the message data
@@ -248,14 +258,29 @@ messageToDecls'' scopeCtx cfg hooks msg = do
   hasExtDec  <- mkHasExtensionsInstance tyName (msgName msg)
   hookDecls  <- thOnMessage hooks hookCtx
 
-  addModFinalizer (putDoc (DeclDoc tyName) (messageHaddock msg fields))
   let defName = mkName ("default" <> nameBase tyName)
+      fqName  = case scPackage scopeCtx of
+        p | T.null p  -> msgName msg
+          | otherwise -> p <> T.singleton '.' <> msgName msg
+      metaFields = fmap (fieldSpecToMetaField scopeCtx) fields
+  protoMsgDecs <- PTM.mkProtoMessageInstance tyName fqName
+                    (scPackage scopeCtx) defName metaFields
+  aesonDecs    <- PTM.mkAesonInstancesForMessage tyName defName metaFields
+  hashableDec  <- PTM.mkHashableInstanceForMessage tyName metaFields
+
+  -- Per-oneof carrier sum: ToJSON / FromJSON / Hashable. The data
+  -- declaration was emitted by 'mkOneofDataDecs' just above, so
+  -- the constructor names line up with what we splice here.
+  oneofSatellites <- fmap concat (mapM (oneofSatelliteDecs tyName) fields)
+
+  addModFinalizer (putDoc (DeclDoc tyName) (messageHaddock msg fields))
   addModFinalizer (putDoc (DeclDoc defName)
     ("Default value for @" <> T.unpack (msgName msg)
     <> "@ with all fields at their proto default values."))
 
   pure (nestedDecls <> oneofDecs <> [dataDec] <> defaultDec <> codecDecs
-         <> hasExtDec <> hookDecls)
+         <> hasExtDec <> protoMsgDecs <> aesonDecs <> [hashableDec]
+         <> oneofSatellites <> hookDecls)
 
 -- | Synthesise the @MessageEncode \/ MessageSize \/ MessageDecode@
 -- triple via 'Proto.Derive.Internal.synthesiseProtoInstancesWith'
@@ -655,7 +680,13 @@ enumToDecls :: EnumDef -> Q [Dec]
 enumToDecls = enumToDecls' defaultTHHooks
 
 enumToDecls' :: THHooks -> EnumDef -> Q [Dec]
-enumToDecls' hooks ed = do
+enumToDecls' hooks ed = enumToDecls'' T.empty hooks ed
+
+-- | Enum splice with the proto package threaded through (so the
+-- generated 'PS.ProtoEnum.protoEnumName' returns the
+-- fully-qualified proto name).
+enumToDecls'' :: Text -> THHooks -> EnumDef -> Q [Dec]
+enumToDecls'' pkg hooks ed = do
   let tyName = mkName (T.unpack (hsTypeName (enumName ed)))
       cons = fmap (\ev ->
         normalC (mkName (T.unpack (hsEnumCon (enumName ed) (evName ev)))) []
@@ -669,23 +700,33 @@ enumToDecls' hooks ed = do
   -- Stock-derive Show/Eq/Ord/Generic only; emit a proto-faithful
   -- 'Enum' instance below so 'PFEnum' encoding (varint via
   -- 'fromEnum' \/ 'toEnum') uses the spec-mandated wire numbers
-  -- rather than declaration order. The pure-text codegen in
-  -- 'Proto.CodeGen' takes the same approach (its
-  -- @toProtoEnum@\/@fromProtoEnum@ pair); we ship those via the
-  -- 'Enum' class instead so the bridge's @encodeFieldEnum@ /
-  -- @decodeFieldEnum@ call sites work without any
-  -- format-specific glue.
-  dataDec <- dataD (pure []) tyName [] Nothing cons
+  -- rather than declaration order.
+  dataDec   <- dataD (pure []) tyName [] Nothing cons
     [derivClause (Just StockStrategy)
        [ conT ''Show, conT ''Eq, conT ''Ord
        , conT ''Generic
        ]]
-  enumInst <- mkEnumInstance tyName ed
-  hookDecls <- thOnEnum hooks hookCtx
+  enumInst  <- mkEnumInstance tyName ed
+  let values = fmap (\ev ->
+        ( mkName (T.unpack (hsEnumCon (enumName ed) (evName ev)))
+        , evName ev
+        , evNumber ev
+        )) (enumValues ed)
+      fqEnumName = if T.null pkg
+                   then enumName ed
+                   else pkg <> T.singleton '.' <> enumName ed
+  protoEnumDec <- PTM.mkProtoEnumInstance tyName fqEnumName values
+  aesonDecs    <- PTM.mkEnumAesonInstances tyName values
+  hashableDec  <- PTM.mkEnumHashableInstance tyName
+  hookDecls    <- thOnEnum hooks hookCtx
 
   addModFinalizer $ putDoc (DeclDoc tyName) (enumHaddock ed)
 
-  pure ([dataDec, enumInst] <> hookDecls)
+  pure ( [dataDec, enumInst, protoEnumDec]
+      <> aesonDecs
+      <> [hashableDec]
+      <> hookDecls
+       )
 
 -- | Synthesise a proto-faithful 'Enum' instance for a generated
 -- enum type. @fromEnum@ returns the @evNumber@ recorded in the
@@ -1087,3 +1128,135 @@ scalarToBridgeMapKey = \case
   SDouble   -> Nothing
   SFloat    -> Nothing
   SBytes    -> Nothing
+
+-- ===========================================================
+-- Satellite-instance bridge: FieldSpec -> PTM.MetaField
+-- ===========================================================
+
+-- | Translate a 'FieldSpec' into the condensed 'PTM.MetaField'
+-- shape consumed by the @ProtoMessage@ \/ JSON \/ Hashable
+-- emitters in "Proto.TH.Metadata".
+fieldSpecToMetaField :: ScopeCtx -> FieldSpec -> PTM.MetaField
+fieldSpecToMetaField scope fs = case fs of
+  FSField name num lbl ft _rep opts ->
+    let sel      = mkName (T.unpack (hsFieldName name))
+        jsonNm   = jsonNameFromOpts opts (snakeToCamel name)
+        kind     = case lbl of
+          Just Repeated -> PTM.MFKVector  -- default Vector container
+          Just Optional -> PTM.MFKMaybe
+          _             -> case ft of
+            FTNamed n
+              | not (isEnumName scope n) -> PTM.MFKMaybe
+            _ -> PTM.MFKBare
+        jsonKind = case ft of
+          FTScalar SBytes -> PTM.JKBytes
+          _               -> PTM.JKNormal
+    in PTM.MetaField
+         { PTM.mfSelector  = sel
+         , PTM.mfProtoName = name
+         , PTM.mfJsonName  = jsonNm
+         , PTM.mfNumber    = num
+         , PTM.mfTypeDesc  = fieldTypeDescE scope ft
+         , PTM.mfLabel     = protoLabelE lbl
+         , PTM.mfKind      = kind
+         , PTM.mfJsonKind  = jsonKind
+         }
+  FSMap name num kt vt ->
+    let sel      = mkName (T.unpack (hsFieldName name))
+        jsonNm   = snakeToCamel name
+        jsonKind = case vt of
+          FTScalar SBytes -> PTM.JKBytesMap
+          _               -> PTM.JKNormal
+    in PTM.MetaField
+         { PTM.mfSelector  = sel
+         , PTM.mfProtoName = name
+         , PTM.mfJsonName  = jsonNm
+         , PTM.mfNumber    = num
+         , PTM.mfTypeDesc  = mapTypeDescE scope kt vt
+         , PTM.mfLabel     = [| PS.LabelOptional |]
+         , PTM.mfKind      = PTM.MFKMap
+         , PTM.mfJsonKind  = jsonKind
+         }
+  FSOneof name _ofs ->
+    let sel      = mkName (T.unpack (hsFieldName name))
+        jsonNm   = snakeToCamel name
+    in PTM.MetaField
+         { PTM.mfSelector  = sel
+         , PTM.mfProtoName = name
+           -- Field number 0 is a deliberate sentinel: oneofs don't
+           -- have a single proto field number, so the schema-level
+           -- descriptor uses 0 (matching the historical behaviour
+           -- of the pure-text codegen, whose extractor pulled the
+           -- first variant's number; either is wrong in the same
+           -- way and this avoids picking favourites).
+         , PTM.mfJsonName  = jsonNm
+         , PTM.mfNumber    = 0
+         , PTM.mfTypeDesc  = [| PS.MessageType $(textLitE name) |]
+         , PTM.mfLabel     = [| PS.LabelOptional |]
+         , PTM.mfKind      = PTM.MFKOneof
+         , PTM.mfJsonKind  = PTM.JKNormal
+         }
+
+-- | Per-shape splice for 'PS.FieldTypeDescriptor'.
+fieldTypeDescE :: ScopeCtx -> FieldType -> Q Exp
+fieldTypeDescE scope ft = case ft of
+  FTScalar s -> [| PS.ScalarType $(scalarFieldTypeE s) |]
+  FTNamed n
+    | isEnumName scope n -> [| PS.EnumType    $(textLitE n) |]
+    | otherwise          -> [| PS.MessageType $(textLitE n) |]
+
+mapTypeDescE :: ScopeCtx -> ScalarType -> FieldType -> Q Exp
+mapTypeDescE scope kt vt =
+  [| PS.MapType $(scalarFieldTypeE kt) $(fieldTypeDescE scope vt) |]
+
+scalarFieldTypeE :: ScalarType -> Q Exp
+scalarFieldTypeE = \case
+  SDouble    -> [| PS.DoubleField   |]
+  SFloat     -> [| PS.FloatField    |]
+  SInt32     -> [| PS.Int32Field    |]
+  SInt64     -> [| PS.Int64Field    |]
+  SUInt32    -> [| PS.UInt32Field   |]
+  SUInt64    -> [| PS.UInt64Field   |]
+  SSInt32    -> [| PS.SInt32Field   |]
+  SSInt64    -> [| PS.SInt64Field   |]
+  SFixed32   -> [| PS.Fixed32Field  |]
+  SFixed64   -> [| PS.Fixed64Field  |]
+  SSFixed32  -> [| PS.SFixed32Field |]
+  SSFixed64  -> [| PS.SFixed64Field |]
+  SBool      -> [| PS.BoolField     |]
+  SString    -> [| PS.StringField   |]
+  SBytes     -> [| PS.BytesField    |]
+
+protoLabelE :: Maybe FieldLabel -> Q Exp
+protoLabelE = \case
+  Nothing        -> [| PS.LabelOptional |]
+  Just Optional  -> [| PS.LabelOptional |]
+  Just Required  -> [| PS.LabelRequired |]
+  Just Repeated  -> [| PS.LabelRepeated |]
+
+textLitE :: Text -> Q Exp
+textLitE t = [| T.pack $(litE (StringL (T.unpack t))) |]
+
+-- | Resolve the JSON key for a field. The proto3 default is the
+-- camelCase form of the proto-side name; the @json_name@ option
+-- (declared inline in the @.proto@) overrides it.
+jsonNameFromOpts :: [OptionDef] -> Text -> Text
+jsonNameFromOpts opts dflt = case lookupSimpleOption (T.pack "json_name") opts of
+  Just c  -> case optionAsString c of
+    Just s  -> s
+    Nothing -> dflt
+  Nothing -> dflt
+
+-- | For each oneof carrier in the message, emit @ToJSON@ \/
+-- @FromJSON@ \/ @Hashable@ instances on the carrier sum type. The
+-- sum's constructors were emitted by 'mkOneofDataDecs'.
+oneofSatelliteDecs :: Name -> FieldSpec -> Q [Dec]
+oneofSatelliteDecs parentTy = \case
+  FSOneof name ofs -> do
+    let sumTy = oneofSumName parentTy name
+        cons  = fmap (\(f, _) ->
+                  oneofConTHName parentTy name (oneofFieldName f)) ofs
+    aeson    <- PTM.mkOneofAesonInstances sumTy
+    hashable <- PTM.mkOneofHashableInstance sumTy cons
+    pure (aeson <> [hashable])
+  _ -> pure []
