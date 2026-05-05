@@ -150,6 +150,19 @@ test-suite wireform-parquet-derive-test
     tasty,
     tasty-hunit
 
+executable wireform-parquet-interop-probe
+  import: defaults
+  hs-source-dirs: probe
+  main-is: Probe.hs
+  ghc-options: -O1
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-parquet,
+    bytestring >= 0.11 && < 0.13,
+    filepath >= 1.4 && < 1.6,
+    text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14
+
 benchmark parquet-bench
   import: defaults
   type: exitcode-stdio-1.0
