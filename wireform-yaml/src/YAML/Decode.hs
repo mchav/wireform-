@@ -394,7 +394,7 @@ parseTagged = do
     then do
       mNext <- peekLine
       case mNext of
-        Just l2 | lineIndent l2 > lineIndent l -> do
+        Just l2 | lineIndent l2 >= lineIndent l -> do
           v <- parseNode (lineIndent l2)
           pure (YTagged tag v)
         _ -> pure (YTagged tag YNull)
@@ -496,18 +496,51 @@ consumeFlowFromHead = do
   Just l <- popLine
   consumeFlow (lineBody l)
 
+-- | Walk the parsed flow value and (a) register any embedded
+-- 'YAnchored' nodes, (b) resolve any alias placeholders left by
+-- 'parseFlowAlias'.
+recordFlowAnchors :: Value -> P ()
+recordFlowAnchors = goV
+  where
+    goV v = case v of
+      YAnchored (Anchor n) inner -> do
+        recordAnchor n inner
+        goV inner
+      YTagged _ inner            -> goV inner
+      YSeq xs                    -> mapM_ goV (toListV xs)
+      YMap kvs                   -> mapM_ (\(k, x) -> goV k >> goV x)
+                                          (toListV kvs)
+      _                          -> pure ()
+
+    toListV v = V.toList v
+
+resolveFlowAliases :: Value -> P Value
+resolveFlowAliases = goV
+  where
+    goV (YString t)
+      | T.isPrefixOf (T.pack "\0alias\0") t = do
+          let nm = T.drop (T.length (T.pack "\0alias\0")) t
+          resolveAnchor nm
+    goV (YAnchored a v)         = YAnchored a <$> goV v
+    goV (YTagged   a v)         = YTagged   a <$> goV v
+    goV (YSeq xs)               = YSeq <$> V.mapM goV xs
+    goV (YMap kvs)              = YMap <$> V.mapM
+                                     (\(k, x) -> (,) <$> goV k <*> goV x) kvs
+    goV v                       = pure v
+
 consumeFlow :: Text -> P Value
 consumeFlow = go
   where
     go buf = case scanFlow buf of
       ScanComplete v rest -> do
+        recordFlowAnchors v
+        v' <- resolveFlowAliases v
         let !s = T.stripStart rest
         case T.uncons s of
-          Nothing -> pure v
+          Nothing -> pure v'
           Just _  -> do
-            -- push remaining content as a virtual line at column 0
             pushLine (PLine 0 0 LContent s s)
-            pure v
+            pure v'
       ScanIncomplete -> do
         mNext <- popLine
         case mNext of
@@ -570,11 +603,10 @@ parseFlowTagged !p t =
                        Just (v, p3) -> Just (YTagged tag v, p3)
                        Nothing      -> Just (YTagged tag YNull, p2)
 
--- | Anchor in flow context: skip past the anchor name and parse
--- the value it labels. Anchor /resolution/ in flow is intentionally
--- best-effort here (full anchor recording would require threading
--- anchor state through pure flow parsing); we just consume the
--- token and emit the labelled value.
+-- | Anchor in flow context: read the anchor name and parse the
+-- labelled value, wrapping it in 'YAnchored' so the post-pass
+-- 'recordFlowAnchors' picks it up and registers it with the
+-- enclosing parser state.
 parseFlowAnchored :: Int -> Text -> Maybe (Value, Int)
 parseFlowAnchored !p t =
   let !len = T.length t
@@ -588,23 +620,23 @@ parseFlowAnchored !p t =
             '}'  -> i
             _    -> goN (i + 1)
       !endName = goN (p + 1)
+      name    = T.take (endName - (p + 1)) (T.drop (p + 1) t)
       p2 = skipFlowWS endName t
   in if p2 >= T.length t
-       then Just (YNull, p2)
+       then Just (YAnchored (Anchor name) YNull, p2)
        else case T.index t p2 of
-              ','  -> Just (YNull, endName)
-              ']'  -> Just (YNull, endName)
-              '}'  -> Just (YNull, endName)
+              ','  -> Just (YAnchored (Anchor name) YNull, endName)
+              ']'  -> Just (YAnchored (Anchor name) YNull, endName)
+              '}'  -> Just (YAnchored (Anchor name) YNull, endName)
               ':' | colonIsSeparator (p2 + 1) t ->
-                      Just (YNull, endName)
+                      Just (YAnchored (Anchor name) YNull, endName)
               _   -> case parseFlowValue p2 t of
-                       Just (v, p3) -> Just (v, p3)
-                       Nothing      -> Just (YNull, p2)
+                       Just (v, p3) -> Just (YAnchored (Anchor name) v, p3)
+                       Nothing      -> Just (YAnchored (Anchor name) YNull, p2)
 
--- | Alias in flow context: parse the alias name and resolve later
--- (we don't have access to the anchor map from a pure parser).
--- For now produce a placeholder string @"*name"@; full resolution
--- is a follow-up.
+-- | Alias in flow context: emit a 'YAnchored'-tagged placeholder
+-- whose value is a sentinel 'YString' starting with @"\\0alias\\0"@.
+-- The post-pass resolves these to the registered anchor value.
 parseFlowAlias :: Int -> Text -> Maybe (Value, Int)
 parseFlowAlias !p t =
   let !len = T.length t
@@ -617,8 +649,9 @@ parseFlowAlias !p t =
             ']'  -> i
             '}'  -> i
             _    -> goN (i + 1)
-      !p1 = goN (p + 1)
-  in Just (YString (T.take (p1 - p) (T.drop p t)), p1)
+      !p1   = goN (p + 1)
+      name  = T.take (p1 - (p + 1)) (T.drop (p + 1) t)
+  in Just (YString (T.pack "\0alias\0" <> name), p1)
 
 parseFlowSeq :: Int -> Text -> Maybe (Value, Int)
 parseFlowSeq !p0 t = goV (skipFlowWS p0 t) []
