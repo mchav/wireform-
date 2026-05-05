@@ -345,16 +345,31 @@ consumeQuoted q = go0
                         (\c -> c == ' ' || c == '\t') (lineBody l')
               isBlank = T.null (T.strip body)
               body' = T.dropWhile (\c -> c == ' ' || c == '\t') body
+              -- DQ-only: a bare trailing backslash on the previous
+              -- line eats the newline plus any leading whitespace
+              -- on the next line (YAML 1.2 §5.7 / §7.5).
+              endsWithEscape = q == '"'
+                            && case T.unsnoc buf of
+                                 Just (_, '\\') -> not (endsEvenBackslashes buf)
+                                 _              -> False
           if isBlank
             then readMore buf (blanks + 1)
             else
-              let joinSep
-                    | blanks == 0 = T.pack " "    -- single break → space
-                    | otherwise   = T.replicate blanks (T.pack "\n")
-                  buf' = buf <> joinSep <> body'
-              in case parser 0 buf' of
+              let (buf', joined)
+                    | endsWithEscape =
+                        (T.init buf <> body', True)
+                    | otherwise =
+                        let joinSep
+                              | blanks == 0 = T.pack " "
+                              | otherwise   = T.replicate blanks (T.pack "\n")
+                        in (buf <> joinSep <> body', True)
+              in joined `seq` case parser 0 buf' of
                    Just (v, p)   -> finish v (T.drop p buf')
                    Nothing       -> readMore buf' 0
+
+    -- A run of trailing backslashes counts as "even" when it
+    -- pairs up to "\\\\…", which means no escape at end.
+    endsEvenBackslashes t = even (T.length (T.takeWhileEnd (== '\\') t))
 
     finish v rest =
       let s = T.stripStart rest
@@ -1375,6 +1390,7 @@ decodeDQEscape t !i = case T.index t i of
   'a'  -> Just ('\a', i + 1)
   'b'  -> Just ('\b', i + 1)
   't'  -> Just ('\t', i + 1)
+  '\t' -> Just ('\t', i + 1)   -- '\<TAB>' as literal tab
   'n'  -> Just ('\n', i + 1)
   'v'  -> Just ('\v', i + 1)
   'f'  -> Just ('\f', i + 1)
