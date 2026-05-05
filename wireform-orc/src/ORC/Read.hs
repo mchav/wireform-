@@ -25,6 +25,8 @@ module ORC.Read
   , decodePresentStream
     -- * Stream decompression
   , decompressORCStream
+  , decompressORCStreamSized
+  , defaultORCCompressionBlockSize
     -- * Column decoders
   , decodeIntColumn
   , decodeBoolColumn
@@ -73,7 +75,7 @@ import qualified Codec.Compression.LZ4 as LZ4
 
 import qualified Columnar.IO as IO
 import qualified Columnar.Stream as IS
-import ORC.Footer (readORCCompression, readORCFooter)
+import ORC.Footer (readORCCompression, readORCCompressionBlockSize, readORCFooter)
 import ORC.RLE
   ( decodeBooleanRLE
   , decodePresentStream
@@ -93,14 +95,27 @@ data ORCFile = ORCFile
   { ofBytes       :: !ByteString
   , ofFooter      :: !ORCFooter
   , ofCompression :: !CompressionKind
+  , ofCompressionBlockSize :: !Int
+    -- ^ Maximum uncompressed length of any one chunk
+    -- (ORC PostScript field 4). Decompressors that need to
+    -- size their output buffer (LZ4, LZO) use this. Defaults
+    -- to 'defaultORCCompressionBlockSize' (256 KiB) for files
+    -- whose PostScript omits the field.
   } deriving stock (Show, Eq)
 
 -- | Read postscript, footer, and parse protobuf footer metadata.
 loadORCFile :: ByteString -> Either String ORCFile
 loadORCFile bs = do
-  ft <- readORCFooter bs
-  ck <- readORCCompression bs
-  Right ORCFile {ofBytes = bs, ofFooter = ft, ofCompression = ck}
+  ft  <- readORCFooter bs
+  ck  <- readORCCompression bs
+  blk <- readORCCompressionBlockSize bs
+  let !blk' = if blk == 0 then defaultORCCompressionBlockSize else blk
+  Right ORCFile
+    { ofBytes = bs
+    , ofFooter = ft
+    , ofCompression = ck
+    , ofCompressionBlockSize = blk'
+    }
 
 -- | Read an ORC file from disk and parse its footer.
 --
@@ -187,13 +202,32 @@ stripeColumnStreams ofile idx = do
 --
 -- ORC wraps each compressed chunk with a 3-byte LE header encoding
 -- @(chunkLength * 2 + isOriginal)@. 'CompressionNone' passes through.
+-- | The ORC default for @compressionBlockSize@, 256 KiB. The
+-- spec doesn't mandate a default but every upstream writer
+-- (Java ORC, C++ ORC, arrow-rs) uses this value; older
+-- callers that didn't thread the postscript-supplied size
+-- through fell back to it. Use 'decompressORCStreamSized'
+-- to pass the file's actual setting.
+defaultORCCompressionBlockSize :: Int
+defaultORCCompressionBlockSize = 262144
+
 {-# INLINE decompressORCStream #-}
 decompressORCStream :: CompressionKind -> ByteString -> Either String ByteString
-decompressORCStream CompressionNone bs = Right bs
-decompressORCStream kind bs = decompressChunks kind bs 0 []
+decompressORCStream =
+  decompressORCStreamSized defaultORCCompressionBlockSize
 
-decompressChunks :: CompressionKind -> ByteString -> Int -> [ByteString] -> Either String ByteString
-decompressChunks kind bs !off !acc
+-- | Like 'decompressORCStream' but the caller supplies the
+-- file's @compressionBlockSize@ from the postscript (see
+-- 'ORC.Footer.readORCCompressionBlockSize'). LZ4 / LZO need
+-- this to size their output buffer correctly; Zlib / Snappy /
+-- ZSTD ignore it (they decompress to whatever the input
+-- expands to).
+decompressORCStreamSized :: Int -> CompressionKind -> ByteString -> Either String ByteString
+decompressORCStreamSized _   CompressionNone bs = Right bs
+decompressORCStreamSized blk kind            bs = decompressChunks blk kind bs 0 []
+
+decompressChunks :: Int -> CompressionKind -> ByteString -> Int -> [ByteString] -> Either String ByteString
+decompressChunks !blk kind bs !off !acc
   | off >= BS.length bs = Right $! BS.concat (reverse acc)
   | off + 3 > BS.length bs = Left "ORC.Read: truncated compression header"
   | otherwise = do
@@ -209,23 +243,26 @@ decompressChunks kind bs !off !acc
           let !chunk = BS.take cLen (BS.drop (off + 3) bs)
           decoded <- if isOrig
             then Right chunk
-            else decompressBlock kind chunk
-          decompressChunks kind bs (off + 3 + cLen) (decoded : acc)
+            else decompressBlock blk kind chunk
+          decompressChunks blk kind bs (off + 3 + cLen) (decoded : acc)
 
-decompressBlock :: CompressionKind -> ByteString -> Either String ByteString
-decompressBlock CompressionNone bs = Right bs
-decompressBlock CompressionZlib bs = tryZlibRaw bs
-decompressBlock CompressionSnappy bs = trySnappy bs
+decompressBlock :: Int -> CompressionKind -> ByteString -> Either String ByteString
+decompressBlock _   CompressionNone bs = Right bs
+decompressBlock _   CompressionZlib bs = tryZlibRaw bs
+decompressBlock _   CompressionSnappy bs = trySnappy bs
 #ifdef HAVE_ZSTD
-decompressBlock CompressionZstd bs = tryZstd bs
+decompressBlock _   CompressionZstd bs = tryZstd bs
 #endif
 #ifdef HAVE_LZ4
--- ORC LZ4 chunks are LZ4 frame-format payloads. The block-format
--- 'lz4' library variant doesn't decode them; we use 'lz4-hs'
--- which exposes the frame codec under Codec.Compression.LZ4.
-decompressBlock CompressionLZ4 bs = tryLZ4 bs
+-- ORC LZ4 chunks are LZ4 block-format payloads (not the
+-- frame format); the maximum decompressed size is the file's
+-- 'compressionBlockSize' from the postscript. We pass that
+-- through here so the output buffer is sized correctly
+-- regardless of the chunk's compression ratio (the previous
+-- 4x guess silently truncated highly-compressible data).
+decompressBlock blk CompressionLZ4 bs = tryLZ4 blk bs
 #endif
-decompressBlock CompressionLZO bs =
+decompressBlock _ CompressionLZO bs =
   -- ORC's LZO codec is the legacy Hadoop variant that requires
   -- a JNI-bound C lib; no pure-Haskell decoder is available
   -- today. Rather than refusing the file outright (which trips
@@ -236,7 +273,7 @@ decompressBlock CompressionLZO bs =
   Left $ "ORC.Read: LZO decompression not implemented (no pure-"
        ++ "Haskell decoder); the file is otherwise readable for "
        ++ "metadata. Length=" ++ show (BS.length bs)
-decompressBlock c _ =
+decompressBlock _ c _ =
   Left $
     "ORC.Read: compression "
       ++ show c
@@ -275,20 +312,21 @@ tryZstd bs =
 #endif
 
 #ifdef HAVE_LZ4
-tryLZ4 :: ByteString -> Either String ByteString
-tryLZ4 bs =
-  -- ORC LZ4 chunks are length-prefixed: the chunked envelope
-  -- already records the (compressed, uncompressed) sizes, so we
-  -- need the decompress with-known-size variant. The block-codec
-  -- 'lz4' package's @decompress@ takes the uncompressed length;
-  -- we don't have it here without parsing the ORC chunk header
-  -- (which decompressChunks already did). Use the worst-case
-  -- guess of 4x the compressed size for now — ORC's chunk header
-  -- gives the exact value but plumbing it through decompressBlock
-  -- needs a wider signature; deferred.
-  case LZ4.decompress (4 * BS.length bs) bs of
+-- | Decompress one ORC LZ4 chunk. The output buffer is sized
+-- to the file's @compressionBlockSize@ (PostScript field 4),
+-- which the spec defines as the maximum decompressed length
+-- of any one chunk. Chunks that decompress smaller still fit;
+-- chunks that would decompress larger are an ill-formed file
+-- per the spec and 'LZ4.decompress' returns 'Nothing'.
+tryLZ4 :: Int -> ByteString -> Either String ByteString
+tryLZ4 !blockSize bs =
+  case LZ4.decompress blockSize bs of
     Just out -> Right out
-    Nothing  -> Left "ORC.Read: LZ4 decompress failed"
+    Nothing  -> Left $
+      "ORC.Read: LZ4 decompress failed (input " ++ show (BS.length bs)
+        ++ " bytes, max output " ++ show blockSize ++ " bytes); "
+        ++ "either the chunk is corrupt or compressionBlockSize "
+        ++ "in the file's PostScript was wrong."
 #endif
 
 ------------------------------------------------------------------------
@@ -599,13 +637,14 @@ readColumn ofile stripeIdx colIdx expectedKind = do
               !mDataBs     = findStreamPayload streams col64 skData
               !mPresentBs  = findStreamPayload streams col64 skPresent
               !comp        = ofCompression ofile
+              !blk         = ofCompressionBlockSize ofile
           case mDataBs of
             Nothing -> Left "ORC.Read: no DATA stream for column"
             Just rawData -> do
-              dataBs <- decompressORCStream comp rawData
+              dataBs <- decompressORCStreamSized blk comp rawData
               mPresent <- case mPresentBs of
                 Nothing -> Right Nothing
-                Just rp -> Just <$> decompressORCStream comp rp
+                Just rp -> Just <$> decompressORCStreamSized blk comp rp
               let !stripes = orcStripes (ofFooter ofile)
                   !nRows   = fromIntegral (siNumberOfRows (V.unsafeIndex stripes stripeIdx)) :: Int
               decodeIntColumn True nRows dataBs mPresent
