@@ -605,6 +605,20 @@ executable profile-rewriter
   if flag(profile)
     ghc-options: -fprof-late -prof
 
+benchmark yaml-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: YAMLBench.hs
+  build-depends:
+      base               >= 4.16 && < 5
+    , wireform-yaml
+    , bytestring
+    , text
+    , deepseq
+    , criterion          >= 1.5  && < 1.7
+  hs-source-dirs: bench
+  ghc-options: -O2
+
 benchmark format-bench
   import: defaults
   type: exitcode-stdio-1.0
