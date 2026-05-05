@@ -1,0 +1,19 @@
+[package]
+name = "wireform-arrow-rs-interop"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "read_parquet"
+path = "src/read_parquet.rs"
+
+[[bin]]
+name = "read_arrow_ipc"
+path = "src/read_arrow_ipc.rs"
+
+[dependencies]
+# Build with the lz4 + zstd feature flags so the IPC reader
+# can decompress what wireform emits via -fzstd / -flz4.
+arrow = { version = "53", features = ["ipc_compression"] }
+parquet = { version = "53", features = ["arrow", "snap", "lz4", "zstd"] }
+arrow-ipc = { version = "53", features = ["zstd", "lz4"] }
