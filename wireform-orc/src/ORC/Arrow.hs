@@ -79,10 +79,30 @@ streamData = 1
 streamLength :: Word64
 streamLength = 2
 
--- | @Kind = SECONDARY@ — used for ORC timestamp nanoseconds (not
--- exercised in this bridge yet).
-_streamSecondary :: Word64
-_streamSecondary = 7
+-- | @Kind = SECONDARY@ (id 5) — used for ORC timestamp
+-- nanoseconds and decimal scale. The previous value here
+-- was 7, which is actually @BLOOM_FILTER@; that mistake
+-- silently mis-tagged every SECONDARY stream we wrote so
+-- pyarrow's reader couldn't find them.
+streamSecondary :: Word64
+streamSecondary = 5
+
+-- | The ORC timestamp epoch is 2015-01-01 00:00:00 UTC, /not/
+-- the Unix epoch. Per spec
+-- (https://orc.apache.org/specification/ORCv1/#timestamp-data)
+-- the DATA stream stores seconds relative to ORC's epoch; we
+-- shift between the two when round-tripping with anything that
+-- speaks Unix time. The constant below is
+-- @1_420_070_400 = (2015 - 1970) * 365.25 * 86400@ rounded down
+-- to the second (the exact value Java / C++ / Rust ORC use).
+orcEpochSecondsFromUnix :: Int64
+orcEpochSecondsFromUnix = 1_420_070_400
+
+-- | Convert an 'OR.ORCTimestamp' (seconds-since-ORC-epoch +
+-- decoded-nanos) back to whole nanoseconds since the Unix epoch.
+timestampToUnixNanos :: OR.ORCTimestamp -> Int64
+timestampToUnixNanos (OR.ORCTimestamp s n) =
+  (s + orcEpochSecondsFromUnix) * 1_000_000_000 + n
 
 -- ============================================================
 -- Arrow → ORC
@@ -414,7 +434,7 @@ columnArrayToORCStreams !cid = go
       AC.ColDate64 v -> Right (intStreams Nothing cid v)
       AC.ColTime32 v -> Right (intStreams Nothing cid (signedI32 v))
       AC.ColTime64 v -> Right (intStreams Nothing cid v)
-      AC.ColTimestamp v -> Right (intStreams Nothing cid v)
+      AC.ColTimestamp v -> Right (timestampStreams Nothing cid v)
       AC.ColDuration  v -> Right (intStreams Nothing cid v)
 
       -- Nullable variants: emit PRESENT + present-only data.
@@ -458,7 +478,7 @@ columnArrayToORCStreams !cid = go
       AC.ColDate64Maybe    v -> Right (intMaybe v cid id)
       AC.ColTime32Maybe    v -> Right (intMaybe v cid signedI32')
       AC.ColTime64Maybe    v -> Right (intMaybe v cid id)
-      AC.ColTimestampMaybe v -> Right (intMaybe v cid id)
+      AC.ColTimestampMaybe v -> Right (timestampMaybe v cid)
       AC.ColDurationMaybe  v -> Right (intMaybe v cid id)
 
       other -> Left $ "ORC.Arrow: column shape "
@@ -512,6 +532,41 @@ columnArrayToORCStreams !cid = go
     intStreams mPres !c xs =
       presentPrefix mPres c <>
         V.singleton (streamData, c, OW.encodeIntColumn xs True)
+
+    -- ORC timestamps need both a DATA stream (signed seconds
+    -- with the SPEC-defined epoch of 2015-01-01 GMT, NOT
+    -- 1970-01-01 — the famous ORC epoch gotcha) and a
+    -- SECONDARY stream (nanoseconds with the 3-bit
+    -- trailing-zero encoding ORC defines). The Arrow
+    -- 'ColTimestamp' payload is whole nanoseconds since
+    -- 1970-01-01; convert to ORC's epoch by subtracting
+    -- 'orcEpochSecondsFromUnix' from the seconds part. Negative
+    -- timestamps are fine since the seconds field is signed.
+    timestampStreams mPres !c (nsVec :: VP.Vector Int64) =
+      let !secsUnix = VP.map (\ns -> ns `quot` 1_000_000_000) nsVec
+          !secs     = VP.map (\s -> s - orcEpochSecondsFromUnix) secsUnix
+          !nanos    = VP.map (\ns -> ns `rem`  1_000_000_000) nsVec
+          !(secBs, nanoBs) = OW.encodeTimestampColumn secs nanos
+      in  presentPrefix mPres c <>
+            V.fromList
+              [ (streamData,      c, secBs)
+              , (streamSecondary, c, nanoBs)
+              ]
+
+    -- Nullable timestamp: PRESENT mask + per-present timestamp
+    -- pair (DATA + SECONDARY).
+    timestampMaybe v !c =
+      let (!pres, !justs) = presentBytes v
+          !nsVec    = VP.fromList (V.toList justs)
+          !secsUnix = VP.map (\ns -> ns `quot` 1_000_000_000) nsVec
+          !secs     = VP.map (\s -> s - orcEpochSecondsFromUnix) secsUnix
+          !nanos    = VP.map (\ns -> ns `rem`  1_000_000_000) nsVec
+          !(secBs, nanoBs) = OW.encodeTimestampColumn secs nanos
+      in  V.fromList
+            [ (streamPresent,   c, pres)
+            , (streamData,      c, secBs)
+            , (streamSecondary, c, nanoBs)
+            ]
     boolStreams mPres !c xs =
       presentPrefix mPres c <>
         V.singleton (streamData, c, OW.encodeBooleanRLE xs)
@@ -799,9 +854,17 @@ decodeOneColumn cid fld numRows stripeBs streams = do
       xs <- OR.decodeIntColumn True numRows dataBs mPresentBs
       temporalToArrow (AT.fieldType fld) (AT.fieldNullable fld) xs
     AT.ATimestamp _ _ -> do
+      -- ORC timestamps are encoded as DATA (signed seconds
+      -- since 2015-01-01 GMT, the ORC epoch — NOT 1970) +
+      -- SECONDARY (per-row nano-of-second with the 3-bit
+      -- trailing-zero scale). Reconstruct nanoseconds since
+      -- 1970-01-01 from both streams so callers see the same
+      -- semantics as Arrow's ColTimestamp.
       dataBs <- sliceFor streamData
-      xs <- OR.decodeIntColumn True numRows dataBs mPresentBs
-      temporalToArrow (AT.fieldType fld) (AT.fieldNullable fld) xs
+      nanoBs <- sliceFor streamSecondary
+      tss <- OR.decodeTimestampColumn numRows dataBs nanoBs mPresentBs
+      let !nsVec = V.map (fmap timestampToUnixNanos) tss
+      temporalToArrow (AT.fieldType fld) (AT.fieldNullable fld) nsVec
     AT.ADuration _ -> do
       dataBs <- sliceFor streamData
       xs <- OR.decodeIntColumn True numRows dataBs mPresentBs

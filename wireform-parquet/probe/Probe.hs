@@ -59,11 +59,33 @@ writeAllProbes outDir = do
   writeReq outDir "byte_array_required.parquet" reqByteArray
   writeReq outDir "utf8_required.parquet" reqUtf8
 
+  -- Logical-type-annotated primitives. The physical type is
+  -- the underlying integer / binary; the ConvertedType
+  -- annotation tells the reader to surface it as a
+  -- date / time / decimal / etc. Every modern engine has to
+  -- reconstruct these annotations correctly from our footer.
+  writeReq outDir "date32_required.parquet"        reqDate32
+  writeReq outDir "time_millis_required.parquet"   reqTimeMillis
+  writeReq outDir "timestamp_millis_required.parquet" reqTimestampMillis
+  writeReq outDir "uint32_required.parquet"        reqUInt32
+  writeReq outDir "json_required.parquet"          reqJson
+
   -- Compressed required-only.
   writeReqCompressed outDir "int64_zstd.parquet" P.ZSTD reqInt64
+  writeReqCompressed outDir "int64_snappy.parquet" P.Snappy reqInt64
+  writeReqCompressed outDir "int64_gzip.parquet" P.GZip reqInt64
+  writeReqCompressed outDir "int64_lz4_raw.parquet" P.LZ4Raw reqInt64
 
   -- Mixed required + optional through encodeParquetMixed.
   writeMixed outDir "mixed_optional.parquet" mixedSchema mixedRow
+
+  -- All-nullable optional columns covering each OptionalColumn
+  -- variant, exercising definition-level streams for every
+  -- physical type.
+  writeMixed outDir "optional_int32.parquet" optInt32Schema optInt32Row
+  writeMixed outDir "optional_int64.parquet" optInt64Schema optInt64Row
+  writeMixed outDir "optional_float.parquet" optFloatSchema optFloatRow
+  writeMixed outDir "optional_bool.parquet"  optBoolSchema  optBoolRow
 
   -- Multi-row-group: same column twice in two row groups.
   writeReqMultiRG outDir "int64_two_row_groups.parquet" reqInt64Twice
@@ -196,3 +218,79 @@ mixedRow = V.fromList
   , PCOptional (OptDouble (V.fromList
       [ Just 1.5, Just 2.5, Nothing :: Maybe Double ]))
   ]
+
+-- ============================================================
+-- Logical-type variants (Int32 / Int64 / ByteArray with
+-- ConvertedType annotations). Every modern Parquet reader
+-- has to honour the annotation and surface the column as a
+-- date / time / decimal / unsigned int / json string.
+-- ============================================================
+
+reqDate32 :: ([P.SchemaElement], V.Vector ColumnData)
+reqDate32 =
+  ( [rootElem 1, leafElem P.PTInt32 (Just P.CTDate) "d"]
+    -- Days since 1970-01-01. 18000 days ~ 2019-04-13.
+  , V.singleton (ColInt32 (VP.fromList [0, 18000, 19000 :: Int32]))
+  )
+
+reqTimeMillis :: ([P.SchemaElement], V.Vector ColumnData)
+reqTimeMillis =
+  ( [rootElem 1, leafElem P.PTInt32 (Just P.CTTimeMillis) "t"]
+  , V.singleton
+      (ColInt32 (VP.fromList [0, 12345, 86400000 - 1 :: Int32]))
+  )
+
+reqTimestampMillis :: ([P.SchemaElement], V.Vector ColumnData)
+reqTimestampMillis =
+  ( [rootElem 1, leafElem P.PTInt64 (Just P.CTTimestampMillis) "ts"]
+  , V.singleton
+      (ColInt64 (VP.fromList [0, 1700000000000 :: Int64]))
+  )
+
+reqUInt32 :: ([P.SchemaElement], V.Vector ColumnData)
+reqUInt32 =
+  ( [rootElem 1, leafElem P.PTInt32 (Just P.CTUInt32) "u"]
+    -- Stored as Int32 with an unsigned reinterpretation;
+    -- maxBound :: Int32 = 2_147_483_647, fromIntegral
+    -- (maxBound :: Word32) wraps to -1.
+  , V.singleton (ColInt32 (VP.fromList
+      [ 0, 1
+      , maxBound :: Int32   -- = 2_147_483_647 unsigned
+      , -1 :: Int32         -- = 4_294_967_295 unsigned
+      ]))
+  )
+
+reqJson :: ([P.SchemaElement], V.Vector ColumnData)
+reqJson =
+  ( [rootElem 1, leafElem P.PTByteArray (Just P.CTJson) "doc"]
+  , V.singleton (ColByteArray (V.fromList
+      [ TE.encodeUtf8 "{\"k\":1}"
+      , TE.encodeUtf8 "{\"k\":2,\"j\":\"hi\"}"
+      ]))
+  )
+
+-- ============================================================
+-- Optional-column-only schemas (one column each).
+-- ============================================================
+
+optColSchema :: P.ParquetType -> Maybe P.ConvertedType -> Text -> [P.SchemaElement]
+optColSchema ty conv name =
+  [ rootElem 1
+  , P.SchemaElement name (Just P.Optional) (Just ty) Nothing conv Nothing Nothing
+  ]
+
+optInt32Schema, optInt64Schema, optFloatSchema, optBoolSchema :: [P.SchemaElement]
+optInt32Schema = optColSchema P.PTInt32   Nothing "x"
+optInt64Schema = optColSchema P.PTInt64   Nothing "x"
+optFloatSchema = optColSchema P.PTFloat   Nothing "x"
+optBoolSchema  = optColSchema P.PTBoolean Nothing "x"
+
+optInt32Row, optInt64Row, optFloatRow, optBoolRow :: V.Vector ParquetColumn
+optInt32Row = V.singleton $ PCOptional $ OptInt32 (V.fromList
+  [ Just 1, Nothing, Just 3, Just (-1) ])
+optInt64Row = V.singleton $ PCOptional $ OptInt64 (V.fromList
+  [ Just 100, Nothing, Just 300 ])
+optFloatRow = V.singleton $ PCOptional $ OptFloat (V.fromList
+  [ Just 1.5, Just 2.5, Nothing, Just 4.5 ])
+optBoolRow = V.singleton $ PCOptional $ OptBool (V.fromList
+  [ Just True, Nothing, Just False, Just True, Nothing ])

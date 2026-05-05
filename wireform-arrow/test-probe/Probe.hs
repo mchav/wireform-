@@ -17,7 +17,7 @@ import System.Exit (exitFailure)
 import Arrow.Column (ColumnArray (..))
 import Arrow.Types
   ( ArrowType (..), DateUnit (..), Precision (..)
-  , TimeUnit (..)
+  , TimeUnit (..), UnionMode (..)
   , Schema (..), Field (..), DictionaryEncoding (..), Endianness (..)
   )
 import Arrow.Stream
@@ -292,6 +292,68 @@ writeMode outDir = do
        [ ("i", ColInt32 (VP.fromList ([1, 2, 3] :: [Int32])))
        , ("n", ColUtf8  (V.fromList ["a", "b", "c"]))
        ]))]
+
+  -- 14) Map<utf8, int32>. Per Arrow spec the Map is encoded
+  -- as List<Struct<key, value>> with the parent type being
+  -- AMap and the (single) child being a non-nullable struct
+  -- of {key, value}.
+  writeSample "map_utf8_int32"
+    (Schema (V.singleton $
+        pField "m" False (AMap False) $ V.singleton $
+          pField "entries" False AStruct $ V.fromList
+            [ pField "key"   False AUtf8           V.empty
+            , pField "value" True  (AInt 32 True)  V.empty
+            ])
+       Little V.empty V.empty)
+    [V.singleton (ColMap
+        (VP.fromList ([0, 2, 5] :: [Int32]))
+        (ColUtf8 (V.fromList ["k1", "k2", "k3", "k4", "k5"]))
+        (ColInt32 (VP.fromList ([10, 20, 30, 40, 50] :: [Int32]))))]
+
+  -- 15) LargeList<int32> — 64-bit offsets.
+  writeSample "large_list_int32"
+    (Schema (V.singleton $
+        pField "lst" False ALargeList
+          (V.singleton (pField "item" False (AInt 32 True) V.empty)))
+       Little V.empty V.empty)
+    [V.singleton (ColLargeList
+        (VP.fromList ([0, 2, 5, 7] :: [Int64]))
+        (ColInt32 (VP.fromList ([10,20,30,40,50,60,70] :: [Int32]))))]
+
+  -- 16) FixedSizeList<int32, 3>.
+  writeSample "fixed_size_list3_int32"
+    (Schema (V.singleton $
+        pField "fsl" False (AFixedSizeList 3)
+          (V.singleton (pField "item" False (AInt 32 True) V.empty)))
+       Little V.empty V.empty)
+    [V.singleton (ColFixedSizeList 3
+        (ColInt32 (VP.fromList ([1, 2, 3, 4, 5, 6] :: [Int32]))))]
+
+  -- 17) LargeUtf8.
+  writeSample "large_utf8"
+    (Schema (V.singleton (pField "s" False ALargeUtf8 V.empty))
+       Little V.empty V.empty)
+    [V.singleton (ColLargeUtf8 (V.fromList ["alpha", "beta", "gamma"]))]
+
+  -- 18) DenseUnion<int32, utf8>.
+  --
+  --     Arrow's union has type ids in [0, n_children) and an
+  --     offsets buffer indexing into the per-child storage.
+  --     Spec ref: format/Layout.rst Dense Union section.
+  writeSample "dense_union_int32_utf8"
+    (Schema (V.singleton $
+        pField "u" False (AUnion Dense (V.fromList [0, 1])) $ V.fromList
+          [ pField "i" False (AInt 32 True) V.empty
+          , pField "s" False AUtf8           V.empty
+          ])
+       Little V.empty V.empty)
+    [V.singleton (ColDenseUnion
+        (VP.fromList ([0, 1, 0, 1, 0] :: [Int8]))    -- type ids
+        (VP.fromList ([0, 0, 1, 1, 2] :: [Int32]))   -- per-child offsets
+        (V.fromList
+           [ ColInt32 (VP.fromList ([10, 20, 30] :: [Int32]))
+           , ColUtf8  (V.fromList ["a", "b"])
+           ]))]
 
   putStrLn ("wrote probe outputs to " ++ outDir)
 

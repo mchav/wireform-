@@ -1147,7 +1147,15 @@ columnLength = \case
   ColIntervalYearMonth v -> VP.length v
   ColIntervalDayTime d _ -> VP.length d
   ColIntervalMonthDayNano m _ _ -> VP.length m
-  ColFixedSizeList _ child -> columnLength child
+  -- FixedSizeList<n> has parent length = child length / n
+  -- (each row consumes exactly n child elements). The
+  -- previous formula returned child length which made the
+  -- record batch's @length@ field 'n' times larger than the
+  -- actual row count and any downstream reader rejected the
+  -- batch ("Array length did not match record batch length").
+  ColFixedSizeList n child
+    | n > 0     -> columnLength child `quot` n
+    | otherwise -> 0
   ColFixedSizeListMaybe _ v _ -> V.length v
   ColMap offsets _ _ -> max 0 (VP.length offsets - 1)
   ColMapMaybe v _ _ _ -> V.length v

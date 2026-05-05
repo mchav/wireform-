@@ -25,6 +25,8 @@ import pyarrow.orc as orc
 
 ROOT = Path(__file__).resolve().parent.parent
 
+import datetime as _dt
+
 def expected_files() -> list[tuple[str, pa.Table]]:
     return [
         ( "int64_required.orc"
@@ -41,6 +43,26 @@ def expected_files() -> list[tuple[str, pa.Table]]:
             "name":  pa.array(["alice", "bob", "carol"], pa.string()),
             "score": pa.array([1.5, 2.5, 3.5], pa.float64()),
           }) )
+      # harder shapes
+      , ( "nested_struct.orc"
+        , pa.table({"rec": pa.array(
+            [ {"i": 1, "n": "a"}
+            , {"i": 2, "n": "b"}
+            , {"i": 3, "n": "c"}
+            ],
+            pa.struct([("i", pa.int64()), ("n", pa.string())]))}) )
+      , ( "list_int64.orc"
+        , pa.table({"lst": pa.array(
+            [[10, 20], [30, 40, 50], [60, 70]], pa.list_(pa.int64()))}) )
+      , ( "int32_required.orc"
+        , pa.table({"x": pa.array([1, 2, 3, 4, 5], pa.int32())}) )
+      , ( "float_required.orc"
+        , pa.table({"x": pa.array([1.5, 2.5, 3.5], pa.float32())}) )
+      , ( "timestamp_required.orc"
+        , pa.table({"ts": pa.array(
+            [ _dt.datetime(1970, 1, 1, 0, 0, 0)
+            , _dt.datetime(2023, 11, 14, 22, 13, 20)
+            ], pa.timestamp("ns"))}) )
     ]
 
 def assert_table_eq(name: str, actual: pa.Table, expected: pa.Table) -> str | None:

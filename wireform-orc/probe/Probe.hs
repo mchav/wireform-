@@ -39,6 +39,15 @@ writeAllProbes outDir = do
   writeOne outDir "string_required.orc" stringSch stringBatches
   writeOne outDir "mixed_required.orc" mixedSch mixedBatches
   writeOne outDir "bool_required.orc" boolSch boolBatches
+  -- harder types: nested struct + list (the ORC bridge
+  -- supports both via arrowToORC's TKStruct / TKList paths)
+  writeOne outDir "nested_struct.orc"  structSch structBatches
+  writeOne outDir "list_int64.orc"     listSch   listBatches
+  -- additional integer widths exposed through Arrow
+  writeOne outDir "int32_required.orc" int32Sch  int32Batches
+  writeOne outDir "float_required.orc" floatSch  floatBatches
+  -- timestamp
+  writeOne outDir "timestamp_required.orc" tsSch tsBatches
 
 writeOne :: FilePath -> FilePath -> AT.Schema -> [V.Vector AC.ColumnArray] -> IO ()
 writeOne outDir fname sch batches =
@@ -104,3 +113,72 @@ mixedBatches =
       , AC.ColDouble (VP.fromList [1.5, 2.5, 3.5 :: Double])
       ]
   ]
+
+-- ============================================================
+-- Harder shapes
+-- ============================================================
+
+structSch :: AT.Schema
+structSch = AT.defaultSchema $ V.singleton $ AT.Field
+  { AT.fieldName       = "rec"
+  , AT.fieldNullable   = False
+  , AT.fieldType       = AT.AStruct
+  , AT.fieldChildren   = V.fromList
+      [ AT.defaultLeafField "i" False (AT.AInt 64 True)
+      , AT.defaultLeafField "n" False AT.AUtf8
+      ]
+  , AT.fieldDictionary = Nothing
+  , AT.fieldMetadata   = V.empty
+  }
+
+structBatches :: [V.Vector AC.ColumnArray]
+structBatches =
+  [ V.singleton (AC.ColStruct (V.fromList
+      [ ("i", AC.ColInt64 (VP.fromList [1, 2, 3 :: Int64]))
+      , ("n", AC.ColUtf8  (V.fromList ["a", "b", "c"]))
+      ]))
+  ]
+
+listSch :: AT.Schema
+listSch = AT.defaultSchema $ V.singleton $ AT.Field
+  { AT.fieldName       = "lst"
+  , AT.fieldNullable   = False
+  , AT.fieldType       = AT.AList
+  , AT.fieldChildren   = V.singleton
+      (AT.defaultLeafField "item" False (AT.AInt 64 True))
+  , AT.fieldDictionary = Nothing
+  , AT.fieldMetadata   = V.empty
+  }
+
+listBatches :: [V.Vector AC.ColumnArray]
+listBatches =
+  [ V.singleton (AC.ColList
+      (VP.fromList ([0, 2, 5, 7] :: [Int32]))
+      (AC.ColInt64 (VP.fromList ([10,20,30,40,50,60,70] :: [Int64]))))
+  ]
+
+int32Sch :: AT.Schema
+int32Sch = AT.defaultSchema (V.singleton
+  (AT.defaultLeafField "x" False (AT.AInt 32 True)))
+
+int32Batches :: [V.Vector AC.ColumnArray]
+int32Batches =
+  [ V.singleton (AC.ColInt32 (VP.fromList [1, 2, 3, 4, 5 :: Int32])) ]
+
+floatSch :: AT.Schema
+floatSch = AT.defaultSchema (V.singleton
+  (AT.defaultLeafField "x" False (AT.AFloatingPoint AT.Single)))
+
+floatBatches :: [V.Vector AC.ColumnArray]
+floatBatches =
+  [ V.singleton (AC.ColFloat (VP.fromList [1.5, 2.5, 3.5 :: Float])) ]
+
+tsSch :: AT.Schema
+tsSch = AT.defaultSchema (V.singleton
+  (AT.defaultLeafField "ts" False
+    (AT.ATimestamp AT.Nanosecond Nothing)))
+
+tsBatches :: [V.Vector AC.ColumnArray]
+tsBatches =
+  [ V.singleton (AC.ColTimestamp (VP.fromList
+      [0, 1700000000_000_000_000 :: Int64])) ]

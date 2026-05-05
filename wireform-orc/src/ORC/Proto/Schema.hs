@@ -465,8 +465,18 @@ pattern PostScript_CompressionBlockSize = (3, 0)
 pattern PostScript_Version :: (Int, WireType)
 pattern PostScript_Version              = (4, 0)
 
+-- | Per orc.proto the postscript's @magic@ field is number
+-- 8000 (yes, eight thousand — the ORC authors picked a
+-- ridiculously high field number deliberately so old readers
+-- without a @magic@ slot would skip it as an unknown field
+-- rather than misinterpret the bytes as something else).
+-- Field number 5 was being used here by mistake; that's the
+-- spec's @metadata_length@ slot, so pyarrow / Java / C++
+-- readers were interpreting our magic bytes as a metadata
+-- length and getting confused about where the stripe footer
+-- starts.
 pattern PostScript_Magic :: (Int, WireType)
-pattern PostScript_Magic                = (5, 2)
+pattern PostScript_Magic                = (8000, 2)
 
 -- ============================================================
 -- StripeInformation
