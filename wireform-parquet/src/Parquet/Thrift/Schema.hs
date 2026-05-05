@@ -53,6 +53,7 @@ module Parquet.Thrift.Schema
   , pattern FileMetadata_NumRows
   , pattern FileMetadata_RowGroups
   , pattern FileMetadata_CreatedBy
+  , pattern FileMetadata_ColumnOrders
     -- * SchemaElement
     --
     -- | @parquet.thrift@:
@@ -83,6 +84,13 @@ module Parquet.Thrift.Schema
   , pattern RowGroup_Columns
   , pattern RowGroup_TotalByteSize
   , pattern RowGroup_NumRows
+  , pattern RowGroup_SortingColumns
+    -- ** SortingColumn struct fields
+  , pattern SortingColumn_ColumnIdx
+  , pattern SortingColumn_Descending
+  , pattern SortingColumn_NullsFirst
+    -- ** ColumnOrder union variants
+  , columnOrderTypeDefined
     -- * ColumnChunk
   , pattern ColumnChunk_FilePath
   , pattern ColumnChunk_FileOffset
@@ -188,6 +196,7 @@ import Data.Int (Int16, Int32, Int64)
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 import qualified Thrift.Value as TV
 import Thrift.Wire (ThriftType (..))
@@ -249,6 +258,16 @@ pattern FileMetadata_RowGroups elems <- (4, TV.List _ elems)
 pattern FileMetadata_CreatedBy :: Text -> (Int16, TV.Value)
 pattern FileMetadata_CreatedBy t = (6, TV.String t)
 
+-- | @FileMetaData.column_orders@ is field id 7 in
+-- parquet.thrift. The list is parallel to the leaf-column
+-- order in 'fmSchema' and tells readers how to compare
+-- BYTE_ARRAY statistics (every modern writer emits this; the
+-- column index without it is unreliable for pushdown on
+-- string columns).
+pattern FileMetadata_ColumnOrders :: Vector TV.Value -> (Int16, TV.Value)
+pattern FileMetadata_ColumnOrders xs <- (7, TV.List _ xs)
+  where FileMetadata_ColumnOrders xs = (7, TV.List TT_STRUCT xs)
+
 -- ============================================================
 -- SchemaElement
 -- ============================================================
@@ -301,6 +320,39 @@ pattern RowGroup_TotalByteSize v = (2, TV.I64 v)
 
 pattern RowGroup_NumRows :: Int64 -> (Int16, TV.Value)
 pattern RowGroup_NumRows v = (3, TV.I64 v)
+
+-- | @RowGroup.sorting_columns@ is field id 4 — list of
+-- 'SortingColumn' (struct {column_idx, descending, nulls_first}).
+-- Lets a reader skip ORDER BY when scanning a sorted file.
+pattern RowGroup_SortingColumns :: Vector TV.Value -> (Int16, TV.Value)
+pattern RowGroup_SortingColumns xs <- (4, TV.List _ xs)
+  where RowGroup_SortingColumns xs = (4, TV.List TT_STRUCT xs)
+
+-- ============================================================
+-- SortingColumn
+-- ============================================================
+
+pattern SortingColumn_ColumnIdx :: Int32 -> (Int16, TV.Value)
+pattern SortingColumn_ColumnIdx v = (1, TV.I32 v)
+
+pattern SortingColumn_Descending :: Bool -> (Int16, TV.Value)
+pattern SortingColumn_Descending b = (2, TV.Bool b)
+
+pattern SortingColumn_NullsFirst :: Bool -> (Int16, TV.Value)
+pattern SortingColumn_NullsFirst b = (3, TV.Bool b)
+
+-- ============================================================
+-- ColumnOrder
+-- ============================================================
+-- The parquet.thrift @ColumnOrder@ union has one variant
+-- today: @{1: TypeDefinedOrder TYPE_ORDER}@ where
+-- @TypeDefinedOrder@ is itself an empty struct.
+
+-- | The single ColumnOrder variant. The @TYPE_ORDER@ payload
+-- is an empty struct, so callers identify the variant by the
+-- field number alone (1).
+columnOrderTypeDefined :: TV.Value
+columnOrderTypeDefined = TV.Struct (V.singleton (1, TV.Struct V.empty))
 
 -- ============================================================
 -- ColumnChunk

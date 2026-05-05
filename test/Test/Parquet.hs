@@ -348,6 +348,18 @@ footerRoundtrips = testGroup "Footer roundtrips"
           mkSchema t = SchemaElement (T.pack (show t)) (Just Required) (Just t) Nothing Nothing Nothing Nothing
           fm = FileMetadata 2 (V.fromList (map mkSchema types)) 0 V.empty Nothing Nothing
       readFooter (writeFooter fm) @?= Right fm
+  , testCase "fmColumnOrders round-trips" $ do
+      let orders = V.fromList [TypeDefinedOrder, TypeDefinedOrder, TypeDefinedOrder]
+          fm = FileMetadata 2 V.empty 0 V.empty (Just "wireform")
+                 (Just orders)
+      readFooter (writeFooter fm) @?= Right fm
+  , testCase "rgSortingColumns round-trips" $ do
+      let sc1 = SortingColumn 0 False True
+          sc2 = SortingColumn 1 True  False
+          rg  = RowGroup V.empty 0 100 (Just (V.fromList [sc1, sc2]))
+          fm  = FileMetadata 2 V.empty 100 (V.singleton rg)
+                  Nothing Nothing
+      readFooter (writeFooter fm) @?= Right fm
   ]
 
 magicTests :: TestTree

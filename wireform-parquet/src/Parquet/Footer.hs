@@ -138,6 +138,11 @@ fileMetadataToThrift fm = TV.Struct $ V.fromList $
   , FileMetadata_NumRows (fmNumRows fm)
   , FileMetadata_RowGroups (V.map rowGroupToThrift (fmRowGroups fm))
   ] ++ optField (fmCreatedBy fm) FileMetadata_CreatedBy
+    ++ optField (fmColumnOrders fm)
+         (FileMetadata_ColumnOrders . V.map columnOrderToThrift)
+
+columnOrderToThrift :: ColumnOrder -> TV.Value
+columnOrderToThrift TypeDefinedOrder = columnOrderTypeDefined
 
 schemaElementToThrift :: SchemaElement -> TV.Value
 schemaElementToThrift se = TV.Struct $ V.fromList $ concat
@@ -280,10 +285,18 @@ asTimeUnit (TV.Struct sb) = case V.toList sb of
 asTimeUnit _ = Nothing
 
 rowGroupToThrift :: RowGroup -> TV.Value
-rowGroupToThrift rg = TV.Struct $ V.fromList
+rowGroupToThrift rg = TV.Struct $ V.fromList $
   [ RowGroup_Columns (V.map columnChunkToThrift (rgColumns rg))
   , RowGroup_TotalByteSize (rgTotalByteSize rg)
   , RowGroup_NumRows (rgNumRows rg)
+  ] ++ optField (rgSortingColumns rg)
+        (RowGroup_SortingColumns . V.map sortingColumnToThrift)
+
+sortingColumnToThrift :: SortingColumn -> TV.Value
+sortingColumnToThrift sc = TV.Struct $ V.fromList
+  [ SortingColumn_ColumnIdx  (scColumnIdx sc)
+  , SortingColumn_Descending (scDescending sc)
+  , SortingColumn_NullsFirst (scNullsFirst sc)
   ]
 
 columnChunkToThrift :: ColumnChunk -> TV.Value
@@ -397,20 +410,27 @@ thriftToFileMetadata (TV.Struct fields) = do
   let createdBy = findField fm $ \case
         FileMetadata_CreatedBy t -> Just t
         _                        -> Nothing
+  let columnOrders = findField fm $ \case
+        FileMetadata_ColumnOrders xs ->
+          Just (V.mapMaybe thriftToColumnOrder xs)
+        _ -> Nothing
   Right FileMetadata
     { fmVersion = version
     , fmSchema = schema
     , fmNumRows = numRows
     , fmRowGroups = rowGroups
     , fmCreatedBy = createdBy
-    , fmColumnOrders = Nothing
-      -- column_orders (parquet.thrift field 7) — present in
-      -- modern files; the codec passes through unchanged on
-      -- read for now (thrift slot 7 is parsed by external
-      -- tooling). Writers can populate this when materialising
-      -- a fresh footer.
+    , fmColumnOrders = columnOrders
     }
 thriftToFileMetadata _ = Left "Parquet.Footer: expected struct"
+
+thriftToColumnOrder :: TV.Value -> Maybe ColumnOrder
+thriftToColumnOrder (TV.Struct fields) =
+  -- The union has one variant; pick by field id 1.
+  case V.find ((== 1) . fst) fields of
+    Just _  -> Just TypeDefinedOrder
+    Nothing -> Nothing
+thriftToColumnOrder _ = Nothing
 
 thriftToSchemaElement :: TV.Value -> Either String SchemaElement
 thriftToSchemaElement (TV.Struct fields) = do
@@ -460,15 +480,26 @@ thriftToRowGroup (TV.Struct fields) = do
   numRows <- require fm "num_rows" $ \case
     RowGroup_NumRows v -> Just v
     _                  -> Nothing
+  let sortingColumns = findField fm $ \case
+        RowGroup_SortingColumns xs ->
+          Just (V.mapMaybe thriftToSortingColumn xs)
+        _ -> Nothing
   Right RowGroup
     { rgColumns = cols
     , rgTotalByteSize = totalBytes
     , rgNumRows = numRows
-    , rgSortingColumns = Nothing
-      -- sorting_columns is parquet.thrift field 4 — round-trip
-      -- pass-through pending a wider Footer codec refactor.
+    , rgSortingColumns = sortingColumns
     }
 thriftToRowGroup _ = Left "Parquet.Footer: expected struct for RowGroup"
+
+thriftToSortingColumn :: TV.Value -> Maybe SortingColumn
+thriftToSortingColumn (TV.Struct fields) = do
+  let look p = V.find p fields
+  TV.I32  i <- snd <$> look (\(fid, _) -> fid == 1)
+  TV.Bool d <- snd <$> look (\(fid, _) -> fid == 2)
+  TV.Bool n <- snd <$> look (\(fid, _) -> fid == 3)
+  Just SortingColumn { scColumnIdx = i, scDescending = d, scNullsFirst = n }
+thriftToSortingColumn _ = Nothing
 
 thriftToColumnChunk :: TV.Value -> Either String ColumnChunk
 thriftToColumnChunk (TV.Struct fields) = do
