@@ -23,6 +23,7 @@ import qualified Columnar.Predicate as Pred
 import qualified Columnar.Stream as IS
 
 import qualified Data.ByteString as BS
+import Data.Int (Int64)
 import System.IO.Temp (withSystemTempFile)
 import System.IO (hClose)
 
@@ -255,27 +256,118 @@ iterProps = testGroup "Columnar.Stream.Iter"
 
 predicateProps :: TestTree
 predicateProps = testGroup "Columnar.Predicate.evalRange"
-  [ testProperty "PEq inside range -> MaybeKeep, outside -> Skip" $ property $ do
-      mn <- forAll (Gen.int (Range.linear (-1000) 1000))
-      mx <- forAll (Gen.int (Range.linear mn 1000))
-      v  <- forAll (Gen.int (Range.linear (-2000) 2000))
-      let result = Pred.evalRange (Pred.PVInt64 (fromIntegral mn))
-                                  (Pred.PVInt64 (fromIntegral mx))
-                                  (Pred.PEq (Pred.PVInt64 (fromIntegral v)))
-      if v >= mn && v <= mx
-        then result === Pred.PMaybeKeep
-        else result === Pred.PSkip
+  [ -- Soundness: PSkip is only returned when no value in
+    -- [mn, mx] satisfies the predicate. Generate a triple
+    -- (mn, mx, v) and a leaf predicate, ask evalRange, then
+    -- *exhaustively* check whether any integer in [mn, mx]
+    -- satisfies the predicate. If evalRange says PSkip but
+    -- some integer satisfies, that's a false negative —
+    -- the soundness violation we care about.
+    testProperty "PSkip => no integer in [mn,mx] satisfies the predicate (Int64)" $
+      property $ do
+        mn <- forAll (Gen.int (Range.linear (-50) 50))
+        mx <- forAll (Gen.int (Range.linear mn  60))
+        op <- forAll
+          (Gen.choice
+            [ pure Pred.PEq, pure Pred.PNeq
+            , pure Pred.PLt, pure Pred.PLtEq
+            , pure Pred.PGt, pure Pred.PGtEq
+            ] <*> (Pred.PVInt64 . fromIntegral <$> Gen.int (Range.linear (-100) 100)))
+        let !decision = Pred.evalRange
+              (Pred.PVInt64 (fromIntegral mn))
+              (Pred.PVInt64 (fromIntegral mx))
+              op
+            range64 = map fromIntegral [mn .. mx] :: [Int64]
+            !satisfies = case op of
+              Pred.PEq    (Pred.PVInt64 v) -> any (== v) range64
+              Pred.PNeq   (Pred.PVInt64 v) -> any (/= v) range64
+              Pred.PLt    (Pred.PVInt64 v) -> any (<  v) range64
+              Pred.PLtEq  (Pred.PVInt64 v) -> any (<= v) range64
+              Pred.PGt    (Pred.PVInt64 v) -> any (>  v) range64
+              Pred.PGtEq  (Pred.PVInt64 v) -> any (>= v) range64
+              _ -> True
+        case decision of
+          Pred.PSkip      -> satisfies === False
+          Pred.PMaybeKeep -> H.success  -- always sound
 
-  , testProperty "PLt v -> Skip iff v <= mn" $ property $ do
-      mn <- forAll (Gen.int (Range.linear (-1000) 1000))
-      mx <- forAll (Gen.int (Range.linear mn 1000))
-      v  <- forAll (Gen.int (Range.linear (-2000) 2000))
-      let result = Pred.evalRange (Pred.PVInt64 (fromIntegral mn))
-                                  (Pred.PVInt64 (fromIntegral mx))
-                                  (Pred.PLt (Pred.PVInt64 (fromIntegral v)))
-      if v <= mn
-        then result === Pred.PSkip
-        else result === Pred.PMaybeKeep
+  , testProperty "PSkip soundness for Int32 ranges" $ property $ do
+      mn <- forAll (Gen.int32 (Range.linear (-50) 50))
+      mx <- forAll (Gen.int32 (Range.linear mn  60))
+      v  <- forAll (Gen.int32 (Range.linear (-100) 100))
+      let !decision = Pred.evalRange
+            (Pred.PVInt32 mn) (Pred.PVInt32 mx) (Pred.PEq (Pred.PVInt32 v))
+      case decision of
+        Pred.PSkip -> (v >= mn && v <= mx) === False
+        _          -> H.success
+
+  , testProperty "PSkip soundness for Double ranges" $ property $ do
+      mn <- forAll (Gen.double (Range.linearFrac (-50.0) 50.0))
+      mx <- forAll (Gen.double (Range.linearFrac mn 60.0))
+      v  <- forAll (Gen.double (Range.linearFrac (-100.0) 100.0))
+      let !decision = Pred.evalRange
+            (Pred.PVDouble mn) (Pred.PVDouble mx) (Pred.PEq (Pred.PVDouble v))
+      case decision of
+        Pred.PSkip -> (v >= mn && v <= mx) === False
+        _          -> H.success
+
+  , testProperty "PSkip soundness for Text ranges (UTF-8 byte order)" $
+      property $ do
+        let alpha = Gen.text (Range.linear 1 4) Gen.alpha
+        mn <- forAll alpha
+        mx <- forAll (Gen.filter (>= mn) alpha)
+        v  <- forAll alpha
+        let !decision = Pred.evalRange
+              (Pred.PVText mn) (Pred.PVText mx) (Pred.PEq (Pred.PVText v))
+        case decision of
+          Pred.PSkip -> (v >= mn && v <= mx) === False
+          _          -> H.success
+
+  , testProperty "PIn rejects only when every member is outside the range" $
+      property $ do
+        mn <- forAll (Gen.int (Range.linear (-50) 50))
+        mx <- forAll (Gen.int (Range.linear mn  60))
+        ks <- forAll (Gen.list (Range.linear 1 5) (Gen.int (Range.linear (-100) 100)))
+        let !decision = Pred.evalRange
+              (Pred.PVInt64 (fromIntegral mn))
+              (Pred.PVInt64 (fromIntegral mx))
+              (Pred.PIn (map (Pred.PVInt64 . fromIntegral) ks))
+            !anyInside = any (\k -> k >= mn && k <= mx) ks
+        if anyInside
+          then decision === Pred.PMaybeKeep
+          else decision === Pred.PSkip
+
+  , testProperty "PIsNull always returns PMaybeKeep (range-only stats)" $
+      property $ do
+        mn <- forAll (Gen.int (Range.linear (-100) 100))
+        mx <- forAll (Gen.int (Range.linear mn 100))
+        Pred.evalRange (Pred.PVInt64 (fromIntegral mn))
+                       (Pred.PVInt64 (fromIntegral mx)) Pred.PIsNull
+          === Pred.PMaybeKeep
+
+  , testProperty "PIsNotNull always returns PMaybeKeep" $ property $ do
+      mn <- forAll (Gen.int (Range.linear (-100) 100))
+      mx <- forAll (Gen.int (Range.linear mn 100))
+      Pred.evalRange (Pred.PVInt64 (fromIntegral mn))
+                     (Pred.PVInt64 (fromIntegral mx)) Pred.PIsNotNull
+        === Pred.PMaybeKeep
+
+  , testProperty "PNeq always returns PMaybeKeep (can't prove from range alone)" $
+      property $ do
+        mn <- forAll (Gen.int (Range.linear (-100) 100))
+        mx <- forAll (Gen.int (Range.linear mn 100))
+        v  <- forAll (Gen.int (Range.linear (-200) 200))
+        Pred.evalRange (Pred.PVInt64 (fromIntegral mn))
+                       (Pred.PVInt64 (fromIntegral mx))
+                       (Pred.PNeq (Pred.PVInt64 (fromIntegral v)))
+          === Pred.PMaybeKeep
+
+  , testProperty "Cross-type comparison degrades to PMaybeKeep" $ property $ do
+      v   <- forAll (Gen.int (Range.linear (-100) 100))
+      txt <- forAll (Gen.text (Range.linear 0 5) Gen.alpha)
+      let !decision = Pred.evalRange (Pred.PVInt64 (fromIntegral v))
+                                     (Pred.PVInt64 (fromIntegral v))
+                                     (Pred.PEq (Pred.PVText txt))
+      decision === Pred.PMaybeKeep
   ]
 
 predicateUnits :: TestTree
