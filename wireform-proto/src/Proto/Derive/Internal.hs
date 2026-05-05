@@ -754,7 +754,25 @@ bytesNullE rep v = case rep of
   ShortBytesRep  -> [| SBS.null $(varE v) |]
 
 encodeSingleE :: ProtoField -> Int -> Name -> Q Exp
-encodeSingleE pf tagInt v =
+encodeSingleE pf tagInt v
+    -- Field numbers > 31 produce tag bytes > 255 (since
+    -- @tag = (fn << 3) | wt@ — fn=32 with the smallest wire type
+    -- already gives 256). The 'PA.archXxx' family bakes the tag
+    -- into a single 'Word8'; we have to reach for the slower
+    -- @PE.encodeField*@ helpers in those cases (those varint-encode
+    -- the tag and so handle any field number).
+  | tagInt > 0x7F = encodeSingleSlowE pf v
+  | otherwise     = encodeSingleArchE pf tagInt v
+
+-- | Single-byte-tag fast path. Caller has verified
+-- @tagInt <= 0x7F@ (i.e. field number <= 15) so the
+-- 'PA.archXxx' bake-in is safe. (We keep the threshold at the
+-- one-byte varint boundary rather than 255 because that's the
+-- spec-correct boundary; anything above it would round-trip but
+-- the varint bookkeeping would silently differ from the
+-- pure-text codegen.)
+encodeSingleArchE :: ProtoField -> Int -> Name -> Q Exp
+encodeSingleArchE pf tagInt v =
   let tagWord = litE (integerL (fromIntegral tagInt))
       var     = varE v
   in case pfType pf of
@@ -782,6 +800,32 @@ encodeSingleE pf tagInt v =
       [| PE.encodeFieldEnum
            $(litE (integerL (fromIntegral (tagInt `quot` 8))))
            $var |]
+
+-- | Slow path: field number > 15, so the wire tag is two or more
+-- bytes. We dispatch through @Proto.Encode.encodeField*@, which
+-- takes a field number (Int) and varint-encodes the tag.
+encodeSingleSlowE :: ProtoField -> Name -> Q Exp
+encodeSingleSlowE pf v =
+  let var    = varE v
+      fieldN = litE (integerL (fromIntegral (pfTag pf)))
+  in case pfType pf of
+    PFScalar SInt32    -> [| PE.encodeFieldVarint   $fieldN (fromIntegral ($var :: Int32)) |]
+    PFScalar SInt64    -> [| PE.encodeFieldVarint   $fieldN (fromIntegral ($var :: Int64)) |]
+    PFScalar SUInt32   -> [| PE.encodeFieldVarint   $fieldN (fromIntegral ($var :: Word32)) |]
+    PFScalar SUInt64   -> [| PE.encodeFieldVarint   $fieldN ($var :: Word64) |]
+    PFScalar SSInt32   -> [| PE.encodeFieldSVarint32 $fieldN ($var :: Int32) |]
+    PFScalar SSInt64   -> [| PE.encodeFieldSVarint64 $fieldN ($var :: Int64) |]
+    PFScalar SFixed32  -> [| PE.encodeFieldFixed32  $fieldN ($var :: Word32) |]
+    PFScalar SFixed64  -> [| PE.encodeFieldFixed64  $fieldN ($var :: Word64) |]
+    PFScalar SSFixed32 -> [| PE.encodeFieldFixed32  $fieldN (fromIntegral ($var :: Int32)) |]
+    PFScalar SSFixed64 -> [| PE.encodeFieldFixed64  $fieldN (fromIntegral ($var :: Int64)) |]
+    PFScalar SBool     -> [| PE.encodeFieldBool     $fieldN ($var :: Bool) |]
+    PFScalar SFloat    -> [| PE.encodeFieldFloat    $fieldN ($var :: Float) |]
+    PFScalar SDouble   -> [| PE.encodeFieldDouble   $fieldN ($var :: Double) |]
+    PFScalar SString   -> [| PR.encodeStrictText    $fieldN ($var :: Text) |]
+    PFScalar SBytes    -> [| PR.encodeStrictBytes   $fieldN ($var :: ByteString) |]
+    PFSubmessage       -> [| PE.encodeFieldMessageSized $fieldN $var |]
+    PFEnum             -> [| PE.encodeFieldEnum     $fieldN $var |]
 
 -- | Per-'StringRep' encoder. Tag byte is supplied as an 'Int' for
 -- consistency with the strict-text path's @PA.archString@ shape;
@@ -922,28 +966,61 @@ emptyContainerE rep getter = case rep of
   RepList   -> [| null $(pure getter) |]
   RepSeq    -> [| Seq.null $(pure getter) |]
 
+-- | Size of one value's wire-form footprint (tag byte(s) +
+-- payload). Two paths: fields with field number ≤ 15 use the
+-- one-byte-tag @arch*Size@ family; fields with larger field
+-- numbers fall back to @PWE.tagSize@ + the payload size, which
+-- handles multi-byte varint tags correctly.
 sizeSingleE :: ProtoField -> Name -> Q Exp
-sizeSingleE pf v =
-  let var = varE v
-  in case pfType pf of
-    PFScalar SInt32    -> [| PA.archVarintSize (fromIntegral ($var :: Int32)) |]
-    PFScalar SInt64    -> [| PA.archVarintSize (fromIntegral ($var :: Int64)) |]
-    PFScalar SUInt32   -> [| PA.archVarintSize (fromIntegral ($var :: Word32)) |]
-    PFScalar SUInt64   -> [| PA.archVarintSize ($var :: Word64) |]
-    PFScalar SSInt32   -> [| 1 + PWE.varintSize (fromIntegral (PWE.zigZag32 ($var :: Int32))) |]
-    PFScalar SSInt64   -> [| 1 + PWE.varintSize (PWE.zigZag64 ($var :: Int64)) |]
-    PFScalar SFixed32  -> [| PA.archFixed32Size |]
-    PFScalar SFixed64  -> [| PA.archFixed64Size |]
-    PFScalar SSFixed32 -> [| PA.archFixed32Size |]
-    PFScalar SSFixed64 -> [| PA.archFixed64Size |]
-    PFScalar SBool     -> [| PA.archBoolSize |]
-    PFScalar SFloat    -> [| PA.archFixed32Size |]
-    PFScalar SDouble   -> [| PA.archFixed64Size |]
-    PFScalar SString   -> stringSizeE (pfStringRep pf) v
-    PFScalar SBytes    -> bytesSizeE  (pfBytesRep pf)  v
-    PFSubmessage       -> [| PA.archSubmessageSize (PE.messageSize $var) |]
-    PFEnum             ->
-      [| PA.archVarintSize (fromIntegral (fromEnum $var) :: Word64) |]
+sizeSingleE pf v
+  | tag1Byte  = archSizeE
+  | otherwise = slowSizeE
+  where
+    tag1Byte = pfTag pf <= 15
+    tagSzE   = [| PWE.tagSize $(litE (integerL (fromIntegral (pfTag pf)))) |]
+    var      = varE v
+
+    archSizeE = case pfType pf of
+      PFScalar SInt32    -> [| PA.archVarintSize (fromIntegral ($var :: Int32)) |]
+      PFScalar SInt64    -> [| PA.archVarintSize (fromIntegral ($var :: Int64)) |]
+      PFScalar SUInt32   -> [| PA.archVarintSize (fromIntegral ($var :: Word32)) |]
+      PFScalar SUInt64   -> [| PA.archVarintSize ($var :: Word64) |]
+      PFScalar SSInt32   -> [| 1 + PWE.varintSize (fromIntegral (PWE.zigZag32 ($var :: Int32))) |]
+      PFScalar SSInt64   -> [| 1 + PWE.varintSize (PWE.zigZag64 ($var :: Int64)) |]
+      PFScalar SFixed32  -> [| PA.archFixed32Size |]
+      PFScalar SFixed64  -> [| PA.archFixed64Size |]
+      PFScalar SSFixed32 -> [| PA.archFixed32Size |]
+      PFScalar SSFixed64 -> [| PA.archFixed64Size |]
+      PFScalar SBool     -> [| PA.archBoolSize |]
+      PFScalar SFloat    -> [| PA.archFixed32Size |]
+      PFScalar SDouble   -> [| PA.archFixed64Size |]
+      PFScalar SString   -> stringSizeE (pfStringRep pf) v
+      PFScalar SBytes    -> bytesSizeE  (pfBytesRep pf)  v
+      PFSubmessage       -> [| PA.archSubmessageSize (PE.messageSize $var) |]
+      PFEnum             ->
+        [| PA.archVarintSize (fromIntegral (fromEnum $var) :: Word64) |]
+
+    -- payload-only sizes: tag byte(s) added separately.
+    payloadOnlyE = case pfType pf of
+      PFScalar SInt32    -> [| PWE.varintSize (fromIntegral ($var :: Int32)) |]
+      PFScalar SInt64    -> [| PWE.varintSize (fromIntegral ($var :: Int64)) |]
+      PFScalar SUInt32   -> [| PWE.varintSize (fromIntegral ($var :: Word32)) |]
+      PFScalar SUInt64   -> [| PWE.varintSize ($var :: Word64) |]
+      PFScalar SSInt32   -> [| PWE.varintSize (fromIntegral (PWE.zigZag32 ($var :: Int32))) |]
+      PFScalar SSInt64   -> [| PWE.varintSize (PWE.zigZag64 ($var :: Int64)) |]
+      PFScalar SFixed32  -> [| 4 :: Int |]
+      PFScalar SFixed64  -> [| 8 :: Int |]
+      PFScalar SSFixed32 -> [| 4 :: Int |]
+      PFScalar SSFixed64 -> [| 8 :: Int |]
+      PFScalar SBool     -> [| 1 :: Int |]
+      PFScalar SFloat    -> [| 4 :: Int |]
+      PFScalar SDouble   -> [| 8 :: Int |]
+      PFScalar SString   -> [| (let !sz = BS.length (TE.encodeUtf8 ($var :: Text)) in PWE.varintSize (fromIntegral sz) + sz) |]
+      PFScalar SBytes    -> [| (let !sz = BS.length ($var :: ByteString) in PWE.varintSize (fromIntegral sz) + sz) |]
+      PFSubmessage       -> [| (let !sz = PE.messageSize $var in PWE.varintSize (fromIntegral sz) + sz) |]
+      PFEnum             -> [| PWE.varintSize (fromIntegral (fromEnum $var) :: Word64) |]
+
+    slowSizeE = [| $tagSzE + $payloadOnlyE |]
 
 -- ---------------------------------------------------------------------------
 -- Decoder internals

@@ -170,7 +170,9 @@ test-suite protobuf-conformance-test
   type: exitcode-stdio-1.0
   hs-source-dirs: test-conformance
   main-is: Driver.hs
-  ghc-options: -O0  -- match the runner exec, same splice
+  -- Match the runner exec (same TestAllTypesProto3 splice; see
+  -- the wireform-conformance-runner stanza above for why -O0).
+  ghc-options: -O0
   other-modules:
     Test.Conformance.Schema
     Test.Conformance.Handler

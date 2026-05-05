@@ -1,0 +1,58 @@
+# Expected-failure list for the protobuf-conformance suite.
+#
+# Each line is either a comment (#) or a glob pattern matching
+# the conformance_test_runner test names. Tests that match a
+# pattern here are expected to fail; the runner's exit code
+# reflects only unexpected failures (regressions) and unexpected
+# successes (tests we should remove from this list).
+#
+# Pattern syntax is the runner's own; see
+# https://github.com/protocolbuffers/protobuf/blob/main/conformance/conformance_test_runner.cc
+# for the parser.
+#
+# Categories of expected failure:
+#
+# 1. JSON conformance for messages whose schema we don't include
+#    (Well-Known Types). The handler returns Skipped for those.
+# 2. JSPB tests — the handler always skips JSPB.
+# 3. TEXT_FORMAT tests — not implemented yet.
+# 4. Tests whose Required.* category we haven't yet covered.
+#
+# Update this file when the suite is run for the first time:
+#
+#     cabal test wireform-proto:protobuf-conformance-test 2>&1 | tee out.log
+#
+# Then add any newly-failing tests below, with a one-line comment
+# explaining why we expect the failure.
+
+# JSPB - we never implement JSPB (Google-internal format).
+*.JspbConformanceJsonInput.*
+*.JspbConformanceJsonInputJsonOutput.*
+Required.Jspb.*
+Recommended.Jspb.*
+
+# TEXT_FORMAT - the handler currently returns Skipped for both
+# input and output in this format.
+Required.TextFormat.*
+Recommended.TextFormat.*
+*.TextFormatConformance*
+
+# JSON output for messages with WKT-typed fields. The handler
+# returns Skipped because the WKT subschemas are deliberately
+# omitted from the spliced TestAllTypesProto3 (loadProto doesn't
+# follow proto imports yet).
+Recommended.Proto3.JsonInput.*Wrapper*
+Recommended.Proto3.JsonInput.*Timestamp*
+Recommended.Proto3.JsonInput.*Duration*
+Recommended.Proto3.JsonInput.*FieldMask*
+Recommended.Proto3.JsonInput.*Struct*
+Recommended.Proto3.JsonInput.*Any*
+Recommended.Proto3.JsonInput.*ListValue*
+Recommended.Proto3.JsonInput.*Value*
+Required.Proto3.JsonInput.*Wrapper*
+Required.Proto3.JsonInput.*Timestamp*
+Required.Proto3.JsonInput.*Duration*
+Required.Proto3.JsonInput.*FieldMask*
+Required.Proto3.JsonInput.*Struct*
+Required.Proto3.JsonInput.*Any*
+Required.Proto3.JsonInput.*Value*
