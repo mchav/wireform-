@@ -991,33 +991,66 @@ parseBlockScalar k = do
              | otherwise
                  -> (Clip, Nothing)
 
+-- | Collect the body lines of a block scalar.
+--
+-- The semantics: blank / more-indented blank lines belong to the
+-- scalar regardless of their column. Once we've seen a content
+-- line, that line's indent /is/ the "base indent" of the scalar;
+-- the scalar terminates on the first subsequent line whose indent
+-- falls /at or below/ that base. Lines whose source classified as
+-- @LComment@ but sit at indent > base are treated as scalar
+-- content (the '#' is data); comments at base or shallower
+-- terminate.
 collectScalarLines :: Int -> P [(Int, Text)]
-collectScalarLines !parent = collect []
+collectScalarLines !parent = collect Nothing []
   where
-    collect acc = do
+    -- @mBase@ is the established base indent (after the first
+    -- content line). @acc@ is the reverse-accumulated body.
+    collect mBase acc = do
       ls <- getLines
       case ls of
         []     -> pure (reverse acc)
         (l:_)
           | lineKind l == LBlank ->
               do _ <- consumeOne
-                 -- A whitespace-only line whose indent exceeds the
-                 -- parent counts as a "more-indented blank" and
-                 -- contributes its extra whitespace to the body.
                  let ind = lineIndent l
-                 if ind > parent
-                   then collect ((ind, T.empty) : acc)
-                   else collect ((-1, T.empty) : acc)
+                     isMoreIndented = case mBase of
+                       Just b  -> ind > b
+                       Nothing -> ind > parent
+                 if isMoreIndented
+                   then collect mBase ((ind, T.empty) : acc)
+                   else collect mBase ((-1, T.empty) : acc)
           | lineKind l == LDocStart || lineKind l == LDocEnd
               -> pure (reverse acc)
-          | lineKind l == LComment
-              -> if lineIndent l > parent
-                   then do _ <- consumeOne; collect acc
-                   else pure (reverse acc)
-          | lineIndent l > parent ->
-              do _ <- consumeOne
-                 collect ((lineIndent l, lineBody l) : acc)
-          | otherwise -> pure (reverse acc)
+          | otherwise ->
+              let ind = lineIndent l
+                  inside = case mBase of
+                    Just b  -> ind >= b
+                    Nothing -> ind > parent
+              in if not inside
+                   then pure (reverse acc)
+                   else if lineKind l == LComment
+                          then case mBase of
+                            -- Once a base indent is set, any
+                            -- comment at a deeper indent is
+                            -- content; one at base terminates.
+                            Just b | ind > b -> do
+                              _ <- consumeOne
+                              collect mBase ((ind, lineBody l) : acc)
+                            Just _ -> pure (reverse acc)
+                            -- Before a base is set, a comment
+                            -- counts as the first content line.
+                            Nothing -> do
+                              _ <- consumeOne
+                              collect (Just ind)
+                                ((ind, lineBody l) : acc)
+                          else do
+                            _ <- consumeOne
+                            let mBase' = case mBase of
+                                  Just _  -> mBase
+                                  Nothing -> Just ind
+                            collect mBase'
+                              ((ind, lineBody l) : acc)
 
     consumeOne = do
       ls <- getLines
@@ -1042,16 +1075,18 @@ joinFolded chomp xs =
       raw = T.concat (foldFirst xs baseInd) <> T.pack "\n"
   in chompText chomp raw
   where
+    isBlank (i, b) = i < 0 || T.null b
+
     foldFirst [] _ = []
     foldFirst ((i, b) : rest) bi
-      | i < 0     = T.pack "\n" : foldAfterBlank rest bi
+      | isBlank (i, b) = T.pack "\n" : foldAfterBlank rest bi
       | otherwise =
           let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
           in txt : foldNext rest bi (i > bi)
 
     foldNext [] _ _ = []
     foldNext ((i, b) : rest) bi prevMore
-      | i < 0     = T.pack "\n" : foldAfterBlank rest bi
+      | isBlank (i, b) = T.pack "\n" : foldAfterBlank rest bi
       | otherwise =
           let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
               joinSep | prevMore || i > bi = T.pack "\n"
@@ -1060,7 +1095,7 @@ joinFolded chomp xs =
 
     foldAfterBlank [] _ = []
     foldAfterBlank ((i, b) : rest) bi
-      | i < 0     = T.pack "\n" : foldAfterBlank rest bi
+      | isBlank (i, b) = T.pack "\n" : foldAfterBlank rest bi
       | otherwise =
           let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
           in txt : foldNext rest bi (i > bi)
@@ -1087,10 +1122,10 @@ chompText :: Chomp -> Text -> Text
 chompText Strip = T.dropWhileEnd (== '\n')
 chompText Keep  = id
 chompText Clip  = \t ->
-  case T.dropWhileEnd (== '\n') t of
-    t' | T.null t  -> t'
-       | T.last t == '\n' -> t' <> T.pack "\n"
-       | otherwise -> t'
+  let stripped = T.dropWhileEnd (== '\n') t
+  in if T.null stripped
+       then T.empty               -- "no content" → no trailing newline
+       else stripped <> T.pack "\n"
 
 -- ---------------------------------------------------------------------------
 -- Plain-scalar resolution per the YAML 1.2 core schema
