@@ -85,8 +85,15 @@ data LineKind
   deriving (Eq, Show)
 
 preprocess :: Text -> [PLine]
-preprocess = go 1 . T.split (== '\n')
+preprocess = go 1 . dropFinalEmpty . T.split (== '\n')
   where
+    -- 'T.split' on a string ending in '\n' yields a trailing empty
+    -- chunk; drop it so we don't synthesize a phantom blank line at
+    -- EOF (which throws off block-scalar collection).
+    dropFinalEmpty xs = case reverse xs of
+      ("" : rest) -> reverse rest
+      _           -> xs
+
     go !_ [] = []
     go !n (l:ls) =
       let !stripped = stripCR l
@@ -345,27 +352,41 @@ parseAnchored :: P Value
 parseAnchored = do
   Just l <- popLine
   let body = lineBody l
-      (name, rest) = T.span isAnchorChar (T.drop 1 body)
+      (name, rest) = takeAnchorName (T.drop 1 body)
       after = T.stripStart rest
-  v <- if T.null after
-         then do
-           mNext <- peekLine
-           case mNext of
-             Just l2 | lineIndent l2 > lineIndent l ->
-                 parseNode (lineIndent l2)
-             _ -> pure YNull
-         else do
-           pushLine l { lineBody = after }
-           parseNode (lineIndent l)
-  recordAnchor name v
-  pure v
+  -- If the rest of the line introduces a mapping (i.e. there's a
+  -- top-level @": "@ in the remainder), the anchor only binds to
+  -- the /key/, not to the surrounding mapping. This matches the
+  -- YAML 1.2 node-anchoring model where the anchor precedes the
+  -- specific node it labels.
+  case findKeyValueSplit after of
+    Just (k, vRest) -> do
+      let keyVal = YString k
+      recordAnchor name keyVal
+      pushLine l { lineBody = after }
+      -- Replay the line through the regular block-mapping path so
+      -- the surrounding context still parses. The recorded anchor
+      -- already points at the correct key node.
+      parseBlockMap (lineIndent l) k vRest
+    Nothing -> do
+      v <- if T.null after
+             then do
+               mNext <- peekLine
+               case mNext of
+                 Just l2 | lineIndent l2 > lineIndent l ->
+                     parseNode (lineIndent l2)
+                 _ -> pure YNull
+             else do
+               pushLine l { lineBody = after }
+               parseNode (lineIndent l)
+      recordAnchor name v
+      pure v
 
 parseAlias :: P Value
 parseAlias = do
   Just l <- popLine
   let body = lineBody l
-      (al, rest) = T.span isAnchorChar (T.drop 1 body)
-      name = al
+      (name, rest) = takeAnchorName (T.drop 1 body)
       after = T.stripStart rest
   -- An alias appearing as a mapping value will be followed by ":"
   -- (or other dispatch chars) on the same line. Push remaining
@@ -378,10 +399,35 @@ parseAlias = do
       resolveAnchor name
 
 -- | Characters legal in an anchor / alias name (YAML 1.2 §6.9.2).
+-- Anchors exclude flow indicators and whitespace; the colon
+-- /is/ allowed inside an anchor name (so @&an:chor@ is legal),
+-- but only when followed by another anchor char — see
+-- 'takeAnchorName'.
 isAnchorChar :: Char -> Bool
 isAnchorChar c =
   not (c == ',' || c == '[' || c == ']' || c == '{' || c == '}'
-       || c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ':')
+       || c == ' ' || c == '\t' || c == '\n' || c == '\r')
+
+-- | Read an anchor / alias name. Treats @:@ as part of the name
+-- only when followed by another anchor character (so
+-- @&an:chor@ → @\"an:chor\"@) but as a terminator otherwise (so
+-- @&a:@ followed by a space → @\"a\"@ + remainder @\":\"@).
+takeAnchorName :: Text -> (Text, Text)
+takeAnchorName t = goT 0
+  where
+    !len = T.length t
+    goT !i
+      | i >= len = (t, T.empty)
+      | otherwise =
+          let c = T.index t i
+              nextIsAnchor =
+                i + 1 < len && isAnchorChar (T.index t (i + 1))
+                            && T.index t (i + 1) /= ':'
+          in if c == ':' && not nextIsAnchor
+               then (T.take i t, T.drop i t)
+               else if isAnchorChar c
+                      then goT (i + 1)
+                      else (T.take i t, T.drop i t)
 
 breakOnSpace :: Text -> (Text, Text)
 breakOnSpace = T.break (\c -> c == ' ' || c == '\t')
@@ -459,28 +505,48 @@ parseFlowEntry !p0 t =
   let p = skipFlowWS p0 t
   in if p >= T.length t
        then Nothing
-       else case T.index t p of
-              ':' ->
-                -- Bare colon: empty key, value follows.
-                let p1 = skipFlowWS (p + 1) t
-                in if p1 >= T.length t
-                     then Nothing
-                     else case T.index t p1 of
-                       ',' -> Just (YMap (V.singleton (YNull, YNull)), p1)
-                       ']' -> Just (YMap (V.singleton (YNull, YNull)), p1)
-                       _   -> case parseFlowValue p1 t of
-                         Nothing -> Just (YMap (V.singleton (YNull, YNull)), p1)
-                         Just (v, p2) ->
-                           Just (YMap (V.singleton (YNull, v)), p2)
-              _ -> case parseFlowValue p t of
-                Nothing -> Nothing
-                Just (k, p1) ->
-                  let p2 = skipFlowWS p1 t
-                  in if p2 < T.length t && T.index t p2 == ':'
-                       then case parseFlowValue (skipFlowWS (p2 + 1) t) t of
-                              Nothing      -> Just (YMap (V.singleton (k, YNull)), p2 + 1)
-                              Just (v, p3) -> Just (YMap (V.singleton (k, v)), p3)
-                       else Just (k, p1)
+       else
+         -- A leading colon counts as the separator of an empty-key
+         -- entry only when it is /followed/ by a flow stopper or
+         -- whitespace; otherwise it's the first character of a
+         -- plain scalar like @::vector@.
+         if T.index t p == ':' && colonIsSeparator (p + 1) t
+           then
+             let p1 = skipFlowWS (p + 1) t
+             in if p1 >= T.length t
+                  then Nothing
+                  else case T.index t p1 of
+                    ',' -> Just (YMap (V.singleton (YNull, YNull)), p1)
+                    ']' -> Just (YMap (V.singleton (YNull, YNull)), p1)
+                    _   -> case parseFlowValue p1 t of
+                      Nothing -> Just (YMap (V.singleton (YNull, YNull)), p1)
+                      Just (v, p2) ->
+                        Just (YMap (V.singleton (YNull, v)), p2)
+           else case parseFlowValue p t of
+             Nothing -> Nothing
+             Just (k, p1) ->
+               let p2 = skipFlowWS p1 t
+               in if p2 < T.length t
+                    && T.index t p2 == ':'
+                    && colonIsSeparator (p2 + 1) t
+                    then case parseFlowValue (skipFlowWS (p2 + 1) t) t of
+                           Nothing      -> Just (YMap (V.singleton (k, YNull)), p2 + 1)
+                           Just (v, p3) -> Just (YMap (V.singleton (k, v)), p3)
+                    else Just (k, p1)
+
+-- | Whether a colon at position @p@ acts as a key/value separator
+-- in flow context: only when the very next character is a flow
+-- stopper or whitespace.
+colonIsSeparator :: Int -> Text -> Bool
+colonIsSeparator !p t
+  | p >= T.length t = True
+  | otherwise = case T.index t p of
+      ' '  -> True
+      '\t' -> True
+      ','  -> True
+      ']'  -> True
+      '}'  -> True
+      _    -> False
 
 parseFlowMap :: Int -> Text -> Maybe (Value, Int)
 parseFlowMap !p0 t = goV (skipFlowWS p0 t) []
@@ -585,11 +651,45 @@ parseBlockOrPlain :: PLine -> P Value
 parseBlockOrPlain l
   | T.isPrefixOf "- " body || body == "-" = parseBlockSeq (lineIndent l)
   | body == "?" || T.isPrefixOf "? " body = parseExplicitMap (lineIndent l)
-  | otherwise = case findKeyValueSplit body of
-      Just (k, vRest) -> parseBlockMap (lineIndent l) k vRest
-      Nothing         -> parsePlainScalar (lineIndent l) body
+  | otherwise = case findAliasKeySplit body of
+      Just (aliasName, vRest) -> parseBlockMapAliasFirst (lineIndent l)
+                                   aliasName vRest
+      Nothing -> case findKeyValueSplit body of
+        Just (k, vRest) -> parseBlockMap (lineIndent l) k vRest
+        Nothing         -> parsePlainScalar (lineIndent l) body
   where
     body = lineBody l
+
+-- | Block mapping whose first key is an alias node (parsed via
+-- 'findAliasKeySplit'). Same shape as 'parseBlockMap' otherwise.
+parseBlockMapAliasFirst :: Int -> Text -> Text -> P Value
+parseBlockMapAliasFirst !ind aliasName firstRest = do
+  Just _ <- popLine
+  k0 <- resolveAnchor aliasName
+  v0 <- parseImplicitMapValue ind firstRest
+  rest <- collect [(k0, v0)]
+  pure (YMap (V.fromList (reverse rest)))
+  where
+    collect acc = do
+      mPL <- peekLine
+      case mPL of
+        Nothing -> pure acc
+        Just l
+          | lineIndent l /= ind -> pure acc
+          | T.isPrefixOf "- " (lineBody l) || lineBody l == "-" -> pure acc
+          | lineBody l == "?" || T.isPrefixOf "? " (lineBody l) -> pure acc
+          | otherwise -> case findAliasKeySplit (lineBody l) of
+              Just (a, vRest) -> do
+                _ <- popLine
+                k <- resolveAnchor a
+                v <- parseImplicitMapValue ind vRest
+                collect ((k, v) : acc)
+              Nothing -> case findKeyValueSplit (lineBody l) of
+                Just (k, vRest) -> do
+                  _ <- popLine
+                  v <- parseImplicitMapValue ind vRest
+                  collect ((YString k, v) : acc)
+                Nothing -> pure acc
 
 -- ---------------------------------------------------------------------------
 -- Block sequence
@@ -652,12 +752,34 @@ parseBlockMap !ind firstKey firstRest = do
           | lineIndent l /= ind -> pure acc
           | T.isPrefixOf "- " (lineBody l) || lineBody l == "-" -> pure acc
           | lineBody l == "?" || T.isPrefixOf "? " (lineBody l) -> pure acc
-          | otherwise -> case findKeyValueSplit (lineBody l) of
-              Just (k, vRest) -> do
+          | otherwise -> case findAliasKeySplit (lineBody l) of
+              Just (aliasName, vRest) -> do
                 _ <- popLine
+                k <- resolveAnchor aliasName
                 v <- parseImplicitMapValue ind vRest
-                collect ((YString k, v) : acc)
-              Nothing -> pure acc
+                collect ((k, v) : acc)
+              Nothing -> case findKeyValueSplit (lineBody l) of
+                Just (k, vRest) -> do
+                  _ <- popLine
+                  v <- parseImplicitMapValue ind vRest
+                  collect ((YString k, v) : acc)
+                Nothing -> pure acc
+
+-- | Recognise @*alias : value@ style mapping entries where the key
+-- is an alias node. Returns the alias name (without the @*@) and
+-- the value text after the colon, or 'Nothing' when the line
+-- doesn't have this shape.
+findAliasKeySplit :: Text -> Maybe (Text, Text)
+findAliasKeySplit t = case T.uncons t of
+  Just ('*', rest) ->
+    let (name, after) = takeAnchorName rest
+        afterTrim = T.stripStart after
+    in case T.uncons afterTrim of
+         Just (':', tail_)
+           | T.null tail_ || T.head tail_ == ' ' || T.head tail_ == '\t'
+               -> Just (name, T.drop 1 afterTrim)
+         _   -> Nothing
+  _ -> Nothing
 
 parseImplicitMapValue :: Int -> Text -> P Value
 parseImplicitMapValue !ind vRest =
@@ -698,17 +820,9 @@ parseImplicitMapValue !ind vRest =
          Just ('!', _) -> do
            pushLine (PLine 0 (ind + 2) LContent after)
            parseTagged
-         _ -> pure (parseInlineScalar after)
-
-parseInlineScalar :: Text -> Value
-parseInlineScalar t = case T.uncons t of
-  Just ('"', _)  -> case parseDQ 0 t of
-                      Just (v, _) -> v
-                      Nothing     -> YString t
-  Just ('\'', _) -> case parseSQ 0 t of
-                      Just (v, _) -> v
-                      Nothing     -> YString t
-  _              -> resolvePlain (T.stripEnd (stripInlineComment t))
+         Just ('"', _)  -> consumeQuoted '"'  after
+         Just ('\'', _) -> consumeQuoted '\'' after
+         _ -> pure (resolvePlain (T.stripEnd (stripInlineComment after)))
 
 -- ---------------------------------------------------------------------------
 -- Explicit-key mapping (?-form)
@@ -993,12 +1107,14 @@ findKeyValueSplit t = go (0 :: Int) (0 :: Int) (0 :: Int) (0 :: Int)
           if T.index t i == '\'' then go (i + 1) depth brace 0
           else go (i + 1) depth brace inStr
       | otherwise = case T.index t i of
-          '"'  -> go (i + 1) depth brace 1
-          '\'' -> go (i + 1) depth brace 2
-          '['  -> go (i + 1) (depth + 1) brace inStr
-          ']'  -> go (i + 1) (depth - 1) brace inStr
-          '{'  -> go (i + 1) depth (brace + 1) inStr
-          '}'  -> go (i + 1) depth (brace - 1) inStr
+          '"' | atTokenStart i -> go (i + 1) depth brace 1
+          '\''| atTokenStart i -> go (i + 1) depth brace 2
+          '[' | atTokenStart i || depth > 0 || brace > 0
+                                -> go (i + 1) (depth + 1) brace inStr
+          ']' | depth > 0       -> go (i + 1) (depth - 1) brace inStr
+          '{' | atTokenStart i || depth > 0 || brace > 0
+                                -> go (i + 1) depth (brace + 1) inStr
+          '}' | brace > 0       -> go (i + 1) depth (brace - 1) inStr
           ':' | depth == 0 && brace == 0 ->
                 let nextEnd   = i + 1 >= len
                     nextSpace = i + 1 < len &&
@@ -1011,6 +1127,15 @@ findKeyValueSplit t = go (0 :: Int) (0 :: Int) (0 :: Int) (0 :: Int)
                        in Just (key, rest)
                      else go (i + 1) depth brace inStr
           _    -> go (i + 1) depth brace inStr
+
+    -- Quote characters only act as string delimiters at the start
+    -- of input or right after whitespace; mid-token quotes are
+    -- ordinary characters of a plain scalar.
+    atTokenStart 0 = True
+    atTokenStart i = case T.index t (i - 1) of
+      ' '  -> True
+      '\t' -> True
+      _    -> False
 
 unquoteKey :: Text -> Text
 unquoteKey t

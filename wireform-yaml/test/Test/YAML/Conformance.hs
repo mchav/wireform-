@@ -23,7 +23,12 @@ module Test.YAML.Conformance (tests) where
 
 import Control.Exception (SomeException, try)
 import Control.Monad (filterM)
+import qualified Data.Aeson as A
+import qualified Data.Aeson.Key as AK
+import qualified Data.Aeson.KeyMap as AKM
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Scientific as Sci
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -35,7 +40,8 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, assertFailure, (@?=))
 
 import qualified YAML.Decode as YD
-import qualified YAML.Value as YV
+import qualified YAML.JSON   as YJ
+import qualified YAML.Value  as YV
 
 tests :: IO TestTree
 tests = do
@@ -162,16 +168,70 @@ discoverCases root = walk root
 
 mkCase :: FilePath -> FilePath -> TestTree
 mkCase _root caseDir = testCase caseDir $ do
-  inPath  <- pure (caseDir </> "in.yaml")
-  errPath <- pure (caseDir </> "error")
+  let inPath   = caseDir </> "in.yaml"
+      errPath  = caseDir </> "error"
+      jsonPath = caseDir </> "in.json"
   isErr   <- doesFileExist errPath
   bytes   <- BS.readFile inPath
   let txt = TE.decodeUtf8Lenient bytes
-  res <- try (pure $! YD.decodeStream txt) :: IO (Either SomeException (Either String YV.Stream))
+  res <- try (pure $! YD.decodeStream txt)
+           :: IO (Either SomeException (Either String YV.Stream))
   case (isErr, res) of
-    (True,  Right (Left _))     -> pure ()              -- expected failure
+    (True,  Right (Left _))     -> pure ()
     (True,  Right (Right _))    -> assertFailure "expected parse error, got success"
-    (True,  Left  _)            -> pure ()              -- exception counts as fail
-    (False, Right (Right _))    -> pure ()              -- expected success
+    (True,  Left  _)            -> pure ()
+    (False, Right (Right s))    -> compareToExpectedJSON jsonPath s
     (False, Right (Left e))     -> assertFailure $ "decode failed: " ++ e
     (False, Left  e)            -> assertFailure $ "exception: " ++ show e
+
+-- | When the case ships an @in.json@ companion, compare it against
+-- the JSON projection of our parse result. The YAML test suite uses
+-- a single-document JSON form for one-document streams, so we only
+-- compare that subset.
+compareToExpectedJSON :: FilePath -> YV.Stream -> IO ()
+compareToExpectedJSON jsonPath stream = do
+  hasJson <- doesFileExist jsonPath
+  if not hasJson
+    then pure ()
+    else do
+      raw <- BSL.readFile jsonPath
+      case A.eitherDecode raw of
+        Left _ -> pure ()    -- Some cases ship malformed JSON; ignore.
+        Right expected ->
+          case V.toList (YV.unStream stream) of
+            [doc] -> do
+              let actual = YJ.yamlToJSON (YV.docBody doc)
+              if jsonEq actual expected
+                then pure ()
+                else actual @?= expected
+            _ -> pure ()    -- multi-doc streams have no @in.json@.
+
+-- | Forgiving JSON equality: numeric scalars compare by parsed
+-- value (so @1.0@ vs @1@ is OK, and tiny float rounding doesn't
+-- trip us up).
+jsonEq :: A.Value -> A.Value -> Bool
+jsonEq (A.Object oA) (A.Object oB)
+  | AKM.size oA /= AKM.size oB = False
+  | otherwise = all matchKey (AKM.toList oA)
+  where
+    matchKey (k, va) = case AKM.lookup k oB of
+      Just vb -> jsonEq va vb
+      Nothing -> False
+jsonEq (A.Array xs) (A.Array ys)
+  | V.length xs /= V.length ys = False
+  | otherwise = all (uncurry jsonEq) (zip (V.toList xs) (V.toList ys))
+jsonEq (A.Number a) (A.Number b) = a == b
+jsonEq (A.Number a) (A.String s) =
+  case readsT s of
+    Just b  -> Sci.toRealFloat a == (b :: Double)
+    Nothing -> False
+jsonEq (A.String s) (A.Number b) =
+  case readsT s of
+    Just a  -> (a :: Double) == Sci.toRealFloat b
+    Nothing -> False
+jsonEq a b = a == b
+
+readsT :: T.Text -> Maybe Double
+readsT t = case reads (T.unpack t) :: [(Double, String)] of
+  [(d, "")] -> Just d
+  _         -> Nothing
