@@ -29,10 +29,103 @@ import System.IO (hClose)
 main :: IO ()
 main = defaultMain $ testGroup "wireform-columnar"
   [ iterProps
+  , iterCombinatorProps
   , predicateProps
   , predicateUnits
   , columnarIOUnits
   ]
+
+-- ============================================================
+-- iterChunk / iterScan / iterMergeBy / iterPrefetch / iterParallelMap
+-- ============================================================
+
+iterCombinatorProps :: TestTree
+iterCombinatorProps = testGroup "Columnar.Stream new combinators"
+  [ testProperty "iterChunk n preserves concat" $ property $ do
+      n  <- forAll (Gen.int (Range.linear 1 10))
+      xs <- forAll (Gen.list (Range.linear 0 50) (Gen.int (Range.linear 0 100)))
+      case IS.iterToList (IS.iterChunk n (IS.iterFromList xs)) of
+        Right chunks -> do
+          concat chunks === xs
+          -- All chunks except possibly the last have length n
+          all (\c -> length c == n) (init1 chunks) === True
+          -- Last chunk has length in [1..n] when xs nonempty
+          case chunks of
+            [] -> null xs === True
+            _  -> let !lastLen = length (last chunks)
+                  in (lastLen >= 1 && lastLen <= n) === True
+        Left e -> H.footnote e >> H.failure
+
+  , testProperty "iterChunk n=0 yields empty" $ property $ do
+      xs <- forAll (Gen.list (Range.linear 0 30) (Gen.int (Range.linear 0 100)))
+      IS.iterToList (IS.iterChunk 0 (IS.iterFromList xs)) === Right []
+
+  , testProperty "iterScan matches Data.List.scanl'" $ property $ do
+      xs   <- forAll (Gen.list (Range.linear 0 30) (Gen.int (Range.linear 0 100)))
+      seed <- forAll (Gen.int (Range.linear 0 100))
+      IS.iterToList (IS.iterScan (+) seed (IS.iterFromList xs))
+        === Right (scanl' (+) seed xs)
+
+  , testProperty "iterMergeBy on sorted inputs == merge-sort union" $ property $ do
+      xs <- sortedList
+      ys <- sortedList
+      zs <- sortedList
+      let merged = IS.iterMergeBy compare
+            [IS.iterFromList xs, IS.iterFromList ys, IS.iterFromList zs]
+      case IS.iterToList merged of
+        Right got -> got === sortedMerge3 xs ys zs
+        Left e    -> H.footnote e >> H.failure
+
+  , testProperty "iterMergeBy [] is empty" $ property $
+      IS.iterToList (IS.iterMergeBy compare ([] :: [IS.Iter Int])) === Right []
+
+  , testProperty "iterMergeBy [single] is identity" $ property $ do
+      xs <- forAll (Gen.list (Range.linear 0 30) (Gen.int (Range.linear 0 100)))
+      IS.iterToList (IS.iterMergeBy compare [IS.iterFromList xs])
+        === Right xs
+
+  , testProperty "iterIOPrefetch preserves order and contents" $ property $ do
+      xs <- forAll (Gen.list (Range.linear 0 30) (Gen.int (Range.linear 0 100)))
+      depth <- forAll (Gen.int (Range.linear 1 8))
+      got <- H.evalIO $ do
+        prefetched <- IS.iterIOPrefetch depth (IS.iterIOFromIter (IS.iterFromList xs))
+        IS.iterIOToList prefetched
+      got === Right xs
+
+  , testProperty "iterParallelMap preserves order and applies the function" $ property $ do
+      xs <- forAll (Gen.list (Range.linear 0 30) (Gen.int (Range.linear 0 100)))
+      depth <- forAll (Gen.int (Range.linear 1 4))
+      got <- H.evalIO $ do
+        mapped <- IS.iterParallelMap depth (\x -> pure (x * 2))
+                                     (IS.iterIOFromIter (IS.iterFromList xs))
+        IS.iterIOToList mapped
+      got === Right (map (* 2) xs)
+  ]
+  where
+    sortedList = forAll
+      ((\xs -> sortAsc xs) <$>
+        Gen.list (Range.linear 0 20) (Gen.int (Range.linear 0 100)))
+    sortAsc = foldr insertAsc []
+    insertAsc x [] = [x]
+    insertAsc x (y:ys) | x <= y = x : y : ys
+                      | otherwise = y : insertAsc x ys
+
+    sortedMerge3 xs ys zs = sortAscMerge xs (sortAscMerge ys zs)
+      where
+        sortAscMerge as [] = as
+        sortAscMerge [] bs = bs
+        sortAscMerge (a:as) (b:bs)
+          | a <= b    = a : sortAscMerge as (b:bs)
+          | otherwise = b : sortAscMerge (a:as) bs
+
+    init1 [] = []
+    init1 [_] = []
+    init1 (x:xs) = x : init1 xs
+
+    scanl' f z = go z
+      where
+        go !acc []     = [acc]
+        go !acc (x:xs) = acc : go (f acc x) xs
 
 -- ============================================================
 -- Columnar.IO unit tests
