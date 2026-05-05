@@ -61,8 +61,9 @@ run = do
   test "columnMax poisons to Nothing when one rg has no max"
     (Agg.columnMax (mkFm rowGroupsMissingMax) 0 == Nothing)
 
-  test "columnSum is Nothing (Parquet stats don't carry sums)"
-    (Agg.columnSum (mkFm rowGroupsMinMaxModern) 0 == Nothing)
+  -- columnSum was removed from Parquet.Aggregate (Parquet's
+  -- Statistics message doesn't carry per-row-group sums; ORC
+  -- does, see ORC.Aggregate.columnSum).
   where
     test :: String -> Bool -> IO ()
     test name True  = putStrLn ("OK: " ++ name)

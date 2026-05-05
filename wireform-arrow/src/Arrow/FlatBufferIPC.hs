@@ -1561,8 +1561,21 @@ materializeRecordBatchFB
 materializeRecordBatchFB sch rb body =
   materializeRecordBatch sch (denormaliseBuffers sch rb) body
 
--- | Placeholder validity buffer: offset 0, length 0. Readers treat
--- a zero-length validity buffer as "all values valid".
+-- | Zero-length validity buffer used for fields whose validity
+-- doesn't appear in the source 'Buffer' vector — namely:
+--
+--   * The validity slot of a non-nullable field (Arrow's wire
+--     layout still requires a buffer entry; readers see
+--     length=0 and treat every value as valid).
+--   * The keys-validity slot of a Map column. Map keys are
+--     non-nullable per the Arrow spec; the only nullability
+--     in a Map is at the entry level (Map's own validity) and
+--     at the value level (per the value field's own
+--     'fieldNullable').
+--
+-- Despite the historical \"placeholder\" comment this is the
+-- normal, spec-conforming way to encode the slot — pyarrow
+-- and arrow-cpp both emit Buffer 0 0 here on round-trip.
 emptyValidityBuffer :: Buffer
 emptyValidityBuffer = Buffer 0 0
 

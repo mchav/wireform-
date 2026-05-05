@@ -494,13 +494,13 @@ decodeProjectedIter fmt opts names bs = do
 -- | Iterator-shaped variant of 'decodeIter' with predicate
 -- pushdown. For Parquet, row groups whose statistics prove
 -- the predicate matches no rows are dropped before any column
--- decoding happens. Other formats (Arrow stream / file, ORC)
--- currently fall through to 'decodeIter' — predicate pushdown
--- there is a follow-up.
+-- decoding happens. For ORC the same applies at the stripe
+-- level. Arrow IPC has no per-batch statistics so the
+-- predicate is held for downstream filtering and the dropped
+-- count is always 0.
 --
 -- Returns the schema, the iterator, and a planning summary
--- @(totalCandidates, droppedByPredicate)@. For non-Parquet
--- formats the dropped count is 0.
+-- @(totalCandidates, droppedByPredicate)@.
 decodeFilteredIter
   :: Format
   -> ReadOptions
@@ -514,7 +514,16 @@ decodeFilteredIter fmt opts predicate bs = case fmt of
         (nRg, nSkip, it) =
           PArrow.streamRowGroupsFilteredIter sch predicate pf
     Right (sch, nRg, nSkip, it)
+  ORC -> do
+    footer  <- ORC.decodeORC bs
+    orcFile <- ORead.loadORCFile bs
+    sch     <- orcFooterToArrowSchemaWithNullability orcFile footer
+    let (nStripes, nSkip, it) =
+          OArrow.streamStripesFilteredIter sch predicate bs footer
+    Right (sch, nStripes, nSkip, it)
   _ -> do
+    -- Arrow IPC stream / file have no per-batch stats; we
+    -- decode normally and let the caller filter rows.
     (sch, it) <- decodeIter fmt opts bs
     Right (sch, 0, 0, it)
 
@@ -535,6 +544,14 @@ decodeProjectedFilteredIter fmt opts names predicate bs = case fmt of
     (nRg, nSkip, it) <-
       PArrow.streamRowGroupsProjectedFilteredIter sch names predicate pf
     Right (narrow, nRg, nSkip, it)
+  ORC -> do
+    footer  <- ORC.decodeORC bs
+    orcFile <- ORead.loadORCFile bs
+    sch     <- orcFooterToArrowSchemaWithNullability orcFile footer
+    (nStripes, nSkip, it) <-
+      OArrow.streamStripesProjectedFilteredIter sch names predicate bs footer
+    narrow <- projectFieldsByName names sch
+    Right (narrow, nStripes, nSkip, it)
   _ -> do
     (narrow, it) <- decodeProjectedIter fmt opts names bs
     Right (narrow, 0, 0, it)
@@ -602,8 +619,9 @@ projectFieldsByName names sch =
 -- step where the mismatch is discovered.
 --
 -- Files are decoded /sequentially/ in the order they appear in
--- the input list — there's no concurrent prefetch (which would
--- need an IO-shaped iterator; see the IterIO follow-up).
+-- the input list. For concurrent decoding lift the result to
+-- 'IS.IterIO' (via 'IS.iterIOFromIter') and pass it through
+-- 'IS.iterIOPrefetch' or 'IS.iterParallelMap'.
 --
 -- Useful for partitioned tables: pass the file paths from one
 -- partition (or a glob), let the iterator stream through every
@@ -695,18 +713,30 @@ decodeHeterogeneousDatasetIter
   -> Either String (AT.Schema, IS.Iter (V.Vector AC.ColumnArray))
 decodeHeterogeneousDatasetIter _ [] =
   Right (AT.Schema V.empty AT.Little V.empty V.empty, IS.iterEmpty)
-decodeHeterogeneousDatasetIter opts ((firstFmt, _firstName, firstBs) : rest) = do
+decodeHeterogeneousDatasetIter opts ((firstFmt, firstName, firstBs) : rest) = do
   (sch, firstIt) <- decodeIter firstFmt opts firstBs
-  let outer :: IS.Iter (IS.Iter (V.Vector AC.ColumnArray))
+  let !firstFp = AT.schemaFingerprint sch
+      outer :: IS.Iter (IS.Iter (V.Vector AC.ColumnArray))
       outer = IS.iterFromIndexed (length rest) $ \i ->
         let (fmt, name, bs) = rest !! i
         in case decodeIter fmt opts bs of
              Left e -> Left (name ++ ": " ++ e)
              Right (sch', it) ->
-               if not (AT.schemaEquivalent sch' sch)
-                 then Left $
-                   name ++ ": schema mismatch with first file in heterogeneous dataset"
-                 else Right it
+               -- Use both schemaEquivalent (the structural
+               -- check) and schemaFingerprint (the byte-level
+               -- check that includes Arrow-type details
+               -- schemaEquivalent's per-field show happens to
+               -- normalise identically). If they disagree the
+               -- mismatch error includes both fingerprints to
+               -- help the caller diagnose which field differs.
+               let !otherFp = AT.schemaFingerprint sch'
+               in if AT.schemaEquivalent sch' sch && otherFp == firstFp
+                    then Right it
+                    else Left $
+                      name ++ ": schema mismatch with first file ("
+                           ++ firstName ++ "): "
+                           ++ "first fingerprint=" ++ show firstFp
+                           ++ ", this fingerprint=" ++ show otherFp
   Right (sch, IS.iterAppend firstIt (IS.iterConcat outer))
 
 -- | Parsed Hive-style partition value.

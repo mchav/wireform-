@@ -24,9 +24,21 @@ module Parquet.Aggregate
     -- * min / max
   , columnMin
   , columnMax
-    -- * sum (best-effort: only reported when stats include the sum)
-  , columnSum
+    -- * Note on @sum(col)@
+    -- $sum
   ) where
+
+-- $sum
+--
+-- Parquet's @Statistics@ message intentionally doesn't carry
+-- per-row-group sums (the spec authors decided sums are too
+-- easy to overflow + lose precision to be safely cached). To
+-- compute @sum(col)@ from a Parquet file you have to scan the
+-- column values; there is no pushdown helper.
+--
+-- ORC /does/ carry @IntegerStatistics.sum@ — see
+-- "ORC.Aggregate.columnSum" for the parallel helper that
+-- works with ORC files.
 
 import Data.Int (Int64)
 import qualified Data.Vector as V
@@ -116,10 +128,3 @@ takeMaxStat ty s =
                Just b  -> Just b
                Nothing -> P.statMax s
   in raw >>= PPred.decodePValueLE ty
-
--- | @sum(col)@ — Parquet's standard 'Statistics' message
--- doesn't carry sums (only ORC does), so this is currently
--- always 'Nothing'. Provided for API symmetry; callers that
--- need real sums should fall through to a column scan.
-columnSum :: P.FileMetadata -> Int -> Maybe Pred.PValue
-columnSum _ _ = Nothing

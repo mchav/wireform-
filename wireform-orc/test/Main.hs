@@ -13,11 +13,14 @@ import System.Exit (exitFailure)
 
 import Data.Word (Word64)
 
+import qualified Columnar.Predicate as Pred
+import qualified ORC.Aggregate as Agg
 import qualified ORC.BloomFilter as BF
 import qualified ORC.Encryption as Enc
 import qualified ORC.Read
 import qualified ORC.RowIndex as RI
 import qualified ORC.Write
+import ORC.Types
 
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
@@ -532,6 +535,45 @@ main = do
         expect "RLEv2 DELTA decodes monotonic +1 sequence"
                (VP.toList vs == [100, 101, 102, 103, 104])
       Left e -> failTest $ "DELTA decode: " ++ e
+
+  -- ORC.Aggregate: pure stats arithmetic on a synthetic footer.
+  -- The footer carries one stripe of 100 rows and per-leaf
+  -- column statistics for one Int64 column with min=1, max=99,
+  -- sum=1000, num_values=98 (2 nulls).
+  do
+    let !intStats = IntegerStatistics
+          { isMinimum = Just 1
+          , isMaximum = Just 99
+          , isSum     = Just 1000
+          }
+        !cs = ColumnStatistics
+          { csNumberOfValues = Just 98
+          , csHasNull        = Just True
+          , csBytesOnDisk    = Nothing
+          , csKind           = Just (SkInt intStats)
+          }
+        !footer = ORCFooter
+          { orcHeaderLength  = 0
+          , orcContentLength = 0
+          , orcStripes       = V.empty
+          , orcTypes         = V.empty
+          , orcMetadata      = V.empty
+          , orcNumberOfRows  = 100
+          , orcStatistics    = V.singleton cs
+          , orcEncryption    = Nothing
+          }
+    expect "ORC fileRowCount returns orcNumberOfRows"
+      (Agg.fileRowCount footer == 100)
+    expect "ORC columnNonNullCount reads csNumberOfValues"
+      (Agg.columnNonNullCount footer 0 == Just 98)
+    expect "ORC columnMin reads IntegerStatistics.minimum"
+      (Agg.columnMin footer 0 == Just (Pred.PVInt64 1))
+    expect "ORC columnMax reads IntegerStatistics.maximum"
+      (Agg.columnMax footer 0 == Just (Pred.PVInt64 99))
+    expect "ORC columnSum reads IntegerStatistics.sum"
+      (Agg.columnSum footer 0 == Just (Pred.PVInt64 1000))
+    expect "ORC columnSum returns Nothing for absent stats"
+      (Agg.columnSum footer 1 == Nothing)
 
   putStrLn "All ORC writer tests passed."
 
