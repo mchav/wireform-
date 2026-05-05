@@ -450,8 +450,14 @@ iterMergeBy cmp xs =
 
     drain :: (a -> a -> Ordering) -> [(a, Iter a)] -> Iter a
     drain _ [] = iterEmpty
-    drain cmp' xs' = Iter $
-      let (winner, rest) = pickMin cmp' xs'
+    drain cmp' (h : t) = Iter $
+      -- 'pickMin' takes the head separately so the type system
+      -- proves the input is non-empty (no partial-function
+      -- match on @[]@). The previous shape used @x : xs@ +
+      -- a fall-through @[]@ case with 'error' that was
+      -- statically unreachable but tripped pattern-completeness
+      -- warnings.
+      let (winner, rest) = pickMin cmp' h t
           (a, next) = winner
       in case peek next of
            Left e -> Left e
@@ -459,13 +465,18 @@ iterMergeBy cmp xs =
            Right (Just (a', next')) ->
              Right (IterYield a (drain cmp' ((a', next') : rest)))
 
-    pickMin _   [x] = (x, [])
-    pickMin cmp' (x : ys) =
-      let (m, rest) = pickMin cmp' ys
-      in case cmp' (fst x) (fst m) of
-           GT -> (m, x : rest)
-           _  -> (x, m : rest)
-    pickMin _ [] = error "iterMergeBy.pickMin: empty"
+    -- O(k) per element — fine for small fanouts (every
+    -- columnar caller is in the [2..32] range). For large k
+    -- we'd swap in a real priority queue; deferred until a
+    -- profile shows it matters.
+    pickMin :: (a -> a -> Ordering) -> (a, Iter a) -> [(a, Iter a)]
+            -> ((a, Iter a), [(a, Iter a)])
+    pickMin _    h [] = (h, [])
+    pickMin cmp' h (x : xs) =
+      let (m, rest) = pickMin cmp' x xs
+      in case cmp' (fst h) (fst m) of
+           GT -> (m, h : rest)
+           _  -> (h, m : rest)
 
 -- ============================================================
 -- IterIO: IO-shaped pull iterator
