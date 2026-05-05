@@ -80,6 +80,7 @@ import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile, addModFinalizer)
 
 import Proto.AST
+import Proto.Annotations (lookupSimpleOption, optionAsBool)
 import Proto.Parser (parseProtoFile, renderParseError)
 import Proto.CodeGen (hsTypeName, snakeToCamel, snakeToPascal, lowerFirst, escapeReserved)
 import Proto.CodeGen.Hooks
@@ -148,11 +149,50 @@ protoFileToDecls :: ProtoFile -> Q [Dec]
 protoFileToDecls = protoFileToDecls' defaultRepConfig defaultTHHooks
 
 protoFileToDecls' :: RepConfig -> THHooks -> ProtoFile -> Q [Dec]
-protoFileToDecls' cfg hooks pf = concat <$> mapM (topLevelToDecls cfg hooks) (protoTopLevels pf)
+protoFileToDecls' cfg hooks pf = do
+  let scope = ScopeCtx
+        { scSyntax    = protoSyntax pf
+        , scTopLevels = protoTopLevels pf
+        }
+  concat <$> mapM (topLevelToDecls scope cfg hooks) (protoTopLevels pf)
 
-topLevelToDecls :: RepConfig -> THHooks -> TopLevel -> Q [Dec]
-topLevelToDecls cfg hooks = \case
-  TLMessage msg -> messageToDecls' cfg hooks msg
+-- | Lookup table built once per file: lets the bridge tell whether
+-- a named-type reference points at an enum (which the bridge
+-- encodes as a varint via 'PFEnum') or a message (encoded as a
+-- length-delimited submessage). Without this, every named type
+-- got encoded as a submessage and top-level proto enums silently
+-- broke on the wire.
+data ScopeCtx = ScopeCtx
+  { scSyntax    :: !Syntax
+  , scTopLevels :: ![TopLevel]
+  }
+
+-- | Walk a 'ScopeCtx' looking for an enum named @t@ at any
+-- nesting depth. Used by the bridge to decide PFEnum vs.
+-- PFSubmessage for an 'FTNamed' reference.
+isEnumName :: ScopeCtx -> Text -> Bool
+isEnumName scope t = anyTopLevel (scTopLevels scope)
+  where
+    -- Match either by short name (@Color@) or by fully-qualified
+    -- nested name (@MyMessage.Color@). The proto resolver upstream
+    -- has already de-aliased imports, so a literal Text comparison
+    -- is sufficient.
+    matchesEnumLeaf n = leafOf n == leafOf t
+    leafOf x = case T.splitOn (T.pack ".") x of
+      [] -> x
+      ps -> last ps
+    anyTopLevel = any topMatch
+    topMatch (TLEnum ed)            = matchesEnumLeaf (enumName ed)
+    topMatch (TLMessage msg)        = anyMessageElt msg
+    topMatch _                      = False
+    anyMessageElt msg = any eltMatch (msgElements msg)
+    eltMatch (MEEnum ed)    = matchesEnumLeaf (enumName ed)
+    eltMatch (MEMessage m)  = anyMessageElt m
+    eltMatch _              = False
+
+topLevelToDecls :: ScopeCtx -> RepConfig -> THHooks -> TopLevel -> Q [Dec]
+topLevelToDecls scope cfg hooks = \case
+  TLMessage msg -> messageToDecls'' scope cfg hooks msg
   TLEnum ed     -> enumToDecls' hooks ed
   TLExtend owner fields -> extendToDecls owner fields
   _             -> pure []
@@ -160,8 +200,18 @@ topLevelToDecls cfg hooks = \case
 messageToDecls :: MessageDef -> Q [Dec]
 messageToDecls = messageToDecls' defaultRepConfig defaultTHHooks
 
+-- | Backwards-compatible entry point: builds a 'ScopeCtx' that
+-- contains only this one message (so cross-message enum lookups
+-- fall back to PFSubmessage). Prefer 'protoFileToDecls'' (which
+-- builds the scope from the whole file) for new call sites.
 messageToDecls' :: RepConfig -> THHooks -> MessageDef -> Q [Dec]
-messageToDecls' cfg hooks msg = do
+messageToDecls' cfg hooks msg =
+  let scope = ScopeCtx { scSyntax = Proto3
+                       , scTopLevels = [TLMessage msg] }
+  in messageToDecls'' scope cfg hooks msg
+
+messageToDecls'' :: ScopeCtx -> RepConfig -> THHooks -> MessageDef -> Q [Dec]
+messageToDecls'' scopeCtx cfg hooks msg = do
   let tyName = mkName (T.unpack (hsTypeName (msgName msg)))
       fields = extractMessageFields cfg (msgName msg) (msgElements msg)
       scope = [msgName msg]
@@ -174,7 +224,7 @@ messageToDecls' cfg hooks msg = do
         }
 
   nestedDecls <- concat <$> mapM (\case
-    MEMessage inner -> messageToDecls' cfg hooks inner
+    MEMessage inner -> messageToDecls'' scopeCtx cfg hooks inner
     MEEnum ed       -> enumToDecls' hooks ed
     _               -> pure []) (msgElements msg)
 
@@ -193,7 +243,7 @@ messageToDecls' cfg hooks msg = do
   -- impossible map key (which the parser shouldn't accept) the
   -- splice fails with a clear message rather than silently
   -- generating broken code.
-  pfs        <- traverse (fieldSpecToProtoField tyName) fields
+  pfs        <- traverse (fieldSpecToProtoField scopeCtx tyName) fields
   codecDecs  <- messageCodecsViaBridge tyName pfs
   hasExtDec  <- mkHasExtensionsInstance tyName (msgName msg)
   hookDecls  <- thOnMessage hooks hookCtx
@@ -227,7 +277,7 @@ messageHaddock msg fields =
   <> concatMap fieldHaddock fields
 
 fieldHaddock :: FieldSpec -> String
-fieldHaddock (FSField name num lbl ft _) =
+fieldHaddock (FSField name num lbl ft _ _) =
   "* @" <> T.unpack name <> "@ ("
   <> labelStr lbl
   <> fieldTypeStr ft <> ", field "
@@ -267,6 +317,7 @@ data FieldSpec
     , fsLabel   :: Maybe FieldLabel
     , fsType    :: FieldType
     , fsRep     :: FieldRep
+    , fsOptions :: [OptionDef]
     }
   | FSMap
     { fsName    :: Text
@@ -280,7 +331,7 @@ data FieldSpec
     }
 
 fsFieldName :: FieldSpec -> Text
-fsFieldName (FSField n _ _ _ _) = n
+fsFieldName (FSField n _ _ _ _ _) = n
 fsFieldName (FSMap n _ _ _) = n
 fsFieldName (FSOneof n _) = n
 
@@ -288,11 +339,12 @@ extractMessageFields :: RepConfig -> Text -> [MessageElement] -> [FieldSpec]
 extractMessageFields cfg msgN = concatMap go
   where
     go (MEField fd) = [FSField
-      { fsName  = fieldName fd
-      , fsNum   = unFieldNumber (fieldNumber fd)
-      , fsLabel = fieldLabel fd
-      , fsType  = fieldType fd
-      , fsRep   = lookupFieldRep msgN (fieldName fd) cfg
+      { fsName    = fieldName fd
+      , fsNum     = unFieldNumber (fieldNumber fd)
+      , fsLabel   = fieldLabel fd
+      , fsType    = fieldType fd
+      , fsRep     = lookupFieldRep msgN (fieldName fd) cfg
+      , fsOptions = fieldOptions fd
       }]
     go (MEMapField mf) = [FSMap
       { fsName   = mapFieldName mf
@@ -317,7 +369,7 @@ mkDataDec tyName fields = do
     [derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Generic]]
   where
     mkField :: FieldSpec -> Q [VarBangType]
-    mkField (FSField name _ lbl ft rep) = do
+    mkField (FSField name _ lbl ft rep _) = do
       let fname = mkName (T.unpack (hsFieldName name))
       ty <- fieldTypeToTH lbl ft rep
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
@@ -486,7 +538,7 @@ mkDefaultDec tyName fields = do
   pure [sig, body]
 
 defaultValueExpr :: FieldSpec -> Q Exp
-defaultValueExpr (FSField _ _ lbl ft rep) = case lbl of
+defaultValueExpr (FSField _ _ lbl ft rep _) = case lbl of
   Just Repeated -> emptyRepeatedQ (frRepeated rep)
   Just Optional -> conE 'Nothing
   _ -> case ft of
@@ -542,13 +594,81 @@ enumToDecls' hooks ed = do
         , ehcHsTypeName = hsTypeName (enumName ed)
         , ehcOptions    = enumOptions ed
         }
+  -- Stock-derive Show/Eq/Ord/Generic only; emit a proto-faithful
+  -- 'Enum' instance below so 'PFEnum' encoding (varint via
+  -- 'fromEnum' \/ 'toEnum') uses the spec-mandated wire numbers
+  -- rather than declaration order. The pure-text codegen in
+  -- 'Proto.CodeGen' takes the same approach (its
+  -- @toProtoEnum@\/@fromProtoEnum@ pair); we ship those via the
+  -- 'Enum' class instead so the bridge's @encodeFieldEnum@ /
+  -- @decodeFieldEnum@ call sites work without any
+  -- format-specific glue.
   dataDec <- dataD (pure []) tyName [] Nothing cons
-    [derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Ord, conT ''Generic]]
+    [derivClause (Just StockStrategy)
+       [ conT ''Show, conT ''Eq, conT ''Ord
+       , conT ''Generic
+       ]]
+  enumInst <- mkEnumInstance tyName ed
   hookDecls <- thOnEnum hooks hookCtx
 
   addModFinalizer $ putDoc (DeclDoc tyName) (enumHaddock ed)
 
-  pure ([dataDec] <> hookDecls)
+  pure ([dataDec, enumInst] <> hookDecls)
+
+-- | Synthesise a proto-faithful 'Enum' instance for a generated
+-- enum type. @fromEnum@ returns the @evNumber@ recorded in the
+-- @.proto@ file; @toEnum@ inverts it, falling back to the first
+-- declared value for unknown wire numbers (matches the open-enum
+-- behaviour proto3 mandates).
+mkEnumInstance :: Name -> EnumDef -> Q Dec
+mkEnumInstance tyName ed = do
+  -- Collapse aliases so multiple constructors with the same wire
+  -- number don't introduce overlapping @fromEnum@ clauses (proto
+  -- @allow_alias = true@ is rare but legal). The first occurrence
+  -- in declaration order wins, matching what the pure-text codegen
+  -- does in 'enumPrimaryValues'.
+  let primaryByNum = primaryValues (enumValues ed)
+      -- 'toEnum n -> ConName' clauses, one per distinct wire number.
+      toEnumClauses =
+        fmap (\ev -> Clause [LitP (IntegerL (fromIntegral (evNumber ev)))]
+                            (NormalB (ConE (enumConName ev))) [])
+             primaryByNum
+      -- Catch-all that returns the first declared constructor —
+      -- this keeps 'toEnum' total even on unrecognised wire
+      -- numbers, which a non-canonical proto sender can always
+      -- produce.
+      fallback = case primaryByNum of
+        []     -> Clause [WildP]
+                   (NormalB (AppE (VarE 'error)
+                              (LitE (StringL
+                                ("Proto.TH: enum " <> nameBase tyName
+                                  <> " has no constructors")))))
+                   []
+        (ev:_) -> Clause [WildP] (NormalB (ConE (enumConName ev))) []
+      toEnumDec = FunD 'toEnum (toEnumClauses <> [fallback])
+
+      -- 'fromEnum ConName -> n' clauses, one per *every* declared
+      -- value (aliases included) so users can pattern-match on any
+      -- alias and still get the right wire number.
+      fromEnumClauses =
+        fmap (\ev -> Clause [ConP (enumConName ev) [] []]
+                            (NormalB (LitE (IntegerL
+                              (fromIntegral (evNumber ev))))) [])
+             (enumValues ed)
+      fromEnumDec = FunD 'fromEnum fromEnumClauses
+  pure $ InstanceD Nothing []
+           (AppT (ConT ''Enum) (ConT tyName))
+           [toEnumDec, fromEnumDec]
+  where
+    enumConName ev = mkName (T.unpack (hsEnumCon (enumName ed) (evName ev)))
+
+    -- Drop later occurrences of any wire number; preserves first.
+    primaryValues = go []
+      where
+        go _    []       = []
+        go seen (ev:evs)
+          | evNumber ev `elem` seen = go seen evs
+          | otherwise               = ev : go (evNumber ev : seen) evs
 
 enumHaddock :: EnumDef -> String
 enumHaddock ed =
@@ -708,21 +828,25 @@ upperFirst t = case T.uncons t of
 -- The parent type 'Name' is required for 'FSOneof' so we can
 -- generate the matching sum-type 'Name' (see 'oneofSumName' and
 -- 'oneofConTHName').
-fieldSpecToProtoField :: Name -> FieldSpec -> Q PDI.ProtoField
-fieldSpecToProtoField _ (FSField name num lbl ft rep) = do
+fieldSpecToProtoField :: ScopeCtx -> Name -> FieldSpec -> Q PDI.ProtoField
+fieldSpecToProtoField scope _ (FSField name num lbl ft rep opts) = do
   let sel    = mkName (T.unpack (hsFieldName name))
+      pft    = fieldTypeToBridge scope ft
+      mode   = case (lbl, pft) of
+        (Just Repeated, PDI.PFScalar sc)
+          | PDI.scalarPackable sc -> packedModeFor scope opts
+        _                         -> PDI.ModeUnpacked
       kind   = case lbl of
-        Just Repeated -> PDI.FKRepeated (repeatedRepToBridge (frRepeated rep))
+        Just Repeated -> PDI.FKRepeated (repeatedRepToBridge (frRepeated rep)) mode
         Just Optional -> PDI.FKMaybe
         _             -> PDI.FKBare
-      pft    = fieldTypeToBridge ft
       inner  = innerHsType ft rep
       base   = PDI.protoField sel num kind pft inner
   pure base
     { PDI.pfStringRep = frString rep
     , PDI.pfBytesRep  = frBytes rep
     }
-fieldSpecToProtoField _ (FSMap name num kt vt) =
+fieldSpecToProtoField scope _ (FSMap name num kt vt) =
   case scalarToBridgeMapKey kt of
     Nothing  -> fail
       ("Proto.TH: map field '" <> T.unpack name
@@ -730,29 +854,62 @@ fieldSpecToProtoField _ (FSMap name num kt vt) =
        <> "). Proto3 only permits integral and string map keys.")
     Just mks ->
       let sel   = mkName (T.unpack (hsFieldName name))
-          pft   = fieldTypeToBridge vt
+          pft   = fieldTypeToBridge scope vt
           inner = innerHsType vt defaultFieldRep
       in pure (PDI.protoField sel num (PDI.FKMap mks) pft inner)
-fieldSpecToProtoField parentTy (FSOneof name ofs) = do
+fieldSpecToProtoField scope parentTy (FSOneof name ofs) = do
   let sel       = mkName (T.unpack (hsFieldName name))
       sumTy     = oneofSumName parentTy name
       carrier   = AppT (ConT ''Maybe) (ConT sumTy)
-      variants  = fmap (oneofVariantToBridge parentTy name) ofs
+      variants  = fmap (oneofVariantToBridge scope parentTy name) ofs
       -- @pfTag@/@pfType@/@pfInnerTy@ are documented as ignored
       -- by the body builders for FKOneof. The carrier type is
       -- still useful for clarity / future debugging.
   pure (PDI.protoField sel 0 (PDI.FKOneof variants) PDI.PFSubmessage carrier)
 
+-- | Pick packed vs. unpacked for a repeated packable scalar field.
+--
+-- * Proto3: packed by default; @[packed = false]@ flips to unpacked.
+-- * Proto2: unpacked by default; @[packed = true]@ flips to packed.
+-- * Editions: defer to 'featureRepeatedFieldEncoding' on the
+--   resolved feature set; the caller usually wants 'PackedEncoding'
+--   (the post-2023 default) but @[packed = false]@ still wins.
+packedModeFor :: ScopeCtx -> [OptionDef] -> PDI.RepeatedMode
+packedModeFor scope opts =
+  let explicit = lookupSimpleOption (T.pack "packed") opts >>= optionAsBool
+      defaultPacked = case scSyntax scope of
+        Proto3       -> True
+        Proto2       -> False
+        Editions ed  -> case featureRepeatedFieldEncoding (featuresForEdition ed) of
+          PackedEncoding   -> True
+          ExpandedEncoding -> False
+      packed = case explicit of
+        Just b  -> b
+        Nothing -> defaultPacked
+  in if packed then PDI.ModePacked else PDI.ModeUnpacked
+
 -- | Build the bridge's 'PDI.OneofVariant' for one arm of a oneof.
 -- The constructor name is computed by 'oneofConTHName' so it
--- matches the splice in 'mkOneofDataDecs' exactly.
-oneofVariantToBridge :: Name -> Text -> OneofField -> PDI.OneofVariant
-oneofVariantToBridge parentTy ooName f = PDI.OneofVariant
-  { PDI.ovConstructor = oneofConTHName parentTy ooName (oneofFieldName f)
-  , PDI.ovTag         = unFieldNumber (oneofFieldNumber f)
-  , PDI.ovInnerTy     = innerHsType (oneofFieldType f) defaultFieldRep
-  , PDI.ovType        = fieldTypeToBridge (oneofFieldType f)
-  }
+-- matches the splice in 'mkOneofDataDecs' exactly. String / bytes
+-- reps default to the strict/Text variants; per-variant overrides
+-- live in 'RepConfig' under @(parentMessage, oneofFieldName)@ and
+-- are honoured by feeding the appropriate slot here.
+oneofVariantToBridge :: ScopeCtx -> Name -> Text -> OneofField -> PDI.OneofVariant
+oneofVariantToBridge scope parentTy ooName f =
+  -- For now we keep the per-variant reps at the bridge default.
+  -- Per-variant overrides (e.g. one variant lazy ByteString, another
+  -- short) require the caller to construct the OneofVariant
+  -- directly via 'PDI.oneofVariant' + record updates, which is what
+  -- the explicit 'TranslatedField' / 'TranslatedOneofVariant' API
+  -- in 'Proto.Derive' is for. Here in the loadProto bridge we just
+  -- consume 'defaultFieldRep' and let the variant payload pick up
+  -- StrictTextRep / StrictBytesRep — the same defaults the splice
+  -- emits for the data declaration.
+  PDI.oneofVariant
+    (oneofConTHName parentTy ooName (oneofFieldName f))
+    (unFieldNumber (oneofFieldNumber f))
+    (innerHsType (oneofFieldType f) defaultFieldRep)
+    (fieldTypeToBridge scope (oneofFieldType f))
 
 -- | Project the legacy 'RepeatedRep' enum onto the bridge's
 -- equivalent.
@@ -782,16 +939,18 @@ scalarTypeToBridge = \case
   SBytes    -> PDI.SBytes
 
 -- | Project an AST 'FieldType' onto the bridge's
--- 'PDI.ProtoFieldType'. Named types are treated as submessages.
--- Proto enums coming through 'loadProto' are encoded as length-
--- delimited submessages here (a long-standing limitation, not
--- introduced by the bridge rewire); top-level enum support
--- requires routing 'TLEnum' through the bridge with @PFEnum@ —
--- a follow-up that's orthogonal to oneof bridging.
-fieldTypeToBridge :: FieldType -> PDI.ProtoFieldType
-fieldTypeToBridge = \case
+-- 'PDI.ProtoFieldType'. Named types are looked up against the
+-- file's 'ScopeCtx' so we can distinguish enums (encoded as
+-- varints via @PFEnum@) from submessages (length-delimited).
+-- Without this lookup top-level proto enums silently encoded as
+-- length-delimited submessages and produced bytes that no other
+-- proto implementation could read.
+fieldTypeToBridge :: ScopeCtx -> FieldType -> PDI.ProtoFieldType
+fieldTypeToBridge scope = \case
   FTScalar s -> PDI.PFScalar (scalarTypeToBridge s)
-  FTNamed _  -> PDI.PFSubmessage
+  FTNamed n
+    | isEnumName scope n -> PDI.PFEnum
+    | otherwise          -> PDI.PFSubmessage
 
 -- | Reconstruct the Haskell type the record selector returns,
 -- so the bridge's encoder can supply the matching @($var :: T)@

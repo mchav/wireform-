@@ -76,7 +76,10 @@ module Proto.Derive
   , I.ProtoFieldKind (..)
   , I.ProtoFieldType (..)
   , I.RepeatedRep (..)
+  , I.RepeatedMode (..)
+  , I.scalarPackable
   , I.OneofVariant (..)
+  , I.oneofVariant
   , I.Scalar (..)
   , I.MessageMeta (..)
   , I.defaultMessageMeta
@@ -175,6 +178,16 @@ data TranslatedField = TranslatedField
   , tfRepeated       :: !(Maybe I.RepeatedRep)
     -- ^ When @Just@, this field is a @repeated@ in the named
     -- container shape.
+  , tfPacked         :: !(Maybe Bool)
+    -- ^ Override for the packed-encoding choice on this repeated
+    -- field. @Nothing@ (the default) lets the bridge decide:
+    -- packable scalars (everything except @string@ \/ @bytes@ \/
+    -- submessage \/ enum) get 'I.ModePacked'; non-packable
+    -- elements stay unpacked. @Just True@ forces packed (only
+    -- legal for packable scalars). @Just False@ forces the
+    -- one-record-per-element \"expanded\" shape — useful for
+    -- proto2 fields without @[packed = true]@ or for
+    -- byte-compat with very old wire data.
   , tfMapKey         :: !(Maybe MapKeyScalar)
     -- ^ When @Just@, this field is a proto3 @map<K, V>@. The key
     -- wire encoding is supplied here; the value's wire encoding
@@ -222,6 +235,7 @@ translatedField sel ty opt mods = TranslatedField
   , tfInnerType     = ty
   , tfOptional      = opt
   , tfRepeated      = Nothing
+  , tfPacked        = Nothing
   , tfMapKey        = Nothing
   , tfIsEnum        = False
   , tfOneofVariants = []
@@ -288,7 +302,8 @@ translatedFieldToProtoField tf = do
   let kind = case (tfRepeated tf, tfMapKey tf, tfOneofVariants tf, tfOptional tf) of
         (_, _, vs@(_:_), _) ->
           I.FKOneof (map (variantOf pft) vs)
-        (Just rep, _, _, _) -> I.FKRepeated rep
+        (Just rep, _, _, _) ->
+          I.FKRepeated rep (chooseMode (tfPacked tf) pft)
         (_, Just mks, _, _) -> I.FKMap mks
         (_, _, _, True)     -> I.FKMaybe
         _                   -> I.FKBare
@@ -297,6 +312,17 @@ translatedFieldToProtoField tf = do
           , I.pfBytesRep  = tfBytesRep tf
           }
   where
+    -- Pick packed vs. unpacked. Defaults to packed for packable
+    -- scalars (proto3 spec default); falls through to unpacked for
+    -- string/bytes/submessage/enum and any field the caller
+    -- explicitly opted out of with @tfPacked = Just False@.
+    chooseMode :: Maybe Bool -> I.ProtoFieldType -> I.RepeatedMode
+    chooseMode override pft' = case override of
+      Just True  -> I.ModePacked
+      Just False -> I.ModeUnpacked
+      Nothing    -> case pft' of
+        I.PFScalar sc | I.scalarPackable sc -> I.ModePacked
+        _                                   -> I.ModeUnpacked
     variantOf _outer tov =
       case foldModifiers backendProto (tovModifiers tov) of
         Left err -> error $ "Proto.Derive: invalid modifiers on oneof variant "
@@ -323,12 +349,8 @@ translatedFieldToProtoField tf = do
                   (Just "Text",       _)               -> I.PFScalar I.SString
                   (Just "ByteString", _)               -> I.PFScalar I.SBytes
                   _                                    -> I.PFSubmessage
-            in I.OneofVariant
-                 { I.ovConstructor = tovConstructor tov
-                 , I.ovTag         = vt
-                 , I.ovInnerTy     = tovInnerType tov
-                 , I.ovType        = vpft
-                 }
+            in I.oneofVariant (tovConstructor tov) vt
+                              (tovInnerType tov) vpft
 
 -- ---------------------------------------------------------------------------
 -- Annotation-driven field analysis (for deriveProto)
