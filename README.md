@@ -248,12 +248,15 @@ deriver**, both of which feed the same body builders in
    `wireform-proto-derive-test` suite jumped from 27 to 34 tests when
    the oneof rewire landed earlier today.
 2. **`Proto.Derive.deriveProto`** — annotation-driven path on a Haskell
-   record where every field carries an explicit `tag N`. Field types
-   are picked from the Haskell type via `pickFieldType`. Convenient when
-   the canonical schema is the Haskell type rather than a `.proto`
-   file. Currently auto-detects scalars, submessages, and `Maybe`
-   wrappers; for `Vector` / `Map` / oneof / enum fields use the IDL
-   bridge instead (see Outstanding work below).
+   record where every field carries an explicit `tag N`. Auto-detects
+   the field's shape from the Haskell type: scalars / submessages /
+   `Maybe` wrappers, plus `Vector` / `[]` / `Seq` repeated containers,
+   `Map.Map` map fields, sum-of-tagged-singletons oneofs, and
+   `Enum`-shaped types (every constructor nullary). Repeated packable
+   scalars are encoded packed by default; the deriver accepts both
+   packed and unpacked on the read side regardless of which the
+   writer chose. The IDL bridge is now only required for cases the
+   reify graph can't see (e.g. types declared in the same splice).
 3. **`Proto.Derive.deriveProtoFromTranslated`** — explicit-shape entry
    used by IDL bridges that need to call the deriver from inside their
    own splice. Sidesteps the GHC TH stage restriction that prevents
@@ -361,36 +364,6 @@ This monorepo is under active development on
 [PR #18](https://github.com/iand675/wireform-/pull/18). Known gaps that
 are tracked but not yet landed:
 
-- **Hand-coded golden bytes for the proto byte-equivalence regression.**
-  The four byte-equivalence tests in `Test.Proto.Derive` previously
-  compared two implementations (`loadProto` vs
-  `deriveProtoFromTranslated`); after the `loadProto` rewire both paths
-  go through the same body builders in `Proto.Derive.Internal`, so the
-  assertion has degraded to "the bridge agrees with itself". Adding
-  hand-computed reference bytes would restore the meaningful regression.
-- **Annotation-driven `deriveProto` doesn't auto-detect repeated /
-  map / enum / oneof yet.** The detection logic exists in the IDL
-  bridge as `tfRepeated` / `tfMapKey` / `tfIsEnum` / `tfOneofVariants`
-  shape hints; lifting it into `analyseField` (with type-shape detection
-  for outer `Vector` / `[]` / `Map` constructors and reify-driven enum
-  detection) is the next obvious step. Annotation users currently can't
-  say "this `Vector Foo` is a repeated submessage" without going
-  through the bridge.
-- **Packed encoding for repeated scalars.** Proto3's default for
-  packable repeated scalars is packed; the bridge currently emits
-  unpacked. The decoder already accepts both per the proto3 spec, so
-  this is encoder-side only.
-- **Per-variant string/bytes reps for oneof variants.** `loadProto`'s
-  `FieldRep` config doesn't apply to oneof variants today (the
-  `OneofField` AST node has no `FieldRep` slot). Oneof variants always
-  use strict `Text` / `ByteString` regardless of how the parent message
-  is configured.
-- **Top-level enum `loadProto`.** `Proto.TH` translates `FTNamed` as
-  `PFSubmessage`, which means top-level enum types still encode as
-  length-delimited submessages rather than varints. Routing `TLEnum`
-  through the bridge with `PFEnum` requires building an `Enum` instance
-  for the generated enum type and tracking which named types are
-  enums vs. messages at the call site.
 - **Other proto features.** `ProtoMessage` schema metadata, proto3 JSON
   with the canonical camelCase + well-known-type rules, `Hashable`
   derivation.
@@ -398,6 +371,37 @@ are tracked but not yet landed:
   aren't wired into the flake yet, so `nix develop` doesn't evaluate.
   `cabal build` works directly against the system / `NIX_GHC` toolchain
   in the meantime.
+
+The following items were on this list and have since landed:
+
+- **Hand-coded golden bytes for the proto byte-equivalence regression**
+  — added in `Test.Proto.Derive.Golden` (six fixtures asserting exact
+  wire bytes computed from the proto3 spec).
+- **Annotation-driven `deriveProto` auto-detect for repeated / map /
+  oneof / enum** — `analyseField` now sniffs `Vector` / `[]` / `Seq`
+  for repeated, `Map.Map` for map, sum-of-tagged-singletons for
+  oneof, and reify-driven `TypeShapeEnum` for enums. The
+  IDL bridge is still required for types declared in the same TH
+  splice (which can't be `qReify`'d).
+- **Packed encoding for repeated scalars** —
+  `Proto.Derive.Internal.RepeatedMode` now ships `ModePacked` /
+  `ModeUnpacked`; the proto3 default for packable scalars is packed.
+  Both the bridge and the annotation deriver pick this automatically
+  and the decoder accepts either shape per the proto3 spec.
+- **Per-variant string/bytes reps for oneof variants** — `OneofVariant`
+  carries `ovStringRep` / `ovBytesRep` slots and the `loadProto`
+  bridge wires the resolved `FieldRep` into them per variant.
+- **Top-level enum `loadProto`** — the `Proto.TH` bridge now consults
+  the file's `ScopeCtx` to distinguish enums from messages, routes
+  `FTNamed` enum references through `PFEnum`, and emits a
+  proto-faithful `Enum` instance for every generated enum type so
+  `fromEnum` / `toEnum` use the spec-mandated wire numbers rather
+  than declaration order.
+- **Tighter map size estimation** — `sizeOne` for `FKMap` now computes
+  the exact entry size (tag + length-prefix + key + value) instead of
+  the previous 10-byte upper bound; two-pass encoders now produce
+  spec-compliant lengths for maps with submessage values or long
+  string keys.
 
 ---
 

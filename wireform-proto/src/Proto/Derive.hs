@@ -17,16 +17,34 @@
 -- encoder \/ decoder \/ size logic without going through @ANN@ +
 -- 'Language.Haskell.TH.reifyAnnotations'.
 --
--- == Scope (initial release)
+-- == Scope
 --
--- * Records (@TypeShapeRecord@) only. Newtypes/enums/sums are not yet
---   supported by 'deriveProto'; use 'Proto.CodeGen' for those.
+-- * Records (@TypeShapeRecord@) only. The IDL bridge
+--   ('deriveProtoFromTranslated') is the route for newtypes / enums /
+--   sums declared in the same splice as the deriver call.
 -- * Singular fields of one of the recognized scalar types
 --   (@Int32 \/ Int64 \/ Word32 \/ Word64 \/ Bool \/ Float \/ Double \/
 --   Text \/ ByteString@) or a submessage with existing
 --   'MessageEncode' \/ 'MessageDecode' \/ 'MessageSize' instances.
 -- * @Maybe a@ for explicit field presence (proto2 optional or proto3
 --   @optional@).
+-- * Repeated containers — outer 'Data.Vector.Vector' / list \/
+--   'Data.Sequence.Seq' constructors are auto-detected and routed
+--   through 'I.FKRepeated' with the matching 'I.RepeatedRep'. For
+--   packable scalars the encoder defaults to packed; for non-packable
+--   element types (string / bytes / submessage / enum) it falls back
+--   to one record per element. Decoders accept both shapes per the
+--   proto3 spec, regardless of which the writer chose.
+-- * @Map.Map K V@ — auto-detected as a proto3 @map<K, V>@. The
+--   key encoding is inferred from the key type (or supplied via the
+--   'mapKey' modifier when the type is ambiguous, e.g. @Word32@ as
+--   @uint32@ vs @fixed32@).
+-- * Sum types whose every constructor has exactly one argument and a
+--   per-constructor @tag N@ annotation are recognised as oneofs and
+--   routed through 'I.FKOneof'.
+-- * Datatypes whose every constructor is nullary
+--   ('Wireform.Derive.TypeInfo.TypeShapeEnum') are recognised as
+--   enums and emit varint encoding via 'fromEnum' \/ 'toEnum'.
 -- * @wireOverride WireZigZag@ to force ZigZag for sint32 \/ sint64.
 -- * @wireOverride WireFixed@ to force fixed-width for fixed32 \/
 --   fixed64 \/ sfixed32 \/ sfixed64.
@@ -49,12 +67,13 @@
 --
 -- == Out of scope (for now)
 --
--- * Repeated / packed / map fields.
--- * Oneof fields.
 -- * 'ProtoMessage' schema metadata.
 -- * Proto3 JSON ('Aeson.ToJSON' \/ 'Aeson.FromJSON').
 -- * 'Hashable' (use @deriving anyclass Hashable@ on the type instead).
--- * Unknown-field preservation.
+-- * Unknown-field preservation on the annotation-driven path
+--   ('deriveProto'); the IDL bridge ('loadProto' /
+--   'deriveProtoFromTranslated') routes unknown tags through a
+--   message-level slot via 'I.MessageMeta.mmUnknownFieldsSel'.
 module Proto.Derive
   ( -- * Annotation-driven entry points
     deriveProto
