@@ -332,13 +332,17 @@ consumeQuoted q = go0
 
     -- @blanks@ counts consecutive empty continuation lines we've
     -- absorbed since the last non-empty (or the opening) line.
+    -- We pop the raw next line (not 'popLine', which would skip
+    -- blank / comment lines — those are significant inside a
+    -- multi-line quoted scalar).
     readMore !buf !blanks = do
-      mNext <- popLine
-      case mNext of
-        Nothing -> failP "YAML: unterminated quoted scalar"
-        Just l' -> do
-          let body = T.dropWhileEnd
-                       (\c -> c == ' ' || c == '\t') (lineBody l')
+      ls <- getLines
+      case ls of
+        []       -> failP "YAML: unterminated quoted scalar"
+        (l' : rest) -> do
+          setLines rest
+          let body  = T.dropWhileEnd
+                        (\c -> c == ' ' || c == '\t') (lineBody l')
               isBlank = T.null (T.strip body)
               body' = T.dropWhile (\c -> c == ' ' || c == '\t') body
           if isBlank
@@ -950,11 +954,20 @@ parseBlockScalar k = do
   let header = T.drop 1 (lineBody l)   -- drop '|' or '>'
       (chomp, _hint) = parseHeader header
   body <- collectScalarLines (lineIndent l)
-  let txt = case k of
-        Literal -> joinLiteral chomp body
-        Folded  -> joinFolded  chomp body
+  -- Fallback baseInd when no non-empty content line exists: use
+  -- parent+1 so that a single more-indented blank still chomps
+  -- correctly to a single newline rather than preserving its
+  -- leading spaces.
+  let bodyAdj = case nonEmptyContent body of
+        True  -> body
+        False -> map (\(i, b) -> if i < 0 then (i, b) else (-1, b)) body
+      txt = case k of
+        Literal -> joinLiteral chomp bodyAdj
+        Folded  -> joinFolded  chomp bodyAdj
   pure (YString txt)
   where
+    nonEmptyContent = any (\(i, b) -> i >= 0 && not (T.null b))
+
     parseHeader :: Text -> (Chomp, Maybe Int)
     parseHeader h =
       let hs = T.unpack (T.strip (stripInlineComment h))
