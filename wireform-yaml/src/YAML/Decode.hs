@@ -243,9 +243,6 @@ parseStream lns =
     Left err      -> Left err
     Right (ds, _) -> Right ds
   where
-    -- @first@: True before any document.
-    -- @prevExplicitEnd@: True if the previous doc terminated
-    --   with an explicit '...' marker.
     loop !first !prevExplicitEnd = do
       ls <- getLines
       case dropWhile isSkippable ls of
@@ -588,6 +585,15 @@ parseAnchored = do
                case mNext of
                  Just l2 | lineIndent l2 > lineIndent l ->
                      parseNode (lineIndent l2)
+                 -- Special case: an anchor that sits on its own
+                 -- line at the same column as a following block
+                 -- sequence ('- ...') binds to that sequence.
+                 -- Other same-column content is treated as the
+                 -- sibling of an empty (Null) anchored node.
+                 Just l2
+                   | lineIndent l2 == lineIndent l
+                   , isSeqItem (lineBody l2) ->
+                       parseBlockSeq (lineIndent l2)
                  _ -> pure YNull
              else do
                pushLine l { lineBody = after, lineRawBody = after }
