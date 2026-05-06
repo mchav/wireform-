@@ -327,7 +327,18 @@ isSkippableNonDirective l = case lineKind l of
 -- Parser monad: pure ([PLine], Map Text Value) -> Either String (a, ...)
 -- ---------------------------------------------------------------------------
 
-newtype P a = P { unP :: PS -> Either String (a, PS) }
+-- | Result of one parse step. Avoids the @Either String (a, PS)@
+-- /pair-of-pair/ shape used previously, which allocated two
+-- cells (the 'Either' constructor plus the @(a, PS)@ tuple) on
+-- every successful @>>=@. 'Result' uses a single constructor
+-- carrying both the value and the next state, halving the per-
+-- bind allocation on the success path. ('Err' carries a 'String'
+-- which is rarely allocated since failure stops the chain.)
+data Result a
+  = Ok  !a !PS
+  | Err !String
+
+newtype P a = P { unP :: PS -> Result a }
 
 data PS = PS
   { psLines     :: ![PLine]
@@ -351,26 +362,36 @@ data PS = PS
     -- refuse a multi-line flow as an implicit map key.
   }
 
+runP :: P a -> PS -> Either String (a, PS)
+runP (P f) s = case f s of
+  Ok  a s' -> Right (a, s')
+  Err e    -> Left e
+{-# INLINE runP #-}
+
 instance Functor P where
-  fmap f (P g) = P $ \s -> case g s of
-    Left e         -> Left e
-    Right (x, s')  -> Right (f x, s')
+  fmap f (P g) = P (\s -> case g s of
+    Ok a s' -> Ok (f a) s'
+    Err e   -> Err e)
   {-# INLINE fmap #-}
 
 instance Applicative P where
-  pure x = P $ \s -> Right (x, s)
+  pure x = P (\s -> Ok x s)
   {-# INLINE pure #-}
-  P pf <*> P px = P $ \s -> case pf s of
-    Left e         -> Left e
-    Right (f, s')  -> case px s' of
-      Left e          -> Left e
-      Right (x, s'')  -> Right (f x, s'')
+  P pf <*> P px = P (\s -> case pf s of
+    Err e   -> Err e
+    Ok f s' -> case px s' of
+      Err e    -> Err e
+      Ok x s'' -> Ok (f x) s'')
   {-# INLINE (<*>) #-}
+  P g *> P h = P (\s -> case g s of
+    Err e   -> Err e
+    Ok _ s' -> h s')
+  {-# INLINE (*>) #-}
 
 instance Monad P where
-  P g >>= k = P $ \s -> case g s of
-    Left e        -> Left e
-    Right (x, s') -> unP (k x) s'
+  P g >>= k = P (\s -> case g s of
+    Err e   -> Err e
+    Ok a s' -> unP (k a) s')
   {-# INLINE (>>=) #-}
 
 instance MonadFail P where
@@ -378,23 +399,23 @@ instance MonadFail P where
   {-# INLINE fail #-}
 
 failP :: String -> P a
-failP msg = P (const (Left msg))
+failP msg = P (\_ -> Err msg)
 {-# INLINE failP #-}
 
 getS :: P PS
-getS = P (\s -> Right (s, s))
+getS = P (\s -> Ok s s)
 {-# INLINE getS #-}
 
 modifyS :: (PS -> PS) -> P ()
-modifyS f = P (\s -> Right ((), f s))
+modifyS f = P (\s -> Ok () (f s))
 {-# INLINE modifyS #-}
 
 getLines :: P [PLine]
-getLines = P (\s -> Right (psLines s, s))
+getLines = P (\s -> Ok (psLines s) s)
 {-# INLINE getLines #-}
 
 setLines :: [PLine] -> P ()
-setLines ls = P (\s -> Right ((), s { psLines = ls }))
+setLines ls = P (\s -> Ok () (s { psLines = ls }))
 {-# INLINE setLines #-}
 
 popLine :: P (Maybe PLine)
@@ -404,7 +425,7 @@ popLine = P $ \s ->
         | isSkippable x = go rest
         | otherwise     = (Just x, rest)
       (mx, ls') = go (psLines s)
-  in Right (mx, s { psLines = ls' })
+  in Ok mx (s { psLines = ls' })
 {-# INLINE popLine #-}
 
 peekLine :: P (Maybe PLine)
@@ -413,11 +434,11 @@ peekLine = P $ \s ->
       go (x:xs)
         | isSkippable x = go xs
         | otherwise     = Just x
-  in Right (go (psLines s), s)
+  in Ok (go (psLines s)) s
 {-# INLINE peekLine #-}
 
 pushLine :: PLine -> P ()
-pushLine l = P $ \s -> Right ((), s { psLines = l : psLines s })
+pushLine l = P (\s -> Ok () (s { psLines = l : psLines s }))
 {-# INLINE pushLine #-}
 
 recordAnchor :: Text -> Value -> P ()
@@ -476,7 +497,7 @@ lookupShortcut handle = do
 
 parseStream :: [PLine] -> Either String [Document]
 parseStream lns =
-  case unP (loop True True) (PS lns Map.empty Map.empty 0 False False) of
+  case runP (loop True True) (PS lns Map.empty Map.empty 0 False False) of
     Left err      -> Left err
     Right (ds, _) -> Right ds
   where
@@ -1096,14 +1117,32 @@ isAnchorChar c =
 takeAnchorName :: Text -> (Text, Text)
 takeAnchorName t = goT 0
   where
-    !len = T.length t
+    !len = bLen t
     goT !i
       | i >= len = (t, T.empty)
       | otherwise =
-          let c = T.index t i
-          in if isAnchorChar c
+          let !b = bAt t i
+          in if isAnchorByte b
                then goT (i + 1)
-               else (T.take i t, T.drop i t)
+               else (bTake i t, bDrop i t)
+
+isAnchorByte :: Word8 -> Bool
+isAnchorByte b =
+  -- ASCII byte: reject the same chars as 'isAnchorChar'.
+  -- Non-ASCII bytes (≥ 0x80, including UTF-8 leading and
+  -- continuation bytes) are always part of the name.
+  case b of
+    44  -> False    -- ','
+    91  -> False    -- '['
+    93  -> False    -- ']'
+    123 -> False    -- '{'
+    125 -> False    -- '}'
+    32  -> False    -- ' '
+    9   -> False    -- '\t'
+    10  -> False    -- '\n'
+    13  -> False    -- '\r'
+    _   -> True
+{-# INLINE isAnchorByte #-}
 
 breakOnSpace :: Text -> (Text, Text)
 breakOnSpace = T.break (\c -> c == ' ' || c == '\t')
@@ -2083,7 +2122,7 @@ parseImplicitMapValue !ind vRest =
            -- can't extend this plain scalar (lower indent than
            -- the value column, OR no next line at all), we can
            -- resolve directly without 'parsePlainScalar'.
-           ls <- P (\s -> Right (psLines s, s))
+           ls <- getLines
            let canExtend = case ls of
                  (n : _) ->
                    lineKind n == LContent
