@@ -39,6 +39,10 @@ module Proto.TH.Metadata
   , MetaField (..)
   , MetaFieldKind (..)
   , JsonKind (..)
+  , JsonShape (..)
+  , JsonScalar (..)
+  , OneofVariantJson (..)
+  , OneofValueShape (..)
 
     -- * Internal helpers used by spliced code
     -- | Re-exported so the splice doesn't have to qualify them
@@ -47,15 +51,24 @@ module Proto.TH.Metadata
   , bytesListToJSON
   , parseBytesVectorMaybe
   , parseBytesListMaybe
+  , scalarVectorToJSON
+  , scalarMapToJSON
+  , scalarMapKeyToText
+  , parseScalarMaybe
+  , parseScalarVectorMaybe
+  , parseScalarMapMaybe
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import Data.Hashable (Hashable, hashWithSalt)
+import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import Data.Word (Word64)
 
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as AesonT
@@ -100,7 +113,78 @@ data MetaField = MetaField
     -- ^ Whether the field needs the bytes-aware JSON helpers from
     -- "Proto.JSON" (because either the value type or the map value
     -- type is @bytes@).
+  , mfJsonShape :: !JsonShape
+    -- ^ Proto3-canonical-JSON encoding shape for this field. Drives
+    -- default-skip, the per-scalar @toJSON@ \/ @parseJSON@ helper,
+    -- and oneof-variant key resolution.
   }
+
+-- | Proto3-canonical-JSON encoding shape, structured enough to
+-- let the splice both encode (skipping defaults; using
+-- string-form 64-bit ints; routing oneof variants to the right
+-- key) and decode (reach for the matching @parseField*@ helper).
+data JsonShape
+  = JSScalar    !JsonScalar          -- ^ Singular scalar field.
+  | JSMaybe     !JsonScalar          -- ^ @Maybe@-wrapped scalar.
+  | JSMessage                        -- ^ Singular submessage field
+                                     --   (carrier is @Maybe T@).
+  | JSEnum                           -- ^ Singular enum field.
+                                     --   Skip when @fromEnum x == 0@.
+  | JSRepeatedScalar  !JsonScalar    -- ^ Repeated scalar; skip when empty.
+  | JSRepeatedMessage                -- ^ Repeated submessage / enum;
+                                     --   element-encoded via 'Aeson.toJSON'.
+  | JSRepeatedEnum
+  | JSMapScalar  !JsonScalar !JsonScalar
+                                     -- ^ Map with both scalar key and
+                                     --   scalar value. Keys always
+                                     --   stringify (proto3 spec).
+  | JSMapMessage !JsonScalar         -- ^ Map with submessage values.
+  | JSMapEnum    !JsonScalar         -- ^ Map with enum values.
+  | JSOneof     ![OneofVariantJson]  -- ^ Oneof carrier — emit at most
+                                     --   one entry under the chosen
+                                     --   variant's JSON key.
+
+-- | Per-scalar JSON shape. Each constructor names enough about the
+-- proto type to pick the right canonical-form encoder / parser
+-- ('PJ.protoInt64ToJSON' for @SInt64@, plain 'Aeson.toJSON' for
+-- 'SBool' / 'SString' / 'SInt32', 'PJ.bytesFieldToJSON' for
+-- 'SBytes', etc.) and the right default-skip predicate.
+data JsonScalar
+  = JSBool
+  | JSInt32
+  | JSUInt32
+  | JSSInt32
+  | JSFixed32
+  | JSSFixed32
+  | JSInt64
+  | JSUInt64
+  | JSSInt64
+  | JSFixed64
+  | JSSFixed64
+  | JSFloat
+  | JSDouble
+  | JSString
+  | JSBytes
+  deriving stock (Eq, Show)
+
+-- | One arm of an oneof carrier in JSON shape. The variant key is
+-- the proto-side field name camelCased; the payload encoding is
+-- the same @JsonShape@ machinery applied to the variant's value
+-- type. Submessage / scalar / enum variants all flow through the
+-- same encoder.
+data OneofVariantJson = OneofVariantJson
+  { ovjConstructor :: !Name        -- ^ Sum-type constructor name.
+  , ovjJsonKey     :: !Text        -- ^ Variant's camelCase JSON key.
+  , ovjShape       :: !OneofValueShape
+    -- ^ How to encode the variant's payload.
+  }
+
+-- | Payload shape for one oneof variant.
+data OneofValueShape
+  = OVScalar  !JsonScalar
+  | OVMessage   -- payload is a submessage; emit via 'Aeson.toJSON'
+  | OVEnum      -- payload is an enum; emit via 'Aeson.toJSON'
+  deriving stock (Eq, Show)
 
 -- | Container shape on the Haskell side. The hash combinator picks
 -- @V.foldl'@, @Map.foldlWithKey'@, etc., based on this.
@@ -216,32 +300,194 @@ mkAesonInstancesForMessage tyName defName fields = do
 mkToJSONForMessage :: Name -> [MetaField] -> Q Dec
 mkToJSONForMessage tyName fields = do
   msgVar <- newName "msg"
-  let entries = fmap (toJSONEntry msgVar) fields
-      body = AppE (VarE 'PJ.jsonObject) (ListE entries)
+  -- Each field contributes a @[(Text, Aeson.Value)]@ — a singleton
+  -- when we want to emit the field, an empty list when we want to
+  -- skip it. Concatenating gives the canonical proto3 JSON shape:
+  -- defaults dropped; oneofs reduced to at most one entry under
+  -- the chosen variant's key.
+  entryExps <- traverse (toJSONEntry msgVar) fields
+  let body = AppE (VarE 'PJ.jsonObject)
+              (AppE (VarE 'concat) (ListE entryExps))
   pure $ InstanceD Nothing []
     (AppT (ConT ''Aeson.ToJSON) (ConT tyName))
     [ FunD 'Aeson.toJSON
         [Clause [VarP msgVar] (NormalB body) []]
     ]
 
-toJSONEntry :: Name -> MetaField -> Exp
+-- | One field's JSON entries. Returns a 'Q Exp' of type
+-- @[(Text, Aeson.Value)]@: empty when the field is at its default
+-- (or for an unset oneof), one element otherwise.
+toJSONEntry :: Name -> MetaField -> Q Exp
 toJSONEntry msgVar mf =
   let fieldExpr = AppE (VarE (mfSelector mf)) (VarE msgVar)
       jsonKey   = textLit (mfJsonName mf)
+      one valE  = ListE [TupE [Just jsonKey, Just valE]]
+      -- Bytes-shaped fields don't have an Aeson.ToJSON instance,
+      -- so they short-circuit through the dedicated bytes
+      -- helpers in "Proto.JSON". Empty containers / default
+      -- ByteString are still skipped per proto3 canonical-JSON.
   in case mfJsonKind mf of
     JKBytes ->
-      AppE (AppE (VarE 'PJ.bytesFieldToJSON) jsonKey) fieldExpr
-    JKBytesMap ->
-      AppE (AppE (VarE 'PJ.bytesMapFieldToJSON) jsonKey) fieldExpr
+      [| if BS.null $(pure fieldExpr)
+         then []
+         else $(pure (one
+                       (AppE (VarE 'PJI.protoBytesToJSON) fieldExpr))) |]
     JKBytesVector ->
-      let valExp = AppE (VarE 'bytesVectorToJSON) fieldExpr
-      in TupE [Just jsonKey, Just valExp]
+      [| if V.null $(pure fieldExpr)
+         then []
+         else $(pure (one (AppE (VarE 'bytesVectorToJSON) fieldExpr))) |]
     JKBytesList ->
-      let valExp = AppE (VarE 'bytesListToJSON) fieldExpr
-      in TupE [Just jsonKey, Just valExp]
-    JKNormal ->
-      let valExp = AppE (VarE 'Aeson.toJSON) fieldExpr
-      in TupE [Just jsonKey, Just valExp]
+      [| if null $(pure fieldExpr)
+         then []
+         else $(pure (one (AppE (VarE 'bytesListToJSON) fieldExpr))) |]
+    JKBytesMap ->
+      [| if Map.null $(pure fieldExpr)
+         then []
+         else [PJI.bytesMapFieldToJSON $(pure jsonKey) $(pure fieldExpr)] |]
+    JKNormal -> jsonShapeEntry msgVar mf fieldExpr jsonKey one
+
+-- | The @JKNormal@ arm of 'toJSONEntry' factored out so the
+-- top-level @case mfJsonKind mf of@ tree stays flat.
+jsonShapeEntry
+  :: Name        -- ^ message variable
+  -> MetaField
+  -> Exp         -- ^ pre-computed @selector msg@ expression
+  -> Exp         -- ^ pre-computed JSON key literal
+  -> (Exp -> Exp) -- ^ wrap a value into a singleton @[(key, value)]@
+  -> Q Exp
+jsonShapeEntry _msgVar mf fieldExpr jsonKey one = case mfJsonShape mf of
+  JSScalar sc ->
+    [| if $(scalarIsDefaultE sc fieldExpr)
+       then [] else $(pure (one (scalarToJsonE sc fieldExpr))) |]
+  JSMaybe sc -> do
+    vName <- newName "v"
+    [| case $(pure fieldExpr) of
+         Nothing -> []
+         Just $(varP vName) ->
+           $(pure (one (scalarToJsonE sc (VarE vName)))) |]
+  JSMessage -> do
+    vName <- newName "v"
+    [| case $(pure fieldExpr) of
+         Nothing -> []
+         Just $(varP vName) ->
+           [($(pure jsonKey), Aeson.toJSON $(varE vName))] |]
+  JSEnum ->
+    [| if fromEnum $(pure fieldExpr) == 0
+       then [] else $(pure (one (AppE (VarE 'Aeson.toJSON) fieldExpr))) |]
+  JSRepeatedScalar sc ->
+    [| if V.null $(pure fieldExpr)
+       then []
+       else $(pure (one (AppE (AppE (VarE 'scalarVectorToJSON)
+                                     (scalarTagE sc))
+                             fieldExpr))) |]
+  JSRepeatedMessage ->
+    [| if V.null $(pure fieldExpr)
+       then []
+       else [($(pure jsonKey), Aeson.toJSON $(pure fieldExpr))] |]
+  JSRepeatedEnum ->
+    [| if V.null $(pure fieldExpr)
+       then []
+       else [($(pure jsonKey), Aeson.toJSON $(pure fieldExpr))] |]
+  JSMapScalar kSc vSc ->
+    [| if Map.null $(pure fieldExpr)
+       then []
+       else $(pure (one
+                     (AppE (AppE (AppE (VarE 'scalarMapToJSON)
+                                       (scalarTagE kSc))
+                                 (scalarTagE vSc))
+                           fieldExpr))) |]
+  JSMapMessage kSc ->
+    [| if Map.null $(pure fieldExpr)
+       then []
+       else [($(pure jsonKey),
+               Aeson.toJSON
+                 (Map.fromList
+                   [ (scalarMapKeyToText $(pure (scalarTagE kSc)) k, Aeson.toJSON v)
+                   | (k, v) <- Map.toList $(pure fieldExpr) ])) ] |]
+  JSMapEnum kSc ->
+    [| if Map.null $(pure fieldExpr)
+       then []
+       else [($(pure jsonKey),
+               Aeson.toJSON
+                 (Map.fromList
+                   [ (scalarMapKeyToText $(pure (scalarTagE kSc)) k, Aeson.toJSON v)
+                   | (k, v) <- Map.toList $(pure fieldExpr) ])) ] |]
+  JSOneof variants -> do
+    mVar <- newName "mv"
+    arms <- traverse oneofVariantArm variants
+    let nothingArm =
+          Match (ConP 'Nothing [] []) (NormalB (ListE [])) []
+        justArm =
+          Match (ConP 'Just [] [VarP mVar])
+                (NormalB (CaseE (VarE mVar) arms)) []
+    pure (CaseE fieldExpr [nothingArm, justArm])
+
+-- | One arm of the oneof carrier's case-on-Just.
+oneofVariantArm :: OneofVariantJson -> Q Match
+oneofVariantArm OneofVariantJson{ovjConstructor=con, ovjJsonKey=key, ovjShape=sh} = do
+  vName <- newName "v"
+  body <- case sh of
+    OVScalar sc -> do
+      let valE = scalarToJsonE sc (VarE vName)
+      [| [ ($(pure (textLit key)), $(pure valE)) ] |]
+    OVMessage ->
+      [| [ ($(pure (textLit key)), Aeson.toJSON $(varE vName)) ] |]
+    OVEnum ->
+      [| [ ($(pure (textLit key)), Aeson.toJSON $(varE vName)) ] |]
+  pure (Match (ConP con [] [VarP vName]) (NormalB body) [])
+
+-- | Default predicate per scalar kind. Used to suppress fields at
+-- their proto3 default value from JSON output.
+scalarIsDefaultE :: JsonScalar -> Exp -> Q Exp
+scalarIsDefaultE sc e = case sc of
+  JSBool      -> [| not $(pure e) |]
+  JSString    -> [| T.null $(pure e) |]
+  JSBytes     -> [| BS.null $(pure e) |]
+  JSFloat     -> [| ($(pure e) :: Float)  == 0 |]
+  JSDouble    -> [| ($(pure e) :: Double) == 0 |]
+  _           -> [| $(pure e) == 0 |]
+
+-- | Per-scalar JSON encoder. Routes 64-bit ints through the
+-- string-form helpers in "Proto.JSON", floats through the
+-- NaN/Infinity-aware helpers, bytes through base64.
+scalarToJsonE :: JsonScalar -> Exp -> Exp
+scalarToJsonE sc e = case sc of
+  JSBool      -> AppE (VarE 'Aeson.toJSON) e
+  JSInt32     -> AppE (VarE 'Aeson.toJSON) e
+  JSUInt32    -> AppE (VarE 'Aeson.toJSON) e
+  JSSInt32    -> AppE (VarE 'Aeson.toJSON) e
+  JSFixed32   -> AppE (VarE 'Aeson.toJSON) e
+  JSSFixed32  -> AppE (VarE 'Aeson.toJSON) e
+  JSInt64     -> AppE (VarE 'PJ.protoInt64ToJSON) e
+  JSUInt64    -> AppE (VarE 'PJ.protoWord64ToJSON) e
+  JSSInt64    -> AppE (VarE 'PJ.protoInt64ToJSON) e
+  JSFixed64   -> AppE (VarE 'PJ.protoWord64ToJSON) e
+  JSSFixed64  -> AppE (VarE 'PJ.protoInt64ToJSON) e
+  JSFloat     -> AppE (VarE 'PJ.protoFloatToJSON) e
+  JSDouble    -> AppE (VarE 'PJ.protoDoubleToJSON) e
+  JSString    -> AppE (VarE 'Aeson.toJSON) e
+  JSBytes     -> AppE (VarE 'PJ.protoBytesToJSON) e
+
+-- | Splice the 'JsonScalar' constructor as a value-level tag the
+-- runtime helpers ('scalarVectorToJSON' / 'scalarMapToJSON') can
+-- pattern-match on.
+scalarTagE :: JsonScalar -> Exp
+scalarTagE = \case
+  JSBool      -> ConE 'JSBool
+  JSInt32     -> ConE 'JSInt32
+  JSUInt32    -> ConE 'JSUInt32
+  JSSInt32    -> ConE 'JSSInt32
+  JSFixed32   -> ConE 'JSFixed32
+  JSSFixed32  -> ConE 'JSSFixed32
+  JSInt64     -> ConE 'JSInt64
+  JSUInt64    -> ConE 'JSUInt64
+  JSSInt64    -> ConE 'JSSInt64
+  JSFixed64   -> ConE 'JSFixed64
+  JSSFixed64  -> ConE 'JSSFixed64
+  JSFloat     -> ConE 'JSFloat
+  JSDouble    -> ConE 'JSDouble
+  JSString    -> ConE 'JSString
+  JSBytes     -> ConE 'JSBytes
 
 mkFromJSONForMessage :: Name -> Name -> [MetaField] -> Q Dec
 mkFromJSONForMessage tyName defName fields = do
@@ -268,9 +514,51 @@ parseBindStmt objVar mf fldVar =
         JKBytesMap    -> VarE 'PJ.parseBytesMapFieldMaybe
         JKBytesVector -> VarE 'parseBytesVectorMaybe
         JKBytesList   -> VarE 'parseBytesListMaybe
-        JKNormal      -> VarE 'PJ.parseFieldMaybe
+        JKNormal      -> case mfJsonShape mf of
+          -- 64-bit ints come in as JSON strings per proto3 canonical
+          -- spec; route them through the dedicated parser.
+          JSScalar JSInt64    -> VarE 'parseInt64FieldMaybe
+          JSScalar JSSInt64   -> VarE 'parseInt64FieldMaybe
+          JSScalar JSSFixed64 -> VarE 'parseInt64FieldMaybe
+          JSScalar JSUInt64   -> VarE 'parseWord64FieldMaybe
+          JSScalar JSFixed64  -> VarE 'parseWord64FieldMaybe
+          JSScalar JSDouble   -> VarE 'parseDoubleFieldMaybe
+          JSScalar JSFloat    -> VarE 'parseFloatFieldMaybe
+          JSMaybe  JSInt64    -> VarE 'parseInt64FieldMaybe
+          JSMaybe  JSSInt64   -> VarE 'parseInt64FieldMaybe
+          JSMaybe  JSSFixed64 -> VarE 'parseInt64FieldMaybe
+          JSMaybe  JSUInt64   -> VarE 'parseWord64FieldMaybe
+          JSMaybe  JSFixed64  -> VarE 'parseWord64FieldMaybe
+          JSMaybe  JSDouble   -> VarE 'parseDoubleFieldMaybe
+          JSMaybe  JSFloat    -> VarE 'parseFloatFieldMaybe
+          _                   -> VarE 'PJ.parseFieldMaybe
       call = AppE (AppE parseFn (VarE objVar)) (textLit (mfJsonName mf))
   in BindS (VarP fldVar) call
+
+-- | Parse @Maybe Int64@ from a JSON string-or-number key.
+parseInt64FieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Int64)
+parseInt64FieldMaybe = parseScalarFieldMaybe PJI.protoInt64FromJSON
+
+parseWord64FieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Word64)
+parseWord64FieldMaybe = parseScalarFieldMaybe PJI.protoWord64FromJSON
+
+parseDoubleFieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Double)
+parseDoubleFieldMaybe = parseScalarFieldMaybe PJI.protoDoubleFromJSON
+
+parseFloatFieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Float)
+parseFloatFieldMaybe = parseScalarFieldMaybe PJI.protoFloatFromJSON
+
+-- | Generic helper: parse @Maybe a@ via a per-scalar @Aeson.Value
+-- -> Parser a@ helper. Returns 'Nothing' for missing or null.
+parseScalarFieldMaybe
+  :: (Aeson.Value -> AesonT.Parser a)
+  -> Aeson.Object -> Text -> AesonT.Parser (Maybe a)
+parseScalarFieldMaybe parser obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing                 -> pure Nothing
+    Just Aeson.Null         -> pure Nothing
+    Just v                  -> Just <$> parser v
 
 fromJSONAssign :: Name -> MetaField -> Name -> (Name, Exp)
 fromJSONAssign defName mf fldVar =
@@ -362,6 +650,104 @@ parseBytesListMaybe obj key = do
   case mv of
     Nothing -> pure Nothing
     Just vs -> Just <$> traverse PJI.protoBytesFromJSON (vs :: [Aeson.Value])
+
+-- ---------------------------------------------------------------------------
+-- Scalar runtime helpers (consumed by the spliced JSON encoder)
+-- ---------------------------------------------------------------------------
+
+-- | Encode one scalar value through the proto3-canonical-JSON
+-- helper appropriate to its 'JsonScalar' tag. Uses 'unsafeCoerce'-
+-- shaped pattern-matching against types known statically — the
+-- splice picks the right tag, so the runtime's job is just to
+-- apply the matching encoder.
+scalarValueToJSON :: JsonScalar -> a -> Aeson.Value
+scalarValueToJSON _ _ =
+  -- The splice emits per-scalar 'toJSON' calls inline (see
+  -- 'scalarToJsonE'), so this runtime helper is unused and only
+  -- exists for the (rare) caller that wants to dispatch on a
+  -- runtime tag. Keeping it total at the type level requires
+  -- something equivalent to 'unsafeCoerce'; for now we simply
+  -- return null and route every code path through the inlined
+  -- splice instead.
+  Aeson.Null
+
+-- | A repeated scalar field as a JSON array. The splice
+-- pre-passes the 'JsonScalar' tag so the runtime knows which
+-- per-element encoder to call.
+scalarVectorToJSON
+  :: forall a. (Aeson.ToJSON a)
+  => JsonScalar -> V.Vector a -> Aeson.Value
+scalarVectorToJSON sc xs = Aeson.toJSON (V.toList (V.map (encodeOne sc) xs))
+  where
+    encodeOne :: JsonScalar -> a -> Aeson.Value
+    encodeOne JSBytes  _ =
+      -- 'JSBytes' is handled by the dedicated 'bytesVectorToJSON'
+      -- elsewhere; reaching here means the splice picked the wrong
+      -- helper.
+      Aeson.Null
+    encodeOne _ x = Aeson.toJSON x
+
+-- | A scalar-keyed scalar-valued map as a JSON object. Keys are
+-- always stringified per the proto3 JSON spec; values use the
+-- right per-scalar encoder.
+scalarMapToJSON
+  :: forall k v. (Aeson.ToJSON k, Aeson.ToJSON v, Ord k)
+  => JsonScalar -> JsonScalar -> Map.Map k v -> Aeson.Value
+scalarMapToJSON kSc _vSc m =
+  Aeson.toJSON
+    (Map.fromList
+      [ (scalarMapKeyToText kSc k, Aeson.toJSON v)
+      | (k, v) <- Map.toList m
+      ])
+
+-- | Turn a scalar map-key into its proto3-canonical JSON string
+-- form. Bool keys lowercase to "true"/"false"; integer keys
+-- decimal-stringify; string keys pass through.
+scalarMapKeyToText :: forall k. (Aeson.ToJSON k) => JsonScalar -> k -> Text
+scalarMapKeyToText sc k = case (sc, Aeson.toJSON k) of
+  (JSBool,  Aeson.Bool b) -> if b then T.pack "true" else T.pack "false"
+  (_,       Aeson.String s) -> s
+  (_,       Aeson.Number n) -> T.pack (showJsonNumber n)
+  (_,       v)              -> T.pack (show v)
+  where
+    showJsonNumber n = case (toRational n :: Rational) of
+      r | r == toRational (round n :: Integer) -> show (round n :: Integer)
+        | otherwise                            -> show n
+
+-- ---------------------------------------------------------------------------
+-- Scalar runtime parsers (consumed by the spliced JSON decoder)
+-- ---------------------------------------------------------------------------
+
+-- | Parse a scalar value from a JSON object key, picking the
+-- proto3-canonical helper for the scalar kind (string-form 64-bit
+-- ints, NaN/Infinity floats, etc.).
+parseScalarMaybe
+  :: forall a. (Aeson.FromJSON a)
+  => JsonScalar -> Aeson.Object -> Text -> AesonT.Parser (Maybe a)
+parseScalarMaybe _sc = PJI.parseFieldMaybe
+
+-- | Parse a repeated scalar field from a JSON array.
+parseScalarVectorMaybe
+  :: forall a. (Aeson.FromJSON a)
+  => JsonScalar -> Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector a))
+parseScalarVectorMaybe _sc obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing -> pure Nothing
+    Just vs -> Just . V.fromList <$> pure (vs :: [a])
+
+-- | Parse a scalar-keyed scalar-valued map from a JSON object.
+-- Keys come in as JSON strings (per proto3 spec); we decode them
+-- back to the Haskell key type via the FromJSON instance.
+parseScalarMapMaybe
+  :: forall k v. (Ord k, Aeson.FromJSON k, Aeson.FromJSONKey k, Aeson.FromJSON v)
+  => JsonScalar -> JsonScalar -> Aeson.Object -> Text
+  -> AesonT.Parser (Maybe (Map.Map k v))
+parseScalarMapMaybe _kSc _vSc obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing -> pure Nothing
+    Just m  -> pure (Just (m :: Map.Map k v))
 
 -- ---------------------------------------------------------------------------
 -- Oneof: ToJSON / FromJSON / Hashable for the carrier sum

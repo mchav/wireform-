@@ -341,6 +341,7 @@ translatedFieldToProtoField tf = do
       Just False -> I.ModeUnpacked
       Nothing    -> case pft' of
         I.PFScalar sc | I.scalarPackable sc -> I.ModePacked
+        I.PFEnum                            -> I.ModePacked
         _                                   -> I.ModeUnpacked
     translatedVariantOf _outer tov =
       case foldModifiers backendProto (tovModifiers tov) of
@@ -400,9 +401,11 @@ analyseField tyName (FieldInfo mSel fieldTy) = do
                          I.PFSubmessage carrierTy)
 
     ShapeRepeated rep elemTy -> withTag selName mi $ \tagN -> do
-      pft <- pickFieldType selName elemTy (miWireOverride mi)
+      pftBase <- pickFieldType selName elemTy (miWireOverride mi)
+      pft     <- maybeUpgradeToEnum pftBase elemTy
       let mode = case pft of
             I.PFScalar sc | I.scalarPackable sc -> I.ModePacked
+            I.PFEnum                            -> I.ModePacked
             _                                   -> I.ModeUnpacked
       pure (I.protoField selName tagN
               (I.FKRepeated rep mode) pft elemTy)

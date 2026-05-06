@@ -348,12 +348,23 @@ cabal test wireform-proto:protobuf-conformance-test
 ```
 
 Today's baseline against `protocolbuffers/protobuf@v28.2`:
-**809 successes, 1286 skipped, 580 expected failures, 0 unexpected
-failures**. Expected failures cover JSPB (Google-internal),
-TEXT_FORMAT (not implemented), and JSON for messages with
-Well-Known Types (the spliced `TestAllTypesProto3` deliberately
-omits WKT arms because `loadProto` doesn't yet follow proto
-imports). See [`wireform-proto/test-conformance/README.md`](wireform-proto/test-conformance/README.md)
+**1186 successes, 1286 skipped, 203 expected failures, 0 unexpected
+failures**. Expected failures cluster in:
+
+- JSON for messages with Well-Known Types (the spliced
+  `TestAllTypesProto3` deliberately omits WKT arms because
+  `loadProto` doesn't yet follow proto imports).
+- JSPB (Google-internal format).
+- TEXT_FORMAT (not implemented).
+- A handful of JSON-input parser edge cases (enum aliases, mixed
+  field-name casing, range-validating overflow checks, oneof
+  null/duplicate handling).
+- Three submessage-merge cases (proto3 spec says when a singular
+  submessage field appears multiple times on the wire, the parser
+  must merge rather than overwrite; our decoder currently
+  overwrites).
+
+See [`wireform-proto/test-conformance/README.md`](wireform-proto/test-conformance/README.md)
 for the architecture and how to add expected failures.
 
 Annotation-driven deriver coverage spans 23 backends with hundreds of

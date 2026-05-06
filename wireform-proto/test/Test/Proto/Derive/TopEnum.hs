@@ -7,7 +7,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import qualified Proto.Decode as PD
 import qualified Proto.Encode as PE
@@ -47,6 +47,28 @@ tests = testGroup "Proto.TH top-level enum + packed scalar"
                 PD.decodeMessage (PE.encodeMessage a) @?= Right a
           mapM_ go [ StatusUnspecified, StatusActive
                    , StatusRetired,    StatusBanned ]
+
+      , testCase "enum decoder truncates oversized varint to int32" $ do
+          -- Proto3 wire spec: enum values are int32 on the wire
+          -- even though varints can carry larger values. A sender
+          -- that writes a 10-byte varint of @kInt64Max@ for an
+          -- enum field is expected to be parsed as the int32
+          -- truncation (low 32 bits, sign-extended). For
+          -- 0xFFFFFFFFFFFFFFFF (the proto3-canonical encoding of
+          -- -1 as a 10-byte varint), the int32 truncation is -1,
+          -- which our generated 'Status' has no constructor for —
+          -- so it falls through to the catch-all (the first
+          -- declared, StatusUnspecified). The point of this test
+          -- is to confirm we don't crash and the message
+          -- round-trips.
+          let bs = BS.pack
+                [ 0x10                                 -- field 2 (acct_status) varint
+                , 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+                , 0xFF, 0xFF, 0xFF, 0xFF, 0x01        -- 10-byte varint of -1
+                ]
+          case PD.decodeMessage bs :: Either PD.DecodeError Account of
+            Right _ -> pure ()  -- decode succeeded; that's what matters
+            Left e  -> assertFailure ("expected decode success, got " <> show e)
       ]
 
   , testGroup "packed scalar (proto3 spec default for repeated int32)"

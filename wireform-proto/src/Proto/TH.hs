@@ -1004,7 +1004,11 @@ fieldSpecToProtoField scope parentTy (FSField name num lbl ft rep opts) = do
       mode   = case (lbl, pft) of
         (Just Repeated, PDI.PFScalar sc)
           | PDI.scalarPackable sc -> packedModeFor scope opts
-        _                         -> PDI.ModeUnpacked
+        -- Enums are also packable in proto3 (the wire is a varint
+        -- per element); default-packed unless the user wrote
+        -- @[packed = false]@ explicitly.
+        (Just Repeated, PDI.PFEnum)  -> packedModeFor scope opts
+        _                            -> PDI.ModeUnpacked
       -- Singular submessage fields are implicitly Maybe-wrapped at
       -- the data-declaration layer (see 'fieldTypeToTH'), so they
       -- decode/encode as 'FKMaybe' too. Singular enum fields stay
@@ -1200,22 +1204,29 @@ fieldSpecToMetaField scope parentTy fs = case fs of
     let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
         jsonNm   = jsonNameFromOpts opts (snakeToCamel name)
         kind     = case lbl of
-          Just Repeated -> PTM.MFKVector  -- default Vector container
+          Just Repeated -> PTM.MFKVector
           Just Optional -> PTM.MFKMaybe
           _             -> case ft of
             FTNamed n
               | not (isEnumName scope n) -> PTM.MFKMaybe
             _ -> PTM.MFKBare
-        -- 'bytes' has no Aeson instance because the JSON shape is
-        -- base64-encoded, not natural strings. We dispatch on the
-        -- container shape so the right splice helper handles each
-        -- variant (singular @ByteString@, @Vector ByteString@,
-        -- @[ByteString]@). Map<_, bytes> is handled separately
-        -- in the FSMap arm.
         jsonKind = case (lbl, ft) of
           (Just Repeated, FTScalar SBytes) -> PTM.JKBytesVector
           (_,             FTScalar SBytes) -> PTM.JKBytes
           _                                -> PTM.JKNormal
+        jsonShape = case (lbl, ft) of
+          (Just Repeated, FTScalar s)         -> PTM.JSRepeatedScalar (jsScalarOf s)
+          (Just Repeated, FTNamed n)
+            | isEnumName scope n              -> PTM.JSRepeatedEnum
+            | otherwise                       -> PTM.JSRepeatedMessage
+          (Just Optional, FTScalar s)         -> PTM.JSMaybe (jsScalarOf s)
+          (Just Optional, FTNamed n)
+            | isEnumName scope n              -> PTM.JSEnum
+            | otherwise                       -> PTM.JSMessage
+          (_,             FTScalar s)         -> PTM.JSScalar (jsScalarOf s)
+          (_,             FTNamed n)
+            | isEnumName scope n              -> PTM.JSEnum
+            | otherwise                       -> PTM.JSMessage
     in PTM.MetaField
          { PTM.mfSelector  = sel
          , PTM.mfProtoName = name
@@ -1225,6 +1236,7 @@ fieldSpecToMetaField scope parentTy fs = case fs of
          , PTM.mfLabel     = protoLabelE lbl
          , PTM.mfKind      = kind
          , PTM.mfJsonKind  = jsonKind
+         , PTM.mfJsonShape = jsonShape
          }
   FSMap name num kt vt ->
     let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
@@ -1232,6 +1244,11 @@ fieldSpecToMetaField scope parentTy fs = case fs of
         jsonKind = case vt of
           FTScalar SBytes -> PTM.JKBytesMap
           _               -> PTM.JKNormal
+        jsonShape = case vt of
+          FTScalar s -> PTM.JSMapScalar (jsScalarOf kt) (jsScalarOf s)
+          FTNamed n
+            | isEnumName scope n -> PTM.JSMapEnum    (jsScalarOf kt)
+            | otherwise          -> PTM.JSMapMessage (jsScalarOf kt)
     in PTM.MetaField
          { PTM.mfSelector  = sel
          , PTM.mfProtoName = name
@@ -1241,28 +1258,70 @@ fieldSpecToMetaField scope parentTy fs = case fs of
          , PTM.mfLabel     = [| PS.LabelOptional |]
          , PTM.mfKind      = PTM.MFKMap
          , PTM.mfJsonKind  = jsonKind
+         , PTM.mfJsonShape = jsonShape
          }
-  FSOneof name _ofs ->
+  FSOneof name ofs ->
     let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
         jsonNm   = snakeToCamel name
+        variants = fmap (oneofVariantJson scope parentTy name) ofs
     in PTM.MetaField
          { PTM.mfSelector  = sel
          , PTM.mfProtoName = name
-           -- Field number 0 is a deliberate sentinel: oneofs don't
-           -- have a single proto field number, so the schema-level
-           -- descriptor uses 0 (matching the historical behaviour
-           -- of the pure-text codegen, whose extractor pulled the
-           -- first variant's number; either is wrong in the same
-           -- way and this avoids picking favourites).
          , PTM.mfJsonName  = jsonNm
          , PTM.mfNumber    = 0
          , PTM.mfTypeDesc  = [| PS.MessageType $(textLitE name) |]
          , PTM.mfLabel     = [| PS.LabelOptional |]
          , PTM.mfKind      = PTM.MFKOneof
          , PTM.mfJsonKind  = PTM.JKNormal
+         , PTM.mfJsonShape = PTM.JSOneof variants
          }
   where
     parentName = T.pack (nameBase parentTy)
+
+-- | Build the JSON-side shape for one oneof variant. The variant's
+-- JSON key is the camelCase form of the proto-side field name
+-- (or @json_name@ when the proto declared one); the payload
+-- shape is dispatched on the variant's value type.
+oneofVariantJson
+  :: ScopeCtx
+  -> Name                         -- ^ Parent type name.
+  -> Text                         -- ^ Oneof field name (used for naming only).
+  -> (OneofField, FieldRep)
+  -> PTM.OneofVariantJson
+oneofVariantJson scope parentTy _ooName (f, _rep) =
+  let conN     = oneofConTHName parentTy _ooName (oneofFieldName f)
+      jsonKey  = jsonNameFromOpts (oneofFieldOptions f)
+                   (snakeToCamel (oneofFieldName f))
+      shape    = case oneofFieldType f of
+        FTScalar s -> PTM.OVScalar (jsScalarOf s)
+        FTNamed n
+          | isEnumName scope n -> PTM.OVEnum
+          | otherwise          -> PTM.OVMessage
+  in PTM.OneofVariantJson
+       { PTM.ovjConstructor = conN
+       , PTM.ovjJsonKey     = jsonKey
+       , PTM.ovjShape       = shape
+       }
+
+-- | Project an AST 'ScalarType' onto the metadata-bridge's
+-- 'JsonScalar' tag.
+jsScalarOf :: ScalarType -> PTM.JsonScalar
+jsScalarOf = \case
+  SDouble    -> PTM.JSDouble
+  SFloat     -> PTM.JSFloat
+  SInt32     -> PTM.JSInt32
+  SInt64     -> PTM.JSInt64
+  SUInt32    -> PTM.JSUInt32
+  SUInt64    -> PTM.JSUInt64
+  SSInt32    -> PTM.JSSInt32
+  SSInt64    -> PTM.JSSInt64
+  SFixed32   -> PTM.JSFixed32
+  SFixed64   -> PTM.JSFixed64
+  SSFixed32  -> PTM.JSSFixed32
+  SSFixed64  -> PTM.JSSFixed64
+  SBool      -> PTM.JSBool
+  SString    -> PTM.JSString
+  SBytes     -> PTM.JSBytes
 
 -- | Per-shape splice for 'PS.FieldTypeDescriptor'.
 fieldTypeDescE :: ScopeCtx -> FieldType -> Q Exp

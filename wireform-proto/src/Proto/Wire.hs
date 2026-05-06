@@ -65,12 +65,17 @@ encodeTag :: Tag -> Word64
 encodeTag (Tag fn wt) =
   fromIntegral fn `shiftL` 3 .|. fromIntegral (wireTypeToWord wt)
 
--- | Decode a tag from a varint value.
+-- | Decode a tag from a varint value. Per the proto wire format
+-- spec, field number 0 is reserved and any tag whose field
+-- number resolves to 0 (or whose wire type is one of the
+-- deprecated group types) must be rejected; otherwise a
+-- conformance test like @IllegalZeroFieldNum@ would be silently
+-- accepted as an unknown field instead of an error.
 decodeTag :: Word64 -> Maybe Tag
 decodeTag w = do
   wt <- wireTypeFromTag (fromIntegral (w .&. 0x07))
   let fn = fromIntegral (w `shiftR` 3)
-  Just (Tag fn wt)
+  if fn == 0 then Nothing else Just (Tag fn wt)
 
 -- | Convenience: make the wire tag value for a given field number and wire type.
 fieldTag :: Int -> WireType -> Word64

@@ -528,6 +528,8 @@ encodeOne msg pf = do
         -- and 'scalarPackable' is the source of truth).
         (ModePacked, PFScalar sc) | scalarPackable sc -> do
           encodePackedScalarE pf sc getter
+        (ModePacked, PFEnum) -> do
+          encodePackedEnumE pf getter
         _ -> do
           v <- newName "v"
           acc <- newName "acc"
@@ -578,6 +580,8 @@ sizeOne msg pf = do
       case (mode, pfType pf) of
         (ModePacked, PFScalar sc) | scalarPackable sc ->
           sizePackedScalarE pf sc getter
+        (ModePacked, PFEnum) ->
+          sizePackedEnumE pf getter
         _ -> do
           v   <- newName "v"
           acc <- newName "acc"
@@ -966,6 +970,70 @@ emptyContainerE rep getter = case rep of
   RepList   -> [| null $(pure getter) |]
   RepSeq    -> [| Seq.null $(pure getter) |]
 
+-- | Packed encoder for a repeated enum field. Mirrors
+-- 'encodePackedScalarE' but uses @fromEnum@ to project the
+-- element to a varint-encoded int32.
+encodePackedEnumE :: ProtoField -> Exp -> Q Exp
+encodePackedEnumE pf getter = do
+  let foldFnE = repeatedFoldlE rep
+      tagN    = fromIntegral (pfTag pf) :: Integer
+  v   <- newName "v"
+  acc <- newName "acc"
+  let perSizeE  = AppE (VarE 'PWE.varintSize)
+                    (SigE (AppE (VarE 'fromIntegral)
+                              (AppE (VarE 'fromEnum) (VarE v)))
+                          (ConT ''Word64))
+      perBytesE = AppE (VarE 'PWE.putVarint)
+                    (SigE (AppE (VarE 'fromIntegral)
+                              (AppE (VarE 'fromEnum) (VarE v)))
+                          (ConT ''Word64))
+      sizeStep  = LamE [VarP acc, VarP v]
+                    (InfixE (Just (VarE acc)) (VarE '(+)) (Just perSizeE))
+      bytesStep = LamE [VarP acc, VarP v]
+                    (InfixE (Just (VarE acc)) (VarE '(<>)) (Just perBytesE))
+      sizeE  = AppE (AppE (AppE foldFnE sizeStep)
+                          (LitE (IntegerL 0))) getter
+      bytesE = AppE (AppE (AppE foldFnE bytesStep)
+                          (VarE 'mempty)) getter
+  [| if $(emptyContainerE rep getter)
+       then mempty
+       else
+         let !payloadSize = ($(pure sizeE)) :: Int
+         in PWE.putTag $(litE (IntegerL tagN)) PWire.WireLengthDelimited
+              <> PWE.putVarint (fromIntegral payloadSize)
+              <> $(pure bytesE) |]
+  where
+    rep = case pfKind pf of
+            FKRepeated r _ -> r
+            _              -> RepVector
+
+-- | Sizer for a repeated enum field in packed mode.
+sizePackedEnumE :: ProtoField -> Exp -> Q Exp
+sizePackedEnumE pf getter = do
+  let foldFnE = repeatedFoldlE rep
+      tagN    = fromIntegral (pfTag pf) :: Integer
+  v   <- newName "v"
+  acc <- newName "acc"
+  let perSizeE = AppE (VarE 'PWE.varintSize)
+                   (SigE (AppE (VarE 'fromIntegral)
+                             (AppE (VarE 'fromEnum) (VarE v)))
+                         (ConT ''Word64))
+      step = LamE [VarP acc, VarP v]
+              (InfixE (Just (VarE acc)) (VarE '(+)) (Just perSizeE))
+      foldedE = AppE (AppE (AppE foldFnE step)
+                           (LitE (IntegerL 0))) getter
+  [| if $(emptyContainerE rep getter)
+       then 0 :: Int
+       else
+         let !payloadSize = ($(pure foldedE)) :: Int
+         in PWE.tagSize $(litE (IntegerL tagN))
+              + PWE.varintSize (fromIntegral payloadSize)
+              + payloadSize |]
+  where
+    rep = case pfKind pf of
+            FKRepeated r _ -> r
+            _              -> RepVector
+
 -- | Size of one value's wire-form footprint (tag byte(s) +
 -- payload). Two paths: fields with field number ≤ 15 use the
 -- one-byte-tag @arch*Size@ family; fields with larger field
@@ -1130,9 +1198,15 @@ repeatedSnocFnE = \case
 -- | True iff this repeated field's element type is a packable
 -- scalar. Submessages, enums, strings, and bytes are non-packable
 -- under the proto3 wire spec.
+-- | True iff this repeated field's element type is packable on
+-- the wire. Submessages aren't (they're length-delimited per
+-- element); strings / bytes aren't either. Scalars and enums
+-- both are: enums are wire-type @varint@ on the singular path,
+-- and proto3 packs them by default.
 scalarPackableType :: ProtoField -> Bool
 scalarPackableType pf = case pfType pf of
   PFScalar sc -> scalarPackable sc
+  PFEnum      -> True
   _           -> False
 
 -- | Decode a packed length-delimited block of elements into the
@@ -1240,13 +1314,15 @@ decodeArm meta loopName wtVar allPairs ufAccM (pf, accForThis) = case pfKind pf 
         recurse = updateAccsE loopName allPairs ufAccM (pfSelector pf) snocE
         recurseAfterPack acc' =
           updateAccsE loopName allPairs ufAccM (pfSelector pf) (VarE acc')
-    body <- case (pfType pf, scalarPackableType pf) of
-      (PFScalar _, True) -> do
-        -- A repeated packable scalar accepts both wire encodings:
-        -- wire-type 2 (LengthDelimited) means a packed block,
-        -- anything else (in practice the scalar's natural wire
-        -- type) means a single unpacked element. Discriminate at
-        -- runtime on @wt@ so the same arm covers both shapes.
+    body <- if scalarPackableType pf
+      then do
+        -- A repeated packable element type (any packable scalar
+        -- OR an enum) accepts both wire encodings: wire-type 2
+        -- (LengthDelimited) means a packed block, anything else
+        -- (in practice the element's natural wire type =
+        -- varint / fixed32 / fixed64) means a single unpacked
+        -- element. Discriminate at runtime on @wt@ so the same
+        -- arm covers both shapes.
         acc' <- newName "acc'"
         elemDec   <- scalarDecoderE pf
         elemSnocE <- repeatedSnocFnE rep
@@ -1259,10 +1335,10 @@ decodeArm meta loopName wtVar allPairs ufAccM (pf, accForThis) = case pfKind pf 
              _ -> do
                $(varP vName) <- $(pure payload)
                $(pure recurse) |]
-      _ ->
-        -- Non-packable element type (string, bytes, submessage,
-        -- enum emitted as length-delimited): fall through to the
-        -- original one-element-per-occurrence shape.
+      else
+        -- Non-packable element type (string, bytes, submessage):
+        -- fall through to the original one-element-per-occurrence
+        -- shape.
         [| do
              $(varP vName) <- $(pure payload)
              $(pure recurse) |]

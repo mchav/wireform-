@@ -94,16 +94,28 @@ tests = testGroup "loadProto satellite instances"
       ]
 
   , testGroup "Aeson.ToJSON / FromJSON for messages (camelCase keys)"
-      [ testCase "default Account encodes empty fields with camelCase keys" $ do
+      [ testCase "default Account encodes to {} (proto3 canonical: defaults skipped)" $ do
           let a = defaultAccount
-          -- proto3 JSON spec: present, but empty values. Our
-          -- emitter follows the pure-text codegen and writes
-          -- every field unconditionally — the bytes-vs-JSON
-          -- skip-default rules differ.
           let v = Aeson.toJSON a
           case v of
             Aeson.Object km -> do
-              -- Both keys are present, in camelCase form.
+              -- Proto3 canonical JSON omits fields at default value
+              -- (empty string for acctName, STATUS_UNSPECIFIED for
+              -- acctStatus). The result is an empty object.
+              assertBool "acctName key absent (default empty string)"
+                (not (hasKey "acctName" km))
+              assertBool "acctStatus key absent (default STATUS_UNSPECIFIED)"
+                (not (hasKey "acctStatus" km))
+            _ -> error "expected Object"
+
+      , testCase "non-default Account emits both fields with camelCase keys" $ do
+          let a = defaultAccount
+                { accountAcctName   = T.pack "ada"
+                , accountAcctStatus = StatusActive
+                }
+          let v = Aeson.toJSON a
+          case v of
+            Aeson.Object km -> do
               assertBool "acctName key present"   (hasKey "acctName" km)
               assertBool "acctStatus key present" (hasKey "acctStatus" km)
             _ -> error "expected Object"
@@ -131,6 +143,12 @@ tests = testGroup "loadProto satellite instances"
           case Aeson.fromJSON (Aeson.toJSON p) of
             Aeson.Success p' -> p' @?= p
             Aeson.Error e    -> error ("fromJSON failed: " <> e)
+
+      , testCase "PackedBag with empty bagNums encodes to {} (proto3-canonical)" $ do
+          let p = defaultPackedBag
+          case Aeson.toJSON p of
+            Aeson.Object km -> assertBool "no bagNums key" (not (hasKey "bagNums" km))
+            _ -> error "expected Object"
       ]
 
   , testGroup "Hashable"
