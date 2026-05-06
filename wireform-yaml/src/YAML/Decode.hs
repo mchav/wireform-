@@ -614,10 +614,15 @@ parseAnchored = do
                    | lineIndent l2 == lineIndent l
                    , isNodePropertyLine (lineBody l2) ->
                        parseNode (lineIndent l2)
-                 -- Likewise a plain scalar at the same column.
+                 -- Likewise a plain scalar (no ':' / structural
+                 -- markers) at the same column belongs to the
+                 -- anchor.
                  Just l2
                    | lineIndent l2 == lineIndent l
-                   , lineKind l2 == LContent ->
+                   , lineKind l2 == LContent
+                   , not (isSeqItem (lineBody l2))
+                   , not (isExplicitKey (lineBody l2))
+                   , Nothing <- findKeyValueSplit (lineBody l2) ->
                        parseNode (lineIndent l2)
                  _ -> pure YNull
              else do
@@ -1152,17 +1157,19 @@ parseSeqItem !ind = do
         Just l2 | lineIndent l2 > ind -> parseNode (lineIndent l2)
         _ -> pure YNull
     else do
-      -- For a /block scalar/ inline value, the block scalar's body
-      -- must be at indent > the seq dash itself (= 'ind'), not >
-      -- the value column (ind + 2). So we use 'ind' for the
-      -- virtual line in that case so 'collectScalarLines' uses
-      -- the right termination boundary.
-      let isBlockScalarHead = case T.uncons after' of
+      -- For values whose body lives in the surrounding block
+      -- structure (block scalar, tagged/anchored block) the
+      -- virtual line's indent must be the outer dash column so
+      -- that 'collectScalarLines' / nested-collection collectors
+      -- still admit body lines.
+      let isCarrier = case T.uncons after' of
             Just ('|', _) -> True
             Just ('>', _) -> True
+            Just ('!', _) -> True
+            Just ('&', _) -> True
             _             -> False
-          virtInd | isBlockScalarHead = ind
-                  | otherwise         = ind + 2
+          virtInd | isCarrier = ind
+                  | otherwise = ind + 2
           virt = PLine (lineNo l) virtInd LContent after' after'
       pushLine virt
       parseNode virtInd
@@ -1500,6 +1507,7 @@ parsePlainScalar !ind firstBody = do
               do consumeOne; collectFolds baseInd blanks acc
           | (lineKind l == LContent || lineKind l == LDirective)
             && lineIndent l >= baseInd
+            && not (isSeqItem (lineBody l))
             && not (isExplicitKey (lineBody l))
             && case findKeyValueSplit (lineBody l) of
                  Just _  -> False
