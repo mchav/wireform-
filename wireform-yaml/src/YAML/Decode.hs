@@ -1233,23 +1233,39 @@ parseFlowSeq !p0 t = goV (skipFlowWS p0 t) []
       | p >= T.length t = Nothing
       | T.index t p == ']' = Just (YSeq (V.fromList (reverse acc)), p + 1)
       | T.index t p == '#' = Nothing
+      | T.index t p == '\2' = Nothing
       | otherwise = case parseFlowEntry p t of
           Nothing      -> Nothing
           Just (v, p1) ->
-            let p2 = skipFlowWS p1 t
+            -- Skip any '\\2' comment-break sentinels (a comment
+            -- that ate part of a line) BEFORE looking for the
+            -- next separator: the comment doesn't introduce a
+            -- new entry on its own, but a following ',' still
+            -- separates legitimately.
+            let p2 = skipFlowWSAndCB p1 t
             in if p2 >= T.length t
                  then Nothing
                  else case T.index t p2 of
                         ',' ->
-                          -- A '#' immediately after the comma
-                          -- (no separating whitespace) is invalid
-                          -- — comments need preceding WS.
                           let p3 = p2 + 1
                           in if p3 < T.length t && T.index t p3 == '#'
                                then Nothing
                                else goV (skipFlowWS p3 t) (v : acc)
                         ']' -> Just (YSeq (V.fromList (reverse (v : acc))), p2 + 1)
                         _   -> Nothing
+
+-- | Skip whitespace and comment-break sentinels ('\\2'). Used
+-- between flow elements where a comment may sit just before the
+-- separator.
+skipFlowWSAndCB :: Int -> Text -> Int
+skipFlowWSAndCB !p t
+  | p >= T.length t = p
+  | otherwise = case T.index t p of
+      ' '  -> skipFlowWSAndCB (p + 1) t
+      '\t' -> skipFlowWSAndCB (p + 1) t
+      '\1' -> skipFlowWSAndCB (p + 1) t
+      '\2' -> skipFlowWSAndCB (p + 1) t
+      _    -> p
 
 -- | A flow-sequence entry can be a single value or a one-pair
 -- mapping (with @key: value@ syntax, or just @: value@ for an empty
@@ -1425,9 +1441,11 @@ parseFlowPlain !p t =
               else Just (resolvePlain stripped, p')
   where
     -- A plain scalar in flow context ends at any of [ , ] { } and at
-    -- ":" followed by space or end-of-token.
+    -- ":" followed by space or end-of-token. Also at the
+    -- '\\2' comment-break sentinel.
     stopper c next hasNext =
       c == ',' || c == '[' || c == ']' || c == '{' || c == '}'
+      || c == '\2'
       || (c == ':' && (not hasNext || next == ' ' || next == '\t'
                        || next == '\1'
                        || next == ',' || next == ']' || next == '}'))
@@ -2456,7 +2474,13 @@ stripInlineComment t = T.pack (loop (T.unpack t) (Outer :: QState))
     loop [] _              = []
     loop (' ':'#':_) Outer = []
     loop ('\t':'#':_) Outer = []
-    loop ('\1':'#':_) Outer = []
+    -- A '#' preceded by a newline-sentinel '\\1' (we're mid-flow
+    -- and folded over a line break before it) is a comment that
+    -- runs to the next '\\1' or end-of-input. Replace the whole
+    -- comment span with a '\\2' marker so the surrounding parser
+    -- knows the previous logical token ended.
+    loop ('\1':'#':rest) Outer =
+      '\2' : loop (dropWhile (/= '\1') rest) Outer
     loop (c:rest) Outer
       | c == '"'  = c : loop rest InDQ
       | c == '\'' = c : loop rest InSQ
