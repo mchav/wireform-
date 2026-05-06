@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | The actual conformance handler: takes one
 -- 'ConformanceRequest', decodes the inner payload as a
@@ -35,6 +36,7 @@ module Test.Conformance.Handler
   ( handleRequest
   ) where
 
+import Control.Exception (SomeException, evaluate, try)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
@@ -51,15 +53,16 @@ import qualified Proto.TextFormat as PTF
 
 import Test.Conformance.Schema
 
--- | One request -> one response. Pure (no IO needed); the
--- runner-binary entry point in "Runner" handles the stdin/stdout
--- length-prefixed framing.
-handleRequest :: ConformanceRequest -> ConformanceResponse
+-- | One request -> one response. Threaded through 'IO' so the
+-- WKT range-error path (Timestamp/Duration too large/small)
+-- can return @serialize_error@ via 'try' instead of escaping
+-- as a process-level runtime exception.
+handleRequest :: ConformanceRequest -> IO ConformanceResponse
 handleRequest req
-  | mt == "conformance.FailureSet"            = failureSetResponse
+  | mt == "conformance.FailureSet"            = pure failureSetResponse
   | mt == "protobuf_test_messages.proto3.TestAllTypesProto3" =
       handleTestAllTypesProto3 req
-  | otherwise = skipped ("Unknown message type: " <> mt)
+  | otherwise = pure (skipped ("Unknown message type: " <> mt))
   where
     mt = conformanceRequestMessageType req
 
@@ -75,46 +78,61 @@ failureSetResponse =
            Just (ConformanceResponse'Result'ProtobufPayload payload)
        }
 
-handleTestAllTypesProto3 :: ConformanceRequest -> ConformanceResponse
+handleTestAllTypesProto3 :: ConformanceRequest -> IO ConformanceResponse
 handleTestAllTypesProto3 req =
   case payloadInputFormat req of
     PayloadProtobuf bs -> case PD.decodeMessage bs of
-      Left e   -> parseErr (T.pack (show e))
+      Left e   -> pure (parseErr (T.pack (show e)))
       Right tm -> serializeTAT outFmt tm
     PayloadJson js -> case Aeson.eitherDecodeStrictText js of
-      Left e   -> parseErr (T.pack e)
+      Left e   -> pure (parseErr (T.pack e))
       Right tm -> serializeTAT outFmt tm
-    PayloadText _ -> skipped "TEXT_FORMAT input not supported"
-    PayloadJspb _ -> skipped "JSPB input not supported"
-    PayloadNone   -> skipped "no payload set"
+    PayloadText _ -> pure (skipped "TEXT_FORMAT input not supported")
+    PayloadJspb _ -> pure (skipped "JSPB input not supported")
+    PayloadNone   -> pure (skipped "no payload set")
   where
     outFmt = conformanceRequestRequestedOutputFormat req
 
 -- | Encode a parsed TestAllTypesProto3 in the requested output
 -- format and wrap the bytes / string in the appropriate
--- 'ConformanceResponse' arm.
-serializeTAT :: WireFormat -> TestAllTypesProto3 -> ConformanceResponse
+-- 'ConformanceResponse' arm. JSON / TEXT_FORMAT encoding is
+-- done under 'try' so the WKT range-check 'error' calls
+-- (Timestamp\/Duration ProtoInputTooLarge\/Small) surface as
+-- @serialize_error@ rather than killing the process.
+serializeTAT :: WireFormat -> TestAllTypesProto3 -> IO ConformanceResponse
 serializeTAT fmt tm = case fmt of
-  Protobuf -> defaultConformanceResponse
+  Protobuf -> pure defaultConformanceResponse
     { conformanceResponseResult = Just
         (ConformanceResponse'Result'ProtobufPayload (PE.encodeMessage tm)) }
   Json
-    | hasUnknownFields tm -> skipped
+    | hasUnknownFields tm -> pure (skipped
         "JSON output skipped: payload contains fields outside the spliced \
         \schema (e.g. WKT arms); their JSON shape isn't recoverable from \
-        \the unknown-fields slot."
-    | otherwise -> defaultConformanceResponse
-        { conformanceResponseResult = Just
-            (ConformanceResponse'Result'JsonPayload
-              (decodeUtf8Lazy (Aeson.encode tm))) }
-  TextFormat  ->
-    let !pbtxt = PTF.typedToTextPretty
-                   (Proxy :: Proxy TestAllTypesProto3) tm
-    in defaultConformanceResponse
-         { conformanceResponseResult = Just
-             (ConformanceResponse'Result'TextPayload pbtxt) }
-  Jspb        -> skipped "JSPB output not supported"
-  Unspecified -> serializeError "UNSPECIFIED requested_output_format"
+        \the unknown-fields slot.")
+    | otherwise -> trySerialize "JSON" $ do
+        bs <- evaluate (Aeson.encode tm)
+        evaluate (decodeUtf8Lazy bs)
+        >>= \t -> pure defaultConformanceResponse
+          { conformanceResponseResult = Just
+              (ConformanceResponse'Result'JsonPayload t) }
+  TextFormat  -> trySerialize "TEXT_FORMAT" $ do
+    !pbtxt <- evaluate (PTF.typedToTextPretty (Proxy :: Proxy TestAllTypesProto3) tm)
+    pure defaultConformanceResponse
+      { conformanceResponseResult = Just
+          (ConformanceResponse'Result'TextPayload pbtxt) }
+  Jspb        -> pure (skipped "JSPB output not supported")
+  Unspecified -> pure (serializeError "UNSPECIFIED requested_output_format")
+
+-- | Wrap an IO action that builds a 'ConformanceResponse' so
+-- any 'SomeException' (typically from a WKT canonical-range
+-- check) becomes a @serialize_error@ response.
+trySerialize :: T.Text -> IO ConformanceResponse -> IO ConformanceResponse
+trySerialize tag act = do
+  res <- try act
+  case res of
+    Left (e :: SomeException) ->
+      pure (serializeError (tag <> ": " <> T.pack (show e)))
+    Right r -> pure r
 
 -- | Aeson.encode produces a lazy 'BL.ByteString' of UTF-8; the
 -- 'ConformanceResponse' wants a 'Text' for the @json_payload@

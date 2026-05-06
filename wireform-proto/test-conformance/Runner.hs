@@ -21,7 +21,7 @@
 -- upstream runner and pipes requests through this binary.
 module Main (main) where
 
-import Control.Exception (SomeException, catch)
+import Control.Exception (SomeException, catch, evaluate)
 import Data.Bits ((.&.), shiftR, shiftL, (.|.))
 import qualified Data.ByteString as BS
 import Data.Word (Word32)
@@ -71,19 +71,19 @@ main = do
             if BS.length payload /= fromIntegral len
               then pure ()  -- truncated payload; the runner exited mid-message
               else do
-                resp <- (case PD.decodeMessage payload of
-                          Left e  -> pure (runtimeErr ("decode ConformanceRequest: "
-                                                         <> T.pack (show e)))
-                          Right req -> evaluateOrCatch (handleRequest req))
-                writeResponse resp
+                resp <- case PD.decodeMessage payload of
+                  Left e  -> pure (runtimeErr ("decode ConformanceRequest: "
+                                                 <> T.pack (show e)))
+                  Right req -> evaluateOrCatch (handleRequest req)
+                writeResponseSafe resp
                 loop
 
 -- | Catch every exception inside the handler so a single
 -- malformed test case can't bring the runner down. The runner
 -- treats a hung / killed test program as a hard failure across
 -- the entire suite, which is far worse than a single 'runtime_error'.
-evaluateOrCatch :: ConformanceResponse -> IO ConformanceResponse
-evaluateOrCatch r = pure r
+evaluateOrCatch :: IO ConformanceResponse -> IO ConformanceResponse
+evaluateOrCatch act = (act >>= evaluate)
   `catch` \e -> do
     hPutStrLn stderr ("wireform-conformance-runner: " <> show (e :: SomeException))
     pure (runtimeErr (T.pack (show e)))
@@ -99,6 +99,18 @@ writeResponse resp = do
   BS.hPut stdout lenBytes
   BS.hPut stdout encoded
   hFlush stdout
+
+-- | Force-evaluate the encoded bytes so any lazy exception
+-- thrown by the JSON / TextFormat encoders (e.g. WKT range
+-- check 'error' calls) is caught here rather than killing the
+-- process mid-write. Falls back to a 'runtime_error' response
+-- so the upstream runner sees a clean reply.
+writeResponseSafe :: ConformanceResponse -> IO ()
+writeResponseSafe resp =
+  writeResponse resp `catch` \e -> do
+    hPutStrLn stderr
+      ("wireform-conformance-runner (encode): " <> show (e :: SomeException))
+    writeResponse (runtimeErr (T.pack (show e)))
 
 -- ---------------------------------------------------------------------------
 -- Tiny LE32 helpers; matches what the upstream runner sends.

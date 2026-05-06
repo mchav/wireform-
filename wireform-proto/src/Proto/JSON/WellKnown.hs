@@ -84,8 +84,20 @@ import qualified Proto.Google.Protobuf.Any      as Any
 
 -- Timestamp: RFC 3339 format "YYYY-MM-DDThh:mm:ss[.nnn]Z"
 
+-- | Encode a 'Timestamp' as canonical RFC 3339. Throws on out-
+-- of-range input — the conformance suite requires that
+-- serialisation fail when the wire-format value is outside
+-- @[0001-01-01T00:00:00Z, 9999-12-31T23:59:59Z]@. The runner
+-- catches the exception and turns it into a serialize-error
+-- response.
 timestampToJSON :: Timestamp -> Aeson.Value
-timestampToJSON ts = Aeson.String (formatRfc3339 (timestampSeconds ts) (timestampNanos ts))
+timestampToJSON ts
+  | s < timestampMinSecs || s > timestampMaxSecs =
+      error ("Timestamp out of range: " <> show s)
+  | otherwise = Aeson.String (formatRfc3339 s n)
+  where
+    !s = timestampSeconds ts
+    !n = timestampNanos ts
 
 timestampFromJSON :: Aeson.Value -> Either String Timestamp
 timestampFromJSON (Aeson.String t) = parseRfc3339 t
@@ -96,10 +108,29 @@ formatRfc3339 secs nanos =
   let !civil = unixToCivil secs
       dateStr = padInt 4 (cvYear civil) <> "-" <> padInt 2 (cvMonth civil) <> "-" <> padInt 2 (cvDay civil)
       timeStr = padInt 2 (cvHour civil) <> ":" <> padInt 2 (cvMinute civil) <> ":" <> padInt 2 (cvSecond civil)
-      nanoStr
-        | nanos == 0 = ""
-        | otherwise  = "." <> T.dropWhileEnd (== '0') (padInt 9 (fromIntegral (abs nanos)))
-  in dateStr <> "T" <> timeStr <> nanoStr <> "Z"
+  in dateStr <> "T" <> timeStr <> canonicalNanoSuffix nanos <> "Z"
+
+-- | Per the proto3 JSON spec, Timestamp/Duration nanos are
+-- formatted with EXACTLY 0, 3, 6, or 9 fractional digits. A
+-- value with fewer significant digits is padded out to the
+-- next bucket; zero suppresses the entire @\".nnn\"@ suffix.
+--
+-- This is the rule the conformance suite's Validator tests
+-- (Timestamp/Duration {Has3, Has6, Has9}FractionalDigits and
+-- TimestampZeroNormalized) check.
+canonicalNanoSuffix :: Int32 -> Text
+canonicalNanoSuffix n
+  | n == 0    = T.empty
+  | otherwise =
+      let !digits = padInt 9 (fromIntegral (abs n))
+          -- Trim trailing zeros, then round /up/ the kept count
+          -- to the next multiple of 3 (3, 6, or 9).
+          !trimmed = T.dropWhileEnd (== '0') digits
+          !keep    = case T.length trimmed of
+                       k | k <= 3    -> 3
+                         | k <= 6    -> 6
+                         | otherwise -> 9
+      in T.cons '.' (T.take keep digits)
 
 data CivilTime = CivilTime
   { cvYear   :: {-# UNPACK #-} !Int
@@ -165,6 +196,13 @@ intToText n
       in go (T.cons (digit r) acc) q
     digit i = toEnum (i + 48)
 
+-- | Proto3 spec range for Timestamp: @[0001-01-01T00:00:00Z,
+-- 9999-12-31T23:59:59.999999999Z]@. Outside that range
+-- timestamps are not representable in canonical JSON.
+timestampMinSecs, timestampMaxSecs :: Int64
+timestampMinSecs = -62135596800   -- 0001-01-01T00:00:00Z
+timestampMaxSecs = 253402300799   -- 9999-12-31T23:59:59Z
+
 parseRfc3339 :: Text -> Either String Timestamp
 parseRfc3339 t = do
   let stripped = T.strip t
@@ -173,17 +211,75 @@ parseRfc3339 t = do
       | T.null rest -> Left "Invalid RFC 3339 timestamp: missing T separator"
       | otherwise -> do
           let timePart' = T.drop 1 rest
-              timePart = T.dropWhileEnd (\c -> c == 'Z' || c == 'z') timePart'
+          (timePart, !offsetSecs) <- splitOffset timePart'
           date <- parseDate datePart
           time <- parseTime timePart
           let !days = daysFromCivil (pdYear date) (pdMonth date) (pdDay date) - 719468
-              !totalSecs = fromIntegral days * 86400 + fromIntegral (ptHour time) * 3600 +
-                           fromIntegral (ptMinute time) * 60 + fromIntegral (ptSecond time)
-          Right Timestamp
-            { timestampSeconds = totalSecs
-            , timestampNanos = ptNanos time
-            , timestampUnknownFields = []
-            }
+              !rawSecs = fromIntegral days * 86400
+                       + fromIntegral (ptHour time) * 3600
+                       + fromIntegral (ptMinute time) * 60
+                       + fromIntegral (ptSecond time)
+              -- If the input came with a +HH:MM offset, normalise
+              -- to UTC by subtracting the offset (so an East-of-
+              -- UTC wall clock yields a smaller unix epoch).
+              !totalSecs = rawSecs - offsetSecs
+          if totalSecs < timestampMinSecs || totalSecs > timestampMaxSecs
+            then Left "Timestamp out of range [0001-01-01, 9999-12-31]"
+            else Right Timestamp
+              { timestampSeconds = totalSecs
+              , timestampNanos = ptNanos time
+              , timestampUnknownFields = []
+              }
+
+-- | Strip the trailing zone designator from an RFC 3339 time
+-- and return the remaining time component plus the offset in
+-- seconds (positive for east-of-UTC, negative for west).
+--
+-- The proto3 spec requires the timestamp to end with @Z@ (the
+-- conformance suite explicitly rejects lowercase @z@ and
+-- missing zone). Numeric offsets @+HH:MM@ and @-HH:MM@ are
+-- accepted and normalised to UTC.
+splitOffset :: Text -> Either String (Text, Int64)
+splitOffset t
+  | T.null t = Left "Empty time component"
+  | last' == 'Z' = Right (T.init t, 0)
+  | last' == 'z' = Left "Lowercase 'z' zone designator not allowed"
+  | otherwise =
+      -- Try to peel a +HH:MM / -HH:MM suffix. We scan back from
+      -- the end for the first '+' or '-' that's part of the zone
+      -- (the seconds field can also have a leading '-' but we
+      -- look for an offset signature: ±DD:DD).
+      case parseOffsetSuffix t of
+        Just (timePart, offsetSecs) -> Right (timePart, offsetSecs)
+        Nothing -> Left "Timestamp must end with 'Z' or numeric offset"
+  where
+    last' = T.last t
+
+-- | Recognise a trailing @+HH:MM@ / @-HH:MM@ (and the rare
+-- @+HHMM@ shorthand) suffix on an RFC 3339 time string.
+parseOffsetSuffix :: Text -> Maybe (Text, Int64)
+parseOffsetSuffix t
+  -- ±HH:MM (6 chars, e.g. "+08:00")
+  | T.length t >= 6
+  , Just (rest, suf) <- splitAtRev 6 t
+  , Just (sign, hh, mm) <- parseHhMmSuffix suf
+  = Just (rest, sign * (hh * 3600 + mm * 60))
+  | otherwise = Nothing
+  where
+    splitAtRev n s
+      | T.length s < n = Nothing
+      | otherwise = Just (T.dropEnd n s, T.takeEnd n s)
+
+    parseHhMmSuffix s = case T.unpack s of
+      [c1, h1, h2, ':', m1, m2]
+        | c1 == '+' || c1 == '-'
+        , isDigit h1, isDigit h2, isDigit m1, isDigit m2
+        -> Just ( if c1 == '+' then 1 else -1
+                , fromIntegral ((d h1) * 10 + d h2)
+                , fromIntegral ((d m1) * 10 + d m2))
+      _ -> Nothing
+
+    d c = fromEnum c - fromEnum '0'
 
 data ParsedDate = ParsedDate
   { pdYear  :: {-# UNPACK #-} !Int
@@ -237,16 +333,31 @@ readInt t = case TR.signed TR.decimal t of
   Left e -> Left e
 
 -- Duration: "3.5s" format
+--
+-- Proto3 spec range: seconds ∈ [-315576000000, 315576000000]
+-- (about ±10000 years). Nanos must have the same sign as
+-- seconds (or be zero), and lie in (-1e9, 1e9).
+
+-- | Inclusive bounds on @Duration.seconds@ per the proto3 spec.
+durationMinSecs, durationMaxSecs :: Int64
+durationMinSecs = -315576000000
+durationMaxSecs =  315576000000
 
 durationToJSON :: Duration -> Aeson.Value
-durationToJSON dur =
-  let !s = durationSeconds dur
-      !n = durationNanos dur
-      secStr = intToText (fromIntegral s)
-      nanoStr
-        | n == 0    = ""
-        | otherwise = "." <> T.dropWhileEnd (== '0') (padInt 9 (fromIntegral (abs n)))
-  in Aeson.String (secStr <> nanoStr <> "s")
+durationToJSON dur
+  | s < durationMinSecs || s > durationMaxSecs =
+      error ("Duration out of range: " <> show s)
+  | otherwise = Aeson.String (secStr <> canonicalNanoSuffix (abs n) <> "s")
+  where
+    !s = durationSeconds dur
+    !n = durationNanos dur
+    -- Sign comes from EITHER field. Always render the
+    -- whole-seconds magnitude with an explicit leading '-'
+    -- when the duration is negative (covers "-0.5s" and
+    -- "-1.5s" alike).
+    negative = s < 0 || n < 0
+    signStr  = if negative then T.singleton '-' else T.empty
+    secStr   = signStr <> intToText (fromIntegral (abs s))
 
 durationFromJSON :: Aeson.Value -> Either String Duration
 durationFromJSON (Aeson.String t) = parseDuration t
@@ -257,15 +368,26 @@ parseDuration t = do
   let stripped = T.strip t
   case T.stripSuffix "s" stripped of
     Nothing -> Left "Duration must end with 's'"
-    Just numPart -> case T.breakOn "." numPart of
-      (wholePart, fracPart) -> do
-        secs <- readInt wholePart
-        let !nanos = parseFracNanos fracPart
-        Right Duration
-          { durationSeconds = fromIntegral secs
-          , durationNanos = nanos
-          , durationUnknownFields = []
-          }
+    Just numPart ->
+      let !negative = case T.uncons numPart of
+                        Just ('-', _) -> True
+                        _             -> False
+      in case T.breakOn "." numPart of
+        (wholePart, fracPart) -> do
+          secs <- readInt wholePart
+          let !rawNanos = parseFracNanos fracPart
+              -- Proto3 spec: nanos carry the same sign as seconds.
+              -- For "-0.5s" the wholePart parses to 0 but the
+              -- sign comes from the leading '-' in the input.
+              !nanos = if negative then negate rawNanos else rawNanos
+              !secs64 = fromIntegral secs :: Int64
+          if secs64 < durationMinSecs || secs64 > durationMaxSecs
+            then Left "Duration out of range [-315576000000, 315576000000]"
+            else Right Duration
+              { durationSeconds = secs64
+              , durationNanos = nanos
+              , durationUnknownFields = []
+              }
 
 -- FieldMask: comma-separated paths
 
