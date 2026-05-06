@@ -707,9 +707,9 @@ parseAnchored = do
                    , isSeqItem (lineBody l2) ->
                        parseBlockSeq (lineIndent l2)
                  -- A bare anchor whose next line at the same
-                 -- column is another node-property line (tag /
-                 -- another anchor) chains into that property; the
-                 -- whole stack labels the eventual node.
+                 -- column is another node-property line chains
+                 -- into that property; the whole stack labels
+                 -- the eventual node.
                  Just l2
                    | lineIndent l2 == lineIndent l
                    , isNodePropertyLine (lineBody l2) ->
@@ -739,6 +739,7 @@ parseAnchored = do
                    , lineKind l2 == LContent
                    , not (isSeqItem (lineBody l2))
                    , not (isExplicitKey (lineBody l2))
+                   , not (isNodePropertyLine (lineBody l2))
                    , Nothing <- findKeyValueSplit (lineBody l2) ->
                        parseNode (lineIndent l2)
                  _ -> pure YNull
