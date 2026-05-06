@@ -55,6 +55,22 @@ module Fory.IO
   , emitVarint32
   , emitVarint64
   , emitVaruint36Small
+
+    -- * Raw-pointer primitives (for tight batch loops)
+  , withReservedRaw
+  , pokeByteRaw
+  , pokeWord16LERaw
+  , pokeWord32LERaw
+  , pokeWord64LERaw
+  , pokeInt16LERaw
+  , pokeInt32LERaw
+  , pokeInt64LERaw
+  , pokeFloat32LERaw
+  , pokeFloat64LERaw
+  , pokeVaruint32Raw
+  , pokeVaruint64Raw
+  , pokeVarint32Raw
+  , pokeVarint64Raw
   ) where
 
 import Data.Bits (shiftL, shiftR, xor, (.&.), (.|.))
@@ -119,7 +135,9 @@ data Encoder = Encoder
 -- Lifecycle
 -- ---------------------------------------------------------------------------
 
--- | Allocate a new encoder with an initial capacity (256 bytes).
+-- | Allocate a new encoder with a 256-byte initial capacity.
+-- Tiny enough that the @mallocByteString@ is cheap; the
+-- buffer doubles on the first emit that doesn't fit.
 newEncoder :: Opt.EncodeOptions -> IO Encoder
 newEncoder !opts = do
   let !initCap = 256
@@ -205,6 +223,18 @@ withReserved !e !need !action = do
   pos <- readIORef (encPos e)
   newPos <- withForeignPtr fp $ \p -> action p pos
   writeIORef (encPos e) newPos
+
+-- | Public alias of 'withReserved'. Reserves capacity once and
+-- hands the inner action a raw 'Ptr Word8' base + start
+-- offset; the inner action returns the new offset (which must
+-- be within @startPos + reservedBytes@). This is the building
+-- block for tight inner loops that want to amortise the
+-- per-element @ensure / readIORef / writeIORef@ cost across an
+-- entire batch.
+{-# INLINE withReservedRaw #-}
+withReservedRaw
+  :: Encoder -> Int -> (Ptr Word8 -> Int -> IO Int) -> IO ()
+withReservedRaw = withReserved
 
 -- ---------------------------------------------------------------------------
 -- Emit primitives
@@ -382,6 +412,107 @@ typeDefRegister !e !k = do
   modifyIORef' (encTypeDefPool e) (HM.insert k idx)
   writeIORef (encTypeDefNext e) (idx + 1)
   pure idx
+
+-- ---------------------------------------------------------------------------
+-- Raw-pointer poke primitives
+-- ---------------------------------------------------------------------------
+--
+-- These take a base 'Ptr Word8' and a current offset, write
+-- the value, and return the new offset. They never touch the
+-- 'Encoder' record's 'IORef's, so they're safe to use inside a
+-- 'withReservedRaw' batch where the caller has already
+-- reserved enough capacity.
+
+{-# INLINE pokeByteRaw #-}
+pokeByteRaw :: Ptr Word8 -> Int -> Word8 -> IO Int
+pokeByteRaw !p !pos !b = do
+  pokeByteOff p pos b
+  pure (pos + 1)
+
+{-# INLINE pokeWord16LERaw #-}
+pokeWord16LERaw :: Ptr Word8 -> Int -> Word16 -> IO Int
+pokeWord16LERaw !p !pos !w = do
+  pokeByteOff p pos w
+  pure (pos + 2)
+
+{-# INLINE pokeWord32LERaw #-}
+pokeWord32LERaw :: Ptr Word8 -> Int -> Word32 -> IO Int
+pokeWord32LERaw !p !pos !w = do
+  pokeByteOff p pos w
+  pure (pos + 4)
+
+{-# INLINE pokeWord64LERaw #-}
+pokeWord64LERaw :: Ptr Word8 -> Int -> Word64 -> IO Int
+pokeWord64LERaw !p !pos !w = do
+  pokeByteOff p pos w
+  pure (pos + 8)
+
+{-# INLINE pokeInt16LERaw #-}
+pokeInt16LERaw :: Ptr Word8 -> Int -> Int16 -> IO Int
+pokeInt16LERaw !p !pos !n = do
+  pokeByteOff p pos n
+  pure (pos + 2)
+
+{-# INLINE pokeInt32LERaw #-}
+pokeInt32LERaw :: Ptr Word8 -> Int -> Int32 -> IO Int
+pokeInt32LERaw !p !pos !n = do
+  pokeByteOff p pos n
+  pure (pos + 4)
+
+{-# INLINE pokeInt64LERaw #-}
+pokeInt64LERaw :: Ptr Word8 -> Int -> Int64 -> IO Int
+pokeInt64LERaw !p !pos !n = do
+  pokeByteOff p pos n
+  pure (pos + 8)
+
+{-# INLINE pokeFloat32LERaw #-}
+pokeFloat32LERaw :: Ptr Word8 -> Int -> Float -> IO Int
+pokeFloat32LERaw !p !pos !f = pokeWord32LERaw p pos (castFloatToWord32 f)
+
+{-# INLINE pokeFloat64LERaw #-}
+pokeFloat64LERaw :: Ptr Word8 -> Int -> Double -> IO Int
+pokeFloat64LERaw !p !pos !d = pokeWord64LERaw p pos (castDoubleToWord64 d)
+
+{-# INLINE pokeVaruint32Raw #-}
+pokeVaruint32Raw :: Ptr Word8 -> Int -> Word32 -> IO Int
+pokeVaruint32Raw !p !pos0 !v0 = go pos0 v0
+  where
+    go !pos !v
+      | v < 0x80 = do
+          pokeByteOff p pos (fromIntegral v :: Word8)
+          pure (pos + 1)
+      | otherwise = do
+          pokeByteOff p pos
+            (fromIntegral (v .&. 0x7F) .|. 0x80 :: Word8)
+          go (pos + 1) (v `shiftR` 7)
+
+{-# INLINE pokeVaruint64Raw #-}
+pokeVaruint64Raw :: Ptr Word8 -> Int -> Word64 -> IO Int
+pokeVaruint64Raw !p !pos0 !v0 = go 0 pos0 v0
+  where
+    go !i !pos !v
+      | i >= 8 = do
+          pokeByteOff p pos (fromIntegral v :: Word8)
+          pure (pos + 1)
+      | v < 0x80 = do
+          pokeByteOff p pos (fromIntegral v :: Word8)
+          pure (pos + 1)
+      | otherwise = do
+          pokeByteOff p pos
+            (fromIntegral (v .&. 0x7F) .|. 0x80 :: Word8)
+          go (i + 1) (pos + 1) (v `shiftR` 7)
+
+{-# INLINE pokeVarint32Raw #-}
+pokeVarint32Raw :: Ptr Word8 -> Int -> Int32 -> IO Int
+pokeVarint32Raw !p !pos !v =
+  pokeVaruint32Raw p pos
+    (fromIntegral ((v `shiftL` 1) `xor` (v `shiftR` 31)))
+
+{-# INLINE pokeVarint64Raw #-}
+pokeVarint64Raw :: Ptr Word8 -> Int -> Int64 -> IO Int
+pokeVarint64Raw !p !pos !v =
+  pokeVaruint64Raw p pos
+    (fromIntegral ((v `shiftL` 1) `xor` (v `shiftR` 63)))
 
 -- Suppress unused-import warnings if a future edit drops one of
 -- the Hashable / unsafe-index helpers.

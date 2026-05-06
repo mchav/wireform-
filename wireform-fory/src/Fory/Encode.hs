@@ -40,6 +40,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Data.Vector (Vector)
 import Data.Word (Word8, Word64)
+import Foreign.Ptr (Ptr)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Fory.Bulk as B
@@ -383,7 +384,12 @@ emitCollection !e vs = do
                   IO.emitByte e slotNotNullValue
                   emitUntaggedPayload e x
             (False, False) ->
-              V.forM_ vs $ \x -> emitUntaggedPayload e x
+              case sameTypeFastPath tag of
+                Just (perElemMax, writer) ->
+                  IO.withReservedRaw e (perElemMax * V.length vs) $ \p start ->
+                    V.foldM' (\off x -> writer p off x) start vs
+                Nothing ->
+                  V.forM_ vs $ \x -> emitUntaggedPayload e x
         (True, Nothing) -> do
           -- Every element is None.
           emitTag e T.NONE
@@ -408,6 +414,72 @@ isNoneV :: VV.Value -> Bool
 isNoneV VV.NoneVal = True
 isNoneV _          = False
 {-# INLINE isNoneV #-}
+
+-- | Fast-path writer table for the @sameType + no-null +
+-- no-ref-tracking@ collection inner loop. Returns a per-element
+-- byte upper bound + a raw 'Ptr Word8'-based writer that
+-- updates the cursor without touching the encoder's IORefs.
+-- Only the fixed-size primitive tags are batched; variable-size
+-- types (strings, binary, structs, nested collections) fall
+-- through to the standard 'emitUntaggedPayload' path.
+sameTypeFastPath
+  :: T.TypeId
+  -> Maybe (Int, Ptr Word8 -> Int -> VV.Value -> IO Int)
+sameTypeFastPath !tag = case tag of
+  T.BOOL     -> Just (1, fpBool)
+  T.INT8     -> Just (1, fpInt8)
+  T.INT16    -> Just (2, fpInt16)
+  T.INT32    -> Just (4, fpInt32)
+  T.VARINT32 -> Just (5, fpVarInt32)
+  T.INT64    -> Just (8, fpInt64)
+  T.VARINT64 -> Just (9, fpVarInt64)
+  T.UINT8    -> Just (1, fpUint8)
+  T.UINT16   -> Just (2, fpUint16)
+  T.UINT32   -> Just (4, fpUint32)
+  T.VAR_UINT32 -> Just (5, fpVarUint32)
+  T.UINT64   -> Just (8, fpUint64)
+  T.VAR_UINT64 -> Just (9, fpVarUint64)
+  T.FLOAT32  -> Just (4, fpFloat32)
+  T.FLOAT64  -> Just (8, fpFloat64)
+  _          -> Nothing
+  where
+    fpBool, fpInt8, fpUint8 :: Ptr Word8 -> Int -> VV.Value -> IO Int
+    fpInt16, fpUint16 :: Ptr Word8 -> Int -> VV.Value -> IO Int
+    fpInt32, fpUint32, fpFloat32 :: Ptr Word8 -> Int -> VV.Value -> IO Int
+    fpInt64, fpUint64, fpFloat64 :: Ptr Word8 -> Int -> VV.Value -> IO Int
+    fpVarInt32, fpVarInt64 :: Ptr Word8 -> Int -> VV.Value -> IO Int
+    fpVarUint32, fpVarUint64 :: Ptr Word8 -> Int -> VV.Value -> IO Int
+
+    fpBool       p off (VV.BoolVal b)         = IO.pokeByteRaw p off (if b then 1 else 0)
+    fpBool       _ _   _                      = error "sameTypeFastPath fpBool"
+    fpInt8       p off (VV.Int8Val n)         = IO.pokeByteRaw p off (fromIntegral n)
+    fpInt8       _ _   _                      = error "sameTypeFastPath fpInt8"
+    fpInt16      p off (VV.Int16Val n)        = IO.pokeInt16LERaw p off n
+    fpInt16      _ _   _                      = error "sameTypeFastPath fpInt16"
+    fpInt32      p off (VV.Int32Val n)        = IO.pokeInt32LERaw p off n
+    fpInt32      _ _   _                      = error "sameTypeFastPath fpInt32"
+    fpVarInt32   p off (VV.VarInt32Val n)     = IO.pokeVarint32Raw p off n
+    fpVarInt32   _ _   _                      = error "sameTypeFastPath fpVarInt32"
+    fpInt64      p off (VV.Int64Val n)        = IO.pokeInt64LERaw p off n
+    fpInt64      _ _   _                      = error "sameTypeFastPath fpInt64"
+    fpVarInt64   p off (VV.VarInt64Val n)     = IO.pokeVarint64Raw p off n
+    fpVarInt64   _ _   _                      = error "sameTypeFastPath fpVarInt64"
+    fpUint8      p off (VV.Uint8Val n)        = IO.pokeByteRaw p off n
+    fpUint8      _ _   _                      = error "sameTypeFastPath fpUint8"
+    fpUint16     p off (VV.Uint16Val n)       = IO.pokeWord16LERaw p off n
+    fpUint16     _ _   _                      = error "sameTypeFastPath fpUint16"
+    fpUint32     p off (VV.Uint32Val n)       = IO.pokeWord32LERaw p off n
+    fpUint32     _ _   _                      = error "sameTypeFastPath fpUint32"
+    fpVarUint32  p off (VV.VarUint32Val n)    = IO.pokeVaruint32Raw p off n
+    fpVarUint32  _ _   _                      = error "sameTypeFastPath fpVarUint32"
+    fpUint64     p off (VV.Uint64Val n)       = IO.pokeWord64LERaw p off n
+    fpUint64     _ _   _                      = error "sameTypeFastPath fpUint64"
+    fpVarUint64  p off (VV.VarUint64Val n)    = IO.pokeVaruint64Raw p off n
+    fpVarUint64  _ _   _                      = error "sameTypeFastPath fpVarUint64"
+    fpFloat32    p off (VV.Float32Val f)      = IO.pokeFloat32LERaw p off f
+    fpFloat32    _ _   _                      = error "sameTypeFastPath fpFloat32"
+    fpFloat64    p off (VV.Float64Val d)      = IO.pokeFloat64LERaw p off d
+    fpFloat64    _ _   _                      = error "sameTypeFastPath fpFloat64"
 
 sameTypeNeedsRef :: T.TypeId -> Bool
 sameTypeNeedsRef !t = case t of
