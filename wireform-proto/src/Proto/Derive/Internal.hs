@@ -67,6 +67,7 @@ module Proto.Derive.Internal
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
 import Data.Int (Int32, Int64)
@@ -1235,6 +1236,44 @@ decodePackedInto elemDec snocFn acc0 = do
   go acc0 0
 {-# INLINE decodePackedInto #-}
 
+-- | Decode a singular submessage field that may appear multiple
+-- times on the wire, merging into any previous occurrence.
+--
+-- Proto3 spec: when the same singular submessage field appears
+-- multiple times, the parser must concatenate-and-decode rather
+-- than overwrite. By the proto3 catenation property
+-- (@concat(serialize(x), serialize(y)) == serialize(merge(x, y))@),
+-- we can implement this by re-encoding the previous value and
+-- prepending its bytes to the new occurrence's bytes.
+--
+-- Lives here (rather than in 'Proto.Decode') because the
+-- @MessageEncode@ constraint would otherwise create a cyclic
+-- dependency between 'Proto.Encode' and 'Proto.Decode'.
+decodeFieldMessageMerge
+  :: forall a. (PE.MessageEncode a, PD.MessageDecode a)
+  => Maybe a -> PD.Decoder (Maybe a)
+decodeFieldMessageMerge prev = do
+  newBytes <- PD.getLengthDelimited
+  let combined = case prev of
+        Nothing  -> newBytes
+        Just old ->
+          -- Encode the previous value to bytes (no length prefix
+          -- — that's what 'buildMessage' produces) and concat
+          -- with the new bytes. Decoding the result gives the
+          -- spec-mandated merge.
+          let !oldBytes = BL.toStrict (BB.toLazyByteString (PE.buildMessage old))
+          in oldBytes <> newBytes
+  case PD.decodeMessage combined of
+    Right merged -> pure (Just merged)
+    Left e       ->
+      -- Concatenation of two valid messages is always valid per
+      -- the proto3 catenation property. A decode failure here
+      -- means the new bytes themselves were malformed (truncated
+      -- submessage, etc.) — propagate the error rather than
+      -- silently drop the new occurrence.
+      PD.decodeFail (PD.SubMessageError e)
+{-# INLINE decodeFieldMessageMerge #-}
+
 decodeLoopBody
   :: MessageMeta
   -> Name           -- ^ Record constructor.
@@ -1299,13 +1338,28 @@ decodeArm meta loopName wtVar allPairs ufAccM (pf, accForThis) = case pfKind pf 
          $(varP vName) <- $(pure decoderE)
          $(pure recurse) |]
 
-  FKMaybe -> singletonArm pf $ \vName -> do
-    decoderE <- fieldDecoderE pf vName
-    let recurse = updateAccsE loopName allPairs ufAccM (pfSelector pf)
-                    (AppE (ConE 'Just) (VarE vName))
-    [| do
-         $(varP vName) <- $(pure decoderE)
-         $(pure recurse) |]
+  FKMaybe -> singletonArm pf $ \vName -> case pfType pf of
+    -- Submessage fields under @Maybe@ have a special wire-format
+    -- contract: the proto3 spec says "if the same singular
+    -- submessage field appears multiple times on the wire, the
+    -- parser must merge them" rather than overwrite. We honour
+    -- that by feeding the previous accumulator value into the
+    -- decoder, which re-encodes it and concatenates with the new
+    -- bytes (proto3 catenation property:
+    -- @concat(serialize(x), serialize(y)) == serialize(merge(x, y))@).
+    PFSubmessage -> do
+      let recurse = updateAccsE loopName allPairs ufAccM (pfSelector pf)
+                      (VarE vName)
+      [| do
+           $(varP vName) <- decodeFieldMessageMerge $(varE accForThis)
+           $(pure recurse) |]
+    _ -> do
+      decoderE <- fieldDecoderE pf vName
+      let recurse = updateAccsE loopName allPairs ufAccM (pfSelector pf)
+                      (AppE (ConE 'Just) (VarE vName))
+      [| do
+           $(varP vName) <- $(pure decoderE)
+           $(pure recurse) |]
 
   FKRepeated rep _mode -> do
     vName   <- newName "v"
@@ -1388,17 +1442,64 @@ oneofDecodeArm
   -> Name             -- ^ parent field's selector
   -> OneofVariant
   -> Q Match
-oneofDecodeArm loopName allPairs ufAccM sel ov = do
-  vName <- newName "v"
-  payload <- variantDecoderE ov
-  let conApp   = AppE (ConE (ovConstructor ov)) (VarE vName)
-      newVal   = AppE (ConE 'Just) conApp
-      recurse  = updateAccsE loopName allPairs ufAccM sel newVal
-  body <-
-    [| do
-         $(varP vName) <- $(pure payload)
-         $(pure recurse) |]
-  pure (Match (LitP (IntegerL (fromIntegral (ovTag ov)))) (NormalB body) [])
+oneofDecodeArm loopName allPairs ufAccM sel ov = case ovType ov of
+  -- Submessage variants in a oneof have the same merge semantics
+  -- as singular submessage fields outside an oneof: when the same
+  -- variant is encountered twice on the wire, the parser must
+  -- merge both occurrences instead of overwriting. Look up the
+  -- previous accumulator value for the oneof carrier; if it
+  -- already holds the same variant, decode-and-merge with that
+  -- inner submessage; otherwise just decode fresh.
+  PFSubmessage -> do
+    vName    <- newName "v"
+    oldVar   <- newName "old"
+    let con      = ovConstructor ov
+        prevAcc  = lookupAccByName allPairs sel
+        newVal   = AppE (ConE 'Just) (AppE (ConE con) (VarE vName))
+        recurse  = updateAccsE loopName allPairs ufAccM sel newVal
+        -- @case acc of Just (Con old) -> Just old; _ -> Nothing@
+        prevExtractE =
+          CaseE (VarE prevAcc)
+            [ Match (ConP 'Just [] [ConP con [] [VarP oldVar]])
+                    (NormalB (AppE (ConE 'Just) (VarE oldVar))) []
+            , Match WildP (NormalB (ConE 'Nothing)) []
+            ]
+    body <- [| do
+                 mNew <- decodeFieldMessageMerge $(pure prevExtractE)
+                 case mNew of
+                   Just $(varP vName) -> $(pure recurse)
+                   Nothing            ->
+                     -- 'decodeFieldMessageMerge' only returns
+                     -- Nothing when its input bytes were empty
+                     -- AND the previous accumulator was Nothing,
+                     -- which can't happen here (the wire just
+                     -- delivered a length-delimited block for
+                     -- this variant, so newBytes is non-empty
+                     -- at minimum).
+                     PD.decodeFail (PD.CustomError
+                       "oneof submessage merge produced Nothing") |]
+    pure (Match (LitP (IntegerL (fromIntegral (ovTag ov)))) (NormalB body) [])
+  _ -> do
+    vName   <- newName "v"
+    payload <- variantDecoderE ov
+    let conApp   = AppE (ConE (ovConstructor ov)) (VarE vName)
+        newVal   = AppE (ConE 'Just) conApp
+        recurse  = updateAccsE loopName allPairs ufAccM sel newVal
+    body <-
+      [| do
+           $(varP vName) <- $(pure payload)
+           $(pure recurse) |]
+    pure (Match (LitP (IntegerL (fromIntegral (ovTag ov)))) (NormalB body) [])
+
+-- | Look up the accumulator name for a given record selector
+-- inside the loop's per-field pair list. Used by the oneof-merge
+-- splice; should always succeed (the oneof field is a member of
+-- 'allPairs').
+lookupAccByName :: [(ProtoField, Name)] -> Name -> Name
+lookupAccByName pairs sel = case [acc | (pf, acc) <- pairs, pfSelector pf == sel] of
+  (acc:_) -> acc
+  []      -> error ("Proto.Derive.Internal: no accumulator for "
+                       ++ show sel)
 
 -- | Build the recursive @loop a1 a2 ... aN [acc_unknown_]@
 -- application, with the named selector's accumulator replaced by

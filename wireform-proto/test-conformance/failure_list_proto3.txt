@@ -247,7 +247,5 @@ Required.Proto3.JsonInput.ValueAcceptObject.JsonOutput
 Required.Proto3.JsonInput.ValueAcceptObject.ProtobufOutput
 Required.Proto3.JsonInput.ValueAcceptString.JsonOutput
 Required.Proto3.JsonInput.ValueAcceptString.ProtobufOutput
-Required.Proto3.ProtobufInput.RepeatedScalarMessageMerge.JsonOutput
-Required.Proto3.ProtobufInput.RepeatedScalarMessageMerge.ProtobufOutput
 Required.Proto3.ProtobufInput.ValidDataOneof.MESSAGE.Merge.JsonOutput
 Required.Proto3.ProtobufInput.ValidDataOneof.MESSAGE.Merge.ProtobufOutput

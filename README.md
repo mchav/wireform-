@@ -348,7 +348,7 @@ cabal test wireform-proto:protobuf-conformance-test
 ```
 
 Today's baseline against `protocolbuffers/protobuf@v28.2`:
-**1186 successes, 1286 skipped, 203 expected failures, 0 unexpected
+**1188 successes, 1286 skipped, 201 expected failures, 0 unexpected
 failures**. Expected failures cluster in:
 
 - JSON for messages with Well-Known Types (the spliced
@@ -359,10 +359,9 @@ failures**. Expected failures cluster in:
 - A handful of JSON-input parser edge cases (enum aliases, mixed
   field-name casing, range-validating overflow checks, oneof
   null/duplicate handling).
-- Three submessage-merge cases (proto3 spec says when a singular
-  submessage field appears multiple times on the wire, the parser
-  must merge rather than overwrite; our decoder currently
-  overwrites).
+- Two oneof-submessage-merge cases (the inner submessage carries
+  wire-type-mismatched fields; spec says we should tolerantly skip
+  those, our decoder currently fails-strict in the merge path).
 
 See [`wireform-proto/test-conformance/README.md`](wireform-proto/test-conformance/README.md)
 for the architecture and how to add expected failures.
