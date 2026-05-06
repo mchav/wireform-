@@ -1330,6 +1330,11 @@ parseBlockMap !ind firstKey firstRest = do
                 Just (k, vRest) -> do
                   _ <- popLine
                   let (anchors, k') = stripKeyProperties k
+                  case T.uncons k' of
+                    Just ('*', _) | not (null anchors) ->
+                      failP $ "anchor immediately followed by alias key (line "
+                              ++ show (lineNo l) ++ ")"
+                    _ -> pure ()
                   v <- parseImplicitMapValue ind vRest
                   let kv = YString k'
                   mapM_ (\an -> recordAnchor an kv) anchors
@@ -1613,6 +1618,11 @@ parsePlainScalar !ind firstBody = do
   let stripped = stripInlineComment firstBody
       !first = T.stripEnd stripped
       hadComment = T.length stripped < T.length (T.stripEnd firstBody)
+  -- A plain scalar may not contain ': ' (colon-space) in block
+  -- context — that would form a nested mapping (spec §7.3.3).
+  case findKeyValueSplit first of
+    Just _ -> failP $ "nested mapping in plain scalar: " ++ show first
+    _      -> pure ()
   -- A trailing comment on the first line of a plain scalar
   -- followed by a continuation line is malformed (the comment
   -- would silently break the scalar).
