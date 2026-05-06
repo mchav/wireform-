@@ -916,7 +916,17 @@ consumeFlowFromHead :: P Value
 consumeFlowFromHead = do
   Just l <- popLine
   modifyS (\s -> s { psFlowSpannedNewline = False })
-  consumeFlow (lineBody l)
+  inMV <- getInMapValue
+  parent <- getParentInd
+  -- Inside any block container (mapping value or non-zero
+  -- parent ind), use the parent-+-1 column as the lower bound
+  -- for flow continuations so we can detect tab-as-indent
+  -- (Y79Y/003).
+  let openInd | inMV       = max 1 (parent + 1)
+              | parent >= 0 && parent < ourInd = parent + 1
+              | otherwise  = -1
+      ourInd = lineIndent l
+  consumeFlowAt openInd (lineBody l)
 
 -- | After a flow node has been consumed, see if there's a virtual
 -- ':' line waiting in the stream — if so, the flow node is the
