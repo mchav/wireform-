@@ -87,6 +87,7 @@ import qualified Proto.Wire.Decode as PWD
 import qualified Proto.Encode as PE
 import qualified Proto.Encode.Archetype as PA
 import qualified Proto.Message as PM
+import qualified Proto.Schema as PS
 import Proto.Repr (BytesRep (..), StringRep (..))
 import qualified Proto.Repr as PR
 import Proto.Wire (Tag (..))
@@ -1599,12 +1600,12 @@ mapValueZeroE pf = case pfType pf of
   PFScalar SSFixed64 -> [| 0 :: Int64 |]
   PFEnum           -> [| toEnum 0 |]
   PFSubmessage     ->
-    -- Map value of submessage type: zero is a nonsense default
-    -- because the user's map should never contain a missing value
-    -- for an existing key. 'decodeMapEntry' uses this only when
-    -- the wire never delivered a value field, which is a malformed
-    -- entry.
-    [| error "Proto.Derive: map value missing on the wire" |]
+    -- Map value of submessage type: proto3 spec says a missing
+    -- value field defaults to the type's default empty message.
+    -- Route through 'protoDefaultValue' from the message type's
+    -- 'ProtoMessage' instance — GHC infers the type from the
+    -- decoder's return type at the use site.
+    [| PS.protoDefaultValue |]
 
 recurseLoopE :: Name -> [Name] -> Maybe Name -> Q Exp
 recurseLoopE loopName accs ufAccM =
