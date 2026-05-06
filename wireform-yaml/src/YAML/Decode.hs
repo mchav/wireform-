@@ -1080,6 +1080,18 @@ parseSeqItem !ind = do
       after | body == "-" = T.empty
             | otherwise   = T.drop 2 body
       after' = T.stripStart after
+  -- '-<TAB><INDICATOR>' or '- <TAB><INDICATOR>' (nested block
+  -- marker reached via a tab in the indent column) is 'tab as
+  -- indentation' per spec §6.1. The plain-scalar form
+  -- '-<TAB>x' is fine because no further indent calculation
+  -- happens; but '-\\t-' / '- \\t-' / '-\\t?' / etc. would set
+  -- the nested block's indent to a tab-containing column.
+  let separatorHasTab = T.any (== '\t')
+                          (T.takeWhile (\c -> c == ' ' || c == '\t')
+                             (T.drop 1 body))
+  when (separatorHasTab && startsWithBlockIndicator after') $
+    failP $ "tab character used as indentation before nested block marker (line "
+            ++ show (lineNo l) ++ ")"
   if T.null after'
     then do
       mNext <- peekLine
@@ -1087,11 +1099,6 @@ parseSeqItem !ind = do
         Just l2 | lineIndent l2 > ind -> parseNode (lineIndent l2)
         _ -> pure YNull
     else do
-      -- The value sits on the same physical line as the dash. We
-      -- expose it to the regular dispatcher via a virtual line
-      -- whose indent is @ind + 2@ (the position the value would
-      -- normally appear at). All branches — nested sequence, nested
-      -- mapping, scalar, flow — fall out of regular dispatch.
       let virt = PLine (lineNo l) (ind + 2) LContent after' after'
       pushLine virt
       parseNode (ind + 2)
@@ -1141,6 +1148,20 @@ startsWithTab :: Text -> Bool
 startsWithTab t = case T.uncons t of
   Just ('\t', _) -> True
   _              -> False
+
+-- | True when @t@ begins with a block-context structural marker
+-- ('-' or '?' followed by space / tab / EOL).
+startsWithBlockIndicator :: Text -> Bool
+startsWithBlockIndicator t = case T.uncons t of
+  Just ('-', rest) -> isBlockSep rest
+  Just ('?', rest) -> isBlockSep rest
+  _                -> False
+  where
+    isBlockSep r = case T.uncons r of
+      Nothing         -> True
+      Just (' ', _)   -> True
+      Just ('\t', _)  -> True
+      _               -> False
 
 -- | Strip leading anchor / tag tokens (separated by spaces) from
 -- a block-mapping key string. Returns the list of anchor names
@@ -1254,8 +1275,17 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
     readExplicitPart marker = do
       Just l <- popLine
       let body = lineBody l
-          rest = if body == marker then T.empty
-                                   else T.stripStart (T.drop 2 body)
+          afterMarker = if body == marker then T.empty
+                                          else T.drop 1 body
+          rest = T.stripStart (T.drop 1 afterMarker)
+      -- '?<TAB>...' / ':<TAB>...' uses a tab where YAML 1.2 §6.1
+      -- requires a space (the explicit-key marker's separation
+      -- contributes to indentation calculation).
+      case T.uncons afterMarker of
+        Just ('\t', _) ->
+          failP $ "tab character after explicit-key marker (line "
+                  ++ show (lineNo l) ++ ")"
+        _ -> pure ()
       if T.null rest
         then do
           mNext <- peekLine
@@ -1417,15 +1447,8 @@ collectScalarLines !parent = collect Nothing []
         []     -> pure (reverse acc)
         (l:_)
           | lineKind l == LBlank ->
-              -- Blank lines belong to the scalar regardless of
-              -- their column. They can never terminate it; only a
-              -- non-blank, non-comment line at or below the base
-              -- indent can.
               do _ <- consumeOne
                  let ind = lineIndent l
-                     -- For a "blank" line whose raw body is a run
-                     -- of trailing tabs, treat the tabs as
-                     -- significant content of the block scalar.
                      raw = lineRawBody l
                      hasTabs = not (T.null raw)
                      isMoreIndented = case mBase of
