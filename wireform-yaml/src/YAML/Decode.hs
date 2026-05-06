@@ -245,12 +245,16 @@ parseStream lns =
   where
     loop !first !prevExplicitEnd = do
       ls <- getLines
-      case dropWhile isSkippable ls of
+      case dropWhile isSkippableNonDirective ls of
         []      -> pure []
         (l : _) -> do
           let canBeBare = first || prevExplicitEnd
               isExplicitStart = lineKind l == LDocStart
-          unless (canBeBare || isExplicitStart) $
+              isDirective    = lineKind l == LDirective
+          when (isDirective && not first && not prevExplicitEnd) $
+            failP $ "directive without preceding '...' marker (line "
+                    ++ show (lineNo l) ++ ")"
+          unless (canBeBare || isExplicitStart || isDirective) $
             failP $ "second document without '---' marker (line "
                     ++ show (lineNo l) ++ ")"
           d        <- parseDocument
@@ -353,9 +357,18 @@ parseDocument = do
   resetAnchors
   body <- parseDocBody
   ls2 <- getLines
-  let (explicitEnd, ls3) = case dropWhile isSkippable ls2 of
-        (l : rest) | lineKind l == LDocEnd -> (True, rest)
-        _                                  -> (False, ls2)
+  (explicitEnd, ls3) <- case dropWhile isSkippable ls2 of
+        (l : rest) | lineKind l == LDocEnd -> do
+          let extra = T.stripStart (T.drop 3 (lineBody l))
+              -- Strip an inline comment if any.
+              extra' = T.stripEnd $ case T.uncons extra of
+                Just ('#', _) -> T.empty
+                _             -> stripInlineComment extra
+          unless (T.null extra') $
+            failP $ "trailing content after '...' marker: "
+                  ++ show extra ++ " (line " ++ show (lineNo l) ++ ")"
+          pure (True, rest)
+        _ -> pure (False, ls2)
   setLines ls3
   pure (Document directives explicitEnd body)
 
@@ -367,7 +380,21 @@ parseDocBody = do
     Just l
       | lineKind l == LDocStart -> pure YNull
       | lineKind l == LDocEnd   -> pure YNull
+      -- A bare top-level '|' / '>' block scalar at column 0 is
+      -- the same as '--- |' / '--- >' for indent purposes — body
+      -- lines may live at column 0 (parent < 0).
+      | lineIndent l == 0
+      , isBlockScalarStart (lineBody l) -> do
+          modifyS (\s -> case psLines s of
+                           (h : rs) -> s { psLines = h { lineIndent = -1 } : rs }
+                           []       -> s)
+          parseNode (-1)
       | otherwise               -> parseNode (min 0 (lineIndent l))
+  where
+    isBlockScalarStart t = case T.uncons t of
+      Just ('|', _) -> True
+      Just ('>', _) -> True
+      _             -> False
 
 -- ---------------------------------------------------------------------------
 -- Node dispatch
