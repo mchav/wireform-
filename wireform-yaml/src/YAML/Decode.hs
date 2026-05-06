@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE MagicHash    #-}
+{-# LANGUAGE UnboxedTuples #-}
 -- | YAML 1.2 decoder.
 --
 -- Parses a YAML stream into a 'YAML.Value.Stream' / 'Document' /
@@ -43,8 +45,15 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
-import Data.Word (Word8)
+import Data.Word (Word8, Word64)
 import qualified Data.Bits as Bits
+import GHC.Exts
+  ( ByteArray#, Int (..)
+  , indexWord8ArrayAsWord64#
+  , word64ToWord#, ctz#, uncheckedIShiftRL#
+  , word2Int#
+  )
+import GHC.Word (Word64 (..))
 
 import YAML.Value
 
@@ -93,6 +102,173 @@ bTake p (TI.Text arr off l) =
   let !p' = max 0 (min p l)
   in TI.text arr off p'
 {-# INLINE bTake #-}
+
+-- ---------------------------------------------------------------------------
+-- SWAR (SIMD-Within-A-Register) byte scanners.
+--
+-- Most of the parser's hot inner loops are looking for a single
+-- ASCII byte (e.g. '#', '\\1', '\"') in a 'Text' body. The
+-- Data.Text 'T.any' / 'T.findIndex' walk one /character/ at a
+-- time via the UTF-8 stream interface; we can do much better by
+-- treating the underlying byte array as 64-bit words and using
+-- the classic "has-zero-byte" bit trick:
+--
+--   hasZeroByte x = ((x - 0x0101010101010101) & ~x & 0x8080808080808080) /= 0
+--
+-- After XOR-ing the input word with a broadcast of the target
+-- byte, any byte equal to the target becomes zero, so a single
+-- 64-bit operation tells us whether the eight bytes contain it.
+-- ---------------------------------------------------------------------------
+
+bcast64 :: Word8 -> Word64
+bcast64 b = fromIntegral b * 0x0101010101010101
+{-# INLINE bcast64 #-}
+
+hasZeroByte :: Word64 -> Bool
+hasZeroByte x =
+  ((x - 0x0101010101010101) Bits..&. Bits.complement x
+                            Bits..&. 0x8080808080808080) /= 0
+{-# INLINE hasZeroByte #-}
+
+-- | Read 8 unaligned bytes from a byte array starting at byte
+-- index @i@ as a single 'Word64'.
+indexWord64Unaligned :: ByteArray# -> Int -> Word64
+indexWord64Unaligned ba# (I# i#) = W64# (indexWord8ArrayAsWord64# ba# i#)
+{-# INLINE indexWord64Unaligned #-}
+
+-- | True when @t@ contains the byte @c@. Pure byte-level scan
+-- (no UTF-8 decoding) using a Word64-at-a-time loop.
+bAnyByte :: Word8 -> Text -> Bool
+bAnyByte !c (TI.Text (TA.ByteArray ba#) off len) =
+  let !pat   = bcast64 c
+      !endB  = off + len
+      goWord !i
+        | i + 8 > endB = goByte i
+        | otherwise    =
+            let !w     = indexWord64Unaligned ba# i
+                !xored = w `Bits.xor` pat
+            in if hasZeroByte xored
+                 then True
+                 else goWord (i + 8)
+      goByte !i
+        | i >= endB                      = False
+        | TA.unsafeIndex (TA.ByteArray ba#) i == c = True
+        | otherwise                      = goByte (i + 1)
+  in goWord off
+{-# INLINE bAnyByte #-}
+
+-- | First index (within the slice — not the underlying array)
+-- of byte @c@ in @t@, or @-1@ if absent. Same SWAR scan as
+-- 'bAnyByte', plus 'ctz' to find the matching byte's offset
+-- inside a hit word.
+bFindByte :: Word8 -> Text -> Int
+bFindByte !c (TI.Text (TA.ByteArray ba#) off len) =
+  let !pat   = bcast64 c
+      !endB  = off + len
+      goWord !i
+        | i + 8 > endB = goByte i
+        | otherwise    =
+            let !w     = indexWord64Unaligned ba# i
+                !xored = w `Bits.xor` pat
+            in if hasZeroByte xored
+                 then
+                   -- Locate the matching byte inside the word.
+                   -- 'ctz' on the masked word returns the bit
+                   -- index; divide by 8 for the byte index.
+                   let !mask = (xored - 0x0101010101010101)
+                                Bits..&. Bits.complement xored
+                                Bits..&. 0x8080808080808080
+                       !byteOff = wordCtzInBytes mask
+                   in i + byteOff - off
+                 else goWord (i + 8)
+      goByte !i
+        | i >= endB                      = -1
+        | TA.unsafeIndex (TA.ByteArray ba#) i == c = i - off
+        | otherwise                      = goByte (i + 1)
+  in goWord off
+{-# INLINE bFindByte #-}
+
+-- | Index of the lowest-order byte set in a 'Word64' mask. The
+-- mask must be non-zero (caller checks via 'hasZeroByte'). Uses
+-- 'ctz#' / 8 to convert bit position to byte position.
+wordCtzInBytes :: Word64 -> Int
+wordCtzInBytes (W64# w#) =
+  -- 'ctz#' takes a 'Word#'; on a 64-bit host the cast from
+  -- 'Word64#' to 'Word#' via 'word64ToWord#' is identity-cost.
+  I# (uncheckedIShiftRL# (word2Int# (ctz# (word64ToWord# w#))) 3#)
+{-# INLINE wordCtzInBytes #-}
+
+-- | First index of /any/ of three bytes in @t@, or @-1@ when
+-- none is present. Three SWAR scans run on the same Word64 per
+-- iteration; combined hi-bit mask is then 'ctz'-ed for the
+-- in-word offset.
+bFindAnyOf3 :: Word8 -> Word8 -> Word8 -> Text -> Int
+bFindAnyOf3 !a !b !c (TI.Text (TA.ByteArray ba#) off len) =
+  let !pa    = bcast64 a
+      !pb    = bcast64 b
+      !pc    = bcast64 c
+      !endB  = off + len
+      !ones  = 0x0101010101010101
+      !his   = 0x8080808080808080
+
+      mask !w !p =
+        let !x = w `Bits.xor` p
+        in (x - ones) Bits..&. Bits.complement x Bits..&. his
+
+      goWord !i
+        | i + 8 > endB = goByte i
+        | otherwise    =
+            let !w  = indexWord64Unaligned ba# i
+                !m  = mask w pa Bits..|. mask w pb Bits..|. mask w pc
+            in if m == 0
+                 then goWord (i + 8)
+                 else
+                   let !bo = wordCtzInBytes m
+                   in i + bo - off
+
+      goByte !i
+        | i >= endB = -1
+        | otherwise =
+            let !x = TA.unsafeIndex (TA.ByteArray ba#) i
+            in if x == a || x == b || x == c
+                 then i - off
+                 else goByte (i + 1)
+  in goWord off
+{-# INLINE bFindAnyOf3 #-}
+
+-- | First index of either of two bytes. See 'bFindAnyOf3'.
+bFindAnyOf2 :: Word8 -> Word8 -> Text -> Int
+bFindAnyOf2 !a !b (TI.Text (TA.ByteArray ba#) off len) =
+  let !pa    = bcast64 a
+      !pb    = bcast64 b
+      !endB  = off + len
+      !ones  = 0x0101010101010101
+      !his   = 0x8080808080808080
+
+      mask !w !p =
+        let !x = w `Bits.xor` p
+        in (x - ones) Bits..&. Bits.complement x Bits..&. his
+
+      goWord !i
+        | i + 8 > endB = goByte i
+        | otherwise    =
+            let !w  = indexWord64Unaligned ba# i
+                !m  = mask w pa Bits..|. mask w pb
+            in if m == 0
+                 then goWord (i + 8)
+                 else
+                   let !bo = wordCtzInBytes m
+                   in i + bo - off
+
+      goByte !i
+        | i >= endB = -1
+        | otherwise =
+            let !x = TA.unsafeIndex (TA.ByteArray ba#) i
+            in if x == a || x == b
+                 then i - off
+                 else goByte (i + 1)
+  in goWord off
+{-# INLINE bFindAnyOf2 #-}
 
 -- | Word8 character literals of common ASCII control bytes.
 w8Comma, w8Colon, w8LBrack, w8RBrack, w8LBrace, w8RBrace
@@ -1626,7 +1802,7 @@ parseFlowEntry' !explicit !p0 t =
                            -- line (spec §7.4.1).
                            let span_ = bSlice t p p2
                            in if not explicit
-                                 && T.any (== '\1') span_
+                                 && bAnyByte w8SOH span_
                                 then Nothing
                                 else case parseFlowValue (skipFlowWS (p2 + 1) t) t of
                                   Nothing -> Just (YMap (V.singleton (k, YNull)), p2 + 1)
@@ -1690,22 +1866,22 @@ parseFlowMap !p0 t =
 parseDQ :: Int -> Text -> Maybe (Value, Int)
 parseDQ !p0 t =
   let !len = bLen t
-      -- Fast path: no escapes / sentinels in the body, just
-      -- find the closing quote and slice it out.
-      go0 !i
-        | i >= len  = (-1, False)
-        | otherwise = case bAt t i of
-            34 -> (i, False)               -- '"' close
-            92 -> (-1, True)               -- '\\' need slow path
-            1  -> (-1, True)               -- '\\1' need slow path
-            _  -> go0 (i + 1)
-      (closeIdx, needsScan) = go0 (p0 + 1)
-  in if not needsScan
-       then if closeIdx < 0
-              then Nothing
-              else Just ( YString (bSlice t (p0 + 1) closeIdx)
-                        , closeIdx + 1 )
-       else slow (p0 + 1) []
+      -- Fast path: SWAR-scan for the first occurrence of '\"',
+      -- '\\\\', or '\\1'. If the closing quote comes first
+      -- (i.e. no escape or newline-sentinel before it) we slice
+      -- the body out without further work.
+      !startSlice = p0 + 1
+      !rest       = bSlice t startSlice len
+      !idx        = bFindAnyOf3 w8DQuote w8Backslash w8SOH rest
+  in if idx < 0
+       then Nothing                              -- no terminator at all
+       else
+         let !absIdx = startSlice + idx
+             !c     = bAt t absIdx
+         in if c == w8DQuote
+              then Just ( YString (bSlice t startSlice absIdx)
+                        , absIdx + 1 )
+              else slow startSlice []
   where
     !len2 = bLen t
     slow !i acc
@@ -1727,21 +1903,24 @@ parseDQ !p0 t =
 
 parseSQ :: Int -> Text -> Maybe (Value, Int)
 parseSQ !p0 t =
-  let !len = bLen t
-      go0 !i
-        | i >= len  = (-1, False)
-        | otherwise = case bAt t i of
-            39 | i + 1 < len, bAt t (i + 1) == w8SQuote -> (-1, True)
-               | otherwise                              -> (i, False)
-            1  -> (-1, True)
-            _  -> go0 (i + 1)
-      (closeIdx, needsScan) = go0 (p0 + 1)
-  in if not needsScan
-       then if closeIdx < 0
-              then Nothing
-              else Just ( YString (bSlice t (p0 + 1) closeIdx)
-                        , closeIdx + 1 )
-       else slow (p0 + 1) []
+  let !len        = bLen t
+      !startSlice = p0 + 1
+      !rest       = bSlice t startSlice len
+      -- SWAR-scan for the first '\\'' or '\\1' sentinel. A bare
+      -- '\\'' is a closing quote; a doubled '\\'\\'' is the
+      -- single-quoted escape and forces the slow path.
+      !idx        = bFindAnyOf2 w8SQuote w8SOH rest
+  in if idx < 0
+       then Nothing
+       else
+         let !absIdx = startSlice + idx
+             !c     = bAt t absIdx
+         in if c == w8SQuote
+              then if absIdx + 1 < len && bAt t (absIdx + 1) == w8SQuote
+                     then slow startSlice []     -- '\\'\\'' escape
+                     else Just ( YString (bSlice t startSlice absIdx)
+                               , absIdx + 1 )
+              else slow startSlice []
   where
     !len2 = bLen t
     slow !i acc
@@ -2372,7 +2551,7 @@ parsePlainScalarAt !parentInd !inMapValue !baseIndArg firstBody = do
   dropLine
   -- Fast path: a body with no '#' at all has no comment, so we
   -- skip the comparison probe entirely.
-  let !hasHash    = T.any (== '#') firstBody
+  let !hasHash    = bAnyByte w8Hash firstBody
       !stripped   = if hasHash then stripInlineComment firstBody
                                else firstBody
       !first      = T.stripEnd stripped
@@ -3018,7 +3197,7 @@ stripInlineComment :: Text -> Text
 stripInlineComment t
   -- Fast path: if there's no '#' anywhere, return the input
   -- untouched (the common case for typical mapping values).
-  | not (T.any (== '#') t) = t
+  | not (bAnyByte w8Hash t) = t
   | otherwise =
       -- Walk the underlying bytes, finding the first
       -- column-stopping '#' (preceded by ' ', '\\t', or '\\1' and
