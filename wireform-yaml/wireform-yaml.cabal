@@ -56,7 +56,7 @@ benchmark wireform-yaml-bench
   type: exitcode-stdio-1.0
   hs-source-dirs: bench
   main-is: Bench.hs
-  ghc-options: -O2 -fproc-alignment=64
+  ghc-options: -O2 -fproc-alignment=64 -rtsopts
   build-depends:
     base,
     wireform-yaml,

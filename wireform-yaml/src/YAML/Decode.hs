@@ -26,6 +26,7 @@ module YAML.Decode
   , decodeStream
   , decodeStreamBS
   , decodeDocuments
+  , preprocess
   ) where
 
 import Control.Monad (unless, when)
@@ -554,12 +555,23 @@ dispatch l0 = do
 -- quote is not on the same line we splice continuation lines into
 -- the buffer until it is.
 parseQuotedScalarLine :: Char -> PLine -> P Value
-parseQuotedScalarLine q l = case findKeyValueSplit (lineBody l) of
-  Just (k, vRest) -> parseBlockMap (lineIndent l) k vRest
-  Nothing -> do
-    _ <- popLine
-    consumeQuotedAt q (lineIndent l)
-      (preserveTrailingEscape (lineBody l) (lineRawBody l))
+parseQuotedScalarLine q l =
+  -- Fast path: a body that ends with the matching close quote
+  -- can't have a 'key: value' split — skip the full scan.
+  let body = lineBody l
+      mayHaveKV = case T.unsnoc body of
+        Just (_, c) -> c /= q
+        _           -> True
+  in if mayHaveKV
+       then case findKeyValueSplit body of
+         Just (k, vRest) -> parseBlockMap (lineIndent l) k vRest
+         Nothing -> doQuoted
+       else doQuoted
+  where
+    doQuoted = do
+      _ <- popLine
+      consumeQuotedAt q (lineIndent l)
+        (preserveTrailingEscape (lineBody l) (lineRawBody l))
 
 -- | If the trimmed line body ends in @\\@ that's not itself
 -- escaped, take the next character /verbatim/ from the raw body
@@ -2389,8 +2401,28 @@ chompText Clip  = \t ->
 -- ---------------------------------------------------------------------------
 
 resolvePlain :: Text -> Value
-resolvePlain raw
-  | T.null raw                 = YString T.empty
+resolvePlain raw = case T.uncons raw of
+  Nothing -> YString T.empty
+  Just (h, _) | recognizedFirst h -> resolvePlain' raw
+              | otherwise         -> YString raw
+
+-- | First-character check: filter for chars that could possibly
+-- begin a YAML core-schema literal (null, bool, inf/nan, signed
+-- digit, '+/-/.' or '~'). Skips the costly comparison cascade
+-- for the common case of unquoted plain strings.
+recognizedFirst :: Char -> Bool
+recognizedFirst c =
+  c == 'n' || c == 'N'
+  || c == 't' || c == 'T'
+  || c == 'f' || c == 'F'
+  || c == '~'
+  || c == '.'
+  || c == '+' || c == '-'
+  || (c >= '0' && c <= '9')
+{-# INLINE recognizedFirst #-}
+
+resolvePlain' :: Text -> Value
+resolvePlain' raw
   | raw == "null" || raw == "~" || raw == "Null" || raw == "NULL" = YNull
   | raw == "true" || raw == "True" || raw == "TRUE"               = YBool True
   | raw == "false" || raw == "False" || raw == "FALSE"            = YBool False

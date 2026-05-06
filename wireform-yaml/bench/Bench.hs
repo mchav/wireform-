@@ -7,6 +7,7 @@ import qualified Data.ByteString.Char8    as BS8
 import qualified Data.Text                as T
 import qualified Data.Text.Encoding       as TE
 import qualified YAML.Decode              as Y
+import qualified YAML.Decode              (preprocess)
 import qualified YAML.Encode              as YE
 import qualified YAML.Value               as YV
 import qualified Data.Vector              as V
@@ -74,6 +75,10 @@ main = defaultMain
       , bench "literal50"  $ nf decodeBytes literalBody
       , bench "big"        $ nf decodeBytes big
       ]
+  , bgroup "preprocess"
+      [ bench "small" $ nf (length . Y.preprocess) (decodeText small)
+      , bench "big"   $ nf (length . Y.preprocess) (decodeText big)
+      ]
   , bgroup "encode"
       [ env (pure (decodeBody small)) $ \v -> bench "small" $
           nf YE.encode v
@@ -85,3 +90,5 @@ main = defaultMain
     decodeBody bs = case decodeBytes bs of
       Right s -> YV.docBody (V.head (YV.unStream s))
       Left e  -> error e
+
+    decodeText = TE.decodeUtf8
