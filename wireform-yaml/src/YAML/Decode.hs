@@ -461,7 +461,8 @@ parseQuotedScalarLine q l = case findKeyValueSplit (lineBody l) of
   Just (k, vRest) -> parseBlockMap (lineIndent l) k vRest
   Nothing -> do
     _ <- popLine
-    consumeQuoted q (preserveTrailingEscape (lineBody l) (lineRawBody l))
+    consumeQuotedAt q (lineIndent l)
+      (preserveTrailingEscape (lineBody l) (lineRawBody l))
 
 -- | If the trimmed line body ends in @\\@ that's not itself
 -- escaped, take the next character /verbatim/ from the raw body
@@ -492,7 +493,13 @@ preserveTrailingEscape stripped raw = case T.unsnoc stripped of
 -- Any text after the close quote on the final line is pushed back
 -- as a virtual line so the surrounding context can keep parsing.
 consumeQuoted :: Char -> Text -> P Value
-consumeQuoted q = go0 False
+consumeQuoted q = consumeQuotedAt q (-1)
+
+-- | Like 'consumeQuoted' but the caller knows the indent of the
+-- line that opened the quote; continuation lines must be at strictly
+-- greater indent.
+consumeQuotedAt :: Char -> Int -> Text -> P Value
+consumeQuotedAt q !openInd = go0 False
   where
     parser = case q of '"' -> parseDQ; _ -> parseSQ
 
@@ -512,6 +519,14 @@ consumeQuoted q = go0 False
         []       -> failP "YAML: unterminated quoted scalar"
         (l' : _) | lineKind l' == LDocStart || lineKind l' == LDocEnd ->
           failP $ "document marker inside quoted scalar (line "
+                  ++ show (lineNo l') ++ ")"
+        -- Continuations must be at /at least/ the same indent as
+        -- the line that opened the quote. A line at lower indent
+        -- belongs to the surrounding scope.
+        (l' : _) | openInd > 0
+                 , lineKind l' == LContent
+                 , lineIndent l' < openInd ->
+          failP $ "wrong-indented quoted-scalar continuation (line "
                   ++ show (lineNo l') ++ ")"
         (l' : rest) -> do
           setLines rest
@@ -1452,8 +1467,10 @@ parseImplicitMapValue !ind vRest =
            -- the body lines.
            pushLine (PLine 0 ind LContent after after)
            parseTagged
-         Just ('"', _)  -> consumeQuoted '"'  after
-         Just ('\'', _) -> consumeQuoted '\'' after
+         Just ('"', _)  -> consumeQuotedAt '"'  (ind + 1) after
+         Just ('\'', _) -> consumeQuotedAt '\'' (ind + 1) after
+         -- (the +1 turns a parent ind=0 into openInd=1 so that
+         -- col-0 continuations get rejected — i.e. spec QB6E)
          Just ('#', _) -> parseImplicitMapValueEmpty ind
          _ -> do
            -- Plain scalar inline value can continue on more lines
