@@ -1449,7 +1449,17 @@ parseFlowMap !p0 t = goV (skipFlowWS p0 t) []
                   _   -> Nothing
 
 parseDQ :: Int -> Text -> Maybe (Value, Int)
-parseDQ !p0 t = go (p0 + 1) []
+parseDQ !p0 t =
+  -- Fast path: no escapes / sentinels in the body, just find
+  -- the close quote and slice it out (no per-char allocation).
+  let !restAfterOpen = T.drop (p0 + 1) t
+      !needsScan = T.any (\c -> c == '\\' || c == '\1') restAfterOpen
+  in if not needsScan
+       then case T.findIndex (== '"') restAfterOpen of
+              Just k  -> Just ( YString (T.take k restAfterOpen)
+                              , p0 + 1 + k + 1 )
+              Nothing -> Nothing
+       else go (p0 + 1) []
   where
     !len = T.length t
     go !i acc
@@ -1460,14 +1470,23 @@ parseDQ !p0 t = go (p0 + 1) []
                   Just (c, i') -> go i' (c : acc)
                   Nothing      -> Nothing
                | otherwise -> Nothing
-          -- '\\1' is the line-join sentinel injected by
-          -- consumeFlow; per spec a single line break inside a
-          -- quoted scalar folds to a single space.
           '\1' -> go (i + 1) (' ' : acc)
           c   -> go (i + 1) (c : acc)
 
 parseSQ :: Int -> Text -> Maybe (Value, Int)
-parseSQ !p0 t = go (p0 + 1) []
+parseSQ !p0 t =
+  -- Fast path: a single-quoted body that contains no '\\1'
+  -- sentinel and no '\\'\\'' (the SQ escape) can be sliced out
+  -- directly.
+  let !restAfterOpen = T.drop (p0 + 1) t
+      hasSentinel    = T.any (== '\1') restAfterOpen
+      hasDoubleQuote = T.isInfixOf (T.pack "''") restAfterOpen
+  in if not hasSentinel && not hasDoubleQuote
+       then case T.findIndex (== '\'') restAfterOpen of
+              Just k  -> Just ( YString (T.take k restAfterOpen)
+                              , p0 + 1 + k + 1 )
+              Nothing -> Nothing
+       else go (p0 + 1) []
   where
     !len = T.length t
     go !i acc
@@ -2522,47 +2541,47 @@ expandTagP lno t
 -- @key: value@ split (top-level, respects quotes / brackets)
 -- ---------------------------------------------------------------------------
 
--- | Walks the line in O(n) by consuming chars from the unpacked
--- string. Returns @Just (key, rest)@ when a top-level @':'@
--- separator is found.
+-- | Walks the line in O(n) by 'T.uncons'-ing characters one at
+-- a time. Returns @Just (key, rest)@ when a top-level @':'@
+-- separator is found. Avoids the O(n²) trap of repeated
+-- 'T.index' on UTF-8-backed Text.
 findKeyValueSplit :: Text -> Maybe (Text, Text)
-findKeyValueSplit t = go 0 0 0 0 ' ' (T.unpack t)
+findKeyValueSplit input = go 0 0 0 0 ' ' input
   where
-    -- Args: position counter (in characters), bracket depth,
-    -- brace depth, inStr flag (0/1/2), previous char (for
-    -- atTokenStart), remaining unpacked input.
-    go :: Int -> Int -> Int -> Int -> Char -> [Char] -> Maybe (Text, Text)
-    go !_ !_ !_ !_ _ [] = Nothing
-    go !i !d !b !s !p (c : cs) = case s of
-      1 -> case c of
-        '"' -> go (i + 1) d b 0 c cs
-        '\\' -> case cs of
-          (_ : cs') -> go (i + 2) d b 1 c cs'
-          []        -> go (i + 1) d b 1 c cs
-        _   -> go (i + 1) d b 1 c cs
-      2 -> case c of
-        '\'' -> go (i + 1) d b 0 c cs
-        _    -> go (i + 1) d b 2 c cs
-      _ -> case c of
-        '"' | tokenStart p -> go (i + 1) d b 1 c cs
-        '\''| tokenStart p -> go (i + 1) d b 2 c cs
-        '[' | tokenStart p || d > 0 || b > 0 ->
-          go (i + 1) (d + 1) b s c cs
-        ']' | d > 0 -> go (i + 1) (d - 1) b s c cs
-        '{' | tokenStart p || d > 0 || b > 0 ->
-          go (i + 1) d (b + 1) s c cs
-        '}' | b > 0 -> go (i + 1) d (b - 1) s c cs
-        '#' | tokenStart p && d == 0 && b == 0 -> Nothing
-        ':' | d == 0, b == 0 ->
-          case cs of
-            []      -> Just (mkSplit i, T.empty)
-            (n : _) | n == ' ' || n == '\t' -> Just (mkSplit i, T.drop (i + 1) t)
-            _       -> go (i + 1) d b s c cs
-        _   -> go (i + 1) d b s c cs
+    -- Args: char index (for slicing on success), bracket depth,
+    -- brace depth, in-string flag (0/1/2), previous char,
+    -- remaining input slice.
+    go :: Int -> Int -> Int -> Int -> Char -> Text -> Maybe (Text, Text)
+    go !i !d !b !s !p !t = case T.uncons t of
+      Nothing -> Nothing
+      Just (c, t') -> case s of
+        1 -> case c of
+          '"' -> go (i + 1) d b 0 c t'
+          '\\' -> case T.uncons t' of
+            Just (_, t'') -> go (i + 2) d b 1 c t''
+            Nothing       -> go (i + 1) d b 1 c t'
+          _   -> go (i + 1) d b 1 c t'
+        2 -> case c of
+          '\'' -> go (i + 1) d b 0 c t'
+          _    -> go (i + 1) d b 2 c t'
+        _ -> case c of
+          '"' | ts -> go (i + 1) d b 1 c t'
+          '\''| ts -> go (i + 1) d b 2 c t'
+          '[' | ts || d > 0 || b > 0 -> go (i + 1) (d + 1) b s c t'
+          ']' | d > 0                -> go (i + 1) (d - 1) b s c t'
+          '{' | ts || d > 0 || b > 0 -> go (i + 1) d (b + 1) s c t'
+          '}' | b > 0                -> go (i + 1) d (b - 1) s c t'
+          '#' | ts && d == 0 && b == 0 -> Nothing
+          ':' | d == 0, b == 0 -> case T.uncons t' of
+            Nothing                  -> Just (mkSplit i, T.empty)
+            Just (n, _)
+              | n == ' ' || n == '\t' -> Just (mkSplit i, t')
+              | otherwise             -> go (i + 1) d b s c t'
+          _   -> go (i + 1) d b s c t'
+        where
+          ts = p == ' ' || p == '\t'
 
-    mkSplit i = unquoteKey (T.stripEnd (T.take i t))
-
-    tokenStart c = c == ' ' || c == '\t'
+    mkSplit i = unquoteKey (T.stripEnd (T.take i input))
 {-# INLINABLE findKeyValueSplit #-}
 
 unquoteKey :: Text -> Text
