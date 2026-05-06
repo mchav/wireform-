@@ -464,8 +464,12 @@ emitCollection vs = do
                   encodeUntaggedPayload x
             (False, False) ->
               V.forM_ vs $ \x -> encodeUntaggedPayload x
-        (True, Nothing) ->
-          -- All elements are None.
+        (True, Nothing) -> do
+          -- Every element is 'NoneVal'. pyfory still emits an
+          -- element type tag here — 'NONE' (id 36) — so the
+          -- decoder's SAME_TYPE path can read it. Each element
+          -- is then a single 'NULL_FLAG' byte.
+          emitTag T.NONE
           V.forM_ vs $ \_ -> emit (E.byte slotNull)
         (False, _) ->
           if hasNull
@@ -664,17 +668,22 @@ emitOneEntryChunk k v = do
       !flag = (if keyNull then mapKeyHasNull else 0)
           .|. (if valNull then mapValueHasNull else 0)
   emit (E.byte flag)
-  emit (E.byte 1)  -- chunk size as uint8, matching pyfory's MapSerializer.
-  -- pyfory's wire shape is | chunk_header | chunk_size | key_type | value_type | (key, value) * chunk_size |.
+  -- pyfory's KV-NULL chunks (both key and value null) are
+  -- represented by the chunk_header byte alone; the implied
+  -- chunk_size is 1. For every other chunk we emit a uint8
+  -- chunk_size + per-side type info + payload.
   case (keyNull, valNull) of
     (True,  True)  -> pure ()
     (False, True)  -> do
+      emit (E.byte 1)
       emitTag (VV.typeIdOf k)
       encodeUntaggedPayload k
     (True,  False) -> do
+      emit (E.byte 1)
       emitTag (VV.typeIdOf v)
       encodeUntaggedPayload v
     (False, False) -> do
+      emit (E.byte 1)
       emitTag (VV.typeIdOf k)
       emitTag (VV.typeIdOf v)
       encodeUntaggedPayload k
