@@ -520,16 +520,20 @@ consumeQuoted q = go0 False
 
     finish multi v rest =
       let trimmed = T.stripStart rest
+          -- Was there at least one whitespace char between the
+          -- closing quote and 'rest'?
+          hadSeparator = T.length trimmed < T.length rest
           stripped = case T.uncons trimmed of
-            Just ('#', _) -> T.empty
-            _             -> T.stripEnd (stripInlineComment trimmed)
+            -- A '#' may only start a comment when preceded by
+            -- whitespace; without one it's malformed.
+            Just ('#', _)
+              | hadSeparator -> T.empty
+              | otherwise    -> trimmed
+            _ -> T.stripEnd (stripInlineComment trimmed)
       in if T.null stripped
            then pure v
            else case T.uncons stripped of
                   Just (c, _)
-                    -- Implicit map keys must fit on one line per
-                    -- spec §7.4.1: refuse a multi-line quoted
-                    -- scalar that's followed by a ':' separator.
                     | c == ':' && multi ->
                         failP "multi-line quoted scalar used as implicit key"
                     | c == ','  -> pushBack stripped
@@ -554,6 +558,20 @@ parseTagged = do
       after = case T.uncons after0 of
         Just ('#', _) -> T.empty
         _             -> after0
+  -- Tag tokens can contain URI characters (incl. ',') /inside/
+  -- a verbatim '!<...>' wrapper, but a bare tag ('!!str' /
+  -- '!foo') may not include ',' or flow indicators. Reject the
+  -- bare-tag form when it contains them.
+  let isVerbatim = case T.uncons (T.drop 1 tg) of
+        Just ('<', _) -> True
+        _             -> False
+  unless isVerbatim $
+    case T.find (\c -> c == ',' || c == '[' || c == ']'
+                    || c == '{' || c == '}') tg of
+      Just c -> failP $ "invalid tag character " ++ show c
+                      ++ " in tag " ++ show tg
+                      ++ " (line " ++ show (lineNo l) ++ ")"
+      Nothing -> pure ()
   if T.null after
     then do
       mNext <- peekLine
@@ -873,6 +891,7 @@ parseFlowSeq !p0 t = goV (skipFlowWS p0 t) []
     goV !p acc
       | p >= T.length t = Nothing
       | T.index t p == ']' = Just (YSeq (V.fromList (reverse acc)), p + 1)
+      | T.index t p == '#' = Nothing
       | otherwise = case parseFlowEntry p t of
           Nothing      -> Nothing
           Just (v, p1) ->
@@ -880,7 +899,14 @@ parseFlowSeq !p0 t = goV (skipFlowWS p0 t) []
             in if p2 >= T.length t
                  then Nothing
                  else case T.index t p2 of
-                        ',' -> goV (skipFlowWS (p2 + 1) t) (v : acc)
+                        ',' ->
+                          -- A '#' immediately after the comma
+                          -- (no separating whitespace) is invalid
+                          -- — comments need preceding WS.
+                          let p3 = p2 + 1
+                          in if p3 < T.length t && T.index t p3 == '#'
+                               then Nothing
+                               else goV (skipFlowWS p3 t) (v : acc)
                         ']' -> Just (YSeq (V.fromList (reverse (v : acc))), p2 + 1)
                         _   -> Nothing
 
