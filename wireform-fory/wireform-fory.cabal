@@ -140,6 +140,20 @@ test-suite wireform-fory-interop-fuzz
     directory     >= 1.3 && < 1.4,
     hedgehog      >= 1.0 && < 1.5
 
+benchmark wireform-fory-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -O2
+  build-depends:
+    base,
+    wireform-fory,
+    bytestring,
+    text,
+    vector,
+    criterion >= 1.5 && < 1.7
+
 executable wireform-fory-fuzz-trace
   import: defaults
   hs-source-dirs: test-interop
