@@ -94,34 +94,80 @@ data LineKind
   deriving (Eq, Show)
 
 preprocess :: Text -> [PLine]
-preprocess = go 1 . dropFinalEmpty . T.split (== '\n')
+preprocess input@(TI.Text arr off blen) =
+  goByte 1 off (-1) (-1)
   where
-    -- 'T.split' on a string ending in '\n' yields a trailing empty
-    -- chunk; drop it so we don't synthesize a phantom blank line at
-    -- EOF (which throws off block-scalar collection).
-    dropFinalEmpty xs = case reverse xs of
-      ("" : rest) -> reverse rest
-      _           -> xs
+    !endByte = off + blen
 
-    go !_ [] = []
-    go !n (l:ls) =
-      let !stripped = stripCR l
-          !ind      = leadingSpaces stripped
-          !body0    = T.drop ind stripped
-          !body     = T.dropWhileEnd (\c -> c == ' ' || c == '\t') body0
-          -- A line whose only content is a trailing tab (no
-          -- structural indicator) reads as 'blank' for most
-          -- parsing decisions, but 'collectScalarLines' for block
-          -- scalars consults 'lineRawBody' and re-injects the
-          -- whitespace as content.
-          !kind     = classify body
-          -- Track whether the indent column contains a literal TAB
-          -- (i.e. whitespace mix that the YAML 1.2 spec §6.1
-          -- forbids as block-context indentation). We don't fail
-          -- here — many parser paths legitimately consume tabs as
-          -- intra-line separation — but we keep the flag around
-          -- for the structural parsers that /do/ care.
-      in PLine n ind kind body body0 : go (n+1) ls
+    -- Walk the underlying byte array a line at a time, slicing
+    -- each line into a 'PLine' without allocating intermediate
+    -- '[Text]' chunks. The 'lineStart' field holds the byte
+    -- offset where the current line begins; 'contentStart' is
+    -- the byte offset of the first non-space character (or -1
+    -- if not yet found).
+    goByte :: Int -> Int -> Int -> Int -> [PLine]
+    goByte !lno !lineStart !contentStart !lastNonWS
+      | lineStart >= endByte =
+          if contentStart < 0
+            then []
+            -- Trailing line with no terminating '\n'.
+            else mkLine lno lineStart endByte contentStart lastNonWS : []
+      | otherwise = scanFor lno lineStart contentStart lastNonWS lineStart
+
+    -- Scan from position 'i' to find the line end (newline or
+    -- end of input). Track 'contentStart' (first non-' ') and
+    -- 'lastNonWS' (last non-WS char, used by stripEnd-style
+    -- body slicing).
+    scanFor :: Int -> Int -> Int -> Int -> Int -> [PLine]
+    scanFor !lno !lineStart !contentStart !lastNonWS !i
+      | i >= endByte =
+          if contentStart < 0
+            then []
+            else mkLine lno lineStart endByte contentStart lastNonWS : []
+      | otherwise = case TA.unsafeIndex arr i of
+          10 -> -- '\n'
+              let line = if contentStart < 0
+                    then PLine lno 0 LBlank T.empty T.empty
+                    else mkLine lno lineStart i contentStart lastNonWS
+              in line : goByte (lno + 1) (i + 1) (-1) (-1)
+          13 -> -- '\r' — treat as part of line, but the next
+                -- '\n' (if any) terminates and we trim the '\r'.
+                scanFor lno lineStart contentStart lastNonWS (i + 1)
+          32 -> -- ' '
+                scanFor lno lineStart contentStart lastNonWS (i + 1)
+          9  -> -- '\t' — non-space WS; tracks lastNonWS like
+                -- non-WS for body-end purposes? Actually tab is
+                -- WS for stripEnd and contentStart.
+                scanFor lno lineStart contentStart lastNonWS (i + 1)
+          _  -> -- non-WS byte (or byte >= 0x80 in multi-byte
+                -- UTF-8); treat as content.
+                scanFor lno lineStart
+                  (if contentStart < 0 then i else contentStart)
+                  i (i + 1)
+
+    -- Build a PLine for the byte range [lineStart, lineEnd)
+    -- with first content byte at 'contentStart' and last non-
+    -- whitespace byte at 'lastNonWS' (might be < contentStart
+    -- when the line has only whitespace, in which case it
+    -- should be classified as LBlank).
+    mkLine :: Int -> Int -> Int -> Int -> Int -> PLine
+    mkLine !lno !lineStart !lineEnd !contentStart !lastNonWS
+      | contentStart < 0 = PLine lno 0 LBlank T.empty T.empty
+      | otherwise =
+          let !ind       = contentStart - lineStart
+              -- Strip trailing '\r' from the lineEnd if present.
+              !endNoCR   = if lineEnd > lineStart
+                              && TA.unsafeIndex arr (lineEnd - 1) == 13
+                             then lineEnd - 1
+                             else lineEnd
+              !rawLen    = endNoCR - contentStart
+              !bodyLen   = lastNonWS + 1 - contentStart
+              !lineRawB  = TI.text arr contentStart rawLen
+              !lineB     = if bodyLen == rawLen
+                              then lineRawB
+                              else TI.text arr contentStart bodyLen
+              !kind      = classify lineB
+          in PLine lno ind kind lineB lineRawB
 
 stripCR :: Text -> Text
 stripCR t = case T.unsnoc t of
@@ -2031,9 +2077,14 @@ parsePlainScalarAt !parentInd !inMapValue !baseIndArg firstBody = do
       !_p  = parentInd
       !_m  = inMapValue
   Just _ <- popLine
-  let stripped = stripInlineComment firstBody
-      !first = T.stripEnd stripped
-      hadComment = T.length stripped < T.length (T.stripEnd firstBody)
+  -- Fast path: a body with no '#' at all has no comment, so we
+  -- skip the comparison probe entirely.
+  let !hasHash    = T.any (== '#') firstBody
+      !stripped   = if hasHash then stripInlineComment firstBody
+                               else firstBody
+      !first      = T.stripEnd stripped
+      !hadComment = hasHash
+                  && T.length stripped < T.length (T.stripEnd firstBody)
   -- A plain scalar may not contain ': ' (colon-space) in block
   -- context — that would form a nested mapping (spec §7.3.3).
   case findKeyValueSplit first of
