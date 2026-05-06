@@ -881,8 +881,8 @@ consumeQuotedAt q !openInd = go0 False
                         (T.init buf <> body', True)
                     | otherwise =
                         let joinSep
-                              | blanks == 0 = T.pack " "
-                              | otherwise   = T.replicate blanks (T.pack "\n")
+                              | blanks == 0 = tSpace
+                              | otherwise   = T.replicate blanks tNL
                         in (buf <> joinSep <> body', True)
               in joined `seq` case parser 0 buf' of
                    Just (v, p)   -> finish True v (bDrop p buf')
@@ -1222,15 +1222,15 @@ maybeFlowAsBlockKey !ind k = do
     Just l
       | lineIndent l == ind
       , let body = lineBody l
-      , body == T.pack ":"
-        || T.isPrefixOf (T.pack ": ")  body
-        || T.isPrefixOf (T.pack ":\t") body -> do
+      , body == tColonStr
+        || T.isPrefixOf tColonSpace body
+        || T.isPrefixOf tColonTab   body -> do
           spanned <- psFlowSpannedNewline <$> getS
           when spanned $
             failP $ "flow node spanning newline used as block-mapping key (line "
                     ++ show (lineNo l) ++ ")"
           _ <- popLine
-          let after = if body == T.pack ":" then T.empty
+          let after = if body == tColonStr then T.empty
                                             else T.drop 2 body
           v <- parseImplicitMapValue ind after
           rest <- collectFlowMapEntries ind
@@ -1277,7 +1277,7 @@ collectFlowMapEntries !ind = go []
     readEntryKey = do
       Just l <- popLine
       let body = lineBody l
-          afterMarker = if body == T.pack "?" then T.empty
+          afterMarker = if body == tQuestStr then T.empty
                                               else T.drop 1 body
           rest = T.stripStart (T.drop 1 afterMarker)
       if T.null rest
@@ -1294,12 +1294,12 @@ collectFlowMapEntries !ind = go []
       mPL <- peekLine
       case mPL of
         Just l | lineIndent l == ind
-                 , (lineBody l == T.pack ":"
-                    || T.isPrefixOf (T.pack ": ")  (lineBody l)
-                    || T.isPrefixOf (T.pack ":\t") (lineBody l)) -> do
+                 , (lineBody l == tColonStr
+                    || T.isPrefixOf tColonSpace (lineBody l)
+                    || T.isPrefixOf tColonTab   (lineBody l)) -> do
             Just l' <- popLine
             let body = lineBody l'
-                afterMarker = if body == T.pack ":" then T.empty
+                afterMarker = if body == tColonStr then T.empty
                                                     else T.drop 1 body
                 rest = T.stripStart (T.drop 1 afterMarker)
             if T.null rest
@@ -1337,8 +1337,8 @@ resolveFlowAliases :: Value -> P Value
 resolveFlowAliases = goV
   where
     goV (YString t)
-      | T.isPrefixOf (T.pack "\0alias\0") t = do
-          let nm = T.drop (T.length (T.pack "\0alias\0")) t
+      | T.isPrefixOf tAliasSentinel t = do
+          let nm = bDrop (bLen tAliasSentinel) t
           resolveAnchor nm
     goV (YAnchored a v)         = YAnchored a <$> goV v
     goV (YTagged   a v)         = YTagged   a <$> goV v
@@ -1408,7 +1408,7 @@ consumeFlowAt !openInd = go
             -- plain space so downstream parsers can detect that
             -- a structural element spanned a newline (used for
             -- the implicit-key-followed-by-newline check).
-            go (buf <> T.singleton '\1' <> lineBody l')
+            go (buf <> tSOH <> lineBody l')
 
 data ScanResult
   = ScanComplete !Value !Text
@@ -1512,7 +1512,7 @@ parseFlowAlias !p t =
                  else goN (i + 1)
       !p1  = goN (p + 1)
       name = bSlice t (p + 1) p1
-  in Just (YString (T.pack "\0alias\0" <> name), p1)
+  in Just (YString (tAliasSentinel <> name), p1)
 
 parseFlowSeq :: Int -> Text -> Maybe (Value, Int)
 parseFlowSeq !p0 t =
@@ -1760,26 +1760,68 @@ utf8Width b
 parseFlowPlain :: Int -> Text -> Maybe (Value, Int)
 parseFlowPlain !p t =
   let !len = bLen t
-      go !i
-        | i >= len  = i
+      -- Walk the body looking for a stopper. Track in 'sawSOH'
+      -- whether we crossed any '\\1' newline sentinel, so we
+      -- can skip the (allocating) 'T.replace' fold below in
+      -- the common case.
+      go !i !sawSOH
+        | i >= len  = (i, sawSOH)
         | otherwise =
             let !c = bAt t i
             in if isFlowStopByte c
                   || (c == w8Colon && colonStopByte i)
-                 then i
-                 else go (i + 1)
+                 then (i, sawSOH)
+                 else go (i + 1) (sawSOH || c == w8SOH)
       colonStopByte !i =
         let i1 = i + 1
         in i1 >= len || flowColonFollower (bAt t i1)
-      !p' = go p
+      (!p', !sawSOH) = go p False
       raw      = bSlice t p p'
-      folded   = T.replace (T.pack "\1") (T.pack " ") raw
+      folded
+        | sawSOH    = T.replace tSOH tSpace raw
+        | otherwise = raw
       stripped = T.stripEnd folded
   in if T.null stripped
        then Nothing
-       else if stripped == T.pack "-"
+       else if stripped == tDashStr
               then Nothing
               else Just (resolvePlain stripped, p')
+
+-- ---------------------------------------------------------------------------
+-- Constant-string CAFs.
+--
+-- 'T.pack \"…\"' is /not/ free even for a static literal — it
+-- allocates the result 'Text' on every call unless GHC happens
+-- to lift it. Hoisting frequently-used literals to top-level
+-- saves a re-pack on every hot-loop iteration.
+-- ---------------------------------------------------------------------------
+
+tSOH, tSTX, tSpace, tNL :: Text
+tSOH    = T.singleton '\1'
+tSTX    = T.singleton '\2'
+tSpace  = T.singleton ' '
+tNL     = T.singleton '\n'
+
+tDashStr, tDashSpace, tDashTab :: Text
+tDashStr   = T.pack "-"
+tDashSpace = T.pack "- "
+tDashTab   = T.pack "-\t"
+
+tQuestStr, tQuestSpace, tQuestTab :: Text
+tQuestStr   = T.pack "?"
+tQuestSpace = T.pack "? "
+tQuestTab   = T.pack "?\t"
+
+tColonStr, tColonSpace, tColonTab :: Text
+tColonStr   = T.pack ":"
+tColonSpace = T.pack ": "
+tColonTab   = T.pack ":\t"
+
+tAliasSentinel :: Text
+tAliasSentinel = T.pack "\0alias\0"
+
+tYamlTagPrefix :: Text
+tYamlTagPrefix = T.pack "tag:yaml.org,2002:"
 
 -- | Bytes that terminate a flow-context plain scalar
 -- (excluding the colon-with-follower case which is handled by
@@ -1820,16 +1862,16 @@ skipFlowWS !p t =
 -- @-@ or starts with @- @ / @-<TAB>@.
 isSeqItem :: Text -> Bool
 isSeqItem b =
-  b == T.pack "-"
-  || T.isPrefixOf (T.pack "- ")  b
-  || T.isPrefixOf (T.pack "-\t") b
+  b == tDashStr
+  || T.isPrefixOf tDashSpace b
+  || T.isPrefixOf tDashTab   b
 
 -- | Same shape for the explicit-key marker @?@.
 isExplicitKey :: Text -> Bool
 isExplicitKey b =
-  b == T.pack "?"
-  || T.isPrefixOf (T.pack "? ")  b
-  || T.isPrefixOf (T.pack "?\t") b
+  b == tQuestStr
+  || T.isPrefixOf tQuestSpace b
+  || T.isPrefixOf tQuestTab   b
 
 parseBlockOrPlain :: PLine -> P Value
 parseBlockOrPlain l
@@ -2395,7 +2437,7 @@ parsePlainScalarAt !parentInd !inMapValue !baseIndArg firstBody = do
                     hadComment = bLen s0 < bLen (T.stripEnd raw)
                     prefix
                       | blanks == 0 = s
-                      | otherwise   = T.replicate blanks (T.pack "\n") <> s
+                      | otherwise   = T.replicate blanks tNL <> s
                 when hadComment $ do
                   ls' <- getLines
                   case ls' of
@@ -2428,8 +2470,8 @@ parsePlainScalarAt !parentInd !inMapValue !baseIndArg firstBody = do
         go []     = T.empty
         go [x]    = x
         go (x:y:zs)
-          | T.isPrefixOf (T.pack "\n") y = x <> go (y:zs)
-          | otherwise                    = x <> T.pack " " <> go (y:zs)
+          | T.isPrefixOf tNL y = x <> go (y:zs)
+          | otherwise          = x <> tSpace <> go (y:zs)
 
 -- ---------------------------------------------------------------------------
 -- Block scalars
@@ -2603,12 +2645,12 @@ joinLiteralAt mExpl chomp xs =
                   Nothing -> minNonNegative xs
       lns     = map (renderLine baseInd) xs
       raw | null xs   = T.empty
-          | otherwise = T.intercalate (T.pack "\n") lns <> T.pack "\n"
+          | otherwise = T.intercalate tNL lns <> tNL
   in chompText chomp raw
   where
     renderLine bi (i, b)
       | i < 0     = T.empty
-      | otherwise = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
+      | otherwise = T.replicate (max 0 (i - bi)) tSpace <> b
 
 joinFolded :: Chomp -> [(Int, Text)] -> Text
 joinFolded = joinFoldedAt Nothing
@@ -2619,7 +2661,7 @@ joinFoldedAt mExpl chomp xs =
                   Just b  -> b
                   Nothing -> minNonNegative xs
       raw | null xs   = T.empty
-          | otherwise = T.concat (foldFirst xs baseInd) <> T.pack "\n"
+          | otherwise = T.concat (foldFirst xs baseInd) <> tNL
   in chompText chomp raw
   where
     isBlank (i, b) = i < 0 || T.null b
@@ -2636,9 +2678,9 @@ joinFoldedAt mExpl chomp xs =
 
     foldFirst [] _ = []
     foldFirst ((i, b) : rest) bi
-      | isBlank (i, b) = T.pack "\n" : foldAfterFirstBlank rest bi
+      | isBlank (i, b) = tNL : foldAfterFirstBlank rest bi
       | otherwise =
-          let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
+          let txt = T.replicate (max 0 (i - bi)) tSpace <> b
               more = isMoreIndented bi (i, b)
           in txt : foldNext rest bi more
 
@@ -2648,9 +2690,9 @@ joinFoldedAt mExpl chomp xs =
     -- /no/ extra preserved newline.
     foldAfterFirstBlank [] _ = []
     foldAfterFirstBlank ((i, b) : rest) bi
-      | isBlank (i, b) = T.pack "\n" : foldAfterFirstBlank rest bi
+      | isBlank (i, b) = tNL : foldAfterFirstBlank rest bi
       | otherwise =
-          let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
+          let txt = T.replicate (max 0 (i - bi)) tSpace <> b
               nowMore = isMoreIndented bi (i, b)
           in txt : foldNext rest bi nowMore
 
@@ -2660,14 +2702,14 @@ joinFoldedAt mExpl chomp xs =
           -- A break right after a more-indented line is preserved
           -- as a literal newline; the upcoming blank emits another
           -- on top of that.
-          let pre = if prevMore then [T.pack "\n"] else []
-          in pre ++ T.pack "\n" : foldAfterBlank rest bi prevMore
+          let pre = if prevMore then [tNL] else []
+          in pre ++ tNL : foldAfterBlank rest bi prevMore
       | otherwise =
-          let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
+          let txt = T.replicate (max 0 (i - bi)) tSpace <> b
               nowMore = isMoreIndented bi (i, b)
               joinSep
-                | prevMore || nowMore = T.pack "\n"
-                | otherwise           = T.pack " "
+                | prevMore || nowMore = tNL
+                | otherwise           = tSpace
           in joinSep : txt : foldNext rest bi nowMore
 
     -- @prevMore@ here refers to whether the line that opened the
@@ -2675,16 +2717,16 @@ joinFoldedAt mExpl chomp xs =
     -- need to emit one more break if either side is more-indented.
     foldAfterBlank [] _ _ = []
     foldAfterBlank ((i, b) : rest) bi prevMore
-      | isBlank (i, b) = T.pack "\n" : foldAfterBlank rest bi prevMore
+      | isBlank (i, b) = tNL : foldAfterBlank rest bi prevMore
       | otherwise =
-          let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
+          let txt = T.replicate (max 0 (i - bi)) tSpace <> b
               nowMore = isMoreIndented bi (i, b)
               -- If we're leaving a blank-run into a more-indented
               -- line and the previous content line was /not/
               -- itself more-indented, the spec requires an extra
               -- preserved break.
               extra = if nowMore && not prevMore
-                        then [T.pack "\n"]
+                        then [tNL]
                         else []
           in extra ++ txt : foldNext rest bi nowMore
 
@@ -2713,7 +2755,7 @@ chompText Clip  = \t ->
   let stripped = T.dropWhileEnd (== '\n') t
   in if T.null stripped
        then T.empty               -- "no content" → no trailing newline
-       else stripped <> T.pack "\n"
+       else stripped <> tNL
 
 -- ---------------------------------------------------------------------------
 -- Plain-scalar resolution per the YAML 1.2 core schema
@@ -2816,7 +2858,7 @@ parseFloatCore t = case TR.signed TR.double t of
 expandTag :: Text -> Tag
 expandTag t
   | T.isPrefixOf "!!" t =
-      Tag (T.pack "tag:yaml.org,2002:" <> T.drop 2 t)
+      Tag (tYamlTagPrefix <> T.drop 2 t)
   | T.isPrefixOf "!<" t && T.isSuffixOf ">" t =
       Tag (T.init (T.drop 2 t))
   | otherwise = Tag t
@@ -2991,7 +3033,7 @@ stripInlineComment t
             let prefix = bSlice t 0 brk
                 rest0  = bDrop (brk + 1) t
                 afterC = T.dropWhile (/= '\1') rest0
-            in prefix <> T.pack "\2" <> afterC
+            in prefix <> tSTX <> afterC
       in go 0 Outer
 {-# INLINABLE stripInlineComment #-}
 
