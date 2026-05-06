@@ -560,7 +560,16 @@ encodeUnknownFields = foldMap encodeOne
 decodeMapEntry :: Decoder k -> Decoder v -> k -> v -> Decoder (k, v)
 decodeMapEntry decK decV = loop
   where
-    loop !mk !mv = withTagM
+    -- Keep @mv@ lazy: the deriver may pass a bottom 'v' for
+    -- types where there's no good zero value (singular
+    -- submessage map values, where proto3 spec says the
+    -- value defaults to the empty submessage but the splice
+    -- doesn't easily carry that default through). The
+    -- conformance suite includes 'Default' / 'MissingDefault'
+    -- tests where the wire delivers a 0-length value, which
+    -- exercises the @decV@ path and overwrites the lazy
+    -- bottom before anyone forces it.
+    loop !mk mv = withTagM
       (pure (mk, mv))
       (\fn wt -> case fn of
         1 -> do { kv <- decK; loop kv mv }

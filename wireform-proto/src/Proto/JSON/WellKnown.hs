@@ -390,15 +390,88 @@ parseDuration t = do
               }
 
 -- FieldMask: comma-separated paths
+--
+-- Proto3 spec: each path component is stored in
+-- lower_snake_case on the wire, but rendered in lowerCamelCase
+-- in JSON. The conversion is round-trip-required, so any path
+-- whose snake form can't be unambiguously recovered from the
+-- camel form (uppercase chars, embedded digits, repeated
+-- underscores) MUST be rejected on serialise.
 
 fieldMaskToJSON :: FieldMask -> Aeson.Value
-fieldMaskToJSON fm = Aeson.String (T.intercalate "," (V.toList (fieldMaskPaths fm)))
+fieldMaskToJSON fm =
+  case traverse snakeToFieldMaskCamel (V.toList (fieldMaskPaths fm)) of
+    Right cs -> Aeson.String (T.intercalate "," cs)
+    Left  e  -> error ("FieldMask path: " <> e)
 
 fieldMaskFromJSON :: Aeson.Value -> Either String FieldMask
 fieldMaskFromJSON (Aeson.String t)
-  | T.null t  = Right (FieldMask { fieldMaskPaths = V.empty, fieldMaskUnknownFields = [] })
-  | otherwise = Right (FieldMask { fieldMaskPaths = V.fromList (T.splitOn "," t), fieldMaskUnknownFields = [] })
+  | T.null t  =
+      Right FieldMask { fieldMaskPaths = V.empty, fieldMaskUnknownFields = [] }
+  | otherwise = do
+      paths <- traverse camelToFieldMaskSnake (T.splitOn "," t)
+      Right FieldMask
+        { fieldMaskPaths         = V.fromList paths
+        , fieldMaskUnknownFields = []
+        }
 fieldMaskFromJSON _ = Left "Expected string for FieldMask"
+
+-- | snake_case -> lowerCamelCase for one FieldMask path
+-- component, refusing inputs that wouldn't round-trip back to
+-- the original snake form (uppercase chars in source, embedded
+-- digits surrounded by underscores, multiple consecutive
+-- underscores).
+snakeToFieldMaskCamel :: Text -> Either String Text
+snakeToFieldMaskCamel t = T.pack <$> go False (T.unpack t)
+  where
+    go _    [] = Right []
+    go cap  (c:cs)
+      | c == '_' =
+          if cap
+            then Left ("repeated underscores in path: " <> show t)
+            else case cs of
+              (next:_) | not (isLowerAscii next) ->
+                Left ("'_' must precede lowercase ASCII in path: "
+                       <> show t)
+              _ -> go True cs
+      | c == '.' =
+          if cap
+            then Left ("'.' immediately after '_' in path: " <> show t)
+            else (c :) <$> go False cs
+      | isUpperAscii c =
+          Left ("uppercase character not allowed in source path: " <> show t)
+      | cap = ((upperOf c) :) <$> go False cs
+      | otherwise = (c :) <$> go False cs
+
+-- | lowerCamelCase -> snake_case for one FieldMask path
+-- component (the input form on JSON parse). Each uppercase
+-- letter introduces a leading @_@; @.@ separators stay verbatim
+-- so nested paths like @foo.barBaz@ become @foo.bar_baz@.
+-- Rejects inputs containing @_@ (FieldMaskInvalidCharacter) —
+-- the JSON form is required to be lowerCamelCase, which never
+-- has bare underscores.
+camelToFieldMaskSnake :: Text -> Either String Text
+camelToFieldMaskSnake t = T.pack <$> go (T.unpack t)
+  where
+    go [] = Right []
+    go (c:cs)
+      | c == '_'      =
+          Left ("'_' not allowed in JSON FieldMask path: " <> show t)
+      | isUpperAscii c =
+          ('_' :) . (lowerOf c :) <$> go cs
+      | otherwise = (c :) <$> go cs
+
+isLowerAscii, isUpperAscii :: Char -> Bool
+isLowerAscii c = c >= 'a' && c <= 'z'
+isUpperAscii c = c >= 'A' && c <= 'Z'
+
+upperOf, lowerOf :: Char -> Char
+upperOf c
+  | isLowerAscii c = toEnum (fromEnum c - 32)
+  | otherwise      = c
+lowerOf c
+  | isUpperAscii c = toEnum (fromEnum c + 32)
+  | otherwise      = c
 
 -- Struct/Value: native JSON
 
@@ -418,7 +491,15 @@ valueToJSON v = case valueKind v of
   Nothing -> Aeson.Null
   Just vk -> case vk of
     Value'Kind'NullValue _   -> Aeson.Null
-    Value'Kind'NumberValue d -> Aeson.Number (fromFloatDigits d)
+    Value'Kind'NumberValue d
+      | isNaN d || isInfinite d ->
+          -- Proto3 spec: google.protobuf.Value rejects
+          -- non-finite numbers on serialise (the Reject{Inf,
+          -- Nan}NumberValue conformance tests). Surface this
+          -- as a serialise failure via 'error', caught by
+          -- the conformance handler.
+          error ("Value: non-finite number not allowed: " <> show d)
+      | otherwise -> Aeson.Number (fromFloatDigits d)
     Value'Kind'StringValue s -> Aeson.String s
     Value'Kind'BoolValue b   -> Aeson.Bool b
     Value'Kind'StructValue s -> structToJSON s

@@ -149,6 +149,14 @@ message TestAllTypesProto3 {
   map<bool,     bool>           map_bool_bool            = 68;
   map<string,   string>         map_string_string        = 69;
   map<string,   bytes>          map_string_bytes         = 70;
+  // Submessage / enum-valued maps. The wire form is a repeated
+  // MapEntry message; the JSON form is a JSON object whose
+  // values are recursively the inner message / enum's JSON
+  // shape. Conformance MessageMapField.* exercises the message
+  // case; IgnoreUnknownEnumStringValueInMap*, etc. exercise the
+  // enum case.
+  map<string,   NestedMessage>  map_string_nested_message = 71;
+  map<string,   NestedEnum>     map_string_nested_enum    = 73;
 
   // Oneof.
   oneof oneof_field {

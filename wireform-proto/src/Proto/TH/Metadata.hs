@@ -724,6 +724,13 @@ oldParseFnFor mf =
           JSMaybe  JSFixed32  -> VarE 'parseWord32FieldMaybe
           JSMaybe  JSDouble   -> VarE 'parseDoubleFieldMaybe
           JSMaybe  JSFloat    -> VarE 'parseFloatFieldMaybe
+          -- map<K, message V>: parse via a custom Map walker so
+          -- the nested message FromJSON instance is exercised
+          -- explicitly. Aeson's generic Map FromJSON instance
+          -- has a habit of falling back to an empty result when
+          -- the inner parse fails partially; the explicit walker
+          -- propagates failures cleanly.
+          JSMapMessage _      -> VarE 'parseStringMessageMapMaybe
           _                   -> VarE 'PJ.parseFieldMaybe
 
 -- | Parse @Maybe Int64@ from a JSON string-or-number key.
@@ -764,6 +771,28 @@ protoFloatFromJSONLenient v = case v of
       in if isInfinite d
            then fail ("float/double overflow: " <> show n)
            else pure d
+
+-- | Parse @Maybe (Map Text v)@ where @v@ is a generated
+-- submessage. The inner @parseJSON@ is the message's own
+-- FromJSON instance; we walk the JSON object explicitly so a
+-- single failing entry surfaces as a parse error rather than
+-- being silently dropped.
+parseStringMessageMapMaybe
+  :: Aeson.FromJSON v
+  => Aeson.Object -> Text -> AesonT.Parser (Maybe (Map.Map Text v))
+parseStringMessageMapMaybe obj key =
+  case AesonKM.lookup (AesonKey.fromText key) obj of
+    Nothing                   -> pure Nothing
+    Just Aeson.Null           -> pure Nothing
+    Just (Aeson.Object inner) -> do
+      pairs <- traverse parseEntry (AesonKM.toList inner)
+      pure (Just (Map.fromList pairs))
+    Just _                    ->
+      fail ("Expected JSON Object for map field " <> show key)
+  where
+    parseEntry (k, v) = do
+      v' <- Aeson.parseJSON v
+      pure (AesonKey.toText k, v')
 
 parseInt32FieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Int32)
 parseInt32FieldMaybe = parseScalarFieldMaybe protoInt32FromJSON
@@ -890,8 +919,18 @@ parseFieldMaskMaybe = parseWktMaybe WK.fieldMaskFromJSON
 parseStructMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe PGS.Struct))
 parseStructMaybe = parseWktMaybe WK.structFromJSON
 
+-- | Proto3 'google.protobuf.Value' parses JSON @null@ as the
+-- @null_value: NULL_VALUE@ variant rather than treating @null@
+-- as "field unset" (which is the convention for every /other/
+-- WKT). 'parseWktMaybe' is too eager about returning
+-- @Just Nothing@ for @null@; supply a tailored parser instead.
 parseValueMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe PGS.Value))
-parseValueMaybe = parseWktMaybe WK.valueFromJSON
+parseValueMaybe obj key =
+  case AesonKM.lookup (AesonKey.fromText key) obj of
+    Nothing -> pure Nothing
+    Just v  -> case WK.valueFromJSON v of
+      Right a -> pure (Just (Just a))
+      Left e  -> fail e
 
 parseListValueMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe PGS.ListValue))
 parseListValueMaybe obj key = do
