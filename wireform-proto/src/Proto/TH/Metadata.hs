@@ -24,6 +24,7 @@ module Proto.TH.Metadata
   ( -- * Per-message instances (consumed by 'Proto.TH.messageToDecls'')
     mkProtoMessageInstance
   , mkAesonInstancesForMessage
+  , setLenientUnknownEnum
   , mkHashableInstanceForMessage
 
     -- * Per-oneof instances (consumed for each oneof carrier sum)
@@ -73,6 +74,9 @@ import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
 import Data.Word (Word32, Word64)
 
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import GHC.IO.Unsafe (unsafePerformIO)
+import qualified System.IO
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
@@ -731,6 +735,13 @@ oldParseFnFor mf =
           -- the inner parse fails partially; the explicit walker
           -- propagates failures cleanly.
           JSMapMessage _      -> VarE 'parseStringMessageMapMaybe
+          -- Singular / repeated / map enum fields: route through
+          -- the lenient-mode-aware helpers so the conformance
+          -- suite's JSON_IGNORE_UNKNOWN_PARSING_TEST category
+          -- silently drops unknown enum strings.
+          JSEnum              -> VarE 'parseEnumFieldMaybe
+          JSRepeatedEnum      -> VarE 'parseEnumVectorMaybe
+          JSMapEnum _         -> VarE 'parseStringEnumMapMaybe
           _                   -> VarE 'PJ.parseFieldMaybe
 
 -- | Parse @Maybe Int64@ from a JSON string-or-number key.
@@ -777,6 +788,98 @@ protoFloatFromJSONLenient v = case v of
 -- FromJSON instance; we walk the JSON object explicitly so a
 -- single failing entry surfaces as a parse error rather than
 -- being silently dropped.
+-- ---------------------------------------------------------------------------
+-- Lenient unknown-enum mode
+-- ---------------------------------------------------------------------------
+
+-- | When set to 'True', the generated enum @parseJSON@ parsers
+-- swallow unknown string values rather than failing. This
+-- mirrors the proto3 conformance suite's
+-- @JSON_IGNORE_UNKNOWN_PARSING_TEST@ category, which
+-- intentionally feeds JSON containing enum strings outside the
+-- declared set and expects them to be silently dropped.
+{-# NOINLINE lenientUnknownEnumRef #-}
+lenientUnknownEnumRef :: IORef Bool
+lenientUnknownEnumRef = unsafePerformIO (newIORef False)
+
+setLenientUnknownEnum :: Bool -> IO ()
+setLenientUnknownEnum = writeIORef lenientUnknownEnumRef
+
+-- | Read the current lenient-mode flag. The 'IORef' itself is
+-- the cache-busting argument: passing it explicitly defeats
+-- GHC's CSE / common-subexpression-elimination, which would
+-- otherwise memoise @unsafePerformIO (readIORef _)@ to the
+-- first observed value.
+isLenientUnknownEnum :: IORef Bool -> Bool
+isLenientUnknownEnum ref = unsafePerformIO (readIORef ref)
+{-# NOINLINE isLenientUnknownEnum #-}
+
+-- | Parse a singular optional enum field that defaults to its
+-- zero value when the JSON either omits the field or carries
+-- an unknown enum string AND the runtime is in lenient mode.
+parseEnumFieldMaybe
+  :: forall a. (Aeson.FromJSON a)
+  => Aeson.Object -> Text -> AesonT.Parser (Maybe a)
+parseEnumFieldMaybe obj key =
+  case AesonKM.lookup (AesonKey.fromText key) obj of
+    Nothing            -> pure Nothing
+    Just Aeson.Null    -> pure Nothing
+    Just v             -> AesonT.parserCatchError
+      (Just <$> Aeson.parseJSON v)
+      (\_ msg -> if isUnknownEnumFail msg && isLenientUnknownEnum lenientUnknownEnumRef
+                 then pure Nothing
+                 else fail msg)
+
+-- | Parse a repeated enum field. Unknown-enum elements are
+-- dropped from the result vector when lenient mode is on, kept
+-- (as parse errors) otherwise.
+parseEnumVectorMaybe
+  :: forall a. (Aeson.FromJSON a)
+  => Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector a))
+parseEnumVectorMaybe obj key =
+  case AesonKM.lookup (AesonKey.fromText key) obj of
+    Nothing                 -> pure Nothing
+    Just Aeson.Null         -> pure Nothing
+    Just (Aeson.Array vs)   -> do
+      xs <- traverse parseOne (V.toList vs)
+      pure (Just (V.fromList [x | Just x <- xs]))
+    Just _ -> fail ("Expected JSON Array for enum field " <> show key)
+  where
+    -- 'null' as an array element means "unknown enum value
+    -- in lenient JSON mode" (the conformance handler rewrites
+    -- the sentinel @"UNKNOWN_ENUM_VALUE"@ string to @null@
+    -- when the test_category is 'JSON_IGNORE_UNKNOWN_PARSING_TEST').
+    parseOne Aeson.Null = pure Nothing
+    parseOne v = AesonT.parserCatchError
+      (Just <$> Aeson.parseJSON v)
+      (\_ msg -> if isUnknownEnumFail msg && isLenientUnknownEnum lenientUnknownEnumRef
+                 then pure Nothing
+                 else fail msg)
+
+-- | Parse a @map<string, Enum>@ field. Unknown-enum entries are
+-- dropped when lenient mode is on; treated as parse errors
+-- otherwise.
+parseStringEnumMapMaybe
+  :: forall a. (Aeson.FromJSON a)
+  => Aeson.Object -> Text -> AesonT.Parser (Maybe (Map.Map Text a))
+parseStringEnumMapMaybe obj key =
+  case AesonKM.lookup (AesonKey.fromText key) obj of
+    Nothing                 -> pure Nothing
+    Just Aeson.Null         -> pure Nothing
+    Just (Aeson.Object inner) -> do
+      pairs <- traverse parseEntry (AesonKM.toList inner)
+      pure (Just (Map.fromList [(k, v) | (k, Just v) <- pairs]))
+    Just _ -> fail ("Expected JSON Object for map field " <> show key)
+  where
+    parseEntry (k, Aeson.Null) = pure (AesonKey.toText k, Nothing)
+    parseEntry (k, v) = do
+      mv <- AesonT.parserCatchError
+              (Just <$> Aeson.parseJSON v)
+              (\_ msg -> if isUnknownEnumFail msg && isLenientUnknownEnum lenientUnknownEnumRef
+                         then pure Nothing
+                         else fail msg)
+      pure (AesonKey.toText k, mv)
+
 parseStringMessageMapMaybe
   :: Aeson.FromJSON v
   => Aeson.Object -> Text -> AesonT.Parser (Maybe (Map.Map Text v))
@@ -1405,9 +1508,15 @@ mkEnumAesonInstances tyName values = do
           (AppE (VarE 'toEnum)
             (AppE (VarE 'round) (VarE nVar)))))
         []
+      -- Tag the failure with a sentinel prefix so wrapping
+      -- parsers (e.g. lenient mode for repeated/map enum fields,
+      -- the JSON_IGNORE_UNKNOWN_PARSING_TEST conformance
+      -- category) can detect it without false-positiving on
+      -- unrelated Aeson parse errors.
       failMatch = Match WildP
         (NormalB (AppE (VarE 'fail)
-          (LitE (StringL ("Invalid enum value for " <> nameBase tyName))))) []
+          (LitE (StringL (unknownEnumFailPrefix
+                           <> nameBase tyName))))) []
       caseExp = LamCaseE (stringClauses <> [numberMatch, failMatch])
 
   pure
@@ -1511,6 +1620,19 @@ oneofFloatFromJSON = protoFloatFromJSONLenient
 
 oneofDoubleFromJSON :: Aeson.Value -> AesonT.Parser Double
 oneofDoubleFromJSON = protoFloatFromJSONLenient
+
+-- | Sentinel error-message prefix used by the generated enum
+-- 'parseJSON' when it can't recognise a string value. Wrapping
+-- parsers (singular / repeated / map enum fields, lenient
+-- conformance mode) detect it via 'isUnknownEnumFail' and
+-- decide whether to filter the element or propagate the error.
+unknownEnumFailPrefix :: String
+unknownEnumFailPrefix = "wireform-unknown-enum-value:"
+
+isUnknownEnumFail :: String -> Bool
+isUnknownEnumFail = (unknownEnumFailPrefix `isPrefixOf`)
+  where
+    isPrefixOf p s = take (length p) s == p
 
 -- | Per-variant interpretation of JSON @null@ for oneofs. For
 -- most variants, @null@ means "this variant is unset" (proto3
