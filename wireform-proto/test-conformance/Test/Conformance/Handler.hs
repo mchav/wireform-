@@ -43,8 +43,11 @@ import qualified Data.Text.Lazy.Encoding as TLE
 
 import qualified Data.Aeson as Aeson
 
+import Data.Proxy (Proxy (..))
+
 import qualified Proto.Decode as PD
 import qualified Proto.Encode as PE
+import qualified Proto.TextFormat as PTF
 
 import Test.Conformance.Schema
 
@@ -104,7 +107,12 @@ serializeTAT fmt tm = case fmt of
         { conformanceResponseResult = Just
             (ConformanceResponse'Result'JsonPayload
               (decodeUtf8Lazy (Aeson.encode tm))) }
-  TextFormat  -> skipped "TEXT_FORMAT output not implemented"
+  TextFormat  ->
+    let !pbtxt = PTF.typedToTextPretty
+                   (Proxy :: Proxy TestAllTypesProto3) tm
+    in defaultConformanceResponse
+         { conformanceResponseResult = Just
+             (ConformanceResponse'Result'TextPayload pbtxt) }
   Jspb        -> skipped "JSPB output not supported"
   Unspecified -> serializeError "UNSPECIFIED requested_output_format"
 

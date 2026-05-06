@@ -63,13 +63,15 @@ module Proto.TH.Metadata
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable (Hashable, hashWithSalt)
-import Data.Int (Int64)
+import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
+import qualified Data.Scientific as Sci
 import Data.Sequence (Seq)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
-import Data.Word (Word64)
+import Data.Word (Word32, Word64)
 
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as AesonT
@@ -615,8 +617,52 @@ mkFromJSONForMessage tyName defName fields = do
     ]
 
 parseBindStmt :: Name -> MetaField -> Name -> Stmt
-parseBindStmt objVar mf fldVar =
-  let parseFn = case mfJsonKind mf of
+parseBindStmt objVar mf fldVar = case mfJsonName mf == mfProtoName mf of
+  True  -> parseBindStmtSingleKey objVar mf fldVar (mfJsonName mf)
+  False -> parseBindStmtTwoKeys objVar mf fldVar
+            (mfJsonName mf) (mfProtoName mf)
+
+-- | Parse @Maybe a@ from @obj@, trying both the camelCase JSON
+-- key and the snake_case proto-original name. Per proto3 spec
+-- the JSON reader SHOULD accept both forms.
+parseBindStmtTwoKeys :: Name -> MetaField -> Name -> Text -> Text -> Stmt
+parseBindStmtTwoKeys objVar mf fldVar jsonKey snakeKey =
+  let parseFn = parseFnFor mf
+      callJson  = AppE (AppE parseFn (VarE objVar)) (textLit jsonKey)
+      callSnake = AppE (AppE parseFn (VarE objVar)) (textLit snakeKey)
+      -- Try @parseFnFor mf obj <jsonKey>@; if that yielded
+      -- 'Nothing' (= JSON object had no such key) AND the
+      -- snake-case form differs, also try @parseFnFor mf obj
+      -- <snakeKey>@. This matches the proto3 spec's "accept both
+      -- forms on input" rule. We prefer the camelCase form when
+      -- both keys are present (proto3 canonical form).
+      e = InfixE (Just callJson) (VarE '(>>=))
+            (Just (LamE [VarP fldVar]
+              (CaseE (VarE fldVar)
+                [ Match (ConP 'Just [] [WildP])
+                    (NormalB (AppE (VarE 'pure) (VarE fldVar))) []
+                , Match (ConP 'Nothing [] [])
+                    (NormalB callSnake) []
+                ])))
+  in BindS (VarP fldVar) e
+
+-- | The single-key parsing path used when the JSON key matches
+-- the proto-side name (no snake_case fallback needed).
+parseBindStmtSingleKey :: Name -> MetaField -> Name -> Text -> Stmt
+parseBindStmtSingleKey objVar mf fldVar key =
+  BindS (VarP fldVar)
+    (AppE (AppE (parseFnFor mf) (VarE objVar)) (textLit key))
+
+-- | Pick the right parser helper for a 'MetaField'. Factored out
+-- of 'parseBindStmt' so both the single- and two-key paths can
+-- share the same dispatch table.
+parseFnFor :: MetaField -> Exp
+parseFnFor mf = oldParseFnFor mf
+
+-- | Renamed inline of the original 'parseBindStmt' helper logic.
+oldParseFnFor :: MetaField -> Exp
+oldParseFnFor mf =
+  case mfJsonKind mf of
         JKBytes       -> VarE 'PJ.parseBytesFieldMaybe
         JKBytesMap    -> VarE 'PJ.parseBytesMapFieldMaybe
         JKBytesVector -> VarE 'parseBytesVectorMaybe
@@ -629,13 +675,20 @@ parseBindStmt objVar mf fldVar =
           JSWkt      w -> wktParserName w
           JSWktMaybe w -> wktParserName w
           JSWktRepeated w -> wktVectorParserName w
-          -- 64-bit ints come in as JSON strings per proto3 canonical
-          -- spec; route them through the dedicated parser.
+          -- Proto3 canonical JSON: 64-bit ints come in as
+          -- strings; 32-bit ints accept both numbers and
+          -- strings; floats accept numbers, NaN/Infinity
+          -- strings, and arbitrary numeric strings.
           JSScalar JSInt64    -> VarE 'parseInt64FieldMaybe
           JSScalar JSSInt64   -> VarE 'parseInt64FieldMaybe
           JSScalar JSSFixed64 -> VarE 'parseInt64FieldMaybe
           JSScalar JSUInt64   -> VarE 'parseWord64FieldMaybe
           JSScalar JSFixed64  -> VarE 'parseWord64FieldMaybe
+          JSScalar JSInt32    -> VarE 'parseInt32FieldMaybe
+          JSScalar JSSInt32   -> VarE 'parseInt32FieldMaybe
+          JSScalar JSSFixed32 -> VarE 'parseInt32FieldMaybe
+          JSScalar JSUInt32   -> VarE 'parseWord32FieldMaybe
+          JSScalar JSFixed32  -> VarE 'parseWord32FieldMaybe
           JSScalar JSDouble   -> VarE 'parseDoubleFieldMaybe
           JSScalar JSFloat    -> VarE 'parseFloatFieldMaybe
           JSMaybe  JSInt64    -> VarE 'parseInt64FieldMaybe
@@ -643,11 +696,14 @@ parseBindStmt objVar mf fldVar =
           JSMaybe  JSSFixed64 -> VarE 'parseInt64FieldMaybe
           JSMaybe  JSUInt64   -> VarE 'parseWord64FieldMaybe
           JSMaybe  JSFixed64  -> VarE 'parseWord64FieldMaybe
+          JSMaybe  JSInt32    -> VarE 'parseInt32FieldMaybe
+          JSMaybe  JSSInt32   -> VarE 'parseInt32FieldMaybe
+          JSMaybe  JSSFixed32 -> VarE 'parseInt32FieldMaybe
+          JSMaybe  JSUInt32   -> VarE 'parseWord32FieldMaybe
+          JSMaybe  JSFixed32  -> VarE 'parseWord32FieldMaybe
           JSMaybe  JSDouble   -> VarE 'parseDoubleFieldMaybe
           JSMaybe  JSFloat    -> VarE 'parseFloatFieldMaybe
           _                   -> VarE 'PJ.parseFieldMaybe
-      call = AppE (AppE parseFn (VarE objVar)) (textLit (mfJsonName mf))
-  in BindS (VarP fldVar) call
 
 -- | Parse @Maybe Int64@ from a JSON string-or-number key.
 parseInt64FieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Int64)
@@ -657,10 +713,51 @@ parseWord64FieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Word64)
 parseWord64FieldMaybe = parseScalarFieldMaybe PJI.protoWord64FromJSON
 
 parseDoubleFieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Double)
-parseDoubleFieldMaybe = parseScalarFieldMaybe PJI.protoDoubleFromJSON
+parseDoubleFieldMaybe = parseScalarFieldMaybe protoDoubleFromJSONLenient
 
 parseFloatFieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Float)
-parseFloatFieldMaybe = parseScalarFieldMaybe PJI.protoFloatFromJSON
+parseFloatFieldMaybe = parseScalarFieldMaybe (\v -> realToFrac <$> protoDoubleFromJSONLenient v)
+
+-- | Lenient double parser: accepts JSON numbers, NaN/Infinity
+-- string sentinels, AND any numeric string (e.g. @"1.5"@).
+-- Proto3 canonical-JSON spec says floats can be quoted.
+protoDoubleFromJSONLenient :: Aeson.Value -> AesonT.Parser Double
+protoDoubleFromJSONLenient v = case v of
+  Aeson.Number n             -> pure (toRealFloatScientific n)
+  Aeson.String "NaN"         -> pure (0 / 0)
+  Aeson.String "Infinity"    -> pure (1 / 0)
+  Aeson.String "-Infinity"   -> pure (negate (1 / 0))
+  Aeson.String s             -> case TR.signed TR.rational s of
+    Right (d, rest) | T.null rest -> pure d
+    _ -> fail ("Expected number or numeric string, got " <> show s)
+  _ -> fail "Expected JSON Number or numeric String"
+
+-- | 'toRealFloat' from "Data.Scientific", inlined to avoid the
+-- explicit cyclic-import issue Aeson 2.x has introduced.
+toRealFloatScientific :: forall a. (RealFloat a, Real a) => Sci.Scientific -> a
+toRealFloatScientific = Sci.toRealFloat
+
+parseInt32FieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Int32)
+parseInt32FieldMaybe = parseScalarFieldMaybe protoInt32FromJSON
+
+parseWord32FieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Word32)
+parseWord32FieldMaybe = parseScalarFieldMaybe protoWord32FromJSON
+
+protoInt32FromJSON :: Aeson.Value -> AesonT.Parser Int32
+protoInt32FromJSON v = case v of
+  Aeson.Number n -> pure (round n)
+  Aeson.String s -> case TR.signed TR.decimal s of
+    Right (n, rest) | T.null rest -> pure n
+    _ -> fail "Invalid Int32 string"
+  _ -> fail "Expected JSON Number or String for Int32"
+
+protoWord32FromJSON :: Aeson.Value -> AesonT.Parser Word32
+protoWord32FromJSON v = case v of
+  Aeson.Number n -> pure (round n)
+  Aeson.String s -> case TR.decimal s of
+    Right (n, rest) | T.null rest -> pure n
+    _ -> fail "Invalid UInt32 string"
+  _ -> fail "Expected JSON Number or String for UInt32"
 
 -- | Generic helper: parse @Maybe a@ via a per-scalar @Aeson.Value
 -- -> Parser a@ helper. Returns 'Nothing' for missing or null.
@@ -673,6 +770,7 @@ parseScalarFieldMaybe parser obj key = do
     Nothing                 -> pure Nothing
     Just Aeson.Null         -> pure Nothing
     Just v                  -> Just <$> parser v
+{-# INLINE parseScalarFieldMaybe #-}
 
 -- ---------------------------------------------------------------------------
 -- WKT parser splice helpers

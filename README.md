@@ -348,20 +348,39 @@ cabal test wireform-proto:protobuf-conformance-test
 ```
 
 Today's baseline against `protocolbuffers/protobuf@v28.2`:
-**1188 successes, 1286 skipped, 201 expected failures, 0 unexpected
+**1279 successes, 1277 skipped, 119 expected failures, 0 unexpected
 failures**. Expected failures cluster in:
 
 - JSON for messages with Well-Known Types (the spliced
   `TestAllTypesProto3` deliberately omits WKT arms because
   `loadProto` doesn't yet follow proto imports).
-- JSPB (Google-internal format).
-- TEXT_FORMAT (not implemented).
-- A handful of JSON-input parser edge cases (enum aliases, mixed
-  field-name casing, range-validating overflow checks, oneof
-  null/duplicate handling).
+- JSON-input parser edge cases (enum aliases, mixed field-name
+  casing variants like `FieldName10` vs `fieldName10`, range
+  validation for `Int64FieldTooLarge` / `Uint32FieldTooLarge` etc.,
+  `OneofFieldDuplicate` / `OneofFieldNullFirst`/`Second`,
+  `MessageMapField`, `BytesFieldBase64Url`).
 - Two oneof-submessage-merge cases (the inner submessage carries
-  wire-type-mismatched fields; spec says we should tolerantly skip
-  those, our decoder currently fails-strict in the merge path).
+  wire-type-mismatched fields; spec wants tolerant skip, our
+  decoder fails-strict in the merge path).
+- JSON oneof variant input handling (`OneofZero{X}`): the JSON
+  parser currently looks up the carrier field name rather than
+  scanning for any of the variant keys.
+- WKT JSON corner cases: Timestamp/Duration range validation,
+  Timestamp offset handling, FieldMask path edge cases, Any with
+  embedded fields requiring a runtime type registry.
+
+Well-Known Types (`Timestamp`, `Duration`, `Wrappers`, `Empty`,
+`Any`, `FieldMask`, `Struct`, `Value`, `ListValue`, `NullValue`)
+are supported via a per-FQN registry in `Proto.TH.lookupWkt` that
+routes `loadProto` references to the pre-generated
+`Proto.Google.Protobuf.*` modules; the JSON encoder/parser uses
+the proto3-canonical helpers in `Proto.JSON.WellKnown` (RFC 3339
+for Timestamps, `"1.5s"` for Durations, base64 for Bytes wrappers,
+bare-value for the rest, etc.).
+
+TEXT_FORMAT output is supported via 'Proto.TextFormat.typedToTextPretty'
+(walks a typed message via its 'ProtoMessage' descriptors and
+emits pbtxt with field names).
 
 See [`wireform-proto/test-conformance/README.md`](wireform-proto/test-conformance/README.md)
 for the architecture and how to add expected failures.
