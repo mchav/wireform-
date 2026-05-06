@@ -322,11 +322,16 @@ parseDocument = do
   (directives, ls1) <- case nextSig of
     (l : rest) | lineKind l == LDocStart ->
       let body = lineBody l
-          tail_ = T.stripStart (T.drop 3 body)
+          afterMarker = T.drop 3 body
+          tail_ = T.stripStart afterMarker
+          -- The inline body starts at column = 4 + (leading-ws
+          -- length), counting from the dashes' own column.
+          inlineCol = lineIndent l
+                    + 3 + (T.length afterMarker - T.length tail_)
       in pure $ if T.null tail_
                   then (True, rest)
                   else (True,
-                        PLine (lineNo l) (lineIndent l)
+                        PLine (lineNo l) inlineCol
                               LContent tail_ tail_ : rest)
     (l : _) | hadDirective ->
       failP ("missing '---' after directive (line "
@@ -1545,11 +1550,23 @@ joinFoldedAt mExpl chomp xs =
 
     foldFirst [] _ = []
     foldFirst ((i, b) : rest) bi
-      | isBlank (i, b) = T.pack "\n" : foldAfterBlank rest bi False
+      | isBlank (i, b) = T.pack "\n" : foldAfterFirstBlank rest bi
       | otherwise =
           let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
               more = isMoreIndented bi (i, b)
           in txt : foldNext rest bi more
+
+    -- Same as 'foldAfterBlank' but used when no content line has
+    -- yet been seen — there's no "previous more-indented marker"
+    -- to subtract, so a more-indented first content line gets
+    -- /no/ extra preserved newline.
+    foldAfterFirstBlank [] _ = []
+    foldAfterFirstBlank ((i, b) : rest) bi
+      | isBlank (i, b) = T.pack "\n" : foldAfterFirstBlank rest bi
+      | otherwise =
+          let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
+              nowMore = isMoreIndented bi (i, b)
+          in txt : foldNext rest bi nowMore
 
     foldNext [] _ _ = []
     foldNext ((i, b) : rest) bi prevMore
