@@ -124,11 +124,34 @@ bcast64 :: Word8 -> Word64
 bcast64 b = fromIntegral b * 0x0101010101010101
 {-# INLINE bcast64 #-}
 
+-- | True iff @x@ contains any zero byte. False-positive-free for
+-- the boolean answer (the standard 'has-zero-byte' trick is
+-- reliable for the binary "any zero?" question even though its
+-- per-byte mask is not).
 hasZeroByte :: Word64 -> Bool
 hasZeroByte x =
   ((x - 0x0101010101010101) Bits..&. Bits.complement x
                             Bits..&. 0x8080808080808080) /= 0
 {-# INLINE hasZeroByte #-}
+
+-- | Per-byte mask: returns @0x80@ in every byte position where
+-- the input byte was @0x00@ and @0x00@ everywhere else. Robust
+-- against the borrow-propagation false positives of the simpler
+-- @(x-ones)&~x&hi@ formula (Hacker's Delight §6-1, "find a
+-- specific byte").
+zeroByteMask :: Word64 -> Word64
+zeroByteMask x =
+  let !lo7 = 0x7F7F7F7F7F7F7F7F :: Word64
+      !his = 0x8080808080808080 :: Word64
+      !t   = ((x Bits..&. lo7) + lo7) Bits..|. x
+      -- 'hi-bit set' iff one of:
+      --   * x had bit 7 set (so byte was >= 0x80, i.e. not 0x00)
+      --   * (low 7 bits of x) + 0x7F had bit 7 set (i.e. low 7
+      --     bits weren't all zero, i.e. byte was non-zero in 1..127)
+      -- Either way 'hi-bit set' means "non-zero". Inverting and
+      -- ANDing with 'his' picks out the zero bytes only.
+  in Bits.complement t Bits..&. his
+{-# INLINE zeroByteMask #-}
 
 -- | Read 8 unaligned bytes from a byte array starting at byte
 -- index @i@ as a single 'Word64'.
@@ -158,9 +181,10 @@ bAnyByte !c (TI.Text (TA.ByteArray ba#) off len) =
 {-# INLINE bAnyByte #-}
 
 -- | First index (within the slice — not the underlying array)
--- of byte @c@ in @t@, or @-1@ if absent. Same SWAR scan as
--- 'bAnyByte', plus 'ctz' to find the matching byte's offset
--- inside a hit word.
+-- of byte @c@ in @t@, or @-1@ if absent. Uses the robust
+-- per-byte 'zeroByteMask' so the 'ctz'-based byte-position
+-- recovery is exact (no false positives from borrow
+-- propagation).
 bFindByte :: Word8 -> Text -> Int
 bFindByte !c (TI.Text (TA.ByteArray ba#) off len) =
   let !pat   = bcast64 c
@@ -168,19 +192,11 @@ bFindByte !c (TI.Text (TA.ByteArray ba#) off len) =
       goWord !i
         | i + 8 > endB = goByte i
         | otherwise    =
-            let !w     = indexWord64Unaligned ba# i
-                !xored = w `Bits.xor` pat
-            in if hasZeroByte xored
-                 then
-                   -- Locate the matching byte inside the word.
-                   -- 'ctz' on the masked word returns the bit
-                   -- index; divide by 8 for the byte index.
-                   let !mask = (xored - 0x0101010101010101)
-                                Bits..&. Bits.complement xored
-                                Bits..&. 0x8080808080808080
-                       !byteOff = wordCtzInBytes mask
-                   in i + byteOff - off
-                 else goWord (i + 8)
+            let !w    = indexWord64Unaligned ba# i
+                !mask = zeroByteMask (w `Bits.xor` pat)
+            in if mask == 0
+                 then goWord (i + 8)
+                 else i + wordCtzInBytes mask - off
       goByte !i
         | i >= endB                      = -1
         | TA.unsafeIndex (TA.ByteArray ba#) i == c = i - off
@@ -199,33 +215,25 @@ wordCtzInBytes (W64# w#) =
 {-# INLINE wordCtzInBytes #-}
 
 -- | First index of /any/ of three bytes in @t@, or @-1@ when
--- none is present. Three SWAR scans run on the same Word64 per
--- iteration; combined hi-bit mask is then 'ctz'-ed for the
--- in-word offset.
+-- none is present. Three robust SWAR scans run on the same
+-- Word64 per iteration; the OR-combined per-byte mask is then
+-- 'ctz'-ed for the in-word offset of the first match.
 bFindAnyOf3 :: Word8 -> Word8 -> Word8 -> Text -> Int
 bFindAnyOf3 !a !b !c (TI.Text (TA.ByteArray ba#) off len) =
   let !pa    = bcast64 a
       !pb    = bcast64 b
       !pc    = bcast64 c
       !endB  = off + len
-      !ones  = 0x0101010101010101
-      !his   = 0x8080808080808080
-
-      mask !w !p =
-        let !x = w `Bits.xor` p
-        in (x - ones) Bits..&. Bits.complement x Bits..&. his
-
       goWord !i
         | i + 8 > endB = goByte i
         | otherwise    =
             let !w  = indexWord64Unaligned ba# i
-                !m  = mask w pa Bits..|. mask w pb Bits..|. mask w pc
+                !m  = zeroByteMask (w `Bits.xor` pa)
+                  Bits..|. zeroByteMask (w `Bits.xor` pb)
+                  Bits..|. zeroByteMask (w `Bits.xor` pc)
             in if m == 0
                  then goWord (i + 8)
-                 else
-                   let !bo = wordCtzInBytes m
-                   in i + bo - off
-
+                 else i + wordCtzInBytes m - off
       goByte !i
         | i >= endB = -1
         | otherwise =
@@ -242,24 +250,15 @@ bFindAnyOf2 !a !b (TI.Text (TA.ByteArray ba#) off len) =
   let !pa    = bcast64 a
       !pb    = bcast64 b
       !endB  = off + len
-      !ones  = 0x0101010101010101
-      !his   = 0x8080808080808080
-
-      mask !w !p =
-        let !x = w `Bits.xor` p
-        in (x - ones) Bits..&. Bits.complement x Bits..&. his
-
       goWord !i
         | i + 8 > endB = goByte i
         | otherwise    =
             let !w  = indexWord64Unaligned ba# i
-                !m  = mask w pa Bits..|. mask w pb
+                !m  = zeroByteMask (w `Bits.xor` pa)
+                  Bits..|. zeroByteMask (w `Bits.xor` pb)
             in if m == 0
                  then goWord (i + 8)
-                 else
-                   let !bo = wordCtzInBytes m
-                   in i + bo - off
-
+                 else i + wordCtzInBytes m - off
       goByte !i
         | i >= endB = -1
         | otherwise =
@@ -365,16 +364,15 @@ preprocess input@(TI.Text arr@(TA.ByteArray ba#) off blen) =
 
     -- SWAR scan for byte 0x0A starting at @i@. Returns the
     -- absolute byte index of the first newline, or @endByte@
-    -- when none is found in [i, endByte).
+    -- when none is found in [i, endByte). Uses the robust
+    -- 'zeroByteMask' so the per-byte position from 'ctz' is
+    -- exact.
     scanNewline :: Int -> Int
     scanNewline !i
       | i + 8 > endByte = scanNewlineByte i
       | otherwise =
           let !w = indexWord64Unaligned ba# i
-              !x = w `Bits.xor` 0x0A0A0A0A0A0A0A0A
-              !m = (x - 0x0101010101010101)
-                     Bits..&. Bits.complement x
-                     Bits..&. 0x8080808080808080
+              !m = zeroByteMask (w `Bits.xor` 0x0A0A0A0A0A0A0A0A)
           in if m == 0
                then scanNewline (i + 8)
                else
