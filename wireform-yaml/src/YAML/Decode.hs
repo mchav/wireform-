@@ -689,6 +689,15 @@ parseAnchored = do
              then do
                mNext <- peekLine
                case mNext of
+                 Just l2
+                   | lineIndent l2 > lineIndent l
+                   , isJustAnchorScalar (lineBody l2) -> do
+                       -- '&outer' followed by '&inner scalar'
+                       -- (no ':'/structural marker) is invalid:
+                       -- two anchors on the same scalar node
+                       -- (4JVG / scalar-value-with-two-anchors).
+                       failP $ "node has two consecutive anchors (line "
+                               ++ show (lineNo l2) ++ ")"
                  Just l2 | lineIndent l2 > lineIndent l ->
                      parseNode (lineIndent l2)
                  -- A bare anchor at the same column as a following
@@ -738,6 +747,21 @@ parseAnchored = do
                parseNode (lineIndent l)
       recordAnchor name v
       pure v
+
+-- | True when the line is shaped like '&anchor scalar' — i.e.
+-- starts with an anchor whose remainder is a plain scalar (no
+-- ':' / sequence marker).
+isJustAnchorScalar :: Text -> Bool
+isJustAnchorScalar t = case T.uncons t of
+  Just ('&', rest) ->
+    let (_name, after) = takeAnchorName rest
+        body = T.stripStart after
+    in not (T.null body)
+       && case findKeyValueSplit body of
+            Just _  -> False
+            Nothing -> not (isSeqItem body)
+                    && not (isExplicitKey body)
+  _ -> False
 
 -- | True when the line begins with a node-property indicator
 -- ('!' tag or '&' anchor) followed by separator / EOL.
