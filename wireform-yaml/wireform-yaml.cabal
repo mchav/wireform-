@@ -32,12 +32,15 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    YAML.Annotated
     YAML.Class
     YAML.Decode
+    YAML.Decode.Annotated
     YAML.Derive
     YAML.Encode
     YAML.Encoding
     YAML.JSON
+    YAML.Pretty
     YAML.Value
   build-depends:
     base >= 4.16 && < 5,
@@ -74,6 +77,7 @@ test-suite wireform-yaml-test
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
+    Test.YAML.Annotated
     Test.YAML.Decode
     Test.YAML.Encode
     Test.YAML.Roundtrip

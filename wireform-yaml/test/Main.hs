@@ -2,6 +2,7 @@ module Main (main) where
 
 import Test.Tasty (defaultMain, testGroup)
 
+import qualified Test.YAML.Annotated
 import qualified Test.YAML.Decode
 import qualified Test.YAML.Encode
 import qualified Test.YAML.Roundtrip
@@ -15,6 +16,7 @@ main = do
     [ Test.YAML.Decode.tests
     , Test.YAML.Encode.tests
     , Test.YAML.Roundtrip.tests
+    , Test.YAML.Annotated.tests
     , conf
     , Test.YAML.Derive.tests
     ]
