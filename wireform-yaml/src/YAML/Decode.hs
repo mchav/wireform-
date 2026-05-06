@@ -168,6 +168,11 @@ data PS = PS
   , psShortcuts :: !(Map Text Text)
     -- ^ %TAG shorthand prefixes ('!handle!' → expansion).
     -- Reset between documents.
+  , psParentInd :: !Int
+    -- ^ The indent of the innermost surrounding block container
+    -- (seq dash / mapping key column). Used by parsePlainScalar
+    -- to admit 'shallow' continuation lines whose source indent
+    -- is below the value column but above the parent.
   }
 
 instance Functor P where
@@ -244,6 +249,19 @@ recordShortcut :: Text -> Text -> P ()
 recordShortcut handle prefix =
   modifyS (\s -> s { psShortcuts = Map.insert handle prefix (psShortcuts s) })
 
+-- | Run an action with 'psParentInd' temporarily set to @i@,
+-- restoring the previous value afterwards.
+withParentInd :: Int -> P a -> P a
+withParentInd !i action = do
+  saved <- psParentInd <$> getS
+  modifyS (\s -> s { psParentInd = i })
+  x <- action
+  modifyS (\s -> s { psParentInd = saved })
+  pure x
+
+getParentInd :: P Int
+getParentInd = psParentInd <$> getS
+
 lookupShortcut :: Text -> P (Maybe Text)
 lookupShortcut handle = do
   s <- getS
@@ -255,7 +273,7 @@ lookupShortcut handle = do
 
 parseStream :: [PLine] -> Either String [Document]
 parseStream lns =
-  case unP (loop True True) (PS lns Map.empty Map.empty) of
+  case unP (loop True True) (PS lns Map.empty Map.empty 0) of
     Left err      -> Left err
     Right (ds, _) -> Right ds
   where
@@ -1467,7 +1485,8 @@ parseSeqItem !ind = do
     then do
       mNext <- peekLine
       case mNext of
-        Just l2 | lineIndent l2 > ind -> parseNode (lineIndent l2)
+        Just l2 | lineIndent l2 > ind ->
+          withParentInd ind (parseNode (lineIndent l2))
         _ -> pure YNull
     else do
       let isCarrier = case T.uncons after' of
@@ -1480,7 +1499,7 @@ parseSeqItem !ind = do
                   | otherwise = ind + 2
           virt = PLine (lineNo l) virtInd LContent after' after'
       pushLine virt
-      parseNode virtInd
+      withParentInd ind (parseNode virtInd)
 
 -- ---------------------------------------------------------------------------
 -- Block mapping
@@ -1804,6 +1823,14 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
 
 parsePlainScalar :: Int -> Text -> P Value
 parsePlainScalar !ind firstBody = do
+  parentInd <- getParentInd
+  parsePlainScalarAt parentInd ind firstBody
+
+-- | Like 'parsePlainScalar' but with explicit parent indent.
+parsePlainScalarAt :: Int -> Int -> Text -> P Value
+parsePlainScalarAt !parentInd !baseIndArg firstBody = do
+  let !ind = baseIndArg
+      !_p  = parentInd
   Just _ <- popLine
   let stripped = stripInlineComment firstBody
       !first = T.stripEnd stripped
@@ -1855,7 +1882,17 @@ parsePlainScalar !ind firstBody = do
             && lineIndent l > baseInd ->
               do consumeOne; collectFolds baseInd blanks acc
           | (lineKind l == LContent || lineKind l == LDirective)
-            && lineIndent l >= baseInd
+            -- Standard continuation: indent >= baseInd.
+            -- Shallow continuation: indent < baseInd but >
+            -- parentInd, AND the line is plain text (no
+            -- structural indicator). This admits UV7Q's tab-
+            -- mixed continuation but leaves explicit '- foo'
+            -- shallow lines alone (which spec interprets as
+            -- nested seq items even though most parsers fold).
+            && (lineIndent l >= baseInd
+                || (lineIndent l > parentInd
+                    && not (isSeqItem (lineBody l))
+                    && not (isExplicitKey (lineBody l))))
             && not (isSeqItem (lineBody l))
             && not (isExplicitKey (lineBody l))
             && case findKeyValueSplit (lineBody l) of
