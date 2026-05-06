@@ -40,15 +40,20 @@ import System.IO
 
 import qualified Proto.Decode as PD
 import qualified Proto.Encode as PE
+import qualified Proto.JSON.WellKnown as WK
 
 import Test.Conformance.Handler (handleRequest)
 import Test.Conformance.Schema
   ( ConformanceResponse
   , ConformanceResponse'Result (..)
+  , TestAllTypesProto3
   , defaultConformanceResponse
   , conformanceResponseResult
   )
 
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as AesonT
+import Data.Proxy (Proxy (..))
 import qualified Data.Text as T
 
 main :: IO ()
@@ -57,6 +62,14 @@ main = do
   hSetBinaryMode stdout True
   hSetBuffering stdout NoBuffering
   hSetBuffering stderr LineBuffering
+  -- Pre-populate the Any codec registry: the WKT codecs ship
+  -- with the library; the TestAllTypesProto3 codec is the
+  -- conformance suite's reference message and needs to be
+  -- registered here because the schema lives in this binary.
+  WK.registerStandardWktAnyCodecs
+  WK.registerAnyCodec
+    "protobuf_test_messages.proto3.TestAllTypesProto3"
+    (testAllTypesProto3AnyCodec)
   loop
   where
     loop = do
@@ -91,6 +104,22 @@ evaluateOrCatch act = (act >>= evaluate)
 runtimeErr :: T.Text -> ConformanceResponse
 runtimeErr t = defaultConformanceResponse
   { conformanceResponseResult = Just (ConformanceResponse'Result'RuntimeError t) }
+
+-- | The non-WKT codec for the conformance suite's reference
+-- message. The Any envelope inlines the message's JSON object
+-- alongside @\@type@ rather than wrapping under @"value"@.
+testAllTypesProto3AnyCodec :: WK.AnyCodec
+testAllTypesProto3AnyCodec = WK.AnyCodec
+  { WK.acDecodeBytesToJSON = \bs ->
+      case PD.decodeMessage bs :: Either PD.DecodeError TestAllTypesProto3 of
+        Left e  -> Left ("Any embedded TestAllTypesProto3: " <> show e)
+        Right m -> Right (Aeson.toJSON m)
+  , WK.acEncodeJSONToBytes = \v ->
+      case AesonT.parseEither (Aeson.parseJSON @TestAllTypesProto3) v of
+        Left e  -> Left e
+        Right m -> Right (PE.encodeMessage m)
+  , WK.acIsWktEnvelope = False
+  }
 
 writeResponse :: ConformanceResponse -> IO ()
 writeResponse resp = do

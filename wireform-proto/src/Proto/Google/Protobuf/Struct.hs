@@ -93,7 +93,7 @@ instance MessageDecode Struct where
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
-              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" protoDefaultValue) bs'
               case decodeEntry of
                 Left _ -> loop acc_0 acc_unknown_
                 Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_unknown_

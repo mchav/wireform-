@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | Proto3 canonical JSON mapping for well-known types.
 --
 -- These functions provide the canonical conversions specified by the
@@ -53,13 +54,19 @@ module Proto.JSON.WellKnown
     -- * Any
   , anyToJSON
   , anyFromJSON
+  , AnyCodec (..)
+  , registerAnyCodec
+  , lookupAnyCodec
+  , registerStandardWktAnyCodecs
   ) where
 
 import Data.Bifunctor (bimap)
 import Data.Char (isDigit)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import System.IO.Unsafe (unsafePerformIO)
 import Data.Scientific (fromFloatDigits, toRealFloat)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -70,6 +77,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
 
+import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as Base64
 import qualified Data.Text.Encoding as TE
@@ -81,6 +89,9 @@ import Proto.Google.Protobuf.Struct
 import qualified Proto.Google.Protobuf.Wrappers as W
 import qualified Proto.Google.Protobuf.Empty    as Empty
 import qualified Proto.Google.Protobuf.Any      as Any
+
+import qualified Proto.Decode as PD
+import qualified Proto.Encode as PE
 
 -- Timestamp: RFC 3339 format "YYYY-MM-DDThh:mm:ss[.nnn]Z"
 
@@ -642,30 +653,204 @@ nullValueFromJSON :: Aeson.Value -> Either String NullValue
 nullValueFromJSON Aeson.Null = Right NullValue'NullValue
 nullValueFromJSON _          = Left "Expected JSON null for NullValue"
 
+-- | One entry in the runtime 'Any' codec registry. The pair is
+-- a (decode wire bytes -> typed-message JSON, encode typed-
+-- message JSON -> wire bytes) function couple. The
+-- @acIsWktEnvelope@ bit decides whether the proto3-canonical
+-- JSON form for the type wraps the value under @"value"@
+-- (every WKT) or inlines the message fields alongside @"@type"@
+-- (every regular message).
+data AnyCodec = AnyCodec
+  { acDecodeBytesToJSON :: ByteString -> Either String Aeson.Value
+  , acEncodeJSONToBytes :: Aeson.Value -> Either String ByteString
+  , acIsWktEnvelope     :: !Bool
+  }
+
+{-# NOINLINE anyRegistryRef #-}
+anyRegistryRef :: IORef (Map Text AnyCodec)
+anyRegistryRef = unsafePerformIO (newIORef Map.empty)
+
+-- | Register an 'AnyCodec' under its proto fully-qualified
+-- type name. The conformance runner pre-populates the
+-- registry on startup; library users who need 'Any' support
+-- in their own code do the same.
+registerAnyCodec :: Text -> AnyCodec -> IO ()
+registerAnyCodec ty codec =
+  atomicModifyIORef' anyRegistryRef (\m -> (Map.insert ty codec m, ()))
+
+lookupAnyCodec :: Text -> Maybe AnyCodec
+lookupAnyCodec ty =
+  unsafePerformIO (Map.lookup ty <$> readIORef anyRegistryRef)
+
+-- | Strip the canonical @type.googleapis.com/@ prefix so the
+-- registry key is the bare proto fully-qualified type name.
+typeFromUrl :: Text -> Text
+typeFromUrl t =
+  let prefix = T.pack "type.googleapis.com/"
+  in case T.stripPrefix prefix t of
+       Just rest -> rest
+       Nothing   -> case T.breakOnEnd (T.pack "/") t of
+         (_, suffix) | not (T.null suffix) -> suffix
+         _ -> t
+
 -- | @google.protobuf.Any@ JSON shape:
--- @{"@type": "type.googleapis.com/...", ...other fields embedded...}@.
--- Implementing the embedded-fields side requires a runtime type
--- registry; for now we support only the round-trip-as-@\{"@type":\}@-and-
--- @value@ degenerate form, which the conformance suite uses for
--- some of its Any tests.
+-- @{"@type": "type.googleapis.com/...", ...other fields embedded...}@
+-- for a regular message, or
+-- @{"@type": "...", "value": <canonical>}@ for a WKT.
+--
+-- Falls back to the degenerate shape (@@type + base64 value@)
+-- when the type isn't in the codec registry.
 anyToJSON :: Any.Any -> Aeson.Value
-anyToJSON a = Aeson.Object (AesonKM.fromList
-  [ (AesonKey.fromText (T.pack "@type"), Aeson.String (Any.anyTypeUrl a))
-  , (AesonKey.fromText (T.pack "value"),
-      Aeson.String (TE.decodeUtf8 (Base64.encode (Any.anyValue a))))
-  ])
+anyToJSON a =
+  let url = Any.anyTypeUrl a
+      ty  = typeFromUrl url
+      typeKey  = AesonKey.fromText (T.pack "@type")
+      typeVal  = (typeKey, Aeson.String url)
+      fallback = Aeson.Object (AesonKM.fromList
+        [ typeVal
+        , (AesonKey.fromText (T.pack "value"),
+            Aeson.String (TE.decodeUtf8 (Base64.encode (Any.anyValue a))))
+        ])
+  in case lookupAnyCodec ty of
+       Just codec ->
+         case acDecodeBytesToJSON codec (Any.anyValue a) of
+           Left _ -> fallback
+           Right v
+             | acIsWktEnvelope codec ->
+                 Aeson.Object (AesonKM.fromList
+                   [ typeVal
+                   , (AesonKey.fromText (T.pack "value"), v)
+                   ])
+             | Aeson.Object obj <- v ->
+                 Aeson.Object (AesonKM.insert typeKey (Aeson.String url) obj)
+             | otherwise ->
+                 -- Codec for a non-WKT returned a non-object;
+                 -- shouldn't happen for our registered types, but
+                 -- we degrade gracefully by switching back to the
+                 -- "value": <encoded> form rather than crash.
+                 Aeson.Object (AesonKM.fromList
+                   [typeVal, (AesonKey.fromText (T.pack "value"), v)])
+       Nothing -> fallback
 
 anyFromJSON :: Aeson.Value -> Either String Any.Any
 anyFromJSON (Aeson.Object o) = do
-  let look k = AesonKM.lookup (AesonKey.fromText (T.pack k)) o
-  ty <- case look "@type" of
+  let typeKey = AesonKey.fromText (T.pack "@type")
+  url <- case AesonKM.lookup typeKey o of
     Just (Aeson.String s) -> Right s
     _                     -> Left "Any: missing or non-string @type"
-  bs <- case look "value" of
-    Just (Aeson.String s) -> case Base64.decode (TE.encodeUtf8 s) of
-      Right bs -> Right bs
-      Left e   -> Left ("Any: invalid base64 value: " <> e)
-    Nothing               -> Right BS.empty
-    _                     -> Left "Any: non-string value"
-  Right Any.defaultAny { Any.anyTypeUrl = ty, Any.anyValue = bs }
+  let ty = typeFromUrl url
+  case lookupAnyCodec ty of
+    Just codec
+      | acIsWktEnvelope codec ->
+          case AesonKM.lookup (AesonKey.fromText (T.pack "value")) o of
+            Nothing -> Right Any.defaultAny
+              { Any.anyTypeUrl = url, Any.anyValue = BS.empty }
+            Just v  -> do
+              bs <- acEncodeJSONToBytes codec v
+              Right Any.defaultAny { Any.anyTypeUrl = url, Any.anyValue = bs }
+      | otherwise ->
+          let inner = Aeson.Object (AesonKM.delete typeKey o)
+          in do
+            bs <- acEncodeJSONToBytes codec inner
+            Right Any.defaultAny { Any.anyTypeUrl = url, Any.anyValue = bs }
+    Nothing -> do
+      -- Unregistered type: fall back to the degenerate
+      -- "value": base64 form. Tests like AnyWithFieldMask
+      -- which we've registered hit the codec path instead.
+      bs <- case AesonKM.lookup (AesonKey.fromText (T.pack "value")) o of
+        Nothing -> Right BS.empty
+        Just (Aeson.String s) -> case Base64.decode (TE.encodeUtf8 s) of
+          Right bs -> Right bs
+          Left e   -> Left ("Any: invalid base64 value: " <> e)
+        _ -> Left "Any: non-string value"
+      Right Any.defaultAny { Any.anyTypeUrl = url, Any.anyValue = bs }
 anyFromJSON _ = Left "Expected JSON Object for Any"
+
+-- | Register the WKT codecs that ship with the library
+-- (Timestamp, Duration, FieldMask, Wrapper types, Struct,
+-- Value, ListValue, NullValue, Empty). User-defined message
+-- types are registered separately via 'registerAnyCodec'.
+--
+-- Idempotent — call once on process startup.
+registerStandardWktAnyCodecs :: IO ()
+registerStandardWktAnyCodecs = do
+  registerAnyCodec "google.protobuf.Timestamp"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage timestampToJSON
+                 (toParserResult . timestampFromJSON))
+  registerAnyCodec "google.protobuf.Duration"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage durationToJSON
+                 (toParserResult . durationFromJSON))
+  registerAnyCodec "google.protobuf.FieldMask"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage fieldMaskToJSON
+                 (toParserResult . fieldMaskFromJSON))
+  registerAnyCodec "google.protobuf.Struct"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage structToJSON
+                 (toParserResult . structFromJSON))
+  registerAnyCodec "google.protobuf.Value"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage valueToJSON
+                 (toParserResult . valueFromJSON))
+  registerAnyCodec "google.protobuf.ListValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage
+       (\lv -> Aeson.Array (V.map valueToJSON (listValueValues lv)))
+       (\v -> case v of
+          Aeson.Array vs ->
+            Right (defaultListValue { listValueValues = V.map jsonToValue vs })
+          _ -> Left "Expected JSON array for ListValue"))
+  registerAnyCodec "google.protobuf.NullValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage
+       nullValueToJSON nullValueFromJSON)
+  registerAnyCodec "google.protobuf.Empty"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage emptyToJSON emptyFromJSON)
+  -- google.protobuf.Any nested inside another Any: per
+  -- proto3 spec, Any IS a WKT, so the envelope is "value"
+  -- and the value of "value" is itself the recursive
+  -- @{"@type":...,...}@ object.
+  registerAnyCodec "google.protobuf.Any" AnyCodec
+    { acDecodeBytesToJSON = \bs -> case PD.decodeMessage bs of
+        Left _  -> Left "Any: nested Any decode failed"
+        Right (a :: Any.Any) -> Right (anyToJSON a)
+    , acEncodeJSONToBytes = \v -> PE.encodeMessage <$> anyFromJSON v
+    , acIsWktEnvelope     = True
+    }
+  -- All 9 wrapper types: each round-trips through its bare
+  -- inner value rather than the generic @{"value": ...}@ shape.
+  -- The Any envelope still uses @"value"@, but that's the
+  -- envelope wrapping the wrapper's own bare value.
+  registerAnyCodec "google.protobuf.BoolValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapBoolValue unwrapBoolValue)
+  registerAnyCodec "google.protobuf.Int32Value"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapInt32Value unwrapInt32Value)
+  registerAnyCodec "google.protobuf.Int64Value"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapInt64Value unwrapInt64Value)
+  registerAnyCodec "google.protobuf.UInt32Value"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapUInt32Value unwrapUInt32Value)
+  registerAnyCodec "google.protobuf.UInt64Value"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapUInt64Value unwrapUInt64Value)
+  registerAnyCodec "google.protobuf.FloatValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapFloatValue unwrapFloatValue)
+  registerAnyCodec "google.protobuf.DoubleValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapDoubleValue unwrapDoubleValue)
+  registerAnyCodec "google.protobuf.StringValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapStringValue unwrapStringValue)
+  registerAnyCodec "google.protobuf.BytesValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapBytesValue unwrapBytesValue)
+
+-- | Build a WKT-style 'AnyCodec' (envelope = @"value"@).
+wktCodecVia
+  :: (ByteString -> Either e a)         -- ^ wire decoder
+  -> (a -> ByteString)                  -- ^ wire encoder
+  -> (a -> Aeson.Value)                 -- ^ JSON encoder
+  -> (Aeson.Value -> Either String a)   -- ^ JSON decoder
+  -> AnyCodec
+wktCodecVia decBytes encBytes encJson decJson = AnyCodec
+  { acDecodeBytesToJSON = \bs -> case decBytes bs of
+      Left _  -> Left "Any: failed to decode embedded value"
+      Right a -> Right (encJson a)
+  , acEncodeJSONToBytes = \v -> encBytes <$> decJson v
+  , acIsWktEnvelope     = True
+  }
+
+-- | Lift an @Either String a@-style validator into the
+-- 'Either String a' shape used by the registry.
+toParserResult :: Either String a -> Either String a
+toParserResult = id
