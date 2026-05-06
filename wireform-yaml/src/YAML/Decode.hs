@@ -531,20 +531,22 @@ dispatch l0 = do
     _ -> dispatchOn l0
   where
     dispatchOn l = case T.uncons (lineBody l) of
-       Just ('!', _)  -> parseTagged
-       Just ('&', _)  -> parseAnchored
-       Just ('*', _)  -> case findAliasKeySplit (lineBody l) of
-                           Just (aliasName, vRest) ->
-                             parseBlockMapAliasFirst (lineIndent l)
-                               aliasName vRest
-                           Nothing -> parseAlias
-       Just ('|', _)  -> parseBlockScalar Literal
-       Just ('>', _)  -> parseBlockScalar Folded
-       Just ('[', _)  -> consumeFlowFromHead >>= maybeFlowAsBlockKey (lineIndent l)
-       Just ('{', _)  -> consumeFlowFromHead >>= maybeFlowAsBlockKey (lineIndent l)
-       Just ('"', _)  -> parseQuotedScalarLine '"'  l
-       Just ('\'', _) -> parseQuotedScalarLine '\'' l
-       _              -> parseBlockOrPlain l
+       Just (h, _) -> case h of
+         '!'  -> parseTagged
+         '&'  -> parseAnchored
+         '*'  -> case findAliasKeySplit (lineBody l) of
+                   Just (aliasName, vRest) ->
+                     parseBlockMapAliasFirst (lineIndent l)
+                       aliasName vRest
+                   Nothing -> parseAlias
+         '|'  -> parseBlockScalar Literal
+         '>'  -> parseBlockScalar Folded
+         '['  -> consumeFlowFromHead >>= maybeFlowAsBlockKey (lineIndent l)
+         '{'  -> consumeFlowFromHead >>= maybeFlowAsBlockKey (lineIndent l)
+         '"'  -> parseQuotedScalarLine '"'  l
+         '\'' -> parseQuotedScalarLine '\'' l
+         _    -> parseBlockOrPlain l
+       Nothing -> parseBlockOrPlain l
 
 -- | Quoted scalars can be the entire node body, or the start of a
 -- @key: \"…\"@ pair when the closing quote is followed by a colon. We
@@ -556,17 +558,20 @@ dispatch l0 = do
 -- the buffer until it is.
 parseQuotedScalarLine :: Char -> PLine -> P Value
 parseQuotedScalarLine q l =
-  -- Fast path: a body that ends with the matching close quote
-  -- can't have a 'key: value' split — skip the full scan.
+  -- Fast path: for double-quoted strings, a body that ends with
+  -- the closing '\"' can't have a trailing 'key: value' pair.
+  -- Single-quoted strings can validly contain '\\\'' in the
+  -- middle of a /plain/ value, so be conservative.
   let body = lineBody l
-      mayHaveKV = case T.unsnoc body of
-        Just (_, c) -> c /= q
-        _           -> True
-  in if mayHaveKV
-       then case findKeyValueSplit body of
+      fast = q == '"'
+        && case T.unsnoc body of
+             Just (_, c) -> c == q
+             _           -> False
+  in if fast
+       then doQuoted
+       else case findKeyValueSplit body of
          Just (k, vRest) -> parseBlockMap (lineIndent l) k vRest
          Nothing -> doQuoted
-       else doQuoted
   where
     doQuoted = do
       _ <- popLine
@@ -1670,37 +1675,40 @@ parseBlockMap !ind firstKey firstRest = do
         Nothing -> pure acc
         Just l
           | lineIndent l /= ind -> pure acc
-          | isSeqItem (lineBody l) -> pure acc
-          | startsWithTab (lineBody l) ->
-              failP $ "tab character used as indentation (line "
-                      ++ show (lineNo l) ++ ")"
-          -- An explicit-key '?' marker introduces another entry
-          -- of the /same/ mapping (spec §8.18); recurse into the
-          -- explicit-pair reader.
-          | isExplicitKey (lineBody l) -> do
-              k <- readExplicitPart "?"
-              v <- readExplicitValue
-              collect ((k, v) : acc)
-          | otherwise -> case findAliasKeySplit (lineBody l) of
-              Just (aliasName, vRest) -> do
-                _ <- popLine
-                k <- resolveAnchor aliasName
-                v <- parseImplicitMapValue ind vRest
-                collect ((k, v) : acc)
-              Nothing -> case findKeyValueSplit (lineBody l) of
-                Just (k, vRest) -> do
-                  _ <- popLine
-                  let (anchors, k') = stripKeyProperties k
-                  case T.uncons k' of
-                    Just ('*', _) | not (null anchors) ->
-                      failP $ "anchor immediately followed by alias key (line "
+          | otherwise ->
+              let body = lineBody l in case T.uncons body of
+                Nothing       -> pure acc
+                Just (h, _)
+                  | h == '\t' ->
+                      failP $ "tab character used as indentation (line "
                               ++ show (lineNo l) ++ ")"
-                    _ -> pure ()
-                  v <- parseImplicitMapValue ind vRest
-                  let kv = YString k'
-                  mapM_ (\an -> recordAnchor an kv) anchors
-                  collect ((kv, v) : acc)
-                Nothing -> pure acc
+                  | h == '-'
+                  , isSeqItem body -> pure acc
+                  | h == '?'
+                  , isExplicitKey body -> do
+                      k <- readExplicitPart "?"
+                      v <- readExplicitValue
+                      collect ((k, v) : acc)
+                  | h == '*'
+                  , Just (aliasName, vRest) <- findAliasKeySplit body -> do
+                      _ <- popLine
+                      k <- resolveAnchor aliasName
+                      v <- parseImplicitMapValue ind vRest
+                      collect ((k, v) : acc)
+                  | otherwise -> case findKeyValueSplit body of
+                      Just (k, vRest) -> do
+                        _ <- popLine
+                        let (anchors, k') = stripKeyProperties k
+                        case T.uncons k' of
+                          Just ('*', _) | not (null anchors) ->
+                            failP $ "anchor immediately followed by alias key (line "
+                                    ++ show (lineNo l) ++ ")"
+                          _ -> pure ()
+                        v <- parseImplicitMapValue ind vRest
+                        let kv = YString k'
+                        mapM_ (\an -> recordAnchor an kv) anchors
+                        collect ((kv, v) : acc)
+                      Nothing -> pure acc
 
     readExplicitPart marker = do
       Just l <- popLine
@@ -1809,8 +1817,7 @@ findAliasKeySplit t = case T.uncons t of
 
 parseImplicitMapValue :: Int -> Text -> P Value
 parseImplicitMapValue !ind vRest =
-  let after = T.stripStart vRest
-  in if T.null after
+  if T.null after
        then do
          mNext <- peekLine
          case mNext of
@@ -1830,45 +1837,59 @@ parseImplicitMapValue !ind vRest =
                  -> parseBlockSeq ind
            _ -> pure YNull
        else case T.uncons after of
-         Just ('|', _) -> do
-           -- Block scalar body lines must be at indent > parent
-           -- (== ind here). Encode that with a virtual line at @ind@
-           -- so parseBlockScalar's collectScalarLines uses the right
-           -- comparison.
-           pushLine (PLine 0 ind LContent after after)
-           parseBlockScalar Literal
-         Just ('>', _) -> do
-           pushLine (PLine 0 ind LContent after after)
-           parseBlockScalar Folded
-         Just ('[', _) -> do
-           pushLine (PLine 0 (ind + 2) LContent after after)
-           Just l <- popLine
-           consumeFlowAt (ind + 1) (lineBody l)
-         Just ('{', _) -> do
-           pushLine (PLine 0 (ind + 2) LContent after after)
-           Just l <- popLine
-           consumeFlowAt (ind + 1) (lineBody l)
-         Just ('&', _) -> do
-           pushLine (PLine 0 ind LContent after after)
-           withInMapValue True parseAnchored
-         Just ('*', _) -> do
-           pushLine (PLine 0 (ind + 2) LContent after after)
-           parseAlias
-         Just ('!', _) -> do
-           -- Use 'ind' (the outer mapping indent) so that a
-           -- block-scalar value following the tag ('!foo >' /
-           -- '!!str |') still sees a parent low enough to admit
-           -- the body lines.
-           pushLine (PLine 0 ind LContent after after)
-           parseTagged
-         Just ('"', _)  -> consumeQuotedAt '"'  (ind + 1) after
-         Just ('\'', _) -> consumeQuotedAt '\'' (ind + 1) after
-         -- (the +1 turns a parent ind=0 into openInd=1 so that
-         -- col-0 continuations get rejected — i.e. spec QB6E)
-         Just ('#', _) -> parseImplicitMapValueEmpty ind
-         _ -> do
-           pushLine (PLine 0 (ind + 1) LContent after after)
-           withInMapValue True (parsePlainScalar (ind + 1) after)
+         Just (h, _)
+           | h == '|' -> do
+               pushLine (PLine 0 ind LContent after after)
+               parseBlockScalar Literal
+           | h == '>' -> do
+               pushLine (PLine 0 ind LContent after after)
+               parseBlockScalar Folded
+           | h == '[' -> do
+               pushLine (PLine 0 (ind + 2) LContent after after)
+               Just l <- popLine
+               consumeFlowAt (ind + 1) (lineBody l)
+           | h == '{' -> do
+               pushLine (PLine 0 (ind + 2) LContent after after)
+               Just l <- popLine
+               consumeFlowAt (ind + 1) (lineBody l)
+           | h == '&' -> do
+               pushLine (PLine 0 ind LContent after after)
+               withInMapValue True parseAnchored
+           | h == '*' -> do
+               pushLine (PLine 0 (ind + 2) LContent after after)
+               parseAlias
+           | h == '!' -> do
+               pushLine (PLine 0 ind LContent after after)
+               parseTagged
+           | h == '"'  -> consumeQuotedAt '"'  (ind + 1) after
+           | h == '\'' -> consumeQuotedAt '\'' (ind + 1) after
+           | h == '#'  -> parseImplicitMapValueEmpty ind
+           | otherwise -> goPlain
+         Nothing -> goPlain
+       where
+         goPlain :: P Value
+         goPlain = do
+           -- Fast path: if the next physical line in the stream
+           -- can't extend this plain scalar (lower indent than
+           -- the value column, OR no next line at all), we can
+           -- resolve directly without 'parsePlainScalar'.
+           ls <- P (\s -> Right (psLines s, s))
+           let canExtend = case ls of
+                 (n : _) ->
+                   lineKind n == LContent
+                   && lineIndent n > ind
+                 _ -> False
+               sclean = T.stripEnd (stripInlineComment after)
+               isUnambiguous = not canExtend
+                 && case findKeyValueSplit sclean of
+                      Just _  -> False
+                      Nothing -> True
+           if isUnambiguous
+             then pure (resolvePlain sclean)
+             else do
+               pushLine (PLine 0 (ind + 1) LContent after after)
+               withInMapValue True (parsePlainScalar (ind + 1) after)
+         after = T.stripStart vRest
 
 parseImplicitMapValueEmpty :: Int -> P Value
 parseImplicitMapValueEmpty !ind = do
