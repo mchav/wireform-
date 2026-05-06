@@ -510,6 +510,9 @@ consumeQuoted q = go0 False
       ls <- getLines
       case ls of
         []       -> failP "YAML: unterminated quoted scalar"
+        (l' : _) | lineKind l' == LDocStart || lineKind l' == LDocEnd ->
+          failP $ "document marker inside quoted scalar (line "
+                  ++ show (lineNo l') ++ ")"
         (l' : rest) -> do
           setLines rest
           let body0 = lineBody l'
@@ -621,12 +624,26 @@ parseAnchored = do
   let body = lineBody l
       (name, rest) = takeAnchorName (T.drop 1 body)
       after0 = T.stripStart rest
-      -- A '#' immediately after the anchor (no content between
-      -- anchor and '#') is the start of a comment, not part of
-      -- the anchored value.
       after = case T.uncons after0 of
         Just ('#', _) -> T.empty
         _             -> after0
+  -- '&anchor - foo' / '&anchor ? key' / '&anchor : value' are
+  -- invalid: an anchor cannot label a block-sequence / explicit
+  -- mapping marker on the same line (the marker introduces its
+  -- own nested structure with its own indentation requirements).
+  case T.uncons after of
+    Just ('-', rest1) | startsWithSeparator rest1 ->
+      failP $ "anchor immediately followed by block indicator '-' (line "
+              ++ show (lineNo l) ++ ")"
+    Just ('?', rest1) | startsWithSeparator rest1 ->
+      failP $ "anchor immediately followed by explicit-key marker (line "
+              ++ show (lineNo l) ++ ")"
+    -- '&anchor *alias' is invalid: an alias is itself a node
+    -- reference and can't be re-labelled with a new anchor.
+    Just ('*', _) ->
+      failP $ "anchor immediately followed by alias (line "
+              ++ show (lineNo l) ++ ")"
+    _ -> pure ()
   -- If the rest of the line introduces a mapping (i.e. there's a
   -- top-level @": "@ in the remainder), the anchor only binds to
   -- the /key/, not to the surrounding mapping. This matches the
@@ -1333,6 +1350,14 @@ parseBlockMap !ind firstKey firstRest = do
 
 startsWithTab :: Text -> Bool
 startsWithTab t = case T.uncons t of
+  Just ('\t', _) -> True
+  _              -> False
+
+-- | True when @t@ is empty or starts with a space / tab.
+startsWithSeparator :: Text -> Bool
+startsWithSeparator t = case T.uncons t of
+  Nothing        -> True
+  Just (' ', _)  -> True
   Just ('\t', _) -> True
   _              -> False
 
