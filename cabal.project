@@ -23,6 +23,7 @@ packages:
   wireform-edn/
   wireform-bencode/
   wireform-toml/
+  wireform-yaml/
   wireform-csv/
   wireform-ndjson/
   wireform-grpc/

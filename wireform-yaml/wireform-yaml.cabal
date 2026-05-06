@@ -1,7 +1,7 @@
 cabal-version: 3.0
-name: wireform-toml
+name: wireform-yaml
 version: 0.1.0.0
-synopsis: TOML encoding/decoding
+synopsis: Spec-conformant YAML 1.2 encoding/decoding
 license: BSD-3-Clause
 build-type: Simple
 
@@ -15,6 +15,10 @@ common defaults
     -Wpartial-fields
     -Wredundant-constraints
     -O2
+    -funbox-strict-fields
+    -fspec-constr
+    -fspec-constr-keen
+    -flate-dmd-anal
   default-language: GHC2021
   default-extensions:
     StrictData
@@ -28,12 +32,16 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
-    TOML.Class
-    TOML.Decode
-    TOML.Derive
-    TOML.Encode
-    TOML.Encoding
-    TOML.Value
+    YAML.Annotated
+    YAML.Class
+    YAML.Decode
+    YAML.Decode.Annotated
+    YAML.Derive
+    YAML.Encode
+    YAML.Encoding
+    YAML.JSON
+    YAML.Pretty
+    YAML.Value
   build-depends:
     base >= 4.16 && < 5,
     wireform-derive,
@@ -41,33 +49,59 @@ library
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
     containers >= 0.6 && < 0.8,
-    megaparsec >= 9.0 && < 10,
-    time >= 1.9 && < 1.15,
+    aeson >= 2.1 && < 2.3,
+    scientific >= 0.3 && < 0.4,
     deepseq >= 1.4 && < 1.6,
     template-haskell >= 2.18 && < 2.24
 
-test-suite wireform-toml-derive-test
+benchmark wireform-yaml-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -O2 -fproc-alignment=64 -rtsopts
+  build-depends:
+    base,
+    wireform-yaml,
+    bytestring,
+    text,
+    vector,
+    HsYAML,
+    yaml,
+    aeson,
+    criterion >= 1.5
+
+test-suite wireform-yaml-test
   import: defaults
   type: exitcode-stdio-1.0
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
-    Test.TOML.Conformance
-    Test.TOML.Derive
-    Test.TOML.Derive.Types
-    Test.TOML.Derive.Instances
+    Test.YAML.Annotated
+    Test.YAML.Decode
+    Test.YAML.Encode
+    Test.YAML.Roundtrip
+    Test.YAML.Security
+    Test.YAML.Conformance
+    Test.YAML.Derive
+    Test.YAML.Derive.Types
+    Test.YAML.Derive.Instances
   default-extensions:
     ScopedTypeVariables
     TemplateHaskell
   build-depends:
     base,
-    wireform-toml,
+    wireform-yaml,
     wireform-derive,
     aeson >= 2.1 && < 2.3,
     bytestring,
+    scientific,
     text,
     vector,
+    containers,
     directory,
     filepath,
     tasty,
-    tasty-hunit
+    tasty-hunit,
+    tasty-hedgehog,
+    hedgehog
