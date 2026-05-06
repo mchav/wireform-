@@ -52,7 +52,7 @@ recordTests = testGroup "record"
 newtypeTests :: TestTree
 newtypeTests = testGroup "newtype"
   [ testCase "pass-through" $
-      F.toFury (Tag 42) @?= VV.Int64Val 42
+      F.toFury (Tag 42) @?= VV.VarInt64Val 42
   , testCase "round-trip" $
       F.fromFury (F.toFury (Tag 7)) @?= Right (Tag 7)
   ]

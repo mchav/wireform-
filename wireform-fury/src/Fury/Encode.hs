@@ -1,52 +1,39 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 -- | Apache Fory xlang value encoder.
 --
--- 'encode' lays out a 'Value' tree as
+-- The wire format produced here is byte-for-byte compatible with
+-- the Apache Fory Python implementation (@pyfory@ 0.17) for the
+-- following value shapes:
 --
--- @
--- | fory header (1 byte) | reference flag | type id | payload |
--- @
+-- * top-level header (xlang flag, optional null bit) + slot flag
+--   (NOT_NULL_VALUE / NULL / REF_VALUE / REF) + type tag + payload
+-- * null
+-- * BOOL, INT8, INT16, INT32, VARINT32, INT64, VARINT64, UINT8,
+--   UINT16, UINT32, VAR_UINT32, UINT64, VAR_UINT64,
+--   FLOAT32, FLOAT64
+-- * STRING with the LATIN-1 / UTF-8 encoding selection that
+--   pyfory uses (no 64-bit content hash on STRING)
+-- * BINARY (varuint32 length + raw bytes)
+-- * LIST and SET with the chunked @collect_flag@ format used by
+--   pyfory's CollectionSerializer (homogeneous / heterogeneous,
+--   has-nulls / no-nulls, decl-element-type, tracking-ref)
+-- * MAP with the chunked key-type / value-type @chunk_header@
+--   format used by pyfory's MapSerializer
+-- * top-level RefVal as REF_VALUE_FLAG / REF_FLAG
 --
--- with the @xlang@ flag bit set in the header. Each value slot
--- emits one of:
+-- Intentionally /not/ yet wire-compatible (round-trip in this
+-- package only):
 --
--- * @NULL_FLAG@ (@0xFD@) for 'NoneVal' — no payload.
--- * @REF_FLAG@ (@0xFE@) + @varuint32 id@ for the second and later
---   occurrence of a 'RefVal'.
--- * @REF_VALUE_FLAG@ (@0x00@) + payload for the first occurrence
---   of a 'RefVal'.
--- * a bare type tag + payload for everything else (the spec\'s
---   @NOT_NULL_VALUE_FLAG@ is folded into the type tag byte; valid
---   internal type ids do not collide with the three flag bytes).
---
--- This means primitive values like @BoolVal True@ remain a single
--- byte plus payload — the canonical reference flag is only paid
--- when the spec actually needs it.
---
--- == Spec features implemented
---
--- * Reference tracking (the 'RefVal' constructor).
--- * Meta-string deduplication: namespaces, type names, and
---   compatible-struct field names are written via a
---   first-occurrence-then-back-reference scheme keyed by exact
---   string content.
--- * @NAMED_COMPATIBLE_STRUCT@ with a shared 'TypeDef' sidecar
---   (the 'CompatibleStructVal' constructor).
--- * One-dimensional primitive arrays (BOOL_ARRAY \… FLOAT64_ARRAY).
---
--- == Intentional simplifications
---
--- * The 64-bit content hash that the spec inserts after the
---   meta-string header for strings longer than 16 bytes is not
---   emitted; deduplication is purely by exact byte equality.
--- * The encoding tag in a meta-string header is always UTF-8 (0);
---   the LATIN1 / UTF-16 alternatives in the spec are not produced.
--- * 'TypeDef' bodies follow a simplified layout: namespace +
---   type name as meta strings, then one @meta-string + varuint32
---   type id@ pair per field. The spec\'s field-header bit packing
---   (TAG_ID encoding, ref-tracking flag in field type info) is
---   not reproduced — the dynamic decoder reads value type tags
---   from the value bytes themselves.
+-- * @NAMED_STRUCT@ / @NAMED_COMPATIBLE_STRUCT@ — pyfory uses a
+--   bit-packed @TypeDef@ field-info format and a meta-string
+--   layer with content-hash dedup that we approximate with a
+--   simpler layout. See "Fury.Encode.encodeValueSlot" comments.
+-- * One-dimensional primitive arrays — pyfory routes these
+--   through NumPy-typed paths; we emit our own dense encoding.
+-- * Reference tracking inside collections — we only support
+--   top-level RefVal; pyfory tracks references through every
+--   nested object slot when @ref=True@.
 module Fury.Encode
   ( -- * Top-level encoders
     encode
@@ -60,15 +47,18 @@ module Fury.Encode
   , emitMetaString
   ) where
 
-import Data.Bits (shiftL, (.&.), (.|.))
+import Data.Bits (shiftL, (.|.))
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
+import Data.Char (ord)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.IntMap.Strict as IM
 import Data.IntMap.Strict (IntMap)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Data.Vector (Vector)
 import Data.Word (Word8, Word16, Word32, Word64)
@@ -82,19 +72,12 @@ import qualified Fury.Value as VV
 -- Encoder state monad
 -- ---------------------------------------------------------------------------
 
--- | Cache key for the 'TypeDef' pool. We hash on the namespace,
--- type name, and the ordered list of field names; field types do
--- not contribute because the dynamic decoder reads value type
--- tags from the value bytes themselves rather than from the
--- 'TypeDef'.
 type TypeDefKey = (Text, Text, [Text])
 
 data EncodeState = EncodeState
   { esStringPool    :: !(HashMap Text Int)
   , esNextStringId  :: {-# UNPACK #-} !Int
   , esRefMap        :: !(IntMap Int)
-    -- ^ Map from user-supplied 'RefVal' sharing keys to the wire
-    -- @ref_id@ assigned on first occurrence.
   , esNextRefId     :: {-# UNPACK #-} !Int
   , esTypeDefPool   :: !(HashMap TypeDefKey Int)
   , esNextTypeDefId :: {-# UNPACK #-} !Int
@@ -104,9 +87,6 @@ emptyState :: EncodeState
 emptyState =
   EncodeState HM.empty 0 IM.empty 0 HM.empty 0
 
--- | Writer + state monad over 'E.Builder'. Hand-rolled to keep
--- the package free of an mtl / transformers dependency and to
--- inline the common @<>@ on the writer half.
 newtype EncodeM a =
   EncodeM { runEM :: EncodeState -> (a, EncodeState, E.Builder) }
 
@@ -132,8 +112,6 @@ instance Monad EncodeM where
         (b, s2, b2) -> (b, s2, b1 <> b2)
   {-# INLINE (>>=) #-}
 
--- | Run an 'EncodeM' action with a fresh empty pool, returning the
--- accumulated bytes.
 runEncodeM :: EncodeM () -> ByteString
 runEncodeM (EncodeM m) =
   case m emptyState of
@@ -152,6 +130,16 @@ modifyState f = EncodeM $ \s -> ((), f s, mempty)
 {-# INLINE modifyState #-}
 
 -- ---------------------------------------------------------------------------
+-- Slot flag bytes (matching pyfory's @resolver.NULL_FLAG@ etc.)
+-- ---------------------------------------------------------------------------
+
+slotNotNullValue, slotNull, slotRefValue, slotRef :: Word8
+slotNotNullValue = 0xFF
+slotNull         = 0xFD
+slotRefValue     = 0x00
+slotRef          = 0xFE
+
+-- ---------------------------------------------------------------------------
 -- Public API
 -- ---------------------------------------------------------------------------
 
@@ -159,30 +147,37 @@ modifyState f = EncodeM $ \s -> ((), f s, mempty)
 encode :: VV.Value -> ByteString
 encode v = runEncodeM (encodeBuilder v)
 
--- | Like 'encode' but as an 'EncodeM' action so callers can compose
--- multiple top-level values that share the same dedup pools.
 encodeBuilder :: VV.Value -> EncodeM ()
+encodeBuilder VV.NoneVal = do
+  -- pyfory matches: header has the xlang flag (bit 1) /and/ the
+  -- null flag (bit 0); the slot byte is then NULL_FLAG too.
+  emit (E.byte 0x03)
+  emit (E.byte slotNull)
 encodeBuilder v = do
-  emit (E.byte E.foryXlangHeader)
+  emit (E.byte 0x02)
   encodeValueSlot v
 
 -- ---------------------------------------------------------------------------
 -- Value slot
 -- ---------------------------------------------------------------------------
 
--- | Encode a single value slot (ref flag + payload).
+-- | Encode a single value slot. Always emits one slot flag byte
+-- followed by either nothing (for NULL / REF) or a type tag and a
+-- payload (for NOT_NULL_VALUE / REF_VALUE).
 encodeValueSlot :: VV.Value -> EncodeM ()
 encodeValueSlot v = case v of
-  VV.NoneVal       -> emit (E.byte E.refFlagNull)
+  VV.NoneVal       -> emit (E.byte slotNull)
   VV.RefVal i inner -> encodeRef i inner
-  _                -> encodePayload v
+  _                -> do
+    emit (E.byte slotNotNullValue)
+    encodeTypedPayload v
 
 encodeRef :: Int -> VV.Value -> EncodeM ()
 encodeRef userKey inner = do
   s <- getState
   case IM.lookup userKey (esRefMap s) of
     Just wid -> do
-      emit (E.byte E.refFlagRef)
+      emit (E.byte slotRef)
       emit (E.varuint32 (fromIntegral wid :: Word32))
     Nothing -> do
       let !wid = esNextRefId s
@@ -190,31 +185,33 @@ encodeRef userKey inner = do
         { esRefMap    = IM.insert userKey wid (esRefMap s')
         , esNextRefId = wid + 1
         }
-      emit (E.byte E.refFlagRefValue)
-      encodePayload inner
+      emit (E.byte slotRefValue)
+      encodeTypedPayload inner
 
--- | Type tag + payload, no leading ref flag. The caller is
--- expected to have already emitted (or decided not to emit) the
--- slot\'s ref flag.
-encodePayload :: VV.Value -> EncodeM ()
-encodePayload val = case val of
+-- | Type tag + payload, no leading slot flag.
+encodeTypedPayload :: VV.Value -> EncodeM ()
+encodeTypedPayload val = case val of
   VV.NoneVal       -> emitTag T.NONE
   VV.BoolVal b     -> emitTag T.BOOL    >> emit (E.byte (if b then 1 else 0))
   VV.Int8Val n     -> emitTag T.INT8    >> emit (E.byte (fromIntegral n))
   VV.Int16Val n    -> emitTag T.INT16   >> emit (E.int16LE n)
   VV.Int32Val n    -> emitTag T.INT32   >> emit (E.int32LE n)
+  VV.VarInt32Val n -> emitTag T.VARINT32 >> emit (E.varint32 n)
   VV.Int64Val n    -> emitTag T.INT64   >> emit (E.int64LE n)
+  VV.VarInt64Val n -> emitTag T.VARINT64 >> emit (E.varint64 n)
   VV.Uint8Val n    -> emitTag T.UINT8   >> emit (E.byte n)
   VV.Uint16Val n   -> emitTag T.UINT16  >> emit (E.word16LE n)
   VV.Uint32Val n   -> emitTag T.UINT32  >> emit (E.word32LE n)
+  VV.VarUint32Val n -> emitTag T.VAR_UINT32 >> emit (E.varuint32 n)
   VV.Uint64Val n   -> emitTag T.UINT64  >> emit (E.word64LE n)
+  VV.VarUint64Val n -> emitTag T.VAR_UINT64 >> emit (E.varuint64 n)
   VV.Float32Val f  -> emitTag T.FLOAT32 >> emit (E.float32LE f)
   VV.Float64Val d  -> emitTag T.FLOAT64 >> emit (E.float64LE d)
-  VV.StringVal s   -> emitTag T.STRING  >> emit (E.utf8String s)
+  VV.StringVal s   -> emitTag T.STRING  >> emit (encodeForyString s)
   VV.BinaryVal bs  -> emitTag T.BINARY  >> emitBinaryPayload bs
   VV.ListVal vs    -> emitTag T.LIST    >> emitCollection vs
   VV.SetVal vs     -> emitTag T.SET     >> emitCollection vs
-  VV.MapVal kvs    -> emitTag T.MAP     >> emitMap kvs
+  VV.MapVal kvs    -> emitTag T.MAP     >> emitMapChunks kvs
   VV.StructVal ns nm fields -> do
     emitTag T.NAMED_STRUCT
     emitMetaString ns
@@ -223,15 +220,8 @@ encodePayload val = case val of
   VV.CompatibleStructVal ns nm fields -> do
     emitTag T.NAMED_COMPATIBLE_STRUCT
     emitTypeDef ns nm fields
-    -- Field values follow the meta-share marker, in TypeDef order.
     V.forM_ fields $ \(_, fv) -> encodeValueSlot fv
-  VV.RefVal{} ->
-    -- Should be intercepted by 'encodeValueSlot'; reaching here
-    -- means a 'RefVal' is nested under a ref flag we already
-    -- emitted (e.g. inside another RefVal first occurrence). Just
-    -- recurse into the slot encoder so the inner ref handling
-    -- runs.
-    encodeValueSlot val
+  VV.RefVal{} -> encodeValueSlot val
   VV.BoolArrayVal vs    -> emitTag T.BOOL_ARRAY    >> emitBoolArray vs
   VV.Int8ArrayVal vs    -> emitTag T.INT8_ARRAY    >> emitInt8Array vs
   VV.Int16ArrayVal vs   -> emitTag T.INT16_ARRAY   >> emitInt16Array vs
@@ -245,11 +235,38 @@ encodePayload val = case val of
   VV.Float64ArrayVal vs -> emitTag T.FLOAT64_ARRAY >> emitFloat64Array vs
 
 emitTag :: T.TypeId -> EncodeM ()
-emitTag (T.TypeId w) = emit (E.byte w)
+emitTag (T.TypeId w) = emit (E.varuint32 (fromIntegral w :: Word32))
 {-# INLINE emitTag #-}
 
 -- ---------------------------------------------------------------------------
--- Containers
+-- Strings
+-- ---------------------------------------------------------------------------
+
+-- | Encode a string value (after the type tag) using the
+-- LATIN-1 / UTF-8 selection that pyfory uses.
+encodeForyString :: Text -> E.Builder
+encodeForyString !t
+  | isLatin1 t =
+      let !raw = encodeLatin1 t
+          !len = BS.length raw
+          !hdr = (fromIntegral len `shiftL` 2) :: Word64
+          -- encoding tag = 0 (LATIN1) goes in the bottom 2 bits.
+      in E.varuint36Small hdr <> E.bytes raw
+  | otherwise =
+      let !raw = TE.encodeUtf8 t
+          !len = BS.length raw
+          !hdr = (fromIntegral len `shiftL` 2) .|. 2 :: Word64
+          -- encoding tag = 2 (UTF-8) in the bottom 2 bits.
+      in E.varuint36Small hdr <> E.bytes raw
+
+isLatin1 :: Text -> Bool
+isLatin1 = T.all (\c -> ord c < 256)
+
+encodeLatin1 :: Text -> ByteString
+encodeLatin1 = BS.pack . map (fromIntegral . ord) . T.unpack
+
+-- ---------------------------------------------------------------------------
+-- Binary
 -- ---------------------------------------------------------------------------
 
 emitBinaryPayload :: ByteString -> EncodeM ()
@@ -257,17 +274,204 @@ emitBinaryPayload !bs = do
   emit (E.varuint32 (fromIntegral (BS.length bs) :: Word32))
   emit (E.bytes bs)
 
+-- ---------------------------------------------------------------------------
+-- Collections (LIST / SET) — chunked @collect_flag@ format
+-- ---------------------------------------------------------------------------
+--
+-- Mirrors pyfory's CollectionSerializer:
+--
+--   write_var_uint32(len(value))
+--   if len == 0: return
+--   collect_flag := 0
+--   for item in value:
+--     determine homogeneous + has_null
+--   write_int8(collect_flag)
+--   if SAME_TYPE && !DECL_ELEMENT_TYPE: write element type info
+--   case (SAME_TYPE, HAS_NULL):
+--     (T, F): each element = serialize(item)
+--     (T, T): each element = NULL_FLAG | NOT_NULL_VALUE_FLAG + serialize(item)
+--     (F, F): each element = type_info + serialize(item)
+--     (F, T): each element = NULL_FLAG | NOT_NULL_VALUE_FLAG + type_info + serialize(item)
+--
+-- Tracking_ref is not implemented inside collections (top-level
+-- only); we never set the bit.
+
+collFlagHasNull, collFlagIsSameType :: Word8
+collFlagHasNull         = 0b0010
+collFlagIsSameType      = 0b1000
+
 emitCollection :: Vector VV.Value -> EncodeM ()
 emitCollection vs = do
-  emit (E.varuint32 (fromIntegral (V.length vs) :: Word32))
-  V.mapM_ encodeValueSlot vs
+  let !len = V.length vs
+  emit (E.varuint32 (fromIntegral len :: Word32))
+  if len == 0
+    then pure ()
+    else do
+      let (sameType, hasNull, mElemTag) = analyseCollection vs
+          !flag =
+                  (if sameType then collFlagIsSameType else 0)
+              .|. (if hasNull  then collFlagHasNull    else 0)
+      emit (E.byte flag)
+      case (sameType, mElemTag) of
+        (True, Just tag) -> do
+          emitTag tag
+          if hasNull
+            then V.forM_ vs $ \x -> case x of
+                   VV.NoneVal -> emit (E.byte slotNull)
+                   _ -> do
+                     emit (E.byte slotNotNullValue)
+                     encodeUntaggedPayload x
+            else V.forM_ vs $ \x -> encodeUntaggedPayload x
+        (True, Nothing) ->
+          -- All elements are None.
+          V.forM_ vs $ \_ -> emit (E.byte slotNull)
+        (False, _) ->
+          if hasNull
+            then V.forM_ vs $ \x -> case x of
+                   VV.NoneVal -> emit (E.byte slotNull)
+                   VV.RefVal{} -> encodeValueSlot x
+                   _ -> do
+                     emit (E.byte slotNotNullValue)
+                     encodeTypedPayload x
+            else V.forM_ vs $ \x -> encodeTypedPayload x
 
-emitMap :: Vector (VV.Value, VV.Value) -> EncodeM ()
-emitMap kvs = do
-  emit (E.varuint32 (fromIntegral (V.length kvs) :: Word32))
-  V.forM_ kvs $ \(k, v) -> do
-    encodeValueSlot k
-    encodeValueSlot v
+-- | Inspect a collection: do all non-null elements share a type
+-- tag, and is there at least one null? 'RefVal' elements force
+-- the heterogeneous path because the per-occurrence ref flag they
+-- emit replaces the slot's type tag, which the homogeneous
+-- single-type optimization can't accommodate.
+analyseCollection :: Vector VV.Value -> (Bool, Bool, Maybe T.TypeId)
+analyseCollection vs =
+  let (sameType, hasNull, mTag) =
+        V.foldl' step (True, False, Nothing) vs
+  in (sameType, hasNull, mTag)
+  where
+    step (!st, !hn, !mt) x = case x of
+      VV.NoneVal  -> (st, True, mt)
+      -- RefVal forces heterogeneous /and/ has-null so the
+      -- per-element slot flag carries the ref flag bytes
+      -- (0xFD / 0xFE / 0x00) — those are the same byte
+      -- positions the spec's reference tracking uses, and
+      -- they don't collide with any valid type tag.
+      VV.RefVal{} -> (False, True, mt)
+      _ ->
+        let !tg = VV.typeIdOf x
+        in case mt of
+             Nothing -> (st, hn, Just tg)
+             Just t
+               | t == tg   -> (st, hn, mt)
+               | otherwise -> (False, hn, mt)
+
+-- | Encode just the payload (no type tag, no slot flag).
+encodeUntaggedPayload :: VV.Value -> EncodeM ()
+encodeUntaggedPayload val = case val of
+  VV.NoneVal       -> pure ()  -- Should be intercepted by caller.
+  VV.BoolVal b     -> emit (E.byte (if b then 1 else 0))
+  VV.Int8Val n     -> emit (E.byte (fromIntegral n))
+  VV.Int16Val n    -> emit (E.int16LE n)
+  VV.Int32Val n    -> emit (E.int32LE n)
+  VV.VarInt32Val n -> emit (E.varint32 n)
+  VV.Int64Val n    -> emit (E.int64LE n)
+  VV.VarInt64Val n -> emit (E.varint64 n)
+  VV.Uint8Val n    -> emit (E.byte n)
+  VV.Uint16Val n   -> emit (E.word16LE n)
+  VV.Uint32Val n   -> emit (E.word32LE n)
+  VV.VarUint32Val n -> emit (E.varuint32 n)
+  VV.Uint64Val n   -> emit (E.word64LE n)
+  VV.VarUint64Val n -> emit (E.varuint64 n)
+  VV.Float32Val f  -> emit (E.float32LE f)
+  VV.Float64Val d  -> emit (E.float64LE d)
+  VV.StringVal s   -> emit (encodeForyString s)
+  VV.BinaryVal bs  -> emitBinaryPayload bs
+  VV.ListVal vs    -> emitCollection vs
+  VV.SetVal vs     -> emitCollection vs
+  VV.MapVal kvs    -> emitMapChunks kvs
+  VV.StructVal ns nm fields -> do
+    emitMetaString ns
+    emitMetaString nm
+    emitStructFields fields
+  VV.CompatibleStructVal ns nm fields -> do
+    emitTypeDef ns nm fields
+    V.forM_ fields $ \(_, fv) -> encodeValueSlot fv
+  VV.RefVal{} -> encodeValueSlot val
+  VV.BoolArrayVal vs    -> emitBoolArray vs
+  VV.Int8ArrayVal vs    -> emitInt8Array vs
+  VV.Int16ArrayVal vs   -> emitInt16Array vs
+  VV.Int32ArrayVal vs   -> emitInt32Array vs
+  VV.Int64ArrayVal vs   -> emitInt64Array vs
+  VV.Uint8ArrayVal vs   -> emitUint8Array vs
+  VV.Uint16ArrayVal vs  -> emitUint16Array vs
+  VV.Uint32ArrayVal vs  -> emitUint32Array vs
+  VV.Uint64ArrayVal vs  -> emitUint64Array vs
+  VV.Float32ArrayVal vs -> emitFloat32Array vs
+  VV.Float64ArrayVal vs -> emitFloat64Array vs
+
+-- ---------------------------------------------------------------------------
+-- Maps — chunked format
+-- ---------------------------------------------------------------------------
+--
+-- pyfory's MapSerializer writes:
+--
+--   write_var_uint32(total_size)
+--   while remaining entries:
+--     pick a chunk where the key type and value type are uniform
+--     (max 255 entries per chunk)
+--     write_int8(chunk_header) -- bits combine KEY/VALUE
+--                                 HAS_NULL / DECL_TYPE / TRACKING_REF
+--     write_var_uint32(chunk_size)
+--     write_type_info(key_type)
+--     write_type_info(value_type)
+--     for (k, v) in chunk: serialize(k), serialize(v)
+--
+-- The simplifications we make: tracking_ref is always zero;
+-- DECL_TYPE flags are zero (we never use a pre-declared element
+-- type); HAS_NULL is set on whichever side has any None inside
+-- the chunk. We further simplify by emitting one chunk per
+-- entry, which is wasteful but always valid (pyfory's reader
+-- happily consumes single-entry chunks). This avoids the
+-- type-uniformity grouping pass.
+
+mapKeyHasNull, mapValueHasNull :: Word8
+mapKeyHasNull   = 0b0000_0010
+mapValueHasNull = 0b0001_0000
+
+emitMapChunks :: Vector (VV.Value, VV.Value) -> EncodeM ()
+emitMapChunks kvs = do
+  let !len = V.length kvs
+  emit (E.varuint32 (fromIntegral len :: Word32))
+  if len == 0
+    then pure ()
+    else V.forM_ kvs $ \(k, v) -> emitOneEntryChunk k v
+
+emitOneEntryChunk :: VV.Value -> VV.Value -> EncodeM ()
+emitOneEntryChunk k v = do
+  let keyNull = isNoneVal k
+      valNull = isNoneVal v
+      !flag = (if keyNull then mapKeyHasNull else 0)
+          .|. (if valNull then mapValueHasNull else 0)
+  emit (E.byte flag)
+  emit (E.byte 1)  -- chunk size as uint8, matching pyfory's MapSerializer.
+  -- pyfory's wire shape is | chunk_header | chunk_size | key_type | value_type | (key, value) * chunk_size |.
+  case (keyNull, valNull) of
+    (True,  True)  -> pure ()
+    (False, True)  -> do
+      emitTag (VV.typeIdOf k)
+      encodeUntaggedPayload k
+    (True,  False) -> do
+      emitTag (VV.typeIdOf v)
+      encodeUntaggedPayload v
+    (False, False) -> do
+      emitTag (VV.typeIdOf k)
+      emitTag (VV.typeIdOf v)
+      encodeUntaggedPayload k
+      encodeUntaggedPayload v
+  where
+    isNoneVal VV.NoneVal = True
+    isNoneVal _          = False
+
+-- ---------------------------------------------------------------------------
+-- Struct (NAMED_STRUCT) — non-interop-compliant; round-trips here
+-- ---------------------------------------------------------------------------
 
 emitStructFields :: VV.StructFields -> EncodeM ()
 emitStructFields fields = do
@@ -280,9 +484,6 @@ emitStructFields fields = do
 -- Meta-string deduplication
 -- ---------------------------------------------------------------------------
 
--- | Emit a meta string. The first time a particular 'Text' is
--- written we emit a fresh meta-string and register it in the
--- pool. Subsequent occurrences emit a varuint64 back-reference.
 emitMetaString :: Text -> EncodeM ()
 emitMetaString !t = do
   s <- getState
@@ -300,8 +501,6 @@ emitMetaString !t = do
 -- TypeDef sidecar (NAMED_COMPATIBLE_STRUCT)
 -- ---------------------------------------------------------------------------
 
--- | Emit the meta-share marker + (on first occurrence) the
--- 'TypeDef' bytes for a 'CompatibleStructVal'.
 emitTypeDef :: Text -> Text -> VV.StructFields -> EncodeM ()
 emitTypeDef ns nm fields = do
   let !key = (ns, nm, V.toList (V.map fst fields))
@@ -318,14 +517,8 @@ emitTypeDef ns nm fields = do
       emit (E.varuint64 (fromIntegral idx `shiftL` 1 :: Word64))
       emitTypeDefBytes ns nm fields
 
--- | The TypeDef itself: an 8-byte global header carrying the body
--- size in its low 8 bits, followed by the body.
 emitTypeDefBytes :: Text -> Text -> VV.StructFields -> EncodeM ()
 emitTypeDefBytes ns nm fields = do
-  -- We need the body size up front to fill the global header.
-  -- Encode the body into its own state-threaded sub-builder; the
-  -- string pool / typedef pool MUST share with the outer encoder
-  -- (so dedup works across the TypeDef and the value layer).
   s0 <- getState
   let (s1, bodyBs) = runSubEncoder (typeDefBody ns nm fields) s0
       !bodyLen     = BS.length bodyBs
@@ -333,10 +526,6 @@ emitTypeDefBytes ns nm fields = do
   emitGlobalHeader bodyLen
   emit (E.bytes bodyBs)
 
--- | Run an 'EncodeM' action against the supplied state and bake
--- its writer half into a 'ByteString', returning the final state.
--- Used to compute a TypeDef body size before emitting the size
--- prefix.
 runSubEncoder :: EncodeM () -> EncodeState -> (EncodeState, ByteString)
 runSubEncoder (EncodeM m) s =
   case m s of
@@ -344,9 +533,7 @@ runSubEncoder (EncodeM m) s =
 
 emitGlobalHeader :: Int -> EncodeM ()
 emitGlobalHeader !bodyLen
-  | bodyLen < 0xFF = do
-      let !w = fromIntegral bodyLen :: Word64
-      emit (E.word64LE w)
+  | bodyLen < 0xFF = emit (E.word64LE (fromIntegral bodyLen :: Word64))
   | otherwise = do
       emit (E.word64LE 0xFF)
       emit (E.varuint32 (fromIntegral (bodyLen - 0xFF) :: Word32))
@@ -354,35 +541,22 @@ emitGlobalHeader !bodyLen
 typeDefBody :: Text -> Text -> VV.StructFields -> EncodeM ()
 typeDefBody ns nm fields = do
   let !nfRaw = V.length fields
-      -- meta header: bits 0-4 num_fields (capped at 30; 31 means
-      -- "extended"); bit 5 = REGISTER_BY_NAME (always set here).
       registerByName = 1 `shiftL` 5
   if nfRaw <= 30
-    then do
-      let !mh = fromIntegral nfRaw .|. registerByName :: Word32
-      emit (E.byte (fromIntegral (mh .&. 0xFF)))
+    then emit (E.byte (fromIntegral (nfRaw .|. registerByName)))
     else do
-      let !mh = 31 .|. registerByName :: Word32
-      emit (E.byte (fromIntegral (mh .&. 0xFF)))
+      emit (E.byte (fromIntegral (31 .|. registerByName)))
       emit (E.varuint32 (fromIntegral (nfRaw - 31) :: Word32))
   emitMetaString ns
   emitMetaString nm
   V.forM_ fields $ \(fname, fvalue) -> do
     emitMetaString fname
-    -- Field type id placeholder. The decoder ignores this (it
-    -- reads value type tags from the value bytes themselves), but
-    -- writing the value\'s actual type id makes the TypeDef bytes
-    -- somewhat self-describing for inspection / debugging.
     let T.TypeId tw = VV.typeIdOf fvalue
     emit (E.varuint32 (fromIntegral tw :: Word32))
 
 -- ---------------------------------------------------------------------------
 -- Primitive 1-D arrays
 -- ---------------------------------------------------------------------------
---
--- Each array is | varuint32 element_count | element bytes |, with
--- elements packed without any per-element flag, per the spec\'s
--- "fixed-width little-endian" requirement for primitive arrays.
 
 emitArrayCount :: Vector a -> EncodeM ()
 emitArrayCount vs =
@@ -443,3 +617,4 @@ emitFloat64Array :: Vector Double -> EncodeM ()
 emitFloat64Array vs = do
   emitArrayCount vs
   V.forM_ vs $ \x -> emit (E.float64LE x)
+

@@ -1,9 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 -- | Apache Fory xlang value decoder.
 --
--- Mirrors 'Fury.Encode.encode'. See that module's haddock for the
--- exact subset of the spec we round-trip through and the
--- intentional simplifications.
+-- Mirrors 'Fury.Encode.encode'. Wire-compatible with @pyfory@
+-- 0.17 for the value shapes documented on the encode side; see
+-- "Fury.Encode" for the exact subset.
 module Fury.Decode
   ( decode
   , decodeValueSlot
@@ -18,6 +19,8 @@ import qualified Data.IntMap.Strict as IM
 import Data.IntMap.Strict (IntMap)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Data.Vector (Vector)
 import Data.Word (Word8, Word16, Word32, Word64)
@@ -33,19 +36,13 @@ import qualified Fury.Value as VV
 
 data DecodeState = DecodeState
   { dsStringPool :: !(IntMap Text)
-    -- ^ Index → meta string. Indexed by the order in which fresh
-    -- meta strings are read, matching the encoder\'s assignment.
   , dsNextStringId :: {-# UNPACK #-} !Int
   , dsRefValues  :: !(IntMap VV.Value)
-    -- ^ Index → already-decoded ref-tracked value, indexed by the
-    -- wire @ref_id@.
   , dsNextRefId  :: {-# UNPACK #-} !Int
   , dsTypeDefs   :: !(IntMap TypeDef)
   , dsNextTypeDefId :: {-# UNPACK #-} !Int
   }
 
--- | Cached schema for a 'CompatibleStructVal'. Carries enough to
--- decode subsequent occurrences without re-reading the body.
 data TypeDef = TypeDef
   { tdNamespace  :: !Text
   , tdTypeName   :: !Text
@@ -88,9 +85,6 @@ instance Monad DecodeM where
       Right (a, off', st') -> runDM (k a) bs off' st'
   {-# INLINE (>>=) #-}
 
--- | Run a 'DecodeM' action against a byte string starting at the
--- given offset, returning the decoded value, the new offset, and
--- the final state.
 runDecodeM :: DecodeM a -> ByteString -> Either String a
 runDecodeM (DecodeM m) bs =
   case m bs 0 emptyDecodeState of
@@ -155,8 +149,21 @@ readVaruint32D = liftEither E.readVaruint32
 readVaruint64D :: DecodeM Word64
 readVaruint64D = liftEither E.readVaruint64
 
-readUtf8StringD :: DecodeM Text
-readUtf8StringD = liftEither E.readUtf8String
+readVarint32D :: DecodeM Int32
+readVarint32D = liftEither E.readVarint32
+
+readVarint64D :: DecodeM Int64
+readVarint64D = liftEither E.readVarint64
+
+-- ---------------------------------------------------------------------------
+-- Slot flag bytes
+-- ---------------------------------------------------------------------------
+
+slotNotNullValue, slotNull, slotRefValue, slotRef :: Word8
+slotNotNullValue = 0xFF
+slotNull         = 0xFD
+slotRefValue     = 0x00
+slotRef          = 0xFE
 
 -- ---------------------------------------------------------------------------
 -- Public API
@@ -168,26 +175,21 @@ decode bs = runDecodeM go bs
   where
     go = do
       hdr <- readByteD
-      if hdr .&. 0x01 /= 0
-        then pure VV.NoneVal
-        else if hdr .&. 0x02 == 0
-          then failD ("Fury.Decode.decode: missing xlang flag in header byte "
-                      ++ show hdr)
-          else decodeValueSlot
+      if hdr .&. 0x02 == 0
+        then failD ("Fury.Decode.decode: missing xlang flag in header byte "
+                    ++ show hdr)
+        else decodeValueSlot
 
--- ---------------------------------------------------------------------------
--- Value slot
--- ---------------------------------------------------------------------------
-
--- | Decode one value slot (ref flag + payload).
 decodeValueSlot :: DecodeM VV.Value
 decodeValueSlot = do
   flag <- readByteD
   case flag of
-    f | f == E.refFlagNull       -> pure VV.NoneVal
-      | f == E.refFlagRef        -> decodeRefBack
-      | f == E.refFlagRefValue   -> decodeRefValue
-      | otherwise                -> decodePayload (T.TypeId f)
+    f | f == slotNull       -> pure VV.NoneVal
+      | f == slotRef        -> decodeRefBack
+      | f == slotRefValue   -> decodeRefValue
+      | f == slotNotNullValue -> decodeTypedPayload
+      | otherwise -> failD $
+          "Fury.Decode: unexpected slot flag byte " ++ show flag
 
 decodeRefBack :: DecodeM VV.Value
 decodeRefBack = do
@@ -203,39 +205,44 @@ decodeRefValue = do
   st <- getState
   let !wid = dsNextRefId st
   modifyState $ \s -> s { dsNextRefId = wid + 1 }
-  inner <- do
-    -- Read the inner value\'s payload; the next byte is its type
-    -- tag (since the surrounding REF_VALUE_FLAG already played
-    -- the role of the slot ref flag).
-    tag <- readByteD
-    decodePayload (T.TypeId tag)
+  inner <- decodeTypedPayload
   modifyState $ \s -> s { dsRefValues = IM.insert wid inner (dsRefValues s) }
   pure (VV.RefVal wid inner)
 
--- | Decode a payload, given its already-consumed type tag.
-decodePayload :: T.TypeId -> DecodeM VV.Value
-decodePayload tag = case tag of
+-- | Read a type tag (varuint32 in pyfory's wire format) plus
+-- payload.
+decodeTypedPayload :: DecodeM VV.Value
+decodeTypedPayload = do
+  tagW <- readVaruint32D
+  decodePayloadFor (T.TypeId (fromIntegral tagW))
+
+decodePayloadFor :: T.TypeId -> DecodeM VV.Value
+decodePayloadFor tag = case tag of
   T.NONE     -> pure VV.NoneVal
   T.BOOL     -> VV.BoolVal . (/= 0) <$> readByteD
   T.INT8     -> VV.Int8Val . fromIntegral <$> readByteD
   T.INT16    -> VV.Int16Val <$> readInt16D
   T.INT32    -> VV.Int32Val <$> readInt32D
+  T.VARINT32 -> VV.VarInt32Val <$> readVarint32D
   T.INT64    -> VV.Int64Val <$> readInt64D
+  T.VARINT64 -> VV.VarInt64Val <$> readVarint64D
   T.UINT8    -> VV.Uint8Val <$> readByteD
   T.UINT16   -> VV.Uint16Val <$> readWord16D
   T.UINT32   -> VV.Uint32Val <$> readWord32D
+  T.VAR_UINT32 -> VV.VarUint32Val <$> readVaruint32D
   T.UINT64   -> VV.Uint64Val <$> readWord64D
+  T.VAR_UINT64 -> VV.VarUint64Val <$> readVaruint64D
   T.FLOAT32  -> VV.Float32Val <$> readFloat32D
   T.FLOAT64  -> VV.Float64Val <$> readFloat64D
-  T.STRING   -> VV.StringVal <$> readUtf8StringD
+  T.STRING   -> VV.StringVal <$> readForyString
   T.BINARY   -> do
     n   <- fromIntegral <$> readVaruint32D
     raw <- readBytesD n
     pure (VV.BinaryVal raw)
-  T.LIST           -> VV.ListVal <$> decodeCollection
-  T.SET            -> VV.SetVal  <$> decodeCollection
-  T.MAP            -> decodeMap
-  T.NAMED_STRUCT   -> do
+  T.LIST     -> VV.ListVal <$> decodeCollection
+  T.SET      -> VV.SetVal  <$> decodeCollection
+  T.MAP      -> decodeMapChunks
+  T.NAMED_STRUCT -> do
     ns     <- decodeMetaString
     typeNm <- decodeMetaString
     fields <- decodeStructFields
@@ -253,25 +260,153 @@ decodePayload tag = case tag of
   T.FLOAT32_ARRAY -> VV.Float32ArrayVal <$> decodeFloat32Array
   T.FLOAT64_ARRAY -> VV.Float64ArrayVal <$> decodeFloat64Array
   T.TypeId tw -> failD $
-    "Fury.Decode.decodePayload: unsupported type tag " ++ show tw
+    "Fury.Decode.decodePayloadFor: unsupported type tag " ++ show tw
+
+-- ---------------------------------------------------------------------------
+-- Strings
+-- ---------------------------------------------------------------------------
+
+readForyString :: DecodeM Text
+readForyString = do
+  hdr <- readVaruint64D
+  let !enc = hdr .&. 0x03
+      !len = fromIntegral (hdr `shiftR` 2) :: Int
+  raw <- readBytesD len
+  case enc of
+    0 -> pure (decodeLatin1 raw)
+    1 -> case decodeUtf16LE raw of
+           Right t -> pure t
+           Left e  -> failD ("Fury.Decode: invalid UTF-16: " ++ e)
+    2 -> case TE.decodeUtf8' raw of
+           Right t -> pure t
+           Left e  -> failD ("Fury.Decode: invalid UTF-8: " ++ show e)
+    _ -> failD ("Fury.Decode: reserved string encoding " ++ show enc)
+  where
+
+decodeLatin1 :: ByteString -> Text
+decodeLatin1 = T.pack . map (toEnum . fromIntegral) . BS.unpack
+
+decodeUtf16LE :: ByteString -> Either String Text
+decodeUtf16LE bs
+  | BS.length bs `mod` 2 /= 0 = Left "odd-length UTF-16 byte string"
+  | otherwise = Right (TE.decodeUtf16LE bs)
 
 -- ---------------------------------------------------------------------------
 -- Collections
 -- ---------------------------------------------------------------------------
 
+collFlagHasNull, collFlagDeclElementType, collFlagIsSameType :: Word8
+collFlagHasNull         = 0b0010
+collFlagDeclElementType = 0b0100
+collFlagIsSameType      = 0b1000
+
 decodeCollection :: DecodeM (Vector VV.Value)
 decodeCollection = do
-  n <- fromIntegral <$> readVaruint32D
-  V.replicateM n decodeValueSlot
+  count <- fromIntegral <$> readVaruint32D
+  if count == 0
+    then pure V.empty
+    else do
+      flag <- readByteD
+      let !sameType = flag .&. collFlagIsSameType /= 0
+          !hasNull  = flag .&. collFlagHasNull    /= 0
+          !decl     = flag .&. collFlagDeclElementType /= 0
+      if sameType
+        then do
+          elemTag <-
+            if decl
+              then pure Nothing  -- caller-side declared; we don't have one
+              else do
+                tw <- readVaruint32D
+                pure (Just (T.TypeId (fromIntegral tw)))
+          let readOne =
+                case elemTag of
+                  Just tg -> decodePayloadFor tg
+                  Nothing -> failD
+                    "Fury.Decode: same-type collection without element type"
+          if hasNull
+            then V.replicateM count $ do
+              f <- readByteD
+              if f == slotNull
+                then pure VV.NoneVal
+                else if f == slotNotNullValue
+                  then readOne
+                  else failD ("Fury.Decode: unexpected element flag "
+                              ++ show f)
+            else V.replicateM count readOne
+        else do
+          if hasNull
+            then V.replicateM count $ do
+              f <- readByteD
+              case f of
+                _ | f == slotNull -> pure VV.NoneVal
+                  | f == slotRef -> decodeRefBack
+                  | f == slotRefValue -> decodeRefValue
+                  | f == slotNotNullValue -> decodeTypedPayload
+                  | otherwise -> failD
+                      ("Fury.Decode: unexpected element flag " ++ show f)
+            else V.replicateM count decodeTypedPayload
 
-decodeMap :: DecodeM VV.Value
-decodeMap = do
-  n <- fromIntegral <$> readVaruint32D
-  pairs <- V.replicateM n $ do
-    k <- decodeValueSlot
-    v <- decodeValueSlot
-    pure (k, v)
-  pure (VV.MapVal pairs)
+-- ---------------------------------------------------------------------------
+-- Maps
+-- ---------------------------------------------------------------------------
+
+mapKeyHasNull, mapValueHasNull :: Word8
+mapKeyHasNull       = 0b0000_0010
+mapValueHasNull     = 0b0001_0000
+
+decodeMapChunks :: DecodeM VV.Value
+decodeMapChunks = do
+  total <- fromIntegral <$> readVaruint32D
+  if total == 0
+    then pure (VV.MapVal V.empty)
+    else do
+      pairs <- collectChunks total []
+      pure (VV.MapVal (V.fromList (reverse pairs)))
+  where
+    collectChunks 0 acc = pure acc
+    collectChunks remaining acc = do
+      header <- readByteD
+      let !keyNull = header .&. mapKeyHasNull /= 0
+          !valNull = header .&. mapValueHasNull /= 0
+      if keyNull && valNull
+        then collectChunks (remaining - 1) ((VV.NoneVal, VV.NoneVal) : acc)
+        else do
+          chunkSize <- fromIntegral <$> readByteD  -- pyfory: uint8
+          (keyTag, valTag) <- case (keyNull, valNull) of
+            (True, False) -> do
+              tw <- readVaruint32D
+              pure (Nothing, Just (T.TypeId (fromIntegral tw)))
+            (False, True) -> do
+              tw <- readVaruint32D
+              pure (Just (T.TypeId (fromIntegral tw)), Nothing)
+            (False, False) -> do
+              twk <- readVaruint32D
+              twv <- readVaruint32D
+              pure ( Just (T.TypeId (fromIntegral twk))
+                   , Just (T.TypeId (fromIntegral twv)))
+            (True, True) -> pure (Nothing, Nothing)
+          entries <- replicateMList chunkSize $ do
+            k <- case keyTag of
+              Nothing -> pure VV.NoneVal
+              Just tg -> decodePayloadFor tg
+            v <- case valTag of
+              Nothing -> pure VV.NoneVal
+              Just tg -> decodePayloadFor tg
+            pure (k, v)
+          collectChunks (remaining - chunkSize)
+                        (foldl (flip (:)) acc entries)
+
+replicateMList :: Int -> DecodeM a -> DecodeM [a]
+replicateMList n act
+  | n <= 0    = pure []
+  | otherwise = do
+      x  <- act
+      xs <- replicateMList (n - 1) act
+      pure (x : xs)
+
+-- ---------------------------------------------------------------------------
+-- Struct (NAMED_STRUCT)
+-- ---------------------------------------------------------------------------
 
 decodeStructFields :: DecodeM VV.StructFields
 decodeStructFields = do
@@ -282,7 +417,7 @@ decodeStructFields = do
     pure (name, val)
 
 -- ---------------------------------------------------------------------------
--- Meta-string deduplication (decoder side)
+-- Meta-string deduplication
 -- ---------------------------------------------------------------------------
 
 decodeMetaString :: DecodeM Text
@@ -328,7 +463,6 @@ decodeCompatibleStruct = do
         , dsNextTypeDefId = idx + 1
         }
       pure td
-  -- Field values follow, in TypeDef order.
   values <- V.mapM (const decodeValueSlot) (tdFieldNames td)
   let fields = V.zip (tdFieldNames td) values
   pure (VV.CompatibleStructVal (tdNamespace td) (tdTypeName td) fields)
@@ -344,9 +478,6 @@ decodeTypeDefBytes = do
         pure (0xFF + fromIntegral ext :: Int)
       else
         pure (fromIntegral rawSize :: Int)
-  -- We don\'t use bodyLen to bound reads because the inner reads
-  -- consume exactly the right number of bytes already; the size
-  -- prefix is purely informational for our simplified body layout.
   off0 <- getOff
   td <- decodeTypeDefBody
   off1 <- getOff
@@ -360,8 +491,6 @@ decodeTypeDefBody :: DecodeM TypeDef
 decodeTypeDefBody = do
   metaHeader <- readByteD
   let !rawNumFields = fromIntegral (metaHeader .&. 0x1F) :: Int
-      -- Bit 5 is REGISTER_BY_NAME; we always set it on the
-      -- encoder side, so decoders need only verify it.
       !registered = (metaHeader .&. 0x20) /= 0
   numFields <- if rawNumFields >= 31
     then do
@@ -376,7 +505,7 @@ decodeTypeDefBody = do
       typeNm <- decodeMetaString
       fieldNames <- V.replicateM numFields $ do
         fname <- decodeMetaString
-        _typeId <- readVaruint32D  -- discarded; see Fury.Encode
+        _typeId <- readVaruint32D
         pure fname
       pure (TypeDef ns typeNm fieldNames)
 

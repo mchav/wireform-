@@ -292,10 +292,14 @@ instance FromFury Int64 where
   fromFury (VV.Int64Val n) = Right n
   fromFury _ = Left "FromFury Int64: expected Int64"
 
+-- | The default encoding for Haskell @Int@ is xlang @VARINT64@,
+-- matching what @pyfory@ does for Python @int@.
 instance ToFury Int where
-  toFury = VV.Int64Val . fromIntegral
+  toFury = VV.VarInt64Val . fromIntegral
 
 instance FromFury Int where
+  fromFury (VV.VarInt64Val n) = Right (fromIntegral n)
+  fromFury (VV.VarInt32Val n) = Right (fromIntegral n)
   fromFury (VV.Int64Val n) = Right (fromIntegral n)
   fromFury (VV.Int32Val n) = Right (fromIntegral n)
   fromFury (VV.Int16Val n) = Right (fromIntegral n)

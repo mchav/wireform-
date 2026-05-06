@@ -44,11 +44,21 @@ data Value
   | Int8Val       {-# UNPACK #-} !Int8
   | Int16Val      {-# UNPACK #-} !Int16
   | Int32Val      {-# UNPACK #-} !Int32
+  | VarInt32Val   {-# UNPACK #-} !Int32
+    -- ^ Zigzag-then-varuint-encoded int32 (xlang VARINT32, type id 5).
   | Int64Val      {-# UNPACK #-} !Int64
+  | VarInt64Val   {-# UNPACK #-} !Int64
+    -- ^ Zigzag-then-varuint-encoded int64 (xlang VARINT64, type id 7).
+    -- This is the encoding the Apache Fory python and java
+    -- implementations use by default for native integer types.
   | Uint8Val      {-# UNPACK #-} !Word8
   | Uint16Val     {-# UNPACK #-} !Word16
   | Uint32Val     {-# UNPACK #-} !Word32
+  | VarUint32Val  {-# UNPACK #-} !Word32
+    -- ^ Varuint-encoded uint32 (xlang VAR_UINT32, type id 12).
   | Uint64Val     {-# UNPACK #-} !Word64
+  | VarUint64Val  {-# UNPACK #-} !Word64
+    -- ^ Varuint-encoded uint64 (xlang VAR_UINT64, type id 14).
   | Float32Val    {-# UNPACK #-} !Float
   | Float64Val    {-# UNPACK #-} !Double
   | StringVal     !Text
@@ -101,11 +111,15 @@ typeIdOf v = case v of
   Int8Val{}            -> T.INT8
   Int16Val{}           -> T.INT16
   Int32Val{}           -> T.INT32
+  VarInt32Val{}        -> T.VARINT32
   Int64Val{}           -> T.INT64
+  VarInt64Val{}        -> T.VARINT64
   Uint8Val{}           -> T.UINT8
   Uint16Val{}          -> T.UINT16
   Uint32Val{}          -> T.UINT32
+  VarUint32Val{}       -> T.VAR_UINT32
   Uint64Val{}          -> T.UINT64
+  VarUint64Val{}       -> T.VAR_UINT64
   Float32Val{}         -> T.FLOAT32
   Float64Val{}         -> T.FLOAT64
   StringVal{}          -> T.STRING
