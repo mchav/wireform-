@@ -834,7 +834,7 @@ consumeQuotedAt q !openInd = go0 False
 
     -- The very first attempt; no fold prefix has been emitted yet.
     go0 !multi !buf = case parser 0 buf of
-      Just (v, p)   -> finish multi v (T.drop p buf)
+      Just (v, p)   -> finish multi v (bDrop p buf)
       Nothing       -> readMore multi buf 0
 
     -- @blanks@ counts consecutive empty continuation lines we've
@@ -885,7 +885,7 @@ consumeQuotedAt q !openInd = go0 False
                               | otherwise   = T.replicate blanks (T.pack "\n")
                         in (buf <> joinSep <> body', True)
               in joined `seq` case parser 0 buf' of
-                   Just (v, p)   -> finish True v (T.drop p buf')
+                   Just (v, p)   -> finish True v (bDrop p buf')
                    Nothing       -> readMore True buf' 0
 
     -- A run of trailing backslashes counts as "even" when it
