@@ -1094,16 +1094,32 @@ parseSeqItem !ind = do
   when (separatorHasTab && startsWithBlockIndicator after') $
     failP $ "tab character used as indentation before nested block marker (line "
             ++ show (lineNo l) ++ ")"
-  if T.null after'
+  -- A '#' immediately after '- ' is a comment, not content; the
+  -- seq item is empty (Null).
+  let isCommentOnly = case T.uncons after' of
+        Just ('#', _) -> True
+        _             -> False
+  if isCommentOnly || T.null after'
     then do
       mNext <- peekLine
       case mNext of
         Just l2 | lineIndent l2 > ind -> parseNode (lineIndent l2)
         _ -> pure YNull
     else do
-      let virt = PLine (lineNo l) (ind + 2) LContent after' after'
+      -- For a /block scalar/ inline value, the block scalar's body
+      -- must be at indent > the seq dash itself (= 'ind'), not >
+      -- the value column (ind + 2). So we use 'ind' for the
+      -- virtual line in that case so 'collectScalarLines' uses
+      -- the right termination boundary.
+      let isBlockScalarHead = case T.uncons after' of
+            Just ('|', _) -> True
+            Just ('>', _) -> True
+            _             -> False
+          virtInd | isBlockScalarHead = ind
+                  | otherwise         = ind + 2
+          virt = PLine (lineNo l) virtInd LContent after' after'
       pushLine virt
-      parseNode (ind + 2)
+      parseNode virtInd
 
 -- ---------------------------------------------------------------------------
 -- Block mapping
