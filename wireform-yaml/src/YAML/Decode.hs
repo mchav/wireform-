@@ -162,8 +162,12 @@ isSkippableNonDirective l = case lineKind l of
 newtype P a = P { unP :: PS -> Either String (a, PS) }
 
 data PS = PS
-  { psLines   :: ![PLine]
-  , psAnchors :: !(Map Text Value)
+  { psLines     :: ![PLine]
+  , psAnchors   :: !(Map Text Value)
+    -- ^ Anchor environment, reset between documents.
+  , psShortcuts :: !(Map Text Text)
+    -- ^ %TAG shorthand prefixes ('!handle!' → expansion).
+    -- Reset between documents.
   }
 
 instance Functor P where
@@ -233,13 +237,25 @@ resolveAnchor name = do
 resetAnchors :: P ()
 resetAnchors = modifyS (\s -> s { psAnchors = Map.empty })
 
+resetShortcuts :: P ()
+resetShortcuts = modifyS (\s -> s { psShortcuts = Map.empty })
+
+recordShortcut :: Text -> Text -> P ()
+recordShortcut handle prefix =
+  modifyS (\s -> s { psShortcuts = Map.insert handle prefix (psShortcuts s) })
+
+lookupShortcut :: Text -> P (Maybe Text)
+lookupShortcut handle = do
+  s <- getS
+  pure (Map.lookup handle (psShortcuts s))
+
 -- ---------------------------------------------------------------------------
 -- Stream / document
 -- ---------------------------------------------------------------------------
 
 parseStream :: [PLine] -> Either String [Document]
 parseStream lns =
-  case unP (loop True True) (PS lns Map.empty) of
+  case unP (loop True True) (PS lns Map.empty Map.empty) of
     Left err      -> Left err
     Right (ds, _) -> Right ds
   where
@@ -299,7 +315,8 @@ consumeDirectives = go False False
                 failP ("invalid %YAML version " ++ T.unpack ver
                        ++ " (line " ++ show (lineNo l) ++ ")")
               go True True
-            ("TAG" : _handle : _prefix : []) ->
+            ("TAG" : handle : prefix : []) -> do
+              recordShortcut handle prefix
               go True sawYaml
             ("TAG" : _) ->
               failP ("malformed %TAG directive (line "
@@ -321,10 +338,10 @@ validYamlVersion t = case T.splitOn (T.pack ".") t of
 
 parseDocument :: P Document
 parseDocument = do
-  -- Validate any directives that precede the document body. We
-  -- accept blank / comment lines between directives, but reject
-  -- duplicate %YAML / malformed directive lines, and require an
-  -- explicit '---' marker after one or more directives.
+  -- %TAG shortcuts are scoped to a single document — clear any
+  -- left over from the previous one before we parse the new
+  -- prologue (spec §6.8.2).
+  resetShortcuts
   hadDirective <- consumeDirectives
   ls0' <- getLines
   let nextSig = dropWhile isSkippableNonDirective ls0'
@@ -607,11 +624,11 @@ parseTagged :: P Value
 parseTagged = do
   Just l <- popLine
   let (tg, rest) = breakOnSpace (lineBody l)
-      tag = expandTag tg
       after0 = T.stripStart rest
       after = case T.uncons after0 of
         Just ('#', _) -> T.empty
         _             -> after0
+  tag <- expandTagP (lineNo l) tg
   -- Tag tokens can contain URI characters (incl. ',') /inside/
   -- a verbatim '!<...>' wrapper, but a bare tag ('!!str' /
   -- '!foo') may not include ',' or flow indicators. Reject the
@@ -2231,6 +2248,29 @@ expandTag t
   | T.isPrefixOf "!<" t && T.isSuffixOf ">" t =
       Tag (T.init (T.drop 2 t))
   | otherwise = Tag t
+
+-- | Resolve a tag token against the current %TAG shortcut map.
+-- Refuses references to undefined shortcuts (spec §6.8.2).
+expandTagP :: Int -> Text -> P Tag
+expandTagP lno t
+  -- '!!something' uses the implicit secondary handle '!!'.
+  | T.isPrefixOf "!!" t = pure (expandTag t)
+  -- '!<verbatim>' is a verbatim tag.
+  | T.isPrefixOf "!<" t && T.isSuffixOf ">" t = pure (expandTag t)
+  -- '!handle!suffix' uses a primary or named shortcut.
+  | T.isPrefixOf "!" t
+  , let rest = T.drop 1 t
+  , (handleBody, sfx) <- T.break (== '!') rest
+  , not (T.null sfx)
+  , let handle = T.cons '!' (T.snoc handleBody '!')
+  = do
+      ms <- lookupShortcut handle
+      case ms of
+        Just prefix -> pure (Tag (prefix <> T.drop 1 sfx))
+        Nothing -> failP $ "undefined %TAG shortcut "
+                         ++ show handle ++ " (line "
+                         ++ show lno ++ ")"
+  | otherwise = pure (expandTag t)
 
 -- ---------------------------------------------------------------------------
 -- @key: value@ split (top-level, respects quotes / brackets)
