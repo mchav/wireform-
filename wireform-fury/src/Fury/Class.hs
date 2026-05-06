@@ -20,6 +20,24 @@ module Fury.Class
   , encodeFury
   , decodeFury
 
+    -- * Reference-tracked sharing
+  , Shared (..)
+
+    -- * Primitive array newtypes
+    --
+    -- $primitiveArrays
+  , BoolArray (..)
+  , Int8Array (..)
+  , Int16Array (..)
+  , Int32Array (..)
+  , Int64Array (..)
+  , Uint8Array (..)
+  , Uint16Array (..)
+  , Uint32Array (..)
+  , Uint64Array (..)
+  , Float32Array (..)
+  , Float64Array (..)
+
     -- * Generic helpers
   , GToFury (..)
   , GFromFury (..)
@@ -77,6 +95,157 @@ encodeFury = E.encode . toFury
 -- | Decode any 'FromFury' from a fory-encoded byte string.
 decodeFury :: FromFury a => ByteString -> Either String a
 decodeFury bs = D.decode bs >>= fromFury
+
+-- ---------------------------------------------------------------------------
+-- Reference-tracked sharing
+-- ---------------------------------------------------------------------------
+
+-- | Wrap a value to opt into Fory\'s reference-tracking. The
+-- 'sharingKey' field is a user-supplied 'Int' that tags logically
+-- identical objects: every occurrence of the same @sharingKey@
+-- under a single 'encodeFury' call after the first encodes as a
+-- @REF_FLAG@ back-reference rather than a full payload.
+--
+-- @
+-- let x = Shared 1 (StringVal \"hello\")
+-- encodeFury (ListVal (V.fromList [toFury x, toFury x, toFury x]))
+-- -- emits the string once + two back-refs
+-- @
+--
+-- Round-trip note: the 'sharingKey' is opaque to the wire (only
+-- the encoder\'s auto-assigned 0-based @ref_id@ travels). On
+-- decode the recovered key is the wire id, not the original
+-- user key. Use @Shared@ for sharing semantics, not for
+-- preserving the integer key verbatim.
+data Shared a = Shared
+  { sharingKey :: !Int
+  , unShared   :: !a
+  } deriving (Eq, Show)
+
+instance ToFury a => ToFury (Shared a) where
+  toFury (Shared k a) = VV.RefVal k (toFury a)
+
+instance FromFury a => FromFury (Shared a) where
+  fromFury (VV.RefVal k inner) = Shared k <$> fromFury inner
+  fromFury v = Shared 0 <$> fromFury v
+  -- Bare values decode as @Shared 0 v@ for permissiveness — the
+  -- user explicitly opted into ref-tracking on the encode side
+  -- but the wire doesn\'t guarantee it.
+
+-- ---------------------------------------------------------------------------
+-- Primitive 1-D array newtypes
+-- ---------------------------------------------------------------------------
+
+-- $primitiveArrays
+--
+-- The default 'ToFury' instance for @'Vector' a@ produces a
+-- 'VV.ListVal'. To opt into Fory\'s dense one-byte-per-element
+-- (or fixed-width little-endian) array encoding, wrap in one of
+-- the following newtypes:
+--
+-- @
+-- toFury (Int32Array (V.fromList [1,2,3]))  -- 'VV.Int32ArrayVal'
+-- toFury [1,2,3 :: Int32]                    -- 'VV.ListVal' of int32
+-- @
+
+newtype BoolArray = BoolArray { unBoolArray :: Vector Bool }
+  deriving stock (Eq, Show)
+
+newtype Int8Array = Int8Array { unInt8Array :: Vector Int8 }
+  deriving stock (Eq, Show)
+
+newtype Int16Array = Int16Array { unInt16Array :: Vector Int16 }
+  deriving stock (Eq, Show)
+
+newtype Int32Array = Int32Array { unInt32Array :: Vector Int32 }
+  deriving stock (Eq, Show)
+
+newtype Int64Array = Int64Array { unInt64Array :: Vector Int64 }
+  deriving stock (Eq, Show)
+
+newtype Uint8Array = Uint8Array { unUint8Array :: Vector Word8 }
+  deriving stock (Eq, Show)
+
+newtype Uint16Array = Uint16Array { unUint16Array :: Vector Word16 }
+  deriving stock (Eq, Show)
+
+newtype Uint32Array = Uint32Array { unUint32Array :: Vector Word32 }
+  deriving stock (Eq, Show)
+
+newtype Uint64Array = Uint64Array { unUint64Array :: Vector Word64 }
+  deriving stock (Eq, Show)
+
+newtype Float32Array = Float32Array { unFloat32Array :: Vector Float }
+  deriving stock (Eq, Show)
+
+newtype Float64Array = Float64Array { unFloat64Array :: Vector Double }
+  deriving stock (Eq, Show)
+
+instance ToFury BoolArray where
+  toFury = VV.BoolArrayVal . unBoolArray
+instance FromFury BoolArray where
+  fromFury (VV.BoolArrayVal v) = Right (BoolArray v)
+  fromFury _ = Left "FromFury BoolArray: expected BoolArrayVal"
+
+instance ToFury Int8Array where
+  toFury = VV.Int8ArrayVal . unInt8Array
+instance FromFury Int8Array where
+  fromFury (VV.Int8ArrayVal v) = Right (Int8Array v)
+  fromFury _ = Left "FromFury Int8Array: expected Int8ArrayVal"
+
+instance ToFury Int16Array where
+  toFury = VV.Int16ArrayVal . unInt16Array
+instance FromFury Int16Array where
+  fromFury (VV.Int16ArrayVal v) = Right (Int16Array v)
+  fromFury _ = Left "FromFury Int16Array: expected Int16ArrayVal"
+
+instance ToFury Int32Array where
+  toFury = VV.Int32ArrayVal . unInt32Array
+instance FromFury Int32Array where
+  fromFury (VV.Int32ArrayVal v) = Right (Int32Array v)
+  fromFury _ = Left "FromFury Int32Array: expected Int32ArrayVal"
+
+instance ToFury Int64Array where
+  toFury = VV.Int64ArrayVal . unInt64Array
+instance FromFury Int64Array where
+  fromFury (VV.Int64ArrayVal v) = Right (Int64Array v)
+  fromFury _ = Left "FromFury Int64Array: expected Int64ArrayVal"
+
+instance ToFury Uint8Array where
+  toFury = VV.Uint8ArrayVal . unUint8Array
+instance FromFury Uint8Array where
+  fromFury (VV.Uint8ArrayVal v) = Right (Uint8Array v)
+  fromFury _ = Left "FromFury Uint8Array: expected Uint8ArrayVal"
+
+instance ToFury Uint16Array where
+  toFury = VV.Uint16ArrayVal . unUint16Array
+instance FromFury Uint16Array where
+  fromFury (VV.Uint16ArrayVal v) = Right (Uint16Array v)
+  fromFury _ = Left "FromFury Uint16Array: expected Uint16ArrayVal"
+
+instance ToFury Uint32Array where
+  toFury = VV.Uint32ArrayVal . unUint32Array
+instance FromFury Uint32Array where
+  fromFury (VV.Uint32ArrayVal v) = Right (Uint32Array v)
+  fromFury _ = Left "FromFury Uint32Array: expected Uint32ArrayVal"
+
+instance ToFury Uint64Array where
+  toFury = VV.Uint64ArrayVal . unUint64Array
+instance FromFury Uint64Array where
+  fromFury (VV.Uint64ArrayVal v) = Right (Uint64Array v)
+  fromFury _ = Left "FromFury Uint64Array: expected Uint64ArrayVal"
+
+instance ToFury Float32Array where
+  toFury = VV.Float32ArrayVal . unFloat32Array
+instance FromFury Float32Array where
+  fromFury (VV.Float32ArrayVal v) = Right (Float32Array v)
+  fromFury _ = Left "FromFury Float32Array: expected Float32ArrayVal"
+
+instance ToFury Float64Array where
+  toFury = VV.Float64ArrayVal . unFloat64Array
+instance FromFury Float64Array where
+  fromFury (VV.Float64ArrayVal v) = Right (Float64Array v)
+  fromFury _ = Left "FromFury Float64Array: expected Float64ArrayVal"
 
 -- ---------------------------------------------------------------------------
 -- Base-type instances
