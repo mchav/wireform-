@@ -49,6 +49,7 @@ import Data.Proxy (Proxy (..))
 
 import qualified Proto.Decode as PD
 import qualified Proto.Encode as PE
+import qualified Proto.JSON.Extension as PJExt
 import qualified Proto.TextFormat as PTF
 import qualified Proto.TH.Metadata as PTM
 
@@ -226,7 +227,21 @@ serializeTAT2 fmt tm = case fmt of
   WireFormat'Unknown _   -> pure (serializeError "Unknown WireFormat enum value")
 
 hasUnknownFields2 :: TestAllTypesProto2 -> Bool
-hasUnknownFields2 = not . null . testAllTypesProto2UnknownFields
+hasUnknownFields2 m =
+  any (\uf -> not (knownExtension uf))
+      (testAllTypesProto2UnknownFields m)
+  where
+    knownExtension uf =
+      case PJExt.lookupExtensionByNumber
+             (T.pack "protobuf_test_messages.proto2.TestAllTypesProto2")
+             (extUfNumber uf) of
+        Just _  -> True
+        Nothing -> False
+    extUfNumber uf = case uf of
+      PD.UnknownVarint   n _ -> n
+      PD.UnknownFixed64  n _ -> n
+      PD.UnknownLenDelim n _ -> n
+      PD.UnknownFixed32  n _ -> n
 
 -- ---------------------------------------------------------------------------
 -- Helpers

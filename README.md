@@ -348,17 +348,8 @@ cabal test wireform-proto:protobuf-conformance-test
 ```
 
 Today's baseline against `protocolbuffers/protobuf@v28.2`:
-**1412 successes, 1262 skipped, 1 expected failure, 0 unexpected
-failures**. The single remaining expected failure
-(`EnumFieldUnknownValue.Validator`) needs proto3 open-enum
-semantics — preserving an unknown numeric enum value across a
-JSON round-trip — which would require representing each
-generated enum as
-`data NestedEnum = ... | NestedEnum'Unknown !Int32` and
-threading the new constructor through every encoder / decoder /
-JSON path the deriver emits. Out of scope for the current
-correctness pass; tracked in
-`wireform-proto/test-conformance/failure_list_proto3.txt`.
+**2675 successes, 0 skipped, 0 expected failures, 0 unexpected
+failures** across the proto3 + proto2 binary/json suite.
 
 Categories cleared this round (119 → 0 unexpected failures):
 

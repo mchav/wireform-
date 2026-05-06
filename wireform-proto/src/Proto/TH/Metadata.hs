@@ -78,6 +78,8 @@ import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import GHC.IO.Unsafe (unsafePerformIO)
 import qualified System.IO
 import qualified Data.Aeson as Aeson
+import qualified Proto.JSON.Extension as PJExt
+import qualified Proto.Decode as PD
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
 import qualified Data.Aeson.Types as AesonT
@@ -344,16 +346,21 @@ oneFieldDescriptor tyName MetaField{..} = do
 -- 64-bit-integer-as-string encoding happen automatically.
 mkAesonInstancesForMessage
   :: Name        -- ^ Type name.
+  -> Text        -- ^ Fully-qualified proto name (drives the
+                 --   proto2 extension JSON registry lookup).
+  -> Maybe Name  -- ^ Unknown-fields selector ('Nothing' for
+                 --   types that don't carry one — currently
+                 --   none, but kept for forward compat).
   -> Name        -- ^ @default<Tyname>@.
   -> [MetaField]
   -> Q [Dec]
-mkAesonInstancesForMessage tyName defName fields = do
-  toJSONDec   <- mkToJSONForMessage tyName fields
-  fromJSONDec <- mkFromJSONForMessage tyName defName fields
+mkAesonInstancesForMessage tyName fqName ufSel defName fields = do
+  toJSONDec   <- mkToJSONForMessage tyName fqName ufSel fields
+  fromJSONDec <- mkFromJSONForMessage tyName fqName ufSel defName fields
   pure [toJSONDec, fromJSONDec]
 
-mkToJSONForMessage :: Name -> [MetaField] -> Q Dec
-mkToJSONForMessage tyName fields = do
+mkToJSONForMessage :: Name -> Text -> Maybe Name -> [MetaField] -> Q Dec
+mkToJSONForMessage tyName fqName mUfSel fields = do
   msgVar <- newName "msg"
   -- Each field contributes a @[(Text, Aeson.Value)]@ — a singleton
   -- when we want to emit the field, an empty list when we want to
@@ -361,13 +368,30 @@ mkToJSONForMessage tyName fields = do
   -- defaults dropped; oneofs reduced to at most one entry under
   -- the chosen variant's key.
   entryExps <- traverse (toJSONEntry msgVar) fields
-  let body = AppE (VarE 'PJ.jsonObject)
-              (AppE (VarE 'concat) (ListE entryExps))
+  -- Proto2 extensions live in the message's unknown-fields slot.
+  -- If the runtime extension registry has a JSON codec for any of
+  -- those slots, surface them as bracket-quoted '[FQN]'-keyed
+  -- entries alongside the regular fields.
+  let extensionEntries = case mUfSel of
+        Nothing  -> ListE []
+        Just ufN -> AppE (AppE (VarE 'extEntries) (textLit fqName))
+                         (AppE (VarE ufN) (VarE msgVar))
+      bodyExp =
+        AppE (VarE 'PJ.jsonObject)
+             (InfixE (Just (AppE (VarE 'concat) (ListE entryExps)))
+                     (VarE '(<>))
+                     (Just extensionEntries))
   pure $ InstanceD Nothing []
     (AppT (ConT ''Aeson.ToJSON) (ConT tyName))
     [ FunD 'Aeson.toJSON
-        [Clause [VarP msgVar] (NormalB body) []]
+        [Clause [VarP msgVar] (NormalB bodyExp) []]
     ]
+
+-- | Bridge into 'PJExt.extensionEntriesForJson' that lifts the
+-- runtime registry into the [(Text, Aeson.Value)] form
+-- 'PJ.jsonObject' wants.
+extEntries :: Text -> [PD.UnknownField] -> [(Text, Aeson.Value)]
+extEntries = PJExt.extensionEntriesForJson
 
 -- | One field's JSON entries. Returns a 'Q Exp' of type
 -- @[(Text, Aeson.Value)]@: empty when the field is at its default
@@ -631,28 +655,76 @@ scalarTagE = \case
   JSString    -> ConE 'JSString
   JSBytes     -> ConE 'JSBytes
 
-mkFromJSONForMessage :: Name -> Name -> [MetaField] -> Q Dec
-mkFromJSONForMessage tyName defName fields = do
+mkFromJSONForMessage
+  :: Name -> Text -> Maybe Name -> Name -> [MetaField] -> Q Dec
+mkFromJSONForMessage tyName fqName mUfSel defName fields = do
   objVar    <- newName "obj"
   fldNames  <- mapM (\mf -> (,) mf <$> newName ("fld_" ++ nameBase (mfSelector mf))) fields
   binds <- traverse (uncurry (parseBindStmt objVar)) fldNames
   let assigns = fmap (uncurry (fromJSONAssign defName)) fldNames
-      -- Empty messages have no field-level updates: GHC rejects
-      -- 'RecUpdE def []' as "Empty record update", so collapse
-      -- it to the bare default value.
-      finalE
+      -- Build the record-update target. For empty messages we
+      -- can't use 'RecUpdE def []' (GHC rejects it as "Empty
+      -- record update"), so fall back to the bare default.
+      baseE
         | null assigns = VarE defName
         | otherwise    = RecUpdE (VarE defName) assigns
-      bodyDo  = DoE Nothing (binds ++ [NoBindS (AppE (VarE 'pure) finalE)])
-      -- Aeson.withObject "TypeName" $ \obj -> ...
       typeNameLit = LitE (StringL (nameBase tyName))
-      body = AppE (AppE (VarE 'Aeson.withObject) typeNameLit)
-               (LamE [VarP objVar] bodyDo)
-  pure $ InstanceD Nothing []
-    (AppT (ConT ''Aeson.FromJSON) (ConT tyName))
-    [ FunD 'Aeson.parseJSON
-        [Clause [] (NormalB body) []]
-    ]
+  case mUfSel of
+    Nothing -> do
+      let bodyDo = DoE Nothing (binds ++ [NoBindS (AppE (VarE 'pure) baseE)])
+          body   = AppE (AppE (VarE 'Aeson.withObject) typeNameLit)
+                     (LamE [VarP objVar] bodyDo)
+      pure $ InstanceD Nothing []
+        (AppT (ConT ''Aeson.FromJSON) (ConT tyName))
+        [FunD 'Aeson.parseJSON [Clause [] (NormalB body) []]]
+    Just ufN -> do
+      -- Proto2 extension JSON: drain any '[FQN]'-keyed entries
+      -- from the input object into the message's unknown-fields
+      -- slot via the runtime registry. The base record update
+      -- runs first; the result is then patched with the parsed
+      -- extension UFs.
+      withExtVar <- newName "withExt"
+      let extDrainE =
+            AppE (AppE (VarE 'extDrain) (textLit fqName))
+                 (VarE objVar)
+          ufFieldUpdate ufs =
+            RecUpdE baseE [(ufN, AppE (AppE (VarE '(<>))
+                                            (AppE (VarE ufN) baseE))
+                                       ufs)]
+          finalE =
+            CaseE extDrainE
+              [ Match (ConP 'Right [] [VarP withExtVar])
+                  (NormalB (AppE (VarE 'pure) (ufFieldUpdate (VarE withExtVar))))
+                  []
+              , Match (ConP 'Left [] [VarP withExtVar])
+                  (NormalB (AppE (VarE 'fail) (VarE withExtVar))) []
+              ]
+          bodyDo = DoE Nothing (binds ++ [NoBindS finalE])
+          body   = AppE (AppE (VarE 'Aeson.withObject) typeNameLit)
+                     (LamE [VarP objVar] bodyDo)
+      pure $ InstanceD Nothing []
+        (AppT (ConT ''Aeson.FromJSON) (ConT tyName))
+        [FunD 'Aeson.parseJSON [Clause [] (NormalB body) []]]
+
+-- | Walk every key in the JSON object: if it's bracket-quoted
+-- ('[FQN]') and the registry has a codec, parse the value into
+-- an 'UnknownField'. Plain field keys are ignored — they were
+-- already consumed by the per-field parsers.
+extDrain
+  :: Text -> Aeson.Object -> Either String [PD.UnknownField]
+extDrain parentFqn obj =
+  let go acc (k, v) = case PJExt.parseExtensionEntry parentFqn k v of
+        Nothing -> Right acc
+        Just (Right uf) -> Right (uf : acc)
+        Just (Left e)   -> Left e
+  in case foldlEither go [] (AesonKM.toList obj) of
+       Right xs -> Right (reverse xs)
+       Left e   -> Left e
+  where
+    foldlEither _ z []     = Right z
+    foldlEither f z (x:xs) = case f z x of
+      Right z' -> foldlEither f z' xs
+      Left e   -> Left e
 
 parseBindStmt :: Name -> MetaField -> Name -> Q Stmt
 parseBindStmt objVar mf fldVar = case mfJsonShape mf of

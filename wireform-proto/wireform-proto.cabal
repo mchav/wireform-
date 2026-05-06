@@ -80,6 +80,7 @@ library
     Proto.Internal.Either
     Proto.Internal.Maybe
     Proto.JSON
+    Proto.JSON.Extension
     Proto.JSON.WellKnown
     Proto.Lens
     Proto.Merge

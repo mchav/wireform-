@@ -4,34 +4,16 @@
 # applies a single failure list to whichever suite it's
 # currently running.
 #
-# Status: 2 expected failures / 2673 successes / 0 skipped /
+# Status: 0 expected failures / 2675 successes / 0 skipped /
 # 0 unexpected failures.
 #
-# Today's residue:
+# Add an entry below when a test is intentionally not supported
+# (open issues should be tracked separately). The runner emits
+# every test under a unique '<level>.<edition>.<input>.<test
+# name>.<output>' identifier — paste the full identifier on its
+# own line to suppress it.
 #
-#   * EnumFieldUnknownValue.Validator (Proto3 Required, JsonInput):
-#     proto3 "open enum" semantics ask us to preserve unknown
-#     numeric enum values across a JSON round-trip — input
-#     '{"optionalNestedEnum": 123}' should re-emit as
-#     '{"optionalNestedEnum": 123}' even though 123 isn't a
-#     declared NestedEnum value. Doing this faithfully requires
-#     representing each generated enum as
-#     'data NestedEnum = ... | NestedEnum'Unknown !Int32' and
-#     threading the new constructor through every encoder /
-#     decoder / JSON path the deriver emits.
-#
-#   * FieldNameExtension.Validator (Proto2 Recommended, JsonInput):
-#     proto2 extensions accessed via the JSON bracket syntax
-#     '[protobuf_test_messages.proto2.extension_int32]'.
-#     Supporting it requires parser hooks for the
-#     '[FQN]'-quoted key form plus extension dispatch from
-#     loadProto-generated FromJSON instances. Out of scope for
-#     this round.
-#
-# Update this file when the suite is re-run on a new VM:
+# Re-run procedure:
 #   cabal test wireform-proto:protobuf-conformance-test \
 #     2>&1 | tee /tmp/conformance.log
 # then mine /tmp/conformance.log for new failure names.
-
-Required.Proto3.JsonInput.EnumFieldUnknownValue.Validator
-Recommended.Proto2.JsonInput.FieldNameExtension.Validator

@@ -26,12 +26,8 @@
 -- The two splices are kept on separate top-level pragmas so a
 -- compile error in one doesn't blow up the entire module — the
 -- error message points straight at the offending @.proto@ file.
-module Test.Conformance.Schema
-  ( -- Re-exports the generated types under their proto names.
-    -- Listing them here forces GHC to link them in even when
-    -- the compile-pipeline strips otherwise-unused TH outputs.
-    module Test.Conformance.Schema
-  ) where
+{-# OPTIONS_GHC -Wno-missing-export-lists #-}
+module Test.Conformance.Schema where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq

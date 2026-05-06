@@ -84,6 +84,14 @@ module Proto.TH
 
 import Control.Applicative ((<|>))
 import Data.ByteString (ByteString)
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as AesonT
+import qualified Data.Scientific as Sci
+import qualified Data.Text.Encoding as TE
+import qualified Proto.JSON as PJ
+import qualified Proto.JSON.Extension as PJExt
+import qualified Proto.Wire.Decode as PWDec
+import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
@@ -359,7 +367,7 @@ topLevelToDecls :: ScopeCtx -> RepConfig -> THHooks -> TopLevel -> Q [Dec]
 topLevelToDecls scope cfg hooks = \case
   TLMessage msg -> messageToDecls'' scope cfg hooks msg
   TLEnum ed     -> enumToDecls'' (scPackage scope) (scParents scope) hooks ed
-  TLExtend owner fields -> extendToDecls owner fields
+  TLExtend owner fields -> extendToDecls (scPackage scope) owner fields
   _             -> pure []
 
 messageToDecls :: MessageDef -> Q [Dec]
@@ -434,7 +442,14 @@ messageToDecls'' scopeCtx cfg hooks msg = do
       metaFields = fmap (fieldSpecToMetaField scopeCtx tyName) fields
   protoMsgDecs <- PTM.mkProtoMessageInstance tyName fqName
                     (scPackage scopeCtx) defName metaFields
-  aesonDecs    <- PTM.mkAesonInstancesForMessage tyName defName metaFields
+  -- The unknown-fields selector name (always present on
+  -- TH-generated messages) — passing it through lets the JSON
+  -- splice patch in proto2 extension entries via the runtime
+  -- registry. We use the same naming convention as
+  -- 'unknownFieldsName'.
+  let ufSelName = unknownFieldsName tyName
+  aesonDecs    <- PTM.mkAesonInstancesForMessage tyName fqName (Just ufSelName)
+                    defName metaFields
   hashableDec  <- PTM.mkHashableInstanceForMessage tyName metaFields
 
   -- Per-oneof carrier sum: ToJSON / FromJSON / Hashable. The data
@@ -1098,13 +1113,21 @@ mkHasExtensionsInstance tyName _protoName = do
 -- | Handle a @TLExtend@ top-level declaration: emit one
 -- 'Proto.Extension.Extension' binding per extension field in the
 -- block. The owning message's 'HasExtensions' instance is emitted
--- separately by 'messageToDecls''.
-extendToDecls :: Text -> [FieldDef] -> Q [Dec]
-extendToDecls ownerProtoName fields =
-  concat <$> mapM (oneExtensionDec ownerHsName ownerPrefix) fields
+-- separately by 'messageToDecls''. Each extension also registers
+-- itself with the runtime JSON-extension registry so the
+-- generated FromJSON\/ToJSON instances pick up the bracket-quoted
+-- @[FQN]@ syntax automatically.
+extendToDecls :: Text -> Text -> [FieldDef] -> Q [Dec]
+extendToDecls pkg ownerProtoName fields =
+  concat <$> mapM (oneExtensionDec ownerHsName ownerPrefix parentFqn pkg) fields
   where
     ownerHsName = mkName (T.unpack (hsTypeName (lastProtoSegment ownerProtoName)))
     ownerPrefix = lowerFirst (hsTypeName (lastProtoSegment ownerProtoName))
+    parentFqn   = case T.null pkg of
+      True  -> ownerProtoName
+      False -> case T.isInfixOf (T.singleton '.') ownerProtoName of
+                 True  -> ownerProtoName
+                 False -> pkg <> T.singleton '.' <> ownerProtoName
 
 lastProtoSegment :: Text -> Text
 lastProtoSegment t = case T.splitOn "." t of
@@ -1117,8 +1140,8 @@ lastProtoSegment t = case T.splitOn "." t of
 -- 'Ext.reIsPacked' flag set per the field's @[packed = ...]@
 -- option, defaulting to 'False' for proto2 / 'True' for fixed-width
 -- packable scalars in proto3).
-oneExtensionDec :: Name -> Text -> FieldDef -> Q [Dec]
-oneExtensionDec ownerHs ownerPrefix fd = case fieldLabel fd of
+oneExtensionDec :: Name -> Text -> Text -> Text -> FieldDef -> Q [Dec]
+oneExtensionDec ownerHs ownerPrefix parentFqn pkg fd = case fieldLabel fd of
   Just Repeated ->
     case thExtensionPayloadCore (fieldType fd) of
       Nothing -> pure []
@@ -1158,7 +1181,45 @@ oneExtensionDec ownerHs ownerPrefix fd = case fieldLabel fd of
                         { Ext.extNumber = $(litE (IntegerL (fromIntegral num)))
                         , Ext.extType   = $extConE
                         } |]) []
-        pure [sig, body]
+        regDecs <- extensionJsonRegistrationDecs
+                     parentFqn pkg (fieldName fd) num extConName
+        pure (sig : body : regDecs)
+
+-- | Emit a top-level @register<ExtName>Json :: IO ()@ binding
+-- that, when called, registers the extension's JSON codec in
+-- the runtime registry from "Proto.JSON.Extension". The user
+-- calls 'forceLoadProtoExtensionRegistrations' (also generated
+-- by 'loadProto', collected per-file at the bottom) to drain
+-- the file's registrations on startup.
+extensionJsonRegistrationDecs
+  :: Text  -- ^ Parent message FQN
+  -> Text  -- ^ Extension's own proto package (for the FQN)
+  -> Text  -- ^ Extension proto field name
+  -> Int   -- ^ Wire field number
+  -> Text  -- ^ ExtensionType constructor name (e.g. "ExtInt32")
+  -> Q [Dec]
+extensionJsonRegistrationDecs parentFqn pkg extLeaf num extConName = do
+  let extFqn = case T.null pkg of
+        True  -> extLeaf
+        False -> pkg <> T.singleton '.' <> extLeaf
+      regName = mkName
+        ("registerExt_"
+          <> T.unpack (T.replace (T.singleton '.') (T.pack "_") extFqn))
+      extConE = ConE (mkName ("Ext." <> T.unpack extConName))
+  sig <- sigD regName [t| IO () |]
+  body <- valD (varP regName)
+    (normalB [| PJExt.registerExtensionJson
+                  $(textLitE parentFqn)
+                  PJExt.ExtJsonCodec
+                    { PJExt.ejcExtensionFqn = $(textLitE extFqn)
+                    , PJExt.ejcFieldNumber  = $(litE (IntegerL (fromIntegral num)))
+                    , PJExt.ejcParseValue   = PJExt.parseExtValueViaConstructor
+                                                $(pure extConE)
+                                                $(litE (IntegerL (fromIntegral num)))
+                    , PJExt.ejcEncodeValue  = PJExt.encodeExtValueViaConstructor
+                                                $(pure extConE)
+                    } |]) []
+  pure [sig, body]
 
 -- | Core type/constructor mapping shared by singular and
 -- repeated extensions. Returns 'Nothing' only for shapes that
