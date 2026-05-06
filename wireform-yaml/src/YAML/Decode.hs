@@ -842,14 +842,9 @@ takeAnchorName t = goT 0
       | i >= len = (t, T.empty)
       | otherwise =
           let c = T.index t i
-              nextIsAnchor =
-                i + 1 < len && isAnchorChar (T.index t (i + 1))
-                            && T.index t (i + 1) /= ':'
-          in if c == ':' && not nextIsAnchor
-               then (T.take i t, T.drop i t)
-               else if isAnchorChar c
-                      then goT (i + 1)
-                      else (T.take i t, T.drop i t)
+          in if isAnchorChar c
+               then goT (i + 1)
+               else (T.take i t, T.drop i t)
 
 breakOnSpace :: Text -> (Text, Text)
 breakOnSpace = T.break (\c -> c == ' ' || c == '\t')
