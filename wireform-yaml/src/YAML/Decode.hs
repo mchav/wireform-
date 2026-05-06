@@ -636,7 +636,13 @@ parseTagged = do
         Just l2 | lineKind l2 == LContent
                 , let body2 = lineBody l2
                 , isBlockScalarHeadOrProp body2 -> do
-          v <- parseNode (lineIndent l2)
+          -- Adjust the body line's stored indent to 0 so a
+          -- following block-scalar's auto-baseline picks up
+          -- content at any column > 0 (spec example 8.21).
+          modifyS (\s -> case psLines s of
+                          (h : rs) -> s { psLines = h { lineIndent = 0 } : rs }
+                          _        -> s)
+          v <- parseNode 0
           pure (YTagged tag v)
         _ -> pure (YTagged tag YNull)
     else do
