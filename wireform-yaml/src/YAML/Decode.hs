@@ -698,6 +698,14 @@ parseAnchored = do
                    , lineIndent l > 0
                    , lineKind l2 == LContent ->
                        parseNode (lineIndent l2)
+                 -- An anchor whose line is more-indented than the
+                 -- following block sequence binds to that
+                 -- sequence (e.g. 'seq:\\n &anchor\\n- a\\n- b').
+                 Just l2
+                   | lineKind l2 == LContent
+                   , lineIndent l2 < lineIndent l
+                   , isSeqItem (lineBody l2) ->
+                       parseBlockSeq (lineIndent l2)
                  -- At column 0 we only chain into a same-column
                  -- /plain scalar/ (no ':' / structural markers);
                  -- otherwise the next line is a sibling and the
