@@ -38,6 +38,9 @@ import qualified Data.Sequence as Seq
 import qualified Data.Vector as V
 
 import Proto.TH (loadProto)
+-- The 'extend' splice for proto2 emits qualified references
+-- like 'Ext.ExtInt32' to the extension constructor types.
+import qualified Proto.Extension as Ext
 
 -- These imports look unused; in fact they bring 'Generic' /
 -- 'NFData' / 'Hashable' into scope for the 'deriving anyclass'
@@ -84,6 +87,13 @@ $(loadProto "test-conformance/protos/conformance.proto")
 
 -- The TestAllTypesProto3 message schema (subset; see haddock above).
 $(loadProto "test-conformance/protos/test_messages_proto3.proto")
+
+-- The TestAllTypesProto2 message schema (also a pruned subset —
+-- group syntax, message_set_wire_format, and required-fields-
+-- only TestAllRequiredTypesProto2 are dropped because loadProto
+-- doesn't support them yet; tests targeting those features
+-- stay 'skipped' downstream).
+$(loadProto "test-conformance/protos/test_messages_proto2.proto")
 
 -- Force the generated types into the export list so a downstream
 -- module can `import Test.Conformance.Schema` without naming any

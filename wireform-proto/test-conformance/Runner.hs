@@ -47,6 +47,7 @@ import Test.Conformance.Schema
   ( ConformanceResponse
   , ConformanceResponse'Result (..)
   , TestAllTypesProto3
+  , TestAllTypesProto2
   , defaultConformanceResponse
   , conformanceResponseResult
   )
@@ -69,7 +70,10 @@ main = do
   WK.registerStandardWktAnyCodecs
   WK.registerAnyCodec
     "protobuf_test_messages.proto3.TestAllTypesProto3"
-    (testAllTypesProto3AnyCodec)
+    testAllTypesProto3AnyCodec
+  WK.registerAnyCodec
+    "protobuf_test_messages.proto2.TestAllTypesProto2"
+    testAllTypesProto2AnyCodec
   loop
   where
     loop = do
@@ -116,6 +120,19 @@ testAllTypesProto3AnyCodec = WK.AnyCodec
         Right m -> Right (Aeson.toJSON m)
   , WK.acEncodeJSONToBytes = \v ->
       case AesonT.parseEither (Aeson.parseJSON @TestAllTypesProto3) v of
+        Left e  -> Left e
+        Right m -> Right (PE.encodeMessage m)
+  , WK.acIsWktEnvelope = False
+  }
+
+testAllTypesProto2AnyCodec :: WK.AnyCodec
+testAllTypesProto2AnyCodec = WK.AnyCodec
+  { WK.acDecodeBytesToJSON = \bs ->
+      case PD.decodeMessage bs :: Either PD.DecodeError TestAllTypesProto2 of
+        Left e  -> Left ("Any embedded TestAllTypesProto2: " <> show e)
+        Right m -> Right (Aeson.toJSON m)
+  , WK.acEncodeJSONToBytes = \v ->
+      case AesonT.parseEither (Aeson.parseJSON @TestAllTypesProto2) v of
         Left e  -> Left e
         Right m -> Right (PE.encodeMessage m)
   , WK.acIsWktEnvelope = False

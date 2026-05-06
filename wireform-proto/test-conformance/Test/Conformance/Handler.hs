@@ -63,6 +63,8 @@ handleRequest req
   | mt == "conformance.FailureSet"            = pure failureSetResponse
   | mt == "protobuf_test_messages.proto3.TestAllTypesProto3" =
       handleTestAllTypesProto3 req
+  | mt == "protobuf_test_messages.proto2.TestAllTypesProto2" =
+      handleTestAllTypesProto2 req
   | otherwise = pure (skipped ("Unknown message type: " <> mt))
   where
     mt = conformanceRequestMessageType req
@@ -129,10 +131,10 @@ stripUnknownEnumStrings =
 -- @serialize_error@ rather than killing the process.
 serializeTAT :: WireFormat -> TestAllTypesProto3 -> IO ConformanceResponse
 serializeTAT fmt tm = case fmt of
-  Protobuf -> pure defaultConformanceResponse
+  WireFormat'Protobuf -> pure defaultConformanceResponse
     { conformanceResponseResult = Just
         (ConformanceResponse'Result'ProtobufPayload (PE.encodeMessage tm)) }
-  Json
+  WireFormat'Json
     | hasUnknownFields tm -> pure (skipped
         "JSON output skipped: payload contains fields outside the spliced \
         \schema (e.g. WKT arms); their JSON shape isn't recoverable from \
@@ -143,13 +145,13 @@ serializeTAT fmt tm = case fmt of
         >>= \t -> pure defaultConformanceResponse
           { conformanceResponseResult = Just
               (ConformanceResponse'Result'JsonPayload t) }
-  TextFormat  -> trySerialize "TEXT_FORMAT" $ do
+  WireFormat'TextFormat  -> trySerialize "TEXT_FORMAT" $ do
     !pbtxt <- evaluate (PTF.typedToTextPretty (Proxy :: Proxy TestAllTypesProto3) tm)
     pure defaultConformanceResponse
       { conformanceResponseResult = Just
           (ConformanceResponse'Result'TextPayload pbtxt) }
-  Jspb        -> pure (skipped "JSPB output not supported")
-  Unspecified -> pure (serializeError "UNSPECIFIED requested_output_format")
+  WireFormat'Jspb        -> pure (skipped "JSPB output not supported")
+  WireFormat'Unspecified -> pure (serializeError "UNSPECIFIED requested_output_format")
 
 -- | Wrap an IO action that builds a 'ConformanceResponse' so
 -- any 'SomeException' (typically from a WKT canonical-range
@@ -175,6 +177,55 @@ decodeUtf8Lazy = TL.toStrict . TLE.decodeUtf8
 hasUnknownFields :: TestAllTypesProto3 -> Bool
 hasUnknownFields = not . null . testAllTypesProto3UnknownFields
 
+-- | Proto2 sibling of 'handleTestAllTypesProto3'. Same wire
+-- and JSON shapes, just rooted at 'TestAllTypesProto2'.
+handleTestAllTypesProto2 :: ConformanceRequest -> IO ConformanceResponse
+handleTestAllTypesProto2 req = do
+  PTM.setLenientUnknownEnum (isIgnoreUnknownCategory req)
+  case payloadInputFormat req of
+    PayloadProtobuf bs -> case PD.decodeMessage bs of
+      Left e   -> pure (parseErr (T.pack (show e)))
+      Right tm -> serializeTAT2 outFmt tm
+    PayloadJson js -> do
+      let js' = if isIgnoreUnknownCategory req
+                  then stripUnknownEnumStrings js
+                  else js
+      case Aeson.eitherDecodeStrictText js' of
+        Left e   -> pure (parseErr (T.pack e))
+        Right tm -> serializeTAT2 outFmt tm
+    PayloadText _ -> pure (skipped "TEXT_FORMAT input not supported")
+    PayloadJspb _ -> pure (skipped "JSPB input not supported")
+    PayloadNone   -> pure (skipped "no payload set")
+  where
+    outFmt = conformanceRequestRequestedOutputFormat req
+
+serializeTAT2 :: WireFormat -> TestAllTypesProto2 -> IO ConformanceResponse
+serializeTAT2 fmt tm = case fmt of
+  WireFormat'Protobuf -> pure defaultConformanceResponse
+    { conformanceResponseResult = Just
+        (ConformanceResponse'Result'ProtobufPayload (PE.encodeMessage tm)) }
+  WireFormat'Json
+    | hasUnknownFields2 tm -> pure (skipped
+        "JSON output skipped: payload contains fields outside the spliced \
+        \proto2 schema; their JSON shape isn't recoverable from the \
+        \unknown-fields slot.")
+    | otherwise -> trySerialize "JSON" $ do
+        bs <- evaluate (Aeson.encode tm)
+        evaluate (decodeUtf8Lazy bs)
+        >>= \t -> pure defaultConformanceResponse
+          { conformanceResponseResult = Just
+              (ConformanceResponse'Result'JsonPayload t) }
+  WireFormat'TextFormat  -> trySerialize "TEXT_FORMAT" $ do
+    !pbtxt <- evaluate (PTF.typedToTextPretty (Proxy :: Proxy TestAllTypesProto2) tm)
+    pure defaultConformanceResponse
+      { conformanceResponseResult = Just
+          (ConformanceResponse'Result'TextPayload pbtxt) }
+  WireFormat'Jspb        -> pure (skipped "JSPB output not supported")
+  WireFormat'Unspecified -> pure (serializeError "UNSPECIFIED requested_output_format")
+
+hasUnknownFields2 :: TestAllTypesProto2 -> Bool
+hasUnknownFields2 = not . null . testAllTypesProto2UnknownFields
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
@@ -189,7 +240,7 @@ data PayloadInput
 isIgnoreUnknownCategory :: ConformanceRequest -> Bool
 isIgnoreUnknownCategory req =
   case conformanceRequestTestCategory req of
-    JsonIgnoreUnknownParsingTest -> True
+    TestCategory'JsonIgnoreUnknownParsingTest -> True
     _                            -> False
 
 payloadInputFormat :: ConformanceRequest -> PayloadInput

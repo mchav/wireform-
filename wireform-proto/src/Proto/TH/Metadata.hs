@@ -148,6 +148,9 @@ data JsonShape
                                      --   (carrier is @Maybe T@).
   | JSEnum                           -- ^ Singular enum field.
                                      --   Skip when @fromEnum x == 0@.
+  | JSEnumMaybe                      -- ^ @Maybe Enum@ (proto2
+                                     --   optional enum, proto3
+                                     --   explicit-optional enum).
   | JSRepeatedScalar  !JsonScalar    -- ^ Repeated scalar; skip when empty.
   | JSRepeatedMessage                -- ^ Repeated submessage / enum;
                                      --   element-encoded via 'Aeson.toJSON'.
@@ -379,11 +382,20 @@ toJSONEntry msgVar mf =
       -- helpers in "Proto.JSON". Empty containers / default
       -- ByteString are still skipped per proto3 canonical-JSON.
   in case mfJsonKind mf of
-    JKBytes ->
-      [| if BS.null $(pure fieldExpr)
-         then []
-         else $(pure (one
-                       (AppE (VarE 'PJI.protoBytesToJSON) fieldExpr))) |]
+    JKBytes -> case mfKind mf of
+      MFKMaybe ->
+        -- @Maybe ByteString@ carrier (proto2 optional bytes,
+        -- proto3 explicit-optional bytes): emit when @Just@,
+        -- skip on @Nothing@.
+        [| case $(pure fieldExpr) of
+             Nothing -> []
+             Just bs ->
+               [($(pure jsonKey), PJI.protoBytesToJSON bs)] |]
+      _ ->
+        [| if BS.null $(pure fieldExpr)
+           then []
+           else $(pure (one
+                         (AppE (VarE 'PJI.protoBytesToJSON) fieldExpr))) |]
     JKBytesVector ->
       [| if V.null $(pure fieldExpr)
          then []
@@ -426,6 +438,12 @@ jsonShapeEntry _msgVar mf fieldExpr jsonKey one = case mfJsonShape mf of
   JSEnum ->
     [| if fromEnum $(pure fieldExpr) == 0
        then [] else $(pure (one (AppE (VarE 'Aeson.toJSON) fieldExpr))) |]
+  JSEnumMaybe -> do
+    vName <- newName "v"
+    [| case $(pure fieldExpr) of
+         Nothing -> []
+         Just $(varP vName) ->
+           $(pure (one (AppE (VarE 'Aeson.toJSON) (VarE vName)))) |]
   JSRepeatedScalar sc ->
     [| if V.null $(pure fieldExpr)
        then []
@@ -619,7 +637,12 @@ mkFromJSONForMessage tyName defName fields = do
   fldNames  <- mapM (\mf -> (,) mf <$> newName ("fld_" ++ nameBase (mfSelector mf))) fields
   binds <- traverse (uncurry (parseBindStmt objVar)) fldNames
   let assigns = fmap (uncurry (fromJSONAssign defName)) fldNames
-      finalE  = RecUpdE (VarE defName) assigns
+      -- Empty messages have no field-level updates: GHC rejects
+      -- 'RecUpdE def []' as "Empty record update", so collapse
+      -- it to the bare default value.
+      finalE
+        | null assigns = VarE defName
+        | otherwise    = RecUpdE (VarE defName) assigns
       bodyDo  = DoE Nothing (binds ++ [NoBindS (AppE (VarE 'pure) finalE)])
       -- Aeson.withObject "TypeName" $ \obj -> ...
       typeNameLit = LitE (StringL (nameBase tyName))
@@ -688,7 +711,9 @@ parseFnFor mf = oldParseFnFor mf
 oldParseFnFor :: MetaField -> Exp
 oldParseFnFor mf =
   case mfJsonKind mf of
-        JKBytes       -> VarE 'PJ.parseBytesFieldMaybe
+        JKBytes -> case mfKind mf of
+          MFKMaybe -> VarE 'parseBytesMaybeFieldMaybe
+          _        -> VarE 'PJ.parseBytesFieldMaybe
         JKBytesMap    -> VarE 'PJ.parseBytesMapFieldMaybe
         JKBytesVector -> VarE 'parseBytesVectorMaybe
         JKBytesList   -> VarE 'parseBytesListMaybe
@@ -716,18 +741,27 @@ oldParseFnFor mf =
           JSScalar JSFixed32  -> VarE 'parseWord32FieldMaybe
           JSScalar JSDouble   -> VarE 'parseDoubleFieldMaybe
           JSScalar JSFloat    -> VarE 'parseFloatFieldMaybe
-          JSMaybe  JSInt64    -> VarE 'parseInt64FieldMaybe
-          JSMaybe  JSSInt64   -> VarE 'parseInt64FieldMaybe
-          JSMaybe  JSSFixed64 -> VarE 'parseInt64FieldMaybe
-          JSMaybe  JSUInt64   -> VarE 'parseWord64FieldMaybe
-          JSMaybe  JSFixed64  -> VarE 'parseWord64FieldMaybe
-          JSMaybe  JSInt32    -> VarE 'parseInt32FieldMaybe
-          JSMaybe  JSSInt32   -> VarE 'parseInt32FieldMaybe
-          JSMaybe  JSSFixed32 -> VarE 'parseInt32FieldMaybe
-          JSMaybe  JSUInt32   -> VarE 'parseWord32FieldMaybe
-          JSMaybe  JSFixed32  -> VarE 'parseWord32FieldMaybe
-          JSMaybe  JSDouble   -> VarE 'parseDoubleFieldMaybe
-          JSMaybe  JSFloat    -> VarE 'parseFloatFieldMaybe
+          -- @JSMaybe scalar@: a scalar field whose carrier is
+          -- @Maybe T@ (proto2 explicit-optional, proto3 explicit
+          -- @optional@ with presence tracking, etc.). The parser
+          -- has to return @Maybe (Maybe T)@ — outer @Maybe@ for
+          -- "key present", inner @Maybe@ for the field value
+          -- (@null@ → @Nothing@) — so 'fromJSONAssign' can
+          -- @maybe def id@ correctly.
+          JSMaybe  JSInt64    -> VarE 'parseInt64MaybeFieldMaybe
+          JSMaybe  JSSInt64   -> VarE 'parseInt64MaybeFieldMaybe
+          JSMaybe  JSSFixed64 -> VarE 'parseInt64MaybeFieldMaybe
+          JSMaybe  JSUInt64   -> VarE 'parseWord64MaybeFieldMaybe
+          JSMaybe  JSFixed64  -> VarE 'parseWord64MaybeFieldMaybe
+          JSMaybe  JSInt32    -> VarE 'parseInt32MaybeFieldMaybe
+          JSMaybe  JSSInt32   -> VarE 'parseInt32MaybeFieldMaybe
+          JSMaybe  JSSFixed32 -> VarE 'parseInt32MaybeFieldMaybe
+          JSMaybe  JSUInt32   -> VarE 'parseWord32MaybeFieldMaybe
+          JSMaybe  JSFixed32  -> VarE 'parseWord32MaybeFieldMaybe
+          JSMaybe  JSDouble   -> VarE 'parseDoubleMaybeFieldMaybe
+          JSMaybe  JSFloat    -> VarE 'parseFloatMaybeFieldMaybe
+          JSMaybe  JSBool     -> VarE 'parseBoolMaybeFieldMaybe
+          JSMaybe  JSString   -> VarE 'parseStringMaybeFieldMaybe
           -- map<K, message V>: parse via a custom Map walker so
           -- the nested message FromJSON instance is exercised
           -- explicitly. Aeson's generic Map FromJSON instance
@@ -740,6 +774,11 @@ oldParseFnFor mf =
           -- suite's JSON_IGNORE_UNKNOWN_PARSING_TEST category
           -- silently drops unknown enum strings.
           JSEnum              -> VarE 'parseEnumFieldMaybe
+          -- 'Maybe Enum' carrier (proto2 optional enum, proto3
+          -- explicit-optional enum). 'parseEnumFieldMaybeMaybe'
+          -- distinguishes "key absent" from "key present, value
+          -- null" so the round-trip preserves presence.
+          JSEnumMaybe         -> VarE 'parseEnumFieldMaybeMaybe
           JSRepeatedEnum      -> VarE 'parseEnumVectorMaybe
           JSMapEnum _         -> VarE 'parseStringEnumMapMaybe
           _                   -> VarE 'PJ.parseFieldMaybe
@@ -817,6 +856,19 @@ isLenientUnknownEnum ref = unsafePerformIO (readIORef ref)
 -- | Parse a singular optional enum field that defaults to its
 -- zero value when the JSON either omits the field or carries
 -- an unknown enum string AND the runtime is in lenient mode.
+parseEnumFieldMaybeMaybe
+  :: forall a. (Aeson.FromJSON a)
+  => Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe a))
+parseEnumFieldMaybeMaybe obj key =
+  case AesonKM.lookup (AesonKey.fromText key) obj of
+    Nothing            -> pure Nothing
+    Just Aeson.Null    -> pure (Just Nothing)
+    Just v             -> AesonT.parserCatchError
+      (Just . Just <$> Aeson.parseJSON v)
+      (\_ msg -> if isUnknownEnumFail msg && isLenientUnknownEnum lenientUnknownEnumRef
+                 then pure Nothing
+                 else fail msg)
+
 parseEnumFieldMaybe
   :: forall a. (Aeson.FromJSON a)
   => Aeson.Object -> Text -> AesonT.Parser (Maybe a)
@@ -902,6 +954,52 @@ parseInt32FieldMaybe = parseScalarFieldMaybe protoInt32FromJSON
 
 parseWord32FieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Word32)
 parseWord32FieldMaybe = parseScalarFieldMaybe protoWord32FromJSON
+
+-- ---------------------------------------------------------------------------
+-- @JSMaybe scalar@ helpers (Maybe-carriered presence-tracking scalars)
+-- ---------------------------------------------------------------------------
+
+-- | Helper: 'parseScalarMaybeMaybe' lifts a per-scalar @Aeson.Value
+-- -> Parser a@ into the @Maybe (Maybe a)@ shape required by
+-- 'fromJSONAssign' for fields whose Haskell carrier is @Maybe a@
+-- (proto2 'optional', proto3 explicit 'optional').
+parseScalarMaybeMaybe
+  :: (Aeson.Value -> AesonT.Parser a)
+  -> Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe a))
+parseScalarMaybeMaybe parser obj key =
+  case AesonKM.lookup (AesonKey.fromText key) obj of
+    Nothing         -> pure Nothing
+    Just Aeson.Null -> pure (Just Nothing)
+    Just v          -> Just . Just <$> parser v
+{-# INLINE parseScalarMaybeMaybe #-}
+
+parseInt32MaybeFieldMaybe  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Int32))
+parseInt32MaybeFieldMaybe  = parseScalarMaybeMaybe protoInt32FromJSON
+
+parseWord32MaybeFieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Word32))
+parseWord32MaybeFieldMaybe = parseScalarMaybeMaybe protoWord32FromJSON
+
+parseInt64MaybeFieldMaybe  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Int64))
+parseInt64MaybeFieldMaybe  = parseScalarMaybeMaybe PJI.protoInt64FromJSON
+
+parseWord64MaybeFieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Word64))
+parseWord64MaybeFieldMaybe = parseScalarMaybeMaybe PJI.protoWord64FromJSON
+
+parseFloatMaybeFieldMaybe  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Float))
+parseFloatMaybeFieldMaybe  = parseScalarMaybeMaybe (protoFloatFromJSONLenient @Float)
+
+parseDoubleMaybeFieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Double))
+parseDoubleMaybeFieldMaybe = parseScalarMaybeMaybe (protoFloatFromJSONLenient @Double)
+
+parseBoolMaybeFieldMaybe   :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Bool))
+parseBoolMaybeFieldMaybe   = parseScalarMaybeMaybe Aeson.parseJSON
+
+parseStringMaybeFieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Text))
+parseStringMaybeFieldMaybe = parseScalarMaybeMaybe Aeson.parseJSON
+
+parseBytesMaybeFieldMaybe
+  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe BS.ByteString))
+parseBytesMaybeFieldMaybe = parseScalarMaybeMaybe PJ.protoBytesFromJSON
 
 -- Proto3 canonical-JSON spec rejects: out-of-range, fractional
 -- (e.g. @1.5@), and unparsable strings for {int32, uint32}.

@@ -73,12 +73,12 @@ tests = testGroup "loadProto satellite instances"
 
   , testGroup "ProtoEnum (Status)"
       [ testCase "primary names round-trip through to/fromProtoEnumValue" $ do
-          PS.toProtoEnumValue StatusUnspecified @?= 0
-          PS.toProtoEnumValue StatusActive      @?= 1
-          PS.toProtoEnumValue StatusRetired     @?= 2
-          PS.toProtoEnumValue StatusBanned      @?= 3
-          PS.fromProtoEnumValue 0 @?= Just StatusUnspecified
-          PS.fromProtoEnumValue 1 @?= Just StatusActive
+          PS.toProtoEnumValue Status'StatusUnspecified @?= 0
+          PS.toProtoEnumValue Status'StatusActive      @?= 1
+          PS.toProtoEnumValue Status'StatusRetired     @?= 2
+          PS.toProtoEnumValue Status'StatusBanned      @?= 3
+          PS.fromProtoEnumValue 0 @?= Just Status'StatusUnspecified
+          PS.fromProtoEnumValue 1 @?= Just Status'StatusActive
           PS.fromProtoEnumValue 99 @?= (Nothing :: Maybe Status)
 
       , testCase "protoEnumValues lists every declared value" $ do
@@ -111,7 +111,7 @@ tests = testGroup "loadProto satellite instances"
       , testCase "non-default Account emits both fields with camelCase keys" $ do
           let a = defaultAccount
                 { accountAcctName   = T.pack "ada"
-                , accountAcctStatus = StatusActive
+                , accountAcctStatus = Status'StatusActive
                 }
           let v = Aeson.toJSON a
           case v of
@@ -123,7 +123,7 @@ tests = testGroup "loadProto satellite instances"
       , testCase "Account ToJSON / FromJSON round-trip" $ do
           let a = defaultAccount
                 { accountAcctName   = T.pack "alice"
-                , accountAcctStatus = StatusActive
+                , accountAcctStatus = Status'StatusActive
                 }
           let v = Aeson.toJSON a
           case Aeson.fromJSON v of
@@ -131,12 +131,12 @@ tests = testGroup "loadProto satellite instances"
             Aeson.Error e    -> error ("fromJSON failed: " <> e)
 
       , testCase "Status enum encodes as its primary name string" $ do
-          Aeson.toJSON StatusActive  @?= Aeson.String "STATUS_ACTIVE"
-          Aeson.toJSON StatusBanned  @?= Aeson.String "STATUS_BANNED"
+          Aeson.toJSON Status'StatusActive  @?= Aeson.String "STATUS_ACTIVE"
+          Aeson.toJSON Status'StatusBanned  @?= Aeson.String "STATUS_BANNED"
 
       , testCase "Status enum FromJSON accepts both name and number" $ do
-          Aeson.fromJSON (Aeson.String "STATUS_RETIRED") @?= Aeson.Success StatusRetired
-          Aeson.fromJSON (Aeson.Number 1) @?= Aeson.Success StatusActive
+          Aeson.fromJSON (Aeson.String "STATUS_RETIRED") @?= Aeson.Success Status'StatusRetired
+          Aeson.fromJSON (Aeson.Number 1) @?= Aeson.Success Status'StatusActive
 
       , testCase "PackedBag ToJSON / FromJSON round-trip" $ do
           let p = defaultPackedBag { packedBagBagNums = V.fromList [1, 2, 3, 4, 5] }
@@ -153,21 +153,21 @@ tests = testGroup "loadProto satellite instances"
 
   , testGroup "Hashable"
       [ testCase "equal Accounts hash equal" $ do
-          let a1 = defaultAccount { accountAcctName = T.pack "x", accountAcctStatus = StatusActive }
-              a2 = defaultAccount { accountAcctName = T.pack "x", accountAcctStatus = StatusActive }
+          let a1 = defaultAccount { accountAcctName = T.pack "x", accountAcctStatus = Status'StatusActive }
+              a2 = defaultAccount { accountAcctName = T.pack "x", accountAcctStatus = Status'StatusActive }
           hash a1 @?= hash a2
 
       , testCase "different Accounts hash differently (sanity)" $ do
-          let a1 = defaultAccount { accountAcctName = T.pack "x", accountAcctStatus = StatusActive }
-              a2 = defaultAccount { accountAcctName = T.pack "y", accountAcctStatus = StatusActive }
+          let a1 = defaultAccount { accountAcctName = T.pack "x", accountAcctStatus = Status'StatusActive }
+              a2 = defaultAccount { accountAcctName = T.pack "y", accountAcctStatus = Status'StatusActive }
           assertBool "names differ -> hashes should differ"
             (hash a1 /= hash a2)
 
       , testCase "Status hashes match its proto wire number" $ do
           -- The enum Hashable implementation hashes the proto
           -- wire number, so this is observable.
-          hashWithSalt 0 StatusUnspecified @?= hashWithSalt 0 (0 :: Int)
-          hashWithSalt 0 StatusActive      @?= hashWithSalt 0 (1 :: Int)
+          hashWithSalt 0 Status'StatusUnspecified @?= hashWithSalt 0 (0 :: Int)
+          hashWithSalt 0 Status'StatusActive      @?= hashWithSalt 0 (1 :: Int)
 
       , testCase "PackedBag hashes survive vector permutation differences" $ do
           let p1 = defaultPackedBag { packedBagBagNums = V.fromList [1, 2, 3] }

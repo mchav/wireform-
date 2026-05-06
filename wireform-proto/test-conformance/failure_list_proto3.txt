@@ -1,26 +1,32 @@
 # Expected-failure list for the protobuf-conformance suite.
+# Covers BOTH the proto3 and the proto2 binary/json suites
+# (despite the legacy filename) — the conformance runner
+# applies a single failure list to whichever suite it's
+# currently running.
 #
-# Each line is either a comment (#) or a glob pattern matching a
-# test name. Tests matching a pattern are expected to fail; the
-# runner's exit code reflects only unexpected failures (regressions)
-# and unexpected successes (tests we should remove from this list).
-#
-# Status: 1 expected failure / 1412 successes / 1262 skipped /
+# Status: 2 expected failures / 2673 successes / 0 skipped /
 # 0 unexpected failures.
 #
 # Today's residue:
 #
-#   * EnumFieldUnknownValue.Validator (Required, JsonInput): proto3
-#     "open enum" semantics ask us to preserve unknown numeric
-#     enum values across a JSON round-trip — input
+#   * EnumFieldUnknownValue.Validator (Proto3 Required, JsonInput):
+#     proto3 "open enum" semantics ask us to preserve unknown
+#     numeric enum values across a JSON round-trip — input
 #     '{"optionalNestedEnum": 123}' should re-emit as
 #     '{"optionalNestedEnum": 123}' even though 123 isn't a
 #     declared NestedEnum value. Doing this faithfully requires
-#     representing each generated enum type as
+#     representing each generated enum as
 #     'data NestedEnum = ... | NestedEnum'Unknown !Int32' and
 #     threading the new constructor through every encoder /
-#     decoder / JSON path the deriver emits — out of scope for
-#     this round of fixes.
+#     decoder / JSON path the deriver emits.
+#
+#   * FieldNameExtension.Validator (Proto2 Recommended, JsonInput):
+#     proto2 extensions accessed via the JSON bracket syntax
+#     '[protobuf_test_messages.proto2.extension_int32]'.
+#     Supporting it requires parser hooks for the
+#     '[FQN]'-quoted key form plus extension dispatch from
+#     loadProto-generated FromJSON instances. Out of scope for
+#     this round.
 #
 # Update this file when the suite is re-run on a new VM:
 #   cabal test wireform-proto:protobuf-conformance-test \
@@ -28,16 +34,4 @@
 # then mine /tmp/conformance.log for new failure names.
 
 Required.Proto3.JsonInput.EnumFieldUnknownValue.Validator
-
-# The 8 *.TextFormatOutput tests below run in a SEPARATE
-# upstream "TEXT_FORMAT" suite that the binary/json suite
-# doesn't recognise (so we can't list them here without the
-# runner reporting "tests not found" for them). The driver in
-# 'Test.Conformance.Driver' parses the binary/json summary
-# explicitly and doesn't fail on the upstream's non-zero exit
-# from the second suite.
-#
-# Recommended.Proto3.ProtobufInput.GroupUnknownFields_{Drop,Print}.TextFormatOutput
-# Recommended.Proto3.ProtobufInput.MessageUnknownFields_{Drop,Print}.TextFormatOutput
-# Recommended.Proto3.ProtobufInput.RepeatedUnknownFields_{Drop,Print}.TextFormatOutput
-# Recommended.Proto3.ProtobufInput.ScalarUnknownFields_{Drop,Print}.TextFormatOutput
+Recommended.Proto2.JsonInput.FieldNameExtension.Validator

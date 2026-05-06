@@ -82,6 +82,7 @@ module Proto.TH
   , enumToDecls
   ) where
 
+import Control.Applicative ((<|>))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -142,6 +143,26 @@ hsFieldName = escapeReserved . snakeToCamel
 -- @ConformanceResponse.protobuf_payload@) would otherwise both
 -- emit a record selector @protobufPayload@ at the top level,
 -- which GHC rejects.
+-- | Scope-prefixed Haskell type name. Mirrors
+-- 'Proto.CodeGen.scopedTypeName': joins the parent chain
+-- with the message's own name using @'@. Empty parent list
+-- collapses to plain 'hsTypeName'.
+scopedHsTypeName :: [Text] -> Text -> Text
+scopedHsTypeName parents nm = case parents of
+  [] -> hsTypeName nm
+  _  -> T.intercalate "'" (fmap hsTypeName (parents <> [nm]))
+
+-- | Scope-prefixed enum constructor name. Always qualifies
+-- the value with its enum's Haskell type name so two enums
+-- (in the same file or across files) can declare identical
+-- value names without colliding at the Haskell level. For
+-- top-level enums this gives @EnumName'ValueName@; for nested
+-- enums it gives @Parent'EnumName'ValueName@.
+scopedHsEnumCon :: [Text] -> Text -> Text -> Text
+scopedHsEnumCon parents enumNm evNm =
+  scopedHsTypeName parents enumNm <> T.singleton '\''
+    <> snakeToPascal evNm
+
 scopedHsFieldName :: Text -> Text -> Text
 scopedHsFieldName parentMsg fldName =
   let prefix = lowerFirst (hsTypeName parentMsg)
@@ -216,6 +237,7 @@ protoFileToDecls' cfg hooks pf = do
         { scSyntax    = protoSyntax pf
         , scTopLevels = protoTopLevels pf
         , scPackage   = maybe T.empty id (protoPackage pf)
+        , scParents   = []
         }
   concat <$> mapM (topLevelToDecls scope cfg hooks) (protoTopLevels pf)
 
@@ -233,7 +255,73 @@ data ScopeCtx = ScopeCtx
     -- the file has no @package@ statement). Drives the
     -- @protoMessageName@ \/ @protoPackageName@ outputs in the
     -- generated 'PS.ProtoMessage' instance.
+  , scParents   :: ![Text]
+    -- ^ Parent message names accumulated as we recurse into
+    -- nested types. Used to scope-prefix the generated Haskell
+    -- type / constructor / field names so two messages from
+    -- different .proto files (or different parents within the
+    -- same file) can declare an inner @NestedMessage@ without
+    -- colliding at the Haskell level.
   }
+
+-- | Resolve a referenced type name to the scope chain it
+-- lives under, so callers can compute the matching Haskell
+-- type name with 'scopedHsTypeName'. The lookup walks the
+-- file's top-level declarations, considering both top-level
+-- and nested messages \/ enums. If the name isn't found, we
+-- fall back to the empty scope (treats it as a top-level
+-- reference, which matches the legacy behaviour).
+--
+-- Proto resolution rules want us to search the lexical scope
+-- inside-out, but for the conformance test (and most real
+-- schemas) the simple "find anywhere in this file" rule is
+-- sufficient: the upstream resolver has already de-aliased
+-- imports so the leaf name is unambiguous within a file.
+findTypeScope :: ScopeCtx -> Text -> [Text]
+findTypeScope scope t =
+  let leaf = leafOf t
+      tryTopLevel (TLMessage m) = searchMessage [] m leaf
+      tryTopLevel (TLEnum e)
+        | enumName e == leaf = Just []
+        | otherwise          = Nothing
+      tryTopLevel _ = Nothing
+
+      -- DFS, returning the parent path (excluding the matched
+      -- type's own name).
+      searchMessage parents m needle
+        | msgName m == needle = Just parents
+        | otherwise =
+            let parents' = parents <> [msgName m]
+                fromElts = foldr step Nothing (msgElements m)
+                step elt acc = acc <|> searchElt parents' elt needle
+            in fromElts
+      searchElt parents (MEMessage inner) needle =
+        searchMessage parents inner needle
+      searchElt parents (MEEnum e) needle
+        | enumName e == needle = Just parents
+        | otherwise            = Nothing
+      searchElt _ _ _ = Nothing
+
+      -- First top-level that matches wins.
+      foldTL acc tl = acc <|> tryTopLevel tl
+  in case foldl foldTL Nothing (scTopLevels scope) of
+       Just ps -> ps
+       Nothing -> []
+  where
+    leafOf x = case T.splitOn (T.pack ".") x of
+      [] -> x
+      ps -> last ps
+
+-- | Compute the scoped Haskell type name for a referenced
+-- proto type, using 'findTypeScope' to discover its nesting
+-- and 'scopedHsTypeName' to assemble the Haskell identifier.
+resolveScopedHsType :: ScopeCtx -> Text -> Text
+resolveScopedHsType scope t =
+  scopedHsTypeName (findTypeScope scope t) (leafOf t)
+  where
+    leafOf x = case T.splitOn (T.pack ".") x of
+      [] -> x
+      ps -> last ps
 
 -- | Walk a 'ScopeCtx' looking for an enum named @t@ at any
 -- nesting depth. Used by the bridge to decide PFEnum vs.
@@ -261,7 +349,7 @@ isEnumName scope t = anyTopLevel (scTopLevels scope)
 topLevelToDecls :: ScopeCtx -> RepConfig -> THHooks -> TopLevel -> Q [Dec]
 topLevelToDecls scope cfg hooks = \case
   TLMessage msg -> messageToDecls'' scope cfg hooks msg
-  TLEnum ed     -> enumToDecls'' (scPackage scope) hooks ed
+  TLEnum ed     -> enumToDecls'' (scPackage scope) (scParents scope) hooks ed
   TLExtend owner fields -> extendToDecls owner fields
   _             -> pure []
 
@@ -277,32 +365,44 @@ messageToDecls' cfg hooks msg =
   let scope = ScopeCtx { scSyntax    = Proto3
                        , scTopLevels = [TLMessage msg]
                        , scPackage   = T.empty
+                       , scParents   = []
                        }
   in messageToDecls'' scope cfg hooks msg
 
 messageToDecls'' :: ScopeCtx -> RepConfig -> THHooks -> MessageDef -> Q [Dec]
 messageToDecls'' scopeCtx cfg hooks msg = do
-  let tyName = mkName (T.unpack (hsTypeName (msgName msg)))
-      fields = extractMessageFields cfg (msgName msg) (msgElements msg)
+  let -- Scope-prefixed Haskell type name. For top-level
+      -- messages 'scParents' is empty so this collapses to the
+      -- plain 'hsTypeName'; for nested ones it produces e.g.
+      -- @TestAllTypesProto3'NestedMessage@, matching the
+      -- pure-text codegen in 'Proto.CodeGen' and avoiding
+      -- collisions when two parent messages declare an inner
+      -- @NestedMessage@.
+      hsTy   = scopedHsTypeName (scParents scopeCtx) (msgName msg)
+      tyName = mkName (T.unpack hsTy)
+      fields = extractMessageFields cfg hsTy (msgElements msg)
       scope = [msgName msg]
       hookCtx = MessageHookCtx
         { mhcMessageDef  = msg
         , mhcScope       = scope
-        , mhcHsTypeName  = hsTypeName (msgName msg)
+        , mhcHsTypeName  = hsTy
         , mhcFqProtoName = msgName msg
         , mhcOptions     = messageOptions msg
         }
+      -- Push this message onto the scope chain for nested types.
+      childScope = scopeCtx { scParents = scParents scopeCtx <> [msgName msg] }
 
   nestedDecls <- concat <$> mapM (\case
-    MEMessage inner -> messageToDecls'' scopeCtx cfg hooks inner
-    MEEnum ed       -> enumToDecls'' (scPackage scopeCtx) hooks ed
+    MEMessage inner -> messageToDecls'' childScope cfg hooks inner
+    MEEnum ed       -> enumToDecls'' (scPackage childScope)
+                                     (scParents childScope) hooks ed
     _               -> pure []) (msgElements msg)
 
   -- Sum types backing each oneof. Must precede the message data
   -- declaration so that GHC's renamer sees the constructor names
   -- in scope when the wire codecs splice (the codec splice
   -- references @ovConstructor@ at the term level).
-  oneofDecs  <- mkOneofDataDecs tyName fields
+  oneofDecs  <- mkOneofDataDecs scopeCtx tyName fields
   dataDec    <- mkDataDec scopeCtx tyName fields
   defaultDec <- mkDefaultDec scopeCtx tyName fields
   -- All wire codecs (MessageEncode / MessageSize / MessageDecode)
@@ -470,7 +570,7 @@ mkDataDec scope tyName fields = do
     mkField (FSMap name _ kt vt) = do
       let fname = mkName (T.unpack (scopedHsFieldName parentName name))
       kty <- scalarToTH kt
-      vty <- fieldTypeInnerQ vt
+      vty <- fieldTypeInnerScopedQ scope defaultFieldRep vt
       t <- appT (appT (conT ''Map) (pure kty)) (pure vty)
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, t)]
     mkField (FSOneof name _ofs) = do
@@ -510,8 +610,8 @@ oneofConTHName parentTy ooName fieldN =
 
 -- | Emit the sum data declaration for every 'FSOneof' field on the
 -- supplied message.
-mkOneofDataDecs :: Name -> [FieldSpec] -> Q [Dec]
-mkOneofDataDecs parentTy fields =
+mkOneofDataDecs :: ScopeCtx -> Name -> [FieldSpec] -> Q [Dec]
+mkOneofDataDecs scope parentTy fields =
   mapM oneofToDec (mapMaybe extractOneof fields)
   where
     extractOneof (FSOneof n ofs) = Just (n, ofs)
@@ -527,13 +627,7 @@ mkOneofDataDecs parentTy fields =
     mkCon :: Text -> (OneofField, FieldRep) -> Q Con
     mkCon ooName (f, rep) = do
       let conName = oneofConTHName parentTy ooName (oneofFieldName f)
-      -- Per-variant string / bytes rep: the data declaration must
-      -- agree with what the bridge tells the codec (otherwise the
-      -- codec would reach for @SBS.empty :: ShortByteString@ where
-      -- the data type holds @Text@). Threading 'rep' through here
-      -- lets users override one variant of a oneof to lazy /
-      -- short / hsString without touching siblings.
-      ty <- fieldTypeInnerQWithRep rep (oneofFieldType f)
+      ty <- fieldTypeInnerScopedQ scope rep (oneofFieldType f)
       pure (NormalC conName [(Bang NoSourceUnpackedness SourceStrict, ty)])
 
 -- | The field name used by TH-generated records for their
@@ -559,8 +653,8 @@ mkUnknownFieldsField tyName =
 
 fieldTypeToTH :: ScopeCtx -> Maybe FieldLabel -> FieldType -> FieldRep -> Q Type
 fieldTypeToTH scope lbl ft rep = case lbl of
-  Just Repeated -> repeatedTypeQ (frRepeated rep) (fieldTypeInnerQWithRep rep ft)
-  Just Optional -> optionalTypeQ (frOptional rep) (fieldTypeInnerQWithRep rep ft)
+  Just Repeated -> repeatedTypeQ (frRepeated rep) (fieldTypeInnerScopedQ scope rep ft)
+  Just Optional -> optionalTypeQ (frOptional rep) (fieldTypeInnerScopedQ scope rep ft)
   _ -> case ft of
     -- Singular submessage fields are implicitly optional in proto3
     -- (the sender can omit them, and consumers must distinguish
@@ -571,8 +665,8 @@ fieldTypeToTH scope lbl ft rep = case lbl of
     -- variant).
     FTNamed n
       | not (isEnumName scope n) ->
-          appT (conT ''Maybe) (fieldTypeInnerQWithRep rep ft)
-    _ -> fieldTypeInnerQWithRep rep ft
+          appT (conT ''Maybe) (fieldTypeInnerScopedQ scope rep ft)
+    _ -> fieldTypeInnerScopedQ scope rep ft
 
 -- | 'fieldTypeInnerQ' ignores the per-field 'FieldRep'; used for map
 -- keys/values where we haven't threaded a rep config through yet.
@@ -582,6 +676,9 @@ fieldTypeToTH scope lbl ft rep = case lbl of
 fieldTypeInnerQ :: FieldType -> Q Type
 fieldTypeInnerQ = fieldTypeInnerQWithRep defaultFieldRep
 
+-- | Scope-unaware variant kept for callers that don't have a
+-- 'ScopeCtx' handy (e.g. map key resolution, where the key
+-- type is always a built-in scalar).
 fieldTypeInnerQWithRep :: FieldRep -> FieldType -> Q Type
 fieldTypeInnerQWithRep rep = \case
   FTScalar SString -> stringTypeQ (frString rep)
@@ -590,6 +687,21 @@ fieldTypeInnerQWithRep rep = \case
   FTNamed n
     | Just (tyN, _) <- lookupWkt n -> conT tyN
     | otherwise                    -> conT (mkName (T.unpack (hsTypeName n)))
+
+-- | Scope-aware variant used for normal singular / repeated /
+-- optional / oneof-variant fields. Resolves named types through
+-- the file's 'ScopeCtx' so a reference to a nested message gets
+-- the parent-prefixed Haskell type (e.g.
+-- @TestAllTypesProto3'NestedMessage@).
+fieldTypeInnerScopedQ :: ScopeCtx -> FieldRep -> FieldType -> Q Type
+fieldTypeInnerScopedQ scope rep = \case
+  FTScalar SString -> stringTypeQ (frString rep)
+  FTScalar SBytes  -> bytesTypeQ (frBytes rep)
+  FTScalar s       -> scalarToTH s
+  FTNamed n
+    | Just (tyN, _) <- lookupWkt n -> conT tyN
+    | otherwise ->
+        conT (mkName (T.unpack (resolveScopedHsType scope n)))
 
 -- | Well-Known-Type registry. Maps a fully-qualified proto name
 -- (@google.protobuf.Timestamp@) to the splice 'Name' of the
@@ -747,10 +859,12 @@ enumZeroDefaultE scope protoTy = case findEnum (scTopLevels scope) of
       Nothing -> findInMsg rest
     findInMsg (_ : rest)         = findInMsg rest
 
+    enumParents = findTypeScope scope protoTy
+
     lookupZero ed =
       let zeros = filter (\ev -> evNumber ev == 0) (enumValues ed)
       in case zeros of
-        (ev:_) -> Just (hsEnumCon (enumName ed) (evName ev))
+        (ev:_) -> Just (scopedHsEnumCon enumParents (enumName ed) (evName ev))
         []     -> Nothing
 
 emptyRepeatedQ :: RepeatedRep -> Q Exp
@@ -786,14 +900,21 @@ enumToDecls :: EnumDef -> Q [Dec]
 enumToDecls = enumToDecls' defaultTHHooks
 
 enumToDecls' :: THHooks -> EnumDef -> Q [Dec]
-enumToDecls' hooks ed = enumToDecls'' T.empty hooks ed
+enumToDecls' hooks ed = enumToDecls'' T.empty [] hooks ed
 
--- | Enum splice with the proto package threaded through (so the
--- generated 'PS.ProtoEnum.protoEnumName' returns the
--- fully-qualified proto name).
-enumToDecls'' :: Text -> THHooks -> EnumDef -> Q [Dec]
-enumToDecls'' pkg hooks ed = do
-  let tyName = mkName (T.unpack (hsTypeName (enumName ed)))
+-- | Enum splice with the proto package + parent-message scope
+-- threaded through. Parent scope drives the Haskell type and
+-- constructor names ('TestAllTypesProto3'NestedEnum' /
+-- 'TestAllTypesProto3'NestedEnum'Foo') so two parent messages
+-- can declare identically-named inner enums without colliding.
+enumToDecls'' :: Text -> [Text] -> THHooks -> EnumDef -> Q [Dec]
+enumToDecls'' pkg parents hooks ed = do
+  let -- Scoped Haskell type name (collapses to plain
+      -- 'hsTypeName' when 'parents' is empty).
+      hsTy   = scopedHsTypeName parents (enumName ed)
+      tyName = mkName (T.unpack hsTy)
+      conNameFor evName' =
+        mkName (T.unpack (scopedHsEnumCon parents (enumName ed) evName'))
       -- An enum declared with @option allow_alias = true@ can
       -- repeat wire numbers; only the FIRST occurrence of each
       -- number becomes a distinct Haskell constructor. Aliases
@@ -801,13 +922,11 @@ enumToDecls'' pkg hooks ed = do
       -- ('protoEnumValues') and in the JSON parser, where they
       -- all dispatch to the primary constructor.
       primaryEvs = primaryValues (enumValues ed)
-      cons = fmap (\ev ->
-        normalC (mkName (T.unpack (hsEnumCon (enumName ed) (evName ev)))) []
-        ) primaryEvs
+      cons = fmap (\ev -> normalC (conNameFor (evName ev)) []) primaryEvs
       hookCtx = EnumHookCtx
         { ehcEnumDef    = ed
-        , ehcScope      = [enumName ed]
-        , ehcHsTypeName = hsTypeName (enumName ed)
+        , ehcScope      = parents <> [enumName ed]
+        , ehcHsTypeName = hsTy
         , ehcOptions    = enumOptions ed
         }
   -- Stock-derive Show/Eq/Ord/Generic only; emit a proto-faithful
@@ -819,15 +938,14 @@ enumToDecls'' pkg hooks ed = do
        [ conT ''Show, conT ''Eq, conT ''Ord
        , conT ''Generic
        ]]
-  enumInst  <- mkEnumInstance tyName ed
+  enumInst  <- mkEnumInstance tyName parents ed
   let -- Map every declared enum value (alias or primary) to the
       -- /primary/ constructor for its wire number, so that the
       -- generated 'ProtoEnum' table and JSON parser both accept
       -- alias names but dispatch to a single Haskell constructor.
       primaryConByNum =
         Map.fromList
-          [ (evNumber ev,
-             mkName (T.unpack (hsEnumCon (enumName ed) (evName ev))))
+          [ (evNumber ev, conNameFor (evName ev))
           | ev <- primaryEvs
           ]
       values = fmap (\ev ->
@@ -835,7 +953,7 @@ enumToDecls'' pkg hooks ed = do
               Just c  -> c
               -- Defensive — primaryValues guarantees a primary
               -- exists for every observed number.
-              Nothing -> mkName (T.unpack (hsEnumCon (enumName ed) (evName ev)))
+              Nothing -> conNameFor (evName ev)
         in (con, evName ev, evNumber ev)
         ) (enumValues ed)
       fqEnumName = if T.null pkg
@@ -859,8 +977,8 @@ enumToDecls'' pkg hooks ed = do
 -- @.proto@ file; @toEnum@ inverts it, falling back to the first
 -- declared value for unknown wire numbers (matches the open-enum
 -- behaviour proto3 mandates).
-mkEnumInstance :: Name -> EnumDef -> Q Dec
-mkEnumInstance tyName ed = do
+mkEnumInstance :: Name -> [Text] -> EnumDef -> Q Dec
+mkEnumInstance tyName parents ed = do
   -- Collapse aliases so multiple constructors with the same wire
   -- number don't introduce overlapping @fromEnum@ clauses (proto
   -- @allow_alias = true@ is rare but legal). The first occurrence
@@ -899,7 +1017,8 @@ mkEnumInstance tyName ed = do
            (AppT (ConT ''Enum) (ConT tyName))
            [toEnumDec, fromEnumDec]
   where
-    enumConName ev = mkName (T.unpack (hsEnumCon (enumName ed) (evName ev)))
+    enumConName ev =
+      mkName (T.unpack (scopedHsEnumCon parents (enumName ed) (evName ev)))
 
 -- | Drop later occurrences of any wire number from an enum's
 -- value list; preserves the first declaration. Used by both
@@ -1098,7 +1217,7 @@ fieldSpecToProtoField scope parentTy (FSField name num lbl ft rep opts) = do
         Just Optional -> PDI.FKMaybe
         _ | isImplicitOptional -> PDI.FKMaybe
           | otherwise         -> PDI.FKBare
-      inner  = innerHsType ft rep
+      inner  = innerHsType scope ft rep
       base   = PDI.protoField sel num kind pft inner
   pure base
     { PDI.pfStringRep = frString rep
@@ -1114,7 +1233,7 @@ fieldSpecToProtoField scope parentTy (FSMap name num kt vt) =
       let parentName = T.pack (nameBase parentTy)
           sel   = mkName (T.unpack (scopedHsFieldName parentName name))
           pft   = fieldTypeToBridge scope vt
-          inner = innerHsType vt defaultFieldRep
+          inner = innerHsType scope vt defaultFieldRep
       in pure (PDI.protoField sel num (PDI.FKMap mks) pft inner)
 fieldSpecToProtoField scope parentTy (FSOneof name ofs) = do
   let parentName = T.pack (nameBase parentTy)
@@ -1160,7 +1279,7 @@ oneofVariantToBridge scope parentTy ooName (f, rep) =
   let base = PDI.oneofVariant
         (oneofConTHName parentTy ooName (oneofFieldName f))
         (unFieldNumber (oneofFieldNumber f))
-        (innerHsType (oneofFieldType f) rep)
+        (innerHsType scope (oneofFieldType f) rep)
         (fieldTypeToBridge scope (oneofFieldType f))
   in base
        { PDI.ovStringRep = frString rep
@@ -1211,8 +1330,8 @@ fieldTypeToBridge scope = \case
 -- | Reconstruct the Haskell type the record selector returns,
 -- so the bridge's encoder can supply the matching @($var :: T)@
 -- ascription.
-innerHsType :: FieldType -> FieldRep -> Type
-innerHsType ft rep = case ft of
+innerHsType :: ScopeCtx -> FieldType -> FieldRep -> Type
+innerHsType scope ft rep = case ft of
   FTScalar SString -> stringHsType (frString rep)
   FTScalar SBytes  -> bytesHsType  (frBytes  rep)
   FTScalar SInt32  -> ConT ''Int32
@@ -1230,7 +1349,7 @@ innerHsType ft rep = case ft of
   FTScalar SBool   -> ConT ''Bool
   FTNamed n
     | Just (tyN, _) <- lookupWkt n -> ConT tyN
-    | otherwise                    -> ConT (mkName (T.unpack (hsTypeName n)))
+    | otherwise -> ConT (mkName (T.unpack (resolveScopedHsType scope n)))
 
 stringHsType :: StringRep -> Type
 stringHsType = \case
@@ -1301,7 +1420,7 @@ fieldSpecToMetaField scope parentTy fs = case fs of
           (Just Optional, FTScalar s)         -> PTM.JSMaybe (jsScalarOf s)
           (Just Optional, FTNamed n)
             | Just w <- lookupWktShape n      -> PTM.JSWktMaybe w
-            | isEnumName scope n              -> PTM.JSEnum
+            | isEnumName scope n              -> PTM.JSEnumMaybe
             | otherwise                       -> PTM.JSMessage
           (_,             FTScalar s)         -> PTM.JSScalar (jsScalarOf s)
           (_,             FTNamed n)

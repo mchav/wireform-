@@ -28,7 +28,7 @@ tests = testGroup "Proto.TH top-level enum + packed scalar"
           PE.encodeMessage a @?= BS.empty
 
       , testCase "Status = STATUS_ACTIVE encodes as varint 1, not as a submessage" $ do
-          let a = defaultAccount { accountAcctStatus = StatusActive }
+          let a = defaultAccount { accountAcctStatus = Status'StatusActive }
           -- field 2 (varint) tag = (2<<3)|0 = 0x10; payload = 1.
           -- If the bridge had wrongly chosen PFSubmessage we'd
           -- see 0x12 ((2<<3)|2) followed by a length prefix here.
@@ -37,7 +37,7 @@ tests = testGroup "Proto.TH top-level enum + packed scalar"
       , testCase "Status = STATUS_BANNED round-trips" $ do
           let a = defaultAccount
                 { accountAcctName   = T.pack "anon"
-                , accountAcctStatus = StatusBanned
+                , accountAcctStatus = Status'StatusBanned
                 }
           PD.decodeMessage (PE.encodeMessage a) @?= Right a
 
@@ -45,8 +45,8 @@ tests = testGroup "Proto.TH top-level enum + packed scalar"
           let go st = do
                 let a = defaultAccount { accountAcctStatus = st }
                 PD.decodeMessage (PE.encodeMessage a) @?= Right a
-          mapM_ go [ StatusUnspecified, StatusActive
-                   , StatusRetired,    StatusBanned ]
+          mapM_ go [ Status'StatusUnspecified, Status'StatusActive
+                   , Status'StatusRetired,    Status'StatusBanned ]
 
       , testCase "enum decoder truncates oversized varint to int32" $ do
           -- Proto3 wire spec: enum values are int32 on the wire
@@ -58,7 +58,7 @@ tests = testGroup "Proto.TH top-level enum + packed scalar"
           -- -1 as a 10-byte varint), the int32 truncation is -1,
           -- which our generated 'Status' has no constructor for —
           -- so it falls through to the catch-all (the first
-          -- declared, StatusUnspecified). The point of this test
+          -- declared, Status'StatusUnspecified). The point of this test
           -- is to confirm we don't crash and the message
           -- round-trips.
           let bs = BS.pack
