@@ -2944,23 +2944,55 @@ stripInlineComment t
   -- Fast path: if there's no '#' anywhere, return the input
   -- untouched (the common case for typical mapping values).
   | not (T.any (== '#') t) = t
-  | otherwise = T.pack (loop (T.unpack t) (Outer :: QState))
-  where
-    loop [] _              = []
-    loop (' ':'#':_) Outer = []
-    loop ('\t':'#':_) Outer = []
-    loop ('\1':'#':rest) Outer =
-      '\2' : loop (dropWhile (/= '\1') rest) Outer
-    loop (c:rest) Outer
-      | c == '"'  = c : loop rest InDQ
-      | c == '\'' = c : loop rest InSQ
-      | otherwise = c : loop rest Outer
-    loop ('\\':c:rest) InDQ = '\\' : c : loop rest InDQ
-    loop ('"':rest) InDQ    = '"'  : loop rest Outer
-    loop (c:rest) InDQ      = c    : loop rest InDQ
-    loop ('\'':'\'':rest) InSQ = '\'' : '\'' : loop rest InSQ
-    loop ('\'':rest) InSQ      = '\'' : loop rest Outer
-    loop (c:rest) InSQ         = c    : loop rest InSQ
+  | otherwise =
+      -- Walk the underlying bytes, finding the first
+      -- column-stopping '#' (preceded by ' ', '\\t', or '\\1' and
+      -- not inside a quoted span). For an outer-context match,
+      -- we either truncate at the preceding whitespace or, for
+      -- a '\\1' match, splice in a '\\2' sentinel and skip the
+      -- comment body.
+      let !len = bLen t
+          go !i !st
+            | i >= len  = bSlice t 0 i
+            | otherwise = case st of
+                Outer ->
+                  let !c = bAt t i
+                  in case c of
+                       34 -> go (i + 1) InDQ        -- '"'
+                       39 -> go (i + 1) InSQ        -- '\''
+                       35 ->                         -- '#'
+                         if i > 0
+                            && let !p = bAt t (i - 1)
+                               in p == w8Space || p == w8Tab
+                            then bSlice t 0 (i - 1)   -- drop space + #
+                            else if i > 0 && bAt t (i - 1) == w8SOH
+                                   then -- '\\1#' → '\\2' sentinel +
+                                        -- skip up to next '\\1'
+                                        spliceAt (i - 1)
+                                   else go (i + 1) Outer
+                       _  -> go (i + 1) Outer
+                InDQ -> case bAt t i of
+                  92 | i + 1 < len ->                 -- '\\' escape
+                       go (i + 2) InDQ
+                  34 -> go (i + 1) Outer
+                  _  -> go (i + 1) InDQ
+                InSQ ->
+                  let !c = bAt t i
+                  in if c == w8SQuote
+                       then if i + 1 < len && bAt t (i + 1) == w8SQuote
+                              then go (i + 2) InSQ
+                              else go (i + 1) Outer
+                       else go (i + 1) InSQ
+          spliceAt !brk =
+            -- Replace the '\\1#...' run with '\\2' up to the
+            -- next '\\1' (or end of buffer). The slow-path
+            -- splice still allocates a new Text via T.pack but
+            -- only when this rare case fires.
+            let prefix = bSlice t 0 brk
+                rest0  = bDrop (brk + 1) t
+                afterC = T.dropWhile (/= '\1') rest0
+            in prefix <> T.pack "\2" <> afterC
+      in go 0 Outer
 {-# INLINABLE stripInlineComment #-}
 
 data QState = Outer | InDQ | InSQ
