@@ -173,6 +173,10 @@ data PS = PS
     -- (seq dash / mapping key column). Used by parsePlainScalar
     -- to admit 'shallow' continuation lines whose source indent
     -- is below the value column but above the parent.
+  , psInMapValue :: !Bool
+    -- ^ True when we're inside a mapping-value dispatch (used
+    -- by parseAnchored to decide whether a same-column next
+    -- line is the anchor's binding target or a sibling).
   }
 
 instance Functor P where
@@ -262,6 +266,17 @@ withParentInd !i action = do
 getParentInd :: P Int
 getParentInd = psParentInd <$> getS
 
+withInMapValue :: Bool -> P a -> P a
+withInMapValue !b action = do
+  saved <- psInMapValue <$> getS
+  modifyS (\s -> s { psInMapValue = b })
+  x <- action
+  modifyS (\s -> s { psInMapValue = saved })
+  pure x
+
+getInMapValue :: P Bool
+getInMapValue = psInMapValue <$> getS
+
 lookupShortcut :: Text -> P (Maybe Text)
 lookupShortcut handle = do
   s <- getS
@@ -273,7 +288,7 @@ lookupShortcut handle = do
 
 parseStream :: [PLine] -> Either String [Document]
 parseStream lns =
-  case unP (loop True True) (PS lns Map.empty Map.empty 0) of
+  case unP (loop True True) (PS lns Map.empty Map.empty 0 False) of
     Left err      -> Left err
     Right (ds, _) -> Right ds
   where
@@ -690,6 +705,13 @@ parseTagged = do
 
 parseAnchored :: P Value
 parseAnchored = do
+  inMapValue <- getInMapValue
+  -- Once we descend below the immediate mapping-value dispatch,
+  -- further parseNode calls are NOT in mapping-value position.
+  withInMapValue False (parseAnchoredImpl inMapValue)
+
+parseAnchoredImpl :: Bool -> P Value
+parseAnchoredImpl !inMapValue = do
   Just l <- popLine
   let body = lineBody l
       (name, rest) = takeAnchorName (T.drop 1 body)
@@ -750,10 +772,15 @@ parseAnchored = do
                  -- A bare anchor whose next line at the same
                  -- column is another node-property line chains
                  -- into that property; the whole stack labels
-                 -- the eventual node.
+                 -- the eventual node. EXCEPT when the anchor is
+                 -- itself the value of a mapping entry: a
+                 -- same-column property line then is a sibling
+                 -- (not a chained property), so the anchor refers
+                 -- to Null. See H7J7 (node-anchor-not-indented).
                  Just l2
                    | lineIndent l2 == lineIndent l
-                   , isNodePropertyLine (lineBody l2) ->
+                   , isNodePropertyLine (lineBody l2)
+                   , not inMapValue ->
                        parseNode (lineIndent l2)
                  -- A bare anchor on its own line at column > 0
                  -- binds to the next same-column content line.
@@ -771,13 +798,13 @@ parseAnchored = do
                    , isSeqItem (lineBody l2) ->
                        parseBlockSeq (lineIndent l2)
                  -- At column 0 we only chain into a same-column
-                 -- /plain scalar/ (no ':' / structural markers);
-                 -- otherwise the next line is a sibling and the
-                 -- anchor refers to Null.
+                 -- /plain scalar/. In mapping-value position the
+                 -- same-column line is the next sibling.
                  Just l2
                    | lineIndent l2 == lineIndent l
                    , lineIndent l == 0
                    , lineKind l2 == LContent
+                   , not inMapValue
                    , not (isSeqItem (lineBody l2))
                    , not (isExplicitKey (lineBody l2))
                    , not (isNodePropertyLine (lineBody l2))
@@ -1695,7 +1722,7 @@ parseImplicitMapValue !ind vRest =
            consumeFlowAt (ind + 1) (lineBody l)
          Just ('&', _) -> do
            pushLine (PLine 0 ind LContent after after)
-           parseAnchored
+           withInMapValue True parseAnchored
          Just ('*', _) -> do
            pushLine (PLine 0 (ind + 2) LContent after after)
            parseAlias
