@@ -896,7 +896,7 @@ consumeQuotedAt q !openInd = go0 False
       let trimmed = T.stripStart rest
           -- Was there at least one whitespace char between the
           -- closing quote and 'rest'?
-          hadSeparator = T.length trimmed < T.length rest
+          hadSeparator = bLen trimmed < bLen rest
           stripped = case T.uncons trimmed of
             -- A '#' may only start a comment when preceded by
             -- whitespace; without one it's malformed.
@@ -2309,7 +2309,7 @@ parsePlainScalarAt !parentInd !inMapValue !baseIndArg firstBody = do
                                else firstBody
       !first      = T.stripEnd stripped
       !hadComment = hasHash
-                  && T.length stripped < T.length (T.stripEnd firstBody)
+                  && bLen stripped < bLen (T.stripEnd firstBody)
   -- A plain scalar may not contain ': ' (colon-space) in block
   -- context — that would form a nested mapping (spec §7.3.3).
   case findKeyValueSplit first of
@@ -2392,7 +2392,7 @@ parsePlainScalarAt !parentInd !inMapValue !baseIndArg firstBody = do
                 let raw = lineBody l
                     s0 = T.stripEnd (stripInlineComment raw)
                     s = T.dropWhile (\c -> c == ' ' || c == '\t') s0
-                    hadComment = T.length s0 < T.length (T.stripEnd raw)
+                    hadComment = bLen s0 < bLen (T.stripEnd raw)
                     prefix
                       | blanks == 0 = s
                       | otherwise   = T.replicate blanks (T.pack "\n") <> s
