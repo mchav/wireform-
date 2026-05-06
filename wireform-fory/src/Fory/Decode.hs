@@ -1,10 +1,24 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveAnyClass #-}
 -- | Apache Fory xlang value decoder.
 --
 -- Mirrors 'Fory.Encode.encode'. Wire-compatible with @pyfory@
 -- 0.17 for the value shapes documented on the encode side; see
 -- "Fory.Encode" for the exact subset.
+--
+-- Internally the decoder runs in 'IO' against a 'Decoder'
+-- record that holds the input 'ByteString' (and its raw 'Ptr'
+-- base), a mutable 'IORef Int' read cursor, and 'IORef'-backed
+-- dedup pools (meta-string, ref-id, TypeDef). Errors are
+-- thrown as 'DecodeError' exceptions and caught at the
+-- top-level boundary to produce 'Either String'. This keeps
+-- the per-byte read cost down to one @readIORef + peek +
+-- writeIORef@ — there is no state-monad bind chain.
+--
+-- The pure-looking 'decode' / 'decodeWith' API uses
+-- 'unsafeDupablePerformIO' to wrap the IO action; the buffer
+-- and pools are local to one decode call so this is safe.
 module Fory.Decode
   ( decode
   , decodeWith
@@ -14,11 +28,14 @@ module Fory.Decode
   , runDecodeMWith
   ) where
 
-import Data.Bits (shiftR, (.&.))
+import Control.Exception (Exception, throwIO, try)
+import Data.Bits (shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import qualified Data.IntMap.Strict as IM
 import Data.IntMap.Strict (IntMap)
+import Data.IORef
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -27,11 +44,15 @@ import qualified Data.Vector as V
 import Data.Vector (Vector)
 import qualified Data.Vector.Storable as VS
 import Data.Word (Word8, Word16, Word32, Word64)
+import Foreign.ForeignPtr (ForeignPtr, withForeignPtr)
+import Foreign.Ptr (Ptr, plusPtr)
+import Foreign.Storable (peekByteOff)
+import GHC.Float (castWord32ToFloat, castWord64ToDouble)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Data.HashMap.Strict as HM
 
 import qualified Fory.Bulk as B
-import qualified Fory.Encoding as E
 import qualified Fory.MetaString as MS
 import qualified Fory.MetaString.Encoder as MSE
 import qualified Fory.Options as Opt
@@ -40,17 +61,26 @@ import qualified Fory.TypeId as T
 import qualified Fory.Value as VV
 
 -- ---------------------------------------------------------------------------
--- Decoder state monad
+-- Decoder state (mutable cursor + dedup pools)
 -- ---------------------------------------------------------------------------
 
-data DecodeState = DecodeState
-  { dsOptions      :: !Opt.DecodeOptions
-  , dsStringPool   :: !(IntMap Text)
-  , dsNextStringId :: {-# UNPACK #-} !Int
-  , dsRefValues    :: !(IntMap VV.Value)
-  , dsNextRefId    :: {-# UNPACK #-} !Int
-  , dsTypeDefs     :: !(IntMap TypeDef)
-  , dsNextTypeDefId :: {-# UNPACK #-} !Int
+-- | The 'Decoder' record is built once per @decode@ call. The
+-- 'ByteString' field keeps the underlying 'ForeignPtr' alive
+-- so that 'decBase' (the raw 'Ptr') remains valid for the
+-- duration of the decode. The 'IORef'-backed pools mutate as
+-- meta-strings, refs, and TypeDefs are seen.
+data Decoder = Decoder
+  { decBs       :: !ByteString
+  , decBase     :: {-# UNPACK #-} !(Ptr Word8)
+  , decLen      :: {-# UNPACK #-} !Int
+  , decPos      :: {-# UNPACK #-} !(IORef Int)
+  , decStrPool  :: {-# UNPACK #-} !(IORef (IntMap Text))
+  , decStrNext  :: {-# UNPACK #-} !(IORef Int)
+  , decRefPool  :: {-# UNPACK #-} !(IORef (IntMap VV.Value))
+  , decRefNext  :: {-# UNPACK #-} !(IORef Int)
+  , decTdPool   :: {-# UNPACK #-} !(IORef (IntMap TypeDef))
+  , decTdNext   :: {-# UNPACK #-} !(IORef Int)
+  , decOptions  :: !Opt.DecodeOptions
   }
 
 data TypeDef = TypeDef
@@ -59,114 +89,289 @@ data TypeDef = TypeDef
   , tdFieldNames :: !(Vector Text)
   } deriving (Show, Eq)
 
-emptyDecodeState :: Opt.DecodeOptions -> DecodeState
-emptyDecodeState opts =
-  DecodeState opts IM.empty 0 IM.empty 0 IM.empty 0
+newDecoder :: Opt.DecodeOptions -> ByteString -> IO Decoder
+newDecoder !opts !bs@(BSI.BS fp len) = do
+  -- We hold the ForeignPtr alive in the ByteString and use
+  -- 'withForeignPtr' to derive the raw 'Ptr Word8'. The pointer
+  -- stays valid as long as 'bs' (and hence 'fp') is reachable
+  -- from the Decoder, which it is until the decode action
+  -- finishes.
+  pos <- newIORef 0
+  sp  <- newIORef IM.empty
+  sn  <- newIORef 0
+  rp  <- newIORef IM.empty
+  rn  <- newIORef 0
+  tp  <- newIORef IM.empty
+  tn  <- newIORef 0
+  withForeignPtr fp $ \p ->
+    pure $! Decoder bs p len pos sp sn rp rn tp tn opts
+{-# INLINE newDecoder #-}
 
-newtype DecodeM a = DecodeM
-  { runDM
-      :: ByteString
-      -> Int
-      -> DecodeState
-      -> Either String (a, Int, DecodeState)
-  }
+-- | Decoder errors are thrown as exceptions and caught at the
+-- top-level boundary. Cheaper than a plain @Either@ in the
+-- inner loop because GHC doesn't have to thread the @Left@
+-- short-circuit through every bind.
+newtype DecodeError = DecodeError String
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- | The decoder monad. A reader of 'Decoder' returning 'IO'.
+newtype DecodeM a = DecodeM { runDM :: Decoder -> IO a }
 
 instance Functor DecodeM where
-  fmap f (DecodeM g) = DecodeM $ \bs off st ->
-    case g bs off st of
-      Left e               -> Left e
-      Right (a, off', st') -> Right (f a, off', st')
+  fmap f (DecodeM g) = DecodeM $ \d -> fmap f (g d)
   {-# INLINE fmap #-}
 
 instance Applicative DecodeM where
-  pure x = DecodeM $ \_ off st -> Right (x, off, st)
+  pure x = DecodeM $ \_ -> pure x
   {-# INLINE pure #-}
-  DecodeM f <*> DecodeM x = DecodeM $ \bs off st ->
-    case f bs off st of
-      Left e -> Left e
-      Right (g, off1, st1) -> case x bs off1 st1 of
-        Left e -> Left e
-        Right (a, off2, st2) -> Right (g a, off2, st2)
+  DecodeM f <*> DecodeM x = DecodeM $ \d -> f d <*> x d
+  {-# INLINE (<*>) #-}
 
 instance Monad DecodeM where
-  DecodeM m >>= k = DecodeM $ \bs off st ->
-    case m bs off st of
-      Left e -> Left e
-      Right (a, off', st') -> runDM (k a) bs off' st'
+  DecodeM m >>= k = DecodeM $ \d -> do
+    a <- m d
+    runDM (k a) d
   {-# INLINE (>>=) #-}
+
+-- ---------------------------------------------------------------------------
+-- Top-level runners
+-- ---------------------------------------------------------------------------
 
 runDecodeM :: DecodeM a -> ByteString -> Either String a
 runDecodeM = runDecodeMWith Opt.defaultDecodeOptions
 
-runDecodeMWith :: Opt.DecodeOptions -> DecodeM a -> ByteString -> Either String a
-runDecodeMWith opts (DecodeM m) bs =
-  case m bs 0 (emptyDecodeState opts) of
-    Left e -> Left e
-    Right (a, off, _)
-      | off == BS.length bs -> Right a
-      | otherwise -> Left $ "Fory.Decode: " ++ show (BS.length bs - off)
-                            ++ " trailing bytes"
+runDecodeMWith
+  :: Opt.DecodeOptions -> DecodeM a -> ByteString -> Either String a
+runDecodeMWith !opts (DecodeM m) !bs = unsafeDupablePerformIO $ do
+  d <- newDecoder opts bs
+  r <- try (m d)
+  case r of
+    Left (DecodeError e) -> pure (Left e)
+    Right a -> do
+      pos <- readIORef (decPos d)
+      if pos == decLen d
+        then pure (Right a)
+        else pure (Left $ "Fory.Decode: " ++ show (decLen d - pos)
+                          ++ " trailing bytes")
+{-# NOINLINE runDecodeMWith #-}
 
-liftEither :: (ByteString -> Int -> Either String (a, Int)) -> DecodeM a
-liftEither f = DecodeM $ \bs off st ->
-  case f bs off of
-    Left e               -> Left e
-    Right (a, off')      -> Right (a, off', st)
-{-# INLINE liftEither #-}
-
-getOff :: DecodeM Int
-getOff = DecodeM $ \_ off st -> Right (off, off, st)
-
-getState :: DecodeM DecodeState
-getState = DecodeM $ \_ off st -> Right (st, off, st)
-
-modifyState :: (DecodeState -> DecodeState) -> DecodeM ()
-modifyState f = DecodeM $ \_ off st -> Right ((), off, f st)
+-- ---------------------------------------------------------------------------
+-- Cursor primitives
+-- ---------------------------------------------------------------------------
 
 failD :: String -> DecodeM a
-failD e = DecodeM $ \_ _ _ -> Left e
+failD msg = DecodeM $ \_ -> throwIO (DecodeError msg)
+{-# INLINE failD #-}
+
+ensureBytes :: Decoder -> Int -> Int -> IO ()
+ensureBytes !d !pos !need
+  | pos + need > decLen d =
+      throwIO (DecodeError $
+        "Fory.Decode: need " ++ show need ++ " bytes at offset "
+          ++ show pos ++ " but buffer only has "
+          ++ show (decLen d - pos))
+  | otherwise = pure ()
+{-# INLINE ensureBytes #-}
 
 readByteD :: DecodeM Word8
-readByteD = liftEither E.readByte
+readByteD = DecodeM $ \d -> do
+  pos <- readIORef (decPos d)
+  ensureBytes d pos 1
+  b <- peekByteOff (decBase d) pos
+  writeIORef (decPos d) (pos + 1)
+  pure b
+{-# INLINE readByteD #-}
 
 readBytesD :: Int -> DecodeM ByteString
-readBytesD n = liftEither (E.readBytes n)
+readBytesD n = DecodeM $ \d -> do
+  pos <- readIORef (decPos d)
+  ensureBytes d pos n
+  let !slice = BS.take n (BS.drop pos (decBs d))
+  writeIORef (decPos d) (pos + n)
+  pure slice
+{-# INLINE readBytesD #-}
 
 readWord16D :: DecodeM Word16
-readWord16D = liftEither E.readWord16LE
+readWord16D = DecodeM $ \d -> do
+  pos <- readIORef (decPos d)
+  ensureBytes d pos 2
+  w <- peekByteOff (decBase d) pos
+  writeIORef (decPos d) (pos + 2)
+  pure w
+{-# INLINE readWord16D #-}
 
 readWord32D :: DecodeM Word32
-readWord32D = liftEither E.readWord32LE
+readWord32D = DecodeM $ \d -> do
+  pos <- readIORef (decPos d)
+  ensureBytes d pos 4
+  w <- peekByteOff (decBase d) pos
+  writeIORef (decPos d) (pos + 4)
+  pure w
+{-# INLINE readWord32D #-}
 
 readWord64D :: DecodeM Word64
-readWord64D = liftEither E.readWord64LE
+readWord64D = DecodeM $ \d -> do
+  pos <- readIORef (decPos d)
+  ensureBytes d pos 8
+  w <- peekByteOff (decBase d) pos
+  writeIORef (decPos d) (pos + 8)
+  pure w
+{-# INLINE readWord64D #-}
 
 readInt16D :: DecodeM Int16
-readInt16D = liftEither E.readInt16LE
+readInt16D = DecodeM $ \d -> do
+  pos <- readIORef (decPos d)
+  ensureBytes d pos 2
+  n <- peekByteOff (decBase d) pos
+  writeIORef (decPos d) (pos + 2)
+  pure n
+{-# INLINE readInt16D #-}
 
 readInt32D :: DecodeM Int32
-readInt32D = liftEither E.readInt32LE
+readInt32D = DecodeM $ \d -> do
+  pos <- readIORef (decPos d)
+  ensureBytes d pos 4
+  n <- peekByteOff (decBase d) pos
+  writeIORef (decPos d) (pos + 4)
+  pure n
+{-# INLINE readInt32D #-}
 
 readInt64D :: DecodeM Int64
-readInt64D = liftEither E.readInt64LE
+readInt64D = DecodeM $ \d -> do
+  pos <- readIORef (decPos d)
+  ensureBytes d pos 8
+  n <- peekByteOff (decBase d) pos
+  writeIORef (decPos d) (pos + 8)
+  pure n
+{-# INLINE readInt64D #-}
 
 readFloat32D :: DecodeM Float
-readFloat32D = liftEither E.readFloat32LE
+readFloat32D = castWord32ToFloat <$> readWord32D
+{-# INLINE readFloat32D #-}
 
 readFloat64D :: DecodeM Double
-readFloat64D = liftEither E.readFloat64LE
+readFloat64D = castWord64ToDouble <$> readWord64D
+{-# INLINE readFloat64D #-}
 
+-- | varuint32 decode in IO. Reads up to 5 bytes.
 readVaruint32D :: DecodeM Word32
-readVaruint32D = liftEither E.readVaruint32
+readVaruint32D = DecodeM $ \d -> do
+  pos0 <- readIORef (decPos d)
+  let goVu :: Int -> Int -> Word32 -> IO (Word32, Int)
+      goVu !shft !pos !acc
+        | shft >= 35 =
+            throwIO (DecodeError
+              "Fory.Decode.readVaruint32: too many continuation bytes")
+        | otherwise = do
+            ensureBytes d pos 1
+            b <- peekByteOff (decBase d) pos :: IO Word8
+            let !chunk = (fromIntegral (b .&. 0x7F) :: Word32) `shiftL` shft
+                !next  = acc .|. chunk
+            if b .&. 0x80 == 0
+              then pure (next, pos + 1)
+              else goVu (shft + 7) (pos + 1) next
+  (!v, !pos1) <- goVu 0 pos0 0
+  writeIORef (decPos d) pos1
+  pure v
 
+-- | varuint64 decode in IO. Reads up to 9 bytes; pyfory's wire
+-- shape is 1–8 high-bit-tagged bytes followed by an optional
+-- 9th raw byte (no continuation flag) — we mirror that here.
 readVaruint64D :: DecodeM Word64
-readVaruint64D = liftEither E.readVaruint64
+readVaruint64D = DecodeM $ \d -> do
+  pos0 <- readIORef (decPos d)
+  let go :: Int -> Int -> Word64 -> IO (Word64, Int)
+      go !i !pos !acc
+        | i >= 8 = do
+            ensureBytes d pos 1
+            b <- peekByteOff (decBase d) pos :: IO Word8
+            let !chunk = (fromIntegral b :: Word64) `shiftL` (7 * 8)
+                !next  = acc .|. chunk
+            pure (next, pos + 1)
+        | otherwise = do
+            ensureBytes d pos 1
+            b <- peekByteOff (decBase d) pos :: IO Word8
+            let !chunk = (fromIntegral (b .&. 0x7F) :: Word64) `shiftL` (7 * i)
+                !next  = acc .|. chunk
+            if b .&. 0x80 == 0
+              then pure (next, pos + 1)
+              else go (i + 1) (pos + 1) next
+  (!v, !pos1) <- go 0 pos0 0
+  writeIORef (decPos d) pos1
+  pure v
 
 readVarint32D :: DecodeM Int32
-readVarint32D = liftEither E.readVarint32
+readVarint32D = do
+  v <- readVaruint32D
+  let !i = fromIntegral (v `shiftR` 1) :: Int32
+      !s = fromIntegral (v .&. 1) :: Int32
+  pure (i `xor` (-s))
+{-# INLINE readVarint32D #-}
 
 readVarint64D :: DecodeM Int64
-readVarint64D = liftEither E.readVarint64
+readVarint64D = do
+  v <- readVaruint64D
+  let !i = fromIntegral (v `shiftR` 1) :: Int64
+      !s = fromIntegral (v .&. 1) :: Int64
+  pure (i `xor` (-s))
+{-# INLINE readVarint64D #-}
+
+-- ---------------------------------------------------------------------------
+-- State pool accessors (typed, no full DecodeState snapshot)
+-- ---------------------------------------------------------------------------
+
+getOptions :: DecodeM Opt.DecodeOptions
+getOptions = DecodeM $ \d -> pure (decOptions d)
+{-# INLINE getOptions #-}
+
+lookupRefValue :: Int -> DecodeM (Maybe VV.Value)
+lookupRefValue rid = DecodeM $ \d -> do
+  m <- readIORef (decRefPool d)
+  pure (IM.lookup rid m)
+{-# INLINE lookupRefValue #-}
+
+-- | Allocate a new ref id, run @inner@ to compute the value
+-- bound to that id, register the @(id, value)@ pair, and
+-- return a 'VV.RefVal' wrapping both. Used when the wire bytes
+-- begin a fresh ref-tracked value.
+withFreshRef :: DecodeM VV.Value -> DecodeM VV.Value
+withFreshRef inner = DecodeM $ \d -> do
+  rid <- readIORef (decRefNext d)
+  writeIORef (decRefNext d) (rid + 1)
+  v <- runDM inner d
+  modifyIORef' (decRefPool d) (IM.insert rid v)
+  pure (VV.RefVal rid v)
+{-# INLINE withFreshRef #-}
+
+lookupStringPool :: Int -> DecodeM (Maybe Text)
+lookupStringPool i = DecodeM $ \d -> do
+  m <- readIORef (decStrPool d)
+  pure (IM.lookup i m)
+{-# INLINE lookupStringPool #-}
+
+registerStringPool :: Text -> DecodeM ()
+registerStringPool t = DecodeM $ \d -> do
+  i <- readIORef (decStrNext d)
+  writeIORef (decStrNext d) (i + 1)
+  modifyIORef' (decStrPool d) (IM.insert i t)
+{-# INLINE registerStringPool #-}
+
+lookupTypeDef :: Int -> DecodeM (Maybe TypeDef)
+lookupTypeDef i = DecodeM $ \d -> do
+  m <- readIORef (decTdPool d)
+  pure (IM.lookup i m)
+{-# INLINE lookupTypeDef #-}
+
+registerTypeDef :: Int -> TypeDef -> DecodeM ()
+registerTypeDef i td = DecodeM $ \d -> do
+  modifyIORef' (decTdPool d) (IM.insert i td)
+  writeIORef (decTdNext d) (i + 1)
+{-# INLINE registerTypeDef #-}
+
+getOff :: DecodeM Int
+getOff = DecodeM $ \d -> readIORef (decPos d)
+{-# INLINE getOff #-}
 
 -- ---------------------------------------------------------------------------
 -- Slot flag bytes
@@ -182,15 +387,12 @@ slotRef          = 0xFE
 -- Public API
 -- ---------------------------------------------------------------------------
 
--- | Parse a fory-encoded byte string back to a 'Value' under the
--- default 'Opt.defaultDecodeOptions' (no reference tracking).
+-- | Parse a fory-encoded byte string back to a 'Value' under
+-- the default 'Opt.defaultDecodeOptions' (no reference tracking).
 decode :: ByteString -> Either String VV.Value
 decode = decodeWith Opt.defaultDecodeOptions
 
--- | Decode under explicit options. Use
--- @'Opt.DecodeOptions' { 'Opt.doRefTracking' = True }@ to read
--- bytes produced by an encoder with 'Opt.eoRefTracking' on (or
--- by @pyfory.Fory(xlang=True, ref=True)@).
+-- | Decode under explicit options.
 decodeWith :: Opt.DecodeOptions -> ByteString -> Either String VV.Value
 decodeWith opts bs = runDecodeMWith opts go bs
   where
@@ -207,7 +409,7 @@ decodeValueSlot = do
   case flag of
     f | f == slotNull       -> pure VV.NoneVal
       | f == slotRef        -> decodeRefBack
-      | f == slotRefValue   -> decodeRefValue
+      | f == slotRefValue   -> withFreshRef decodeTypedPayload
       | f == slotNotNullValue -> decodeTypedPayload
       | otherwise -> failD $
           "Fory.Decode: unexpected slot flag byte " ++ show flag
@@ -215,20 +417,11 @@ decodeValueSlot = do
 decodeRefBack :: DecodeM VV.Value
 decodeRefBack = do
   wid <- fromIntegral <$> readVaruint32D
-  st  <- getState
-  case IM.lookup wid (dsRefValues st) of
+  m <- lookupRefValue wid
+  case m of
     Nothing -> failD $
       "Fory.Decode: REF flag references unknown ref_id " ++ show wid
     Just v  -> pure (VV.RefVal wid v)
-
-decodeRefValue :: DecodeM VV.Value
-decodeRefValue = do
-  st <- getState
-  let !wid = dsNextRefId st
-  modifyState $ \s -> s { dsNextRefId = wid + 1 }
-  inner <- decodeTypedPayload
-  modifyState $ \s -> s { dsRefValues = IM.insert wid inner (dsRefValues s) }
-  pure (VV.RefVal wid inner)
 
 -- | Read a type tag (varuint32 in pyfory's wire format) plus
 -- payload.
@@ -268,12 +461,9 @@ decodePayloadFor tag = case tag of
     typeNm <- decodeMetaStringWith MSE.typenameSpecialChars
     -- Disambiguate the pyfory-compatible wire layout from our
     -- in-package self-describing layout by checking the
-    -- struct registry. If the schema is present we parse
-    -- (4-byte hash + canonical-order fields); otherwise we
-    -- parse (varuint32 num_fields + per-field meta-string +
-    -- value).
-    st <- getState
-    case HM.lookup (ns, typeNm) (Opt.doStructRegistry (dsOptions st)) of
+    -- struct registry.
+    opts <- getOptions
+    case HM.lookup (ns, typeNm) (Opt.doStructRegistry opts) of
       Just sch -> decodeRegisteredStruct ns typeNm sch
       Nothing  -> do
         fields <- decodeStructFields
@@ -304,7 +494,7 @@ readForyString = do
       !len = fromIntegral (hdr `shiftR` 2) :: Int
   raw <- readBytesD len
   case enc of
-    0 -> pure (TE.decodeLatin1 raw)  -- single-allocation pure-Haskell decode
+    0 -> pure (TE.decodeLatin1 raw)
     1 -> case decodeUtf16LE raw of
            Right t -> pure t
            Left e  -> failD ("Fory.Decode: invalid UTF-16: " ++ e)
@@ -351,10 +541,6 @@ decodeCollection = do
             Nothing ->
               failD "Fory.Decode: same-type collection without element type"
             Just tg -> do
-              -- For NAMED_STRUCT-like elements pyfory writes the
-              -- ns + tn once at the element-type position; pre-read
-              -- them and feed the per-element decoder a payload-only
-              -- reader.
               elemReader <- elementReaderForSameType tg
               if trackingRef
                 then V.replicateM count (readSameTypeRefSlotE elemReader)
@@ -375,37 +561,31 @@ decodeCollection = do
               case f of
                 _ | f == slotNull -> pure VV.NoneVal
                   | f == slotRef -> decodeRefBack
-                  | f == slotRefValue -> decodeRefValue
+                  | f == slotRefValue -> withFreshRef decodeTypedPayload
                   | f == slotNotNullValue -> decodeTypedPayload
                   | otherwise -> failD
                       ("Fory.Decode: unexpected element flag " ++ show f)
             else V.replicateM count decodeTypedPayload
 
 -- | Build a per-element payload reader for a same-type
--- collection. For the named-struct flavours we pre-read the
--- namespace + type-name meta-strings (and the corresponding
+-- collection. For named-struct elements we pre-read the
+-- namespace + type-name meta-strings (and the matching
 -- registry lookup) right after the element type tag; the
--- returned action then reads only the per-element payload
--- (hash + fields, etc.).
+-- returned action then reads only the per-element payload.
 elementReaderForSameType :: T.TypeId -> DecodeM (DecodeM VV.Value)
 elementReaderForSameType tg = case tg of
   T.NAMED_STRUCT -> do
     ns     <- decodeMetaStringWith MSE.namespaceSpecialChars
     typeNm <- decodeMetaStringWith MSE.typenameSpecialChars
-    st <- getState
-    case HM.lookup (ns, typeNm) (Opt.doStructRegistry (dsOptions st)) of
+    opts   <- getOptions
+    case HM.lookup (ns, typeNm) (Opt.doStructRegistry opts) of
       Just sch ->
         pure (decodeRegisteredStruct ns typeNm sch)
       Nothing -> do
-        -- Fallback to the in-package self-describing layout.
         pure $ do
           fields <- decodeStructFields
           pure (VV.StructVal ns typeNm fields)
   T.NAMED_COMPATIBLE_STRUCT ->
-    -- Compatible struct doesn't pre-share ns+tn at the
-    -- element-type position because each instance carries the
-    -- meta-share marker; fall through to per-element payload
-    -- handling.
     pure (decodePayloadFor tg)
   _ ->
     pure (decodePayloadFor tg)
@@ -417,14 +597,7 @@ readSameTypeRefSlotE inner = do
   case f of
     _ | f == slotNull -> pure VV.NoneVal
       | f == slotRef -> decodeRefBack
-      | f == slotRefValue -> do
-          st <- getState
-          let !wid = dsNextRefId st
-          modifyState $ \s -> s { dsNextRefId = wid + 1 }
-          v <- inner
-          modifyState $ \s -> s
-            { dsRefValues = IM.insert wid v (dsRefValues s) }
-          pure (VV.RefVal wid v)
+      | f == slotRefValue -> withFreshRef inner
       | otherwise -> failD
           ("Fory.Decode: unexpected ref-tracked element flag " ++ show f)
 
@@ -451,11 +624,8 @@ decodeMapChunks = do
       let !keyNull = header .&. mapKeyHasNull /= 0
           !valNull = header .&. mapValueHasNull /= 0
       case (keyNull, valNull) of
-        -- Both null: implied chunk_size 1, no payload.
         (True, True) ->
           collectChunks (remaining - 1) ((VV.NoneVal, VV.NoneVal) : acc)
-        -- Key null only: implied chunk_size 1, slot flag +
-        -- value type + value payload.
         (True, False) -> do
           flag <- readByteD
           if flag /= slotNotNullValue
@@ -465,8 +635,6 @@ decodeMapChunks = do
               tw <- readVaruint32D
               v  <- decodePayloadFor (T.TypeId (fromIntegral tw))
               collectChunks (remaining - 1) ((VV.NoneVal, v) : acc)
-        -- Value null only: implied chunk_size 1, slot flag +
-        -- key type + key payload.
         (False, True) -> do
           flag <- readByteD
           if flag /= slotNotNullValue
@@ -476,8 +644,6 @@ decodeMapChunks = do
               tw <- readVaruint32D
               k  <- decodePayloadFor (T.TypeId (fromIntegral tw))
               collectChunks (remaining - 1) ((k, VV.NoneVal) : acc)
-        -- Neither null: chunk_size + key_type + value_type +
-        -- (key_payload, value_payload) * chunk_size.
         (False, False) -> do
           chunkSize <- fromIntegral <$> readByteD
           twk <- readVaruint32D
@@ -506,26 +672,16 @@ replicateMList n act
 decodeStructFields :: DecodeM VV.StructFields
 decodeStructFields = do
   n <- fromIntegral <$> readVaruint32D
-  V.replicateM n $ do
+  V.replicateM (n :: Int) $ do
     name <- decodeMetaStringWith MSE.namespaceSpecialChars
     val  <- decodeValueSlot
     pure (name, val)
 
--- | Read the pyfory-compatible @NAMED_STRUCT@ payload, given the
--- already-consumed namespace + type name and the matching
--- 'ST.StructSchema'. Layout:
---
--- @
--- | int32 hash | (per-field payload, in canonical order) |
--- @
---
--- The decoder validates the hash against the registered schema
--- so a schema-version mismatch fails fast.
 decodeRegisteredStruct
   :: Text -> Text -> ST.StructSchema -> DecodeM VV.Value
 decodeRegisteredStruct ns typeNm sch = do
   wireHash <- readInt32D
-  let expected = ST.computeStructHash sch
+  let expected = ST.ssHash sch
   if wireHash /= expected
     then failD $
       "Fory.Decode: struct schema hash mismatch for "
@@ -566,23 +722,31 @@ decodeRegisteredStruct ns typeNm sch = do
 
 decodeMetaStringWith :: MSE.SpecialChars -> DecodeM Text
 decodeMetaStringWith sc = do
-  hdr <- liftEither MS.readMetaStringHeader
+  hdr <- liftEitherD MS.readMetaStringHeader
   case hdr of
     MS.MetaStringRef rid -> do
-      st <- getState
-      case IM.lookup rid (dsStringPool st) of
+      m <- lookupStringPool rid
+      case m of
         Nothing -> failD $
           "Fory.Decode.decodeMetaString: ref to unknown id " ++ show rid
         Just t  -> pure t
     MS.MetaStringFresh len -> do
-      t  <- liftEither (MS.readFreshMetaStringPayload sc len)
-      st <- getState
-      let !nid = dsNextStringId st
-      modifyState $ \s -> s
-        { dsStringPool   = IM.insert nid t (dsStringPool s)
-        , dsNextStringId = nid + 1
-        }
+      t <- liftEitherD (MS.readFreshMetaStringPayload sc len)
+      registerStringPool t
       pure t
+
+-- | Lift an old-style @ByteString -> Int -> Either String (a, Int)@
+-- function (still used by 'Fory.MetaString') into the new IO-based
+-- 'DecodeM'.
+liftEitherD :: (ByteString -> Int -> Either String (a, Int)) -> DecodeM a
+liftEitherD f = DecodeM $ \d -> do
+  pos <- readIORef (decPos d)
+  case f (decBs d) pos of
+    Left e -> throwIO (DecodeError e)
+    Right (a, pos') -> do
+      writeIORef (decPos d) pos'
+      pure a
+{-# INLINE liftEitherD #-}
 
 -- ---------------------------------------------------------------------------
 -- TypeDef + NAMED_COMPATIBLE_STRUCT
@@ -594,18 +758,15 @@ decodeCompatibleStruct = do
   td <- if marker .&. 1 /= 0
     then do
       let !idx = fromIntegral (marker `shiftR` 1) :: Int
-      st <- getState
-      case IM.lookup idx (dsTypeDefs st) of
+      m <- lookupTypeDef idx
+      case m of
         Nothing -> failD $
           "Fory.Decode: TypeDef ref to unknown index " ++ show idx
         Just td -> pure td
     else do
       let !idx = fromIntegral (marker `shiftR` 1) :: Int
       td <- decodeTypeDefBytes
-      modifyState $ \s -> s
-        { dsTypeDefs      = IM.insert idx td (dsTypeDefs s)
-        , dsNextTypeDefId = idx + 1
-        }
+      registerTypeDef idx td
       pure td
   values <- V.mapM (const decodeValueSlot) (tdFieldNames td)
   let fields = V.zip (tdFieldNames td) values
@@ -656,18 +817,7 @@ decodeTypeDefBody = do
 -- ---------------------------------------------------------------------------
 -- Primitive 1-D arrays
 -- ---------------------------------------------------------------------------
---
--- The wire layout is | varuint32 byte_length | raw bytes |, so
--- we read the whole slice in one shot and let 'Fory.Bulk' do
--- the cast in a tight @V.generate@ loop. This drops the
--- 1k-element decode path from a per-element state-monad bind
--- (~16 us at 1024 elements) to a single bytestring slice +
--- O(n) generate.
 
--- | Read the @varuint32 byteLen + bytes@ payload for a
--- primitive array, validate alignment, and reinterpret the
--- raw bytes as a 'VS.Vector' of the appropriate element type.
--- Zero-copy on little-endian platforms.
 bulkArray
   :: Int                              -- ^ element size in bytes
   -> (ByteString -> VS.Vector a)      -- ^ zero-copy reinterpret
@@ -703,4 +853,3 @@ decodeUint32Array  :: DecodeM (VS.Vector Word32)
 decodeUint64Array  :: DecodeM (VS.Vector Word64)
 decodeFloat32Array :: DecodeM (VS.Vector Float)
 decodeFloat64Array :: DecodeM (VS.Vector Double)
-
