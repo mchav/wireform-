@@ -27,10 +27,13 @@ import qualified Data.Vector as V
 import Data.Vector (Vector)
 import Data.Word (Word8, Word16, Word32, Word64)
 
+import qualified Data.HashMap.Strict as HM
+
 import qualified Fury.Encoding as E
 import qualified Fury.MetaString as MS
 import qualified Fury.MetaString.Encoder as MSE
 import qualified Fury.Options as Opt
+import qualified Fury.Struct as ST
 import qualified Fury.TypeId as T
 import qualified Fury.Value as VV
 
@@ -261,8 +264,18 @@ decodePayloadFor tag = case tag of
   T.NAMED_STRUCT -> do
     ns     <- decodeMetaStringWith MSE.namespaceSpecialChars
     typeNm <- decodeMetaStringWith MSE.typenameSpecialChars
-    fields <- decodeStructFields
-    pure (VV.StructVal ns typeNm fields)
+    -- Disambiguate the pyfory-compatible wire layout from our
+    -- in-package self-describing layout by checking the
+    -- struct registry. If the schema is present we parse
+    -- (4-byte hash + canonical-order fields); otherwise we
+    -- parse (varuint32 num_fields + per-field meta-string +
+    -- value).
+    st <- getState
+    case HM.lookup (ns, typeNm) (Opt.doStructRegistry (dsOptions st)) of
+      Just sch -> decodeRegisteredStruct ns typeNm sch
+      Nothing  -> do
+        fields <- decodeStructFields
+        pure (VV.StructVal ns typeNm fields)
   T.NAMED_COMPATIBLE_STRUCT -> decodeCompatibleStruct
   T.BOOL_ARRAY    -> VV.BoolArrayVal    <$> decodeBoolArray
   T.INT8_ARRAY    -> VV.Int8ArrayVal    <$> decodeInt8Array
@@ -339,19 +352,24 @@ decodeCollection = do
           case elemTag of
             Nothing ->
               failD "Fury.Decode: same-type collection without element type"
-            Just tg ->
+            Just tg -> do
+              -- For NAMED_STRUCT-like elements pyfory writes the
+              -- ns + tn once at the element-type position; pre-read
+              -- them and feed the per-element decoder a payload-only
+              -- reader.
+              elemReader <- elementReaderForSameType tg
               if trackingRef
-                then V.replicateM count (readSameTypeRefSlot tg)
+                then V.replicateM count (readSameTypeRefSlotE elemReader)
                 else if hasNull
                   then V.replicateM count $ do
                     f <- readByteD
                     if f == slotNull
                       then pure VV.NoneVal
                       else if f == slotNotNullValue
-                        then decodePayloadFor tg
+                        then elemReader
                         else failD ("Fury.Decode: unexpected element flag "
                                     ++ show f)
-                  else V.replicateM count (decodePayloadFor tg)
+                  else V.replicateM count elemReader
         else
           if hasNull
             then V.replicateM count $ do
@@ -365,12 +383,38 @@ decodeCollection = do
                       ("Fury.Decode: unexpected element flag " ++ show f)
             else V.replicateM count decodeTypedPayload
 
--- | Element of a same-type ref-tracked homogeneous collection:
--- the wire layout is @REF@ \/ @REF_VALUE@ \/ @NULL@ slot flag,
--- followed by the payload (no inner type tag — we already know
--- the element type).
-readSameTypeRefSlot :: T.TypeId -> DecodeM VV.Value
-readSameTypeRefSlot tg = do
+-- | Build a per-element payload reader for a same-type
+-- collection. For the named-struct flavours we pre-read the
+-- namespace + type-name meta-strings (and the corresponding
+-- registry lookup) right after the element type tag; the
+-- returned action then reads only the per-element payload
+-- (hash + fields, etc.).
+elementReaderForSameType :: T.TypeId -> DecodeM (DecodeM VV.Value)
+elementReaderForSameType tg = case tg of
+  T.NAMED_STRUCT -> do
+    ns     <- decodeMetaStringWith MSE.namespaceSpecialChars
+    typeNm <- decodeMetaStringWith MSE.typenameSpecialChars
+    st <- getState
+    case HM.lookup (ns, typeNm) (Opt.doStructRegistry (dsOptions st)) of
+      Just sch ->
+        pure (decodeRegisteredStruct ns typeNm sch)
+      Nothing -> do
+        -- Fallback to the in-package self-describing layout.
+        pure $ do
+          fields <- decodeStructFields
+          pure (VV.StructVal ns typeNm fields)
+  T.NAMED_COMPATIBLE_STRUCT ->
+    -- Compatible struct doesn't pre-share ns+tn at the
+    -- element-type position because each instance carries the
+    -- meta-share marker; fall through to per-element payload
+    -- handling.
+    pure (decodePayloadFor tg)
+  _ ->
+    pure (decodePayloadFor tg)
+
+-- | Element of a same-type ref-tracked homogeneous collection.
+readSameTypeRefSlotE :: DecodeM VV.Value -> DecodeM VV.Value
+readSameTypeRefSlotE inner = do
   f <- readByteD
   case f of
     _ | f == slotNull -> pure VV.NoneVal
@@ -379,10 +423,10 @@ readSameTypeRefSlot tg = do
           st <- getState
           let !wid = dsNextRefId st
           modifyState $ \s -> s { dsNextRefId = wid + 1 }
-          inner <- decodePayloadFor tg
+          v <- inner
           modifyState $ \s -> s
-            { dsRefValues = IM.insert wid inner (dsRefValues s) }
-          pure (VV.RefVal wid inner)
+            { dsRefValues = IM.insert wid v (dsRefValues s) }
+          pure (VV.RefVal wid v)
       | otherwise -> failD
           ("Fury.Decode: unexpected ref-tracked element flag " ++ show f)
 
@@ -455,6 +499,55 @@ decodeStructFields = do
     name <- decodeMetaStringWith MSE.namespaceSpecialChars
     val  <- decodeValueSlot
     pure (name, val)
+
+-- | Read the pyfory-compatible @NAMED_STRUCT@ payload, given the
+-- already-consumed namespace + type name and the matching
+-- 'ST.StructSchema'. Layout:
+--
+-- @
+-- | int32 hash | (per-field payload, in canonical order) |
+-- @
+--
+-- The decoder validates the hash against the registered schema
+-- so a schema-version mismatch fails fast.
+decodeRegisteredStruct
+  :: Text -> Text -> ST.StructSchema -> DecodeM VV.Value
+decodeRegisteredStruct ns typeNm sch = do
+  wireHash <- readInt32D
+  let expected = ST.computeStructHash sch
+  if wireHash /= expected
+    then failD $
+      "Fury.Decode: struct schema hash mismatch for "
+        ++ T.unpack ns ++ "." ++ T.unpack typeNm
+        ++ ": wire " ++ show wireHash
+        ++ " /= local " ++ show expected
+    else do
+      let canonical = ST.fieldOrder sch
+      values <- V.mapM readField canonical
+      let resultPairs = V.zip (V.map ST.fsName canonical) values
+      pure (VV.RegisteredStructVal ns typeNm resultPairs)
+  where
+    readField :: ST.FieldSpec -> DecodeM VV.Value
+    readField spec
+      | ST.isBasicTypeId (ST.fsTypeId spec) =
+          if ST.fsNullable spec
+            then do
+              flag <- readByteD
+              if flag == slotNull
+                then pure VV.NoneVal
+                else if flag == slotNotNullValue
+                  then decodePayloadFor (ST.fsTypeId spec)
+                  else failD ("Fury.Decode: bad nullable basic field flag "
+                              ++ show flag)
+            else decodePayloadFor (ST.fsTypeId spec)
+      | otherwise = do
+          flag <- readByteD
+          if flag == slotNull
+            then pure VV.NoneVal
+            else if flag == slotNotNullValue
+              then decodePayloadFor (ST.fsTypeId spec)
+              else failD ("Fury.Decode: bad non-basic field flag "
+                          ++ show flag)
 
 -- ---------------------------------------------------------------------------
 -- Meta-string deduplication

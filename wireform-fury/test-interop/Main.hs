@@ -31,6 +31,8 @@ import System.Process
 import qualified Fury.Encode as E
 import qualified Fury.Decode as D
 import qualified Fury.Options as O
+import qualified Fury.Struct as ST
+import qualified Fury.TypeId as TI
 import qualified Fury.Value as VV
 import System.Directory (doesFileExist)
 
@@ -171,12 +173,43 @@ main = do
           , ("value", v)
           ]
 
-  results    <- mapM (runCase hin hout) cases
-  refResults <- mapM (runRefCase hin hout) refCases
+  let structCases :: [(String, A.Value, VV.Value)]
+      structCases =
+        [ ("struct Person('alice', 30)",
+             personJ "alice" 30,
+             personV "alice" 30)
+        , ("struct Point(x=10, y=20)",
+             pointJ 10 20,
+             pointV 10 20)
+        , ("list of two Person",
+             A.Array (V.fromList [personJ "alice" 30, personJ "bob" 25]),
+             VV.ListVal (V.fromList [personV "alice" 30, personV "bob" 25]))
+        ]
+      personJ n a =
+        A.object
+          [ ("__struct__", A.String "example.Person")
+          , ("fields", A.object [("name", A.String n), ("age", num (fromIntegral a))])
+          ]
+      personV n a =
+        VV.RegisteredStructVal "example" "Person"
+          (V.fromList [("name", VV.StringVal n), ("age", VV.VarInt64Val a)])
+      pointJ x y =
+        A.object
+          [ ("__struct__", A.String "geom.Point")
+          , ("fields", A.object [("x", num x), ("y", num y)])
+          ]
+      pointV x y =
+        VV.RegisteredStructVal "geom" "Point"
+          (V.fromList [("x", VV.VarInt64Val x), ("y", VV.VarInt64Val y)])
+
+  results       <- mapM (runCase    hin hout) cases
+  refResults    <- mapM (runRefCase hin hout) refCases
+  structResults <- mapM (runStructCase hin hout) structCases
   let failures =
            [ (lbl, why) | ((lbl, _, _), Just why) <- zip cases    results ]
         ++ [ (lbl, why) | ((lbl, _, _, _), Just why) <- zip refCases refResults ]
-      total = length results + length refResults
+        ++ [ (lbl, why) | ((lbl, _, _), Just why) <- zip structCases structResults ]
+      total = length results + length refResults + length structResults
       okCount = total - length failures
   putStrLn $ "\n=== interop summary: " ++ show okCount
              ++ " / " ++ show total ++ " passed ==="
@@ -259,6 +292,65 @@ runCase hin hout (label, expectedJson, value) = do
                     putStrLn $ "    expected:     " ++ show value
                     putStrLn $ "    got:          " ++ show got
                     pure (Just "haskell decode mismatch")
+
+-- | Run a struct interop case using the registered-struct
+-- encoder/decoder on both sides.
+runStructCase
+  :: Handle -> Handle
+  -> (String, A.Value, VV.Value)
+  -> IO (Maybe String)
+runStructCase hin hout (label, expectedJson, value) = do
+  let registry =
+          O.registerStruct personSchema
+        $ O.registerStruct pointSchema
+        $ O.emptyStructRegistry
+      eopts  = O.defaultEncodeOptions { O.eoStructRegistry = registry }
+      dopts  = O.defaultDecodeOptions { O.doStructRegistry = registry }
+      hsBytes = E.encodeWith eopts value
+  decodedJson <- pyRoundTrip hin hout 'D' hsBytes
+  case decodedJson of
+    Left err -> pure (Just ("python decode error: " ++ err))
+    Right gotJson | not (jsonEq gotJson expectedJson) -> do
+        putStrLn $ "  FAIL " ++ label ++ ": python decode mismatch"
+        putStrLn $ "    haskell bytes: " ++ hexBs hsBytes
+        putStrLn $ "    expected json: " ++ show expectedJson
+        putStrLn $ "    got      json: " ++ show gotJson
+        pure (Just "python decode mismatch")
+    Right _ -> do
+      let payload = BSL.toStrict (A.encode expectedJson)
+      pyBytes <- sendToPy hin hout 'E' payload
+      case pyBytes of
+        Left err -> pure (Just ("python encode error: " ++ err))
+        Right bs ->
+          if bs == hsBytes
+            then do
+              putStrLn $ "  ok   struct " ++ label
+                        ++ "  (" ++ show (BS.length hsBytes) ++ "B identical)"
+              pure Nothing
+            else case D.decodeWith dopts bs of
+              Left de -> do
+                putStrLn $ "  FAIL " ++ label ++ ": haskell decode of python bytes failed"
+                putStrLn $ "    python bytes : " ++ hexBs bs
+                putStrLn $ "    haskell bytes: " ++ hexBs hsBytes
+                putStrLn $ "    error: " ++ de
+                pure (Just ("haskell decode error: " ++ de))
+              Right got
+                | got == value -> do
+                    putStrLn $ "  ok   struct " ++ label
+                              ++ "  (hs " ++ show (BS.length hsBytes)
+                              ++ "B, py " ++ show (BS.length bs) ++ "B)"
+                    pure Nothing
+                | otherwise -> do
+                    putStrLn $ "  FAIL " ++ label ++ ": haskell decode value mismatch"
+                    putStrLn $ "    python bytes: " ++ hexBs bs
+                    putStrLn $ "    expected: " ++ show value
+                    putStrLn $ "    got     : " ++ show got
+                    pure (Just "haskell decode value mismatch")
+  where
+    personSchema = ST.mkSchema "example" "Person"
+                     [("name", TI.STRING), ("age", TI.VARINT64)]
+    pointSchema  = ST.mkSchema "geom" "Point"
+                     [("x", TI.VARINT64), ("y", TI.VARINT64)]
 
 -- | Like 'runCase' but uses pyfory's @ref=True@ encoder /
 -- decoder on the Python side and the Haskell encoder's

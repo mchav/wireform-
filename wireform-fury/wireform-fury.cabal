@@ -49,6 +49,7 @@ library
     Fury.MetaString.Encoder
     Fury.MetaString.Hash
     Fury.Options
+    Fury.Struct
     Fury.TypeId
     Fury.Value
   build-depends:

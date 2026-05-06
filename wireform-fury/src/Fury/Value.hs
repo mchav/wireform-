@@ -21,6 +21,9 @@ module Fury.Value
   ( Value (..)
   , StructFields
   , typeIdOf
+
+    -- * Registered structs (pyfory-compatible NAMED_STRUCT)
+  , registeredStructFieldByName
   ) where
 
 import Control.DeepSeq (NFData)
@@ -69,8 +72,18 @@ data Value
   | SetVal        !(Vector Value)
   | MapVal        !(Vector (Value, Value))
   | StructVal     !Text !Text !StructFields
-    -- ^ @StructVal namespace typeName fields@, written as
-    -- @NAMED_STRUCT@.
+    -- ^ @StructVal namespace typeName fields@. Encodes to a
+    -- self-describing per-field meta-string + value layout that
+    -- round-trips inside this package but does /not/ match
+    -- pyfory's @NAMED_STRUCT@ wire format. Use
+    -- 'RegisteredStructVal' instead for pyfory interop.
+  | RegisteredStructVal !Text !Text !StructFields
+    -- ^ @RegisteredStructVal namespace typeName fields@. Both
+    -- producer and consumer must agree on the struct schema
+    -- (passed to the encoder via 'Fury.Encode.encodeWithSchema').
+    -- Encodes as the spec's @NAMED_STRUCT@: type tag + namespace
+    -- meta-string + type-name meta-string + 4-byte schema hash
+    -- + field values in pyfory's canonical order.
   | CompatibleStructVal !Text !Text !StructFields
     -- ^ @CompatibleStructVal namespace typeName fields@. Same
     -- payload as 'StructVal' but written under the @NAMED_COMPATIBLE_STRUCT@
@@ -129,6 +142,9 @@ instance Hashable Value where
     StructVal ns nm fs ->
       hashStruct (s `hashWithSalt` (21 :: Int)
                     `hashWithSalt` ns `hashWithSalt` nm) fs
+    RegisteredStructVal ns nm fs ->
+      hashStruct (s `hashWithSalt` (35 :: Int)
+                    `hashWithSalt` ns `hashWithSalt` nm) fs
     CompatibleStructVal ns nm fs ->
       hashStruct (s `hashWithSalt` (22 :: Int)
                     `hashWithSalt` ns `hashWithSalt` nm) fs
@@ -159,6 +175,18 @@ instance Hashable Value where
       -- rare in practice and 'Eq' still ensures correctness.
       hashPrimVec :: Int -> Vector a -> Int
       hashPrimVec ss xs = ss `hashWithSalt` V.length xs
+
+-- | Linear scan over @Vector (Text, Value)@ struct fields,
+-- returning the first value associated with the given name (or
+-- 'Nothing'). Used by the 'Fury.Encode.encodeRegisteredStruct'
+-- machinery to look up a logical field in user-supplied order
+-- when emitting it in pyfory's canonical wire order.
+registeredStructFieldByName
+  :: Text -> Vector (Text, Value) -> Maybe Value
+registeredStructFieldByName k = V.foldr step Nothing
+  where
+    step (n, v) acc | n == k    = Just v
+                    | otherwise = acc
 
 -- | The internal Fory type id that the encoder uses for this
 -- value\'s leading type tag. Used by both encoder and decoder when
@@ -191,6 +219,7 @@ typeIdOf v = case v of
   SetVal{}             -> T.SET
   MapVal{}             -> T.MAP
   StructVal{}          -> T.NAMED_STRUCT
+  RegisteredStructVal{} -> T.NAMED_STRUCT
   CompatibleStructVal{} -> T.NAMED_COMPATIBLE_STRUCT
   RefVal{}             -> T.UNKNOWN
   BoolArrayVal{}       -> T.BOOL_ARRAY

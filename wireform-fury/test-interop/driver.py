@@ -26,11 +26,32 @@ import sys
 import traceback
 from typing import Any
 
+import dataclasses
 import numpy as np
 import pyfory
 
 fory = pyfory.Fory(xlang=True, ref=False)
 fory_ref = pyfory.Fory(xlang=True, ref=True)
+
+
+# ---------------------------------------------------------------------------
+# Registered structs
+# ---------------------------------------------------------------------------
+
+@dataclasses.dataclass
+class Person:
+    name: str
+    age: int
+
+
+@dataclasses.dataclass
+class Point:
+    x: int
+    y: int
+
+
+fory.register(Person, typename="example.Person")
+fory.register(Point,  typename="geom.Point")
 
 
 _NDARRAY_DTYPES = {
@@ -42,6 +63,12 @@ _NDARRAY_DTYPES = {
 
 
 def to_json_value(v: Any) -> Any:
+    if isinstance(v, Person):
+        return {"__struct__": "example.Person",
+                "fields": {"name": v.name, "age": v.age}}
+    if isinstance(v, Point):
+        return {"__struct__": "geom.Point",
+                "fields": {"x": v.x, "y": v.y}}
     if isinstance(v, bool):
         return v
     if isinstance(v, np.ndarray):
@@ -92,6 +119,14 @@ def from_json_value(j: Any) -> Any:
             dtype = _NDARRAY_DTYPES[spec["dtype"]]
             values = [from_json_value(x) for x in spec["values"]]
             return np.array(values, dtype=dtype)
+        if set(j.keys()) >= {"__struct__"}:
+            tn = j["__struct__"]
+            fields = j["fields"]
+            if tn == "example.Person":
+                return Person(name=fields["name"], age=fields["age"])
+            if tn == "geom.Point":
+                return Point(x=fields["x"], y=fields["y"])
+            raise ValueError(f"unknown struct typename {tn}")
         return {k: from_json_value(v) for k, v in j.items()}
     if isinstance(j, list):
         return [from_json_value(x) for x in j]

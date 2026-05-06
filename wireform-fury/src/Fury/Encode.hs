@@ -70,6 +70,7 @@ import qualified Fury.Encoding as E
 import qualified Fury.MetaString as MS
 import qualified Fury.MetaString.Encoder as MSE
 import qualified Fury.Options as Opt
+import qualified Fury.Struct as ST
 import qualified Fury.TypeId as T
 import qualified Fury.Value as VV
 
@@ -238,6 +239,7 @@ needsToWriteRef = \case
   VV.SetVal{}          -> True
   VV.MapVal{}          -> True
   VV.StructVal{}       -> True
+  VV.RegisteredStructVal{} -> True
   VV.CompatibleStructVal{} -> True
   VV.RefVal{}          -> True
   VV.BoolArrayVal{}    -> True
@@ -334,6 +336,11 @@ encodeTypedPayload val = case val of
     emitMetaStringWith MSE.namespaceSpecialChars ns
     emitMetaStringWith MSE.typenameSpecialChars  nm
     emitStructFields fields
+  VV.RegisteredStructVal ns nm fields -> do
+    emitTag T.NAMED_STRUCT
+    emitMetaStringWith MSE.namespaceSpecialChars ns
+    emitMetaStringWith MSE.typenameSpecialChars  nm
+    emitRegisteredStruct ns nm fields
   VV.CompatibleStructVal ns nm fields -> do
     emitTag T.NAMED_COMPATIBLE_STRUCT
     emitTypeDef ns nm fields
@@ -442,7 +449,7 @@ emitCollection vs = do
       emit (E.byte flag)
       case (sameType, mElemTag) of
         (True, Just tag) -> do
-          emitTag tag
+          emitElementTypeInfo tag vs
           case (elemTrackingRef, hasNull) of
             (True, _) ->
               V.forM_ vs $ \x ->
@@ -479,6 +486,41 @@ emitCollection vs = do
 isNoneV :: VV.Value -> Bool
 isNoneV VV.NoneVal = True
 isNoneV _          = False
+
+-- | Emit the once-only element type info for a same-type
+-- collection. For most types this is just the type tag byte;
+-- for 'NAMED_STRUCT' / 'NAMED_COMPATIBLE_STRUCT' / 'NAMED_ENUM'
+-- we additionally emit the namespace + type-name meta-strings
+-- (extracted from the first non-None element), matching
+-- pyfory's @TypeResolver.write_type_info@.
+emitElementTypeInfo :: T.TypeId -> Vector VV.Value -> EncodeM ()
+emitElementTypeInfo tag vs = do
+  emitTag tag
+  case tag of
+    T.NAMED_STRUCT ->
+      -- pyfory's TypeResolver.write_type_info emits ns + tn
+      -- right after the type id for a 'NAMED_STRUCT' element
+      -- type, /once/. We extract them from the first non-None
+      -- element and emit the meta-strings once; subsequent
+      -- per-element payloads reach 'encodeUntaggedPayload',
+      -- which intentionally skips ns + tn for
+      -- 'StructVal' / 'RegisteredStructVal'.
+      case V.find (not . isNoneV) vs of
+        Just (VV.StructVal ns nm _)           -> emitNsTn ns nm
+        Just (VV.RegisteredStructVal ns nm _) -> emitNsTn ns nm
+        _ -> pure ()
+    -- 'NAMED_COMPATIBLE_STRUCT' is left alone: its TypeDef body
+    -- carries ns + tn internally (so each per-element call to
+    -- 'encodeUntaggedPayload' is responsible for writing the
+    -- TypeDef marker, which dedups across elements). We don't
+    -- yet match pyfory's once-only TypeDef-at-element-type
+    -- shape; in-package round-trip works but pyfory interop
+    -- for compatible struct is the remaining gap.
+    _ -> pure ()
+  where
+    emitNsTn ns nm = do
+      emitMetaStringWith MSE.namespaceSpecialChars ns
+      emitMetaStringWith MSE.typenameSpecialChars  nm
 
 -- | A homogeneous-collection element type is ref-trackable when
 -- it is a list / set / map / struct / array — same set as
@@ -554,10 +596,14 @@ encodeUntaggedPayload val = case val of
   VV.ListVal vs    -> emitCollection vs
   VV.SetVal vs     -> emitCollection vs
   VV.MapVal kvs    -> emitMapChunks kvs
-  VV.StructVal ns nm fields -> do
-    emitMetaStringWith MSE.namespaceSpecialChars ns
-    emitMetaStringWith MSE.typenameSpecialChars  nm
+  VV.StructVal _ns _nm fields ->
+    -- The ns+tn for the element-type were already emitted when
+    -- the SAME_TYPE collection wrote its element type info, or
+    -- they appear at the slot's leading 'encodeTypedPayload'
+    -- position. Emit only the payload here.
     emitStructFields fields
+  VV.RegisteredStructVal ns nm fields ->
+    emitRegisteredStruct ns nm fields
   VV.CompatibleStructVal ns nm fields -> do
     emitTypeDef ns nm fields
     V.forM_ fields $ \(_, fv) -> encodeValueSlot fv
@@ -650,6 +696,63 @@ emitStructFields fields = do
     -- context through the TypeDef body for field names.
     emitMetaStringWith MSE.namespaceSpecialChars name
     encodeValueSlot value
+
+-- ---------------------------------------------------------------------------
+-- Registered struct (NAMED_STRUCT, pyfory-compatible)
+-- ---------------------------------------------------------------------------
+--
+-- pyfory's DataClassSerializer.write does:
+--   write_int32(self._hash)
+--   for each field in canonical order:
+--     if basic type and nullable: NULL_FLAG | NOT_NULL_VALUE_FLAG + payload
+--     if basic type and not nullable: payload only
+--     if not basic and tracking_ref: write_ref + maybe_payload
+--     if not basic and not tracking_ref: NULL_FLAG | NOT_NULL_VALUE_FLAG + payload
+--
+-- We currently support: basic + non-nullable (the common pyfory
+-- dataclass case), basic + nullable, and non-basic + nullable.
+-- Non-basic + tracking_ref is not implemented in the registered
+-- struct path (we don't yet thread the slot ref logic into per-
+-- field writes).
+
+emitRegisteredStruct :: Text -> Text -> VV.StructFields -> EncodeM ()
+emitRegisteredStruct ns nm fields = do
+  s <- getState
+  case HM.lookup (ns, nm) (Opt.eoStructRegistry (esOptions s)) of
+    Nothing -> error $
+      "Fury.Encode: no schema registered for " ++ T.unpack ns ++ "." ++ T.unpack nm
+      ++ "; build EncodeOptions with eoStructRegistry containing this schema"
+    Just sch -> do
+      emit (E.int32LE (ST.computeStructHash sch))
+      let canonical = ST.fieldOrder sch
+      V.forM_ canonical $ \spec -> do
+        case VV.registeredStructFieldByName (ST.fsName spec) fields of
+          Nothing -> error $ "Fury.Encode: field "
+                            ++ T.unpack (ST.fsName spec)
+                            ++ " missing from RegisteredStructVal"
+          Just v  -> emitRegisteredField spec v
+
+-- | Write one struct field's value, respecting its 'FieldSpec'.
+emitRegisteredField :: ST.FieldSpec -> VV.Value -> EncodeM ()
+emitRegisteredField spec v
+  | ST.isBasicTypeId (ST.fsTypeId spec) = do
+      if ST.fsNullable spec
+        then case v of
+          VV.NoneVal -> emit (E.byte slotNull)
+          _ -> do
+            emit (E.byte slotNotNullValue)
+            encodeUntaggedPayload v
+        else encodeUntaggedPayload v
+  | otherwise = do
+      -- Non-basic types: pyfory writes NULL_FLAG / NOT_NULL +
+      -- a payload that includes the type info. For our case
+      -- where the schema declares the field type, the
+      -- underlying serializer produces just the payload.
+      case v of
+        VV.NoneVal -> emit (E.byte slotNull)
+        _ -> do
+          emit (E.byte slotNotNullValue)
+          encodeUntaggedPayload v
 
 -- ---------------------------------------------------------------------------
 -- Meta-string deduplication
