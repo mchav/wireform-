@@ -389,9 +389,12 @@ mkToJSONForMessage tyName fqName mUfSel fields = do
 
 -- | Bridge into 'PJExt.extensionEntriesForJson' that lifts the
 -- runtime registry into the [(Text, Aeson.Value)] form
--- 'PJ.jsonObject' wants.
+-- 'PJ.jsonObject' wants. INLINE so the splice's call site
+-- collapses cleanly when the message has no unknown fields.
 extEntries :: Text -> [PD.UnknownField] -> [(Text, Aeson.Value)]
-extEntries = PJExt.extensionEntriesForJson
+extEntries _ []   = []
+extEntries fqn xs = PJExt.extensionEntriesForJson fqn xs
+{-# INLINE extEntries #-}
 
 -- | One field's JSON entries. Returns a 'Q Exp' of type
 -- @[(Text, Aeson.Value)]@: empty when the field is at its default
@@ -680,25 +683,36 @@ mkFromJSONForMessage tyName fqName mUfSel defName fields = do
     Just ufN -> do
       -- Proto2 extension JSON: drain any '[FQN]'-keyed entries
       -- from the input object into the message's unknown-fields
-      -- slot via the runtime registry. The base record update
-      -- runs first; the result is then patched with the parsed
-      -- extension UFs.
+      -- slot via the runtime registry. We special-case the
+      -- empty-list result so the common path (no registered
+      -- extensions for this message type) doesn't pay for an
+      -- extra record update.
       withExtVar <- newName "withExt"
+      baseVar    <- newName "base"
       let extDrainE =
             AppE (AppE (VarE 'extDrain) (textLit fqName))
                  (VarE objVar)
           ufFieldUpdate ufs =
-            RecUpdE baseE [(ufN, AppE (AppE (VarE '(<>))
-                                            (AppE (VarE ufN) baseE))
-                                       ufs)]
+            RecUpdE (VarE baseVar)
+              [(ufN, AppE (AppE (VarE '(<>))
+                                (AppE (VarE ufN) (VarE baseVar)))
+                          ufs)]
           finalE =
-            CaseE extDrainE
-              [ Match (ConP 'Right [] [VarP withExtVar])
-                  (NormalB (AppE (VarE 'pure) (ufFieldUpdate (VarE withExtVar))))
-                  []
-              , Match (ConP 'Left [] [VarP withExtVar])
-                  (NormalB (AppE (VarE 'fail) (VarE withExtVar))) []
-              ]
+            -- @let !base = baseE in case extDrain ... of ...@.
+            -- Sharing 'base' across the empty-extensions
+            -- short-circuit and the record-update path lets
+            -- GHC float the per-field updates out of the loop
+            -- when 'extDrain' returns Right [].
+            LetE [ValD (BangP (VarP baseVar)) (NormalB baseE) []]
+              (CaseE extDrainE
+                 [ Match (ConP 'Right [] [ConP '[] [] []])
+                     (NormalB (AppE (VarE 'pure) (VarE baseVar))) []
+                 , Match (ConP 'Right [] [VarP withExtVar])
+                     (NormalB (AppE (VarE 'pure)
+                                    (ufFieldUpdate (VarE withExtVar)))) []
+                 , Match (ConP 'Left [] [VarP withExtVar])
+                     (NormalB (AppE (VarE 'fail) (VarE withExtVar))) []
+                 ])
           bodyDo = DoE Nothing (binds ++ [NoBindS finalE])
           body   = AppE (AppE (VarE 'Aeson.withObject) typeNameLit)
                      (LamE [VarP objVar] bodyDo)
@@ -710,21 +724,29 @@ mkFromJSONForMessage tyName fqName mUfSel defName fields = do
 -- ('[FQN]') and the registry has a codec, parse the value into
 -- an 'UnknownField'. Plain field keys are ignored — they were
 -- already consumed by the per-field parsers.
+--
+-- Fast-path: when the registry has no extensions for this
+-- parent (the typical case for proto3 messages and any proto2
+-- message without an @extend@ block), bypass the per-key walk
+-- entirely.
 extDrain
   :: Text -> Aeson.Object -> Either String [PD.UnknownField]
-extDrain parentFqn obj =
-  let go acc (k, v) = case PJExt.parseExtensionEntry parentFqn k v of
-        Nothing -> Right acc
-        Just (Right uf) -> Right (uf : acc)
-        Just (Left e)   -> Left e
-  in case foldlEither go [] (AesonKM.toList obj) of
-       Right xs -> Right (reverse xs)
-       Left e   -> Left e
+extDrain parentFqn obj
+  | not (PJExt.parentHasExtensions parentFqn) = Right []
+  | otherwise =
+      let go acc (k, v) = case PJExt.parseExtensionEntry parentFqn k v of
+            Nothing -> Right acc
+            Just (Right uf) -> Right (uf : acc)
+            Just (Left e)   -> Left e
+      in case foldlEither go [] (AesonKM.toList obj) of
+           Right xs -> Right (reverse xs)
+           Left e   -> Left e
   where
     foldlEither _ z []     = Right z
     foldlEither f z (x:xs) = case f z x of
       Right z' -> foldlEither f z' xs
       Left e   -> Left e
+{-# INLINE extDrain #-}
 
 parseBindStmt :: Name -> MetaField -> Name -> Q Stmt
 parseBindStmt objVar mf fldVar = case mfJsonShape mf of

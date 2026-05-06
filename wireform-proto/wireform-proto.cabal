@@ -140,6 +140,24 @@ library
 -- See `test-conformance/README.md` for setup.
 -- ===========================================================
 
+benchmark loadproto-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: LoadProtoBench.hs
+  -- The bench splice is small (one schema, ~20 lines), so -O2
+  -- is fine here.
+  ghc-options: -O2 -rtsopts -threaded
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-proto,
+    aeson,
+    bytestring,
+    deepseq,
+    template-haskell,
+    text,
+    vector
+
 executable wireform-conformance-runner
   import: defaults
   hs-source-dirs: test-conformance

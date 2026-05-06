@@ -32,6 +32,7 @@ module Proto.JSON.Extension
   , registerExtensionJson
   , lookupExtensionByFqn
   , lookupExtensionByNumber
+  , parentHasExtensions
   , extensionEntriesForJson
   , parseExtensionEntry
 
@@ -48,7 +49,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import System.IO.Unsafe (unsafePerformIO)
+import System.IO.Unsafe (unsafeDupablePerformIO, unsafePerformIO)
 
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AesonKey
@@ -96,6 +97,16 @@ emptyEntry = ExtRegistryEntry Map.empty Map.empty
 registryRef :: IORef (Map Text ExtRegistryEntry)
 registryRef = unsafePerformIO (newIORef Map.empty)
 
+-- | Tri-state cached "is the registry empty?" flag. The hot
+-- path ('parentHasExtensions') consults this before the IORef
+-- read so the common case (proto3 codebases with zero
+-- 'extend' blocks across the entire process) gets a single
+-- pointer-comparison check instead of an IORef + 'Map.lookup'
+-- on every JSON encode \/ decode call.
+{-# NOINLINE registryAnyRegisteredRef #-}
+registryAnyRegisteredRef :: IORef Bool
+registryAnyRegisteredRef = unsafePerformIO (newIORef False)
+
 -- | Register a JSON codec for an extension targeting the named
 -- parent message. Idempotent: re-registering the same FQN
 -- overrides the prior entry. Called by 'loadProto'-generated
@@ -104,7 +115,7 @@ registerExtensionJson
   :: Text          -- ^ Parent message FQN.
   -> ExtJsonCodec
   -> IO ()
-registerExtensionJson parentFqn codec =
+registerExtensionJson parentFqn codec = do
   atomicModifyIORef' registryRef (\m ->
     let !entry  = Map.findWithDefault emptyEntry parentFqn m
         !entry' = entry
@@ -112,38 +123,97 @@ registerExtensionJson parentFqn codec =
           , byNum = Map.insert (ejcFieldNumber  codec) codec (byNum entry)
           }
     in (Map.insert parentFqn entry' m, ()))
+  atomicModifyIORef' registryAnyRegisteredRef (const (True, ()))
 
+-- | Fast registry lookup: returns 'Nothing' when the parent
+-- has no registered extensions (the common case for proto3
+-- messages and any proto2 message without an @extend@ block).
+-- Callers fall back to the empty-list short-circuit then.
+--
+-- Uses 'unsafeDupablePerformIO' (instead of 'unsafePerformIO')
+-- because the result is purely a read-only pointer comparison —
+-- duplicating the read across threads is harmless.
+lookupEntryFast :: Text -> Maybe ExtRegistryEntry
+lookupEntryFast parentFqn =
+  unsafeDupablePerformIO (Map.lookup parentFqn <$> readIORef registryRef)
+{-# NOINLINE lookupEntryFast #-}
+
+-- | Same as 'lookupEntryFast' but returns the 'emptyEntry'
+-- when nothing's registered, for callers that find @Maybe@
+-- handling tedious.
 lookupEntry :: Text -> ExtRegistryEntry
 lookupEntry parentFqn =
-  unsafePerformIO (Map.findWithDefault emptyEntry parentFqn <$> readIORef registryRef)
+  case lookupEntryFast parentFqn of
+    Just e  -> e
+    Nothing -> emptyEntry
 
--- | Find an extension codec by its bracket-FQN key (with the
--- leading @[@ and trailing @]@ already stripped).
 lookupExtensionByFqn :: Text -> Text -> Maybe ExtJsonCodec
 lookupExtensionByFqn parentFqn fqn =
-  Map.lookup fqn (byFqn (lookupEntry parentFqn))
+  case lookupEntryFast parentFqn of
+    Nothing -> Nothing
+    Just e  -> Map.lookup fqn (byFqn e)
 
 lookupExtensionByNumber :: Text -> Int -> Maybe ExtJsonCodec
 lookupExtensionByNumber parentFqn n =
-  Map.lookup n (byNum (lookupEntry parentFqn))
+  case lookupEntryFast parentFqn of
+    Nothing -> Nothing
+    Just e  -> Map.lookup n (byNum e)
+
+-- | Cheap registry membership check the splice can use to
+-- short-circuit JSON extension drain on every parsed message
+-- whose parent has zero registered extensions.
+--
+-- Two-level fast path:
+--
+--  * Process-wide 'registryAnyRegisteredRef' Bool — when the
+--    entire registry is empty (the common case for proto3
+--    codebases), this is the only IORef touched.
+--  * Per-parent Map lookup — only consulted when the global
+--    flag is @True@.
+parentHasExtensions :: Text -> Bool
+parentHasExtensions parentFqn
+  | not registryHasAny = False
+  | otherwise = case lookupEntryFast parentFqn of
+      Nothing -> False
+      Just _  -> True
+{-# INLINE parentHasExtensions #-}
+
+-- | Read the global "any extension ever registered?" flag.
+-- Bypasses the per-parent Map lookup the common case never
+-- needs.
+registryHasAny :: Bool
+registryHasAny =
+  unsafeDupablePerformIO (readIORef registryAnyRegisteredRef)
+{-# NOINLINE registryHasAny #-}
 
 -- | Translate every registered extension that's present in the
 -- supplied unknown-fields slot into its bracket-quoted JSON
 -- @(key, value)@ pair. Unknown fields not matching a registered
 -- extension stay invisible to JSON output (no schema to bind
 -- them to).
+--
+-- Fast-paths: empty unknown-fields list AND missing-from-
+-- registry both bypass the per-uf walk and allocate nothing.
 extensionEntriesForJson
   :: Text             -- ^ Parent message FQN.
   -> [UnknownField]
   -> [(Text, Aeson.Value)]
+extensionEntriesForJson _ [] = []
+extensionEntriesForJson _ _ | not registryHasAny = []
 extensionEntriesForJson parentFqn ufs =
-  mapMaybe oneEntry ufs
-  where
-    oneEntry uf = case lookupExtensionByNumber parentFqn (unknownFieldNumber uf) of
-      Nothing -> Nothing
-      Just codec -> case ejcEncodeValue codec uf of
-        Left _  -> Nothing
-        Right v -> Just (T.cons '[' (ejcExtensionFqn codec <> T.singleton ']'), v)
+  case lookupEntryFast parentFqn of
+    Nothing    -> []
+    Just entry ->
+      let go uf = case Map.lookup (unknownFieldNumber uf) (byNum entry) of
+            Nothing    -> Nothing
+            Just codec -> case ejcEncodeValue codec uf of
+              Left _  -> Nothing
+              Right v ->
+                Just ( T.cons '[' (ejcExtensionFqn codec <> T.singleton ']')
+                     , v
+                     )
+      in mapMaybe go ufs
+{-# INLINE extensionEntriesForJson #-}
 
 -- | If @key@ has the bracket-quoted form @\"[FQN]\"@, look up
 -- the FQN in the parent's registry and parse @value@ through
@@ -166,6 +236,7 @@ parseExtensionEntry parentFqn key val =
            Nothing    -> Nothing  -- unrecognised extension; ignore
          _ -> Nothing
        _ -> Nothing
+{-# INLINE parseExtensionEntry #-}
 
 -- | Internal helper used by tests to drain the registry.
 -- (Unused in production code; placed here to keep all the
