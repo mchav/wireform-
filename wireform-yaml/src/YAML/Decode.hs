@@ -328,10 +328,20 @@ parseDocument = do
     (l : rest) | lineKind l == LDocStart ->
       let body = lineBody l
           tail_ = T.stripStart (T.drop 3 body)
+          -- 'collectScalarLines' uses 'indent > parent' for body
+          -- termination; when the inline body of '---' is a block
+          -- scalar with content at column 0, we need a sentinel
+          -- parent of -1 so col-0 body lines are admitted.
+          isInlineBlockScalar = case T.uncons tail_ of
+            Just ('|', _) -> True
+            Just ('>', _) -> True
+            _             -> False
+          virtInd | isInlineBlockScalar = -1
+                  | otherwise           = lineIndent l
       in pure $ if T.null tail_
                   then (True, rest)
                   else (True,
-                        PLine (lineNo l) (lineIndent l)
+                        PLine (lineNo l) virtInd
                               LContent tail_ tail_ : rest)
     (l : _) | hadDirective ->
       failP ("missing '---' after directive (line "
@@ -357,7 +367,7 @@ parseDocBody = do
     Just l
       | lineKind l == LDocStart -> pure YNull
       | lineKind l == LDocEnd   -> pure YNull
-      | otherwise               -> parseNode 0
+      | otherwise               -> parseNode (min 0 (lineIndent l))
 
 -- ---------------------------------------------------------------------------
 -- Node dispatch
@@ -1198,11 +1208,12 @@ parseBlockMap !ind firstKey firstRest = do
           case mNext of
             Just l2 | lineIndent l2 > lineIndent l ->
               parseNode (lineIndent l2)
+            Just l2
+              | lineIndent l2 == lineIndent l
+              , isSeqItem (lineBody l2) ->
+                  parseBlockSeq (lineIndent l2)
             _ -> pure YNull
         else do
-          -- For inline block scalars after the marker (':'/'?')
-          -- use the marker's indent so 'collectScalarLines'
-          -- accepts body lines at indent > marker indent.
           let isBlockScalarHead = case T.uncons rest of
                 Just ('|', _) -> True
                 Just ('>', _) -> True
@@ -1407,6 +1418,13 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
           mNext <- peekLine
           case mNext of
             Just l2 | lineIndent l2 > lineIndent l -> parseNode (lineIndent l2)
+            -- Same-column block sequence after a bare '?' / ':'
+            -- binds to the marker (spec example 8.17 zero-
+            -- indented seq in explicit map key/value).
+            Just l2
+              | lineIndent l2 == lineIndent l
+              , isSeqItem (lineBody l2) ->
+                  parseBlockSeq (lineIndent l2)
             _ -> pure YNull
         else do
           let isBlockScalarHead = case T.uncons rest of
