@@ -442,8 +442,8 @@ dispatch l0 = do
                            Nothing -> parseAlias
        Just ('|', _)  -> parseBlockScalar Literal
        Just ('>', _)  -> parseBlockScalar Folded
-       Just ('[', _)  -> consumeFlowFromHead
-       Just ('{', _)  -> consumeFlowFromHead
+       Just ('[', _)  -> consumeFlowFromHead >>= maybeFlowAsBlockKey (lineIndent l)
+       Just ('{', _)  -> consumeFlowFromHead >>= maybeFlowAsBlockKey (lineIndent l)
        Just ('"', _)  -> parseQuotedScalarLine '"'  l
        Just ('\'', _) -> parseQuotedScalarLine '\'' l
        _              -> parseBlockOrPlain l
@@ -845,6 +845,106 @@ consumeFlowFromHead :: P Value
 consumeFlowFromHead = do
   Just l <- popLine
   consumeFlow (lineBody l)
+
+-- | After a flow node has been consumed, see if there's a virtual
+-- ':' line waiting in the stream — if so, the flow node is the
+-- /key/ of a block mapping. Continue parsing as a block mapping
+-- with this flow value as the first key.
+maybeFlowAsBlockKey :: Int -> Value -> P Value
+maybeFlowAsBlockKey !ind k = do
+  mNext <- peekLine
+  case mNext of
+    Just l
+      | lineIndent l == ind
+      , let body = lineBody l
+      , body == T.pack ":"
+        || T.isPrefixOf (T.pack ": ")  body
+        || T.isPrefixOf (T.pack ":\t") body -> do
+          _ <- popLine
+          let after = if body == T.pack ":" then T.empty
+                                            else T.drop 2 body
+          v <- parseImplicitMapValue ind after
+          rest <- collectFlowMapEntries ind
+          pure (YMap (V.fromList ((k, v) : rest)))
+    _ -> pure k
+
+-- | Collect more block-mapping entries after a flow-as-key entry.
+-- Mirrors 'parseBlockMap.collect' but specialized to start from
+-- an arbitrary state.
+collectFlowMapEntries :: Int -> P [(Value, Value)]
+collectFlowMapEntries !ind = go []
+  where
+    go acc = do
+      mPL <- peekLine
+      case mPL of
+        Nothing -> pure (reverse acc)
+        Just l
+          | lineIndent l /= ind -> pure (reverse acc)
+          | isSeqItem (lineBody l) -> pure (reverse acc)
+          | startsWithTab (lineBody l) ->
+              failP $ "tab character used as indentation (line "
+                      ++ show (lineNo l) ++ ")"
+          | isExplicitKey (lineBody l) -> do
+              k <- readEntryKey
+              v <- readEntryValue
+              go ((k, v) : acc)
+          | otherwise -> case findAliasKeySplit (lineBody l) of
+              Just (aliasName, vRest) -> do
+                _ <- popLine
+                k <- resolveAnchor aliasName
+                v <- parseImplicitMapValue ind vRest
+                go ((k, v) : acc)
+              Nothing -> case findKeyValueSplit (lineBody l) of
+                Just (k, vRest) -> do
+                  _ <- popLine
+                  let (anchors, k') = stripKeyProperties k
+                  v <- parseImplicitMapValue ind vRest
+                  let kv = YString k'
+                  mapM_ (\an -> recordAnchor an kv) anchors
+                  go ((kv, v) : acc)
+                Nothing -> pure (reverse acc)
+
+    -- (cheap inline of parseExplicitMap.readExplicitPart "?")
+    readEntryKey = do
+      Just l <- popLine
+      let body = lineBody l
+          afterMarker = if body == T.pack "?" then T.empty
+                                              else T.drop 1 body
+          rest = T.stripStart (T.drop 1 afterMarker)
+      if T.null rest
+        then do
+          mNext <- peekLine
+          case mNext of
+            Just l2 | lineIndent l2 > lineIndent l -> parseNode (lineIndent l2)
+            _ -> pure YNull
+        else do
+          pushLine (PLine (lineNo l) (lineIndent l + 2) LContent rest rest)
+          parseNode (lineIndent l + 2)
+
+    readEntryValue = do
+      mPL <- peekLine
+      case mPL of
+        Just l | lineIndent l == ind
+                 , (lineBody l == T.pack ":"
+                    || T.isPrefixOf (T.pack ": ")  (lineBody l)
+                    || T.isPrefixOf (T.pack ":\t") (lineBody l)) -> do
+            Just l' <- popLine
+            let body = lineBody l'
+                afterMarker = if body == T.pack ":" then T.empty
+                                                    else T.drop 1 body
+                rest = T.stripStart (T.drop 1 afterMarker)
+            if T.null rest
+              then do
+                mNext <- peekLine
+                case mNext of
+                  Just l2 | lineIndent l2 > lineIndent l' ->
+                    parseNode (lineIndent l2)
+                  _ -> pure YNull
+              else do
+                pushLine (PLine (lineNo l') (lineIndent l' + 2)
+                                LContent rest rest)
+                parseNode (lineIndent l' + 2)
+        _ -> pure YNull
 
 -- | Walk the parsed flow value and (a) register any embedded
 -- 'YAnchored' nodes, (b) resolve any alias placeholders left by
