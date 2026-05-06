@@ -226,25 +226,30 @@ emitTypedPayload !e val = case val of
     emitTypeDef e ns nm fields
     V.forM_ fields $ \(_, fv) -> emitValueSlot e fv
   VV.RefVal{} -> emitValueSlot e val
-  VV.BoolArrayVal vs    -> emitTag e T.BOOL_ARRAY    >> emitArrayBytes e 1 (B.boolArrayBytes vs)    (V.length vs)
-  VV.Int8ArrayVal vs    -> emitTag e T.INT8_ARRAY    >> emitArrayBytes e 1 (B.int8ArrayBytes vs)    (V.length vs)
-  VV.Int16ArrayVal vs   -> emitTag e T.INT16_ARRAY   >> emitArrayBytes e 2 (B.int16ArrayBytes vs)   (V.length vs)
-  VV.Int32ArrayVal vs   -> emitTag e T.INT32_ARRAY   >> emitArrayBytes e 4 (B.int32ArrayBytes vs)   (V.length vs)
-  VV.Int64ArrayVal vs   -> emitTag e T.INT64_ARRAY   >> emitArrayBytes e 8 (B.int64ArrayBytes vs)   (V.length vs)
-  VV.Uint8ArrayVal vs   -> emitTag e T.UINT8_ARRAY   >> emitArrayBytes e 1 (B.uint8ArrayBytes vs)   (V.length vs)
-  VV.Uint16ArrayVal vs  -> emitTag e T.UINT16_ARRAY  >> emitArrayBytes e 2 (B.uint16ArrayBytes vs)  (V.length vs)
-  VV.Uint32ArrayVal vs  -> emitTag e T.UINT32_ARRAY  >> emitArrayBytes e 4 (B.uint32ArrayBytes vs)  (V.length vs)
-  VV.Uint64ArrayVal vs  -> emitTag e T.UINT64_ARRAY  >> emitArrayBytes e 8 (B.uint64ArrayBytes vs)  (V.length vs)
-  VV.Float32ArrayVal vs -> emitTag e T.FLOAT32_ARRAY >> emitArrayBytes e 4 (B.float32ArrayBytes vs) (V.length vs)
-  VV.Float64ArrayVal vs -> emitTag e T.FLOAT64_ARRAY >> emitArrayBytes e 8 (B.float64ArrayBytes vs) (V.length vs)
+  VV.BoolArrayVal vs    -> emitTag e T.BOOL_ARRAY    >> emitArrayBytes e (B.boolArrayBytes vs)
+  VV.Int8ArrayVal vs    -> emitTag e T.INT8_ARRAY    >> emitArrayBytes e (B.int8ArrayBytes vs)
+  VV.Int16ArrayVal vs   -> emitTag e T.INT16_ARRAY   >> emitArrayBytes e (B.int16ArrayBytes vs)
+  VV.Int32ArrayVal vs   -> emitTag e T.INT32_ARRAY   >> emitArrayBytes e (B.int32ArrayBytes vs)
+  VV.Int64ArrayVal vs   -> emitTag e T.INT64_ARRAY   >> emitArrayBytes e (B.int64ArrayBytes vs)
+  VV.Uint8ArrayVal vs   -> emitTag e T.UINT8_ARRAY   >> emitArrayBytes e (B.uint8ArrayBytes vs)
+  VV.Uint16ArrayVal vs  -> emitTag e T.UINT16_ARRAY  >> emitArrayBytes e (B.uint16ArrayBytes vs)
+  VV.Uint32ArrayVal vs  -> emitTag e T.UINT32_ARRAY  >> emitArrayBytes e (B.uint32ArrayBytes vs)
+  VV.Uint64ArrayVal vs  -> emitTag e T.UINT64_ARRAY  >> emitArrayBytes e (B.uint64ArrayBytes vs)
+  VV.Float32ArrayVal vs -> emitTag e T.FLOAT32_ARRAY >> emitArrayBytes e (B.float32ArrayBytes vs)
+  VV.Float64ArrayVal vs -> emitTag e T.FLOAT64_ARRAY >> emitArrayBytes e (B.float64ArrayBytes vs)
 
 emitTag :: IO.Encoder -> T.TypeId -> IO ()
 emitTag !e (T.TypeId w) = IO.emitVaruint32 e (fromIntegral w)
 {-# INLINE emitTag #-}
 
-emitArrayBytes :: IO.Encoder -> Int -> ByteString -> Int -> IO ()
-emitArrayBytes !e !elemSize !bs !n = do
-  IO.emitVaruint32 e (fromIntegral (elemSize * n))
+-- | The wire format for primitive arrays is
+-- @varuint32 byteLen + raw bytes@. Since the input
+-- 'ByteString' already aliases the array's bytes (zero-copy
+-- via 'Fory.Bulk.vecSToBytes'), we can write its length and
+-- then 'IO.emitBytes' it directly.
+emitArrayBytes :: IO.Encoder -> ByteString -> IO ()
+emitArrayBytes !e !bs = do
+  IO.emitVaruint32 e (fromIntegral (BS.length bs))
   IO.emitBytes e bs
 {-# INLINE emitArrayBytes #-}
 
@@ -324,17 +329,17 @@ emitUntaggedPayload !e val = case val of
     emitTypeDef e ns nm fields
     V.forM_ fields $ \(_, fv) -> emitValueSlot e fv
   VV.RefVal{} -> emitValueSlot e val
-  VV.BoolArrayVal vs    -> emitArrayBytes e 1 (B.boolArrayBytes vs)    (V.length vs)
-  VV.Int8ArrayVal vs    -> emitArrayBytes e 1 (B.int8ArrayBytes vs)    (V.length vs)
-  VV.Int16ArrayVal vs   -> emitArrayBytes e 2 (B.int16ArrayBytes vs)   (V.length vs)
-  VV.Int32ArrayVal vs   -> emitArrayBytes e 4 (B.int32ArrayBytes vs)   (V.length vs)
-  VV.Int64ArrayVal vs   -> emitArrayBytes e 8 (B.int64ArrayBytes vs)   (V.length vs)
-  VV.Uint8ArrayVal vs   -> emitArrayBytes e 1 (B.uint8ArrayBytes vs)   (V.length vs)
-  VV.Uint16ArrayVal vs  -> emitArrayBytes e 2 (B.uint16ArrayBytes vs)  (V.length vs)
-  VV.Uint32ArrayVal vs  -> emitArrayBytes e 4 (B.uint32ArrayBytes vs)  (V.length vs)
-  VV.Uint64ArrayVal vs  -> emitArrayBytes e 8 (B.uint64ArrayBytes vs)  (V.length vs)
-  VV.Float32ArrayVal vs -> emitArrayBytes e 4 (B.float32ArrayBytes vs) (V.length vs)
-  VV.Float64ArrayVal vs -> emitArrayBytes e 8 (B.float64ArrayBytes vs) (V.length vs)
+  VV.BoolArrayVal vs    -> emitArrayBytes e (B.boolArrayBytes vs)
+  VV.Int8ArrayVal vs    -> emitArrayBytes e (B.int8ArrayBytes vs)
+  VV.Int16ArrayVal vs   -> emitArrayBytes e (B.int16ArrayBytes vs)
+  VV.Int32ArrayVal vs   -> emitArrayBytes e (B.int32ArrayBytes vs)
+  VV.Int64ArrayVal vs   -> emitArrayBytes e (B.int64ArrayBytes vs)
+  VV.Uint8ArrayVal vs   -> emitArrayBytes e (B.uint8ArrayBytes vs)
+  VV.Uint16ArrayVal vs  -> emitArrayBytes e (B.uint16ArrayBytes vs)
+  VV.Uint32ArrayVal vs  -> emitArrayBytes e (B.uint32ArrayBytes vs)
+  VV.Uint64ArrayVal vs  -> emitArrayBytes e (B.uint64ArrayBytes vs)
+  VV.Float32ArrayVal vs -> emitArrayBytes e (B.float32ArrayBytes vs)
+  VV.Float64ArrayVal vs -> emitArrayBytes e (B.float64ArrayBytes vs)
 
 -- ---------------------------------------------------------------------------
 -- Collections (LIST / SET)

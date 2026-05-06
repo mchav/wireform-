@@ -25,6 +25,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Data.Vector (Vector)
+import qualified Data.Vector.Storable as VS
 import Data.Word (Word8, Word16, Word32, Word64)
 
 import qualified Data.HashMap.Strict as HM
@@ -663,7 +664,14 @@ decodeTypeDefBody = do
 -- (~16 us at 1024 elements) to a single bytestring slice +
 -- O(n) generate.
 
-bulkArray :: Int -> (ByteString -> Vector a) -> DecodeM (Vector a)
+-- | Read the @varuint32 byteLen + bytes@ payload for a
+-- primitive array, validate alignment, and reinterpret the
+-- raw bytes as a 'VS.Vector' of the appropriate element type.
+-- Zero-copy on little-endian platforms.
+bulkArray
+  :: Int                              -- ^ element size in bytes
+  -> (ByteString -> VS.Vector a)      -- ^ zero-copy reinterpret
+  -> DecodeM (VS.Vector a)
 bulkArray elemBytes f = do
   byteLen <- fromIntegral <$> readVaruint32D
   let (_, r) = byteLen `quotRem` elemBytes
@@ -684,15 +692,15 @@ decodeUint64Array  = bulkArray 8 B.bytesToUint64Array
 decodeFloat32Array = bulkArray 4 B.bytesToFloat32Array
 decodeFloat64Array = bulkArray 8 B.bytesToFloat64Array
 
-decodeBoolArray    :: DecodeM (Vector Bool)
-decodeInt8Array    :: DecodeM (Vector Int8)
-decodeInt16Array   :: DecodeM (Vector Int16)
-decodeInt32Array   :: DecodeM (Vector Int32)
-decodeInt64Array   :: DecodeM (Vector Int64)
-decodeUint8Array   :: DecodeM (Vector Word8)
-decodeUint16Array  :: DecodeM (Vector Word16)
-decodeUint32Array  :: DecodeM (Vector Word32)
-decodeUint64Array  :: DecodeM (Vector Word64)
-decodeFloat32Array :: DecodeM (Vector Float)
-decodeFloat64Array :: DecodeM (Vector Double)
+decodeBoolArray    :: DecodeM (VS.Vector Word8)
+decodeInt8Array    :: DecodeM (VS.Vector Int8)
+decodeInt16Array   :: DecodeM (VS.Vector Int16)
+decodeInt32Array   :: DecodeM (VS.Vector Int32)
+decodeInt64Array   :: DecodeM (VS.Vector Int64)
+decodeUint8Array   :: DecodeM (VS.Vector Word8)
+decodeUint16Array  :: DecodeM (VS.Vector Word16)
+decodeUint32Array  :: DecodeM (VS.Vector Word32)
+decodeUint64Array  :: DecodeM (VS.Vector Word64)
+decodeFloat32Array :: DecodeM (VS.Vector Float)
+decodeFloat64Array :: DecodeM (VS.Vector Double)
 

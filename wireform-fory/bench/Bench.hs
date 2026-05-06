@@ -23,6 +23,7 @@ module Main (main) where
 import Criterion.Main
 import qualified Data.ByteString as BS
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as VS
 import qualified Data.Text as T
 
 import qualified Fory.Decode as D
@@ -71,12 +72,12 @@ vMapStrInt =
 vInt32Array1k :: VV.Value
 vInt32Array1k =
   VV.Int32ArrayVal
-    (V.fromList [fromIntegral i | i <- [0 .. 1023 :: Int]])
+    (VS.fromList [fromIntegral i | i <- [0 .. 1023 :: Int]])
 
 vFloat64Array1k :: VV.Value
 vFloat64Array1k =
   VV.Float64ArrayVal
-    (V.fromList [fromIntegral i * 0.5 | i <- [0 .. 1023 :: Int]])
+    (VS.fromList [fromIntegral i * 0.5 | i <- [0 .. 1023 :: Int]])
 
 personSchema :: ST.StructSchema
 personSchema = ST.mkSchema "example" "Person"

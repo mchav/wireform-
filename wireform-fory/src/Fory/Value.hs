@@ -33,6 +33,7 @@ import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Text (Text)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as VS
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics (Generic)
 
@@ -98,17 +99,25 @@ data Value
     -- round-trip, the decoded 'sharingKey' is the wire @ref_id@,
     -- /not/ the one the user originally supplied; structural
     -- sharing is preserved but the integer key may be remapped.
-  | BoolArrayVal        !(Vector Bool)
-  | Int8ArrayVal        !(Vector Int8)
-  | Int16ArrayVal       !(Vector Int16)
-  | Int32ArrayVal       !(Vector Int32)
-  | Int64ArrayVal       !(Vector Int64)
-  | Uint8ArrayVal       !(Vector Word8)
-  | Uint16ArrayVal      !(Vector Word16)
-  | Uint32ArrayVal      !(Vector Word32)
-  | Uint64ArrayVal      !(Vector Word64)
-  | Float32ArrayVal     !(Vector Float)
-  | Float64ArrayVal     !(Vector Double)
+    -- Primitive 1D arrays are stored as 'Data.Vector.Storable'
+    -- so the in-memory representation matches the LE wire format
+    -- directly. That means the encode and decode paths for these
+    -- constructors are O(1) 'castForeignPtr' conversions
+    -- between the underlying 'ByteString' and the vector — no
+    -- per-element copy. The trade-off: 'BoolArrayVal' uses
+    -- 'Word8' (0 / 1) rather than 'Bool', because 'Bool' has no
+    -- single-byte 'Storable' instance.
+  | BoolArrayVal        !(VS.Vector Word8)
+  | Int8ArrayVal        !(VS.Vector Int8)
+  | Int16ArrayVal       !(VS.Vector Int16)
+  | Int32ArrayVal       !(VS.Vector Int32)
+  | Int64ArrayVal       !(VS.Vector Int64)
+  | Uint8ArrayVal       !(VS.Vector Word8)
+  | Uint16ArrayVal      !(VS.Vector Word16)
+  | Uint32ArrayVal      !(VS.Vector Word32)
+  | Uint64ArrayVal      !(VS.Vector Word64)
+  | Float32ArrayVal     !(VS.Vector Float)
+  | Float64ArrayVal     !(VS.Vector Double)
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 
@@ -173,8 +182,8 @@ instance Hashable Value where
       -- We hash primitive vectors lazily by length only to keep
       -- the cost bounded; structural sharing of large arrays is
       -- rare in practice and 'Eq' still ensures correctness.
-      hashPrimVec :: Int -> Vector a -> Int
-      hashPrimVec ss xs = ss `hashWithSalt` V.length xs
+      hashPrimVec :: VS.Storable a => Int -> VS.Vector a -> Int
+      hashPrimVec ss xs = ss `hashWithSalt` VS.length xs
 
 -- | Linear scan over @Vector (Text, Value)@ struct fields,
 -- returning the first value associated with the given name (or

@@ -67,6 +67,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Vector as V
 import Data.Vector (Vector)
+import qualified Data.Vector.Storable as VS
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics
 
@@ -148,37 +149,44 @@ instance FromFory a => FromFory (Shared a) where
 -- toFory [1,2,3 :: Int32]                    -- 'VV.ListVal' of int32
 -- @
 
-newtype BoolArray = BoolArray { unBoolArray :: Vector Bool }
+-- The primitive-array newtypes wrap 'Data.Vector.Storable'
+-- vectors, so the wire-format payload is just a reinterpret
+-- of the vector's underlying memory (see 'Fory.Bulk').
+-- 'BoolArray' uses 'Word8' (0 / 1) because 'Bool' has no
+-- single-byte 'Storable' instance — convert via 'fromIntegral
+-- . fromEnum' and 'toEnum . fromIntegral' if you need to
+-- bridge to '[Bool]'.
+newtype BoolArray = BoolArray { unBoolArray :: VS.Vector Word8 }
   deriving stock (Eq, Show)
 
-newtype Int8Array = Int8Array { unInt8Array :: Vector Int8 }
+newtype Int8Array = Int8Array { unInt8Array :: VS.Vector Int8 }
   deriving stock (Eq, Show)
 
-newtype Int16Array = Int16Array { unInt16Array :: Vector Int16 }
+newtype Int16Array = Int16Array { unInt16Array :: VS.Vector Int16 }
   deriving stock (Eq, Show)
 
-newtype Int32Array = Int32Array { unInt32Array :: Vector Int32 }
+newtype Int32Array = Int32Array { unInt32Array :: VS.Vector Int32 }
   deriving stock (Eq, Show)
 
-newtype Int64Array = Int64Array { unInt64Array :: Vector Int64 }
+newtype Int64Array = Int64Array { unInt64Array :: VS.Vector Int64 }
   deriving stock (Eq, Show)
 
-newtype Uint8Array = Uint8Array { unUint8Array :: Vector Word8 }
+newtype Uint8Array = Uint8Array { unUint8Array :: VS.Vector Word8 }
   deriving stock (Eq, Show)
 
-newtype Uint16Array = Uint16Array { unUint16Array :: Vector Word16 }
+newtype Uint16Array = Uint16Array { unUint16Array :: VS.Vector Word16 }
   deriving stock (Eq, Show)
 
-newtype Uint32Array = Uint32Array { unUint32Array :: Vector Word32 }
+newtype Uint32Array = Uint32Array { unUint32Array :: VS.Vector Word32 }
   deriving stock (Eq, Show)
 
-newtype Uint64Array = Uint64Array { unUint64Array :: Vector Word64 }
+newtype Uint64Array = Uint64Array { unUint64Array :: VS.Vector Word64 }
   deriving stock (Eq, Show)
 
-newtype Float32Array = Float32Array { unFloat32Array :: Vector Float }
+newtype Float32Array = Float32Array { unFloat32Array :: VS.Vector Float }
   deriving stock (Eq, Show)
 
-newtype Float64Array = Float64Array { unFloat64Array :: Vector Double }
+newtype Float64Array = Float64Array { unFloat64Array :: VS.Vector Double }
   deriving stock (Eq, Show)
 
 instance ToFory BoolArray where

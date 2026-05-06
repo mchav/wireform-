@@ -17,6 +17,7 @@ import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Builder as BB
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as VS
 import Data.Word (Word32)
 import Data.Bits (shiftR, shiftL, (.&.), (.|.))
 import qualified Data.Aeson as A
@@ -114,31 +115,31 @@ main = do
         -- 1-D primitive arrays (NumPy interop)
         , ("ndarray int8 [1,2,3]",
              ndarray "int8" [num 1, num 2, num 3],
-             VV.Int8ArrayVal (V.fromList [1, 2, 3]))
+             VV.Int8ArrayVal (VS.fromList [1, 2, 3]))
         , ("ndarray int16 [1,2,3]",
              ndarray "int16" [num 1, num 2, num 3],
-             VV.Int16ArrayVal (V.fromList [1, 2, 3]))
+             VV.Int16ArrayVal (VS.fromList [1, 2, 3]))
         , ("ndarray int32 [1,2,3]",
              ndarray "int32" [num 1, num 2, num 3],
-             VV.Int32ArrayVal (V.fromList [1, 2, 3]))
+             VV.Int32ArrayVal (VS.fromList [1, 2, 3]))
         , ("ndarray int64 [1,2,3]",
              ndarray "int64" [num 1, num 2, num 3],
-             VV.Int64ArrayVal (V.fromList [1, 2, 3]))
+             VV.Int64ArrayVal (VS.fromList [1, 2, 3]))
         , ("ndarray uint8 [1,2,3]",
              ndarray "uint8" [num 1, num 2, num 3],
-             VV.Uint8ArrayVal (V.fromList [1, 2, 3]))
+             VV.Uint8ArrayVal (VS.fromList [1, 2, 3]))
         , ("ndarray float32 [1,2,3]",
              ndarray "float32" [numF 1.0, numF 2.0, numF 3.0],
-             VV.Float32ArrayVal (V.fromList [1.0, 2.0, 3.0]))
+             VV.Float32ArrayVal (VS.fromList [1.0, 2.0, 3.0]))
         , ("ndarray float64 [1.5,-1.5,3.14]",
              ndarray "float64" [numF 1.5, numF (-1.5), numF 3.14],
-             VV.Float64ArrayVal (V.fromList [1.5, -1.5, 3.14]))
+             VV.Float64ArrayVal (VS.fromList [1.5, -1.5, 3.14]))
         , ("ndarray bool [T,F,T]",
              ndarray "bool" [A.Bool True, A.Bool False, A.Bool True],
-             VV.BoolArrayVal (V.fromList [True, False, True]))
+             VV.BoolArrayVal (VS.fromList [1, 0, 1]))
         , ("ndarray int32 empty",
              ndarray "int32" [],
-             VV.Int32ArrayVal V.empty)
+             VV.Int32ArrayVal VS.empty)
         ]
 
   let refCases :: [(String, A.Value, A.Value, VV.Value)]

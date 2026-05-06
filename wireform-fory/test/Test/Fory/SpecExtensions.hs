@@ -12,6 +12,7 @@ module Test.Fory.SpecExtensions (tests) where
 import qualified Data.ByteString as BS
 import Data.Int (Int8, Int16, Int32, Int64)
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as VS
 import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
@@ -184,32 +185,34 @@ compatibleStructTests = testGroup "NAMED_COMPATIBLE_STRUCT"
 
 primitiveArrayTests :: TestTree
 primitiveArrayTests = testGroup "primitive 1-D arrays"
-  [ testCase "BoolArray round-trips" $ rt (VV.BoolArrayVal (V.fromList [True, False, True]))
+  [ testCase "BoolArray round-trips" $
+      rt (VV.BoolArrayVal (VS.fromList [1, 0, 1]))
   , testCase "Int8Array round-trips" $
-      rt (VV.Int8ArrayVal (V.fromList ([-128, -1, 0, 1, 127] :: [Int8])))
+      rt (VV.Int8ArrayVal (VS.fromList ([-128, -1, 0, 1, 127] :: [Int8])))
   , testCase "Int16Array round-trips" $
-      rt (VV.Int16ArrayVal (V.fromList ([-32768, 0, 32767] :: [Int16])))
+      rt (VV.Int16ArrayVal (VS.fromList ([-32768, 0, 32767] :: [Int16])))
   , testCase "Int32Array round-trips" $
-      rt (VV.Int32ArrayVal (V.fromList ([minBound, 0, maxBound] :: [Int32])))
+      rt (VV.Int32ArrayVal (VS.fromList ([minBound, 0, maxBound] :: [Int32])))
   , testCase "Int64Array round-trips" $
-      rt (VV.Int64ArrayVal (V.fromList ([minBound, 0, maxBound] :: [Int64])))
+      rt (VV.Int64ArrayVal (VS.fromList ([minBound, 0, maxBound] :: [Int64])))
   , testCase "Uint8Array round-trips" $
-      rt (VV.Uint8ArrayVal (V.fromList ([0, 128, 255] :: [Word8])))
+      rt (VV.Uint8ArrayVal (VS.fromList ([0, 128, 255] :: [Word8])))
   , testCase "Uint16Array round-trips" $
-      rt (VV.Uint16ArrayVal (V.fromList ([0, 32768, 65535] :: [Word16])))
+      rt (VV.Uint16ArrayVal (VS.fromList ([0, 32768, 65535] :: [Word16])))
   , testCase "Uint32Array round-trips" $
-      rt (VV.Uint32ArrayVal (V.fromList ([0, 1, maxBound] :: [Word32])))
+      rt (VV.Uint32ArrayVal (VS.fromList ([0, 1, maxBound] :: [Word32])))
   , testCase "Uint64Array round-trips" $
-      rt (VV.Uint64ArrayVal (V.fromList ([0, 1, maxBound] :: [Word64])))
+      rt (VV.Uint64ArrayVal (VS.fromList ([0, 1, maxBound] :: [Word64])))
   , testCase "Float32Array round-trips" $
-      rt (VV.Float32ArrayVal (V.fromList [-1.5, 0, 3.14]))
+      rt (VV.Float32ArrayVal (VS.fromList [-1.5, 0, 3.14]))
   , testCase "Float64Array round-trips" $
-      rt (VV.Float64ArrayVal (V.fromList [-1.5e300, 0, 3.14e-200]))
+      rt (VV.Float64ArrayVal (VS.fromList [-1.5e300, 0, 3.14e-200]))
 
   , testCase "Int32Array is denser than equivalent ListVal of Int32Val" $ do
-      let xs = V.fromList ([minBound, -1, 0, 1, maxBound] :: [Int32])
-          listForm = VV.ListVal (V.map VV.Int32Val xs)
-          arrForm  = VV.Int32ArrayVal xs
+      let xs :: [Int32]
+          xs = [minBound, -1, 0, 1, maxBound]
+          listForm = VV.ListVal (V.fromList (map VV.Int32Val xs))
+          arrForm  = VV.Int32ArrayVal (VS.fromList xs)
           listBytes = BS.length (E.encode listForm)
           arrBytes  = BS.length (E.encode arrForm)
       assertBool
@@ -218,24 +221,24 @@ primitiveArrayTests = testGroup "primitive 1-D arrays"
         (arrBytes < listBytes)
 
   , testCase "Int32Array typeclass wrapper round-trips" $ do
-      let xs = F.Int32Array (V.fromList [1, 2, 3, 4, 5])
+      let xs = F.Int32Array (VS.fromList [1, 2, 3, 4, 5])
       F.decodeFory (F.encodeFory xs) @?= Right xs
 
   , testCase "Float64Array typeclass wrapper round-trips" $ do
-      let xs = F.Float64Array (V.fromList [1.0, 2.5, -3.75])
+      let xs = F.Float64Array (VS.fromList [1.0, 2.5, -3.75])
       F.decodeFory (F.encodeFory xs) @?= Right xs
 
   , testProperty "random Int32Array round-trips" $ H.property $ do
       xs <- H.forAll $ Gen.list (Range.linear 0 32)
                                 (Gen.int32 Range.linearBounded)
-      let v = VV.Int32ArrayVal (V.fromList xs)
+      let v = VV.Int32ArrayVal (VS.fromList xs)
       H.tripping v E.encode D.decode
 
   , testProperty "random Float64Array round-trips (excluding NaN)" $
       H.property $ do
         xs <- H.forAll $ Gen.list (Range.linear 0 32)
                                   (Gen.double (Range.linearFracFrom 0 (-1e9) 1e9))
-        let v = VV.Float64ArrayVal (V.fromList xs)
+        let v = VV.Float64ArrayVal (VS.fromList xs)
         H.tripping v E.encode D.decode
   ]
   where
