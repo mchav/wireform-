@@ -177,6 +177,10 @@ data PS = PS
     -- ^ True when we're inside a mapping-value dispatch (used
     -- by parseAnchored to decide whether a same-column next
     -- line is the anchor's binding target or a sibling).
+  , psFlowSpannedNewline :: !Bool
+    -- ^ Set by consumeFlow when it folded a continuation line
+    -- into the buffer; used by the flow-as-block-key path to
+    -- refuse a multi-line flow as an implicit map key.
   }
 
 instance Functor P where
@@ -288,7 +292,7 @@ lookupShortcut handle = do
 
 parseStream :: [PLine] -> Either String [Document]
 parseStream lns =
-  case unP (loop True True) (PS lns Map.empty Map.empty 0 False) of
+  case unP (loop True True) (PS lns Map.empty Map.empty 0 False False) of
     Left err      -> Left err
     Right (ds, _) -> Right ds
   where
@@ -911,6 +915,7 @@ breakOnSpace = T.break (\c -> c == ' ' || c == '\t')
 consumeFlowFromHead :: P Value
 consumeFlowFromHead = do
   Just l <- popLine
+  modifyS (\s -> s { psFlowSpannedNewline = False })
   consumeFlow (lineBody l)
 
 -- | After a flow node has been consumed, see if there's a virtual
@@ -927,6 +932,10 @@ maybeFlowAsBlockKey !ind k = do
       , body == T.pack ":"
         || T.isPrefixOf (T.pack ": ")  body
         || T.isPrefixOf (T.pack ":\t") body -> do
+          spanned <- psFlowSpannedNewline <$> getS
+          when spanned $
+            failP $ "flow node spanning newline used as block-mapping key (line "
+                    ++ show (lineNo l) ++ ")"
           _ <- popLine
           let after = if body == T.pack ":" then T.empty
                                             else T.drop 2 body
@@ -1101,6 +1110,7 @@ consumeFlowAt !openInd = go
                         ++ show (lineNo l') ++ ")"
           (l' : rs)  -> do
             setLines rs
+            modifyS (\s -> s { psFlowSpannedNewline = True })
             -- Join with a sentinel character (\\1) instead of a
             -- plain space so downstream parsers can detect that
             -- a structural element spanned a newline (used for
@@ -1290,7 +1300,19 @@ parseFlowEntry' !explicit !p0 t =
                          && T.index t p2 == ':'
                          && (flowOpener
                              || colonIsSeparator (p2 + 1) t)
-                         then case parseFlowValue (skipFlowWS (p2 + 1) t) t of
+                         then
+                           -- For flow /sequences/, an implicit
+                           -- key->value pair appearing inline must
+                           -- have its key and ':' on the same
+                           -- line (spec §7.4.1). The intervening
+                           -- buffer between key end and ':'
+                           -- contains a '\\1' sentinel iff a
+                           -- newline was joined.
+                           let span_ = T.take (p2 - p) (T.drop p t)
+                           in if not explicit
+                                 && T.any (== '\1') span_
+                                then Nothing
+                                else case parseFlowValue (skipFlowWS (p2 + 1) t) t of
                                   Nothing -> Just (YMap (V.singleton (k, YNull)), p2 + 1)
                                   Just (v, p3) -> Just (YMap (V.singleton (k, v)), p3)
                          else Just (k, p1)
