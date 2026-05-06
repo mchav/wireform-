@@ -111,6 +111,12 @@ preprocess = go 1 . dropFinalEmpty . T.split (== '\n')
           -- scalars consults 'lineRawBody' and re-injects the
           -- whitespace as content.
           !kind     = classify body
+          -- Track whether the indent column contains a literal TAB
+          -- (i.e. whitespace mix that the YAML 1.2 spec §6.1
+          -- forbids as block-context indentation). We don't fail
+          -- here — many parser paths legitimately consume tabs as
+          -- intra-line separation — but we keep the flag around
+          -- for the structural parsers that /do/ care.
       in PLine n ind kind body body0 : go (n+1) ls
 
 stripCR :: Text -> Text
@@ -299,11 +305,11 @@ parseNode !minInd = do
 
 dispatch :: PLine -> P Value
 dispatch l0 = do
-  -- Leading tabs after a block-mapping value position are
-  -- 'separation' whitespace, not indentation (per YAML 1.2 §6.1).
-  -- Strip them in-place so '\\t{}' / '\\t- x' / '\\t"…"' dispatch
-  -- to the right structural branch instead of falling into the
-  -- plain-scalar fallback.
+  -- Strip leading TAB characters. They're not allowed as block
+  -- indentation per spec §6.1 but real-world inputs use them as
+  -- 'separation' whitespace between a structural marker and the
+  -- following node — '\\t{}', '\\t- x', '\\t"…"' all parse OK
+  -- in libfyaml etc.
   let body0 = lineBody l0
   case T.uncons body0 of
     Just ('\t', _) -> do
@@ -943,6 +949,9 @@ parseBlockMapAliasFirst !ind aliasName firstRest = do
           | lineIndent l /= ind -> pure acc
           | isSeqItem (lineBody l) -> pure acc
           | isExplicitKey (lineBody l) -> pure acc
+          | startsWithTab (lineBody l) ->
+              failP $ "tab character used as indentation (line "
+                      ++ show (lineNo l) ++ ")"
           | otherwise -> case findAliasKeySplit (lineBody l) of
               Just (a, vRest) -> do
                 _ <- popLine
@@ -1017,6 +1026,12 @@ parseBlockMap !ind firstKey firstRest = do
           | lineIndent l /= ind -> pure acc
           | isSeqItem (lineBody l) -> pure acc
           | isExplicitKey (lineBody l) -> pure acc
+          -- A continuation line whose first character is a TAB
+          -- means the user used a tab as additional indentation
+          -- — illegal per spec §6.1.
+          | startsWithTab (lineBody l) ->
+              failP $ "tab character used as indentation (line "
+                      ++ show (lineNo l) ++ ")"
           | otherwise -> case findAliasKeySplit (lineBody l) of
               Just (aliasName, vRest) -> do
                 _ <- popLine
@@ -1026,17 +1041,17 @@ parseBlockMap !ind firstKey firstRest = do
               Nothing -> case findKeyValueSplit (lineBody l) of
                 Just (k, vRest) -> do
                   _ <- popLine
-                  -- Strip leading node properties (anchors / tags)
-                  -- on the key text. The properties anchor / tag
-                  -- the key node, not the surrounding mapping; for
-                  -- the value-side projection we only need the
-                  -- bare key text.
                   let (anchors, k') = stripKeyProperties k
                   v <- parseImplicitMapValue ind vRest
                   let kv = YString k'
                   mapM_ (\an -> recordAnchor an kv) anchors
                   collect ((kv, v) : acc)
                 Nothing -> pure acc
+
+startsWithTab :: Text -> Bool
+startsWithTab t = case T.uncons t of
+  Just ('\t', _) -> True
+  _              -> False
 
 -- | Strip leading anchor / tag tokens (separated by spaces) from
 -- a block-mapping key string. Returns the list of anchor names
