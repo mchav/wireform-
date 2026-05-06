@@ -450,21 +450,21 @@ preserveTrailingEscape stripped raw = case T.unsnoc stripped of
 -- Any text after the close quote on the final line is pushed back
 -- as a virtual line so the surrounding context can keep parsing.
 consumeQuoted :: Char -> Text -> P Value
-consumeQuoted q = go0
+consumeQuoted q = go0 False
   where
     parser = case q of '"' -> parseDQ; _ -> parseSQ
 
     -- The very first attempt; no fold prefix has been emitted yet.
-    go0 !buf = case parser 0 buf of
-      Just (v, p)   -> finish v (T.drop p buf)
-      Nothing       -> readMore buf 0
+    go0 !multi !buf = case parser 0 buf of
+      Just (v, p)   -> finish multi v (T.drop p buf)
+      Nothing       -> readMore multi buf 0
 
     -- @blanks@ counts consecutive empty continuation lines we've
     -- absorbed since the last non-empty (or the opening) line.
     -- We pop the raw next line (not 'popLine', which would skip
     -- blank / comment lines — those are significant inside a
     -- multi-line quoted scalar).
-    readMore !buf !blanks = do
+    readMore _multi !buf !blanks = do
       ls <- getLines
       case ls of
         []       -> failP "YAML: unterminated quoted scalar"
@@ -485,7 +485,7 @@ consumeQuoted q = go0
                                  Just (_, '\\') -> not (endsEvenBackslashes buf)
                                  _              -> False
           if isBlank
-            then readMore buf (blanks + 1)
+            then readMore True buf (blanks + 1)
             else
               let (buf', joined)
                     | endsWithEscape =
@@ -496,30 +496,27 @@ consumeQuoted q = go0
                               | otherwise   = T.replicate blanks (T.pack "\n")
                         in (buf <> joinSep <> body', True)
               in joined `seq` case parser 0 buf' of
-                   Just (v, p)   -> finish v (T.drop p buf')
-                   Nothing       -> readMore buf' 0
+                   Just (v, p)   -> finish True v (T.drop p buf')
+                   Nothing       -> readMore True buf' 0
 
     -- A run of trailing backslashes counts as "even" when it
     -- pairs up to "\\\\…", which means no escape at end.
     endsEvenBackslashes t = even (T.length (T.takeWhileEnd (== '\\') t))
 
-    finish v rest =
+    finish multi v rest =
       let trimmed = T.stripStart rest
           stripped = case T.uncons trimmed of
-            -- A '#' immediately after the closing quote is a
-            -- comment too (no preceding space required, since the
-            -- quote itself is the boundary).
             Just ('#', _) -> T.empty
             _             -> T.stripEnd (stripInlineComment trimmed)
       in if T.null stripped
            then pure v
-           -- Trailing content on the same line after the closing
-           -- quote is OK if it's a flow-context comma, mapping
-           -- separator, or a flow-collection close bracket; anything
-           -- else is malformed (Q4CL / JY7Z / trailing-content-
-           -- after-quoted-value).
            else case T.uncons stripped of
                   Just (c, _)
+                    -- Implicit map keys must fit on one line per
+                    -- spec §7.4.1: refuse a multi-line quoted
+                    -- scalar that's followed by a ':' separator.
+                    | c == ':' && multi ->
+                        failP "multi-line quoted scalar used as implicit key"
                     | c == ','  -> pushBack stripped
                     | c == ':'  -> pushBack stripped
                     | c == ']'  -> pushBack stripped
@@ -1264,10 +1261,12 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
               k <- readExplicitPart "?"
               v <- readExplicitValue
               collect ((k, v) : acc)
-          -- A bare ':' or ': value' line at the mapping indent is
-          -- an entry with an implicit (null) key. Per spec §8.18,
-          -- omitting the '?' is permitted.
-          | lineBody l == ":" || T.isPrefixOf ": " (lineBody l) -> do
+          -- A bare ':' or ': value' / ':<TAB>value' line at the
+          -- mapping indent is an entry with an implicit (null)
+          -- key. Per spec §8.18, omitting the '?' is permitted.
+          | lineBody l == ":"
+            || T.isPrefixOf ": " (lineBody l)
+            || T.isPrefixOf ":\t" (lineBody l) -> do
               v <- readExplicitPart ":"
               collect ((YNull, v) : acc)
           | otherwise -> pure acc
@@ -1300,7 +1299,9 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
       mPL <- peekLine
       case mPL of
         Just l | lineIndent l == ind
-                 && (lineBody l == ":" || T.isPrefixOf ": " (lineBody l)) ->
+                 && (lineBody l == ":"
+                     || T.isPrefixOf ": "  (lineBody l)
+                     || T.isPrefixOf ":\t" (lineBody l)) ->
             readExplicitPart ":"
         _ -> pure YNull
 
@@ -1387,18 +1388,18 @@ parseBlockScalar :: BlockKind -> P Value
 parseBlockScalar k = do
   Just l <- popLine
   let header = T.drop 1 (lineBody l)   -- drop '|' or '>'
-      (chomp, _hint) = parseHeader header
-  body <- collectScalarLines (lineIndent l)
-  -- Fallback baseInd when no non-empty content line exists: use
-  -- parent+1 so that a single more-indented blank still chomps
-  -- correctly to a single newline rather than preserving its
-  -- leading spaces.
+      (chomp, hint) = parseHeader header
+      -- An explicit indent indicator forces baseInd = parent+hint;
+      -- otherwise we use the spec's "first non-empty line wins"
+      -- discovery and parent simply gates termination.
+      explicitBase = (lineIndent l +) <$> hint
+  body <- collectScalarLines (lineIndent l) explicitBase
   let bodyAdj = case nonEmptyContent body of
         True  -> body
         False -> map (\(i, b) -> if i < 0 then (i, b) else (-1, b)) body
       txt = case k of
-        Literal -> joinLiteral chomp bodyAdj
-        Folded  -> joinFolded  chomp bodyAdj
+        Literal -> joinLiteralAt explicitBase chomp bodyAdj
+        Folded  -> joinFoldedAt  explicitBase chomp bodyAdj
   pure (YString txt)
   where
     nonEmptyContent = any (\(i, b) -> i >= 0 && not (T.null b))
@@ -1436,11 +1437,12 @@ parseBlockScalar k = do
 -- @LComment@ but sit at indent > base are treated as scalar
 -- content (the '#' is data); comments at base or shallower
 -- terminate.
-collectScalarLines :: Int -> P [(Int, Text)]
-collectScalarLines !parent = collect Nothing []
+collectScalarLines :: Int -> Maybe Int -> P [(Int, Text)]
+collectScalarLines !parent !mExplicit = collect mExplicit []
   where
     -- @mBase@ is the established base indent (after the first
-    -- content line). @acc@ is the reverse-accumulated body.
+    -- content line, or pre-seeded by an explicit indent
+    -- indicator). @acc@ is the reverse-accumulated body.
     collect mBase acc = do
       ls <- getLines
       case ls of
@@ -1501,8 +1503,13 @@ collectScalarLines !parent = collect Nothing []
         []     -> pure ()
 
 joinLiteral :: Chomp -> [(Int, Text)] -> Text
-joinLiteral chomp xs =
-  let baseInd = minNonNegative xs
+joinLiteral = joinLiteralAt Nothing
+
+joinLiteralAt :: Maybe Int -> Chomp -> [(Int, Text)] -> Text
+joinLiteralAt mExpl chomp xs =
+  let baseInd = case mExpl of
+                  Just b  -> b
+                  Nothing -> minNonNegative xs
       lns     = map (renderLine baseInd) xs
       raw | null xs   = T.empty
           | otherwise = T.intercalate (T.pack "\n") lns <> T.pack "\n"
@@ -1513,8 +1520,13 @@ joinLiteral chomp xs =
       | otherwise = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
 
 joinFolded :: Chomp -> [(Int, Text)] -> Text
-joinFolded chomp xs =
-  let baseInd = minNonNegative xs
+joinFolded = joinFoldedAt Nothing
+
+joinFoldedAt :: Maybe Int -> Chomp -> [(Int, Text)] -> Text
+joinFoldedAt mExpl chomp xs =
+  let baseInd = case mExpl of
+                  Just b  -> b
+                  Nothing -> minNonNegative xs
       raw | null xs   = T.empty
           | otherwise = T.concat (foldFirst xs baseInd) <> T.pack "\n"
   in chompText chomp raw
