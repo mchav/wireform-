@@ -322,16 +322,11 @@ parseDocument = do
   (directives, ls1) <- case nextSig of
     (l : rest) | lineKind l == LDocStart ->
       let body = lineBody l
-          afterMarker = T.drop 3 body
-          tail_ = T.stripStart afterMarker
-          -- The inline body starts at column = 4 + (leading-ws
-          -- length), counting from the dashes' own column.
-          inlineCol = lineIndent l
-                    + 3 + (T.length afterMarker - T.length tail_)
+          tail_ = T.stripStart (T.drop 3 body)
       in pure $ if T.null tail_
                   then (True, rest)
                   else (True,
-                        PLine (lineNo l) inlineCol
+                        PLine (lineNo l) (lineIndent l)
                               LContent tail_ tail_ : rest)
     (l : _) | hadDirective ->
       failP ("missing '---' after directive (line "
@@ -550,7 +545,11 @@ parseTagged = do
           pure (YTagged tag v)
         _ -> pure (YTagged tag YNull)
     else do
-      pushLine l { lineBody = after }
+      -- Update both 'lineBody' and 'lineRawBody' so that
+      -- consumeQuoted's preserveTrailingEscape works on the
+      -- right slice of the line (otherwise it would borrow a
+      -- leftover character from the tag prefix).
+      pushLine l { lineBody = after, lineRawBody = after }
       v <- parseNode (lineIndent l)
       pure (YTagged tag v)
 
@@ -579,11 +578,11 @@ parseAnchored = do
              then do
                mNext <- peekLine
                case mNext of
-                 Just l2 | lineIndent l2 >= lineIndent l ->
+                 Just l2 | lineIndent l2 > lineIndent l ->
                      parseNode (lineIndent l2)
                  _ -> pure YNull
              else do
-               pushLine l { lineBody = after }
+               pushLine l { lineBody = after, lineRawBody = after }
                parseNode (lineIndent l)
       recordAnchor name v
       pure v
@@ -1056,6 +1055,7 @@ parseBlockMapAliasFirst !ind aliasName firstRest = do
                   collect ((YString k, v) : acc)
                 Nothing -> pure acc
 
+
 -- ---------------------------------------------------------------------------
 -- Block sequence
 -- ---------------------------------------------------------------------------
@@ -1139,13 +1139,16 @@ parseBlockMap !ind firstKey firstRest = do
         Just l
           | lineIndent l /= ind -> pure acc
           | isSeqItem (lineBody l) -> pure acc
-          | isExplicitKey (lineBody l) -> pure acc
-          -- A continuation line whose first character is a TAB
-          -- means the user used a tab as additional indentation
-          -- — illegal per spec §6.1.
           | startsWithTab (lineBody l) ->
               failP $ "tab character used as indentation (line "
                       ++ show (lineNo l) ++ ")"
+          -- An explicit-key '?' marker introduces another entry
+          -- of the /same/ mapping (spec §8.18); recurse into the
+          -- explicit-pair reader.
+          | isExplicitKey (lineBody l) -> do
+              k <- readExplicitPart "?"
+              v <- readExplicitValue
+              collect ((k, v) : acc)
           | otherwise -> case findAliasKeySplit (lineBody l) of
               Just (aliasName, vRest) -> do
                 _ <- popLine
@@ -1161,6 +1164,39 @@ parseBlockMap !ind firstKey firstRest = do
                   mapM_ (\an -> recordAnchor an kv) anchors
                   collect ((kv, v) : acc)
                 Nothing -> pure acc
+
+    readExplicitPart marker = do
+      Just l <- popLine
+      let body = lineBody l
+          afterMarker = if body == marker then T.empty
+                                          else T.drop 1 body
+          rest = T.stripStart (T.drop 1 afterMarker)
+      case T.uncons afterMarker of
+        Just ('\t', _) ->
+          failP $ "tab character after explicit-key marker (line "
+                  ++ show (lineNo l) ++ ")"
+        _ -> pure ()
+      if T.null rest
+        then do
+          mNext <- peekLine
+          case mNext of
+            Just l2 | lineIndent l2 > lineIndent l ->
+              parseNode (lineIndent l2)
+            _ -> pure YNull
+        else do
+          pushLine (PLine (lineNo l) (lineIndent l + 2)
+                          LContent rest rest)
+          parseNode (lineIndent l + 2)
+
+    readExplicitValue = do
+      mPL <- peekLine
+      case mPL of
+        Just l | lineIndent l == ind
+                 && (lineBody l == ":"
+                     || T.isPrefixOf ": "  (lineBody l)
+                     || T.isPrefixOf ":\t" (lineBody l)) ->
+            readExplicitPart ":"
+        _ -> pure YNull
 
 startsWithTab :: Text -> Bool
 startsWithTab t = case T.uncons t of
@@ -1253,13 +1289,17 @@ parseImplicitMapValue !ind vRest =
            pushLine (PLine 0 (ind + 2) LContent after after)
            consumeFlowFromHead
          Just ('&', _) -> do
-           pushLine (PLine 0 (ind + 2) LContent after after)
+           pushLine (PLine 0 ind LContent after after)
            parseAnchored
          Just ('*', _) -> do
            pushLine (PLine 0 (ind + 2) LContent after after)
            parseAlias
          Just ('!', _) -> do
-           pushLine (PLine 0 (ind + 2) LContent after after)
+           -- Use 'ind' (the outer mapping indent) so that a
+           -- block-scalar value following the tag ('!foo >' /
+           -- '!!str |') still sees a parent low enough to admit
+           -- the body lines.
+           pushLine (PLine 0 ind LContent after after)
            parseTagged
          Just ('"', _)  -> consumeQuoted '"'  after
          Just ('\'', _) -> consumeQuoted '\'' after
@@ -1290,7 +1330,17 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
             || T.isPrefixOf ":\t" (lineBody l) -> do
               v <- readExplicitPart ":"
               collect ((YNull, v) : acc)
-          | otherwise -> pure acc
+          -- An ordinary 'key: value' implicit pair after a ?-form
+          -- entry continues the same mapping (spec §8.18).
+          | otherwise -> case findKeyValueSplit (lineBody l) of
+              Just (k, vRest) -> do
+                _ <- popLine
+                let (anchors, k') = stripKeyProperties k
+                v <- parseImplicitMapValue ind vRest
+                let kv = YString k'
+                mapM_ (\an -> recordAnchor an kv) anchors
+                collect ((kv, v) : acc)
+              Nothing -> pure acc
 
     readExplicitPart marker = do
       Just l <- popLine
