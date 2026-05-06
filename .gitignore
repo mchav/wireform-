@@ -25,3 +25,4 @@ result-*
 /*.tsv
 /bench-*.html
 /bench-*.json
+wireform-yaml-bench.prof
