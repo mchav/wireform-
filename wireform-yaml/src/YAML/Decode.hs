@@ -2522,54 +2522,48 @@ expandTagP lno t
 -- @key: value@ split (top-level, respects quotes / brackets)
 -- ---------------------------------------------------------------------------
 
+-- | Walks the line in O(n) by consuming chars from the unpacked
+-- string. Returns @Just (key, rest)@ when a top-level @':'@
+-- separator is found.
 findKeyValueSplit :: Text -> Maybe (Text, Text)
-findKeyValueSplit t = go (0 :: Int) (0 :: Int) (0 :: Int) (0 :: Int)
+findKeyValueSplit t = go 0 0 0 0 ' ' (T.unpack t)
   where
-    !len = T.length t
-    go !i !depth !brace !inStr
-      | i >= len = Nothing
-      | inStr == 1 =
-          if T.index t i == '"' then go (i + 1) depth brace 0
-          else if T.index t i == '\\' && i + 1 < len
-                  then go (i + 2) depth brace inStr
-                  else go (i + 1) depth brace inStr
-      | inStr == 2 =
-          if T.index t i == '\'' then go (i + 1) depth brace 0
-          else go (i + 1) depth brace inStr
-      | otherwise = case T.index t i of
-          '"' | atTokenStart i -> go (i + 1) depth brace 1
-          '\''| atTokenStart i -> go (i + 1) depth brace 2
-          '[' | atTokenStart i || depth > 0 || brace > 0
-                                -> go (i + 1) (depth + 1) brace inStr
-          ']' | depth > 0       -> go (i + 1) (depth - 1) brace inStr
-          '{' | atTokenStart i || depth > 0 || brace > 0
-                                -> go (i + 1) depth (brace + 1) inStr
-          '}' | brace > 0       -> go (i + 1) depth (brace - 1) inStr
-          -- A '#' preceded by whitespace (i.e. a token boundary)
-          -- starts an end-of-line comment; nothing past that is
-          -- part of the key/value.
-          '#' | atTokenStart i && depth == 0 && brace == 0 -> Nothing
-          ':' | depth == 0 && brace == 0 ->
-                let nextEnd   = i + 1 >= len
-                    nextSpace = i + 1 < len &&
-                                  (T.index t (i + 1) == ' '
-                                || T.index t (i + 1) == '\t')
-                in if nextEnd || nextSpace
-                     then
-                       let key  = unquoteKey (T.stripEnd (T.take i t))
-                           rest = T.drop (i + 1) t
-                       in Just (key, rest)
-                     else go (i + 1) depth brace inStr
-          _    -> go (i + 1) depth brace inStr
+    -- Args: position counter (in characters), bracket depth,
+    -- brace depth, inStr flag (0/1/2), previous char (for
+    -- atTokenStart), remaining unpacked input.
+    go :: Int -> Int -> Int -> Int -> Char -> [Char] -> Maybe (Text, Text)
+    go !_ !_ !_ !_ _ [] = Nothing
+    go !i !d !b !s !p (c : cs) = case s of
+      1 -> case c of
+        '"' -> go (i + 1) d b 0 c cs
+        '\\' -> case cs of
+          (_ : cs') -> go (i + 2) d b 1 c cs'
+          []        -> go (i + 1) d b 1 c cs
+        _   -> go (i + 1) d b 1 c cs
+      2 -> case c of
+        '\'' -> go (i + 1) d b 0 c cs
+        _    -> go (i + 1) d b 2 c cs
+      _ -> case c of
+        '"' | tokenStart p -> go (i + 1) d b 1 c cs
+        '\''| tokenStart p -> go (i + 1) d b 2 c cs
+        '[' | tokenStart p || d > 0 || b > 0 ->
+          go (i + 1) (d + 1) b s c cs
+        ']' | d > 0 -> go (i + 1) (d - 1) b s c cs
+        '{' | tokenStart p || d > 0 || b > 0 ->
+          go (i + 1) d (b + 1) s c cs
+        '}' | b > 0 -> go (i + 1) d (b - 1) s c cs
+        '#' | tokenStart p && d == 0 && b == 0 -> Nothing
+        ':' | d == 0, b == 0 ->
+          case cs of
+            []      -> Just (mkSplit i, T.empty)
+            (n : _) | n == ' ' || n == '\t' -> Just (mkSplit i, T.drop (i + 1) t)
+            _       -> go (i + 1) d b s c cs
+        _   -> go (i + 1) d b s c cs
 
-    -- Quote characters only act as string delimiters at the start
-    -- of input or right after whitespace; mid-token quotes are
-    -- ordinary characters of a plain scalar.
-    atTokenStart 0 = True
-    atTokenStart i = case T.index t (i - 1) of
-      ' '  -> True
-      '\t' -> True
-      _    -> False
+    mkSplit i = unquoteKey (T.stripEnd (T.take i t))
+
+    tokenStart c = c == ' ' || c == '\t'
+{-# INLINABLE findKeyValueSplit #-}
 
 unquoteKey :: Text -> Text
 unquoteKey t
@@ -2597,16 +2591,15 @@ unescapeDQ = T.pack . go . T.unpack
 -- ---------------------------------------------------------------------------
 
 stripInlineComment :: Text -> Text
-stripInlineComment t = T.pack (loop (T.unpack t) (Outer :: QState))
+stripInlineComment t
+  -- Fast path: if there's no '#' anywhere, return the input
+  -- untouched (the common case for typical mapping values).
+  | not (T.any (== '#') t) = t
+  | otherwise = T.pack (loop (T.unpack t) (Outer :: QState))
   where
     loop [] _              = []
     loop (' ':'#':_) Outer = []
     loop ('\t':'#':_) Outer = []
-    -- A '#' preceded by a newline-sentinel '\\1' (we're mid-flow
-    -- and folded over a line break before it) is a comment that
-    -- runs to the next '\\1' or end-of-input. Replace the whole
-    -- comment span with a '\\2' marker so the surrounding parser
-    -- knows the previous logical token ended.
     loop ('\1':'#':rest) Outer =
       '\2' : loop (dropWhile (/= '\1') rest) Outer
     loop (c:rest) Outer
@@ -2619,6 +2612,7 @@ stripInlineComment t = T.pack (loop (T.unpack t) (Outer :: QState))
     loop ('\'':'\'':rest) InSQ = '\'' : '\'' : loop rest InSQ
     loop ('\'':rest) InSQ      = '\'' : loop rest Outer
     loop (c:rest) InSQ         = c    : loop rest InSQ
+{-# INLINABLE stripInlineComment #-}
 
 data QState = Outer | InDQ | InSQ
 
