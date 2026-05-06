@@ -1305,6 +1305,22 @@ parseImplicitMapValue !ind vRest =
          Just ('\'', _) -> consumeQuoted '\'' after
          _ -> pure (resolvePlain (T.stripEnd (stripInlineComment after)))
 
+parseImplicitMapValueEmpty :: Int -> P Value
+parseImplicitMapValueEmpty !ind = do
+  mNext <- peekLine
+  case mNext of
+    Just l2
+      | lineIndent l2 > ind -> do
+          let body' = T.dropWhile (== '\t') (lineBody l2)
+          modifyS (\s ->
+            s { psLines = case psLines s of
+                  (h : rs) -> h { lineBody = body' } : rs
+                  []       -> [] })
+          parseNode (lineIndent l2)
+      | lineIndent l2 == ind && isSeqItem (lineBody l2) ->
+          parseBlockSeq ind
+    _ -> pure YNull
+
 -- ---------------------------------------------------------------------------
 -- Explicit-key mapping (?-form)
 -- ---------------------------------------------------------------------------
@@ -1410,11 +1426,7 @@ parsePlainScalar !ind firstBody = do
               do consumeOne; collectFolds baseInd blanks acc
           | (lineKind l == LContent || lineKind l == LDirective)
             && (lineIndent l > baseInd
-                -- A bare plain scalar at the top level (baseInd 0)
-                -- can continue into more lines at column 0 as
-                -- long as they're not structural.
                 || (baseInd == 0 && lineIndent l == 0))
-            && not (isSeqItem (lineBody l))
             && not (isExplicitKey (lineBody l))
             && case findKeyValueSplit (lineBody l) of
                  Just _  -> False
