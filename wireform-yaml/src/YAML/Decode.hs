@@ -521,11 +521,43 @@ data PS = PS
   { psLines     :: ![PLine]
   , psAnchors   :: !(Map Text Value)
     -- ^ Anchor environment, reset between documents.
+  , psAnchorSizes :: !(Map Text Int)
+    -- ^ Per-anchor /logical/ value-tree size, with all nested
+    -- aliases recursively expanded. Computed once at
+    -- 'recordAnchor' time using a memoised walk seeded from
+    -- this very map (legal YAML aliases are forward-only, so
+    -- every sub-anchor's size is already known); used both to
+    -- short-circuit the alias-DAG size-of size walk to O(N)
+    -- and to refuse anchors whose expansion alone would
+    -- exceed 'maxParseNodes'.
   , psShortcuts :: !(Map Text Text)
     -- ^ %TAG shorthand prefixes ('!handle!' → expansion).
     -- Reset between documents.
   , psFlags     :: {-# UNPACK #-} !Int
+  , psDepth     :: {-# UNPACK #-} !Int
+    -- ^ Current parser-recursion depth. Bumped via 'withDepth'
+    -- on every recursive descent; bounded by 'maxParserDepth'
+    -- to keep adversarially-deep input from blowing the
+    -- Haskell runtime stack.
   }
+
+-- | Hard-coded recursion depth limit. YAML documents legitimately
+-- nesting more than 'maxParserDepth' containers are vanishingly
+-- rare; the limit exists to prevent a deeply-nested adversarial
+-- input from blowing the Haskell stack.
+maxParserDepth :: Int
+maxParserDepth = 1024
+{-# INLINE maxParserDepth #-}
+
+-- | Hard-coded ceiling on the logical node count of any anchor
+-- value or document body. Prevents adversarial alias-DAG inputs
+-- (the YAML 'billion laughs' attack) from producing a 'Value'
+-- whose naive traversal would never finish: the per-anchor
+-- check in 'recordAnchor' fails before such a value is even
+-- constructed.
+maxParseNodes :: Int
+maxParseNodes = 10_000_000
+{-# INLINE maxParseNodes #-}
 
 parentBias :: Int
 parentBias = 1
@@ -663,19 +695,107 @@ pushLine :: PLine -> P ()
 pushLine l = P (\s -> Ok () (s { psLines = l : psLines s }))
 {-# INLINE pushLine #-}
 
-recordAnchor :: Text -> Value -> P ()
-recordAnchor name v =
-  modifyS (\s -> s { psAnchors = Map.insert name v (psAnchors s) })
+-- ---------------------------------------------------------------------------
+-- Resource bounds
+--
+-- Defences against two well-known adversarial-input classes:
+--
+-- 1. /Stack overflow via deep nesting./ A '[[[[…]]]]'-style
+--    input with hundreds of thousands of opening brackets
+--    would blow the runtime stack. 'withDepth' bumps a counter
+--    on every recursive descent and refuses to continue past
+--    'maxParserDepth' (default 1024).
+--
+-- 2. /Alias-DAG \"billion laughs\"./ A small input
+--
+--    @
+--      a: &a [1,1,1,1,1,1,1,1,1]
+--      b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a]
+--      …
+--      i: &i [*h,*h,*h,*h,*h,*h,*h,*h,*h]
+--    @
+--
+--    yields a 'Value' whose physical representation is small
+--    (sharing) but whose naive traversal walks 9^9 ~ 4×10^8
+--    nodes. Pure Haskell sharing protects the parser itself
+--    but downstream consumers (e.g. JSON projection) blow up.
+--    'recordAnchor' computes the /logical/ expanded size of
+--    every anchor at registration time using a memoised walk
+--    seeded from previously-recorded anchors and refuses any
+--    anchor whose expansion exceeds 'maxParseNodes'.
+-- ---------------------------------------------------------------------------
 
+-- | Run @action@ at one greater nesting depth. Fails before
+-- entering when the depth would exceed 'maxParserDepth'.
+withDepth :: P a -> P a
+withDepth (P action) = P $ \s ->
+  let !d = psDepth s + 1
+  in if d > maxParserDepth
+       then Err "YAML: maximum nesting depth exceeded"
+       else case action (s { psDepth = d }) of
+              Err e   -> Err e
+              Ok x s' -> Ok x (s' { psDepth = psDepth s' - 1 })
+{-# INLINE withDepth #-}
+
+-- | Compute the /logical/ size of @v@ (the count of value-tree
+-- nodes it would expand to with all aliases inlined), using
+-- @memo@ for already-known anchors so the walk is O(unique
+-- nodes) rather than O(expanded nodes).
+sizeWithMemo :: Map Text Int -> Value -> Int
+sizeWithMemo memo = go
+  where
+    go (YAnchored (Anchor n) inner) = case Map.lookup n memo of
+      Just s  -> s
+      -- Forward refs are illegal; if we get here the parser
+      -- is constructing a fresh anchor whose body is being
+      -- sized — recurse into the body directly.
+      Nothing -> 1 + go inner
+    go (YTagged _ inner) = 1 + go inner
+    go (YSeq xs)         = 1 + V.foldl' (\a x -> a + go x) 0 xs
+    go (YMap kvs)        = 1 + V.foldl' (\a (k, x) -> a + go k + go x) 0 kvs
+    go _                 = 1
+
+-- | Bind @name@ to @v@. Computes the value's /logical/ expanded
+-- size using 'sizeWithMemo' over previously-recorded anchors
+-- and refuses the anchor when that size alone would exceed
+-- 'maxParseNodes' (the billion-laughs defence).
+--
+-- @v@ is stored "unwrapped" (any outer 'YAnchored' shell is
+-- stripped); 'resolveAnchor' re-wraps it on lookup so that
+-- subsequent size computations can identify the shared subtree
+-- by its anchor name.
+recordAnchor :: Text -> Value -> P ()
+recordAnchor name v = do
+  s <- getS
+  let inner = stripAnchored v
+      !sz   = sizeWithMemo (psAnchorSizes s) v
+  if sz > maxParseNodes
+    then failP ( "YAML: anchor &" ++ T.unpack name
+              ++ " expands to more than " ++ show maxParseNodes
+              ++ " nodes (possible billion-laughs alias DAG)" )
+    else modifyS (\s' -> s'
+      { psAnchors     = Map.insert name inner (psAnchors     s')
+      , psAnchorSizes = Map.insert name sz    (psAnchorSizes s')
+      })
+  where
+    stripAnchored (YAnchored _ x) = x
+    stripAnchored x               = x
+
+-- | Look up an anchor and return its bound value, /re-wrapped/
+-- in 'YAnchored' so that later size walks can identify the
+-- shared subtree.
 resolveAnchor :: Text -> P Value
 resolveAnchor name = do
   s <- getS
   case Map.lookup name (psAnchors s) of
-    Just v  -> pure v
+    Just v  -> pure (YAnchored (Anchor name) v)
     Nothing -> failP ("YAML: alias *" ++ T.unpack name ++ " has no anchor")
 
 resetAnchors :: P ()
-resetAnchors = modifyS (\s -> s { psAnchors = Map.empty })
+resetAnchors = modifyS (\s -> s
+  { psAnchors     = Map.empty
+  , psAnchorSizes = Map.empty
+  })
 
 resetShortcuts :: P ()
 resetShortcuts = modifyS (\s -> s { psShortcuts = Map.empty })
@@ -720,7 +840,8 @@ lookupShortcut handle = do
 parseStream :: [PLine] -> Either String [Document]
 parseStream lns =
   case runP (loop True True)
-            (PS lns Map.empty Map.empty (packFlags 0 False False)) of
+            (PS lns Map.empty Map.empty Map.empty
+                (packFlags 0 False False) 0) of
     Left err      -> Left err
     Right (ds, _) -> Right ds
   where
@@ -894,7 +1015,7 @@ parseDocBody = do
 
 -- | Parse a node whose left margin is at least @minInd@.
 parseNode :: Int -> P Value
-parseNode !minInd = do
+parseNode !minInd = withDepth $ do
   mNext <- peekLine
   case mNext of
     Nothing -> pure YNull

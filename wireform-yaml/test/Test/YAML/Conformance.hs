@@ -82,8 +82,10 @@ builtinSuite = pure $ testGroup "builtin"
                  , "Second occurrence: *anchor"
                  ])
       (\v -> do
-         YV.lookupKey "First occurrence" v @?= Just (YV.YString "Foo")
-         YV.lookupKey "Second occurrence" v @?= Just (YV.YString "Foo"))
+         fmap YV.unwrap (YV.lookupKey "First occurrence"  v)
+           @?= Just (YV.YString "Foo")
+         fmap YV.unwrap (YV.lookupKey "Second occurrence" v)
+           @?= Just (YV.YString "Foo"))
 
   , caseOK "spec ex 8.1 block scalar header"
       (T.unlines [ "literal: |"

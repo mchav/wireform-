@@ -81,6 +81,7 @@ test-suite wireform-yaml-test
     Test.YAML.Decode
     Test.YAML.Encode
     Test.YAML.Roundtrip
+    Test.YAML.Security
     Test.YAML.Conformance
     Test.YAML.Derive
     Test.YAML.Derive.Types

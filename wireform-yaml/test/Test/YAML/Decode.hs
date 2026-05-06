@@ -179,8 +179,11 @@ anchorTests = testGroup "anchors"
             ]
       case decode src of
         Right v -> do
-          lookupKey "a" v @?= Just (YInt 1)
-          lookupKey "b" v @?= Just (YInt 1)
+          -- Aliases come back wrapped in 'YAnchored' so the
+          -- size-of walk can identify shared subtrees by name;
+          -- 'unwrap' strips the wrapper for value comparison.
+          fmap unwrap (lookupKey "a" v) @?= Just (YInt 1)
+          fmap unwrap (lookupKey "b" v) @?= Just (YInt 1)
         Left e -> assertFailure e
   ]
 

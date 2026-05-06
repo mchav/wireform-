@@ -8,6 +8,7 @@ import qualified Test.YAML.Encode
 import qualified Test.YAML.Roundtrip
 import qualified Test.YAML.Conformance
 import qualified Test.YAML.Derive
+import qualified Test.YAML.Security
 
 main :: IO ()
 main = do
@@ -17,6 +18,7 @@ main = do
     , Test.YAML.Encode.tests
     , Test.YAML.Roundtrip.tests
     , Test.YAML.Annotated.tests
+    , Test.YAML.Security.tests
     , conf
     , Test.YAML.Derive.tests
     ]
