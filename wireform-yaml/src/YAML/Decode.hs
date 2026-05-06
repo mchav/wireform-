@@ -239,20 +239,28 @@ resetAnchors = modifyS (\s -> s { psAnchors = Map.empty })
 
 parseStream :: [PLine] -> Either String [Document]
 parseStream lns =
-  case unP loop (PS lns Map.empty) of
+  case unP (loop True True) (PS lns Map.empty) of
     Left err      -> Left err
     Right (ds, _) -> Right ds
   where
-    loop = do
+    -- @first@: True before any document.
+    -- @prevExplicitEnd@: True if the previous doc terminated
+    --   with an explicit '...' marker.
+    loop !first !prevExplicitEnd = do
       ls <- getLines
       case dropWhile isSkippable ls of
         []      -> pure []
         (l : _) -> do
+          let canBeBare = first || prevExplicitEnd
+              isExplicitStart = lineKind l == LDocStart
+          unless (canBeBare || isExplicitStart) $
+            failP $ "second document without '---' marker (line "
+                    ++ show (lineNo l) ++ ")"
           d        <- parseDocument
           progress <- checkProgress (lineNo l)
           if progress
             then do
-              ds <- loop
+              ds <- loop False (docExplicitEnd d)
               pure (d : ds)
             else
               failP $ "stray content (line " ++ show (lineNo l) ++ ")"
@@ -1303,7 +1311,12 @@ parseImplicitMapValue !ind vRest =
            parseTagged
          Just ('"', _)  -> consumeQuoted '"'  after
          Just ('\'', _) -> consumeQuoted '\'' after
-         _ -> pure (resolvePlain (T.stripEnd (stripInlineComment after)))
+         Just ('#', _) -> parseImplicitMapValueEmpty ind
+         _ -> do
+           -- Plain scalar inline value can continue on more lines
+           -- indented past the mapping indent (spec §6.5).
+           pushLine (PLine 0 (ind + 1) LContent after after)
+           parsePlainScalar (ind + 1) after
 
 parseImplicitMapValueEmpty :: Int -> P Value
 parseImplicitMapValueEmpty !ind = do
@@ -1425,8 +1438,7 @@ parsePlainScalar !ind firstBody = do
             && lineIndent l > baseInd ->
               do consumeOne; collectFolds baseInd blanks acc
           | (lineKind l == LContent || lineKind l == LDirective)
-            && (lineIndent l > baseInd
-                || (baseInd == 0 && lineIndent l == 0))
+            && lineIndent l >= baseInd
             && not (isExplicitKey (lineBody l))
             && case findKeyValueSplit (lineBody l) of
                  Just _  -> False
