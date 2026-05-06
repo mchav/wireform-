@@ -1620,34 +1620,42 @@ parsePlainScalar !ind firstBody = do
                  Just _  -> False
                  Nothing -> True
             -> do
-              consumeOne
-              let raw = lineBody l
-                  s0 = T.stripEnd (stripInlineComment raw)
-                  s = T.dropWhile (\c -> c == ' ' || c == '\t') s0
-                  hadComment = T.length s0 < T.length (T.stripEnd raw)
-                  prefix
-                    | blanks == 0 = s
-                    | otherwise   = T.replicate blanks (T.pack "\n") <> s
-              -- A plain-scalar continuation line containing a
-              -- mid-line comment is malformed if /more/ content
-              -- follows on later lines (the comment would be
-              -- interpreted as breaking the scalar).
-              when hadComment $ do
-                ls' <- getLines
-                case ls' of
-                  (l2 : _)
-                    | lineIndent l2 >= baseInd
-                    , lineKind l2 == LContent
-                    , not (isSeqItem (lineBody l2))
-                    , not (isExplicitKey (lineBody l2))
-                    , case findKeyValueSplit (lineBody l2) of
-                        Just _  -> False
-                        Nothing -> True ->
-                       failP $ "comment between plain-scalar lines (line "
-                               ++ show (lineNo l) ++ ")"
-                  _ -> pure ()
-              collectFolds baseInd 0 (prefix : acc)
+              -- For an LDirective line (begins with '%'), only
+              -- accept it as scalar content if there's no later
+              -- '---' / '...' marker that would make it a real
+              -- directive for a subsequent document.
+              accept <- case lineKind l of
+                LDirective -> do
+                  ls' <- getLines
+                  pure (not (any isMarker ls'))
+                _ -> pure True
+              if not accept then pure (reverse acc) else do
+                consumeOne
+                let raw = lineBody l
+                    s0 = T.stripEnd (stripInlineComment raw)
+                    s = T.dropWhile (\c -> c == ' ' || c == '\t') s0
+                    hadComment = T.length s0 < T.length (T.stripEnd raw)
+                    prefix
+                      | blanks == 0 = s
+                      | otherwise   = T.replicate blanks (T.pack "\n") <> s
+                when hadComment $ do
+                  ls' <- getLines
+                  case ls' of
+                    (l2 : _)
+                      | lineIndent l2 >= baseInd
+                      , lineKind l2 == LContent
+                      , not (isSeqItem (lineBody l2))
+                      , not (isExplicitKey (lineBody l2))
+                      , case findKeyValueSplit (lineBody l2) of
+                          Just _  -> False
+                          Nothing -> True ->
+                         failP $ "comment between plain-scalar lines (line "
+                                 ++ show (lineNo l) ++ ")"
+                    _ -> pure ()
+                collectFolds baseInd 0 (prefix : acc)
           | otherwise -> pure (reverse acc)
+      where
+        isMarker l = lineKind l == LDocStart || lineKind l == LDocEnd
 
     consumeOne = do
       ls <- getLines
