@@ -40,7 +40,11 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Data.Vector (Vector)
 import Data.Word (Word8, Word64)
+import qualified Data.ByteString.Internal as BSI
+import qualified Foreign.ForeignPtr
 import Foreign.Ptr (Ptr)
+import qualified Foreign.Ptr
+import qualified Foreign.Marshal.Utils
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Fory.Bulk as B
@@ -388,8 +392,10 @@ emitCollection !e vs = do
                 Just (perElemMax, writer) ->
                   IO.withReservedRaw e (perElemMax * V.length vs) $ \p start ->
                     V.foldM' (\off x -> writer p off x) start vs
-                Nothing ->
-                  V.forM_ vs $ \x -> emitUntaggedPayload e x
+                Nothing
+                  | tag == T.STRING -> emitStringListFast e vs
+                  | otherwise ->
+                      V.forM_ vs $ \x -> emitUntaggedPayload e x
         (True, Nothing) -> do
           -- Every element is None.
           emitTag e T.NONE
@@ -481,6 +487,47 @@ sameTypeFastPath !tag = case tag of
     fpFloat64    p off (VV.Float64Val d)      = IO.pokeFloat64LERaw p off d
     fpFloat64    _ _   _                      = error "sameTypeFastPath fpFloat64"
 
+-- | Fast path for a same-type list of 'StringVal'. Pre-encodes
+-- each element to UTF-8 (essentially free for ASCII Text 2.x —
+-- the underlying ByteArray is shared), classifies each as
+-- pure-ASCII (LATIN-1 wire encoding tag) or not (UTF-8 tag),
+-- sums the upper bound on total bytes, then emits the whole
+-- batch with a single 'IO.withReservedRaw' call.
+emitStringListFast :: IO.Encoder -> Vector VV.Value -> IO ()
+emitStringListFast !e !vs = do
+  -- Walk once: encode + classify. The Vector boxing here is
+  -- @Vector (ByteString, Bool)@ — three words of payload per
+  -- element; cheaper than the per-element ensure() / readIORef
+  -- / writeIORef trio that the un-batched path would do.
+  encoded <- V.mapM encOne vs
+  let !totalSize = V.foldl' (\a (b, _) -> a + 9 + BS.length b) 0 encoded
+  IO.withReservedRaw e totalSize $ \p start ->
+    V.foldM' (writeOne p) start encoded
+  where
+    encOne :: VV.Value -> IO (ByteString, Bool)
+    encOne (VV.StringVal t) =
+      let !u     = TE.encodeUtf8 t
+          !ascii = BS.all (< 0x80) u
+      in pure (u, ascii)
+    encOne v = error $ "emitStringListFast: non-StringVal " ++ show v
+
+    writeOne :: Ptr Word8 -> Int -> (ByteString, Bool) -> IO Int
+    writeOne !p !off (!u, !ascii) = do
+      let !len = BS.length u
+          !hdr = (fromIntegral len `shiftL` 2)
+                   .|. (if ascii then 0 else 2) :: Word64
+      off1 <- IO.pokeVaruint64Raw p off hdr
+      pokeBytesRaw p off1 u
+
+pokeBytesRaw :: Ptr Word8 -> Int -> ByteString -> IO Int
+pokeBytesRaw !p !pos !bs = do
+  let (BSI.BS fpSrc lenSrc) = bs
+      !destPtr = p `Foreign.Ptr.plusPtr` pos
+  Foreign.ForeignPtr.withForeignPtr fpSrc $ \pSrc ->
+    Foreign.Marshal.Utils.copyBytes destPtr pSrc lenSrc
+  pure (pos + lenSrc)
+{-# INLINE pokeBytesRaw #-}
+
 sameTypeNeedsRef :: T.TypeId -> Bool
 sameTypeNeedsRef !t = case t of
   T.LIST                    -> True
@@ -549,7 +596,105 @@ emitMapChunks !e !kvs = do
   IO.emitVaruint32 e (fromIntegral len)
   if len == 0
     then pure ()
-    else V.forM_ kvs $ \(k, v) -> emitOneEntryChunk e k v
+    else case homogeneousMap kvs of
+      Just (keyTag, valTag) -> emitMapChunkedHomogeneous e kvs keyTag valTag
+      Nothing -> V.forM_ kvs $ \(k, v) -> emitOneEntryChunk e k v
+
+-- | Returns @Just (keyTag, valTag)@ if every entry has the
+-- same non-null key type and the same non-null value type.
+-- We use this to emit the map as one (or a few) maximally-large
+-- chunk(s) instead of N single-entry chunks, saving the
+-- per-entry chunk header overhead and enabling the
+-- 'withReservedRaw' fast path below.
+homogeneousMap
+  :: Vector (VV.Value, VV.Value) -> Maybe (T.TypeId, T.TypeId)
+homogeneousMap !kvs =
+  let (kHomo, vHomo, ok) = V.foldl' step (Nothing, Nothing, True) kvs
+  in if ok then (,) <$> kHomo <*> vHomo else Nothing
+  where
+    step (mKt, mVt, ok) (k, v)
+      | not ok = (mKt, mVt, False)
+      | isNoneV k || isNoneV v = (mKt, mVt, False)
+      | otherwise =
+          let !kt = VV.typeIdOf k
+              !vt = VV.typeIdOf v
+          in case (mKt, mVt) of
+               (Nothing, Nothing) -> (Just kt, Just vt, True)
+               (Just kt0, Just vt0)
+                 | kt == kt0 && vt == vt0 -> (mKt, mVt, True)
+                 | otherwise              -> (mKt, mVt, False)
+               _ -> (mKt, mVt, False)
+
+-- | Emit a homogeneous map as a sequence of large chunks
+-- (max 255 entries per chunk, since chunk_size is a single
+-- byte). Within each chunk header is @0x00 + chunkSize +
+-- keyTag + valTag@; the per-entry payload is written by
+-- 'emitMapHomogeneousPayload' which dispatches to a tight
+-- batched path for the common (STRING, VARINT64) case.
+emitMapChunkedHomogeneous
+  :: IO.Encoder -> Vector (VV.Value, VV.Value) -> T.TypeId -> T.TypeId -> IO ()
+emitMapChunkedHomogeneous !e !kvs !keyTag !valTag = go kvs
+  where
+    go !rest
+      | V.null rest = pure ()
+      | otherwise = do
+          let !len = V.length rest
+              !cs  = min 255 len
+              !chunk = V.take cs rest
+          IO.emitByte e 0
+          IO.emitByte e (fromIntegral cs)
+          emitTag e keyTag
+          emitTag e valTag
+          emitMapHomogeneousPayload e chunk keyTag valTag
+          go (V.drop cs rest)
+
+emitMapHomogeneousPayload
+  :: IO.Encoder
+  -> Vector (VV.Value, VV.Value)
+  -> T.TypeId
+  -> T.TypeId
+  -> IO ()
+emitMapHomogeneousPayload !e !kvs !keyTag !valTag
+  | keyTag == T.STRING && valTag == T.VARINT64 =
+      emitMapStringVarInt64 e kvs
+  | otherwise =
+      case (sameTypeFastPath keyTag, sameTypeFastPath valTag) of
+        (Just (kMax, kw), Just (vMax, vw)) ->
+          IO.withReservedRaw e ((kMax + vMax) * V.length kvs) $ \p start ->
+            V.foldM' (\off (k, v) -> do
+              off1 <- kw p off k
+              vw p off1 v) start kvs
+        _ -> V.forM_ kvs $ \(k, v) -> do
+          emitUntaggedPayload e k
+          emitUntaggedPayload e v
+
+-- | Tight batched path for @Map String VarInt64@. Pre-encodes
+-- each string key once (TE.encodeUtf8 + BS.all classification),
+-- sums the upper-bound total bytes, then writes the whole chunk
+-- via 'IO.withReservedRaw'.
+emitMapStringVarInt64
+  :: IO.Encoder -> Vector (VV.Value, VV.Value) -> IO ()
+emitMapStringVarInt64 !e !kvs = do
+  encoded <- V.mapM encEntry kvs
+  let !total = V.foldl' (\a (u, _, _) -> a + 9 + BS.length u + 9) 0 encoded
+  IO.withReservedRaw e total $ \p start ->
+    V.foldM' (writeOne p) start encoded
+  where
+    encEntry (VV.StringVal t, VV.VarInt64Val n) =
+      let !u = TE.encodeUtf8 t
+          !ascii = BS.all (< 0x80) u
+      in pure (u, ascii, n)
+    encEntry kv = error $
+      "emitMapStringVarInt64: expected (StringVal, VarInt64Val), got "
+        ++ show kv
+
+    writeOne !p !off (!u, !ascii, !n) = do
+      let !len = BS.length u
+          !hdr = (fromIntegral len `shiftL` 2)
+                   .|. (if ascii then 0 else 2) :: Word64
+      off1 <- IO.pokeVaruint64Raw p off hdr
+      off2 <- pokeBytesRaw p off1 u
+      IO.pokeVarint64Raw p off2 n
 
 emitOneEntryChunk :: IO.Encoder -> VV.Value -> VV.Value -> IO ()
 emitOneEntryChunk !e !k !v = do
