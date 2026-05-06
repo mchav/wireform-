@@ -15,6 +15,10 @@ common defaults
     -Wpartial-fields
     -Wredundant-constraints
     -O2
+    -funbox-strict-fields
+    -fspec-constr
+    -fspec-constr-keen
+    -flate-dmd-anal
   default-language: GHC2021
   default-extensions:
     StrictData
@@ -46,6 +50,20 @@ library
     scientific >= 0.3 && < 0.4,
     deepseq >= 1.4 && < 1.6,
     template-haskell >= 2.18 && < 2.24
+
+benchmark wireform-yaml-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -O2 -fproc-alignment=64
+  build-depends:
+    base,
+    wireform-yaml,
+    bytestring,
+    text,
+    vector,
+    criterion >= 1.5
 
 test-suite wireform-yaml-test
   import: defaults

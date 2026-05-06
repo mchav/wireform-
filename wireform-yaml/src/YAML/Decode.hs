@@ -123,22 +123,39 @@ stripCR :: Text -> Text
 stripCR t = case T.unsnoc t of
   Just (rest, '\r') -> rest
   _                 -> t
+{-# INLINE stripCR #-}
 
 leadingSpaces :: Text -> Int
 leadingSpaces = T.length . T.takeWhile (== ' ')
+{-# INLINE leadingSpaces #-}
+
+-- Top-level CAFs so 'classify' doesn't repack literals on every line.
+dashesText, dashesSpace, dashesTab :: Text
+dashesText  = T.pack "---"
+dashesSpace = T.pack "--- "
+dashesTab   = T.pack "---\t"
+
+dotsText, dotsSpace, dotsTab :: Text
+dotsText  = T.pack "..."
+dotsSpace = T.pack "... "
+dotsTab   = T.pack "...\t"
 
 classify :: Text -> LineKind
-classify t
-  | T.null t                                  = LBlank
-  | T.head t == '#'                           = LComment
-  | t == T.pack "---"
-      || T.isPrefixOf (T.pack "--- ")  t
-      || T.isPrefixOf (T.pack "---\t") t      = LDocStart
-  | t == T.pack "..."
-      || T.isPrefixOf (T.pack "... ")  t
-      || T.isPrefixOf (T.pack "...\t") t      = LDocEnd
-  | T.head t == '%'                           = LDirective
-  | otherwise                                 = LContent
+classify t = case T.uncons t of
+  Nothing      -> LBlank
+  Just (h, _)
+    | h == '#' -> LComment
+    | h == '-'
+    , t == dashesText
+      || T.isPrefixOf dashesSpace t
+      || T.isPrefixOf dashesTab   t -> LDocStart
+    | h == '.'
+    , t == dotsText
+      || T.isPrefixOf dotsSpace t
+      || T.isPrefixOf dotsTab   t   -> LDocEnd
+    | h == '%' -> LDirective
+    | otherwise -> LContent
+{-# INLINE classify #-}
 
 isSkippable :: PLine -> Bool
 isSkippable l = case lineKind l of
@@ -146,14 +163,14 @@ isSkippable l = case lineKind l of
   LComment   -> True
   LDirective -> True
   _          -> False
+{-# INLINE isSkippable #-}
 
--- | Like 'isSkippable' but does NOT include directives. Used at
--- the document-prologue boundary where directives carry meaning.
 isSkippableNonDirective :: PLine -> Bool
 isSkippableNonDirective l = case lineKind l of
   LBlank   -> True
   LComment -> True
   _        -> False
+{-# INLINE isSkippableNonDirective #-}
 
 -- ---------------------------------------------------------------------------
 -- Parser monad: pure ([PLine], Map Text Value) -> Either String (a, ...)
@@ -187,54 +204,70 @@ instance Functor P where
   fmap f (P g) = P $ \s -> case g s of
     Left e         -> Left e
     Right (x, s')  -> Right (f x, s')
+  {-# INLINE fmap #-}
 
 instance Applicative P where
   pure x = P $ \s -> Right (x, s)
+  {-# INLINE pure #-}
   P pf <*> P px = P $ \s -> case pf s of
     Left e         -> Left e
     Right (f, s')  -> case px s' of
       Left e          -> Left e
       Right (x, s'')  -> Right (f x, s'')
+  {-# INLINE (<*>) #-}
 
 instance Monad P where
   P g >>= k = P $ \s -> case g s of
     Left e        -> Left e
     Right (x, s') -> unP (k x) s'
+  {-# INLINE (>>=) #-}
 
 instance MonadFail P where
   fail = failP
+  {-# INLINE fail #-}
 
 failP :: String -> P a
 failP msg = P (const (Left msg))
+{-# INLINE failP #-}
 
 getS :: P PS
 getS = P (\s -> Right (s, s))
+{-# INLINE getS #-}
 
 modifyS :: (PS -> PS) -> P ()
 modifyS f = P (\s -> Right ((), f s))
+{-# INLINE modifyS #-}
 
 getLines :: P [PLine]
-getLines = psLines <$> getS
+getLines = P (\s -> Right (psLines s, s))
+{-# INLINE getLines #-}
 
 setLines :: [PLine] -> P ()
-setLines ls = modifyS (\s -> s { psLines = ls })
+setLines ls = P (\s -> Right ((), s { psLines = ls }))
+{-# INLINE setLines #-}
 
 popLine :: P (Maybe PLine)
-popLine = do
-  ls <- getLines
-  case dropWhile isSkippable ls of
-    []     -> pure Nothing
-    (x:xs) -> do { setLines xs; pure (Just x) }
+popLine = P $ \s ->
+  let go [] = (Nothing, [])
+      go (x:rest)
+        | isSkippable x = go rest
+        | otherwise     = (Just x, rest)
+      (mx, ls') = go (psLines s)
+  in Right (mx, s { psLines = ls' })
+{-# INLINE popLine #-}
 
 peekLine :: P (Maybe PLine)
-peekLine = do
-  ls <- getLines
-  case dropWhile isSkippable ls of
-    []     -> pure Nothing
-    (x:_)  -> pure (Just x)
+peekLine = P $ \s ->
+  let go [] = Nothing
+      go (x:xs)
+        | isSkippable x = go xs
+        | otherwise     = Just x
+  in Right (go (psLines s), s)
+{-# INLINE peekLine #-}
 
 pushLine :: PLine -> P ()
-pushLine l = modifyS (\s -> s { psLines = l : psLines s })
+pushLine l = P $ \s -> Right ((), s { psLines = l : psLines s })
+{-# INLINE pushLine #-}
 
 recordAnchor :: Text -> Value -> P ()
 recordAnchor name v =
