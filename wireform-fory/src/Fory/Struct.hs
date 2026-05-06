@@ -39,6 +39,7 @@ module Fory.Struct
   , isBasicTypeId
   , primitiveTypeSize
   , fieldOrder
+  , computeFieldOrder
   ) where
 
 import Data.Bits ((.&.))
@@ -76,17 +77,32 @@ data FieldSpec = FieldSpec
     -- is 'False'; otherwise 'True'.
   } deriving (Show, Eq)
 
--- | A complete struct schema.
+-- | A complete struct schema. The 'ssHash' and 'ssFieldOrder'
+-- fields are derived from the others; we cache them at
+-- construction time so that the per-struct encode path is just
+-- a hash byte-write + a vector traversal in canonical order.
 data StructSchema = StructSchema
-  { ssNamespace :: !Text
-  , ssTypename  :: !Text
-  , ssFields    :: !(Vector FieldSpec)
+  { ssNamespace  :: !Text
+  , ssTypename   :: !Text
+  , ssFields     :: !(Vector FieldSpec)
+    -- | Cached @MurmurHash3-x64-128(seed=47) low 32 bits@ of
+    -- the fingerprint string. Pre-computed in 'mkSchema'.
+  , ssHash       :: !Int32
+    -- | Cached canonical field order pyfory writes for this
+    -- schema (see 'fieldOrder' for the algorithm).
+  , ssFieldOrder :: !(Vector FieldSpec)
   } deriving (Show, Eq)
 
--- | Convenience constructor.
+-- | Convenience constructor. Computes the schema fingerprint
+-- hash and the canonical field order once so that subsequent
+-- 'computeStructHash' / 'fieldOrder' lookups are O(1) reads.
 mkSchema :: Text -> Text -> [(Text, TypeId)] -> StructSchema
-mkSchema ns nm fs = StructSchema ns nm
-  (V.fromList [ FieldSpec n t False False | (n, t) <- fs ])
+mkSchema ns nm fs =
+  let !fields = V.fromList [ FieldSpec n t False False | (n, t) <- fs ]
+      !sch0   = StructSchema ns nm fields 0 V.empty
+      !h      = computeStructHash sch0
+      !ord    = computeFieldOrder sch0
+  in StructSchema ns nm fields h ord
 
 -- ---------------------------------------------------------------------------
 -- Schema fingerprint + hash
@@ -190,8 +206,16 @@ isCompressedPrimitive t = t `elem`
 -- Field ordering (pyfory's group_fields + per-group sort)
 -- ---------------------------------------------------------------------------
 
--- | Categorise + sort fields, returning them in the canonical
--- wire order pyfory writes them in. Currently supports:
+-- | The canonical wire order pyfory writes a struct's fields
+-- in. This is an O(1) read of the cached 'ssFieldOrder' field;
+-- 'mkSchema' calls 'computeFieldOrder' once at construction.
+fieldOrder :: StructSchema -> Vector FieldSpec
+fieldOrder = ssFieldOrder
+{-# INLINE fieldOrder #-}
+
+-- | The actual canonical-ordering algorithm. Categorise +
+-- sort fields, returning them in the canonical wire order
+-- pyfory writes them in:
 --
 -- * primitives (boxed_types / nullable_boxed_types) — sorted
 --   by (compress flag, -size, -type_id, name)
@@ -200,8 +224,8 @@ isCompressedPrimitive t = t `elem`
 --
 -- Anything else falls into the @other_types@ group, sorted by
 -- name.
-fieldOrder :: StructSchema -> Vector FieldSpec
-fieldOrder sch =
+computeFieldOrder :: StructSchema -> Vector FieldSpec
+computeFieldOrder sch =
   let fields = V.toList (ssFields sch)
       categorised = map categorise fields
       boxed    = [ f | (B,    f) <- categorised ]

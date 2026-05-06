@@ -46,6 +46,7 @@ library
     Fory.Derive
     Fory.Encode
     Fory.Encoding
+    Fory.IO
     Fory.MetaString
     Fory.MetaString.Encoder
     Fory.MetaString.Hash
