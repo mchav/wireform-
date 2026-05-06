@@ -2536,20 +2536,48 @@ parseIntCore raw0 = case T.uncons raw0 of
   Just ('-', rest) -> negate <$> parseUnsigned rest
   _                -> parseUnsigned raw0
   where
-    parseUnsigned r
-      | T.isPrefixOf "0x" r || T.isPrefixOf "0X" r =
-          let body = T.drop 2 r
-          in if T.null body || T.any (not . isHexDigit) body
-               then Nothing
-               else Just (T.foldl' (\acc c -> acc * 16 + fromIntegral (digitToInt c)) 0 body)
-      | T.isPrefixOf "0o" r || T.isPrefixOf "0O" r =
-          let body = T.drop 2 r
-          in if T.null body || T.any (\c -> c < '0' || c > '7') body
-               then Nothing
-               else Just (T.foldl' (\acc c -> acc * 8 + fromIntegral (digitToInt c)) 0 body)
-      | T.null r                 = Nothing
-      | T.any (not . isDigit) r  = Nothing
-      | otherwise = Just (T.foldl' (\acc c -> acc * 10 + fromIntegral (digitToInt c)) 0 r)
+    parseUnsigned r =
+      -- Hot path: a body of all decimal digits with no '0o' /
+      -- '0x' prefix and no underscores parses with a single
+      -- T.foldl'. Also short-circuit on an empty body.
+      case T.uncons r of
+        Nothing                -> Nothing
+        Just ('0', rest)
+          | T.null rest        -> Just 0
+          | otherwise          -> case T.head rest of
+              'x' -> hexBody (T.drop 1 rest)
+              'X' -> hexBody (T.drop 1 rest)
+              'o' -> octBody (T.drop 1 rest)
+              'O' -> octBody (T.drop 1 rest)
+              c | c >= '0' && c <= '9' ->
+                  -- '0' followed by digits — leading zero is
+                  -- only valid for a hex/oct/bin prefix per the
+                  -- core schema. Surface as Nothing so the
+                  -- value falls through to YString.
+                  Nothing
+              _   -> decBody r
+        Just (h, _)
+          | h >= '0' && h <= '9' -> decBody r
+          | otherwise            -> hexFallback r
+
+    decBody r
+      | T.any (not . isDigit) r = Nothing
+      | otherwise =
+          Just (T.foldl' (\acc c -> acc * 10 + fromIntegral (digitToInt c)) 0 r)
+
+    hexBody body
+      | T.null body || T.any (not . isHexDigit) body = Nothing
+      | otherwise =
+          Just (T.foldl' (\acc c -> acc * 16 + fromIntegral (digitToInt c)) 0 body)
+
+    octBody body
+      | T.null body || T.any (\c -> c < '0' || c > '7') body = Nothing
+      | otherwise =
+          Just (T.foldl' (\acc c -> acc * 8 + fromIntegral (digitToInt c)) 0 body)
+
+    -- 'hexFallback' fires when the input doesn't start with a
+    -- digit / sign / '0x|0o' prefix; it never parses as an int.
+    hexFallback _ = Nothing
 
 parseFloatCore :: Text -> Maybe Double
 parseFloatCore t = case TR.signed TR.double t of
