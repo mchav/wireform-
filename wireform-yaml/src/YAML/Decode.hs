@@ -1591,8 +1591,19 @@ parseSeqItem !ind = do
             Just ('!', _) -> True
             Just ('&', _) -> True
             _             -> False
-          virtInd | isCarrier = ind
-                  | otherwise = ind + 2
+          isNestedBlock = case T.uncons after' of
+            Just ('-', rest) -> startsWithSeparator rest
+            Just ('?', rest) -> startsWithSeparator rest
+            _                -> False
+          extraWS = T.length after - T.length after'
+          virtInd | isCarrier      = ind
+                  -- For nested block constructs the actual
+                  -- column of the next dash / explicit-key marker
+                  -- is past the outer dash AND any extra
+                  -- separator spaces. Use it so collectors at
+                  -- that level match real-world inputs (A2M4).
+                  | isNestedBlock  = ind + 2 + extraWS
+                  | otherwise      = ind + 2
           virt = PLine (lineNo l) virtInd LContent after' after'
       pushLine virt
       withParentInd ind (parseNode virtInd)
@@ -1651,7 +1662,10 @@ parseBlockMap !ind firstKey firstRest = do
       let body = lineBody l
           afterMarker = if body == marker then T.empty
                                           else T.drop 1 body
-          rest = T.stripStart (T.drop 1 afterMarker)
+          rest0 = T.stripStart (T.drop 1 afterMarker)
+          rest = case T.uncons rest0 of
+            Just ('#', _) -> T.empty
+            _             -> rest0
       case T.uncons afterMarker of
         Just ('\t', _) ->
           failP $ "tab character after explicit-key marker (line "
@@ -1808,10 +1822,8 @@ parseImplicitMapValue !ind vRest =
          -- col-0 continuations get rejected — i.e. spec QB6E)
          Just ('#', _) -> parseImplicitMapValueEmpty ind
          _ -> do
-           -- Plain scalar inline value can continue on more lines
-           -- indented past the mapping indent (spec §6.5).
            pushLine (PLine 0 (ind + 1) LContent after after)
-           parsePlainScalar (ind + 1) after
+           withInMapValue True (parsePlainScalar (ind + 1) after)
 
 parseImplicitMapValueEmpty :: Int -> P Value
 parseImplicitMapValueEmpty !ind = do
@@ -1871,10 +1883,13 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
       let body = lineBody l
           afterMarker = if body == marker then T.empty
                                           else T.drop 1 body
-          rest = T.stripStart (T.drop 1 afterMarker)
-      -- '?<TAB>...' / ':<TAB>...' uses a tab where YAML 1.2 §6.1
-      -- requires a space (the explicit-key marker's separation
-      -- contributes to indentation calculation).
+          rest0 = T.stripStart (T.drop 1 afterMarker)
+          -- '#' immediately after the explicit-key marker
+          -- starts a comment; the value comes from the next
+          -- continuation line.
+          rest = case T.uncons rest0 of
+            Just ('#', _) -> T.empty
+            _             -> rest0
       case T.uncons afterMarker of
         Just ('\t', _) ->
           failP $ "tab character after explicit-key marker (line "
@@ -1885,9 +1900,6 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
           mNext <- peekLine
           case mNext of
             Just l2 | lineIndent l2 > lineIndent l -> parseNode (lineIndent l2)
-            -- Same-column block sequence after a bare '?' / ':'
-            -- binds to the marker (spec example 8.17 zero-
-            -- indented seq in explicit map key/value).
             Just l2
               | lineIndent l2 == lineIndent l
               , isSeqItem (lineBody l2) ->
@@ -1920,13 +1932,16 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
 parsePlainScalar :: Int -> Text -> P Value
 parsePlainScalar !ind firstBody = do
   parentInd <- getParentInd
-  parsePlainScalarAt parentInd ind firstBody
+  inMapValue <- getInMapValue
+  parsePlainScalarAt parentInd inMapValue ind firstBody
 
--- | Like 'parsePlainScalar' but with explicit parent indent.
-parsePlainScalarAt :: Int -> Int -> Text -> P Value
-parsePlainScalarAt !parentInd !baseIndArg firstBody = do
+-- | Like 'parsePlainScalar' but with explicit parent indent and
+-- "are we in a mapping-value position" flag.
+parsePlainScalarAt :: Int -> Bool -> Int -> Text -> P Value
+parsePlainScalarAt !parentInd !inMapValue !baseIndArg firstBody = do
   let !ind = baseIndArg
       !_p  = parentInd
+      !_m  = inMapValue
   Just _ <- popLine
   let stripped = stripInlineComment firstBody
       !first = T.stripEnd stripped
@@ -1979,18 +1994,22 @@ parsePlainScalarAt !parentInd !baseIndArg firstBody = do
               do consumeOne; collectFolds baseInd blanks acc
           | (lineKind l == LContent || lineKind l == LDirective)
             -- Standard continuation: indent >= baseInd.
-            -- Shallow continuation: indent < baseInd but >
-            -- parentInd, AND the line is plain text (no
-            -- structural indicator). This admits UV7Q's tab-
-            -- mixed continuation but leaves explicit '- foo'
-            -- shallow lines alone (which spec interprets as
-            -- nested seq items even though most parsers fold).
+            -- Shallow continuation rules:
+            --   * indent in (parentInd .. baseInd) range is OK
+            --     for plain scalar content (UV7Q).
+            --   * a '- ' shallow line (looks like nested seq) at
+            --     the OUTERMOST seq (parentInd == 0, NOT inside
+            --     a mapping value) also folds into the plain
+            --     scalar (AB8U).
             && (lineIndent l >= baseInd
                 || (lineIndent l > parentInd
-                    && not (isSeqItem (lineBody l))
-                    && not (isExplicitKey (lineBody l))))
-            && not (isSeqItem (lineBody l))
-            && not (isExplicitKey (lineBody l))
+                    && not (isExplicitKey (lineBody l))
+                    && (not (isSeqItem (lineBody l))
+                        || (parentInd == 0 && not inMapValue))))
+            && not (isSeqItem (lineBody l)
+                    && lineIndent l >= baseInd)
+            && not (isExplicitKey (lineBody l)
+                    && lineIndent l >= baseInd)
             && case findKeyValueSplit (lineBody l) of
                  Just _  -> False
                  Nothing -> True
