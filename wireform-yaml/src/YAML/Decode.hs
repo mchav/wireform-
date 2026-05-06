@@ -1025,7 +1025,11 @@ consumeFlowAt !openInd = go
                         ++ show (lineNo l') ++ ")"
           (l' : rs)  -> do
             setLines rs
-            go (buf <> T.pack " " <> lineBody l')
+            -- Join with a sentinel character (\\1) instead of a
+            -- plain space so downstream parsers can detect that
+            -- a structural element spanned a newline (used for
+            -- the implicit-key-followed-by-newline check).
+            go (buf <> T.singleton '\1' <> lineBody l')
 
 data ScanResult
   = ScanComplete !Value !Text
@@ -1063,6 +1067,7 @@ parseFlowTagged !p t =
         | otherwise = case T.index t i of
             ' '  -> i
             '\t' -> i
+            '\1' -> i
             ','  -> i
             ']'  -> i
             '}'  -> i
@@ -1095,6 +1100,7 @@ parseFlowAnchored !p t =
         | otherwise = case T.index t i of
             ' '  -> i
             '\t' -> i
+            '\1' -> i
             ','  -> i
             ']'  -> i
             '}'  -> i
@@ -1125,6 +1131,7 @@ parseFlowAlias !p t =
         | otherwise = case T.index t i of
             ' '  -> i
             '\t' -> i
+            '\1' -> i
             ','  -> i
             ']'  -> i
             '}'  -> i
@@ -1162,18 +1169,23 @@ parseFlowSeq !p0 t = goV (skipFlowWS p0 t) []
 -- mapping (with @key: value@ syntax, or just @: value@ for an empty
 -- key).
 parseFlowEntry :: Int -> Text -> Maybe (Value, Int)
-parseFlowEntry !p0 t =
+parseFlowEntry = parseFlowEntry' False
+
+-- | When the @explicit@ flag is set, the entry is being parsed
+-- under a leading @?@ marker (explicit key); the
+-- implicit-key-spans-newline check is skipped.
+parseFlowEntry' :: Bool -> Int -> Text -> Maybe (Value, Int)
+parseFlowEntry' !explicit !p0 t =
   let p = skipFlowWS p0 t
   in if p >= T.length t
        then Nothing
        else
-         -- A leading '?' followed by space marks an explicit-key
-         -- mapping pair in flow (spec §7.5). Skip the marker and
-         -- continue parsing the key.
          if T.index t p == '?'
             && p + 1 < T.length t
-            && (T.index t (p + 1) == ' ' || T.index t (p + 1) == '\t')
-           then parseFlowEntry (skipFlowWS (p + 1) t) t
+            && (T.index t (p + 1) == ' '
+                || T.index t (p + 1) == '\t'
+                || T.index t (p + 1) == '\1')
+           then parseFlowEntry' True (skipFlowWS (p + 1) t) t
          else
          if T.index t p == ':' && colonIsSeparator (p + 1) t
            then
@@ -1203,8 +1215,8 @@ parseFlowEntry !p0 t =
                          && (flowOpener
                              || colonIsSeparator (p2 + 1) t)
                          then case parseFlowValue (skipFlowWS (p2 + 1) t) t of
-                                Nothing      -> Just (YMap (V.singleton (k, YNull)), p2 + 1)
-                                Just (v, p3) -> Just (YMap (V.singleton (k, v)), p3)
+                                  Nothing -> Just (YMap (V.singleton (k, YNull)), p2 + 1)
+                                  Just (v, p3) -> Just (YMap (V.singleton (k, v)), p3)
                          else Just (k, p1)
 
 -- | Whether a colon at position @p@ acts as a key/value separator
@@ -1216,6 +1228,7 @@ colonIsSeparator !p t
   | otherwise = case T.index t p of
       ' '  -> True
       '\t' -> True
+      '\1' -> True
       ','  -> True
       ']'  -> True
       '}'  -> True
@@ -1273,6 +1286,10 @@ parseDQ !p0 t = go (p0 + 1) []
                   Just (c, i') -> go i' (c : acc)
                   Nothing      -> Nothing
                | otherwise -> Nothing
+          -- '\\1' is the line-join sentinel injected by
+          -- consumeFlow; per spec a single line break inside a
+          -- quoted scalar folds to a single space.
+          '\1' -> go (i + 1) (' ' : acc)
           c   -> go (i + 1) (c : acc)
 
 parseSQ :: Int -> Text -> Maybe (Value, Int)
@@ -1286,6 +1303,7 @@ parseSQ !p0 t = go (p0 + 1) []
                   go (i + 2) ('\'' : acc)
                | otherwise ->
                   Just (YString (T.pack (reverse acc)), i + 1)
+          '\1' -> go (i + 1) (' ' : acc)
           c -> go (i + 1) (c : acc)
 
 parseFlowPlain :: Int -> Text -> Maybe (Value, Int)
@@ -1296,20 +1314,24 @@ parseFlowPlain !p t =
                 else i
       !p' = go p
       raw = T.take (p' - p) (T.drop p t)
-      strp = T.stripEnd raw
-  in if T.null strp
+      -- Fold newline-sentinels '\\1' to spaces, then strip
+      -- trailing whitespace.
+      folded   = T.replace (T.pack "\1") (T.pack " ") raw
+      stripped = T.stripEnd folded
+  in if T.null stripped
        then Nothing
        -- A bare '-' in flow context is reserved and not a valid
        -- plain scalar (spec §7.3.3).
-       else if strp == T.pack "-"
+       else if stripped == T.pack "-"
               then Nothing
-              else Just (resolvePlain strp, p')
+              else Just (resolvePlain stripped, p')
   where
     -- A plain scalar in flow context ends at any of [ , ] { } and at
     -- ":" followed by space or end-of-token.
     stopper c next hasNext =
       c == ',' || c == '[' || c == ']' || c == '{' || c == '}'
       || (c == ':' && (not hasNext || next == ' ' || next == '\t'
+                       || next == '\1'
                        || next == ',' || next == ']' || next == '}'))
 
 skipFlowWS :: Int -> Text -> Int
@@ -1318,6 +1340,7 @@ skipFlowWS !p t
   | otherwise = case T.index t p of
       ' '  -> skipFlowWS (p + 1) t
       '\t' -> skipFlowWS (p + 1) t
+      '\1' -> skipFlowWS (p + 1) t
       _    -> p
 
 -- ---------------------------------------------------------------------------
@@ -2293,6 +2316,7 @@ stripInlineComment t = T.pack (loop (T.unpack t) (Outer :: QState))
     loop [] _              = []
     loop (' ':'#':_) Outer = []
     loop ('\t':'#':_) Outer = []
+    loop ('\1':'#':_) Outer = []
     loop (c:rest) Outer
       | c == '"'  = c : loop rest InDQ
       | c == '\'' = c : loop rest InSQ
