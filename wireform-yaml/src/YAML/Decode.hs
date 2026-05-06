@@ -2140,11 +2140,24 @@ collectScalarLines !parent !mExplicit = collect mExplicit []
         []     -> pure (reverse acc)
         (l:_)
           | lineKind l == LBlank ->
-              do _ <- consumeOne
-                 let ind = lineIndent l
+              do let ind = lineIndent l
                      raw = lineRawBody l
                      hasTabs = not (T.null raw)
-                     isMoreIndented = case mBase of
+                 -- A 'blank' line whose only content is a TAB
+                 -- and that sits at or below 'parent' before any
+                 -- content line establishes a baseline is using
+                 -- a tab as block-scalar indentation: invalid
+                 -- per spec §6.1 (Y79Y/000).
+                 case mBase of
+                   Nothing
+                     | hasTabs
+                     , ind <= parent
+                     , parent >= 0 ->
+                       failP $ "tab character used as block-scalar indentation (line "
+                               ++ show (lineNo l) ++ ")"
+                   _ -> pure ()
+                 _ <- consumeOne
+                 let isMoreIndented = case mBase of
                        Just b  -> ind > b
                        Nothing -> ind > parent
                  if isMoreIndented
