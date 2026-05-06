@@ -1232,8 +1232,6 @@ parseSeqItem !ind = do
   when (separatorHasTab && startsWithBlockIndicator after') $
     failP $ "tab character used as indentation before nested block marker (line "
             ++ show (lineNo l) ++ ")"
-  -- A '#' immediately after '- ' is a comment, not content; the
-  -- seq item is empty (Null).
   let isCommentOnly = case T.uncons after' of
         Just ('#', _) -> True
         _             -> False
@@ -1244,11 +1242,6 @@ parseSeqItem !ind = do
         Just l2 | lineIndent l2 > ind -> parseNode (lineIndent l2)
         _ -> pure YNull
     else do
-      -- For values whose body lives in the surrounding block
-      -- structure (block scalar, tagged/anchored block) the
-      -- virtual line's indent must be the outer dash column so
-      -- that 'collectScalarLines' / nested-collection collectors
-      -- still admit body lines.
       let isCarrier = case T.uncons after' of
             Just ('|', _) -> True
             Just ('>', _) -> True
@@ -1575,7 +1568,26 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
 parsePlainScalar :: Int -> Text -> P Value
 parsePlainScalar !ind firstBody = do
   Just _ <- popLine
-  let !first = T.stripEnd (stripInlineComment firstBody)
+  let stripped = stripInlineComment firstBody
+      !first = T.stripEnd stripped
+      hadComment = T.length stripped < T.length (T.stripEnd firstBody)
+  -- A trailing comment on the first line of a plain scalar
+  -- followed by a continuation line is malformed (the comment
+  -- would silently break the scalar).
+  when hadComment $ do
+    ls' <- getLines
+    case ls' of
+      (l2 : _)
+        | lineIndent l2 >= ind
+        , lineKind l2 == LContent
+        , not (isSeqItem (lineBody l2))
+        , not (isExplicitKey (lineBody l2))
+        , case findKeyValueSplit (lineBody l2) of
+            Just _  -> False
+            Nothing -> True ->
+           failP $ "comment between plain-scalar lines (line "
+                   ++ show (lineNo l2 - 1) ++ ")"
+      _ -> pure ()
   rest <- collectFolds ind 0 []
   let !final = joinPlain (first : rest)
   pure (resolvePlain final)
