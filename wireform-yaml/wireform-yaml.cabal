@@ -19,7 +19,6 @@ common defaults
     -fspec-constr
     -fspec-constr-keen
     -flate-dmd-anal
-    -fprof-late
   default-language: GHC2021
   default-extensions:
     StrictData
@@ -64,6 +63,9 @@ benchmark wireform-yaml-bench
     bytestring,
     text,
     vector,
+    HsYAML,
+    yaml,
+    aeson,
     criterion >= 1.5
 
 test-suite wireform-yaml-test

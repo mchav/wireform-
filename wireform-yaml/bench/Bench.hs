@@ -11,6 +11,10 @@ import qualified YAML.Decode              (preprocess)
 import qualified YAML.Encode              as YE
 import qualified YAML.Value               as YV
 import qualified Data.Vector              as V
+import qualified Data.YAML                as HsYAML
+import qualified Data.ByteString.Lazy     as BSL
+import qualified Data.Yaml                as Libyaml
+import qualified Data.Aeson               as Aeson
 
 -- | A tiny mapping (~20 byte input).
 tiny :: BS.ByteString
@@ -65,6 +69,16 @@ big = BS.concat (replicate 4 small)
 decodeBytes :: BS.ByteString -> Either String YV.Stream
 decodeBytes = Y.decodeStreamBS
 
+decodeHsYAML :: BS.ByteString -> Either String Int
+decodeHsYAML bs = case HsYAML.decodeNode (BSL.fromStrict bs) of
+  Right ns -> Right (length ns)
+  Left (_, e) -> Left e
+
+decodeLibyaml :: BS.ByteString -> Either String Aeson.Value
+decodeLibyaml bs = case Libyaml.decodeEither' bs of
+  Right v -> Right v
+  Left e  -> Left (show e)
+
 main :: IO ()
 main = defaultMain
   [ bgroup "decode"
@@ -74,6 +88,22 @@ main = defaultMain
       , bench "quoted50"   $ nf decodeBytes quoted
       , bench "literal50"  $ nf decodeBytes literalBody
       , bench "big"        $ nf decodeBytes big
+      ]
+  , bgroup "decode-hsyaml"
+      [ bench "tiny"       $ nf decodeHsYAML tiny
+      , bench "small"      $ nf decodeHsYAML small
+      , bench "flowMid"    $ nf decodeHsYAML flowMid
+      , bench "quoted50"   $ nf decodeHsYAML quoted
+      , bench "literal50"  $ nf decodeHsYAML literalBody
+      , bench "big"        $ nf decodeHsYAML big
+      ]
+  , bgroup "decode-libyaml"
+      [ bench "tiny"       $ nf decodeLibyaml tiny
+      , bench "small"      $ nf decodeLibyaml small
+      , bench "flowMid"    $ nf decodeLibyaml flowMid
+      , bench "quoted50"   $ nf decodeLibyaml quoted
+      , bench "literal50"  $ nf decodeLibyaml literalBody
+      , bench "big"        $ nf decodeLibyaml big
       ]
   , bgroup "preprocess"
       [ bench "small" $ nf (length . Y.preprocess) (decodeText small)
