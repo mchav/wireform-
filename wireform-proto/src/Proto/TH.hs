@@ -106,7 +106,14 @@ import Language.Haskell.TH.Syntax (addDependentFile, addModFinalizer)
 import Proto.AST
 import Proto.Annotations (lookupSimpleOption, optionAsBool, optionAsString)
 import Proto.Parser (parseProtoFile, renderParseError)
-import Proto.CodeGen (hsTypeName, snakeToCamel, snakeToPascal, lowerFirst, escapeReserved)
+import Proto.CodeGen
+  ( hsTypeName
+  , snakeToCamel
+  , snakeToPascal
+  , protoJsonName
+  , lowerFirst
+  , escapeReserved
+  )
 import Proto.CodeGen.Hooks
 import qualified Proto.Derive.Internal as PDI
 import qualified Proto.Decode as Decode
@@ -1248,7 +1255,7 @@ fieldSpecToMetaField :: ScopeCtx -> Name -> FieldSpec -> PTM.MetaField
 fieldSpecToMetaField scope parentTy fs = case fs of
   FSField name num lbl ft _rep opts ->
     let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
-        jsonNm   = jsonNameFromOpts opts (snakeToCamel name)
+        jsonNm   = jsonNameFromOpts opts (protoJsonName name)
         kind     = case lbl of
           Just Repeated -> PTM.MFKVector
           Just Optional -> PTM.MFKMaybe
@@ -1289,7 +1296,7 @@ fieldSpecToMetaField scope parentTy fs = case fs of
          }
   FSMap name num kt vt ->
     let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
-        jsonNm   = snakeToCamel name
+        jsonNm   = protoJsonName name
         jsonKind = case vt of
           FTScalar SBytes -> PTM.JKBytesMap
           _               -> PTM.JKNormal
@@ -1311,7 +1318,7 @@ fieldSpecToMetaField scope parentTy fs = case fs of
          }
   FSOneof name ofs ->
     let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
-        jsonNm   = snakeToCamel name
+        jsonNm   = protoJsonName name
         variants = fmap (oneofVariantJson scope parentTy name) ofs
     in PTM.MetaField
          { PTM.mfSelector  = sel
@@ -1340,7 +1347,7 @@ oneofVariantJson
 oneofVariantJson scope parentTy _ooName (f, _rep) =
   let conN     = oneofConTHName parentTy _ooName (oneofFieldName f)
       jsonKey  = jsonNameFromOpts (oneofFieldOptions f)
-                   (snakeToCamel (oneofFieldName f))
+                   (protoJsonName (oneofFieldName f))
       shape    = case oneofFieldType f of
         FTScalar s -> PTM.OVScalar (jsScalarOf s)
         FTNamed n
