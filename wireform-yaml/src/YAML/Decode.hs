@@ -844,6 +844,9 @@ consumeFlowAt !openInd = go
         ls <- getLines
         case ls of
           []         -> failP "YAML: unterminated flow node"
+          (l' : _) | lineKind l' == LDocStart || lineKind l' == LDocEnd ->
+            failP $ "document marker inside flow node (line "
+                    ++ show (lineNo l') ++ ")"
           (l' : _)
             | openInd > 0
             , lineKind l' == LContent
