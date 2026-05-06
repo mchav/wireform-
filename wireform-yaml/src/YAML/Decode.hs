@@ -1554,11 +1554,11 @@ parseBlockScalar :: BlockKind -> P Value
 parseBlockScalar k = do
   Just l <- popLine
   let header = T.drop 1 (lineBody l)   -- drop '|' or '>'
-      (chomp, hint) = parseHeader header
-      -- An explicit indent indicator forces baseInd = parent+hint;
-      -- otherwise we use the spec's "first non-empty line wins"
-      -- discovery and parent simply gates termination.
-      explicitBase = (lineIndent l +) <$> hint
+  (chomp, hint) <- case parseHeader header of
+    Right h  -> pure h
+    Left err -> failP $ "invalid block scalar header: " ++ err
+                       ++ " (line " ++ show (lineNo l) ++ ")"
+  let explicitBase = (lineIndent l +) <$> hint
   body <- collectScalarLines (lineIndent l) explicitBase
   let bodyAdj = case nonEmptyContent body of
         True  -> body
@@ -1570,28 +1570,32 @@ parseBlockScalar k = do
   where
     nonEmptyContent = any (\(i, b) -> i >= 0 && not (T.null b))
 
-    parseHeader :: Text -> (Chomp, Maybe Int)
-    parseHeader h =
-      let hs = T.unpack (T.strip (stripInlineComment h))
+    parseHeader :: Text -> Either String (Chomp, Maybe Int)
+    parseHeader h0 =
+      let -- Anything on the header line after a single '#' (with
+          -- preceding whitespace) is a comment.
+          h = stripInlineComment h0
+          rest = T.unpack (T.strip h)
           chompOf '-' = Strip
           chompOf '+' = Keep
           chompOf _   = Clip
-      in case hs of
-           []                          -> (Clip,    Nothing)
-           [c] | c == '-' || c == '+'  -> (chompOf c, Nothing)
-               | isDigit c             -> (Clip, Just (digitToInt c))
-               | otherwise             -> (Clip, Nothing)
-           (a:b:_)
-             | (a == '-' || a == '+') && isDigit b
-                 -> (chompOf a, Just (digitToInt b))
-             | isDigit a && (b == '-' || b == '+')
-                 -> (chompOf b, Just (digitToInt a))
-             | a == '-' || a == '+'
-                 -> (chompOf a, Nothing)
-             | isDigit a
-                 -> (Clip, Just (digitToInt a))
-             | otherwise
-                 -> (Clip, Nothing)
+          mkHint c
+            | c >= '1' && c <= '9' = Right (Just (digitToInt c))
+            -- '|0' is invalid (indent indicator must be 1..9).
+            | c == '0'             = Left "indent indicator must be 1..9"
+            | otherwise            = Left ("unexpected character " ++ [c])
+      in case rest of
+           []                          -> Right (Clip, Nothing)
+           [c] | c == '-' || c == '+'  -> Right (chompOf c, Nothing)
+               | isDigit c             -> (\h_ -> (Clip, h_)) <$> mkHint c
+               | otherwise             -> Left ("unexpected character " ++ [c])
+           [a, b]
+             | (a == '-' || a == '+') && isDigit b ->
+                 (\h_ -> (chompOf a, h_)) <$> mkHint b
+             | isDigit a && (b == '-' || b == '+') ->
+                 (\h_ -> (chompOf b, h_)) <$> mkHint a
+             | otherwise -> Left ("unexpected header " ++ rest)
+           _ -> Left ("unexpected header " ++ rest)
 
 -- | Collect the body lines of a block scalar.
 --
