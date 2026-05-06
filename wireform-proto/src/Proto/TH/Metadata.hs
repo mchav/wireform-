@@ -74,6 +74,8 @@ import qualified Data.Vector as V
 import Data.Word (Word32, Word64)
 
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
 import qualified Data.Aeson.Types as AesonT
 
 import qualified Proto.JSON as PJI
@@ -87,6 +89,7 @@ import qualified Proto.Google.Protobuf.Duration
 import qualified Proto.Google.Protobuf.Empty
 import qualified Proto.Google.Protobuf.FieldMask
 import qualified Proto.Google.Protobuf.Struct as PGS
+import Proto.Google.Protobuf.Struct (NullValue (NullValue'NullValue))
 import qualified Proto.Google.Protobuf.Timestamp
 import qualified Proto.Google.Protobuf.Wrappers
 import qualified Proto.Schema as PS
@@ -224,6 +227,11 @@ data OneofValueShape
   = OVScalar  !JsonScalar
   | OVMessage   -- payload is a submessage; emit via 'Aeson.toJSON'
   | OVEnum      -- payload is an enum; emit via 'Aeson.toJSON'
+  | OVNullValue -- ^ Oneof variant whose payload is the
+                --   @google.protobuf.NullValue@ WKT. JSON
+                --   @null@ is the variant's /value/ (mapped to
+                --   the singleton enum constant), not the
+                --   "variant unset" marker.
   deriving stock (Eq, Show)
 
 -- | Container shape on the Haskell side. The hash combinator picks
@@ -543,6 +551,9 @@ oneofVariantArm OneofVariantJson{ovjConstructor=con, ovjJsonKey=key, ovjShape=sh
       [| [ ($(pure (textLit key)), Aeson.toJSON $(varE vName)) ] |]
     OVEnum ->
       [| [ ($(pure (textLit key)), Aeson.toJSON $(varE vName)) ] |]
+    -- Proto3 spec: NullValue serialises to JSON null.
+    OVNullValue ->
+      [| [ ($(pure (textLit key)), Aeson.Null) ] |]
   pure (Match (ConP con [] [VarP vName]) (NormalB body) [])
 
 -- | Default predicate per scalar kind. Used to suppress fields at
@@ -602,8 +613,8 @@ mkFromJSONForMessage :: Name -> Name -> [MetaField] -> Q Dec
 mkFromJSONForMessage tyName defName fields = do
   objVar    <- newName "obj"
   fldNames  <- mapM (\mf -> (,) mf <$> newName ("fld_" ++ nameBase (mfSelector mf))) fields
-  let binds = fmap (uncurry (parseBindStmt objVar)) fldNames
-      assigns = fmap (uncurry (fromJSONAssign defName)) fldNames
+  binds <- traverse (uncurry (parseBindStmt objVar)) fldNames
+  let assigns = fmap (uncurry (fromJSONAssign defName)) fldNames
       finalE  = RecUpdE (VarE defName) assigns
       bodyDo  = DoE Nothing (binds ++ [NoBindS (AppE (VarE 'pure) finalE)])
       -- Aeson.withObject "TypeName" $ \obj -> ...
@@ -616,11 +627,21 @@ mkFromJSONForMessage tyName defName fields = do
         [Clause [] (NormalB body) []]
     ]
 
-parseBindStmt :: Name -> MetaField -> Name -> Stmt
-parseBindStmt objVar mf fldVar = case mfJsonName mf == mfProtoName mf of
-  True  -> parseBindStmtSingleKey objVar mf fldVar (mfJsonName mf)
-  False -> parseBindStmtTwoKeys objVar mf fldVar
-            (mfJsonName mf) (mfProtoName mf)
+parseBindStmt :: Name -> MetaField -> Name -> Q Stmt
+parseBindStmt objVar mf fldVar = case mfJsonShape mf of
+  -- Proto3 oneof variants live at the top level of the JSON
+  -- object — each variant under its own JSON key, NOT nested
+  -- under the oneof field name. Dispatch through a custom
+  -- runtime helper (parseOneofVariants) so we can scan the
+  -- object for any of the variant keys, validate "at most one"
+  -- and route to the right variant constructor.
+  JSOneof variants -> do
+    e <- buildOneofParseExp objVar variants
+    pure (BindS (VarP fldVar) e)
+  _ -> pure $ case mfJsonName mf == mfProtoName mf of
+         True  -> parseBindStmtSingleKey objVar mf fldVar (mfJsonName mf)
+         False -> parseBindStmtTwoKeys objVar mf fldVar
+                    (mfJsonName mf) (mfProtoName mf)
 
 -- | Parse @Maybe a@ from @obj@, trying both the camelCase JSON
 -- key and the snake_case proto-original name. Per proto3 spec
@@ -1012,11 +1033,18 @@ parseWktVectorMaybe parser obj key = do
     Just _                  -> fail "Expected JSON array for repeated WKT field"
 
 fromJSONAssign :: Name -> MetaField -> Name -> (Name, Exp)
-fromJSONAssign defName mf fldVar =
-  -- mfSelector mf = maybe (mfSelector defName) id fld_var
-  let dflt = AppE (VarE (mfSelector mf)) (VarE defName)
-      e = AppE (AppE (AppE (VarE 'maybe) dflt) (VarE 'id)) (VarE fldVar)
-  in (mfSelector mf, e)
+fromJSONAssign defName mf fldVar = case mfKind mf of
+  -- Oneof carriers are themselves @Maybe SumType@; the parser
+  -- already returned exactly that, so we wire it through
+  -- directly. (Otherwise we'd be wrapping a 'Maybe' with
+  -- 'maybe def id', i.e. typing-error city.)
+  MFKOneof ->
+    (mfSelector mf, VarE fldVar)
+  _ ->
+    -- mfSelector mf = maybe (mfSelector defName) id fld_var
+    let dflt = AppE (VarE (mfSelector mf)) (VarE defName)
+        e = AppE (AppE (AppE (VarE 'maybe) dflt) (VarE 'id)) (VarE fldVar)
+    in (mfSelector mf, e)
 
 -- ---------------------------------------------------------------------------
 -- Hashable for messages
@@ -1366,6 +1394,115 @@ mkEnumHashableInstance tyName = do
     [ FunD 'hashWithSalt
         [Clause [VarP saltVar, VarP xVar] (NormalB body) []]
     ]
+
+-- ---------------------------------------------------------------------------
+-- Oneof JSON input
+-- ---------------------------------------------------------------------------
+
+-- | Build an 'Exp' that parses a oneof carrier (@Maybe SumType@)
+-- from an 'Aeson.Object' by scanning for any of the variant
+-- JSON keys. Implements the proto3 spec rules:
+--
+--   * No variant key present: @Nothing@.
+--   * Exactly one variant key present, value is JSON @null@:
+--     @Nothing@ (treats null as variant-cleared).
+--   * Exactly one variant key present, value parses: @Just v@.
+--   * Multiple non-null variant keys present: parser fails
+--     ('OneofFieldDuplicate' conformance test).
+buildOneofParseExp :: Name -> [OneofVariantJson] -> Q Exp
+buildOneofParseExp objVar variants = do
+  pairs <- traverse mkPair variants
+  let pairsList = ListE pairs
+  [| parseOneofVariants $(varE objVar) $(pure pairsList) |]
+  where
+    mkPair OneofVariantJson{ovjConstructor = con, ovjJsonKey = key, ovjShape = sh} = do
+      vName  <- newName "v"
+      parser <- case sh of
+        OVScalar sc -> pure (oneofScalarParserE sc (ConE con) (VarE vName))
+        OVMessage   ->
+          [| $(pure (ConE con)) <$> Aeson.parseJSON $(varE vName) |]
+        OVEnum      ->
+          [| $(pure (ConE con)) <$> Aeson.parseJSON $(varE vName) |]
+        OVNullValue ->
+          -- NullValue accepts JSON @null@ /or/ the @"NULL_VALUE"@
+          -- string sentinel; both decode to the singleton enum
+          -- value via the standard 'parseJSON' instance, except
+          -- that we also cover the bare-null shape ourselves.
+          [| $(pure (ConE con))
+             <$> (case $(varE vName) of
+                    Aeson.Null -> pure NullValue'NullValue
+                    other      -> Aeson.parseJSON other) |]
+      let nullSem = case sh of
+            OVNullValue -> ConE 'OneofVariantNullIsValue
+            _           -> ConE 'OneofVariantNullIsUnset
+          lam     = LamE [VarP vName] parser
+          tuple3  = TupE [Just (textLit key), Just nullSem, Just lam]
+      pure tuple3
+
+-- | Splice for one scalar oneof variant: applies the right
+-- canonical-form parser to the value and wraps it in the
+-- variant's constructor.
+oneofScalarParserE :: JsonScalar -> Exp -> Exp -> Exp
+oneofScalarParserE sc conE valE =
+  let p = scalarFromJSONExp sc
+  in InfixE (Just conE) (VarE '(<$>)) (Just (AppE p valE))
+
+-- | Per-scalar @Aeson.Value -> Parser a@ helper. Mirrors the
+-- writer-side 'scalarValueToJSON' / 'scalarTagE' tables.
+scalarFromJSONExp :: JsonScalar -> Exp
+scalarFromJSONExp = \case
+  JSBool      -> VarE 'Aeson.parseJSON
+  JSInt32     -> VarE 'protoInt32FromJSON
+  JSSInt32    -> VarE 'protoInt32FromJSON
+  JSSFixed32  -> VarE 'protoInt32FromJSON
+  JSUInt32    -> VarE 'protoWord32FromJSON
+  JSFixed32   -> VarE 'protoWord32FromJSON
+  JSInt64     -> VarE 'PJI.protoInt64FromJSON
+  JSSInt64    -> VarE 'PJI.protoInt64FromJSON
+  JSSFixed64  -> VarE 'PJI.protoInt64FromJSON
+  JSUInt64    -> VarE 'PJI.protoWord64FromJSON
+  JSFixed64   -> VarE 'PJI.protoWord64FromJSON
+  JSFloat     -> VarE 'oneofFloatFromJSON
+  JSDouble    -> VarE 'oneofDoubleFromJSON
+  JSString    -> VarE 'Aeson.parseJSON
+  JSBytes     -> VarE 'PJI.protoBytesFromJSON
+
+oneofFloatFromJSON :: Aeson.Value -> AesonT.Parser Float
+oneofFloatFromJSON = protoFloatFromJSONLenient
+
+oneofDoubleFromJSON :: Aeson.Value -> AesonT.Parser Double
+oneofDoubleFromJSON = protoFloatFromJSONLenient
+
+-- | Per-variant interpretation of JSON @null@ for oneofs. For
+-- most variants, @null@ means "this variant is unset" (proto3
+-- spec). For a 'google.protobuf.NullValue' variant, @null@
+-- is the variant's value.
+data OneofVariantNullSemantics
+  = OneofVariantNullIsUnset
+  | OneofVariantNullIsValue
+
+-- | Runtime helper backing 'buildOneofParseExp'. Lives outside
+-- the splice so the 'parseFnFor' table doesn't have to.
+parseOneofVariants
+  :: Aeson.Object
+  -> [(Text, OneofVariantNullSemantics, Aeson.Value -> AesonT.Parser a)]
+  -> AesonT.Parser (Maybe a)
+parseOneofVariants obj variants =
+  let present =
+        [ (k, v, p)
+        | (k, sem, p) <- variants
+        , Just v <- [AesonKM.lookup (AesonKey.fromText k) obj]
+        , keep sem v
+        ]
+      keep OneofVariantNullIsUnset Aeson.Null = False
+      keep _                       _          = True
+  in case present of
+       []          -> pure Nothing
+       [(_, v, p)] -> Just <$> p v
+       _           ->
+         fail ("Multiple oneof variants set: "
+                <> show (fmap (\(k, _, _) -> k) present))
+{-# INLINE parseOneofVariants #-}
 
 -- ---------------------------------------------------------------------------
 -- Tiny helpers

@@ -1376,6 +1376,11 @@ oneofVariantJson scope parentTy _ooName (f, _rep) =
       shape    = case oneofFieldType f of
         FTScalar s -> PTM.OVScalar (jsScalarOf s)
         FTNamed n
+          -- Special-case the NullValue WKT: in JSON it's a
+          -- bare 'null', not a quoted enum name, so the oneof
+          -- parser/encoder needs to know.
+          | Just PTM.WktNullValue <- lookupWktShape n
+                               -> PTM.OVNullValue
           | isEnumName scope n -> PTM.OVEnum
           | otherwise          -> PTM.OVMessage
   in PTM.OneofVariantJson

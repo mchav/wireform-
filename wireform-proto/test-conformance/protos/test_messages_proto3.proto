@@ -161,6 +161,7 @@ message TestAllTypesProto3 {
     float         oneof_float          = 117;
     double        oneof_double         = 118;
     NestedEnum    oneof_enum           = 119;
+    google.protobuf.NullValue oneof_null_value = 120;
   }
 
   // FieldName1..18 stress test: exercises proto3's spec for
