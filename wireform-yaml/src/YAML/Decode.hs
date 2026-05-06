@@ -43,8 +43,78 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
+import Data.Word (Word8)
 
 import YAML.Value
+
+-- ---------------------------------------------------------------------------
+-- Fast byte-indexed Text access. The flow parser walks a buffer
+-- one byte at a time looking for ASCII control characters
+-- ('[', ']', '{', '}', ',', ':', '#', '\\1', '\\2'); doing that
+-- through 'T.index' / 'T.length' is O(p) / O(N) per call because
+-- Text positions are character indices and the implementation has
+-- to walk UTF-8 bytes to convert. Operating on the underlying
+-- byte array directly gives O(1) access without changing the
+-- semantics for ASCII-only control bytes (multi-byte UTF-8
+-- sequences in scalar content all start with a leading byte ≥
+-- 0x80 that never matches our ASCII stoppers).
+-- ---------------------------------------------------------------------------
+
+-- | Byte length of a 'Text' (O(1)).
+bLen :: Text -> Int
+bLen (TI.Text _ _ l) = l
+{-# INLINE bLen #-}
+
+-- | Byte at position @p@ inside a 'Text' (O(1)). The caller is
+-- responsible for keeping @p@ in @[0, bLen t)@.
+bAt :: Text -> Int -> Word8
+bAt (TI.Text arr off _) p = TA.unsafeIndex arr (off + p)
+{-# INLINE bAt #-}
+
+-- | Slice @t@ to the bytes @[s, e)@ (O(1)). The caller must
+-- ensure both ends sit on UTF-8 character boundaries.
+bSlice :: Text -> Int -> Int -> Text
+bSlice (TI.Text arr off _) s e = TI.text arr (off + s) (max 0 (e - s))
+{-# INLINE bSlice #-}
+
+-- | Drop the first @p@ bytes of @t@ (O(1)). Caller must ensure
+-- @p@ lies on a UTF-8 character boundary.
+bDrop :: Int -> Text -> Text
+bDrop p (TI.Text arr off l) =
+  let !p' = min p l
+  in TI.text arr (off + p') (l - p')
+{-# INLINE bDrop #-}
+
+-- | Take the first @p@ bytes of @t@ (O(1)). Caller must ensure
+-- @p@ lies on a UTF-8 character boundary.
+bTake :: Int -> Text -> Text
+bTake p (TI.Text arr off l) =
+  let !p' = max 0 (min p l)
+  in TI.text arr off p'
+{-# INLINE bTake #-}
+
+-- | Word8 character literals of common ASCII control bytes.
+w8Comma, w8Colon, w8LBrack, w8RBrack, w8LBrace, w8RBrace
+  , w8DQuote, w8SQuote, w8Hash, w8Space, w8Tab, w8Quest
+  , w8SOH, w8STX, w8Bang, w8Amp, w8Star, w8Backslash :: Word8
+w8Comma     = 44
+w8Colon     = 58
+w8LBrack    = 91
+w8RBrack    = 93
+w8LBrace    = 123
+w8RBrace    = 125
+w8DQuote    = 34
+w8SQuote    = 39
+w8Hash      = 35
+w8Space     = 32
+w8Tab       = 9
+w8Quest     = 63
+w8SOH       = 1   -- '\\1'
+w8STX       = 2   -- '\\2'
+w8Bang      = 33
+w8Amp       = 38
+w8Star      = 42
+w8Backslash = 92
 
 -- ---------------------------------------------------------------------------
 -- Public entry points
@@ -1263,23 +1333,24 @@ data ScanResult
 
 scanFlow :: Text -> ScanResult
 scanFlow buf = case parseFlowValue 0 buf of
-  Just (v, p) -> ScanComplete v (T.drop p buf)
+  Just (v, p) -> ScanComplete v (bDrop p buf)
   Nothing     -> ScanIncomplete
 
 parseFlowValue :: Int -> Text -> Maybe (Value, Int)
 parseFlowValue !p0 t =
-  let p = skipFlowWS p0 t
-  in if p >= T.length t
+  let !len = bLen t
+      p    = skipFlowWS p0 t
+  in if p >= len
        then Nothing
-       else case T.index t p of
-              '['  -> parseFlowSeq (p + 1) t
-              '{'  -> parseFlowMap (p + 1) t
-              '"'  -> parseDQ p t
-              '\'' -> parseSQ p t
-              '!'  -> parseFlowTagged p t
-              '&'  -> parseFlowAnchored p t
-              '*'  -> parseFlowAlias p t
-              _    -> parseFlowPlain p t
+       else case bAt t p of
+              91  -> parseFlowSeq (p + 1) t   -- '['
+              123 -> parseFlowMap (p + 1) t   -- '{'
+              34  -> parseDQ p t              -- '"'
+              39  -> parseSQ p t              -- '\''
+              33  -> parseFlowTagged p t      -- '!'
+              38  -> parseFlowAnchored p t    -- '&'
+              42  -> parseFlowAlias p t       -- '*'
+              _   -> parseFlowPlain p t
 
 -- | Tagged node in flow context. Reads the tag token (everything
 -- up to whitespace / flow stopper) and then optionally parses a
@@ -1287,29 +1358,27 @@ parseFlowValue !p0 t =
 -- null".
 parseFlowTagged :: Int -> Text -> Maybe (Value, Int)
 parseFlowTagged !p t =
-  let !len = T.length t
+  let !len = bLen t
       goT !i
-        | i >= len = i
-        | otherwise = case T.index t i of
-            ' '  -> i
-            '\t' -> i
-            '\1' -> i
-            ','  -> i
-            ']'  -> i
-            '}'  -> i
-            _    -> goT (i + 1)
-      !p1   = goT p
-      tagText = T.take (p1 - p) (T.drop p t)
-      tag = expandTag tagText
-      p2  = skipFlowWS p1 t
-  in if p2 >= T.length t
+        | i >= len  = i
+        | otherwise =
+            let !c = bAt t i
+            in if c == w8Space || c == w8Tab || c == w8SOH
+                  || c == w8Comma || c == w8RBrack || c == w8RBrace
+                 then i
+                 else goT (i + 1)
+      !p1     = goT p
+      tagText = bSlice t p p1
+      tag     = expandTag tagText
+      p2      = skipFlowWS p1 t
+  in if p2 >= len
        then Just (YTagged tag YNull, p2)
-       else case T.index t p2 of
-              ',' -> Just (YTagged tag YNull, p1)
-              ']' -> Just (YTagged tag YNull, p1)
-              '}' -> Just (YTagged tag YNull, p1)
-              ':' | colonIsSeparator (p2 + 1) t ->
-                     Just (YTagged tag YNull, p1)
+       else case bAt t p2 of
+              44  -> Just (YTagged tag YNull, p1)   -- ','
+              93  -> Just (YTagged tag YNull, p1)   -- ']'
+              125 -> Just (YTagged tag YNull, p1)   -- '}'
+              58  | colonIsSeparator (p2 + 1) t ->  -- ':'
+                       Just (YTagged tag YNull, p1)
               _   -> case parseFlowValue p2 t of
                        Just (v, p3) -> Just (YTagged tag v, p3)
                        Nothing      -> Just (YTagged tag YNull, p2)
@@ -1320,28 +1389,26 @@ parseFlowTagged !p t =
 -- enclosing parser state.
 parseFlowAnchored :: Int -> Text -> Maybe (Value, Int)
 parseFlowAnchored !p t =
-  let !len = T.length t
+  let !len = bLen t
       goN !i
-        | i >= len = i
-        | otherwise = case T.index t i of
-            ' '  -> i
-            '\t' -> i
-            '\1' -> i
-            ','  -> i
-            ']'  -> i
-            '}'  -> i
-            _    -> goN (i + 1)
+        | i >= len  = i
+        | otherwise =
+            let !c = bAt t i
+            in if c == w8Space || c == w8Tab || c == w8SOH
+                  || c == w8Comma || c == w8RBrack || c == w8RBrace
+                 then i
+                 else goN (i + 1)
       !endName = goN (p + 1)
-      name    = T.take (endName - (p + 1)) (T.drop (p + 1) t)
-      p2 = skipFlowWS endName t
-  in if p2 >= T.length t
+      name     = bSlice t (p + 1) endName
+      p2       = skipFlowWS endName t
+  in if p2 >= len
        then Just (YAnchored (Anchor name) YNull, p2)
-       else case T.index t p2 of
-              ','  -> Just (YAnchored (Anchor name) YNull, endName)
-              ']'  -> Just (YAnchored (Anchor name) YNull, endName)
-              '}'  -> Just (YAnchored (Anchor name) YNull, endName)
-              ':' | colonIsSeparator (p2 + 1) t ->
-                      Just (YAnchored (Anchor name) YNull, endName)
+       else case bAt t p2 of
+              44  -> Just (YAnchored (Anchor name) YNull, endName)
+              93  -> Just (YAnchored (Anchor name) YNull, endName)
+              125 -> Just (YAnchored (Anchor name) YNull, endName)
+              58  | colonIsSeparator (p2 + 1) t ->
+                       Just (YAnchored (Anchor name) YNull, endName)
               _   -> case parseFlowValue p2 t of
                        Just (v, p3) -> Just (YAnchored (Anchor name) v, p3)
                        Nothing      -> Just (YAnchored (Anchor name) YNull, p2)
@@ -1351,61 +1418,62 @@ parseFlowAnchored !p t =
 -- The post-pass resolves these to the registered anchor value.
 parseFlowAlias :: Int -> Text -> Maybe (Value, Int)
 parseFlowAlias !p t =
-  let !len = T.length t
+  let !len = bLen t
       goN !i
-        | i >= len = i
-        | otherwise = case T.index t i of
-            ' '  -> i
-            '\t' -> i
-            '\1' -> i
-            ','  -> i
-            ']'  -> i
-            '}'  -> i
-            _    -> goN (i + 1)
-      !p1   = goN (p + 1)
-      name  = T.take (p1 - (p + 1)) (T.drop (p + 1) t)
+        | i >= len  = i
+        | otherwise =
+            let !c = bAt t i
+            in if c == w8Space || c == w8Tab || c == w8SOH
+                  || c == w8Comma || c == w8RBrack || c == w8RBrace
+                 then i
+                 else goN (i + 1)
+      !p1  = goN (p + 1)
+      name = bSlice t (p + 1) p1
   in Just (YString (T.pack "\0alias\0" <> name), p1)
 
 parseFlowSeq :: Int -> Text -> Maybe (Value, Int)
-parseFlowSeq !p0 t = goV (skipFlowWS p0 t) []
-  where
-    goV !p acc
-      | p >= T.length t = Nothing
-      | T.index t p == ']' = Just (YSeq (V.fromList (reverse acc)), p + 1)
-      | T.index t p == '#' = Nothing
-      | T.index t p == '\2' = Nothing
-      | otherwise = case parseFlowEntry p t of
-          Nothing      -> Nothing
-          Just (v, p1) ->
-            -- Skip any '\\2' comment-break sentinels (a comment
-            -- that ate part of a line) BEFORE looking for the
-            -- next separator: the comment doesn't introduce a
-            -- new entry on its own, but a following ',' still
-            -- separates legitimately.
-            let p2 = skipFlowWSAndCB p1 t
-            in if p2 >= T.length t
-                 then Nothing
-                 else case T.index t p2 of
-                        ',' ->
-                          let p3 = p2 + 1
-                          in if p3 < T.length t && T.index t p3 == '#'
-                               then Nothing
-                               else goV (skipFlowWS p3 t) (v : acc)
-                        ']' -> Just (YSeq (V.fromList (reverse (v : acc))), p2 + 1)
-                        _   -> Nothing
+parseFlowSeq !p0 t =
+  let !len = bLen t
+      goV !p acc
+        | p >= len            = Nothing
+        | bAt t p == w8RBrack = Just (YSeq (V.fromList (reverse acc)), p + 1)
+        | bAt t p == w8Hash   = Nothing
+        | bAt t p == w8STX    = Nothing
+        | otherwise = case parseFlowEntry p t of
+            Nothing      -> Nothing
+            Just (v, p1) ->
+              -- Skip any '\\2' comment-break sentinels before
+              -- looking for the next separator.
+              let p2 = skipFlowWSAndCB p1 t
+              in if p2 >= len
+                   then Nothing
+                   else case bAt t p2 of
+                          44 ->   -- ','
+                            let p3 = p2 + 1
+                            in if p3 < len && bAt t p3 == w8Hash
+                                 then Nothing
+                                 else goV (skipFlowWS p3 t) (v : acc)
+                          93 ->   -- ']'
+                            Just (YSeq (V.fromList (reverse (v : acc))), p2 + 1)
+                          _  -> Nothing
+  in goV (skipFlowWS p0 t) []
 
 -- | Skip whitespace and comment-break sentinels ('\\2'). Used
 -- between flow elements where a comment may sit just before the
 -- separator.
 skipFlowWSAndCB :: Int -> Text -> Int
-skipFlowWSAndCB !p t
-  | p >= T.length t = p
-  | otherwise = case T.index t p of
-      ' '  -> skipFlowWSAndCB (p + 1) t
-      '\t' -> skipFlowWSAndCB (p + 1) t
-      '\1' -> skipFlowWSAndCB (p + 1) t
-      '\2' -> skipFlowWSAndCB (p + 1) t
-      _    -> p
+skipFlowWSAndCB !p t =
+  let !len = bLen t
+      go !i
+        | i >= len  = i
+        | otherwise = case bAt t i of
+            32 -> go (i + 1)
+            9  -> go (i + 1)
+            1  -> go (i + 1)
+            2  -> go (i + 1)
+            _  -> i
+  in go p
+{-# INLINE skipFlowWSAndCB #-}
 
 -- | A flow-sequence entry can be a single value or a one-pair
 -- mapping (with @key: value@ syntax, or just @: value@ for an empty
@@ -1418,53 +1486,51 @@ parseFlowEntry = parseFlowEntry' False
 -- implicit-key-spans-newline check is skipped.
 parseFlowEntry' :: Bool -> Int -> Text -> Maybe (Value, Int)
 parseFlowEntry' !explicit !p0 t =
-  let p = skipFlowWS p0 t
-  in if p >= T.length t
+  let !len = bLen t
+      p    = skipFlowWS p0 t
+  in if p >= len
        then Nothing
        else
-         if T.index t p == '?'
-            && p + 1 < T.length t
-            && (T.index t (p + 1) == ' '
-                || T.index t (p + 1) == '\t'
-                || T.index t (p + 1) == '\1')
+         if bAt t p == w8Quest
+            && p + 1 < len
+            && (bAt t (p + 1) == w8Space
+                || bAt t (p + 1) == w8Tab
+                || bAt t (p + 1) == w8SOH)
            then parseFlowEntry' True (skipFlowWS (p + 1) t) t
          else
-         if T.index t p == ':' && colonIsSeparator (p + 1) t
+         if bAt t p == w8Colon && colonIsSeparator (p + 1) t
            then
              let p1 = skipFlowWS (p + 1) t
-             in if p1 >= T.length t
+             in if p1 >= len
                   then Nothing
-                  else case T.index t p1 of
-                    ',' -> Just (YMap (V.singleton (YNull, YNull)), p1)
-                    ']' -> Just (YMap (V.singleton (YNull, YNull)), p1)
-                    _   -> case parseFlowValue p1 t of
+                  else case bAt t p1 of
+                    44 -> Just (YMap (V.singleton (YNull, YNull)), p1)
+                    93 -> Just (YMap (V.singleton (YNull, YNull)), p1)
+                    _  -> case parseFlowValue p1 t of
                       Nothing -> Just (YMap (V.singleton (YNull, YNull)), p1)
                       Just (v, p2) ->
                         Just (YMap (V.singleton (YNull, v)), p2)
            else
-             let !flowOpener = case T.index t p of
-                   '"'  -> True
-                   '\'' -> True
-                   '['  -> True
-                   '{'  -> True
-                   _    -> False
+             let !flowOpener = case bAt t p of
+                   34  -> True   -- '"'
+                   39  -> True   -- '\''
+                   91  -> True   -- '['
+                   123 -> True   -- '{'
+                   _   -> False
              in case parseFlowValue p t of
                   Nothing -> Nothing
                   Just (k, p1) ->
                     let p2 = skipFlowWS p1 t
-                    in if p2 < T.length t
-                         && T.index t p2 == ':'
+                    in if p2 < len
+                         && bAt t p2 == w8Colon
                          && (flowOpener
                              || colonIsSeparator (p2 + 1) t)
                          then
                            -- For flow /sequences/, an implicit
-                           -- key->value pair appearing inline must
-                           -- have its key and ':' on the same
-                           -- line (spec §7.4.1). The intervening
-                           -- buffer between key end and ':'
-                           -- contains a '\\1' sentinel iff a
-                           -- newline was joined.
-                           let span_ = T.take (p2 - p) (T.drop p t)
+                           -- key->value pair appearing inline
+                           -- must have key and ':' on the same
+                           -- line (spec §7.4.1).
+                           let span_ = bSlice t p p2
                            in if not explicit
                                  && T.any (== '\1') span_
                                 then Nothing
@@ -1478,148 +1544,189 @@ parseFlowEntry' !explicit !p0 t =
 -- stopper or whitespace.
 colonIsSeparator :: Int -> Text -> Bool
 colonIsSeparator !p t
-  | p >= T.length t = True
-  | otherwise = case T.index t p of
-      ' '  -> True
-      '\t' -> True
-      '\1' -> True
-      ','  -> True
-      ']'  -> True
-      '}'  -> True
-      _    -> False
+  | p >= bLen t = True
+  | otherwise   = flowColonFollower (bAt t p)
+{-# INLINE colonIsSeparator #-}
 
 parseFlowMap :: Int -> Text -> Maybe (Value, Int)
-parseFlowMap !p0 t = goV (skipFlowWS p0 t) []
-  where
-    goV !p acc
-      | p >= T.length t = Nothing
-      | T.index t p == '}' = Just (YMap (V.fromList (reverse acc)), p + 1)
-      | T.index t p == ',' = goV (skipFlowWS (p + 1) t) acc   -- tolerate empty entries
-      | otherwise =
-          let p0' = p
-              (k, p1) = case T.index t p of
-                ':' -> (YNull, p)
-                _   -> case parseFlowValue p t of
-                  Just (k', q) -> (k', q)
-                  Nothing      -> (YNull, p)
-          in if p1 == p0' && T.index t p1 /= ':'
-               then Nothing
-               else
-                 let p2 = skipFlowWS p1 t
-                     skipColon = if p2 < T.length t && T.index t p2 == ':'
-                                   then Just (skipFlowWS (p2 + 1) t)
-                                   else Nothing
-                 in case skipColon of
-                      Just p2'
-                        | p2' < T.length t
-                          && (T.index t p2' == ',' || T.index t p2' == '}') ->
-                            finish p2' k YNull acc
-                        | otherwise -> case parseFlowValue p2' t of
-                            Nothing -> finish p2' k YNull acc
-                            Just (v, p3) -> finish p3 k v acc
-                      Nothing -> finish p2 k YNull acc
+parseFlowMap !p0 t =
+  let !len = bLen t
 
-    finish !p k v acc =
-      let p' = skipFlowWS p t
-      in if p' >= T.length t
-           then Nothing
-           else case T.index t p' of
-                  ',' -> goV (skipFlowWS (p' + 1) t) ((k, v) : acc)
-                  '}' -> Just (YMap (V.fromList (reverse ((k, v) : acc))), p' + 1)
-                  _   -> Nothing
+      goV !p acc
+        | p >= len             = Nothing
+        | bAt t p == w8RBrace  = Just (YMap (V.fromList (reverse acc)), p + 1)
+        | bAt t p == w8Comma   = goV (skipFlowWS (p + 1) t) acc
+        | otherwise =
+            let p0'      = p
+                (k, p1)  = case bAt t p of
+                  58 -> (YNull, p)
+                  _  -> case parseFlowValue p t of
+                    Just (k', q) -> (k', q)
+                    Nothing      -> (YNull, p)
+            in if p1 == p0' && bAt t p1 /= w8Colon
+                 then Nothing
+                 else
+                   let p2 = skipFlowWS p1 t
+                       skipColon = if p2 < len && bAt t p2 == w8Colon
+                                     then Just (skipFlowWS (p2 + 1) t)
+                                     else Nothing
+                   in case skipColon of
+                        Just p2'
+                          | p2' < len
+                          , let c = bAt t p2'
+                          , c == w8Comma || c == w8RBrace ->
+                              finish p2' k YNull acc
+                          | otherwise -> case parseFlowValue p2' t of
+                              Nothing -> finish p2' k YNull acc
+                              Just (v, p3) -> finish p3 k v acc
+                        Nothing -> finish p2 k YNull acc
+
+      finish !p k v acc =
+        let p' = skipFlowWS p t
+        in if p' >= len
+             then Nothing
+             else case bAt t p' of
+                    44 -> goV (skipFlowWS (p' + 1) t) ((k, v) : acc)   -- ','
+                    125 -> Just                                          -- '}'
+                              ( YMap (V.fromList (reverse ((k, v) : acc)))
+                              , p' + 1 )
+                    _   -> Nothing
+  in goV (skipFlowWS p0 t) []
 
 parseDQ :: Int -> Text -> Maybe (Value, Int)
 parseDQ !p0 t =
-  -- Fast path: no escapes / sentinels in the body, just find
-  -- the close quote and slice it out (no per-char allocation).
-  let !restAfterOpen = T.drop (p0 + 1) t
-      !needsScan = T.any (\c -> c == '\\' || c == '\1') restAfterOpen
+  let !len = bLen t
+      -- Fast path: no escapes / sentinels in the body, just
+      -- find the closing quote and slice it out.
+      go0 !i
+        | i >= len  = (-1, False)
+        | otherwise = case bAt t i of
+            34 -> (i, False)               -- '"' close
+            92 -> (-1, True)               -- '\\' need slow path
+            1  -> (-1, True)               -- '\\1' need slow path
+            _  -> go0 (i + 1)
+      (closeIdx, needsScan) = go0 (p0 + 1)
   in if not needsScan
-       then case T.findIndex (== '"') restAfterOpen of
-              Just k  -> Just ( YString (T.take k restAfterOpen)
-                              , p0 + 1 + k + 1 )
-              Nothing -> Nothing
-       else go (p0 + 1) []
+       then if closeIdx < 0
+              then Nothing
+              else Just ( YString (bSlice t (p0 + 1) closeIdx)
+                        , closeIdx + 1 )
+       else slow (p0 + 1) []
   where
-    !len = T.length t
-    go !i acc
-      | i >= len = Nothing
-      | otherwise = case T.index t i of
-          '"' -> Just (YString (T.pack (reverse acc)), i + 1)
-          '\\' | i + 1 < len -> case decodeDQEscape t (i + 1) of
-                  Just (c, i') -> go i' (c : acc)
+    !len2 = bLen t
+    slow !i acc
+      | i >= len2 = Nothing
+      | otherwise = case bAt t i of
+          34 -> Just (YString (T.pack (reverse acc)), i + 1)
+          92 | i + 1 < len2 -> case decodeDQEscape t (i + 1) of
+                  Just (c, i') -> slow i' (c : acc)
                   Nothing      -> Nothing
-               | otherwise -> Nothing
-          '\1' -> go (i + 1) (' ' : acc)
-          c   -> go (i + 1) (c : acc)
+             | otherwise -> Nothing
+          1  -> slow (i + 1) (' ' : acc)
+          b  | b < 0x80   -> slow (i + 1) (toEnum (fromEnum b) : acc)
+             | otherwise  -> -- multi-byte UTF-8 char; fall back
+                             -- to char-level read for correctness
+                             case T.uncons (bDrop i t) of
+                               Just (c, _) ->
+                                 slow (i + utf8Width b) (c : acc)
+                               Nothing -> Nothing
 
 parseSQ :: Int -> Text -> Maybe (Value, Int)
 parseSQ !p0 t =
-  -- Fast path: a single-quoted body that contains no '\\1'
-  -- sentinel and no '\\'\\'' (the SQ escape) can be sliced out
-  -- directly.
-  let !restAfterOpen = T.drop (p0 + 1) t
-      hasSentinel    = T.any (== '\1') restAfterOpen
-      hasDoubleQuote = T.isInfixOf (T.pack "''") restAfterOpen
-  in if not hasSentinel && not hasDoubleQuote
-       then case T.findIndex (== '\'') restAfterOpen of
-              Just k  -> Just ( YString (T.take k restAfterOpen)
-                              , p0 + 1 + k + 1 )
-              Nothing -> Nothing
-       else go (p0 + 1) []
+  let !len = bLen t
+      go0 !i
+        | i >= len  = (-1, False)
+        | otherwise = case bAt t i of
+            39 | i + 1 < len, bAt t (i + 1) == w8SQuote -> (-1, True)
+               | otherwise                              -> (i, False)
+            1  -> (-1, True)
+            _  -> go0 (i + 1)
+      (closeIdx, needsScan) = go0 (p0 + 1)
+  in if not needsScan
+       then if closeIdx < 0
+              then Nothing
+              else Just ( YString (bSlice t (p0 + 1) closeIdx)
+                        , closeIdx + 1 )
+       else slow (p0 + 1) []
   where
-    !len = T.length t
-    go !i acc
-      | i >= len = Nothing
-      | otherwise = case T.index t i of
-          '\'' | i + 1 < len && T.index t (i + 1) == '\'' ->
-                  go (i + 2) ('\'' : acc)
-               | otherwise ->
+    !len2 = bLen t
+    slow !i acc
+      | i >= len2 = Nothing
+      | otherwise = case bAt t i of
+          39 | i + 1 < len2 && bAt t (i + 1) == w8SQuote ->
+                  slow (i + 2) ('\'' : acc)
+             | otherwise ->
                   Just (YString (T.pack (reverse acc)), i + 1)
-          '\1' -> go (i + 1) (' ' : acc)
-          c -> go (i + 1) (c : acc)
+          1  -> slow (i + 1) (' ' : acc)
+          b  | b < 0x80   -> slow (i + 1) (toEnum (fromEnum b) : acc)
+             | otherwise  -> case T.uncons (bDrop i t) of
+                               Just (c, _) ->
+                                 slow (i + utf8Width b) (c : acc)
+                               Nothing -> Nothing
+
+-- | Width in bytes of a UTF-8 character given its leading byte.
+utf8Width :: Word8 -> Int
+utf8Width b
+  | b < 0x80  = 1
+  | b < 0xC0  = 1   -- continuation; treat as 1 to make progress
+  | b < 0xE0  = 2
+  | b < 0xF0  = 3
+  | otherwise = 4
+{-# INLINE utf8Width #-}
 
 parseFlowPlain :: Int -> Text -> Maybe (Value, Int)
 parseFlowPlain !p t =
-  let !len  = T.length t
-      go !i = if i < len && not (stopper (T.index t i) (T.index t (min (i+1) (len-1))) (i+1 < len))
-                then go (i + 1)
-                else i
+  let !len = bLen t
+      go !i
+        | i >= len  = i
+        | otherwise =
+            let !c = bAt t i
+            in if isFlowStopByte c
+                  || (c == w8Colon && colonStopByte i)
+                 then i
+                 else go (i + 1)
+      colonStopByte !i =
+        let i1 = i + 1
+        in i1 >= len || flowColonFollower (bAt t i1)
       !p' = go p
-      raw = T.take (p' - p) (T.drop p t)
-      -- Fold newline-sentinels '\\1' to spaces, then strip
-      -- trailing whitespace.
+      raw      = bSlice t p p'
       folded   = T.replace (T.pack "\1") (T.pack " ") raw
       stripped = T.stripEnd folded
   in if T.null stripped
        then Nothing
-       -- A bare '-' in flow context is reserved and not a valid
-       -- plain scalar (spec §7.3.3).
        else if stripped == T.pack "-"
               then Nothing
               else Just (resolvePlain stripped, p')
-  where
-    -- A plain scalar in flow context ends at any of [ , ] { } and at
-    -- ":" followed by space or end-of-token. Also at the
-    -- '\\2' comment-break sentinel.
-    stopper c next hasNext =
-      c == ',' || c == '[' || c == ']' || c == '{' || c == '}'
-      || c == '\2'
-      || (c == ':' && (not hasNext || next == ' ' || next == '\t'
-                       || next == '\1'
-                       || next == ',' || next == ']' || next == '}'))
+
+-- | Bytes that terminate a flow-context plain scalar
+-- (excluding the colon-with-follower case which is handled by
+-- the caller).
+isFlowStopByte :: Word8 -> Bool
+isFlowStopByte c =
+  c == w8Comma || c == w8LBrack || c == w8RBrack
+    || c == w8LBrace || c == w8RBrace || c == w8STX
+{-# INLINE isFlowStopByte #-}
+
+-- | A byte that, when it follows a ':' in flow context, makes
+-- that ':' a key/value separator (and therefore a stop point
+-- for a flow plain scalar).
+flowColonFollower :: Word8 -> Bool
+flowColonFollower c =
+  c == w8Space || c == w8Tab || c == w8SOH
+    || c == w8Comma || c == w8RBrack || c == w8RBrace
+{-# INLINE flowColonFollower #-}
 
 skipFlowWS :: Int -> Text -> Int
-skipFlowWS !p t = go p
-  where
-    !len = T.length t
-    go !i
-      | i >= len = i
-      | otherwise = case T.index t i of
-          ' '  -> go (i + 1)
-          '\t' -> go (i + 1)
-          '\1' -> go (i + 1)
-          _    -> i
+skipFlowWS !p t =
+  let !len = bLen t
+      go !i
+        | i >= len  = i
+        | otherwise = case bAt t i of
+            32 -> go (i + 1)   -- ' '
+            9  -> go (i + 1)   -- '\t'
+            1  -> go (i + 1)   -- '\1'
+            _  -> i
+  in go p
 {-# INLINE skipFlowWS #-}
 
 -- ---------------------------------------------------------------------------
