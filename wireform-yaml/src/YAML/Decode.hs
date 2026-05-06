@@ -563,7 +563,13 @@ parseAnchored = do
   Just l <- popLine
   let body = lineBody l
       (name, rest) = takeAnchorName (T.drop 1 body)
-      after = T.stripStart rest
+      after0 = T.stripStart rest
+      -- A '#' immediately after the anchor (no content between
+      -- anchor and '#') is the start of a comment, not part of
+      -- the anchored value.
+      after = case T.uncons after0 of
+        Just ('#', _) -> T.empty
+        _             -> after0
   -- If the rest of the line introduces a mapping (i.e. there's a
   -- top-level @": "@ in the remainder), the anchor only binds to
   -- the /key/, not to the surrounding mapping. This matches the
@@ -573,10 +579,7 @@ parseAnchored = do
     Just (k, vRest) -> do
       let keyVal = YString k
       recordAnchor name keyVal
-      pushLine l { lineBody = after }
-      -- Replay the line through the regular block-mapping path so
-      -- the surrounding context still parses. The recorded anchor
-      -- already points at the correct key node.
+      pushLine l { lineBody = after, lineRawBody = after }
       parseBlockMap (lineIndent l) k vRest
     Nothing -> do
       v <- if T.null after
@@ -606,11 +609,10 @@ parseAlias = do
   Just l <- popLine
   let body = lineBody l
       (name, rest) = takeAnchorName (T.drop 1 body)
-      after = T.stripStart rest
-  -- An alias appearing as a mapping value will be followed by ":"
-  -- (or other dispatch chars) on the same line. Push remaining
-  -- content back as a virtual line so the surrounding context can
-  -- continue parsing.
+      after0 = T.stripStart rest
+      after = case T.uncons after0 of
+        Just ('#', _) -> T.empty
+        _             -> after0
   if T.null after
     then resolveAnchor name
     else do
@@ -1198,9 +1200,18 @@ parseBlockMap !ind firstKey firstRest = do
               parseNode (lineIndent l2)
             _ -> pure YNull
         else do
-          pushLine (PLine (lineNo l) (lineIndent l + 2)
+          -- For inline block scalars after the marker (':'/'?')
+          -- use the marker's indent so 'collectScalarLines'
+          -- accepts body lines at indent > marker indent.
+          let isBlockScalarHead = case T.uncons rest of
+                Just ('|', _) -> True
+                Just ('>', _) -> True
+                _             -> False
+              virtInd | isBlockScalarHead = lineIndent l
+                      | otherwise         = lineIndent l + 2
+          pushLine (PLine (lineNo l) virtInd
                           LContent rest rest)
-          parseNode (lineIndent l + 2)
+          parseNode virtInd
 
     readExplicitValue = do
       mPL <- peekLine
@@ -1398,8 +1409,14 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
             Just l2 | lineIndent l2 > lineIndent l -> parseNode (lineIndent l2)
             _ -> pure YNull
         else do
-          pushLine (PLine (lineNo l) (lineIndent l + 2) LContent rest rest)
-          parseNode (lineIndent l + 2)
+          let isBlockScalarHead = case T.uncons rest of
+                Just ('|', _) -> True
+                Just ('>', _) -> True
+                _             -> False
+              virtInd | isBlockScalarHead = lineIndent l
+                      | otherwise         = lineIndent l + 2
+          pushLine (PLine (lineNo l) virtInd LContent rest rest)
+          parseNode virtInd
 
     readExplicitValue = do
       mPL <- peekLine
