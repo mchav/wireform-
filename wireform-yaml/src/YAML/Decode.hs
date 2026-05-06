@@ -379,20 +379,30 @@ parseDocument = do
   ls0' <- getLines
   let nextSig = dropWhile isSkippableNonDirective ls0'
   (directives, ls1) <- case nextSig of
-    (l : rest) | lineKind l == LDocStart ->
+    (l : rest) | lineKind l == LDocStart -> do
       let body = lineBody l
           tail_ = T.stripStart (T.drop 3 body)
-          -- 'collectScalarLines' uses 'indent > parent' for body
-          -- termination; when the inline body of '---' is a block
-          -- scalar with content at column 0, we need a sentinel
-          -- parent of -1 so col-0 body lines are admitted.
           isInlineBlockScalar = case T.uncons tail_ of
             Just ('|', _) -> True
             Just ('>', _) -> True
             _             -> False
           virtInd | isInlineBlockScalar = -1
                   | otherwise           = lineIndent l
-      in pure $ if T.null tail_
+      -- '--- &anchor a: b' (an anchor immediately followed by a
+      -- mapping pair on the same line as '---') is invalid per
+      -- the test suite (CXX2 / mapping-with-anchor-on-document-
+      -- start-line).
+      case T.uncons tail_ of
+        Just ('&', restA) ->
+          let (_anchor, afterAnchor) = takeAnchorName restA
+              afterStripped = T.stripStart afterAnchor
+          in case findKeyValueSplit afterStripped of
+               Just _ ->
+                 failP $ "anchor immediately followed by mapping on '---' line (line "
+                         ++ show (lineNo l) ++ ")"
+               Nothing -> pure ()
+        _ -> pure ()
+      pure $ if T.null tail_
                   then (True, rest)
                   else (True,
                         PLine (lineNo l) virtInd
