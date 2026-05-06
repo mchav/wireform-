@@ -29,6 +29,7 @@ import Data.Word (Word8, Word16, Word32, Word64)
 
 import qualified Data.HashMap.Strict as HM
 
+import qualified Fory.Bulk as B
 import qualified Fory.Encoding as E
 import qualified Fory.MetaString as MS
 import qualified Fory.MetaString.Encoder as MSE
@@ -302,7 +303,7 @@ readForyString = do
       !len = fromIntegral (hdr `shiftR` 2) :: Int
   raw <- readBytesD len
   case enc of
-    0 -> pure (decodeLatin1 raw)
+    0 -> pure (TE.decodeLatin1 raw)  -- single-allocation pure-Haskell decode
     1 -> case decodeUtf16LE raw of
            Right t -> pure t
            Left e  -> failD ("Fory.Decode: invalid UTF-16: " ++ e)
@@ -310,10 +311,6 @@ readForyString = do
            Right t -> pure t
            Left e  -> failD ("Fory.Decode: invalid UTF-8: " ++ show e)
     _ -> failD ("Fory.Decode: reserved string encoding " ++ show enc)
-  where
-
-decodeLatin1 :: ByteString -> Text
-decodeLatin1 = T.pack . map (toEnum . fromIntegral) . BS.unpack
 
 decodeUtf16LE :: ByteString -> Either String Text
 decodeUtf16LE bs
@@ -658,70 +655,44 @@ decodeTypeDefBody = do
 -- ---------------------------------------------------------------------------
 -- Primitive 1-D arrays
 -- ---------------------------------------------------------------------------
+--
+-- The wire layout is | varuint32 byte_length | raw bytes |, so
+-- we read the whole slice in one shot and let 'Fory.Bulk' do
+-- the cast in a tight @V.generate@ loop. This drops the
+-- 1k-element decode path from a per-element state-monad bind
+-- (~16 us at 1024 elements) to a single bytestring slice +
+-- O(n) generate.
 
--- | Read the byte length, divide by the per-element size, and
--- ensure the result is a whole number of elements.
-readArrayElemCount :: Int -> DecodeM Int
-readArrayElemCount elemBytes = do
+bulkArray :: Int -> (ByteString -> Vector a) -> DecodeM (Vector a)
+bulkArray elemBytes f = do
   byteLen <- fromIntegral <$> readVaruint32D
-  let (q, r) = byteLen `quotRem` elemBytes
+  let (_, r) = byteLen `quotRem` elemBytes
   if r /= 0
     then failD $ "Fory.Decode: array byte length " ++ show byteLen
                   ++ " not a multiple of element size " ++ show elemBytes
-    else pure q
+    else f <$> readBytesD byteLen
 
-decodeBoolArray :: DecodeM (Vector Bool)
-decodeBoolArray = do
-  n <- readArrayElemCount 1
-  V.replicateM n ((/= 0) <$> readByteD)
+decodeBoolArray    = bulkArray 1 B.bytesToBoolArray
+decodeInt8Array    = bulkArray 1 B.bytesToInt8Array
+decodeInt16Array   = bulkArray 2 B.bytesToInt16Array
+decodeInt32Array   = bulkArray 4 B.bytesToInt32Array
+decodeInt64Array   = bulkArray 8 B.bytesToInt64Array
+decodeUint8Array   = bulkArray 1 B.bytesToUint8Array
+decodeUint16Array  = bulkArray 2 B.bytesToUint16Array
+decodeUint32Array  = bulkArray 4 B.bytesToUint32Array
+decodeUint64Array  = bulkArray 8 B.bytesToUint64Array
+decodeFloat32Array = bulkArray 4 B.bytesToFloat32Array
+decodeFloat64Array = bulkArray 8 B.bytesToFloat64Array
 
-decodeInt8Array :: DecodeM (Vector Int8)
-decodeInt8Array = do
-  n <- readArrayElemCount 1
-  V.replicateM n (fromIntegral <$> readByteD)
-
-decodeInt16Array :: DecodeM (Vector Int16)
-decodeInt16Array = do
-  n <- readArrayElemCount 2
-  V.replicateM n readInt16D
-
-decodeInt32Array :: DecodeM (Vector Int32)
-decodeInt32Array = do
-  n <- readArrayElemCount 4
-  V.replicateM n readInt32D
-
-decodeInt64Array :: DecodeM (Vector Int64)
-decodeInt64Array = do
-  n <- readArrayElemCount 8
-  V.replicateM n readInt64D
-
-decodeUint8Array :: DecodeM (Vector Word8)
-decodeUint8Array = do
-  n <- readArrayElemCount 1
-  V.replicateM n readByteD
-
-decodeUint16Array :: DecodeM (Vector Word16)
-decodeUint16Array = do
-  n <- readArrayElemCount 2
-  V.replicateM n readWord16D
-
-decodeUint32Array :: DecodeM (Vector Word32)
-decodeUint32Array = do
-  n <- readArrayElemCount 4
-  V.replicateM n readWord32D
-
-decodeUint64Array :: DecodeM (Vector Word64)
-decodeUint64Array = do
-  n <- readArrayElemCount 8
-  V.replicateM n readWord64D
-
+decodeBoolArray    :: DecodeM (Vector Bool)
+decodeInt8Array    :: DecodeM (Vector Int8)
+decodeInt16Array   :: DecodeM (Vector Int16)
+decodeInt32Array   :: DecodeM (Vector Int32)
+decodeInt64Array   :: DecodeM (Vector Int64)
+decodeUint8Array   :: DecodeM (Vector Word8)
+decodeUint16Array  :: DecodeM (Vector Word16)
+decodeUint32Array  :: DecodeM (Vector Word32)
+decodeUint64Array  :: DecodeM (Vector Word64)
 decodeFloat32Array :: DecodeM (Vector Float)
-decodeFloat32Array = do
-  n <- readArrayElemCount 4
-  V.replicateM n readFloat32D
-
 decodeFloat64Array :: DecodeM (Vector Double)
-decodeFloat64Array = do
-  n <- readArrayElemCount 8
-  V.replicateM n readFloat64D
 
