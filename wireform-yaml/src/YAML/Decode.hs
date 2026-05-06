@@ -550,7 +550,10 @@ parseTagged = do
   Just l <- popLine
   let (tg, rest) = breakOnSpace (lineBody l)
       tag = expandTag tg
-      after = T.stripStart rest
+      after0 = T.stripStart rest
+      after = case T.uncons after0 of
+        Just ('#', _) -> T.empty
+        _             -> after0
   if T.null after
     then do
       mNext <- peekLine
@@ -562,8 +565,7 @@ parseTagged = do
     else do
       -- Update both 'lineBody' and 'lineRawBody' so that
       -- consumeQuoted's preserveTrailingEscape works on the
-      -- right slice of the line (otherwise it would borrow a
-      -- leftover character from the tag prefix).
+      -- right slice of the line.
       pushLine l { lineBody = after, lineRawBody = after }
       v <- parseNode (lineIndent l)
       pure (YTagged tag v)
@@ -598,21 +600,39 @@ parseAnchored = do
                case mNext of
                  Just l2 | lineIndent l2 > lineIndent l ->
                      parseNode (lineIndent l2)
-                 -- Special case: an anchor that sits on its own
-                 -- line at the same column as a following block
-                 -- sequence ('- ...') binds to that sequence.
-                 -- Other same-column content is treated as the
-                 -- sibling of an empty (Null) anchored node.
+                 -- A bare anchor at the same column as a following
+                 -- block sequence binds to that sequence.
                  Just l2
                    | lineIndent l2 == lineIndent l
                    , isSeqItem (lineBody l2) ->
                        parseBlockSeq (lineIndent l2)
+                 -- A bare anchor whose next line at the same
+                 -- column is another node-property line (tag /
+                 -- another anchor) chains into that property; the
+                 -- whole stack labels the eventual node.
+                 Just l2
+                   | lineIndent l2 == lineIndent l
+                   , isNodePropertyLine (lineBody l2) ->
+                       parseNode (lineIndent l2)
+                 -- Likewise a plain scalar at the same column.
+                 Just l2
+                   | lineIndent l2 == lineIndent l
+                   , lineKind l2 == LContent ->
+                       parseNode (lineIndent l2)
                  _ -> pure YNull
              else do
                pushLine l { lineBody = after, lineRawBody = after }
                parseNode (lineIndent l)
       recordAnchor name v
       pure v
+
+-- | True when the line begins with a node-property indicator
+-- ('!' tag or '&' anchor) followed by separator / EOL.
+isNodePropertyLine :: Text -> Bool
+isNodePropertyLine t = case T.uncons t of
+  Just ('!', _) -> True
+  Just ('&', _) -> True
+  _             -> False
 
 parseAlias :: P Value
 parseAlias = do
@@ -1612,14 +1632,18 @@ collectScalarLines !parent !mExplicit = collect mExplicit []
                    else if lineKind l == LComment
                           then case mBase of
                             -- Once a base indent is set, any
-                            -- comment at a deeper indent is
-                            -- content; one at base terminates.
+                            -- comment at deeper indent is content;
+                            -- a comment at /base/ indent is
+                            -- content too in the special "compact
+                            -- top-level" mode (parent = -1) where
+                            -- everything goes into the scalar.
                             Just b | ind > b -> do
                               _ <- consumeOne
                               collect mBase ((ind, lineBody l) : acc)
+                            Just b | ind == b && parent < 0 -> do
+                              _ <- consumeOne
+                              collect mBase ((ind, lineBody l) : acc)
                             Just _ -> pure (reverse acc)
-                            -- Before a base is set, a comment
-                            -- counts as the first content line.
                             Nothing -> do
                               _ <- consumeOne
                               collect (Just ind)
