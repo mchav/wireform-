@@ -809,7 +809,10 @@ resolveFlowAliases = goV
     goV v                       = pure v
 
 consumeFlow :: Text -> P Value
-consumeFlow = go
+consumeFlow = consumeFlowAt (-1)
+
+consumeFlowAt :: Int -> Text -> P Value
+consumeFlowAt !openInd = go
   where
     -- Strip end-of-line comments before adding a new chunk to the
     -- buffer. Flow nodes may contain comments between elements,
@@ -838,13 +841,15 @@ consumeFlow = go
             | otherwise ->
                 failP $ "trailing content after flow node: " ++ show s
       ScanIncomplete -> do
-        -- Read the raw next line; inside a flow node, a '#'
-        -- /comment/ line is content (we already strip end-of-line
-        -- comments per chunk in 'go') and a '%' line is a plain
-        -- scalar character, not a directive.
         ls <- getLines
         case ls of
           []         -> failP "YAML: unterminated flow node"
+          (l' : _)
+            | openInd > 0
+            , lineKind l' == LContent
+            , lineIndent l' < openInd ->
+                failP $ "wrong-indented flow continuation (line "
+                        ++ show (lineNo l') ++ ")"
           (l' : rs)  -> do
             setLines rs
             go (buf <> T.pack " " <> lineBody l')
@@ -1450,10 +1455,12 @@ parseImplicitMapValue !ind vRest =
            parseBlockScalar Folded
          Just ('[', _) -> do
            pushLine (PLine 0 (ind + 2) LContent after after)
-           consumeFlowFromHead
+           Just l <- popLine
+           consumeFlowAt (ind + 1) (lineBody l)
          Just ('{', _) -> do
            pushLine (PLine 0 (ind + 2) LContent after after)
-           consumeFlowFromHead
+           Just l <- popLine
+           consumeFlowAt (ind + 1) (lineBody l)
          Just ('&', _) -> do
            pushLine (PLine 0 ind LContent after after)
            parseAnchored
