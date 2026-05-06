@@ -557,64 +557,68 @@ typeDefBody ns nm fields = do
 -- ---------------------------------------------------------------------------
 -- Primitive 1-D arrays
 -- ---------------------------------------------------------------------------
+--
+-- pyfory's NumPy-typed serializer emits | varuint32 byte_length |
+-- raw little-endian element bytes |. The element count is implicit:
+-- byte_length \/ sizeof(element). Bool is one byte per element.
 
-emitArrayCount :: Vector a -> EncodeM ()
-emitArrayCount vs =
-  emit (E.varuint32 (fromIntegral (V.length vs) :: Word32))
-{-# INLINE emitArrayCount #-}
+emitByteLen :: Int -> Int -> EncodeM ()
+emitByteLen elemBytes count =
+  emit (E.varuint32 (fromIntegral (elemBytes * count) :: Word32))
+{-# INLINE emitByteLen #-}
 
 emitBoolArray :: Vector Bool -> EncodeM ()
 emitBoolArray vs = do
-  emitArrayCount vs
+  emitByteLen 1 (V.length vs)
   V.forM_ vs $ \b -> emit (E.byte (if b then 1 else 0))
 
 emitInt8Array :: Vector Int8 -> EncodeM ()
 emitInt8Array vs = do
-  emitArrayCount vs
+  emitByteLen 1 (V.length vs)
   V.forM_ vs $ \x -> emit (E.byte (fromIntegral x))
 
 emitInt16Array :: Vector Int16 -> EncodeM ()
 emitInt16Array vs = do
-  emitArrayCount vs
+  emitByteLen 2 (V.length vs)
   V.forM_ vs $ \x -> emit (E.int16LE x)
 
 emitInt32Array :: Vector Int32 -> EncodeM ()
 emitInt32Array vs = do
-  emitArrayCount vs
+  emitByteLen 4 (V.length vs)
   V.forM_ vs $ \x -> emit (E.int32LE x)
 
 emitInt64Array :: Vector Int64 -> EncodeM ()
 emitInt64Array vs = do
-  emitArrayCount vs
+  emitByteLen 8 (V.length vs)
   V.forM_ vs $ \x -> emit (E.int64LE x)
 
 emitUint8Array :: Vector Word8 -> EncodeM ()
 emitUint8Array vs = do
-  emitArrayCount vs
+  emitByteLen 1 (V.length vs)
   V.forM_ vs $ \x -> emit (E.byte x)
 
 emitUint16Array :: Vector Word16 -> EncodeM ()
 emitUint16Array vs = do
-  emitArrayCount vs
+  emitByteLen 2 (V.length vs)
   V.forM_ vs $ \x -> emit (E.word16LE x)
 
 emitUint32Array :: Vector Word32 -> EncodeM ()
 emitUint32Array vs = do
-  emitArrayCount vs
+  emitByteLen 4 (V.length vs)
   V.forM_ vs $ \x -> emit (E.word32LE x)
 
 emitUint64Array :: Vector Word64 -> EncodeM ()
 emitUint64Array vs = do
-  emitArrayCount vs
+  emitByteLen 8 (V.length vs)
   V.forM_ vs $ \x -> emit (E.word64LE x)
 
 emitFloat32Array :: Vector Float -> EncodeM ()
 emitFloat32Array vs = do
-  emitArrayCount vs
+  emitByteLen 4 (V.length vs)
   V.forM_ vs $ \x -> emit (E.float32LE x)
 
 emitFloat64Array :: Vector Double -> EncodeM ()
 emitFloat64Array vs = do
-  emitArrayCount vs
+  emitByteLen 8 (V.length vs)
   V.forM_ vs $ \x -> emit (E.float64LE x)
 

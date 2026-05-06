@@ -513,61 +513,69 @@ decodeTypeDefBody = do
 -- Primitive 1-D arrays
 -- ---------------------------------------------------------------------------
 
-readArrayCount :: DecodeM Int
-readArrayCount = fromIntegral <$> readVaruint32D
+-- | Read the byte length, divide by the per-element size, and
+-- ensure the result is a whole number of elements.
+readArrayElemCount :: Int -> DecodeM Int
+readArrayElemCount elemBytes = do
+  byteLen <- fromIntegral <$> readVaruint32D
+  let (q, r) = byteLen `quotRem` elemBytes
+  if r /= 0
+    then failD $ "Fury.Decode: array byte length " ++ show byteLen
+                  ++ " not a multiple of element size " ++ show elemBytes
+    else pure q
 
 decodeBoolArray :: DecodeM (Vector Bool)
 decodeBoolArray = do
-  n <- readArrayCount
+  n <- readArrayElemCount 1
   V.replicateM n ((/= 0) <$> readByteD)
 
 decodeInt8Array :: DecodeM (Vector Int8)
 decodeInt8Array = do
-  n <- readArrayCount
+  n <- readArrayElemCount 1
   V.replicateM n (fromIntegral <$> readByteD)
 
 decodeInt16Array :: DecodeM (Vector Int16)
 decodeInt16Array = do
-  n <- readArrayCount
+  n <- readArrayElemCount 2
   V.replicateM n readInt16D
 
 decodeInt32Array :: DecodeM (Vector Int32)
 decodeInt32Array = do
-  n <- readArrayCount
+  n <- readArrayElemCount 4
   V.replicateM n readInt32D
 
 decodeInt64Array :: DecodeM (Vector Int64)
 decodeInt64Array = do
-  n <- readArrayCount
+  n <- readArrayElemCount 8
   V.replicateM n readInt64D
 
 decodeUint8Array :: DecodeM (Vector Word8)
 decodeUint8Array = do
-  n <- readArrayCount
+  n <- readArrayElemCount 1
   V.replicateM n readByteD
 
 decodeUint16Array :: DecodeM (Vector Word16)
 decodeUint16Array = do
-  n <- readArrayCount
+  n <- readArrayElemCount 2
   V.replicateM n readWord16D
 
 decodeUint32Array :: DecodeM (Vector Word32)
 decodeUint32Array = do
-  n <- readArrayCount
+  n <- readArrayElemCount 4
   V.replicateM n readWord32D
 
 decodeUint64Array :: DecodeM (Vector Word64)
 decodeUint64Array = do
-  n <- readArrayCount
+  n <- readArrayElemCount 8
   V.replicateM n readWord64D
 
 decodeFloat32Array :: DecodeM (Vector Float)
 decodeFloat32Array = do
-  n <- readArrayCount
+  n <- readArrayElemCount 4
   V.replicateM n readFloat32D
 
 decodeFloat64Array :: DecodeM (Vector Double)
 decodeFloat64Array = do
-  n <- readArrayCount
+  n <- readArrayElemCount 8
   V.replicateM n readFloat64D
 

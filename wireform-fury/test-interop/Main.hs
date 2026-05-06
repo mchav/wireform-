@@ -108,6 +108,34 @@ main = do
              VV.MapVal (V.fromList
                [(VV.StringVal "name", VV.StringVal "alice"),
                 (VV.StringVal "age", VV.VarInt64Val 30)]))
+        -- 1-D primitive arrays (NumPy interop)
+        , ("ndarray int8 [1,2,3]",
+             ndarray "int8" [num 1, num 2, num 3],
+             VV.Int8ArrayVal (V.fromList [1, 2, 3]))
+        , ("ndarray int16 [1,2,3]",
+             ndarray "int16" [num 1, num 2, num 3],
+             VV.Int16ArrayVal (V.fromList [1, 2, 3]))
+        , ("ndarray int32 [1,2,3]",
+             ndarray "int32" [num 1, num 2, num 3],
+             VV.Int32ArrayVal (V.fromList [1, 2, 3]))
+        , ("ndarray int64 [1,2,3]",
+             ndarray "int64" [num 1, num 2, num 3],
+             VV.Int64ArrayVal (V.fromList [1, 2, 3]))
+        , ("ndarray uint8 [1,2,3]",
+             ndarray "uint8" [num 1, num 2, num 3],
+             VV.Uint8ArrayVal (V.fromList [1, 2, 3]))
+        , ("ndarray float32 [1,2,3]",
+             ndarray "float32" [numF 1.0, numF 2.0, numF 3.0],
+             VV.Float32ArrayVal (V.fromList [1.0, 2.0, 3.0]))
+        , ("ndarray float64 [1.5,-1.5,3.14]",
+             ndarray "float64" [numF 1.5, numF (-1.5), numF 3.14],
+             VV.Float64ArrayVal (V.fromList [1.5, -1.5, 3.14]))
+        , ("ndarray bool [T,F,T]",
+             ndarray "bool" [A.Bool True, A.Bool False, A.Bool True],
+             VV.BoolArrayVal (V.fromList [True, False, True]))
+        , ("ndarray int32 empty",
+             ndarray "int32" [],
+             VV.Int32ArrayVal V.empty)
         ]
 
   results <- mapM (runCase hin hout) cases
@@ -128,6 +156,15 @@ main = do
     numF :: Double -> A.Value
     numF d =
       A.object [("__float__", A.Number (Sci.fromFloatDigits d))]
+    ndarray :: T.Text -> [A.Value] -> A.Value
+    ndarray dtype vals =
+      A.object
+        [ ("__ndarray__"
+          , A.object
+              [ ("dtype",  A.String dtype)
+              , ("values", A.Array (V.fromList vals))
+              ])
+        ]
     printFailure (label, why) =
       putStrLn $ "  FAIL " ++ label ++ ": " ++ why
 

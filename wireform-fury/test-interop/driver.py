@@ -26,14 +26,28 @@ import sys
 import traceback
 from typing import Any
 
+import numpy as np
 import pyfory
 
 fory = pyfory.Fory(xlang=True, ref=False)
 
 
+_NDARRAY_DTYPES = {
+    "int8": np.int8, "int16": np.int16, "int32": np.int32, "int64": np.int64,
+    "uint8": np.uint8, "uint16": np.uint16, "uint32": np.uint32, "uint64": np.uint64,
+    "float32": np.float32, "float64": np.float64,
+    "bool": np.bool_,
+}
+
+
 def to_json_value(v: Any) -> Any:
     if isinstance(v, bool):
         return v
+    if isinstance(v, np.ndarray):
+        return {"__ndarray__": {
+            "dtype": v.dtype.name,
+            "values": [to_json_value(x.item()) for x in v],
+        }}
     if isinstance(v, float):
         return {"__float__": v}
     if isinstance(v, bytes):
@@ -72,6 +86,11 @@ def from_json_value(j: Any) -> Any:
             return base64.b64decode(j["__bytes__"].encode("ascii"))
         if set(j.keys()) == {"__float__"}:
             return float(j["__float__"])
+        if set(j.keys()) == {"__ndarray__"}:
+            spec = j["__ndarray__"]
+            dtype = _NDARRAY_DTYPES[spec["dtype"]]
+            values = [from_json_value(x) for x in spec["values"]]
+            return np.array(values, dtype=dtype)
         return {k: from_json_value(v) for k, v in j.items()}
     if isinstance(j, list):
         return [from_json_value(x) for x in j]
