@@ -794,9 +794,16 @@ enumToDecls' hooks ed = enumToDecls'' T.empty hooks ed
 enumToDecls'' :: Text -> THHooks -> EnumDef -> Q [Dec]
 enumToDecls'' pkg hooks ed = do
   let tyName = mkName (T.unpack (hsTypeName (enumName ed)))
+      -- An enum declared with @option allow_alias = true@ can
+      -- repeat wire numbers; only the FIRST occurrence of each
+      -- number becomes a distinct Haskell constructor. Aliases
+      -- are still recorded in the @ProtoEnum@ name table
+      -- ('protoEnumValues') and in the JSON parser, where they
+      -- all dispatch to the primary constructor.
+      primaryEvs = primaryValues (enumValues ed)
       cons = fmap (\ev ->
         normalC (mkName (T.unpack (hsEnumCon (enumName ed) (evName ev)))) []
-        ) (enumValues ed)
+        ) primaryEvs
       hookCtx = EnumHookCtx
         { ehcEnumDef    = ed
         , ehcScope      = [enumName ed]
@@ -813,11 +820,24 @@ enumToDecls'' pkg hooks ed = do
        , conT ''Generic
        ]]
   enumInst  <- mkEnumInstance tyName ed
-  let values = fmap (\ev ->
-        ( mkName (T.unpack (hsEnumCon (enumName ed) (evName ev)))
-        , evName ev
-        , evNumber ev
-        )) (enumValues ed)
+  let -- Map every declared enum value (alias or primary) to the
+      -- /primary/ constructor for its wire number, so that the
+      -- generated 'ProtoEnum' table and JSON parser both accept
+      -- alias names but dispatch to a single Haskell constructor.
+      primaryConByNum =
+        Map.fromList
+          [ (evNumber ev,
+             mkName (T.unpack (hsEnumCon (enumName ed) (evName ev))))
+          | ev <- primaryEvs
+          ]
+      values = fmap (\ev ->
+        let con = case Map.lookup (evNumber ev) primaryConByNum of
+              Just c  -> c
+              -- Defensive — primaryValues guarantees a primary
+              -- exists for every observed number.
+              Nothing -> mkName (T.unpack (hsEnumCon (enumName ed) (evName ev)))
+        in (con, evName ev, evNumber ev)
+        ) (enumValues ed)
       fqEnumName = if T.null pkg
                    then enumName ed
                    else pkg <> T.singleton '.' <> enumName ed
@@ -866,14 +886,14 @@ mkEnumInstance tyName ed = do
         (ev:_) -> Clause [WildP] (NormalB (ConE (enumConName ev))) []
       toEnumDec = FunD 'toEnum (toEnumClauses <> [fallback])
 
-      -- 'fromEnum ConName -> n' clauses, one per *every* declared
-      -- value (aliases included) so users can pattern-match on any
-      -- alias and still get the right wire number.
+      -- 'fromEnum ConName -> n' clauses, one per primary
+      -- constructor. Aliases share the primary constructor in
+      -- the data declaration so they're already handled.
       fromEnumClauses =
         fmap (\ev -> Clause [ConP (enumConName ev) [] []]
                             (NormalB (LitE (IntegerL
                               (fromIntegral (evNumber ev))))) [])
-             (enumValues ed)
+             primaryByNum
       fromEnumDec = FunD 'fromEnum fromEnumClauses
   pure $ InstanceD Nothing []
            (AppT (ConT ''Enum) (ConT tyName))
@@ -881,13 +901,18 @@ mkEnumInstance tyName ed = do
   where
     enumConName ev = mkName (T.unpack (hsEnumCon (enumName ed) (evName ev)))
 
-    -- Drop later occurrences of any wire number; preserves first.
-    primaryValues = go []
-      where
-        go _    []       = []
-        go seen (ev:evs)
-          | evNumber ev `elem` seen = go seen evs
-          | otherwise               = ev : go (evNumber ev : seen) evs
+-- | Drop later occurrences of any wire number from an enum's
+-- value list; preserves the first declaration. Used by both
+-- the data-decl emitter and the 'Enum' instance to collapse
+-- @allow_alias = true@ declarations onto a single Haskell
+-- constructor per number.
+primaryValues :: [EnumValue] -> [EnumValue]
+primaryValues = go []
+  where
+    go _    []       = []
+    go seen (ev:evs)
+      | evNumber ev `elem` seen = go seen evs
+      | otherwise               = ev : go (evNumber ev : seen) evs
 
 enumHaddock :: EnumDef -> String
 enumHaddock ed =

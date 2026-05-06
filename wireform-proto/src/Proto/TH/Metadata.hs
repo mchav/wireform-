@@ -1321,10 +1321,16 @@ mkEnumAesonInstances tyName values = do
       toDec = FunD 'Aeson.toJSON toClauses
 
       -- fromJSON: \case String "FOO" -> pure ConFOO ... Number n -> ... _ -> fail
+      --
+      -- All declared names (aliases included) parse to the
+      -- corresponding /primary/ Haskell constructor — that's
+      -- what makes proto @allow_alias = true@ work end-to-end
+      -- (EnumFieldWithAliasUseAlias / DifferentCase / LowerCase
+      -- conformance tests).
       stringClauses =
         [ Match (ConP 'Aeson.String [] [LitP (StringL (T.unpack pname))])
                 (NormalB (AppE (VarE 'pure) (ConE con))) []
-        | (con, pname, _) <- primaries
+        | (con, pname, _) <- values
         ]
       nVar = mkName "n"
       numberMatch = Match (ConP 'Aeson.Number [] [VarP nVar])
