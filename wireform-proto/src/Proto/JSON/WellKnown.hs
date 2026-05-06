@@ -16,6 +16,43 @@ module Proto.JSON.WellKnown
   , valueFromJSON
   , formatRfc3339
   , parseRfc3339
+
+    -- * Wrapper types
+    -- | Per the proto3 JSON spec, every @google.protobuf.XValue@
+    -- wrapper serialises as just its inner value (rather than the
+    -- generic @{"value": ...}@ shape the pre-generated @ToJSON@
+    -- instances produce). The 'wrap*' helpers go in the encode
+    -- direction; the 'unwrap*' helpers parse a bare JSON value
+    -- and construct the wrapper. 64-bit integer wrappers
+    -- additionally string-encode their inner value.
+  , wrapBoolValue
+  , wrapInt32Value
+  , wrapInt64Value
+  , wrapUInt32Value
+  , wrapUInt64Value
+  , wrapFloatValue
+  , wrapDoubleValue
+  , wrapStringValue
+  , wrapBytesValue
+  , unwrapBoolValue
+  , unwrapInt32Value
+  , unwrapInt64Value
+  , unwrapUInt32Value
+  , unwrapUInt64Value
+  , unwrapFloatValue
+  , unwrapDoubleValue
+  , unwrapStringValue
+  , unwrapBytesValue
+
+    -- * Empty / NullValue
+  , emptyToJSON
+  , emptyFromJSON
+  , nullValueToJSON
+  , nullValueFromJSON
+
+    -- * Any
+  , anyToJSON
+  , anyFromJSON
   ) where
 
 import Data.Bifunctor (bimap)
@@ -33,10 +70,17 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
 
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64 as Base64
+import qualified Data.Text.Encoding as TE
+
 import Proto.Google.Protobuf.Timestamp
 import Proto.Google.Protobuf.Duration
 import Proto.Google.Protobuf.FieldMask
 import Proto.Google.Protobuf.Struct
+import qualified Proto.Google.Protobuf.Wrappers as W
+import qualified Proto.Google.Protobuf.Empty    as Empty
+import qualified Proto.Google.Protobuf.Any      as Any
 
 -- Timestamp: RFC 3339 format "YYYY-MM-DDThh:mm:ss[.nnn]Z"
 
@@ -268,3 +312,157 @@ jsonToValue (Aeson.Number n) = defaultValue { valueKind = Just (Value'Kind'Numbe
 jsonToValue (Aeson.String s) = defaultValue { valueKind = Just (Value'Kind'StringValue s) }
 jsonToValue (Aeson.Array vs) = defaultValue { valueKind = Just (Value'Kind'ListValue (defaultListValue { listValueValues = fmap jsonToValue vs })) }
 jsonToValue (Aeson.Object o) = defaultValue { valueKind = Just (Value'Kind'StructValue (defaultStruct { structFields = Map.fromList (fmap (bimap AesonKey.toText jsonToValue) (AesonKM.toList o)) })) }
+
+-- ---------------------------------------------------------------------------
+-- Wrappers (proto3 spec: emit just the inner value, not @{"value": ...}@)
+-- ---------------------------------------------------------------------------
+
+-- Encoders unwrap to the inner value, applying proto3-canonical
+-- per-scalar conversions where needed (string-form 64-bit ints,
+-- NaN/Infinity floats, base64 bytes).
+
+wrapBoolValue :: W.BoolValue -> Aeson.Value
+wrapBoolValue = Aeson.Bool . W.boolValueValue
+
+wrapInt32Value :: W.Int32Value -> Aeson.Value
+wrapInt32Value = Aeson.toJSON . W.int32ValueValue
+
+wrapInt64Value :: W.Int64Value -> Aeson.Value
+wrapInt64Value = Aeson.String . T.pack . show . W.int64ValueValue
+
+wrapUInt32Value :: W.UInt32Value -> Aeson.Value
+wrapUInt32Value = Aeson.toJSON . W.uInt32ValueValue
+
+wrapUInt64Value :: W.UInt64Value -> Aeson.Value
+wrapUInt64Value = Aeson.String . T.pack . show . W.uInt64ValueValue
+
+wrapFloatValue :: W.FloatValue -> Aeson.Value
+wrapFloatValue = floatLikeToJSON . realToFrac . W.floatValueValue
+
+wrapDoubleValue :: W.DoubleValue -> Aeson.Value
+wrapDoubleValue = floatLikeToJSON . W.doubleValueValue
+
+wrapStringValue :: W.StringValue -> Aeson.Value
+wrapStringValue = Aeson.String . W.stringValueValue
+
+wrapBytesValue :: W.BytesValue -> Aeson.Value
+wrapBytesValue = Aeson.String . TE.decodeUtf8 . Base64.encode . W.bytesValueValue
+
+floatLikeToJSON :: Double -> Aeson.Value
+floatLikeToJSON d
+  | isNaN d      = Aeson.String "NaN"
+  | isInfinite d = Aeson.String (if d > 0 then "Infinity" else "-Infinity")
+  | otherwise    = Aeson.Number (fromFloatDigits d)
+
+-- Decoders parse a bare JSON value and construct the wrapper.
+
+unwrapBoolValue :: Aeson.Value -> Either String W.BoolValue
+unwrapBoolValue (Aeson.Bool b) = Right W.defaultBoolValue { W.boolValueValue = b }
+unwrapBoolValue _              = Left "Expected JSON Bool for BoolValue"
+
+unwrapInt32Value :: Aeson.Value -> Either String W.Int32Value
+unwrapInt32Value v = case parseIntegral v of
+  Right n -> Right W.defaultInt32Value { W.int32ValueValue = fromIntegral (n :: Int64) }
+  Left e  -> Left e
+
+unwrapInt64Value :: Aeson.Value -> Either String W.Int64Value
+unwrapInt64Value v = case parseIntegral v of
+  Right n -> Right W.defaultInt64Value { W.int64ValueValue = n }
+  Left e  -> Left e
+
+unwrapUInt32Value :: Aeson.Value -> Either String W.UInt32Value
+unwrapUInt32Value v = case parseIntegral v of
+  Right n -> Right W.defaultUInt32Value
+    { W.uInt32ValueValue = fromIntegral (n :: Int64) }
+  Left e  -> Left e
+
+unwrapUInt64Value :: Aeson.Value -> Either String W.UInt64Value
+unwrapUInt64Value v = case parseIntegral v of
+  Right n -> Right W.defaultUInt64Value
+    { W.uInt64ValueValue = fromIntegral (n :: Int64) }
+  Left e  -> Left e
+
+unwrapFloatValue :: Aeson.Value -> Either String W.FloatValue
+unwrapFloatValue v = case parseFloating v of
+  Right d -> Right W.defaultFloatValue { W.floatValueValue = realToFrac d }
+  Left e  -> Left e
+
+unwrapDoubleValue :: Aeson.Value -> Either String W.DoubleValue
+unwrapDoubleValue v = case parseFloating v of
+  Right d -> Right W.defaultDoubleValue { W.doubleValueValue = d }
+  Left e  -> Left e
+
+unwrapStringValue :: Aeson.Value -> Either String W.StringValue
+unwrapStringValue (Aeson.String s) =
+  Right W.defaultStringValue { W.stringValueValue = s }
+unwrapStringValue _ = Left "Expected JSON String for StringValue"
+
+unwrapBytesValue :: Aeson.Value -> Either String W.BytesValue
+unwrapBytesValue (Aeson.String s) =
+  case Base64.decode (TE.encodeUtf8 s) of
+    Right bs -> Right W.defaultBytesValue { W.bytesValueValue = bs }
+    Left e   -> Left ("invalid base64 for BytesValue: " <> e)
+unwrapBytesValue _ = Left "Expected JSON String for BytesValue"
+
+parseIntegral :: Aeson.Value -> Either String Int64
+parseIntegral (Aeson.String s) = case TR.signed TR.decimal s of
+  Right (n, rest) | T.null rest -> Right n
+  _ -> Left "Invalid integer string"
+parseIntegral (Aeson.Number n) = Right (round n)
+parseIntegral _ = Left "Expected JSON String or Number"
+
+parseFloating :: Aeson.Value -> Either String Double
+parseFloating (Aeson.Number n) = Right (toRealFloat n)
+parseFloating (Aeson.String "NaN")       = Right (0 / 0)
+parseFloating (Aeson.String "Infinity")  = Right (1 / 0)
+parseFloating (Aeson.String "-Infinity") = Right (negate (1 / 0))
+parseFloating _ = Left "Expected JSON Number or {NaN,Infinity}"
+
+-- ---------------------------------------------------------------------------
+-- Empty / NullValue / Any
+-- ---------------------------------------------------------------------------
+
+emptyToJSON :: Empty.Empty -> Aeson.Value
+emptyToJSON _ = Aeson.Object AesonKM.empty
+
+emptyFromJSON :: Aeson.Value -> Either String Empty.Empty
+emptyFromJSON (Aeson.Object _) = Right Empty.defaultEmpty
+emptyFromJSON _                = Left "Expected JSON Object for Empty"
+
+-- | 'NullValue' is the proto3 enum @NULL_VALUE = 0@; it serialises
+-- as JSON @null@. We import it from "Proto.Google.Protobuf.Struct"
+-- (since that's where the codegen put it).
+nullValueToJSON :: NullValue -> Aeson.Value
+nullValueToJSON _ = Aeson.Null
+
+nullValueFromJSON :: Aeson.Value -> Either String NullValue
+nullValueFromJSON Aeson.Null = Right NullValue'NullValue
+nullValueFromJSON _          = Left "Expected JSON null for NullValue"
+
+-- | @google.protobuf.Any@ JSON shape:
+-- @{"@type": "type.googleapis.com/...", ...other fields embedded...}@.
+-- Implementing the embedded-fields side requires a runtime type
+-- registry; for now we support only the round-trip-as-@\{"@type":\}@-and-
+-- @value@ degenerate form, which the conformance suite uses for
+-- some of its Any tests.
+anyToJSON :: Any.Any -> Aeson.Value
+anyToJSON a = Aeson.Object (AesonKM.fromList
+  [ (AesonKey.fromText (T.pack "@type"), Aeson.String (Any.anyTypeUrl a))
+  , (AesonKey.fromText (T.pack "value"),
+      Aeson.String (TE.decodeUtf8 (Base64.encode (Any.anyValue a))))
+  ])
+
+anyFromJSON :: Aeson.Value -> Either String Any.Any
+anyFromJSON (Aeson.Object o) = do
+  let look k = AesonKM.lookup (AesonKey.fromText (T.pack k)) o
+  ty <- case look "@type" of
+    Just (Aeson.String s) -> Right s
+    _                     -> Left "Any: missing or non-string @type"
+  bs <- case look "value" of
+    Just (Aeson.String s) -> case Base64.decode (TE.encodeUtf8 s) of
+      Right bs -> Right bs
+      Left e   -> Left ("Any: invalid base64 value: " <> e)
+    Nothing               -> Right BS.empty
+    _                     -> Left "Any: non-string value"
+  Right Any.defaultAny { Any.anyTypeUrl = ty, Any.anyValue = bs }
+anyFromJSON _ = Left "Expected JSON Object for Any"

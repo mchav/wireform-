@@ -43,6 +43,7 @@ module Proto.TH.Metadata
   , JsonScalar (..)
   , OneofVariantJson (..)
   , OneofValueShape (..)
+  , WktShape (..)
 
     -- * Internal helpers used by spliced code
     -- | Re-exported so the splice doesn't have to qualify them
@@ -78,6 +79,14 @@ import qualified Proto.JSON as PJI
 import Language.Haskell.TH
 
 import qualified Proto.JSON as PJ
+import qualified Proto.JSON.WellKnown as WK
+import qualified Proto.Google.Protobuf.Any
+import qualified Proto.Google.Protobuf.Duration
+import qualified Proto.Google.Protobuf.Empty
+import qualified Proto.Google.Protobuf.FieldMask
+import qualified Proto.Google.Protobuf.Struct as PGS
+import qualified Proto.Google.Protobuf.Timestamp
+import qualified Proto.Google.Protobuf.Wrappers
 import qualified Proto.Schema as PS
 
 -- ---------------------------------------------------------------------------
@@ -143,6 +152,35 @@ data JsonShape
   | JSOneof     ![OneofVariantJson]  -- ^ Oneof carrier — emit at most
                                      --   one entry under the chosen
                                      --   variant's JSON key.
+  | JSWkt       !WktShape             -- ^ Singular WKT field — route
+                                     --   through "Proto.JSON.WellKnown".
+  | JSWktMaybe  !WktShape             -- ^ @Maybe Wkt@: skip Nothing.
+  | JSWktRepeated !WktShape           -- ^ @Vector Wkt@: skip empty.
+
+-- | Identifies which Well-Known-Type a field carries, so the JSON
+-- splice can dispatch to the right helper in
+-- "Proto.JSON.WellKnown" (rather than the generic
+-- @Aeson.toJSON@ which doesn't match proto3 canonical JSON).
+data WktShape
+  = WktTimestamp
+  | WktDuration
+  | WktFieldMask
+  | WktStruct
+  | WktValue
+  | WktListValue
+  | WktAny
+  | WktEmpty
+  | WktNullValue
+  | WktWrapBool
+  | WktWrapInt32
+  | WktWrapInt64
+  | WktWrapUInt32
+  | WktWrapUInt64
+  | WktWrapFloat
+  | WktWrapDouble
+  | WktWrapString
+  | WktWrapBytes
+  deriving stock (Eq, Show)
 
 -- | Per-scalar JSON shape. Each constructor names enough about the
 -- proto type to pick the right canonical-form encoder / parser
@@ -422,6 +460,75 @@ jsonShapeEntry _msgVar mf fieldExpr jsonKey one = case mfJsonShape mf of
                 (NormalB (CaseE (VarE mVar) arms)) []
     pure (CaseE fieldExpr [nothingArm, justArm])
 
+  -- WKT singular: emit the canonical-JSON representation. The
+  -- carrier is @Maybe Wkt@; we skip when Nothing (the proto3
+  -- spec convention for absent submessages).
+  JSWkt wktKind -> do
+    vName <- newName "v"
+    [| case $(pure fieldExpr) of
+         Nothing -> []
+         Just $(varP vName) ->
+           [($(pure jsonKey), $(wktEncoderE wktKind (VarE vName)))] |]
+  JSWktMaybe wktKind -> do
+    vName <- newName "v"
+    [| case $(pure fieldExpr) of
+         Nothing -> []
+         Just $(varP vName) ->
+           [($(pure jsonKey), $(wktEncoderE wktKind (VarE vName)))] |]
+  JSWktRepeated wktKind -> do
+    [| if V.null $(pure fieldExpr)
+       then []
+       else [($(pure jsonKey),
+               Aeson.Array (V.map $(wktEncoderE1 wktKind)
+                                  $(pure fieldExpr)))] |]
+
+-- | Splice for one WKT value: returns an @Aeson.Value@.
+wktEncoderE :: WktShape -> Exp -> Q Exp
+wktEncoderE wkt e = case wkt of
+  WktTimestamp -> [| WK.timestampToJSON $(pure e) |]
+  WktDuration  -> [| WK.durationToJSON  $(pure e) |]
+  WktFieldMask -> [| WK.fieldMaskToJSON $(pure e) |]
+  WktStruct    -> [| WK.structToJSON    $(pure e) |]
+  WktValue     -> [| WK.valueToJSON     $(pure e) |]
+  WktListValue -> [| Aeson.Array (V.map WK.valueToJSON
+                                       (PGS.listValueValues $(pure e))) |]
+  WktAny       -> [| WK.anyToJSON       $(pure e) |]
+  WktEmpty     -> [| WK.emptyToJSON     $(pure e) |]
+  WktNullValue -> [| WK.nullValueToJSON $(pure e) |]
+  WktWrapBool   -> [| WK.wrapBoolValue   $(pure e) |]
+  WktWrapInt32  -> [| WK.wrapInt32Value  $(pure e) |]
+  WktWrapInt64  -> [| WK.wrapInt64Value  $(pure e) |]
+  WktWrapUInt32 -> [| WK.wrapUInt32Value $(pure e) |]
+  WktWrapUInt64 -> [| WK.wrapUInt64Value $(pure e) |]
+  WktWrapFloat  -> [| WK.wrapFloatValue  $(pure e) |]
+  WktWrapDouble -> [| WK.wrapDoubleValue $(pure e) |]
+  WktWrapString -> [| WK.wrapStringValue $(pure e) |]
+  WktWrapBytes  -> [| WK.wrapBytesValue  $(pure e) |]
+
+-- | Pointful-style encoder for a single WKT value, used inside
+-- @V.map@ for repeated WKT fields.
+wktEncoderE1 :: WktShape -> Q Exp
+wktEncoderE1 wkt = case wkt of
+  WktTimestamp -> [| WK.timestampToJSON |]
+  WktDuration  -> [| WK.durationToJSON  |]
+  WktFieldMask -> [| WK.fieldMaskToJSON |]
+  WktStruct    -> [| WK.structToJSON    |]
+  WktValue     -> [| WK.valueToJSON     |]
+  WktListValue -> [| (\lv -> Aeson.Array (V.map WK.valueToJSON
+                                               (PGS.listValueValues lv))) |]
+  WktAny       -> [| WK.anyToJSON       |]
+  WktEmpty     -> [| WK.emptyToJSON     |]
+  WktNullValue -> [| WK.nullValueToJSON |]
+  WktWrapBool   -> [| WK.wrapBoolValue   |]
+  WktWrapInt32  -> [| WK.wrapInt32Value  |]
+  WktWrapInt64  -> [| WK.wrapInt64Value  |]
+  WktWrapUInt32 -> [| WK.wrapUInt32Value |]
+  WktWrapUInt64 -> [| WK.wrapUInt64Value |]
+  WktWrapFloat  -> [| WK.wrapFloatValue  |]
+  WktWrapDouble -> [| WK.wrapDoubleValue |]
+  WktWrapString -> [| WK.wrapStringValue |]
+  WktWrapBytes  -> [| WK.wrapBytesValue  |]
+
 -- | One arm of the oneof carrier's case-on-Just.
 oneofVariantArm :: OneofVariantJson -> Q Match
 oneofVariantArm OneofVariantJson{ovjConstructor=con, ovjJsonKey=key, ovjShape=sh} = do
@@ -515,6 +622,13 @@ parseBindStmt objVar mf fldVar =
         JKBytesVector -> VarE 'parseBytesVectorMaybe
         JKBytesList   -> VarE 'parseBytesListMaybe
         JKNormal      -> case mfJsonShape mf of
+          -- WKT singular: dispatch through proto3-canonical
+          -- parser (RFC 3339 timestamps, "1.5s" durations,
+          -- bare-value wrappers, etc.). The parser fails when
+          -- the JSON shape doesn't match the WKT contract.
+          JSWkt      w -> wktParserName w
+          JSWktMaybe w -> wktParserName w
+          JSWktRepeated w -> wktVectorParserName w
           -- 64-bit ints come in as JSON strings per proto3 canonical
           -- spec; route them through the dedicated parser.
           JSScalar JSInt64    -> VarE 'parseInt64FieldMaybe
@@ -559,6 +673,217 @@ parseScalarFieldMaybe parser obj key = do
     Nothing                 -> pure Nothing
     Just Aeson.Null         -> pure Nothing
     Just v                  -> Just <$> parser v
+
+-- ---------------------------------------------------------------------------
+-- WKT parser splice helpers
+-- ---------------------------------------------------------------------------
+
+-- | Per-WKT 'parseFieldMaybe' helper name. Each helper parses
+-- @Maybe a@ from the JSON object key, applying the WKT's
+-- proto3-canonical parser to the raw 'Aeson.Value'.
+wktParserName :: WktShape -> Exp
+wktParserName w = case w of
+  WktTimestamp  -> VarE 'parseTimestampMaybe
+  WktDuration   -> VarE 'parseDurationMaybe
+  WktFieldMask  -> VarE 'parseFieldMaskMaybe
+  WktStruct     -> VarE 'parseStructMaybe
+  WktValue      -> VarE 'parseValueMaybe
+  WktListValue  -> VarE 'parseListValueMaybe
+  WktAny        -> VarE 'parseAnyMaybe
+  WktEmpty      -> VarE 'parseEmptyMaybe
+  WktNullValue  -> VarE 'parseNullValueMaybe
+  WktWrapBool   -> VarE 'parseBoolWrapperMaybe
+  WktWrapInt32  -> VarE 'parseInt32WrapperMaybe
+  WktWrapInt64  -> VarE 'parseInt64WrapperMaybe
+  WktWrapUInt32 -> VarE 'parseUInt32WrapperMaybe
+  WktWrapUInt64 -> VarE 'parseUInt64WrapperMaybe
+  WktWrapFloat  -> VarE 'parseFloatWrapperMaybe
+  WktWrapDouble -> VarE 'parseDoubleWrapperMaybe
+  WktWrapString -> VarE 'parseStringWrapperMaybe
+  WktWrapBytes  -> VarE 'parseBytesWrapperMaybe
+
+-- | Per-WKT @Maybe (Vector a)@ parser name for repeated fields.
+wktVectorParserName :: WktShape -> Exp
+wktVectorParserName w = case w of
+  WktTimestamp  -> VarE 'parseTimestampVectorMaybe
+  WktDuration   -> VarE 'parseDurationVectorMaybe
+  WktFieldMask  -> VarE 'parseFieldMaskVectorMaybe
+  WktStruct     -> VarE 'parseStructVectorMaybe
+  WktValue      -> VarE 'parseValueVectorMaybe
+  WktListValue  -> VarE 'parseListValueVectorMaybe
+  WktAny        -> VarE 'parseAnyVectorMaybe
+  WktEmpty      -> VarE 'parseEmptyVectorMaybe
+  WktNullValue  -> VarE 'parseNullValueVectorMaybe
+  WktWrapBool   -> VarE 'parseBoolWrapperVectorMaybe
+  WktWrapInt32  -> VarE 'parseInt32WrapperVectorMaybe
+  WktWrapInt64  -> VarE 'parseInt64WrapperVectorMaybe
+  WktWrapUInt32 -> VarE 'parseUInt32WrapperVectorMaybe
+  WktWrapUInt64 -> VarE 'parseUInt64WrapperVectorMaybe
+  WktWrapFloat  -> VarE 'parseFloatWrapperVectorMaybe
+  WktWrapDouble -> VarE 'parseDoubleWrapperVectorMaybe
+  WktWrapString -> VarE 'parseStringWrapperVectorMaybe
+  WktWrapBytes  -> VarE 'parseBytesWrapperVectorMaybe
+
+-- ---------------------------------------------------------------------------
+-- WKT parsers (singular)
+-- ---------------------------------------------------------------------------
+
+parseTimestampMaybe :: Aeson.Object -> Text
+                    -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Timestamp.Timestamp))
+parseTimestampMaybe = parseWktMaybe WK.timestampFromJSON
+
+parseDurationMaybe :: Aeson.Object -> Text
+                   -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Duration.Duration))
+parseDurationMaybe = parseWktMaybe WK.durationFromJSON
+
+parseFieldMaskMaybe :: Aeson.Object -> Text
+                    -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.FieldMask.FieldMask))
+parseFieldMaskMaybe = parseWktMaybe WK.fieldMaskFromJSON
+
+parseStructMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe PGS.Struct))
+parseStructMaybe = parseWktMaybe WK.structFromJSON
+
+parseValueMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe PGS.Value))
+parseValueMaybe = parseWktMaybe WK.valueFromJSON
+
+parseListValueMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe PGS.ListValue))
+parseListValueMaybe obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing                 -> pure Nothing
+    Just Aeson.Null         -> pure (Just Nothing)
+    Just (Aeson.Array vs)   ->
+      let !items = V.map jsonToValueViaWk vs
+      in pure (Just (Just PGS.defaultListValue { PGS.listValueValues = items }))
+    Just _                  ->
+      fail "Expected JSON array for ListValue"
+  where
+    jsonToValueViaWk v = case WK.valueFromJSON v of
+      Right val -> val
+      Left _    -> PGS.defaultValue
+
+parseAnyMaybe :: Aeson.Object -> Text
+              -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Any.Any))
+parseAnyMaybe = parseWktMaybe WK.anyFromJSON
+
+parseEmptyMaybe :: Aeson.Object -> Text
+                -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Empty.Empty))
+parseEmptyMaybe = parseWktMaybe WK.emptyFromJSON
+
+parseNullValueMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe PGS.NullValue))
+parseNullValueMaybe = parseWktMaybe WK.nullValueFromJSON
+
+parseBoolWrapperMaybe   :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Wrappers.BoolValue))
+parseBoolWrapperMaybe   = parseWktMaybe WK.unwrapBoolValue
+parseInt32WrapperMaybe  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Wrappers.Int32Value))
+parseInt32WrapperMaybe  = parseWktMaybe WK.unwrapInt32Value
+parseInt64WrapperMaybe  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Wrappers.Int64Value))
+parseInt64WrapperMaybe  = parseWktMaybe WK.unwrapInt64Value
+parseUInt32WrapperMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Wrappers.UInt32Value))
+parseUInt32WrapperMaybe = parseWktMaybe WK.unwrapUInt32Value
+parseUInt64WrapperMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Wrappers.UInt64Value))
+parseUInt64WrapperMaybe = parseWktMaybe WK.unwrapUInt64Value
+parseFloatWrapperMaybe  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Wrappers.FloatValue))
+parseFloatWrapperMaybe  = parseWktMaybe WK.unwrapFloatValue
+parseDoubleWrapperMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Wrappers.DoubleValue))
+parseDoubleWrapperMaybe = parseWktMaybe WK.unwrapDoubleValue
+parseStringWrapperMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Wrappers.StringValue))
+parseStringWrapperMaybe = parseWktMaybe WK.unwrapStringValue
+parseBytesWrapperMaybe  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Wrappers.BytesValue))
+parseBytesWrapperMaybe  = parseWktMaybe WK.unwrapBytesValue
+
+-- | Generic helper: parse @Maybe (Maybe a)@ via a per-WKT
+-- @Aeson.Value -> Either String a@ helper.
+--
+-- The outer 'Maybe' is the parser-success indicator — 'Nothing'
+-- when the JSON object doesn't contain the key. The inner 'Maybe'
+-- mirrors the singular-WKT field's type (since 'loadProto' wraps
+-- singular submessage fields in 'Maybe' per the proto3 implicit-
+-- optional convention). When the JSON has the key with value
+-- @null@ we report @Just Nothing@ (the field was set to absent
+-- explicitly); otherwise we run the parser and report
+-- @Just (Just x)@.
+parseWktMaybe
+  :: (Aeson.Value -> Either String a)
+  -> Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe a))
+parseWktMaybe parser obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing                 -> pure Nothing
+    Just Aeson.Null         -> pure (Just Nothing)
+    Just v                  -> case parser v of
+      Right a -> pure (Just (Just a))
+      Left e  -> fail e
+
+-- ---------------------------------------------------------------------------
+-- WKT vector parsers (repeated fields)
+-- ---------------------------------------------------------------------------
+
+parseTimestampVectorMaybe   :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Timestamp.Timestamp))
+parseTimestampVectorMaybe   = parseWktVectorMaybe WK.timestampFromJSON
+parseDurationVectorMaybe    :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Duration.Duration))
+parseDurationVectorMaybe    = parseWktVectorMaybe WK.durationFromJSON
+parseFieldMaskVectorMaybe   :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.FieldMask.FieldMask))
+parseFieldMaskVectorMaybe   = parseWktVectorMaybe WK.fieldMaskFromJSON
+parseStructVectorMaybe      :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector PGS.Struct))
+parseStructVectorMaybe      = parseWktVectorMaybe WK.structFromJSON
+parseValueVectorMaybe       :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector PGS.Value))
+parseValueVectorMaybe       = parseWktVectorMaybe WK.valueFromJSON
+parseListValueVectorMaybe   :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector PGS.ListValue))
+parseListValueVectorMaybe   obj key = do
+  -- repeated ListValue is unusual; just fall back to per-element
+  -- parsing using the same helper that handles a singular ListValue.
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing                 -> pure Nothing
+    Just Aeson.Null         -> pure Nothing
+    Just (Aeson.Array vs)   ->
+      let !lvs = V.map (\v -> case v of
+            Aeson.Array inner ->
+              PGS.defaultListValue
+                { PGS.listValueValues =
+                    V.map (either (const PGS.defaultValue) id . WK.valueFromJSON)
+                          inner }
+            _ -> PGS.defaultListValue) vs
+      in pure (Just lvs)
+    Just _                  -> fail "Expected JSON array for repeated ListValue"
+parseAnyVectorMaybe         :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Any.Any))
+parseAnyVectorMaybe         = parseWktVectorMaybe WK.anyFromJSON
+parseEmptyVectorMaybe       :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Empty.Empty))
+parseEmptyVectorMaybe       = parseWktVectorMaybe WK.emptyFromJSON
+parseNullValueVectorMaybe   :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector PGS.NullValue))
+parseNullValueVectorMaybe   = parseWktVectorMaybe WK.nullValueFromJSON
+
+parseBoolWrapperVectorMaybe   :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Wrappers.BoolValue))
+parseBoolWrapperVectorMaybe   = parseWktVectorMaybe WK.unwrapBoolValue
+parseInt32WrapperVectorMaybe  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Wrappers.Int32Value))
+parseInt32WrapperVectorMaybe  = parseWktVectorMaybe WK.unwrapInt32Value
+parseInt64WrapperVectorMaybe  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Wrappers.Int64Value))
+parseInt64WrapperVectorMaybe  = parseWktVectorMaybe WK.unwrapInt64Value
+parseUInt32WrapperVectorMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Wrappers.UInt32Value))
+parseUInt32WrapperVectorMaybe = parseWktVectorMaybe WK.unwrapUInt32Value
+parseUInt64WrapperVectorMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Wrappers.UInt64Value))
+parseUInt64WrapperVectorMaybe = parseWktVectorMaybe WK.unwrapUInt64Value
+parseFloatWrapperVectorMaybe  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Wrappers.FloatValue))
+parseFloatWrapperVectorMaybe  = parseWktVectorMaybe WK.unwrapFloatValue
+parseDoubleWrapperVectorMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Wrappers.DoubleValue))
+parseDoubleWrapperVectorMaybe = parseWktVectorMaybe WK.unwrapDoubleValue
+parseStringWrapperVectorMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Wrappers.StringValue))
+parseStringWrapperVectorMaybe = parseWktVectorMaybe WK.unwrapStringValue
+parseBytesWrapperVectorMaybe  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Wrappers.BytesValue))
+parseBytesWrapperVectorMaybe  = parseWktVectorMaybe WK.unwrapBytesValue
+
+parseWktVectorMaybe
+  :: (Aeson.Value -> Either String a)
+  -> Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector a))
+parseWktVectorMaybe parser obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing                 -> pure Nothing
+    Just Aeson.Null         -> pure Nothing
+    Just (Aeson.Array vs)   ->
+      either fail (pure . Just . V.fromList) (traverse parser (V.toList vs))
+    Just _                  -> fail "Expected JSON array for repeated WKT field"
 
 fromJSONAssign :: Name -> MetaField -> Name -> (Name, Exp)
 fromJSONAssign defName mf fldVar =

@@ -51,6 +51,34 @@ import Data.Text (Text)
 import Data.Word (Word32, Word64)
 import GHC.Generics (Generic)
 
+-- The WKT splice paths in the test_messages_proto3.proto file
+-- reference @Proto.Google.Protobuf.X@ types; those modules must
+-- be in scope at the call site for GHC's renamer to resolve the
+-- spliced 'ConT' references. We bring them in unqualified so the
+-- spliced ConT names ('Proto.Google.Protobuf.Timestamp.Timestamp'
+-- etc., as constructed by 'Proto.TH.lookupWkt') resolve.
+import Proto.Google.Protobuf.Any       (Any)
+import Proto.Google.Protobuf.Duration  (Duration)
+import Proto.Google.Protobuf.Empty     (Empty)
+import Proto.Google.Protobuf.FieldMask (FieldMask)
+import Proto.Google.Protobuf.Struct
+  ( Struct, Value, ListValue, NullValue (..) )
+import Proto.Google.Protobuf.Timestamp (Timestamp)
+import Proto.Google.Protobuf.Wrappers
+  ( BoolValue, Int32Value, Int64Value, UInt32Value, UInt64Value
+  , FloatValue, DoubleValue, StringValue, BytesValue
+  )
+
+-- Reference the imported types to keep GHC from stripping them
+-- when -Wunused-imports is on.
+_keepWkts
+  :: ( Any, Duration, Empty, FieldMask, Struct, Value, ListValue
+     , NullValue, Timestamp
+     , BoolValue, Int32Value, Int64Value, UInt32Value, UInt64Value
+     , FloatValue, DoubleValue, StringValue, BytesValue
+     ) -> ()
+_keepWkts _ = ()
+
 -- The wire protocol the upstream conformance_test_runner uses.
 $(loadProto "test-conformance/protos/conformance.proto")
 

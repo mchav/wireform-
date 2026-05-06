@@ -580,7 +580,51 @@ fieldTypeInnerQWithRep rep = \case
   FTScalar SString -> stringTypeQ (frString rep)
   FTScalar SBytes  -> bytesTypeQ (frBytes rep)
   FTScalar s       -> scalarToTH s
-  FTNamed n        -> conT (mkName (T.unpack (hsTypeName n)))
+  FTNamed n
+    | Just (tyN, _) <- lookupWkt n -> conT tyN
+    | otherwise                    -> conT (mkName (T.unpack (hsTypeName n)))
+
+-- | Well-Known-Type registry. Maps a fully-qualified proto name
+-- (@google.protobuf.Timestamp@) to the splice 'Name' of the
+-- pre-generated Haskell type plus the splice 'Name' of its
+-- @default<TypeName>@ value. Routes 'loadProto' through these
+-- existing modules whenever a @.proto@ file references a WKT
+-- (which @loadProto@ doesn't yet follow imports for).
+--
+-- Adding a WKT is a one-line entry here plus an import of the
+-- corresponding pre-generated module from any consumer of
+-- @loadProto@ (the imports are silent because the @ConT@ name we
+-- spit out resolves at GHC's renamer phase, not at TH-splice
+-- time, so consumers just have to make sure the module is in
+-- scope at the call site).
+lookupWkt :: Text -> Maybe (Name, Name)
+lookupWkt n = case T.unpack n of
+  -- Single-message WKTs.
+  "google.protobuf.Timestamp"   -> Just (mkPGP "Timestamp" "Timestamp",   defPGP "Timestamp" "Timestamp")
+  "google.protobuf.Duration"    -> Just (mkPGP "Duration"  "Duration",    defPGP "Duration"  "Duration")
+  "google.protobuf.Empty"       -> Just (mkPGP "Empty"     "Empty",       defPGP "Empty"     "Empty")
+  "google.protobuf.FieldMask"   -> Just (mkPGP "FieldMask" "FieldMask",   defPGP "FieldMask" "FieldMask")
+  "google.protobuf.Any"         -> Just (mkPGP "Any"       "Any",         defPGP "Any"       "Any")
+  "google.protobuf.Struct"      -> Just (mkPGP "Struct"    "Struct",      defPGP "Struct"    "Struct")
+  "google.protobuf.Value"       -> Just (mkPGP "Struct"    "Value",       defPGP "Struct"    "Value")
+  "google.protobuf.ListValue"   -> Just (mkPGP "Struct"    "ListValue",   defPGP "Struct"    "ListValue")
+  "google.protobuf.NullValue"   -> Just (mkPGP "Struct"    "NullValue",
+                                         -- NullValue is an enum; default is its single value.
+                                         mkName "Proto.Google.Protobuf.Struct.NullValue'NullValue")
+  -- Wrapper messages (all in Proto.Google.Protobuf.Wrappers).
+  "google.protobuf.DoubleValue" -> Just (mkPGP "Wrappers" "DoubleValue", defPGP "Wrappers" "DoubleValue")
+  "google.protobuf.FloatValue"  -> Just (mkPGP "Wrappers" "FloatValue",  defPGP "Wrappers" "FloatValue")
+  "google.protobuf.Int64Value"  -> Just (mkPGP "Wrappers" "Int64Value",  defPGP "Wrappers" "Int64Value")
+  "google.protobuf.UInt64Value" -> Just (mkPGP "Wrappers" "UInt64Value", defPGP "Wrappers" "UInt64Value")
+  "google.protobuf.Int32Value"  -> Just (mkPGP "Wrappers" "Int32Value",  defPGP "Wrappers" "Int32Value")
+  "google.protobuf.UInt32Value" -> Just (mkPGP "Wrappers" "UInt32Value", defPGP "Wrappers" "UInt32Value")
+  "google.protobuf.BoolValue"   -> Just (mkPGP "Wrappers" "BoolValue",   defPGP "Wrappers" "BoolValue")
+  "google.protobuf.StringValue" -> Just (mkPGP "Wrappers" "StringValue", defPGP "Wrappers" "StringValue")
+  "google.protobuf.BytesValue"  -> Just (mkPGP "Wrappers" "BytesValue",  defPGP "Wrappers" "BytesValue")
+  _                             -> Nothing
+  where
+    mkPGP modSuffix tyN  = mkName ("Proto.Google.Protobuf." <> modSuffix <> "." <> tyN)
+    defPGP modSuffix tyN = mkName ("Proto.Google.Protobuf." <> modSuffix <> ".default" <> tyN)
 
 stringTypeQ :: StringRep -> Q Type
 stringTypeQ = \case
@@ -1152,7 +1196,9 @@ innerHsType ft rep = case ft of
   FTScalar SDouble -> ConT ''Double
   FTScalar SFloat  -> ConT ''Float
   FTScalar SBool   -> ConT ''Bool
-  FTNamed n        -> ConT (mkName (T.unpack (hsTypeName n)))
+  FTNamed n
+    | Just (tyN, _) <- lookupWkt n -> ConT tyN
+    | otherwise                    -> ConT (mkName (T.unpack (hsTypeName n)))
 
 stringHsType :: StringRep -> Type
 stringHsType = \case
@@ -1217,14 +1263,17 @@ fieldSpecToMetaField scope parentTy fs = case fs of
         jsonShape = case (lbl, ft) of
           (Just Repeated, FTScalar s)         -> PTM.JSRepeatedScalar (jsScalarOf s)
           (Just Repeated, FTNamed n)
+            | Just w <- lookupWktShape n      -> PTM.JSWktRepeated w
             | isEnumName scope n              -> PTM.JSRepeatedEnum
             | otherwise                       -> PTM.JSRepeatedMessage
           (Just Optional, FTScalar s)         -> PTM.JSMaybe (jsScalarOf s)
           (Just Optional, FTNamed n)
+            | Just w <- lookupWktShape n      -> PTM.JSWktMaybe w
             | isEnumName scope n              -> PTM.JSEnum
             | otherwise                       -> PTM.JSMessage
           (_,             FTScalar s)         -> PTM.JSScalar (jsScalarOf s)
           (_,             FTNamed n)
+            | Just w <- lookupWktShape n      -> PTM.JSWkt w
             | isEnumName scope n              -> PTM.JSEnum
             | otherwise                       -> PTM.JSMessage
     in PTM.MetaField
@@ -1302,6 +1351,31 @@ oneofVariantJson scope parentTy _ooName (f, _rep) =
        , PTM.ovjJsonKey     = jsonKey
        , PTM.ovjShape       = shape
        }
+
+-- | Project a proto FQN to the metadata-bridge's 'WktShape' tag
+-- when the FQN names a Well-Known-Type the JSON splice has a
+-- canonical encoder for.
+lookupWktShape :: Text -> Maybe PTM.WktShape
+lookupWktShape n = case T.unpack n of
+  "google.protobuf.Timestamp"   -> Just PTM.WktTimestamp
+  "google.protobuf.Duration"    -> Just PTM.WktDuration
+  "google.protobuf.FieldMask"   -> Just PTM.WktFieldMask
+  "google.protobuf.Struct"      -> Just PTM.WktStruct
+  "google.protobuf.Value"       -> Just PTM.WktValue
+  "google.protobuf.ListValue"   -> Just PTM.WktListValue
+  "google.protobuf.Any"         -> Just PTM.WktAny
+  "google.protobuf.Empty"       -> Just PTM.WktEmpty
+  "google.protobuf.NullValue"   -> Just PTM.WktNullValue
+  "google.protobuf.BoolValue"   -> Just PTM.WktWrapBool
+  "google.protobuf.Int32Value"  -> Just PTM.WktWrapInt32
+  "google.protobuf.Int64Value"  -> Just PTM.WktWrapInt64
+  "google.protobuf.UInt32Value" -> Just PTM.WktWrapUInt32
+  "google.protobuf.UInt64Value" -> Just PTM.WktWrapUInt64
+  "google.protobuf.FloatValue"  -> Just PTM.WktWrapFloat
+  "google.protobuf.DoubleValue" -> Just PTM.WktWrapDouble
+  "google.protobuf.StringValue" -> Just PTM.WktWrapString
+  "google.protobuf.BytesValue"  -> Just PTM.WktWrapBytes
+  _                             -> Nothing
 
 -- | Project an AST 'ScalarType' onto the metadata-bridge's
 -- 'JsonScalar' tag.
