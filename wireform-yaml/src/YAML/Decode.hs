@@ -791,9 +791,20 @@ consumeFlow = go
         let !s = T.stripStart rest
         case T.uncons s of
           Nothing -> pure v'
-          Just _  -> do
-            pushLine (PLine 0 0 LContent s s)
-            pure v'
+          -- Trailing block-context indicators ('- ', ': ', '? ',
+          -- bare '-' / ':' / '?') immediately after a flow node
+          -- close are malformed (P2EQ /
+          -- invalid-block-mapping-key-on-same-line-as-previous-key).
+          Just (c, _)
+            -- Trailing block indicators or bare text on the same
+            -- line after a flow node close are malformed. Only a
+            -- ':' / ',' / ']' / '}' terminator (the surrounding
+            -- flow context's own punctuation) is acceptable here.
+            | c == ',' || c == ':' || c == ']' || c == '}' -> do
+                pushLine (PLine 0 0 LContent s s)
+                pure v'
+            | otherwise ->
+                failP $ "trailing content after flow node: " ++ show s
       ScanIncomplete -> do
         -- Read the raw next line; inside a flow node, a '#'
         -- /comment/ line is content (we already strip end-of-line
@@ -1078,7 +1089,11 @@ parseFlowPlain !p t =
       strp = T.stripEnd raw
   in if T.null strp
        then Nothing
-       else Just (resolvePlain strp, p')
+       -- A bare '-' in flow context is reserved and not a valid
+       -- plain scalar (spec §7.3.3).
+       else if strp == T.pack "-"
+              then Nothing
+              else Just (resolvePlain strp, p')
   where
     -- A plain scalar in flow context ends at any of [ , ] { } and at
     -- ":" followed by space or end-of-token.
