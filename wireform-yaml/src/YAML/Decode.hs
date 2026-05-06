@@ -633,6 +633,11 @@ parseTagged = do
         Just l2 | lineIndent l2 >= lineIndent l -> do
           v <- parseNode (lineIndent l2)
           pure (YTagged tag v)
+        Just l2 | lineKind l2 == LContent
+                , let body2 = lineBody l2
+                , isBlockScalarHeadOrProp body2 -> do
+          v <- parseNode (lineIndent l2)
+          pure (YTagged tag v)
         _ -> pure (YTagged tag YNull)
     else do
       -- Update both 'lineBody' and 'lineRawBody' so that
@@ -738,6 +743,16 @@ parseAnchored = do
 -- ('!' tag or '&' anchor) followed by separator / EOL.
 isNodePropertyLine :: Text -> Bool
 isNodePropertyLine t = case T.uncons t of
+  Just ('!', _) -> True
+  Just ('&', _) -> True
+  _             -> False
+
+-- | True when the line begins with a block-scalar header indicator
+-- ('|' / '>') or a node-property indicator.
+isBlockScalarHeadOrProp :: Text -> Bool
+isBlockScalarHeadOrProp t = case T.uncons t of
+  Just ('|', _) -> True
+  Just ('>', _) -> True
   Just ('!', _) -> True
   Just ('&', _) -> True
   _             -> False
