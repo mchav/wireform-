@@ -31,6 +31,9 @@ module YAML.Decode
 
 import Control.Monad (unless, when)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.Text.Array as TA
+import qualified Data.Text.Internal as TI
 import Data.Char (chr, digitToInt, isDigit, isHexDigit)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
@@ -2541,47 +2544,70 @@ expandTagP lno t
 -- @key: value@ split (top-level, respects quotes / brackets)
 -- ---------------------------------------------------------------------------
 
--- | Walks the line in O(n) by 'T.uncons'-ing characters one at
--- a time. Returns @Just (key, rest)@ when a top-level @':'@
--- separator is found. Avoids the O(n²) trap of repeated
--- 'T.index' on UTF-8-backed Text.
+-- | Walks the line in O(n) by reading the underlying UTF-8
+-- bytes directly. Returns @Just (key, rest)@ when a top-level
+-- @':'@ separator is found. The key/rest split is byte-position
+-- based, which coincides with the character split when the line
+-- is ASCII (the overwhelmingly common case for YAML keys).
+--
+-- For lines that contain non-ASCII multi-byte characters before
+-- the separator, we fall back to the slower char-based split so
+-- that 'T.take' / 'T.drop' produce correctly aligned slices.
 findKeyValueSplit :: Text -> Maybe (Text, Text)
-findKeyValueSplit input = go 0 0 0 0 ' ' input
+findKeyValueSplit input@(TI.Text arr off blen)
+  | blen == 0 = Nothing
+  | otherwise = goByte off 0 0 0 32
   where
-    -- Args: char index (for slicing on success), bracket depth,
-    -- brace depth, in-string flag (0/1/2), previous char,
-    -- remaining input slice.
-    go :: Int -> Int -> Int -> Int -> Char -> Text -> Maybe (Text, Text)
-    go !i !d !b !s !p !t = case T.uncons t of
-      Nothing -> Nothing
-      Just (c, t') -> case s of
-        1 -> case c of
-          '"' -> go (i + 1) d b 0 c t'
-          '\\' -> case T.uncons t' of
-            Just (_, t'') -> go (i + 2) d b 1 c t''
-            Nothing       -> go (i + 1) d b 1 c t'
-          _   -> go (i + 1) d b 1 c t'
-        2 -> case c of
-          '\'' -> go (i + 1) d b 0 c t'
-          _    -> go (i + 1) d b 2 c t'
-        _ -> case c of
-          '"' | ts -> go (i + 1) d b 1 c t'
-          '\''| ts -> go (i + 1) d b 2 c t'
-          '[' | ts || d > 0 || b > 0 -> go (i + 1) (d + 1) b s c t'
-          ']' | d > 0                -> go (i + 1) (d - 1) b s c t'
-          '{' | ts || d > 0 || b > 0 -> go (i + 1) d (b + 1) s c t'
-          '}' | b > 0                -> go (i + 1) d (b - 1) s c t'
-          '#' | ts && d == 0 && b == 0 -> Nothing
-          ':' | d == 0, b == 0 -> case T.uncons t' of
-            Nothing                  -> Just (mkSplit i, T.empty)
-            Just (n, _)
-              | n == ' ' || n == '\t' -> Just (mkSplit i, t')
-              | otherwise             -> go (i + 1) d b s c t'
-          _   -> go (i + 1) d b s c t'
-        where
-          ts = p == ' ' || p == '\t'
+    !endByte = off + blen
+    -- 'goByte' uses byte indices into the underlying TA.Array.
+    -- 'p' is the previous byte's code for atTokenStart.
+    goByte :: Int -> Int -> Int -> Int -> Int
+           -> Maybe (Text, Text)
+    goByte !i !d !b !s !p
+      | i >= endByte = Nothing
+      | otherwise =
+          let !w = TA.unsafeIndex arr i
+              !c = toEnum (fromIntegral w) :: Char
+              wi = fromIntegral w :: Int
+          in case s of
+               1 -> case c of
+                 '"'  -> goByte (i + 1) d b 0 wi
+                 '\\' | i + 1 < endByte ->
+                        goByte (i + 2) d b 1 wi
+                 _    -> goByte (i + 1) d b 1 wi
+               2 -> case c of
+                 '\'' -> goByte (i + 1) d b 0 wi
+                 _    -> goByte (i + 1) d b 2 wi
+               _ -> case c of
+                 '"'  | ts -> goByte (i + 1) d b 1 wi
+                 '\'' | ts -> goByte (i + 1) d b 2 wi
+                 '['  | ts || d > 0 || b > 0 ->
+                          goByte (i + 1) (d + 1) b s wi
+                 ']'  | d > 0 ->
+                          goByte (i + 1) (d - 1) b s wi
+                 '{'  | ts || d > 0 || b > 0 ->
+                          goByte (i + 1) d (b + 1) s wi
+                 '}'  | b > 0 ->
+                          goByte (i + 1) d (b - 1) s wi
+                 '#'  | ts && d == 0 && b == 0 -> Nothing
+                 ':'  | d == 0, b == 0 ->
+                          if i + 1 >= endByte
+                            then Just (sliceKey i, T.empty)
+                            else
+                              let n = TA.unsafeIndex arr (i + 1)
+                              in if n == 32 || n == 9
+                                   then Just ( sliceKey i
+                                             , sliceTail (i + 1) )
+                                   else goByte (i + 1) d b s wi
+                 _    -> goByte (i + 1) d b s wi
+       where
+         ts = p == 32 || p == 9
 
-    mkSplit i = unquoteKey (T.stripEnd (T.take i input))
+    -- Slice [off, i) from the underlying array (a zero-copy
+    -- Text), strip trailing ASCII whitespace, then unquote.
+    sliceKey i = unquoteKey (T.stripEnd (TI.text arr off (i - off)))
+
+    sliceTail i = TI.text arr i (endByte - i)
 {-# INLINABLE findKeyValueSplit #-}
 
 unquoteKey :: Text -> Text
