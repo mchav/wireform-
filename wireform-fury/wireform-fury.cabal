@@ -69,6 +69,7 @@ test-suite wireform-fury-test
   other-modules:
     Test.Fury.Encoding
     Test.Fury.Value
+    Test.Fury.SpecExtensions
     Test.Fury.Derive
     Test.Fury.Derive.Types
     Test.Fury.Derive.Instances
