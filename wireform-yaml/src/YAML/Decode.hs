@@ -1862,16 +1862,24 @@ skipFlowWS !p t =
 -- @-@ or starts with @- @ / @-<TAB>@.
 isSeqItem :: Text -> Bool
 isSeqItem b =
-  b == tDashStr
-  || T.isPrefixOf tDashSpace b
-  || T.isPrefixOf tDashTab   b
+  case bLen b of
+    0 -> False
+    1 -> bAt b 0 == 45                  -- '-'
+    _ -> bAt b 0 == 45
+         && let !c1 = bAt b 1
+            in c1 == w8Space || c1 == w8Tab
+{-# INLINE isSeqItem #-}
 
 -- | Same shape for the explicit-key marker @?@.
 isExplicitKey :: Text -> Bool
 isExplicitKey b =
-  b == tQuestStr
-  || T.isPrefixOf tQuestSpace b
-  || T.isPrefixOf tQuestTab   b
+  case bLen b of
+    0 -> False
+    1 -> bAt b 0 == w8Quest
+    _ -> bAt b 0 == w8Quest
+         && let !c1 = bAt b 1
+            in c1 == w8Space || c1 == w8Tab
+{-# INLINE isExplicitKey #-}
 
 parseBlockOrPlain :: PLine -> P Value
 parseBlockOrPlain l
@@ -2465,13 +2473,20 @@ parsePlainScalarAt !parentInd !inMapValue !baseIndArg firstBody = do
 
     -- Join the collected pieces; pieces that already start with a
     -- newline marker are joined with no separator.
-    joinPlain = go
+    -- Most plain scalars are a single line; short-circuit
+    -- those without building any intermediate list. For the
+    -- multi-line case build the result in one 'T.concat'
+    -- allocation rather than chaining '<>' (which is O(N^2) on
+    -- the result text).
+    joinPlain []     = T.empty
+    joinPlain [x]    = x
+    joinPlain xs     = T.concat (interleave xs)
       where
-        go []     = T.empty
-        go [x]    = x
-        go (x:y:zs)
-          | T.isPrefixOf tNL y = x <> go (y:zs)
-          | otherwise          = x <> tSpace <> go (y:zs)
+        interleave []         = []
+        interleave [x]        = [x]
+        interleave (x:y:zs)
+          | T.isPrefixOf tNL y = x : interleave (y:zs)
+          | otherwise          = x : tSpace : interleave (y:zs)
 
 -- ---------------------------------------------------------------------------
 -- Block scalars
