@@ -45,6 +45,7 @@ module Fury.Encode
   , runEncodeM
   , emit
   , emitMetaString
+  , emitMetaStringWith
   ) where
 
 import Data.Bits (shiftL, (.|.))
@@ -65,6 +66,7 @@ import Data.Word (Word8, Word16, Word32, Word64)
 
 import qualified Fury.Encoding as E
 import qualified Fury.MetaString as MS
+import qualified Fury.MetaString.Encoder as MSE
 import qualified Fury.TypeId as T
 import qualified Fury.Value as VV
 
@@ -214,8 +216,8 @@ encodeTypedPayload val = case val of
   VV.MapVal kvs    -> emitTag T.MAP     >> emitMapChunks kvs
   VV.StructVal ns nm fields -> do
     emitTag T.NAMED_STRUCT
-    emitMetaString ns
-    emitMetaString nm
+    emitMetaStringWith MSE.namespaceSpecialChars ns
+    emitMetaStringWith MSE.typenameSpecialChars  nm
     emitStructFields fields
   VV.CompatibleStructVal ns nm fields -> do
     emitTag T.NAMED_COMPATIBLE_STRUCT
@@ -387,8 +389,8 @@ encodeUntaggedPayload val = case val of
   VV.SetVal vs     -> emitCollection vs
   VV.MapVal kvs    -> emitMapChunks kvs
   VV.StructVal ns nm fields -> do
-    emitMetaString ns
-    emitMetaString nm
+    emitMetaStringWith MSE.namespaceSpecialChars ns
+    emitMetaStringWith MSE.typenameSpecialChars  nm
     emitStructFields fields
   VV.CompatibleStructVal ns nm fields -> do
     emitTypeDef ns nm fields
@@ -477,15 +479,25 @@ emitStructFields :: VV.StructFields -> EncodeM ()
 emitStructFields fields = do
   emit (E.varuint32 (fromIntegral (V.length fields) :: Word32))
   V.forM_ fields $ \(name, value) -> do
-    emitMetaString name
+    -- Field names use the namespace special chars (. _) by
+    -- convention; pyfory threads the same MetaStringEncoder
+    -- context through the TypeDef body for field names.
+    emitMetaStringWith MSE.namespaceSpecialChars name
     encodeValueSlot value
 
 -- ---------------------------------------------------------------------------
 -- Meta-string deduplication
 -- ---------------------------------------------------------------------------
 
+-- | Emit a meta-string in the namespace context (special chars
+-- @('.', '_')@). For typename context, use 'emitMetaStringWith'
+-- with 'MSE.typenameSpecialChars'.
 emitMetaString :: Text -> EncodeM ()
-emitMetaString !t = do
+emitMetaString = emitMetaStringWith MSE.namespaceSpecialChars
+
+-- | Emit a meta-string under an explicit 'SpecialChars' context.
+emitMetaStringWith :: MSE.SpecialChars -> Text -> EncodeM ()
+emitMetaStringWith sc !t = do
   s <- getState
   case HM.lookup t (esStringPool s) of
     Just rid -> emit (MS.refMetaString rid)
@@ -495,7 +507,7 @@ emitMetaString !t = do
         { esStringPool   = HM.insert t rid (esStringPool s')
         , esNextStringId = rid + 1
         }
-      emit (MS.freshMetaString t)
+      emit (MS.freshMetaString sc t)
 
 -- ---------------------------------------------------------------------------
 -- TypeDef sidecar (NAMED_COMPATIBLE_STRUCT)
@@ -547,10 +559,10 @@ typeDefBody ns nm fields = do
     else do
       emit (E.byte (fromIntegral (31 .|. registerByName)))
       emit (E.varuint32 (fromIntegral (nfRaw - 31) :: Word32))
-  emitMetaString ns
-  emitMetaString nm
+  emitMetaStringWith MSE.namespaceSpecialChars ns
+  emitMetaStringWith MSE.typenameSpecialChars  nm
   V.forM_ fields $ \(fname, fvalue) -> do
-    emitMetaString fname
+    emitMetaStringWith MSE.namespaceSpecialChars fname
     let T.TypeId tw = VV.typeIdOf fvalue
     emit (E.varuint32 (fromIntegral tw :: Word32))
 

@@ -46,6 +46,8 @@ library
     Fury.Encode
     Fury.Encoding
     Fury.MetaString
+    Fury.MetaString.Encoder
+    Fury.MetaString.Hash
     Fury.TypeId
     Fury.Value
   build-depends:
@@ -70,6 +72,7 @@ test-suite wireform-fury-test
     Test.Fury.Encoding
     Test.Fury.Value
     Test.Fury.SpecExtensions
+    Test.Fury.MetaStringInterop
     Test.Fury.Derive
     Test.Fury.Derive.Types
     Test.Fury.Derive.Instances

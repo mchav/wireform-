@@ -27,6 +27,7 @@ import Data.Word (Word8, Word16, Word32, Word64)
 
 import qualified Fury.Encoding as E
 import qualified Fury.MetaString as MS
+import qualified Fury.MetaString.Encoder as MSE
 import qualified Fury.TypeId as T
 import qualified Fury.Value as VV
 
@@ -243,8 +244,8 @@ decodePayloadFor tag = case tag of
   T.SET      -> VV.SetVal  <$> decodeCollection
   T.MAP      -> decodeMapChunks
   T.NAMED_STRUCT -> do
-    ns     <- decodeMetaString
-    typeNm <- decodeMetaString
+    ns     <- decodeMetaStringWith MSE.namespaceSpecialChars
+    typeNm <- decodeMetaStringWith MSE.typenameSpecialChars
     fields <- decodeStructFields
     pure (VV.StructVal ns typeNm fields)
   T.NAMED_COMPATIBLE_STRUCT -> decodeCompatibleStruct
@@ -412,7 +413,7 @@ decodeStructFields :: DecodeM VV.StructFields
 decodeStructFields = do
   n <- fromIntegral <$> readVaruint32D
   V.replicateM n $ do
-    name <- decodeMetaString
+    name <- decodeMetaStringWith MSE.namespaceSpecialChars
     val  <- decodeValueSlot
     pure (name, val)
 
@@ -421,7 +422,10 @@ decodeStructFields = do
 -- ---------------------------------------------------------------------------
 
 decodeMetaString :: DecodeM Text
-decodeMetaString = do
+decodeMetaString = decodeMetaStringWith MSE.namespaceSpecialChars
+
+decodeMetaStringWith :: MSE.SpecialChars -> DecodeM Text
+decodeMetaStringWith sc = do
   hdr <- liftEither MS.readMetaStringHeader
   case hdr of
     MS.MetaStringRef rid -> do
@@ -431,7 +435,7 @@ decodeMetaString = do
           "Fury.Decode.decodeMetaString: ref to unknown id " ++ show rid
         Just t  -> pure t
     MS.MetaStringFresh len -> do
-      t  <- liftEither (MS.readFreshMetaStringPayload len)
+      t  <- liftEither (MS.readFreshMetaStringPayload sc len)
       st <- getState
       let !nid = dsNextStringId st
       modifyState $ \s -> s
@@ -501,10 +505,10 @@ decodeTypeDefBody = do
   if not registered
     then failD "Fury.Decode: TypeDef without REGISTER_BY_NAME flag"
     else do
-      ns     <- decodeMetaString
-      typeNm <- decodeMetaString
+      ns     <- decodeMetaStringWith MSE.namespaceSpecialChars
+      typeNm <- decodeMetaStringWith MSE.typenameSpecialChars
       fieldNames <- V.replicateM numFields $ do
-        fname <- decodeMetaString
+        fname <- decodeMetaStringWith MSE.namespaceSpecialChars
         _typeId <- readVaruint32D
         pure fname
       pure (TypeDef ns typeNm fieldNames)
