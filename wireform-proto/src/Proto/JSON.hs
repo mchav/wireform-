@@ -76,6 +76,7 @@ import Data.Bifunctor (bimap, first)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as Base64
+import qualified Data.ByteString.Base64.URL as Base64URL
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
 import Data.Hashable (Hashable)
@@ -216,11 +217,43 @@ protoFloatFromJSON v = realToFrac <$> protoDoubleFromJSON v
 protoBytesToJSON :: ByteString -> Aeson.Value
 protoBytesToJSON bs = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
 
+-- Proto3 canonical-JSON spec: bytes use standard base64, but
+-- the receiver MUST also accept the URL-safe variant
+-- (BytesFieldBase64Url conformance test). We try standard
+-- first, then URL-safe. URL.decode pads if needed but only
+-- when input length is already a multiple of 4 internally;
+-- for \"-_\"-style 2-char inputs we manually pad first so the
+-- @decode@ entrypoint accepts them.
 protoBytesFromJSON :: Aeson.Value -> Aeson.Parser ByteString
-protoBytesFromJSON (Aeson.String s) = case Base64.decode (TE.encodeUtf8 s) of
-  Right bs -> pure bs
-  Left err -> fail ("Invalid base64 bytes: " <> err)
+protoBytesFromJSON (Aeson.String s) =
+  let bs = TE.encodeUtf8 s
+  in case Base64.decode bs of
+       Right out -> pure out
+       -- Standard base64 failed; if the input is plausibly
+       -- base64url (no '+' or '/'), retry via the lenient
+       -- URL decoder which tolerates unpadded inputs and
+       -- the non-canonical trailing pad bits the conformance
+       -- BytesFieldBase64Url test sends ("-_").
+       Left err
+         | looksLikeBase64Url bs ->
+             pure (Base64URL.decodeLenient bs)
+         | otherwise -> fail ("Invalid base64 bytes: " <> err)
 protoBytesFromJSON _ = fail "Expected base64 string for bytes"
+
+-- | Quick sniff: a string that contains no @+@\/@/@ chars
+-- and includes either @-@ or @_@ (or is short enough that
+-- standard base64 already failed) is plausibly base64url.
+looksLikeBase64Url :: ByteString -> Bool
+looksLikeBase64Url bs =
+  not (BS.any (\c -> c == 0x2B || c == 0x2F) bs)  -- no '+' '/'
+  &&  BS.all isUrlChar bs
+  where
+    isUrlChar c =
+         (c >= 0x41 && c <= 0x5A)  -- A-Z
+      || (c >= 0x61 && c <= 0x7A)  -- a-z
+      || (c >= 0x30 && c <= 0x39)  -- 0-9
+      || c == 0x2D || c == 0x5F    -- '-' '_'
+      || c == 0x3D                 -- '='
 
 -- ---------------------------------------------------------------------------
 -- Lazy ByteString (base64)
