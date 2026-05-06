@@ -1533,8 +1533,11 @@ mkProtoEnumInstance
                        -- ^ @(haskellCon, protoName, evNumber)@
                        --   for every declared value (aliases
                        --   included).
+  -> Name              -- ^ Synthetic @<EnumName>'Unknown !Int32@
+                       --   constructor for open-enum semantics.
   -> Q Dec
-mkProtoEnumInstance tyName fqName values = do
+mkProtoEnumInstance tyName fqName values unknownCon = do
+  nVar  <- newName "n"
   let -- protoEnumName _ = "..."
       nameDec = FunD 'PS.protoEnumName
         [Clause [WildP] (NormalB (textLit fqName)) []]
@@ -1545,21 +1548,33 @@ mkProtoEnumInstance tyName fqName values = do
         ]
       valuesDec = FunD 'PS.protoEnumValues
         [Clause [WildP] (NormalB pairs) []]
-      -- toProtoEnumValue: pattern-match on every (alias-inclusive) constructor
+      -- toProtoEnumValue: pattern-match on every (alias-inclusive)
+      -- constructor, plus the Unknown wrapper which simply
+      -- yields its carried int.
       toClauses =
         [ Clause [ConP con [] []]
                  (NormalB (intLit num)) []
         | (con, _, num) <- values
         ]
+        <> [Clause [ConP unknownCon [] [VarP nVar]]
+                   (NormalB (AppE (VarE 'fromIntegral) (VarE nVar)))
+                   []]
       toDec = FunD 'PS.toProtoEnumValue toClauses
-      -- fromProtoEnumValue: one Just clause per primary number, then catch-all Nothing
+      -- fromProtoEnumValue: one Just clause per primary number,
+      -- then a catch-all that produces 'Just (Unknown n)' so
+      -- callers can preserve the wire value across encode\/decode.
       primaries = primaryByNumber values
       fromClauses =
         fmap (\(con, _, num) ->
                 Clause [LitP (IntegerL (fromIntegral num))]
                        (NormalB (AppE (ConE 'Just) (ConE con))) [])
              primaries
-        <> [Clause [WildP] (NormalB (ConE 'Nothing)) []]
+        <> [Clause [VarP nVar]
+                   (NormalB (AppE (ConE 'Just)
+                              (AppE (ConE unknownCon)
+                                    (SigE (AppE (VarE 'fromIntegral) (VarE nVar))
+                                          (ConT ''Int32)))))
+                   []]
       fromDec = FunD 'PS.fromProtoEnumValue fromClauses
   pure $ InstanceD Nothing []
     (AppT (ConT ''PS.ProtoEnum) (ConT tyName))
@@ -1578,14 +1593,21 @@ primaryByNumber = go []
 -- string on the encode side, and a string-or-number parser on the
 -- decode side (per the proto3 JSON spec, both are accepted on
 -- read, but the canonical write form is the name).
-mkEnumAesonInstances :: Name -> [(Name, Text, Int)] -> Q [Dec]
-mkEnumAesonInstances tyName values = do
+mkEnumAesonInstances :: Name -> [(Name, Text, Int)] -> Name -> Q [Dec]
+mkEnumAesonInstances tyName values unknownCon = do
+  nVar <- newName "n"
   let primaries = primaryByNumber values
       toClauses =
         [ Clause [ConP con [] []]
                  (NormalB (AppE (ConE 'Aeson.String) (textLit pname))) []
         | (con, pname, _) <- primaries
         ]
+        -- Open-enum representation: @<EnumName>'Unknown n@
+        -- serialises as the bare numeric value (proto3
+        -- canonical-JSON for unrecognised enum values).
+        <> [Clause [ConP unknownCon [] [VarP nVar]]
+                   (NormalB (AppE (VarE 'Aeson.toJSON) (VarE nVar)))
+                   []]
       toDec = FunD 'Aeson.toJSON toClauses
 
       -- fromJSON: \case String "FOO" -> pure ConFOO ... Number n -> ... _ -> fail
@@ -1600,7 +1622,9 @@ mkEnumAesonInstances tyName values = do
                 (NormalB (AppE (VarE 'pure) (ConE con))) []
         | (con, pname, _) <- values
         ]
-      nVar = mkName "n"
+      -- 'toEnum' is the open-enum-aware constructor: known
+      -- numbers route to the matching constructor, unknown
+      -- numbers wrap in the Unknown variant.
       numberMatch = Match (ConP 'Aeson.Number [] [VarP nVar])
         (NormalB (AppE (VarE 'pure)
           (AppE (VarE 'toEnum)

@@ -163,6 +163,15 @@ scopedHsEnumCon parents enumNm evNm =
   scopedHsTypeName parents enumNm <> T.singleton '\''
     <> snakeToPascal evNm
 
+-- | The TH 'Name' of the synthetic @<EnumName>'Unknown !Int32@
+-- constructor every loadProto-generated enum carries to hold
+-- proto3 "open enum" wire values that aren't covered by any
+-- declared name.
+unknownConNameFor :: [Text] -> Text -> Name
+unknownConNameFor parents enumNm =
+  mkName (T.unpack
+    (scopedHsTypeName parents enumNm <> T.pack "'Unknown"))
+
 scopedHsFieldName :: Text -> Text -> Text
 scopedHsFieldName parentMsg fldName =
   let prefix = lowerFirst (hsTypeName parentMsg)
@@ -922,7 +931,19 @@ enumToDecls'' pkg parents hooks ed = do
       -- ('protoEnumValues') and in the JSON parser, where they
       -- all dispatch to the primary constructor.
       primaryEvs = primaryValues (enumValues ed)
-      cons = fmap (\ev -> normalC (conNameFor (evName ev)) []) primaryEvs
+      -- Open-enum representation: every generated enum carries
+      -- an extra @<EnumName>'Unknown !Int32@ constructor so the
+      -- proto3 spec's "preserve unknown numeric enum values"
+      -- contract can be honoured end-to-end (encode, decode,
+      -- JSON round-trip).
+      unknownCon =
+        let int32Ty = pure (ConT ''Int32) :: Q Type
+            bang_   = bang sourceNoUnpack sourceStrict
+        in normalC unknownConFullName [bangType bang_ int32Ty]
+      cons =
+        fmap (\ev -> normalC (conNameFor (evName ev)) []) primaryEvs
+        <> [unknownCon]
+      unknownConFullName = unknownConNameFor parents (enumName ed)
       hookCtx = EnumHookCtx
         { ehcEnumDef    = ed
         , ehcScope      = parents <> [enumName ed]
@@ -960,7 +981,8 @@ enumToDecls'' pkg parents hooks ed = do
                    then enumName ed
                    else pkg <> T.singleton '.' <> enumName ed
   protoEnumDec <- PTM.mkProtoEnumInstance tyName fqEnumName values
-  aesonDecs    <- PTM.mkEnumAesonInstances tyName values
+                    unknownConFullName
+  aesonDecs    <- PTM.mkEnumAesonInstances tyName values unknownConFullName
   hashableDec  <- PTM.mkEnumHashableInstance tyName
   hookDecls    <- thOnEnum hooks hookCtx
 
@@ -985,33 +1007,36 @@ mkEnumInstance tyName parents ed = do
   -- in declaration order wins, matching what the pure-text codegen
   -- does in 'enumPrimaryValues'.
   let primaryByNum = primaryValues (enumValues ed)
-      -- 'toEnum n -> ConName' clauses, one per distinct wire number.
+      unknownCon   = unknownConNameFor parents (enumName ed)
+      -- 'toEnum n -> ConName' clauses, one per distinct wire
+      -- number. Catch-all wraps the input in the synthetic
+      -- @<EnumName>'Unknown !Int32@ constructor (open-enum
+      -- semantics — preserves an unrecognised wire value
+      -- across encode\/decode\/JSON round-trips).
       toEnumClauses =
         fmap (\ev -> Clause [LitP (IntegerL (fromIntegral (evNumber ev)))]
                             (NormalB (ConE (enumConName ev))) [])
              primaryByNum
-      -- Catch-all that returns the first declared constructor —
-      -- this keeps 'toEnum' total even on unrecognised wire
-      -- numbers, which a non-canonical proto sender can always
-      -- produce.
-      fallback = case primaryByNum of
-        []     -> Clause [WildP]
-                   (NormalB (AppE (VarE 'error)
-                              (LitE (StringL
-                                ("Proto.TH: enum " <> nameBase tyName
-                                  <> " has no constructors")))))
-                   []
-        (ev:_) -> Clause [WildP] (NormalB (ConE (enumConName ev))) []
-      toEnumDec = FunD 'toEnum (toEnumClauses <> [fallback])
+      nVar = mkName "n"
+      unknownFallback = Clause [VarP nVar]
+        (NormalB (AppE (ConE unknownCon)
+                       (SigE (AppE (VarE 'fromIntegral) (VarE nVar))
+                             (ConT ''Int32))))
+        []
+      toEnumDec = FunD 'toEnum (toEnumClauses <> [unknownFallback])
 
       -- 'fromEnum ConName -> n' clauses, one per primary
-      -- constructor. Aliases share the primary constructor in
-      -- the data declaration so they're already handled.
+      -- constructor + a clause for the Unknown wrapper that
+      -- returns the carried int.
       fromEnumClauses =
         fmap (\ev -> Clause [ConP (enumConName ev) [] []]
                             (NormalB (LitE (IntegerL
                               (fromIntegral (evNumber ev))))) [])
              primaryByNum
+        <> [Clause
+              [ConP unknownCon [] [VarP nVar]]
+              (NormalB (AppE (VarE 'fromIntegral) (VarE nVar)))
+              []]
       fromEnumDec = FunD 'fromEnum fromEnumClauses
   pure $ InstanceD Nothing []
            (AppT (ConT ''Enum) (ConT tyName))
