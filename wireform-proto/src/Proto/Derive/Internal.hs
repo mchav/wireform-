@@ -587,12 +587,19 @@ sizeOne msg pf = do
         _ -> do
           v   <- newName "v"
           acc <- newName "acc"
+          -- 'sizeSingleE' returns the FULL per-element wire size
+          -- (tag + payload), so accumulate it directly. The
+          -- previous version added 'tagSize' on top, which
+          -- overcounted by one tag width per element and broke
+          -- two-pass encoders for messages whose unpacked
+          -- repeated fields had multi-byte tags (e.g. field 89
+          -- in test_messages_proto3.TestAllTypesProto3 —
+          -- exercised by the conformance suite's
+          -- ValidDataOneof.MESSAGE.Merge tests).
           per <- sizeSingleE pf v
-          tagSz <- [| PWE.tagSize $(litE (integerL (fromIntegral (pfTag pf)))) |]
           let foldFnE = repeatedFoldlE rep
               step    = LamE [VarP acc, VarP v]
-                           (InfixE (Just (VarE acc)) (VarE '(+))
-                             (Just (InfixE (Just tagSz) (VarE '(+)) (Just per))))
+                           (InfixE (Just (VarE acc)) (VarE '(+)) (Just per))
           pure (AppE (AppE (AppE foldFnE step) (LitE (IntegerL 0))) getter)
     FKMap mks -> do
       -- Exact map size: for each entry we sum
