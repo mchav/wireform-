@@ -1791,6 +1791,22 @@ parseBlockScalar k = do
                        ++ " (line " ++ show (lineNo l) ++ ")"
   let explicitBase = (lineIndent l +) <$> hint
   body <- collectScalarLines (lineIndent l) explicitBase
+  -- Per spec §8.1.1: a /leading/ blank line whose indent is
+  -- greater than the first content line's indent is invalid
+  -- (the missing indent indicator can't be recovered from
+  -- blank lines alone).
+  case explicitBase of
+    Nothing ->
+      let leadingBlanks = takeWhile (\(_, b) -> T.null b) body
+          afterBlanks   = dropWhile (\(_, b) -> T.null b) body
+      in case afterBlanks of
+           ((firstC, _) : _)
+             | firstC >= 0
+             , any (\(i, _) -> i > firstC) leadingBlanks ->
+                 failP $ "block scalar baseline below earlier blank-line indent (line "
+                         ++ show (lineNo l) ++ ")"
+           _ -> pure ()
+    _ -> pure ()
   let bodyAdj = case nonEmptyContent body of
         True  -> body
         False -> map (\(i, b) -> if i < 0 then (i, b) else (-1, b)) body
