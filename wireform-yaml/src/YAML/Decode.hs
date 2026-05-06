@@ -471,6 +471,17 @@ popLine = P $ \s ->
   in Ok mx (s { psLines = ls' })
 {-# INLINE popLine #-}
 
+-- | Drop the next non-skippable line without allocating a
+-- 'Maybe' wrapper. Used at sites that have already peeked /
+-- pattern-matched the head and only need to advance the cursor.
+dropLine :: P ()
+dropLine = P $ \s ->
+  let go []                       = []
+      go (x:rest) | isSkippable x = go rest
+                  | otherwise     = rest
+  in Ok () (s { psLines = go (psLines s) })
+{-# INLINE dropLine #-}
+
 peekLine :: P (Maybe PLine)
 peekLine = P $ \s ->
   let go [] = Nothing
@@ -789,7 +800,7 @@ parseQuotedScalarLine q l =
          Nothing -> doQuoted
   where
     doQuoted = do
-      _ <- popLine
+      dropLine
       consumeQuotedAt q (lineIndent l)
         (preserveTrailingEscape (lineBody l) (lineRawBody l))
 
@@ -1229,7 +1240,7 @@ maybeFlowAsBlockKey !ind k = do
           when spanned $
             failP $ "flow node spanning newline used as block-mapping key (line "
                     ++ show (lineNo l) ++ ")"
-          _ <- popLine
+          dropLine
           let after = if body == tColonStr then T.empty
                                             else T.drop 2 body
           v <- parseImplicitMapValue ind after
@@ -1259,13 +1270,13 @@ collectFlowMapEntries !ind = go []
               go ((k, v) : acc)
           | otherwise -> case findAliasKeySplit (lineBody l) of
               Just (aliasName, vRest) -> do
-                _ <- popLine
+                dropLine
                 k <- resolveAnchor aliasName
                 v <- parseImplicitMapValue ind vRest
                 go ((k, v) : acc)
               Nothing -> case findKeyValueSplit (lineBody l) of
                 Just (k, vRest) -> do
-                  _ <- popLine
+                  dropLine
                   let (anchors, k') = stripKeyProperties k
                   v <- parseImplicitMapValue ind vRest
                   let kv = YString k'
@@ -1911,7 +1922,7 @@ parseBlockOrPlain l
 -- 'findAliasKeySplit'). Same shape as 'parseBlockMap' otherwise.
 parseBlockMapAliasFirst :: Int -> Text -> Text -> P Value
 parseBlockMapAliasFirst !ind aliasName firstRest = do
-  Just _ <- popLine
+  dropLine
   k0 <- resolveAnchor aliasName
   v0 <- parseImplicitMapValue ind firstRest
   rest <- collect [(k0, v0)]
@@ -1930,13 +1941,13 @@ parseBlockMapAliasFirst !ind aliasName firstRest = do
                       ++ show (lineNo l) ++ ")"
           | otherwise -> case findAliasKeySplit (lineBody l) of
               Just (a, vRest) -> do
-                _ <- popLine
+                dropLine
                 k <- resolveAnchor a
                 v <- parseImplicitMapValue ind vRest
                 collect ((k, v) : acc)
               Nothing -> case findKeyValueSplit (lineBody l) of
                 Just (k, vRest) -> do
-                  _ <- popLine
+                  dropLine
                   v <- parseImplicitMapValue ind vRest
                   collect ((YString k, v) : acc)
                 Nothing -> pure acc
@@ -2020,7 +2031,7 @@ parseSeqItem !ind = do
 
 parseBlockMap :: Int -> Text -> Text -> P Value
 parseBlockMap !ind firstKey firstRest = do
-  Just _ <- popLine
+  dropLine
   v0 <- parseImplicitMapValue ind firstRest
   rest <- collect [(YString firstKey, v0)]
   pure (YMap (V.fromList (reverse rest)))
@@ -2047,13 +2058,13 @@ parseBlockMap !ind firstKey firstRest = do
                       collect ((k, v) : acc)
                   | h == '*'
                   , Just (aliasName, vRest) <- findAliasKeySplit body -> do
-                      _ <- popLine
+                      dropLine
                       k <- resolveAnchor aliasName
                       v <- parseImplicitMapValue ind vRest
                       collect ((k, v) : acc)
                   | otherwise -> case findKeyValueSplit body of
                       Just (k, vRest) -> do
-                        _ <- popLine
+                        dropLine
                         let (anchors, k') = stripKeyProperties k
                         case T.uncons k' of
                           Just ('*', _) | not (null anchors) ->
@@ -2288,7 +2299,7 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
           -- entry continues the same mapping (spec §8.18).
           | otherwise -> case findKeyValueSplit (lineBody l) of
               Just (k, vRest) -> do
-                _ <- popLine
+                dropLine
                 let (anchors, k') = stripKeyProperties k
                 v <- parseImplicitMapValue ind vRest
                 let kv = YString k'
@@ -2358,7 +2369,7 @@ parsePlainScalarAt !parentInd !inMapValue !baseIndArg firstBody = do
   let !ind = baseIndArg
       !_p  = parentInd
       !_m  = inMapValue
-  Just _ <- popLine
+  dropLine
   -- Fast path: a body with no '#' at all has no comment, so we
   -- skip the comparison probe entirely.
   let !hasHash    = T.any (== '#') firstBody
