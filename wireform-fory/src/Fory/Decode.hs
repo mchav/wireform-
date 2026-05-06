@@ -45,7 +45,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector.Storable as VS
 import Data.Word (Word8, Word16, Word32, Word64)
 import Foreign.ForeignPtr (ForeignPtr, withForeignPtr)
-import Foreign.Ptr (Ptr, plusPtr)
+import Foreign.Ptr (Ptr)
 import Foreign.Storable (peekByteOff)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import System.IO.Unsafe (unsafeDupablePerformIO)
@@ -318,6 +318,76 @@ readVarint64D = do
 {-# INLINE readVarint64D #-}
 
 -- ---------------------------------------------------------------------------
+-- Raw-pointer read primitives (for tight batched loops)
+-- ---------------------------------------------------------------------------
+--
+-- These take a base 'Ptr Word8' + current offset (no
+-- 'IORef' touch), read a value, and return the new offset.
+-- Used by the same-type collection decoder's batched path.
+
+{-# INLINE peekByteRaw #-}
+peekByteRaw :: Ptr Word8 -> Int -> IO (Word8, Int)
+peekByteRaw !p !pos = do
+  b <- peekByteOff p pos
+  pure (b, pos + 1)
+
+{-# INLINE peekWord16LERaw #-}
+peekWord16LERaw :: Ptr Word8 -> Int -> IO (Word16, Int)
+peekWord16LERaw !p !pos = do
+  w <- peekByteOff p pos
+  pure (w, pos + 2)
+
+{-# INLINE peekWord32LERaw #-}
+peekWord32LERaw :: Ptr Word8 -> Int -> IO (Word32, Int)
+peekWord32LERaw !p !pos = do
+  w <- peekByteOff p pos
+  pure (w, pos + 4)
+
+{-# INLINE peekWord64LERaw #-}
+peekWord64LERaw :: Ptr Word8 -> Int -> IO (Word64, Int)
+peekWord64LERaw !p !pos = do
+  w <- peekByteOff p pos
+  pure (w, pos + 8)
+
+{-# INLINE peekInt32LERaw #-}
+peekInt32LERaw :: Ptr Word8 -> Int -> IO (Int32, Int)
+peekInt32LERaw !p !pos = do
+  n <- peekByteOff p pos
+  pure (n, pos + 4)
+
+{-# INLINE peekInt64LERaw #-}
+peekInt64LERaw :: Ptr Word8 -> Int -> IO (Int64, Int)
+peekInt64LERaw !p !pos = do
+  n <- peekByteOff p pos
+  pure (n, pos + 8)
+
+{-# INLINE peekVaruint64Raw #-}
+peekVaruint64Raw :: Ptr Word8 -> Int -> IO (Word64, Int)
+peekVaruint64Raw !p !pos0 = go 0 pos0 0
+  where
+    go !i !pos !acc
+      | i >= 8 = do
+          b <- peekByteOff p pos :: IO Word8
+          let !chunk = (fromIntegral b :: Word64) `shiftL` (7 * 8)
+              !next  = acc .|. chunk
+          pure (next, pos + 1)
+      | otherwise = do
+          b <- peekByteOff p pos :: IO Word8
+          let !chunk = (fromIntegral (b .&. 0x7F) :: Word64) `shiftL` (7 * i)
+              !next  = acc .|. chunk
+          if b .&. 0x80 == 0
+            then pure (next, pos + 1)
+            else go (i + 1) (pos + 1) next
+
+{-# INLINE peekVarint64Raw #-}
+peekVarint64Raw :: Ptr Word8 -> Int -> IO (Int64, Int)
+peekVarint64Raw !p !pos = do
+  (v, pos') <- peekVaruint64Raw p pos
+  let !i = fromIntegral (v `shiftR` 1) :: Int64
+      !s = fromIntegral (v .&. 1) :: Int64
+  pure (i `xor` (-s), pos')
+
+-- ---------------------------------------------------------------------------
 -- State pool accessors (typed, no full DecodeState snapshot)
 -- ---------------------------------------------------------------------------
 
@@ -553,7 +623,9 @@ decodeCollection = do
                         then elemReader
                         else failD ("Fory.Decode: unexpected element flag "
                                     ++ show f)
-                  else V.replicateM count elemReader
+                  else case sameTypeFastReader tg of
+                    Just rdr -> readSameTypeBatch count rdr
+                    Nothing  -> V.replicateM count elemReader
         else
           if hasNull
             then V.replicateM count $ do
@@ -589,6 +661,95 @@ elementReaderForSameType tg = case tg of
     pure (decodePayloadFor tg)
   _ ->
     pure (decodePayloadFor tg)
+
+-- | Fast-path reader table for the @same-type + no-null +
+-- no-ref-tracking@ collection inner loop. Returns a raw
+-- 'Ptr Word8'-based reader that gets a value + new offset
+-- without touching the decoder's IORefs. The vector decode
+-- loop calls it @count@ times against a single cached pointer
+-- + position, paying the IORef cycle exactly once at the end.
+sameTypeFastReader
+  :: T.TypeId
+  -> Maybe (Ptr Word8 -> Int -> IO (VV.Value, Int))
+sameTypeFastReader !tag = case tag of
+  T.BOOL     -> Just rBool
+  T.INT8     -> Just rInt8
+  T.INT16    -> Just rInt16
+  T.INT32    -> Just rInt32
+  T.VARINT32 -> Just rVarInt32
+  T.INT64    -> Just rInt64
+  T.VARINT64 -> Just rVarInt64
+  T.UINT8    -> Just rUint8
+  T.UINT16   -> Just rUint16
+  T.UINT32   -> Just rUint32
+  T.VAR_UINT32 -> Just rVarUint32
+  T.UINT64   -> Just rUint64
+  T.VAR_UINT64 -> Just rVarUint64
+  T.FLOAT32  -> Just rFloat32
+  T.FLOAT64  -> Just rFloat64
+  _          -> Nothing
+  where
+    rBool, rInt8, rUint8 :: Ptr Word8 -> Int -> IO (VV.Value, Int)
+    rInt16, rUint16 :: Ptr Word8 -> Int -> IO (VV.Value, Int)
+    rInt32, rUint32, rFloat32 :: Ptr Word8 -> Int -> IO (VV.Value, Int)
+    rInt64, rUint64, rFloat64 :: Ptr Word8 -> Int -> IO (VV.Value, Int)
+    rVarInt32, rVarInt64 :: Ptr Word8 -> Int -> IO (VV.Value, Int)
+    rVarUint32, rVarUint64 :: Ptr Word8 -> Int -> IO (VV.Value, Int)
+
+    rBool       p pos = do (b, p') <- peekByteRaw p pos
+                           pure (VV.BoolVal (b /= 0), p')
+    rInt8       p pos = do (b, p') <- peekByteRaw p pos
+                           pure (VV.Int8Val (fromIntegral b), p')
+    rInt16      p pos = do n <- peekByteOff p pos :: IO Int16
+                           pure (VV.Int16Val n, pos + 2)
+    rInt32      p pos = do (n, p') <- peekInt32LERaw p pos
+                           pure (VV.Int32Val n, p')
+    rVarInt32   p pos = do
+      (v, p') <- peekVaruint64Raw p pos
+      let !i = fromIntegral (v `shiftR` 1) :: Int32
+          !s = fromIntegral (v .&. 1) :: Int32
+      pure (VV.VarInt32Val (i `xor` (-s)), p')
+    rInt64      p pos = do (n, p') <- peekInt64LERaw p pos
+                           pure (VV.Int64Val n, p')
+    rVarInt64   p pos = do (n, p') <- peekVarint64Raw p pos
+                           pure (VV.VarInt64Val n, p')
+    rUint8      p pos = do (b, p') <- peekByteRaw p pos
+                           pure (VV.Uint8Val b, p')
+    rUint16     p pos = do (w, p') <- peekWord16LERaw p pos
+                           pure (VV.Uint16Val w, p')
+    rUint32     p pos = do (w, p') <- peekWord32LERaw p pos
+                           pure (VV.Uint32Val w, p')
+    rVarUint32  p pos = do
+      (v, p') <- peekVaruint64Raw p pos
+      pure (VV.VarUint32Val (fromIntegral v), p')
+    rUint64     p pos = do (w, p') <- peekWord64LERaw p pos
+                           pure (VV.Uint64Val w, p')
+    rVarUint64  p pos = do (v, p') <- peekVaruint64Raw p pos
+                           pure (VV.VarUint64Val v, p')
+    rFloat32    p pos = do (w, p') <- peekWord32LERaw p pos
+                           pure (VV.Float32Val (castWord32ToFloat w), p')
+    rFloat64    p pos = do (w, p') <- peekWord64LERaw p pos
+                           pure (VV.Float64Val (castWord64ToDouble w), p')
+
+-- | Reads @count@ elements from the wire using the supplied
+-- raw reader, with one IORef cycle on the cursor at the
+-- start and one at the end. The intermediate work is all
+-- against a cached 'Ptr Word8' base and a local offset.
+readSameTypeBatch
+  :: Int
+  -> (Ptr Word8 -> Int -> IO (VV.Value, Int))
+  -> DecodeM (Vector VV.Value)
+readSameTypeBatch !count !rdr = DecodeM $ \d -> do
+  pos0 <- readIORef (decPos d)
+  let !p = decBase d
+      go !i !pos !acc
+        | i >= count = pure (V.fromListN count (reverse acc), pos)
+        | otherwise = do
+            (val, pos') <- rdr p pos
+            go (i + 1) pos' (val : acc)
+  (vec, posF) <- go 0 pos0 []
+  writeIORef (decPos d) posF
+  pure vec
 
 -- | Element of a same-type ref-tracked homogeneous collection.
 readSameTypeRefSlotE :: DecodeM VV.Value -> DecodeM VV.Value
