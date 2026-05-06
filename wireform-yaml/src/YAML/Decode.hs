@@ -581,6 +581,15 @@ consumeQuotedAt q !openInd = go0 False
                   Just (c, _)
                     | c == ':' && multi ->
                         failP "multi-line quoted scalar used as implicit key"
+                    -- A ':' trailing after the close quote means
+                    -- the scalar is acting as a key. That's only
+                    -- valid when this consumeQuoted call wasn't
+                    -- already inside a value position (openInd > 0
+                    -- means we're inside a parent block context's
+                    -- value). Otherwise treat the ':' as malformed
+                    -- (e.g. ZL4Z's "a: 'b': c").
+                    | c == ':' && openInd > 0 ->
+                        failP $ "nested mapping after quoted scalar value"
                     | c == ','  -> pushBack stripped
                     | c == ':'  -> pushBack stripped
                     | c == ']'  -> pushBack stripped
