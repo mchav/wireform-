@@ -18,10 +18,10 @@
 -- | varuint32 ((id + 1) \<\< 1) | 1 |
 -- @
 --
--- Encoded data is produced by 'Fury.MetaString.Encoder.encodeMetaString',
+-- Encoded data is produced by 'Fory.MetaString.Encoder.encodeMetaString',
 -- which selects between LATIN1 / UTF-16 / one of the four
 -- bit-packed compressions and the UTF-8 fallback.
-module Fury.MetaString
+module Fory.MetaString
   ( freshMetaString
   , refMetaString
   , readMetaStringHeader
@@ -35,17 +35,16 @@ import qualified Data.ByteString as BS
 import Data.Text (Text)
 import Data.Word (Word64, Word8)
 
-import Fury.Encoding (Builder, byte, bytes, int64LE, readBytes,
+import Fory.Encoding (Builder, byte, bytes, int64LE, readBytes,
                       readInt64LE, readVaruint64, varuint64)
-import Fury.MetaString.Encoder
-  ( Encoding (..)
-  , SpecialChars
+import Fory.MetaString.Encoder
+  ( SpecialChars
   , encodingId
   , encodingFromId
   , encodeMetaString
   , decodeMetaString
   )
-import qualified Fury.MetaString.Hash as Hash
+import qualified Fory.MetaString.Hash as Hash
 
 -- | Result of reading the leading varuint64 header of a meta
 -- string: either a fresh string (with byte length) or a
@@ -114,7 +113,7 @@ readFreshMetaStringPayload sc len bs off
       (encByte, off1) <- readByteEither bs off
       enc <- case encodingFromId encByte of
         Just e  -> Right e
-        Nothing -> Left $ "Fury.MetaString: unknown encoding id "
+        Nothing -> Left $ "Fory.MetaString: unknown encoding id "
                           ++ show encByte
       (raw, off2) <- readBytes len bs off1
       Right (decodeMetaString sc enc raw, off2)
@@ -123,7 +122,7 @@ readFreshMetaStringPayload sc len bs off
       let !encByte = fromIntegral (hashcode .&. 0xFF) :: Word8
       enc <- case encodingFromId encByte of
         Just e  -> Right e
-        Nothing -> Left $ "Fury.MetaString: unknown encoding id from hashcode "
+        Nothing -> Left $ "Fory.MetaString: unknown encoding id from hashcode "
                           ++ show encByte
       (raw, off2) <- readBytes len bs off1
       Right (decodeMetaString sc enc raw, off2)
@@ -140,5 +139,5 @@ smallStringThreshold = 16
 readByteEither :: ByteString -> Int -> Either String (Word8, Int)
 readByteEither bs off
   | off >= BS.length bs =
-      Left "Fury.MetaString.readFreshMetaStringPayload: missing encoding tag"
+      Left "Fory.MetaString.readFreshMetaStringPayload: missing encoding tag"
   | otherwise = Right (BS.index bs off, off + 1)

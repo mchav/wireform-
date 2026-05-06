@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Length-prefixed stdin/stdout driver for the wireform-fury
+"""Length-prefixed stdin/stdout driver for the wireform-fory
 interop test suite. Reads (mode, len, payload) frames, replies
 with (status, len, payload) frames.
 
@@ -223,4 +223,13 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except BaseException:
+        sys.stderr.write(
+            "[driver.py top-level exception]\n" + traceback.format_exc()
+        )
+        sys.stderr.flush()
+        sys.exit(2)

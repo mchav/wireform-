@@ -28,13 +28,13 @@
 -- * @NAMED_STRUCT@ / @NAMED_COMPATIBLE_STRUCT@ — pyfory uses a
 --   bit-packed @TypeDef@ field-info format and a meta-string
 --   layer with content-hash dedup that we approximate with a
---   simpler layout. See "Fury.Encode.encodeValueSlot" comments.
+--   simpler layout. See "Fory.Encode.encodeValueSlot" comments.
 -- * One-dimensional primitive arrays — pyfory routes these
 --   through NumPy-typed paths; we emit our own dense encoding.
 -- * Reference tracking inside collections — we only support
 --   top-level RefVal; pyfory tracks references through every
 --   nested object slot when @ref=True@.
-module Fury.Encode
+module Fory.Encode
   ( -- * Top-level encoders
     encode
   , encodeWith
@@ -66,13 +66,13 @@ import qualified Data.Vector as V
 import Data.Vector (Vector)
 import Data.Word (Word8, Word16, Word32, Word64)
 
-import qualified Fury.Encoding as E
-import qualified Fury.MetaString as MS
-import qualified Fury.MetaString.Encoder as MSE
-import qualified Fury.Options as Opt
-import qualified Fury.Struct as ST
-import qualified Fury.TypeId as T
-import qualified Fury.Value as VV
+import qualified Fory.Encoding as E
+import qualified Fory.MetaString as MS
+import qualified Fory.MetaString.Encoder as MSE
+import qualified Fory.Options as Opt
+import qualified Fory.Struct as ST
+import qualified Fory.TypeId as T
+import qualified Fory.Value as VV
 
 -- ---------------------------------------------------------------------------
 -- Encoder state monad
@@ -649,9 +649,11 @@ encodeUntaggedPayload val = case val of
 -- happily consumes single-entry chunks). This avoids the
 -- type-uniformity grouping pass.
 
-mapKeyHasNull, mapValueHasNull :: Word8
-mapKeyHasNull   = 0b0000_0010
-mapValueHasNull = 0b0001_0000
+mapTrackingKeyRef, mapKeyHasNull, mapTrackingValueRef, mapValueHasNull :: Word8
+mapTrackingKeyRef   = 0b0000_0001
+mapKeyHasNull       = 0b0000_0010
+mapTrackingValueRef = 0b0000_1000
+mapValueHasNull     = 0b0001_0000
 
 emitMapChunks :: Vector (VV.Value, VV.Value) -> EncodeM ()
 emitMapChunks kvs = do
@@ -665,25 +667,38 @@ emitOneEntryChunk :: VV.Value -> VV.Value -> EncodeM ()
 emitOneEntryChunk k v = do
   let keyNull = isNoneVal k
       valNull = isNoneVal v
-      !flag = (if keyNull then mapKeyHasNull else 0)
-          .|. (if valNull then mapValueHasNull else 0)
-  emit (E.byte flag)
-  -- pyfory's KV-NULL chunks (both key and value null) are
-  -- represented by the chunk_header byte alone; the implied
-  -- chunk_size is 1. For every other chunk we emit a uint8
-  -- chunk_size + per-side type info + payload.
+  -- Mirror pyfory's MapSerializer.write per-entry null-handling
+  -- loop. The four cases each emit a different chunk shape:
+  --
+  -- * both null  -> chunk_header (KV_NULL) alone
+  -- * key null   -> chunk_header (KEY_HAS_NULL | TRACKING_VALUE_REF)
+  --                 + slot flag + value_type + value_payload
+  -- * value null -> chunk_header (VALUE_HAS_NULL | TRACKING_KEY_REF)
+  --                 + slot flag + key_type + key_payload
+  -- * neither    -> chunk_header 0 + chunk_size + key_type +
+  --                 value_type + (key_payload, value_payload) *
+  --                 chunk_size
+  --
+  -- The TRACKING bits in the partial-null cases are set even
+  -- when the runtime ref-tracking option is off because pyfory
+  -- routes the non-null side through @write_ref@ unconditionally,
+  -- which always emits a NOT_NULL_VALUE_FLAG before the payload.
   case (keyNull, valNull) of
-    (True,  True)  -> pure ()
+    (True,  True)  ->
+      emit (E.byte (mapKeyHasNull .|. mapValueHasNull))
     (False, True)  -> do
-      emit (E.byte 1)
+      emit (E.byte (mapValueHasNull .|. mapTrackingKeyRef))
+      emit (E.byte slotNotNullValue)
       emitTag (VV.typeIdOf k)
       encodeUntaggedPayload k
     (True,  False) -> do
-      emit (E.byte 1)
+      emit (E.byte (mapKeyHasNull .|. mapTrackingValueRef))
+      emit (E.byte slotNotNullValue)
       emitTag (VV.typeIdOf v)
       encodeUntaggedPayload v
     (False, False) -> do
-      emit (E.byte 1)
+      emit (E.byte 0)
+      emit (E.byte 1)  -- chunk_size as uint8
       emitTag (VV.typeIdOf k)
       emitTag (VV.typeIdOf v)
       encodeUntaggedPayload k
@@ -729,14 +744,14 @@ emitRegisteredStruct ns nm fields = do
   s <- getState
   case HM.lookup (ns, nm) (Opt.eoStructRegistry (esOptions s)) of
     Nothing -> error $
-      "Fury.Encode: no schema registered for " ++ T.unpack ns ++ "." ++ T.unpack nm
+      "Fory.Encode: no schema registered for " ++ T.unpack ns ++ "." ++ T.unpack nm
       ++ "; build EncodeOptions with eoStructRegistry containing this schema"
     Just sch -> do
       emit (E.int32LE (ST.computeStructHash sch))
       let canonical = ST.fieldOrder sch
       V.forM_ canonical $ \spec -> do
         case VV.registeredStructFieldByName (ST.fsName spec) fields of
-          Nothing -> error $ "Fury.Encode: field "
+          Nothing -> error $ "Fory.Encode: field "
                             ++ T.unpack (ST.fsName spec)
                             ++ " missing from RegisteredStructVal"
           Just v  -> emitRegisteredField spec v

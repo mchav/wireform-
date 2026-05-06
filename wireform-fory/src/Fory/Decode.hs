@@ -2,10 +2,10 @@
 {-# LANGUAGE LambdaCase #-}
 -- | Apache Fory xlang value decoder.
 --
--- Mirrors 'Fury.Encode.encode'. Wire-compatible with @pyfory@
+-- Mirrors 'Fory.Encode.encode'. Wire-compatible with @pyfory@
 -- 0.17 for the value shapes documented on the encode side; see
--- "Fury.Encode" for the exact subset.
-module Fury.Decode
+-- "Fory.Encode" for the exact subset.
+module Fory.Decode
   ( decode
   , decodeWith
   , decodeValueSlot
@@ -29,13 +29,13 @@ import Data.Word (Word8, Word16, Word32, Word64)
 
 import qualified Data.HashMap.Strict as HM
 
-import qualified Fury.Encoding as E
-import qualified Fury.MetaString as MS
-import qualified Fury.MetaString.Encoder as MSE
-import qualified Fury.Options as Opt
-import qualified Fury.Struct as ST
-import qualified Fury.TypeId as T
-import qualified Fury.Value as VV
+import qualified Fory.Encoding as E
+import qualified Fory.MetaString as MS
+import qualified Fory.MetaString.Encoder as MSE
+import qualified Fory.Options as Opt
+import qualified Fory.Struct as ST
+import qualified Fory.TypeId as T
+import qualified Fory.Value as VV
 
 -- ---------------------------------------------------------------------------
 -- Decoder state monad
@@ -102,7 +102,7 @@ runDecodeMWith opts (DecodeM m) bs =
     Left e -> Left e
     Right (a, off, _)
       | off == BS.length bs -> Right a
-      | otherwise -> Left $ "Fury.Decode: " ++ show (BS.length bs - off)
+      | otherwise -> Left $ "Fory.Decode: " ++ show (BS.length bs - off)
                             ++ " trailing bytes"
 
 liftEither :: (ByteString -> Int -> Either String (a, Int)) -> DecodeM a
@@ -195,7 +195,7 @@ decodeWith opts bs = runDecodeMWith opts go bs
     go = do
       hdr <- readByteD
       if hdr .&. 0x02 == 0
-        then failD ("Fury.Decode.decode: missing xlang flag in header byte "
+        then failD ("Fory.Decode.decode: missing xlang flag in header byte "
                     ++ show hdr)
         else decodeValueSlot
 
@@ -208,7 +208,7 @@ decodeValueSlot = do
       | f == slotRefValue   -> decodeRefValue
       | f == slotNotNullValue -> decodeTypedPayload
       | otherwise -> failD $
-          "Fury.Decode: unexpected slot flag byte " ++ show flag
+          "Fory.Decode: unexpected slot flag byte " ++ show flag
 
 decodeRefBack :: DecodeM VV.Value
 decodeRefBack = do
@@ -216,7 +216,7 @@ decodeRefBack = do
   st  <- getState
   case IM.lookup wid (dsRefValues st) of
     Nothing -> failD $
-      "Fury.Decode: REF flag references unknown ref_id " ++ show wid
+      "Fory.Decode: REF flag references unknown ref_id " ++ show wid
     Just v  -> pure (VV.RefVal wid v)
 
 decodeRefValue :: DecodeM VV.Value
@@ -289,7 +289,7 @@ decodePayloadFor tag = case tag of
   T.FLOAT32_ARRAY -> VV.Float32ArrayVal <$> decodeFloat32Array
   T.FLOAT64_ARRAY -> VV.Float64ArrayVal <$> decodeFloat64Array
   T.TypeId tw -> failD $
-    "Fury.Decode.decodePayloadFor: unsupported type tag " ++ show tw
+    "Fory.Decode.decodePayloadFor: unsupported type tag " ++ show tw
 
 -- ---------------------------------------------------------------------------
 -- Strings
@@ -305,11 +305,11 @@ readForyString = do
     0 -> pure (decodeLatin1 raw)
     1 -> case decodeUtf16LE raw of
            Right t -> pure t
-           Left e  -> failD ("Fury.Decode: invalid UTF-16: " ++ e)
+           Left e  -> failD ("Fory.Decode: invalid UTF-16: " ++ e)
     2 -> case TE.decodeUtf8' raw of
            Right t -> pure t
-           Left e  -> failD ("Fury.Decode: invalid UTF-8: " ++ show e)
-    _ -> failD ("Fury.Decode: reserved string encoding " ++ show enc)
+           Left e  -> failD ("Fory.Decode: invalid UTF-8: " ++ show e)
+    _ -> failD ("Fory.Decode: reserved string encoding " ++ show enc)
   where
 
 decodeLatin1 :: ByteString -> Text
@@ -351,7 +351,7 @@ decodeCollection = do
                 pure (Just (T.TypeId (fromIntegral tw)))
           case elemTag of
             Nothing ->
-              failD "Fury.Decode: same-type collection without element type"
+              failD "Fory.Decode: same-type collection without element type"
             Just tg -> do
               -- For NAMED_STRUCT-like elements pyfory writes the
               -- ns + tn once at the element-type position; pre-read
@@ -367,7 +367,7 @@ decodeCollection = do
                       then pure VV.NoneVal
                       else if f == slotNotNullValue
                         then elemReader
-                        else failD ("Fury.Decode: unexpected element flag "
+                        else failD ("Fory.Decode: unexpected element flag "
                                     ++ show f)
                   else V.replicateM count elemReader
         else
@@ -380,7 +380,7 @@ decodeCollection = do
                   | f == slotRefValue -> decodeRefValue
                   | f == slotNotNullValue -> decodeTypedPayload
                   | otherwise -> failD
-                      ("Fury.Decode: unexpected element flag " ++ show f)
+                      ("Fory.Decode: unexpected element flag " ++ show f)
             else V.replicateM count decodeTypedPayload
 
 -- | Build a per-element payload reader for a same-type
@@ -428,7 +428,7 @@ readSameTypeRefSlotE inner = do
             { dsRefValues = IM.insert wid v (dsRefValues s) }
           pure (VV.RefVal wid v)
       | otherwise -> failD
-          ("Fury.Decode: unexpected ref-tracked element flag " ++ show f)
+          ("Fory.Decode: unexpected ref-tracked element flag " ++ show f)
 
 -- ---------------------------------------------------------------------------
 -- Maps
@@ -452,30 +452,43 @@ decodeMapChunks = do
       header <- readByteD
       let !keyNull = header .&. mapKeyHasNull /= 0
           !valNull = header .&. mapValueHasNull /= 0
-      if keyNull && valNull
-        then collectChunks (remaining - 1) ((VV.NoneVal, VV.NoneVal) : acc)
-        else do
-          chunkSize <- fromIntegral <$> readByteD  -- pyfory: uint8
-          (keyTag, valTag) <- case (keyNull, valNull) of
-            (True, False) -> do
+      case (keyNull, valNull) of
+        -- Both null: implied chunk_size 1, no payload.
+        (True, True) ->
+          collectChunks (remaining - 1) ((VV.NoneVal, VV.NoneVal) : acc)
+        -- Key null only: implied chunk_size 1, slot flag +
+        -- value type + value payload.
+        (True, False) -> do
+          flag <- readByteD
+          if flag /= slotNotNullValue
+            then failD ("Fury.Decode: expected NOT_NULL_VALUE for partial-"
+                        ++ "null map value, got " ++ show flag)
+            else do
               tw <- readVaruint32D
-              pure (Nothing, Just (T.TypeId (fromIntegral tw)))
-            (False, True) -> do
+              v  <- decodePayloadFor (T.TypeId (fromIntegral tw))
+              collectChunks (remaining - 1) ((VV.NoneVal, v) : acc)
+        -- Value null only: implied chunk_size 1, slot flag +
+        -- key type + key payload.
+        (False, True) -> do
+          flag <- readByteD
+          if flag /= slotNotNullValue
+            then failD ("Fury.Decode: expected NOT_NULL_VALUE for partial-"
+                        ++ "null map key, got " ++ show flag)
+            else do
               tw <- readVaruint32D
-              pure (Just (T.TypeId (fromIntegral tw)), Nothing)
-            (False, False) -> do
-              twk <- readVaruint32D
-              twv <- readVaruint32D
-              pure ( Just (T.TypeId (fromIntegral twk))
-                   , Just (T.TypeId (fromIntegral twv)))
-            (True, True) -> pure (Nothing, Nothing)
+              k  <- decodePayloadFor (T.TypeId (fromIntegral tw))
+              collectChunks (remaining - 1) ((k, VV.NoneVal) : acc)
+        -- Neither null: chunk_size + key_type + value_type +
+        -- (key_payload, value_payload) * chunk_size.
+        (False, False) -> do
+          chunkSize <- fromIntegral <$> readByteD
+          twk <- readVaruint32D
+          twv <- readVaruint32D
+          let keyTag = T.TypeId (fromIntegral twk)
+              valTag = T.TypeId (fromIntegral twv)
           entries <- replicateMList chunkSize $ do
-            k <- case keyTag of
-              Nothing -> pure VV.NoneVal
-              Just tg -> decodePayloadFor tg
-            v <- case valTag of
-              Nothing -> pure VV.NoneVal
-              Just tg -> decodePayloadFor tg
+            k <- decodePayloadFor keyTag
+            v <- decodePayloadFor valTag
             pure (k, v)
           collectChunks (remaining - chunkSize)
                         (foldl (flip (:)) acc entries)
@@ -517,7 +530,7 @@ decodeRegisteredStruct ns typeNm sch = do
   let expected = ST.computeStructHash sch
   if wireHash /= expected
     then failD $
-      "Fury.Decode: struct schema hash mismatch for "
+      "Fory.Decode: struct schema hash mismatch for "
         ++ T.unpack ns ++ "." ++ T.unpack typeNm
         ++ ": wire " ++ show wireHash
         ++ " /= local " ++ show expected
@@ -537,7 +550,7 @@ decodeRegisteredStruct ns typeNm sch = do
                 then pure VV.NoneVal
                 else if flag == slotNotNullValue
                   then decodePayloadFor (ST.fsTypeId spec)
-                  else failD ("Fury.Decode: bad nullable basic field flag "
+                  else failD ("Fory.Decode: bad nullable basic field flag "
                               ++ show flag)
             else decodePayloadFor (ST.fsTypeId spec)
       | otherwise = do
@@ -546,15 +559,12 @@ decodeRegisteredStruct ns typeNm sch = do
             then pure VV.NoneVal
             else if flag == slotNotNullValue
               then decodePayloadFor (ST.fsTypeId spec)
-              else failD ("Fury.Decode: bad non-basic field flag "
+              else failD ("Fory.Decode: bad non-basic field flag "
                           ++ show flag)
 
 -- ---------------------------------------------------------------------------
 -- Meta-string deduplication
 -- ---------------------------------------------------------------------------
-
-decodeMetaString :: DecodeM Text
-decodeMetaString = decodeMetaStringWith MSE.namespaceSpecialChars
 
 decodeMetaStringWith :: MSE.SpecialChars -> DecodeM Text
 decodeMetaStringWith sc = do
@@ -564,7 +574,7 @@ decodeMetaStringWith sc = do
       st <- getState
       case IM.lookup rid (dsStringPool st) of
         Nothing -> failD $
-          "Fury.Decode.decodeMetaString: ref to unknown id " ++ show rid
+          "Fory.Decode.decodeMetaString: ref to unknown id " ++ show rid
         Just t  -> pure t
     MS.MetaStringFresh len -> do
       t  <- liftEither (MS.readFreshMetaStringPayload sc len)
@@ -589,7 +599,7 @@ decodeCompatibleStruct = do
       st <- getState
       case IM.lookup idx (dsTypeDefs st) of
         Nothing -> failD $
-          "Fury.Decode: TypeDef ref to unknown index " ++ show idx
+          "Fory.Decode: TypeDef ref to unknown index " ++ show idx
         Just td -> pure td
     else do
       let !idx = fromIntegral (marker `shiftR` 1) :: Int
@@ -619,7 +629,7 @@ decodeTypeDefBytes = do
   off1 <- getOff
   let !consumed = off1 - off0
   if consumed /= bodyLen
-    then failD $ "Fury.Decode: TypeDef body size mismatch (header said "
+    then failD $ "Fory.Decode: TypeDef body size mismatch (header said "
                   ++ show bodyLen ++ ", consumed " ++ show consumed ++ ")"
     else pure td
 
@@ -635,7 +645,7 @@ decodeTypeDefBody = do
     else
       pure rawNumFields
   if not registered
-    then failD "Fury.Decode: TypeDef without REGISTER_BY_NAME flag"
+    then failD "Fory.Decode: TypeDef without REGISTER_BY_NAME flag"
     else do
       ns     <- decodeMetaStringWith MSE.namespaceSpecialChars
       typeNm <- decodeMetaStringWith MSE.typenameSpecialChars
@@ -656,7 +666,7 @@ readArrayElemCount elemBytes = do
   byteLen <- fromIntegral <$> readVaruint32D
   let (q, r) = byteLen `quotRem` elemBytes
   if r /= 0
-    then failD $ "Fury.Decode: array byte length " ++ show byteLen
+    then failD $ "Fory.Decode: array byte length " ++ show byteLen
                   ++ " not a multiple of element size " ++ show elemBytes
     else pure q
 

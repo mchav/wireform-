@@ -8,17 +8,17 @@
 -- | Typeclass-based Apache Fory serialization with @GHC.Generics@
 -- support.
 --
--- The two classes are 'ToFury' and 'FromFury'. The default
+-- The two classes are 'ToFory' and 'FromFory'. The default
 -- generic deriver renders a record as a 'VV.StructVal' whose
 -- namespace is the module name of the type and whose type name is
 -- the simple constructor name; field names are passed through
--- unchanged (use the 'Fury.Derive' annotation deriver if you need
+-- unchanged (use the 'Fory.Derive' annotation deriver if you need
 -- 'rename' / 'renameStyle' / @snake_case@ handling).
-module Fury.Class
-  ( ToFury (..)
-  , FromFury (..)
-  , encodeFury
-  , decodeFury
+module Fory.Class
+  ( ToFory (..)
+  , FromFory (..)
+  , encodeFory
+  , decodeFory
 
     -- * Reference-tracked sharing
   , Shared (..)
@@ -39,10 +39,10 @@ module Fury.Class
   , Float64Array (..)
 
     -- * Generic helpers
-  , GToFury (..)
-  , GFromFury (..)
-  , GToFuryFields (..)
-  , GFromFuryFields (..)
+  , GToFory (..)
+  , GFromFory (..)
+  , GToForyFields (..)
+  , GFromForyFields (..)
   ) where
 
 import Data.ByteString (ByteString)
@@ -70,31 +70,31 @@ import Data.Vector (Vector)
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics
 
-import qualified Fury.Decode as D
-import qualified Fury.Encode as E
-import qualified Fury.Value as VV
+import qualified Fory.Decode as D
+import qualified Fory.Encode as E
+import qualified Fory.Value as VV
 
 -- ---------------------------------------------------------------------------
 -- Public typeclasses
 -- ---------------------------------------------------------------------------
 
-class ToFury a where
-  toFury :: a -> VV.Value
-  default toFury :: (Generic a, GToFury (Rep a)) => a -> VV.Value
-  toFury = gToFury . from
+class ToFory a where
+  toFory :: a -> VV.Value
+  default toFory :: (Generic a, GToFory (Rep a)) => a -> VV.Value
+  toFory = gToFory . from
 
-class FromFury a where
-  fromFury :: VV.Value -> Either String a
-  default fromFury :: (Generic a, GFromFury (Rep a)) => VV.Value -> Either String a
-  fromFury v = to <$> gFromFury v
+class FromFory a where
+  fromFory :: VV.Value -> Either String a
+  default fromFory :: (Generic a, GFromFory (Rep a)) => VV.Value -> Either String a
+  fromFory v = to <$> gFromFory v
 
--- | Encode any 'ToFury' to its fory wire format.
-encodeFury :: ToFury a => a -> ByteString
-encodeFury = E.encode . toFury
+-- | Encode any 'ToFory' to its fory wire format.
+encodeFory :: ToFory a => a -> ByteString
+encodeFory = E.encode . toFory
 
--- | Decode any 'FromFury' from a fory-encoded byte string.
-decodeFury :: FromFury a => ByteString -> Either String a
-decodeFury bs = D.decode bs >>= fromFury
+-- | Decode any 'FromFory' from a fory-encoded byte string.
+decodeFory :: FromFory a => ByteString -> Either String a
+decodeFory bs = D.decode bs >>= fromFory
 
 -- ---------------------------------------------------------------------------
 -- Reference-tracked sharing
@@ -103,12 +103,12 @@ decodeFury bs = D.decode bs >>= fromFury
 -- | Wrap a value to opt into Fory\'s reference-tracking. The
 -- 'sharingKey' field is a user-supplied 'Int' that tags logically
 -- identical objects: every occurrence of the same @sharingKey@
--- under a single 'encodeFury' call after the first encodes as a
+-- under a single 'encodeFory' call after the first encodes as a
 -- @REF_FLAG@ back-reference rather than a full payload.
 --
 -- @
 -- let x = Shared 1 (StringVal \"hello\")
--- encodeFury (ListVal (V.fromList [toFury x, toFury x, toFury x]))
+-- encodeFory (ListVal (V.fromList [toFory x, toFory x, toFory x]))
 -- -- emits the string once + two back-refs
 -- @
 --
@@ -122,12 +122,12 @@ data Shared a = Shared
   , unShared   :: !a
   } deriving (Eq, Show)
 
-instance ToFury a => ToFury (Shared a) where
-  toFury (Shared k a) = VV.RefVal k (toFury a)
+instance ToFory a => ToFory (Shared a) where
+  toFory (Shared k a) = VV.RefVal k (toFory a)
 
-instance FromFury a => FromFury (Shared a) where
-  fromFury (VV.RefVal k inner) = Shared k <$> fromFury inner
-  fromFury v = Shared 0 <$> fromFury v
+instance FromFory a => FromFory (Shared a) where
+  fromFory (VV.RefVal k inner) = Shared k <$> fromFory inner
+  fromFory v = Shared 0 <$> fromFory v
   -- Bare values decode as @Shared 0 v@ for permissiveness — the
   -- user explicitly opted into ref-tracking on the encode side
   -- but the wire doesn\'t guarantee it.
@@ -138,14 +138,14 @@ instance FromFury a => FromFury (Shared a) where
 
 -- $primitiveArrays
 --
--- The default 'ToFury' instance for @'Vector' a@ produces a
+-- The default 'ToFory' instance for @'Vector' a@ produces a
 -- 'VV.ListVal'. To opt into Fory\'s dense one-byte-per-element
 -- (or fixed-width little-endian) array encoding, wrap in one of
 -- the following newtypes:
 --
 -- @
--- toFury (Int32Array (V.fromList [1,2,3]))  -- 'VV.Int32ArrayVal'
--- toFury [1,2,3 :: Int32]                    -- 'VV.ListVal' of int32
+-- toFory (Int32Array (V.fromList [1,2,3]))  -- 'VV.Int32ArrayVal'
+-- toFory [1,2,3 :: Int32]                    -- 'VV.ListVal' of int32
 -- @
 
 newtype BoolArray = BoolArray { unBoolArray :: Vector Bool }
@@ -181,408 +181,408 @@ newtype Float32Array = Float32Array { unFloat32Array :: Vector Float }
 newtype Float64Array = Float64Array { unFloat64Array :: Vector Double }
   deriving stock (Eq, Show)
 
-instance ToFury BoolArray where
-  toFury = VV.BoolArrayVal . unBoolArray
-instance FromFury BoolArray where
-  fromFury (VV.BoolArrayVal v) = Right (BoolArray v)
-  fromFury _ = Left "FromFury BoolArray: expected BoolArrayVal"
+instance ToFory BoolArray where
+  toFory = VV.BoolArrayVal . unBoolArray
+instance FromFory BoolArray where
+  fromFory (VV.BoolArrayVal v) = Right (BoolArray v)
+  fromFory _ = Left "FromFory BoolArray: expected BoolArrayVal"
 
-instance ToFury Int8Array where
-  toFury = VV.Int8ArrayVal . unInt8Array
-instance FromFury Int8Array where
-  fromFury (VV.Int8ArrayVal v) = Right (Int8Array v)
-  fromFury _ = Left "FromFury Int8Array: expected Int8ArrayVal"
+instance ToFory Int8Array where
+  toFory = VV.Int8ArrayVal . unInt8Array
+instance FromFory Int8Array where
+  fromFory (VV.Int8ArrayVal v) = Right (Int8Array v)
+  fromFory _ = Left "FromFory Int8Array: expected Int8ArrayVal"
 
-instance ToFury Int16Array where
-  toFury = VV.Int16ArrayVal . unInt16Array
-instance FromFury Int16Array where
-  fromFury (VV.Int16ArrayVal v) = Right (Int16Array v)
-  fromFury _ = Left "FromFury Int16Array: expected Int16ArrayVal"
+instance ToFory Int16Array where
+  toFory = VV.Int16ArrayVal . unInt16Array
+instance FromFory Int16Array where
+  fromFory (VV.Int16ArrayVal v) = Right (Int16Array v)
+  fromFory _ = Left "FromFory Int16Array: expected Int16ArrayVal"
 
-instance ToFury Int32Array where
-  toFury = VV.Int32ArrayVal . unInt32Array
-instance FromFury Int32Array where
-  fromFury (VV.Int32ArrayVal v) = Right (Int32Array v)
-  fromFury _ = Left "FromFury Int32Array: expected Int32ArrayVal"
+instance ToFory Int32Array where
+  toFory = VV.Int32ArrayVal . unInt32Array
+instance FromFory Int32Array where
+  fromFory (VV.Int32ArrayVal v) = Right (Int32Array v)
+  fromFory _ = Left "FromFory Int32Array: expected Int32ArrayVal"
 
-instance ToFury Int64Array where
-  toFury = VV.Int64ArrayVal . unInt64Array
-instance FromFury Int64Array where
-  fromFury (VV.Int64ArrayVal v) = Right (Int64Array v)
-  fromFury _ = Left "FromFury Int64Array: expected Int64ArrayVal"
+instance ToFory Int64Array where
+  toFory = VV.Int64ArrayVal . unInt64Array
+instance FromFory Int64Array where
+  fromFory (VV.Int64ArrayVal v) = Right (Int64Array v)
+  fromFory _ = Left "FromFory Int64Array: expected Int64ArrayVal"
 
-instance ToFury Uint8Array where
-  toFury = VV.Uint8ArrayVal . unUint8Array
-instance FromFury Uint8Array where
-  fromFury (VV.Uint8ArrayVal v) = Right (Uint8Array v)
-  fromFury _ = Left "FromFury Uint8Array: expected Uint8ArrayVal"
+instance ToFory Uint8Array where
+  toFory = VV.Uint8ArrayVal . unUint8Array
+instance FromFory Uint8Array where
+  fromFory (VV.Uint8ArrayVal v) = Right (Uint8Array v)
+  fromFory _ = Left "FromFory Uint8Array: expected Uint8ArrayVal"
 
-instance ToFury Uint16Array where
-  toFury = VV.Uint16ArrayVal . unUint16Array
-instance FromFury Uint16Array where
-  fromFury (VV.Uint16ArrayVal v) = Right (Uint16Array v)
-  fromFury _ = Left "FromFury Uint16Array: expected Uint16ArrayVal"
+instance ToFory Uint16Array where
+  toFory = VV.Uint16ArrayVal . unUint16Array
+instance FromFory Uint16Array where
+  fromFory (VV.Uint16ArrayVal v) = Right (Uint16Array v)
+  fromFory _ = Left "FromFory Uint16Array: expected Uint16ArrayVal"
 
-instance ToFury Uint32Array where
-  toFury = VV.Uint32ArrayVal . unUint32Array
-instance FromFury Uint32Array where
-  fromFury (VV.Uint32ArrayVal v) = Right (Uint32Array v)
-  fromFury _ = Left "FromFury Uint32Array: expected Uint32ArrayVal"
+instance ToFory Uint32Array where
+  toFory = VV.Uint32ArrayVal . unUint32Array
+instance FromFory Uint32Array where
+  fromFory (VV.Uint32ArrayVal v) = Right (Uint32Array v)
+  fromFory _ = Left "FromFory Uint32Array: expected Uint32ArrayVal"
 
-instance ToFury Uint64Array where
-  toFury = VV.Uint64ArrayVal . unUint64Array
-instance FromFury Uint64Array where
-  fromFury (VV.Uint64ArrayVal v) = Right (Uint64Array v)
-  fromFury _ = Left "FromFury Uint64Array: expected Uint64ArrayVal"
+instance ToFory Uint64Array where
+  toFory = VV.Uint64ArrayVal . unUint64Array
+instance FromFory Uint64Array where
+  fromFory (VV.Uint64ArrayVal v) = Right (Uint64Array v)
+  fromFory _ = Left "FromFory Uint64Array: expected Uint64ArrayVal"
 
-instance ToFury Float32Array where
-  toFury = VV.Float32ArrayVal . unFloat32Array
-instance FromFury Float32Array where
-  fromFury (VV.Float32ArrayVal v) = Right (Float32Array v)
-  fromFury _ = Left "FromFury Float32Array: expected Float32ArrayVal"
+instance ToFory Float32Array where
+  toFory = VV.Float32ArrayVal . unFloat32Array
+instance FromFory Float32Array where
+  fromFory (VV.Float32ArrayVal v) = Right (Float32Array v)
+  fromFory _ = Left "FromFory Float32Array: expected Float32ArrayVal"
 
-instance ToFury Float64Array where
-  toFury = VV.Float64ArrayVal . unFloat64Array
-instance FromFury Float64Array where
-  fromFury (VV.Float64ArrayVal v) = Right (Float64Array v)
-  fromFury _ = Left "FromFury Float64Array: expected Float64ArrayVal"
+instance ToFory Float64Array where
+  toFory = VV.Float64ArrayVal . unFloat64Array
+instance FromFory Float64Array where
+  fromFory (VV.Float64ArrayVal v) = Right (Float64Array v)
+  fromFory _ = Left "FromFory Float64Array: expected Float64ArrayVal"
 
 -- ---------------------------------------------------------------------------
 -- Base-type instances
 -- ---------------------------------------------------------------------------
 
-instance ToFury VV.Value where
-  toFury = id
+instance ToFory VV.Value where
+  toFory = id
 
-instance FromFury VV.Value where
-  fromFury = Right
+instance FromFory VV.Value where
+  fromFory = Right
 
-instance ToFury Bool where
-  toFury = VV.BoolVal
+instance ToFory Bool where
+  toFory = VV.BoolVal
 
-instance FromFury Bool where
-  fromFury (VV.BoolVal b) = Right b
-  fromFury _ = Left "FromFury Bool: expected Bool"
+instance FromFory Bool where
+  fromFory (VV.BoolVal b) = Right b
+  fromFory _ = Left "FromFory Bool: expected Bool"
 
-instance ToFury Int8 where
-  toFury = VV.Int8Val
+instance ToFory Int8 where
+  toFory = VV.Int8Val
 
-instance FromFury Int8 where
-  fromFury (VV.Int8Val n) = Right n
-  fromFury _ = Left "FromFury Int8: expected Int8"
+instance FromFory Int8 where
+  fromFory (VV.Int8Val n) = Right n
+  fromFory _ = Left "FromFory Int8: expected Int8"
 
-instance ToFury Int16 where
-  toFury = VV.Int16Val
+instance ToFory Int16 where
+  toFory = VV.Int16Val
 
-instance FromFury Int16 where
-  fromFury (VV.Int16Val n) = Right n
-  fromFury _ = Left "FromFury Int16: expected Int16"
+instance FromFory Int16 where
+  fromFory (VV.Int16Val n) = Right n
+  fromFory _ = Left "FromFory Int16: expected Int16"
 
-instance ToFury Int32 where
-  toFury = VV.Int32Val
+instance ToFory Int32 where
+  toFory = VV.Int32Val
 
-instance FromFury Int32 where
-  fromFury (VV.Int32Val n) = Right n
-  fromFury _ = Left "FromFury Int32: expected Int32"
+instance FromFory Int32 where
+  fromFory (VV.Int32Val n) = Right n
+  fromFory _ = Left "FromFory Int32: expected Int32"
 
-instance ToFury Int64 where
-  toFury = VV.Int64Val
+instance ToFory Int64 where
+  toFory = VV.Int64Val
 
-instance FromFury Int64 where
-  fromFury (VV.Int64Val n) = Right n
-  fromFury _ = Left "FromFury Int64: expected Int64"
+instance FromFory Int64 where
+  fromFory (VV.Int64Val n) = Right n
+  fromFory _ = Left "FromFory Int64: expected Int64"
 
 -- | The default encoding for Haskell @Int@ is xlang @VARINT64@,
 -- matching what @pyfory@ does for Python @int@.
-instance ToFury Int where
-  toFury = VV.VarInt64Val . fromIntegral
+instance ToFory Int where
+  toFory = VV.VarInt64Val . fromIntegral
 
-instance FromFury Int where
-  fromFury (VV.VarInt64Val n) = Right (fromIntegral n)
-  fromFury (VV.VarInt32Val n) = Right (fromIntegral n)
-  fromFury (VV.Int64Val n) = Right (fromIntegral n)
-  fromFury (VV.Int32Val n) = Right (fromIntegral n)
-  fromFury (VV.Int16Val n) = Right (fromIntegral n)
-  fromFury (VV.Int8Val  n) = Right (fromIntegral n)
-  fromFury _ = Left "FromFury Int: expected an integer"
+instance FromFory Int where
+  fromFory (VV.VarInt64Val n) = Right (fromIntegral n)
+  fromFory (VV.VarInt32Val n) = Right (fromIntegral n)
+  fromFory (VV.Int64Val n) = Right (fromIntegral n)
+  fromFory (VV.Int32Val n) = Right (fromIntegral n)
+  fromFory (VV.Int16Val n) = Right (fromIntegral n)
+  fromFory (VV.Int8Val  n) = Right (fromIntegral n)
+  fromFory _ = Left "FromFory Int: expected an integer"
 
-instance ToFury Word8 where
-  toFury = VV.Uint8Val
+instance ToFory Word8 where
+  toFory = VV.Uint8Val
 
-instance FromFury Word8 where
-  fromFury (VV.Uint8Val n) = Right n
-  fromFury _ = Left "FromFury Word8: expected UInt8"
+instance FromFory Word8 where
+  fromFory (VV.Uint8Val n) = Right n
+  fromFory _ = Left "FromFory Word8: expected UInt8"
 
-instance ToFury Word16 where
-  toFury = VV.Uint16Val
+instance ToFory Word16 where
+  toFory = VV.Uint16Val
 
-instance FromFury Word16 where
-  fromFury (VV.Uint16Val n) = Right n
-  fromFury _ = Left "FromFury Word16: expected UInt16"
+instance FromFory Word16 where
+  fromFory (VV.Uint16Val n) = Right n
+  fromFory _ = Left "FromFory Word16: expected UInt16"
 
-instance ToFury Word32 where
-  toFury = VV.Uint32Val
+instance ToFory Word32 where
+  toFory = VV.Uint32Val
 
-instance FromFury Word32 where
-  fromFury (VV.Uint32Val n) = Right n
-  fromFury _ = Left "FromFury Word32: expected UInt32"
+instance FromFory Word32 where
+  fromFory (VV.Uint32Val n) = Right n
+  fromFory _ = Left "FromFory Word32: expected UInt32"
 
-instance ToFury Word64 where
-  toFury = VV.Uint64Val
+instance ToFory Word64 where
+  toFory = VV.Uint64Val
 
-instance FromFury Word64 where
-  fromFury (VV.Uint64Val n) = Right n
-  fromFury _ = Left "FromFury Word64: expected UInt64"
+instance FromFory Word64 where
+  fromFory (VV.Uint64Val n) = Right n
+  fromFory _ = Left "FromFory Word64: expected UInt64"
 
-instance ToFury Word where
-  toFury = VV.Uint64Val . fromIntegral
+instance ToFory Word where
+  toFory = VV.Uint64Val . fromIntegral
 
-instance FromFury Word where
-  fromFury (VV.Uint64Val n) = Right (fromIntegral n)
-  fromFury (VV.Uint32Val n) = Right (fromIntegral n)
-  fromFury (VV.Uint16Val n) = Right (fromIntegral n)
-  fromFury (VV.Uint8Val  n) = Right (fromIntegral n)
-  fromFury _ = Left "FromFury Word: expected an unsigned integer"
+instance FromFory Word where
+  fromFory (VV.Uint64Val n) = Right (fromIntegral n)
+  fromFory (VV.Uint32Val n) = Right (fromIntegral n)
+  fromFory (VV.Uint16Val n) = Right (fromIntegral n)
+  fromFory (VV.Uint8Val  n) = Right (fromIntegral n)
+  fromFory _ = Left "FromFory Word: expected an unsigned integer"
 
-instance ToFury Float where
-  toFury = VV.Float32Val
+instance ToFory Float where
+  toFory = VV.Float32Val
 
-instance FromFury Float where
-  fromFury (VV.Float32Val f) = Right f
-  fromFury (VV.Float64Val d) = Right (realToFrac d)
-  fromFury _ = Left "FromFury Float: expected Float32 or Float64"
+instance FromFory Float where
+  fromFory (VV.Float32Val f) = Right f
+  fromFory (VV.Float64Val d) = Right (realToFrac d)
+  fromFory _ = Left "FromFory Float: expected Float32 or Float64"
 
-instance ToFury Double where
-  toFury = VV.Float64Val
+instance ToFory Double where
+  toFory = VV.Float64Val
 
-instance FromFury Double where
-  fromFury (VV.Float64Val d) = Right d
-  fromFury (VV.Float32Val f) = Right (realToFrac f)
-  fromFury _ = Left "FromFury Double: expected Float64 or Float32"
+instance FromFory Double where
+  fromFory (VV.Float64Val d) = Right d
+  fromFory (VV.Float32Val f) = Right (realToFrac f)
+  fromFory _ = Left "FromFory Double: expected Float64 or Float32"
 
-instance ToFury Text where
-  toFury = VV.StringVal
+instance ToFory Text where
+  toFory = VV.StringVal
 
-instance FromFury Text where
-  fromFury (VV.StringVal t) = Right t
-  fromFury _ = Left "FromFury Text: expected String"
+instance FromFory Text where
+  fromFory (VV.StringVal t) = Right t
+  fromFory _ = Left "FromFory Text: expected String"
 
-instance ToFury TL.Text where
-  toFury = VV.StringVal . TL.toStrict
+instance ToFory TL.Text where
+  toFory = VV.StringVal . TL.toStrict
 
-instance FromFury TL.Text where
-  fromFury v = TL.fromStrict <$> fromFury v
+instance FromFory TL.Text where
+  fromFory v = TL.fromStrict <$> fromFory v
 
-instance ToFury Char where
-  toFury c = VV.StringVal (T.singleton c)
+instance ToFory Char where
+  toFory c = VV.StringVal (T.singleton c)
 
-instance FromFury Char where
-  fromFury (VV.StringVal t) | T.length t == 1 = Right (T.head t)
-  fromFury _ = Left "FromFury Char: expected single-character String"
+instance FromFory Char where
+  fromFory (VV.StringVal t) | T.length t == 1 = Right (T.head t)
+  fromFory _ = Left "FromFory Char: expected single-character String"
 
-instance ToFury ByteString where
-  toFury = VV.BinaryVal
+instance ToFory ByteString where
+  toFory = VV.BinaryVal
 
-instance FromFury ByteString where
-  fromFury (VV.BinaryVal bs) = Right bs
-  fromFury _ = Left "FromFury ByteString: expected Binary"
+instance FromFory ByteString where
+  fromFory (VV.BinaryVal bs) = Right bs
+  fromFory _ = Left "FromFory ByteString: expected Binary"
 
-instance ToFury BSL.ByteString where
-  toFury = VV.BinaryVal . BSL.toStrict
+instance ToFory BSL.ByteString where
+  toFory = VV.BinaryVal . BSL.toStrict
 
-instance FromFury BSL.ByteString where
-  fromFury v = BSL.fromStrict <$> fromFury v
+instance FromFory BSL.ByteString where
+  fromFory v = BSL.fromStrict <$> fromFory v
 
-instance ToFury () where
-  toFury () = VV.NoneVal
+instance ToFory () where
+  toFory () = VV.NoneVal
 
-instance FromFury () where
-  fromFury VV.NoneVal = Right ()
-  fromFury _ = Left "FromFury (): expected None"
+instance FromFory () where
+  fromFory VV.NoneVal = Right ()
+  fromFory _ = Left "FromFory (): expected None"
 
 -- 'Maybe' lifts 'Nothing' to @None@ and 'Just' through to its
 -- payload directly. Round-tripping a @Maybe (Maybe a)@ collapses
 -- the two layers of 'Nothing' so this instance is /not/ injective
 -- on nested optionals, mirroring what Fory's own xlang treatment
 -- does in languages with implicit nullable types.
-instance ToFury a => ToFury (Maybe a) where
-  toFury Nothing  = VV.NoneVal
-  toFury (Just x) = toFury x
+instance ToFory a => ToFory (Maybe a) where
+  toFory Nothing  = VV.NoneVal
+  toFory (Just x) = toFory x
 
-instance FromFury a => FromFury (Maybe a) where
-  fromFury VV.NoneVal = Right Nothing
-  fromFury v          = Just <$> fromFury v
+instance FromFory a => FromFory (Maybe a) where
+  fromFory VV.NoneVal = Right Nothing
+  fromFory v          = Just <$> fromFory v
 
-instance ToFury a => ToFury [a] where
-  toFury xs = VV.ListVal (V.fromList (map toFury xs))
+instance ToFory a => ToFory [a] where
+  toFory xs = VV.ListVal (V.fromList (map toFory xs))
 
-instance FromFury a => FromFury [a] where
-  fromFury (VV.ListVal vs) = traverse fromFury (V.toList vs)
-  fromFury _ = Left "FromFury [a]: expected List"
+instance FromFory a => FromFory [a] where
+  fromFory (VV.ListVal vs) = traverse fromFory (V.toList vs)
+  fromFory _ = Left "FromFory [a]: expected List"
 
-instance ToFury a => ToFury (Vector a) where
-  toFury = VV.ListVal . V.map toFury
+instance ToFory a => ToFory (Vector a) where
+  toFory = VV.ListVal . V.map toFory
 
-instance FromFury a => FromFury (Vector a) where
-  fromFury (VV.ListVal vs) = V.mapM fromFury vs
-  fromFury _ = Left "FromFury Vector: expected List"
+instance FromFory a => FromFory (Vector a) where
+  fromFory (VV.ListVal vs) = V.mapM fromFory vs
+  fromFory _ = Left "FromFory Vector: expected List"
 
-instance ToFury a => ToFury (NonEmpty a) where
-  toFury = toFury . NE.toList
+instance ToFory a => ToFory (NonEmpty a) where
+  toFory = toFory . NE.toList
 
-instance FromFury a => FromFury (NonEmpty a) where
-  fromFury v = do
-    xs <- fromFury v
+instance FromFory a => FromFory (NonEmpty a) where
+  fromFory v = do
+    xs <- fromFory v
     case xs of
-      []     -> Left "FromFury NonEmpty: empty list"
+      []     -> Left "FromFory NonEmpty: empty list"
       (y:ys) -> Right (y :| ys)
 
-instance ToFury a => ToFury (Seq a) where
-  toFury s = VV.ListVal (V.fromList (fmap toFury (foldr (:) [] s)))
+instance ToFory a => ToFory (Seq a) where
+  toFory s = VV.ListVal (V.fromList (fmap toFory (foldr (:) [] s)))
 
-instance FromFury a => FromFury (Seq a) where
-  fromFury v = Seq.fromList <$> fromFury v
+instance FromFory a => FromFory (Seq a) where
+  fromFory v = Seq.fromList <$> fromFory v
 
-instance ToFury a => ToFury (Set a) where
-  toFury = VV.SetVal . V.fromList . fmap toFury . Set.toList
+instance ToFory a => ToFory (Set a) where
+  toFory = VV.SetVal . V.fromList . fmap toFory . Set.toList
 
-instance (Ord a, FromFury a) => FromFury (Set a) where
-  fromFury (VV.SetVal vs) = Set.fromList <$> traverse fromFury (V.toList vs)
-  fromFury (VV.ListVal vs) = Set.fromList <$> traverse fromFury (V.toList vs)
-  fromFury _ = Left "FromFury Set: expected Set or List"
+instance (Ord a, FromFory a) => FromFory (Set a) where
+  fromFory (VV.SetVal vs) = Set.fromList <$> traverse fromFory (V.toList vs)
+  fromFory (VV.ListVal vs) = Set.fromList <$> traverse fromFory (V.toList vs)
+  fromFory _ = Left "FromFory Set: expected Set or List"
 
-instance (ToFury k, ToFury v) => ToFury (Map k v) where
-  toFury m =
+instance (ToFory k, ToFory v) => ToFory (Map k v) where
+  toFory m =
     VV.MapVal
       (V.fromList
-        [ (toFury k, toFury vv)
+        [ (toFory k, toFory vv)
         | (k, vv) <- Map.toAscList m ])
 
-instance (Ord k, FromFury k, FromFury v) => FromFury (Map k v) where
-  fromFury (VV.MapVal kvs) = do
+instance (Ord k, FromFory k, FromFory v) => FromFory (Map k v) where
+  fromFory (VV.MapVal kvs) = do
     pairs <- traverse decodePair (V.toList kvs)
     Right (Map.fromList pairs)
     where
-      decodePair (kv, vv) = (,) <$> fromFury kv <*> fromFury vv
-  fromFury _ = Left "FromFury Map: expected Map"
+      decodePair (kv, vv) = (,) <$> fromFory kv <*> fromFory vv
+  fromFory _ = Left "FromFory Map: expected Map"
 
-instance ToFury v => ToFury (IntMap v) where
-  toFury m =
+instance ToFory v => ToFory (IntMap v) where
+  toFory m =
     VV.MapVal
       (V.fromList
-        [ (VV.Int64Val (fromIntegral k), toFury vv)
+        [ (VV.Int64Val (fromIntegral k), toFory vv)
         | (k, vv) <- IntMap.toAscList m ])
 
-instance FromFury v => FromFury (IntMap v) where
-  fromFury (VV.MapVal kvs) = do
+instance FromFory v => FromFory (IntMap v) where
+  fromFory (VV.MapVal kvs) = do
     pairs <- traverse decodePair (V.toList kvs)
     Right (IntMap.fromList pairs)
     where
       decodePair (kv, vv) = do
-        k' <- fromFury kv
-        v' <- fromFury vv
+        k' <- fromFory kv
+        v' <- fromFory vv
         Right (k', v')
-  fromFury _ = Left "FromFury IntMap: expected Map"
+  fromFory _ = Left "FromFory IntMap: expected Map"
 
-instance ToFury IntSet where
-  toFury =
+instance ToFory IntSet where
+  toFory =
     VV.SetVal
       . V.fromList
       . fmap (VV.Int64Val . fromIntegral)
       . IntSet.toAscList
 
-instance FromFury IntSet where
-  fromFury v = IntSet.fromList <$> fromFury v
+instance FromFory IntSet where
+  fromFory v = IntSet.fromList <$> fromFory v
 
-instance (ToFury a, ToFury b) => ToFury (a, b) where
-  toFury (a, b) = VV.ListVal (V.fromList [toFury a, toFury b])
+instance (ToFory a, ToFory b) => ToFory (a, b) where
+  toFory (a, b) = VV.ListVal (V.fromList [toFory a, toFory b])
 
-instance (FromFury a, FromFury b) => FromFury (a, b) where
-  fromFury (VV.ListVal vs)
-    | V.length vs == 2 = (,) <$> fromFury (vs V.! 0) <*> fromFury (vs V.! 1)
-  fromFury _ = Left "FromFury (a,b): expected List of length 2"
+instance (FromFory a, FromFory b) => FromFory (a, b) where
+  fromFory (VV.ListVal vs)
+    | V.length vs == 2 = (,) <$> fromFory (vs V.! 0) <*> fromFory (vs V.! 1)
+  fromFory _ = Left "FromFory (a,b): expected List of length 2"
 
-instance (ToFury a, ToFury b, ToFury c) => ToFury (a, b, c) where
-  toFury (a, b, c) =
-    VV.ListVal (V.fromList [toFury a, toFury b, toFury c])
+instance (ToFory a, ToFory b, ToFory c) => ToFory (a, b, c) where
+  toFory (a, b, c) =
+    VV.ListVal (V.fromList [toFory a, toFory b, toFory c])
 
-instance (FromFury a, FromFury b, FromFury c) => FromFury (a, b, c) where
-  fromFury (VV.ListVal vs)
+instance (FromFory a, FromFory b, FromFory c) => FromFory (a, b, c) where
+  fromFory (VV.ListVal vs)
     | V.length vs == 3 =
-        (,,) <$> fromFury (vs V.! 0)
-             <*> fromFury (vs V.! 1)
-             <*> fromFury (vs V.! 2)
-  fromFury _ = Left "FromFury (a,b,c): expected List of length 3"
+        (,,) <$> fromFory (vs V.! 0)
+             <*> fromFory (vs V.! 1)
+             <*> fromFory (vs V.! 2)
+  fromFory _ = Left "FromFory (a,b,c): expected List of length 3"
 
-instance ToFury a => ToFury (Identity a) where
-  toFury (Identity x) = toFury x
+instance ToFory a => ToFory (Identity a) where
+  toFory (Identity x) = toFory x
 
-instance FromFury a => FromFury (Identity a) where
-  fromFury v = Identity <$> fromFury v
+instance FromFory a => FromFory (Identity a) where
+  fromFory v = Identity <$> fromFory v
 
-instance ToFury a => ToFury (Const a b) where
-  toFury (Const x) = toFury x
+instance ToFory a => ToFory (Const a b) where
+  toFory (Const x) = toFory x
 
-instance FromFury a => FromFury (Const a b) where
-  fromFury v = Const <$> fromFury v
+instance FromFory a => FromFory (Const a b) where
+  fromFory v = Const <$> fromFory v
 
 -- ---------------------------------------------------------------------------
 -- Generic deriver
 -- ---------------------------------------------------------------------------
 
-class GToFury f where
-  gToFury :: f p -> VV.Value
+class GToFory f where
+  gToFory :: f p -> VV.Value
 
-class GFromFury f where
-  gFromFury :: VV.Value -> Either String (f p)
+class GFromFory f where
+  gFromFory :: VV.Value -> Either String (f p)
 
-instance (Datatype d, GToFuryC f) => GToFury (M1 D d f) where
-  gToFury m@(M1 x) = gToFuryC (T.pack (moduleName m)) (T.pack (datatypeName m)) x
+instance (Datatype d, GToForyC f) => GToFory (M1 D d f) where
+  gToFory m@(M1 x) = gToForyC (T.pack (moduleName m)) (T.pack (datatypeName m)) x
 
-instance GFromFuryC f => GFromFury (M1 D d f) where
-  gFromFury v = M1 <$> gFromFuryC v
+instance GFromForyC f => GFromFory (M1 D d f) where
+  gFromFory v = M1 <$> gFromForyC v
 
-class GToFuryC f where
-  gToFuryC :: Text -> Text -> f p -> VV.Value
+class GToForyC f where
+  gToForyC :: Text -> Text -> f p -> VV.Value
 
-class GFromFuryC f where
-  gFromFuryC :: VV.Value -> Either String (f p)
+class GFromForyC f where
+  gFromForyC :: VV.Value -> Either String (f p)
 
-instance (Constructor c, GToFuryFields f) => GToFuryC (M1 C c f) where
-  gToFuryC ns _ m@(M1 x) =
+instance (Constructor c, GToForyFields f) => GToForyC (M1 C c f) where
+  gToForyC ns _ m@(M1 x) =
     VV.StructVal ns (T.pack (conName m))
-      (V.fromList (gToFuryFields x))
+      (V.fromList (gToForyFields x))
 
-instance GFromFuryFields f => GFromFuryC (M1 C c f) where
-  gFromFuryC (VV.StructVal _ _ fields) =
+instance GFromForyFields f => GFromForyC (M1 C c f) where
+  gFromForyC (VV.StructVal _ _ fields) =
     let lkup name = lookupField name fields
-    in M1 <$> gFromFuryFields lkup
-  gFromFuryC _ = Left "GFromFury: expected NamedStruct for record type"
+    in M1 <$> gFromForyFields lkup
+  gFromForyC _ = Left "GFromFory: expected NamedStruct for record type"
 
-class GToFuryFields f where
-  gToFuryFields :: f p -> [(Text, VV.Value)]
+class GToForyFields f where
+  gToForyFields :: f p -> [(Text, VV.Value)]
 
-class GFromFuryFields f where
-  gFromFuryFields :: (Text -> Maybe VV.Value) -> Either String (f p)
+class GFromForyFields f where
+  gFromForyFields :: (Text -> Maybe VV.Value) -> Either String (f p)
 
-instance (GToFuryFields a, GToFuryFields b)
-       => GToFuryFields (a :*: b) where
-  gToFuryFields (a :*: b) = gToFuryFields a ++ gToFuryFields b
+instance (GToForyFields a, GToForyFields b)
+       => GToForyFields (a :*: b) where
+  gToForyFields (a :*: b) = gToForyFields a ++ gToForyFields b
 
-instance (GFromFuryFields a, GFromFuryFields b)
-       => GFromFuryFields (a :*: b) where
-  gFromFuryFields lkup =
-    (:*:) <$> gFromFuryFields lkup <*> gFromFuryFields lkup
+instance (GFromForyFields a, GFromForyFields b)
+       => GFromForyFields (a :*: b) where
+  gFromForyFields lkup =
+    (:*:) <$> gFromForyFields lkup <*> gFromForyFields lkup
 
-instance (Selector s, ToFury a) => GToFuryFields (M1 S s (K1 i a)) where
-  gToFuryFields m@(M1 (K1 x)) = [(T.pack (selName m), toFury x)]
+instance (Selector s, ToFory a) => GToForyFields (M1 S s (K1 i a)) where
+  gToForyFields m@(M1 (K1 x)) = [(T.pack (selName m), toFory x)]
 
-instance (Selector s, FromFury a) => GFromFuryFields (M1 S s (K1 i a)) where
-  gFromFuryFields lkup =
+instance (Selector s, FromFory a) => GFromForyFields (M1 S s (K1 i a)) where
+  gFromForyFields lkup =
     let name = T.pack (selName (undefined :: M1 S s (K1 i a) p))
     in case lkup name of
-         Nothing -> Left ("GFromFury: missing field " ++ T.unpack name)
-         Just v  -> M1 . K1 <$> fromFury v
+         Nothing -> Left ("GFromFory: missing field " ++ T.unpack name)
+         Just v  -> M1 . K1 <$> fromFory v
 
 lookupField :: Text -> Vector (Text, VV.Value) -> Maybe VV.Value
 lookupField name fields = go 0

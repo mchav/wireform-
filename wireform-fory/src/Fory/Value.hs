@@ -1,6 +1,6 @@
 -- | Dynamic Apache Fory value.
 --
--- 'Value' is the AST that 'Fury.Encode' and 'Fury.Decode' walk. It
+-- 'Value' is the AST that 'Fory.Encode' and 'Fory.Decode' walk. It
 -- covers the primitive scalars, strings\/binary, list\/set\/map
 -- collections, named structs, and the spec\'s extended kinds:
 --
@@ -17,7 +17,7 @@
 --
 -- * @*ArrayVal@ – the canonical wire tags for one-dimensional
 --   bool / numeric arrays (BOOL_ARRAY … FLOAT64_ARRAY).
-module Fury.Value
+module Fory.Value
   ( Value (..)
   , StructFields
   , typeIdOf
@@ -36,8 +36,8 @@ import qualified Data.Vector as V
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics (Generic)
 
-import Fury.TypeId (TypeId)
-import qualified Fury.TypeId as T
+import Fory.TypeId (TypeId)
+import qualified Fory.TypeId as T
 
 -- | Field list for a struct: pairs of @(field_name, value)@,
 -- already in canonical write order.
@@ -80,7 +80,7 @@ data Value
   | RegisteredStructVal !Text !Text !StructFields
     -- ^ @RegisteredStructVal namespace typeName fields@. Both
     -- producer and consumer must agree on the struct schema
-    -- (passed to the encoder via 'Fury.Encode.encodeWithSchema').
+    -- (passed to the encoder via 'Fory.Encode.encodeWithSchema').
     -- Encodes as the spec's @NAMED_STRUCT@: type tag + namespace
     -- meta-string + type-name meta-string + 4-byte schema hash
     -- + field values in pyfory's canonical order.
@@ -178,7 +178,7 @@ instance Hashable Value where
 
 -- | Linear scan over @Vector (Text, Value)@ struct fields,
 -- returning the first value associated with the given name (or
--- 'Nothing'). Used by the 'Fury.Encode.encodeRegisteredStruct'
+-- 'Nothing'). Used by the 'Fory.Encode.encodeRegisteredStruct'
 -- machinery to look up a logical field in user-supplied order
 -- when emitting it in pyfory's canonical wire order.
 registeredStructFieldByName

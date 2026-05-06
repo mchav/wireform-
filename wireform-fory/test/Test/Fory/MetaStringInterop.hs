@@ -1,13 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
--- | Pinned-byte tests verifying our 'Fury.MetaString.Encoder' and
--- 'Fury.MetaString.Hash' produce output byte-for-byte identical
+-- | Pinned-byte tests verifying our 'Fory.MetaString.Encoder' and
+-- 'Fory.MetaString.Hash' produce output byte-for-byte identical
 -- to @pyfory.meta.metastring@ + @pyfory.context.hash_meta_string_data@.
 --
 -- The expected byte strings and 64-bit hashcodes were captured
 -- directly from pyfory 0.17 via @pyfory.meta.metastring.MetaStringEncoder@
 -- and committed inline below; if a future pyfory update breaks
 -- compatibility we want a tight failure surface here.
-module Test.Fury.MetaStringInterop (tests) where
+module Test.Fory.MetaStringInterop (tests) where
 
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
@@ -16,11 +16,11 @@ import Numeric (showHex)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertFailure)
 
-import qualified Fury.MetaString.Encoder as MSE
-import qualified Fury.MetaString.Hash as MSH
+import qualified Fory.MetaString.Encoder as MSE
+import qualified Fory.MetaString.Hash as MSH
 
 tests :: TestTree
-tests = testGroup "Fury.MetaString.Encoder vs pyfory"
+tests = testGroup "Fory.MetaString.Encoder vs pyfory"
   [ testCase "namespace 'example' (LOWER_SPECIAL, length 5)" $
       check MSE.namespaceSpecialChars "example"
         MSE.LowerSpecial

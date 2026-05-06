@@ -85,7 +85,7 @@ its format actually needs.
 | `wireform-edn` | Extensible Data Notation (EDN) |
 | `wireform-toml` | TOML |
 | `wireform-bencode` | BitTorrent bencode |
-| `wireform-fury` | Apache Fory (formerly Fury) xlang serialization |
+| `wireform-fory` | Apache Fory (formerly Fury) xlang serialization |
 | `wireform-asn1` | ASN.1 BER / DER (ITU-T X.690) |
 | `wireform-avro` | Apache Avro: schema resolution, JSON conversion, IPC protocol |
 | `wireform-bond` | Microsoft Bond compact binary |

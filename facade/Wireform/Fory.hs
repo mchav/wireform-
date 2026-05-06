@@ -2,16 +2,16 @@
 -- xlang serialization.
 --
 -- @
--- import qualified Wireform.Fury as Fury
+-- import qualified Wireform.Fory as Fory
 -- @
-module Wireform.Fury
-  ( module Fury.Value
-  , module Fury.Encode
-  , module Fury.Decode
-  , module Fury.Class
+module Wireform.Fory
+  ( module Fory.Value
+  , module Fory.Encode
+  , module Fory.Decode
+  , module Fory.Class
   ) where
 
-import Fury.Value
-import Fury.Encode
-import Fury.Decode
-import Fury.Class
+import Fory.Value
+import Fory.Encode
+import Fory.Decode
+import Fory.Class

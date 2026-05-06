@@ -1,5 +1,5 @@
 cabal-version: 3.0
-name: wireform-fury
+name: wireform-fory
 version: 0.1.0.0
 synopsis: Apache Fory (formerly Fury) xlang serialization
 description:
@@ -13,7 +13,7 @@ description:
   collection framing that round-trips inside this package. Reference
   tracking, meta-string deduplication, and the streaming TypeDef
   cache are intentionally not enabled in this initial release; see
-  the @Fury.Encode@ haddock for the exact subset.
+  the @Fory.Encode@ haddock for the exact subset.
 license: BSD-3-Clause
 build-type: Simple
 
@@ -26,7 +26,7 @@ common defaults
     -Wincomplete-uni-patterns
     -Wpartial-fields
     -Wredundant-constraints
-    -O2
+    -O1
   default-language: GHC2021
   default-extensions:
     StrictData
@@ -40,18 +40,18 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
-    Fury.Class
-    Fury.Decode
-    Fury.Derive
-    Fury.Encode
-    Fury.Encoding
-    Fury.MetaString
-    Fury.MetaString.Encoder
-    Fury.MetaString.Hash
-    Fury.Options
-    Fury.Struct
-    Fury.TypeId
-    Fury.Value
+    Fory.Class
+    Fory.Decode
+    Fory.Derive
+    Fory.Encode
+    Fory.Encoding
+    Fory.MetaString
+    Fory.MetaString.Encoder
+    Fory.MetaString.Hash
+    Fory.Options
+    Fory.Struct
+    Fory.TypeId
+    Fory.Value
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
@@ -65,25 +65,25 @@ library
     hashable >= 1.3 && < 1.6,
     unordered-containers >= 0.2.16 && < 0.3
 
-test-suite wireform-fury-test
+test-suite wireform-fory-test
   import: defaults
   type: exitcode-stdio-1.0
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
-    Test.Fury.Encoding
-    Test.Fury.Value
-    Test.Fury.SpecExtensions
-    Test.Fury.MetaStringInterop
-    Test.Fury.Derive
-    Test.Fury.Derive.Types
-    Test.Fury.Derive.Instances
+    Test.Fory.Encoding
+    Test.Fory.Value
+    Test.Fory.SpecExtensions
+    Test.Fory.MetaStringInterop
+    Test.Fory.Derive
+    Test.Fory.Derive.Types
+    Test.Fory.Derive.Instances
   default-extensions:
     ScopedTypeVariables
     TemplateHaskell
   build-depends:
     base,
-    wireform-fury,
+    wireform-fory,
     wireform-derive,
     bytestring,
     text,
@@ -94,14 +94,14 @@ test-suite wireform-fury-test
     hedgehog
 
 flag python-interop
-  description: Build the wireform-fury-interop test suite, which
+  description: Build the wireform-fory-interop test suite, which
                shells out to python3 / pyfory to verify byte-for-byte
                compatibility. Off by default because it requires a
                working pyfory install on the build host.
   manual: True
   default: False
 
-test-suite wireform-fury-interop
+test-suite wireform-fory-interop
   import: defaults
   type: exitcode-stdio-1.0
   hs-source-dirs: test-interop
@@ -110,7 +110,7 @@ test-suite wireform-fury-interop
     buildable: False
   build-depends:
     base,
-    wireform-fury,
+    wireform-fory,
     bytestring,
     containers    >= 0.6 && < 0.8,
     text,
@@ -119,3 +119,40 @@ test-suite wireform-fury-interop
     scientific    >= 0.3 && < 0.4,
     process       >= 1.6 && < 1.8,
     directory     >= 1.3 && < 1.4
+
+-- Property-based fuzz audit: generates random fory Values, asks
+-- pyfory to deserialise them, and reports the first one pyfory
+-- can't accept. Keeps the wire format honest as we add features.
+test-suite wireform-fory-interop-fuzz
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test-interop
+  main-is: Fuzz.hs
+  if !flag(python-interop)
+    buildable: False
+  build-depends:
+    base,
+    wireform-fory,
+    bytestring,
+    text,
+    vector,
+    process       >= 1.6 && < 1.8,
+    directory     >= 1.3 && < 1.4,
+    hedgehog      >= 1.0 && < 1.5
+
+executable wireform-fory-fuzz-trace
+  import: defaults
+  hs-source-dirs: test-interop
+  main-is: Manual.hs
+  ghc-options: -O0
+  if !flag(python-interop)
+    buildable: False
+  build-depends:
+    base,
+    wireform-fory,
+    bytestring,
+    text,
+    vector,
+    process       >= 1.6 && < 1.8,
+    directory     >= 1.3 && < 1.4,
+    hedgehog      >= 1.0 && < 1.5

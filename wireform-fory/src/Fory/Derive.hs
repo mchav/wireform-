@@ -2,19 +2,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 -- | Annotation-driven Template Haskell deriver for Apache Fory
--- 'Fury.Class.ToFury' / 'Fury.Class.FromFury' instances.
+-- 'Fory.Class.ToFory' / 'Fory.Class.FromFory' instances.
 --
 -- The deriver consults the same annotation vocabulary as every
 -- other per-format deriver in this repo (see
 -- @Wireform.Derive.Modifier@). The default rename style for the
--- 'backendFury' backend is @snake_case@, matching the xlang spec\'s
+-- 'backendFory' backend is @snake_case@, matching the xlang spec\'s
 -- requirement that field names be converted to @snake_case@ before
 -- being written as a meta-string.
 --
 -- Encoding shape:
 --
 -- * 'TypeShapeNewtype' — pass-through to the inner field's
---   'Fury.Class.ToFury' instance.
+--   'Fory.Class.ToFory' instance.
 -- * 'TypeShapeRecord'  — Fory @NAMED_STRUCT@ where the namespace is
 --   the type's defining module name and the type name is the
 --   constructor name. Record fields become @(meta-string field name,
@@ -28,10 +28,10 @@
 --
 -- Modifiers honoured: 'rename', 'renameStyle', 'renameWith',
 -- 'skip', 'defaults', 'optional', 'coerced'.
-module Fury.Derive
-  ( deriveFury
-  , deriveToFury
-  , deriveFromFury
+module Fory.Derive
+  ( deriveFory
+  , deriveToFory
+  , deriveFromFory
   ) where
 
 import Data.Coerce (coerce)
@@ -40,8 +40,8 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Language.Haskell.TH
 
-import qualified Fury.Class as F
-import qualified Fury.Value as VV
+import qualified Fory.Class as F
+import qualified Fory.Value as VV
 
 import Wireform.Derive.Backend
 import Wireform.Derive.ModifierInfo
@@ -51,27 +51,27 @@ import Wireform.Derive.TypeInfo
 -- Public entry points
 -- ---------------------------------------------------------------------------
 
-deriveFury :: Name -> Q [Dec]
-deriveFury nm = (++) <$> deriveToFury nm <*> deriveFromFury nm
+deriveFory :: Name -> Q [Dec]
+deriveFory nm = (++) <$> deriveToFory nm <*> deriveFromFory nm
 
-deriveToFury :: Name -> Q [Dec]
-deriveToFury nm = do
+deriveToFory :: Name -> Q [Dec]
+deriveToFory nm = do
   ti   <- reifyTypeInfo nm
-  body <- toFuryBody ti
+  body <- toForyBody ti
   let typ  = applyTypeArgs (ConT (typeInfoName ti)) (typeInfoVarTypes ti)
       decl = InstanceD Nothing []
-              (AppT (ConT ''F.ToFury) typ)
-              [FunD 'F.toFury [Clause [] (NormalB body) []]]
+              (AppT (ConT ''F.ToFory) typ)
+              [FunD 'F.toFory [Clause [] (NormalB body) []]]
   pure [decl]
 
-deriveFromFury :: Name -> Q [Dec]
-deriveFromFury nm = do
+deriveFromFory :: Name -> Q [Dec]
+deriveFromFory nm = do
   ti   <- reifyTypeInfo nm
-  body <- fromFuryBody ti
+  body <- fromForyBody ti
   let typ  = applyTypeArgs (ConT (typeInfoName ti)) (typeInfoVarTypes ti)
       decl = InstanceD Nothing []
-              (AppT (ConT ''F.FromFury) typ)
-              [FunD 'F.fromFury [Clause [] (NormalB body) []]]
+              (AppT (ConT ''F.FromFory) typ)
+              [FunD 'F.fromFory [Clause [] (NormalB body) []]]
   pure [decl]
 
 -- ---------------------------------------------------------------------------
@@ -97,28 +97,28 @@ namespaceLitForName n = do
   [| ns |]
 
 -- ---------------------------------------------------------------------------
--- ToFury
+-- ToFory
 -- ---------------------------------------------------------------------------
 
-toFuryBody :: TypeInfo -> Q Exp
-toFuryBody ti = case typeInfoShape ti of
-  TypeShapeNewtype c   -> toFuryNewtype c
-  TypeShapeRecord  c   -> toFuryRecord (typeInfoName ti) c
-  TypeShapeEnum    cs  -> toFuryEnum cs
-  TypeShapeSum     cs  -> toFurySum (typeInfoName ti) cs
+toForyBody :: TypeInfo -> Q Exp
+toForyBody ti = case typeInfoShape ti of
+  TypeShapeNewtype c   -> toForyNewtype c
+  TypeShapeRecord  c   -> toForyRecord (typeInfoName ti) c
+  TypeShapeEnum    cs  -> toForyEnum cs
+  TypeShapeSum     cs  -> toForySum (typeInfoName ti) cs
 
-toFuryNewtype :: ConInfo -> Q Exp
-toFuryNewtype c = case conInfoFields c of
+toForyNewtype :: ConInfo -> Q Exp
+toForyNewtype c = case conInfoFields c of
   [FieldInfo (Just sel) _] -> do
     x <- newName "x"
-    lamE [varP x] [| F.toFury ($(varE sel) $(varE x)) |]
+    lamE [varP x] [| F.toFory ($(varE sel) $(varE x)) |]
   [FieldInfo Nothing _] -> do
     x <- newName "x"
-    lamE [conP (conInfoName c) [varP x]] [| F.toFury $(varE x) |]
-  _ -> fail "Fury.Derive: newtype must have exactly one field"
+    lamE [conP (conInfoName c) [varP x]] [| F.toFory $(varE x) |]
+  _ -> fail "Fory.Derive: newtype must have exactly one field"
 
-toFuryRecord :: Name -> ConInfo -> Q Exp
-toFuryRecord tyName c = do
+toForyRecord :: Name -> ConInfo -> Q Exp
+toForyRecord tyName c = do
   x <- newName "x"
   pairs <- recordFieldPairs (varE x) c
   nsE   <- namespaceLitForName tyName
@@ -129,13 +129,13 @@ toFuryRecord tyName c = do
 
 recordFieldPairs :: Q Exp -> ConInfo -> Q Exp
 recordFieldPairs varExp c = do
-  pairExpss <- mapM (toFuryField varExp) (conInfoFields c)
+  pairExpss <- mapM (toForyField varExp) (conInfoFields c)
   pure (ListE (concat pairExpss))
 
-toFuryField :: Q Exp -> FieldInfo -> Q [Exp]
-toFuryField varExp (FieldInfo mSel _) = do
+toForyField :: Q Exp -> FieldInfo -> Q [Exp]
+toForyField varExp (FieldInfo mSel _) = do
   selName <- requireSelector mSel
-  mi <- reifyModifierInfoFor backendFury selName
+  mi <- reifyModifierInfoFor backendFory selName
   if miSkip mi
     then pure []
     else do
@@ -143,37 +143,37 @@ toFuryField varExp (FieldInfo mSel _) = do
       keyExp <- renderWireKey mi selBase
       let getter = appE (varE selName) varExp
           encoded = case miCoerce mi of
-            Nothing -> [| F.toFury $getter |]
-            Just _  -> [| F.toFury (coerce $getter) |]
+            Nothing -> [| F.toFory $getter |]
+            Just _  -> [| F.toFory (coerce $getter) |]
       pair <- [| ($(pure keyExp), $encoded) |]
       pure [pair]
 
-toFuryEnum :: [ConInfo] -> Q Exp
-toFuryEnum cs = do
+toForyEnum :: [ConInfo] -> Q Exp
+toForyEnum cs = do
   v <- newName "v"
-  matches <- mapM enumToFuryMatch cs
+  matches <- mapM enumToForyMatch cs
   body <- caseE (varE v) (map pure matches)
   lamE [varP v] (pure body)
 
-enumToFuryMatch :: ConInfo -> Q Match
-enumToFuryMatch c = do
-  mi <- reifyModifierInfoFor backendFury (conInfoName c)
+enumToForyMatch :: ConInfo -> Q Match
+enumToForyMatch c = do
+  mi <- reifyModifierInfoFor backendFory (conInfoName c)
   keyExp <- renderWireKey mi (T.pack (nameBase (conInfoName c)))
   body <- [| VV.StringVal $(pure keyExp) |]
   pure (Match (ConP (conInfoName c) [] []) (NormalB body) [])
 
-toFurySum :: Name -> [ConInfo] -> Q Exp
-toFurySum tyName cs = do
+toForySum :: Name -> [ConInfo] -> Q Exp
+toForySum tyName cs = do
   v <- newName "v"
   nsE <- namespaceLitForName tyName
   let tyNmLit = LitE (StringL (nameBase tyName))
-  matches <- mapM (sumCtorToFury (pure nsE) (pure tyNmLit)) cs
+  matches <- mapM (sumCtorToFory (pure nsE) (pure tyNmLit)) cs
   body <- caseE (varE v) (map pure matches)
   lamE [varP v] (pure body)
 
-sumCtorToFury :: Q Exp -> Q Exp -> ConInfo -> Q Match
-sumCtorToFury nsE tyNmE c = do
-  mi <- reifyModifierInfoFor backendFury (conInfoName c)
+sumCtorToFory :: Q Exp -> Q Exp -> ConInfo -> Q Match
+sumCtorToFory nsE tyNmE c = do
+  mi <- reifyModifierInfoFor backendFory (conInfoName c)
   keyExp <- renderWireKey mi (T.pack (nameBase (conInfoName c)))
   fieldNames <- mapM (\_ -> newName "f") (conInfoFields c)
   let pat = ConP (conInfoName c) [] (map VarP fieldNames)
@@ -188,7 +188,7 @@ sumCtorToFury nsE tyNmE c = do
       [| VV.StructVal $nsE (T.pack $tyNmE)
            (V.fromList
              [ (T.pack "tag",      VV.StringVal $(pure keyExp))
-             , (T.pack "contents", F.toFury $(varE n))
+             , (T.pack "contents", F.toFory $(varE n))
              ]) |]
     ns ->
       [| VV.StructVal $nsE (T.pack $tyNmE)
@@ -196,28 +196,28 @@ sumCtorToFury nsE tyNmE c = do
              [ (T.pack "tag",      VV.StringVal $(pure keyExp))
              , (T.pack "contents",
                  VV.ListVal (V.fromList
-                   $(pure (ListE (map (AppE (VarE 'F.toFury) . VarE) ns)))))
+                   $(pure (ListE (map (AppE (VarE 'F.toFory) . VarE) ns)))))
              ]) |]
   pure (Match pat (NormalB body) [])
 
 -- ---------------------------------------------------------------------------
--- FromFury
+-- FromFory
 -- ---------------------------------------------------------------------------
 
-fromFuryBody :: TypeInfo -> Q Exp
-fromFuryBody ti = case typeInfoShape ti of
-  TypeShapeNewtype c   -> fromFuryNewtype c
-  TypeShapeRecord  c   -> fromFuryRecord c
-  TypeShapeEnum    cs  -> fromFuryEnum cs
-  TypeShapeSum     cs  -> fromFurySum cs
+fromForyBody :: TypeInfo -> Q Exp
+fromForyBody ti = case typeInfoShape ti of
+  TypeShapeNewtype c   -> fromForyNewtype c
+  TypeShapeRecord  c   -> fromForyRecord c
+  TypeShapeEnum    cs  -> fromForyEnum cs
+  TypeShapeSum     cs  -> fromForySum cs
 
-fromFuryNewtype :: ConInfo -> Q Exp
-fromFuryNewtype c = case conInfoFields c of
-  [FieldInfo _ _] -> [| fmap $(conE (conInfoName c)) . F.fromFury |]
-  _               -> fail "Fury.Derive: newtype must have exactly one field"
+fromForyNewtype :: ConInfo -> Q Exp
+fromForyNewtype c = case conInfoFields c of
+  [FieldInfo _ _] -> [| fmap $(conE (conInfoName c)) . F.fromFory |]
+  _               -> fail "Fory.Derive: newtype must have exactly one field"
 
-fromFuryRecord :: ConInfo -> Q Exp
-fromFuryRecord c = do
+fromForyRecord :: ConInfo -> Q Exp
+fromForyRecord c = do
   v   <- newName "v"
   fields <- newName "fields"
   bodyE <- recordParser fields c
@@ -228,7 +228,7 @@ fromFuryRecord c = do
                []
        , match wildP
                (normalB
-                  [| Left "Fury.Derive: expected NamedStruct for record type" |])
+                  [| Left "Fory.Derive: expected NamedStruct for record type" |])
                []
        ])
 
@@ -251,11 +251,11 @@ recordParser fields c = do
 fieldParser :: Name -> FieldInfo -> Q Exp
 fieldParser fields (FieldInfo mSel _) = do
   selName <- requireSelector mSel
-  mi <- reifyModifierInfoFor backendFury selName
+  mi <- reifyModifierInfoFor backendFory selName
   if miSkip mi
     then case miDefaults mi of
       Just defNm -> [| Right $(varE defNm) |]
-      Nothing    -> [| Left ("Fury.Derive: missing 'defaults' for skipped field "
+      Nothing    -> [| Left ("Fory.Derive: missing 'defaults' for skipped field "
                               ++ $(litE (stringL (nameBase selName)))) |]
     else do
       let selBase = T.pack (nameBase selName)
@@ -263,13 +263,13 @@ fieldParser fields (FieldInfo mSel _) = do
       let isOptional = miRequired mi == Just False
       base <-
         if isOptional
-          then [| case lookupFuryField $(pure keyExp) $(varE fields) of
+          then [| case lookupForyField $(pure keyExp) $(varE fields) of
                     Nothing -> Right Nothing
-                    Just  v -> fmap Just (F.fromFury v) |]
-          else [| case lookupFuryField $(pure keyExp) $(varE fields) of
-                    Nothing -> Left ("Fury.Derive: missing field "
+                    Just  v -> fmap Just (F.fromFory v) |]
+          else [| case lookupForyField $(pure keyExp) $(varE fields) of
+                    Nothing -> Left ("Fory.Derive: missing field "
                                      ++ T.unpack $(pure keyExp))
-                    Just v  -> F.fromFury v |]
+                    Just v  -> F.fromFory v |]
       case miCoerce mi of
         Nothing -> pure base
         Just _  -> [| fmap coerce $(pure base) |]
@@ -277,21 +277,21 @@ fieldParser fields (FieldInfo mSel _) = do
 -- | Linear scan for a field name in a struct's field list. Lifted
 -- to the module level so generated code can reference it without
 -- splice-time inlining games.
-lookupFuryField :: T.Text -> V.Vector (T.Text, VV.Value) -> Maybe VV.Value
-lookupFuryField name fields = V.foldr step Nothing fields
+lookupForyField :: T.Text -> V.Vector (T.Text, VV.Value) -> Maybe VV.Value
+lookupForyField name fields = V.foldr step Nothing fields
   where
     step (k, v) acc | k == name = Just v
                     | otherwise = acc
 
-fromFuryEnum :: [ConInfo] -> Q Exp
-fromFuryEnum cs = do
+fromForyEnum :: [ConInfo] -> Q Exp
+fromForyEnum cs = do
   v <- newName "v"
   s <- newName "s"
   branches <- mapM (enumDispatch s) cs
   let fallback =
         ( NormalG (ConE 'True)
         , AppE (AppE (VarE 'mappend)
-                  (LitE (StringL "Fury.Derive: unknown enum value ")))
+                  (LitE (StringL "Fory.Derive: unknown enum value ")))
                (AppE (VarE 'show) (VarE s))
         )
       multi = MultiIfE
@@ -303,20 +303,20 @@ fromFuryEnum cs = do
                (normalB (pure multi))
                []
        , match wildP
-               (normalB [| Left "Fury.Derive: enum expected String" |])
+               (normalB [| Left "Fory.Derive: enum expected String" |])
                []
        ])
 
 enumDispatch :: Name -> ConInfo -> Q (Guard, Exp)
 enumDispatch sVar c = do
-  mi <- reifyModifierInfoFor backendFury (conInfoName c)
+  mi <- reifyModifierInfoFor backendFory (conInfoName c)
   keyExp <- renderWireKey mi (T.pack (nameBase (conInfoName c)))
   let guardExp = InfixE (Just (VarE sVar)) (VarE '(==)) (Just keyExp)
       bodyExp  = ConE (conInfoName c)
   pure (NormalG guardExp, bodyExp)
 
-fromFurySum :: [ConInfo] -> Q Exp
-fromFurySum cs = do
+fromForySum :: [ConInfo] -> Q Exp
+fromForySum cs = do
   v       <- newName "v"
   fields  <- newName "fields"
   tagVar  <- newName "tag"
@@ -326,7 +326,7 @@ fromFurySum cs = do
         ( NormalG (ConE 'True)
         , AppE (ConE 'Left)
             (AppE (AppE (VarE 'mappend)
-                      (LitE (StringL "Fury.Derive: unknown sum tag ")))
+                      (LitE (StringL "Fory.Derive: unknown sum tag ")))
                   (AppE (VarE 'show) (VarE tagVar)))
         )
       multi = MultiIfE (branches ++ [fallback])
@@ -336,29 +336,29 @@ fromFurySum cs = do
                (normalB
                   [| do
                        $(varP tagVar) <-
-                         case lookupFuryField (T.pack "tag") $(varE fields) of
+                         case lookupForyField (T.pack "tag") $(varE fields) of
                            Just (VV.StringVal t) -> Right t
-                           _ -> Left "Fury.Derive: sum missing 'tag'"
+                           _ -> Left "Fory.Derive: sum missing 'tag'"
                        $(varP cVar) <-
-                         case lookupFuryField (T.pack "contents") $(varE fields) of
+                         case lookupForyField (T.pack "contents") $(varE fields) of
                            Just x  -> Right x
                            Nothing -> Right VV.NoneVal
                        $(pure multi)
                   |])
                []
        , match wildP
-               (normalB [| Left "Fury.Derive: sum expected NamedStruct" |])
+               (normalB [| Left "Fory.Derive: sum expected NamedStruct" |])
                []
        ])
 
 sumDispatch :: Name -> Name -> ConInfo -> Q (Guard, Exp)
 sumDispatch tagVar cVar c = do
-  mi <- reifyModifierInfoFor backendFury (conInfoName c)
+  mi <- reifyModifierInfoFor backendFory (conInfoName c)
   keyExp <- renderWireKey mi (T.pack (nameBase (conInfoName c)))
   let guardExp = InfixE (Just (VarE tagVar)) (VarE '(==)) (Just keyExp)
   body <- case conInfoFields c of
     []     -> [| Right $(conE (conInfoName c)) |]
-    [_one] -> [| fmap $(conE (conInfoName c)) (F.fromFury $(varE cVar)) |]
+    [_one] -> [| fmap $(conE (conInfoName c)) (F.fromFory $(varE cVar)) |]
     many   -> sumNAry cVar (conInfoName c) (length many)
   pure (NormalG guardExp, body)
 
@@ -366,7 +366,7 @@ sumNAry :: Name -> Name -> Int -> Q Exp
 sumNAry cVar conName arity = do
   arr <- newName "arr"
   let parseI :: Int -> Q Exp
-      parseI i = [| F.fromFury ($(varE arr) V.! $(litE (integerL (fromIntegral i)))) |]
+      parseI i = [| F.fromFory ($(varE arr) V.! $(litE (integerL (fromIntegral i)))) |]
   hd <- do
     e0 <- parseI 0
     [| $(conE conName) <$> $(pure e0) |]
@@ -383,10 +383,10 @@ sumNAry cVar conName arity = do
          | V.length $(varE arr) == $(litE (integerL (fromIntegral arity)))
              -> $(pure body)
          | otherwise
-             -> Left ("Fury.Derive: " ++ conNameStr
+             -> Left ("Fory.Derive: " ++ conNameStr
                       ++ " expected " ++ arityStr ++ " contents, got "
                       ++ show (V.length $(varE arr)))
-       _ -> Left ("Fury.Derive: " ++ conNameStr
+       _ -> Left ("Fory.Derive: " ++ conNameStr
                   ++ " expected ListVal contents")
    |]
 
@@ -397,7 +397,7 @@ sumNAry cVar conName arity = do
 requireSelector :: Maybe Name -> Q Name
 requireSelector (Just n) = pure n
 requireSelector Nothing  =
-  fail "Fury.Derive: cannot derive Fury for non-record positional field"
+  fail "Fory.Derive: cannot derive Fory for non-record positional field"
 
 applyTypeArgs :: Type -> [Type] -> Type
 applyTypeArgs = foldl AppT

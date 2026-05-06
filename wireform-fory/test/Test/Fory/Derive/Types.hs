@@ -1,8 +1,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Annotated fixture types for the Fury deriver round-trip tests.
-module Test.Fury.Derive.Types
+-- | Annotated fixture types for the Fory deriver round-trip tests.
+module Test.Fory.Derive.Types
   ( Profile (..)
   , Tag (..)
   , Color (..)
@@ -29,8 +29,8 @@ defaultPrivate = "<redacted>"
 {-# ANN profileName    (rename "name") #-}
 {-# ANN profileAge     (renameStyle SnakeCase) #-}
 {-# ANN profileEmail   (renameStyle (StripPrefix "profile" `andThen` SnakeCase)) #-}
-{-# ANN profilePrivate (forBackend backendFury skip) #-}
-{-# ANN profilePrivate (forBackend backendFury (defaults 'defaultPrivate)) #-}
+{-# ANN profilePrivate (forBackend backendFory skip) #-}
+{-# ANN profilePrivate (forBackend backendFory (defaults 'defaultPrivate)) #-}
 
 newtype Tag = Tag { unTag :: Int }
   deriving (Eq, Show)

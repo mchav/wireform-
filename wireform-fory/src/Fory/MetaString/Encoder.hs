@@ -5,7 +5,7 @@
 -- packing, the strip-last-char header bit, and the encoding
 -- selection algorithm pyfory uses for namespace, type-name, and
 -- field-name meta-strings.
-module Fury.MetaString.Encoder
+module Fory.MetaString.Encoder
   ( Encoding (..)
   , encodingId
   , encodingFromId
@@ -162,7 +162,7 @@ charValue5 c
   | c == '_'  = 27
   | c == '$'  = 28
   | c == '|'  = 29
-  | otherwise = error $ "Fury.MetaString.Encoder.charValue5: unsupported char "
+  | otherwise = error $ "Fory.MetaString.Encoder.charValue5: unsupported char "
                         ++ show c
 
 charValue6 :: SpecialChars -> Char -> Word8
@@ -172,7 +172,7 @@ charValue6 (SpecialChars c1 c2) c
   | '0' <= c && c <= '9' = fromIntegral (52 + (ord c - ord '0'))
   | c == c1   = 62
   | c == c2   = 63
-  | otherwise = error $ "Fury.MetaString.Encoder.charValue6: unsupported char "
+  | otherwise = error $ "Fory.MetaString.Encoder.charValue6: unsupported char "
                         ++ show c
 
 -- | Pack @[Char]@ into bytes at @bitsPerChar@ bits per char,
@@ -237,7 +237,7 @@ decodeMetaString sc enc bs
       UTF8                   ->
         case TE.decodeUtf8' bs of
           Right t -> t
-          Left e  -> error ("Fury.MetaString.Encoder.decodeMetaString UTF8: "
+          Left e  -> error ("Fory.MetaString.Encoder.decodeMetaString UTF8: "
                              ++ show e)
       LowerSpecial           -> T.pack (decodeGeneric 5 sc bs decodeChar5)
       LowerUpperDigitSpecial -> T.pack (decodeGeneric 6 sc bs decodeChar6)
@@ -264,7 +264,7 @@ decodeChar5 _ v
   | v == 28  = '$'
   | v == 29  = '|'
   | otherwise = error $
-      "Fury.MetaString.Encoder.decodeChar5: invalid char value " ++ show v
+      "Fory.MetaString.Encoder.decodeChar5: invalid char value " ++ show v
 
 decodeChar6 :: SpecialChars -> Word8 -> Char
 decodeChar6 (SpecialChars c1 c2) v
@@ -274,7 +274,7 @@ decodeChar6 (SpecialChars c1 c2) v
   | v == 62  = c1
   | v == 63  = c2
   | otherwise = error $
-      "Fury.MetaString.Encoder.decodeChar6: invalid char value " ++ show v
+      "Fory.MetaString.Encoder.decodeChar6: invalid char value " ++ show v
 
 decodeGeneric
   :: Int                                  -- ^ bits per char

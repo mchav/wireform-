@@ -24,7 +24,7 @@
 --                                   signed int32.
 -- * 'isPrimitiveTypeId'           — mirrors pyfory's
 --                                   @is_primitive_type@ check.
-module Fury.Struct
+module Fory.Struct
   ( -- * Schemas
     FieldSpec (..)
   , StructSchema (..)
@@ -53,9 +53,9 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
-import Fury.MetaString.Hash (murmur3X64_128)
-import Fury.TypeId (TypeId (..))
-import qualified Fury.TypeId as T
+import Fory.MetaString.Hash (murmur3X64_128)
+import Fory.TypeId (TypeId (..))
+import qualified Fory.TypeId as T
 
 -- ---------------------------------------------------------------------------
 -- Field + struct schema

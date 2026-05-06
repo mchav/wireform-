@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 -- | Property tests for the low-level Fory encoding primitives.
-module Test.Fury.Encoding (tests) where
+module Test.Fory.Encoding (tests) where
 
 import qualified Data.ByteString as BS
 import Data.Int (Int32, Int64)
@@ -12,7 +12,7 @@ import qualified Hedgehog.Range as Range
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 
-import qualified Fury.Encoding as E
+import qualified Fory.Encoding as E
 
 roundTripVaruint32 :: Word32 -> Either String Word32
 roundTripVaruint32 w = do
@@ -63,7 +63,7 @@ roundTripTaggedUint64 n = do
     else Left "trailing bytes"
 
 tests :: TestTree
-tests = testGroup "Fury.Encoding"
+tests = testGroup "Fory.Encoding"
   [ testProperty "varuint32 round-trip" $ H.property $ do
       w <- H.forAll (Gen.word32 Range.linearBounded)
       roundTripVaruint32 w H.=== Right w

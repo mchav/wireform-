@@ -1,13 +1,13 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Test.Fury.Derive.Instances () where
+module Test.Fory.Derive.Instances () where
 
-import Fury.Derive
+import Fory.Derive
 
-import Test.Fury.Derive.Types
+import Test.Fory.Derive.Types
 
-deriveFury ''Profile
-deriveFury ''Tag
-deriveFury ''Color
-deriveFury ''Shape
+deriveFory ''Profile
+deriveFory ''Tag
+deriveFory ''Color
+deriveFory ''Shape

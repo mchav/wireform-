@@ -7,7 +7,7 @@
 -- types; 57-255 are reserved for future internal use; user-registered
 -- IDs occupy the @user_type_id@ varuint32 written separately after a
 -- 'STRUCT', 'COMPATIBLE_STRUCT', 'ENUM', 'EXT', or 'TYPED_UNION' kind.
-module Fury.TypeId
+module Fory.TypeId
   ( TypeId (..)
   , typeIdToWord8
   , typeIdFromWord8

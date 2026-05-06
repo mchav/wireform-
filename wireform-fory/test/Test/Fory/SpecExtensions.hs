@@ -7,7 +7,7 @@
 -- * Meta-string deduplication.
 -- * 'NAMED_COMPATIBLE_STRUCT' with a shared 'TypeDef'.
 -- * One-dimensional primitive arrays.
-module Test.Fury.SpecExtensions (tests) where
+module Test.Fory.SpecExtensions (tests) where
 
 import qualified Data.ByteString as BS
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -20,13 +20,13 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
-import qualified Fury.Class as F
-import qualified Fury.Decode as D
-import qualified Fury.Encode as E
-import qualified Fury.Value as VV
+import qualified Fory.Class as F
+import qualified Fory.Decode as D
+import qualified Fory.Encode as E
+import qualified Fory.Value as VV
 
 tests :: TestTree
-tests = testGroup "Fury.SpecExtensions"
+tests = testGroup "Fory.SpecExtensions"
   [ refTrackingTests
   , metaShareTests
   , compatibleStructTests
@@ -82,8 +82,8 @@ refTrackingTests = testGroup "reference tracking"
   , testCase "Shared newtype convenience round-trips" $ do
       let s :: F.Shared Int
           s = F.Shared 42 9
-          encoded = F.encodeFury s
-      (F.decodeFury encoded :: Either String (F.Shared Int))
+          encoded = F.encodeFory s
+      (F.decodeFory encoded :: Either String (F.Shared Int))
         @?= Right (F.Shared 0 9)
 
   , testProperty "RefVal of arbitrary inner round-trips structurally" $
@@ -219,11 +219,11 @@ primitiveArrayTests = testGroup "primitive 1-D arrays"
 
   , testCase "Int32Array typeclass wrapper round-trips" $ do
       let xs = F.Int32Array (V.fromList [1, 2, 3, 4, 5])
-      F.decodeFury (F.encodeFury xs) @?= Right xs
+      F.decodeFory (F.encodeFory xs) @?= Right xs
 
   , testCase "Float64Array typeclass wrapper round-trips" $ do
       let xs = F.Float64Array (V.fromList [1.0, 2.5, -3.75])
-      F.decodeFury (F.encodeFury xs) @?= Right xs
+      F.decodeFory (F.encodeFory xs) @?= Right xs
 
   , testProperty "random Int32Array round-trips" $ H.property $ do
       xs <- H.forAll $ Gen.list (Range.linear 0 32)

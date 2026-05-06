@@ -39,7 +39,7 @@ module Wireform.Derive.Backend
   , backendION
 
     -- * Cross-language object serialization
-  , backendFury
+  , backendFory
 
     -- * Columnar / tabular
   , backendArrow
@@ -171,8 +171,8 @@ backendION = Backend "ion"
 -- | Apache Fory (formerly Fury) xlang serialization. Field names
 -- are converted to @snake_case@ before being written as the
 -- spec\'s meta-string field name.
-backendFury :: Backend
-backendFury = Backend "fury"
+backendFory :: Backend
+backendFory = Backend "fory"
 
 -- ---------------------------------------------------------------------------
 -- Columnar / tabular

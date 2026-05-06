@@ -1,4 +1,4 @@
--- | Cross-implementation interop test for wireform-fury.
+-- | Cross-implementation interop test for wireform-fory.
 --
 -- For each test case the Haskell encoder writes the bytes,
 -- spawns @python3@ with a small read/write driver script that
@@ -28,24 +28,24 @@ import System.IO
 import System.Process
 
 
-import qualified Fury.Encode as E
-import qualified Fury.Decode as D
-import qualified Fury.Options as O
-import qualified Fury.Struct as ST
-import qualified Fury.TypeId as TI
-import qualified Fury.Value as VV
+import qualified Fory.Encode as E
+import qualified Fory.Decode as D
+import qualified Fory.Options as O
+import qualified Fory.Struct as ST
+import qualified Fory.TypeId as TI
+import qualified Fory.Value as VV
 import System.Directory (doesFileExist)
 
 main :: IO ()
 main = do
   -- The interop test can be invoked either from the package
-  -- directory (cabal run wireform-fury:wireform-fury-interop) or
-  -- from the workspace root (cabal run -v0 wireform-fury-interop).
+  -- directory (cabal run wireform-fory:wireform-fory-interop) or
+  -- from the workspace root (cabal run -v0 wireform-fory-interop).
   -- Try both paths.
   driver <- do
     let candidates =
           [ "test-interop/driver.py"
-          , "wireform-fury/test-interop/driver.py"
+          , "wireform-fory/test-interop/driver.py"
           ]
         firstExisting [] =
           fail "Could not find test-interop/driver.py relative to the cwd"

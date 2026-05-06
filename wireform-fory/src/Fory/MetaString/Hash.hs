@@ -13,7 +13,7 @@
 --
 -- These match @pyfory.context.hash_small_metastring@ and
 -- @pyfory.lib.mmh3.hash_buffer@ respectively.
-module Fury.MetaString.Hash
+module Fory.MetaString.Hash
   ( hashSmallMetaString
   , murmur3X64_128
   , metaStringHashcode

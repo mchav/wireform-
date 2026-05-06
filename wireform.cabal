@@ -125,7 +125,7 @@ library
     Wireform.TOML
     Wireform.CSV
     Wireform.NDJSON
-    Wireform.Fury
+    Wireform.Fory
   other-modules:
     Paths_wireform
   autogen-modules: Paths_wireform
@@ -155,7 +155,7 @@ library
     , wireform-toml
     , wireform-csv
     , wireform-ndjson
-    , wireform-fury
+    , wireform-fory
     , bytestring
     , vector
 

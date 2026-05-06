@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
--- | Round-trip tests for 'Fury.Value' through 'Fury.Encode' /
--- 'Fury.Decode'.
-module Test.Fury.Value (tests) where
+-- | Round-trip tests for 'Fory.Value' through 'Fory.Encode' /
+-- 'Fory.Decode'.
+module Test.Fory.Value (tests) where
 
 import qualified Data.Vector as V
 import qualified Hedgehog as H
@@ -12,9 +12,9 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import qualified Fury.Decode as D
-import qualified Fury.Encode as E
-import qualified Fury.Value as VV
+import qualified Fory.Decode as D
+import qualified Fory.Encode as E
+import qualified Fory.Value as VV
 
 genValue :: Int -> H.Gen VV.Value
 genValue depth = Gen.choice
@@ -51,7 +51,7 @@ roundTrip :: VV.Value -> Either String VV.Value
 roundTrip = D.decode . E.encode
 
 tests :: TestTree
-tests = testGroup "Fury.Value"
+tests = testGroup "Fory.Value"
   [ testCase "encode/decode None"    $ roundTrip VV.NoneVal       @?= Right VV.NoneVal
   , testCase "encode/decode Bool"    $ roundTrip (VV.BoolVal True) @?= Right (VV.BoolVal True)
   , testCase "encode/decode String"  $

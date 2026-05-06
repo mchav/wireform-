@@ -13,7 +13,7 @@
 -- All multi-byte integers are little-endian per the
 -- <https://fory.apache.org/docs/specification/xlang_serialization_spec
 -- xlang spec>.
-module Fury.Encoding
+module Fory.Encoding
   ( -- * Fory header
     foryXlangHeader
   , readForyHeader
@@ -121,7 +121,7 @@ foryXlangHeader = 0x02
 -- is non-empty.
 readForyHeader :: ByteString -> Int -> Either String (Word8, Int)
 readForyHeader bs !off
-  | off >= BS.length bs = Left "Fury.Encoding.readForyHeader: empty input"
+  | off >= BS.length bs = Left "Fory.Encoding.readForyHeader: empty input"
   | otherwise = Right (BSU.unsafeIndex bs off, off + 1)
 
 -- ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@ taggedUint64 !v
 varuint36Small :: Word64 -> Builder
 varuint36Small !v
   | v `shiftR` 36 /= 0 =
-      error "Fury.Encoding.varuint36Small: value exceeds 36 bits"
+      error "Fory.Encoding.varuint36Small: value exceeds 36 bits"
   | otherwise = varuint64 v
 
 -- | Encode a @Text@ as a fory string: 'varuint36Small' header
@@ -266,13 +266,13 @@ utf8String !t =
 
 readByte :: ByteString -> Int -> Either String (Word8, Int)
 readByte bs !off
-  | off >= BS.length bs = Left "Fury.Encoding.readByte: end of input"
+  | off >= BS.length bs = Left "Fory.Encoding.readByte: end of input"
   | otherwise = Right (BSU.unsafeIndex bs off, off + 1)
 {-# INLINE readByte #-}
 
 readBytes :: Int -> ByteString -> Int -> Either String (ByteString, Int)
 readBytes !n !bs !off
-  | off + n > BS.length bs = Left "Fury.Encoding.readBytes: truncated"
+  | off + n > BS.length bs = Left "Fory.Encoding.readBytes: truncated"
   | otherwise =
       let !slice = BSU.unsafeTake n (BSU.unsafeDrop off bs)
       in Right (slice, off + n)
@@ -280,7 +280,7 @@ readBytes !n !bs !off
 
 readWord16LE :: ByteString -> Int -> Either String (Word16, Int)
 readWord16LE bs !off
-  | off + 2 > BS.length bs = Left "Fury.Encoding.readWord16LE: truncated"
+  | off + 2 > BS.length bs = Left "Fory.Encoding.readWord16LE: truncated"
   | otherwise =
       let !b0 = fromIntegral (BSU.unsafeIndex bs off)       :: Word16
           !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word16
@@ -288,7 +288,7 @@ readWord16LE bs !off
 
 readWord32LE :: ByteString -> Int -> Either String (Word32, Int)
 readWord32LE bs !off
-  | off + 4 > BS.length bs = Left "Fury.Encoding.readWord32LE: truncated"
+  | off + 4 > BS.length bs = Left "Fory.Encoding.readWord32LE: truncated"
   | otherwise =
       let !b0 = fromIntegral (BSU.unsafeIndex bs off)       :: Word32
           !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word32
@@ -299,7 +299,7 @@ readWord32LE bs !off
 
 readWord64LE :: ByteString -> Int -> Either String (Word64, Int)
 readWord64LE bs !off
-  | off + 8 > BS.length bs = Left "Fury.Encoding.readWord64LE: truncated"
+  | off + 8 > BS.length bs = Left "Fory.Encoding.readWord64LE: truncated"
   | otherwise = do
       (lo, off1) <- readWord32LE bs off
       (hi, off2) <- readWord32LE bs off1
@@ -336,8 +336,8 @@ readVaruint32 bs = go 0 0
     !len = BS.length bs
     go :: Int -> Word32 -> Int -> Either String (Word32, Int)
     go !shift !acc !off
-      | off >= len = Left "Fury.Encoding.readVaruint32: truncated"
-      | shift >= 35 = Left "Fury.Encoding.readVaruint32: overflow"
+      | off >= len = Left "Fory.Encoding.readVaruint32: truncated"
+      | shift >= 35 = Left "Fory.Encoding.readVaruint32: overflow"
       | otherwise =
           let !b   = BSU.unsafeIndex bs off
               !acc' = acc .|. ((fromIntegral b .&. 0x7F) `shiftL` shift)
@@ -352,7 +352,7 @@ readVaruint64 bs = go 0 0 0
     !len = BS.length bs
     go :: Int -> Int -> Word64 -> Int -> Either String (Word64, Int)
     go !i !shift !acc !off
-      | off >= len = Left "Fury.Encoding.readVaruint64: truncated"
+      | off >= len = Left "Fory.Encoding.readVaruint64: truncated"
       | i >= 8 =
           -- Final 9th byte is full 8 bits.
           let !b = BSU.unsafeIndex bs off
@@ -411,10 +411,10 @@ readUtf8String bs off = do
   let !enc = hdr .&. 0x03
       !len = fromIntegral (hdr `shiftR` 2) :: Int
   if enc /= 2
-    then Left $ "Fury.Encoding.readUtf8String: encoding "
+    then Left $ "Fory.Encoding.readUtf8String: encoding "
               ++ show enc ++ " (only UTF-8 = 2 supported)"
     else do
       (raw, off2) <- readBytes len bs off1
       case TE.decodeUtf8' raw of
-        Left e  -> Left ("Fury.Encoding.readUtf8String: " ++ show e)
+        Left e  -> Left ("Fory.Encoding.readUtf8String: " ++ show e)
         Right t -> Right (t, off2)
