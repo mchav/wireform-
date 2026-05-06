@@ -1579,13 +1579,17 @@ parseFlowPlain !p t =
                        || next == ',' || next == ']' || next == '}'))
 
 skipFlowWS :: Int -> Text -> Int
-skipFlowWS !p t
-  | p >= T.length t = p
-  | otherwise = case T.index t p of
-      ' '  -> skipFlowWS (p + 1) t
-      '\t' -> skipFlowWS (p + 1) t
-      '\1' -> skipFlowWS (p + 1) t
-      _    -> p
+skipFlowWS !p t = go p
+  where
+    !len = T.length t
+    go !i
+      | i >= len = i
+      | otherwise = case T.index t i of
+          ' '  -> go (i + 1)
+          '\t' -> go (i + 1)
+          '\1' -> go (i + 1)
+          _    -> i
+{-# INLINE skipFlowWS #-}
 
 -- ---------------------------------------------------------------------------
 -- Block style: dispatch from a line we haven't consumed yet.
