@@ -1951,6 +1951,10 @@ findKeyValueSplit t = go (0 :: Int) (0 :: Int) (0 :: Int) (0 :: Int)
           '{' | atTokenStart i || depth > 0 || brace > 0
                                 -> go (i + 1) depth (brace + 1) inStr
           '}' | brace > 0       -> go (i + 1) depth (brace - 1) inStr
+          -- A '#' preceded by whitespace (i.e. a token boundary)
+          -- starts an end-of-line comment; nothing past that is
+          -- part of the key/value.
+          '#' | atTokenStart i && depth == 0 && brace == 0 -> Nothing
           ':' | depth == 0 && brace == 0 ->
                 let nextEnd   = i + 1 >= len
                     nextSpace = i + 1 < len &&
