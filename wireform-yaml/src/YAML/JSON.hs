@@ -47,6 +47,8 @@ yamlToJSON v = case v of
 applyTag :: YV.Tag -> YV.Value -> A.Value
 applyTag (YV.Tag t) v = case (t, YV.unwrap v) of
   ("tag:yaml.org,2002:str", YV.YNull) -> A.String (T.pack "")
+  ("tag:yaml.org,2002:str", YV.YSeq _)  -> yamlToJSON v
+  ("tag:yaml.org,2002:str", YV.YMap _)  -> yamlToJSON v
   ("tag:yaml.org,2002:str", inner)    -> A.String (forceString inner)
   ("tag:yaml.org,2002:int", YV.YString s) ->
     case reads (T.unpack s) :: [(Integer, String)] of

@@ -293,12 +293,29 @@ parseNode !minInd = do
       | otherwise -> dispatch l
 
 dispatch :: PLine -> P Value
-dispatch l =
-  let body = lineBody l
-  in case T.uncons body of
+dispatch l0 = do
+  -- Leading tabs after a block-mapping value position are
+  -- 'separation' whitespace, not indentation (per YAML 1.2 §6.1).
+  -- Strip them in-place so '\\t{}' / '\\t- x' / '\\t"…"' dispatch
+  -- to the right structural branch instead of falling into the
+  -- plain-scalar fallback.
+  let body0 = lineBody l0
+  case T.uncons body0 of
+    Just ('\t', _) -> do
+      let l = l0 { lineBody    = T.dropWhile (== '\t') body0
+                 , lineRawBody = T.dropWhile (== '\t') (lineRawBody l0)
+                 }
+      modifyS (\s -> case psLines s of
+                       (top : rs) | lineNo top == lineNo l0 ->
+                         s { psLines = l : rs }
+                       _ -> s)
+      dispatchOn l
+    _ -> dispatchOn l0
+  where
+    dispatchOn l = case T.uncons (lineBody l) of
        Just ('!', _)  -> parseTagged
        Just ('&', _)  -> parseAnchored
-       Just ('*', _)  -> case findAliasKeySplit body of
+       Just ('*', _)  -> case findAliasKeySplit (lineBody l) of
                            Just (aliasName, vRest) ->
                              parseBlockMapAliasFirst (lineIndent l)
                                aliasName vRest
@@ -326,13 +343,23 @@ parseQuotedScalarLine q l = case findKeyValueSplit (lineBody l) of
     _ <- popLine
     consumeQuoted q (preserveTrailingEscape (lineBody l) (lineRawBody l))
 
--- | If the trimmed line body ends in @\\@, prefer the raw form
+-- | If the trimmed line body ends in @\\@ that's not itself
+-- escaped, take the next character /verbatim/ from the raw body
 -- (so an escape argument like @\\<TAB>@ survives the trailing-WS
--- strip done by 'preprocess'). Otherwise the trimmed form is fine.
+-- strip done by 'preprocess'). Any whitespace /after/ that escape
+-- argument is still stripped.
 preserveTrailingEscape :: Text -> Text -> Text
 preserveTrailingEscape stripped raw = case T.unsnoc stripped of
-  Just (_, '\\') -> raw
-  _              -> stripped
+  Just (_, '\\') | not (endsEvenBackslashes stripped) ->
+    -- Reach into raw at the position right after the trailing '\'.
+    let idx = T.length stripped
+    in if idx < T.length raw
+         then stripped <> T.singleton (T.index raw idx)
+         else stripped
+  _ -> stripped
+  where
+    endsEvenBackslashes t =
+      even (T.length (T.takeWhileEnd (== '\\') t))
 
 -- | Greedily extend a quoted-scalar buffer with successor lines
 -- until the matching close quote is found. Per YAML 1.2 §7.3.1-2:
@@ -712,6 +739,14 @@ parseFlowEntry !p0 t =
   in if p >= T.length t
        then Nothing
        else
+         -- A leading '?' followed by space marks an explicit-key
+         -- mapping pair in flow (spec §7.5). Skip the marker and
+         -- continue parsing the key.
+         if T.index t p == '?'
+            && p + 1 < T.length t
+            && (T.index t (p + 1) == ' ' || T.index t (p + 1) == '\t')
+           then parseFlowEntry (skipFlowWS (p + 1) t) t
+         else
          if T.index t p == ':' && colonIsSeparator (p + 1) t
            then
              let p1 = skipFlowWS (p + 1) t
@@ -857,10 +892,25 @@ skipFlowWS !p t
 -- Block style: dispatch from a line we haven't consumed yet.
 -- ---------------------------------------------------------------------------
 
+-- | A line starts a block-sequence entry if its body is exactly
+-- @-@ or starts with @- @ / @-<TAB>@.
+isSeqItem :: Text -> Bool
+isSeqItem b =
+  b == T.pack "-"
+  || T.isPrefixOf (T.pack "- ")  b
+  || T.isPrefixOf (T.pack "-\t") b
+
+-- | Same shape for the explicit-key marker @?@.
+isExplicitKey :: Text -> Bool
+isExplicitKey b =
+  b == T.pack "?"
+  || T.isPrefixOf (T.pack "? ")  b
+  || T.isPrefixOf (T.pack "?\t") b
+
 parseBlockOrPlain :: PLine -> P Value
 parseBlockOrPlain l
-  | T.isPrefixOf "- " body || body == "-" = parseBlockSeq (lineIndent l)
-  | body == "?" || T.isPrefixOf "? " body = parseExplicitMap (lineIndent l)
+  | isSeqItem body     = parseBlockSeq (lineIndent l)
+  | isExplicitKey body = parseExplicitMap (lineIndent l)
   | otherwise = case findAliasKeySplit body of
       Just (aliasName, vRest) -> parseBlockMapAliasFirst (lineIndent l)
                                    aliasName vRest
@@ -886,8 +936,8 @@ parseBlockMapAliasFirst !ind aliasName firstRest = do
         Nothing -> pure acc
         Just l
           | lineIndent l /= ind -> pure acc
-          | T.isPrefixOf "- " (lineBody l) || lineBody l == "-" -> pure acc
-          | lineBody l == "?" || T.isPrefixOf "? " (lineBody l) -> pure acc
+          | isSeqItem (lineBody l) -> pure acc
+          | isExplicitKey (lineBody l) -> pure acc
           | otherwise -> case findAliasKeySplit (lineBody l) of
               Just (a, vRest) -> do
                 _ <- popLine
@@ -914,7 +964,7 @@ parseBlockSeq !ind = collect [] >>= \xs -> pure (YSeq (V.fromList (reverse xs)))
         Nothing -> pure acc
         Just l
           | lineIndent l /= ind -> pure acc
-          | not (T.isPrefixOf "- " (lineBody l) || lineBody l == "-")
+          | not (isSeqItem (lineBody l))
                                 -> pure acc
           | otherwise -> do
               v <- parseSeqItem ind
@@ -960,8 +1010,8 @@ parseBlockMap !ind firstKey firstRest = do
         Nothing -> pure acc
         Just l
           | lineIndent l /= ind -> pure acc
-          | T.isPrefixOf "- " (lineBody l) || lineBody l == "-" -> pure acc
-          | lineBody l == "?" || T.isPrefixOf "? " (lineBody l) -> pure acc
+          | isSeqItem (lineBody l) -> pure acc
+          | isExplicitKey (lineBody l) -> pure acc
           | otherwise -> case findAliasKeySplit (lineBody l) of
               Just (aliasName, vRest) -> do
                 _ <- popLine
@@ -971,9 +1021,33 @@ parseBlockMap !ind firstKey firstRest = do
               Nothing -> case findKeyValueSplit (lineBody l) of
                 Just (k, vRest) -> do
                   _ <- popLine
+                  -- Strip leading node properties (anchors / tags)
+                  -- on the key text. The properties anchor / tag
+                  -- the key node, not the surrounding mapping; for
+                  -- the value-side projection we only need the
+                  -- bare key text.
+                  let (anchors, k') = stripKeyProperties k
                   v <- parseImplicitMapValue ind vRest
-                  collect ((YString k, v) : acc)
+                  let kv = YString k'
+                  mapM_ (\an -> recordAnchor an kv) anchors
+                  collect ((kv, v) : acc)
                 Nothing -> pure acc
+
+-- | Strip leading anchor / tag tokens (separated by spaces) from
+-- a block-mapping key string. Returns the list of anchor names
+-- encountered and the remainder text. Tags are dropped silently
+-- (they don't change the key projection).
+stripKeyProperties :: Text -> ([Text], Text)
+stripKeyProperties = go []
+  where
+    go acc t = case T.uncons (T.stripStart t) of
+      Just ('&', rest) ->
+        let (name, after) = takeAnchorName rest
+        in go (name : acc) after
+      Just ('!', rest) ->
+        let (_tg, after) = T.span (\c -> not (c == ' ' || c == '\t')) rest
+        in go acc after
+      _ -> (reverse acc, T.stripStart t)
 
 -- | Recognise @*alias : value@ style mapping entries where the key
 -- is an alias node. Returns the alias name (without the @*@) and
@@ -1010,7 +1084,7 @@ parseImplicitMapValue !ind vRest =
                          []       -> [] })
                  parseNode (lineIndent l2)
              | lineIndent l2 == ind
-                 && (T.isPrefixOf "- " (lineBody l2) || lineBody l2 == "-")
+                 && (isSeqItem (lineBody l2))
                  -> parseBlockSeq ind
            _ -> pure YNull
        else case T.uncons after of
@@ -1056,10 +1130,16 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
         Nothing -> pure acc
         Just l
           | lineIndent l /= ind -> pure acc
-          | lineBody l == "?" || T.isPrefixOf "? " (lineBody l) -> do
+          | isExplicitKey (lineBody l) -> do
               k <- readExplicitPart "?"
               v <- readExplicitValue
               collect ((k, v) : acc)
+          -- A bare ':' or ': value' line at the mapping indent is
+          -- an entry with an implicit (null) key. Per spec §8.18,
+          -- omitting the '?' is permitted.
+          | lineBody l == ":" || T.isPrefixOf ": " (lineBody l) -> do
+              v <- readExplicitPart ":"
+              collect ((YNull, v) : acc)
           | otherwise -> pure acc
 
     readExplicitPart marker = do
@@ -1119,10 +1199,8 @@ parsePlainScalar !ind firstBody = do
               do consumeOne; collectFolds baseInd blanks acc
           | (lineKind l == LContent || lineKind l == LDirective)
             && lineIndent l > baseInd
-            && not (T.isPrefixOf "- " (lineBody l))
-            && lineBody l /= "-"
-            && not (T.isPrefixOf "? " (lineBody l))
-            && lineBody l /= "?"
+            && not (isSeqItem (lineBody l))
+            && not (isExplicitKey (lineBody l))
             && case findKeyValueSplit (lineBody l) of
                  Just _  -> False
                  Nothing -> True
