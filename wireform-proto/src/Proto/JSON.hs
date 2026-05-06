@@ -83,7 +83,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Scientific (fromFloatDigits, toRealFloat)
+import Data.Scientific (Scientific, fromFloatDigits, toRealFloat, toBoundedInteger)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -145,19 +145,50 @@ protoInt64ToJSON n = Aeson.String (int64ToText n)
 protoWord64ToJSON :: Word64 -> Aeson.Value
 protoWord64ToJSON n = Aeson.String (word64ToText n)
 
+-- Proto3 spec, "JSON Mapping": int64 / uint64 are encoded as
+-- decimal strings on output, but accepted as either string or
+-- number on input. The conformance suite verifies range +
+-- integrality, so we route both shapes through 'boundedFromSci'
+-- which rejects fractional and out-of-range values.
 protoInt64FromJSON :: Aeson.Value -> Aeson.Parser Int64
-protoInt64FromJSON (Aeson.String s) = case TR.signed TR.decimal s of
-  Right (n, rest) | T.null rest -> pure n
-  _ -> fail "Invalid int64 string"
-protoInt64FromJSON (Aeson.Number n) = pure (round n)
+protoInt64FromJSON (Aeson.String s) = sciFromText s >>= boundedFromSci "int64"
+protoInt64FromJSON (Aeson.Number n) = boundedFromSci "int64" n
 protoInt64FromJSON _ = fail "Expected int64 string or number"
 
 protoWord64FromJSON :: Aeson.Value -> Aeson.Parser Word64
-protoWord64FromJSON (Aeson.String s) = case TR.decimal s of
-  Right (n, rest) | T.null rest -> pure n
-  _ -> fail "Invalid uint64 string"
-protoWord64FromJSON (Aeson.Number n) = pure (round n)
+protoWord64FromJSON (Aeson.String s) = sciFromText s >>= boundedFromSci "uint64"
+protoWord64FromJSON (Aeson.Number n) = boundedFromSci "uint64" n
 protoWord64FromJSON _ = fail "Expected uint64 string or number"
+
+-- | Parse a 'Scientific' from a textual JSON value. Used for
+-- the 64-bit-int code path (proto3 spec encodes them as strings
+-- on output, accepts both shapes on input).
+--
+-- @reads@ is unfortunate but @Data.Text.Read@ doesn't export a
+-- 'Scientific' parser, and pulling in @attoparsec@ here just
+-- for one helper isn't worth it.
+sciFromText :: Text -> Aeson.Parser Scientific
+sciFromText t
+  | hasLeadingSpace t = fail ("Invalid numeric string (leading whitespace): " <> show t)
+  | otherwise = case reads (T.unpack t) :: [(Scientific, String)] of
+      [(s, "")] -> pure s
+      _         -> fail ("Invalid numeric string: " <> show t)
+  where
+    hasLeadingSpace s = case T.uncons s of
+      Just (c, _) -> c == ' ' || c == '\t' || c == '\n' || c == '\r'
+      Nothing     -> True
+
+-- | Coerce a 'Scientific' to a bounded integral type, failing
+-- both when the value falls outside the type's range and when
+-- it has a fractional part. This is what the conformance
+-- @Int*Field{TooLarge,TooSmall,NotInteger}@ tests assert on.
+boundedFromSci
+  :: forall i
+   . (Integral i, Bounded i)
+  => String -> Scientific -> Aeson.Parser i
+boundedFromSci ty s = case toBoundedInteger s of
+  Just n  -> pure n
+  Nothing -> fail (ty <> " value out of range or non-integer: " <> show s)
 
 -- Proto3 canonical JSON: floats with NaN/Infinity as strings.
 

@@ -713,29 +713,36 @@ parseWord64FieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Word64)
 parseWord64FieldMaybe = parseScalarFieldMaybe PJI.protoWord64FromJSON
 
 parseDoubleFieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Double)
-parseDoubleFieldMaybe = parseScalarFieldMaybe protoDoubleFromJSONLenient
+parseDoubleFieldMaybe = parseScalarFieldMaybe (protoFloatFromJSONLenient @Double)
 
 parseFloatFieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Float)
-parseFloatFieldMaybe = parseScalarFieldMaybe (\v -> realToFrac <$> protoDoubleFromJSONLenient v)
+parseFloatFieldMaybe = parseScalarFieldMaybe (protoFloatFromJSONLenient @Float)
 
--- | Lenient double parser: accepts JSON numbers, NaN/Infinity
--- string sentinels, AND any numeric string (e.g. @"1.5"@).
--- Proto3 canonical-JSON spec says floats can be quoted.
-protoDoubleFromJSONLenient :: Aeson.Value -> AesonT.Parser Double
-protoDoubleFromJSONLenient v = case v of
-  Aeson.Number n             -> pure (toRealFloatScientific n)
+-- | Lenient float\/double parser specialised by 'RealFloat'
+-- carrier. Accepts JSON numbers, the @"NaN"@\/@"Infinity"@\/
+-- @"-Infinity"@ string sentinels, and any other numeric string
+-- (proto3 canonical-JSON allows quoted floats on input).
+--
+-- Out-of-range checking: a finite 'Sci.Scientific' that
+-- 'realToFrac's to @Infinity@ in the target type is rejected,
+-- which is what conformance @Float\/DoubleField{TooLarge,TooSmall}@
+-- assert on. (NaN\/Infinity sentinels still flow through.)
+protoFloatFromJSONLenient
+  :: forall a. (RealFloat a) => Aeson.Value -> AesonT.Parser a
+protoFloatFromJSONLenient v = case v of
+  Aeson.Number n             -> finite n
   Aeson.String "NaN"         -> pure (0 / 0)
   Aeson.String "Infinity"    -> pure (1 / 0)
   Aeson.String "-Infinity"   -> pure (negate (1 / 0))
-  Aeson.String s             -> case TR.signed TR.rational s of
-    Right (d, rest) | T.null rest -> pure d
-    _ -> fail ("Expected number or numeric string, got " <> show s)
+  Aeson.String s             -> sciFromText32 s >>= finite
   _ -> fail "Expected JSON Number or numeric String"
-
--- | 'toRealFloat' from "Data.Scientific", inlined to avoid the
--- explicit cyclic-import issue Aeson 2.x has introduced.
-toRealFloatScientific :: forall a. (RealFloat a, Real a) => Sci.Scientific -> a
-toRealFloatScientific = Sci.toRealFloat
+  where
+    finite :: Sci.Scientific -> AesonT.Parser a
+    finite n =
+      let d = Sci.toRealFloat n :: a
+      in if isInfinite d
+           then fail ("float/double overflow: " <> show n)
+           else pure d
 
 parseInt32FieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Int32)
 parseInt32FieldMaybe = parseScalarFieldMaybe protoInt32FromJSON
@@ -743,21 +750,42 @@ parseInt32FieldMaybe = parseScalarFieldMaybe protoInt32FromJSON
 parseWord32FieldMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe Word32)
 parseWord32FieldMaybe = parseScalarFieldMaybe protoWord32FromJSON
 
+-- Proto3 canonical-JSON spec rejects: out-of-range, fractional
+-- (e.g. @1.5@), and unparsable strings for {int32, uint32}.
+-- The conformance suite covers all three categories.
 protoInt32FromJSON :: Aeson.Value -> AesonT.Parser Int32
 protoInt32FromJSON v = case v of
-  Aeson.Number n -> pure (round n)
-  Aeson.String s -> case TR.signed TR.decimal s of
-    Right (n, rest) | T.null rest -> pure n
-    _ -> fail "Invalid Int32 string"
+  Aeson.Number n -> bounded32 "int32" n
+  Aeson.String s -> sciFromText32 s >>= bounded32 "int32"
   _ -> fail "Expected JSON Number or String for Int32"
 
 protoWord32FromJSON :: Aeson.Value -> AesonT.Parser Word32
 protoWord32FromJSON v = case v of
-  Aeson.Number n -> pure (round n)
-  Aeson.String s -> case TR.decimal s of
-    Right (n, rest) | T.null rest -> pure n
-    _ -> fail "Invalid UInt32 string"
+  Aeson.Number n -> bounded32 "uint32" n
+  Aeson.String s -> sciFromText32 s >>= bounded32 "uint32"
   _ -> fail "Expected JSON Number or String for UInt32"
+
+-- | Parse 'Scientific' from a JSON-quoted numeric string. We
+-- can't reuse 'PJ.sciFromText' without adding a Proto.JSON
+-- dependency edge, so duplicate the trivial implementation.
+sciFromText32 :: Text -> AesonT.Parser Sci.Scientific
+sciFromText32 t
+  | hasLeadingWs t = fail ("Invalid numeric string (leading whitespace): " <> show t)
+  | otherwise = case reads (T.unpack t) :: [(Sci.Scientific, String)] of
+      [(s, "")] -> pure s
+      _         -> fail ("Invalid numeric string: " <> show t)
+  where
+    hasLeadingWs s = case T.uncons s of
+      Just (c, _) -> c == ' ' || c == '\t' || c == '\n' || c == '\r'
+      Nothing     -> True
+
+-- | Bounded-integer narrowing for 32-bit fields. Mirrors
+-- 'Proto.JSON.boundedFromSci' but lives here so the TH-spliced
+-- decoders don't have to drag in 'Proto.JSON' transitively.
+bounded32 :: forall i. (Integral i, Bounded i) => String -> Sci.Scientific -> AesonT.Parser i
+bounded32 ty s = case Sci.toBoundedInteger s of
+  Just n  -> pure n
+  Nothing -> fail (ty <> " value out of range or non-integer: " <> show s)
 
 -- | Generic helper: parse @Maybe a@ via a per-scalar @Aeson.Value
 -- -> Parser a@ helper. Returns 'Nothing' for missing or null.
