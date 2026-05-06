@@ -614,15 +614,17 @@ parseAnchored = do
                    | lineIndent l2 == lineIndent l
                    , isNodePropertyLine (lineBody l2) ->
                        parseNode (lineIndent l2)
-                 -- Likewise a plain scalar (no ':' / structural
-                 -- markers) at the same column belongs to the
-                 -- anchor.
+                 -- A bare anchor on its own line at column > 0
+                 -- (i.e. inside some surrounding scope) binds to
+                 -- the next same-column content line — which may
+                 -- be a mapping ('  &anchor\\n  key: val' inside
+                 -- a parent value). At column 0 a same-column
+                 -- next line is a sibling in the outer mapping,
+                 -- so we keep the anchor pointing at Null.
                  Just l2
                    | lineIndent l2 == lineIndent l
-                   , lineKind l2 == LContent
-                   , not (isSeqItem (lineBody l2))
-                   , not (isExplicitKey (lineBody l2))
-                   , Nothing <- findKeyValueSplit (lineBody l2) ->
+                   , lineIndent l > 0
+                   , lineKind l2 == LContent ->
                        parseNode (lineIndent l2)
                  _ -> pure YNull
              else do
