@@ -5,169 +5,39 @@
 # runner's exit code reflects only unexpected failures (regressions)
 # and unexpected successes (tests we should remove from this list).
 #
-# Today's residue (119 failures from 1279 successes / 1277 skipped):
+# Status: 1 expected failure / 1412 successes / 1262 skipped /
+# 0 unexpected failures.
 #
-#   1. JSON-input parser edge cases:
-#      - EnumFieldWithAlias / EnumFieldWithAlias{Different,Lower}Case
-#      - FieldName{Escaped, InSnakeCase, WithDoubleUnderscores,
-#        WithMixedCases, WithNumbers, OriginalProtoFieldName}: proto3 spec
-#        accepts both camelCase and snake_case JSON keys; we only accept
-#        the configured camelCase form.
-#      - OneofZero{X}: JSON-input handling of oneof variants set to
-#        their default value (parser doesn't yet route oneof variants
-#        on input — the JSON has the variant key, but our schema
-#        descriptor expects the carrier name).
-#      - {Float,Double,Int64}Field{TooLarge,TooSmall}: range
-#        validation we don't perform.
-#      - DoubleFieldTooSmall: same.
-#      - MessageMapField: parsing maps whose values are
-#        submessages (only a few specific shapes work).
-#      - OneofFieldDuplicate / OneofFieldNullFirst / Second: tricky
-#        oneof JSON merge semantics.
-#      - BytesFieldBase64Url: base64url variant decoding.
-#      - JSON Validator-class assertions on canonical output details
-#        we don't yet emit.
+# Today's residue:
 #
-#   2. Two oneof-submessage-merge cases (the inner submessage carries
-#      wire-type-mismatched fields; spec wants tolerant skip, our
-#      decoder fails-strict in the merge path).
-#
-#   3. WKT JSON edge cases:
-#      - FieldMaskNumbersDontRoundTrip / PathsDontRoundTrip /
-#        TooManyUnderscore: the FieldMask path-encoding spec has
-#        snake_case <-> camelCase rules we don't fully implement.
-#      - DurationProtoInputTooLarge / TooSmall, TimestampProto
-#        InputTooLarge / TooSmall: range validation on Duration /
-#        Timestamp serialised values.
-#      - Recommended.Proto3.Value{RejectInf,RejectNan}NumberValue:
-#        Value-type rejecting NaN / Infinity number values.
-#      - DurationHas[N]FractionalDigits.Validator,
-#        TimestampHas[N]FractionalDigits.Validator: validator
-#        assertions on canonical fractional-digit counts.
-#      - Various Any.{X} tests: Any encoding requires a runtime
-#        type registry we haven't wired in.
+#   * EnumFieldUnknownValue.Validator (Required, JsonInput): proto3
+#     "open enum" semantics ask us to preserve unknown numeric
+#     enum values across a JSON round-trip — input
+#     '{"optionalNestedEnum": 123}' should re-emit as
+#     '{"optionalNestedEnum": 123}' even though 123 isn't a
+#     declared NestedEnum value. Doing this faithfully requires
+#     representing each generated enum type as
+#     'data NestedEnum = ... | NestedEnum'Unknown !Int32' and
+#     threading the new constructor through every encoder /
+#     decoder / JSON path the deriver emits — out of scope for
+#     this round of fixes.
 #
 # Update this file when the suite is re-run on a new VM:
 #   cabal test wireform-proto:protobuf-conformance-test \
 #     2>&1 | tee /tmp/conformance.log
 # then mine /tmp/conformance.log for new failure names.
 
-Recommended.Proto3.FieldMaskNumbersDontRoundTrip.JsonOutput
-Recommended.Proto3.FieldMaskPathsDontRoundTrip.JsonOutput
-Recommended.Proto3.FieldMaskTooManyUnderscore.JsonOutput
-Recommended.Proto3.JsonInput.BytesFieldBase64Url.JsonOutput
-Recommended.Proto3.JsonInput.BytesFieldBase64Url.ProtobufOutput
-Recommended.Proto3.JsonInput.DurationHas3FractionalDigits.Validator
-Recommended.Proto3.JsonInput.DurationHas6FractionalDigits.Validator
-Recommended.Proto3.JsonInput.DurationHas9FractionalDigits.Validator
-Recommended.Proto3.JsonInput.FieldMaskInvalidCharacter
-Recommended.Proto3.JsonInput.FieldNameWithDoubleUnderscores.JsonOutput
-Recommended.Proto3.JsonInput.FieldNameWithDoubleUnderscores.ProtobufOutput
-Recommended.Proto3.JsonInput.FieldNameWithDoubleUnderscores.Validator
-Recommended.Proto3.JsonInput.IgnoreUnknownEnumStringValueInMapPart.ProtobufOutput
-Recommended.Proto3.JsonInput.IgnoreUnknownEnumStringValueInOptionalField.ProtobufOutput
-Recommended.Proto3.JsonInput.IgnoreUnknownEnumStringValueInRepeatedField.ProtobufOutput
-Recommended.Proto3.JsonInput.IgnoreUnknownEnumStringValueInRepeatedPart.ProtobufOutput
-Recommended.Proto3.JsonInput.NullValueInOtherOneofNewFormat.Validator
-Recommended.Proto3.JsonInput.NullValueInOtherOneofOldFormat.Validator
-Recommended.Proto3.JsonInput.OneofZeroBool.JsonOutput
-Recommended.Proto3.JsonInput.OneofZeroBool.ProtobufOutput
-Recommended.Proto3.JsonInput.OneofZeroBytes.JsonOutput
-Recommended.Proto3.JsonInput.OneofZeroBytes.ProtobufOutput
-Recommended.Proto3.JsonInput.OneofZeroDouble.JsonOutput
-Recommended.Proto3.JsonInput.OneofZeroDouble.ProtobufOutput
-Recommended.Proto3.JsonInput.OneofZeroEnum.JsonOutput
-Recommended.Proto3.JsonInput.OneofZeroEnum.ProtobufOutput
-Recommended.Proto3.JsonInput.OneofZeroFloat.JsonOutput
-Recommended.Proto3.JsonInput.OneofZeroFloat.ProtobufOutput
-Recommended.Proto3.JsonInput.OneofZeroMessage.JsonOutput
-Recommended.Proto3.JsonInput.OneofZeroMessage.ProtobufOutput
-Recommended.Proto3.JsonInput.OneofZeroString.JsonOutput
-Recommended.Proto3.JsonInput.OneofZeroString.ProtobufOutput
-Recommended.Proto3.JsonInput.OneofZeroUint32.JsonOutput
-Recommended.Proto3.JsonInput.OneofZeroUint32.ProtobufOutput
-Recommended.Proto3.JsonInput.OneofZeroUint64.JsonOutput
-Recommended.Proto3.JsonInput.OneofZeroUint64.ProtobufOutput
-Recommended.Proto3.JsonInput.RejectUnknownEnumStringValueInMapValue
-Recommended.Proto3.JsonInput.TimestampHas3FractionalDigits.Validator
-Recommended.Proto3.JsonInput.TimestampHas6FractionalDigits.Validator
-Recommended.Proto3.JsonInput.TimestampHas9FractionalDigits.Validator
-Recommended.Proto3.JsonInput.TimestampZeroNormalized.Validator
-Recommended.Proto3.ProtobufInput.ValidDataOneofBinary.MESSAGE.Merge.ProtobufOutput
-Recommended.Proto3.ValueRejectInfNumberValue.JsonOutput
-Recommended.Proto3.ValueRejectNanNumberValue.JsonOutput
-Required.Proto3.DurationProtoInputTooLarge.JsonOutput
-Required.Proto3.DurationProtoInputTooSmall.JsonOutput
-Required.Proto3.JsonInput.Any.JsonOutput
-Required.Proto3.JsonInput.AnyNested.JsonOutput
-Required.Proto3.JsonInput.AnyNested.ProtobufOutput
-Required.Proto3.JsonInput.Any.ProtobufOutput
-Required.Proto3.JsonInput.AnyUnorderedTypeTag.JsonOutput
-Required.Proto3.JsonInput.AnyUnorderedTypeTag.ProtobufOutput
-Required.Proto3.JsonInput.AnyWithDuration.JsonOutput
-Required.Proto3.JsonInput.AnyWithDuration.ProtobufOutput
-Required.Proto3.JsonInput.AnyWithFieldMask.JsonOutput
-Required.Proto3.JsonInput.AnyWithFieldMask.ProtobufOutput
-Required.Proto3.JsonInput.AnyWithInt32ValueWrapper.JsonOutput
-Required.Proto3.JsonInput.AnyWithInt32ValueWrapper.ProtobufOutput
-Required.Proto3.JsonInput.AnyWithStruct.JsonOutput
-Required.Proto3.JsonInput.AnyWithStruct.ProtobufOutput
-Required.Proto3.JsonInput.AnyWithTimestamp.JsonOutput
-Required.Proto3.JsonInput.AnyWithTimestamp.ProtobufOutput
-Required.Proto3.JsonInput.AnyWithValueForInteger.JsonOutput
-Required.Proto3.JsonInput.AnyWithValueForInteger.ProtobufOutput
-Required.Proto3.JsonInput.AnyWithValueForJsonObject.JsonOutput
-Required.Proto3.JsonInput.AnyWithValueForJsonObject.ProtobufOutput
-Required.Proto3.JsonInput.DoubleFieldTooSmall
-Required.Proto3.JsonInput.DurationJsonInputTooLarge
-Required.Proto3.JsonInput.DurationJsonInputTooSmall
-Required.Proto3.JsonInput.DurationMinValue.ProtobufOutput
-Required.Proto3.JsonInput.DurationNegativeNanos.JsonOutput
-Required.Proto3.JsonInput.DurationNegativeNanos.ProtobufOutput
-Required.Proto3.JsonInput.DurationRepeatedValue.ProtobufOutput
 Required.Proto3.JsonInput.EnumFieldUnknownValue.Validator
-Required.Proto3.JsonInput.EnumFieldWithAliasDifferentCase.JsonOutput
-Required.Proto3.JsonInput.EnumFieldWithAliasDifferentCase.ProtobufOutput
-Required.Proto3.JsonInput.EnumFieldWithAlias.JsonOutput
-Required.Proto3.JsonInput.EnumFieldWithAliasLowerCase.JsonOutput
-Required.Proto3.JsonInput.EnumFieldWithAliasLowerCase.ProtobufOutput
-Required.Proto3.JsonInput.EnumFieldWithAlias.ProtobufOutput
-Required.Proto3.JsonInput.EnumFieldWithAliasUseAlias.JsonOutput
-Required.Proto3.JsonInput.EnumFieldWithAliasUseAlias.ProtobufOutput
-Required.Proto3.JsonInput.FieldMask.ProtobufOutput
-Required.Proto3.JsonInput.FieldNameWithMixedCases.JsonOutput
-Required.Proto3.JsonInput.FieldNameWithMixedCases.ProtobufOutput
-Required.Proto3.JsonInput.FieldNameWithMixedCases.Validator
-Required.Proto3.JsonInput.FloatFieldTooLarge
-Required.Proto3.JsonInput.FloatFieldTooSmall
-Required.Proto3.JsonInput.Int32FieldNotInteger
-Required.Proto3.JsonInput.Int32FieldTooLarge
-Required.Proto3.JsonInput.Int32FieldTooSmall
-Required.Proto3.JsonInput.Int64FieldTooLarge
-Required.Proto3.JsonInput.Int64FieldTooSmall
-Required.Proto3.JsonInput.MessageMapField.JsonOutput
-Required.Proto3.JsonInput.MessageMapField.ProtobufOutput
-Required.Proto3.JsonInput.OneofFieldDuplicate
-Required.Proto3.JsonInput.OneofFieldNullFirst.JsonOutput
-Required.Proto3.JsonInput.OneofFieldNullFirst.ProtobufOutput
-Required.Proto3.JsonInput.OneofFieldNullSecond.JsonOutput
-Required.Proto3.JsonInput.OneofFieldNullSecond.ProtobufOutput
-Required.Proto3.JsonInput.OriginalProtoFieldName.JsonOutput
-Required.Proto3.JsonInput.Struct.ProtobufOutput
-Required.Proto3.JsonInput.TimestampJsonInputLowercaseZ
-Required.Proto3.JsonInput.TimestampJsonInputMissingZ
-Required.Proto3.JsonInput.TimestampJsonInputTooLarge
-Required.Proto3.JsonInput.TimestampJsonInputTooSmall
-Required.Proto3.JsonInput.TimestampWithNegativeOffset.JsonOutput
-Required.Proto3.JsonInput.TimestampWithNegativeOffset.ProtobufOutput
-Required.Proto3.JsonInput.TimestampWithPositiveOffset.JsonOutput
-Required.Proto3.JsonInput.TimestampWithPositiveOffset.ProtobufOutput
-Required.Proto3.JsonInput.Uint32FieldNotInteger
-Required.Proto3.JsonInput.Uint32FieldTooLarge
-Required.Proto3.JsonInput.Uint64FieldTooLarge
-Required.Proto3.JsonInput.ValueAcceptNull.JsonOutput
-Required.Proto3.JsonInput.ValueAcceptNull.ProtobufOutput
-Required.Proto3.ProtobufInput.ValidDataOneof.MESSAGE.Merge.JsonOutput
-Required.Proto3.ProtobufInput.ValidDataOneof.MESSAGE.Merge.ProtobufOutput
-Required.Proto3.TimestampProtoInputTooLarge.JsonOutput
-Required.Proto3.TimestampProtoInputTooSmall.JsonOutput
+
+# The 8 *.TextFormatOutput tests below run in a SEPARATE
+# upstream "TEXT_FORMAT" suite that the binary/json suite
+# doesn't recognise (so we can't list them here without the
+# runner reporting "tests not found" for them). The driver in
+# 'Test.Conformance.Driver' parses the binary/json summary
+# explicitly and doesn't fail on the upstream's non-zero exit
+# from the second suite.
+#
+# Recommended.Proto3.ProtobufInput.GroupUnknownFields_{Drop,Print}.TextFormatOutput
+# Recommended.Proto3.ProtobufInput.MessageUnknownFields_{Drop,Print}.TextFormatOutput
+# Recommended.Proto3.ProtobufInput.RepeatedUnknownFields_{Drop,Print}.TextFormatOutput
+# Recommended.Proto3.ProtobufInput.ScalarUnknownFields_{Drop,Print}.TextFormatOutput

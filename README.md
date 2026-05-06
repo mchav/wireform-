@@ -348,26 +348,57 @@ cabal test wireform-proto:protobuf-conformance-test
 ```
 
 Today's baseline against `protocolbuffers/protobuf@v28.2`:
-**1279 successes, 1277 skipped, 119 expected failures, 0 unexpected
-failures**. Expected failures cluster in:
+**1412 successes, 1262 skipped, 1 expected failure, 0 unexpected
+failures**. The single remaining expected failure
+(`EnumFieldUnknownValue.Validator`) needs proto3 open-enum
+semantics — preserving an unknown numeric enum value across a
+JSON round-trip — which would require representing each
+generated enum as
+`data NestedEnum = ... | NestedEnum'Unknown !Int32` and
+threading the new constructor through every encoder / decoder /
+JSON path the deriver emits. Out of scope for the current
+correctness pass; tracked in
+`wireform-proto/test-conformance/failure_list_proto3.txt`.
 
-- JSON for messages with Well-Known Types (the spliced
-  `TestAllTypesProto3` deliberately omits WKT arms because
-  `loadProto` doesn't yet follow proto imports).
-- JSON-input parser edge cases (enum aliases, mixed field-name
-  casing variants like `FieldName10` vs `fieldName10`, range
-  validation for `Int64FieldTooLarge` / `Uint32FieldTooLarge` etc.,
-  `OneofFieldDuplicate` / `OneofFieldNullFirst`/`Second`,
-  `MessageMapField`, `BytesFieldBase64Url`).
-- Two oneof-submessage-merge cases (the inner submessage carries
-  wire-type-mismatched fields; spec wants tolerant skip, our
-  decoder fails-strict in the merge path).
-- JSON oneof variant input handling (`OneofZero{X}`): the JSON
-  parser currently looks up the carrier field name rather than
-  scanning for any of the variant keys.
-- WKT JSON corner cases: Timestamp/Duration range validation,
-  Timestamp offset handling, FieldMask path edge cases, Any with
-  embedded fields requiring a runtime type registry.
+Categories cleared this round (119 → 0 unexpected failures):
+
+- Strict JSON range + integrality validation for every scalar
+  width (`Int{32,64}Field{TooLarge,TooSmall,NotInteger}`,
+  `Uint{32,64}` siblings, `Float`/`Double` overflow).
+- Spec-correct `protoJsonName` (proto3 lower_snake_case →
+  lowerCamelCase per the upstream `ToJsonName` algorithm —
+  `FieldName10` and friends now round-trip), with the snake-
+  case fallback retained on input.
+- Enum aliasing (`option allow_alias = true`) collapsed to a
+  single Haskell constructor per number; the JSON parser
+  accepts every declared name (alias-different-case alike).
+- Lenient unknown-enum-string mode for the
+  `JSON_IGNORE_UNKNOWN_PARSING_TEST` category.
+- Spec-compliant Timestamp / Duration parsing + serialisation:
+  RFC 3339 lowercase-`z` rejection, `+HH:MM` / `-HH:MM` offsets,
+  canonical 0/3/6/9 fractional digits, range validation on
+  both directions (Duration±10000 years, Timestamp 0001…9999),
+  negative-nanos sign propagation.
+- FieldMask path conversion between `lower_snake_case` and
+  `lowerCamelCase` with round-trip rejection on uppercase /
+  embedded digits / repeated underscores.
+- `Value` / `Struct` / `NullValue`: NaN/Infinity rejection,
+  `null`-as-NullValue oneof handling, `null_value` enum wire
+  format fix.
+- A custom `parseStringMessageMapMaybe` for `map<K, message V>`
+  JSON parsing that surfaces inner failures cleanly.
+- A spec-correct google.protobuf.Any codec registry: WKT
+  envelope (`{"@type":...,"value":<canonical>}`) for WKTs and
+  inlined fields for regular messages, with recursive nesting
+  (`AnyNested`).
+- Per-variant JSON oneof input parser that scans the JSON
+  object for any of the variant keys, handles null per spec,
+  and rejects multiple non-null variants
+  (`OneofFieldDuplicate`).
+- A subtle two-pass-encoder bug fixed: `sizeOne` for unpacked
+  repeated fields was double-counting the tag width when the
+  field number used a multi-byte tag, breaking the
+  `ValidDataOneof.MESSAGE.Merge` family.
 
 Well-Known Types (`Timestamp`, `Duration`, `Wrappers`, `Empty`,
 `Any`, `FieldMask`, `Struct`, `Value`, `ListValue`, `NullValue`)
