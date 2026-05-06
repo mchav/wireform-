@@ -173,7 +173,10 @@ instance MessageEncode Value where
   buildMessage msg =
     (case msg.valueKind of
       Nothing -> mempty
-      Just (Value'Kind'NullValue v) -> let sz = messageSize v in archSubmessage 10 sz (buildMessage v)
+      -- NullValue is an enum (NULL_VALUE = 0), not a submessage —
+      -- emit as a varint with wire type 0 (tag 0x08 = field 1
+      -- wire type 0).
+      Just (Value'Kind'NullValue v) -> archVarint 8 (fromIntegral (fromEnum v))
       Just (Value'Kind'NumberValue v) -> archDouble 17 v
       Just (Value'Kind'StringValue v) -> archString 26 v
       Just (Value'Kind'BoolValue v) -> archBool 32 v
@@ -183,7 +186,7 @@ instance MessageEncode Value where
 
 instance MessageSize Value where
   messageSize msg =
-    (case msg.valueKind of { Nothing -> 0; Just (Value'Kind'NullValue v) -> archSubmessageSize (messageSize v)
+    (case msg.valueKind of { Nothing -> 0; Just (Value'Kind'NullValue v) -> archVarintSize (fromIntegral (fromEnum v))
     ; Just (Value'Kind'NumberValue v) -> archFixed64Size
     ; Just (Value'Kind'StringValue v) -> archStringSize v
     ; Just (Value'Kind'BoolValue v) -> archBoolSize
@@ -201,7 +204,7 @@ instance MessageDecode Value where
           UNothing -> pure (Value {valueKind = acc_0, valueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
-              v <- decodeFieldMessage
+              v <- decodeFieldEnum
               loop (Just (Value'Kind'NullValue v)) acc_unknown_
             2 -> do
               v <- decodeFieldDouble
