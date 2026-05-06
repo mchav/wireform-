@@ -105,6 +105,11 @@ preprocess = go 1 . dropFinalEmpty . T.split (== '\n')
           !ind      = leadingSpaces stripped
           !body0    = T.drop ind stripped
           !body     = T.dropWhileEnd (\c -> c == ' ' || c == '\t') body0
+          -- A line whose only content is a trailing tab (no
+          -- structural indicator) reads as 'blank' for most
+          -- parsing decisions, but 'collectScalarLines' for block
+          -- scalars consults 'lineRawBody' and re-injects the
+          -- whitespace as content.
           !kind     = classify body
       in PLine n ind kind body body0 : go (n+1) ls
 
@@ -1198,7 +1203,11 @@ parsePlainScalar !ind firstBody = do
             && lineIndent l > baseInd ->
               do consumeOne; collectFolds baseInd blanks acc
           | (lineKind l == LContent || lineKind l == LDirective)
-            && lineIndent l > baseInd
+            && (lineIndent l > baseInd
+                -- A bare plain scalar at the top level (baseInd 0)
+                -- can continue into more lines at column 0 as
+                -- long as they're not structural.
+                || (baseInd == 0 && lineIndent l == 0))
             && not (isSeqItem (lineBody l))
             && not (isExplicitKey (lineBody l))
             && case findKeyValueSplit (lineBody l) of
@@ -1206,7 +1215,11 @@ parsePlainScalar !ind firstBody = do
                  Nothing -> True
             -> do
               consumeOne
-              let s = T.stripEnd (stripInlineComment (lineBody l))
+              let s0 = T.stripEnd (stripInlineComment (lineBody l))
+                  -- Leading whitespace on a plain-scalar continuation
+                  -- line is part of the framing, not the scalar
+                  -- content (spec §6.5).
+                  s = T.dropWhile (\c -> c == ' ' || c == '\t') s0
                   prefix
                     | blanks == 0 = s
                     | otherwise   = T.replicate blanks (T.pack "\n") <> s
@@ -1306,12 +1319,22 @@ collectScalarLines !parent = collect Nothing []
               -- indent can.
               do _ <- consumeOne
                  let ind = lineIndent l
+                     -- For a "blank" line whose raw body is a run
+                     -- of trailing tabs, treat the tabs as
+                     -- significant content of the block scalar.
+                     raw = lineRawBody l
+                     hasTabs = not (T.null raw)
                      isMoreIndented = case mBase of
                        Just b  -> ind > b
                        Nothing -> ind > parent
                  if isMoreIndented
-                   then collect mBase ((ind, T.empty) : acc)
-                   else collect mBase ((-1, T.empty) : acc)
+                   then collect mBase ((ind, raw) : acc)
+                   else if hasTabs
+                          then case mBase of
+                                 Just b | ind >= b ->
+                                    collect mBase ((ind, raw) : acc)
+                                 _ -> collect mBase ((-1, T.empty) : acc)
+                          else collect mBase ((-1, T.empty) : acc)
           | lineKind l == LDocStart || lineKind l == LDocEnd
               -> pure (reverse acc)
           | otherwise ->
@@ -1383,7 +1406,7 @@ joinFolded chomp xs =
 
     foldFirst [] _ = []
     foldFirst ((i, b) : rest) bi
-      | isBlank (i, b) = T.pack "\n" : foldAfterBlank rest bi
+      | isBlank (i, b) = T.pack "\n" : foldAfterBlank rest bi False
       | otherwise =
           let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
               more = isMoreIndented bi (i, b)
@@ -1392,12 +1415,11 @@ joinFolded chomp xs =
     foldNext [] _ _ = []
     foldNext ((i, b) : rest) bi prevMore
       | isBlank (i, b) =
-          -- A break around any more-indented line is preserved as a
-          -- literal newline (spec §6.5/§8.1.3); when we step from a
-          -- more-indented line into a blank we therefore emit an
-          -- extra '\n' so the count comes out right.
+          -- A break right after a more-indented line is preserved
+          -- as a literal newline; the upcoming blank emits another
+          -- on top of that.
           let pre = if prevMore then [T.pack "\n"] else []
-          in pre ++ T.pack "\n" : foldAfterBlank rest bi
+          in pre ++ T.pack "\n" : foldAfterBlank rest bi prevMore
       | otherwise =
           let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
               nowMore = isMoreIndented bi (i, b)
@@ -1406,15 +1428,22 @@ joinFolded chomp xs =
                 | otherwise           = T.pack " "
           in joinSep : txt : foldNext rest bi nowMore
 
-    foldAfterBlank [] _ = []
-    foldAfterBlank ((i, b) : rest) bi
-      | isBlank (i, b) = T.pack "\n" : foldAfterBlank rest bi
+    -- @prevMore@ here refers to whether the line that opened the
+    -- blank run was more-indented; when leaving a blank run we
+    -- need to emit one more break if either side is more-indented.
+    foldAfterBlank [] _ _ = []
+    foldAfterBlank ((i, b) : rest) bi prevMore
+      | isBlank (i, b) = T.pack "\n" : foldAfterBlank rest bi prevMore
       | otherwise =
           let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
               nowMore = isMoreIndented bi (i, b)
-              -- A more-indented line right after a run of blanks
-              -- gets an additional preserved-break before it.
-              extra = if nowMore then [T.pack "\n"] else []
+              -- If we're leaving a blank-run into a more-indented
+              -- line and the previous content line was /not/
+              -- itself more-indented, the spec requires an extra
+              -- preserved break.
+              extra = if nowMore && not prevMore
+                        then [T.pack "\n"]
+                        else []
           in extra ++ txt : foldNext rest bi nowMore
 
 -- | Smallest indent from a non-blank line in the collected list,
