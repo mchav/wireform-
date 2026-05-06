@@ -87,3 +87,30 @@ test-suite wireform-fury-test
     tasty-hunit,
     tasty-hedgehog,
     hedgehog
+
+flag python-interop
+  description: Build the wireform-fury-interop test suite, which
+               shells out to python3 / pyfory to verify byte-for-byte
+               compatibility. Off by default because it requires a
+               working pyfory install on the build host.
+  manual: True
+  default: False
+
+test-suite wireform-fury-interop
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test-interop
+  main-is: Main.hs
+  if !flag(python-interop)
+    buildable: False
+  build-depends:
+    base,
+    wireform-fury,
+    bytestring,
+    containers    >= 0.6 && < 0.8,
+    text,
+    vector,
+    aeson         >= 2.1 && < 2.3,
+    scientific    >= 0.3 && < 0.4,
+    process       >= 1.6 && < 1.8,
+    directory     >= 1.3 && < 1.4
