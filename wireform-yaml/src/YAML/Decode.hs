@@ -107,11 +107,7 @@ preprocess input@(TI.Text arr off blen) =
     -- if not yet found).
     goByte :: Int -> Int -> Int -> Int -> [PLine]
     goByte !lno !lineStart !contentStart !lastNonWS
-      | lineStart >= endByte =
-          if contentStart < 0
-            then []
-            -- Trailing line with no terminating '\n'.
-            else mkLine lno lineStart endByte contentStart lastNonWS : []
+      | lineStart >= endByte = []
       | otherwise = scanFor lno lineStart contentStart lastNonWS lineStart
 
     -- Scan from position 'i' to find the line end (newline or
@@ -121,24 +117,32 @@ preprocess input@(TI.Text arr off blen) =
     scanFor :: Int -> Int -> Int -> Int -> Int -> [PLine]
     scanFor !lno !lineStart !contentStart !lastNonWS !i
       | i >= endByte =
-          if contentStart < 0
+          if i == lineStart
             then []
+            -- Always emit the trailing line (with no terminating
+            -- '\n'); 'mkLine' creates an LBlank with the correct
+            -- leading-space count when 'contentStart < 0'.
             else mkLine lno lineStart endByte contentStart lastNonWS : []
       | otherwise = case TA.unsafeIndex arr i of
           10 -> -- '\n'
-              let line = if contentStart < 0
-                    then PLine lno 0 LBlank T.empty T.empty
-                    else mkLine lno lineStart i contentStart lastNonWS
+              let line = mkLine lno lineStart i contentStart lastNonWS
               in line : goByte (lno + 1) (i + 1) (-1) (-1)
           13 -> -- '\r' — treat as part of line, but the next
                 -- '\n' (if any) terminates and we trim the '\r'.
                 scanFor lno lineStart contentStart lastNonWS (i + 1)
           32 -> -- ' '
                 scanFor lno lineStart contentStart lastNonWS (i + 1)
-          9  -> -- '\t' — non-space WS; tracks lastNonWS like
-                -- non-WS for body-end purposes? Actually tab is
-                -- WS for stripEnd and contentStart.
-                scanFor lno lineStart contentStart lastNonWS (i + 1)
+          9  -> -- '\t' — per YAML 1.2 §6.1, tabs are NEVER
+                -- part of indentation. Treat the tab as the
+                -- start of content if we haven't seen content
+                -- yet (so the tab survives in 'lineRawBody'
+                -- after indent stripping); otherwise leave
+                -- contentStart alone. We do NOT update
+                -- 'lastNonWS' because trailing tabs still get
+                -- stripped from 'lineBody'.
+                scanFor lno lineStart
+                  (if contentStart < 0 then i else contentStart)
+                  lastNonWS (i + 1)
           _  -> -- non-WS byte (or byte >= 0x80 in multi-byte
                 -- UTF-8); treat as content.
                 scanFor lno lineStart
@@ -147,27 +151,54 @@ preprocess input@(TI.Text arr off blen) =
 
     -- Build a PLine for the byte range [lineStart, lineEnd)
     -- with first content byte at 'contentStart' and last non-
-    -- whitespace byte at 'lastNonWS' (might be < contentStart
-    -- when the line has only whitespace, in which case it
-    -- should be classified as LBlank).
+    -- whitespace byte at 'lastNonWS'. When 'contentStart < 0'
+    -- the line has no non-whitespace content; we still record
+    -- the count of leading SPACE characters as the indent (so
+    -- block-scalar logic can decide whether a blank line is
+    -- "more-indented" than the base) and stash any remaining
+    -- whitespace (tabs, trailing spaces) into 'lineRawBody' so
+    -- downstream code can detect tab-as-indent violations.
     mkLine :: Int -> Int -> Int -> Int -> Int -> PLine
     mkLine !lno !lineStart !lineEnd !contentStart !lastNonWS
-      | contentStart < 0 = PLine lno 0 LBlank T.empty T.empty
+      | contentStart < 0 =
+          let !leadSp    = countLeadingSpaces lineStart lineEnd
+              !endNoCR   = if lineEnd > lineStart
+                              && TA.unsafeIndex arr (lineEnd - 1) == 13
+                             then lineEnd - 1
+                             else lineEnd
+              !restStart = lineStart + leadSp
+              !restLen   = max 0 (endNoCR - restStart)
+              !lineRawB  = if restLen == 0
+                              then T.empty
+                              else TI.text arr restStart restLen
+          in PLine lno leadSp LBlank T.empty lineRawB
       | otherwise =
           let !ind       = contentStart - lineStart
-              -- Strip trailing '\r' from the lineEnd if present.
               !endNoCR   = if lineEnd > lineStart
                               && TA.unsafeIndex arr (lineEnd - 1) == 13
                              then lineEnd - 1
                              else lineEnd
               !rawLen    = endNoCR - contentStart
-              !bodyLen   = lastNonWS + 1 - contentStart
+              -- 'lastNonWS' may sit before 'contentStart' when
+              -- the line begins with a tab (we treat tabs as
+              -- content-start markers but not as last-non-WS
+              -- markers). Clamp the body length so we never
+              -- splice a negative-length 'Text'.
+              !bodyLen   = max 0 (lastNonWS + 1 - contentStart)
               !lineRawB  = TI.text arr contentStart rawLen
-              !lineB     = if bodyLen == rawLen
-                              then lineRawB
-                              else TI.text arr contentStart bodyLen
+              !lineB     | bodyLen == 0       = T.empty
+                         | bodyLen == rawLen  = lineRawB
+                         | otherwise          = TI.text arr contentStart bodyLen
               !kind      = classify lineB
           in PLine lno ind kind lineB lineRawB
+
+    countLeadingSpaces :: Int -> Int -> Int
+    countLeadingSpaces !s !e = go s
+      where
+        go !i
+          | i >= e                      = i - s
+          | TA.unsafeIndex arr i == 32  = go (i + 1)
+          | otherwise                   = i - s
 
 stripCR :: Text -> Text
 stripCR t = case T.unsnoc t of

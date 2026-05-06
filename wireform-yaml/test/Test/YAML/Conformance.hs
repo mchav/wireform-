@@ -144,10 +144,12 @@ externalSuite = do
 discoverCases :: FilePath -> IO [FilePath]
 discoverCases root = walk root
   where
-    -- "tags/" is a symlink farm grouping the same cases by category;
-    -- skip it to avoid double-counting.
+    -- "tags/" and "name/" are symlink farms grouping the same
+    -- cases by category / human-readable name; skip them to
+    -- avoid double-counting.
     isTagDir d = case reverse (splitPath d) of
-      (last_:_) -> dropTrailingSlash last_ == "tags"
+      (last_:_) -> let l = dropTrailingSlash last_
+                   in l == "tags" || l == "name"
       []        -> False
 
     splitPath = words . map (\c -> if c == '/' then ' ' else c)
