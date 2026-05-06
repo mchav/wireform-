@@ -28,7 +28,7 @@ module YAML.Decode
   , decodeDocuments
   ) where
 
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import Data.ByteString (ByteString)
 import Data.Char (chr, digitToInt, isDigit, isHexDigit)
 import Data.Int (Int64)
@@ -147,6 +147,14 @@ isSkippable l = case lineKind l of
   LDirective -> True
   _          -> False
 
+-- | Like 'isSkippable' but does NOT include directives. Used at
+-- the document-prologue boundary where directives carry meaning.
+isSkippableNonDirective :: PLine -> Bool
+isSkippableNonDirective l = case lineKind l of
+  LBlank   -> True
+  LComment -> True
+  _        -> False
+
 -- ---------------------------------------------------------------------------
 -- Parser monad: pure ([PLine], Map Text Value) -> Either String (a, ...)
 -- ---------------------------------------------------------------------------
@@ -255,18 +263,77 @@ parseStream lns =
         []      -> True
         (l : _) -> lineNo l /= prevLine
 
+-- | Consume any leading directives ('%YAML ...', '%TAG ...') from
+-- the line stream. Returns whether at least one directive was
+-- present. Validates the directive syntax: '%YAML' takes a single
+-- version token, '%TAG' takes exactly two arguments, and '%YAML'
+-- can appear at most once per document.
+consumeDirectives :: P Bool
+consumeDirectives = go False False
+  where
+    go !sawAny !sawYaml = do
+      ls <- getLines
+      case dropWhile isSkippableNonDirective ls of
+        (l : rest) | lineKind l == LDirective -> do
+          setLines rest
+          let body = stripInlineComment (lineBody l)
+              args = T.words (T.drop 1 body)   -- drop leading '%'
+          case args of
+            ("YAML" : ver : extra) -> do
+              when sawYaml $
+                failP ("duplicate %YAML directive (line "
+                       ++ show (lineNo l) ++ ")")
+              when (not (null extra)) $
+                failP ("extra words on %YAML directive (line "
+                       ++ show (lineNo l) ++ ")")
+              when (not (validYamlVersion ver)) $
+                failP ("invalid %YAML version " ++ T.unpack ver
+                       ++ " (line " ++ show (lineNo l) ++ ")")
+              go True True
+            ("TAG" : _handle : _prefix : []) ->
+              go True sawYaml
+            ("TAG" : _) ->
+              failP ("malformed %TAG directive (line "
+                     ++ show (lineNo l) ++ ")")
+            ("YAML" : _) ->
+              failP ("malformed %YAML directive (line "
+                     ++ show (lineNo l) ++ ")")
+            _ -> go True sawYaml   -- unknown / reserved directive
+        _ -> pure sawAny
+
+validYamlVersion :: Text -> Bool
+validYamlVersion t = case T.splitOn (T.pack ".") t of
+  [maj, min_]
+    | T.all isDigit_ maj && T.all isDigit_ min_
+    , not (T.null maj) && not (T.null min_) -> True
+  _ -> False
+  where
+    isDigit_ c = c >= '0' && c <= '9'
+
 parseDocument :: P Document
 parseDocument = do
-  ls0 <- getLines
-  let (directives, ls1) = case dropWhile isSkippable ls0 of
-        (l : rest) | lineKind l == LDocStart ->
-          let body = lineBody l
-              tail_ = T.stripStart (T.drop 3 body)
-          in if T.null tail_
-               then (True, rest)
-               else (True,
-                     PLine (lineNo l) (lineIndent l) LContent tail_ tail_ : rest)
-        _ -> (False, ls0)
+  -- Validate any directives that precede the document body. We
+  -- accept blank / comment lines between directives, but reject
+  -- duplicate %YAML / malformed directive lines, and require an
+  -- explicit '---' marker after one or more directives.
+  hadDirective <- consumeDirectives
+  ls0' <- getLines
+  let nextSig = dropWhile isSkippableNonDirective ls0'
+  (directives, ls1) <- case nextSig of
+    (l : rest) | lineKind l == LDocStart ->
+      let body = lineBody l
+          tail_ = T.stripStart (T.drop 3 body)
+      in pure $ if T.null tail_
+                  then (True, rest)
+                  else (True,
+                        PLine (lineNo l) (lineIndent l)
+                              LContent tail_ tail_ : rest)
+    (l : _) | hadDirective ->
+      failP ("missing '---' after directive (line "
+             ++ show (lineNo l) ++ ")")
+    [] | hadDirective ->
+      failP "directive without document"
+    _ -> pure (False, ls0')
   setLines ls1
   resetAnchors
   body <- parseDocBody
@@ -437,12 +504,34 @@ consumeQuoted q = go0
     endsEvenBackslashes t = even (T.length (T.takeWhileEnd (== '\\') t))
 
     finish v rest =
-      let s = T.stripStart rest
-      in if T.null s
+      let trimmed = T.stripStart rest
+          stripped = case T.uncons trimmed of
+            -- A '#' immediately after the closing quote is a
+            -- comment too (no preceding space required, since the
+            -- quote itself is the boundary).
+            Just ('#', _) -> T.empty
+            _             -> T.stripEnd (stripInlineComment trimmed)
+      in if T.null stripped
            then pure v
-           else do
-             pushLine (PLine 0 0 LContent s s)
-             pure v
+           -- Trailing content on the same line after the closing
+           -- quote is OK if it's a flow-context comma, mapping
+           -- separator, or a flow-collection close bracket; anything
+           -- else is malformed (Q4CL / JY7Z / trailing-content-
+           -- after-quoted-value).
+           else case T.uncons stripped of
+                  Just (c, _)
+                    | c == ','  -> pushBack stripped
+                    | c == ':'  -> pushBack stripped
+                    | c == ']'  -> pushBack stripped
+                    | c == '}'  -> pushBack stripped
+                    | otherwise ->
+                        failP $ "trailing content after quoted scalar: "
+                                ++ show stripped
+                  Nothing -> pure v
+      where
+        pushBack s = do
+          pushLine (PLine 0 0 LContent s s)
+          pure v
 
 parseTagged :: P Value
 parseTagged = do
