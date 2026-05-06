@@ -1881,6 +1881,19 @@ isExplicitKey b =
             in c1 == w8Space || c1 == w8Tab
 {-# INLINE isExplicitKey #-}
 
+-- | True when @b@ is exactly @\":\"@ or starts with @\": \"@ /
+-- @\":\\t\"@. Used to recognise the value-continuation marker
+-- after an explicit @?@ key.
+isColonMarker :: Text -> Bool
+isColonMarker b =
+  case bLen b of
+    0 -> False
+    1 -> bAt b 0 == w8Colon
+    _ -> bAt b 0 == w8Colon
+         && let !c1 = bAt b 1
+            in c1 == w8Space || c1 == w8Tab
+{-# INLINE isColonMarker #-}
+
 parseBlockOrPlain :: PLine -> P Value
 parseBlockOrPlain l
   | isSeqItem body     = parseBlockSeq (lineIndent l)
@@ -2093,9 +2106,7 @@ parseBlockMap !ind firstKey firstRest = do
       mPL <- peekLine
       case mPL of
         Just l | lineIndent l == ind
-                 && (lineBody l == ":"
-                     || T.isPrefixOf ": "  (lineBody l)
-                     || T.isPrefixOf ":\t" (lineBody l)) ->
+                 && isColonMarker (lineBody l) ->
             readExplicitPart ":"
         _ -> pure YNull
 
@@ -2270,9 +2281,7 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
           -- A bare ':' or ': value' / ':<TAB>value' line at the
           -- mapping indent is an entry with an implicit (null)
           -- key. Per spec §8.18, omitting the '?' is permitted.
-          | lineBody l == ":"
-            || T.isPrefixOf ": " (lineBody l)
-            || T.isPrefixOf ":\t" (lineBody l) -> do
+          | isColonMarker (lineBody l) -> do
               v <- readExplicitPart ":"
               collect ((YNull, v) : acc)
           -- An ordinary 'key: value' implicit pair after a ?-form
@@ -2328,9 +2337,7 @@ parseExplicitMap !ind = collect [] >>= \kvs -> pure (YMap (V.fromList (reverse k
       mPL <- peekLine
       case mPL of
         Just l | lineIndent l == ind
-                 && (lineBody l == ":"
-                     || T.isPrefixOf ": "  (lineBody l)
-                     || T.isPrefixOf ":\t" (lineBody l)) ->
+                 && isColonMarker (lineBody l) ->
             readExplicitPart ":"
         _ -> pure YNull
 
