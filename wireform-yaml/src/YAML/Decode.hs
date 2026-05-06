@@ -1090,6 +1090,15 @@ consumeFlowAt !openInd = go
             , lineIndent l' < openInd ->
                 failP $ "wrong-indented flow continuation (line "
                         ++ show (lineNo l') ++ ")"
+          (l' : _)
+            | openInd > 0
+            , lineKind l' == LContent
+            , lineIndent l' == 0
+            , case T.uncons (lineBody l') of
+                Just ('\t', _) -> True
+                _              -> False ->
+                failP $ "tab as indentation in flow continuation (line "
+                        ++ show (lineNo l') ++ ")"
           (l' : rs)  -> do
             setLines rs
             -- Join with a sentinel character (\\1) instead of a
