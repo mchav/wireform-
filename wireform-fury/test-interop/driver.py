@@ -30,6 +30,7 @@ import numpy as np
 import pyfory
 
 fory = pyfory.Fory(xlang=True, ref=False)
+fory_ref = pyfory.Fory(xlang=True, ref=True)
 
 
 _NDARRAY_DTYPES = {
@@ -97,6 +98,35 @@ def from_json_value(j: Any) -> Any:
     raise ValueError(f"unsupported json value {j!r}")
 
 
+def from_json_value_shared(j: Any, shared_pool: dict) -> Any:
+    """Like from_json_value but additionally honours
+    {"__shared__": <id>, "value": <inner>} wrappers, which build
+    a single Python object whose references are reused across the
+    JSON tree. This lets the test driver produce inputs where
+    pyfory's reference tracking actually kicks in."""
+    if isinstance(j, dict) and set(j.keys()) >= {"__shared__"}:
+        sid = j["__shared__"]
+        if sid in shared_pool:
+            return shared_pool[sid]
+        inner = from_json_value_shared(j["value"], shared_pool)
+        shared_pool[sid] = inner
+        return inner
+    if isinstance(j, list):
+        return [from_json_value_shared(x, shared_pool) for x in j]
+    if isinstance(j, dict):
+        if set(j.keys()) == {"__bytes__"}:
+            return base64.b64decode(j["__bytes__"].encode("ascii"))
+        if set(j.keys()) == {"__float__"}:
+            return float(j["__float__"])
+        if set(j.keys()) == {"__ndarray__"}:
+            spec = j["__ndarray__"]
+            dtype = _NDARRAY_DTYPES[spec["dtype"]]
+            values = [from_json_value_shared(x, shared_pool) for x in spec["values"]]
+            return np.array(values, dtype=dtype)
+        return {k: from_json_value_shared(v, shared_pool) for k, v in j.items()}
+    return from_json_value(j)
+
+
 def read_exact(n: int) -> bytes:
     out = b""
     while len(out) < n:
@@ -134,6 +164,22 @@ def main() -> None:
                 jv = json.loads(payload.decode("utf-8"))
                 obj = from_json_value(jv)
                 bs = fory.serialize(obj)
+                write_response("K", bs)
+            elif mode == "R":
+                # Mode 'R': ref-tracking decode (Haskell -> Python).
+                obj = fory_ref.deserialize(payload)
+                jv = to_json_value(obj)
+                write_response("K", json.dumps(jv).encode("utf-8"))
+            elif mode == "S":
+                # Mode 'S': ref-tracking encode (Python -> Haskell).
+                # The JSON description supports a special wrapper
+                # {"__shared__": <inner>} which decodes to a Python
+                # object that's referenced multiple times in the
+                # outer container, so pyfory's ref tracking actually
+                # kicks in when serializing.
+                jv = json.loads(payload.decode("utf-8"))
+                obj = from_json_value_shared(jv, {})
+                bs = fory_ref.serialize(obj)
                 write_response("K", bs)
             else:
                 write_response("E", f"unknown mode {mode}".encode("utf-8"))

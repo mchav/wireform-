@@ -25,9 +25,11 @@ module Fury.Value
 
 import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
+import Data.Hashable (Hashable, hashWithSalt)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Text (Text)
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics (Generic)
 
@@ -96,6 +98,67 @@ data Value
   | Float64ArrayVal     !(Vector Double)
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
+
+-- | Structural hashing for 'Value', used by the encoder to
+-- detect repeated subtrees when reference tracking is enabled.
+-- Vector contents are folded constructor-by-constructor so two
+-- 'Value's that are 'Eq'-equal also hash equal.
+instance Hashable Value where
+  hashWithSalt s v = case v of
+    NoneVal           -> hashWithSalt s (0  :: Int)
+    BoolVal b         -> s `hashWithSalt` (1  :: Int) `hashWithSalt` b
+    Int8Val n         -> s `hashWithSalt` (2  :: Int) `hashWithSalt` n
+    Int16Val n        -> s `hashWithSalt` (3  :: Int) `hashWithSalt` n
+    Int32Val n        -> s `hashWithSalt` (4  :: Int) `hashWithSalt` n
+    VarInt32Val n     -> s `hashWithSalt` (5  :: Int) `hashWithSalt` n
+    Int64Val n        -> s `hashWithSalt` (6  :: Int) `hashWithSalt` n
+    VarInt64Val n     -> s `hashWithSalt` (7  :: Int) `hashWithSalt` n
+    Uint8Val n        -> s `hashWithSalt` (8  :: Int) `hashWithSalt` n
+    Uint16Val n       -> s `hashWithSalt` (9  :: Int) `hashWithSalt` n
+    Uint32Val n       -> s `hashWithSalt` (10 :: Int) `hashWithSalt` n
+    VarUint32Val n    -> s `hashWithSalt` (11 :: Int) `hashWithSalt` n
+    Uint64Val n       -> s `hashWithSalt` (12 :: Int) `hashWithSalt` n
+    VarUint64Val n    -> s `hashWithSalt` (13 :: Int) `hashWithSalt` n
+    Float32Val f      -> s `hashWithSalt` (14 :: Int) `hashWithSalt` f
+    Float64Val d      -> s `hashWithSalt` (15 :: Int) `hashWithSalt` d
+    StringVal t       -> s `hashWithSalt` (16 :: Int) `hashWithSalt` t
+    BinaryVal b       -> s `hashWithSalt` (17 :: Int) `hashWithSalt` b
+    ListVal xs        -> hashVec (s `hashWithSalt` (18 :: Int)) xs
+    SetVal xs         -> hashVec (s `hashWithSalt` (19 :: Int)) xs
+    MapVal kvs        -> hashMap (s `hashWithSalt` (20 :: Int)) kvs
+    StructVal ns nm fs ->
+      hashStruct (s `hashWithSalt` (21 :: Int)
+                    `hashWithSalt` ns `hashWithSalt` nm) fs
+    CompatibleStructVal ns nm fs ->
+      hashStruct (s `hashWithSalt` (22 :: Int)
+                    `hashWithSalt` ns `hashWithSalt` nm) fs
+    RefVal i x        -> s `hashWithSalt` (23 :: Int)
+                           `hashWithSalt` i `hashWithSalt` x
+    BoolArrayVal xs   -> hashPrimVec (s `hashWithSalt` (24 :: Int)) xs
+    Int8ArrayVal xs   -> hashPrimVec (s `hashWithSalt` (25 :: Int)) xs
+    Int16ArrayVal xs  -> hashPrimVec (s `hashWithSalt` (26 :: Int)) xs
+    Int32ArrayVal xs  -> hashPrimVec (s `hashWithSalt` (27 :: Int)) xs
+    Int64ArrayVal xs  -> hashPrimVec (s `hashWithSalt` (28 :: Int)) xs
+    Uint8ArrayVal xs  -> hashPrimVec (s `hashWithSalt` (29 :: Int)) xs
+    Uint16ArrayVal xs -> hashPrimVec (s `hashWithSalt` (30 :: Int)) xs
+    Uint32ArrayVal xs -> hashPrimVec (s `hashWithSalt` (31 :: Int)) xs
+    Uint64ArrayVal xs -> hashPrimVec (s `hashWithSalt` (32 :: Int)) xs
+    Float32ArrayVal xs -> hashPrimVec (s `hashWithSalt` (33 :: Int)) xs
+    Float64ArrayVal xs -> hashPrimVec (s `hashWithSalt` (34 :: Int)) xs
+    where
+      hashVec :: Int -> Vector Value -> Int
+      hashVec = V.foldl' hashWithSalt
+      hashMap :: Int -> Vector (Value, Value) -> Int
+      hashMap =
+        V.foldl' (\acc (k, x) -> acc `hashWithSalt` k `hashWithSalt` x)
+      hashStruct :: Int -> Vector (Text, Value) -> Int
+      hashStruct =
+        V.foldl' (\acc (k, x) -> acc `hashWithSalt` k `hashWithSalt` x)
+      -- We hash primitive vectors lazily by length only to keep
+      -- the cost bounded; structural sharing of large arrays is
+      -- rare in practice and 'Eq' still ensures correctness.
+      hashPrimVec :: Int -> Vector a -> Int
+      hashPrimVec ss xs = ss `hashWithSalt` V.length xs
 
 -- | The internal Fory type id that the encoder uses for this
 -- value\'s leading type tag. Used by both encoder and decoder when

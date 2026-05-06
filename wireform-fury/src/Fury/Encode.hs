@@ -37,12 +37,14 @@
 module Fury.Encode
   ( -- * Top-level encoders
     encode
+  , encodeWith
   , encodeBuilder
   , encodeValueSlot
 
     -- * Internals (re-exported for tests / advanced callers)
   , EncodeM
   , runEncodeM
+  , runEncodeMWith
   , emit
   , emitMetaString
   , emitMetaStringWith
@@ -67,6 +69,7 @@ import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Fury.Encoding as E
 import qualified Fury.MetaString as MS
 import qualified Fury.MetaString.Encoder as MSE
+import qualified Fury.Options as Opt
 import qualified Fury.TypeId as T
 import qualified Fury.Value as VV
 
@@ -77,17 +80,25 @@ import qualified Fury.Value as VV
 type TypeDefKey = (Text, Text, [Text])
 
 data EncodeState = EncodeState
-  { esStringPool    :: !(HashMap Text Int)
+  { esOptions       :: !Opt.EncodeOptions
+  , esStringPool    :: !(HashMap Text Int)
   , esNextStringId  :: {-# UNPACK #-} !Int
   , esRefMap        :: !(IntMap Int)
+    -- ^ User-supplied 'RefVal' sharing keys to wire ref ids.
   , esNextRefId     :: {-# UNPACK #-} !Int
+  , esStructuralRefMap :: !(HashMap VV.Value Int)
+    -- ^ Reference-tracking (when 'eoRefTracking' is on): which
+    -- previously-emitted /structural/ values map to which wire
+    -- ref ids. Lookup happens whenever 'encodeValueSlot' is
+    -- called on a ref-trackable object so that its second
+    -- occurrence emits @REF + varuint32 wire_id@.
   , esTypeDefPool   :: !(HashMap TypeDefKey Int)
   , esNextTypeDefId :: {-# UNPACK #-} !Int
   }
 
-emptyState :: EncodeState
-emptyState =
-  EncodeState HM.empty 0 IM.empty 0 HM.empty 0
+emptyState :: Opt.EncodeOptions -> EncodeState
+emptyState opts =
+  EncodeState opts HM.empty 0 IM.empty 0 HM.empty HM.empty 0
 
 newtype EncodeM a =
   EncodeM { runEM :: EncodeState -> (a, EncodeState, E.Builder) }
@@ -114,9 +125,14 @@ instance Monad EncodeM where
         (b, s2, b2) -> (b, s2, b1 <> b2)
   {-# INLINE (>>=) #-}
 
+-- | Run an 'EncodeM' under 'Opt.defaultEncodeOptions'.
 runEncodeM :: EncodeM () -> ByteString
-runEncodeM (EncodeM m) =
-  case m emptyState of
+runEncodeM = runEncodeMWith Opt.defaultEncodeOptions
+
+-- | Run an 'EncodeM' under explicit options.
+runEncodeMWith :: Opt.EncodeOptions -> EncodeM () -> ByteString
+runEncodeMWith !opts (EncodeM m) =
+  case m (emptyState opts) of
     (_, _, b) -> E.runBuilder b
 
 emit :: E.Builder -> EncodeM ()
@@ -145,9 +161,19 @@ slotRef          = 0xFE
 -- Public API
 -- ---------------------------------------------------------------------------
 
--- | Encode a 'Value' to a fory xlang byte sequence.
+-- | Encode a 'Value' to a fory xlang byte sequence under the
+-- default 'Opt.defaultEncodeOptions' (no reference tracking).
 encode :: VV.Value -> ByteString
-encode v = runEncodeM (encodeBuilder v)
+encode = encodeWith Opt.defaultEncodeOptions
+
+-- | Encode under explicit 'Opt.EncodeOptions'. With
+-- @'Opt.eoRefTracking' = True@ the encoder writes the
+-- pyfory @ref=True@ wire format: per-slot reference flags on
+-- every object value and the @TRACKING_REF@ collect-flag bit
+-- for same-type collections so repeated subtrees become
+-- @REF + varuint32@ back-references.
+encodeWith :: Opt.EncodeOptions -> VV.Value -> ByteString
+encodeWith opts v = runEncodeMWith opts (encodeBuilder v)
 
 encodeBuilder :: VV.Value -> EncodeM ()
 encodeBuilder VV.NoneVal = do
@@ -166,16 +192,105 @@ encodeBuilder v = do
 -- | Encode a single value slot. Always emits one slot flag byte
 -- followed by either nothing (for NULL / REF) or a type tag and a
 -- payload (for NOT_NULL_VALUE / REF_VALUE).
+--
+-- When @'Opt.eoRefTracking' = True@, ref-trackable values
+-- (lists, sets, maps, structs, primitive arrays, explicit
+-- 'VV.RefVal') get the @REF_VALUE@ \/ @REF@ protocol while
+-- primitives + strings + binary stay on the plain
+-- @NOT_NULL_VALUE@ path (matching pyfory's per-serializer
+-- @need_to_write_ref@ flag).
 encodeValueSlot :: VV.Value -> EncodeM ()
 encodeValueSlot v = case v of
-  VV.NoneVal       -> emit (E.byte slotNull)
-  VV.RefVal i inner -> encodeRef i inner
-  _                -> do
-    emit (E.byte slotNotNullValue)
-    encodeTypedPayload v
+  VV.NoneVal        -> emit (E.byte slotNull)
+  VV.RefVal i inner -> encodeRefByUserKey i inner
+  _ -> do
+    refOn <- Opt.eoRefTracking . esOptions <$> getState
+    if refOn && needsToWriteRef v
+      then encodeRefStructural v
+      else do
+        emit (E.byte slotNotNullValue)
+        encodeTypedPayload v
 
-encodeRef :: Int -> VV.Value -> EncodeM ()
-encodeRef userKey inner = do
+-- | Mirrors pyfory's per-serializer @need_to_write_ref@ flag:
+-- primitives + strings + binary are excluded from ref tracking
+-- even when the global @ref=True@ option is set.
+needsToWriteRef :: VV.Value -> Bool
+needsToWriteRef = \case
+  VV.NoneVal           -> False
+  VV.BoolVal{}         -> False
+  VV.Int8Val{}         -> False
+  VV.Int16Val{}        -> False
+  VV.Int32Val{}        -> False
+  VV.VarInt32Val{}     -> False
+  VV.Int64Val{}        -> False
+  VV.VarInt64Val{}     -> False
+  VV.Uint8Val{}        -> False
+  VV.Uint16Val{}       -> False
+  VV.Uint32Val{}       -> False
+  VV.VarUint32Val{}    -> False
+  VV.Uint64Val{}       -> False
+  VV.VarUint64Val{}    -> False
+  VV.Float32Val{}      -> False
+  VV.Float64Val{}      -> False
+  VV.StringVal{}       -> False
+  VV.BinaryVal{}       -> False
+  VV.ListVal{}         -> True
+  VV.SetVal{}          -> True
+  VV.MapVal{}          -> True
+  VV.StructVal{}       -> True
+  VV.CompatibleStructVal{} -> True
+  VV.RefVal{}          -> True
+  VV.BoolArrayVal{}    -> True
+  VV.Int8ArrayVal{}    -> True
+  VV.Int16ArrayVal{}   -> True
+  VV.Int32ArrayVal{}   -> True
+  VV.Int64ArrayVal{}   -> True
+  VV.Uint8ArrayVal{}   -> True
+  VV.Uint16ArrayVal{}  -> True
+  VV.Uint32ArrayVal{}  -> True
+  VV.Uint64ArrayVal{}  -> True
+  VV.Float32ArrayVal{} -> True
+  VV.Float64ArrayVal{} -> True
+
+-- | First time we see a particular structural value, emit
+-- @REF_VALUE_FLAG + payload@ and remember its wire id; second
+-- and later time, emit @REF_FLAG + varuint32 wire_id@.
+--
+-- Two flavors: the default emits a full payload (type tag +
+-- data), while 'encodeRefStructuralUntagged' emits just the data
+-- (used inside same-type collections where the element type was
+-- already declared in @collect_flag@ + element-type byte).
+encodeRefStructural :: VV.Value -> EncodeM ()
+encodeRefStructural = encodeRefStructuralWith encodeTypedPayload
+
+encodeRefStructuralUntagged :: VV.Value -> EncodeM ()
+encodeRefStructuralUntagged = encodeRefStructuralWith encodeUntaggedPayload
+
+encodeRefStructuralWith
+  :: (VV.Value -> EncodeM ()) -- ^ payload writer
+  -> VV.Value
+  -> EncodeM ()
+encodeRefStructuralWith writePayload v = do
+  s <- getState
+  case HM.lookup v (esStructuralRefMap s) of
+    Just wid -> do
+      emit (E.byte slotRef)
+      emit (E.varuint32 (fromIntegral wid :: Word32))
+    Nothing -> do
+      let !wid = esNextRefId s
+      modifyState $ \s' -> s'
+        { esStructuralRefMap =
+            HM.insert v wid (esStructuralRefMap s')
+        , esNextRefId = wid + 1
+        }
+      emit (E.byte slotRefValue)
+      writePayload v
+
+-- | The 'VV.RefVal' constructor lets the user opt into ref
+-- tracking with an explicit sharing key independent of the
+-- global 'eoRefTracking' setting.
+encodeRefByUserKey :: Int -> VV.Value -> EncodeM ()
+encodeRefByUserKey userKey inner = do
   s <- getState
   case IM.lookup userKey (esRefMap s) of
     Just wid -> do
@@ -298,7 +413,8 @@ emitBinaryPayload !bs = do
 -- Tracking_ref is not implemented inside collections (top-level
 -- only); we never set the bit.
 
-collFlagHasNull, collFlagIsSameType :: Word8
+collFlagTrackingRef, collFlagHasNull, collFlagIsSameType :: Word8
+collFlagTrackingRef     = 0b0001
 collFlagHasNull         = 0b0010
 collFlagIsSameType      = 0b1000
 
@@ -309,21 +425,38 @@ emitCollection vs = do
   if len == 0
     then pure ()
     else do
+      refOn <- Opt.eoRefTracking . esOptions <$> getState
       let (sameType, hasNull, mElemTag) = analyseCollection vs
+          -- Only set TRACKING_REF when the collection is
+          -- homogeneous, the element type is ref-trackable, and
+          -- the global eoRefTracking option is on. pyfory's
+          -- _write_same_type_ref / _write_same_type_no_ref
+          -- branches dispatch the same way.
+          elemTrackingRef = case mElemTag of
+            Just t -> refOn && sameTypeNeedsRef t
+            Nothing -> False
           !flag =
-                  (if sameType then collFlagIsSameType else 0)
-              .|. (if hasNull  then collFlagHasNull    else 0)
+                  (if sameType        then collFlagIsSameType else 0)
+              .|. (if hasNull         then collFlagHasNull    else 0)
+              .|. (if elemTrackingRef then collFlagTrackingRef else 0)
       emit (E.byte flag)
       case (sameType, mElemTag) of
         (True, Just tag) -> do
           emitTag tag
-          if hasNull
-            then V.forM_ vs $ \x -> case x of
-                   VV.NoneVal -> emit (E.byte slotNull)
-                   _ -> do
-                     emit (E.byte slotNotNullValue)
-                     encodeUntaggedPayload x
-            else V.forM_ vs $ \x -> encodeUntaggedPayload x
+          case (elemTrackingRef, hasNull) of
+            (True, _) ->
+              V.forM_ vs $ \x ->
+                if isNoneV x
+                  then emit (E.byte slotNull)
+                  else encodeRefStructuralUntagged x
+            (False, True) ->
+              V.forM_ vs $ \x -> case x of
+                VV.NoneVal -> emit (E.byte slotNull)
+                _ -> do
+                  emit (E.byte slotNotNullValue)
+                  encodeUntaggedPayload x
+            (False, False) ->
+              V.forM_ vs $ \x -> encodeUntaggedPayload x
         (True, Nothing) ->
           -- All elements are None.
           V.forM_ vs $ \_ -> emit (E.byte slotNull)
@@ -332,10 +465,43 @@ emitCollection vs = do
             then V.forM_ vs $ \x -> case x of
                    VV.NoneVal -> emit (E.byte slotNull)
                    VV.RefVal{} -> encodeValueSlot x
-                   _ -> do
-                     emit (E.byte slotNotNullValue)
-                     encodeTypedPayload x
-            else V.forM_ vs $ \x -> encodeTypedPayload x
+                   _ ->
+                     if refOn && needsToWriteRef x
+                       then encodeRefStructural x
+                       else do
+                         emit (E.byte slotNotNullValue)
+                         encodeTypedPayload x
+            else V.forM_ vs $ \x ->
+                   if refOn && needsToWriteRef x
+                     then encodeRefStructural x
+                     else encodeTypedPayload x
+
+isNoneV :: VV.Value -> Bool
+isNoneV VV.NoneVal = True
+isNoneV _          = False
+
+-- | A homogeneous-collection element type is ref-trackable when
+-- it is a list / set / map / struct / array — same set as
+-- 'needsToWriteRef' checks against the value-level constructor.
+sameTypeNeedsRef :: T.TypeId -> Bool
+sameTypeNeedsRef t = case t of
+  T.LIST                    -> True
+  T.SET                     -> True
+  T.MAP                     -> True
+  T.NAMED_STRUCT            -> True
+  T.NAMED_COMPATIBLE_STRUCT -> True
+  T.BOOL_ARRAY              -> True
+  T.INT8_ARRAY              -> True
+  T.INT16_ARRAY             -> True
+  T.INT32_ARRAY             -> True
+  T.INT64_ARRAY             -> True
+  T.UINT8_ARRAY             -> True
+  T.UINT16_ARRAY            -> True
+  T.UINT32_ARRAY            -> True
+  T.UINT64_ARRAY            -> True
+  T.FLOAT32_ARRAY           -> True
+  T.FLOAT64_ARRAY           -> True
+  _                         -> False
 
 -- | Inspect a collection: do all non-null elements share a type
 -- tag, and is there at least one null? 'RefVal' elements force

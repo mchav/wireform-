@@ -7,9 +7,11 @@
 -- "Fury.Encode" for the exact subset.
 module Fury.Decode
   ( decode
+  , decodeWith
   , decodeValueSlot
   , DecodeM
   , runDecodeM
+  , runDecodeMWith
   ) where
 
 import Data.Bits (shiftR, (.&.))
@@ -28,6 +30,7 @@ import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Fury.Encoding as E
 import qualified Fury.MetaString as MS
 import qualified Fury.MetaString.Encoder as MSE
+import qualified Fury.Options as Opt
 import qualified Fury.TypeId as T
 import qualified Fury.Value as VV
 
@@ -36,11 +39,12 @@ import qualified Fury.Value as VV
 -- ---------------------------------------------------------------------------
 
 data DecodeState = DecodeState
-  { dsStringPool :: !(IntMap Text)
+  { dsOptions      :: !Opt.DecodeOptions
+  , dsStringPool   :: !(IntMap Text)
   , dsNextStringId :: {-# UNPACK #-} !Int
-  , dsRefValues  :: !(IntMap VV.Value)
-  , dsNextRefId  :: {-# UNPACK #-} !Int
-  , dsTypeDefs   :: !(IntMap TypeDef)
+  , dsRefValues    :: !(IntMap VV.Value)
+  , dsNextRefId    :: {-# UNPACK #-} !Int
+  , dsTypeDefs     :: !(IntMap TypeDef)
   , dsNextTypeDefId :: {-# UNPACK #-} !Int
   }
 
@@ -50,9 +54,9 @@ data TypeDef = TypeDef
   , tdFieldNames :: !(Vector Text)
   } deriving (Show, Eq)
 
-emptyDecodeState :: DecodeState
-emptyDecodeState =
-  DecodeState IM.empty 0 IM.empty 0 IM.empty 0
+emptyDecodeState :: Opt.DecodeOptions -> DecodeState
+emptyDecodeState opts =
+  DecodeState opts IM.empty 0 IM.empty 0 IM.empty 0
 
 newtype DecodeM a = DecodeM
   { runDM
@@ -87,8 +91,11 @@ instance Monad DecodeM where
   {-# INLINE (>>=) #-}
 
 runDecodeM :: DecodeM a -> ByteString -> Either String a
-runDecodeM (DecodeM m) bs =
-  case m bs 0 emptyDecodeState of
+runDecodeM = runDecodeMWith Opt.defaultDecodeOptions
+
+runDecodeMWith :: Opt.DecodeOptions -> DecodeM a -> ByteString -> Either String a
+runDecodeMWith opts (DecodeM m) bs =
+  case m bs 0 (emptyDecodeState opts) of
     Left e -> Left e
     Right (a, off, _)
       | off == BS.length bs -> Right a
@@ -170,9 +177,17 @@ slotRef          = 0xFE
 -- Public API
 -- ---------------------------------------------------------------------------
 
--- | Parse a fory-encoded byte string back to a 'Value'.
+-- | Parse a fory-encoded byte string back to a 'Value' under the
+-- default 'Opt.defaultDecodeOptions' (no reference tracking).
 decode :: ByteString -> Either String VV.Value
-decode bs = runDecodeM go bs
+decode = decodeWith Opt.defaultDecodeOptions
+
+-- | Decode under explicit options. Use
+-- @'Opt.DecodeOptions' { 'Opt.doRefTracking' = True }@ to read
+-- bytes produced by an encoder with 'Opt.eoRefTracking' on (or
+-- by @pyfory.Fory(xlang=True, ref=True)@).
+decodeWith :: Opt.DecodeOptions -> ByteString -> Either String VV.Value
+decodeWith opts bs = runDecodeMWith opts go bs
   where
     go = do
       hdr <- readByteD
@@ -296,7 +311,8 @@ decodeUtf16LE bs
 -- Collections
 -- ---------------------------------------------------------------------------
 
-collFlagHasNull, collFlagDeclElementType, collFlagIsSameType :: Word8
+collFlagTrackingRef, collFlagHasNull, collFlagDeclElementType, collFlagIsSameType :: Word8
+collFlagTrackingRef     = 0b0001
 collFlagHasNull         = 0b0010
 collFlagDeclElementType = 0b0100
 collFlagIsSameType      = 0b1000
@@ -308,33 +324,35 @@ decodeCollection = do
     then pure V.empty
     else do
       flag <- readByteD
-      let !sameType = flag .&. collFlagIsSameType /= 0
-          !hasNull  = flag .&. collFlagHasNull    /= 0
-          !decl     = flag .&. collFlagDeclElementType /= 0
+      let !sameType    = flag .&. collFlagIsSameType /= 0
+          !hasNull     = flag .&. collFlagHasNull    /= 0
+          !trackingRef = flag .&. collFlagTrackingRef /= 0
+          !decl        = flag .&. collFlagDeclElementType /= 0
       if sameType
         then do
           elemTag <-
             if decl
-              then pure Nothing  -- caller-side declared; we don't have one
+              then pure Nothing
               else do
                 tw <- readVaruint32D
                 pure (Just (T.TypeId (fromIntegral tw)))
-          let readOne =
-                case elemTag of
-                  Just tg -> decodePayloadFor tg
-                  Nothing -> failD
-                    "Fury.Decode: same-type collection without element type"
-          if hasNull
-            then V.replicateM count $ do
-              f <- readByteD
-              if f == slotNull
-                then pure VV.NoneVal
-                else if f == slotNotNullValue
-                  then readOne
-                  else failD ("Fury.Decode: unexpected element flag "
-                              ++ show f)
-            else V.replicateM count readOne
-        else do
+          case elemTag of
+            Nothing ->
+              failD "Fury.Decode: same-type collection without element type"
+            Just tg ->
+              if trackingRef
+                then V.replicateM count (readSameTypeRefSlot tg)
+                else if hasNull
+                  then V.replicateM count $ do
+                    f <- readByteD
+                    if f == slotNull
+                      then pure VV.NoneVal
+                      else if f == slotNotNullValue
+                        then decodePayloadFor tg
+                        else failD ("Fury.Decode: unexpected element flag "
+                                    ++ show f)
+                  else V.replicateM count (decodePayloadFor tg)
+        else
           if hasNull
             then V.replicateM count $ do
               f <- readByteD
@@ -346,6 +364,27 @@ decodeCollection = do
                   | otherwise -> failD
                       ("Fury.Decode: unexpected element flag " ++ show f)
             else V.replicateM count decodeTypedPayload
+
+-- | Element of a same-type ref-tracked homogeneous collection:
+-- the wire layout is @REF@ \/ @REF_VALUE@ \/ @NULL@ slot flag,
+-- followed by the payload (no inner type tag — we already know
+-- the element type).
+readSameTypeRefSlot :: T.TypeId -> DecodeM VV.Value
+readSameTypeRefSlot tg = do
+  f <- readByteD
+  case f of
+    _ | f == slotNull -> pure VV.NoneVal
+      | f == slotRef -> decodeRefBack
+      | f == slotRefValue -> do
+          st <- getState
+          let !wid = dsNextRefId st
+          modifyState $ \s -> s { dsNextRefId = wid + 1 }
+          inner <- decodePayloadFor tg
+          modifyState $ \s -> s
+            { dsRefValues = IM.insert wid inner (dsRefValues s) }
+          pure (VV.RefVal wid inner)
+      | otherwise -> failD
+          ("Fury.Decode: unexpected ref-tracked element flag " ++ show f)
 
 -- ---------------------------------------------------------------------------
 -- Maps

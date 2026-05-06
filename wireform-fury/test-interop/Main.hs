@@ -30,6 +30,7 @@ import System.Process
 
 import qualified Fury.Encode as E
 import qualified Fury.Decode as D
+import qualified Fury.Options as O
 import qualified Fury.Value as VV
 import System.Directory (doesFileExist)
 
@@ -138,12 +139,47 @@ main = do
              VV.Int32ArrayVal V.empty)
         ]
 
-  results <- mapM (runCase hin hout) cases
-  let failures = [ (label, why) | (label, Just why) <- zip (map fstOf3 cases) results ]
-      fstOf3 (a,_,_) = a
-      okCount   = length results - length failures
+  let refCases :: [(String, A.Value, A.Value, VV.Value)]
+        -- (label, expectedDecodeJson, encodeInputJson, value)
+        --   * expectedDecodeJson is what pyfory.deserialize is
+        --     supposed to produce after decoding our Haskell-emitted
+        --     bytes (so it's always the plain, materialised JSON).
+        --   * encodeInputJson is what we feed the Python driver to
+        --     materialise into a Python object before encoding;
+        --     here we use {"__shared__": id, "value": ...} markers
+        --     to force pyfory's identity-based ref tracking to
+        --     produce REF back-references on the wire.
+      refCases =
+        [ ("three independent inner lists",
+             plainJ, plainJ,
+             VV.ListVal (V.fromList [innerV, innerV, innerV]))
+        , ("single shared inner list (via __shared__)",
+             plainJ,
+             A.Array (V.fromList
+               [ shared 1 innerJ
+               , shared 1 innerJ
+               , shared 1 innerJ ]),
+             VV.ListVal (V.fromList [innerV, innerV, innerV]))
+        ]
+      innerJ = A.Array (V.fromList (map A.String ["a","b","c"]))
+      plainJ = A.Array (V.fromList [innerJ, innerJ, innerJ])
+      innerV = VV.ListVal (V.fromList (map VV.StringVal ["a","b","c"]))
+      shared :: Int -> A.Value -> A.Value
+      shared sid v =
+        A.object
+          [ ("__shared__", A.Number (fromIntegral sid))
+          , ("value", v)
+          ]
+
+  results    <- mapM (runCase hin hout) cases
+  refResults <- mapM (runRefCase hin hout) refCases
+  let failures =
+           [ (lbl, why) | ((lbl, _, _), Just why) <- zip cases    results ]
+        ++ [ (lbl, why) | ((lbl, _, _, _), Just why) <- zip refCases refResults ]
+      total = length results + length refResults
+      okCount = total - length failures
   putStrLn $ "\n=== interop summary: " ++ show okCount
-             ++ " / " ++ show (length results) ++ " passed ==="
+             ++ " / " ++ show total ++ " passed ==="
   hClose hin
   _ <- waitForProcess ph
   mapM_ printFailure failures
@@ -223,6 +259,68 @@ runCase hin hout (label, expectedJson, value) = do
                     putStrLn $ "    expected:     " ++ show value
                     putStrLn $ "    got:          " ++ show got
                     pure (Just "haskell decode mismatch")
+
+-- | Like 'runCase' but uses pyfory's @ref=True@ encoder /
+-- decoder on the Python side and the Haskell encoder's
+-- @eoRefTracking = True@ option. Verifies bidirectional byte
+-- compatibility under reference tracking.
+runRefCase
+  :: Handle -> Handle
+  -> (String, A.Value, A.Value, VV.Value)
+  -> IO (Maybe String)
+runRefCase hin hout (label, expectedDecodeJson, encodeInputJson, value) = do
+  let opts   = O.defaultEncodeOptions { O.eoRefTracking = True }
+      dopts  = O.defaultDecodeOptions { O.doRefTracking = True }
+      hsBytes = E.encodeWith opts value
+  decodedJson <- pyRoundTrip hin hout 'R' hsBytes
+  case decodedJson of
+    Left err -> pure (Just ("python ref-decode error: " ++ err))
+    Right gotJson | not (jsonEq gotJson expectedDecodeJson) -> do
+        putStrLn $ "  FAIL " ++ label ++ ": python ref-decode mismatch"
+        putStrLn $ "    haskell bytes: " ++ hexBs hsBytes
+        putStrLn $ "    expected json: " ++ show expectedDecodeJson
+        putStrLn $ "    got      json: " ++ show gotJson
+        pure (Just "python ref-decode mismatch")
+    Right _ -> do
+      let payload = BSL.toStrict (A.encode encodeInputJson)
+      pyBytes <- sendToPy hin hout 'S' payload
+      case pyBytes of
+        Left err -> pure (Just ("python ref-encode error: " ++ err))
+        Right bs -> case D.decodeWith dopts bs of
+          Left de -> do
+            putStrLn $ "  FAIL " ++ label ++ ": haskell ref-decode of python bytes failed"
+            putStrLn $ "    python bytes: " ++ hexBs bs
+            putStrLn $ "    error: " ++ de
+            pure (Just ("haskell ref-decode error: " ++ de))
+          Right got -> do
+            putStrLn $ "  ok   ref " ++ label
+                      ++ "  (hs " ++ show (BS.length hsBytes)
+                      ++ "B, py " ++ show (BS.length bs) ++ "B)"
+            -- Compare structurally; ref ids may be remapped.
+            let ok = stripRefIds got `eqValue` stripRefIds value
+            if ok
+              then pure Nothing
+              else do
+                putStrLn $ "    expected: " ++ show value
+                putStrLn $ "    got     : " ++ show got
+                pure (Just "haskell ref-decode mismatch")
+
+-- | Erase all 'VV.RefVal' wire-id integers (replace with -1) so
+-- structural comparison ignores the encoder's auto-assigned ids.
+stripRefIds :: VV.Value -> VV.Value
+stripRefIds (VV.RefVal _ inner) = stripRefIds inner
+stripRefIds (VV.ListVal xs)     = VV.ListVal (V.map stripRefIds xs)
+stripRefIds (VV.SetVal xs)      = VV.SetVal  (V.map stripRefIds xs)
+stripRefIds (VV.MapVal kvs)     =
+  VV.MapVal (V.map (\(k, v) -> (stripRefIds k, stripRefIds v)) kvs)
+stripRefIds (VV.StructVal a b fs) =
+  VV.StructVal a b (V.map (\(k, v) -> (k, stripRefIds v)) fs)
+stripRefIds (VV.CompatibleStructVal a b fs) =
+  VV.CompatibleStructVal a b (V.map (\(k, v) -> (k, stripRefIds v)) fs)
+stripRefIds v = v
+
+eqValue :: VV.Value -> VV.Value -> Bool
+eqValue = (==)
 
 -- | Loose equality used to compare a Haskell-decoded value with
 -- the test's expected value:
