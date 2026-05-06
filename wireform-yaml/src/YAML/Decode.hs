@@ -44,6 +44,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
 import Data.Word (Word8)
+import qualified Data.Bits as Bits
 
 import YAML.Value
 
@@ -340,6 +341,14 @@ data Result a
 
 newtype P a = P { unP :: PS -> Result a }
 
+-- | Mode flags packed into a single 'Int' so that 'modifyS'
+-- doesn't have to copy individual 'Int' / 'Bool' fields when
+-- entering / leaving a scope.
+--
+-- * bits 0..29: 'parentInd' (biased by 'parentBias' so the
+--   @-1@ sentinel fits in the unsigned slot)
+-- * bit 30:    'inMapValue'
+-- * bit 31:    'flowSpannedNewline'
 data PS = PS
   { psLines     :: ![PLine]
   , psAnchors   :: !(Map Text Value)
@@ -347,20 +356,54 @@ data PS = PS
   , psShortcuts :: !(Map Text Text)
     -- ^ %TAG shorthand prefixes ('!handle!' → expansion).
     -- Reset between documents.
-  , psParentInd :: !Int
-    -- ^ The indent of the innermost surrounding block container
-    -- (seq dash / mapping key column). Used by parsePlainScalar
-    -- to admit 'shallow' continuation lines whose source indent
-    -- is below the value column but above the parent.
-  , psInMapValue :: !Bool
-    -- ^ True when we're inside a mapping-value dispatch (used
-    -- by parseAnchored to decide whether a same-column next
-    -- line is the anchor's binding target or a sibling).
-  , psFlowSpannedNewline :: !Bool
-    -- ^ Set by consumeFlow when it folded a continuation line
-    -- into the buffer; used by the flow-as-block-key path to
-    -- refuse a multi-line flow as an implicit map key.
+  , psFlags     :: {-# UNPACK #-} !Int
   }
+
+parentBias :: Int
+parentBias = 1
+
+parentMask :: Int
+parentMask = 0x3FFFFFFF
+
+inMapValueBit, flowSpannedBit :: Int
+inMapValueBit  = 30
+flowSpannedBit = 31
+
+packFlags :: Int -> Bool -> Bool -> Int
+packFlags pInd inMV fSpan =
+  let !p   = (pInd + parentBias) Bits..&. parentMask
+      !mv  = if inMV  then Bits.bit inMapValueBit  else 0
+      !fs  = if fSpan then Bits.bit flowSpannedBit else 0
+  in p Bits..|. mv Bits..|. fs
+{-# INLINE packFlags #-}
+
+psParentInd :: PS -> Int
+psParentInd s = (psFlags s Bits..&. parentMask) - parentBias
+{-# INLINE psParentInd #-}
+
+psInMapValue :: PS -> Bool
+psInMapValue s = Bits.testBit (psFlags s) inMapValueBit
+{-# INLINE psInMapValue #-}
+
+psFlowSpannedNewline :: PS -> Bool
+psFlowSpannedNewline s = Bits.testBit (psFlags s) flowSpannedBit
+{-# INLINE psFlowSpannedNewline #-}
+
+setParentInd :: Int -> PS -> PS
+setParentInd !i s = s { psFlags =
+    (psFlags s Bits..&. Bits.complement parentMask)
+    Bits..|. ((i + parentBias) Bits..&. parentMask) }
+{-# INLINE setParentInd #-}
+
+setInMapValue :: Bool -> PS -> PS
+setInMapValue True  s = s { psFlags = Bits.setBit   (psFlags s) inMapValueBit }
+setInMapValue False s = s { psFlags = Bits.clearBit (psFlags s) inMapValueBit }
+{-# INLINE setInMapValue #-}
+
+setFlowSpanned :: Bool -> PS -> PS
+setFlowSpanned True  s = s { psFlags = Bits.setBit   (psFlags s) flowSpannedBit }
+setFlowSpanned False s = s { psFlags = Bits.clearBit (psFlags s) flowSpannedBit }
+{-# INLINE setFlowSpanned #-}
 
 runP :: P a -> PS -> Either String (a, PS)
 runP (P f) s = case f s of
@@ -467,9 +510,9 @@ recordShortcut handle prefix =
 withParentInd :: Int -> P a -> P a
 withParentInd !i action = do
   saved <- psParentInd <$> getS
-  modifyS (\s -> s { psParentInd = i })
+  modifyS (setParentInd i)
   x <- action
-  modifyS (\s -> s { psParentInd = saved })
+  modifyS (setParentInd saved)
   pure x
 
 getParentInd :: P Int
@@ -478,9 +521,9 @@ getParentInd = psParentInd <$> getS
 withInMapValue :: Bool -> P a -> P a
 withInMapValue !b action = do
   saved <- psInMapValue <$> getS
-  modifyS (\s -> s { psInMapValue = b })
+  modifyS (setInMapValue b)
   x <- action
-  modifyS (\s -> s { psInMapValue = saved })
+  modifyS (setInMapValue saved)
   pure x
 
 getInMapValue :: P Bool
@@ -497,7 +540,8 @@ lookupShortcut handle = do
 
 parseStream :: [PLine] -> Either String [Document]
 parseStream lns =
-  case runP (loop True True) (PS lns Map.empty Map.empty 0 False False) of
+  case runP (loop True True)
+            (PS lns Map.empty Map.empty (packFlags 0 False False)) of
     Left err      -> Left err
     Right (ds, _) -> Right ds
   where
@@ -1154,7 +1198,7 @@ breakOnSpace = T.break (\c -> c == ' ' || c == '\t')
 consumeFlowFromHead :: P Value
 consumeFlowFromHead = do
   Just l <- popLine
-  modifyS (\s -> s { psFlowSpannedNewline = False })
+  modifyS (setFlowSpanned False)
   inMV <- getInMapValue
   parent <- getParentInd
   -- Inside any block container (mapping value or non-zero
@@ -1359,7 +1403,7 @@ consumeFlowAt !openInd = go
                         ++ show (lineNo l') ++ ")"
           (l' : rs)  -> do
             setLines rs
-            modifyS (\s -> s { psFlowSpannedNewline = True })
+            modifyS (setFlowSpanned True)
             -- Join with a sentinel character (\\1) instead of a
             -- plain space so downstream parsers can detect that
             -- a structural element spanned a newline (used for
