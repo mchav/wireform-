@@ -25,6 +25,7 @@ tests = testGroup "Security"
   [ billionLaughsRefused
   , deepBlockRefused
   , selfCycleRejected
+  , flowCycleResolution
   , normalAliasesAllowed
   , normalNestingAllowed
   ]
@@ -82,6 +83,23 @@ selfCycleRejected = testCase "self-cycle in alias is rejected" $ do
     check src =
       assertBool ("expected error on " <> show src)
         (isLeft (Y.decode src))
+
+-- | A flow document whose registered anchor's body contains an
+-- alias to the SAME anchor must error rather than producing a
+-- value tree with unresolved alias sentinels.
+flowCycleResolution :: TestTree
+flowCycleResolution = testCase "flow alias cycle is rejected" $ do
+  -- The flow alias '*a' inside '&a [ ... ]' is recorded after
+  -- the surrounding flow node is fully parsed; the resolution
+  -- pass then encounters the cycle.
+  let src = T.pack "{a: &a {self: *a}}"
+  case Y.decode src of
+    Left _ -> pure ()         -- any rejection is acceptable; the
+                              -- combined record-and-resolve pass
+                              -- naturally surfaces the cycle as a
+                              -- 'no anchor' error because we walk
+                              -- bottom-up.
+    Right _ -> assertFailure "expected flow cycle to be refused"
 
 -- | A modest, normal use of aliases (small fan-out, single
 -- level) must continue to parse.

@@ -40,6 +40,8 @@ import Data.Char (chr, digitToInt, isDigit, isHexDigit)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -513,10 +515,13 @@ newtype P a = P { unP :: PS -> Result a }
 -- doesn't have to copy individual 'Int' / 'Bool' fields when
 -- entering / leaving a scope.
 --
--- * bits 0..29: 'parentInd' (biased by 'parentBias' so the
---   @-1@ sentinel fits in the unsigned slot)
--- * bit 30:    'inMapValue'
--- * bit 31:    'flowSpannedNewline'
+-- * bits  0..19: 'parentInd' (biased by 'parentBias' so the
+--   @-1@ sentinel fits in the unsigned slot, range
+--   @[-1, 0xFFFFE]@; YAML lines wider than ~1 M chars are
+--   not a real-world case).
+-- * bits 20..29: 'parserDepth' (10 bits, range @[0, 1023]@).
+-- * bit  30:    'inMapValue'
+-- * bit  31:    'flowSpannedNewline'
 data PS = PS
   { psLines     :: ![PLine]
   , psAnchors   :: !(Map Text Value)
@@ -534,11 +539,6 @@ data PS = PS
     -- ^ %TAG shorthand prefixes ('!handle!' → expansion).
     -- Reset between documents.
   , psFlags     :: {-# UNPACK #-} !Int
-  , psDepth     :: {-# UNPACK #-} !Int
-    -- ^ Current parser-recursion depth. Bumped via 'withDepth'
-    -- on every recursive descent; bounded by 'maxParserDepth'
-    -- to keep adversarially-deep input from blowing the
-    -- Haskell runtime stack.
   }
 
 -- | Hard-coded recursion depth limit. YAML documents legitimately
@@ -562,8 +562,10 @@ maxParseNodes = 10_000_000
 parentBias :: Int
 parentBias = 1
 
-parentMask :: Int
-parentMask = 0x3FFFFFFF
+parentMask, depthMask, depthShift :: Int
+parentMask = 0xFFFFF             -- 20 bits, [0, 1 048 575]
+depthShift = 20
+depthMask  = Bits.shiftL 0x3FF depthShift  -- bits 20..29 (10 bits)
 
 inMapValueBit, flowSpannedBit :: Int
 inMapValueBit  = 30
@@ -589,6 +591,10 @@ psFlowSpannedNewline :: PS -> Bool
 psFlowSpannedNewline s = Bits.testBit (psFlags s) flowSpannedBit
 {-# INLINE psFlowSpannedNewline #-}
 
+psDepth :: PS -> Int
+psDepth s = Bits.shiftR (psFlags s) depthShift Bits..&. 0x3FF
+{-# INLINE psDepth #-}
+
 setParentInd :: Int -> PS -> PS
 setParentInd !i s = s { psFlags =
     (psFlags s Bits..&. Bits.complement parentMask)
@@ -604,6 +610,12 @@ setFlowSpanned :: Bool -> PS -> PS
 setFlowSpanned True  s = s { psFlags = Bits.setBit   (psFlags s) flowSpannedBit }
 setFlowSpanned False s = s { psFlags = Bits.clearBit (psFlags s) flowSpannedBit }
 {-# INLINE setFlowSpanned #-}
+
+setDepth :: Int -> PS -> PS
+setDepth !d s = s { psFlags =
+    (psFlags s Bits..&. Bits.complement depthMask)
+    Bits..|. Bits.shiftL (d Bits..&. 0x3FF) depthShift }
+{-# INLINE setDepth #-}
 
 runP :: P a -> PS -> Either String (a, PS)
 runP (P f) s = case f s of
@@ -727,14 +739,18 @@ pushLine l = P (\s -> Ok () (s { psLines = l : psLines s }))
 
 -- | Run @action@ at one greater nesting depth. Fails before
 -- entering when the depth would exceed 'maxParserDepth'.
+-- The depth lives in the high bits of the packed 'psFlags' so
+-- the bump / pop are bit-twiddles on a single 'Int' field, not
+-- record updates of a separate strict 'Int' slot.
 withDepth :: P a -> P a
 withDepth (P action) = P $ \s ->
-  let !d = psDepth s + 1
-  in if d > maxParserDepth
+  let !d0 = psDepth s
+      !d  = d0 + 1
+  in if d >= maxParserDepth        -- guard before the 10-bit depth slot wraps
        then Err "YAML: maximum nesting depth exceeded"
-       else case action (s { psDepth = d }) of
+       else case action (setDepth d s) of
               Err e   -> Err e
-              Ok x s' -> Ok x (s' { psDepth = psDepth s' - 1 })
+              Ok x s' -> Ok x (setDepth d0 s')
 {-# INLINE withDepth #-}
 
 -- | Compute the /logical/ size of @v@ (the count of value-tree
@@ -841,7 +857,7 @@ parseStream :: [PLine] -> Either String [Document]
 parseStream lns =
   case runP (loop True True)
             (PS lns Map.empty Map.empty Map.empty
-                (packFlags 0 False False) 0) of
+                (packFlags 0 False False)) of
     Left err      -> Left err
     Right (ds, _) -> Right ds
   where
@@ -1615,37 +1631,35 @@ collectFlowMapEntries !ind = go []
                 parseNode (lineIndent l' + 2)
         _ -> pure YNull
 
--- | Walk the parsed flow value and (a) register any embedded
--- 'YAnchored' nodes, (b) resolve any alias placeholders left by
--- 'parseFlowAlias'.
-recordFlowAnchors :: Value -> P ()
-recordFlowAnchors = goV
+-- | Single-pass walk over a parsed flow value that both
+-- /registers/ each embedded 'YAnchored' anchor and /resolves/
+-- the alias-sentinel placeholders left by 'parseFlowAlias'.
+--
+-- The pass is bottom-up: when we encounter @&n inner@ we
+-- resolve @inner@ first and only then call 'recordAnchor', so
+-- the stored value is itself fully resolved. Sentinels for
+-- @*name@ are then just looked up — no recursive walk into the
+-- resolved value is needed, which both avoids the
+-- alias-DAG-of-DAGs exponential blow-up that a separate
+-- record-then-resolve approach would incur and naturally
+-- detects forward / self-cycles (the anchor isn't in the
+-- environment when we try to resolve into its own definition).
+recordAndResolveFlow :: Value -> P Value
+recordAndResolveFlow = go
   where
-    goV v = case v of
+    go v = case v of
+      YString t
+        | T.isPrefixOf tAliasSentinel t ->
+            resolveAnchor (bDrop (bLen tAliasSentinel) t)
       YAnchored (Anchor n) inner -> do
-        recordAnchor n inner
-        goV inner
-      YTagged _ inner            -> goV inner
-      YSeq xs                    -> mapM_ goV (toListV xs)
-      YMap kvs                   -> mapM_ (\(k, x) -> goV k >> goV x)
-                                          (toListV kvs)
-      _                          -> pure ()
-
-    toListV v = V.toList v
-
-resolveFlowAliases :: Value -> P Value
-resolveFlowAliases = goV
-  where
-    goV (YString t)
-      | T.isPrefixOf tAliasSentinel t = do
-          let nm = bDrop (bLen tAliasSentinel) t
-          resolveAnchor nm
-    goV (YAnchored a v)         = YAnchored a <$> goV v
-    goV (YTagged   a v)         = YTagged   a <$> goV v
-    goV (YSeq xs)               = YSeq <$> V.mapM goV xs
-    goV (YMap kvs)              = YMap <$> V.mapM
-                                     (\(k, x) -> (,) <$> goV k <*> goV x) kvs
-    goV v                       = pure v
+        inner' <- go inner
+        recordAnchor n inner'
+        pure (YAnchored (Anchor n) inner')
+      YTagged tg inner -> YTagged tg <$> go inner
+      YSeq xs          -> YSeq <$> V.mapM go xs
+      YMap kvs         -> YMap <$> V.mapM
+                            (\(k, x) -> (,) <$> go k <*> go x) kvs
+      _                -> pure v
 
 consumeFlow :: Text -> P Value
 consumeFlow = consumeFlowAt (-1)
@@ -1660,8 +1674,7 @@ consumeFlowAt !openInd = go
 
     go buf0 = let buf = stripFlowComment buf0 in case scanFlow buf of
       ScanComplete v rest -> do
-        recordFlowAnchors v
-        v' <- resolveFlowAliases v
+        v' <- recordAndResolveFlow v
         let !s = T.stripStart rest
         case T.uncons s of
           Nothing -> pure v'
