@@ -423,6 +423,59 @@ emitListSlowGeneric !e !xs = do
       mapM_ (directEncodePayload @a e) xs
 {-# INLINE emitListSlowGeneric #-}
 
+-- ---------------------------------------------------------------------------
+-- OVERLAPPING fast paths for the most common typed list shapes
+-- ---------------------------------------------------------------------------
+
+-- | OVERLAPPING fast path for @[Int]@ — the bench's
+-- @list-of-int 100@ shape. Skips the polymorphic class
+-- dispatch in 'directRawPoke @a' so GHC can inline
+-- 'IO.pokeVarint64Raw' directly into the inner write loop.
+instance {-# OVERLAPPING #-} EncodeDirect [Int] where
+  directEncodePayload e xs = do
+    let !v = V.fromList xs
+        !len = V.length v
+    IO.emitVaruint32 e (fromIntegral len)
+    if len == 0
+      then pure ()
+      else do
+        IO.emitByte e 0x08
+        emitTagD e T.VARINT64
+        IO.withReservedRaw e (9 * len) $ \p start ->
+          V.foldM' (\off n ->
+            IO.pokeVarint64Raw p off (fromIntegral n)) start v
+  {-# INLINE directEncodePayload #-}
+
+-- | OVERLAPPING fast path for @[Int32]@ — fixed 4-byte LE
+-- per element, single 'IO.withReservedRaw' over the batch.
+instance {-# OVERLAPPING #-} EncodeDirect [Int32] where
+  directEncodePayload e xs = do
+    let !v = V.fromList xs
+        !len = V.length v
+    IO.emitVaruint32 e (fromIntegral len)
+    if len == 0
+      then pure ()
+      else do
+        IO.emitByte e 0x08
+        emitTagD e T.INT32
+        IO.withReservedRaw e (4 * len) $ \p start ->
+          V.foldM' (\off n -> IO.pokeInt32LERaw p off n) start v
+  {-# INLINE directEncodePayload #-}
+
+instance {-# OVERLAPPING #-} EncodeDirect [Double] where
+  directEncodePayload e xs = do
+    let !v = V.fromList xs
+        !len = V.length v
+    IO.emitVaruint32 e (fromIntegral len)
+    if len == 0
+      then pure ()
+      else do
+        IO.emitByte e 0x08
+        emitTagD e T.FLOAT64
+        IO.withReservedRaw e (8 * len) $ \p start ->
+          V.foldM' (\off d -> IO.pokeFloat64LERaw p off d) start v
+  {-# INLINE directEncodePayload #-}
+
 -- | OVERLAPPING fast path for @[Text]@. Mirrors the
 -- Value-side 'emitStringListFast': pre-encodes each element
 -- to UTF-8 + classifies it as LATIN-1 vs UTF-8 in one walk
