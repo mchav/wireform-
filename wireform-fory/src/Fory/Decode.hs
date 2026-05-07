@@ -26,7 +26,7 @@ module Fory.Decode
   , decodeTypedPayload
   , decodePayloadFor
   , DecodeM (DecodeM, runDM)
-  , Decoder
+  , Decoder (..)
   , runDecodeM
   , runDecodeMWith
     -- * Read primitives (for typed decoders in 'Fory.Direct')

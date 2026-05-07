@@ -65,6 +65,7 @@ import qualified Data.Vector as V
 import Data.Vector (Vector)
 import qualified Data.Vector.Storable as VS
 import Data.Word (Word8, Word16, Word32, Word64)
+import Data.IORef (readIORef, writeIORef)
 import qualified Foreign.ForeignPtr
 import Foreign.ForeignPtr (castForeignPtr)
 import qualified Foreign.Marshal.Utils
@@ -1181,6 +1182,71 @@ readMapEntries = do
             v <- directDecodePayload @v
             pure (k, v)
           loop (remaining - cs) (reverse entries ++ acc)
+
+-- | OVERLAPPING fast path for @Map Text Int@ decode.
+-- Mirrors the encode-side 'emitMapTextIntChunks' fast path:
+-- per-entry uses raw-pointer 'rawPeekText' + raw
+-- 'D.peekVarint64Raw', amortising the 'IORef' /
+-- 'TE.decodeLatin1' overhead that the polymorphic
+-- 'readMapEntries' path would pay.
+instance {-# OVERLAPPING #-} DecodeDirect (Map Text Int) where
+  directDecodePayload = M.fromList <$> readTextIntChunked
+  {-# INLINE directDecodePayload #-}
+
+instance {-# OVERLAPPING #-} DecodeDirect (HashMap Text Int) where
+  directDecodePayload = HM.fromList <$> readTextIntChunked
+  {-# INLINE directDecodePayload #-}
+
+-- | Read a Fory map of @Text -> Int@ via the raw-pointer
+-- machinery — bypasses 'D.readForyString' /
+-- 'D.readVarint64D' 'IORef' cycles per entry.
+readTextIntChunked :: D.DecodeM [(Text, Int)]
+readTextIntChunked = do
+  total <- fromIntegral <$> D.readVaruint32D
+  if total == 0
+    then pure []
+    else D.DecodeM $ \d -> readTextIntChunksIO d total
+{-# INLINE readTextIntChunked #-}
+
+readTextIntChunksIO
+  :: D.Decoder -> Int -> IO [(Text, Int)]
+readTextIntChunksIO !d !total0 = do
+  pos0 <- readDecPos d
+  let !p = D.decBase d
+  (!revEntries, !posF) <- goAll p pos0 total0 []
+  writeDecPos d posF
+  pure (reverse revEntries)
+  where
+    -- Single flat reversed accumulator — every entry is
+    -- prepended O(1), one final 'reverse' at the end. No
+    -- per-chunk list append.
+    goAll !p !pos !remaining !acc
+      | remaining <= 0 = pure (acc, pos)
+      | otherwise = do
+          !hdr <- peekByteOff p pos :: IO Word8
+          if hdr /= 0
+            then errorWithoutStackTrace
+                   ("Fory.Direct: map chunk flag " ++ show hdr
+                      ++ " not supported on direct fast path")
+            else do
+              !cs8 <- peekByteOff p (pos + 1) :: IO Word8
+              let !cs = fromIntegral cs8 :: Int
+              (_, !pos1) <- D.peekVaruint64Raw p (pos + 2)
+              (_, !pos2) <- D.peekVaruint64Raw p pos1
+              (!acc', !pos3) <- readN p pos2 cs acc
+              goAll p pos3 (remaining - cs) acc'
+
+    readN !_ !pos 0 !acc = pure (acc, pos)
+    readN !p !pos !i !acc = do
+      (!t,  !pos1) <- rawPeekText p pos
+      (!n,  !pos2) <- D.peekVarint64Raw p pos1
+      readN p pos2 (i - 1) ((t, fromIntegral n) : acc)
+
+readDecPos :: D.Decoder -> IO Int
+readDecPos = readIORef . D.decPos
+
+writeDecPos :: D.Decoder -> Int -> IO ()
+writeDecPos d = writeIORef (D.decPos d)
 
 -- ---------------------------------------------------------------------------
 -- Internal helpers
