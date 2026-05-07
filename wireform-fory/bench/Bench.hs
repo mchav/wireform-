@@ -1,32 +1,30 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- | criterion micro-benchmark for the wireform-fory encoder /
 -- decoder. Mirrors the payload set in @bench/bench.py@ so the
--- two implementations can be compared head-to-head:
+-- two implementations can be compared head-to-head.
 --
--- * @int@                 — a single 'VarInt64Val'
--- * @float@               — a single 'Float64Val'
--- * @small string@        — 12-char ASCII
--- * @long string@         — 1024-char ASCII
--- * @bytes 1k@            — 1024 random bytes
--- * @list-of-int@         — homogeneous list of 100 'VarInt64Val'
--- * @list-of-string@      — homogeneous list of 100 small strings
--- * @map-of-string-int@   — 50-entry map @str -> int@
--- * @int32-array 1k@      — primitive int32 array of 1024 elements
--- * @float64-array 1k@    — primitive float64 array of 1024 elements
--- * @struct@              — registered 'Person' with hash header
--- * @list-of-struct@      — 100 'Person' records in a same-type
---                           list (exercises the once-only ns+tn
---                           element-type path)
+-- The bench has /two/ matching pipelines for each shape:
+--
+-- * @encode\/decode@ uses the dynamic 'Fory.Value.Value' AST.
+-- * @encode-typed\/decode-typed@ uses 'Fory.Direct', no
+--   'Value' allocation in the inner loop.
 module Main (main) where
 
+import Control.DeepSeq (NFData)
 import Criterion.Main
 import qualified Data.ByteString as BS
+import Data.Int (Int32)
+import qualified Data.Map.Strict as M
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 import qualified Data.Text as T
 
 import qualified Fory.Decode as D
+import qualified Fory.Direct as FD
 import qualified Fory.Encode as E
 import qualified Fory.Options as O
 import qualified Fory.Struct as ST
@@ -109,6 +107,43 @@ vListOfPerson =
 -- Benchmark group
 -- ---------------------------------------------------------------------------
 
+-- ---------------------------------------------------------------------------
+-- Typed payloads (Fory.Direct, no Value AST)
+-- ---------------------------------------------------------------------------
+
+tInt :: Int
+tInt = 1234567890
+
+tFloat :: Double
+tFloat = 3.141592653589793
+
+tSmallStr :: T.Text
+tSmallStr = T.pack (replicate 12 'a')
+
+tLongStr :: T.Text
+tLongStr = T.pack (replicate 1024 'a')
+
+tBytes1k :: BS.ByteString
+tBytes1k = BS.replicate 1024 0x42
+
+tListOfInt :: [Int]
+tListOfInt = [0 .. 99]
+
+tListOfString :: [T.Text]
+tListOfString = [T.pack (replicate 8 'x') | _ <- [1 .. 100 :: Int]]
+
+tMapStrInt :: M.Map T.Text Int
+tMapStrInt =
+  M.fromList [(T.pack ("k" ++ show i), i) | i <- [0 .. 49 :: Int]]
+
+tInt32Array1k :: VS.Vector Int32
+tInt32Array1k =
+  VS.fromList [fromIntegral i | i <- [0 .. 1023 :: Int]]
+
+tFloat64Array1k :: VS.Vector Double
+tFloat64Array1k =
+  VS.fromList [fromIntegral i * 0.5 | i <- [0 .. 1023 :: Int]]
+
 main :: IO ()
 main = defaultMain
   [ bgroup "encode"
@@ -139,6 +174,32 @@ main = defaultMain
       , benchDecodeStruct "struct Person" vPerson
       , benchDecodeStruct "list-of-struct 100" vListOfPerson
       ]
+
+    -- Typed pipelines (Fory.Direct, no Value AST)
+  , bgroup "encode-typed"
+      [ bench "int"               $ nf FD.encodeDirect tInt
+      , bench "float"             $ nf FD.encodeDirect tFloat
+      , bench "small string"      $ nf FD.encodeDirect tSmallStr
+      , bench "long string 1k"    $ nf FD.encodeDirect tLongStr
+      , bench "bytes 1k"          $ nf FD.encodeDirect tBytes1k
+      , bench "list-of-int 100"   $ nf FD.encodeDirect tListOfInt
+      , bench "list-of-string 100" $ nf FD.encodeDirect tListOfString
+      , bench "map str/int 50"    $ nf FD.encodeDirect tMapStrInt
+      , bench "int32-array 1k"    $ nf FD.encodeDirect tInt32Array1k
+      , bench "float64-array 1k"  $ nf FD.encodeDirect tFloat64Array1k
+      ]
+  , bgroup "decode-typed"
+      [ benchDecodeT "int"               tInt
+      , benchDecodeT "float"             tFloat
+      , benchDecodeT "small string"      tSmallStr
+      , benchDecodeT "long string 1k"    tLongStr
+      , benchDecodeT "bytes 1k"          tBytes1k
+      , benchDecodeT "list-of-int 100"   tListOfInt
+      , benchDecodeT "list-of-string 100" tListOfString
+      , benchDecodeT "map str/int 50"    tMapStrInt
+      , benchDecodeT "int32-array 1k"    tInt32Array1k
+      , benchDecodeT "float64-array 1k"  tFloat64Array1k
+      ]
   ]
   where
     benchDecode :: String -> VV.Value -> Benchmark
@@ -150,3 +211,11 @@ main = defaultMain
     benchDecodeStruct name v =
       let !bytes = E.encodeWith personOpts v
       in bench name $ nf (D.decodeWith personDopts) bytes
+
+    benchDecodeT
+      :: forall a.
+         (FD.EncodeDirect a, FD.DecodeDirect a, NFData a)
+      => String -> a -> Benchmark
+    benchDecodeT name x =
+      let !bytes = FD.encodeDirect x
+      in bench name $ nf (FD.decodeDirect @a) bytes

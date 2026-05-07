@@ -23,9 +23,29 @@ module Fory.Decode
   ( decode
   , decodeWith
   , decodeValueSlot
+  , decodeTypedPayload
+  , decodePayloadFor
   , DecodeM
   , runDecodeM
   , runDecodeMWith
+    -- * Read primitives (for typed decoders in 'Fory.Direct')
+  , readByteD
+  , readBytesD
+  , readWord16D
+  , readWord32D
+  , readWord64D
+  , readInt16D
+  , readInt32D
+  , readInt64D
+  , readFloat32D
+  , readFloat64D
+  , readVaruint32D
+  , readVaruint64D
+  , readVarint32D
+  , readVarint64D
+  , readForyString
+  , decodeMetaStringWith
+  , failD
   ) where
 
 import Control.Exception (Exception, throwIO, try)

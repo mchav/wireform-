@@ -44,6 +44,7 @@ library
     Fory.Class
     Fory.Decode
     Fory.Derive
+    Fory.Direct
     Fory.Encode
     Fory.Encoding
     Fory.IO
@@ -73,6 +74,7 @@ test-suite wireform-fory-test
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
+    Test.Fory.Direct
     Test.Fory.Encoding
     Test.Fory.Value
     Test.Fory.SpecExtensions
@@ -88,7 +90,9 @@ test-suite wireform-fory-test
     wireform-fory,
     wireform-derive,
     bytestring,
+    containers,
     text,
+    unordered-containers,
     vector,
     tasty,
     tasty-hunit,
@@ -148,10 +152,15 @@ benchmark wireform-fory-bench
   hs-source-dirs: bench
   main-is: Bench.hs
   ghc-options: -O2
+  default-extensions:
+    ScopedTypeVariables
+    TypeApplications
   build-depends:
     base,
     wireform-fory,
     bytestring,
+    containers,
+    deepseq,
     text,
     vector,
     criterion >= 1.5 && < 1.7
