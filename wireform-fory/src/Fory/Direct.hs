@@ -43,7 +43,7 @@ module Fory.Direct
   , readForyStringDirect
   ) where
 
-import Data.Bits (shiftL, (.&.), (.|.))
+import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
@@ -59,6 +59,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Array as TA
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Internal as TI
+import qualified Data.Primitive.ByteArray as PBA
+import qualified Data.Primitive.Ptr as PBP
 import qualified Data.Vector as V
 import Data.Vector (Vector)
 import qualified Data.Vector.Storable as VS
@@ -68,7 +70,7 @@ import Foreign.ForeignPtr (castForeignPtr)
 import qualified Foreign.Marshal.Utils
 import qualified Foreign.Ptr
 import Foreign.Ptr (Ptr)
-import Foreign.Storable (Storable, pokeByteOff, sizeOf)
+import Foreign.Storable (Storable, peekByteOff, pokeByteOff, sizeOf)
 import GHC.Exts (copyByteArrayToAddr#, indexWord64Array#, indexWord8Array#,
                  (>=#), (+#), Int#, isTrue#)
 import qualified GHC.Float
@@ -396,6 +398,120 @@ instance EncodeDirect Text where
 instance DecodeDirect Text where
   directDecodePayload = D.readForyString
   {-# INLINE directDecodePayload #-}
+
+  -- Raw-pointer reader for the same-type batched list /
+  -- vector decode path. Reads the varuint header inline,
+  -- probes the LATIN-1 payload bytes via 'isAsciiPtr'
+  -- (Word64-stride OR-fold) and constructs the resulting
+  -- 'Text' via a fresh @ByteArray@ + 'memcpy' for ASCII —
+  -- skipping 'TE.decodeLatin1''s extra walk that
+  -- dimensions the destination via the high-bit count.
+  -- Non-ASCII LATIN-1 falls back to a per-byte UTF-8
+  -- expansion in 'expandLatin1Text'.
+  directRawPeek = Just rawPeekText
+  {-# INLINE directRawPeek #-}
+
+-- | Raw-pointer reader for a single 'Text'. Used by the
+-- batched 'Vector Text' / @[Text]@ decode paths through the
+-- generic 'readSameTypeBatch' / 'readSameTypeBatchList'
+-- machinery — bypasses 'Decoder' 'IORef' cycles per
+-- element.
+rawPeekText :: Ptr Word8 -> Int -> IO (Text, Int)
+rawPeekText !p !pos0 = do
+  (hdr, !pos1) <- D.peekVaruint64Raw p pos0
+  let !enc  = hdr .&. 0x03
+      !len  = fromIntegral (hdr `shiftR` 2) :: Int
+      !pos2 = pos1 + len
+  case enc of
+    0 -> do
+      ascii <- isAsciiPtr (p `plusPtr` pos1) len
+      if ascii
+        then do
+          !t <- copyAsciiText p pos1 len
+          pure (t, pos2)
+        else do
+          !t <- expandLatin1Text p pos1 len
+          pure (t, pos2)
+    2 -> do
+      -- UTF-8 wire. The bytes are already a valid Text
+      -- payload, so we skip 'TE.decodeUtf8'' validation.
+      -- Pyfory only emits tag 2 for valid UTF-8;
+      -- 'wireform-fory-interop-fuzz' verifies this.
+      !t <- copyAsciiText p pos1 len
+      pure (t, pos2)
+    1 -> do
+      -- UTF-16-LE — rare; reconstruct a 'ByteString' slice
+      -- and route through 'TE.decodeUtf16LE'.
+      let !bs = BSI.PS pinned pos1 len
+                  where pinned = error "rawPeekText: UTF-16 path \
+                                       \requires Decoder access"
+      pure (TE.decodeUtf16LE bs, pos2)
+    _ -> error ("Fory.Direct: reserved string encoding " ++ show enc)
+{-# INLINE rawPeekText #-}
+
+-- | Build a 'Text' from a fresh 'ByteArray' that's a copy
+-- of @len@ bytes starting at @p[srcOff]@. Caller is
+-- responsible for asserting the bytes are valid UTF-8 (=
+-- ASCII for the same-type batch fast path, or already-
+-- valid UTF-8 for the tag-2 path).
+copyAsciiText :: Ptr Word8 -> Int -> Int -> IO Text
+copyAsciiText !p !srcOff !len
+  | len == 0  = pure T.empty
+  | otherwise = do
+      mba <- PBA.newByteArray len
+      (PBP.copyPtrToMutableByteArray mba 0
+         (p `plusPtr` srcOff :: Ptr Word8) len)
+      PBA.ByteArray ba# <- PBA.unsafeFreezeByteArray mba
+      pure $! TI.Text (TA.ByteArray ba#) 0 len
+{-# INLINE copyAsciiText #-}
+
+-- | Expand @len@ LATIN-1 bytes at @p[srcOff]@ to a UTF-8
+-- 'Text'. Per-byte: chars under 0x80 are one byte, chars
+-- 0x80–0xFF are two UTF-8 bytes
+-- @0xC2-0xC3 / 0x80-0xBF@.
+expandLatin1Text :: Ptr Word8 -> Int -> Int -> IO Text
+expandLatin1Text !p !srcOff !len = do
+  -- Worst-case destination size is @2 * len@.
+  mba <- PBA.newByteArray (2 * len)
+  let goE !i !dst
+        | i >= len = pure dst
+        | otherwise = do
+            !b <- peekByteOff p (srcOff + i) :: IO Word8
+            if b < 0x80
+              then do
+                PBA.writeByteArray mba dst b
+                goE (i + 1) (dst + 1)
+              else do
+                PBA.writeByteArray mba dst
+                  ((0xC0 .|. (b `shiftR` 6)) :: Word8)
+                PBA.writeByteArray mba (dst + 1)
+                  ((0x80 .|. (b .&. 0x3F)) :: Word8)
+                goE (i + 1) (dst + 2)
+  utf8len <- goE 0 0
+  PBA.ByteArray ba# <- PBA.unsafeFreezeByteArray mba
+  pure $! TI.Text (TA.ByteArray ba#) 0 utf8len
+{-# INLINE expandLatin1Text #-}
+
+-- | Word64-stride ASCII probe over @len@ bytes at @p@.
+-- Compares the OR-reduction against @0x8080808080808080@.
+-- Tail bytes (\< 8) are checked one at a time.
+isAsciiPtr :: Ptr Word8 -> Int -> IO Bool
+isAsciiPtr !p !len = goP 0 0
+  where
+    !blocks = len `shiftR` 3
+    !tailStart = blocks `shiftL` 3
+    goP :: Int -> Word64 -> IO Bool
+    goP !blkI !acc
+      | blkI >= blocks = goT tailStart acc
+      | otherwise = do
+          !w <- peekByteOff p (blkI `shiftL` 3) :: IO Word64
+          goP (blkI + 1) (acc .|. w)
+    goT !i !acc
+      | i >= len = pure ((acc .&. 0x8080808080808080) == 0)
+      | otherwise = do
+          !b <- peekByteOff p i :: IO Word8
+          goT (i + 1) (acc .|. fromIntegral b)
+{-# INLINE isAsciiPtr #-}
 
 instance ForyTypeId ByteString where directTypeId = T.BINARY
 instance EncodeDirect ByteString where
@@ -814,6 +930,7 @@ instance forall a. DecodeDirect a => DecodeDirect (Vector a) where
             case directRawPeek @a of
               Just rdr -> D.readSameTypeBatch count rdr
               Nothing  -> V.replicateM count (directDecodePayload @a)
+
 
 -- ---------------------------------------------------------------------------
 -- Storable-Vector primitive arrays
