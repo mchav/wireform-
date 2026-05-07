@@ -634,31 +634,30 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
   {-# INLINE directEncodePayload #-}
 
 -- | Per-element write for the typed list-of-string fast
--- paths. Picks the wire-encoding tag (LATIN-1 / UTF-8) based
--- on a 'Word64'-stride ASCII scan over the source ByteArray,
--- emits the varuint64 header, then memcpys the payload.
+-- paths.
+--
+-- Wire-encoding tag is always UTF-8 (= 2). The classic fory
+-- encoder picks LATIN-1 (= 0) for pure-ASCII strings to match
+-- pyfory's default and shave one bit off the header byte —
+-- but for typed list-of-string, that scan is the dominant
+-- per-element cost. UTF-8 bytes /are/ valid for all Unicode
+-- text (Text 2.x stores UTF-8 internally), pyfory's decoder
+-- accepts the UTF-8 tag for any string, and round-trip
+-- correctness is preserved. The wire diverges from pyfory's
+-- LATIN-1 ASCII bytes by exactly one bit per string-header,
+-- which is acceptable for the typed pipeline but would break
+-- the byte-equality 'Test.Fory.Direct' assertion if applied
+-- there — see the dedicated round-trip tests.
 --
 -- Short-header fast path: when the wire payload length
--- @< 128@ (the bench shape — strings up to 31 chars), the
--- header is exactly one byte, so we skip the
+-- @< 128@, the header is exactly one byte, so we skip the
 -- 'IO.pokeVaruint64Raw' continuation-byte loop and just
--- 'pokeByteOff' the header byte directly. Saves a couple of
--- nanoseconds per element on hot paths.
+-- 'pokeByteOff' the header byte directly.
 writeTextOnto :: Ptr Word8 -> Int -> Text -> IO Int
-writeTextOnto !p !off t@(TI.Text arr srcOff len)
-  | byteArrayIsAscii arr srcOff (srcOff + len) = do
-      !off1 <- emitStringHeader p off len 0
-      copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
-      pure (off1 + len)
-  | T.all (\c -> ord c < 256) t = do
-      let !raw  = B.latin1Bytes t
-          !rlen = BS.length raw
-      !off1 <- emitStringHeader p off rlen 0
-      pokeBytesRawDirect p off1 raw
-  | otherwise = do
-      !off1 <- emitStringHeader p off len 2
-      copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
-      pure (off1 + len)
+writeTextOnto !p !off (TI.Text arr srcOff len) = do
+  !off1 <- emitStringHeader p off len 2
+  copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+  pure (off1 + len)
 {-# INLINE writeTextOnto #-}
 
 -- | Emit a Fory string-payload header @(len << 2) | tag@.
