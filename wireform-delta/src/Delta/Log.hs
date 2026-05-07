@@ -1,30 +1,52 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
--- | Delta Lake transaction log reader (skeleton).
+-- | Delta Lake transaction log reader.
 --
--- Delta Lake is a Parquet-on-top-of-transaction-log table
--- format. Each table directory has a @_delta_log/@ subdirectory
--- containing newline-delimited JSON files
--- (@00000000000000000000.json@, @00000000000000000001.json@,
--- …) and periodic @*.checkpoint.parquet@ snapshots. Each line
--- in a JSON log file is one of a small set of @Action@s:
+-- Delta Lake sits on top of Parquet (or, more recently, Iceberg
+-- / Lance / arbitrary content) data files plus a transaction
+-- log written into a @_delta_log/@ subdirectory of the table
+-- root. The log consists of:
+--
+--   * Per-version JSON commit files
+--     @0000000000000000NNNN.json@. Each is newline-delimited
+--     JSON; each line is a single-key object describing one
+--     'DeltaAction'.
+--   * Periodic checkpoint Parquet snapshots
+--     @0000000000000000NNNN.checkpoint.parquet@ that fold the
+--     active state into one file so readers don't have to walk
+--     the entire log from version 0.
+--   * A @_last_checkpoint@ JSON pointer file naming the most
+--     recent checkpoint version + size.
+--
+-- Each line in a commit file is one of:
 --
 -- @
--- {"add":      {"path": ..., "size": ..., "stats": ..., ... }}
--- {"remove":   {"path": ..., "deletionTimestamp": ..., ... }}
--- {"metaData": {"id": ..., "schemaString": ..., ... }}
--- {"protocol": {"minReaderVersion": ..., "minWriterVersion": ... }}
+-- {"add":        {"path": ..., "size": ..., "stats": ..., ... }}
+-- {"remove":     {"path": ..., "deletionTimestamp": ..., ... }}
+-- {"metaData":   {"id": ..., "schemaString": ..., ... }}
+-- {"protocol":   {"minReaderVersion": ..., "minWriterVersion": ... }}
 -- {"commitInfo": {"timestamp": ..., "operation": ..., ... }}
--- {"txn":      {"appId": ..., "version": ..., ... }}
--- {"cdc":      {"path": ..., ...}}
+-- {"txn":        {"appId": ..., "version": ..., ... }}
+-- {"cdc":        {"path": ..., ...}}
 -- @
 --
--- This module is a /skeleton/: it parses the JSON
--- representation into typed 'DeltaAction' values and exposes
--- the @add@ + @remove@ derivation that gives the active file
--- set at a given table version. Time-travel, schema evolution,
--- column mapping, deletion vectors, and CDC are out of scope
--- for the initial pass.
+-- This module:
+--
+--   * Parses every documented action variant into a strict
+--     ADT ('DeltaAction').
+--   * Decodes the schema-string field of @metaData@ into a
+--     typed 'DeltaSchema' (Spark / Delta JSON schema).
+--   * Decodes the @stats@ string of an 'AddAction' into a
+--     typed 'AddStats' record.
+--   * Replays a sequence of actions into a 'TableSnapshot'
+--     ('snapshotFromActions') that combines protocol +
+--     metadata + active file set, which is what scan planners
+--     consume.
+--   * Discovers and parses @_last_checkpoint@.
+--
+-- Out of scope (still): column mapping, deletion vectors,
+-- generated columns, time travel by timestamp, V2 checkpoint
+-- format, log compaction.
 module Delta.Log
   ( -- * Actions
     DeltaAction (..)
@@ -32,10 +54,27 @@ module Delta.Log
   , RemoveAction (..)
   , MetaDataAction (..)
   , ProtocolAction (..)
+  , CommitInfoAction (..)
+  , TxnAction (..)
+  , CdcAction (..)
+  , AddStats (..)
+    -- * Delta schema (decoded from @metaData.schemaString@)
+  , DeltaSchema (..)
+  , DeltaField (..)
+  , DeltaType (..)
+  , parseDeltaSchema
+    -- * Table snapshot
+  , TableSnapshot (..)
+  , emptySnapshot
+  , applyAction
+  , snapshotFromActions
+    -- * Last-checkpoint pointer
+  , LastCheckpoint (..)
+  , parseLastCheckpoint
     -- * Log parsing
   , parseLogFile
   , parseLogLine
-    -- * Active file set
+    -- * Active-file derivation (compatibility helper)
   , activeFiles
   ) where
 
@@ -45,37 +84,57 @@ import Data.Aeson
   , (.:), (.:?)
   , withObject
   , decode
+  , decodeStrict'
   , fromJSON
   , Result (..)
   )
 import qualified Data.Aeson.KeyMap as AKM
 import qualified Data.Aeson.Key as AK
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
+import Data.Scientific (toBoundedInteger)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import qualified Data.Vector as V
 import Data.Word (Word64)
+
+-- ============================================================
+-- Actions
+-- ============================================================
 
 -- | One line of a Delta log file. The JSON shape is a
 -- single-key object whose key picks the variant.
 data DeltaAction
-  = ActionAdd      !AddAction
-  | ActionRemove   !RemoveAction
-  | ActionMetaData !MetaDataAction
-  | ActionProtocol !ProtocolAction
-  | ActionOther    !Text  -- ^ commitInfo / txn / cdc / unknown — the variant tag
+  = ActionAdd        !AddAction
+  | ActionRemove     !RemoveAction
+  | ActionMetaData   !MetaDataAction
+  | ActionProtocol   !ProtocolAction
+  | ActionCommitInfo !CommitInfoAction
+  | ActionTxn        !TxnAction
+  | ActionCdc        !CdcAction
+  | ActionOther      !Text
+    -- ^ Tagged with the variant name for forward compat.
   deriving (Show, Eq)
 
--- | The @add@ action: a Parquet (or other format) data file is
+-- | The @add@ action: a Parquet (or other-format) data file is
 -- now part of the table.
 data AddAction = AddAction
-  { addPath           :: !Text
-  , addSize           :: !Word64
+  { addPath             :: !Text
+  , addSize             :: !Word64
   , addModificationTime :: !Word64
-  , addDataChange     :: !Bool
-  , addStats          :: !(Maybe Text)
-    -- ^ JSON-encoded statistics (numRecords, minValues, maxValues, nullCount).
-  , addPartitionValues :: !(Map.Map Text (Maybe Text))
+  , addDataChange       :: !Bool
+  , addStats            :: !(Maybe Text)
+    -- ^ JSON-encoded statistics (numRecords, minValues,
+    -- maxValues, nullCount). See 'parseAddStats'.
+  , addPartitionValues  :: !(Map.Map Text (Maybe Text))
+  , addTags             :: !(Map.Map Text Text)
+  , addDeletionVector   :: !(Maybe Value)
+    -- ^ Raw deletion-vector descriptor object (V2). Kept as the
+    -- aeson 'Value' until a typed decoder lands.
   } deriving (Show, Eq)
 
 -- | The @remove@ action: a previously-added file is no longer
@@ -85,6 +144,9 @@ data RemoveAction = RemoveAction
   { removePath              :: !Text
   , removeDeletionTimestamp :: !(Maybe Word64)
   , removeDataChange        :: !Bool
+  , removeExtendedFileMetadata :: !(Maybe Bool)
+  , removeSize              :: !(Maybe Word64)
+  , removePartitionValues   :: !(Map.Map Text (Maybe Text))
   } deriving (Show, Eq)
 
 -- | The @metaData@ action: table-level schema + properties.
@@ -93,8 +155,15 @@ data RemoveAction = RemoveAction
 data MetaDataAction = MetaDataAction
   { mdId               :: !Text
   , mdName             :: !(Maybe Text)
-  , mdSchemaString     :: !Text  -- ^ JSON-encoded Spark schema.
+  , mdDescription      :: !(Maybe Text)
+  , mdFormat           :: !(Maybe (Text, Map.Map Text Text))
+    -- ^ @(provider, options)@. The provider is conventionally
+    -- @"parquet"@ for ordinary tables.
+  , mdSchemaString     :: !Text
+    -- ^ JSON-encoded Spark schema. See 'parseDeltaSchema'.
   , mdPartitionColumns :: ![Text]
+  , mdConfiguration    :: !(Map.Map Text Text)
+  , mdCreatedTime      :: !(Maybe Word64)
   } deriving (Show, Eq)
 
 -- | The @protocol@ action: minimum reader / writer versions
@@ -103,11 +172,54 @@ data MetaDataAction = MetaDataAction
 data ProtocolAction = ProtocolAction
   { pMinReaderVersion :: !Int
   , pMinWriterVersion :: !Int
+  , pReaderFeatures   :: ![Text]
+    -- ^ Reader feature names enabled at writer-protocol-7+.
+  , pWriterFeatures   :: ![Text]
+  } deriving (Show, Eq)
+
+-- | The @commitInfo@ action: free-form metadata about the
+-- commit. Spark / delta-rs add their own fields here; we keep
+-- the typed slots that are practically standardised and stash
+-- the rest as a 'HM.HashMap'.
+data CommitInfoAction = CommitInfoAction
+  { ciTimestamp           :: !(Maybe Word64)
+  , ciOperation           :: !(Maybe Text)
+  , ciOperationParameters :: !(HM.HashMap Text Value)
+  , ciIsolationLevel      :: !(Maybe Text)
+  , ciIsBlindAppend       :: !(Maybe Bool)
+  , ciTxnVersion          :: !(Maybe Word64)
+  , ciExtra               :: !(HM.HashMap Text Value)
+  } deriving (Show, Eq)
+
+-- | The @txn@ action: idempotency / set-commit marker for
+-- streaming jobs.
+data TxnAction = TxnAction
+  { txnAppId       :: !Text
+  , txnVersion     :: !Word64
+  , txnLastUpdated :: !(Maybe Word64)
+  } deriving (Show, Eq)
+
+-- | The @cdc@ action: a change-data-capture file emitted as
+-- part of an UPDATE / DELETE / MERGE so downstream consumers
+-- can read the diff.
+data CdcAction = CdcAction
+  { cdcPath            :: !Text
+  , cdcSize            :: !Word64
+  , cdcDataChange      :: !Bool
+  , cdcPartitionValues :: !(Map.Map Text (Maybe Text))
+  , cdcTags            :: !(Map.Map Text Text)
   } deriving (Show, Eq)
 
 -- ============================================================
 -- Aeson instances
 -- ============================================================
+
+-- Helper: read a partition values map. Spark sometimes emits
+-- entries as @"k":null@ (Maybe Text); the JSON shape is always
+-- a flat object of strings-or-nulls.
+parsePartitionValues
+  :: Value -> Result (Map.Map Text (Maybe Text))
+parsePartitionValues = fromJSON
 
 instance FromJSON AddAction where
   parseJSON = withObject "AddAction" $ \o -> AddAction
@@ -116,28 +228,365 @@ instance FromJSON AddAction where
     <*> o .:  "modificationTime"
     <*> o .:  "dataChange"
     <*> o .:? "stats"
-    <*> (o .:? "partitionValues" >>= maybe (pure Map.empty) pure)
+    <*> (fromMaybe Map.empty <$> o .:? "partitionValues")
+    <*> (fromMaybe Map.empty <$> o .:? "tags")
+    <*> o .:? "deletionVector"
 
 instance FromJSON RemoveAction where
   parseJSON = withObject "RemoveAction" $ \o -> RemoveAction
     <$> o .:  "path"
     <*> o .:? "deletionTimestamp"
-    <*> (maybe True id <$> o .:? "dataChange")
+    <*> (fromMaybe True <$> o .:? "dataChange")
+    <*> o .:? "extendedFileMetadata"
+    <*> o .:? "size"
+    <*> (fromMaybe Map.empty <$> o .:? "partitionValues")
 
 instance FromJSON MetaDataAction where
-  parseJSON = withObject "MetaDataAction" $ \o -> MetaDataAction
-    <$> o .:  "id"
-    <*> o .:? "name"
-    <*> o .:  "schemaString"
-    <*> (maybe [] id <$> o .:? "partitionColumns")
+  parseJSON = withObject "MetaDataAction" $ \o -> do
+    fmt <- o .:? "format"
+    let fmtPair = case fmt of
+          Just (Object fo) -> do
+            prov <- AKM.lookup "provider" fo
+            opts <- AKM.lookup "options"  fo
+            case (prov, opts) of
+              (String p, Object oo) -> Just (p, valueObjectToMap oo)
+              (String p, _)         -> Just (p, Map.empty)
+              _                     -> Nothing
+          _ -> Nothing
+    MetaDataAction
+      <$> o .:  "id"
+      <*> o .:? "name"
+      <*> o .:? "description"
+      <*> pure fmtPair
+      <*> o .:  "schemaString"
+      <*> (fromMaybe [] <$> o .:? "partitionColumns")
+      <*> (fromMaybe Map.empty <$> o .:? "configuration")
+      <*> o .:? "createdTime"
+
+valueObjectToMap :: AKM.KeyMap Value -> Map.Map Text Text
+valueObjectToMap = AKM.foldrWithKey step Map.empty
+  where
+    step k (String t) acc = Map.insert (AK.toText k) t acc
+    step _ _          acc = acc
 
 instance FromJSON ProtocolAction where
   parseJSON = withObject "ProtocolAction" $ \o -> ProtocolAction
     <$> o .:  "minReaderVersion"
     <*> o .:  "minWriterVersion"
+    <*> (fromMaybe [] <$> o .:? "readerFeatures")
+    <*> (fromMaybe [] <$> o .:? "writerFeatures")
+
+instance FromJSON CommitInfoAction where
+  parseJSON = withObject "CommitInfoAction" $ \o -> do
+    t       <- o .:? "timestamp"
+    op      <- o .:? "operation"
+    opPar   <- fromMaybe HM.empty <$> o .:? "operationParameters"
+    iso     <- o .:? "isolationLevel"
+    blind   <- o .:? "isBlindAppend"
+    txnVer  <- o .:? "txnVersion"
+    let known = [ "timestamp", "operation", "operationParameters"
+                , "isolationLevel", "isBlindAppend", "txnVersion"
+                ]
+        extra = AKM.foldrWithKey
+          (\k v acc -> if AK.toText k `elem` known
+                         then acc
+                         else HM.insert (AK.toText k) v acc)
+          HM.empty
+          o
+    pure CommitInfoAction
+      { ciTimestamp           = t
+      , ciOperation           = op
+      , ciOperationParameters = opPar
+      , ciIsolationLevel      = iso
+      , ciIsBlindAppend       = blind
+      , ciTxnVersion          = txnVer
+      , ciExtra               = extra
+      }
+
+instance FromJSON TxnAction where
+  parseJSON = withObject "TxnAction" $ \o -> TxnAction
+    <$> o .:  "appId"
+    <*> o .:  "version"
+    <*> o .:? "lastUpdated"
+
+instance FromJSON CdcAction where
+  parseJSON = withObject "CdcAction" $ \o -> CdcAction
+    <$> o .:  "path"
+    <*> o .:  "size"
+    <*> (fromMaybe False <$> o .:? "dataChange")
+    <*> (fromMaybe Map.empty <$> o .:? "partitionValues")
+    <*> (fromMaybe Map.empty <$> o .:? "tags")
 
 -- ============================================================
--- Parser
+-- Stats parsing (the @stats@ string of an AddAction)
+-- ============================================================
+
+-- | Decoded @stats@ JSON for an 'AddAction'. The Delta spec
+-- requires writers to emit at least 'addNumRecords'; the rest
+-- are best-effort and may be missing.
+data AddStats = AddStats
+  { asNumRecords    :: !(Maybe Word64)
+  , asMinValues     :: !(HM.HashMap Text Value)
+  , asMaxValues     :: !(HM.HashMap Text Value)
+  , asNullCount     :: !(HM.HashMap Text Word64)
+  , asTightBounds   :: !(Maybe Bool)
+  } deriving (Show, Eq)
+
+instance FromJSON AddStats where
+  parseJSON = withObject "AddStats" $ \o -> do
+    n   <- o .:? "numRecords"
+    mn  <- fromMaybe HM.empty <$> o .:? "minValues"
+    mx  <- fromMaybe HM.empty <$> o .:? "maxValues"
+    ncR <- fromMaybe HM.empty <$> o .:? "nullCount"
+    tb  <- o .:? "tightBounds"
+    let nc = HM.mapMaybe asWord64 ncR
+    pure AddStats
+      { asNumRecords  = n
+      , asMinValues   = mn
+      , asMaxValues   = mx
+      , asNullCount   = nc
+      , asTightBounds = tb
+      }
+    where
+      asWord64 :: Value -> Maybe Word64
+      asWord64 (Number s) = toBoundedInteger s
+      asWord64 _          = Nothing
+
+-- ============================================================
+-- Delta schema (subset — primitives + structs + arrays + maps)
+-- ============================================================
+
+-- | The decoded form of an @AddAction@'s @schemaString@. Mirrors
+-- the JSON shape Spark / Delta emit:
+--
+-- @
+-- { "type": "struct", "fields": [
+--     { "name": "id", "type": "long", "nullable": false, "metadata": {} },
+--     ...
+--   ]
+-- }
+-- @
+data DeltaSchema = DeltaSchema
+  { dsFields :: ![DeltaField]
+  } deriving (Show, Eq)
+
+data DeltaField = DeltaField
+  { dfName     :: !Text
+  , dfType     :: !DeltaType
+  , dfNullable :: !Bool
+  , dfMetadata :: !(HM.HashMap Text Value)
+  } deriving (Show, Eq)
+
+-- | Delta type names follow Spark's: primitives are strings
+-- (@"long"@, @"string"@, @"boolean"@, …), and @struct@,
+-- @array@, @map@ are nested objects with their own @type@ tags.
+data DeltaType
+  = DTString
+  | DTLong
+  | DTInteger
+  | DTShort
+  | DTByte
+  | DTFloat
+  | DTDouble
+  | DTBoolean
+  | DTBinary
+  | DTDate
+  | DTTimestamp
+  | DTTimestampNtz
+  | DTDecimal !Int !Int       -- ^ precision, scale
+  | DTArray   !DeltaType !Bool   -- ^ element type + containsNull
+  | DTMap     !DeltaType !DeltaType !Bool
+                                  -- ^ key, value, valueContainsNull
+  | DTStruct  ![DeltaField]
+  | DTUnknown !Text
+  deriving (Show, Eq)
+
+-- | Decode a raw @schemaString@ into a typed 'DeltaSchema'.
+parseDeltaSchema :: Text -> Either String DeltaSchema
+parseDeltaSchema t =
+  case decodeStrict' (TE.encodeUtf8 t) :: Maybe Value of
+    Nothing -> Left "Delta.Log.parseDeltaSchema: malformed JSON"
+    Just v  -> case parseStructTop v of
+      Just s  -> Right s
+      Nothing -> Left "Delta.Log.parseDeltaSchema: not a struct schema"
+  where
+    parseStructTop (Object o) = case AKM.lookup "type" o of
+      Just (String "struct") ->
+        case AKM.lookup "fields" o of
+          Just (Array fs) -> Just (DeltaSchema (V.toList (V.mapMaybe parseField fs)))
+          _               -> Just (DeltaSchema [])
+      _ -> Nothing
+    parseStructTop _ = Nothing
+
+    parseField :: Value -> Maybe DeltaField
+    parseField (Object o) = do
+      String n <- AKM.lookup "name" o
+      tyV      <- AKM.lookup "type" o
+      let nullable = case AKM.lookup "nullable" o of
+            Just (Bool b) -> b
+            _             -> True
+      let meta = case AKM.lookup "metadata" o of
+            Just (Object m) -> AKM.foldrWithKey
+              (\k v acc -> HM.insert (AK.toText k) v acc) HM.empty m
+            _ -> HM.empty
+      Just DeltaField
+        { dfName     = n
+        , dfType     = parseDeltaType tyV
+        , dfNullable = nullable
+        , dfMetadata = meta
+        }
+    parseField _ = Nothing
+
+parseDeltaType :: Value -> DeltaType
+parseDeltaType (String s) = case s of
+  "string"        -> DTString
+  "long"          -> DTLong
+  "integer"       -> DTInteger
+  "short"         -> DTShort
+  "byte"          -> DTByte
+  "float"         -> DTFloat
+  "double"        -> DTDouble
+  "boolean"       -> DTBoolean
+  "binary"        -> DTBinary
+  "date"          -> DTDate
+  "timestamp"     -> DTTimestamp
+  "timestamp_ntz" -> DTTimestampNtz
+  other           -> case parseDecimal other of
+    Just (p, sc) -> DTDecimal p sc
+    Nothing      -> DTUnknown other
+parseDeltaType (Object o) = case AKM.lookup "type" o of
+  Just (String "struct") ->
+    case AKM.lookup "fields" o of
+      Just (Array fs) -> DTStruct (V.toList (V.mapMaybe parseFieldHelper fs))
+      _               -> DTStruct []
+  Just (String "array") ->
+    let el = maybe (DTUnknown "<missing element>") parseDeltaType (AKM.lookup "elementType" o)
+        cn = case AKM.lookup "containsNull" o of
+               Just (Bool b) -> b
+               _             -> True
+     in DTArray el cn
+  Just (String "map") ->
+    let k = maybe (DTUnknown "<missing key>")   parseDeltaType (AKM.lookup "keyType"   o)
+        v = maybe (DTUnknown "<missing value>") parseDeltaType (AKM.lookup "valueType" o)
+        cn = case AKM.lookup "valueContainsNull" o of
+               Just (Bool b) -> b
+               _             -> True
+     in DTMap k v cn
+  Just (String other) -> DTUnknown other
+  _ -> DTUnknown "<unknown shape>"
+parseDeltaType _ = DTUnknown "<non-string non-object type>"
+
+parseFieldHelper :: Value -> Maybe DeltaField
+parseFieldHelper (Object o) = do
+  String n <- AKM.lookup "name" o
+  tyV      <- AKM.lookup "type" o
+  let nullable = case AKM.lookup "nullable" o of
+        Just (Bool b) -> b
+        _             -> True
+  Just DeltaField
+    { dfName     = n
+    , dfType     = parseDeltaType tyV
+    , dfNullable = nullable
+    , dfMetadata = HM.empty
+    }
+parseFieldHelper _ = Nothing
+
+-- @"decimal(10,2)"@ → @Just (10, 2)@. Used by 'parseDeltaType'.
+parseDecimal :: Text -> Maybe (Int, Int)
+parseDecimal t = do
+  rest1 <- T.stripPrefix "decimal(" t
+  rest2 <- T.stripSuffix ")"        rest1
+  case T.splitOn "," rest2 of
+    [a, b] -> do
+      pa <- readInt (T.strip a)
+      pb <- readInt (T.strip b)
+      Just (pa, pb)
+    _ -> Nothing
+  where
+    readInt s = case reads (T.unpack s) of
+      [(n, "")] -> Just n
+      _         -> Nothing
+
+-- ============================================================
+-- Snapshot
+-- ============================================================
+
+-- | Active state of the table at a particular log version.
+-- Combines protocol, metadata, the live file set, and the
+-- highest version of each idempotent app id.
+data TableSnapshot = TableSnapshot
+  { tsProtocol :: !(Maybe ProtocolAction)
+  , tsMetaData :: !(Maybe MetaDataAction)
+  , tsFiles    :: !(Map.Map Text AddAction)
+    -- ^ Live data files keyed by 'addPath'.
+  , tsAppIds   :: !(Map.Map Text Word64)
+    -- ^ Highest committed version per @txn.appId@.
+  , tsLastCommit :: !(Maybe CommitInfoAction)
+    -- ^ Most recently observed @commitInfo@.
+  } deriving (Show, Eq)
+
+emptySnapshot :: TableSnapshot
+emptySnapshot = TableSnapshot
+  { tsProtocol   = Nothing
+  , tsMetaData   = Nothing
+  , tsFiles      = Map.empty
+  , tsAppIds     = Map.empty
+  , tsLastCommit = Nothing
+  }
+
+-- | Apply one action to the snapshot. Strict in the snapshot
+-- so a long replay doesn't build a thunk chain.
+applyAction :: TableSnapshot -> DeltaAction -> TableSnapshot
+applyAction !s = \case
+  ActionAdd a        -> s { tsFiles    = Map.insert (addPath a) a (tsFiles s) }
+  ActionRemove r     -> s { tsFiles    = Map.delete (removePath r)  (tsFiles s) }
+  ActionMetaData md  -> s { tsMetaData = Just md }
+  ActionProtocol p   -> s { tsProtocol = Just p }
+  ActionCommitInfo c -> s { tsLastCommit = Just c }
+  ActionTxn t        -> s { tsAppIds = Map.insertWith max (txnAppId t) (txnVersion t) (tsAppIds s) }
+  ActionCdc _        -> s   -- @cdc@ does not affect the live file set
+  ActionOther _      -> s
+
+-- | Replay a chronologically-ordered list of actions into a
+-- 'TableSnapshot'.
+snapshotFromActions :: [DeltaAction] -> TableSnapshot
+snapshotFromActions = foldl applyAction emptySnapshot
+
+-- ============================================================
+-- Last checkpoint pointer (@_last_checkpoint@ JSON)
+-- ============================================================
+
+-- | Decoded @_last_checkpoint@ pointer. Lives at the table
+-- root in @_delta_log/_last_checkpoint@. Lets readers skip the
+-- log walk by jumping straight to the most recent checkpoint
+-- file.
+data LastCheckpoint = LastCheckpoint
+  { lcVersion :: !Word64
+  , lcSize    :: !Word64
+    -- ^ Number of actions in the checkpoint.
+  , lcParts   :: !(Maybe Word64)
+    -- ^ For multi-part checkpoints: number of @.parquet@ files
+    -- holding this checkpoint.
+  , lcSizeInBytes :: !(Maybe Word64)
+  , lcNumOfAddFiles :: !(Maybe Word64)
+  } deriving (Show, Eq)
+
+instance FromJSON LastCheckpoint where
+  parseJSON = withObject "LastCheckpoint" $ \o -> LastCheckpoint
+    <$> o .:  "version"
+    <*> o .:  "size"
+    <*> o .:? "parts"
+    <*> o .:? "sizeInBytes"
+    <*> o .:? "numOfAddFiles"
+
+-- | Parse @_last_checkpoint@ JSON. Returns 'Nothing' on
+-- parser failure (the file is allowed to be absent or
+-- malformed; readers fall back to a full log walk).
+parseLastCheckpoint :: BS.ByteString -> Maybe LastCheckpoint
+parseLastCheckpoint = decodeStrict'
+
+-- ============================================================
+-- Log line / file parsers
 -- ============================================================
 
 -- | Parse one NDJSON line of a Delta log file.
@@ -152,12 +601,15 @@ parseLogLine line = do
             case fromJSON inner of
               Success a -> Just a
               Error _   -> Nothing
-      in case Nothing of
-           _ | Just a  <- pluck "add"      -> Just (ActionAdd a)
-             | Just r  <- pluck "remove"   -> Just (ActionRemove r)
-             | Just md <- pluck "metaData" -> Just (ActionMetaData md)
-             | Just p  <- pluck "protocol" -> Just (ActionProtocol p)
-             | otherwise -> Just (ActionOther (firstKey o))
+       in case Nothing of
+            _ | Just a  <- pluck "add"        -> Just (ActionAdd a)
+              | Just r  <- pluck "remove"     -> Just (ActionRemove r)
+              | Just md <- pluck "metaData"   -> Just (ActionMetaData md)
+              | Just p  <- pluck "protocol"   -> Just (ActionProtocol p)
+              | Just ci <- pluck "commitInfo" -> Just (ActionCommitInfo ci)
+              | Just tx <- pluck "txn"        -> Just (ActionTxn tx)
+              | Just cd <- pluck "cdc"        -> Just (ActionCdc cd)
+              | otherwise -> Just (ActionOther (firstKey o))
     _ -> Nothing
   where
     firstKey o = case AKM.toList o of
@@ -166,24 +618,22 @@ parseLogLine line = do
 
 -- | Parse every NDJSON line of a single log file.
 parseLogFile :: BL.ByteString -> [DeltaAction]
-parseLogFile bs =
-  [ a
-  | line <- BL.split 0x0A bs  -- '\n'
-  , not (BL.null line)
-  , Just a <- [parseLogLine line]
-  ]
+parseLogFile bs = go (BL.split 0x0A bs)
+  where
+    go []       = []
+    go (l : ls)
+      | BL.null l = go ls
+      | otherwise = case parseLogLine l of
+          Just a  -> a : go ls
+          Nothing -> go ls
 
 -- ============================================================
--- Active file derivation
+-- Active file derivation (legacy helper)
 -- ============================================================
 
 -- | Apply every action in order to derive the table's current
--- active file set. @add@s grow the set; @remove@s prune it.
--- Returns the surviving 'AddAction's (which carry path,
--- partition values, stats).
+-- active file set. Equivalent to
+-- @Map.elems . tsFiles . snapshotFromActions@; kept for
+-- compatibility with the original skeleton API.
 activeFiles :: [DeltaAction] -> [AddAction]
-activeFiles = Map.elems . foldl step Map.empty
-  where
-    step !acc (ActionAdd a)    = Map.insert (addPath a) a acc
-    step !acc (ActionRemove r) = Map.delete (removePath r) acc
-    step !acc _                = acc
+activeFiles = Map.elems . tsFiles . snapshotFromActions
