@@ -76,9 +76,9 @@ Drivers:
 
 ## Apache Arrow IPC
 
-|                              | pyarrow 24 | arrow-rs 53 |
+|                              | pyarrow 24 | arrow-rs 58 |
 | ---------------------------- | :--------: | :---------: |
-| **wireform → engine** (26)   |   ✓ 26/26  |   ✓ 25/26   |
+| **wireform → engine** (26)   |   ✓ 26/26  |   ✓ 26/26   |
 
 The 26 files cover every primitive integer width
 (int8/16/32/64, uint8/16/32/64), Float / Double, Binary /
@@ -87,11 +87,19 @@ Decimal128, List<int32>, Struct, dictionary-encoded UTF-8,
 view types (Utf8View / ListView), RunEndEncoded, ZSTD body
 compression, and the file-format (.arrow) variant.
 
-The 1 arrow-rs failure is its own missing `Type ListView not
-supported` for IPC schemas. arrow-rs reads everything else,
-including the recently-added utf8view (which had a wireform
-alignment bug arrow-rs caught — see commit
-"FlatBuffers / Arrow IPC: fix i64 vector alignment for arrow-rs").
+ListView / LargeListView used to fail against arrow-rs 53 with
+`Type ListView not supported` in `arrow-ipc/src/convert.rs`; that
+gap was closed in arrow-rs by [PR
+\#9006](https://github.com/apache/arrow-rs/pull/9006) (merged
+2025-12-18, shipped in the 57.x cycle and round-tripped through
+the Parquet writer in [\#9344](https://github.com/apache/arrow-rs/pull/9344)
+in the 58.0 release, 2026-02-19). The interop pin is now
+`arrow = "58"` and the columnar harness expects every file —
+including `ours_listview.arrows` — to read clean.
+
+(History note: `utf8view` flushed out a wireform alignment bug
+arrow-rs caught — see commit "FlatBuffers / Arrow IPC: fix i64
+vector alignment for arrow-rs".)
 
 Drivers:
 

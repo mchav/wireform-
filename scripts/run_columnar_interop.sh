@@ -69,23 +69,12 @@ if command -v cargo >/dev/null 2>&1; then
   run "Rust arrow-rs (Parquet)" \
     "$ROOT/interop/arrow-rs/target/release/read_parquet" "$TMPPQ"
 
-  # arrow-rs 53 doesn't implement ListView in its IPC convert
-  # module; we emit a known-failing 'ours_listview.arrows' that
-  # we expect the Rust reader to reject. Filter that out before
-  # deciding pass/fail.
-  echo
-  echo "== Rust arrow-rs (Arrow IPC) [skipping known ListView upstream gap]"
-  out=$("$ROOT/interop/arrow-rs/target/release/read_arrow_ipc" "$TMPAR" 2>&1 || true)
-  echo "$out"
-  unexpected=$(echo "$out" | grep "FAIL" | grep -v "ListView" | grep -v "listview" || true)
-  if [ -z "$unexpected" ]; then
-    PASS=$((PASS + 1))
-    echo "  -> Rust arrow-rs (Arrow IPC) PASS (only known ListView failure)"
-  else
-    FAIL=$((FAIL + 1))
-    echo "  -> Rust arrow-rs (Arrow IPC) FAIL with unexpected errors:"
-    echo "$unexpected"
-  fi
+  # arrow-rs >= 58 supports ListView/LargeListView through the
+  # IPC reader, so we now expect every file (including
+  # 'ours_listview.arrows') to round-trip cleanly. If something
+  # regresses, the run helper will surface it as a real failure.
+  run "Rust arrow-rs (Arrow IPC)" \
+    "$ROOT/interop/arrow-rs/target/release/read_arrow_ipc" "$TMPAR"
 else
   echo "(cargo not found; skipping Rust interop probes)"
 fi
