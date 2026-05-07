@@ -110,8 +110,8 @@ Drivers:
 
 |                                          | deltalake (delta-rs) |
 | ---------------------------------------- | :------------------: |
-| **wireform → engine** (commit JSON)      |       ✓ 3/3          |
-| **wireform → engine** (checkpoint Parquet) |     ✓ 1/1          |
+| **wireform → engine** (commit JSON)      |       ✓ 4/4          |
+| **wireform → engine** (checkpoint Parquet) |     ✓ 2/2          |
 
 The wireform-delta probe opens a Delta table via
 `Delta.IO.openDeltaTable`. When a `*.checkpoint.parquet`
@@ -120,7 +120,7 @@ directly via `Delta.Checkpoint.decodeCheckpointFile` (no
 JSON walk through every prior commit), then JSON commits
 with version > checkpoint version are replayed on top.
 
-The Python driver builds three real Delta tables with
+The Python driver builds four real Delta tables with
 `deltalake.write_deltalake`:
 
   * an **unpartitioned** table with a write / append /
@@ -131,17 +131,24 @@ The Python driver builds three real Delta tables with
     + OVERWRITE v13. This forces both code paths: the
     checkpoint Parquet seeds the snapshot at v11, then the
     post-checkpoint commits replay through the JSON walker.
+  * a **partitioned + checkpointed** table — 12 appends to a
+    region-partitioned table + checkpoint at v11. Verifies
+    the typed `map<string, string>` partitionValues leaf and
+    the `list<string>` `metaData.partitionColumns` leaf out of
+    the checkpoint Parquet match what `DeltaTable.metadata()`
+    reports.
 
 For every case the probe's `version`, `active_files`,
 `protocol`, `metadata.partition_columns`,
 `metadata.schema_field_names`, `last_checkpoint.version`,
 and `checkpoint_parquet_version` are cross-checked against
-`DeltaTable.*`. For the checkpointed case the probe
+`DeltaTable.*`. For the checkpointed cases the probe
 additionally surfaces the *standalone* checkpoint-Parquet
 snapshot (`checkpoint_active_files`, `checkpoint_protocol`,
 `checkpoint_metadata`) and the driver verifies it produces
 the same view of the table at v11 that the JSON walker
-would.
+would, including the partitionValues map per active file
+and the partitionColumns list on the metaData row.
 
 Driver: `wireform-delta/scripts/delta_interop.py`.
 

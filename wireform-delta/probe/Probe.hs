@@ -37,7 +37,7 @@ main = do
       case r of
         Right acts -> do
           putStrLn $ "decoded " ++ show (length acts) ++ " action rows"
-          mapM_ (putStrLn . take 240 . show) (take 30 acts)
+          mapM_ (putStrLn . show) (take 30 acts)
         Left  e -> putStrLn ("ERROR: " ++ e)
       exitFailure
     [i]    -> pure (i, Nothing)
@@ -145,6 +145,9 @@ metadataJSON snap = case D.tsMetaData snap of
     [ (Key.fromString "id", Aeson.String (D.mdId md))
     , (Key.fromString "partition_columns",
         Aeson.Array (V.fromList (map Aeson.String (D.mdPartitionColumns md))))
+    , (Key.fromString "configuration", Aeson.Object $
+        KM.fromList [ (Key.fromText k, Aeson.String v)
+                    | (k, v) <- Map.toAscList (D.mdConfiguration md) ])
     , (Key.fromString "schema_field_names", schemaFieldNames md)
     ]
   where

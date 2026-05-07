@@ -177,6 +177,60 @@ def case_partitioned(failures: Failures, root: Path) -> None:
         print(f"  OK   partitioned: {len(deltalake_files)} active files across 2 regions")
 
 
+def case_partitioned_checkpoint(failures: Failures, root: Path) -> None:
+    """Cross-check the *checkpoint Parquet decoder* against
+    deltalake on a partitioned table — verifies that the
+    map<string, string> 'partitionValues' leaf and the
+    list<string> 'metaData.partitionColumns' leaf thread through
+    correctly."""
+    print(f"\n== partitioned + checkpointed table at {root}")
+    for i in range(12):
+        write_deltalake(
+            str(root),
+            pa.table({"region": ["us" if i % 2 else "eu"], "id": [i]}),
+            partition_by=["region"],
+            mode="append" if i > 0 else "error",
+        )
+    DeltaTable(str(root)).create_checkpoint()
+
+    summary = run_probe(root)
+    dt = DeltaTable(str(root))
+
+    # The post-checkpoint snapshot must match deltalake.
+    deltalake_files = sorted(deltalake_relative_files(dt, root))
+    wireform_files  = sorted(f["path"] for f in summary["active_files"])
+    expect_eq(failures, "part-ckpt", "active files",
+              wireform_files, deltalake_files)
+
+    # Every active file's partitionValues must be {"region": "us"|"eu"}.
+    for f in summary["active_files"]:
+        pv = f.get("partition_values") or {}
+        if pv.get("region") not in ("us", "eu"):
+            failures.add("part-ckpt",
+                         f"active file {f['path']} partition_values = {pv!r}")
+
+    # Standalone checkpoint Parquet decoder agrees on the file
+    # set AND on partition columns.
+    ckpt_files = summary["checkpoint_active_files"]
+    if ckpt_files is None:
+        failures.add("part-ckpt", "checkpoint_active_files = null")
+    else:
+        expect_eq(failures, "part-ckpt", "checkpoint vs JSON files",
+                  sorted(ckpt_files), deltalake_files)
+
+    ckpt_meta = summary["checkpoint_metadata"]
+    if ckpt_meta is None:
+        failures.add("part-ckpt",
+                     "checkpoint metadata row not surfaced")
+    else:
+        expect_eq(failures, "part-ckpt", "checkpoint partition_columns",
+                  ckpt_meta["partition_columns"], ["region"])
+
+    if not any(f[0] == "part-ckpt" for f in failures):
+        print(f"  OK   partitioned + checkpointed: {len(deltalake_files)} files, "
+              "partition columns + values + checkpoint metadata all decoded")
+
+
 def case_checkpointed(failures: Failures, root: Path) -> None:
     print(f"\n== checkpointed table at {root}")
 
@@ -289,6 +343,7 @@ def main() -> int:
     case_unpartitioned(failures, out / "table_unpart")
     case_partitioned (failures, out / "table_part")
     case_checkpointed(failures, out / "table_ckpt")
+    case_partitioned_checkpoint(failures, out / "table_part_ckpt")
 
     print()
     if failures:
