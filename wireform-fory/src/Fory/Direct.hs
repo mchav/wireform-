@@ -598,6 +598,9 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Double) where
 -- fallback uses 'B.latin1Bytes' for correctness.
 instance {-# OVERLAPPING #-} EncodeDirect [Text] where
   directEncodePayload !e !xs = do
+    -- 'sizeListText' already does the fused single-pass
+    -- size + short-header walk for cons-lists; the same
+    -- pattern as the 'Vector Text' instance above.
     let (!n, !total, !allShort) = sizeListText xs 0 0 True
     IO.emitVaruint32 e (fromIntegral n)
     if n == 0
@@ -655,10 +658,11 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
       else do
         IO.emitByte e 0x08
         emitTagD e T.STRING
-        let !total =
-              V.foldl' (\acc (TI.Text _ _ len) -> acc + 9 + len) 0 xs
-            !allShort =
-              V.all (\(TI.Text _ _ len) -> len < 32) xs
+        -- Single-pass fold computing both the total upper-
+        -- bound size and whether every element fits in the
+        -- short-header window.
+        let (!total, !allShort) =
+              V.foldl' sizeStep (0 :: Int, True) xs
         IO.withReservedRaw e total $ \p start ->
           if allShort
             then do
@@ -681,6 +685,14 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
             else
               V.foldM' (writeTextOnto p) start xs
   {-# INLINE directEncodePayload #-}
+
+-- | Single-pass step combining size accumulation and the
+-- short-header eligibility check used by the typed list-of-
+-- string fast paths. Saves a second 'V.all' walk over the
+-- input.
+sizeStep :: (Int, Bool) -> Text -> (Int, Bool)
+sizeStep (!s, !sh) (TI.Text _ _ len) = (s + 9 + len, sh && len < 32)
+{-# INLINE sizeStep #-}
 
 -- | Optimistic tag-0 writer used by the batched-SIMD-scan
 -- list-of-string fast path. Writes a 1-byte header tagged
