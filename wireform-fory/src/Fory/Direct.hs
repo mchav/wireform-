@@ -713,10 +713,7 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Double) where
 -- fallback uses 'B.latin1Bytes' for correctness.
 instance {-# OVERLAPPING #-} EncodeDirect [Text] where
   directEncodePayload !e !xs = do
-    -- 'sizeListText' already does the fused single-pass
-    -- size + short-header walk for cons-lists; the same
-    -- pattern as the 'Vector Text' instance above.
-    let (!n, !total, !allShort) = sizeListText xs 0 0 True
+    let (!n, !total, !allShort) = sizeListText xs 0 0 1
     IO.emitVaruint32 e (fromIntegral n)
     if n == 0
       then pure ()
@@ -733,9 +730,6 @@ instance {-# OVERLAPPING #-} EncodeDirect [Text] where
             else
               goWriteList p start xs
     where
-      -- Hand-rolled cons-pattern-matching loops. Recursion is
-      -- monomorphic in @[Text] -> IO Int@ so GHC inlines
-      -- 'writeTextOnto' / 'writeTextOptimistic' fully.
       goWriteList :: Ptr Word8 -> Int -> [Text] -> IO Int
       goWriteList !_  !off []       = pure off
       goWriteList !p !off (t:rest) = do
@@ -751,11 +745,16 @@ instance {-# OVERLAPPING #-} EncodeDirect [Text] where
 -- | Single-pass length + size accumulator for @[Text]@.
 -- Tracks @(count, totalBytes, allShort)@ where @allShort@
 -- is True when every element fits in the
--- @len < 32@ short-header fast-path window.
-sizeListText :: [Text] -> Int -> Int -> Bool -> (Int, Int, Bool)
-sizeListText [] !n !sz !sh = (n, sz, sh)
+-- @len < 32@ short-header fast-path window. Uses an Int
+-- (1 / 0) for the boolean so GHC compiles the recursion
+-- to an unboxed @Int# -> Int# -> Int# -> Int# -> ...@
+-- loop rather than allocating a boxed @Bool@ per
+-- iteration.
+sizeListText :: [Text] -> Int -> Int -> Int -> (Int, Int, Bool)
+sizeListText [] !n !sz !sh = (n, sz, sh /= 0)
 sizeListText (TI.Text _ _ len : ts) !n !sz !sh =
-  sizeListText ts (n + 1) (sz + 9 + len) (sh && len < 32)
+  let !lt = if len < 32 then 1 :: Int else 0
+  in sizeListText ts (n + 1) (sz + 9 + len) (sh * lt)
 
 -- | OVERLAPPING fast path for @Vector Text@. Same two-pass
 -- approach as @[Text]@ but with O(1) 'V.length'. Uses an
@@ -773,41 +772,53 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
       else do
         IO.emitByte e 0x08
         emitTagD e T.STRING
-        -- Single-pass fold computing both the total upper-
-        -- bound size and whether every element fits in the
-        -- short-header window.
-        let (!total, !allShort) =
-              V.foldl' sizeStep (0 :: Int, True) xs
-        IO.withReservedRaw e total $ \p start ->
-          if allShort
-            then do
-              -- Pass 1: optimistic tag-0 writes (1-byte header
-              -- per element, payload memcpy from underlying
-              -- ByteArray#).
-              !endOff <- V.foldM' (writeTextOptimistic p) start xs
-              -- Pass 2: single SIMD scan over the whole
-              -- written region. Since every header byte is
-              -- @(len << 2) | 0@ with @len < 32@, every header
-              -- has the high bit clear; the scan therefore
-              -- only reports a hit if some /payload/ byte
-              -- has the high bit set.
-              if WFFI.isAscii p start (endOff - start)
-                then pure endOff
-                else
-                  -- Mixed list: re-walk with proper per-element
-                  -- LATIN-1 / UTF-8 detection. Rare path.
-                  V.foldM' (writeTextOnto p) start xs
-            else
-              V.foldM' (writeTextOnto p) start xs
+        -- Single-Int hand-rolled fold for the total upper-
+        -- bound byte size only. We /don't/ track a separate
+        -- @allShort@ flag here: the optimistic write writes
+        -- a 1-byte tag-0 header @(len << 2)@, and for
+        -- @len >= 32@ that byte has its high bit set. The
+        -- post-write SIMD ASCII scan therefore detects
+        -- both /payload/ non-ASCII bytes and /malformed/
+        -- short-headers in a single pass, so the
+        -- 'allShort' tracking is redundant.
+        let goSize :: Int -> Int -> Int
+            goSize !i !sz
+              | i >= n = sz
+              | otherwise =
+                  let TI.Text _ _ l = V.unsafeIndex xs i
+                  in goSize (i + 1) (sz + 9 + l)
+            !total = goSize 0 0
+        IO.withReservedRaw e total $ \p start -> do
+          -- Hand-rolled optimistic writer.
+          let goOpt !i !off
+                | i >= n    = pure off
+                | otherwise = do
+                    !off' <-
+                      writeTextOptimistic p off
+                        (V.unsafeIndex xs i)
+                    goOpt (i + 1) off'
+          !endOff <- goOpt 0 start
+          if WFFI.isAscii p start (endOff - start)
+            then pure endOff
+            else do
+              -- Either some payload byte is non-ASCII or
+              -- some element had @len >= 32@ (malformed
+              -- short-header). Either way, re-walk with
+              -- the full per-element 'writeTextOnto'.
+              let goFb !i !off
+                    | i >= n    = pure off
+                    | otherwise = do
+                        !off' <-
+                          writeTextOnto p off
+                            (V.unsafeIndex xs i)
+                        goFb (i + 1) off'
+              goFb 0 start
   {-# INLINE directEncodePayload #-}
 
 -- | Single-pass step combining size accumulation and the
 -- short-header eligibility check used by the typed list-of-
 -- string fast paths. Saves a second 'V.all' walk over the
 -- input.
-sizeStep :: (Int, Bool) -> Text -> (Int, Bool)
-sizeStep (!s, !sh) (TI.Text _ _ len) = (s + 9 + len, sh && len < 32)
-{-# INLINE sizeStep #-}
 
 -- | Optimistic tag-0 writer used by the batched-SIMD-scan
 -- list-of-string fast path. Writes a 1-byte header tagged
