@@ -24,6 +24,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
@@ -41,6 +42,9 @@ main = do
       writeManifestProbe outDir
       writeManifestListProbe outDir
       writeTableMetaProbe outDir
+      writeDeleteManifestProbe outDir
+      writeManifestListWithSummariesProbe outDir
+      writeRichTableMetaProbe outDir
       putStrLn $ "wrote iceberg probe outputs to " ++ outDir
     _ -> do
       putStrLn "usage: wireform-iceberg-interop-probe <output-dir>"
@@ -198,6 +202,257 @@ mkSnapshot = IT.Snapshot
       [ ("operation", "append")
       , ("added-data-files", "2")
       , ("added-records", "300")
+      ]
+  , IT.snapSchemaId       = Just 0
+  , IT.snapFirstRowId     = Nothing
+  , IT.snapKeyId          = Nothing
+  }
+
+-- ============================================================
+-- Delete manifest (manifest_v2_deletes.avro)
+-- ============================================================
+--
+-- A v2 delete-manifest: 'mfContent = DeletesContent' would be set
+-- on the manifest_file pointer in the manifest list, but the
+-- manifest_entry rows themselves carry @data_file.content = 1@
+-- (position deletes) or @= 2@ (equality deletes). Iceberg readers
+-- key off the @content@ tag.
+
+writeDeleteManifestProbe :: FilePath -> IO ()
+writeDeleteManifestProbe outDir = do
+  let !entries = V.fromList
+        [ mkPositionDeleteEntry "data/deletes/pos_001.parquet" 5  1024
+        , mkEqualityDeleteEntry "data/deletes/eq_001.parquet"  3  768
+        ]
+      !bs = IW.writeManifestEntries entries
+  BS.writeFile (outDir </> "manifest_v2_deletes.avro") bs
+
+mkPositionDeleteEntry :: Text -> Int64 -> Int64 -> IT.ManifestEntry
+mkPositionDeleteEntry path nrows nbytes =
+  let !df = (mkDataFile path nrows nbytes)
+              { IT.dataFileContent       = IT.DeletesContent
+              , IT.dataFileColumnSizes   = Map.empty
+              , IT.dataFileValueCounts   = Map.empty
+              , IT.dataFileNullValueCounts = Map.empty
+              , IT.dataFileLowerBounds   = Map.empty
+              , IT.dataFileUpperBounds   = Map.empty
+              , IT.dataFileEqualityIds   = V.empty
+              }
+   in IT.ManifestEntry
+        { IT.meStatus             = IT.Added
+        , IT.meSnapshotId         = Just 1234567892
+        , IT.meSequenceNumber     = Just 3
+        , IT.meFileSequenceNumber = Just 3
+        , IT.meFilePath           = path
+        , IT.meFileFormat         = IT.ParquetFormat
+        , IT.mePartition          = V.empty
+        , IT.meRecordCount        = nrows
+        , IT.meFileSizeBytes      = nbytes
+        , IT.meDataFile           = Just df
+        }
+
+mkEqualityDeleteEntry :: Text -> Int64 -> Int64 -> IT.ManifestEntry
+mkEqualityDeleteEntry path nrows nbytes =
+  let !df = (mkDataFile path nrows nbytes)
+              { IT.dataFileContent       = IT.DeletesContent
+              , IT.dataFileColumnSizes   = Map.empty
+              , IT.dataFileValueCounts   = Map.empty
+              , IT.dataFileNullValueCounts = Map.empty
+              , IT.dataFileLowerBounds   = Map.empty
+              , IT.dataFileUpperBounds   = Map.empty
+              -- Equality-delete files declare which field ids are
+              -- compared per the Iceberg spec.
+              , IT.dataFileEqualityIds   = V.fromList [1]
+              }
+   in IT.ManifestEntry
+        { IT.meStatus             = IT.Added
+        , IT.meSnapshotId         = Just 1234567892
+        , IT.meSequenceNumber     = Just 3
+        , IT.meFileSequenceNumber = Just 3
+        , IT.meFilePath           = path
+        , IT.meFileFormat         = IT.ParquetFormat
+        , IT.mePartition          = V.empty
+        , IT.meRecordCount        = nrows
+        , IT.meFileSizeBytes      = nbytes
+        , IT.meDataFile           = Just df
+        }
+
+-- ============================================================
+-- Manifest list with field summaries
+-- ============================================================
+--
+-- Emits a manifest list pointing at the data manifest, the
+-- partitioned manifest, and the delete manifest above with
+-- realistic counts and per-partition field summaries derived from
+-- the partition tuples.
+
+writeManifestListWithSummariesProbe :: FilePath -> IO ()
+writeManifestListWithSummariesProbe outDir = do
+  let !files = V.fromList
+        [ IT.ManifestFile
+            { IT.mfPath                   = "metadata/manifest_v2.avro"
+            , IT.mfLength                 = 12345
+            , IT.mfPartitionSpecId        = 0
+            , IT.mfContent                = IT.DataContent
+            , IT.mfSequenceNumber         = 1
+            , IT.mfMinSequenceNumber      = 1
+            , IT.mfAddedSnapshotId        = 1234567890
+            , IT.mfAddedDataFilesCount    = Just 2
+            , IT.mfExistingDataFilesCount = Just 0
+            , IT.mfDeletedDataFilesCount  = Just 0
+            , IT.mfAddedRowsCount         = Just 300
+            , IT.mfExistingRowsCount      = Just 0
+            , IT.mfDeletedRowsCount       = Just 0
+            , IT.mfPartitions             = V.empty
+            , IT.mfKeyMetadata            = Nothing
+            , IT.mfFirstRowId             = Nothing
+            }
+        , IT.ManifestFile
+            { IT.mfPath                   = "metadata/manifest_v2_partitioned.avro"
+            , IT.mfLength                 = 23456
+            , IT.mfPartitionSpecId        = 1
+            , IT.mfContent                = IT.DataContent
+            , IT.mfSequenceNumber         = 2
+            , IT.mfMinSequenceNumber      = 2
+            , IT.mfAddedSnapshotId        = 1234567891
+            , IT.mfAddedDataFilesCount    = Just 3
+            , IT.mfExistingDataFilesCount = Just 0
+            , IT.mfDeletedDataFilesCount  = Just 0
+            , IT.mfAddedRowsCount         = Just 310
+            , IT.mfExistingRowsCount      = Just 0
+            , IT.mfDeletedRowsCount       = Just 0
+            , IT.mfPartitions             = V.singleton IT.FieldSummary
+                { IT.fsContainsNull = False
+                , IT.fsContainsNan  = Nothing
+                , IT.fsLowerBound   = Just (TE.encodeUtf8 "A")
+                , IT.fsUpperBound   = Just (TE.encodeUtf8 "B")
+                }
+            , IT.mfKeyMetadata            = Nothing
+            , IT.mfFirstRowId             = Nothing
+            }
+        , IT.ManifestFile
+            { IT.mfPath                   = "metadata/manifest_v2_deletes.avro"
+            , IT.mfLength                 = 4096
+            , IT.mfPartitionSpecId        = 0
+            , IT.mfContent                = IT.DeletesContent
+            , IT.mfSequenceNumber         = 3
+            , IT.mfMinSequenceNumber      = 3
+            , IT.mfAddedSnapshotId        = 1234567892
+            , IT.mfAddedDataFilesCount    = Just 2
+            , IT.mfExistingDataFilesCount = Just 0
+            , IT.mfDeletedDataFilesCount  = Just 0
+            , IT.mfAddedRowsCount         = Just 8
+            , IT.mfExistingRowsCount      = Just 0
+            , IT.mfDeletedRowsCount       = Just 0
+            , IT.mfPartitions             = V.empty
+            , IT.mfKeyMetadata            = Nothing
+            , IT.mfFirstRowId             = Nothing
+            }
+        ]
+      !bs = IW.writeManifestList files
+  BS.writeFile (outDir </> "manifest_list_v2_full.avro") bs
+
+-- ============================================================
+-- Rich table metadata
+-- ============================================================
+--
+-- Exercises the JSON encoder on more of the surface that
+-- pyiceberg.table.metadata.TableMetadataUtil cares about:
+-- * Two snapshots with parent linkage
+-- * A non-trivial partition spec (truncate[1] on @name@)
+-- * A non-trivial sort order (asc, nulls-first on @id@)
+-- * Snapshot refs (a 'main' branch + a 'snap-v1' tag)
+
+writeRichTableMetaProbe :: FilePath -> IO ()
+writeRichTableMetaProbe outDir = do
+  let !meta = IT.TableMetadata
+        { IT.tmFormatVersion        = 2
+        , IT.tmTableUuid            = "550e8400-e29b-41d4-a716-446655440001"
+        , IT.tmLocation             = "s3://example/rich"
+        , IT.tmLastSequenceNumber   = 2
+        , IT.tmLastUpdatedMs        = 1700000010000
+        , IT.tmLastColumnId         = 2
+        , IT.tmSchemas              = V.singleton tableSchema
+        , IT.tmCurrentSchemaId      = 0
+        , IT.tmPartitionSpecs       = V.fromList
+            [ emptyPartitionSpec
+            , richPartitionSpec
+            ]
+        , IT.tmDefaultSpecId        = 1
+        , IT.tmLastPartitionId      = 1000
+        , IT.tmProperties           = Map.fromList
+            [ ("write.format.default", "parquet")
+            , ("history.expire.max-snapshot-age-ms", "604800000")
+            ]
+        , IT.tmCurrentSnapshotId    = Just 1234567891
+        , IT.tmSnapshotRefs         = Map.fromList
+            [ ("main", IT.SnapshotRef
+                { IT.srSnapshotId         = 1234567891
+                , IT.srType               = "branch"
+                , IT.srMaxRefAgeMs        = Nothing
+                , IT.srMaxSnapshotAgeMs   = Just 86400000
+                , IT.srMinSnapshotsToKeep = Just 5
+                })
+            , ("snap-v1", IT.SnapshotRef
+                { IT.srSnapshotId         = 1234567890
+                , IT.srType               = "tag"
+                , IT.srMaxRefAgeMs        = Nothing
+                , IT.srMaxSnapshotAgeMs   = Nothing
+                , IT.srMinSnapshotsToKeep = Nothing
+                })
+            ]
+        , IT.tmSnapshots            = V.fromList [mkSnapshot, mkSnapshot2]
+        , IT.tmSnapshotLog          = V.fromList
+            [ IT.SnapshotLogEntry 1700000000000 1234567890
+            , IT.SnapshotLogEntry 1700000010000 1234567891
+            ]
+        , IT.tmMetadataLog          = V.empty
+        , IT.tmSortOrders           = V.fromList
+            [ emptySortOrder
+            , richSortOrder
+            ]
+        , IT.tmDefaultSortOrderId   = 1
+        , IT.tmStatistics           = V.empty
+        , IT.tmPartitionStatistics  = V.empty
+        , IT.tmNextRowId            = Nothing
+        , IT.tmEncryptionKeys       = Map.empty
+        }
+      !bs = IW.encodeTableMetadata meta
+  BS.writeFile (outDir </> "table_metadata_v2_full.json") bs
+
+richPartitionSpec :: IT.PartitionSpec
+richPartitionSpec = IT.PartitionSpec
+  { IT.psSpecId = 1
+  , IT.psFields = V.singleton IT.PartitionField
+      { IT.pfSourceIds = V.singleton 2
+      , IT.pfFieldId   = 1000
+      , IT.pfName      = "name_trunc"
+      , IT.pfTransform = IT.Truncate 1
+      }
+  }
+
+richSortOrder :: IT.SortOrder
+richSortOrder = IT.SortOrder
+  { IT.soOrderId = 1
+  , IT.soFields  = V.singleton IT.SortField
+      { IT.sortSourceId  = 1
+      , IT.sortTransform = IT.Identity
+      , IT.sortDirection = IT.Asc
+      , IT.sortNullOrder = IT.NullsFirst
+      }
+  }
+
+mkSnapshot2 :: IT.Snapshot
+mkSnapshot2 = IT.Snapshot
+  { IT.snapId             = 1234567891
+  , IT.snapParentId       = Just 1234567890
+  , IT.snapSequenceNumber = 2
+  , IT.snapTimestampMs    = 1700000010000
+  , IT.snapManifestList   = "metadata/manifest_list_v2_full.avro"
+  , IT.snapSummary        = Map.fromList
+      [ ("operation", "append")
+      , ("added-data-files", "3")
+      , ("added-records", "310")
       ]
   , IT.snapSchemaId       = Just 0
   , IT.snapFirstRowId     = Nothing
