@@ -26,6 +26,7 @@ main = do
         , P.fmNumRows   = 1000
         , P.fmRowGroups = V.empty
         , P.fmCreatedBy = Just "wireform"
+        , P.fmColumnOrders = Nothing
         }
 
   let footer = PF.writeFooter metadata

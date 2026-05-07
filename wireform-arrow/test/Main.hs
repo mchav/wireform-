@@ -32,6 +32,7 @@ import Arrow.Column
   ( ColumnArray (..)
   , columnLength
   , materializeRecordBatch
+  , validateMapKeysSorted
   )
 import Arrow.File (asBatches, asSchema, readArrowStream)
 import Arrow.Stream
@@ -42,10 +43,14 @@ import Arrow.Stream
   , defaultWriteOptions
   , encodeArrowStream
   , openStreamReader
+  , streamReaderIter
   , streamReaderNext
+  , streamReaderProjected
   , streamReaderSchema
   , streamReaderToList
   )
+import qualified Columnar.Stream as IS
+import qualified Arrow.Record as AR
 import Arrow.FlatBufferIPC
   ( buildSchemaMessage
   , decodeSchemaMessage
@@ -59,6 +64,27 @@ import Arrow.FlatBufferIPC
   )
 import Arrow.Types
 import Arrow.Write (writeArrowStream)
+
+-- Test records used by 'nestedStructRoundTrip'.
+data Address = Address
+  { cityF :: Text
+  , zipF  :: Text
+  } deriving (Show, Eq)
+
+data Customer = Customer
+  { nameF :: Text
+  , addrF :: Address
+  , ageF  :: Int32
+  } deriving (Show, Eq)
+
+-- | Customer with an optional address — exercises the
+-- 'encoderFromRowEncoder' / 'decoderFromRowDecoder' nullable
+-- nested-struct path.
+data CustomerOpt = CustomerOpt
+  { coNameF     :: Text
+  , maybeAddrF  :: Maybe Address
+  , coAgeF      :: Int32
+  } deriving (Show, Eq)
 
 main :: IO ()
 main = do
@@ -289,7 +315,7 @@ main = do
 flatBufSchemaSelfCheck :: IO ()
 flatBufSchemaSelfCheck = do
   let cases =
-        [ Schema (V.fromList [plainField "a" False (AInt 32 True)]) Little
+        [ Schema (V.fromList [plainField "a" False (AInt 32 True)]) Little V.empty V.empty
         , Schema (V.fromList
             [ plainField "id"     False (AInt 64 True)
             , plainField "name"   True  AUtf8
@@ -297,7 +323,7 @@ flatBufSchemaSelfCheck = do
             , plainField "ts"     True  (ATimestamp Nanosecond (Just "UTC"))
             , plainField "blob"   True  ABinary
             , plainField "tag"    False (AFixedSizeBinary 16)
-            ]) Little
+            ]) Little V.empty V.empty
         , -- Post-V5 type tags (Utf8View / BinaryView / RunEndEncoded /
           -- ListView / LargeListView). Arrow.Column doesn't materialise
           -- their data buffers, but the schema flatbuffer round-trips
@@ -308,7 +334,7 @@ flatBufSchemaSelfCheck = do
             , plainField "ree" True  ARunEndEncoded
             , plainField "lv"  True  AListView
             , plainField "llv" True  ALargeListView
-            ]) Little
+            ]) Little V.empty V.empty
         ]
   mapM_ (\sch -> do
             let bs = buildSchemaMessage sch
@@ -338,6 +364,8 @@ flatBufRoundTrip = do
            , plainField "s" True  AUtf8
            ]
        , arrowEndianness = Little
+       , arrowMetadata   = V.empty
+       , arrowFeatures = V.empty
        })
     (V.fromList
        [ ColInt32      (VP.fromList ([1, 2, 3] :: [Int32]))
@@ -346,7 +374,7 @@ flatBufRoundTrip = do
 
   -- Post-V5 columns: writer + reader byte-compatible end to end.
   highLevelRoundTrip "Utf8View"
-    (Schema (V.singleton (plainField "v" True AUtf8View)) Little)
+    (Schema (V.singleton (plainField "v" True AUtf8View)) Little V.empty V.empty)
     (V.singleton (ColUtf8ViewMaybe (V.fromList
        [ Just "short"
        , Nothing
@@ -358,7 +386,7 @@ flatBufRoundTrip = do
        (V.singleton
           (nestedField "lv" False AListView (V.singleton
              (plainField "item" False (AInt 32 True)))))
-       Little)
+       Little V.empty V.empty)
     (V.singleton (ColListView
        (VP.fromList ([0, 2, 5] :: [Int32]))
        (VP.fromList ([2, 3, 1] :: [Int32]))
@@ -371,7 +399,7 @@ flatBufRoundTrip = do
              [ plainField "run_ends" False (AInt 32 True)
              , plainField "values"   True  (AInt 64 True)
              ]))
-       Little)
+       Little V.empty V.empty)
     (V.singleton (ColRunEndEncoded
        (ColInt32 (VP.fromList ([3, 5, 8] :: [Int32])))
        (ColInt64Maybe (V.fromList [Just 100, Nothing, Just 300]))))
@@ -380,19 +408,47 @@ flatBufRoundTrip = do
   -- the dictionary batch and auto-resolves on read.
   let dictField = Field "d" True AUtf8 V.empty
                     (Just (DictionaryEncoding 0 (AInt 32 True) False))
+                    V.empty
   highLevelRoundTrip "Dictionary<utf8>"
-    (Schema (V.singleton dictField) Little)
+    (Schema (V.singleton dictField) Little V.empty V.empty)
     (V.singleton (ColDictionary 0
         (VP.fromList ([0, 1, 0, 2, 1] :: [Int32]))
         (ColUtf8 (V.fromList ["a", "b", "c"]))))
 
+  -- ANull column: schema metadata round-trip + ColNull row count
+  highLevelRoundTrip "Null"
+    (Schema (V.singleton (plainField "n" False ANull)) Little V.empty V.empty)
+    (V.singleton (ColNull 5))
+
+  -- Custom metadata round-trip on schema + field
+  customMetadataRoundTrip
+
+  -- Nested struct via Arrow.Record.structE / structD
+  nestedStructRoundTrip
+
+  -- Nullable nested struct via encoderFromRowEncoder /
+  -- decoderFromRowDecoder + Arrow.Record.nullable / nullableD.
+  nullableNestedStructRoundTrip
+
+  -- Schema fingerprint: determinism + structural equivalence.
+  schemaFingerprintTests
+
+  -- Record helpers: subsetTable / projectTable /
+  -- columnDWithDefault / NameStrategy / validateMapKeysSorted.
+  recordHelperTests
+
   -- Streaming reader: pull batches one at a time, then drain.
   streamingRoundTrip
-    (Schema (V.fromList [plainField "n" False (AInt 32 True)]) Little)
+    (Schema (V.fromList [plainField "n" False (AInt 32 True)]) Little V.empty V.empty)
     [ V.singleton (ColInt32 (VP.fromList ([1, 2] :: [Int32])))
     , V.singleton (ColInt32 (VP.fromList ([3] :: [Int32])))
     , V.singleton (ColInt32 (VP.fromList ([4, 5, 6, 7] :: [Int32])))
     ]
+
+  -- Column projection on a multi-column stream: a 3-column
+  -- batch should narrow to exactly the requested columns in
+  -- the requested order.
+  projectionRoundTrip
 
   -- ZSTD body compression (writer + reader): exercises
   -- BodyCompression on a multi-column batch, asserting the
@@ -401,7 +457,7 @@ flatBufRoundTrip = do
     (Schema (V.fromList
        [ plainField "n" False (AInt 64 True)
        , plainField "s" False AUtf8
-       ]) Little)
+       ]) Little V.empty V.empty)
     (V.fromList
        [ ColInt64 (VP.fromList
             ([1..1000] :: [Int64]))   -- enough bytes that ZSTD shrinks
@@ -417,7 +473,7 @@ flatBufRoundTrip = do
     (Schema (V.fromList
        [ plainField "n" False (AInt 64 True)
        , plainField "s" False AUtf8
-       ]) Little)
+       ]) Little V.empty V.empty)
     (V.fromList
        [ ColInt64 (VP.fromList ([1..1000] :: [Int64]))
        , ColUtf8 (V.replicate 1000 "highly-compressible-payload")
@@ -569,8 +625,9 @@ dictReplacementRoundTrip = do
   let !sch = Schema
         (V.singleton
            (Field "d" True AUtf8 V.empty
-              (Just (DictionaryEncoding 0 (AInt 32 True) False))))
-        Little
+              (Just (DictionaryEncoding 0 (AInt 32 True) False))
+              V.empty))
+        Little V.empty V.empty
       !batch1 = V.singleton $ ColDictionary 0
         (VP.fromList [0, 1, 0])
         (ColUtf8 (V.fromList ["a", "b"]))
@@ -643,6 +700,314 @@ streamingRoundTrip sch batches = do
                   failTest $ "streamReaderToList: tail mismatch\n got "
                               ++ show rest
                               ++ "\n exp " ++ show (drop 1 batches)
+  -- Iter-shaped variant: the same drain via Columnar.Stream.
+  case openStreamReader bytes of
+    Left e -> failTest $ "openStreamReader (iter): " ++ e
+    Right rd0 ->
+      case IS.iterToList (streamReaderIter rd0) of
+        Left e -> failTest $ "streamReaderIter drain: " ++ e
+        Right got
+          | got == batches ->
+              putStrLn "OK: streamReaderIter drains all batches"
+          | otherwise ->
+              failTest $ "streamReaderIter mismatch:\n got "
+                          ++ show got ++ "\n exp " ++ show batches
+
+-- | Schema-level + field-level @custom_metadata@ pairs survive
+-- a full encode → decode round-trip via the FlatBuffers schema
+-- writer + reader.
+customMetadataRoundTrip :: IO ()
+customMetadataRoundTrip = do
+  let !field = (plainField "n" False (AInt 32 True))
+        { fieldMetadata = V.fromList [("description", "row id"), ("unit", "count")]
+        }
+      !sch = Schema
+        { arrowFields     = V.singleton field
+        , arrowEndianness = Little
+        , arrowMetadata   = V.fromList
+            [ ("pandas", "{}")
+            , ("creator", "wireform-test")
+            ]
+        , arrowFeatures   = V.empty
+        }
+      !batch = V.singleton (ColInt32 (VP.fromList ([1, 2, 3] :: [Int32])))
+      !bytes = encodeArrowStream defaultWriteOptions sch [batch]
+  case decodeArrowStream bytes of
+    Left e -> failTest $ "customMetadata roundtrip: " ++ e
+    Right (sch', _batches) -> do
+      expect "schema custom_metadata roundtrips"
+        (arrowMetadata sch' == arrowMetadata sch)
+      let recoveredField = V.unsafeIndex (arrowFields sch') 0
+      expect "field custom_metadata roundtrips"
+        (fieldMetadata recoveredField == fieldMetadata field)
+
+-- | Nested record via 'structE' + 'structD'. The inner record
+-- (Address) becomes a 'ColStruct' column inside the outer
+-- record (Customer); a round-trip through 'encodeTable' /
+-- 'decodeTable' must recover the exact value.
+nestedStructRoundTrip :: IO ()
+nestedStructRoundTrip = do
+  let !addrEnc = AR.fieldE "city" cityF AR.utf8E
+              <> AR.fieldE "zip"  zipF  AR.utf8E
+      !addrDec = Address
+              <$> AR.columnD "city" AR.utf8D
+              <*> AR.columnD "zip"  AR.utf8D
+      !custEnc = AR.fieldE  "name" nameF        AR.utf8E
+              <> AR.structE "addr" addrF         addrEnc
+              <> AR.fieldE  "age"  ageF          AR.int32E
+      !custDec = Customer
+              <$> AR.columnD "name" AR.utf8D
+              <*> AR.structD "addr" addrDec
+              <*> AR.columnD "age"  AR.int32D
+      !tbl = AR.table custEnc custDec
+      !rows = V.fromList
+        [ Customer "Alice" (Address "Atlantis" "00001") 30
+        , Customer "Bob"   (Address "Brisbane" "4000")  45
+        , Customer "Carol" (Address "Calcutta" "700001") 28
+        ]
+      (!sch, !cols) = AR.encodeTable tbl rows
+      !bytes = encodeArrowStream defaultWriteOptions sch [cols]
+  case decodeArrowStream bytes of
+    Left e -> failTest $ "nested struct decode: " ++ e
+    Right (sch', batches) -> case batches of
+      [batch] -> case AR.decodeTable tbl sch' batch of
+        Left e -> failTest $ "nested struct decodeTable: " ++ e
+        Right got
+          | got == rows ->
+              putStrLn "OK: nested struct via structE / structD"
+          | otherwise ->
+              failTest $ "nested struct mismatch:\n got "
+                          ++ show (V.toList got)
+                          ++ "\n exp " ++ show (V.toList rows)
+      _ -> failTest "nested struct: expected 1 batch"
+
+-- | Nullable nested record. Same shape as 'nestedStructRoundTrip'
+-- but the @addr@ column is @Maybe Address@; the encoder builds
+-- a 'ColStructMaybe' with a top-level validity mask, and the
+-- decoder reconstructs the @Just@/@Nothing@ pattern.
+nullableNestedStructRoundTrip :: IO ()
+nullableNestedStructRoundTrip = do
+  let !addrEnc = AR.fieldE "city" cityF AR.utf8E
+              <> AR.fieldE "zip"  zipF  AR.utf8E
+      !addrDec = Address
+              <$> AR.columnD "city" AR.utf8D
+              <*> AR.columnD "zip"  AR.utf8D
+      !custEnc =     AR.fieldE      "name"     coNameF    AR.utf8E
+                  <> AR.structEMaybe "addr_opt" maybeAddrF addrEnc
+                  <> AR.fieldE      "age"      coAgeF     AR.int32E
+      !custDec = CustomerOpt
+              <$> AR.columnD      "name"     AR.utf8D
+              <*> AR.structDMaybe "addr_opt" addrDec
+              <*> AR.columnD      "age"      AR.int32D
+      !tbl  = AR.table custEnc custDec :: AR.Table CustomerOpt
+      !rows = V.fromList
+        [ CustomerOpt "Alice" (Just (Address "Atlantis" "00001")) 30
+        , CustomerOpt "Bob"   Nothing                              45
+        , CustomerOpt "Carol" (Just (Address "Calcutta" "700001")) 28
+        , CustomerOpt "Dave"  Nothing                              50
+        ]
+      (!sch, !cols) = AR.encodeTable tbl rows
+      !bytes = encodeArrowStream defaultWriteOptions sch [cols]
+  case decodeArrowStream bytes of
+    Left e -> failTest $ "nullable nested struct decode: " ++ e
+    Right (sch', batches) -> case batches of
+      [batch] -> case AR.decodeTable tbl sch' batch of
+        Left e -> failTest $ "nullable nested decodeTable: " ++ e
+        Right got
+          | got == rows ->
+              putStrLn "OK: nullable nested struct via structEMaybe / structDMaybe"
+          | otherwise ->
+              failTest $ "nullable nested mismatch:\n got "
+                          ++ show (V.toList got)
+                          ++ "\n exp " ++ show (V.toList rows)
+      _ -> failTest "nullable nested struct: expected 1 batch"
+
+-- | 'schemaFingerprint' tests: determinism, equivalence-class
+-- equality, and difference detection.
+schemaFingerprintTests :: IO ()
+schemaFingerprintTests = do
+  let !sch1 = Schema
+        (V.fromList
+          [ plainField "id"   False (AInt 64 True)
+          , plainField "name" True  AUtf8
+          ]) Little V.empty V.empty
+      !sch2 = Schema
+        (V.fromList
+          [ plainField "id"   False (AInt 64 True)
+          , plainField "name" True  AUtf8
+          ])
+        Little
+        (V.fromList [("creator", "wireform")])  -- different annotation
+        (V.fromList [FeatureDictionaryReplacement])  -- different feature flag
+      !sch3 = Schema
+        (V.fromList
+          [ plainField "id"    False (AInt 64 True)
+          , plainField "name2" True  AUtf8  -- different field name
+          ]) Little V.empty V.empty
+      !fp1 = schemaFingerprint sch1
+      !fp2 = schemaFingerprint sch2
+      !fp3 = schemaFingerprint sch3
+  expect "fingerprint is deterministic across calls"
+    (fp1 == schemaFingerprint sch1)
+  expect "fingerprint ignores annotation fields"
+    (fp1 == fp2)
+  expect "fingerprint distinguishes different field names"
+    (fp1 /= fp3)
+  expect "schemaEquivalent matches fingerprint equality (1==2)"
+    (schemaEquivalent sch1 sch2 == (fp1 == fp2))
+  expect "schemaEquivalent matches fingerprint equality (1==3)"
+    (schemaEquivalent sch1 sch3 == (fp1 == fp3))
+
+-- | 'NameStrategy', 'columnDWithDefault', 'projectTable',
+-- 'subsetTable', and 'validateMapKeysSorted' tests.
+fst3 :: (a, b, c) -> a
+fst3 (a, _, _) = a
+
+snd3 :: (a, b, c) -> b
+snd3 (_, b, _) = b
+
+recordHelperTests :: IO ()
+recordHelperTests = do
+  -- NameStrategy
+  expect "NameAsIs is identity"
+    (AR.applyNameStrategy AR.NameAsIs "userId" == "userId")
+  expect "NameSnakeCase userId -> user_id"
+    (AR.applyNameStrategy AR.NameSnakeCase "userId" == "user_id")
+  expect "NameSnakeCase userIDValue -> user_id_value (acronym boundary)"
+    (AR.applyNameStrategy AR.NameSnakeCase "userIDValue" == "user_id_value")
+  expect "NameSnakeCase XMLHttpRequest -> xml_http_request"
+    (AR.applyNameStrategy AR.NameSnakeCase "XMLHttpRequest" == "xml_http_request")
+  expect "NameCamelCase user_id -> userId"
+    (AR.applyNameStrategy AR.NameCamelCase "user_id" == "userId")
+  expect "NameUpperSnakeCase userId -> USER_ID"
+    (AR.applyNameStrategy AR.NameUpperSnakeCase "userId" == "USER_ID")
+
+  -- validateMapKeysSorted
+  -- Build a ColMap with sorted keys vs unsorted keys.
+  let !sortedKeys = ColUtf8 (V.fromList ["a", "b", "c"])
+      !unsortedKeys = ColUtf8 (V.fromList ["b", "a", "c"])
+      !vals     = ColInt32 (VP.fromList [1, 2, 3 :: Int32])
+      !offsets  = VP.fromList [0, 3 :: Int32]
+      !sortedMap   = ColMap offsets sortedKeys vals
+      !unsortedMap = ColMap offsets unsortedKeys vals
+  case validateMapKeysSorted sortedMap of
+    Right () -> putStrLn "OK: validateMapKeysSorted accepts sorted keys"
+    Left e   -> failTest $ "expected sorted accept, got " ++ e
+  case validateMapKeysSorted unsortedMap of
+    Left _  -> putStrLn "OK: validateMapKeysSorted rejects unsorted keys"
+    Right () -> failTest "validateMapKeysSorted should have rejected unsorted"
+
+  -- columnDWithDefault: missing column substitutes the default.
+  -- Build a writer that emits only (name, age); the reader
+  -- expects (name, age, opt) and falls back on the default
+  -- for the missing 'opt' column.
+  let !partialEnc =
+              AR.fieldE "name" (fst3 :: (Text, Int32, Text) -> Text)  AR.utf8E
+           <> AR.fieldE "age"  (snd3 :: (Text, Int32, Text) -> Int32) AR.int32E
+      !partialDec =
+              (\n a -> (n, a, "" :: Text))
+            <$> AR.columnD "name" AR.utf8D
+            <*> AR.columnD "age"  AR.int32D
+      !partialTbl = AR.table partialEnc partialDec
+        :: AR.Table (Text, Int32, Text)
+      !partialRows = V.fromList
+        [ ("Alice" :: Text, 30 :: Int32, "ignored" :: Text)
+        , ("Bob",          45,           "ignored")
+        ]
+      (!partialSch, !partialCols) = AR.encodeTable partialTbl partialRows
+      !fullDec =
+              (\n a o -> (n, a, o))
+            <$> AR.columnD "name" AR.utf8D
+            <*> AR.columnD "age"  AR.int32D
+            <*> AR.columnDWithDefault "opt" ("default" :: Text) AR.utf8D
+  case AR.runRowDecoder fullDec (arrowFields partialSch) partialCols of
+    Right got
+      | V.toList got == [("Alice", 30, "default"), ("Bob", 45, "default")] ->
+          putStrLn "OK: columnDWithDefault substitutes for missing column"
+      | otherwise ->
+          failTest $ "columnDWithDefault wrong values: " ++ show (V.toList got)
+    Left e -> failTest $ "columnDWithDefault decode: " ++ e
+
+  -- projectTable: pick a subset of columns by name
+  let (!schWide, !colsWide) =
+        let !enc = AR.fieldE "a" (\(x, _, _) -> x :: Int32) AR.int32E
+                <> AR.fieldE "b" (\(_, y, _) -> y :: Int32) AR.int32E
+                <> AR.fieldE "c" (\(_, _, z) -> z :: Int32) AR.int32E
+            !dec = (,,) <$> AR.columnD "a" AR.int32D
+                       <*> AR.columnD "b" AR.int32D
+                       <*> AR.columnD "c" AR.int32D
+            !tbl = AR.table enc dec :: AR.Table (Int32, Int32, Int32)
+            !rs = V.fromList [(1, 10, 100), (2, 20, 200)]
+        in AR.encodeTable tbl rs
+  case AR.projectTable ["c", "a"] schWide colsWide of
+    Just (sch', cols') -> do
+      let !names = V.toList (V.map fieldName (arrowFields sch'))
+      expect ("projectTable preserves order: got " ++ show names)
+             (names == ["c", "a"])
+      expect "projectTable yields matching column count"
+             (V.length cols' == 2)
+    Nothing -> failTest "projectTable returned Nothing for present cols"
+  case AR.projectTable ["c", "missing"] schWide colsWide of
+    Nothing -> putStrLn "OK: projectTable returns Nothing for missing column"
+    Just _  -> failTest "projectTable should have returned Nothing"
+
+  -- subsetTable: build a Table whose encoder emits only some
+  -- columns
+  let !custTbl = AR.table
+        (    AR.fieldE "name" (fst :: (Text, Int32) -> Text) AR.utf8E
+          <> AR.fieldE "age"  (snd :: (Text, Int32) -> Int32) AR.int32E)
+        ((,) <$> AR.columnD "name" AR.utf8D
+             <*> AR.columnD "age"  AR.int32D)
+        :: AR.Table (Text, Int32)
+  case AR.subsetTable ["name"] custTbl of
+    Just sub -> do
+      let !rsSub = V.fromList [("Alice" :: Text, 30 :: Int32), ("Bob", 45)]
+          (!schSub, !colsSub) = AR.encodeTable sub rsSub
+      expect "subsetTable schema has 1 field"
+             (V.length (arrowFields schSub) == 1)
+      expect "subsetTable schema field is 'name'"
+             (V.toList (V.map fieldName (arrowFields schSub)) == ["name"])
+      expect "subsetTable encoded 1 column"
+             (V.length colsSub == 1)
+    Nothing -> failTest "subsetTable returned Nothing for ['name']"
+  case AR.subsetTable ["nope"] custTbl of
+    Nothing -> putStrLn "OK: subsetTable returns Nothing for missing column"
+    Just _  -> failTest "subsetTable should have returned Nothing"
+
+projectionRoundTrip :: IO ()
+projectionRoundTrip = do
+  let !sch = Schema
+        (V.fromList
+           [ plainField "a" False (AInt 32 True)
+           , plainField "b" False (AInt 64 True)
+           , plainField "c" False AUtf8
+           ])
+        Little V.empty V.empty
+      !batch = V.fromList
+        [ ColInt32 (VP.fromList ([1, 2, 3] :: [Int32]))
+        , ColInt64 (VP.fromList ([10, 20, 30] :: [Int64]))
+        , ColUtf8  (V.fromList ["x", "y", "z"])
+        ]
+      !bytes = encodeArrowStream defaultWriteOptions sch [batch]
+  case openStreamReader bytes of
+    Left e -> failTest $ "projection openStreamReader: " ++ e
+    Right rd0 ->
+      -- Ask for c then a, in that order — should drop b and reorder.
+      case streamReaderProjected ["c", "a"] rd0 of
+        Left e -> failTest $ "streamReaderProjected: " ++ e
+        Right (projSch, batches')
+          | length batches' == 1
+          , [proj] <- batches'
+          , V.length proj == 2
+          , V.length (arrowFields projSch) == 2
+          , fieldName (V.unsafeIndex (arrowFields projSch) 0) == "c"
+          , fieldName (V.unsafeIndex (arrowFields projSch) 1) == "a"
+          , V.unsafeIndex proj 0 == V.unsafeIndex batch 2
+          , V.unsafeIndex proj 1 == V.unsafeIndex batch 0 ->
+              putStrLn "OK: streamReaderProjected narrows + reorders"
+          | otherwise ->
+              failTest $ "streamReaderProjected unexpected: "
+                          ++ show batches'
 
 -- | Generic single-batch round-trip helper for the high-level
 -- 'encodeArrowStream' / 'decodeArrowStream' API.
@@ -668,11 +1033,11 @@ highLevelRoundTrip label sch cols = do
 
 -- | Build a simple leaf field with no children.
 plainField :: Text -> Bool -> ArrowType -> Field
-plainField nm nullable ty = Field nm nullable ty V.empty Nothing
+plainField nm nullable ty = Field nm nullable ty V.empty Nothing V.empty
 
 -- | Field with explicit children, no dictionary.
 nestedField :: Text -> Bool -> ArrowType -> V.Vector Field -> Field
-nestedField nm nullable ty children = Field nm nullable ty children Nothing
+nestedField nm nullable ty children = Field nm nullable ty children Nothing V.empty
 
 -- | Round-trip a pre-built Field/ColumnArray pair.
 roundTripNested :: String -> Field -> ColumnArray -> IO ()
@@ -680,6 +1045,8 @@ roundTripNested label field col = do
   let !schema = Schema
         { arrowEndianness = Little
         , arrowFields = V.singleton field
+        , arrowMetadata = V.empty
+        , arrowFeatures = V.empty
         }
       !stream = writeArrowStream schema (V.singleton (V.singleton col))
   case readArrowStream stream of
@@ -712,7 +1079,10 @@ roundTripPrim label col = do
             , fieldType = ty
             , fieldChildren = V.empty
             , fieldDictionary = Nothing
+            , fieldMetadata   = V.empty
             }
+        , arrowMetadata = V.empty
+        , arrowFeatures = V.empty
         }
       !stream = writeArrowStream schema (V.singleton (V.singleton col))
   case readArrowStream stream of

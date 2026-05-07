@@ -28,7 +28,7 @@ import qualified Codec.Compression.Zstd as Zstd
 #endif
 
 #ifdef HAVE_LZ4
-import qualified Codec.Compression.LZ4 as LZ4
+import qualified Columnar.LZ4 as LZ4
 #endif
 
 #ifdef HAVE_BROTLI
@@ -64,10 +64,12 @@ compressPageBytes ZSTD _ =
 #endif
 
 #ifdef HAVE_LZ4
-compressPageBytes LZ4Raw bs =
-  case LZ4.compress bs of
-    Just out -> Right out
-    Nothing  -> Left "Parquet.Compress: LZ4_RAW compression failed"
+-- LZ4_RAW (Parquet codec id 7): the raw LZ4 block format with
+-- no framing. 'Columnar.LZ4.compress' is a direct FFI call to
+-- liblz4's @LZ4_compress_default@ — output is byte-identical
+-- to what arrow-cpp / parquet-mr / pyarrow emit, so any
+-- modern Parquet reader accepts it.
+compressPageBytes LZ4Raw bs = Right (LZ4.compress bs)
 #else
 compressPageBytes LZ4Raw _ =
   Left "Parquet.Compress: LZ4_RAW requires building wireform with -flz4"

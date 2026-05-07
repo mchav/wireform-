@@ -39,8 +39,10 @@ mkParquetFm = P.FileMetadata
       { P.rgColumns = V.fromList [ idChunk, nameChunk ]
       , P.rgTotalByteSize = 4096
       , P.rgNumRows = 100
+      , P.rgSortingColumns = Nothing
       })
   , P.fmCreatedBy = Just "wireform-parquet test"
+  , P.fmColumnOrders = Nothing
   }
   where
     idChunk = P.ColumnChunk
@@ -55,6 +57,7 @@ mkParquetFm = P.FileMetadata
           , P.cmTotalUncompressedSize = 1024
           , P.cmTotalCompressedSize = 800
           , P.cmDataPageOffset = 4
+          , P.cmDictionaryPageOffset = Nothing
           , P.cmStatistics = Just (P.Statistics
               { P.statMin = Nothing
               , P.statMax = Nothing
@@ -83,6 +86,7 @@ mkParquetFm = P.FileMetadata
           , P.cmTotalUncompressedSize = 2048
           , P.cmTotalCompressedSize = 1500
           , P.cmDataPageOffset = 1024
+          , P.cmDictionaryPageOffset = Nothing
           , P.cmStatistics = Just (P.Statistics
               { P.statMin = Nothing
               , P.statMax = Nothing

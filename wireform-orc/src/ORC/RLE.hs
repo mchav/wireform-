@@ -339,7 +339,13 @@ rleV2DeltaStep signed firstByte bs !off out !written !cap = do
     then return (Left "ORC.RLE: truncated DELTA header")
     else do
       let !encodedW   = (firstByte `shiftR` 1) .&. 0x1F
-          !w          = decodeWidth encodedW
+          -- ORC v2 spec: in DELTA the bit-width field's special
+          -- value 0 means "delta is constant" — the per-delta
+          -- packed payload is omitted and every value is
+          -- @prev + deltaBase@. Outside DELTA, decodeWidth's
+          -- usual table maps 0 -> 1 (one-bit width); we override
+          -- here so the constant-delta path below fires.
+          !w          = if encodedW == 0 then 0 else decodeWidth encodedW
           !lenHigh    = firstByte .&. 1
           !secondByte = fromIntegral (BS.index bs (off + 1)) :: Int
           !headerLen  = (lenHigh `shiftL` 8) .|. secondByte

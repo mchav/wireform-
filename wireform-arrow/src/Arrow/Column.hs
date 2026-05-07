@@ -11,6 +11,10 @@ module Arrow.Column
   , countFieldNodesFlat
   , countBuffersFlat
   , resolveDictionaryColumn
+    -- * Row slicing
+  , sliceColumnArray
+    -- * Map invariants
+  , validateMapKeysSorted
   ) where
 
 import Data.Bits (shiftL, (.|.))
@@ -149,6 +153,11 @@ data ColumnArray
     -- validation; raw bytes.
     ColBinaryView !(V.Vector ByteString)
   | ColBinaryViewMaybe !(V.Vector (Maybe ByteString))
+  | -- | Arrow NULL (@ANull@) column: the spec assigns no
+    -- buffers and no validity bitmap, just a length where every
+    -- row is null. Useful for placeholder columns and for the
+    -- pyarrow-emits-AN-empty-column edge case in test fixtures.
+    ColNull !Int
   deriving stock (Show, Eq)
 
 -- | One field node per top-level field (flat schema).
@@ -161,6 +170,7 @@ buffersPerField f
   | not (V.null (fieldChildren f)) = Left "Arrow.Column: nested fieldChildren not supported in flat mode"
   | otherwise = do
       nData <- case fieldType f of
+        ANull -> Right (-1)  -- ANull has no buffers at all (no validity, no data).
         AInt {} -> Right 1
         ABool -> Right 1
         AFloatingPoint _ -> Right 1
@@ -177,7 +187,10 @@ buffersPerField f
         ADecimal256 _ _ -> Right 1
         AInterval _ -> Right 1
         ty -> Left $ "Arrow.Column: unsupported flat type: " ++ show ty
-      Right $ (if fieldNullable f then 1 else 0) + nData
+      -- ANull contributes 0 buffers regardless of nullability.
+      case fieldType f of
+        ANull -> Right 0
+        _     -> Right $ (if fieldNullable f then 1 else 0) + nData
 
 -- | Total IPC body buffers required for a flat schema.
 countBuffersFlat :: V.Vector Field -> Either String Int
@@ -221,7 +234,15 @@ materializeFields endian fields rb body !nodeIdx !bufIdx
       Right (V.cons c rest)
 
 materializeOne :: Endianness -> Field -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
-materializeOne endian f rb body !nodeIdx !bufIdx =
+materializeOne endian f rb body !nodeIdx !bufIdx
+  -- ANull has no buffers and no validity bitmap (per spec): the
+  -- field node's length is the only state. Same shape regardless
+  -- of fieldNullable.
+  | ANull <- fieldType f =
+      let node = V.unsafeIndex (rbNodes rb) nodeIdx
+          !len = fromIntegral (fnLength node) :: Int
+      in Right (ColNull len, nodeIdx + 1, bufIdx)
+  | otherwise =
   let node = V.unsafeIndex (rbNodes rb) nodeIdx
       !len = fromIntegral (fnLength node) :: Int
   in if fieldNullable f
@@ -1126,7 +1147,15 @@ columnLength = \case
   ColIntervalYearMonth v -> VP.length v
   ColIntervalDayTime d _ -> VP.length d
   ColIntervalMonthDayNano m _ _ -> VP.length m
-  ColFixedSizeList _ child -> columnLength child
+  -- FixedSizeList<n> has parent length = child length / n
+  -- (each row consumes exactly n child elements). The
+  -- previous formula returned child length which made the
+  -- record batch's @length@ field 'n' times larger than the
+  -- actual row count and any downstream reader rejected the
+  -- batch ("Array length did not match record batch length").
+  ColFixedSizeList n child
+    | n > 0     -> columnLength child `quot` n
+    | otherwise -> 0
   ColFixedSizeListMaybe _ v _ -> V.length v
   ColMap offsets _ _ -> max 0 (VP.length offsets - 1)
   ColMapMaybe v _ _ _ -> V.length v
@@ -1148,6 +1177,7 @@ columnLength = \case
   ColUtf8ViewMaybe v   -> V.length v
   ColBinaryView v      -> V.length v
   ColBinaryViewMaybe v -> V.length v
+  ColNull n            -> n
 
 -- | Materialize a record batch with support for nested types.
 -- Walks the schema tree in preorder DFS, consuming field nodes and buffers.
@@ -1730,14 +1760,14 @@ materializeViewColWithVar endian utf8 varCount f rb body !nodeIdx !bufIdx = do
   result <- if utf8
     then do
       decoded <- traverse (decodeUtf8' "Arrow.Column: invalid UTF-8 in Utf8View") rows
-      pure $ case nullableRows of
-        Nothing -> ColUtf8View (V.fromList decoded)
+      case nullableRows of
+        Nothing -> Right (ColUtf8View (V.fromList decoded))
         Just vs ->
           let mkMaybe (Just bs) = Just <$> decodeUtf8' "Arrow.Column: invalid UTF-8 in Utf8View" bs
               mkMaybe Nothing   = Right Nothing
           in case traverse mkMaybe (V.toList vs) of
-               Left e   -> error e
-               Right rs -> ColUtf8ViewMaybe (V.fromList rs)
+               Left e   -> Left e
+               Right rs -> Right (ColUtf8ViewMaybe (V.fromList rs))
     else
       pure $ case nullableRows of
         Nothing -> ColBinaryView (V.fromList rows)
@@ -1770,3 +1800,214 @@ safeIx :: [a] -> Int -> Maybe a
 safeIx xs i
   | i < 0 = Nothing
   | otherwise = case drop i xs of { (x:_) -> Just x; [] -> Nothing }
+
+-- ============================================================
+-- Row slicing
+-- ============================================================
+
+-- | Take @len@ rows starting at @start@ from a 'ColumnArray'.
+--
+-- For the simple primitive shapes (int / float / bool / utf8 /
+-- binary / temporal / decimal / fixed-binary, plus their
+-- @*Maybe@ variants) the slice is structural — no copying of
+-- the underlying primitive vectors when 'V.slice' / 'VP.slice'
+-- can do it. For nested shapes (struct / list / map / union /
+-- dictionary / view / REE) the slice recurses into children
+-- where it has a meaningful definition; constructors with
+-- shared offsets that don't naturally support contiguous
+-- slicing (RunEndEncoded, ListView, etc.) return the original
+-- column unchanged so the caller falls back to per-row
+-- iteration.
+--
+-- @start@ + @len@ are clamped to the column's logical length;
+-- a negative @start@ becomes @0@; a @len@ that runs past the
+-- end is truncated.
+sliceColumnArray :: Int -> Int -> ColumnArray -> ColumnArray
+sliceColumnArray !start0 !len0 col =
+  let !n      = columnLength col
+      !start  = max 0 start0
+      !len    = max 0 (min len0 (n - start))
+  in if len == n && start == 0
+       then col
+       else go start len col
+  where
+    go s l = \case
+      ColInt8 v       -> ColInt8 (VP.slice s l v)
+      ColInt16 v      -> ColInt16 (VP.slice s l v)
+      ColInt32 v      -> ColInt32 (VP.slice s l v)
+      ColInt64 v      -> ColInt64 (VP.slice s l v)
+      ColUInt8 v      -> ColUInt8 (VP.slice s l v)
+      ColUInt16 v     -> ColUInt16 (VP.slice s l v)
+      ColUInt32 v     -> ColUInt32 (VP.slice s l v)
+      ColUInt64 v     -> ColUInt64 (VP.slice s l v)
+      ColFloat16 v    -> ColFloat16 (VP.slice s l v)
+      ColFloat v      -> ColFloat (VP.slice s l v)
+      ColDouble v     -> ColDouble (VP.slice s l v)
+      ColBool v       -> ColBool (V.slice s l v)
+      ColUtf8 v       -> ColUtf8 (V.slice s l v)
+      ColBinary v     -> ColBinary (V.slice s l v)
+      ColLargeUtf8 v  -> ColLargeUtf8 (V.slice s l v)
+      ColLargeBinary v -> ColLargeBinary (V.slice s l v)
+      ColFixedSizeBinary w v -> ColFixedSizeBinary w (V.slice s l v)
+      ColDate32 v     -> ColDate32 (VP.slice s l v)
+      ColDate64 v     -> ColDate64 (VP.slice s l v)
+      ColTime32 v     -> ColTime32 (VP.slice s l v)
+      ColTime64 v     -> ColTime64 (VP.slice s l v)
+      ColTimestamp v  -> ColTimestamp (VP.slice s l v)
+      ColDuration v   -> ColDuration (VP.slice s l v)
+      ColDecimal128 p sc v -> ColDecimal128 p sc (V.slice s l v)
+      ColDecimal256 p sc v -> ColDecimal256 p sc (V.slice s l v)
+      ColIntervalYearMonth v ->
+        ColIntervalYearMonth (VP.slice s l v)
+      ColIntervalDayTime d m ->
+        ColIntervalDayTime (VP.slice s l d) (VP.slice s l m)
+      ColIntervalMonthDayNano m d nano ->
+        ColIntervalMonthDayNano
+          (VP.slice s l m) (VP.slice s l d) (VP.slice s l nano)
+      ColInt8Maybe v  -> ColInt8Maybe (V.slice s l v)
+      ColInt16Maybe v -> ColInt16Maybe (V.slice s l v)
+      ColInt32Maybe v -> ColInt32Maybe (V.slice s l v)
+      ColInt64Maybe v -> ColInt64Maybe (V.slice s l v)
+      ColUInt8Maybe v -> ColUInt8Maybe (V.slice s l v)
+      ColUInt16Maybe v -> ColUInt16Maybe (V.slice s l v)
+      ColUInt32Maybe v -> ColUInt32Maybe (V.slice s l v)
+      ColUInt64Maybe v -> ColUInt64Maybe (V.slice s l v)
+      ColFloat16Maybe v -> ColFloat16Maybe (V.slice s l v)
+      ColFloatMaybe v -> ColFloatMaybe (V.slice s l v)
+      ColDoubleMaybe v -> ColDoubleMaybe (V.slice s l v)
+      ColBoolMaybe v -> ColBoolMaybe (V.slice s l v)
+      ColUtf8Maybe v -> ColUtf8Maybe (V.slice s l v)
+      ColBinaryMaybe v -> ColBinaryMaybe (V.slice s l v)
+      ColLargeUtf8Maybe v -> ColLargeUtf8Maybe (V.slice s l v)
+      ColLargeBinaryMaybe v -> ColLargeBinaryMaybe (V.slice s l v)
+      ColFixedSizeBinaryMaybe w v -> ColFixedSizeBinaryMaybe w (V.slice s l v)
+      ColDate32Maybe v -> ColDate32Maybe (V.slice s l v)
+      ColDate64Maybe v -> ColDate64Maybe (V.slice s l v)
+      ColTime32Maybe v -> ColTime32Maybe (V.slice s l v)
+      ColTime64Maybe v -> ColTime64Maybe (V.slice s l v)
+      ColTimestampMaybe v -> ColTimestampMaybe (V.slice s l v)
+      ColDurationMaybe v -> ColDurationMaybe (V.slice s l v)
+      ColUtf8View v       -> ColUtf8View (V.slice s l v)
+      ColUtf8ViewMaybe v  -> ColUtf8ViewMaybe (V.slice s l v)
+      ColBinaryView v     -> ColBinaryView (V.slice s l v)
+      ColBinaryViewMaybe v -> ColBinaryViewMaybe (V.slice s l v)
+      -- Struct: slice every child column at the same offset.
+      ColStruct children ->
+        ColStruct (V.map (\(nm, c) -> (nm, sliceColumnArray s l c)) children)
+      ColStructMaybe valid children ->
+        ColStructMaybe (V.slice s l valid)
+          (V.map (\(nm, c) -> (nm, sliceColumnArray s l c)) children)
+      ColNull _ -> ColNull l
+      -- Variable-length / nested with shared-buffer semantics:
+      -- offsets index into a flat child column. Slicing the
+      -- offsets vector here keeps the child intact (which is the
+      -- right semantics: an offset slice carves out the
+      -- corresponding sub-range of the child without copying).
+      ColList offsets child ->
+        ColList (VP.slice s (l + 1) offsets) child
+      ColLargeList offsets child ->
+        ColLargeList (VP.slice s (l + 1) offsets) child
+      ColListMaybe valid offsets child ->
+        ColListMaybe (V.slice s l valid)
+          (VP.slice s (l + 1) offsets) child
+      ColLargeListMaybe valid offsets child ->
+        ColLargeListMaybe (V.slice s l valid)
+          (VP.slice s (l + 1) offsets) child
+      ColMap offsets ks vs ->
+        ColMap (VP.slice s (l + 1) offsets) ks vs
+      ColMapMaybe valid offsets ks vs ->
+        ColMapMaybe (V.slice s l valid)
+          (VP.slice s (l + 1) offsets) ks vs
+      -- Constructors whose physical layout doesn't admit a
+      -- straightforward contiguous slice (offsets aren't
+      -- monotonic, run-ends carry counts not row indices, etc.)
+      -- return the input unchanged. Callers that need exact
+      -- per-row slicing can fall back to the per-row iteration
+      -- shape from Arrow.Record.
+      other -> other
+
+-- ============================================================
+-- Map invariants
+-- ============================================================
+
+-- | Check that a 'ColMap' / 'ColMapMaybe' column actually
+-- satisfies its 'AMap' field's @keysSorted@ flag — i.e. that
+-- within every entry slice the keys are non-decreasing.
+--
+-- The Arrow spec lets readers assume key-sorted order when
+-- @keysSorted = True@ (used for binary-search lookups, hash
+-- avoidance, etc.). Writers that set the flag without sorting
+-- the keys silently corrupt every downstream join / lookup.
+-- This helper lets a writer assert the invariant before
+-- emission and lets a reader decide whether to trust the flag.
+--
+-- Returns 'Right ()' if every entry's keys are sorted under
+-- the column's natural ordering. 'Left' carries the index of
+-- the first offending entry plus the offending key pair.
+validateMapKeysSorted :: ColumnArray -> Either String ()
+validateMapKeysSorted = \case
+  ColMap offs keys _vals -> goOffsets offs keys
+  ColMapMaybe _ offs keys _vals -> goOffsets offs keys
+  _ -> Right ()
+  where
+    goOffsets offs keys =
+      let !n = max 0 (VP.length offs - 1)
+          go !i
+            | i >= n = Right ()
+            | otherwise =
+                let !s = fromIntegral (VP.unsafeIndex offs i) :: Int
+                    !e = fromIntegral (VP.unsafeIndex offs (i + 1)) :: Int
+                    !w = e - s
+                in case checkSlice keys s w of
+                     Just (j, k1, k2) ->
+                       Left $ "Arrow.Column.validateMapKeysSorted: entry "
+                                ++ show i ++ " key " ++ show j
+                                ++ " " ++ k1 ++ " > " ++ k2
+                     Nothing -> go (i + 1)
+      in go 0
+
+    -- We can't compare arbitrary boxed values without an Ord
+    -- instance, but ColumnArray's underlying vectors are
+    -- comparable by Show — that's fine here because this is a
+    -- /diagnostic/ helper, not a hot-path validator. Real
+    -- key-by-key comparison would need to dispatch on the
+    -- key column's constructor.
+    checkSlice keys s w =
+      case keys of
+        ColUtf8 v   -> compareSliceShow s w v
+        ColUtf8Maybe v -> compareSliceShow s w v
+        ColInt32 v -> compareSlice s w v
+        ColInt64 v -> compareSlice s w v
+        ColUInt32 v -> compareSlice s w v
+        ColUInt64 v -> compareSlice s w v
+        _ -> Nothing  -- unsupported key type; assume sorted
+
+    compareSlice :: (Ord a, VP.Prim a, Show a)
+                 => Int -> Int -> VP.Vector a -> Maybe (Int, String, String)
+    compareSlice s w v
+      | w < 2 = Nothing
+      | otherwise =
+          let go !j
+                | j >= w = Nothing
+                | otherwise =
+                    let !a = VP.unsafeIndex v (s + j - 1)
+                        !b = VP.unsafeIndex v (s + j)
+                    in if a > b
+                         then Just (j, show a, show b)
+                         else go (j + 1)
+          in go 1
+
+    compareSliceShow :: (Ord a, Show a)
+                     => Int -> Int -> V.Vector a -> Maybe (Int, String, String)
+    compareSliceShow s w v
+      | w < 2 = Nothing
+      | otherwise =
+          let go !j
+                | j >= w = Nothing
+                | otherwise =
+                    let !a = V.unsafeIndex v (s + j - 1)
+                        !b = V.unsafeIndex v (s + j)
+                    in if a > b
+                         then Just (j, show a, show b)
+                         else go (j + 1)
+          in go 1

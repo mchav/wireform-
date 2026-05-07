@@ -37,6 +37,8 @@ schemaRoundtrips = testGroup "Schema roundtrips"
       let msg = SchemaMessage Schema
             { arrowFields = V.empty
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -48,25 +50,30 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldType = AInt 32 True
                 , fieldChildren = V.empty
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
   , testCase "Multiple fields" $ do
       let msg = SchemaMessage Schema
             { arrowFields = V.fromList
-                [ Field (T.pack "name") True AUtf8 V.empty Nothing
-                , Field (T.pack "age") False (AInt 32 True) V.empty Nothing
-                , Field (T.pack "active") False ABool V.empty Nothing
-                , Field (T.pack "score") True (AFloatingPoint DoublePrecision) V.empty Nothing
+                [ Field (T.pack "name") True AUtf8 V.empty Nothing V.empty
+                , Field (T.pack "age") False (AInt 32 True) V.empty Nothing V.empty
+                , Field (T.pack "active") False ABool V.empty Nothing V.empty
+                , Field (T.pack "score") True (AFloatingPoint DoublePrecision) V.empty Nothing V.empty
                 ]
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
   , testCase "Nested struct" $ do
-      let childField = Field (T.pack "x") False (AInt 64 True) V.empty Nothing
+      let childField = Field (T.pack "x") False (AInt 64 True) V.empty Nothing V.empty
           msg = SchemaMessage Schema
             { arrowFields = V.singleton Field
                 { fieldName = T.pack "point"
@@ -74,8 +81,11 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldType = AStruct
                 , fieldChildren = V.singleton childField
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -87,8 +97,11 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldType = AInt 16 False
                 , fieldChildren = V.empty
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Big
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -105,10 +118,12 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                   , ADuration Millisecond
                   , ALargeBinary, ALargeUtf8, ALargeList
                   ]
-          mkField (i, at) = Field (T.pack ("f" ++ show i)) False at V.empty Nothing
+          mkField (i, at) = Field (T.pack ("f" ++ show i)) False at V.empty Nothing V.empty
           msg = SchemaMessage Schema
             { arrowFields = V.fromList (map mkField (zip [(0::Int)..] types))
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -120,8 +135,11 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldType = ATimestamp Nanosecond (Just (T.pack "UTC"))
                 , fieldChildren = V.empty
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -133,8 +151,11 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldType = ATimestamp Microsecond Nothing
                 , fieldChildren = V.empty
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -146,8 +167,11 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldType = AUnion Dense (V.fromList [0, 1, 2])
                 , fieldChildren = V.empty
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -159,8 +183,11 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldType = ADecimal 10 2
                 , fieldChildren = V.empty
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
   ]
@@ -215,8 +242,11 @@ edgeCases = testGroup "Edge cases"
                 , fieldType = ANull
                 , fieldChildren = V.empty
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
   ]
@@ -254,11 +284,14 @@ propertyRoundtrips = testGroup "Property roundtrips"
             , fieldType = AInt bitWidth signed
             , fieldChildren = V.empty
             , fieldDictionary = Nothing
+            , fieldMetadata = V.empty
             }
         ) [0..nFields-1]
       let msg = SchemaMessage Schema
             { arrowFields = V.fromList fields
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) === Right msg
 
@@ -278,8 +311,11 @@ propertyRoundtrips = testGroup "Property roundtrips"
                 , fieldType = fieldType
                 , fieldChildren = V.empty
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) === Right msg
 
@@ -288,6 +324,8 @@ propertyRoundtrips = testGroup "Property roundtrips"
       let msg = SchemaMessage Schema
             { arrowFields = V.empty
             , arrowEndianness = endian
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) === Right msg
 
@@ -325,8 +363,11 @@ columnTests = testGroup "Column materialization"
                 , fieldType = AInt 32 True
                 , fieldChildren = V.empty
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
           rb = RecordBatchDef
             { rbLength = 3
@@ -343,8 +384,8 @@ columnTests = testGroup "Column materialization"
         Right cols -> V.head cols @?= ColInt32Maybe (V.fromList [Just 10, Nothing, Just 30])
 
   , testCase "Struct column" $ do
-      let childX = Field "x" False (AInt 32 True) V.empty Nothing
-          childY = Field "y" False (AInt 32 True) V.empty Nothing
+      let childX = Field "x" False (AInt 32 True) V.empty Nothing V.empty
+          childY = Field "y" False (AInt 32 True) V.empty Nothing V.empty
           schema = Schema
             { arrowFields = V.singleton Field
                 { fieldName = "point"
@@ -352,8 +393,11 @@ columnTests = testGroup "Column materialization"
                 , fieldType = AStruct
                 , fieldChildren = V.fromList [childX, childY]
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
           rb = RecordBatchDef
             { rbLength = 2
@@ -372,7 +416,7 @@ columnTests = testGroup "Column materialization"
             ])
 
   , testCase "List column" $ do
-      let childField = Field "item" False (AInt 32 True) V.empty Nothing
+      let childField = Field "item" False (AInt 32 True) V.empty Nothing V.empty
           schema = Schema
             { arrowFields = V.singleton Field
                 { fieldName = "vals"
@@ -380,8 +424,11 @@ columnTests = testGroup "Column materialization"
                 , fieldType = AList
                 , fieldChildren = V.singleton childField
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
           rb = RecordBatchDef
             { rbLength = 2
@@ -411,8 +458,11 @@ writeRoundtrips = testGroup "Write round-trips"
                 , fieldType = AInt 32 True
                 , fieldChildren = V.empty
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
           vals = VP.fromList [1, 2, 3, 4, 5] :: VP.Vector Int32
           cols = V.singleton (ColInt32 vals)
@@ -429,10 +479,12 @@ writeRoundtrips = testGroup "Write round-trips"
   , testCase "Arrow stream round-trip" $ do
       let schema = Schema
             { arrowFields = V.fromList
-                [ Field "a" False (AInt 32 True) V.empty Nothing
-                , Field "b" False ABool V.empty Nothing
+                [ Field "a" False (AInt 32 True) V.empty Nothing V.empty
+                , Field "b" False ABool V.empty Nothing V.empty
                 ]
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
           batch1 = V.fromList
             [ ColInt32 (VP.fromList [10, 20, 30])
@@ -459,8 +511,11 @@ writeRoundtrips = testGroup "Write round-trips"
                 , fieldType = AInt 32 True
                 , fieldChildren = V.empty
                 , fieldDictionary = Nothing
+                , fieldMetadata = V.empty
                 }
             , arrowEndianness = Little
+            , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
           batch1 = V.singleton (ColInt32 (VP.fromList [100, 200, 300]))
           fileBs = writeArrowFile schema (V.singleton batch1)

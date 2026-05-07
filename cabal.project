@@ -20,6 +20,9 @@ packages:
   wireform-orc/
   wireform-arrow/
   wireform-iceberg/
+  wireform-delta/
+  wireform-lance/
+  wireform-hudi/
   wireform-edn/
   wireform-bencode/
   wireform-toml/

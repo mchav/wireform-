@@ -12,6 +12,8 @@
 module ORC.Read
   ( ORCFile (..)
   , loadORCFile
+  , loadORCFilePath
+  , openORCReader
   , stripeSlice
   , stripeTotalLength
   , loadStripeFooter
@@ -23,6 +25,9 @@ module ORC.Read
   , decodePresentStream
     -- * Stream decompression
   , decompressORCStream
+  , decompressORCStreamSized
+  , defaultORCCompressionBlockSize
+    -- (re-exported from "ORC.Compress" for backward compatibility)
     -- * Column decoders
   , decodeIntColumn
   , decodeBoolColumn
@@ -54,7 +59,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
 import qualified Data.Vector.Primitive as VP
-import Data.Word (Word32, Word64)
+import Data.Word (Word8, Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -65,8 +70,18 @@ import Codec.Compression.Zstd (Decompress (..), decompress)
 #ifdef HAVE_SNAPPY
 import qualified Codec.Compression.Snappy as Snappy
 #endif
+#ifdef HAVE_LZ4
+import qualified Columnar.LZ4 as LZ4
+#endif
 
-import ORC.Footer (readORCCompression, readORCFooter)
+import qualified Columnar.IO as IO
+import qualified Columnar.Stream as IS
+import ORC.Compress
+  ( decompressORCStream
+  , decompressORCStreamSized
+  , defaultORCCompressionBlockSize
+  )
+import ORC.Footer (readORCCompression, readORCCompressionBlockSize, readORCFooter)
 import ORC.RLE
   ( decodeBooleanRLE
   , decodePresentStream
@@ -86,14 +101,58 @@ data ORCFile = ORCFile
   { ofBytes       :: !ByteString
   , ofFooter      :: !ORCFooter
   , ofCompression :: !CompressionKind
+  , ofCompressionBlockSize :: !Int
+    -- ^ Maximum uncompressed length of any one chunk
+    -- (ORC PostScript field 4). Decompressors that need to
+    -- size their output buffer (LZ4, LZO) use this. Defaults
+    -- to 'defaultORCCompressionBlockSize' (256 KiB) for files
+    -- whose PostScript omits the field.
   } deriving stock (Show, Eq)
 
 -- | Read postscript, footer, and parse protobuf footer metadata.
 loadORCFile :: ByteString -> Either String ORCFile
 loadORCFile bs = do
-  ft <- readORCFooter bs
-  ck <- readORCCompression bs
-  Right ORCFile {ofBytes = bs, ofFooter = ft, ofCompression = ck}
+  ft  <- readORCFooter bs
+  ck  <- readORCCompression bs
+  blk <- readORCCompressionBlockSize bs
+  let !blk' = if blk == 0 then defaultORCCompressionBlockSize else blk
+  Right ORCFile
+    { ofBytes = bs
+    , ofFooter = ft
+    , ofCompression = ck
+    , ofCompressionBlockSize = blk'
+    }
+
+-- | Read an ORC file from disk and parse its footer.
+--
+-- Uses 'Columnar.IO.loadFile' under the hood, which mmaps
+-- files above 64 KiB and reads smaller files eagerly. Per-
+-- stripe slices into the resulting 'ByteString' are pointer
+-- arithmetic, so opening a multi-GB file costs only the
+-- footer's worth of page-ins.
+loadORCFilePath :: FilePath -> IO (Either String ORCFile)
+loadORCFilePath path = do
+  bs <- IO.loadFile path
+  pure (loadORCFile bs)
+
+-- | Open an ORC file as an 'IS.IterIO' over its stripe
+-- indices. Each step yields one stripe index on demand;
+-- callers join with 'ORC.Arrow.orcStripeToArrow' (or
+-- 'stripeColumnStreams') to materialise stripe data.
+openORCReader
+  :: FilePath
+  -> IO (Either String (ORCFile, IS.IterIO Int))
+openORCReader path = do
+  loaded <- loadORCFilePath path
+  case loaded of
+    Left e -> pure (Left e)
+    Right ofile ->
+      let !nStripes = V.length (orcStripes (ofFooter ofile))
+          mkIter k = IS.IterIO $ pure $
+            if k >= nStripes
+              then Right IS.IterIODone
+              else Right (IS.IterIOYield k (mkIter (k + 1)))
+      in pure (Right (ofile, mkIter 0))
 
 ------------------------------------------------------------------------
 -- Stripe access
@@ -120,7 +179,10 @@ stripeSlice ofile idx = do
         then Left "ORC.Read: stripe slice out of bounds"
         else Right $! BS.take len (BS.drop off bs)
 
--- | Parse the protobuf stripe footer for a stripe index.
+-- | Parse the protobuf stripe footer for a stripe index. ORC
+-- wraps stripe footers in the file's compression envelope (same
+-- as data streams + the file footer), so we decompress here
+-- before handing bytes to 'decodeStripeFooter'.
 loadStripeFooter :: ORCFile -> Int -> Either String StripeFooter
 loadStripeFooter ofile idx = do
   stripe <- stripeSlice ofile idx
@@ -130,7 +192,11 @@ loadStripeFooter ofile idx = do
     then Left "ORC.Read: stripe index out of range"
     else do
       let si = V.unsafeIndex ss idx
-      fb <- stripeFooterBytes stripe si
+      rawFb <- stripeFooterBytes stripe si
+      fb    <- decompressORCStreamSized
+                 (ofCompressionBlockSize ofile)
+                 (ofCompression ofile)
+                 rawFb
       decodeStripeFooter fb
 
 -- | Physical stream payloads for one stripe (footer order), using lengths from
@@ -144,77 +210,15 @@ stripeColumnStreams ofile idx = do
 ------------------------------------------------------------------------
 -- Stream decompression
 ------------------------------------------------------------------------
-
--- | Decompress an ORC stream using the file's compression codec.
 --
--- ORC wraps each compressed chunk with a 3-byte LE header encoding
--- @(chunkLength * 2 + isOriginal)@. 'CompressionNone' passes through.
-{-# INLINE decompressORCStream #-}
-decompressORCStream :: CompressionKind -> ByteString -> Either String ByteString
-decompressORCStream CompressionNone bs = Right bs
-decompressORCStream kind bs = decompressChunks kind bs 0 []
-
-decompressChunks :: CompressionKind -> ByteString -> Int -> [ByteString] -> Either String ByteString
-decompressChunks kind bs !off !acc
-  | off >= BS.length bs = Right $! BS.concat (reverse acc)
-  | off + 3 > BS.length bs = Left "ORC.Read: truncated compression header"
-  | otherwise = do
-      let !b0     = fromIntegral (BS.index bs off) :: Word64
-          !b1     = fromIntegral (BS.index bs (off + 1)) :: Word64
-          !b2     = fromIntegral (BS.index bs (off + 2)) :: Word64
-          !header = b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16)
-          !isOrig = header .&. 1 == 1
-          !cLen   = fromIntegral (header `shiftR` 1) :: Int
-      if off + 3 + cLen > BS.length bs
-        then Left "ORC.Read: compression chunk extends past stream end"
-        else do
-          let !chunk = BS.take cLen (BS.drop (off + 3) bs)
-          decoded <- if isOrig
-            then Right chunk
-            else decompressBlock kind chunk
-          decompressChunks kind bs (off + 3 + cLen) (decoded : acc)
-
-decompressBlock :: CompressionKind -> ByteString -> Either String ByteString
-decompressBlock CompressionNone bs = Right bs
-decompressBlock CompressionZlib bs = tryZlibRaw bs
-decompressBlock CompressionSnappy bs = trySnappy bs
-#ifdef HAVE_ZSTD
-decompressBlock CompressionZstd bs = tryZstd bs
-#endif
-decompressBlock c _ =
-  Left $
-    "ORC.Read: compression "
-      ++ show c
-      ++ " not supported (use None, Zlib, Snappy with -fsnappy"
-#ifdef HAVE_ZSTD
-      ++ ", Zstandard with -fzstd"
-#endif
-      ++ ")"
-
-tryZlibRaw :: ByteString -> Either String ByteString
-tryZlibRaw bs =
-  unsafePerformIO $ do
-    er <- try @SomeException $ evaluate $ BL.toStrict $ ZlibRaw.decompress $ BL.fromStrict bs
-    case er of
-      Left e  -> pure $ Left $ "ORC.Read: zlib decompress failed: " ++ show e
-      Right x -> pure $ Right x
-
-trySnappy :: ByteString -> Either String ByteString
-#ifdef HAVE_SNAPPY
-trySnappy bs = Right (Snappy.decompress bs)
-#else
-trySnappy _ =
-  Left "ORC.Read: Snappy requires building wireform with -fsnappy"
-#endif
-
-#ifdef HAVE_ZSTD
-tryZstd :: ByteString -> Either String ByteString
-tryZstd bs =
-  case decompress bs of
-    Decompress out -> Right out
-    Skip           -> Left "ORC.Read: zstd decompress skipped"
-    Error msg      -> Left $ "ORC.Read: zstd decompress failed: " ++ msg
-#endif
+-- All ORC stream-decompression logic lives in "ORC.Compress"
+-- so 'ORC.Footer' (which needs to decompress the footer) and
+-- 'ORC.Read' (which needs to decompress column streams) can
+-- share the same implementation without forming a cycle. The
+-- 'decompressORCStream' / 'decompressORCStreamSized' /
+-- 'defaultORCCompressionBlockSize' names are re-exported from
+-- this module's export list so callers that already import
+-- them from ORC.Read keep working.
 
 ------------------------------------------------------------------------
 -- Column decoders
@@ -524,13 +528,14 @@ readColumn ofile stripeIdx colIdx expectedKind = do
               !mDataBs     = findStreamPayload streams col64 skData
               !mPresentBs  = findStreamPayload streams col64 skPresent
               !comp        = ofCompression ofile
+              !blk         = ofCompressionBlockSize ofile
           case mDataBs of
             Nothing -> Left "ORC.Read: no DATA stream for column"
             Just rawData -> do
-              dataBs <- decompressORCStream comp rawData
+              dataBs <- decompressORCStreamSized blk comp rawData
               mPresent <- case mPresentBs of
                 Nothing -> Right Nothing
-                Just rp -> Just <$> decompressORCStream comp rp
+                Just rp -> Just <$> decompressORCStreamSized blk comp rp
               let !stripes = orcStripes (ofFooter ofile)
                   !nRows   = fromIntegral (siNumberOfRows (V.unsafeIndex stripes stripeIdx)) :: Int
               decodeIntColumn True nRows dataBs mPresent

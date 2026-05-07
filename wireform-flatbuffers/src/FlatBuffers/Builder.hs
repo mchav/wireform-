@@ -442,10 +442,46 @@ writeVectorInt32 b xs = do
   currentUOff b
 
 -- | Emit a vector of signed int64 scalars.
+--
+-- Per the FlatBuffers spec, vector elements must start at an
+-- absolute byte position that's a multiple of @elem_size@ in
+-- the final buffer. With the u32 length prefix sitting 4 bytes
+-- /before/ the elements, we need the length prefix at file
+-- position @≡ 4 mod 8@ so the i64 elements land at @≡ 0 mod 8@.
+--
+-- Because flatbuffers are built backwards, "file position" of
+-- the length prefix is @final_size - bufSize_after@; pad here
+-- to make @bufSize_before + pad ≡ 0 mod 8@. (The general
+-- 'prepForObject' helper assumes no length prefix and is only
+-- correct for fixed-size structs.)
 writeVectorInt64 :: Builder -> [Int64] -> IO Int
 writeVectorInt64 b xs = do
   let !n = length xs
-  prepForObject b (4 + 8 * n) 8
+  prepForVector b (8 * n) 8
   mapM_ (prependI64 b) (reverse xs)
   prependU32 b (fromIntegral n)
   currentUOff b
+
+-- | Pad so that a vector with a 4-byte u32 length prefix
+-- followed by @bytes@ bytes of @align@-aligned elements lands
+-- with its elements at file-position-multiple-of-@align@.
+--
+-- See 'writeVectorInt64' for the derivation. The general
+-- shape applies to any vector of fixed-size elements:
+--
+--   pad such that bufSize_before + pad ≡ 0 mod align
+--
+-- The total number of bytes written into the prepared region
+-- is 4 (length) + bytes (data); @bytes@ itself must be a
+-- multiple of @align@ (true for fixed-size element vectors).
+prepForVector :: Builder -> Int -> Int -> IO ()
+prepForVector b dataBytes align = do
+  noteMinAlign b align
+  !cur <- readIORef (bufSize b)
+  let !pad = (negate cur) .&. (align - 1)
+  prependBS b (BS.replicate pad 0)
+  -- Caller still has to write 4 bytes of length + dataBytes;
+  -- noting dataBytes here (unused below) keeps the doc honest
+  -- + lets future callers extend the helper.
+  let _ = dataBytes
+  pure ()

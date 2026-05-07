@@ -78,16 +78,29 @@ module Arrow.Record
   , rowEncoderFields
   , runRowEncoder
   , fieldE
+  , structE
+  , structEMaybe
     -- * Row-level decoder
   , RowDecoder
   , runRowDecoder
+  , rowDecoderRequiredColumns
   , columnD
+  , columnDWithDefault
+  , structD
+  , structDMaybe
+    -- * Column-name strategies
+  , NameStrategy (..)
+  , applyNameStrategy
     -- * Table (round-trip pair)
   , Table (..)
   , table
   , tableSchema
+  , tableRequiredColumns
   , encodeTable
   , decodeTable
+    -- * Subset / projection
+  , subsetTable
+  , projectTable
   ) where
 
 import Data.ByteString (ByteString)
@@ -95,10 +108,13 @@ import Data.Functor.Contravariant (Contravariant (..))
 import Data.Int (Int8, Int16, Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
 import Data.Word (Word8, Word16, Word32, Word64)
 
+import qualified Arrow.Column as AC
+import Data.Maybe (fromMaybe, isJust)
 import Arrow.Column (ColumnArray (..))
 import Arrow.Types
   ( ArrowType (..)
@@ -109,6 +125,8 @@ import Arrow.Types
   , Schema (..)
   , TimeUnit (..)
   )
+-- AStruct is the constructor in ArrowType; explicit re-import
+-- isn't needed because ArrowType (..) brings it in scope.
 
 -- ============================================================
 -- Encoder
@@ -402,8 +420,80 @@ fieldE name sel enc = RowEncoder
       , fieldType       = encoderType enc
       , fieldChildren   = V.empty
       , fieldDictionary = Nothing
+      , fieldMetadata   = V.empty
       }]
   , runRowEncoder = \rs -> [runEncoder enc (V.map sel rs)]
+  }
+
+-- | Embed a nested record as a struct column.
+--
+-- Lifts a 'RowEncoder' for a child record type @c@ into a
+-- 'RowEncoder' for the parent @r@ that emits the child's
+-- column tree under one named @ColStruct@ field. The struct's
+-- children are exactly the child encoder's fields (in the
+-- order they were declared with '<>').
+--
+-- @
+-- data Address = Address { city :: Text, zip :: Text }
+-- data Customer = Customer { name :: Text, addr :: Address }
+--
+-- addressEnc :: 'RowEncoder' Address
+-- addressEnc = 'fieldE' "city" city utf8E
+--           <> 'fieldE' "zip"  zip  utf8E
+--
+-- customerEnc :: 'RowEncoder' Customer
+-- customerEnc = 'fieldE'  "name" name  utf8E
+--            <> 'structE' "addr" addr  addressEnc
+-- @
+structE :: Text -> (r -> c) -> RowEncoder c -> RowEncoder r
+structE name sel inner = RowEncoder
+  { rowEncoderFields = [Field
+      { fieldName       = name
+      , fieldNullable   = False
+      , fieldType       = AStruct
+      , fieldChildren   = V.fromList (rowEncoderFields inner)
+      , fieldDictionary = Nothing
+      , fieldMetadata   = V.empty
+      }]
+  , runRowEncoder = \rs ->
+      let !innerCols = runRowEncoder inner (V.map sel rs)
+          !childNames = map fieldName (rowEncoderFields inner)
+          !named = V.fromList (zip childNames innerCols)
+      in  [ColStruct named]
+  }
+
+-- | Like 'structE' but the parent rows are @Maybe c@: emits
+-- a 'ColStructMaybe' with a top-level validity mask + child
+-- columns. Child slots whose parent validity bit is unset are
+-- arbitrary on the wire (Arrow spec, Layout.rst, "Struct
+-- Layout") so we fill them by substituting the first present
+-- row's value; if every row is 'Nothing' the children are
+-- empty (the validity mask is all @False@ and consumers won't
+-- index into them).
+--
+-- Pair with 'structDMaybe' on the read side. Together they
+-- give @Maybe c@ a clean nested-record encoding without
+-- requiring per-encoder children metadata on every primitive.
+structEMaybe :: Text -> (r -> Maybe c) -> RowEncoder c -> RowEncoder r
+structEMaybe name sel inner = RowEncoder
+  { rowEncoderFields = [Field
+      { fieldName       = name
+      , fieldNullable   = True
+      , fieldType       = AStruct
+      , fieldChildren   = V.fromList (rowEncoderFields inner)
+      , fieldDictionary = Nothing
+      , fieldMetadata   = V.empty
+      }]
+  , runRowEncoder = \rs ->
+      let !mvs   = V.map sel rs
+          !valid = V.map isJust mvs
+          !cs    = case V.find isJust mvs of
+                     Just (Just present) -> V.map (fromMaybe present) mvs
+                     _                   -> V.empty
+          !innerCols  = runRowEncoder inner cs
+          !childNames = map fieldName (rowEncoderFields inner)
+          !named      = V.fromList (zip childNames innerCols)
+      in  [ColStructMaybe valid named]
   }
 
 -- ============================================================
@@ -417,34 +507,47 @@ fieldE name sel enc = RowEncoder
 -- 'RowDecoder' is an 'Applicative': combine several 'columnD'
 -- calls with @<$>@ + @<*>@ to build a record.
 data RowDecoder r = RowDecoder
-  { runRowDecoder :: !(V.Vector Field -> V.Vector ColumnArray -> Either String (V.Vector r))
+  { rowDecoderRequiredColumns :: ![Text]
+    -- ^ Names of columns the decoder consults when run.
+    -- Order matches first appearance in the applicative chain;
+    -- duplicates removed. Useful for column projection: a
+    -- caller can ask the source format to only materialise
+    -- these columns rather than the whole record batch.
+  , runRowDecoder :: !(V.Vector Field -> V.Vector ColumnArray -> Either String (V.Vector r))
   }
 
 instance Functor RowDecoder where
-  fmap f (RowDecoder run) = RowDecoder $ \fs cs ->
+  fmap f (RowDecoder cs0 run) = RowDecoder cs0 $ \fs cs ->
     V.map f <$> run fs cs
 
 instance Applicative RowDecoder where
-  pure x = RowDecoder $ \_fs cs ->
+  pure x = RowDecoder [] $ \_fs cs ->
     -- Length comes from the first column; an empty batch yields
     -- V.empty. If callers need a fixed row count with no
     -- columns they can rely on 'pure' inside an outer
     -- 'liftA2'-chained RowDecoder that has at least one column.
     let !n = if V.null cs then 0 else columnLen (V.head cs)
     in  Right (V.replicate n x)
-  RowDecoder runF <*> RowDecoder runX = RowDecoder $ \fs cs -> do
-    fvec <- runF fs cs
-    xvec <- runX fs cs
-    if V.length fvec /= V.length xvec
-      then Left $ "Arrow.Record.<*>: column length mismatch ("
-                  ++ show (V.length fvec) ++ " vs " ++ show (V.length xvec) ++ ")"
-      else Right (V.zipWith ($) fvec xvec)
+  RowDecoder cF runF <*> RowDecoder cX runX = RowDecoder
+    (mergeRequired cF cX) $ \fs cs -> do
+      fvec <- runF fs cs
+      xvec <- runX fs cs
+      if V.length fvec /= V.length xvec
+        then Left $ "Arrow.Record.<*>: column length mismatch ("
+                    ++ show (V.length fvec) ++ " vs " ++ show (V.length xvec) ++ ")"
+        else Right (V.zipWith ($) fvec xvec)
+
+-- | Order-preserving union of two 'rowDecoderRequiredColumns'
+-- lists. Used by the Applicative instance to maintain the
+-- "first appearance" order as decoders are combined.
+mergeRequired :: [Text] -> [Text] -> [Text]
+mergeRequired xs ys = xs ++ filter (`notElem` xs) ys
 
 -- | Decode the named column via the supplied 'Decoder'. Looks
 -- the column up by 'Field' name in the schema the caller passes
 -- to 'runRowDecoder'; returns 'Left' if the name isn't present.
 columnD :: Text -> Decoder a -> RowDecoder a
-columnD name d = RowDecoder $ \fs cs -> do
+columnD name d = RowDecoder [name] $ \fs cs -> do
   idx <- case V.findIndex ((== name) . fieldName) fs of
     Just i  -> Right i
     Nothing -> Left $ "Arrow.Record.columnD: no column named " ++ show name
@@ -453,43 +556,156 @@ columnD name d = RowDecoder $ \fs cs -> do
     Right vs -> Right vs
     Left  e  -> Left $ "Arrow.Record.columnD " ++ show name ++ ": " ++ e
 
--- Tiny helper: vector-length accessor that works on all
--- ColumnArray shapes. We re-implement here to avoid pulling in
--- Arrow.Column.columnLength's bigger definition (its
--- dependency closure is heavier).
+-- | Like 'columnD' but supplies a default value if the
+-- column is missing from the source schema. Useful for
+-- schema-evolution: an older Parquet file dropped a column
+-- that the Haskell record still wants; instead of failing,
+-- the decoder substitutes the default.
+--
+-- Decoding errors on a /present/ column still propagate
+-- (e.g. wrong type); only "no such column" falls back.
+columnDWithDefault :: Text -> a -> Decoder a -> RowDecoder a
+columnDWithDefault name def d = RowDecoder [name] $ \fs cs ->
+  case V.findIndex ((== name) . fieldName) fs of
+    Nothing ->
+      -- Missing column: produce default for every row. Length
+      -- comes from the first present column; an empty batch
+      -- yields V.empty.
+      let !n = if V.null cs then 0 else AC.columnLength (V.head cs)
+      in  Right (V.replicate n def)
+    Just idx ->
+      let !col = V.unsafeIndex cs idx
+      in case runDecoder d col of
+           Right vs -> Right vs
+           Left  e  -> Left $ "Arrow.Record.columnDWithDefault "
+                                ++ show name ++ ": " ++ e
+
+-- | Strategy for converting a record's selector name to its
+-- on-the-wire column name. Mirrors the @renameStyle@ modifier
+-- vocabulary in "Wireform.Derive".
+data NameStrategy
+  = NameAsIs
+    -- ^ Use the selector name unchanged.
+  | NameSnakeCase
+    -- ^ @userId@ → @user_id@. Inserts an underscore before any
+    -- uppercase letter that follows a lowercase one and
+    -- lower-cases the result.
+  | NameCamelCase
+    -- ^ @user_id@ → @userId@. Drops underscores and
+    -- upper-cases the following character.
+  | NameUpperSnakeCase
+    -- ^ @userId@ → @USER_ID@. snake-case + upper-case.
+  deriving (Show, Eq)
+
+-- | Apply a 'NameStrategy' to a 'Text' selector name.
+applyNameStrategy :: NameStrategy -> Text -> Text
+applyNameStrategy NameAsIs        = id
+applyNameStrategy NameSnakeCase   = T.toLower . toSnake
+  where
+    toSnake t = T.pack (go ' ' (T.unpack t))
+    -- Walk char-by-char carrying the previous character so we
+    -- can decide whether to insert an underscore before an
+    -- uppercase letter:
+    --
+    --   * insert when the previous char was lowercase (the
+    --     usual word-boundary case: userId -> user_id)
+    --   * insert when the next char is lowercase /and/ the
+    --     previous char was uppercase (acronym→word boundary:
+    --     userIDValue -> user_id_value, where the _ before V
+    --     comes from this rule)
+    --
+    -- Simple, deterministic, and matches what 'inflection' /
+    -- ActiveSupport / serde do.
+    go _    []           = []
+    go prev (c : cs)
+      | isUp c
+      , isLow prev
+        || (isUp prev && case cs of
+                           (n:_) -> isLow n
+                           []    -> False)
+      = '_' : c : go c cs
+      | otherwise = c : go c cs
+    isUp  c = c >= 'A' && c <= 'Z'
+    isLow c = c >= 'a' && c <= 'z'
+applyNameStrategy NameCamelCase   = toCamel
+  where
+    toCamel t =
+      let parts = T.splitOn (T.pack "_") t
+      in case parts of
+           []      -> T.empty
+           (p:ps)  -> T.concat (T.toLower p : map cap ps)
+    cap t
+      | T.null t  = t
+      | otherwise = T.cons (toUpper1 (T.head t)) (T.tail t)
+    toUpper1 c
+      | c >= 'a' && c <= 'z' = toEnum (fromEnum c - 32)
+      | otherwise            = c
+applyNameStrategy NameUpperSnakeCase =
+  T.toUpper . applyNameStrategy NameSnakeCase
+
+-- | Inverse of 'structE': decode a 'ColStruct' column at the
+-- given name as a record using the supplied inner 'RowDecoder'.
+-- The inner decoder sees the struct's child fields + child
+-- columns; the outer decoder threads the nested record into the
+-- parent record's applicative chain like any other column.
+structD :: Text -> RowDecoder c -> RowDecoder c
+structD name inner = RowDecoder [name] $ \fs cs -> do
+  idx <- case V.findIndex ((== name) . fieldName) fs of
+    Just i  -> Right i
+    Nothing -> Left $ "Arrow.Record.structD: no column named " ++ show name
+  let !parentField = V.unsafeIndex fs idx
+      !col         = V.unsafeIndex cs idx
+  case col of
+    ColStruct childCols -> do
+      let !childFields = fieldChildren parentField
+          !childCols'  = V.map snd childCols
+      case runRowDecoder inner childFields childCols' of
+        Right rs -> Right rs
+        Left  e  -> Left $ "Arrow.Record.structD " ++ show name ++ ": " ++ e
+    other ->
+      Left $ "Arrow.Record.structD " ++ show name
+              ++ ": expected ColStruct, got " ++ takeWhile (/= ' ') (show other)
+
+-- | Like 'structD' but the column may be a 'ColStructMaybe' —
+-- decodes per-row to @Maybe c@ honouring the parent validity
+-- mask. Required-struct columns are accepted too (every row
+-- becomes 'Just').
+structDMaybe :: Text -> RowDecoder c -> RowDecoder (Maybe c)
+structDMaybe name inner = RowDecoder [name] $ \fs cs -> do
+  idx <- case V.findIndex ((== name) . fieldName) fs of
+    Just i  -> Right i
+    Nothing -> Left $ "Arrow.Record.structDMaybe: no column named " ++ show name
+  let !parentField = V.unsafeIndex fs idx
+      !col         = V.unsafeIndex cs idx
+      !childFields = fieldChildren parentField
+      mask vs valid =
+        if V.length vs /= V.length valid
+          then Left $ "Arrow.Record.structDMaybe " ++ show name
+                ++ ": child length " ++ show (V.length vs)
+                ++ " /= validity length " ++ show (V.length valid)
+          else Right $ V.zipWith
+                 (\b v -> if b then Just v else Nothing) valid vs
+  case col of
+    ColStruct childCols -> do
+      let !childCols' = V.map snd childCols
+      case runRowDecoder inner childFields childCols' of
+        Right rs -> Right (V.map Just rs)
+        Left  e  -> Left $ "Arrow.Record.structDMaybe " ++ show name ++ ": " ++ e
+    ColStructMaybe valid childCols -> do
+      let !childCols' = V.map snd childCols
+      case runRowDecoder inner childFields childCols' of
+        Right rs -> mask rs valid
+        Left  e  -> Left $ "Arrow.Record.structDMaybe " ++ show name ++ ": " ++ e
+    other ->
+      Left $ "Arrow.Record.structDMaybe " ++ show name
+        ++ ": expected ColStruct/ColStructMaybe, got "
+        ++ takeWhile (/= ' ') (show other)
+
+-- | Vector length of a 'ColumnArray'. Now delegates to
+-- 'Arrow.Column.columnLength' (originally re-implemented here
+-- to dodge a non-existent import cycle).
 columnLen :: ColumnArray -> Int
-columnLen = \case
-  ColInt8 v     -> VP.length v
-  ColInt16 v    -> VP.length v
-  ColInt32 v    -> VP.length v
-  ColInt64 v    -> VP.length v
-  ColUInt8 v    -> VP.length v
-  ColUInt16 v   -> VP.length v
-  ColUInt32 v   -> VP.length v
-  ColUInt64 v   -> VP.length v
-  ColFloat v    -> VP.length v
-  ColDouble v   -> VP.length v
-  ColBool v     -> V.length v
-  ColUtf8 v     -> V.length v
-  ColBinary v   -> V.length v
-  ColInt8Maybe v    -> V.length v
-  ColInt16Maybe v   -> V.length v
-  ColInt32Maybe v   -> V.length v
-  ColInt64Maybe v   -> V.length v
-  ColUInt8Maybe v   -> V.length v
-  ColUInt16Maybe v  -> V.length v
-  ColUInt32Maybe v  -> V.length v
-  ColUInt64Maybe v  -> V.length v
-  ColFloatMaybe v   -> V.length v
-  ColDoubleMaybe v  -> V.length v
-  ColBoolMaybe v    -> V.length v
-  ColUtf8Maybe v    -> V.length v
-  ColBinaryMaybe v  -> V.length v
-  ColDate32 v       -> VP.length v
-  ColDate32Maybe v  -> V.length v
-  ColTimestamp v    -> VP.length v
-  ColTimestampMaybe v -> V.length v
-  _ -> 0
+columnLen = AC.columnLength
 
 -- ============================================================
 -- Table
@@ -513,7 +729,16 @@ tableSchema :: Table r -> Schema
 tableSchema t = Schema
   { arrowFields     = V.fromList (rowEncoderFields (tableEncode t))
   , arrowEndianness = Little
+  , arrowMetadata   = V.empty
+  , arrowFeatures = V.empty
   }
+
+-- | Names of the columns the 'Table''s decoder needs. Equivalent
+-- to @'rowDecoderRequiredColumns' . 'tableDecode'@; surfaced
+-- here so callers can drive column projection through a
+-- 'Table' without unpacking the inner 'RowDecoder'.
+tableRequiredColumns :: Table r -> [Text]
+tableRequiredColumns = rowDecoderRequiredColumns . tableDecode
 
 -- | Encode a vector of records as an Arrow batch + its schema.
 -- The schema comes from 'tableSchema'; the batch is parallel to
@@ -538,3 +763,60 @@ decodeTable t sch cs =
 -- Map import is kept for future @byIndex@ variants.
 _mapShim :: Map.Map Text Int
 _mapShim = Map.empty
+
+-- ============================================================
+-- Subset / projection
+-- ============================================================
+
+-- | Build a 'Table' for a subset of columns by name. The
+-- resulting decoder ignores columns not in @keep@; the encoder
+-- only emits the kept ones. Useful for callers that have a
+-- single 'Table' and want to read or write only a slice
+-- without writing a parallel @Table SubsetRecord@.
+--
+-- Returns 'Nothing' if any name in @keep@ isn't present in the
+-- original table.
+subsetTable :: [Text] -> Table r -> Maybe (Table r)
+subsetTable keep tbl =
+  let !srcFields = rowEncoderFields (tableEncode tbl)
+      keepIdx :: [Int]
+      keepIdx = [ i | nm <- keep
+                    , (i, f) <- zip [0..] srcFields
+                    , fieldName f == nm ]
+  in if length keepIdx /= length keep
+       then Nothing
+       else Just Table
+         { tableEncode = subsetRowEncoder keepIdx (tableEncode tbl)
+         , tableDecode = tableDecode tbl  -- decoder uses byName lookup so subset is automatic
+         }
+
+subsetRowEncoder :: [Int] -> RowEncoder r -> RowEncoder r
+subsetRowEncoder keepIdx (RowEncoder fields0 run0) = RowEncoder
+  { rowEncoderFields = [ fields0 !! i | i <- keepIdx ]
+  , runRowEncoder    = \rs ->
+      let !allCols = run0 rs
+      in  [ allCols !! i | i <- keepIdx ]
+  }
+
+-- | Project an existing batch by column name, in the order
+-- listed. Returns 'Nothing' if any name is missing.
+--
+-- Together with @'subsetTable'@ this lets callers reuse one
+-- 'Table' definition across read paths that materialise
+-- different column subsets.
+projectTable
+  :: [Text]
+  -> Schema
+  -> V.Vector ColumnArray
+  -> Maybe (Schema, V.Vector ColumnArray)
+projectTable keep sch cols = do
+  let !nameToIdx = Map.fromList
+        [ (fieldName f, i)
+        | (i, f) <- V.toList (V.indexed (arrowFields sch))
+        ]
+  idxs <- traverse (`Map.lookup` nameToIdx) keep
+  let !newFields = V.fromList
+        [ V.unsafeIndex (arrowFields sch) i | i <- idxs ]
+      !newCols   = V.fromList
+        [ V.unsafeIndex cols i | i <- idxs ]
+  pure (sch { arrowFields = newFields }, newCols)
