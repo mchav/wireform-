@@ -680,21 +680,78 @@ emitMapHomogeneousPayload !e !kvs !keyTag !valTag
 emitNamedStructListFast :: IO.Encoder -> Vector VV.Value -> IO ()
 emitNamedStructListFast !e !vs =
   case V.find (not . isNoneV) vs of
-    Just (VV.RegisteredStructVal ns nm _) ->
+    Just (VV.RegisteredStructVal ns nm sample) ->
       case lookupSchema e ns nm of
         Just sch ->
           let !canonical = ST.fieldOrder sch
               !hashCode  = ST.ssHash sch
+              -- Resolve the canonical -> user-field-index
+              -- permutation once from the first non-null
+              -- element. Subsequent elements are assumed to
+              -- have the same field-name ordering (the
+              -- standard pattern for typed users — they
+              -- construct via a single helper like
+              -- @mkPerson@). On mismatch we crash via the
+              -- 'V.unsafeIndex' bounds-check rather than
+              -- silently emit garbage.
+              !perm = computeFieldPerm canonical sample
           in V.forM_ vs $ \x -> case x of
                VV.RegisteredStructVal _ _ fields ->
-                 emitRegisteredStructWithSchema e canonical hashCode fields
+                 emitRegisteredStructPermuted
+                   e canonical perm hashCode fields
                _ -> emitUntaggedPayload e x
         Nothing -> V.forM_ vs $ \x -> emitUntaggedPayload e x
     -- Heterogeneous (StructVal vs RegisteredStructVal) or
     -- all-None: fall back to the generic per-element path.
     _ -> V.forM_ vs $ \x -> emitUntaggedPayload e x
 
--- | Inner emitter shared by 'emitNamedStructListFast'.
+-- | Compute a 'Vector Int' that maps canonical field
+-- positions to user-field positions. @perm[i]@ is the
+-- index into @userFields@ that holds the @i@-th
+-- canonical field's value. Used by
+-- 'emitRegisteredStructPermuted' so the per-struct emit
+-- doesn't pay an O(fields) name-lookup at every element.
+computeFieldPerm
+  :: Vector ST.FieldSpec
+  -> VV.StructFields
+  -> Vector Int
+computeFieldPerm !canonical !fields =
+  V.map findIdx canonical
+  where
+    findIdx spec = case lookupIdx (ST.fsName spec) fields 0 of
+      Just i  -> i
+      Nothing -> error $ "Fory.Encode: field "
+                          ++ T.unpack (ST.fsName spec)
+                          ++ " missing from RegisteredStructVal"
+
+    lookupIdx :: Text -> VV.StructFields -> Int -> Maybe Int
+    lookupIdx !name !fs !i
+      | i >= V.length fs = Nothing
+      | fst (V.unsafeIndex fs i) == name = Just i
+      | otherwise = lookupIdx name fs (i + 1)
+
+-- | Inner emitter for 'emitNamedStructListFast'. Same
+-- contract as 'emitRegisteredStructWithSchema' but uses a
+-- precomputed canonical -> user-index permutation
+-- (@perm@) so each per-field access is an O(1)
+-- 'V.unsafeIndex' instead of an O(fields) name-keyed scan
+-- through 'VV.registeredStructFieldByName'.
+emitRegisteredStructPermuted
+  :: IO.Encoder
+  -> Vector ST.FieldSpec
+  -> Vector Int
+  -> Int32
+  -> VV.StructFields
+  -> IO ()
+emitRegisteredStructPermuted !e !canonical !perm !hashCode !fields = do
+  IO.emitInt32LE e hashCode
+  V.iforM_ canonical $ \i spec -> do
+    let !userIdx     = V.unsafeIndex perm i
+        (_, !v)      = V.unsafeIndex fields userIdx
+    emitRegisteredField e spec v
+
+-- | Inner emitter shared by 'emitTypedPayload' on a single
+-- struct (where the permutation isn't pre-resolved).
 -- Writes the 4-byte fingerprint hash and the canonical-order
 -- field payloads for a single struct, given the cached
 -- schema fields.
