@@ -529,18 +529,25 @@ sameTypeFastPath !tag = case tag of
 -- batch with a single 'IO.withReservedRaw' call.
 emitStringListFast :: IO.Encoder -> Vector VV.Value -> IO ()
 emitStringListFast !e !vs = do
-  -- Single-pass size accumulator over each Text's underlying
-  -- UTF-8 byte length. No per-element 'TE.encodeUtf8'
-  -- allocation; the per-element write reads the Text's
-  -- 'TA.Array' directly via 'TH.byteArrayIsAscii' +
-  -- 'TH.copyTextArrayToPtr'.
-  let !totalSize = V.foldl' sumOne 0 vs
-  IO.withReservedRaw e totalSize $ \p start ->
-    V.foldM' (writeOne p) start vs
+  -- Hand-rolled monomorphic 'Int# -> Int# -> Int#' size
+  -- walk; avoids the 'V.foldl' closure allocation for the
+  -- accumulator that GHC otherwise has to box.
+  let !nVs = V.length vs
+      goSize !i !sz
+        | i >= nVs = sz
+        | otherwise = case V.unsafeIndex vs i of
+            VV.StringVal (TI.Text _ _ l) ->
+              goSize (i + 1) (sz + 9 + l)
+            v -> error $ "emitStringListFast: non-StringVal " ++ show v
+      !totalSize = goSize 0 0
+  IO.withReservedRaw e totalSize $ \p start -> do
+    let goWr !i !off
+          | i >= nVs = pure off
+          | otherwise = do
+              !off' <- writeOne p off (V.unsafeIndex vs i)
+              goWr (i + 1) off'
+    goWr 0 start
   where
-    sumOne :: Int -> VV.Value -> Int
-    sumOne !acc (VV.StringVal (TI.Text _ _ len)) = acc + 9 + len
-    sumOne _ v = error $ "emitStringListFast: non-StringVal " ++ show v
 
     writeOne :: Ptr Word8 -> Int -> VV.Value -> IO Int
     writeOne !p !off (VV.StringVal t@(TI.Text arr srcOff len))
