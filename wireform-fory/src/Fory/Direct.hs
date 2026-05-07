@@ -43,7 +43,7 @@ module Fory.Direct
   , readForyStringDirect
   ) where
 
-import Data.Bits (shiftL, shiftR, (.&.), (.|.))
+import Data.Bits (shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
@@ -63,6 +63,7 @@ import qualified Data.Primitive.ByteArray as PBA
 import qualified Data.Primitive.Ptr as PBP
 import qualified Data.Vector as V
 import Data.Vector (Vector)
+import qualified Data.Vector.Mutable as VM
 import qualified Data.Vector.Storable as VS
 import Data.Word (Word8, Word16, Word32, Word64)
 import Data.IORef (readIORef, writeIORef)
@@ -977,6 +978,60 @@ instance forall a. DecodeDirect a => DecodeDirect (Vector a) where
             case directRawPeek @a of
               Just rdr -> D.readSameTypeBatch count rdr
               Nothing  -> V.replicateM count (directDecodePayload @a)
+
+-- | OVERLAPPING fast path for @Vector Int@ decode.
+--
+-- The polymorphic 'readSameTypeBatch'-driven path pays
+-- per-element overhead from the @rdr :: Ptr Word8 -> Int
+-- -> IO (a, Int)@ contract: a fresh @(Int64, Int)@ tuple
+-- allocation per element (visible in Core as
+-- @(W64# ..., I# ...) -> case ipv5 of (val, pos')@) plus
+-- a boxed-Int @pos@ accumulator that gets unboxed and
+-- reboxed on every iteration.
+--
+-- This instance writes the inner loop directly with raw
+-- pointer + 'Int#' offsets, calling the inlined
+-- @goVu64@ varuint reader and writing into the
+-- 'VM.unsafeNew' / 'VM.unsafeWrite' / freeze pipeline
+-- with no per-element tuple allocation.
+instance {-# OVERLAPPING #-} DecodeDirect (Vector Int) where
+  directDecodePayload = do
+    count <- fromIntegral <$> D.readVaruint32D
+    if count == 0
+      then pure V.empty
+      else do
+        flag <- D.readByteD
+        if flag /= 0x08
+          then D.failD ("Fory.Direct: expected IS_SAME_TYPE list, got flag "
+                         ++ show flag)
+          else do
+            _tag <- D.readVaruint32D
+            decodeVecIntInline count
+
+decodeVecIntInline :: Int -> D.DecodeM (Vector Int)
+decodeVecIntInline !count = D.DecodeM $ \d -> do
+  pos0 <- readIORef (D.decPos d)
+  let !p = D.decBase d
+  mvec <- VM.unsafeNew count
+  let goVecInt !i !pos
+        | i >= count = pure pos
+        | otherwise = do
+            (!w, !pos1) <- D.peekVaruint64Raw p pos
+            -- Inline zigzag — same as 'D.peekVarint64Raw'
+            -- but bypasses its boxed (Int64, Int) tuple
+            -- result. Decode 'Int' directly from
+            -- 'Word64' / 'Int64' without the extra
+            -- 'fromIntegral' round-trip the polymorphic
+            -- path would do.
+            let !signed = fromIntegral (w `shiftR` 1) :: Int64
+                !sgn    = fromIntegral (w .&. 1) :: Int64
+                !i64    = signed `xor` (-sgn)
+            VM.unsafeWrite mvec i (fromIntegral i64 :: Int)
+            goVecInt (i + 1) pos1
+  posF <- goVecInt 0 pos0
+  writeIORef (D.decPos d) posF
+  V.unsafeFreeze mvec
+{-# INLINE decodeVecIntInline #-}
 
 
 -- ---------------------------------------------------------------------------
