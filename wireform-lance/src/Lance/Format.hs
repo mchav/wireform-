@@ -8,9 +8,7 @@
 --
 -- @
 -- ┌──────────────────────────────────┐
--- │ "LANC" magic                     │  (4 bytes, leading)
--- ├──────────────────────────────────┤
--- │ Data pages                       │
+-- │ Data pages                       │  (start of file, no leading magic)
 -- │   Data Buffer 0                  │
 -- │   …                              │
 -- │   Data Buffer BN                 │
@@ -80,7 +78,9 @@ import Data.Int (Int64)
 import qualified Data.Vector as V
 import Data.Word (Word16, Word32, Word64)
 
--- | The 4-byte magic at the start and end of every Lance file.
+-- | The 4-byte magic at the /end/ of every Lance file. The
+-- format does not place a magic at the start of the file (the
+-- first byte is simply the first byte of the first data page).
 lanceMagic :: ByteString
 lanceMagic = BS.pack [0x4C, 0x41, 0x4E, 0x43]  -- "LANC"
 
@@ -151,12 +151,15 @@ footerSize = 8 + 8 + 8 + 4 + 4 + 2 + 2 + 4
 -- | Validate the magic envelope of a Lance file, parse the
 -- footer, and return the assembled 'LanceFile'. Errors are
 -- reported by the @Left@ branch of 'Either'.
+--
+-- Per the spec the file does /not/ have a leading magic; only
+-- the trailing 4 bytes ("LANC") are checked here. Validation of
+-- the leading data-page region is the job of the protobuf
+-- 'ColumnMetadata' decoder downstream.
 readLanceFile :: ByteString -> Either String LanceFile
 readLanceFile bs
-  | BS.length bs < footerSize + 4 =
-      Left "Lance.Format: file too short for footer + leading magic"
-  | BS.take 4 bs /= lanceMagic =
-      Left "Lance.Format: missing leading LANC magic"
+  | BS.length bs < footerSize =
+      Left "Lance.Format: file too short for footer"
   | otherwise = do
       footer <- parseFooter bs
       Right LanceFile { lfBytes = bs, lfFooter = footer }

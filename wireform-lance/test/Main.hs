@@ -21,33 +21,29 @@ main = defaultMain $ testGroup "wireform-lance"
   [ testCase "envelope round-trip" envelopeTest
   , testCase "footer fields decoded" footerTest
   , testCase "column metadata extraction" columnMetaTest
-  , testCase "missing leading magic is rejected" missingLeadingMagicTest
   , testCase "missing trailing magic is rejected" missingTrailingMagicTest
   , testCase "file shorter than footer is rejected" tooShortTest
   ]
 
 -- | Build a minimal Lance file:
 --
---   * leading "LANC" magic
 --   * one column metadata blob (3 dummy bytes 0xAA 0xBB 0xCC)
 --   * column offset table: one (u64 pos, u64 size) entry
 --   * empty global-buffers offset table
 --   * 40-byte footer pointing at the above
 --
--- Total = 4 + 3 + 16 + 0 + 40 = 63 bytes.
+-- Total = 3 + 16 + 0 + 40 = 59 bytes.
 sampleFile :: BS.ByteString
 sampleFile = BS.concat
-  [ leadingMagic
-  , columnBlob
+  [ columnBlob
   , cmoTable
   , gboTable
   , footer
   ]
   where
-    leadingMagic = L.lanceMagic                          -- offset 0..3
-    columnBlob   = BS.pack [0xAA, 0xBB, 0xCC]            -- offset 4..6
-    cmoTable     = packU64 4 <> packU64 3                -- offset 7..22
-    gboTable     = BS.empty                              -- offset 23..22 (no entries)
+    columnBlob   = BS.pack [0xAA, 0xBB, 0xCC]            -- offset 0..2
+    cmoTable     = packU64 0 <> packU64 3                -- offset 3..18
+    gboTable     = BS.empty                              -- offset 19..18 (no entries)
     footer       =
       BS.concat
         [ packU64 (fromIntegral colMeta0Off)             --  0..7
@@ -60,9 +56,9 @@ sampleFile = BS.concat
         , L.lanceMagic                                   -- 36..39
         ]
 
-    colMeta0Off = 4 :: Int
-    cmoOff      = 7 :: Int
-    gboOff      = 23 :: Int
+    colMeta0Off = 0 :: Int
+    cmoOff      = 3 :: Int
+    gboOff      = 19 :: Int
     numGlobal   = 0 :: Int
     numCols     = 1 :: Int
     majV        = 2 :: Int
@@ -77,9 +73,9 @@ footerTest :: Assertion
 footerTest = case L.parseFooter sampleFile of
   Left err -> assertFailure err
   Right f  -> do
-    L.lfColumnMeta0Offset f @?= 4
-    L.lfCMOTableOffset    f @?= 7
-    L.lfGBOTableOffset    f @?= 23
+    L.lfColumnMeta0Offset f @?= 0
+    L.lfCMOTableOffset    f @?= 3
+    L.lfGBOTableOffset    f @?= 19
     L.lfNumGlobalBuffers  f @?= 0
     L.lfNumColumns        f @?= 1
     L.lfMajorVersion      f @?= 2
@@ -94,18 +90,11 @@ columnMetaTest = case L.readLanceFile sampleFile of
       Right tbl -> do
         V.length tbl @?= 1
         let s = V.head tbl
-        L.csPosition s @?= 4
+        L.csPosition s @?= 0
         L.csSize     s @?= 3
     case L.extractColumnMetadataBytes lf 0 of
       Right bytes -> bytes @?= BS.pack [0xAA, 0xBB, 0xCC]
       Left  err   -> assertFailure err
-
-missingLeadingMagicTest :: Assertion
-missingLeadingMagicTest =
-  let corrupt = BS.cons 0x00 (BS.drop 1 sampleFile)
-   in case L.readLanceFile corrupt of
-        Left _  -> pure ()
-        Right _ -> assertFailure "expected Left for corrupted leading magic"
 
 missingTrailingMagicTest :: Assertion
 missingTrailingMagicTest =
