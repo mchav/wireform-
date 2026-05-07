@@ -29,6 +29,7 @@ import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath ((</>), takeFileName, takeBaseName, takeExtension)
 import Text.Read (readMaybe)
 
+import qualified Delta.Checkpoint as Checkpoint
 import Delta.Log
 
 -- ============================================================
@@ -127,22 +128,28 @@ data DeltaTable = DeltaTable
     -- empty log.
   } deriving (Show, Eq)
 
--- | Open a Delta table from a directory and replay every JSON
--- commit into a 'TableSnapshot'.
+-- | Open a Delta table from a directory.
 --
--- /Future work:/ when a @*.checkpoint.parquet@ file is present
--- the cheaper path is to seed the snapshot from the checkpoint
--- and only replay later commits. The discovery surface is in
--- place ('dtCheckpointAvailable', 'dtLastCheckpoint') but the
--- checkpoint Parquet decoder in "Delta.Checkpoint" can only
--- read it after the per-leaf path-aware Parquet reading
--- support is wired in. The decoder itself is structurally
--- correct against the checkpoint schema; it stalls on the
--- 'parquetFileArrowSchema' projection which flattens
--- duplicate struct-leaf names ('add.path' and 'remove.path'
--- both map to a top-level @path@ field). For now we walk
--- every JSON commit, which is O(N) commits but works on
--- every Delta table the test suite produces.
+-- If a @*.checkpoint.parquet@ file is present at version /K/,
+-- read it via 'Delta.Checkpoint.decodeCheckpointFile' to seed
+-- the snapshot at version /K/, then replay every later
+-- @NNNN.json@ commit (versions > /K/) on top. Otherwise fall
+-- back to a full JSON replay from version 0.
+--
+-- The checkpoint short-circuit turns table-open from O(N) in
+-- commit count to O(N − checkpoint_version), which is the
+-- whole point of the checkpoint format.
+--
+-- The path-aware checkpoint reader covers the core action
+-- types ('add', 'remove', 'metaData', 'protocol') needed to
+-- materialise an active file set; @txn@ / @domainMetadata@ /
+-- @sidecar@ rows are surfaced as 'ActionOther'. A few
+-- secondary fields (partition-values map, partition-columns
+-- list, configuration map, reader/writer features list) are
+-- not yet decoded from the checkpoint and remain default
+-- ('Map.empty' / @[]@); subsequent JSON commits will refresh
+-- them, and the active-file-set check that's the most
+-- common consumer is unaffected.
 openDeltaTable :: FilePath -> IO (Either String DeltaTable)
 openDeltaTable tableRoot = do
   let logDir = tableRoot </> "_delta_log"
@@ -153,11 +160,19 @@ openDeltaTable tableRoot = do
       lc           <- findLastCheckpoint tableRoot
       ckptOnDisk   <- findCheckpointParquet tableRoot
       commits      <- findCommits tableRoot
-      acts         <- concat <$> mapM readActions commits
-      let !snap = snapshotFromActions acts
+      let (priorCommits, jsonCommits) = case ckptOnDisk of
+            Just v  -> partitionAtVersion v commits
+            Nothing -> ([], commits)
+      ckptActions <- case ckptOnDisk of
+        Just v  -> readCheckpoint logDir v
+        Nothing -> pure []
+      jsonActions <- concat <$> mapM readActions jsonCommits
+      let !replayedActions = ckptActions ++ jsonActions
+          !snap = snapshotFromActions replayedActions
           !ver  = case commits of
             []  -> Nothing
             xs  -> Just (fst (last xs))
+          _ = priorCommits  -- kept for potential future use; silence -Wunused
       pure $ Right DeltaTable
         { dtRoot               = tableRoot
         , dtLastCheckpoint     = lc
@@ -166,6 +181,33 @@ openDeltaTable tableRoot = do
         , dtSnapshot           = snap
         , dtVersion            = ver
         }
+
+-- | Split commit list into (≤ckptVersion, >ckptVersion). The
+-- former is consumed by the checkpoint reader, the latter is
+-- replayed via JSON on top.
+partitionAtVersion
+  :: Word64
+  -> [(Word64, FilePath)]
+  -> ([(Word64, FilePath)], [(Word64, FilePath)])
+partitionAtVersion v = span ((<= v) . fst)
+
+-- | Decode the @<logDir>/NNNN.checkpoint.parquet@ file at
+-- version @v@ via 'Delta.Checkpoint.readCheckpointFile'. On
+-- failure we silently fall back to an empty action list so
+-- 'openDeltaTable' degrades to a full JSON replay rather than
+-- erroring out.
+readCheckpoint :: FilePath -> Word64 -> IO [DeltaAction]
+readCheckpoint logDir v = do
+  let path = logDir </> formatCheckpointName v
+  res <- Checkpoint.readCheckpointFile path
+  case res of
+    Right acts -> pure acts
+    Left  _    -> pure []
+
+formatCheckpointName :: Word64 -> FilePath
+formatCheckpointName n =
+  replicate (20 - length (show n)) '0' ++ show n
+    ++ ".checkpoint.parquet"
 
 readActions :: (Word64, FilePath) -> IO [DeltaAction]
 readActions (_, fp) = do

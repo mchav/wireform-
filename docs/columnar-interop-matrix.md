@@ -108,31 +108,40 @@ Drivers:
 
 ## Apache Delta Lake (table format)
 
-|                                       | deltalake (delta-rs) |
-| ------------------------------------- | :------------------: |
-| **wireform → engine** (commit JSON)   |       ✓ 3/3          |
+|                                          | deltalake (delta-rs) |
+| ---------------------------------------- | :------------------: |
+| **wireform → engine** (commit JSON)      |       ✓ 3/3          |
+| **wireform → engine** (checkpoint Parquet) |     ✓ 1/1          |
 
 The wireform-delta probe opens a Delta table via
-`Delta.IO.openDeltaTable`, replays every NDJSON file under
-`_delta_log/` into a `TableSnapshot`, and writes a JSON
-summary that also surfaces the table version, the
-`_last_checkpoint` pointer (when present), and the highest
-`*.checkpoint.parquet` version actually on disk. The Python
-driver builds three real Delta tables with
+`Delta.IO.openDeltaTable`. When a `*.checkpoint.parquet`
+file is present the snapshot at that version is decoded
+directly via `Delta.Checkpoint.decodeCheckpointFile` (no
+JSON walk through every prior commit), then JSON commits
+with version > checkpoint version are replayed on top.
+
+The Python driver builds three real Delta tables with
 `deltalake.write_deltalake`:
 
-  * an unpartitioned table with a write / append / overwrite
-    history (only one add survives);
-  * a partitioned-by-region table with two writes;
-  * a 12-commit table on which `DeltaTable.create_checkpoint()`
-    has been called, so `_last_checkpoint` and
-    `*.checkpoint.parquet` exist.
+  * an **unpartitioned** table with a write / append /
+    overwrite history (only one add survives);
+  * a **partitioned-by-region** table with two writes;
+  * a **checkpointed** table — 12 appends + an explicit
+    `DeltaTable.create_checkpoint()` at v11, then APPEND v12
+    + OVERWRITE v13. This forces both code paths: the
+    checkpoint Parquet seeds the snapshot at v11, then the
+    post-checkpoint commits replay through the JSON walker.
 
-Asserts the probe's `version`, `active_files`, `protocol`,
-`metadata.partition_columns`, `metadata.schema_field_names`,
-`last_checkpoint.version`, and `checkpoint_parquet_version`
-all line up with what `DeltaTable` reports on the same on-disk
-table.
+For every case the probe's `version`, `active_files`,
+`protocol`, `metadata.partition_columns`,
+`metadata.schema_field_names`, `last_checkpoint.version`,
+and `checkpoint_parquet_version` are cross-checked against
+`DeltaTable.*`. For the checkpointed case the probe
+additionally surfaces the *standalone* checkpoint-Parquet
+snapshot (`checkpoint_active_files`, `checkpoint_protocol`,
+`checkpoint_metadata`) and the driver verifies it produces
+the same view of the table at v11 that the JSON walker
+would.
 
 Driver: `wireform-delta/scripts/delta_interop.py`.
 

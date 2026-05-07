@@ -28,6 +28,7 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    Delta.Checkpoint
     Delta.IO
     Delta.Log
   build-depends:

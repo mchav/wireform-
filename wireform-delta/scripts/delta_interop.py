@@ -182,14 +182,24 @@ def case_checkpointed(failures: Failures, root: Path) -> None:
 
     # Twelve appends, then force a checkpoint so the
     # _delta_log/ ends up with `_last_checkpoint`,
-    # NNNN.checkpoint.parquet, and a sibling NNNN.json.
+    # NNNN.checkpoint.parquet, and a sibling NNNN.json. After
+    # the checkpoint we also write *two more* commits — one
+    # APPEND of an extra row and one OVERWRITE that removes
+    # everything before it — so the Delta.IO short-circuit
+    # actually has post-checkpoint commits to fold on top of
+    # the Parquet-derived snapshot.
     for i in range(12):
         write_deltalake(str(root),
                         pa.table({"id": [i]}),
                         mode="append" if i > 0 else "error")
     dt = DeltaTable(str(root))
     dt.create_checkpoint()
-    dt = DeltaTable(str(root))   # reload after checkpoint write
+
+    # Post-checkpoint commits: append + overwrite
+    write_deltalake(str(root), pa.table({"id": [99]}), mode="append")
+    write_deltalake(str(root), pa.table({"id": [101, 102]}), mode="overwrite")
+
+    dt = DeltaTable(str(root))   # reload after additional commits
     summary = run_probe(root)
 
     expect_eq(failures, "checkpointed", "version",
@@ -197,25 +207,79 @@ def case_checkpointed(failures: Failures, root: Path) -> None:
     expect_eq(failures, "checkpointed", "num_commits",
               summary["num_commits"], dt.version() + 1)
 
+    # The checkpoint pointer + on-disk checkpoint Parquet are
+    # at version 11 (where 'create_checkpoint()' was called).
+    # The post-checkpoint commits are at version 12 (append)
+    # and version 13 (overwrite), which the JSON-walk branch
+    # of openDeltaTable must replay on top of the checkpoint
+    # snapshot.
     lc = summary["last_checkpoint"]
     if lc is None:
         failures.add("checkpointed", "last_checkpoint pointer missing")
     else:
         expect_eq(failures, "checkpointed", "last_checkpoint.version",
-                  lc["version"], dt.version())
+                  lc["version"], 11)
 
     expect_eq(failures, "checkpointed", "checkpoint_parquet_version",
-              summary["checkpoint_parquet_version"], dt.version())
+              summary["checkpoint_parquet_version"], 11)
 
-    # And the active file set still must match deltalake.
+    expect_eq(failures, "checkpointed", "post-checkpoint table version",
+              dt.version(), 13)
+
+    # The combined snapshot (checkpoint + later JSON commits)
+    # must match deltalake's file_uris() — one row written by
+    # the OVERWRITE that supersedes everything before.
     deltalake_files = sorted(deltalake_relative_files(dt, root))
     wireform_files  = sorted(f["path"] for f in summary["active_files"])
-    expect_eq(failures, "checkpointed", "active files",
+    expect_eq(failures, "checkpointed", "post-checkpoint active files",
               wireform_files, deltalake_files)
+
+    # The standalone checkpoint Parquet decoder (without the
+    # post-checkpoint JSON delta) must reproduce the v11 file
+    # set as the JSON walk-only-up-to-v11 snapshot would.
+    ckpt_files = summary["checkpoint_active_files"]
+    if ckpt_files is None:
+        failures.add("checkpointed", "checkpoint_active_files = null")
+    else:
+        # The pre-overwrite snapshot has 13 active files: the
+        # 12 original adds + the post-checkpoint append.  Wait
+        # — the checkpoint is at v11 (12 commits), so the
+        # checkpoint Parquet only knows about the first 12
+        # adds. We just check the count rather than the exact
+        # file names since deltalake names files with random
+        # uuids and we'd need to peek at the delta log to
+        # reconstruct the v11 active set.
+        expect_eq(failures, "checkpointed",
+                  "checkpoint Parquet active file count",
+                  len(ckpt_files), 12)
+
+    ckpt_proto = summary["checkpoint_protocol"]
+    if ckpt_proto is None:
+        failures.add("checkpointed",
+                     "checkpoint Parquet decoder lost the protocol row")
+    else:
+        expect_eq(failures, "checkpointed",
+                  "checkpoint protocol min_reader",
+                  ckpt_proto["min_reader_version"],
+                  dt.protocol().min_reader_version)
+        expect_eq(failures, "checkpointed",
+                  "checkpoint protocol min_writer",
+                  ckpt_proto["min_writer_version"],
+                  dt.protocol().min_writer_version)
+
+    ckpt_meta = summary["checkpoint_metadata"]
+    if ckpt_meta is None:
+        failures.add("checkpointed",
+                     "checkpoint Parquet decoder lost the metaData row")
+    else:
+        expect_eq(failures, "checkpointed",
+                  "checkpoint metadata.id",
+                  ckpt_meta["id"], str(dt.metadata().id))
+
     if not any(f[0] == "checkpointed" for f in failures):
         print(f"  OK   checkpointed: version={dt.version()}, "
               f"checkpoint at {summary['checkpoint_parquet_version']}, "
-              f"{len(deltalake_files)} active files")
+              f"{len(deltalake_files)} active files (JSON + Parquet checkpoint agree)")
 
 
 def main() -> int:

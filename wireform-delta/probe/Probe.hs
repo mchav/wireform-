@@ -23,13 +23,23 @@ import Data.Word (Word64)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 
+import qualified Delta.Checkpoint as DC
 import qualified Delta.IO as DIO
 import qualified Delta.Log as D
+import System.Directory (doesFileExist)
 
 main :: IO ()
 main = do
   args <- getArgs
   (tableRoot, outputDest) <- case args of
+    ["--dump-ckpt", p] -> do
+      r <- DC.readCheckpointFile p
+      case r of
+        Right acts -> do
+          putStrLn $ "decoded " ++ show (length acts) ++ " action rows"
+          mapM_ (putStrLn . take 240 . show) (take 30 acts)
+        Left  e -> putStrLn ("ERROR: " ++ e)
+      exitFailure
     [i]    -> pure (i, Nothing)
     [i, o] -> pure (i, Just o)
     _      -> do
@@ -43,6 +53,22 @@ main = do
       exitFailure
     Right dt -> do
       let snap = DIO.dtSnapshot dt
+      -- If a checkpoint Parquet is on disk, surface what
+      -- Delta.Checkpoint extracts from it as a separate field
+      -- so the Python driver can verify the checkpoint reader
+      -- agrees with the JSON walker on the same active set.
+      ckpt <- case DIO.dtCheckpointAvailable dt of
+        Just v -> do
+          let p = tableRoot ++ "/_delta_log/" ++ pad20 v ++ ".checkpoint.parquet"
+          exists <- doesFileExist p
+          if not exists then pure Nothing
+          else do
+            r <- DC.readCheckpointFile p
+            case r of
+              Right acts ->
+                pure (Just (D.snapshotFromActions acts))
+              Left _ -> pure Nothing
+        Nothing -> pure Nothing
       let summary = Aeson.Object $ KM.fromList
             [ (Key.fromString "version", maybe Aeson.Null numW64 (DIO.dtVersion dt))
             , (Key.fromString "num_commits", Aeson.Number (fromIntegral (length (DIO.dtCommits dt))))
@@ -60,6 +86,17 @@ main = do
             , (Key.fromString "last_checkpoint", lastCheckpointJSON (DIO.dtLastCheckpoint dt))
             , (Key.fromString "checkpoint_parquet_version",
                 maybe Aeson.Null numW64 (DIO.dtCheckpointAvailable dt))
+            , (Key.fromString "checkpoint_active_files", case ckpt of
+                Just s ->
+                  Aeson.Array $ V.fromList $ map (Aeson.String . D.addPath)
+                    (Map.elems (D.tsFiles s))
+                Nothing -> Aeson.Null)
+            , (Key.fromString "checkpoint_protocol", case ckpt of
+                Just s -> protocolJSON s
+                Nothing -> Aeson.Null)
+            , (Key.fromString "checkpoint_metadata", case ckpt of
+                Just s -> metadataJSON s
+                Nothing -> Aeson.Null)
             ]
       case outputDest of
         Nothing -> BL.putStr (Aeson.encode summary)
@@ -71,6 +108,11 @@ numW64 = Aeson.Number . fromIntegral
 
 txnEntry :: (Text, Word64) -> (Key.Key, Aeson.Value)
 txnEntry (k, v) = (Key.fromText k, numW64 v)
+
+pad20 :: Word64 -> String
+pad20 v =
+  let s = show v
+   in replicate (20 - length s) '0' ++ s
 
 filesJSON :: D.TableSnapshot -> Aeson.Value
 filesJSON snap =
