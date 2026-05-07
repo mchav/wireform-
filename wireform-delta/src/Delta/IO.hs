@@ -130,13 +130,19 @@ data DeltaTable = DeltaTable
 -- | Open a Delta table from a directory and replay every JSON
 -- commit into a 'TableSnapshot'.
 --
--- The current implementation does /not/ short-circuit through
--- @*.checkpoint.parquet@ snapshots — for tables with hundreds
--- of commits this is O(N) in the commit count, which works
--- fine for the typical small-history tables but will be slow
--- on production-scale histories. Reading the checkpoint Parquet
--- is tracked as a follow-up; callers that want it today can
--- consult 'dtLastCheckpoint' and fall back accordingly.
+-- /Future work:/ when a @*.checkpoint.parquet@ file is present
+-- the cheaper path is to seed the snapshot from the checkpoint
+-- and only replay later commits. The discovery surface is in
+-- place ('dtCheckpointAvailable', 'dtLastCheckpoint') but the
+-- checkpoint Parquet decoder in "Delta.Checkpoint" can only
+-- read it after the per-leaf path-aware Parquet reading
+-- support is wired in. The decoder itself is structurally
+-- correct against the checkpoint schema; it stalls on the
+-- 'parquetFileArrowSchema' projection which flattens
+-- duplicate struct-leaf names ('add.path' and 'remove.path'
+-- both map to a top-level @path@ field). For now we walk
+-- every JSON commit, which is O(N) commits but works on
+-- every Delta table the test suite produces.
 openDeltaTable :: FilePath -> IO (Either String DeltaTable)
 openDeltaTable tableRoot = do
   let logDir = tableRoot </> "_delta_log"

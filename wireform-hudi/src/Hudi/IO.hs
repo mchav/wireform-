@@ -34,6 +34,7 @@ import System.FilePath ((</>))
 
 import qualified Data.Aeson as Aeson
 
+import qualified Hudi.Avro as HAvro
 import Hudi.Timeline
 
 -- ============================================================
@@ -177,7 +178,18 @@ readCommit
   -> IO (Instant, Either String HoodieCommitMetadata)
 readCommit (i, fp) = do
   bs <- BL.readFile fp
-  pure (i, parseCommitJson bs)
+  -- Hudi 1.x writes commit instants as Avro container files; older
+  -- versions write JSON. Try JSON first (cheaper, no schema lookup);
+  -- if it fails, fall back to the Avro container reader. This matches
+  -- the order Hudi-rs walks (it tolerates either shape).
+  case parseCommitJson bs of
+    Right hcm -> pure (i, Right hcm)
+    Left  jsonErr -> do
+      let !strict = BL.toStrict bs
+      case HAvro.decodeCommitAvro strict of
+        Right hcm -> pure (i, Right hcm)
+        Left avroErr ->
+          pure (i, Left ("json: " ++ jsonErr ++ "; avro: " ++ avroErr))
 
 -- ============================================================
 -- Helpers

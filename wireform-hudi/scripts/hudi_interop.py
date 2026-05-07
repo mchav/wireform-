@@ -53,14 +53,27 @@ hoodie.metadata.enable=false
 """
 
 
-def write_instant(hoodie: Path, instant_time: str, commit: dict) -> None:
-    """Write the (requested, inflight, completed) triple for one instant."""
+def write_instant(hoodie: Path, instant_time: str, commit: dict,
+                  encoding: str = "json") -> None:
+    """Write the (requested, inflight, completed) triple for one
+    instant. The completed instant payload can be 'json' (Hudi
+    0.x) or 'avro' (Hudi 1.x+); both shapes must round-trip
+    through wireform-hudi."""
     for ext in ("commit.requested", "inflight", "commit"):
         fp = hoodie / f"{instant_time}.{ext}"
-        if ext == "commit":
-            fp.write_text(json.dumps(commit))
-        else:
+        if ext != "commit":
             fp.write_text("")
+            continue
+        if encoding == "json":
+            fp.write_text(json.dumps(commit))
+        elif encoding == "avro":
+            import fastavro
+            schema_path = ROOT / "avro" / "HoodieCommitMetadata.avsc"
+            schema = fastavro.parse_schema(json.load(schema_path.open()))
+            with fp.open("wb") as f:
+                fastavro.writer(f, schema, [commit])
+        else:
+            raise ValueError(f"unsupported encoding {encoding!r}")
 
 
 def make_stat(file_id: str, rel_path: str, partition: str,
@@ -244,12 +257,55 @@ def case_partitioned(failures: Failures, tmp: Path) -> None:
               f"latest_instant={summary['latest_instant']}")
 
 
+def case_avro_commit(failures: Failures, tmp: Path) -> None:
+    """Hudi 1.x writes commit instants as Avro container files
+    instead of JSON. Both wire encodings must thread through
+    wireform-hudi's reader to the same active-file-slice view."""
+    base = setup_table(tmp, "unpart_avro", partitioned=False)
+    print(f"\n== unpartitioned table (Avro commit) at {base}")
+
+    ts1 = "20240301000000000"
+    rel1 = f"fid-1_0_{ts1}.parquet"
+
+    commit1 = {
+        "partitionToWriteStats": {"": [make_stat("fid-1", rel1, "", 7)]},
+        "compacted": False,
+        "operationType": "INSERT",
+        "extraMetadata": {"schema": "{\"type\":\"record\",\"name\":\"X\",\"fields\":[]}"},
+        # The avsc has 9 top-level fields beyond the four we care about;
+        # fastavro requires every field to be present even if null.
+        "totalCreateTime": None, "totalUpsertTime": None, "totalScanTime": None,
+        "writePartitionPaths": None, "fileIdAndRelativePaths": None,
+    }
+    write_instant(base / ".hoodie", ts1, commit1, encoding="avro")
+    pq.write_table(pa.table({"id": list(range(7))}), str(base / rel1))
+
+    summary = run_probe(base)
+
+    expect_eq(failures, "unpart_avro", "active_file_slice_count",
+              summary["active_file_slice_count"], 1)
+    expect_eq(failures, "unpart_avro", "completed_commits",
+              summary["completed_commits"], [ts1])
+    expect_eq(failures, "unpart_avro", "latest_instant",
+              summary["latest_instant"], ts1)
+
+    # The Avro path also surfaces the schema string from
+    # extraMetadata, which the JSON path already covered.
+    if summary["schema_json"] is None:
+        failures.add("unpart_avro", "schema_json missing from Avro commit")
+
+    if not any(f[0] == "unpart_avro" for f in failures):
+        print(f"  OK   unpart_avro: 1 slice (Avro commit decoded), "
+              f"schema={summary['schema_json'][:40]!r}…")
+
+
 def main() -> int:
     failures = Failures()
     tmp = Path(tempfile.mkdtemp(prefix="wireform-hudi-probe-"))
 
     case_unpartitioned(failures, tmp)
     case_partitioned (failures, tmp)
+    case_avro_commit (failures, tmp)
 
     print()
     if failures:

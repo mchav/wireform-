@@ -43,7 +43,7 @@ main = do
       exitFailure
     Right dt -> do
       let snap = DIO.dtSnapshot dt
-          summary = Aeson.Object $ KM.fromList
+      let summary = Aeson.Object $ KM.fromList
             [ (Key.fromString "version", maybe Aeson.Null numW64 (DIO.dtVersion dt))
             , (Key.fromString "num_commits", Aeson.Number (fromIntegral (length (DIO.dtCommits dt))))
             , (Key.fromString "active_files", filesJSON snap)
@@ -67,6 +67,7 @@ main = do
 
 numW64 :: Word64 -> Aeson.Value
 numW64 = Aeson.Number . fromIntegral
+
 
 txnEntry :: (Text, Word64) -> (Key.Key, Aeson.Value)
 txnEntry (k, v) = (Key.fromText k, numW64 v)
