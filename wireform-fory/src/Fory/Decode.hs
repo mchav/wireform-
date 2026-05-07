@@ -63,6 +63,7 @@ import Control.Exception (Exception, throwIO, try)
 import Data.Bits (shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Unsafe as BSU
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.IntMap.Strict as IM
 import Data.IntMap.Strict (IntMap)
@@ -219,7 +220,11 @@ readBytesD :: Int -> DecodeM ByteString
 readBytesD n = DecodeM $ \d -> do
   pos <- readIORef (decPos d)
   ensureBytes d pos n
-  let !slice = BS.take n (BS.drop pos (decBs d))
+  -- 'BSU.unsafeTake' / 'unsafeDrop' skip the bounds-check
+  -- branches in the safe variants. We just verified bounds
+  -- via 'ensureBytes', so they're equivalent and compile to
+  -- a single 'PS' constructor allocation instead of two.
+  let !slice = BSU.unsafeTake n (BSU.unsafeDrop pos (decBs d))
   writeIORef (decPos d) (pos + n)
   pure slice
 {-# INLINE readBytesD #-}
@@ -604,6 +609,7 @@ readForyString = do
            Right t -> pure t
            Left e  -> failD ("Fory.Decode: invalid UTF-8: " ++ show e)
     _ -> failD ("Fory.Decode: reserved string encoding " ++ show enc)
+{-# INLINE readForyString #-}
 
 decodeUtf16LE :: ByteString -> Either String Text
 decodeUtf16LE bs
