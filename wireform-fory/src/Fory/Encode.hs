@@ -704,6 +704,7 @@ emitNamedStructListFast !e !vs =
       case lookupSchema e ns nm of
         Just sch ->
           let !canonical = ST.fieldOrder sch
+              !nFields   = V.length canonical
               !hashCode  = ST.ssHash sch
               -- Resolve the canonical -> user-field-index
               -- permutation once from the first non-null
@@ -715,11 +716,23 @@ emitNamedStructListFast !e !vs =
               -- 'V.unsafeIndex' bounds-check rather than
               -- silently emit garbage.
               !perm = computeFieldPerm canonical sample
-          in V.forM_ vs $ \x -> case x of
-               VV.RegisteredStructVal _ _ fields ->
-                 emitRegisteredStructPermuted
-                   e canonical perm hashCode fields
-               _ -> emitUntaggedPayload e x
+              !nVs  = V.length vs
+              -- Hand-rolled outer loop. The 'V.forM_' we
+              -- used to use here paid one closure
+              -- invocation per element which on a 100-
+              -- element list was a measurable chunk of
+              -- per-struct overhead.
+              goS !i
+                | i >= nVs = pure ()
+                | otherwise = do
+                    case V.unsafeIndex vs i of
+                      VV.RegisteredStructVal _ _ fields ->
+                        emitRegisteredStructPermuted
+                          e canonical perm nFields
+                          hashCode fields
+                      x -> emitUntaggedPayload e x
+                    goS (i + 1)
+          in goS 0
         Nothing -> V.forM_ vs $ \x -> emitUntaggedPayload e x
     -- Heterogeneous (StructVal vs RegisteredStructVal) or
     -- all-None: fall back to the generic per-element path.
@@ -760,15 +773,23 @@ emitRegisteredStructPermuted
   :: IO.Encoder
   -> Vector ST.FieldSpec
   -> Vector Int
+  -> Int
+  -- ^ field count, hoisted from the caller so the per-
+  -- struct emit doesn't pay 'V.length' on every iteration.
   -> Int32
   -> VV.StructFields
   -> IO ()
-emitRegisteredStructPermuted !e !canonical !perm !hashCode !fields = do
+emitRegisteredStructPermuted !e !canonical !perm !nFields !hashCode !fields = do
   IO.emitInt32LE e hashCode
-  V.iforM_ canonical $ \i spec -> do
-    let !userIdx     = V.unsafeIndex perm i
-        (_, !v)      = V.unsafeIndex fields userIdx
-    emitRegisteredField e spec v
+  let go !i
+        | i >= nFields = pure ()
+        | otherwise = do
+            let !spec    = V.unsafeIndex canonical i
+                !userIdx = V.unsafeIndex perm i
+                (_, !v)  = V.unsafeIndex fields userIdx
+            emitRegisteredField e spec v
+            go (i + 1)
+  go 0
 
 -- | Inner emitter shared by 'emitTypedPayload' on a single
 -- struct (where the permutation isn't pre-resolved).

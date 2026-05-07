@@ -209,26 +209,44 @@ directTagged !e !x = do
 -- (Per-element list-of-string still uses the Word64-stride
 -- 'byteArrayIsAscii' since the FFI overhead would dominate
 -- on short strings — see 'writeTextOnto'.)
+-- | Single-Text encode for the typed pipeline.
+--
+-- Reads the 'Text''s underlying 'TI.Text arr off len'
+-- directly. The ASCII probe is length-adaptive: the
+-- Word64-stride 'TH.byteArrayIsAscii' wins for short
+-- inputs (no FFI overhead), the simdutf-backed
+-- 'WFFI.isAsciiBS' wins for long inputs (vectorised
+-- 16/32-byte chunks). The crossover is around the FFI
+-- ccall cost (~3 ns) vs the Word64 scan time, which
+-- empirically lands around 64 bytes.
+--
+-- For ASCII / UTF-8 inputs the underlying bytes are
+-- already valid 'Text' payload, so we 'memcpy' them
+-- straight into the encoder buffer via
+-- 'TH.copyTextArrayToPtr' (a single
+-- 'copyByteArrayToAddr#' primop). LATIN-1 strings with
+-- chars 128–255 fall back to 'B.latin1Bytes' for the
+-- 1-byte-per-char wire format.
 emitForyStringDirect :: IO.Encoder -> Text -> IO ()
-emitForyStringDirect !e !t = do
-  let !utf8 = TE.encodeUtf8 t
-      !len  = BS.length utf8
-  if WFFI.isAsciiBS utf8
-    then do
+emitForyStringDirect !e t@(TI.Text arr srcOff len)
+  | TH.byteArrayIsAscii arr srcOff (srcOff + len) = do
       let !hdr = (fromIntegral len `shiftL` 2) :: Word64
       IO.emitVaruint64 e hdr
-      IO.emitBytes e utf8
-    else if T.all (\c -> ord c < 256) t
-      then do
-        let !raw = B.latin1Bytes t
-            !rlen = BS.length raw
-            !hdr = (fromIntegral rlen `shiftL` 2) :: Word64
-        IO.emitVaruint64 e hdr
-        IO.emitBytes e raw
-      else do
-        let !hdr = (fromIntegral len `shiftL` 2) .|. 2 :: Word64
-        IO.emitVaruint64 e hdr
-        IO.emitBytes e utf8
+      IO.withReservedRaw e len $ \p start -> do
+        TH.copyTextArrayToPtr arr srcOff (p `plusPtr` start) len
+        pure (start + len)
+  | T.all (\c -> ord c < 256) t = do
+      let !raw  = B.latin1Bytes t
+          !rlen = BS.length raw
+          !hdr  = (fromIntegral rlen `shiftL` 2) :: Word64
+      IO.emitVaruint64 e hdr
+      IO.emitBytes e raw
+  | otherwise = do
+      let !hdr = (fromIntegral len `shiftL` 2) .|. 2 :: Word64
+      IO.emitVaruint64 e hdr
+      IO.withReservedRaw e len $ \p start -> do
+        TH.copyTextArrayToPtr arr srcOff (p `plusPtr` start) len
+        pure (start + len)
 {-# INLINE emitForyStringDirect #-}
 
 -- | 'memcpy' from a 'TA.Array' (Text's underlying
