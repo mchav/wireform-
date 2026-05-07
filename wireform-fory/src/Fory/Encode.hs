@@ -904,6 +904,7 @@ emitRegisteredField !e spec v
       _ -> do
         IO.emitByte e slotNotNullValue
         emitUntaggedPayload e v
+{-# INLINE emitRegisteredField #-}
 
 -- ---------------------------------------------------------------------------
 -- TypeDef sidecar (NAMED_COMPATIBLE_STRUCT)

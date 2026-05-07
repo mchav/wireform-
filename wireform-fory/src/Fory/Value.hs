@@ -190,12 +190,23 @@ instance Hashable Value where
 -- 'Nothing'). Used by the 'Fory.Encode.encodeRegisteredStruct'
 -- machinery to look up a logical field in user-supplied order
 -- when emitting it in pyfory's canonical wire order.
+-- | Linear scan with early exit on first match. The bare
+-- 'V.foldr' implementation walks every element even after
+-- finding the answer because 'Vector.foldr' is strict in
+-- its accumulator (unlike list 'foldr'); a manual indexed
+-- loop saves the wasted iterations on every encode of a
+-- 'RegisteredStructVal'.
 registeredStructFieldByName
   :: Text -> Vector (Text, Value) -> Maybe Value
-registeredStructFieldByName k = V.foldr step Nothing
+registeredStructFieldByName !k !v = go 0
   where
-    step (n, v) acc | n == k    = Just v
-                    | otherwise = acc
+    !len = V.length v
+    go !i
+      | i >= len = Nothing
+      | otherwise =
+          let (!n, !val) = V.unsafeIndex v i
+          in if n == k then Just val else go (i + 1)
+{-# INLINE registeredStructFieldByName #-}
 
 -- | The internal Fory type id that the encoder uses for this
 -- value\'s leading type tag. Used by both encoder and decoder when
