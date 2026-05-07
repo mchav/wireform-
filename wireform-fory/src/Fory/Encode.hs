@@ -600,20 +600,48 @@ sameTypeNeedsRef !t = case t of
 
 analyseCollection :: Vector VV.Value -> (Bool, Bool, Maybe T.TypeId)
 analyseCollection !vs =
-  let (sameType, hasNull, mTag) =
-        V.foldl' step (True, False, Nothing) vs
-  in (sameType, hasNull, mTag)
-  where
-    step (!st, !hn, !mt) x = case x of
-      VV.NoneVal  -> (st, True, mt)
-      VV.RefVal{} -> (False, True, mt)
-      _ ->
-        let !tg = VV.typeIdOf x
-        in case mt of
-             Nothing -> (st, hn, Just tg)
-             Just t
-               | t == tg   -> (st, hn, mt)
-               | otherwise -> (False, hn, mt)
+  -- Hand-rolled loop using only unboxed 'Int#' accumulators
+  -- (after worker-wrapper).
+  --
+  -- Earlier this was 'V.foldl' step (True, False, Nothing) vs',
+  -- which allocated a fresh @(Bool, Bool, Maybe TypeId)@
+  -- tuple per iteration — visible in the Core as
+  -- @$wfoldlM'_loop :: ... -> Bool -> Bool -> Maybe TypeId
+  -- -> Int# -> ...@.
+  --
+  -- The first attempt at unboxing (@goA !i !st !hn !hasT
+  -- !tag@ without explicit types) regressed: GHC defaulted
+  -- the @0@ / @1@ accumulator literals to 'Integer' (boxed
+  -- arbitrary-precision), giving a
+  -- @$wgoA :: Int# -> Integer -> Integer -> Integer ->
+  -- Int#@ loop with a 3-case @IS x | IP x | IN x@
+  -- pattern-match per accumulator per iteration. The
+  -- explicit 'Int' type signature here forces strict-
+  -- worker-wrapper to unbox each flag to a single @Int#@.
+  let !n = V.length vs
+      goA :: Int -> Int -> Int -> Int -> Int
+          -> (Bool, Bool, Maybe T.TypeId)
+      goA !i !st !hn !hasT !tag
+        | i >= n =
+            ( st /= 0
+            , hn /= 0
+            , if hasT /= 0
+                then Just (T.TypeId (fromIntegral tag))
+                else Nothing
+            )
+        | otherwise = case V.unsafeIndex vs i of
+            VV.NoneVal  -> goA (i + 1) st     (1 :: Int) hasT tag
+            VV.RefVal{} -> goA (i + 1) (0 :: Int) (1 :: Int) hasT tag
+            x ->
+              let !(T.TypeId tg) = VV.typeIdOf x
+                  !tgI = fromIntegral tg :: Int
+              in if hasT == (0 :: Int)
+                   then goA (i + 1) st hn (1 :: Int) tgI
+                   else if tag == tgI
+                     then goA (i + 1) st hn (1 :: Int) tag
+                     else goA (i + 1) (0 :: Int) hn (1 :: Int) tag
+  in goA 0 (1 :: Int) (0 :: Int) (0 :: Int) (0 :: Int)
+{-# INLINABLE analyseCollection #-}
 
 emitElementTypeInfo
   :: IO.Encoder -> T.TypeId -> Vector VV.Value -> IO ()
