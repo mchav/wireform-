@@ -234,8 +234,15 @@ readForyStringDirect = D.readForyString
 -- Primitive instances
 -- ---------------------------------------------------------------------------
 
--- | Default Haskell 'Int' is encoded as VARINT64 — matching
--- 'Fory.Class.ToFory Int'.
+-- | Haskell 'Int' encodes as 'T.VARINT64' on the wire,
+-- matching pyfory's default for Python @int@ (zigzag-varuint
+-- bytes, 1 byte for small values, up to 9 bytes for
+-- @maxBound@). For users who want fixed-8-byte encoding —
+-- and the corresponding ~4× speedup on sequence-of-int
+-- shapes — use the explicit 'Int64' type (which maps to
+-- 'T.INT64'), or 'VS.Vector Int' / 'VS.Vector Int64' for
+-- flat, zero-copy 'INT64_ARRAY' payloads. This mirrors
+-- pyfory's @int@ vs @int64@ vs @numpy.int64[]@ distinction.
 instance ForyTypeId Int where directTypeId = T.VARINT64
 instance EncodeDirect Int where
   directEncodePayload e n = IO.emitVarint64 e (fromIntegral n)
@@ -451,10 +458,9 @@ emitListSlowGeneric !e !xs = do
 -- | OVERLAPPING fast path for @[Int]@ — the bench's
 -- @list-of-int 100@ shape. Walks the list twice in tight
 -- monomorphic loops: once for length, once for the writes.
--- This avoids the 'V.fromList' boxed-Vector allocation that
--- the polymorphic '[a]' instance would do, and lets GHC
--- inline 'IO.pokeVarint64Raw' fully into the recursive write
--- loop.
+-- Uses 'T.VARINT64' wire (matching pyfory's default for
+-- Python @int@) so each element is a 1–9-byte zigzag-varuint
+-- via 'IO.pokeVarint64Raw'.
 instance {-# OVERLAPPING #-} EncodeDirect [Int] where
   directEncodePayload e xs = do
     let !len = length xs
@@ -514,9 +520,8 @@ instance {-# OVERLAPPING #-} EncodeDirect [Double] where
         goDoubles p off' rest
   {-# INLINE directEncodePayload #-}
 
--- | OVERLAPPING fast path for @Vector Int@ — mirrors the
--- @[Int]@ instance but skips the list traversal entirely
--- (V.length is O(1)).
+-- | OVERLAPPING fast path for @Vector Int@. Same 'T.VARINT64'
+-- wire as @[Int]@ but with O(1) 'V.length'.
 instance {-# OVERLAPPING #-} EncodeDirect (Vector Int) where
   directEncodePayload e v = do
     let !len = V.length v
@@ -767,6 +772,22 @@ readStorableArrayPayload = do
       raw <- D.readBytesD byteLen
       pure (B.bytesToVecS raw)
 {-# INLINE readStorableArrayPayload #-}
+
+-- | 'VS.Vector Int' is the flat, zero-copy fast path for
+-- sequences of 'Int' — analogous to a NumPy @int64@ array on
+-- the Python side. On a 64-bit platform 'sizeOf (undefined ::
+-- Int) == 8', so the wire format is 'T.INT64_ARRAY' and the
+-- encode/decode are O(1) 'castForeignPtr' between the
+-- 'ByteString' and the vector. This delivers essentially the
+-- same speed as 'VS.Vector Int64' and gives 'Int' users
+-- access to the same fast path.
+--
+-- NOTE: requires a 64-bit Haskell platform (which is the
+-- default on x86-64 Linux / aarch64 macOS / Windows-x64).
+-- A static check would belong here for 32-bit ports.
+instance ForyTypeId (VS.Vector Int)    where directTypeId = T.INT64_ARRAY
+instance EncodeDirect (VS.Vector Int)  where directEncodePayload = emitStorableArrayPayload
+instance DecodeDirect (VS.Vector Int)  where directDecodePayload = readStorableArrayPayload
 
 instance ForyTypeId (VS.Vector Int8)   where directTypeId = T.INT8_ARRAY
 instance ForyTypeId (VS.Vector Int16)  where directTypeId = T.INT16_ARRAY

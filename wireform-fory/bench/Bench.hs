@@ -136,6 +136,12 @@ tStorableInt64s :: VS.Vector Int64
 tStorableInt64s =
   VS.fromList [fromIntegral i | i <- [0 .. 99 :: Int]]
 
+-- | 64-bit-platform analogue of 'tStorableInt64s' that uses
+-- 'Int' rather than 'Int64'. Identical bytes on x86-64 — the
+-- bench shows that 'VS.Vector Int' gets the same fast path.
+tStorableInts :: VS.Vector Int
+tStorableInts = VS.fromList [0 .. 99 :: Int]
+
 tListOfString :: [T.Text]
 tListOfString = [T.pack (replicate 8 'x') | _ <- [1 .. 100 :: Int]]
 
@@ -194,6 +200,7 @@ main = defaultMain
       , bench "bytes 1k"          $ nf FD.encodeDirect tBytes1k
       , bench "list-of-int 100"   $ nf FD.encodeDirect tListOfInt
       , bench "vec-of-int 100"    $ nf FD.encodeDirect tVecOfInt
+      , bench "vecS-of-int 100"   $ nf FD.encodeDirect tStorableInts
       , bench "vecS-of-int64 100" $ nf FD.encodeDirect tStorableInt64s
       , bench "list-of-string 100" $ nf FD.encodeDirect tListOfString
       , bench "vec-of-string 100"  $ nf FD.encodeDirect tVecOfString
@@ -209,6 +216,7 @@ main = defaultMain
       , benchDecodeT "bytes 1k"          tBytes1k
       , benchDecodeT "list-of-int 100"   tListOfInt
       , benchDecodeT "vec-of-int 100"    tVecOfInt
+      , benchDecodeT "vecS-of-int 100"   tStorableInts
       , benchDecodeT "vecS-of-int64 100" tStorableInt64s
       , benchDecodeT "list-of-string 100" tListOfString
       , benchDecodeT "vec-of-string 100"  tVecOfString
