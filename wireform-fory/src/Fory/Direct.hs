@@ -545,9 +545,15 @@ isAsciiPtr !p !len = goP 0 0
 
 instance ForyTypeId ByteString where directTypeId = T.BINARY
 instance EncodeDirect ByteString where
-  directEncodePayload e bs = do
-    IO.emitVaruint32 e (fromIntegral (BS.length bs))
-    IO.emitBytes e bs
+  directEncodePayload !e !bs = do
+    let !blen = BS.length bs
+        (BSI.BS fpSrc _) = bs
+    IO.withReservedRaw e (9 + blen) $ \p start -> do
+      !off1 <- IO.pokeVaruint64Raw p start (fromIntegral blen)
+      Foreign.ForeignPtr.withForeignPtr fpSrc $ \pSrc ->
+        Foreign.Marshal.Utils.copyBytes
+          (p `Foreign.Ptr.plusPtr` off1) pSrc blen
+      pure (off1 + blen)
   {-# INLINE directEncodePayload #-}
 instance DecodeDirect ByteString where
   directDecodePayload = do

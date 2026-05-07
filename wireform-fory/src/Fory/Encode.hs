@@ -214,8 +214,7 @@ emitTypedPayload !e val = case val of
   VV.StringVal s   -> emitTag e T.STRING  >> emitForyString e s
   VV.BinaryVal bs  -> do
     emitTag e T.BINARY
-    IO.emitVaruint32 e (fromIntegral (BS.length bs))
-    IO.emitBytes e bs
+    emitArrayBytes e bs
   VV.ListVal vs    -> emitTag e T.LIST >> emitCollection e vs
   VV.SetVal vs     -> emitTag e T.SET  >> emitCollection e vs
   VV.MapVal kvs    -> emitTag e T.MAP  >> emitMapChunks e kvs
@@ -254,10 +253,22 @@ emitTag !e (T.TypeId w) = IO.emitVaruint32 e (fromIntegral w)
 -- 'ByteString' already aliases the array's bytes (zero-copy
 -- via 'Fory.Bulk.vecSToBytes'), we can write its length and
 -- then 'IO.emitBytes' it directly.
+-- | Emit a 'ByteString' payload prefixed with a varuint
+-- length header. Reserves @9 + len@ bytes up front and
+-- inlines the header poke + 'memcpy' in a single
+-- 'IO.withReservedRaw' batch — saves one
+-- @ensure / readIORef / writeIORef@ trio compared to
+-- @emitVaruint32 + emitBytes@.
 emitArrayBytes :: IO.Encoder -> ByteString -> IO ()
 emitArrayBytes !e !bs = do
-  IO.emitVaruint32 e (fromIntegral (BS.length bs))
-  IO.emitBytes e bs
+  let !blen = BS.length bs
+      (BSI.BS fpSrc _) = bs
+  IO.withReservedRaw e (9 + blen) $ \p start -> do
+    !off1 <- IO.pokeVaruint64Raw p start (fromIntegral blen)
+    Foreign.ForeignPtr.withForeignPtr fpSrc $ \pSrc ->
+      Foreign.Marshal.Utils.copyBytes
+        (p `Foreign.Ptr.plusPtr` off1) pSrc blen
+    pure (off1 + blen)
 {-# INLINE emitArrayBytes #-}
 
 -- ---------------------------------------------------------------------------
@@ -345,9 +356,7 @@ emitUntaggedPayload !e val = case val of
   VV.Float32Val f  -> IO.emitFloat32LE e f
   VV.Float64Val d  -> IO.emitFloat64LE e d
   VV.StringVal s   -> emitForyString e s
-  VV.BinaryVal bs  -> do
-    IO.emitVaruint32 e (fromIntegral (BS.length bs))
-    IO.emitBytes e bs
+  VV.BinaryVal bs  -> emitArrayBytes e bs
   VV.ListVal vs    -> emitCollection e vs
   VV.SetVal vs     -> emitCollection e vs
   VV.MapVal kvs    -> emitMapChunks e kvs
