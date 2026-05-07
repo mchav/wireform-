@@ -12,6 +12,10 @@ Coverage:
     * an OVERWRITE commit (which removes the original add and
       writes a new one)
     * a partitioned table (separate from the unpartitioned case)
+    * a checkpointed table — exercises the wireform
+      ``_last_checkpoint`` discovery and the
+      ``*.checkpoint.parquet`` enumeration even though the
+      checkpoint Parquet body itself is not yet decoded.
 
 Usage:
     python3 wireform-delta/scripts/delta_interop.py
@@ -93,6 +97,8 @@ def case_unpartitioned(failures: Failures, root: Path) -> None:
     # carries protocol + metadata + add; the second adds; the third
     # removes the original adds and adds a new one).
     expect_eq(failures, "unpartitioned", "num_commits", summary["num_commits"], 3)
+    expect_eq(failures, "unpartitioned", "version (vs deltalake)",
+              summary["version"], dt.version())
 
     # Active files: deltalake's view of the live file set must
     # exactly match wireform's. After OVERWRITE only the third
@@ -171,12 +177,54 @@ def case_partitioned(failures: Failures, root: Path) -> None:
         print(f"  OK   partitioned: {len(deltalake_files)} active files across 2 regions")
 
 
+def case_checkpointed(failures: Failures, root: Path) -> None:
+    print(f"\n== checkpointed table at {root}")
+
+    # Twelve appends, then force a checkpoint so the
+    # _delta_log/ ends up with `_last_checkpoint`,
+    # NNNN.checkpoint.parquet, and a sibling NNNN.json.
+    for i in range(12):
+        write_deltalake(str(root),
+                        pa.table({"id": [i]}),
+                        mode="append" if i > 0 else "error")
+    dt = DeltaTable(str(root))
+    dt.create_checkpoint()
+    dt = DeltaTable(str(root))   # reload after checkpoint write
+    summary = run_probe(root)
+
+    expect_eq(failures, "checkpointed", "version",
+              summary["version"], dt.version())
+    expect_eq(failures, "checkpointed", "num_commits",
+              summary["num_commits"], dt.version() + 1)
+
+    lc = summary["last_checkpoint"]
+    if lc is None:
+        failures.add("checkpointed", "last_checkpoint pointer missing")
+    else:
+        expect_eq(failures, "checkpointed", "last_checkpoint.version",
+                  lc["version"], dt.version())
+
+    expect_eq(failures, "checkpointed", "checkpoint_parquet_version",
+              summary["checkpoint_parquet_version"], dt.version())
+
+    # And the active file set still must match deltalake.
+    deltalake_files = sorted(deltalake_relative_files(dt, root))
+    wireform_files  = sorted(f["path"] for f in summary["active_files"])
+    expect_eq(failures, "checkpointed", "active files",
+              wireform_files, deltalake_files)
+    if not any(f[0] == "checkpointed" for f in failures):
+        print(f"  OK   checkpointed: version={dt.version()}, "
+              f"checkpoint at {summary['checkpoint_parquet_version']}, "
+              f"{len(deltalake_files)} active files")
+
+
 def main() -> int:
     failures = Failures()
     out = Path(tempfile.mkdtemp(prefix="wireform-delta-probe-"))
 
     case_unpartitioned(failures, out / "table_unpart")
     case_partitioned (failures, out / "table_part")
+    case_checkpointed(failures, out / "table_ckpt")
 
     print()
     if failures:

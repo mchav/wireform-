@@ -189,8 +189,13 @@ def case_unpartitioned(failures: Failures, tmp: Path) -> None:
               summary["latest_instant"], ts2)
     expect_eq(failures, "unpart", "(partition, file_id, base_file)",
               ours, canonical)
+
+    # The new openHudiTable opener exposes hoodie.properties.
+    expect_eq(failures, "unpart", "table_name",  summary["table_name"], "unpart")
+    expect_eq(failures, "unpart", "table_type",  summary["table_type"], "COPY_ON_WRITE")
     if not any(f[0] == "unpart" for f in failures):
-        print(f"  OK   unpart: {len(canonical)} slice (hudi-rs and wireform agree)")
+        print(f"  OK   unpart: {len(canonical)} slice (hudi-rs and wireform agree, "
+              f"table_name={summary['table_name']}, table_type={summary['table_type']})")
 
 
 def case_partitioned(failures: Failures, tmp: Path) -> None:

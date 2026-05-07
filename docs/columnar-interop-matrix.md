@@ -110,17 +110,29 @@ Drivers:
 
 |                                       | deltalake (delta-rs) |
 | ------------------------------------- | :------------------: |
-| **wireform → engine** (commit JSON)   |       ✓ 2/2          |
+| **wireform → engine** (commit JSON)   |       ✓ 3/3          |
 
-The wireform-delta probe parses every NDJSON file under
-`_delta_log/`, folds the action stream into a `TableSnapshot`,
-and writes a JSON summary. The Python driver builds two real
-Delta tables with `deltalake.write_deltalake` (one
-unpartitioned with a write/append/overwrite history, one
-partitioned by `region` with two writes), then asserts the
-probe's `active_files`, `protocol`, `metadata.partition_columns`,
-and `metadata.schema_field_names` line up with what `DeltaTable`
-sees on the same on-disk table.
+The wireform-delta probe opens a Delta table via
+`Delta.IO.openDeltaTable`, replays every NDJSON file under
+`_delta_log/` into a `TableSnapshot`, and writes a JSON
+summary that also surfaces the table version, the
+`_last_checkpoint` pointer (when present), and the highest
+`*.checkpoint.parquet` version actually on disk. The Python
+driver builds three real Delta tables with
+`deltalake.write_deltalake`:
+
+  * an unpartitioned table with a write / append / overwrite
+    history (only one add survives);
+  * a partitioned-by-region table with two writes;
+  * a 12-commit table on which `DeltaTable.create_checkpoint()`
+    has been called, so `_last_checkpoint` and
+    `*.checkpoint.parquet` exist.
+
+Asserts the probe's `version`, `active_files`, `protocol`,
+`metadata.partition_columns`, `metadata.schema_field_names`,
+`last_checkpoint.version`, and `checkpoint_parquet_version`
+all line up with what `DeltaTable` reports on the same on-disk
+table.
 
 Driver: `wireform-delta/scripts/delta_interop.py`.
 
@@ -148,25 +160,36 @@ same active set the canonical reader does.
 
 Driver: `wireform-hudi/scripts/hudi_interop.py`.
 
-## Apache Lance (file footer)
+## Apache Lance (file footer + dataset)
 
 |                                       | pylance              |
 | ------------------------------------- | :------------------: |
-| **engine → wireform** (footer)        |       ✓ 1/1          |
+| **engine → wireform** (file footer)   |       ✓ 1/1          |
+| **engine → wireform** (dataset)       |       ✓ 1/1          |
 
-The wireform-lance probe takes a `.lance` data file and writes
-out the typed `LanceFooter` (CMO offset, GBO offset, num
-columns, num global buffers, version, plus the per-column /
-per-global-buffer (position, size) tables). The Python driver
-writes a small Lance dataset with `lance.write_dataset`, then
-asserts that:
+Two interop modes:
 
-* every footer field matches an independent struct-unpack-based
-  decode of the trailing 40 bytes;
-* `num_columns` matches `len(LanceDataset.schema)`;
-* the column slice table has `num_columns` entries, each with a
-  `(position, size)` pair that doesn't run into the CMO offset
-  table region.
+* `--file`: probe a single `.lance` data file. Emits the typed
+  `LanceFooter` (CMO offset, GBO offset, num columns, num
+  global buffers, version, plus the per-column /
+  per-global-buffer (position, size) tables). The driver
+  asserts every field matches an independent struct-unpack
+  decode of the trailing 40 bytes, that `num_columns` matches
+  `len(LanceDataset.schema)`, and that the column slice table
+  is in-range.
+
+* `--dataset`: probe a `.lance/` directory.
+  `Lance.IO.openLanceDataset` enumerates every
+  `_versions/<n>.manifest` (decoding the `2^64 − 1 − v`
+  filename convention back to the user-visible version),
+  parses the active manifest's distinct 16-byte
+  `LanceManifestFooter`, and lists every `data/*.lance`
+  fragment. The driver writes two append commits with pylance
+  and asserts the probe's `latest_version`, `versions[]`,
+  `latest_manifest_footer.{manifest_position, major_version,
+  minor_version}`, and `data_file_names` all match what
+  `lance.dataset(...).versions()` and a directory listing
+  report.
 
 Driver: `wireform-lance/scripts/lance_interop.py`.
 

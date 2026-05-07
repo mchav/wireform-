@@ -69,6 +69,10 @@ module Lance.Format
   , parseGlobalBufferOffsetTable
     -- * Column metadata extraction
   , extractColumnMetadataBytes
+    -- * Manifest footer
+  , LanceManifestFooter (..)
+  , manifestFooterSize
+  , parseManifestFooter
   ) where
 
 import Data.Bits (shiftL)
@@ -228,6 +232,61 @@ extractColumnMetadataBytes lf col = do
        in if start < 0 || len < 0 || start + len > BS.length bs
             then Left "Lance.Format: column metadata slice out of range"
             else Right (BS.take len (BS.drop start bs))
+
+-- ============================================================
+-- Manifest footer
+-- ============================================================
+--
+-- A Lance @_versions/<n>.manifest@ file is a serialised
+-- @Manifest@ protobuf message followed by a 16-byte fixed
+-- footer (a /different/ shape from the data-file footer above):
+--
+-- @
+-- u64  manifest_position    -- absolute offset of the protobuf body
+-- u16  major_version
+-- u16  minor_version
+-- "LANC"
+-- @
+--
+-- All integers are little-endian.
+
+-- | The 16-byte manifest footer, fully decoded.
+data LanceManifestFooter = LanceManifestFooter
+  { lmfManifestPosition :: !Word64
+    -- ^ Absolute file offset of the protobuf @Manifest@ message
+    -- inside the manifest file.
+  , lmfMajorVersion     :: !Word16
+  , lmfMinorVersion     :: !Word16
+  } deriving (Show, Eq)
+
+-- | Total bytes the manifest footer occupies, including the
+-- trailing @LANC@ magic.
+--
+-- > 8  -- u64 manifest position
+-- > 2  -- u16 major
+-- > 2  -- u16 minor
+-- > 4  -- "LANC"
+-- > = 16 bytes
+manifestFooterSize :: Int
+manifestFooterSize = 8 + 2 + 2 + 4
+
+-- | Decode the manifest footer out of the tail of a
+-- @_versions/<n>.manifest@ file.
+parseManifestFooter :: ByteString -> Either String LanceManifestFooter
+parseManifestFooter bs
+  | total < manifestFooterSize =
+      Left "Lance.Format: file too short for manifest footer"
+  | trailingMagic /= lanceMagic =
+      Left "Lance.Format: missing trailing LANC magic in manifest"
+  | otherwise = Right LanceManifestFooter
+      { lmfManifestPosition = u64 footer 0
+      , lmfMajorVersion     = u16 footer 8
+      , lmfMinorVersion     = u16 footer 10
+      }
+  where
+    total         = BS.length bs
+    footer        = BS.drop (total - manifestFooterSize) bs
+    trailingMagic = BS.drop (manifestFooterSize - 4) footer
 
 -- ============================================================
 -- Internal helpers

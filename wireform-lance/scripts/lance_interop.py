@@ -97,13 +97,14 @@ def main() -> int:
             "cabal", "run",
             "wireform-lance:wireform-lance-interop-probe",
             "--",
-            str(data_file), str(probe_out),
+            "--file", str(data_file), str(probe_out),
         ],
         cwd=ROOT.parent, check=True,
     )
 
-    with probe_out.open() as f:
-        summary = json.load(f)
+    with probe_out.open() as fh:
+        summary = json.load(fh)
+    expect_eq(failures, "lance footer", "mode", summary.get("mode"), "file")
 
     # ---------------------------------------------------------------
     # Footer fields must exactly match the bytes we decoded ourselves.
@@ -153,6 +154,86 @@ def main() -> int:
     if f["num_global_buffers"] == 0:
         failures.add("lance global_buffers", "expected pylance to emit ≥1")
 
+    # ---------------------------------------------------------------
+    # Dataset mode: now drive --dataset against the .lance directory
+    # so the new Lance.IO opener (manifest enumeration + data-file
+    # listing) is exercised.
+    # ---------------------------------------------------------------
+    print(f"\n== driving wireform-lance dataset probe against {dataset_dir.name}")
+
+    # Append a second fragment so there is more than one version /
+    # data file to enumerate.
+    lance.write_dataset(
+        pa.table({"id":   pa.array([100, 101], type=pa.int64()),
+                  "name": pa.array(["x", "y"], type=pa.string()),
+                  "v":    pa.array([1.0, 2.0], type=pa.float64())}),
+        str(dataset_dir),
+        mode="append",
+    )
+
+    ds_probe_out = out / "ds_probe.json"
+    subprocess.run(
+        [
+            "cabal", "run",
+            "wireform-lance:wireform-lance-interop-probe",
+            "--",
+            "--dataset", str(dataset_dir), str(ds_probe_out),
+        ],
+        cwd=ROOT.parent, check=True,
+    )
+    with ds_probe_out.open() as fh:
+        ds_summary = json.load(fh)
+
+    pylance_versions = sorted(int(v["version"]) for v in lance.dataset(str(dataset_dir)).versions())
+    pylance_data_files = sorted(p.name for p in dataset_dir.glob("data/*.lance"))
+
+    expect_eq(failures, "lance dataset", "mode", ds_summary["mode"], "dataset")
+    expect_eq(failures, "lance dataset", "latest_version",
+              ds_summary["latest_version"], pylance_versions[-1])
+
+    wireform_versions = sorted(v["version"] for v in ds_summary["versions"])
+    expect_eq(failures, "lance dataset", "versions",
+              wireform_versions, pylance_versions)
+
+    # Latest manifest's footer must be a valid Lance manifest
+    # footer (16-byte format: u64 protobuf position + 2 u16
+    # versions + LANC magic, distinct from the 40-byte data-file
+    # footer). The 'manifest_position' must be inside the
+    # manifest file and the trailing magic must match.
+    mf = ds_summary["latest_manifest_footer"]
+    if mf is None:
+        failures.add("lance dataset", "latest_manifest_footer = null")
+    else:
+        # Cross-check against an independent struct.unpack of the
+        # most recent _versions/*.manifest tail.
+        manifest_path = max(dataset_dir.glob("_versions/*.manifest"),
+                            key=lambda p: p.stat().st_mtime)
+        b = manifest_path.read_bytes()
+        if b[-4:] != b"LANC":
+            failures.add("lance dataset", "manifest trailing magic missing")
+        true_pos = struct.unpack_from("<Q", b, len(b) - 16)[0]
+        true_maj, true_min = struct.unpack_from("<HH", b, len(b) - 8)
+        expect_eq(failures, "lance dataset",
+                  "manifest_footer.manifest_position",
+                  mf["manifest_position"], true_pos)
+        expect_eq(failures, "lance dataset",
+                  "manifest_footer.major_version",
+                  mf["major_version"], true_maj)
+        expect_eq(failures, "lance dataset",
+                  "manifest_footer.minor_version",
+                  mf["minor_version"], true_min)
+        if not (0 < mf["manifest_position"] < manifest_path.stat().st_size - 16):
+            failures.add("lance dataset",
+                         f"manifest_position {mf['manifest_position']} "
+                         f"not inside the manifest file (size {manifest_path.stat().st_size})")
+
+    # Data files: wireform sees the same .lance basenames pylance
+    # has on disk (we don't filter against the manifest body, so
+    # this is a "files present" comparison, not "files active").
+    wireform_data_files = sorted(ds_summary["data_file_names"])
+    expect_eq(failures, "lance dataset", "data_file_names",
+              wireform_data_files, pylance_data_files)
+
     if failures:
         print()
         print(f"{len(failures)} failures:")
@@ -162,6 +243,10 @@ def main() -> int:
     print()
     print(f"OK   wireform-lance footer round-trips through pylance "
           f"(num_columns={f['num_columns']}, version={f['major_version']}.{f['minor_version']}).")
+    print(f"OK   wireform-lance dataset opener: latest_version="
+          f"{ds_summary['latest_version']}, "
+          f"{len(wireform_data_files)} data files, "
+          f"{len(wireform_versions)} versions.")
     return 0
 
 

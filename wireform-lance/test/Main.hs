@@ -12,6 +12,7 @@ import Data.Word (Word16, Word32, Word64)
 import qualified Data.Vector as V
 
 import qualified Lance.Format as L
+import qualified Lance.IO     as LIO
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -23,6 +24,7 @@ main = defaultMain $ testGroup "wireform-lance"
   , testCase "column metadata extraction" columnMetaTest
   , testCase "missing trailing magic is rejected" missingTrailingMagicTest
   , testCase "file shorter than footer is rejected" tooShortTest
+  , testCase "manifest filename round-trip" manifestNameRoundTrip
   ]
 
 -- | Build a minimal Lance file:
@@ -108,6 +110,20 @@ tooShortTest :: Assertion
 tooShortTest = case L.readLanceFile (BS.pack [0x4C, 0x41, 0x4E, 0x43]) of
   Left _  -> pure ()
   Right _ -> assertFailure "expected Left for too-short file"
+
+manifestNameRoundTrip :: Assertion
+manifestNameRoundTrip = do
+  -- pylance writes manifest-filename = (2^64 - 1 - version), so:
+  LIO.decodeManifestFileName "18446744073709551614.manifest" @?= Just 1
+  LIO.decodeManifestFileName "18446744073709551613.manifest" @?= Just 2
+  LIO.decodeManifestFileName "0.manifest"
+    @?= Just (maxBound :: Word64)
+  -- Filename → version → filename.
+  LIO.encodeManifestFileName 1 @?= "18446744073709551614.manifest"
+  LIO.encodeManifestFileName 2 @?= "18446744073709551613.manifest"
+  -- Reject malformed names.
+  LIO.decodeManifestFileName "not-a-version.manifest" @?= Nothing
+  LIO.decodeManifestFileName "1.json"                 @?= Nothing
 
 -- ============================================================
 -- Tiny LE encoders (avoid pulling in extra deps for tests).

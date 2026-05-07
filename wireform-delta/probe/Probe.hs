@@ -2,37 +2,28 @@
 {-# LANGUAGE BangPatterns #-}
 -- | wireform-delta interop probe.
 --
--- Walks a Delta table's @_delta_log/@ directory, parses every
--- @NNNN.json@ commit file with 'Delta.Log.parseLogFile', folds
--- the resulting actions into a 'Delta.Log.TableSnapshot', and
--- writes a JSON summary to @argv[2]@ (or stdout) so the Python
--- driver can compare against @deltalake@'s own view of the same
--- table.
+-- Opens a Delta table on disk via 'Delta.IO.openDeltaTable' and
+-- writes a JSON summary of what wireform sees: protocol +
+-- metadata + active file set + per-app txn versions + last
+-- commit operation + last_checkpoint pointer + checkpoint
+-- discovery.
 --
 -- Usage:
 --   wireform-delta-interop-probe <table-root> [<output.json>]
---
--- Limitations matching the rest of the skeleton:
---   * Only NDJSON commit files are walked; checkpoint Parquet
---     files are ignored.
---   * Schema decode is best-effort; the raw @schemaString@ is
---     also exposed in case the typed decoder loses something.
 module Main (main) where
 
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BL
-import Data.List (sort)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Vector as V
 import Data.Word (Word64)
-import System.Directory (doesDirectoryExist, listDirectory)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
-import System.FilePath ((</>), takeExtension)
 
+import qualified Delta.IO as DIO
 import qualified Delta.Log as D
 
 main :: IO ()
@@ -45,20 +36,16 @@ main = do
       putStrLn "usage: wireform-delta-interop-probe <table-root> [<output.json>]"
       exitFailure
 
-  let logDir = tableRoot </> "_delta_log"
-  ok <- doesDirectoryExist logDir
-  if not ok
-    then do
-      putStrLn $ "wireform-delta-interop-probe: missing " ++ logDir
+  res <- DIO.openDeltaTable tableRoot
+  case res of
+    Left err -> do
+      putStrLn ("wireform-delta-interop-probe: " ++ err)
       exitFailure
-    else do
-      entries <- listDirectory logDir
-      let commits = sort (map (logDir </>) (filter (\e -> takeExtension e == ".json") entries))
-      actions <- concat <$> mapM readCommit commits
-      let snap = D.snapshotFromActions actions
-      let summary = Aeson.Object $ KM.fromList
-            [ (Key.fromString "num_commits", Aeson.Number (fromIntegral (length commits)))
-            , (Key.fromString "num_actions", Aeson.Number (fromIntegral (length actions)))
+    Right dt -> do
+      let snap = DIO.dtSnapshot dt
+          summary = Aeson.Object $ KM.fromList
+            [ (Key.fromString "version", maybe Aeson.Null numW64 (DIO.dtVersion dt))
+            , (Key.fromString "num_commits", Aeson.Number (fromIntegral (length (DIO.dtCommits dt))))
             , (Key.fromString "active_files", filesJSON snap)
             , (Key.fromString "active_file_count", Aeson.Number (fromIntegral (Map.size (D.tsFiles snap))))
             , (Key.fromString "protocol", protocolJSON snap)
@@ -70,18 +57,19 @@ main = do
                 Just c  -> case D.ciOperation c of
                   Just op -> Aeson.String op
                   Nothing -> Aeson.Null)
+            , (Key.fromString "last_checkpoint", lastCheckpointJSON (DIO.dtLastCheckpoint dt))
+            , (Key.fromString "checkpoint_parquet_version",
+                maybe Aeson.Null numW64 (DIO.dtCheckpointAvailable dt))
             ]
       case outputDest of
         Nothing -> BL.putStr (Aeson.encode summary)
         Just o  -> BL.writeFile o (Aeson.encode summary)
 
-readCommit :: FilePath -> IO [D.DeltaAction]
-readCommit fp = do
-  bs <- BL.readFile fp
-  pure (D.parseLogFile bs)
+numW64 :: Word64 -> Aeson.Value
+numW64 = Aeson.Number . fromIntegral
 
 txnEntry :: (Text, Word64) -> (Key.Key, Aeson.Value)
-txnEntry (k, v) = (Key.fromText k, Aeson.Number (fromIntegral v))
+txnEntry (k, v) = (Key.fromText k, numW64 v)
 
 filesJSON :: D.TableSnapshot -> Aeson.Value
 filesJSON snap =
@@ -89,8 +77,8 @@ filesJSON snap =
   where
     fileEntry (path, a) = Aeson.Object $ KM.fromList
       [ (Key.fromString "path",            Aeson.String path)
-      , (Key.fromString "size",            Aeson.Number (fromIntegral (D.addSize a)))
-      , (Key.fromString "modificationTime",Aeson.Number (fromIntegral (D.addModificationTime a)))
+      , (Key.fromString "size",            numW64 (D.addSize a))
+      , (Key.fromString "modificationTime",numW64 (D.addModificationTime a))
       , (Key.fromString "partition_values", Aeson.Object $
           KM.fromList (map pvEntry (Map.toAscList (D.addPartitionValues a))))
       ]
@@ -120,3 +108,16 @@ metadataJSON snap = case D.tsMetaData snap of
     schemaFieldNames mdv = case D.parseDeltaSchema (D.mdSchemaString mdv) of
       Right s -> Aeson.Array (V.fromList (map (Aeson.String . D.dfName) (D.dsFields s)))
       Left _  -> Aeson.Null
+
+lastCheckpointJSON :: Maybe D.LastCheckpoint -> Aeson.Value
+lastCheckpointJSON Nothing   = Aeson.Null
+lastCheckpointJSON (Just lc) = Aeson.Object $ KM.fromList
+  [ (Key.fromString "version", numW64 (D.lcVersion lc))
+  , (Key.fromString "size",    numW64 (D.lcSize lc))
+  , (Key.fromString "parts",
+      maybe Aeson.Null numW64 (D.lcParts lc))
+  , (Key.fromString "size_in_bytes",
+      maybe Aeson.Null numW64 (D.lcSizeInBytes lc))
+  , (Key.fromString "num_of_add_files",
+      maybe Aeson.Null numW64 (D.lcNumOfAddFiles lc))
+  ]
