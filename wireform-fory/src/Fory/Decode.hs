@@ -73,6 +73,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Data.Vector (Vector)
+import qualified Data.Vector.Mutable as VM
 import qualified Data.Vector.Storable as VS
 import Data.Word (Word8, Word16, Word32, Word64)
 import Foreign.ForeignPtr (ForeignPtr, withForeignPtr)
@@ -773,14 +774,16 @@ readSameTypeBatch
 readSameTypeBatch !count !rdr = DecodeM $ \d -> do
   pos0 <- readIORef (decPos d)
   let !p = decBase d
-      go !i !pos !acc
-        | i >= count = pure (V.fromListN count (reverse acc), pos)
+  mvec <- VM.unsafeNew count
+  let go !i !pos
+        | i >= count = pure pos
         | otherwise = do
             (val, pos') <- rdr p pos
-            go (i + 1) pos' (val : acc)
-  (vec, posF) <- go 0 pos0 []
+            VM.unsafeWrite mvec i val
+            go (i + 1) pos'
+  posF <- go 0 pos0
   writeIORef (decPos d) posF
-  pure vec
+  V.unsafeFreeze mvec
 {-# INLINE readSameTypeBatch #-}
 
 -- | Like 'readSameTypeBatch' but returns a plain Haskell list
