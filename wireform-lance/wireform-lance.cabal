@@ -35,3 +35,17 @@ library
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
     wireform-columnar
+
+test-suite lance-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  ghc-options: -Wall -O0
+  build-depends:
+    base >= 4.16 && < 5,
+    bytestring,
+    vector,
+    wireform-lance,
+    tasty       >= 1.4  && < 1.6,
+    tasty-hunit >= 0.10 && < 0.11

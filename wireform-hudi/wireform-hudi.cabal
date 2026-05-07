@@ -38,3 +38,17 @@ library
     unordered-containers >= 0.2.16 && < 0.3,
     vector >= 0.13 && < 0.14,
     wireform-parquet
+
+test-suite hudi-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  ghc-options: -Wall -O0
+  build-depends:
+    base >= 4.16 && < 5,
+    containers,
+    text,
+    wireform-hudi,
+    tasty       >= 1.4  && < 1.6,
+    tasty-hunit >= 0.10 && < 0.11

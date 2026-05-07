@@ -214,13 +214,6 @@ data CdcAction = CdcAction
 -- Aeson instances
 -- ============================================================
 
--- Helper: read a partition values map. Spark sometimes emits
--- entries as @"k":null@ (Maybe Text); the JSON shape is always
--- a flat object of strings-or-nulls.
-parsePartitionValues
-  :: Value -> Result (Map.Map Text (Maybe Text))
-parsePartitionValues = fromJSON
-
 instance FromJSON AddAction where
   parseJSON = withObject "AddAction" $ \o -> AddAction
     <$> o .:  "path"
