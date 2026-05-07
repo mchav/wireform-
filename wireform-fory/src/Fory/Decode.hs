@@ -46,6 +46,17 @@ module Fory.Decode
   , readForyString
   , decodeMetaStringWith
   , failD
+    -- * Raw-pointer read primitives (for typed batched decoders)
+  , readSameTypeBatch
+  , readSameTypeBatchList
+  , peekByteRaw
+  , peekWord16LERaw
+  , peekWord32LERaw
+  , peekWord64LERaw
+  , peekInt32LERaw
+  , peekInt64LERaw
+  , peekVaruint64Raw
+  , peekVarint64Raw
   ) where
 
 import Control.Exception (Exception, throwIO, try)
@@ -757,8 +768,8 @@ sameTypeFastReader !tag = case tag of
 -- against a cached 'Ptr Word8' base and a local offset.
 readSameTypeBatch
   :: Int
-  -> (Ptr Word8 -> Int -> IO (VV.Value, Int))
-  -> DecodeM (Vector VV.Value)
+  -> (Ptr Word8 -> Int -> IO (a, Int))
+  -> DecodeM (Vector a)
 readSameTypeBatch !count !rdr = DecodeM $ \d -> do
   pos0 <- readIORef (decPos d)
   let !p = decBase d
@@ -770,6 +781,27 @@ readSameTypeBatch !count !rdr = DecodeM $ \d -> do
   (vec, posF) <- go 0 pos0 []
   writeIORef (decPos d) posF
   pure vec
+{-# INLINE readSameTypeBatch #-}
+
+-- | Like 'readSameTypeBatch' but returns a plain Haskell list
+-- without going through 'Vector' as an intermediate. Saves the
+-- 'Vector' → list conversion when the caller wants a list.
+readSameTypeBatchList
+  :: Int
+  -> (Ptr Word8 -> Int -> IO (a, Int))
+  -> DecodeM [a]
+readSameTypeBatchList !count !rdr = DecodeM $ \d -> do
+  pos0 <- readIORef (decPos d)
+  let !p = decBase d
+      go !i !pos !acc
+        | i >= count = pure (reverse acc, pos)
+        | otherwise = do
+            (val, pos') <- rdr p pos
+            go (i + 1) pos' (val : acc)
+  (xs, posF) <- go 0 pos0 []
+  writeIORef (decPos d) posF
+  pure xs
+{-# INLINE readSameTypeBatchList #-}
 
 -- | Element of a same-type ref-tracked homogeneous collection.
 readSameTypeRefSlotE :: DecodeM VV.Value -> DecodeM VV.Value

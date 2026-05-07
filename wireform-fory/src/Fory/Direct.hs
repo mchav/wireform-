@@ -65,6 +65,7 @@ import qualified Foreign.Marshal.Utils
 import qualified Foreign.Ptr
 import Foreign.Ptr (Ptr)
 import Foreign.Storable (Storable, sizeOf)
+import qualified GHC.Float
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Fory.Bulk as B
@@ -111,6 +112,16 @@ class ForyTypeId a => DecodeDirect a where
   -- @NOT_NULL_VALUE@ and the tag has already been consumed by
   -- 'readSlotAndTag'.
   directDecodePayload :: D.DecodeM a
+
+  -- | Optional fast-path reader for inner loops. Mirrors
+  -- 'directRawPoke' on the encode side: returns a raw
+  -- 'Ptr Word8'-based reader that advances the cursor without
+  -- touching the decoder's IORefs. When 'Just', the
+  -- list / Vector decoder calls 'D.readSameTypeBatch' which
+  -- pays the cursor 'IORef' cycle exactly twice for the
+  -- entire batch.
+  directRawPeek :: Maybe (Ptr Word8 -> Int -> IO (a, Int))
+  directRawPeek = Nothing
 
 -- | Encode a typed value to Fory bytes. Equivalent (byte-for-
 -- byte) to @encodeFory . toFory@ but allocates no
@@ -213,6 +224,9 @@ instance EncodeDirect Int where
 
 instance DecodeDirect Int where
   directDecodePayload = fromIntegral <$> D.readVarint64D
+  directRawPeek = Just $ \p off -> do
+    (n, off') <- D.peekVarint64Raw p off
+    pure (fromIntegral n, off')
   {-# INLINE directDecodePayload #-}
 
 instance ForyTypeId Int8 where directTypeId = T.INT8
@@ -223,6 +237,9 @@ instance EncodeDirect Int8 where
   {-# INLINE directEncodePayload #-}
 instance DecodeDirect Int8 where
   directDecodePayload = fromIntegral <$> D.readByteD
+  directRawPeek = Just $ \p off -> do
+    (b, off') <- D.peekByteRaw p off
+    pure (fromIntegral b, off')
   {-# INLINE directDecodePayload #-}
 
 instance ForyTypeId Int16 where directTypeId = T.INT16
@@ -232,6 +249,9 @@ instance EncodeDirect Int16 where
   {-# INLINE directEncodePayload #-}
 instance DecodeDirect Int16 where
   directDecodePayload = D.readInt16D
+  directRawPeek = Just $ \p off -> do
+    (w, off') <- D.peekWord16LERaw p off
+    pure (fromIntegral w, off')
   {-# INLINE directDecodePayload #-}
 
 instance ForyTypeId Int32 where directTypeId = T.INT32
@@ -241,6 +261,7 @@ instance EncodeDirect Int32 where
   {-# INLINE directEncodePayload #-}
 instance DecodeDirect Int32 where
   directDecodePayload = D.readInt32D
+  directRawPeek = Just D.peekInt32LERaw
   {-# INLINE directDecodePayload #-}
 
 instance ForyTypeId Int64 where directTypeId = T.INT64
@@ -250,6 +271,7 @@ instance EncodeDirect Int64 where
   {-# INLINE directEncodePayload #-}
 instance DecodeDirect Int64 where
   directDecodePayload = D.readInt64D
+  directRawPeek = Just D.peekInt64LERaw
   {-# INLINE directDecodePayload #-}
 
 instance ForyTypeId Word8 where directTypeId = T.UINT8
@@ -259,6 +281,7 @@ instance EncodeDirect Word8 where
   {-# INLINE directEncodePayload #-}
 instance DecodeDirect Word8 where
   directDecodePayload = D.readByteD
+  directRawPeek = Just D.peekByteRaw
   {-# INLINE directDecodePayload #-}
 
 instance ForyTypeId Word16 where directTypeId = T.UINT16
@@ -268,6 +291,7 @@ instance EncodeDirect Word16 where
   {-# INLINE directEncodePayload #-}
 instance DecodeDirect Word16 where
   directDecodePayload = D.readWord16D
+  directRawPeek = Just D.peekWord16LERaw
   {-# INLINE directDecodePayload #-}
 
 instance ForyTypeId Word32 where directTypeId = T.UINT32
@@ -277,6 +301,7 @@ instance EncodeDirect Word32 where
   {-# INLINE directEncodePayload #-}
 instance DecodeDirect Word32 where
   directDecodePayload = D.readWord32D
+  directRawPeek = Just D.peekWord32LERaw
   {-# INLINE directDecodePayload #-}
 
 instance ForyTypeId Word64 where directTypeId = T.UINT64
@@ -286,6 +311,7 @@ instance EncodeDirect Word64 where
   {-# INLINE directEncodePayload #-}
 instance DecodeDirect Word64 where
   directDecodePayload = D.readWord64D
+  directRawPeek = Just D.peekWord64LERaw
   {-# INLINE directDecodePayload #-}
 
 instance ForyTypeId Float where directTypeId = T.FLOAT32
@@ -295,6 +321,9 @@ instance EncodeDirect Float where
   {-# INLINE directEncodePayload #-}
 instance DecodeDirect Float where
   directDecodePayload = D.readFloat32D
+  directRawPeek = Just $ \p off -> do
+    (w, off') <- D.peekWord32LERaw p off
+    pure (GHC.Float.castWord32ToFloat w, off')
   {-# INLINE directDecodePayload #-}
 
 instance ForyTypeId Double where directTypeId = T.FLOAT64
@@ -304,6 +333,9 @@ instance EncodeDirect Double where
   {-# INLINE directEncodePayload #-}
 instance DecodeDirect Double where
   directDecodePayload = D.readFloat64D
+  directRawPeek = Just $ \p off -> do
+    (w, off') <- D.peekWord64LERaw p off
+    pure (GHC.Float.castWord64ToDouble w, off')
   {-# INLINE directDecodePayload #-}
 
 instance ForyTypeId Bool where directTypeId = T.BOOL
@@ -314,6 +346,9 @@ instance EncodeDirect Bool where
   {-# INLINE directEncodePayload #-}
 instance DecodeDirect Bool where
   directDecodePayload = (/= 0) <$> D.readByteD
+  directRawPeek = Just $ \p off -> do
+    (b, off') <- D.peekByteRaw p off
+    pure (b /= 0, off')
   {-# INLINE directDecodePayload #-}
 
 instance ForyTypeId Text where directTypeId = T.STRING
@@ -352,21 +387,80 @@ instance DecodeDirect ByteString where
 -- primitives — see 'Fory.Encode.sameTypeFastPath').
 
 instance ForyTypeId [a] where directTypeId = T.LIST
+-- The plain '[a]' instance has two paths:
+--
+-- * If @a@ has a 'directRawPoke' (the fixed-size primitives:
+--   Int, Float, Double, Bool, Int*, Word*), forward to the
+--   'Vector a' instance via 'V.fromList'. The Vector walk +
+--   'IO.withReservedRaw' batching is much faster than a
+--   recursive cons-cell pattern match, and 'V.length' is
+--   O(1) so we avoid a second list traversal.
+-- * Otherwise (Text, ByteString, nested collections,
+--   structs), traverse the list directly with one 'length'
+--   pass + 'mapM_'. Allocating a Vector wouldn't help here
+--   because the per-element work (string encode, sub-encode)
+--   dominates the framing.
 instance forall a. EncodeDirect a => EncodeDirect [a] where
-  directEncodePayload e xs = do
-    let !len = length xs
-    IO.emitVaruint32 e (fromIntegral len)
-    if len == 0
+  directEncodePayload e xs = case directRawPoke @a of
+    Just{}  -> directEncodePayload e (V.fromList xs)
+    Nothing -> emitListSlowGeneric e xs
+  {-# INLINE directEncodePayload #-}
+
+-- | Fallback list emitter for element types without a raw-poke
+-- fast path. Walks the list twice (once for length, once for
+-- writes) but pays no extra allocation and no per-element
+-- closure dispatch beyond the existing class method call.
+emitListSlowGeneric
+  :: forall a. EncodeDirect a => IO.Encoder -> [a] -> IO ()
+emitListSlowGeneric !e !xs = do
+  let !len = length xs
+  IO.emitVaruint32 e (fromIntegral len)
+  if len == 0
+    then pure ()
+    else do
+      IO.emitByte e 0x08
+      emitTagD e (directTypeId @a)
+      mapM_ (directEncodePayload @a e) xs
+{-# INLINE emitListSlowGeneric #-}
+
+-- | OVERLAPPING fast path for @[Text]@. Mirrors the
+-- Value-side 'emitStringListFast': pre-encodes each element
+-- to UTF-8 + classifies it as LATIN-1 vs UTF-8 in one walk
+-- (which also gives us the length), sums the upper-bound
+-- total bytes, then writes the entire list payload via a
+-- single 'IO.withReservedRaw'.
+instance {-# OVERLAPPING #-} EncodeDirect [Text] where
+  directEncodePayload !e !xs = do
+    let !encodedRev = goEnc xs 0 []
+        (n, encoded) = encodedRev
+        !total       = sumSizes encoded
+    IO.emitVaruint32 e (fromIntegral n)
+    if n == 0
       then pure ()
       else do
-        IO.emitByte e 0x08           -- IS_SAME_TYPE
-        emitTagD e (directTypeId @a)
-        case directRawPoke @a of
-          Just (perElem, poker) ->
-            IO.withReservedRaw e (perElem * len) $ \p start ->
-              foldlMList (\off x -> poker p off x) start xs
-          Nothing ->
-            mapM_ (directEncodePayload @a e) xs
+        IO.emitByte e 0x08
+        emitTagD e T.STRING
+        IO.withReservedRaw e total $ \p start ->
+          foldlMList (writeOneStr p) start encoded
+    where
+      goEnc :: [Text] -> Int -> [(ByteString, Bool)]
+            -> (Int, [(ByteString, Bool)])
+      goEnc []     !n !acc = (n, reverse acc)
+      goEnc (t:ts) !n !acc =
+        let !u = TE.encodeUtf8 t
+            !ascii = BS.all (< 0x80) u
+        in goEnc ts (n + 1) ((u, ascii) : acc)
+
+      sumSizes :: [(ByteString, Bool)] -> Int
+      sumSizes = foldr (\(u, _) a -> a + 9 + BS.length u) 0
+
+      writeOneStr :: Ptr Word8 -> Int -> (ByteString, Bool) -> IO Int
+      writeOneStr !p !off (!u, !ascii) = do
+        let !len = BS.length u
+            !hdr = (fromIntegral len `shiftL` 2)
+                     .|. (if ascii then 0 else 2) :: Word64
+        off1 <- IO.pokeVaruint64Raw p off hdr
+        pokeBytesRawDirect p off1 u
 
 instance forall a. DecodeDirect a => DecodeDirect [a] where
   directDecodePayload = do
@@ -380,8 +474,14 @@ instance forall a. DecodeDirect a => DecodeDirect [a] where
                          ++ show flag)
           else do
             _tag <- D.readVaruint32D
-            -- @count@ payload reads, no per-element tag.
-            replicateMD count (directDecodePayload @a)
+            -- For element types with a raw-peek fast path,
+            -- batch the reads through 'D.readSameTypeBatchList'
+            -- (one cursor 'IORef' cycle for the whole batch).
+            -- Otherwise fall back to per-element
+            -- 'directDecodePayload'.
+            case directRawPeek @a of
+              Just rdr -> D.readSameTypeBatchList count rdr
+              Nothing  -> replicateMD count (directDecodePayload @a)
 
 -- 'Vector a' uses the same wire shape — boxed Vector is
 -- equivalent to '[a]' from the wire's perspective.
@@ -414,7 +514,9 @@ instance forall a. DecodeDirect a => DecodeDirect (Vector a) where
                          ++ show flag)
           else do
             _tag <- D.readVaruint32D
-            V.replicateM count (directDecodePayload @a)
+            case directRawPeek @a of
+              Just rdr -> D.readSameTypeBatch count rdr
+              Nothing  -> V.replicateM count (directDecodePayload @a)
 
 -- ---------------------------------------------------------------------------
 -- Storable-Vector primitive arrays
