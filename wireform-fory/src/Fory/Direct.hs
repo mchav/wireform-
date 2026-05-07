@@ -1,9 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UnboxedTuples #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 -- | Type-driven Fory encode / decode that bypasses the
 -- dynamic 'Fory.Value.Value' AST.
@@ -54,7 +56,9 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Array as TA
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Internal as TI
 import qualified Data.Vector as V
 import Data.Vector (Vector)
 import qualified Data.Vector.Storable as VS
@@ -65,7 +69,11 @@ import qualified Foreign.Marshal.Utils
 import qualified Foreign.Ptr
 import Foreign.Ptr (Ptr)
 import Foreign.Storable (Storable, sizeOf)
+import GHC.Exts (copyByteArrayToAddr#)
 import qualified GHC.Float
+import GHC.IO (IO (IO))
+import GHC.Int (Int (I#))
+import GHC.Ptr (Ptr (Ptr), plusPtr)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Fory.Bulk as B
@@ -205,6 +213,19 @@ emitForyStringDirect !e !t = do
         let !hdr = (fromIntegral len `shiftL` 2) .|. 2 :: Word64
         IO.emitVaruint64 e hdr
         IO.emitBytes e utf8
+{-# INLINE emitForyStringDirect #-}
+
+-- | 'memcpy' from a 'TA.Array' (Text's underlying
+-- 'ByteArray#') into a raw 'Ptr Word8'. Compiles to a single
+-- @copyByteArrayToAddr#@ primop call. Used by the typed
+-- list-of-string fast paths to avoid the per-element
+-- 'TE.encodeUtf8' allocation.
+copyTextArrayToPtr :: TA.Array -> Int -> Ptr Word8 -> Int -> IO ()
+copyTextArrayToPtr (TA.ByteArray arr#) (I# srcOff#) (Ptr dstAddr#) (I# n#) =
+  IO $ \s ->
+    case copyByteArrayToAddr# arr# srcOff# dstAddr# n# s of
+      s' -> (# s', () #)
+{-# INLINE copyTextArrayToPtr #-}
 
 readForyStringDirect :: D.DecodeM Text
 readForyStringDirect = D.readForyString
@@ -542,11 +563,21 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Double) where
 -- (which also gives us the length), sums the upper-bound
 -- total bytes, then writes the entire list payload via a
 -- single 'IO.withReservedRaw'.
+-- | OVERLAPPING fast path for @[Text]@. Walks the list once
+-- decomposing each Text into its underlying @(arr, off, len,
+-- ascii)@ tuple — no 'TE.encodeUtf8' allocation, no
+-- intermediate 'ByteString'. Then writes the entire batch
+-- via a single 'IO.withReservedRaw', emitting each Text's
+-- header + raw bytes via 'copyTextArrayToPtr'.
+--
+-- For Latin-1 strings with chars 128–255 (which encode to
+-- 2 UTF-8 bytes per char) we fall back to the slow
+-- per-character re-encode via 'B.latin1Bytes' to preserve
+-- byte-equality with the Value pipeline.
 instance {-# OVERLAPPING #-} EncodeDirect [Text] where
   directEncodePayload !e !xs = do
-    let !encodedRev = goEnc xs 0 []
-        (n, encoded) = encodedRev
-        !total       = sumSizes encoded
+    let !decoded = goDecompose xs 0 []
+        (!n, !entries, !total) = decoded
     IO.emitVaruint32 e (fromIntegral n)
     if n == 0
       then pure ()
@@ -554,33 +585,28 @@ instance {-# OVERLAPPING #-} EncodeDirect [Text] where
         IO.emitByte e 0x08
         emitTagD e T.STRING
         IO.withReservedRaw e total $ \p start ->
-          foldlMList (writeOneStr p) start encoded
+          foldlMList (writeOneText p) start entries
     where
-      goEnc :: [Text] -> Int -> [(ByteString, Bool)]
-            -> (Int, [(ByteString, Bool)])
-      goEnc []     !n !acc = (n, reverse acc)
-      goEnc (t:ts) !n !acc =
-        let !u = TE.encodeUtf8 t
-            !ascii = BS.all (< 0x80) u
-        in goEnc ts (n + 1) ((u, ascii) : acc)
+      goDecompose
+        :: [Text] -> Int -> [TextEntry]
+        -> (Int, [TextEntry], Int)
+      goDecompose []     !n !acc =
+        let (!entries, !sz) = reverseSum acc 0 [] in (n, entries, sz)
+      goDecompose (t:ts) !n !acc =
+        let !entry = decomposeText t
+        in goDecompose ts (n + 1) (entry : acc)
 
-      sumSizes :: [(ByteString, Bool)] -> Int
-      sumSizes = foldr (\(u, _) a -> a + 9 + BS.length u) 0
-
-      writeOneStr :: Ptr Word8 -> Int -> (ByteString, Bool) -> IO Int
-      writeOneStr !p !off (!u, !ascii) = do
-        let !len = BS.length u
-            !hdr = (fromIntegral len `shiftL` 2)
-                     .|. (if ascii then 0 else 2) :: Word64
-        off1 <- IO.pokeVaruint64Raw p off hdr
-        pokeBytesRawDirect p off1 u
+      -- Reverse the accumulated entry list while summing
+      -- their byte sizes (header upper bound + payload).
+      reverseSum :: [TextEntry] -> Int -> [TextEntry]
+                 -> ([TextEntry], Int)
+      reverseSum []     !s !out = (out, s)
+      reverseSum (x:xs0) !s !out =
+        reverseSum xs0 (s + 9 + textEntrySize x) (x : out)
 
 -- | OVERLAPPING fast path for @Vector Text@. Same batched
--- pre-encode + 'IO.withReservedRaw' write as the @[Text]@
--- instance, but avoids the list traversal entirely (the
--- polymorphic 'Vector a' fallback walks each element through
--- 'directEncodePayload @Text e' which pays per-call
--- 'IORef' cycles).
+-- decompose + 'IO.withReservedRaw' write as the @[Text]@
+-- instance.
 instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
   directEncodePayload !e !xs = do
     let !n = V.length xs
@@ -590,25 +616,67 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
       else do
         IO.emitByte e 0x08
         emitTagD e T.STRING
-        encoded <- V.mapM encOneVT xs
-        let !total = V.foldl' (\a (u, _) -> a + 9 + BS.length u) 0 encoded
+        let !entries = V.map decomposeText xs
+            !total   = V.foldl' (\a x -> a + 9 + textEntrySize x) 0 entries
         IO.withReservedRaw e total $ \p start ->
-          V.foldM' (writeOneStr p) start encoded
-    where
-      encOneVT :: Text -> IO (ByteString, Bool)
-      encOneVT t =
-        let !u     = TE.encodeUtf8 t
-            !ascii = BS.all (< 0x80) u
-        in pure (u, ascii)
-
-      writeOneStr :: Ptr Word8 -> Int -> (ByteString, Bool) -> IO Int
-      writeOneStr !p !off (!u, !ascii) = do
-        let !len = BS.length u
-            !hdr = (fromIntegral len `shiftL` 2)
-                     .|. (if ascii then 0 else 2) :: Word64
-        off1 <- IO.pokeVaruint64Raw p off hdr
-        pokeBytesRawDirect p off1 u
+          V.foldM' (writeOneText p) start entries
   {-# INLINE directEncodePayload #-}
+
+-- | Per-element representation used by the typed
+-- list-of-string fast paths. Captures the underlying UTF-8
+-- bytes by reference (no allocation) and a precomputed
+-- ASCII flag.
+data TextEntry
+  = TextAscii  !TA.Array !Int !Int  -- arr, off, len; bytes are pure ASCII
+  | TextUtf8   !TA.Array !Int !Int  -- arr, off, len; multibyte UTF-8 chars
+  | TextLatin1 !ByteString          -- pre-encoded Latin-1 bytes (rare path)
+
+textEntrySize :: TextEntry -> Int
+textEntrySize (TextAscii  _ _ n) = n
+textEntrySize (TextUtf8   _ _ n) = n
+textEntrySize (TextLatin1 bs)    = BS.length bs
+
+-- | Decompose a 'Text' into a 'TextEntry' without copying any
+-- bytes. Performs a single-pass byte-level ASCII detection
+-- via 'byteArrayIsAscii'; falls back to 'B.latin1Bytes' only
+-- if the string contains chars 128–255 (which expand to 2
+-- UTF-8 bytes per char on the wire).
+decomposeText :: Text -> TextEntry
+decomposeText t@(TI.Text arr off len)
+  | byteArrayIsAscii arr off (off + len) = TextAscii arr off len
+  | T.all (\c -> ord c < 256) t          = TextLatin1 (B.latin1Bytes t)
+  | otherwise                            = TextUtf8 arr off len
+
+writeOneText :: Ptr Word8 -> Int -> TextEntry -> IO Int
+writeOneText !p !off entry = case entry of
+  TextAscii arr srcOff len -> do
+    let !hdr = (fromIntegral len `shiftL` 2) :: Word64
+    off1 <- IO.pokeVaruint64Raw p off hdr
+    copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+    pure (off1 + len)
+  TextUtf8 arr srcOff len -> do
+    let !hdr = (fromIntegral len `shiftL` 2) .|. 2 :: Word64
+    off1 <- IO.pokeVaruint64Raw p off hdr
+    copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+    pure (off1 + len)
+  TextLatin1 bs -> do
+    let !rlen = BS.length bs
+        !hdr  = (fromIntegral rlen `shiftL` 2) :: Word64
+    off1 <- IO.pokeVaruint64Raw p off hdr
+    pokeBytesRawDirect p off1 bs
+
+-- | OR-fold over 'TA.Array' bytes to detect any non-ASCII
+-- byte. Reads via 'TA.unsafeIndex' (one byte at a time);
+-- GHC compiles this to a tight @indexWord8Array#@ loop. For
+-- short strings (< 32 bytes), faster than 'BS.all' because
+-- we avoid the 'ByteString' allocation. For long strings the
+-- per-byte loop is slower than memchr, but the
+-- list-of-string fast path mostly sees short strings.
+byteArrayIsAscii :: TA.Array -> Int -> Int -> Bool
+byteArrayIsAscii !arr !i !end
+  | i >= end                       = True
+  | TA.unsafeIndex arr i >= 0x80   = False
+  | otherwise                      = byteArrayIsAscii arr (i + 1) end
 
 instance forall a. DecodeDirect a => DecodeDirect [a] where
   directDecodePayload = do
