@@ -441,3 +441,32 @@ test-suite wireform-kafka-test
         unordered-containers,
         uuid,
         vector
+
+benchmark wireform-kafka-bench
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: bench
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -O2
+    other-modules:
+        Benchmarks.ClientOps
+        Benchmarks.CRC32C
+        Benchmarks.Serialization
+        Benchmarks.Util
+    build-depends:
+        base,
+        wireform-kafka,
+        async,
+        binary,
+        bytes,
+        bytestring,
+        cereal,
+        criterion                 >= 1.5   && < 1.7,
+        deepseq,
+        directory,
+        filepath,
+        random,
+        stm,
+        text,
+        time,
+        vector
