@@ -33,6 +33,7 @@ import Data.ByteString (ByteString)
 import Data.Char (ord)
 import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
+import Data.Int (Int32)
 import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -394,6 +395,8 @@ emitCollection !e vs = do
                     V.foldM' (\off x -> writer p off x) start vs
                 Nothing
                   | tag == T.STRING -> emitStringListFast e vs
+                  | tag == T.NAMED_STRUCT ->
+                      emitNamedStructListFast e vs
                   | otherwise ->
                       V.forM_ vs $ \x -> emitUntaggedPayload e x
         (True, Nothing) -> do
@@ -667,6 +670,50 @@ emitMapHomogeneousPayload !e !kvs !keyTag !valTag
         _ -> V.forM_ kvs $ \(k, v) -> do
           emitUntaggedPayload e k
           emitUntaggedPayload e v
+
+-- | Same-type list of @NAMED_STRUCT@ fast path. The
+-- 'emitElementTypeInfo' caller has already written the
+-- shared @ns@ + @typeName@ meta-strings once at the
+-- collection-element-type position, so each element only
+-- needs its 4-byte fingerprint hash + canonical-order
+-- field payload. We hoist the registry lookup outside the
+-- inner loop so the per-element cost drops to one cached
+-- 'ST.StructSchema' read + the field emits.
+emitNamedStructListFast :: IO.Encoder -> Vector VV.Value -> IO ()
+emitNamedStructListFast !e !vs =
+  case V.find (not . isNoneV) vs of
+    Just (VV.RegisteredStructVal ns nm _) ->
+      case lookupSchema e ns nm of
+        Just sch ->
+          let !canonical = ST.fieldOrder sch
+              !hashCode  = ST.ssHash sch
+          in V.forM_ vs $ \x -> case x of
+               VV.RegisteredStructVal _ _ fields ->
+                 emitRegisteredStructWithSchema e canonical hashCode fields
+               _ -> emitUntaggedPayload e x
+        Nothing -> V.forM_ vs $ \x -> emitUntaggedPayload e x
+    -- Heterogeneous (StructVal vs RegisteredStructVal) or
+    -- all-None: fall back to the generic per-element path.
+    _ -> V.forM_ vs $ \x -> emitUntaggedPayload e x
+
+-- | Inner emitter shared by 'emitNamedStructListFast'.
+-- Writes the 4-byte fingerprint hash and the canonical-order
+-- field payloads for a single struct, given the cached
+-- schema fields.
+emitRegisteredStructWithSchema
+  :: IO.Encoder
+  -> Vector ST.FieldSpec
+  -> Int32
+  -> VV.StructFields
+  -> IO ()
+emitRegisteredStructWithSchema !e !canonical !hashCode !fields = do
+  IO.emitInt32LE e hashCode
+  V.forM_ canonical $ \spec ->
+    case VV.registeredStructFieldByName (ST.fsName spec) fields of
+      Nothing -> error $ "Fory.Encode: field "
+                          ++ T.unpack (ST.fsName spec)
+                          ++ " missing from RegisteredStructVal"
+      Just v  -> emitRegisteredField e spec v
 
 -- | Tight batched path for @Map String VarInt64@. Pre-encodes
 -- each string key once (TE.encodeUtf8 + BS.all classification),
