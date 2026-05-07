@@ -825,14 +825,30 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
                   in goSize (i + 1) (sz + 9 + l)
             !total = goSize 0 0
         IO.withReservedRaw e total $ \p start -> do
-          -- Hand-rolled optimistic writer.
-          let goOpt !i !off
+          -- Hand-rolled optimistic writer. The offset
+          -- accumulator is necessarily boxed @Int@ here
+          -- because 'IO Int' forces the result
+          -- representation; CPR analysis on the
+          -- recursive 'goOpt' result didn't unbox the
+          -- @Int@ (visible as
+          -- @\$wgoOpt :: Int# -> Int -> ... -> Int@).
+          -- Per-iteration cost of the box/unbox is small
+          -- (one I# wrap + immediate unwrap each call,
+          -- ~3 ns / element) and an attempt to re-write
+          -- the loop with explicit Int# threading via
+          -- a top-level @goOptVec#@ ended up regressing
+          -- once GHC's inliner re-boxed the offset at
+          -- the call site anyway.
+          let goOpt :: Int -> Int -> IO Int
+              goOpt !i !off
                 | i >= n    = pure off
-                | otherwise = do
-                    !off' <-
-                      writeTextOptimistic p off
-                        (V.unsafeIndex xs i)
-                    goOpt (i + 1) off'
+                | otherwise = case V.unsafeIndex xs i of
+                    TI.Text arr srcOff len -> do
+                      pokeByteOff p off
+                        (fromIntegral (len `shiftL` 2) :: Word8)
+                      copyTextArrayToPtr arr srcOff
+                        (p `plusPtr` (off + 1)) len
+                      goOpt (i + 1) (off + 1 + len)
           !endOff <- goOpt 0 start
           if WFFI.isAscii p start (endOff - start)
             then pure endOff
@@ -841,7 +857,8 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
               -- some element had @len >= 32@ (malformed
               -- short-header). Either way, re-walk with
               -- the full per-element 'writeTextOnto'.
-              let goFb !i !off
+              let goFb :: Int -> Int -> IO Int
+                  goFb !i !off
                     | i >= n    = pure off
                     | otherwise = do
                         !off' <-
