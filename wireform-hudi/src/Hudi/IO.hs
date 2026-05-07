@@ -10,9 +10,13 @@ module Hudi.IO
   ( -- * Discovery
     scanTimeline
   , readHoodieProperties
-    -- * High-level opener
+    -- * High-level openers
   , HudiTable (..)
   , openHudiTable
+  , openHudiTableAt
+    -- * Snapshot helpers
+  , activeFiles
+  , activeBaseFilePaths
     -- * Helpers
   , tableSchemaFromCommits
     -- * Re-exports
@@ -138,7 +142,30 @@ data HudiTable = HudiTable
 -- the Avro magic will land in 'hutParseFailures' so callers can
 -- decide whether to treat that as fatal.
 openHudiTable :: FilePath -> IO (Either String HudiTable)
-openHudiTable tableRoot = do
+openHudiTable = openHudiTableImpl Nothing
+
+-- | Open a Hudi table whose state matches the snapshot at
+-- exactly @atInstant@. The @atInstant@ value is a Hudi
+-- timestamp string (typically @yyyyMMddHHmmssSSS@); commits
+-- with @instantTime > atInstant@ are skipped. Useful for
+-- reproducing scans against a frozen point in the table
+-- history.
+--
+-- Returns @Left@ if @atInstant@ is earlier than every
+-- completed instant on the timeline (i.e. no replayable
+-- state at that point).
+openHudiTableAt
+  :: FilePath
+  -> Text       -- ^ instant time to open at
+  -> IO (Either String HudiTable)
+openHudiTableAt tableRoot ts = openHudiTableImpl (Just ts) tableRoot
+
+-- | Internal worker shared by 'openHudiTable' and
+-- 'openHudiTableAt'. The @atInstant@ filter, when 'Just',
+-- restricts the timeline to instants whose @instantTime <=
+-- ts@.
+openHudiTableImpl :: Maybe Text -> FilePath -> IO (Either String HudiTable)
+openHudiTableImpl mAt tableRoot = do
   let hoodie = tableRoot </> ".hoodie"
   ok <- doesDirectoryExist hoodie
   if not ok
@@ -147,49 +174,147 @@ openHudiTable tableRoot = do
       props      <- readHoodieProperties tableRoot
       timeline   <- scanTimeline tableRoot
       let !instants = map fst timeline
-          !candidates = filter isCompletedCommit timeline
-      decoded    <- mapM readCommit candidates
-      let !ok'   = mapMaybe asOk decoded
-          !fails = mapMaybe asFail decoded
-          !state = tableStateFromCommits ok'
+          !candidates = filter (\(i, _) -> isCompletedReplayable i
+                                          && atOrBefore i)
+                              timeline
+      decoded    <- mapM readInstant candidates
+      let !ok'    = mapMaybe asOk    decoded
+          !fails  = mapMaybe asFail  decoded
+          !commits = [(t, c) | (_, t, JsonCommit c) <- ok']
+          !state  = foldl (\s (i, t, payload) -> applyPayload i t payload s)
+                          emptyTableState
+                          [(i, t, p) | (i, t, p) <- ok']
       pure $ Right HudiTable
         { hutRoot          = tableRoot
         , hutProperties    = case props of
             Just m  -> m
             Nothing -> Map.empty
         , hutInstants      = instants
-        , hutCommits       = ok'
+        , hutCommits       = commits
         , hutParseFailures = fails
         , hutState         = state
-        , hutSchemaJson    = tableSchemaFromCommits ok'
+        , hutSchemaJson    = tableSchemaFromCommits commits
         }
   where
-    isCompletedCommit (i, _) =
+    -- Completed commit / deltacommit / replacecommit / clean
+    -- instants are the four kinds we know how to fold. Other
+    -- actions (compaction, rollback, savepoint, restore) are
+    -- still surfaced via 'hutInstants' but we don't decode
+    -- their payloads.
+    isCompletedReplayable i =
       instantState i == Completed
-        && instantAction i `elem` [Commit, DeltaCommit]
+        && instantAction i `elem`
+             [Commit, DeltaCommit, ReplaceCommit, Clean]
 
-    asOk   (i, Right hcm) = Just (instantTime i, hcm)
-    asOk   _              = Nothing
-    asFail (i, Left e)    = Just (instantTime i, e)
-    asFail _              = Nothing
+    atOrBefore i = case mAt of
+      Nothing -> True
+      Just t  -> instantTime i <= t
 
-readCommit
+    asOk   (_, _, _, Left _)   = Nothing
+    asOk   (i, t, p, Right ()) = Just (i, t, p)
+      where _ = i  -- silence -Wunused-pattern-binds
+
+    asFail (i, _, _, Left e) = Just (instantTime i, e)
+    asFail _                 = Nothing
+
+-- | What the per-instant decoder produced. The four supported
+-- shapes correspond to the four 'Action's
+-- 'isCompletedReplayable' admits.
+data InstantPayload
+  = JsonCommit  !HoodieCommitMetadata
+  | ReplaceCmt  !HoodieReplaceCommitMetadata
+  | CleanCmt    !HoodieCleanMetadata
+  deriving (Show)
+
+readInstant
   :: (Instant, FilePath)
-  -> IO (Instant, Either String HoodieCommitMetadata)
-readCommit (i, fp) = do
+  -> IO (Instant, Text, InstantPayload, Either String ())
+readInstant (i, fp) = do
   bs <- BL.readFile fp
-  -- Hudi 1.x writes commit instants as Avro container files; older
-  -- versions write JSON. Try JSON first (cheaper, no schema lookup);
-  -- if it fails, fall back to the Avro container reader. This matches
-  -- the order Hudi-rs walks (it tolerates either shape).
-  case parseCommitJson bs of
-    Right hcm -> pure (i, Right hcm)
-    Left  jsonErr -> do
-      let !strict = BL.toStrict bs
-      case HAvro.decodeCommitAvro strict of
-        Right hcm -> pure (i, Right hcm)
-        Left avroErr ->
-          pure (i, Left ("json: " ++ jsonErr ++ "; avro: " ++ avroErr))
+  let ts = instantTime i
+  case instantAction i of
+    ReplaceCommit -> case parseReplaceCommitJson bs of
+      Right hrcm -> pure (i, ts, ReplaceCmt hrcm, Right ())
+      Left  e    -> pure (i, ts, ReplaceCmt (defaultReplace ts), Left e)
+    Clean -> case parseCleanJson bs of
+      Right hcm  -> pure (i, ts, CleanCmt hcm, Right ())
+      Left  e    -> pure (i, ts, CleanCmt (defaultClean ts), Left e)
+    _ -> case parseCommitJson bs of
+      Right hcm -> pure (i, ts, JsonCommit hcm, Right ())
+      Left  jsonErr -> do
+        case HAvro.decodeCommitAvro (BL.toStrict bs) of
+          Right hcm    ->
+            pure (i, ts, JsonCommit hcm, Right ())
+          Left avroErr ->
+            pure (i, ts, JsonCommit defaultCommit
+                  , Left ("json: " ++ jsonErr ++ "; avro: " ++ avroErr))
+
+defaultCommit :: HoodieCommitMetadata
+defaultCommit = HoodieCommitMetadata
+  { hcmPartitionToWriteStats = Map.empty
+  , hcmCompacted             = Nothing
+  , hcmExtraMetadata         = HM.empty
+  , hcmOperationType         = Nothing
+  , hcmTotalCreateTime       = Nothing
+  , hcmTotalUpsertTime       = Nothing
+  , hcmTotalScanTime         = Nothing
+  , hcmExtra                 = HM.empty
+  }
+
+defaultReplace :: Text -> HoodieReplaceCommitMetadata
+defaultReplace _ = HoodieReplaceCommitMetadata
+  { hrcmCommit                   = defaultCommit
+  , hrcmPartitionToReplaceFileIds = Map.empty
+  }
+
+defaultClean :: Text -> HoodieCleanMetadata
+defaultClean _ = HoodieCleanMetadata
+  { hcmStartCleanTime         = ""
+  , hcmTimeTakenInMillis      = Nothing
+  , hcmTotalFilesDeleted      = Nothing
+  , hcmEarliestCommitToRetain = Nothing
+  , hcmPartitionMetadata      = Map.empty
+  }
+
+-- | Fold one decoded payload onto the running state.
+applyPayload
+  :: Instant
+  -> Text
+  -> InstantPayload
+  -> TableState
+  -> TableState
+applyPayload _ ts (JsonCommit hcm)  = applyCommit ts hcm
+applyPayload _ ts (ReplaceCmt hrcm) = applyReplaceCommit ts hrcm
+applyPayload _ _  (CleanCmt   hcl)  = applyClean hcl
+
+-- ============================================================
+-- Snapshot helpers
+-- ============================================================
+
+-- | Every active 'FileSlice' across all partitions, in
+-- (partition, fileId) order. Useful for downstream readers
+-- that just want a flat list.
+activeFiles :: HudiTable -> [FileSlice]
+activeFiles ht =
+  [ s
+  | (_, slices) <- Map.toAscList (tsPartitions (hutState ht))
+  , (_, s)      <- Map.toAscList slices
+  ]
+
+-- | Just the base-file paths of the active slices, in the
+-- same (partition, fileId) order as 'activeFiles'. Skips
+-- slices whose 'fsBaseFile' is 'Nothing' (which happens for
+-- pure log-only file groups in MoR tables).
+activeBaseFilePaths :: HudiTable -> [Text]
+activeBaseFilePaths ht =
+  [ join part b
+  | (part, slices) <- Map.toAscList (tsPartitions (hutState ht))
+  , (_, slice)     <- Map.toAscList slices
+  , Just b         <- [fsBaseFile slice]
+  ]
+  where
+    join "" b = b
+    join p  b = p <> "/" <> b
 
 -- ============================================================
 -- Helpers

@@ -110,8 +110,9 @@ Drivers:
 
 |                                          | deltalake (delta-rs) |
 | ---------------------------------------- | :------------------: |
-| **wireform → engine** (commit JSON)      |       ✓ 4/4          |
+| **wireform → engine** (commit JSON)      |       ✓ 5/5          |
 | **wireform → engine** (checkpoint Parquet) |     ✓ 2/2          |
+| **time travel + history**                |       ✓ 1/1          |
 
 The wireform-delta probe opens a Delta table via
 `Delta.IO.openDeltaTable`. When a `*.checkpoint.parquet`

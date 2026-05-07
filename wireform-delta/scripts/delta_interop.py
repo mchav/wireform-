@@ -336,6 +336,71 @@ def case_checkpointed(failures: Failures, root: Path) -> None:
               f"{len(deltalake_files)} active files (JSON + Parquet checkpoint agree)")
 
 
+def case_time_travel_and_history(failures: Failures, root: Path) -> None:
+    """Verify the new openDeltaTableAt + historyEntries surface
+    matches deltalake. Builds a 5-version table with a mix of
+    operations, then asks wireform for the snapshot at version
+    2 and for the full history."""
+    print(f"\n== time-travel + history at {root}")
+
+    write_deltalake(str(root), pa.table({"id": [1]}))                 # v0
+    write_deltalake(str(root), pa.table({"id": [2]}), mode="append")  # v1
+    write_deltalake(str(root), pa.table({"id": [3]}), mode="append")  # v2
+    write_deltalake(str(root), pa.table({"id": [99]}),
+                    mode="overwrite")                                 # v3
+    write_deltalake(str(root), pa.table({"id": [101]}),
+                    mode="append")                                    # v4
+
+    dt = DeltaTable(str(root))
+    expect_eq(failures, "tt", "deltalake current version",
+              dt.version(), 4)
+
+    # ------ history at the latest version ------
+    summary = run_probe(root)
+    hist = summary.get("history") or []
+    expect_eq(failures, "tt", "history entry count", len(hist), 5)
+    # Newest-first
+    versions = [e["version"] for e in hist]
+    expect_eq(failures, "tt", "history versions order",
+              versions, [4, 3, 2, 1, 0])
+    # Operations should match what deltalake would surface.
+    delta_ops = [h["operation"] for h in dt.history()]
+    wf_ops    = [e["operation"] for e in hist]
+    expect_eq(failures, "tt", "history operations", wf_ops, delta_ops)
+
+    # ------ time travel: snapshot at version 2 ------
+    out_v2 = root.parent / (root.name + ".v2.json")
+    subprocess.run(
+        [
+            "cabal", "run",
+            "wireform-delta:wireform-delta-interop-probe",
+            "--",
+            "--at", "2", str(root), str(out_v2),
+        ],
+        cwd=ROOT.parent, check=True,
+    )
+    with out_v2.open() as f:
+        v2 = json.load(f)
+
+    # deltalake's load_as_version reads the table at v2.
+    dt_v2 = DeltaTable(str(root), version=2)
+    expect_eq(failures, "tt", "v2 active file count",
+              len(v2["active_files"]),
+              len(dt_v2.file_uris()))
+    expect_eq(failures, "tt", "v2 version", v2["version"], 2)
+
+    # ------ active_relative_paths convenience ------
+    if not summary["active_relative_paths"]:
+        failures.add("tt", "active_relative_paths empty")
+    elif sorted(summary["active_relative_paths"]) != sorted(
+            f["path"] for f in summary["active_files"]):
+        failures.add("tt", "active_relative_paths != active_files paths")
+
+    if not any(f[0] == "tt" for f in failures):
+        print(f"  OK   time-travel + history: {len(hist)} history rows, "
+              f"v2 has {len(v2['active_files'])} active files")
+
+
 def main() -> int:
     failures = Failures()
     out = Path(tempfile.mkdtemp(prefix="wireform-delta-probe-"))
@@ -344,6 +409,7 @@ def main() -> int:
     case_partitioned (failures, out / "table_part")
     case_checkpointed(failures, out / "table_ckpt")
     case_partitioned_checkpoint(failures, out / "table_part_ckpt")
+    case_time_travel_and_history(failures, out / "table_tt")
 
     print()
     if failures:

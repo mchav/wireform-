@@ -129,9 +129,6 @@ probeDataset input outputDest = do
       putStrLn ("wireform-lance-interop-probe: " ++ err)
       exitFailure
     Right ds -> do
-      -- If there's a latest manifest, decode its protobuf body too
-      -- so we can surface the typed Manifest fields (writer
-      -- version, fragment list, data files, etc.).
       (manifest, manifestErr) <- case LIO.ldVersions ds of
         []         -> pure (Nothing, Nothing)
         ((_, p):_) -> do
@@ -139,10 +136,46 @@ probeDataset input outputDest = do
           case mr of
             Right (_, m) -> pure (Just m, Nothing)
             Left  e      -> pure (Nothing, Just e)
-      emit (datasetJSON ds manifest manifestErr) outputDest
+      activeFiles_ <- LM.datasetActiveDataFiles ds
+      schemaFields_ <- LM.datasetSchemaFields  ds
+      writerVersion_ <- LM.datasetWriterVersion ds
+      tsMillis_      <- LM.datasetTimestampMillis ds
+      let activeFilesJSON = case activeFiles_ of
+            Right xs -> Aeson.Array (V.fromList (map Aeson.String xs))
+            Left  _  -> Aeson.Null
+          schemaJSON = case schemaFields_ of
+            Right fs -> Aeson.Array (V.fromList (map schemaFieldJSON fs))
+            Left  _  -> Aeson.Null
+          writerVerJSON = case writerVersion_ of
+            Right (Just (lib, ver)) -> Aeson.Object $ KM.fromList
+              [ (Key.fromString "library", Aeson.String lib)
+              , (Key.fromString "version", Aeson.String ver) ]
+            _ -> Aeson.Null
+          tsMillisJSON = case tsMillis_ of
+            Right (Just t) -> Aeson.Number (fromIntegral t)
+            _ -> Aeson.Null
+      emit (datasetJSON ds manifest manifestErr activeFilesJSON
+              schemaJSON writerVerJSON tsMillisJSON) outputDest
 
-datasetJSON :: LIO.LanceDataset -> Maybe Pb.Manifest -> Maybe String -> Aeson.Value
-datasetJSON ds mManifest mErr = Aeson.Object $ KM.fromList
+schemaFieldJSON :: LM.LanceSchemaField -> Aeson.Value
+schemaFieldJSON sf = Aeson.Object $ KM.fromList
+  [ (Key.fromString "name",        Aeson.String (LM.lsfName sf))
+  , (Key.fromString "id",          Aeson.Number (fromIntegral (LM.lsfId sf)))
+  , (Key.fromString "parent_id",   Aeson.Number (fromIntegral (LM.lsfParentId sf)))
+  , (Key.fromString "logical_type",Aeson.String (LM.lsfLogicalType sf))
+  , (Key.fromString "nullable",    Aeson.Bool (LM.lsfNullable sf))
+  ]
+
+datasetJSON
+  :: LIO.LanceDataset
+  -> Maybe Pb.Manifest
+  -> Maybe String
+  -> Aeson.Value -- active_relative_paths
+  -> Aeson.Value -- schema_fields
+  -> Aeson.Value -- writer_version
+  -> Aeson.Value -- timestamp_millis
+  -> Aeson.Value
+datasetJSON ds mManifest mErr activeFilesJ schemaJ writerVerJ tsMillisJ = Aeson.Object $ KM.fromList
   [ (Key.fromString "mode",         Aeson.String "dataset")
   , (Key.fromString "root",         textPath (LIO.ldRoot ds))
   , (Key.fromString "latest_version", case LIO.ldLatestVersion ds of
@@ -161,6 +194,10 @@ datasetJSON ds mManifest mErr = Aeson.Object $ KM.fromList
   , (Key.fromString "manifest_decode_error", case mErr of
       Just e  -> Aeson.String (T.pack e)
       Nothing -> Aeson.Null)
+  , (Key.fromString "active_data_files",   activeFilesJ)
+  , (Key.fromString "schema_fields",       schemaJ)
+  , (Key.fromString "writer_version_flat", writerVerJ)
+  , (Key.fromString "timestamp_millis",    tsMillisJ)
   ]
   where
     versionEntry (v, p) = Aeson.Object $ KM.fromList

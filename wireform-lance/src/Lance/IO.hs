@@ -35,6 +35,7 @@ module Lance.IO
     -- * Dataset opener
   , LanceDataset (..)
   , openLanceDataset
+  , openLanceDatasetAt
     -- * Manifest file
   , openLanceManifest
     -- * Filename conventions
@@ -219,3 +220,45 @@ listDataFiles root = do
     keepDot dir e
       | takeExtension e == ".lance" = Just (dir </> e)
       | otherwise                   = Nothing
+
+-- ============================================================
+-- Per-version opener (time travel)
+-- ============================================================
+
+-- | Open a Lance dataset /at a specific committed version/.
+-- The footer-decoded manifest is the one for @atVersion@; the
+-- on-disk @data/@ enumeration is unchanged (Lance keeps
+-- superseded fragments around until a vacuum). Use
+-- 'datasetActiveDataFilePaths' on the returned dataset to get
+-- just the version's actually-active fragments.
+--
+-- Returns 'Left' if @atVersion@ isn't on disk (the manifest
+-- is gone — typically because it was vacuumed or never
+-- existed).
+openLanceDatasetAt
+  :: FilePath
+  -> Word64
+  -> IO (Either String LanceDataset)
+openLanceDatasetAt root atVersion = do
+  ok <- doesDirectoryExist root
+  if not ok
+    then pure (Left ("Lance.IO: not a directory: " ++ root))
+    else do
+      versions <- findManifestVersions root
+      let manifest = lookup atVersion versions
+      case manifest of
+        Nothing ->
+          pure (Left ("Lance.IO: version "
+                      ++ show atVersion ++ " not found"))
+        Just p -> do
+          r <- openLanceManifest p
+          dataFiles <- listDataFiles root
+          case r of
+            Left err -> pure (Left err)
+            Right (footer, _) -> pure $ Right LanceDataset
+              { ldRoot                 = root
+              , ldVersions             = versions
+              , ldLatestVersion        = Just atVersion
+              , ldLatestManifestFooter = Just footer
+              , ldDataFiles            = dataFiles
+              }

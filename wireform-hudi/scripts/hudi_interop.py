@@ -299,6 +299,67 @@ def case_avro_commit(failures: Failures, tmp: Path) -> None:
               f"schema={summary['schema_json'][:40]!r}…")
 
 
+def case_replacecommit(failures: Failures, tmp: Path) -> None:
+    """Replacecommit instants supersede prior file slices for
+    the named partitions. Without consuming
+    'partitionToReplaceFileIds' a 'TableState' fold over a
+    clustered or INSERT_OVERWRITE'd table shows duplicates."""
+    base = setup_table(tmp, "rcmt", partitioned=False)
+    print(f"\n== unpartitioned table with replacecommit at {base}")
+
+    ts1 = "20240401000000000"
+    ts2 = "20240402000000000"
+    rel1 = f"fid-old_0_{ts1}.parquet"
+    rel2 = f"fid-new_0_{ts2}.parquet"
+
+    commit1 = {
+        "partitionToWriteStats": {"": [make_stat("fid-old", rel1, "", 100)]},
+        "compacted": False, "operationType": "INSERT", "extraMetadata": {},
+    }
+    # Replace commit: kills fid-old, writes fid-new.
+    replace2 = {
+        "partitionToWriteStats": {
+            "": [make_stat("fid-new", rel2, "", 50, prev_commit="null")]
+        },
+        "partitionToReplaceFileIds": {"": ["fid-old"]},
+        "compacted": False, "operationType": "INSERT_OVERWRITE",
+        "extraMetadata": {},
+    }
+    write_instant(base / ".hoodie", ts1, commit1)
+    # Replacecommit needs an instant filename of <ts>.replacecommit
+    # rather than <ts>.commit, plus the same {requested, inflight}
+    # placeholders.
+    for ext in ("replacecommit.requested", "replacecommit.inflight",
+                "replacecommit"):
+        fp = base / ".hoodie" / f"{ts2}.{ext}"
+        if ext == "replacecommit":
+            fp.write_text(json.dumps(replace2))
+        else:
+            fp.write_text("")
+
+    pq.write_table(pa.table({"id": list(range(100))}), str(base / rel1))
+    pq.write_table(pa.table({"id": list(range(50))}),  str(base / rel2))
+
+    summary = run_probe(base)
+    expect_eq(failures, "rcmt", "active_file_slice_count",
+              summary["active_file_slice_count"], 1)
+
+    # Active slice must be fid-new with rel2 base file.
+    if not summary["active_file_slices"]:
+        failures.add("rcmt", "no active file slices")
+    else:
+        slice0 = summary["active_file_slices"][0]
+        expect_eq(failures, "rcmt", "file_id",   slice0["file_id"], "fid-new")
+        # The base-file path is just the filename (Hudi's HoodieWriteStat
+        # 'baseFile' key) — wireform surfaces that.
+        expect_eq(failures, "rcmt", "base_file",
+                  slice0["base_file"],
+                  f"fid-new_0_{ts2}.parquet")
+
+    if not any(f[0] == "rcmt" for f in failures):
+        print(f"  OK   replacecommit: 1 slice (fid-old replaced by fid-new)")
+
+
 def main() -> int:
     failures = Failures()
     tmp = Path(tempfile.mkdtemp(prefix="wireform-hudi-probe-"))
@@ -306,6 +367,7 @@ def main() -> int:
     case_unpartitioned(failures, tmp)
     case_partitioned (failures, tmp)
     case_avro_commit (failures, tmp)
+    case_replacecommit(failures, tmp)
 
     print()
     if failures:

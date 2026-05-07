@@ -46,11 +46,20 @@ module Hudi.Timeline
   , HoodieCommitMetadata (..)
   , HoodieWriteStat (..)
   , parseCommitJson
+    -- * Replace-commit metadata
+  , HoodieReplaceCommitMetadata (..)
+  , parseReplaceCommitJson
+    -- * Clean metadata
+  , HoodieCleanMetadata (..)
+  , HoodieCleanPartitionMetadata (..)
+  , parseCleanJson
     -- * File-slice fold
   , FileSlice (..)
   , TableState (..)
   , emptyTableState
   , applyCommit
+  , applyReplaceCommit
+  , applyClean
   , tableStateFromCommits
   ) where
 
@@ -368,3 +377,157 @@ dedupKeepFirst = go []
 -- payloads before invocation.
 tableStateFromCommits :: [(Text, HoodieCommitMetadata)] -> TableState
 tableStateFromCommits = foldl (\s (ts, hcm) -> applyCommit ts hcm s) emptyTableState
+
+-- ============================================================
+-- Replace-commit metadata (replacecommit instants)
+-- ============================================================
+--
+-- @replacecommit@ instants are used by INSERT_OVERWRITE,
+-- CLUSTERING, and DELETE_PARTITION operations. They carry
+-- regular HoodieCommitMetadata content /plus/ a
+-- @partitionToReplaceFileIds@ map saying which existing
+-- @fileId@s the new ones supersede. Without consuming this
+-- map a 'TableState' fold over a table that's been clustered
+-- shows duplicated file slices (the old ones plus the
+-- replacements).
+
+-- | A @replacecommit@ instant's metadata. Wraps a regular
+-- 'HoodieCommitMetadata' and adds the per-partition list of
+-- file ids being replaced.
+data HoodieReplaceCommitMetadata = HoodieReplaceCommitMetadata
+  { hrcmCommit                   :: !HoodieCommitMetadata
+  , hrcmPartitionToReplaceFileIds :: !(Map.Map Text [Text])
+    -- ^ partition path → file ids whose existing slices this
+    -- replacecommit invalidates.
+  } deriving (Show, Eq)
+
+instance FromJSON HoodieReplaceCommitMetadata where
+  parseJSON v = do
+    base <- parseJSON v
+    case v of
+      Object o -> do
+        rep <- fromMaybe Map.empty <$> o .:? "partitionToReplaceFileIds"
+        pure HoodieReplaceCommitMetadata
+          { hrcmCommit                   = base
+          , hrcmPartitionToReplaceFileIds = rep
+          }
+      _ -> pure HoodieReplaceCommitMetadata
+        { hrcmCommit                   = base
+        , hrcmPartitionToReplaceFileIds = Map.empty
+        }
+
+-- | Parse a @replacecommit@ instant's JSON payload.
+parseReplaceCommitJson
+  :: BL.ByteString
+  -> Either String HoodieReplaceCommitMetadata
+parseReplaceCommitJson bs = case decode bs of
+  Nothing -> Left "Hudi.Timeline.parseReplaceCommitJson: malformed JSON"
+  Just v  -> parseEither parseJSON v
+
+-- | Apply a @replacecommit@ instant to the running state.
+-- First drops every replaced @fileId@ from the named
+-- partition's active map, then layers on the new write
+-- stats via the regular 'applyCommit' path.
+applyReplaceCommit
+  :: Text
+  -> HoodieReplaceCommitMetadata
+  -> TableState
+  -> TableState
+applyReplaceCommit ts hrcm !st0 =
+  let !purged   = Map.foldlWithKey' purgePartition st0
+                    (hrcmPartitionToReplaceFileIds hrcm)
+      !st       = applyCommit ts (hrcmCommit hrcm) purged
+   in st
+  where
+    purgePartition !s part fids =
+      let !pm    = fromMaybe Map.empty (Map.lookup part (tsPartitions s))
+          !pm'   = foldl' (flip Map.delete) pm fids
+       in s { tsPartitions = Map.insert part pm' (tsPartitions s) }
+
+-- ============================================================
+-- Clean metadata (clean instants)
+-- ============================================================
+--
+-- @clean@ instants record housekeeping: physical files that
+-- have been deleted because they were superseded by a later
+-- commit and are now older than the configured retention.
+-- Walking these prunes 'TableState' so the active slice map
+-- doesn't carry references to files that are no longer on
+-- disk.
+
+-- | One row of a clean instant's @partitionMetadata@ entry.
+-- The @successDeleteFiles@ list names the relative paths the
+-- cleaner actually removed.
+data HoodieCleanPartitionMetadata = HoodieCleanPartitionMetadata
+  { hcpmPartitionPath       :: !Text
+  , hcpmPolicy              :: !(Maybe Text)
+  , hcpmDeletePathPatterns  :: ![Text]
+  , hcpmSuccessDeleteFiles  :: ![Text]
+  , hcpmFailedDeleteFiles   :: ![Text]
+  , hcpmIsPartitionDeleted  :: !(Maybe Bool)
+  } deriving (Show, Eq)
+
+instance FromJSON HoodieCleanPartitionMetadata where
+  parseJSON = withObject "HoodieCleanPartitionMetadata" $ \o -> do
+    p <- o .:? "partitionPath"
+    HoodieCleanPartitionMetadata
+      <$> pure (fromMaybe "" p)
+      <*> o .:? "policy"
+      <*> (fromMaybe [] <$> o .:? "deletePathPatterns")
+      <*> (fromMaybe [] <$> o .:? "successDeleteFiles")
+      <*> (fromMaybe [] <$> o .:? "failedDeleteFiles")
+      <*> o .:? "isPartitionDeleted"
+
+-- | Top-level @clean@ instant payload.
+data HoodieCleanMetadata = HoodieCleanMetadata
+  { hcmStartCleanTime         :: !Text
+  , hcmTimeTakenInMillis      :: !(Maybe Int64)
+  , hcmTotalFilesDeleted      :: !(Maybe Int64)
+  , hcmEarliestCommitToRetain :: !(Maybe Text)
+  , hcmPartitionMetadata      :: !(Map.Map Text HoodieCleanPartitionMetadata)
+  } deriving (Show, Eq)
+
+instance FromJSON HoodieCleanMetadata where
+  parseJSON = withObject "HoodieCleanMetadata" $ \o -> HoodieCleanMetadata
+    <$> (fromMaybe "" <$> o .:? "startCleanTime")
+    <*> o .:? "timeTakenInMillis"
+    <*> o .:? "totalFilesDeleted"
+    <*> o .:? "earliestCommitToRetain"
+    <*> (fromMaybe Map.empty <$> o .:? "partitionMetadata")
+
+-- | Parse a @clean@ instant's JSON payload.
+parseCleanJson :: BL.ByteString -> Either String HoodieCleanMetadata
+parseCleanJson bs = case decode bs of
+  Nothing -> Left "Hudi.Timeline.parseCleanJson: malformed JSON"
+  Just v  -> parseEither parseJSON v
+
+-- | Apply a @clean@ instant to the running state by removing
+-- any active file slice whose @baseFile@ shows up in a partition's
+-- @successDeleteFiles@ list. The match is on the bare base-
+-- file /name/ (not the full path) since clean payloads list
+-- paths and our slices carry just the filename.
+applyClean :: HoodieCleanMetadata -> TableState -> TableState
+applyClean hcm !st0 =
+  Map.foldlWithKey' clearPartition st0 (hcmPartitionMetadata hcm)
+  where
+    clearPartition !s _ pmd =
+      let !deleted = hcpmSuccessDeleteFiles pmd
+          !names   = map basename deleted
+       in s { tsPartitions = Map.map (purgeBy names) (tsPartitions s) }
+
+    -- Drop slices whose base-file name was deleted by the clean.
+    purgeBy :: [Text] -> Map.Map Text FileSlice -> Map.Map Text FileSlice
+    purgeBy names = Map.filter
+      (\fs -> case fsBaseFile fs of
+        Just b  -> basename b `notElem` names
+        Nothing -> True)
+
+    basename :: Text -> Text
+    basename t = case T.breakOnEnd "/" t of
+      ("", whole) -> whole
+      (_,  rest)  -> rest
+
+-- The 'foldl'' import is used inside 'applyReplaceCommit'.
+foldl' :: (b -> a -> b) -> b -> [a] -> b
+foldl' _ !acc []     = acc
+foldl' f !acc (x:xs) = foldl' f (f acc x) xs

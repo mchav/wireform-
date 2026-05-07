@@ -288,6 +288,62 @@ def main() -> int:
             if not dfmt["version"]:
                 failures.add("lance manifest", "data_format.version is empty")
 
+    # ---------------------------------------------------------------
+    # New (this round): cross-check the typed schema readout, the
+    # active data file enumeration, and the writer-version flat
+    # surface against pylance.
+    # ---------------------------------------------------------------
+    pylance_ds = lance.dataset(str(dataset_dir))
+
+    # Active data files: should equal the on-disk
+    # data/*.lance basenames pylance reports.
+    pylance_active = sorted(
+        df.path.split("/")[-1]
+        for frag in pylance_ds.get_fragments()
+        for df in frag.metadata.files
+    )
+    wf_active = sorted(p.split("/")[-1] for p in ds_summary["active_data_files"])
+    expect_eq(failures, "lance opener", "active_data_files",
+              wf_active, pylance_active)
+
+    # Schema readout: every top-level field name should appear,
+    # in id-ascending order. (Lance schemas can have nested
+    # children flattened; we just check the top-level slice.)
+    sch = ds_summary["schema_fields"]
+    if not sch:
+        failures.add("lance opener", "schema_fields empty / null")
+    else:
+        wf_top = sorted(f["name"] for f in sch if f["parent_id"] == -1)
+        pyl_top = sorted(f.name for f in pylance_ds.schema)
+        expect_eq(failures, "lance opener", "top-level schema field names",
+                  wf_top, pyl_top)
+
+    # Writer version: pylance always tags 'lance' as the library.
+    wv = ds_summary["writer_version_flat"]
+    if wv is None:
+        failures.add("lance opener", "writer_version_flat = null")
+    else:
+        expect_eq(failures, "lance opener", "writer_version_flat.library",
+                  wv["library"], "lance")
+        if not wv["version"]:
+            failures.add("lance opener", "writer_version_flat.version empty")
+
+    # Timestamp millis: should be > 0 for any pylance-written
+    # dataset and within ±5s of pylance's reported timestamp.
+    ts_millis = ds_summary["timestamp_millis"]
+    if ts_millis is None:
+        failures.add("lance opener", "timestamp_millis = null")
+    else:
+        from datetime import datetime, timezone
+        pylance_ts_ms = int(
+            pylance_ds.versions()[-1]["timestamp"].replace(tzinfo=timezone.utc)
+              .timestamp() * 1000
+        )
+        if abs(ts_millis - pylance_ts_ms) > 5_000:
+            failures.add("lance opener",
+                         f"timestamp_millis {ts_millis} differs from "
+                         f"pylance {pylance_ts_ms} by > 5s")
+
     if failures:
         print()
         print(f"{len(failures)} failures:")
@@ -300,7 +356,9 @@ def main() -> int:
     print(f"OK   wireform-lance dataset opener: latest_version="
           f"{ds_summary['latest_version']}, "
           f"{len(wireform_data_files)} data files, "
-          f"{len(wireform_versions)} versions.")
+          f"{len(wireform_versions)} versions, "
+          f"{len(ds_summary['active_data_files'])} active data files, "
+          f"{len(ds_summary['schema_fields'])} schema fields.")
     return 0
 
 

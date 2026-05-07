@@ -22,11 +22,13 @@ import qualified Data.Vector as V
 import Data.Word (Word64)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
+import qualified System.Exit
 
 import qualified Delta.Checkpoint as DC
 import qualified Delta.IO as DIO
 import qualified Delta.Log as D
 import System.Directory (doesFileExist)
+import Text.Read (readMaybe)
 
 main :: IO ()
 main = do
@@ -40,10 +42,14 @@ main = do
           mapM_ (putStrLn . show) (take 30 acts)
         Left  e -> putStrLn ("ERROR: " ++ e)
       exitFailure
+    ["--at", verStr, i, o] ->
+      case readMaybe verStr of
+        Just v -> probeAt v i o
+        Nothing -> exitFailure
     [i]    -> pure (i, Nothing)
     [i, o] -> pure (i, Just o)
     _      -> do
-      putStrLn "usage: wireform-delta-interop-probe <table-root> [<output.json>]"
+      putStrLn "usage: wireform-delta-interop-probe [--at VER] <table-root> [<output.json>]"
       exitFailure
 
   res <- DIO.openDeltaTable tableRoot
@@ -51,12 +57,29 @@ main = do
     Left err -> do
       putStrLn ("wireform-delta-interop-probe: " ++ err)
       exitFailure
+    Right dt -> writeProbeOutput tableRoot outputDest dt
+
+probeAt :: Word64 -> FilePath -> FilePath -> IO a
+probeAt v tableRoot output = do
+  res <- DIO.openDeltaTableAt tableRoot v
+  case res of
+    Left err -> do
+      putStrLn ("wireform-delta-interop-probe (--at): " ++ err)
+      exitFailure
     Right dt -> do
+      writeProbeOutput tableRoot (Just output) dt
+      System.Exit.exitSuccess
+
+writeProbeOutput
+  :: FilePath
+  -> Maybe FilePath
+  -> DIO.DeltaTable
+  -> IO ()
+writeProbeOutput tableRoot outputDest dt = do
       let snap = DIO.dtSnapshot dt
-      -- If a checkpoint Parquet is on disk, surface what
-      -- Delta.Checkpoint extracts from it as a separate field
-      -- so the Python driver can verify the checkpoint reader
-      -- agrees with the JSON walker on the same active set.
+      hist <- DIO.historyEntries dt
+      let activeFlat = DIO.activeFilePaths dt
+          partsByPV  = DIO.partitionedActiveFiles dt
       ckpt <- case DIO.dtCheckpointAvailable dt of
         Just v -> do
           let p = tableRoot ++ "/_delta_log/" ++ pad20 v ++ ".checkpoint.parquet"
@@ -97,6 +120,11 @@ main = do
             , (Key.fromString "checkpoint_metadata", case ckpt of
                 Just s -> metadataJSON s
                 Nothing -> Aeson.Null)
+            , (Key.fromString "active_relative_paths",
+                Aeson.Array (V.fromList (map Aeson.String activeFlat)))
+            , (Key.fromString "active_partition_count",
+                Aeson.Number (fromIntegral (Map.size partsByPV)))
+            , (Key.fromString "history", historyJSON hist)
             ]
       case outputDest of
         Nothing -> BL.putStr (Aeson.encode summary)
@@ -113,6 +141,17 @@ pad20 :: Word64 -> String
 pad20 v =
   let s = show v
    in replicate (20 - length s) '0' ++ s
+
+historyJSON :: [DIO.HistoryEntry] -> Aeson.Value
+historyJSON xs = Aeson.Array $ V.fromList $ map entry xs
+  where
+    entry e = Aeson.Object $ KM.fromList
+      [ (Key.fromString "version",   numW64 (DIO.heVersion e))
+      , (Key.fromString "operation", maybe Aeson.Null Aeson.String (DIO.heOperation e))
+      , (Key.fromString "timestamp", maybe Aeson.Null numW64 (DIO.heTimestamp e))
+      , (Key.fromString "isolation_level",
+          maybe Aeson.Null Aeson.String (DIO.heIsolationLevel e))
+      ]
 
 filesJSON :: D.TableSnapshot -> Aeson.Value
 filesJSON snap =
