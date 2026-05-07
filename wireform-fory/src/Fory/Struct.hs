@@ -97,6 +97,16 @@ data StructSchema = StructSchema
     -- decode hot path doesn't have to re-derive it via
     -- 'V.map fsName' for every struct it decodes.
   , ssFieldOrderNames :: !(Vector Text)
+    -- | True iff every field is a basic-typeId payload
+    -- (BOOL through STRING / BINARY) AND no field is
+    -- nullable. When set, the encode hot path can skip
+    -- the per-field 'FieldSpec' destructure and the
+    -- 'isBasicTypeId' / 'fsNullable' checks entirely —
+    -- it just calls 'emitUntaggedPayload' on each field
+    -- value directly. This is the common case for
+    -- typed clients (e.g. 'mkPerson') and saves
+    -- ~5 ns / field on the per-struct hot loop.
+  , ssAllBasicNonNull :: !Bool
     -- | Cached pre-encoded namespace meta-string body and
     -- chosen 'Encoding' tag. Skips the per-encode
     -- 'encodeMetaString' bit-packing + char classification
@@ -120,13 +130,16 @@ mkSchema :: Text -> Text -> [(Text, TypeId)] -> StructSchema
 mkSchema ns nm fs =
   let !fields  = V.fromList [ FieldSpec n t False False | (n, t) <- fs ]
       !empty   = StructSchema ns nm fields 0 V.empty V.empty
-                   BS.empty UTF8 BS.empty UTF8
+                   False BS.empty UTF8 BS.empty UTF8
       !h       = computeStructHash empty
       !ord     = computeFieldOrder empty
       !ordNms  = V.map fsName ord
+      !allBnn  = V.all (\f -> isBasicTypeId (fsTypeId f)
+                            && not (fsNullable f)) ord
       (!nsEnc, !nsBody) = encodeMetaString namespaceSpecialChars ns
       (!tnEnc, !tnBody) = encodeMetaString typenameSpecialChars  nm
-  in StructSchema ns nm fields h ord ordNms nsBody nsEnc tnBody tnEnc
+  in StructSchema ns nm fields h ord ordNms allBnn
+                  nsBody nsEnc tnBody tnEnc
 
 -- ---------------------------------------------------------------------------
 -- Schema fingerprint + hash

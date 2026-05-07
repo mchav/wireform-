@@ -854,22 +854,52 @@ emitNamedStructListFast !e !vs =
               -- array load per field on the per-struct hot
               -- loop.
               !permIsId    = isIdentityPerm perm nFields
+              -- See 'ST.ssAllBasicNonNull'. When set
+              -- (typed-client default), we can replace
+              -- the per-field 'FieldSpec' destructure +
+              -- 'isBasicTypeId' / 'fsNullable' checks
+              -- with a single 'emitUntaggedPayload' call.
+              !allBNN      = ST.ssAllBasicNonNull sch
               !nVs         = V.length vs
-              goS !i
+              -- Hoist the @permIsId@ + @allBNN@ branch
+              -- selection /outside/ the per-element loop
+              -- so each iteration jumps straight into the
+              -- chosen specialised emitter without
+              -- re-checking the schema-level flags.
+              goFastest !i
                 | i >= nVs = pure ()
                 | otherwise = do
                     case V.unsafeIndex vs i of
                       VV.RegisteredStructVal _ _ fields ->
-                        if permIsId
-                          then emitRegisteredStructIdentity
-                                 e canonical nFields
-                                 hashCode fields
-                          else emitRegisteredStructPermuted
-                                 e canonical perm nFields
-                                 hashCode fields
+                        emitRegisteredStructFastest
+                          e nFields hashCode fields
                       x -> emitUntaggedPayload e x
-                    goS (i + 1)
-          in goS 0
+                    goFastest (i + 1)
+              goIdentity !i
+                | i >= nVs = pure ()
+                | otherwise = do
+                    case V.unsafeIndex vs i of
+                      VV.RegisteredStructVal _ _ fields ->
+                        emitRegisteredStructIdentity
+                          e canonical nFields
+                          hashCode fields
+                      x -> emitUntaggedPayload e x
+                    goIdentity (i + 1)
+              goPermuted !i
+                | i >= nVs = pure ()
+                | otherwise = do
+                    case V.unsafeIndex vs i of
+                      VV.RegisteredStructVal _ _ fields ->
+                        emitRegisteredStructPermuted
+                          e canonical perm nFields
+                          hashCode fields
+                      x -> emitUntaggedPayload e x
+                    goPermuted (i + 1)
+          in if permIsId && allBNN
+               then goFastest 0
+               else if permIsId
+                 then goIdentity 0
+                 else goPermuted 0
         Nothing -> V.forM_ vs $ \x -> emitUntaggedPayload e x
     -- Heterogeneous (StructVal vs RegisteredStructVal) or
     -- all-None: fall back to the generic per-element path.
@@ -960,6 +990,34 @@ isIdentityPerm !perm !n = go 0
       | V.unsafeIndex perm i /= i = False
       | otherwise = go (i + 1)
 {-# INLINE isIdentityPerm #-}
+
+-- | Fastest specialisation of 'emitRegisteredStructPermuted'
+-- — used when both the user's field ordering matches the
+-- canonical order AND every field is basic-typeId
+-- non-nullable (the common typed-client default; see
+-- 'ST.ssAllBasicNonNull').
+--
+-- Skips the per-field 'FieldSpec' destructure and the
+-- 'isBasicTypeId' / 'fsNullable' checks entirely — just
+-- pulls each field's 'Value' out of the user's
+-- 'StructFields' and 'emitUntaggedPayload's it. Saves
+-- ~5 ns / field on the per-struct hot loop relative to
+-- 'emitRegisteredStructIdentity'.
+emitRegisteredStructFastest
+  :: IO.Encoder
+  -> Int
+  -> Int32
+  -> VV.StructFields
+  -> IO ()
+emitRegisteredStructFastest !e !nFields !hashCode !fields = do
+  IO.emitInt32LE e hashCode
+  let go !i
+        | i >= nFields = pure ()
+        | otherwise = do
+            let (_, !v) = V.unsafeIndex fields i
+            emitUntaggedPayload e v
+            go (i + 1)
+  go 0
 
 -- | Inner emitter shared by 'emitTypedPayload' on a single
 -- struct (where the permutation isn't pre-resolved).
