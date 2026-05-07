@@ -31,6 +31,7 @@ main = defaultMain $ testGroup "wireform-delta"
   , testCase "schemaString decodes nested types" schemaTest
   , testCase "_last_checkpoint parser"      lastCheckpointTest
   , testCase "AddStats decoder"             addStatsTest
+  , testCase "decodeAddStats helper"        decodeAddStatsHelperTest
   ]
 
 -- ============================================================
@@ -237,3 +238,29 @@ decodeAddStats bs = case Aeson.decode bs of
     Aeson.Success a -> Just a
     Aeson.Error _   -> Nothing
   Nothing -> Nothing
+
+-- | The 'D.decodeAddStats' helper threads the raw @stats@
+-- string through 'D.AddStats' for callers; we just need to
+-- pin its three branches.
+decodeAddStatsHelperTest :: Assertion
+decodeAddStatsHelperTest = do
+  let mkAdd s = D.AddAction
+        { D.addPath             = "x"
+        , D.addSize             = 0
+        , D.addModificationTime = 0
+        , D.addDataChange       = True
+        , D.addStats            = s
+        , D.addPartitionValues  = mempty
+        , D.addTags             = mempty
+        , D.addDeletionVector   = Nothing
+        }
+  -- No stats: Nothing.
+  D.decodeAddStats (mkAdd Nothing) @?= Nothing
+  -- Valid JSON: Just (Right ...).
+  case D.decodeAddStats (mkAdd (Just "{\"numRecords\":7}")) of
+    Just (Right s) -> D.asNumRecords s @?= Just 7
+    other -> assertFailure ("expected Just (Right ...), got " ++ show other)
+  -- Malformed JSON: Just (Left ...).
+  case D.decodeAddStats (mkAdd (Just "not-json")) of
+    Just (Left _)  -> pure ()
+    other -> assertFailure ("expected Just (Left _), got " ++ show other)

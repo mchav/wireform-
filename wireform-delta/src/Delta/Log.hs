@@ -63,6 +63,8 @@ module Delta.Log
   , DeltaField (..)
   , DeltaType (..)
   , parseDeltaSchema
+    -- * Stats helper
+  , decodeAddStats
     -- * Table snapshot
   , TableSnapshot (..)
   , emptySnapshot
@@ -344,6 +346,27 @@ instance FromJSON AddStats where
       asWord64 :: Value -> Maybe Word64
       asWord64 (Number s) = toBoundedInteger s
       asWord64 _          = Nothing
+
+-- | Decode the @stats@ field of an 'AddAction' if it's
+-- present. Returns:
+--
+--   * 'Nothing'        — the writer did not emit @stats@ for this
+--                        file (legal per the Delta spec).
+--   * 'Just (Right s)' — typed 'AddStats' decoded successfully.
+--   * 'Just (Left e)'  — @stats@ was present but malformed; the
+--                        error string is the aeson failure
+--                        message.
+--
+-- Saves callers from manually plumbing through
+-- @decode . encodeUtf8 . addStats@.
+decodeAddStats :: AddAction -> Maybe (Either String AddStats)
+decodeAddStats a = case addStats a of
+  Nothing -> Nothing
+  Just t  -> case decodeStrict' (TE.encodeUtf8 t) :: Maybe Value of
+    Nothing -> Just (Left "Delta.Log.decodeAddStats: malformed JSON")
+    Just v  -> case fromJSON v of
+      Success s -> Just (Right s)
+      Error  e  -> Just (Left ("Delta.Log.decodeAddStats: " ++ e))
 
 -- ============================================================
 -- Delta schema (subset — primitives + structs + arrays + maps)
