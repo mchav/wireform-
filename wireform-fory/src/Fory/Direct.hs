@@ -229,24 +229,35 @@ directTagged !e !x = do
 -- 1-byte-per-char wire format.
 emitForyStringDirect :: IO.Encoder -> Text -> IO ()
 emitForyStringDirect !e t@(TI.Text arr srcOff len)
-  | TH.byteArrayIsAscii arr srcOff (srcOff + len) = do
-      let !hdr = (fromIntegral len `shiftL` 2) :: Word64
-      IO.emitVaruint64 e hdr
-      IO.withReservedRaw e len $ \p start -> do
-        TH.copyTextArrayToPtr arr srcOff (p `plusPtr` start) len
-        pure (start + len)
+  | TH.byteArrayIsAscii arr srcOff (srcOff + len) =
+      -- Reserve enough for the worst-case 9-byte varuint
+      -- header + payload bytes up front, then inline the
+      -- header poke and the 'memcpy' in a single
+      -- 'IO.withReservedRaw' batch — saves one
+      -- 'ensure / readIORef / writeIORef' trio compared
+      -- to @emitVaruint64 + withReservedRaw@.
+      IO.withReservedRaw e (9 + len) $ \p start -> do
+        !off1 <- IO.pokeVaruint64Raw p start
+                   (fromIntegral len `shiftL` 2 :: Word64)
+        TH.copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+        pure (off1 + len)
   | T.all (\c -> ord c < 256) t = do
       let !raw  = B.latin1Bytes t
           !rlen = BS.length raw
-          !hdr  = (fromIntegral rlen `shiftL` 2) :: Word64
-      IO.emitVaruint64 e hdr
-      IO.emitBytes e raw
-  | otherwise = do
-      let !hdr = (fromIntegral len `shiftL` 2) .|. 2 :: Word64
-      IO.emitVaruint64 e hdr
-      IO.withReservedRaw e len $ \p start -> do
-        TH.copyTextArrayToPtr arr srcOff (p `plusPtr` start) len
-        pure (start + len)
+      IO.withReservedRaw e (9 + rlen) $ \p start -> do
+        !off1 <- IO.pokeVaruint64Raw p start
+                   (fromIntegral rlen `shiftL` 2 :: Word64)
+        let (BSI.BS fpSrc _) = raw
+        Foreign.ForeignPtr.withForeignPtr fpSrc $ \pSrc ->
+          Foreign.Marshal.Utils.copyBytes
+            (p `Foreign.Ptr.plusPtr` off1) pSrc rlen
+        pure (off1 + rlen)
+  | otherwise =
+      IO.withReservedRaw e (9 + len) $ \p start -> do
+        !off1 <- IO.pokeVaruint64Raw p start
+                   ((fromIntegral len `shiftL` 2) .|. 2 :: Word64)
+        TH.copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+        pure (off1 + len)
 {-# INLINE emitForyStringDirect #-}
 
 -- | 'memcpy' from a 'TA.Array' (Text's underlying

@@ -282,24 +282,36 @@ emitArrayBytes !e !bs = do
 -- are already UTF-8 and we 'memcpy' them with tag 2.
 emitForyString :: IO.Encoder -> Text -> IO ()
 emitForyString !e t@(TI.Text arr srcOff len)
-  | TH.byteArrayIsAscii arr srcOff (srcOff + len) = do
-      let !hdr = (fromIntegral len `shiftL` 2) :: Word64
-      IO.emitVaruint36Small e hdr
-      IO.withReservedRaw e len $ \p start -> do
-        TH.copyTextArrayToPtr arr srcOff (p `plusPtr` start) len
-        pure (start + len)
+  | TH.byteArrayIsAscii arr srcOff (srcOff + len) =
+      -- Reserve enough for the 9-byte worst-case varuint
+      -- header + the payload up front, then inline-poke
+      -- the header and 'memcpy' the bytes in a single
+      -- 'IO.withReservedRaw' batch — saves the second
+      -- 'ensure / readIORef / writeIORef' trio that the
+      -- old @emitVaruint36Small + withReservedRaw@ pair
+      -- used to do.
+      IO.withReservedRaw e (9 + len) $ \p start -> do
+        !off1 <- IO.pokeVaruint64Raw p start
+                   (fromIntegral len `shiftL` 2 :: Word64)
+        TH.copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+        pure (off1 + len)
   | isLatin1 t = do
       let !raw    = B.latin1Bytes t
           !rawLen = BS.length raw
-          !hdr    = (fromIntegral rawLen `shiftL` 2) :: Word64
-      IO.emitVaruint36Small e hdr
-      IO.emitBytes e raw
-  | otherwise = do
-      let !hdr = (fromIntegral len `shiftL` 2) .|. 2 :: Word64
-      IO.emitVaruint36Small e hdr
-      IO.withReservedRaw e len $ \p start -> do
-        TH.copyTextArrayToPtr arr srcOff (p `plusPtr` start) len
-        pure (start + len)
+      IO.withReservedRaw e (9 + rawLen) $ \p start -> do
+        !off1 <- IO.pokeVaruint64Raw p start
+                   (fromIntegral rawLen `shiftL` 2 :: Word64)
+        let (BSI.BS fpSrc _) = raw
+        Foreign.ForeignPtr.withForeignPtr fpSrc $ \pSrc ->
+          Foreign.Marshal.Utils.copyBytes
+            (p `Foreign.Ptr.plusPtr` off1) pSrc rawLen
+        pure (off1 + rawLen)
+  | otherwise =
+      IO.withReservedRaw e (9 + len) $ \p start -> do
+        !off1 <- IO.pokeVaruint64Raw p start
+                   ((fromIntegral len `shiftL` 2) .|. 2 :: Word64)
+        TH.copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+        pure (off1 + len)
 {-# INLINE emitForyString #-}
 
 isLatin1 :: Text -> Bool
