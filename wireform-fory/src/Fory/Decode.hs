@@ -914,9 +914,25 @@ decodeRegisteredStruct ns typeNm sch = do
     else do
       let !canonical = ST.fieldOrder sch
           !names     = ST.ssFieldOrderNames sch
-      values <- V.mapM readField canonical
-      pure (VV.RegisteredStructVal ns typeNm
-              (V.zip names values))
+          !nFields   = V.length canonical
+      -- Build the result @Vector (Text, Value)@ directly
+      -- via 'VM.unsafeNew' / 'VM.unsafeWrite' / freeze
+      -- instead of going through @V.mapM ...@ + @V.zip
+      -- names ...@. Saves one intermediate 'Vector Value'
+      -- allocation per struct.
+      DecodeM $ \d -> do
+        mvec <- VM.unsafeNew nFields
+        let go !i
+              | i >= nFields = pure ()
+              | otherwise    = do
+                  let !spec = V.unsafeIndex canonical i
+                      !nm   = V.unsafeIndex names i
+                  v <- runDM (readField spec) d
+                  VM.unsafeWrite mvec i (nm, v)
+                  go (i + 1)
+        go 0
+        result <- V.unsafeFreeze mvec
+        pure (VV.RegisteredStructVal ns typeNm result)
   where
     readField :: ST.FieldSpec -> DecodeM VV.Value
     readField spec
