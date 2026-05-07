@@ -234,6 +234,60 @@ def main() -> int:
     expect_eq(failures, "lance dataset", "data_file_names",
               wireform_data_files, pylance_data_files)
 
+    # ---------------------------------------------------------------
+    # Decoded manifest body (protobuf -> typed Manifest record).
+    # Pylance is the canonical source-of-truth for the dataset
+    # version + active fragment list; cross-check against it.
+    # ---------------------------------------------------------------
+    wf_manifest = ds_summary["manifest"]
+    if wf_manifest is None:
+        failures.add("lance manifest", "wireform manifest decoder returned null")
+    else:
+        ld = lance.dataset(str(dataset_dir))
+        expect_eq(failures, "lance manifest", "version",
+                  wf_manifest["version"], pylance_versions[-1])
+
+        # Writer version: pylance writes a 'lance' library tag.
+        wv = wf_manifest["writer_version"]
+        if wv is None:
+            failures.add("lance manifest", "writer_version missing")
+        else:
+            expect_eq(failures, "lance manifest", "writer_version.library",
+                      wv["library"], "lance")
+            if not wv["version"]:
+                failures.add("lance manifest", "writer_version.version is empty")
+
+        # Fragments: count + per-fragment file paths must match
+        # what pylance enumerates from the same dataset.
+        pylance_fragments = list(ld.get_fragments())
+        expect_eq(failures, "lance manifest", "fragment_count",
+                  wf_manifest["fragment_count"], len(pylance_fragments))
+
+        wf_frag_files = []
+        for frag in wf_manifest["fragments"]:
+            for fff in frag["files"]:
+                wf_frag_files.append(fff["path"])
+        wf_frag_files.sort()
+
+        pyl_frag_files = []
+        for pf in pylance_fragments:
+            for df in pf.metadata.files:
+                pyl_frag_files.append(df.path)
+        pyl_frag_files.sort()
+
+        expect_eq(failures, "lance manifest", "fragments[*].files[*].path",
+                  wf_frag_files, pyl_frag_files)
+
+        # data_format: pylance writes 'lance' / version like '2.0'.
+        dfmt = wf_manifest["data_format"]
+        if dfmt is None:
+            failures.add("lance manifest", "data_format missing")
+        else:
+            expect_eq(failures, "lance manifest", "data_format.file_format",
+                      dfmt["file_format"], "lance")
+            if not dfmt["version"]:
+                failures.add("lance manifest", "data_format.version is empty")
+
     if failures:
         print()
         print(f"{len(failures)} failures:")

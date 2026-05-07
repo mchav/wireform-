@@ -5,6 +5,14 @@ synopsis: Lance columnar format reader (skeleton)
 license: BSD-3-Clause
 build-type: Simple
 
+data-files:
+  proto/lance/file.proto
+  proto/lance/table.proto
+
+extra-source-files:
+  proto/lance/file.proto
+  proto/lance/table.proto
+
 common defaults
   default-language: GHC2021
   ghc-options:
@@ -30,14 +38,38 @@ library
   exposed-modules:
     Lance.Format
     Lance.IO
+    Lance.Manifest
+    Lance.Pb.Lance.File
+    Lance.Pb.Lance.Table
   build-depends:
+    aeson >= 2.0 && < 2.3,
     base >= 4.16 && < 5,
     bytestring >= 0.11 && < 0.13,
+    containers >= 0.6 && < 0.8,
+    deepseq >= 1.4 && < 1.6,
     directory >= 1.3 && < 1.4,
     filepath  >= 1.4 && < 1.6,
+    hashable >= 1.3 && < 1.6,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
-    wireform-columnar
+    wireform-columnar,
+    wireform-proto
+
+-- Regenerator for the protobuf-derived modules under
+-- 'src/Lance/Pb/'. Run from the repo root so the relative
+-- 'wireform-lance/proto/' paths resolve:
+--
+-- @cabal run wireform-lance:gen-lance-pb@
+executable gen-lance-pb
+  import: defaults
+  hs-source-dirs: gen-pb
+  main-is: Main.hs
+  build-depends:
+    base >= 4.16 && < 5,
+    text,
+    directory,
+    filepath,
+    wireform-proto
 
 test-suite lance-test
   import: defaults

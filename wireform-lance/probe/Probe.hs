@@ -32,8 +32,10 @@ import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.FilePath (takeExtension, takeFileName)
 
-import qualified Lance.Format as L
-import qualified Lance.IO     as LIO
+import qualified Lance.Format   as L
+import qualified Lance.IO       as LIO
+import qualified Lance.Manifest as LM
+import qualified Lance.Pb.Lance.Table as Pb
 
 main :: IO ()
 main = do
@@ -46,16 +48,28 @@ main = do
 
 data Mode = File | Dataset
 
+probeManifestBytes :: FilePath -> IO ()
+probeManifestBytes fp = do
+  bs <- BS.readFile fp
+  case LM.decodeManifest bs of
+    Left  e -> putStrLn ("ERROR: " ++ e)
+    Right m -> do
+      putStrLn $ "version=" ++ show (Pb.manifestVersion m)
+      putStrLn $ "fragments=" ++ show (V.length (Pb.manifestFragments m))
+      putStrLn $ "writer_version=" ++ show (Pb.manifestWriterVersion m)
+      putStrLn $ "data_format=" ++ show (Pb.manifestDataFormat m)
+
 parseArgs :: [String] -> IO (Mode, FilePath, Maybe FilePath)
 parseArgs args0 = case args0 of
   ["--file", i]       -> pure (File, i, Nothing)
   ["--file", i, o]    -> pure (File, i, Just o)
   ["--dataset", i]    -> pure (Dataset, i, Nothing)
   ["--dataset", i, o] -> pure (Dataset, i, Just o)
+  ["--manifest", i]   -> probeManifestBytes i >> exitFailure
   [i]                 -> autoDetect i Nothing
   [i, o]              -> autoDetect i (Just o)
   _                   -> do
-    putStrLn "usage: wireform-lance-interop-probe [--file|--dataset] <path> [<output.json>]"
+    putStrLn "usage: wireform-lance-interop-probe [--file|--dataset|--manifest] <path> [<output.json>]"
     exitFailure
   where
     autoDetect i o = do
@@ -114,10 +128,21 @@ probeDataset input outputDest = do
     Left err -> do
       putStrLn ("wireform-lance-interop-probe: " ++ err)
       exitFailure
-    Right ds -> emit (datasetJSON ds) outputDest
+    Right ds -> do
+      -- If there's a latest manifest, decode its protobuf body too
+      -- so we can surface the typed Manifest fields (writer
+      -- version, fragment list, data files, etc.).
+      (manifest, manifestErr) <- case LIO.ldVersions ds of
+        []         -> pure (Nothing, Nothing)
+        ((_, p):_) -> do
+          mr <- LM.readDatasetManifest p
+          case mr of
+            Right (_, m) -> pure (Just m, Nothing)
+            Left  e      -> pure (Nothing, Just e)
+      emit (datasetJSON ds manifest manifestErr) outputDest
 
-datasetJSON :: LIO.LanceDataset -> Aeson.Value
-datasetJSON ds = Aeson.Object $ KM.fromList
+datasetJSON :: LIO.LanceDataset -> Maybe Pb.Manifest -> Maybe String -> Aeson.Value
+datasetJSON ds mManifest mErr = Aeson.Object $ KM.fromList
   [ (Key.fromString "mode",         Aeson.String "dataset")
   , (Key.fromString "root",         textPath (LIO.ldRoot ds))
   , (Key.fromString "latest_version", case LIO.ldLatestVersion ds of
@@ -132,6 +157,10 @@ datasetJSON ds = Aeson.Object $ KM.fromList
       Aeson.Array (V.fromList (map dataFileEntry (LIO.ldDataFiles ds))))
   , (Key.fromString "data_file_count",
       Aeson.Number (fromIntegral (length (LIO.ldDataFiles ds))))
+  , (Key.fromString "manifest", maybe Aeson.Null manifestJSON mManifest)
+  , (Key.fromString "manifest_decode_error", case mErr of
+      Just e  -> Aeson.String (T.pack e)
+      Nothing -> Aeson.Null)
   ]
   where
     versionEntry (v, p) = Aeson.Object $ KM.fromList
@@ -139,6 +168,71 @@ datasetJSON ds = Aeson.Object $ KM.fromList
       , (Key.fromString "manifest_basename", textPath (takeFileName p))
       ]
     dataFileEntry p = textPath (takeFileName p)
+
+manifestJSON :: Pb.Manifest -> Aeson.Value
+manifestJSON m = Aeson.Object $ KM.fromList
+  [ (Key.fromString "version",
+      Aeson.Number (fromIntegral (Pb.manifestVersion m)))
+  , (Key.fromString "tag", Aeson.String (Pb.manifestTag m))
+  , (Key.fromString "transaction_file",
+      Aeson.String (Pb.manifestTransactionFile m))
+  , (Key.fromString "max_fragment_id", case Pb.manifestMaxFragmentId m of
+      Just i  -> Aeson.Number (fromIntegral i)
+      Nothing -> Aeson.Null)
+  , (Key.fromString "next_row_id",
+      Aeson.Number (fromIntegral (Pb.manifestNextRowId m)))
+  , (Key.fromString "writer_version", case Pb.manifestWriterVersion m of
+      Just w  -> writerVersionJSON w
+      Nothing -> Aeson.Null)
+  , (Key.fromString "data_format", case Pb.manifestDataFormat m of
+      Just f  -> dataFormatJSON f
+      Nothing -> Aeson.Null)
+  , (Key.fromString "fragments",
+      Aeson.Array (V.map fragmentJSON (Pb.manifestFragments m)))
+  , (Key.fromString "fragment_count",
+      Aeson.Number (fromIntegral (V.length (Pb.manifestFragments m))))
+  ]
+
+writerVersionJSON :: Pb.Manifest'WriterVersion -> Aeson.Value
+writerVersionJSON wv = Aeson.Object $ KM.fromList
+  [ (Key.fromString "library", Aeson.String (Pb.manifestWriterVersionLibrary wv))
+  , (Key.fromString "version", Aeson.String (Pb.manifestWriterVersionVersion wv))
+  , (Key.fromString "prerelease", case Pb.manifestWriterVersionPrerelease wv of
+      Just t  -> Aeson.String t
+      Nothing -> Aeson.Null)
+  , (Key.fromString "build_metadata", case Pb.manifestWriterVersionBuildMetadata wv of
+      Just t  -> Aeson.String t
+      Nothing -> Aeson.Null)
+  ]
+
+dataFormatJSON :: Pb.Manifest'DataStorageFormat -> Aeson.Value
+dataFormatJSON dsf = Aeson.Object $ KM.fromList
+  [ (Key.fromString "file_format",
+      Aeson.String (Pb.manifestDataStorageFormatFileFormat dsf))
+  , (Key.fromString "version",
+      Aeson.String (Pb.manifestDataStorageFormatVersion dsf))
+  ]
+
+fragmentJSON :: Pb.DataFragment -> Aeson.Value
+fragmentJSON df = Aeson.Object $ KM.fromList
+  [ (Key.fromString "id",
+      Aeson.Number (fromIntegral (Pb.dataFragmentId df)))
+  , (Key.fromString "physical_rows",
+      Aeson.Number (fromIntegral (Pb.dataFragmentPhysicalRows df)))
+  , (Key.fromString "files",
+      Aeson.Array (V.map dataFileJSON (Pb.dataFragmentFiles df)))
+  ]
+
+dataFileJSON :: Pb.DataFile -> Aeson.Value
+dataFileJSON f = Aeson.Object $ KM.fromList
+  [ (Key.fromString "path",     Aeson.String (Pb.dataFilePath f))
+  , (Key.fromString "file_major_version",
+      Aeson.Number (fromIntegral (Pb.dataFileFileMajorVersion f)))
+  , (Key.fromString "file_minor_version",
+      Aeson.Number (fromIntegral (Pb.dataFileFileMinorVersion f)))
+  , (Key.fromString "file_size_bytes",
+      Aeson.Number (fromIntegral (Pb.dataFileFileSizeBytes f)))
+  ]
 
 -- ============================================================
 -- Shared helpers
