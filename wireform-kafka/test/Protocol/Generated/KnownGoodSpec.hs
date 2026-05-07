@@ -1,0 +1,103 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
+
+module Protocol.Generated.KnownGoodSpec (tests) where
+
+import qualified Data.Aeson as Aeson
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
+import Data.Bytes.Get (MonadGet, runGetS)
+import qualified Data.Bytes.Get
+import Data.Bytes.Put (runPutS)
+import Data.Int (Int16)
+import qualified Data.Serialize.Get as Get
+import Data.Text (Text)
+import GHC.Generics (Generic)
+import Kafka.Protocol.Generated.MetadataRequest
+import qualified Kafka.Protocol.Encoding as E
+import Test.Tasty
+import Test.Tasty.HUnit
+
+-- | A test vector from the Rust generator
+data TestVector = TestVector
+  { messageType :: Text
+  , version :: Int16
+  , description :: Text
+  , hex :: Text
+  } deriving (Show, Generic)
+
+instance Aeson.FromJSON TestVector where
+  parseJSON = Aeson.withObject "TestVector" $ \v -> TestVector
+    <$> v Aeson..: "message_type"
+    <*> v Aeson..: "version"
+    <*> v Aeson..: "description"
+    <*> v Aeson..: "hex"
+
+-- | Load test vectors from JSON file
+loadTestVectors :: IO [TestVector]
+loadTestVectors = do
+  content <- BL.readFile "test-vectors.json"
+  case Aeson.eitherDecode content of
+    Left err -> error $ "Failed to parse test vectors: " ++ err
+    Right vectors -> return vectors
+
+-- | Convert hex string to ByteString
+hexToBS :: Text -> Either String BS.ByteString
+hexToBS hexText = 
+  let hexStr = show hexText -- Convert Text to String
+      pairs = takeWhile (not . null) $ map (take 2) $ iterate (drop 2) (drop 1 $ init hexStr)
+      parseHex [c1, c2] = do
+        d1 <- hexDigit c1
+        d2 <- hexDigit c2
+        return $ fromIntegral (d1 * 16 + d2)
+      parseHex _ = Left "Invalid hex pair"
+      hexDigit c
+        | c >= '0' && c <= '9' = Right (fromEnum c - fromEnum '0')
+        | c >= 'a' && c <= 'f' = Right (fromEnum c - fromEnum 'a' + 10)
+        | c >= 'A' && c <= 'F' = Right (fromEnum c - fromEnum 'A' + 10)
+        | otherwise = Left $ "Invalid hex digit: " ++ [c]
+  in BS.pack <$> mapM parseHex pairs
+
+-- | Test a single MetadataRequest vector
+testMetadataRequest :: TestVector -> TestTree
+testMetadataRequest vec = testCase (show (description vec)) $ do
+  -- Parse hex to bytes
+  bytes <- case hexToBS (hex vec) of
+    Left err -> assertFailure $ "Failed to parse hex: " ++ err
+    Right bs -> return bs
+  
+  -- Decode using our decoder
+  -- Wrap the decoder to also return remaining bytes
+  let decoderWithRemaining :: Get.Get (MetadataRequest, BS.ByteString)
+      decoderWithRemaining = do
+        msg <- decodeMetadataRequest (version vec)
+        remainingCount <- Get.remaining
+        remainingBytes <- Get.getBytes remainingCount
+        return (msg, remainingBytes)
+      
+      decoded :: Either String (MetadataRequest, BS.ByteString)
+      decoded = runGetS decoderWithRemaining bytes
+  
+  case decoded of
+    Left err -> assertFailure $ "Decode failed: " ++ err
+    Right (msg, remaining) -> do
+      -- Check that we consumed all bytes
+      BS.null remaining @? "Should consume all bytes, but " ++ show (BS.length remaining) ++ " bytes remaining"
+      
+      -- Re-encode and verify bytes match
+      let reencoded = runPutS $ encodeMetadataRequest (version vec) msg
+      reencoded @?= bytes
+
+-- | Create test tree from vectors
+createTests :: [TestVector] -> TestTree
+createTests vectors =
+  let metadataVectors = filter (\v -> messageType v == "MetadataRequest") vectors
+  in testGroup "Known-Good Test Vectors"
+      [ testGroup "MetadataRequest" (map testMetadataRequest metadataVectors)
+      ]
+
+tests :: IO TestTree
+tests = do
+  vectors <- loadTestVectors
+  return $ createTests vectors
+

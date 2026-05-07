@@ -30,6 +30,7 @@ packages:
   wireform-csv/
   wireform-ndjson/
   wireform-grpc/
+  wireform-kafka/
 
 package *
   optimization: 1
