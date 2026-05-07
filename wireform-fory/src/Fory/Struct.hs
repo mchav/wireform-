@@ -54,6 +54,8 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
+import Fory.MetaString.Encoder (Encoding (UTF8), encodeMetaString,
+                                namespaceSpecialChars, typenameSpecialChars)
 import Fory.MetaString.Hash (murmur3X64_128)
 import Fory.TypeId (TypeId (..))
 import qualified Fory.TypeId as T
@@ -91,18 +93,34 @@ data StructSchema = StructSchema
     -- | Cached canonical field order pyfory writes for this
     -- schema (see 'fieldOrder' for the algorithm).
   , ssFieldOrder :: !(Vector FieldSpec)
+    -- | Cached pre-encoded namespace meta-string body and
+    -- chosen 'Encoding' tag. Skips the per-encode
+    -- 'encodeMetaString' bit-packing + char classification
+    -- when the encoder hits a fresh-meta-string slot for
+    -- this schema.
+  , ssNsBody     :: !BS.ByteString
+  , ssNsEncoding :: !Encoding
+    -- | Cached pre-encoded type-name meta-string body and
+    -- encoding tag.
+  , ssTnBody     :: !BS.ByteString
+  , ssTnEncoding :: !Encoding
   } deriving (Show, Eq)
 
 -- | Convenience constructor. Computes the schema fingerprint
--- hash and the canonical field order once so that subsequent
--- 'computeStructHash' / 'fieldOrder' lookups are O(1) reads.
+-- hash, the canonical field order, and the bit-packed
+-- meta-string bodies for the namespace + type name once so
+-- that subsequent encodes pay a constant 'O(1)' lookup
+-- instead of re-running the meta-string char-classification
+-- + bit-pack pipeline on every emit.
 mkSchema :: Text -> Text -> [(Text, TypeId)] -> StructSchema
 mkSchema ns nm fs =
-  let !fields = V.fromList [ FieldSpec n t False False | (n, t) <- fs ]
-      !sch0   = StructSchema ns nm fields 0 V.empty
-      !h      = computeStructHash sch0
-      !ord    = computeFieldOrder sch0
-  in StructSchema ns nm fields h ord
+  let !fields  = V.fromList [ FieldSpec n t False False | (n, t) <- fs ]
+      !empty   = StructSchema ns nm fields 0 V.empty BS.empty UTF8 BS.empty UTF8
+      !h       = computeStructHash empty
+      !ord     = computeFieldOrder empty
+      (!nsEnc, !nsBody) = encodeMetaString namespaceSpecialChars ns
+      (!tnEnc, !tnBody) = encodeMetaString typenameSpecialChars  nm
+  in StructSchema ns nm fields h ord nsBody nsEnc tnBody tnEnc
 
 -- ---------------------------------------------------------------------------
 -- Schema fingerprint + hash

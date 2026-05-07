@@ -224,8 +224,7 @@ emitTypedPayload !e val = case val of
     emitStructFields e fields
   VV.RegisteredStructVal ns nm fields -> do
     emitTag e T.NAMED_STRUCT
-    emitMetaStringWith e MSE.namespaceSpecialChars ns
-    emitMetaStringWith e MSE.typenameSpecialChars  nm
+    emitRegisteredHeader e ns nm
     emitRegisteredStruct e ns nm fields
   VV.CompatibleStructVal ns nm fields -> do
     emitTag e T.NAMED_COMPATIBLE_STRUCT
@@ -577,9 +576,8 @@ emitElementTypeInfo !e !tag !vs = do
       Just (VV.StructVal ns nm _)           -> do
         emitMetaStringWith e MSE.namespaceSpecialChars ns
         emitMetaStringWith e MSE.typenameSpecialChars  nm
-      Just (VV.RegisteredStructVal ns nm _) -> do
-        emitMetaStringWith e MSE.namespaceSpecialChars ns
-        emitMetaStringWith e MSE.typenameSpecialChars  nm
+      Just (VV.RegisteredStructVal ns nm _) ->
+        emitRegisteredHeader e ns nm
       _ -> pure ()
     _ -> pure ()
 
@@ -803,7 +801,29 @@ emitFreshMetaString !e !sc !t = do
   -- 64-bit hashcode for >16-byte payloads, or a
   -- single-byte encoding tag otherwise) plus the bytes.
   let (enc, bs) = MSE.encodeMetaString sc t
-      !len = BS.length bs
+  emitFreshMetaStringPrecomputed e enc bs
+
+-- | Variant of 'emitMetaStringWith' that uses a pre-encoded
+-- meta-string body (typically cached on a 'StructSchema' so
+-- that repeated encodes of the same schema's namespace +
+-- type name skip the per-call 'MSE.encodeMetaString'
+-- char-classification + bit-pack pipeline).
+emitMetaStringPrecomputed
+  :: IO.Encoder -> Text -> MSE.Encoding -> ByteString -> IO ()
+emitMetaStringPrecomputed !e !t !enc !bs = do
+  m <- IO.metaStringLookup e t
+  case m of
+    Just rid ->
+      IO.emitVaruint64 e
+        (((fromIntegral rid + 1) `shiftL` 1) .|. 1 :: Word64)
+    Nothing -> do
+      _ <- IO.metaStringRegister e t
+      emitFreshMetaStringPrecomputed e enc bs
+
+emitFreshMetaStringPrecomputed
+  :: IO.Encoder -> MSE.Encoding -> ByteString -> IO ()
+emitFreshMetaStringPrecomputed !e !enc !bs = do
+  let !len = BS.length bs
       !hdr = (fromIntegral len `shiftL` 1) :: Word64
   IO.emitVaruint64 e hdr
   if len == 0
@@ -817,6 +837,25 @@ emitFreshMetaString !e !sc !t = do
                       (fromIntegral (MSE.encodingId enc))
         IO.emitInt64LE e (fromIntegral hash)
         IO.emitBytes e bs
+
+-- | Emit the @namespace + type-name@ meta-string pair for
+-- a 'NAMED_STRUCT' value. If the schema is registered with
+-- the encoder we reuse its pre-encoded meta-string bodies
+-- (avoiding the per-encode 'MSE.encodeMetaString'
+-- bit-packing); otherwise we fall back to encoding from
+-- scratch. This is the hot path for both
+-- 'emitTypedPayload' on a single struct and
+-- 'emitElementTypeInfo' at the head of a same-type list.
+emitRegisteredHeader :: IO.Encoder -> Text -> Text -> IO ()
+emitRegisteredHeader !e !ns !nm = case lookupSchema e ns nm of
+  Just sch -> do
+    emitMetaStringPrecomputed e ns
+      (ST.ssNsEncoding sch) (ST.ssNsBody sch)
+    emitMetaStringPrecomputed e nm
+      (ST.ssTnEncoding sch) (ST.ssTnBody sch)
+  Nothing -> do
+    emitMetaStringWith e MSE.namespaceSpecialChars ns
+    emitMetaStringWith e MSE.typenameSpecialChars  nm
 
 -- ---------------------------------------------------------------------------
 -- Registered structs (NAMED_STRUCT, pyfory-compatible)
