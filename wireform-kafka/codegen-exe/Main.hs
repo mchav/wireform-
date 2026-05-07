@@ -82,11 +82,12 @@ runCodegen protocolDir outputDir = do
     putStrLn $ "Generating " ++ fileName
     T.writeFile filePath rendered
   
-  -- Generate message inventory JSON
+  -- Generate message inventory JSON next to the generated modules so
+  -- the codegen has no side effects outside of `outputDir`.
   putStrLn ""
   putStrLn "Generating message inventory..."
   let inventoryJson = generateMessageInventory schemas
-      inventoryPath = "message-inventory.json"
+      inventoryPath = outputDir </> "message-inventory.json"
   T.writeFile inventoryPath inventoryJson
   putStrLn $ "Generated " ++ inventoryPath ++ " with " ++ show (length schemas) ++ " message types"
   
