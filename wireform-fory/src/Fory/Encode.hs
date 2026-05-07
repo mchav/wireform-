@@ -264,34 +264,43 @@ emitArrayBytes !e !bs = do
 -- Strings
 -- ---------------------------------------------------------------------------
 
+-- | Emit a 'Text' as a Fory string-payload.
+--
+-- Reaches into the 'Text''s underlying 'TI.Text arr off len'
+-- and scans the 'ByteArray' bytes for the high bit (Word64-
+-- stride OR-fold via 'TH.byteArrayIsAscii'). For ASCII
+-- strings the underlying UTF-8 bytes are byte-identical to
+-- the LATIN-1 wire format (tag 0); we 'memcpy' them straight
+-- into the encoder buffer via 'TH.copyTextArrayToPtr',
+-- skipping the 'TE.encodeUtf8' allocation and the 'BS.all'
+-- scan.
+--
+-- For Latin-1-only strings (chars 128–255 only, no chars
+-- ≥ 256), wire bytes differ from UTF-8 (1 byte/char vs
+-- 2 bytes/char), so we still re-encode via 'B.latin1Bytes'.
+-- For true UTF-8 (any char ≥ 256), the underlying bytes
+-- are already UTF-8 and we 'memcpy' them with tag 2.
 emitForyString :: IO.Encoder -> Text -> IO ()
-emitForyString !e !t = do
-  -- Encode to UTF-8 once (O(1) on text-2.x for ASCII strings —
-  -- the underlying ByteArray is reused). Then scan the bytes
-  -- for any high bit; if none, the bytes are simultaneously
-  -- valid LATIN-1 and we emit them with encoding tag 0 to
-  -- match pyfory's output. Otherwise we fall back: if every
-  -- /character/ has code point < 256 we manually re-encode as
-  -- 1-byte-per-char LATIN-1; otherwise emit UTF-8 (encoding
-  -- tag 2).
-  let !utf8 = TE.encodeUtf8 t
-      !len  = BS.length utf8
-  if BS.all (< 0x80) utf8
-    then do
+emitForyString !e t@(TI.Text arr srcOff len)
+  | TH.byteArrayIsAscii arr srcOff (srcOff + len) = do
       let !hdr = (fromIntegral len `shiftL` 2) :: Word64
       IO.emitVaruint36Small e hdr
-      IO.emitBytes e utf8
-    else if isLatin1 t
-      then do
-        let !raw = B.latin1Bytes t
-            !rawLen = BS.length raw
-            !hdr = (fromIntegral rawLen `shiftL` 2) :: Word64
-        IO.emitVaruint36Small e hdr
-        IO.emitBytes e raw
-      else do
-        let !hdr = (fromIntegral len `shiftL` 2) .|. 2 :: Word64
-        IO.emitVaruint36Small e hdr
-        IO.emitBytes e utf8
+      IO.withReservedRaw e len $ \p start -> do
+        TH.copyTextArrayToPtr arr srcOff (p `plusPtr` start) len
+        pure (start + len)
+  | isLatin1 t = do
+      let !raw    = B.latin1Bytes t
+          !rawLen = BS.length raw
+          !hdr    = (fromIntegral rawLen `shiftL` 2) :: Word64
+      IO.emitVaruint36Small e hdr
+      IO.emitBytes e raw
+  | otherwise = do
+      let !hdr = (fromIntegral len `shiftL` 2) .|. 2 :: Word64
+      IO.emitVaruint36Small e hdr
+      IO.withReservedRaw e len $ \p start -> do
+        TH.copyTextArrayToPtr arr srcOff (p `plusPtr` start) len
+        pure (start + len)
+{-# INLINE emitForyString #-}
 
 isLatin1 :: Text -> Bool
 isLatin1 = T.all (\c -> ord c < 256)
@@ -499,29 +508,38 @@ sameTypeFastPath !tag = case tag of
 -- batch with a single 'IO.withReservedRaw' call.
 emitStringListFast :: IO.Encoder -> Vector VV.Value -> IO ()
 emitStringListFast !e !vs = do
-  -- Walk once: encode + classify. The Vector boxing here is
-  -- @Vector (ByteString, Bool)@ — three words of payload per
-  -- element; cheaper than the per-element ensure() / readIORef
-  -- / writeIORef trio that the un-batched path would do.
-  encoded <- V.mapM encOne vs
-  let !totalSize = V.foldl' (\a (b, _) -> a + 9 + BS.length b) 0 encoded
+  -- Single-pass size accumulator over each Text's underlying
+  -- UTF-8 byte length. No per-element 'TE.encodeUtf8'
+  -- allocation; the per-element write reads the Text's
+  -- 'TA.Array' directly via 'TH.byteArrayIsAscii' +
+  -- 'TH.copyTextArrayToPtr'.
+  let !totalSize = V.foldl' sumOne 0 vs
   IO.withReservedRaw e totalSize $ \p start ->
-    V.foldM' (writeOne p) start encoded
+    V.foldM' (writeOne p) start vs
   where
-    encOne :: VV.Value -> IO (ByteString, Bool)
-    encOne (VV.StringVal t) =
-      let !u     = TE.encodeUtf8 t
-          !ascii = BS.all (< 0x80) u
-      in pure (u, ascii)
-    encOne v = error $ "emitStringListFast: non-StringVal " ++ show v
+    sumOne :: Int -> VV.Value -> Int
+    sumOne !acc (VV.StringVal (TI.Text _ _ len)) = acc + 9 + len
+    sumOne _ v = error $ "emitStringListFast: non-StringVal " ++ show v
 
-    writeOne :: Ptr Word8 -> Int -> (ByteString, Bool) -> IO Int
-    writeOne !p !off (!u, !ascii) = do
-      let !len = BS.length u
-          !hdr = (fromIntegral len `shiftL` 2)
-                   .|. (if ascii then 0 else 2) :: Word64
-      off1 <- IO.pokeVaruint64Raw p off hdr
-      pokeBytesRaw p off1 u
+    writeOne :: Ptr Word8 -> Int -> VV.Value -> IO Int
+    writeOne !p !off (VV.StringVal t@(TI.Text arr srcOff len))
+      | TH.byteArrayIsAscii arr srcOff (srcOff + len) = do
+          off1 <- IO.pokeVaruint64Raw p off
+                    (fromIntegral len `shiftL` 2 :: Word64)
+          TH.copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+          pure (off1 + len)
+      | isLatin1 t = do
+          let !raw  = B.latin1Bytes t
+              !rlen = BS.length raw
+          off1 <- IO.pokeVaruint64Raw p off
+                    (fromIntegral rlen `shiftL` 2 :: Word64)
+          pokeBytesRaw p off1 raw
+      | otherwise = do
+          off1 <- IO.pokeVaruint64Raw p off
+                    ((fromIntegral len `shiftL` 2) .|. 2 :: Word64)
+          TH.copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+          pure (off1 + len)
+    writeOne _ _ v = error $ "emitStringListFast: non-StringVal " ++ show v
 
 pokeBytesRaw :: Ptr Word8 -> Int -> ByteString -> IO Int
 pokeBytesRaw !p !pos !bs = do
