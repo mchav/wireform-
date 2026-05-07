@@ -337,6 +337,26 @@ library
         zlib                      >= 0.6   && < 0.8,
         zstd                      >= 0.1   && < 0.2
 
+library wireform-kafka-streams
+    import: defaults
+    visibility: public
+    hs-source-dirs: streams/src
+    exposed-modules:
+        Kafka.Streams
+        Kafka.Streams.Config
+        Kafka.Streams.KStream
+        Kafka.Streams.KTable
+        Kafka.Streams.Processor
+        Kafka.Streams.Serde
+        Kafka.Streams.Topology
+        Kafka.Streams.Types
+    build-depends:
+        base                      >= 4.16  && < 5,
+        bytestring                >= 0.11  && < 0.13,
+        containers                >= 0.6   && < 0.8,
+        text                      >= 2.0   && < 2.2,
+        wireform-kafka
+
 library wireform-kafka-codegen
     import: defaults
     visibility: public
