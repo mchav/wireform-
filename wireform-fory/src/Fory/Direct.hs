@@ -84,6 +84,7 @@ import qualified Fory.IO as IO
 import qualified Fory.Options as Opt
 import qualified Fory.TypeId as T
 import qualified Fory.Value as VV
+import qualified Wireform.FFI as WFFI
 
 -- ---------------------------------------------------------------------------
 -- Top-level encode / decode
@@ -195,11 +196,20 @@ directTagged !e !x = do
 -- detection, header, bytes) for instance authors that want
 -- to inline a string field without wrapping it in an
 -- 'EncodeDirect' instance.
+--
+-- Uses the SIMD 'WFFI.isAscii' from @wireform-core@ for the
+-- ASCII fast-path detection. For 1024-byte ASCII strings
+-- the SIMD scan runs in a few nanoseconds, easily amortising
+-- the @ccall unsafe@ marshalling overhead — significantly
+-- faster than the per-byte 'BS.all' scan on long inputs.
+-- (Per-element list-of-string still uses the Word64-stride
+-- 'byteArrayIsAscii' since the FFI overhead would dominate
+-- on short strings — see 'writeTextOnto'.)
 emitForyStringDirect :: IO.Encoder -> Text -> IO ()
 emitForyStringDirect !e !t = do
   let !utf8 = TE.encodeUtf8 t
       !len  = BS.length utf8
-  if BS.all (< 0x80) utf8
+  if WFFI.isAsciiBS utf8
     then do
       let !hdr = (fromIntegral len `shiftL` 2) :: Word64
       IO.emitVaruint64 e hdr
@@ -636,24 +646,18 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
 -- | Per-element write for the typed list-of-string fast
 -- paths.
 --
--- Picks the wire-encoding tag (LATIN-1 / UTF-8) based on a
--- 'Word64'-stride OR-fold over the underlying 'TA.Array'
--- bytes ('byteArrayIsAscii'). For pure-ASCII strings we
--- emit the underlying UTF-8 bytes raw with tag 0 (which
--- equals the LATIN-1 encoding for ASCII bytes); for
--- pure-Latin-1 strings (chars 128–255 only) we re-encode
--- via 'B.latin1Bytes' to keep the wire 1 byte per char;
--- otherwise we emit UTF-8 (tag 2) raw.
+-- Picks the wire-encoding tag (LATIN-1 / UTF-8) using the
+-- hand-rolled 'byteArrayIsAscii' Word64-stride scan over
+-- the underlying 'TA.Array'. The shared
+-- 'WFFI.isAscii' SIMD primitive (used in 'emitForyStringDirect'
+-- below) is faster on long buffers but pays ~3 ns of FFI
+-- marshalling overhead per call, which exceeds the entire
+-- Word64-stride scan time on the 8-byte strings the
+-- bench uses; per-element FFI is a measured net loss for
+-- short list elements.
 --
--- The 'text' package would expose its own SIMD-accelerated
--- ASCII check at 'Data.Text.Internal.IsAscii.isAscii', but
--- the module is marked @other-modules@ (hidden) in
--- text-2.0.2 and text-2.1.x alike, so we use the hand-rolled
--- 'byteArrayIsAscii' instead.
---
--- Short-header fast path: payloads under 128 wire bytes get
--- a single-byte header poke instead of the
--- 'IO.pokeVaruint64Raw' continuation loop.
+-- For Latin-1-only strings (chars 128–255) we re-encode
+-- via 'B.latin1Bytes' so the wire is 1 byte / char.
 writeTextOnto :: Ptr Word8 -> Int -> Text -> IO Int
 writeTextOnto !p !off t@(TI.Text arr srcOff len)
   | byteArrayIsAscii arr srcOff (srcOff + len) = do
