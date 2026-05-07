@@ -1050,6 +1050,61 @@ decodeVecIntInline !count = D.DecodeM $ \d -> do
   V.unsafeFreeze mvec
 {-# INLINE decodeVecIntInline #-}
 
+-- | OVERLAPPING fast path for @Vector Text@ decode.
+--
+-- The polymorphic 'Vector a' instance routes through
+-- 'D.readSameTypeBatch' + 'rawPeekText', which forces a
+-- boxed @(Text, Int)@ tuple per element. This bypasses
+-- the tuple by inlining the raw varuint + payload reader
+-- directly into a single mutable-write loop.
+instance {-# OVERLAPPING #-} DecodeDirect (Vector Text) where
+  directDecodePayload = do
+    count <- fromIntegral <$> D.readVaruint32D
+    if count == 0
+      then pure V.empty
+      else do
+        flag <- D.readByteD
+        if flag /= 0x08
+          then D.failD ("Fory.Direct: expected IS_SAME_TYPE list, got flag "
+                         ++ show flag)
+          else do
+            _tag <- D.readVaruint32D
+            decodeVecTextInline count
+
+-- | Inline 'Vector Text' decode loop. Each element is
+-- read via 'rawPeekText' but with the @(Text, Int)@
+-- tuple result split: the new offset is threaded as a
+-- direct argument to the next call (no per-element
+-- tuple alloc).
+decodeVecTextInline :: Int -> D.DecodeM (Vector Text)
+decodeVecTextInline !count = D.DecodeM $ \d -> do
+  pos0 <- readIORef (D.decPos d)
+  let !p = D.decBase d
+  mvec <- VM.unsafeNew count
+  let go !i !pos
+        | i >= count = pure pos
+        | otherwise = do
+            (hdr, !pos1) <- D.peekVaruint64Raw p pos
+            let !enc  = hdr .&. 0x03
+                !len  = fromIntegral (hdr `shiftR` 2) :: Int
+                !pos2 = pos1 + len
+            t <- case enc of
+              0 -> do
+                ascii <- isAsciiPtr (p `plusPtr` pos1) len
+                if ascii
+                  then copyAsciiText p pos1 len
+                  else expandLatin1Text p pos1 len
+              2 -> copyAsciiText p pos1 len
+              _ -> error
+                ("Fory.Direct: unsupported string encoding in batch "
+                  ++ show enc)
+            VM.unsafeWrite mvec i t
+            go (i + 1) pos2
+  posF <- go 0 pos0
+  writeIORef (D.decPos d) posF
+  V.unsafeFreeze mvec
+{-# INLINE decodeVecTextInline #-}
+
 
 -- ---------------------------------------------------------------------------
 -- Storable-Vector primitive arrays
