@@ -319,8 +319,13 @@ emitVaruint32 !e !v0 = withReserved e 5 $ \p pos -> goVu32 p pos v0
 
 {-# INLINE emitVaruint64 #-}
 emitVaruint64 :: Encoder -> Word64 -> IO ()
-emitVaruint64 !e !v0 = withReserved e 9 $ \p pos -> goVu64 0 p pos v0
+emitVaruint64 !e !v0 =
+  withReserved e 9 $ \p pos -> goVu64 (0 :: Int) p pos v0
   where
+    -- Explicit 'Int' type sig on the loop counter — see
+    -- 'pokeVaruint64Raw' for why (avoids GHC defaulting
+    -- the @0@ literal to 'Integer').
+    goVu64 :: Int -> Ptr Word8 -> Int -> Word64 -> IO Int
     goVu64 !i !p !pos !v
       | i >= 8 = do
           pokeByteOff p pos (fromIntegral v :: Word8)
@@ -488,8 +493,16 @@ pokeVaruint32Raw !p !pos0 !v0 = go pos0 v0
 
 {-# INLINE pokeVaruint64Raw #-}
 pokeVaruint64Raw :: Ptr Word8 -> Int -> Word64 -> IO Int
-pokeVaruint64Raw !p !pos0 !v0 = go 0 pos0 v0
+pokeVaruint64Raw !p !pos0 !v0 = go (0 :: Int) pos0 v0
   where
+    -- Explicit 'Int' type sig on the loop counter is
+    -- important: without it, GHC defaults the @0@ literal
+    -- to 'Integer' (boxed arbitrary-precision), giving a
+    -- @\$wgo :: Integer -> Int# -> Word64# -> ...@ loop
+    -- with a 3-case @IS x | IP x | IN x@ pattern-match per
+    -- iteration. The 'Int' annotation lets strict-worker-
+    -- wrapper unbox @i@ to @Int#@.
+    go :: Int -> Int -> Word64 -> IO Int
     go !i !pos !v
       | i >= 8 = do
           pokeByteOff p pos (fromIntegral v :: Word8)

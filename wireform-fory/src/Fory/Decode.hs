@@ -401,8 +401,15 @@ peekInt64LERaw !p !pos = do
 
 {-# INLINE peekVaruint64Raw #-}
 peekVaruint64Raw :: Ptr Word8 -> Int -> IO (Word64, Int)
-peekVaruint64Raw !p !pos0 = go 0 pos0 0
+peekVaruint64Raw !p !pos0 = go (0 :: Int) pos0 (0 :: Word64)
   where
+    -- Explicit type sigs on the loop variables are
+    -- important: without them GHC defaults the @0@ literal
+    -- on @i@ to 'Integer', producing a @\$wgo :: Integer
+    -- -> Int# -> Word64# -> ...@ loop with a 3-case
+    -- @IS x | IP x | IN x@ pattern-match per iteration on
+    -- the byte counter.
+    go :: Int -> Int -> Word64 -> IO (Word64, Int)
     go !i !pos !acc
       | i >= 8 = do
           b <- peekByteOff p pos :: IO Word8
