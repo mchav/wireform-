@@ -715,21 +715,29 @@ emitNamedStructListFast !e !vs =
               -- @mkPerson@). On mismatch we crash via the
               -- 'V.unsafeIndex' bounds-check rather than
               -- silently emit garbage.
-              !perm = computeFieldPerm canonical sample
-              !nVs  = V.length vs
-              -- Hand-rolled outer loop. The 'V.forM_' we
-              -- used to use here paid one closure
-              -- invocation per element which on a 100-
-              -- element list was a measurable chunk of
-              -- per-struct overhead.
+              !perm        = computeFieldPerm canonical sample
+              -- Detect the common case where the user's
+              -- field ordering matches the canonical order
+              -- (i.e. @perm == [0, 1, .., nFields-1]@). In
+              -- that case we can skip the per-field
+              -- 'V.unsafeIndex perm i' and index directly
+              -- into the user's @StructFields@ — saves one
+              -- array load per field on the per-struct hot
+              -- loop.
+              !permIsId    = isIdentityPerm perm nFields
+              !nVs         = V.length vs
               goS !i
                 | i >= nVs = pure ()
                 | otherwise = do
                     case V.unsafeIndex vs i of
                       VV.RegisteredStructVal _ _ fields ->
-                        emitRegisteredStructPermuted
-                          e canonical perm nFields
-                          hashCode fields
+                        if permIsId
+                          then emitRegisteredStructIdentity
+                                 e canonical nFields
+                                 hashCode fields
+                          else emitRegisteredStructPermuted
+                                 e canonical perm nFields
+                                 hashCode fields
                       x -> emitUntaggedPayload e x
                     goS (i + 1)
           in goS 0
@@ -790,6 +798,39 @@ emitRegisteredStructPermuted !e !canonical !perm !nFields !hashCode !fields = do
             emitRegisteredField e spec v
             go (i + 1)
   go 0
+
+-- | Identity-permutation specialisation of
+-- 'emitRegisteredStructPermuted' — saves one
+-- 'V.unsafeIndex' per field. Used for the
+-- 'permIsId == True' branch in 'emitNamedStructListFast'.
+emitRegisteredStructIdentity
+  :: IO.Encoder
+  -> Vector ST.FieldSpec
+  -> Int
+  -> Int32
+  -> VV.StructFields
+  -> IO ()
+emitRegisteredStructIdentity !e !canonical !nFields !hashCode !fields = do
+  IO.emitInt32LE e hashCode
+  let go !i
+        | i >= nFields = pure ()
+        | otherwise = do
+            let !spec   = V.unsafeIndex canonical i
+                (_, !v) = V.unsafeIndex fields i
+            emitRegisteredField e spec v
+            go (i + 1)
+  go 0
+
+-- | Returns 'True' iff @perm[i] == i@ for every @i@ in
+-- @[0, n)@.
+isIdentityPerm :: Vector Int -> Int -> Bool
+isIdentityPerm !perm !n = go 0
+  where
+    go !i
+      | i >= n = True
+      | V.unsafeIndex perm i /= i = False
+      | otherwise = go (i + 1)
+{-# INLINE isIdentityPerm #-}
 
 -- | Inner emitter shared by 'emitTypedPayload' on a single
 -- struct (where the permutation isn't pre-resolved).
