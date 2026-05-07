@@ -28,6 +28,7 @@ outputDir = "wireform-lance/src"
 protoFiles :: [FilePath]
 protoFiles =
   [ "lance/file.proto"
+  , "lance/file2.proto"
   , "lance/table.proto"
   ]
 

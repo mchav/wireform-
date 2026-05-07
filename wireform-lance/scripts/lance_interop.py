@@ -344,6 +344,39 @@ def main() -> int:
                          f"timestamp_millis {ts_millis} differs from "
                          f"pylance {pylance_ts_ms} by > 5s")
 
+    # ---------------------------------------------------------------
+    # Column metadata: decode one column's protobuf ColumnMetadata
+    # body via the new readColumnMetadataAt helper and verify it
+    # has the expected page count + buffer-offset shape.
+    # ---------------------------------------------------------------
+    print(f"\n== driving wireform-lance --col-meta against {data_file.name}")
+    cm_out = out / "colmeta.json"
+    subprocess.run(
+        [
+            "cabal", "run",
+            "wireform-lance:wireform-lance-interop-probe",
+            "--",
+            "--col-meta", str(data_file), "0", str(cm_out),
+        ],
+        cwd=ROOT.parent, check=True,
+    )
+    with cm_out.open() as fh:
+        cm = json.load(fh)
+    if cm.get("num_pages", 0) <= 0:
+        failures.add("lance col-meta",
+                     f"column 0 has {cm.get('num_pages')} pages (expected > 0)")
+    # buffer_offsets may legitimately be empty — column-level
+    # buffers are optional (statistics, dictionaries). What we
+    # do require is that every page reports a positive length;
+    # zero-length pages would mean the page table is corrupt.
+    page_lens = cm.get("page_lengths") or []
+    if not page_lens or any(n <= 0 for n in page_lens):
+        failures.add("lance col-meta",
+                     f"column 0 page_lengths = {page_lens}")
+    elif sum(page_lens) <= 0:
+        failures.add("lance col-meta",
+                     f"column 0 total length = {sum(page_lens)}")
+
     if failures:
         print()
         print(f"{len(failures)} failures:")

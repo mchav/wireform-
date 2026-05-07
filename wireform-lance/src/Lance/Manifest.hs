@@ -24,6 +24,9 @@ module Lance.Manifest
     -- * Schema (typed)
   , LanceSchemaField (..)
   , datasetSchemaFields
+    -- * Per-column metadata in a Lance v2 data file
+  , decodeColumnMetadata
+  , readColumnMetadataAt
     -- * Re-exports of the generated types
   , Pb.Manifest (..)
   , Pb.Manifest'WriterVersion (..)
@@ -33,6 +36,9 @@ module Lance.Manifest
   , Pb.DeletionFile (..)
   , Pb.DeletionFile'DeletionFileType (..)
   , Pb.UUID (..)
+  , PbF2.ColumnMetadata (..)
+  , PbF2.ColumnMetadata'Page (..)
+  , PbF2.Encoding (..)
   ) where
 
 import Control.Exception (try, SomeException)
@@ -46,9 +52,14 @@ import qualified Data.Text as T
 import qualified Proto.Decode as ProtoDecode
 import qualified Proto.Google.Protobuf.Timestamp as PbTs
 
-import Lance.Format (LanceManifestFooter (..), manifestFooterSize)
+import qualified Lance.Format as LF
+import Lance.Format
+  ( LanceManifestFooter (..)
+  , manifestFooterSize
+  )
 import Lance.IO (openLanceManifest, LanceDataset (..))
 import qualified Lance.Pb.Lance.File  as PbFile
+import qualified Lance.Pb.Lance.File2 as PbF2
 import qualified Lance.Pb.Lance.Table as Pb
 
 -- | Decode the bytes of a serialised @lance.table.Manifest@
@@ -228,3 +239,51 @@ withActiveManifestM ds f = case ldVersions ds of
       Left e         -> pure (Left ("Lance.Manifest: " ++ show e))
       Right (Left e) -> pure (Left e)
       Right (Right (_, m)) -> pure (Right (f m))
+
+-- ============================================================
+-- Per-column metadata in a Lance v2 data file
+-- ============================================================
+--
+-- A Lance v2 data file stores one 'ColumnMetadata' protobuf
+-- message per column at the byte range named by the file's
+-- column metadata offset table (see 'parseColumnOffsetTable'
+-- in "Lance.Format"). The schema lives in
+-- @lance.file.v2.ColumnMetadata@ — auto-generated as
+-- 'PbF2.ColumnMetadata'.
+--
+-- Each column metadata carries:
+--
+--   * 'columnMetadataEncoding' — the column-level encoding
+--     descriptor.
+--   * 'columnMetadataPages' — one 'Page' per data page in the
+--     column. Each page records its (buffer_offsets,
+--     buffer_sizes, length, encoding, priority) tuple — the
+--     inputs a data-page reader needs to map a row range to
+--     a slice of the file.
+--   * 'columnMetadataBufferOffsets' / 'columnMetadataBufferSizes'
+--     — column-level buffers (statistics, dictionaries, …).
+
+-- | Decode the bytes of a serialised
+-- @lance.file.v2.ColumnMetadata@ message into the typed record.
+decodeColumnMetadata :: ByteString -> Either String PbF2.ColumnMetadata
+decodeColumnMetadata bs = case ProtoDecode.decodeMessage bs of
+  Left e  -> Left ("Lance.Manifest: " ++ show e)
+  Right m -> Right m
+
+-- | Read column @col@'s metadata out of a Lance data file at
+-- @filePath@. Walks the file's footer to locate the
+-- column-metadata offset table, slices out the requested
+-- column's bytes, and decodes them via 'decodeColumnMetadata'.
+readColumnMetadataAt
+  :: FilePath
+  -> Int     -- ^ column index (must be < footer.num_columns)
+  -> IO (Either String PbF2.ColumnMetadata)
+readColumnMetadataAt fp col = do
+  res <- try (BS.readFile fp) :: IO (Either SomeException ByteString)
+  case res of
+    Left e   -> pure (Left ("Lance.Manifest: " ++ show e))
+    Right bs ->
+      pure $ do
+        lf    <- LF.readLanceFile bs
+        slice <- LF.extractColumnMetadataBytes lf col
+        decodeColumnMetadata slice

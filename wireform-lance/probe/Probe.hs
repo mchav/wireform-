@@ -27,10 +27,13 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 import System.Directory (doesDirectoryExist)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
+import qualified System.Exit
 import System.FilePath (takeExtension, takeFileName)
+import Text.Read (readMaybe)
 
 import qualified Lance.Format   as L
 import qualified Lance.IO       as LIO
@@ -59,6 +62,33 @@ probeManifestBytes fp = do
       putStrLn $ "writer_version=" ++ show (Pb.manifestWriterVersion m)
       putStrLn $ "data_format=" ++ show (Pb.manifestDataFormat m)
 
+probeColumnMetadata :: FilePath -> Int -> FilePath -> IO a
+probeColumnMetadata input col output = do
+  res <- LM.readColumnMetadataAt input col
+  case res of
+    Left  e -> do
+      putStrLn ("wireform-lance-interop-probe (--col-meta): " ++ e)
+      exitFailure
+    Right cm -> do
+      let payload = Aeson.Object $ KM.fromList
+            [ (Key.fromString "num_pages",
+                Aeson.Number (fromIntegral (V.length (LM.columnMetadataPages cm))))
+            , (Key.fromString "buffer_offsets",
+                Aeson.Array (V.fromList
+                  (map (Aeson.Number . fromIntegral)
+                       (VU.toList (LM.columnMetadataBufferOffsets cm)))))
+            , (Key.fromString "buffer_sizes",
+                Aeson.Array (V.fromList
+                  (map (Aeson.Number . fromIntegral)
+                       (VU.toList (LM.columnMetadataBufferSizes cm)))))
+            , (Key.fromString "page_lengths",
+                Aeson.Array (V.fromList
+                  (map (Aeson.Number . fromIntegral . LM.columnMetadataPageLength)
+                       (V.toList (LM.columnMetadataPages cm)))))
+            ]
+      BL.writeFile output (Aeson.encode payload)
+      System.Exit.exitSuccess
+
 parseArgs :: [String] -> IO (Mode, FilePath, Maybe FilePath)
 parseArgs args0 = case args0 of
   ["--file", i]       -> pure (File, i, Nothing)
@@ -66,10 +96,14 @@ parseArgs args0 = case args0 of
   ["--dataset", i]    -> pure (Dataset, i, Nothing)
   ["--dataset", i, o] -> pure (Dataset, i, Just o)
   ["--manifest", i]   -> probeManifestBytes i >> exitFailure
+  ["--col-meta", i, colStr, o] ->
+    case readMaybe colStr :: Maybe Int of
+      Just c  -> probeColumnMetadata i c o
+      Nothing -> exitFailure
   [i]                 -> autoDetect i Nothing
   [i, o]              -> autoDetect i (Just o)
   _                   -> do
-    putStrLn "usage: wireform-lance-interop-probe [--file|--dataset|--manifest] <path> [<output.json>]"
+    putStrLn "usage: wireform-lance-interop-probe [--file|--dataset|--manifest|--col-meta] ..."
     exitFailure
   where
     autoDetect i o = do

@@ -7,10 +7,12 @@ build-type: Simple
 
 data-files:
   proto/lance/file.proto
+  proto/lance/file2.proto
   proto/lance/table.proto
 
 extra-source-files:
   proto/lance/file.proto
+  proto/lance/file2.proto
   proto/lance/table.proto
 
 common defaults
@@ -40,6 +42,7 @@ library
     Lance.IO
     Lance.Manifest
     Lance.Pb.Lance.File
+    Lance.Pb.Lance.File2
     Lance.Pb.Lance.Table
   build-depends:
     aeson >= 2.0 && < 2.3,
