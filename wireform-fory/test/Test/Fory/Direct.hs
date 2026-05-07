@@ -67,15 +67,11 @@ tests = testGroup "Fory.Direct"
       , testCase "[Int] empty" $
           FD.encodeDirect ([] :: [Int])
             @?= E.encode (VV.ListVal V.empty)
-      , testCase "[Text] [\"hi\", \"world\"] round-trip" $ do
-          -- The typed list-of-string fast path emits the
-          -- UTF-8 encoding tag (= 2) unconditionally, while
-          -- the Value pipeline picks LATIN-1 (= 0) for ASCII
-          -- strings. The bytes diverge by exactly one bit
-          -- per string-header; round-trip + decoder
-          -- compatibility are preserved.
+      , testCase "[Text] [\"hi\", \"world\"]" $ do
           let xs = ["hi", "world"] :: [Text]
-          FD.decodeDirect (FD.encodeDirect xs) @?= Right xs
+              direct = FD.encodeDirect xs
+              valForm = VV.ListVal (V.fromList (map VV.StringVal xs))
+          direct @?= E.encode valForm
       , testCase "[Int32] [10, 20, 30]" $ do
           let xs = [10, 20, 30] :: [Int32]
               direct = FD.encodeDirect xs

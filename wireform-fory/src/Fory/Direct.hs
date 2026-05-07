@@ -636,28 +636,39 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
 -- | Per-element write for the typed list-of-string fast
 -- paths.
 --
--- Wire-encoding tag is always UTF-8 (= 2). The classic fory
--- encoder picks LATIN-1 (= 0) for pure-ASCII strings to match
--- pyfory's default and shave one bit off the header byte —
--- but for typed list-of-string, that scan is the dominant
--- per-element cost. UTF-8 bytes /are/ valid for all Unicode
--- text (Text 2.x stores UTF-8 internally), pyfory's decoder
--- accepts the UTF-8 tag for any string, and round-trip
--- correctness is preserved. The wire diverges from pyfory's
--- LATIN-1 ASCII bytes by exactly one bit per string-header,
--- which is acceptable for the typed pipeline but would break
--- the byte-equality 'Test.Fory.Direct' assertion if applied
--- there — see the dedicated round-trip tests.
+-- Picks the wire-encoding tag (LATIN-1 / UTF-8) based on a
+-- 'Word64'-stride OR-fold over the underlying 'TA.Array'
+-- bytes ('byteArrayIsAscii'). For pure-ASCII strings we
+-- emit the underlying UTF-8 bytes raw with tag 0 (which
+-- equals the LATIN-1 encoding for ASCII bytes); for
+-- pure-Latin-1 strings (chars 128–255 only) we re-encode
+-- via 'B.latin1Bytes' to keep the wire 1 byte per char;
+-- otherwise we emit UTF-8 (tag 2) raw.
 --
--- Short-header fast path: when the wire payload length
--- @< 128@, the header is exactly one byte, so we skip the
--- 'IO.pokeVaruint64Raw' continuation-byte loop and just
--- 'pokeByteOff' the header byte directly.
+-- The 'text' package would expose its own SIMD-accelerated
+-- ASCII check at 'Data.Text.Internal.IsAscii.isAscii', but
+-- the module is marked @other-modules@ (hidden) in
+-- text-2.0.2 and text-2.1.x alike, so we use the hand-rolled
+-- 'byteArrayIsAscii' instead.
+--
+-- Short-header fast path: payloads under 128 wire bytes get
+-- a single-byte header poke instead of the
+-- 'IO.pokeVaruint64Raw' continuation loop.
 writeTextOnto :: Ptr Word8 -> Int -> Text -> IO Int
-writeTextOnto !p !off (TI.Text arr srcOff len) = do
-  !off1 <- emitStringHeader p off len 2
-  copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
-  pure (off1 + len)
+writeTextOnto !p !off t@(TI.Text arr srcOff len)
+  | byteArrayIsAscii arr srcOff (srcOff + len) = do
+      !off1 <- emitStringHeader p off len 0
+      copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+      pure (off1 + len)
+  | T.all (\c -> ord c < 256) t = do
+      let !raw  = B.latin1Bytes t
+          !rlen = BS.length raw
+      !off1 <- emitStringHeader p off rlen 0
+      pokeBytesRawDirect p off1 raw
+  | otherwise = do
+      !off1 <- emitStringHeader p off len 2
+      copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+      pure (off1 + len)
 {-# INLINE writeTextOnto #-}
 
 -- | Emit a Fory string-payload header @(len << 2) | tag@.
