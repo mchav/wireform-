@@ -108,6 +108,7 @@ static void detect_cpu_features(void) {
 
 #if HAVE_ARM_CRC32
 // ARM CRC32C implementation using hardware instructions
+__attribute__((target("+crc")))
 static uint32_t crc32c_arm(uint32_t crc, const uint8_t* data, size_t length) {
     // Process 8 bytes at a time when possible
     while (length >= 8) {
@@ -149,6 +150,7 @@ static uint32_t crc32c_arm(uint32_t crc, const uint8_t* data, size_t length) {
 #if HAVE_AVX512
 // AVX512 implementation with proper zero-extension
 // This includes the fix from commit de1abf28af53fe195026e439a103b29e99a4c40f
+__attribute__((target("sse4.2,avx512f,avx512vl")))
 static uint32_t crc32c_avx512(uint32_t crc, const uint8_t* data, size_t length) {
     // Process 64-byte chunks using AVX512
     while (length >= 64) {
@@ -194,6 +196,7 @@ static uint32_t crc32c_avx512(uint32_t crc, const uint8_t* data, size_t length) 
 #endif
 
 // SSE4.2 implementation using hardware CRC32C instructions
+__attribute__((target("sse4.2")))
 static uint32_t crc32c_sse42(uint32_t crc, const uint8_t* data, size_t length) {
     // Process 8 bytes at a time when possible
     while (length >= 8) {

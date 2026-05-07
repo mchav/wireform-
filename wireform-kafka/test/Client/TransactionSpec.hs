@@ -23,6 +23,8 @@ import Kafka.Network.Connection (BrokerAddress(..), ConnectionManager)
 import qualified Kafka.Network.Connection as Conn
 import Kafka.Protocol.ApiVersions (ApiVersionCache, createVersionCache)
 
+import TestUtil.BrokerGate (brokerCase, brokerProperty)
+
 -- | Helper: Create a test transaction with mock infrastructure
 -- This allows us to test state machine logic without real network connections
 createTestTransaction :: TransactionalId -> IO Transaction
@@ -52,34 +54,34 @@ transactionSpec = testGroup "Transaction Support (KIP-98)"
       , testCase "unit_invalidTransitions" unit_invalidTransitions
       , testProperty "prop_stateTransitionsThreadSafe" prop_stateTransitionsThreadSafe
       ]
-  , testGroup "Transaction Lifecycle"
-      [ testCase "unit_initTransactions" unit_initTransactions
-      , testCase "unit_beginTransaction" unit_beginTransaction
-      , testCase "unit_commitTransaction" unit_commitTransaction
-      , testCase "unit_abortTransaction" unit_abortTransaction
-      , testCase "unit_cannotBeginTwice" unit_cannotBeginTwice
-      , testCase "unit_cannotCommitWithoutBegin" unit_cannotCommitWithoutBegin
-      , testCase "unit_cannotAbortWithoutBegin" unit_cannotAbortWithoutBegin
+  , testGroup "Transaction Lifecycle (requires broker)"
+      [ brokerCase "unit_initTransactions" unit_initTransactions
+      , brokerCase "unit_beginTransaction" unit_beginTransaction
+      , brokerCase "unit_commitTransaction" unit_commitTransaction
+      , brokerCase "unit_abortTransaction" unit_abortTransaction
+      , brokerCase "unit_cannotBeginTwice" unit_cannotBeginTwice
+      , brokerCase "unit_cannotCommitWithoutBegin" unit_cannotCommitWithoutBegin
+      , brokerCase "unit_cannotAbortWithoutBegin" unit_cannotAbortWithoutBegin
       ]
-  , testGroup "withTransaction Bracket"
-      [ testCase "unit_withTransactionCommitsOnSuccess" unit_withTransactionCommitsOnSuccess
-      , testCase "unit_withTransactionAbortsOnException" unit_withTransactionAbortsOnException
-      , testCase "unit_withTransactionNested" unit_withTransactionNested
+  , testGroup "withTransaction Bracket (requires broker)"
+      [ brokerCase "unit_withTransactionCommitsOnSuccess" unit_withTransactionCommitsOnSuccess
+      , brokerCase "unit_withTransactionAbortsOnException" unit_withTransactionAbortsOnException
+      , brokerCase "unit_withTransactionNested" unit_withTransactionNested
       ]
-  , testGroup "Transactional Send"
-      [ testCase "unit_sendInTransaction" unit_sendInTransaction
-      , testCase "unit_sendTracksPartitions" unit_sendTracksPartitions
-      , testCase "unit_sendIncrementsSequence" unit_sendIncrementsSequence
-      , testCase "unit_cannotSendOutsideTransaction" unit_cannotSendOutsideTransaction
+  , testGroup "Transactional Send (requires broker)"
+      [ brokerCase "unit_sendInTransaction" unit_sendInTransaction
+      , brokerCase "unit_sendTracksPartitions" unit_sendTracksPartitions
+      , brokerCase "unit_sendIncrementsSequence" unit_sendIncrementsSequence
+      , brokerCase "unit_cannotSendOutsideTransaction" unit_cannotSendOutsideTransaction
       ]
-  , testGroup "Offset Commits"
-      [ testCase "unit_commitOffsetsInTransaction" unit_commitOffsetsInTransaction
-      , testCase "unit_cannotCommitOffsetsOutsideTransaction" unit_cannotCommitOffsetsOutsideTransaction
+  , testGroup "Offset Commits (requires broker)"
+      [ brokerCase "unit_commitOffsetsInTransaction" unit_commitOffsetsInTransaction
+      , brokerCase "unit_cannotCommitOffsetsOutsideTransaction" unit_cannotCommitOffsetsOutsideTransaction
       ]
-  , testGroup "Idempotency"
-      [ testCase "unit_sequenceNumbersIncrement" unit_sequenceNumbersIncrement
-      , testCase "unit_sequenceNumbersPerPartition" unit_sequenceNumbersPerPartition
-      , testProperty "prop_sequenceNumbersMonotonic" prop_sequenceNumbersMonotonic
+  , testGroup "Idempotency (requires broker)"
+      [ brokerCase "unit_sequenceNumbersIncrement" unit_sequenceNumbersIncrement
+      , brokerCase "unit_sequenceNumbersPerPartition" unit_sequenceNumbersPerPartition
+      , brokerProperty "prop_sequenceNumbersMonotonic" prop_sequenceNumbersMonotonic
       ]
   ]
 
