@@ -93,6 +93,10 @@ data StructSchema = StructSchema
     -- | Cached canonical field order pyfory writes for this
     -- schema (see 'fieldOrder' for the algorithm).
   , ssFieldOrder :: !(Vector FieldSpec)
+    -- | Field names in canonical order. Cached so the
+    -- decode hot path doesn't have to re-derive it via
+    -- 'V.map fsName' for every struct it decodes.
+  , ssFieldOrderNames :: !(Vector Text)
     -- | Cached pre-encoded namespace meta-string body and
     -- chosen 'Encoding' tag. Skips the per-encode
     -- 'encodeMetaString' bit-packing + char classification
@@ -115,12 +119,14 @@ data StructSchema = StructSchema
 mkSchema :: Text -> Text -> [(Text, TypeId)] -> StructSchema
 mkSchema ns nm fs =
   let !fields  = V.fromList [ FieldSpec n t False False | (n, t) <- fs ]
-      !empty   = StructSchema ns nm fields 0 V.empty BS.empty UTF8 BS.empty UTF8
+      !empty   = StructSchema ns nm fields 0 V.empty V.empty
+                   BS.empty UTF8 BS.empty UTF8
       !h       = computeStructHash empty
       !ord     = computeFieldOrder empty
+      !ordNms  = V.map fsName ord
       (!nsEnc, !nsBody) = encodeMetaString namespaceSpecialChars ns
       (!tnEnc, !tnBody) = encodeMetaString typenameSpecialChars  nm
-  in StructSchema ns nm fields h ord nsBody nsEnc tnBody tnEnc
+  in StructSchema ns nm fields h ord ordNms nsBody nsEnc tnBody tnEnc
 
 -- ---------------------------------------------------------------------------
 -- Schema fingerprint + hash

@@ -912,10 +912,11 @@ decodeRegisteredStruct ns typeNm sch = do
         ++ ": wire " ++ show wireHash
         ++ " /= local " ++ show expected
     else do
-      let canonical = ST.fieldOrder sch
+      let !canonical = ST.fieldOrder sch
+          !names     = ST.ssFieldOrderNames sch
       values <- V.mapM readField canonical
-      let resultPairs = V.zip (V.map ST.fsName canonical) values
-      pure (VV.RegisteredStructVal ns typeNm resultPairs)
+      pure (VV.RegisteredStructVal ns typeNm
+              (V.zip names values))
   where
     readField :: ST.FieldSpec -> DecodeM VV.Value
     readField spec
