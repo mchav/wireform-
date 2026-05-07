@@ -49,25 +49,25 @@ foreign import ccall unsafe "snappy_ffi.h snappy_decompress_wrapper"
 
 -- | Compress data using Snappy with default (placeholder) compression level.
 -- Uses the standard Snappy block format as required by Kafka.
--- 
--- For very small inputs (< 32 bytes), compression is skipped as the
--- overhead would make it counterproductive.
+--
+-- An empty input is returned unchanged. All non-empty inputs are passed
+-- through Snappy unconditionally so that the inverse (`decompressSnappy`)
+-- can be applied without any out-of-band length signalling — which is the
+-- contract Kafka's RecordBatch / Message format relies on (the codec ID
+-- in the batch header tells the consumer whether to decompress at all,
+-- so this layer must be a pure encoding bijection on non-empty inputs).
 compressSnappy :: ByteString -> IO (Either String ByteString)
 compressSnappy = compressSnappyWithLevel defaultSnappyLevel
 
 -- | Compress data using Snappy with specified compression level.
--- 
--- Note: This function accepts a compression level parameter for API consistency
--- with other codecs, but the Haskell snappy bindings don't support configurable
--- compression levels. The level parameter is validated (must be 0-9) but ignored
--- in actual compression. Snappy always uses its built-in fast compression algorithm.
 --
--- For very small inputs (< 32 bytes), compression is skipped as the
--- overhead would make it counterproductive.
+-- Note: This function accepts a compression level parameter for API
+-- consistency with other codecs, but the underlying snappy library does
+-- not support configurable compression levels. The level parameter is
+-- ignored.
 compressSnappyWithLevel :: Int -> ByteString -> IO (Either String ByteString)
-compressSnappyWithLevel _level bs  -- Level parameter ignored
-  | BS.null bs = return $ Right BS.empty  -- Handle empty input
-  | BS.length bs < 32 = return $ Right bs  -- Skip compression for tiny inputs
+compressSnappyWithLevel _level bs  -- level ignored
+  | BS.null bs = return $ Right BS.empty
   | otherwise = BSU.unsafeUseAsCStringLen bs $ \(inputPtr, inputSize) ->
       alloca $ \outputPtr ->
       alloca $ \outputLen -> do
@@ -81,15 +81,12 @@ compressSnappyWithLevel _level bs  -- Level parameter ignored
             free compressedPtr
             return $ Right compressedBS
 
--- | Decompress Snappy-compressed data.
--- Expects data in standard Snappy block format.
--- 
--- For small inputs that were not compressed (< 32 bytes), returns them as-is.
--- For other inputs, attempts decompression.
+-- | Decompress Snappy-compressed data. Expects data in the standard
+-- Snappy block format (i.e. the output of 'compressSnappy'). An empty
+-- input is returned unchanged.
 decompressSnappy :: ByteString -> IO (Either String ByteString)
 decompressSnappy bs
-  | BS.null bs = return $ Right BS.empty  -- Handle empty input
-  | BS.length bs < 32 = return $ Right bs  -- Small inputs were stored uncompressed
+  | BS.null bs = return $ Right BS.empty
   | otherwise = BSU.unsafeUseAsCStringLen bs $ \(inputPtr, inputLen) ->
       alloca $ \outputPtr ->
       alloca $ \outputLen -> do

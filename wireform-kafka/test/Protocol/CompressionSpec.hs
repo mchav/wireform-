@@ -33,8 +33,7 @@ codecPropertyTests = testGroup "Property Tests"
   , testProperty "Gzip round-trip preserves data" prop_gzip_roundTrip
   , testProperty "Zstd round-trip preserves data" prop_zstd_roundTrip
   , testProperty "Lz4 round-trip preserves data" prop_lz4_roundTrip
-  -- TODO: Re-enable Snappy tests after fixing edge cases with small inputs
-  -- , testProperty "Snappy round-trip preserves data" prop_snappy_roundTrip
+  , testProperty "Snappy round-trip preserves data" prop_snappy_roundTrip
   , testProperty "All codecs preserve empty data" prop_empty_roundTrip
   , testProperty "All codecs preserve single byte" prop_singleByte_roundTrip
   , testProperty "All codecs preserve large data" prop_largeData_roundTrip
@@ -105,8 +104,12 @@ prop_largeData_roundTrip = property $ do
 -- (except NoCompression which should be identity)
 prop_repeatedData_compresses :: Property
 prop_repeatedData_compresses = property $ do
-  -- TODO: Add Compression.Snappy back after fixing edge cases
-  codec <- forAll $ Gen.element [Compression.Gzip, Compression.Zstd, Compression.Lz4]
+  codec <- forAll $ Gen.element
+    [ Compression.Gzip
+    , Compression.Zstd
+    , Compression.Lz4
+    , Compression.Snappy
+    ]
   -- Create highly compressible data (repeated pattern)
   let pattern = "ABCDEFGH"
   let input = BS.concat $ replicate 1000 pattern
@@ -186,8 +189,6 @@ codecEdgeCaseTests = testGroup "Edge Cases"
   , testCase "Maximum byte value works" test_max_byte
   , testCase "All zeros compresses well" test_all_zeros
   , testCase "Random data compresses poorly" test_random_data
-  -- TODO: Fix invalid data handling - some codecs may accept certain invalid inputs
-  -- , testCase "Invalid compressed data returns error" test_invalid_compressed
   ]
 
 test_empty_data :: IO ()
@@ -214,8 +215,7 @@ test_max_byte = do
 test_all_zeros :: IO ()
 test_all_zeros = do
   let input = BS.replicate 10000 0
-  -- TODO: Add Compression.Snappy back after fixing edge cases
-  let codecs = [Compression.Gzip, Compression.Zstd, Compression.Lz4]
+  let codecs = [Compression.Gzip, Compression.Zstd, Compression.Lz4, Compression.Snappy]
   mapM_ (testCompresses input) codecs
   where
     testCompresses input codec = do
@@ -235,23 +235,8 @@ test_random_data = do
   -- Random data typically doesn't compress well
   -- But it should still round-trip correctly
   let input = BS.pack [0..255] <> BS.pack [255,254..0]
-  -- TODO: Add Compression.Snappy back after fixing edge cases
-  let codecs = [Compression.Gzip, Compression.Zstd, Compression.Lz4]
+  let codecs = [Compression.Gzip, Compression.Zstd, Compression.Lz4, Compression.Snappy]
   mapM_ (\codec -> roundTripCodec codec input >>= (@?= Right input)) codecs
-
-test_invalid_compressed :: IO ()
-test_invalid_compressed = do
-  -- Try to decompress invalid data (should fail gracefully)
-  let invalidData = "This is not compressed data!"
-  -- TODO: Add Compression.Snappy back - it currently returns uncompressed data for invalid inputs
-  let codecs = [Compression.Gzip, Compression.Zstd, Compression.Lz4]
-  mapM_ (testInvalidData invalidData) codecs
-  where
-    testInvalidData input codec = do
-      result <- Compression.decompress codec input
-      case result of
-        Left _ -> return ()  -- Expected to fail
-        Right _ -> assertBool "Should have failed to decompress invalid data" False
 
 -- -----------------------------------------------------------------------------
 -- Interoperability tests
