@@ -43,7 +43,8 @@ import Data.Vector (Vector)
 import Data.Word (Word8, Word64)
 import qualified Data.ByteString.Internal as BSI
 import qualified Foreign.ForeignPtr
-import Foreign.Ptr (Ptr)
+import qualified Data.Text.Internal as TI
+import Foreign.Ptr (Ptr, plusPtr)
 import qualified Foreign.Ptr
 import qualified Foreign.Marshal.Utils
 import System.IO.Unsafe (unsafeDupablePerformIO)
@@ -54,6 +55,7 @@ import qualified Fory.MetaString.Encoder as MSE
 import qualified Fory.MetaString.Hash as MSH
 import qualified Fory.Options as Opt
 import qualified Fory.Struct as ST
+import qualified Fory.TextHelpers as TH
 import qualified Fory.TypeId as T
 import qualified Fory.Value as VV
 
@@ -777,26 +779,52 @@ emitRegisteredStructWithSchema !e !canonical !hashCode !fields = do
 emitMapStringVarInt64
   :: IO.Encoder -> Vector (VV.Value, VV.Value) -> IO ()
 emitMapStringVarInt64 !e !kvs = do
-  encoded <- V.mapM encEntry kvs
-  let !total = V.foldl' (\a (u, _, _) -> a + 9 + BS.length u + 9) 0 encoded
+  -- Single-pass size accumulator over the underlying Text
+  -- byte length; no per-element 'TE.encodeUtf8' allocation.
+  let !total = V.foldl' sumOne 0 kvs
   IO.withReservedRaw e total $ \p start ->
-    V.foldM' (writeOne p) start encoded
+    V.foldM' (writeOne p) start kvs
   where
-    encEntry (VV.StringVal t, VV.VarInt64Val n) =
-      let !u = TE.encodeUtf8 t
-          !ascii = BS.all (< 0x80) u
-      in pure (u, ascii, n)
-    encEntry kv = error $
+    sumOne :: Int -> (VV.Value, VV.Value) -> Int
+    sumOne !acc (VV.StringVal (TI.Text _ _ len), _) =
+      acc + 9 + len + 9
+    sumOne _ kv = error $
       "emitMapStringVarInt64: expected (StringVal, VarInt64Val), got "
         ++ show kv
 
-    writeOne !p !off (!u, !ascii, !n) = do
-      let !len = BS.length u
-          !hdr = (fromIntegral len `shiftL` 2)
-                   .|. (if ascii then 0 else 2) :: Word64
-      off1 <- IO.pokeVaruint64Raw p off hdr
-      off2 <- pokeBytesRaw p off1 u
-      IO.pokeVarint64Raw p off2 n
+    -- Per-entry write: scan the Text's underlying ByteArray
+    -- for ASCII-ness via the shared 'TH.byteArrayIsAscii'
+    -- (Word64-stride OR-fold), 'memcpy' the source bytes
+    -- straight into the encoder buffer via
+    -- 'TH.copyTextArrayToPtr', then append the varint64
+    -- value. No 'TE.encodeUtf8' allocation per key.
+    writeOne :: Ptr Word8 -> Int -> (VV.Value, VV.Value) -> IO Int
+    writeOne !p !off (VV.StringVal t@(TI.Text arr srcOff len),
+                      VV.VarInt64Val n) = do
+      !off1 <-
+        if TH.byteArrayIsAscii arr srcOff (srcOff + len)
+          then do
+            -- ASCII: tag 0, raw memcpy of UTF-8 bytes (which
+            -- equal LATIN-1 bytes for ASCII).
+            !o <- IO.pokeVaruint64Raw p off
+                    (fromIntegral len `shiftL` 2 :: Word64)
+            TH.copyTextArrayToPtr arr srcOff (p `plusPtr` o) len
+            pure (o + len)
+          else if T.all (\c -> ord c < 256) t
+            then do
+              let !raw = B.latin1Bytes t
+                  !rlen = BS.length raw
+              !o <- IO.pokeVaruint64Raw p off
+                      (fromIntegral rlen `shiftL` 2 :: Word64)
+              pokeBytesRaw p o raw
+            else do
+              !o <- IO.pokeVaruint64Raw p off
+                      ((fromIntegral len `shiftL` 2) .|. 2 :: Word64)
+              TH.copyTextArrayToPtr arr srcOff (p `plusPtr` o) len
+              pure (o + len)
+      IO.pokeVarint64Raw p off1 n
+    writeOne _ _ kv = error $
+      "emitMapStringVarInt64.writeOne: unexpected " ++ show kv
 
 emitOneEntryChunk :: IO.Encoder -> VV.Value -> VV.Value -> IO ()
 emitOneEntryChunk !e !k !v = do

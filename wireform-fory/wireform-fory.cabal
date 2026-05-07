@@ -53,6 +53,7 @@ library
     Fory.MetaString.Hash
     Fory.Options
     Fory.Struct
+    Fory.TextHelpers
     Fory.TypeId
     Fory.Value
   build-depends:

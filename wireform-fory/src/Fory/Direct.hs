@@ -82,6 +82,7 @@ import qualified Fory.Bulk as B
 import qualified Fory.Decode as D
 import qualified Fory.IO as IO
 import qualified Fory.Options as Opt
+import qualified Fory.TextHelpers as TH
 import qualified Fory.TypeId as T
 import qualified Fory.Value as VV
 import qualified Wireform.FFI as WFFI
@@ -233,10 +234,7 @@ emitForyStringDirect !e !t = do
 -- list-of-string fast paths to avoid the per-element
 -- 'TE.encodeUtf8' allocation.
 copyTextArrayToPtr :: TA.Array -> Int -> Ptr Word8 -> Int -> IO ()
-copyTextArrayToPtr (TA.ByteArray arr#) (I# srcOff#) (Ptr dstAddr#) (I# n#) =
-  IO $ \s ->
-    case copyByteArrayToAddr# arr# srcOff# dstAddr# n# s of
-      s' -> (# s', () #)
+copyTextArrayToPtr = TH.copyTextArrayToPtr
 {-# INLINE copyTextArrayToPtr #-}
 
 readForyStringDirect :: D.DecodeM Text
@@ -754,54 +752,12 @@ emitStringHeader !p !off !len !tag
         ((fromIntegral len `shiftL` 2) .|. fromIntegral tag :: Word64)
 {-# INLINE emitStringHeader #-}
 
--- | OR-fold over 'TA.Array' bytes to detect any non-ASCII
--- byte. When the byte offset is 8-aligned (the typical
--- 'T.pack' / 'TI.empty' / 'TE.decodeUtf8' case has offset 0),
--- we run a 'Word64'-stride scan that processes 8 bytes per
--- iteration — that's an OR against the
--- @0x8080_8080_8080_8080@ mask, ~10× faster than the
--- per-byte loop on long strings and at least as fast on
--- short ones. Misaligned offsets fall back to the per-byte
--- recursion.
+-- 'byteArrayIsAscii' moved to 'Fory.TextHelpers' so
+-- 'Fory.Encode' can use the same Word64-stride scanner
+-- in its map-string-int fast path.
 byteArrayIsAscii :: TA.Array -> Int -> Int -> Bool
-byteArrayIsAscii !arr !off !end
-  | off `rem` 8 == 0 = goWord64Aligned arr off end
-  | otherwise        = goPerByte arr off end
-{-# INLINABLE byteArrayIsAscii #-}
-
--- | Per-byte fallback for misaligned 'TA.Array' segments.
-goPerByte :: TA.Array -> Int -> Int -> Bool
-goPerByte !arr !i !end
-  | i >= end                       = True
-  | TA.unsafeIndex arr i >= 0x80   = False
-  | otherwise                      = goPerByte arr (i + 1) end
-{-# INLINABLE goPerByte #-}
-
--- | 'Word64'-stride OR-scan starting from an 8-aligned byte
--- offset. Reads at @byteOff `div` 8@ word index from the
--- 'TA.ByteArray''s underlying @ByteArray#@; falls back to a
--- per-byte tail when fewer than 8 bytes remain.
-goWord64Aligned :: TA.Array -> Int -> Int -> Bool
-goWord64Aligned arr@(TA.ByteArray ba#) !off !end =
-  let !w0 = off `quot` 8
-      !wEnd = end `quot` 8
-  in goW8 ba# w0 wEnd
-  where
-    goW8 !ba1# !w !wEnd
-      | w >= wEnd = goPerByte arr (w * 8) end
-      | otherwise = case indexWord64Array# ba1# (unI# w) of
-          x# -> if hasHighBitW64 (W64# x#)
-                  then False
-                  else goW8 ba1# (w + 1) wEnd
-
-    hasHighBitW64 :: Word64 -> Bool
-    hasHighBitW64 w = (w .&. 0x8080808080808080) /= 0
-    {-# INLINE hasHighBitW64 #-}
-
-    unI# :: Int -> Int#
-    unI# (I# i#) = i#
-    {-# INLINE unI# #-}
-{-# INLINABLE goWord64Aligned #-}
+byteArrayIsAscii = TH.byteArrayIsAscii
+{-# INLINE byteArrayIsAscii #-}
 
 instance forall a. DecodeDirect a => DecodeDirect [a] where
   directDecodePayload = do
@@ -1037,29 +993,43 @@ emitMapTextIntChunks !e !entries !total = go entries total
       IO.emitByte e (fromIntegral cs)
       emitTagD e T.STRING
       emitTagD e T.VARINT64
-      -- Pre-encode keys + classify, sum upper bound, then
-      -- write the whole chunk through one withReservedRaw.
-      encoded <- mapM encOne chunk
+      -- Single-pass size estimate over the underlying Text
+      -- byte length; no per-element 'TE.encodeUtf8'
+      -- allocation. Per-entry write reads the Text's
+      -- 'TA.Array' directly (Word64-stride ASCII scan via
+      -- 'TH.byteArrayIsAscii' + 'memcpy' via
+      -- 'TH.copyTextArrayToPtr').
       let !totalSize =
-            sum [9 + BS.length u + 9 | (u, _, _) <- encoded]
+            sum [9 + utf8Len t + 9 | (t, _) <- chunk]
       IO.withReservedRaw e totalSize $ \p start ->
-        foldlMList (writeOne p) start encoded
+        foldlMList (writeOne p) start chunk
       go rest' (remaining - cs)
 
-    encOne :: (Text, Int) -> IO (ByteString, Bool, Int)
-    encOne (t, n) =
-      let !u = TE.encodeUtf8 t
-          !ascii = BS.all (< 0x80) u
-      in pure (u, ascii, n)
+    utf8Len :: Text -> Int
+    utf8Len (TI.Text _ _ len) = len
 
-    writeOne :: Ptr Word8 -> Int -> (ByteString, Bool, Int) -> IO Int
-    writeOne !p !off (!u, !ascii, !n) = do
-      let !len = BS.length u
-          !hdr = (fromIntegral len `shiftL` 2)
-                   .|. (if ascii then 0 else 2) :: Word64
-      off1 <- IO.pokeVaruint64Raw p off hdr
-      off2 <- pokeBytesRawDirect p off1 u
-      IO.pokeVarint64Raw p off2 (fromIntegral n)
+    writeOne :: Ptr Word8 -> Int -> (Text, Int) -> IO Int
+    writeOne !p !off (t@(TI.Text arr srcOff len), !n) = do
+      !off1 <-
+        if TH.byteArrayIsAscii arr srcOff (srcOff + len)
+          then do
+            !o <- IO.pokeVaruint64Raw p off
+                    (fromIntegral len `shiftL` 2 :: Word64)
+            TH.copyTextArrayToPtr arr srcOff (p `plusPtr` o) len
+            pure (o + len)
+          else if T.all (\c -> ord c < 256) t
+            then do
+              let !raw = B.latin1Bytes t
+                  !rlen = BS.length raw
+              !o <- IO.pokeVaruint64Raw p off
+                      (fromIntegral rlen `shiftL` 2 :: Word64)
+              pokeBytesRawDirect p o raw
+            else do
+              !o <- IO.pokeVaruint64Raw p off
+                      ((fromIntegral len `shiftL` 2) .|. 2 :: Word64)
+              TH.copyTextArrayToPtr arr srcOff (p `plusPtr` o) len
+              pure (o + len)
+      IO.pokeVarint64Raw p off1 (fromIntegral n)
 
 pokeBytesRawDirect :: Ptr Word8 -> Int -> ByteString -> IO Int
 pokeBytesRawDirect !p !pos !bs = do
