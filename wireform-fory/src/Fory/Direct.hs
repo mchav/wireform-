@@ -68,7 +68,7 @@ import Foreign.ForeignPtr (castForeignPtr)
 import qualified Foreign.Marshal.Utils
 import qualified Foreign.Ptr
 import Foreign.Ptr (Ptr)
-import Foreign.Storable (Storable, sizeOf)
+import Foreign.Storable (Storable, pokeByteOff, sizeOf)
 import GHC.Exts (copyByteArrayToAddr#, indexWord64Array#, indexWord8Array#,
                  (>=#), (+#), Int#, isTrue#)
 import qualified GHC.Float
@@ -581,13 +581,11 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Double) where
 -- two for the rare Latin-1-only case where chars in
 -- 128–255 take 2 UTF-8 bytes but only 1 wire byte).
 --
--- Per-element work in the write pass: one
--- 'byteArrayIsAscii' OR-fold over the source bytes, one
--- 'IO.pokeVaruint64Raw' for the header, one
--- 'copyByteArrayToAddr#' memcpy of the payload. ASCII
--- strings stay byte-identical to pyfory's LATIN-1 default
--- (encoding tag 0); the Latin-1-only fallback uses
--- 'B.latin1Bytes' for correctness.
+-- Per-element write: one 'byteArrayIsAscii' OR-fold (Word64-
+-- stride, 1 read per 8 bytes), a 1- or 9-byte header poke,
+-- and a 'copyByteArrayToAddr#' memcpy. ASCII strings stay
+-- byte-identical to pyfory's LATIN-1 default; the Latin-1
+-- fallback uses 'B.latin1Bytes' for correctness.
 instance {-# OVERLAPPING #-} EncodeDirect [Text] where
   directEncodePayload !e !xs = do
     let (!n, !total) = sizeListText xs 0 0
@@ -598,13 +596,16 @@ instance {-# OVERLAPPING #-} EncodeDirect [Text] where
         IO.emitByte e 0x08
         emitTagD e T.STRING
         IO.withReservedRaw e total $ \p start ->
-          goWrite p start xs
+          goWriteList p start xs
     where
-      goWrite :: Ptr Word8 -> Int -> [Text] -> IO Int
-      goWrite !_  !off []       = pure off
-      goWrite !p !off (t:rest) = do
-        !off' <- writeOneTextInline p off t
-        goWrite p off' rest
+      -- Hand-rolled cons-pattern-matching loop. Recursion is
+      -- monomorphic in @[Text] -> IO Int@ so GHC inlines
+      -- 'writeTextOnto' fully into the call site.
+      goWriteList :: Ptr Word8 -> Int -> [Text] -> IO Int
+      goWriteList !_  !off []       = pure off
+      goWriteList !p !off (t:rest) = do
+        !off' <- writeTextOnto p off t
+        goWriteList p off' rest
 
 -- | Single-pass length + size accumulator for @[Text]@.
 -- The size is the sum of @9 + utf8ByteLength@ per element
@@ -629,32 +630,50 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
         let !total =
               V.foldl' (\acc (TI.Text _ _ len) -> acc + 9 + len) 0 xs
         IO.withReservedRaw e total $ \p start ->
-          V.foldM' (writeOneTextInline p) start xs
+          V.foldM' (writeTextOnto p) start xs
   {-# INLINE directEncodePayload #-}
 
 -- | Per-element write for the typed list-of-string fast
 -- paths. Picks the wire-encoding tag (LATIN-1 / UTF-8) based
--- on a byte-level ASCII scan over the source @ByteArray@,
+-- on a 'Word64'-stride ASCII scan over the source ByteArray,
 -- emits the varuint64 header, then memcpys the payload.
-writeOneTextInline :: Ptr Word8 -> Int -> Text -> IO Int
-writeOneTextInline !p !off t@(TI.Text arr srcOff len)
+--
+-- Short-header fast path: when the wire payload length
+-- @< 128@ (the bench shape — strings up to 31 chars), the
+-- header is exactly one byte, so we skip the
+-- 'IO.pokeVaruint64Raw' continuation-byte loop and just
+-- 'pokeByteOff' the header byte directly. Saves a couple of
+-- nanoseconds per element on hot paths.
+writeTextOnto :: Ptr Word8 -> Int -> Text -> IO Int
+writeTextOnto !p !off t@(TI.Text arr srcOff len)
   | byteArrayIsAscii arr srcOff (srcOff + len) = do
-      let !hdr = (fromIntegral len `shiftL` 2) :: Word64
-      !off1 <- IO.pokeVaruint64Raw p off hdr
+      !off1 <- emitStringHeader p off len 0
       copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
       pure (off1 + len)
   | T.all (\c -> ord c < 256) t = do
-      let !raw = B.latin1Bytes t
+      let !raw  = B.latin1Bytes t
           !rlen = BS.length raw
-          !hdr  = (fromIntegral rlen `shiftL` 2) :: Word64
-      !off1 <- IO.pokeVaruint64Raw p off hdr
+      !off1 <- emitStringHeader p off rlen 0
       pokeBytesRawDirect p off1 raw
   | otherwise = do
-      let !hdr = (fromIntegral len `shiftL` 2) .|. 2 :: Word64
-      !off1 <- IO.pokeVaruint64Raw p off hdr
+      !off1 <- emitStringHeader p off len 2
       copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
       pure (off1 + len)
-{-# INLINE writeOneTextInline #-}
+{-# INLINE writeTextOnto #-}
+
+-- | Emit a Fory string-payload header @(len << 2) | tag@.
+-- For payloads under 128 bytes, that's a single byte poke;
+-- otherwise we fall back to 'IO.pokeVaruint64Raw'.
+emitStringHeader :: Ptr Word8 -> Int -> Int -> Int -> IO Int
+emitStringHeader !p !off !len !tag
+  | len < 32 = do
+      pokeByteOff p off
+        (fromIntegral ((len `shiftL` 2) .|. tag) :: Word8)
+      pure (off + 1)
+  | otherwise =
+      IO.pokeVaruint64Raw p off
+        ((fromIntegral len `shiftL` 2) .|. fromIntegral tag :: Word64)
+{-# INLINE emitStringHeader #-}
 
 -- | OR-fold over 'TA.Array' bytes to detect any non-ASCII
 -- byte. When the byte offset is 8-aligned (the typical
