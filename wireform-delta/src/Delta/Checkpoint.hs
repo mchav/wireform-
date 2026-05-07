@@ -51,11 +51,14 @@ module Delta.Checkpoint
   ) where
 
 import Control.Exception (try, SomeException)
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Key as Aeson (fromString)
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
@@ -148,6 +151,14 @@ rowGroupActions pf rg = do
   addTagsK_    <- readByteArrayRep pf rg ["add", "tags", "key_value", "key"]
   -- tags is map<string, string> (required value).
   addTagsV_    <- readByteArrayRep pf rg ["add", "tags", "key_value", "value"]
+  -- Deletion-vector struct on add (V2 deletion-vectors feature).
+  -- All leaves are optional inside the optional struct, so each
+  -- comes back as a flat 'V.Vector (Maybe a)'.
+  addDvSt_     <- readByteArrayOpt pf rg ["add", "deletionVector", "storageType"]
+  addDvPath_   <- readByteArrayOpt pf rg ["add", "deletionVector", "pathOrInlineDv"]
+  addDvOff_    <- readInt32Opt     pf rg ["add", "deletionVector", "offset"]
+  addDvSz_     <- readInt32Opt     pf rg ["add", "deletionVector", "sizeInBytes"]
+  addDvCard_   <- readInt64Opt     pf rg ["add", "deletionVector", "cardinality"]
   -- 'remove' columns
   remPath_     <- readByteArrayOpt pf rg ["remove", "path"]
   remDelTs_    <- readInt64Opt     pf rg ["remove", "deletionTimestamp"]
@@ -193,7 +204,10 @@ rowGroupActions pf rg = do
                    , addModTime_ = addModTime_, addDataChg_ = addDataChg_
                    , addStats_ = addStats_, addPartK_ = addPartK_
                    , addPartV_ = addPartV_, addTagsK_ = addTagsK_
-                   , addTagsV_ = addTagsV_ }
+                   , addTagsV_ = addTagsV_
+                   , addDvSt_ = addDvSt_, addDvPath_ = addDvPath_
+                   , addDvOff_ = addDvOff_, addDvSz_ = addDvSz_
+                   , addDvCard_ = addDvCard_ }
            RemCols { remPath_ = remPath_, remDelTs_ = remDelTs_
                    , remDataChg_ = remDataChg_, remSize_ = remSize_
                    , remPartK_ = remPartK_, remPartV_ = remPartV_
@@ -226,6 +240,11 @@ data AddCols = AddCols
   , addPartV_    :: !(V.Vector (V.Vector (Maybe ByteString)))
   , addTagsK_    :: !(V.Vector (V.Vector (Maybe ByteString)))
   , addTagsV_    :: !(V.Vector (V.Vector (Maybe ByteString)))
+  , addDvSt_     :: !(V.Vector (Maybe ByteString))
+  , addDvPath_   :: !(V.Vector (Maybe ByteString))
+  , addDvOff_    :: !(V.Vector (Maybe Int32))
+  , addDvSz_     :: !(V.Vector (Maybe Int32))
+  , addDvCard_   :: !(V.Vector (Maybe Int64))
   }
 
 data RemCols = RemCols
@@ -280,13 +299,12 @@ rowAction i ac rc mc pc oc
       , addStats            = fmap decodeText (atIdx (addStats_ ac) i)
       , addPartitionValues  = decodeOptStringMap (addPartK_ ac) (addPartV_ ac) i
       , addTags             = decodeStringMap   (addTagsK_ ac) (addTagsV_ ac) i
-      , addDeletionVector   = Nothing
-          -- The deletionVector struct's leaves are
-          -- straightforward optional columns; we just don't
-          -- materialise them into the typed 'AddAction' yet
-          -- because the upstream type stores it as @Maybe
-          -- Aeson.Value@ and we'd need a JSON shim. Subsequent
-          -- JSON commits restore it intact.
+      , addDeletionVector   = decodeDeletionVector
+          (atIdx (addDvSt_ ac) i)
+          (atIdx (addDvPath_ ac) i)
+          (atIdx (addDvOff_ ac) i)
+          (atIdx (addDvSz_ ac) i)
+          (atIdx (addDvCard_ ac) i)
       }
   | Just path <- atIdx (remPath_ rc) i = ActionRemove RemoveAction
       { removePath              = decodeText path
@@ -370,6 +388,35 @@ decodeStringList
 decodeStringList col i =
   let !row = fromMaybe V.empty (col V.!? i)
    in [decodeText t | Just t <- V.toList row]
+
+-- | Reassemble the typed @add.deletionVector@ struct into a
+-- JSON object — the typed 'AddAction' carries it as
+-- @Maybe Aeson.Value@ so it can round-trip through the same
+-- aeson encode the JSON commit reader produces. We emit
+-- 'Nothing' if every leaf of the struct is null on this row
+-- (i.e. the table doesn't use deletion vectors / this file
+-- isn't covered by one).
+decodeDeletionVector
+  :: Maybe ByteString -- storageType
+  -> Maybe ByteString -- pathOrInlineDv
+  -> Maybe Int32      -- offset
+  -> Maybe Int32      -- sizeInBytes
+  -> Maybe Int64      -- cardinality
+  -> Maybe Aeson.Value
+decodeDeletionVector st pth off sz card
+  | allNothing = Nothing
+  | otherwise  = Just $ Aeson.Object $ KM.fromList $ catMaybes
+      [ kv "storageType"    . Aeson.String         . decodeText <$> st
+      , kv "pathOrInlineDv" . Aeson.String         . decodeText <$> pth
+      , kv "offset"         . Aeson.Number . fromIntegral       <$> off
+      , kv "sizeInBytes"    . Aeson.Number . fromIntegral       <$> sz
+      , kv "cardinality"    . Aeson.Number . fromIntegral       <$> card
+      ]
+  where
+    kv k v = (Aeson.fromString k, v)
+    allNothing =
+      st == Nothing && pth == Nothing
+        && off == Nothing && sz == Nothing && card == Nothing
 
 atIdx :: V.Vector (Maybe a) -> Int -> Maybe a
 atIdx v i = case v V.!? i of
