@@ -106,6 +106,70 @@ Drivers:
 - `wireform-arrow/scripts/pyarrow_interop.py`
 - `interop/arrow-rs/target/release/read_arrow_ipc`
 
+## Apache Delta Lake (table format)
+
+|                                       | deltalake (delta-rs) |
+| ------------------------------------- | :------------------: |
+| **wireform → engine** (commit JSON)   |       ✓ 2/2          |
+
+The wireform-delta probe parses every NDJSON file under
+`_delta_log/`, folds the action stream into a `TableSnapshot`,
+and writes a JSON summary. The Python driver builds two real
+Delta tables with `deltalake.write_deltalake` (one
+unpartitioned with a write/append/overwrite history, one
+partitioned by `region` with two writes), then asserts the
+probe's `active_files`, `protocol`, `metadata.partition_columns`,
+and `metadata.schema_field_names` line up with what `DeltaTable`
+sees on the same on-disk table.
+
+Driver: `wireform-delta/scripts/delta_interop.py`.
+
+## Apache Hudi (timeline)
+
+|                                       | hudi-rs (Python)     |
+| ------------------------------------- | :------------------: |
+| **wireform → engine** (commit JSON)   |       ✓ 2/2          |
+
+The wireform-hudi probe parses every completed
+`<instantTime>.commit` JSON under `.hoodie/`, folds it into a
+per-partition / per-fileId `FileSlice` map, and writes a JSON
+summary. The Python driver hand-builds two `COPY_ON_WRITE`
+tables on disk (one unpartitioned with two commits where the
+second supersedes the first's base file; one partitioned by
+`region` with a UPSERT in one partition), then asserts that
+hudi-rs's `HudiTable.get_file_slices()` and wireform's view
+agree on every `(partition_path, file_id, base_file)` tuple.
+
+Hudi-rs is read-only — writing real Hudi tables requires
+Spark / hudi-java — so the driver constructs the on-disk layout
+directly. The point of the round-trip is to verify wireform's
+JSON commit decoder and `tableStateFromCommits` fold produce the
+same active set the canonical reader does.
+
+Driver: `wireform-hudi/scripts/hudi_interop.py`.
+
+## Apache Lance (file footer)
+
+|                                       | pylance              |
+| ------------------------------------- | :------------------: |
+| **engine → wireform** (footer)        |       ✓ 1/1          |
+
+The wireform-lance probe takes a `.lance` data file and writes
+out the typed `LanceFooter` (CMO offset, GBO offset, num
+columns, num global buffers, version, plus the per-column /
+per-global-buffer (position, size) tables). The Python driver
+writes a small Lance dataset with `lance.write_dataset`, then
+asserts that:
+
+* every footer field matches an independent struct-unpack-based
+  decode of the trailing 40 bytes;
+* `num_columns` matches `len(LanceDataset.schema)`;
+* the column slice table has `num_columns` entries, each with a
+  `(position, size)` pair that doesn't run into the CMO offset
+  table region.
+
+Driver: `wireform-lance/scripts/lance_interop.py`.
+
 ## Replication
 
 ```bash
@@ -113,6 +177,8 @@ Drivers:
 apt install liblz4-dev libsnappy-dev libzstd-dev   # ubuntu
 brew install lz4 snappy zstd                       # macos
 pip install pyarrow duckdb polars
+pip install pyiceberg fastavro                     # Iceberg
+pip install deltalake hudi pylance                 # Delta / Hudi / Lance
 
 # build
 cabal build all
@@ -128,6 +194,12 @@ python3 wireform-orc/scripts/orc_reverse_interop.py
 
 # Arrow IPC
 python3 wireform-arrow/scripts/pyarrow_interop.py
+
+# Iceberg / Delta / Hudi / Lance (table-format readers)
+python3 wireform-iceberg/scripts/iceberg_interop.py
+python3 wireform-delta/scripts/delta_interop.py
+python3 wireform-hudi/scripts/hudi_interop.py
+python3 wireform-lance/scripts/lance_interop.py
 
 # Rust side: feed the wireform probe outputs to arrow-rs / parquet-rs
 mkdir -p /tmp/wf-pq /tmp/wf-arrow

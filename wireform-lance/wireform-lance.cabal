@@ -49,3 +49,15 @@ test-suite lance-test
     wireform-lance,
     tasty       >= 1.4  && < 1.6,
     tasty-hunit >= 0.10 && < 0.11
+
+executable wireform-lance-interop-probe
+  import: defaults
+  hs-source-dirs: probe
+  main-is: Probe.hs
+  ghc-options: -O1
+  build-depends:
+    base >= 4.16 && < 5,
+    aeson >= 2.0 && < 2.3,
+    bytestring,
+    vector,
+    wireform-lance
