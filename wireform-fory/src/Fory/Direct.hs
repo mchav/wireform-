@@ -598,7 +598,7 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Double) where
 -- fallback uses 'B.latin1Bytes' for correctness.
 instance {-# OVERLAPPING #-} EncodeDirect [Text] where
   directEncodePayload !e !xs = do
-    let (!n, !total) = sizeListText xs 0 0
+    let (!n, !total, !allShort) = sizeListText xs 0 0 True
     IO.emitVaruint32 e (fromIntegral n)
     if n == 0
       then pure ()
@@ -606,28 +606,46 @@ instance {-# OVERLAPPING #-} EncodeDirect [Text] where
         IO.emitByte e 0x08
         emitTagD e T.STRING
         IO.withReservedRaw e total $ \p start ->
-          goWriteList p start xs
+          if allShort
+            then do
+              !endOff <- goOptimistic p start xs
+              if WFFI.isAscii p start (endOff - start)
+                then pure endOff
+                else goWriteList p start xs
+            else
+              goWriteList p start xs
     where
-      -- Hand-rolled cons-pattern-matching loop. Recursion is
+      -- Hand-rolled cons-pattern-matching loops. Recursion is
       -- monomorphic in @[Text] -> IO Int@ so GHC inlines
-      -- 'writeTextOnto' fully into the call site.
+      -- 'writeTextOnto' / 'writeTextOptimistic' fully.
       goWriteList :: Ptr Word8 -> Int -> [Text] -> IO Int
       goWriteList !_  !off []       = pure off
       goWriteList !p !off (t:rest) = do
         !off' <- writeTextOnto p off t
         goWriteList p off' rest
 
+      goOptimistic :: Ptr Word8 -> Int -> [Text] -> IO Int
+      goOptimistic !_  !off []       = pure off
+      goOptimistic !p !off (t:rest) = do
+        !off' <- writeTextOptimistic p off t
+        goOptimistic p off' rest
+
 -- | Single-pass length + size accumulator for @[Text]@.
--- The size is the sum of @9 + utf8ByteLength@ per element
--- (9-byte upper bound for the per-string varuint64 header,
--- plus the underlying ByteArray length).
-sizeListText :: [Text] -> Int -> Int -> (Int, Int)
-sizeListText []                     !n !sz = (n, sz)
-sizeListText (TI.Text _ _ len : ts) !n !sz =
-  sizeListText ts (n + 1) (sz + 9 + len)
+-- Tracks @(count, totalBytes, allShort)@ where @allShort@
+-- is True when every element fits in the
+-- @len < 32@ short-header fast-path window.
+sizeListText :: [Text] -> Int -> Int -> Bool -> (Int, Int, Bool)
+sizeListText [] !n !sz !sh = (n, sz, sh)
+sizeListText (TI.Text _ _ len : ts) !n !sz !sh =
+  sizeListText ts (n + 1) (sz + 9 + len) (sh && len < 32)
 
 -- | OVERLAPPING fast path for @Vector Text@. Same two-pass
--- approach as @[Text]@ but with O(1) 'V.length'.
+-- approach as @[Text]@ but with O(1) 'V.length'. Uses an
+-- optimistic single-SIMD-scan strategy: write all elements
+-- tagged as LATIN-1, then do one 'WFFI.isAscii' over the
+-- entire payload region. ASCII lists (the common case)
+-- are correctly encoded after pass 1; mixed lists fall
+-- back to per-element rescan.
 instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
   directEncodePayload !e !xs = do
     let !n = V.length xs
@@ -639,9 +657,44 @@ instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
         emitTagD e T.STRING
         let !total =
               V.foldl' (\acc (TI.Text _ _ len) -> acc + 9 + len) 0 xs
+            !allShort =
+              V.all (\(TI.Text _ _ len) -> len < 32) xs
         IO.withReservedRaw e total $ \p start ->
-          V.foldM' (writeTextOnto p) start xs
+          if allShort
+            then do
+              -- Pass 1: optimistic tag-0 writes (1-byte header
+              -- per element, payload memcpy from underlying
+              -- ByteArray#).
+              !endOff <- V.foldM' (writeTextOptimistic p) start xs
+              -- Pass 2: single SIMD scan over the whole
+              -- written region. Since every header byte is
+              -- @(len << 2) | 0@ with @len < 32@, every header
+              -- has the high bit clear; the scan therefore
+              -- only reports a hit if some /payload/ byte
+              -- has the high bit set.
+              if WFFI.isAscii p start (endOff - start)
+                then pure endOff
+                else
+                  -- Mixed list: re-walk with proper per-element
+                  -- LATIN-1 / UTF-8 detection. Rare path.
+                  V.foldM' (writeTextOnto p) start xs
+            else
+              V.foldM' (writeTextOnto p) start xs
   {-# INLINE directEncodePayload #-}
+
+-- | Optimistic tag-0 writer used by the batched-SIMD-scan
+-- list-of-string fast path. Writes a 1-byte header tagged
+-- as LATIN-1 (= 0) plus the Text's underlying UTF-8 bytes.
+-- For pure-ASCII Texts this produces the correct wire
+-- bytes; for non-ASCII Texts, the caller's batched
+-- 'WFFI.isAscii' check fails and we re-walk via
+-- 'writeTextOnto'.
+writeTextOptimistic :: Ptr Word8 -> Int -> Text -> IO Int
+writeTextOptimistic !p !off (TI.Text arr srcOff len) = do
+  pokeByteOff p off (fromIntegral (len `shiftL` 2) :: Word8)
+  copyTextArrayToPtr arr srcOff (p `plusPtr` (off + 1)) len
+  pure (off + 1 + len)
+{-# INLINE writeTextOptimistic #-}
 
 -- | Per-element write for the typed list-of-string fast
 -- paths.
