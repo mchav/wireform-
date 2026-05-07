@@ -17,7 +17,7 @@ module Main (main) where
 import Control.DeepSeq (NFData)
 import Criterion.Main
 import qualified Data.ByteString as BS
-import Data.Int (Int32)
+import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as M
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
@@ -129,8 +129,18 @@ tBytes1k = BS.replicate 1024 0x42
 tListOfInt :: [Int]
 tListOfInt = [0 .. 99]
 
+tVecOfInt :: V.Vector Int
+tVecOfInt = V.fromList [0 .. 99]
+
+tStorableInt64s :: VS.Vector Int64
+tStorableInt64s =
+  VS.fromList [fromIntegral i | i <- [0 .. 99 :: Int]]
+
 tListOfString :: [T.Text]
 tListOfString = [T.pack (replicate 8 'x') | _ <- [1 .. 100 :: Int]]
+
+tVecOfString :: V.Vector T.Text
+tVecOfString = V.fromList tListOfString
 
 tMapStrInt :: M.Map T.Text Int
 tMapStrInt =
@@ -183,7 +193,10 @@ main = defaultMain
       , bench "long string 1k"    $ nf FD.encodeDirect tLongStr
       , bench "bytes 1k"          $ nf FD.encodeDirect tBytes1k
       , bench "list-of-int 100"   $ nf FD.encodeDirect tListOfInt
+      , bench "vec-of-int 100"    $ nf FD.encodeDirect tVecOfInt
+      , bench "vecS-of-int64 100" $ nf FD.encodeDirect tStorableInt64s
       , bench "list-of-string 100" $ nf FD.encodeDirect tListOfString
+      , bench "vec-of-string 100"  $ nf FD.encodeDirect tVecOfString
       , bench "map str/int 50"    $ nf FD.encodeDirect tMapStrInt
       , bench "int32-array 1k"    $ nf FD.encodeDirect tInt32Array1k
       , bench "float64-array 1k"  $ nf FD.encodeDirect tFloat64Array1k
@@ -195,7 +208,10 @@ main = defaultMain
       , benchDecodeT "long string 1k"    tLongStr
       , benchDecodeT "bytes 1k"          tBytes1k
       , benchDecodeT "list-of-int 100"   tListOfInt
+      , benchDecodeT "vec-of-int 100"    tVecOfInt
+      , benchDecodeT "vecS-of-int64 100" tStorableInt64s
       , benchDecodeT "list-of-string 100" tListOfString
+      , benchDecodeT "vec-of-string 100"  tVecOfString
       , benchDecodeT "map str/int 50"    tMapStrInt
       , benchDecodeT "int32-array 1k"    tInt32Array1k
       , benchDecodeT "float64-array 1k"  tFloat64Array1k

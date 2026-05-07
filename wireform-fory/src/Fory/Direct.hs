@@ -428,30 +428,36 @@ emitListSlowGeneric !e !xs = do
 -- ---------------------------------------------------------------------------
 
 -- | OVERLAPPING fast path for @[Int]@ — the bench's
--- @list-of-int 100@ shape. Skips the polymorphic class
--- dispatch in 'directRawPoke @a' so GHC can inline
--- 'IO.pokeVarint64Raw' directly into the inner write loop.
+-- @list-of-int 100@ shape. Walks the list twice in tight
+-- monomorphic loops: once for length, once for the writes.
+-- This avoids the 'V.fromList' boxed-Vector allocation that
+-- the polymorphic '[a]' instance would do, and lets GHC
+-- inline 'IO.pokeVarint64Raw' fully into the recursive write
+-- loop.
 instance {-# OVERLAPPING #-} EncodeDirect [Int] where
   directEncodePayload e xs = do
-    let !v = V.fromList xs
-        !len = V.length v
+    let !len = length xs
     IO.emitVaruint32 e (fromIntegral len)
     if len == 0
       then pure ()
       else do
         IO.emitByte e 0x08
         emitTagD e T.VARINT64
-        IO.withReservedRaw e (9 * len) $ \p start ->
-          V.foldM' (\off n ->
-            IO.pokeVarint64Raw p off (fromIntegral n)) start v
+        IO.withReservedRaw e (9 * len) $ \p start -> goInts p start xs
+    where
+      goInts :: Ptr Word8 -> Int -> [Int] -> IO Int
+      goInts !_  !off []       = pure off
+      goInts !p !off (n:rest) = do
+        !off' <- IO.pokeVarint64Raw p off (fromIntegral n)
+        goInts p off' rest
   {-# INLINE directEncodePayload #-}
 
 -- | OVERLAPPING fast path for @[Int32]@ — fixed 4-byte LE
--- per element, single 'IO.withReservedRaw' over the batch.
+-- per element. Same single-pass-write approach as
+-- @[Int]@; total reservation is exactly @4 * length xs@.
 instance {-# OVERLAPPING #-} EncodeDirect [Int32] where
   directEncodePayload e xs = do
-    let !v = V.fromList xs
-        !len = V.length v
+    let !len = length xs
     IO.emitVaruint32 e (fromIntegral len)
     if len == 0
       then pure ()
@@ -459,13 +465,18 @@ instance {-# OVERLAPPING #-} EncodeDirect [Int32] where
         IO.emitByte e 0x08
         emitTagD e T.INT32
         IO.withReservedRaw e (4 * len) $ \p start ->
-          V.foldM' (\off n -> IO.pokeInt32LERaw p off n) start v
+          goInt32s p start xs
+    where
+      goInt32s :: Ptr Word8 -> Int -> [Int32] -> IO Int
+      goInt32s !_  !off []       = pure off
+      goInt32s !p !off (n:rest) = do
+        !off' <- IO.pokeInt32LERaw p off n
+        goInt32s p off' rest
   {-# INLINE directEncodePayload #-}
 
 instance {-# OVERLAPPING #-} EncodeDirect [Double] where
   directEncodePayload e xs = do
-    let !v = V.fromList xs
-        !len = V.length v
+    let !len = length xs
     IO.emitVaruint32 e (fromIntegral len)
     if len == 0
       then pure ()
@@ -473,7 +484,56 @@ instance {-# OVERLAPPING #-} EncodeDirect [Double] where
         IO.emitByte e 0x08
         emitTagD e T.FLOAT64
         IO.withReservedRaw e (8 * len) $ \p start ->
-          V.foldM' (\off d -> IO.pokeFloat64LERaw p off d) start v
+          goDoubles p start xs
+    where
+      goDoubles :: Ptr Word8 -> Int -> [Double] -> IO Int
+      goDoubles !_  !off []       = pure off
+      goDoubles !p !off (d:rest) = do
+        !off' <- IO.pokeFloat64LERaw p off d
+        goDoubles p off' rest
+  {-# INLINE directEncodePayload #-}
+
+-- | OVERLAPPING fast path for @Vector Int@ — mirrors the
+-- @[Int]@ instance but skips the list traversal entirely
+-- (V.length is O(1)).
+instance {-# OVERLAPPING #-} EncodeDirect (Vector Int) where
+  directEncodePayload e v = do
+    let !len = V.length v
+    IO.emitVaruint32 e (fromIntegral len)
+    if len == 0
+      then pure ()
+      else do
+        IO.emitByte e 0x08
+        emitTagD e T.VARINT64
+        IO.withReservedRaw e (9 * len) $ \p start ->
+          V.foldM' (\ !off n ->
+            IO.pokeVarint64Raw p off (fromIntegral n)) start v
+  {-# INLINE directEncodePayload #-}
+
+instance {-# OVERLAPPING #-} EncodeDirect (Vector Int32) where
+  directEncodePayload e v = do
+    let !len = V.length v
+    IO.emitVaruint32 e (fromIntegral len)
+    if len == 0
+      then pure ()
+      else do
+        IO.emitByte e 0x08
+        emitTagD e T.INT32
+        IO.withReservedRaw e (4 * len) $ \p start ->
+          V.foldM' (\ !off n -> IO.pokeInt32LERaw p off n) start v
+  {-# INLINE directEncodePayload #-}
+
+instance {-# OVERLAPPING #-} EncodeDirect (Vector Double) where
+  directEncodePayload e v = do
+    let !len = V.length v
+    IO.emitVaruint32 e (fromIntegral len)
+    if len == 0
+      then pure ()
+      else do
+        IO.emitByte e 0x08
+        emitTagD e T.FLOAT64
+        IO.withReservedRaw e (8 * len) $ \p start ->
+          V.foldM' (\ !off d -> IO.pokeFloat64LERaw p off d) start v
   {-# INLINE directEncodePayload #-}
 
 -- | OVERLAPPING fast path for @[Text]@. Mirrors the
@@ -514,6 +574,41 @@ instance {-# OVERLAPPING #-} EncodeDirect [Text] where
                      .|. (if ascii then 0 else 2) :: Word64
         off1 <- IO.pokeVaruint64Raw p off hdr
         pokeBytesRawDirect p off1 u
+
+-- | OVERLAPPING fast path for @Vector Text@. Same batched
+-- pre-encode + 'IO.withReservedRaw' write as the @[Text]@
+-- instance, but avoids the list traversal entirely (the
+-- polymorphic 'Vector a' fallback walks each element through
+-- 'directEncodePayload @Text e' which pays per-call
+-- 'IORef' cycles).
+instance {-# OVERLAPPING #-} EncodeDirect (Vector Text) where
+  directEncodePayload !e !xs = do
+    let !n = V.length xs
+    IO.emitVaruint32 e (fromIntegral n)
+    if n == 0
+      then pure ()
+      else do
+        IO.emitByte e 0x08
+        emitTagD e T.STRING
+        encoded <- V.mapM encOneVT xs
+        let !total = V.foldl' (\a (u, _) -> a + 9 + BS.length u) 0 encoded
+        IO.withReservedRaw e total $ \p start ->
+          V.foldM' (writeOneStr p) start encoded
+    where
+      encOneVT :: Text -> IO (ByteString, Bool)
+      encOneVT t =
+        let !u     = TE.encodeUtf8 t
+            !ascii = BS.all (< 0x80) u
+        in pure (u, ascii)
+
+      writeOneStr :: Ptr Word8 -> Int -> (ByteString, Bool) -> IO Int
+      writeOneStr !p !off (!u, !ascii) = do
+        let !len = BS.length u
+            !hdr = (fromIntegral len `shiftL` 2)
+                     .|. (if ascii then 0 else 2) :: Word64
+        off1 <- IO.pokeVaruint64Raw p off hdr
+        pokeBytesRawDirect p off1 u
+  {-# INLINE directEncodePayload #-}
 
 instance forall a. DecodeDirect a => DecodeDirect [a] where
   directDecodePayload = do
