@@ -419,17 +419,35 @@ emitCollection !e vs = do
                 _ -> do
                   IO.emitByte e slotNotNullValue
                   emitUntaggedPayload e x
-            (False, False) ->
-              case sameTypeFastPath tag of
-                Just (perElemMax, writer) ->
-                  IO.withReservedRaw e (perElemMax * V.length vs) $ \p start ->
-                    V.foldM' (\off x -> writer p off x) start vs
-                Nothing
-                  | tag == T.STRING -> emitStringListFast e vs
-                  | tag == T.NAMED_STRUCT ->
-                      emitNamedStructListFast e vs
-                  | otherwise ->
-                      V.forM_ vs $ \x -> emitUntaggedPayload e x
+            (False, False) -> case sameTypeFastTag tag of
+              Just !perElemMax -> do
+                -- Hand-rolled inner loop with 'Int#'
+                -- offset threading. The previous
+                -- 'V.foldM' (\\off x -> writer p off x) start vs'
+                -- pattern paid one box/unbox of the boxed
+                -- @Int@ accumulator on every iteration —
+                -- the writer's type is fixed at
+                -- @Ptr Word8 -> Int -> Value -> IO Int@ so
+                -- GHC couldn't specialize. Calling
+                -- 'pokeUntaggedRaw' directly lets the
+                -- inner loop thread the offset as @Int#@
+                -- and pay the 'I#' wrap exactly once at
+                -- the end.
+                let !nVs = V.length vs
+                IO.withReservedRaw e (perElemMax * nVs) $ \p start -> do
+                  let goFP !i !off
+                        | i >= nVs = pure off
+                        | otherwise = do
+                            !off' <- pokeUntaggedRaw p off
+                                       (V.unsafeIndex vs i)
+                            goFP (i + 1) off'
+                  goFP 0 start
+              Nothing
+                | tag == T.STRING -> emitStringListFast e vs
+                | tag == T.NAMED_STRUCT ->
+                    emitNamedStructListFast e vs
+                | otherwise ->
+                    V.forM_ vs $ \x -> emitUntaggedPayload e x
         (True, Nothing) -> do
           -- Every element is None.
           emitTag e T.NONE
@@ -462,6 +480,61 @@ isNoneV _          = False
 -- Only the fixed-size primitive tags are batched; variable-size
 -- types (strings, binary, structs, nested collections) fall
 -- through to the standard 'emitUntaggedPayload' path.
+-- | Per-element worst-case byte size for the same-type +
+-- no-null + no-ref-tracking inner loop, indexed by the
+-- collection's element 'TypeId'. Used by 'emitCollection'
+-- to decide whether to take the inline raw-poke fast
+-- path; 'pokeUntaggedRaw' does the actual write.
+sameTypeFastTag :: T.TypeId -> Maybe Int
+sameTypeFastTag !tag = case tag of
+  T.BOOL       -> Just 1
+  T.INT8       -> Just 1
+  T.INT16      -> Just 2
+  T.INT32      -> Just 4
+  T.VARINT32   -> Just 5
+  T.INT64      -> Just 8
+  T.VARINT64   -> Just 9
+  T.UINT8      -> Just 1
+  T.UINT16     -> Just 2
+  T.UINT32     -> Just 4
+  T.VAR_UINT32 -> Just 5
+  T.UINT64     -> Just 8
+  T.VAR_UINT64 -> Just 9
+  T.FLOAT32    -> Just 4
+  T.FLOAT64    -> Just 8
+  _            -> Nothing
+{-# INLINE sameTypeFastTag #-}
+
+-- | Inline raw-pointer untagged-payload write for the
+-- primitive-element same-type fast path. Has the same
+-- shape as 'emitUntaggedPayload' but pokes via raw
+-- pointer + 'Int#' offset (so the caller can thread the
+-- offset as @Int#@ instead of paying a box/unbox per
+-- element). Variable-size payloads (strings, binary,
+-- structs, nested collections) aren't covered here —
+-- those go through the dedicated fast paths
+-- ('emitStringListFast', 'emitNamedStructListFast') or
+-- the slow per-element 'emitUntaggedPayload' path.
+pokeUntaggedRaw :: Ptr Word8 -> Int -> VV.Value -> IO Int
+pokeUntaggedRaw !p !off val = case val of
+  VV.BoolVal b      -> IO.pokeByteRaw p off (if b then 1 else 0)
+  VV.Int8Val n      -> IO.pokeByteRaw p off (fromIntegral n)
+  VV.Int16Val n     -> IO.pokeInt16LERaw p off n
+  VV.Int32Val n     -> IO.pokeInt32LERaw p off n
+  VV.VarInt32Val n  -> IO.pokeVarint32Raw p off n
+  VV.Int64Val n     -> IO.pokeInt64LERaw p off n
+  VV.VarInt64Val n  -> IO.pokeVarint64Raw p off n
+  VV.Uint8Val n     -> IO.pokeByteRaw p off n
+  VV.Uint16Val n    -> IO.pokeWord16LERaw p off n
+  VV.Uint32Val n    -> IO.pokeWord32LERaw p off n
+  VV.VarUint32Val n -> IO.pokeVaruint32Raw p off n
+  VV.Uint64Val n    -> IO.pokeWord64LERaw p off n
+  VV.VarUint64Val n -> IO.pokeVaruint64Raw p off n
+  VV.Float32Val f   -> IO.pokeFloat32LERaw p off f
+  VV.Float64Val d   -> IO.pokeFloat64LERaw p off d
+  v -> error ("pokeUntaggedRaw: non-primitive value " ++ show v)
+{-# INLINE pokeUntaggedRaw #-}
+
 sameTypeFastPath
   :: T.TypeId
   -> Maybe (Int, Ptr Word8 -> Int -> VV.Value -> IO Int)
