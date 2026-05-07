@@ -1018,18 +1018,32 @@ emitFreshMetaStringPrecomputed
 emitFreshMetaStringPrecomputed !e !enc !bs = do
   let !len = BS.length bs
       !hdr = (fromIntegral len `shiftL` 1) :: Word64
-  IO.emitVaruint64 e hdr
+      (BSI.BS fpSrc _) = bs
   if len == 0
-    then pure ()
+    then IO.emitVaruint64 e hdr
     else if len <= 16
-      then do
-        IO.emitByte e (MSE.encodingId enc)
-        IO.emitBytes e bs
+      then
+        -- Combine: 9-byte varuint hdr + 1-byte encoding tag
+        -- + payload, single 'IO.withReservedRaw'.
+        IO.withReservedRaw e (10 + len) $ \p start -> do
+          !off1 <- IO.pokeVaruint64Raw p start hdr
+          !off2 <- IO.pokeByteRaw p off1 (MSE.encodingId enc)
+          Foreign.ForeignPtr.withForeignPtr fpSrc $ \pSrc ->
+            Foreign.Marshal.Utils.copyBytes
+              (p `Foreign.Ptr.plusPtr` off2) pSrc len
+          pure (off2 + len)
       else do
         let !hash = MSH.metaStringHashcode bs
                       (fromIntegral (MSE.encodingId enc))
-        IO.emitInt64LE e (fromIntegral hash)
-        IO.emitBytes e bs
+        -- Combine: 9-byte varuint hdr + 8-byte hash +
+        -- payload, single 'IO.withReservedRaw'.
+        IO.withReservedRaw e (17 + len) $ \p start -> do
+          !off1 <- IO.pokeVaruint64Raw p start hdr
+          !off2 <- IO.pokeInt64LERaw p off1 (fromIntegral hash)
+          Foreign.ForeignPtr.withForeignPtr fpSrc $ \pSrc ->
+            Foreign.Marshal.Utils.copyBytes
+              (p `Foreign.Ptr.plusPtr` off2) pSrc len
+          pure (off2 + len)
 
 -- | Emit the @namespace + type-name@ meta-string pair for
 -- a 'NAMED_STRUCT' value. If the schema is registered with
