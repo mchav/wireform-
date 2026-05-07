@@ -961,6 +961,17 @@ instance forall a. DecodeDirect a => DecodeDirect [a] where
               Just rdr -> D.readSameTypeBatchList count rdr
               Nothing  -> replicateMD count (directDecodePayload @a)
 
+-- | OVERLAPPING fast path for @[Text]@ decode.
+--
+-- Same as the 'Vector Text' OVERLAPPING decode (avoids
+-- the boxed @(Text, Int)@ tuple from 'rawPeekText'),
+-- but builds a 'Vector Text' first and converts via
+-- 'V.toList'. The list-of-Text use case is rare enough
+-- that the intermediate Vector + cons walk are still
+-- faster than the tuple-allocating per-element path.
+instance {-# OVERLAPPING #-} DecodeDirect [Text] where
+  directDecodePayload = V.toList <$> directDecodePayload @(Vector Text)
+
 -- 'Vector a' uses the same wire shape — boxed Vector is
 -- equivalent to '[a]' from the wire's perspective.
 instance ForyTypeId (Vector a) where directTypeId = T.LIST
