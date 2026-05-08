@@ -19,9 +19,12 @@ module Kafka.Streams.Window
   , tumblingWindows
   , hoppingWindows
   , slidingWindows
+  , withGracePeriod
+  , withWindowsRetention
     -- * Session
   , SessionWindows (..)
   , sessionWindows
+  , withSessionGracePeriod
   , mergeSession
   ) where
 
@@ -104,6 +107,22 @@ hoppingWindows size advance =
         , windowsRetention = sz + ad
         , windowsGracePeriod = 0
         }
+
+-- | Set the grace period on any 'Windows' policy. Records whose
+-- right edge has been closed for longer than 'grace' are dropped
+-- by 'Kafka.Streams.DSL.TimeWindowedKStream' (KIP-633).
+withGracePeriod :: Duration -> Windows -> Windows
+withGracePeriod g w = w { windowsGracePeriod = durationMillis g }
+
+-- | Override the retention period on a 'Windows' policy. Useful
+-- when the default @size * 2@ is not long enough to keep late
+-- records around (e.g. with a long grace period).
+withWindowsRetention :: Duration -> Windows -> Windows
+withWindowsRetention r w = w { windowsRetention = durationMillis r }
+
+-- | Set the grace period on a 'SessionWindows' policy.
+withSessionGracePeriod :: Duration -> SessionWindows -> SessionWindows
+withSessionGracePeriod g sw = sw { swGracePeriod = durationMillis g }
 
 -- | Sliding windows (KIP-450): a fixed-size window slides over time
 -- and only one window per record (the window whose right edge is the

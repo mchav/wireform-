@@ -52,10 +52,13 @@ import Kafka.Streams.State.Window.InMemory
   )
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Types (Record (..))
+import Kafka.Streams.Time (Timestamp (..))
 import Kafka.Streams.Window
   ( Window (..)
   , Windows (..)
   )
+
+import Kafka.Streams.Processor (ProcessorContext (..))
 
 -- | Result of a windowed aggregation: a (synthetic) handle to a
 -- window-store materialisation.  Convert into a stream of windowed
@@ -153,15 +156,28 @@ windowedAggProc sn ws initial agg = do
         mst  <- readIORef storeRef
         case (mctx, mst, recordKey r) of
           (Just ctx, Just store_, Just k) -> do
-            let !windows = windowsAssign ws (recordTimestamp r)
-            mapM_
-              (\(Window startT _) -> do
-                 mPrev <- wsFetch store_ k startT
-                 cur <- maybe initial pure mPrev
-                 let !next = agg k (recordValue r) cur
-                 wsPut store_ k next startT
-                 forwardRecord ctx r { recordValue = next })
-              windows
+            -- Grace-period enforcement: skip records whose latest
+            -- assignable window has fully closed below stream-time -
+            -- grace. Mirrors the "late record drop" behaviour of
+            -- KIP-633.
+            Timestamp now <- ctxStreamTime ctx
+            let !grace      = windowsGracePeriod ws
+                !winSize    = windowsSize ws
+                Timestamp rt = recordTimestamp r
+                !rightEdge  = rt + winSize
+                isExpired   = rightEdge + grace < now
+            if isExpired
+              then pure ()  -- silently drop the late record
+              else do
+                let !windows = windowsAssign ws (recordTimestamp r)
+                mapM_
+                  (\(Window startT _) -> do
+                     mPrev <- wsFetch store_ k startT
+                     cur <- maybe initial pure mPrev
+                     let !next = agg k (recordValue r) cur
+                     wsPut store_ k next startT
+                     forwardRecord ctx r { recordValue = next })
+                  windows
           _ -> pure ()
     }
 
