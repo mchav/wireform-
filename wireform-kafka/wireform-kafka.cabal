@@ -402,6 +402,7 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.ForeignKeyJoin
         Kafka.Streams.DSL.Cogroup
         Kafka.Streams.DSL.Suppress
+        Kafka.Streams.DSL.DslStoreSuppliers
         Kafka.Streams.Runtime
         Kafka.Streams.Runtime.EOS
         Kafka.Streams.Runtime.Task
@@ -474,6 +475,7 @@ test-suite wireform-kafka-streams-test
         Streams.QuerySpec
         Streams.ParityBatchSpec
         Streams.MoreParitySpec
+        Streams.EndToEndChainSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

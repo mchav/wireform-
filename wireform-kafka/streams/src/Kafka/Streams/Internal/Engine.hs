@@ -433,6 +433,11 @@ handleSource engine spec children si = do
             }
       writeIORef (engineCurrentHeaders engine) (Just emptyHeaders)
       Met.incCounter (engineMetrics engine) Met.processTotal
+      -- Task-id-tagged variant for finer-grained inspection
+      -- (mirrors the Java client's task-tagged metric names).
+      Met.incCounter (engineMetrics engine)
+        ("stream-task-metrics:process-total{task=" <>
+         taskIdToText (engineTaskId engine) <> "}")
       mapM_ (\fw -> fw rec) children
       writeIORef (engineCurrentMd engine) Nothing
       writeIORef (engineCurrentHeaders engine) Nothing
@@ -667,6 +672,12 @@ fireDue engine pt now = do
 ----------------------------------------------------------------------
 -- Lifecycle
 ----------------------------------------------------------------------
+
+-- | Render a 'TaskId' as the canonical @"<topo>_<part>"@ form
+-- used in metric names.
+taskIdToText :: TaskId -> Text
+taskIdToText (TaskId topo part) =
+  T.pack (show topo) <> "_" <> T.pack (show part)
 
 commitEngine :: Engine -> IO ()
 commitEngine engine = do
