@@ -56,6 +56,10 @@ module Kafka.Streams.Topology
   , addGlobalStore
   , topoGlobalStores
   , connectProcessorAndStateStores
+    -- * Optimisations (KIP-295)
+  , OptimizationConfig (..)
+  , defaultOptimizationConfig
+  , optimizeTopology
     -- * Validation
   , validateTopology
   , TopologyValid
@@ -347,6 +351,36 @@ addStateStoreS
   :: StoreBuilderS k v -> [NodeName] -> Topology -> Topology
 addStateStoreS b owners =
   addStoreInternal (sbSName b) (AsSessionBuilder b) owners
+
+-- | Configuration for 'optimizeTopology'. Each toggle enables one
+-- of the KIP-295 optimisations.
+data OptimizationConfig = OptimizationConfig
+  { optMergeRepartitionTopics :: !Bool
+    -- ^ When two consecutive selectKey/groupBy operations would
+    -- each materialise a repartition topic, merge them into one.
+    -- Currently a no-op (the DSL doesn't auto-insert repartition
+    -- topics yet); the field exists so callers can opt in once
+    -- the DSL change lands.
+  , optReuseSourceKTable      :: !Bool
+    -- ^ When a KTable's only consumer is a join, reuse the source
+    -- topic directly instead of materialising. Currently a no-op
+    -- (most KTables in our DSL are explicitly materialised).
+  }
+  deriving stock (Eq, Show)
+
+defaultOptimizationConfig :: OptimizationConfig
+defaultOptimizationConfig = OptimizationConfig
+  { optMergeRepartitionTopics = True
+  , optReuseSourceKTable      = True
+  }
+
+-- | Mirrors @Topology.optimize(StreamsConfig)@. Applies the
+-- requested KIP-295 optimisations and returns a (possibly)
+-- rewritten topology. Currently every toggle is a no-op — the
+-- optimiser hook is in place so callers can drop in optimisations
+-- as the DSL grows the constructs they target.
+optimizeTopology :: OptimizationConfig -> Topology -> Topology
+optimizeTopology _cfg topo = topo
 
 -- | Connect an existing processor to one or more existing state
 -- stores. Mirrors @Topology.connectProcessorAndStateStores@ —

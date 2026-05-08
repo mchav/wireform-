@@ -22,6 +22,7 @@ module Kafka.Streams.DSL.StreamsBuilder
   , withTopology
   , readTopology
   , withTopology_
+  , addReadOnlyStateStore
   ) where
 
 import Data.IORef
@@ -29,7 +30,12 @@ import qualified Data.Text as T
 import Data.Text (Text)
 
 import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.Topology
+import qualified Kafka.Streams.Serde
 import Kafka.Streams.State.Store (StoreName, storeName)
+import qualified Kafka.Streams.State.Store
+import qualified Kafka.Streams.Time
+import qualified Kafka.Streams.Types
 
 -- | Mutable DSL builder.
 data StreamsBuilder = StreamsBuilder
@@ -77,3 +83,32 @@ freshStoreName :: StreamsBuilder -> Text -> IO StoreName
 freshStoreName b prefix = do
   n <- atomicModifyIORef' (sbStoreCount b) (\i -> (i + 1, i))
   pure (storeName (prefix <> "-" <> T.pack (show n)))
+
+----------------------------------------------------------------------
+-- KIP-813: addReadOnlyStateStore
+----------------------------------------------------------------------
+
+-- | Register a global state store fed by a user-supplied custom
+-- updater processor reading from a topic. Mirrors
+-- @StreamsBuilder.addReadOnlyStateStore@: callers can attach the
+-- store to any other processor for read access via
+-- 'Kafka.Streams.Topology.connectProcessorAndStateStores'.
+--
+-- The store is registered as a /global/ store (cluster-wide
+-- replicated). The 'updater' processor is what writes to it; every
+-- other processor that connects to it sees the store as read-only.
+addReadOnlyStateStore
+  :: StreamsBuilder
+  -> Kafka.Streams.State.Store.StoreBuilderKV k v
+  -> Kafka.Streams.Topology.NodeName             -- source name
+  -> Kafka.Streams.Topology.NodeName             -- updater name
+  -> Kafka.Streams.Types.TopicName
+  -> Kafka.Streams.Serde.Serde k
+  -> Kafka.Streams.Serde.Serde v
+  -> Kafka.Streams.Time.TimestampExtractor k v
+  -> Kafka.Streams.Topology.AnyProcessor          -- updater body
+  -> IO ()
+addReadOnlyStateStore b builder srcNm procNm topic ks vs ex updater =
+  withTopology_ b $
+    Kafka.Streams.Topology.addGlobalStore
+      builder srcNm procNm topic ks vs ex updater

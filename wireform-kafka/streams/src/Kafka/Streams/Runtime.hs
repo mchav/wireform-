@@ -54,6 +54,11 @@ module Kafka.Streams.Runtime
   , pauseKafkaStreams
   , resumeKafkaStreams
   , isPausedKafkaStreams
+    -- * Task lag (KIP-647)
+  , LagInfo (..)
+  , LagListener
+  , setLagListener
+  , publishLag
     -- * Internal access (used by Kafka.Streams.InteractiveQueries)
   , ksEngine
   ) where
@@ -94,6 +99,7 @@ import Kafka.Streams.Internal.RecordCollector
   , RecordCollector (..)
   , drainCollector
   )
+import Data.Int (Int64)
 import Kafka.Streams.Processor (TaskId (..))
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Time (Timestamp (..))
@@ -125,6 +131,7 @@ data KafkaStreams = KafkaStreams
   , ksEosCoord  :: !(IORef EOSCoordinator)
   , ksListener  :: !(IORef StateListener)
   , ksPaused    :: !(TVar Bool)
+  , ksLagLis    :: !(IORef LagListener)
     -- ^ Set during 'startKafkaStreams' based on
     -- 'processingGuarantee'; defaults to 'noopEOSCoordinator'.
   }
@@ -142,6 +149,7 @@ newKafkaStreams cfg topo = do
   eos <- newIORef noopEOSCoordinator
   lis <- newIORef (\_ _ -> pure ())
   pa  <- newTVarIO False
+  lagL <- newIORef (\_ -> pure ())
   pure KafkaStreams
     { ksConfig    = cfg
     , ksTopology  = topo
@@ -153,6 +161,7 @@ newKafkaStreams cfg topo = do
     , ksEosCoord  = eos
     , ksListener  = lis
     , ksPaused    = pa
+    , ksLagLis    = lagL
     }
 
 -- | Start the runtime in the background. Returns immediately; once
@@ -363,6 +372,31 @@ resumeKafkaStreams ks = atomically (writeTVar (ksPaused ks) False)
 
 isPausedKafkaStreams :: KafkaStreams -> IO Bool
 isPausedKafkaStreams = readTVarIO . ksPaused
+
+-- | One row of task-lag information. Mirrors Java's
+-- @org.apache.kafka.streams.LagInfo@.
+data LagInfo = LagInfo
+  { lagTaskId        :: !TaskId
+  , lagCurrentOffset :: !Int64
+  , lagEndOffset     :: !Int64
+  }
+  deriving stock (Eq, Show)
+
+type LagListener = [LagInfo] -> IO ()
+
+-- | Register a callback that receives a snapshot of every task's
+-- current vs. end offset on every 'publishLag' call. Mirrors
+-- @KafkaStreams.allLocalStorePartitionLags@ + the periodic
+-- listener pattern in KIP-647.
+setLagListener :: KafkaStreams -> LagListener -> IO ()
+setLagListener ks lis = writeIORef (ksLagLis ks) lis
+
+-- | Internal helper for the runtime (or tests) to publish a fresh
+-- lag snapshot to the registered listener.
+publishLag :: KafkaStreams -> [LagInfo] -> IO ()
+publishLag ks lags = do
+  lis <- readIORef (ksLagLis ks)
+  lis lags
 
 -- | Replace the runtime's EOS coordinator. The default is
 -- 'noopEOSCoordinator'; tests inject a recording coordinator to
