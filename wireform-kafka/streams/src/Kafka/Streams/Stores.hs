@@ -32,6 +32,8 @@ module Kafka.Streams.Stores
   , inMemorySessionStoreBuilder
     -- * Versioned
   , versionedKeyValueStore
+    -- * Timestamped
+  , timestampedKeyValueStore
     -- * Common types re-exported
   , module Kafka.Streams.State.Store
   , KVPers.PersistentConfig (..)
@@ -42,6 +44,8 @@ module Kafka.Streams.Stores
   , KVVer.VersionedConfig (..)
   , KVVer.defaultVersionedConfig
   , KVVer.VersionedKeyValueStore
+  , KVTs.ValueAndTimestamp (..)
+  , KVTs.TimestampedKeyValueStore
   ) where
 
 import Data.ByteString (ByteString)
@@ -50,6 +54,7 @@ import Data.Int (Int64)
 import qualified Kafka.Streams.State.KeyValue.Caching as KVCache
 import qualified Kafka.Streams.State.KeyValue.InMemory as KVInMem
 import qualified Kafka.Streams.State.KeyValue.Persistent as KVPers
+import qualified Kafka.Streams.State.KeyValue.Timestamped as KVTs
 import qualified Kafka.Streams.State.KeyValue.Versioned as KVVer
 import qualified Kafka.Streams.State.Session.InMemory as SSInMem
 import qualified Kafka.Streams.State.Window.InMemory as WSInMem
@@ -109,3 +114,12 @@ versionedKeyValueStore
   -> KVVer.VersionedConfig
   -> IO (KVVer.VersionedKeyValueStore k v)
 versionedKeyValueStore = KVVer.inMemoryVersionedKeyValueStore
+
+-- | An in-memory 'TimestampedKeyValueStore'. Mirrors Java's
+-- @Stores.timestampedKeyValueStoreBuilder(...)@.
+timestampedKeyValueStore
+  :: Ord k
+  => StoreName
+  -> IO (KVTs.TimestampedKeyValueStore k v)
+timestampedKeyValueStore nm =
+  KVTs.timestampedFromKV <$> KVInMem.inMemoryKeyValueStore nm

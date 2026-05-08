@@ -96,6 +96,7 @@ module Kafka.Streams.DSL.KStream
   , transformValuesStream
   , processStream
   , processValuesStream
+  , flatTransformValues
   ) where
 
 import Data.IORef
@@ -110,7 +111,6 @@ import Kafka.Streams.DSL.Joined
   ( JoinWindows (..)
   , Joined (..)
   )
-import qualified Kafka.Streams.DSL.Named
 import qualified Kafka.Streams.DSL.Named
 import Kafka.Streams.DSL.Produced
   ( Produced (..)
@@ -1481,7 +1481,10 @@ toKStreamFromKTable kt = do
 -- | Re-key a 'KTable'. The result is a 'KStream' on the new key
 -- (since re-keying conceptually requires a repartition); the user
 -- can call 'groupByKey' / 'aggregate' to produce a re-grouped
--- KTable. Mirrors Java's @KTable.groupBy(KeyValueMapper)@.
+-- KTable. Mirrors Java's @KTable.groupBy(KeyValueMapper)@ —
+-- conceptually returns a 'KGroupedTable' that the caller can
+-- aggregate; we lower it to a stream + groupByKey because the
+-- single-task driver doesn't distinguish the two.
 groupByKTable
   :: forall k v k'
    . (Ord k, Ord k')
@@ -1622,3 +1625,25 @@ valuesStream s = do
     , kstreamKeySerde   = error "valuesStream: () key serde unset"
     , kstreamValueSerde = kstreamValueSerde s
     }
+
+----------------------------------------------------------------------
+-- flatTransformValues
+----------------------------------------------------------------------
+
+-- | Stateful 0-to-many emit on the value side. The user-supplied
+-- 'Processor' is free to call 'forwardRecord' (or 'ctxForward')
+-- zero, one, or many times per input record. State stores listed
+-- in @stores@ are attached and accessible via 'getStateStore'.
+--
+-- Mirrors @KStream.flatTransformValues@. Identical to
+-- 'processValuesStream' (same plumbing); kept as a separate name
+-- for users porting from Java.
+flatTransformValues
+  :: forall k v v'
+   . T.Text
+  -> [StoreName]
+  -> IO (Processor k v)
+  -> Serde v'
+  -> KStream k v
+  -> IO (KStream k v')
+flatTransformValues = processValuesStream
