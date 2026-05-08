@@ -69,8 +69,11 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Unsafe.Coerce as Unsafe
+
+import qualified Kafka.Streams.Topology
 
 import Kafka.Streams.Errors (DeserializationHandler, logAndContinue)
 import Kafka.Streams.Internal.Engine
@@ -81,6 +84,7 @@ import Kafka.Streams.Internal.Engine
   , closeEngine
   , commitEngine
   , engineCollector
+  , engineTopology
   , feedSource
   , storeByName
   , storeEntryAny
@@ -148,7 +152,15 @@ newDriverWith validated appId deserHandler = do
 
 -- | Pipe one record through the topology, blocking until all
 -- downstream effects (state-store writes, sink emissions, stream-time
--- punctuators) complete.
+-- punctuators, /and/ any internal repartition / through-topic loops)
+-- complete.
+--
+-- Internal-topic routing: if the topology has a sink that produces
+-- to a topic which is also subscribed by a source — i.e. a
+-- repartition or 'throughTopic' boundary — the driver drains those
+-- records out of the collector and re-feeds them to the source
+-- side. This iterates until quiescence so multi-stage internal
+-- loops complete in a single 'pipeInput' call.
 pipeInput
   :: TopologyTestDriver
   -> TopicName
@@ -160,6 +172,7 @@ pipeInput
 pipeInput d topic key value ts part = do
   off <- atomicModifyIORef' (driverNextOff d) (\n -> (n + 1, n))
   feedSource (driverEngine d) topic key value ts part off
+  drainInternalLoop d
 
 pipeInputs
   :: TopologyTestDriver
@@ -271,6 +284,49 @@ getSessionStore d sn = do
 
 engineCollectorOf :: TopologyTestDriver -> RecordCollector
 engineCollectorOf d = engineCollector (driverEngine d)
+
+-- | Detect every topic the topology /both/ produces to (via a sink)
+-- and consumes from (via a source) — these are the "internal"
+-- topics that repartition / through-topic boundaries create.
+internalTopics :: TopologyTestDriver -> IO [TopicName]
+internalTopics d = do
+  let topo = engineTopology (driverEngine d)
+      sinkTopics =
+        [ Kafka.Streams.Topology.sinkTopic spec
+        | spec <- Map.elems (Kafka.Streams.Topology.topoSinks topo)
+        ]
+      sourceTopics =
+        Set.fromList
+          $ concatMap Kafka.Streams.Topology.sourceTopics
+          $ Map.elems (Kafka.Streams.Topology.topoSources topo)
+  pure (filter (`Set.member` sourceTopics) sinkTopics)
+
+-- | Drain any records sitting in the collector whose topic is
+-- internal (sink+source pair) and re-feed them through the source
+-- side. Repeats until quiescence; bounded by a small iteration
+-- count to defend against pathological cycles.
+drainInternalLoop :: TopologyTestDriver -> IO ()
+drainInternalLoop d = go (8 :: Int)
+  where
+    go 0 = pure ()
+    go n = do
+      itopics <- internalTopics d
+      delivered <- mapM drainOne itopics
+      if any id delivered then go (n - 1) else pure ()
+
+    drainOne :: TopicName -> IO Bool
+    drainOne tp = do
+      rs <- collectorTake (engineCollectorOf d) tp
+      case rs of
+        [] -> pure False
+        _  -> do
+          mapM_ feedOne rs
+          pure True
+
+    feedOne cr = do
+      off <- atomicModifyIORef' (driverNextOff d) (\m -> (m + 1, m))
+      feedSource (driverEngine d) (crTopic cr)
+        (crKey cr) (crValue cr) (crTimestamp cr) 0 off
 
 engineCollectorPeekOf
   :: TopologyTestDriver

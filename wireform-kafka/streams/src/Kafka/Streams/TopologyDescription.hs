@@ -94,10 +94,11 @@ data NodeDesc
 
 -- | Build a 'TopologyDescription' from a 'Topology'.
 --
--- Sub-topology partitioning: in this implementation there is exactly
--- one sub-topology containing every node. A future expansion will
--- partition the topology along repartition boundaries (auto-generated
--- internal topics).
+-- Sub-topology partitioning: nodes are grouped into sub-topologies
+-- by undirected connectivity over the parent/child graph. Sources
+-- and sinks that share an internal /repartition topic/ (i.e. a
+-- topic the topology both produces to and consumes from) are NOT
+-- connected — that's the boundary between sub-topologies.
 describeTopology :: Topo.Topology -> TopologyDescription
 describeTopology topo =
   let nodes =
@@ -110,14 +111,21 @@ describeTopology topo =
         ++ [ sinkDesc k
            | k <- Map.elems (Topo.topoSinks topo)
            ]
-      sortedNodes = orderNodes (Topo.topoOrder topo) nodes
+      compMap   = computeSubtopologies topo
+      grouped   = Map.fromListWith (<>)
+        [ (Map.findWithDefault 0 (ndName nd) compMap, [nd])
+        | nd <- nodes
+        ]
+      orderedSubs =
+        [ Subtopology
+            { stIndex = idx
+            , stNodes = orderNodes (Topo.topoOrder topo) nds
+            }
+        | (idx, nds) <- Map.toAscList grouped
+        ]
    in TopologyDescription
-        { tdSubtopologies =
-            [ Subtopology { stIndex = 0, stNodes = sortedNodes }
-            | not (null sortedNodes)
-            ]
-        , tdStores =
-            sort (Map.keys (Topo.topoStores topo))
+        { tdSubtopologies = orderedSubs
+        , tdStores        = sort (Map.keys (Topo.topoStores topo))
         }
   where
     childrenOf nm = sort (Topo.childrenOf topo nm)
@@ -142,6 +150,42 @@ describeTopology topo =
         , ndParents = parentsOf (Topo.sinkName spec)
         , ndTopic   = Topo.sinkTopic spec
         }
+
+----------------------------------------------------------------------
+-- Sub-topology partitioning
+----------------------------------------------------------------------
+
+-- | Compute, for every node, which sub-topology index it belongs to.
+-- Sub-topologies are connected components of the undirected
+-- parent/child graph; nodes connected only by an /internal topic/
+-- (sink + source pair on the same topic) are NOT considered
+-- connected.
+computeSubtopologies :: Topo.Topology -> Map.Map NodeName Int
+computeSubtopologies topo =
+  -- Build parent->children adjacency (just the regular graph).
+  -- Walk in insertion order, assigning each unvisited node a fresh
+  -- component index and propagating it to all nodes reachable via
+  -- /undirected/ parent/child edges.
+  let allNodes = Topo.topoOrder topo
+      visited = foldl assignComponent Map.empty allNodes
+   in visited
+  where
+    assignComponent acc n
+      | Map.member n acc = acc
+      | otherwise =
+          let !idx = if Map.null acc
+                       then 0
+                       else 1 + maximum (Map.elems acc)
+           in spread idx acc n
+
+    spread !idx acc n
+      | Map.member n acc = acc
+      | otherwise =
+          let acc1     = Map.insert n idx acc
+              children = Topo.childrenOf topo n
+              parents  = Topo.parentsOf  topo n
+              neighbours = children ++ parents
+           in foldl (spread idx) acc1 neighbours
 
 -- | Order @nodes@ by their position in @insertionOrder@.
 orderNodes :: [NodeName] -> [NodeDesc] -> [NodeDesc]

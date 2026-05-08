@@ -2,6 +2,7 @@
 
 module Streams.TopologyDescriptionSpec (tests) where
 
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
@@ -13,6 +14,8 @@ tests = testGroup "TopologyDescription"
   [ describe_simple_passthrough
   , describe_lists_stores
   , pretty_includes_arrows_and_topics
+  , two_sub_topologies_via_through
+  , through_topic_round_trips_in_driver
   ]
 
 simpleTopo :: IO Topology
@@ -62,3 +65,34 @@ pretty_includes_arrows_and_topics =
       , "-->"
       , "<--"
       ]
+
+----------------------------------------------------------------------
+-- Sub-topology splitting + driver auto-feedback
+----------------------------------------------------------------------
+
+twoSubTopologyTopo :: IO Topology
+twoSubTopologyTopo = do
+  b <- newStreamsBuilder
+  s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
+  s' <- mapValues T.toUpper s
+  s'' <- throughTopic (topicName "internal-loop") (produced textSerde textSerde) s'
+  toTopic (topicName "out") (produced textSerde textSerde) s''
+  buildTopology b
+
+two_sub_topologies_via_through :: TestTree
+two_sub_topologies_via_through =
+  testCase "throughTopic boundary splits the topology into two sub-topologies" $ do
+    topo <- twoSubTopologyTopo
+    let td = describeTopology topo
+    length (tdSubtopologies td) @?= 2
+
+through_topic_round_trips_in_driver :: TestTree
+through_topic_round_trips_in_driver =
+  testCase "driver auto-feedback delivers records across the through-topic loop" $ do
+    topo <- twoSubTopologyTopo
+    driver <- newDriver topo "tt-app"
+    pipeInput driver (topicName "in") Nothing (BSC.pack "hello") (Timestamp 0) 0
+    pipeInput driver (topicName "in") Nothing (BSC.pack "world") (Timestamp 0) 0
+    out <- readOutput driver (topicName "out")
+    map crValue out @?= [BSC.pack "HELLO", BSC.pack "WORLD"]
+    closeDriver driver
