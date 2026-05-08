@@ -735,6 +735,10 @@ sameTypeInlineBatch
   :: T.TypeId -> Maybe (Int -> DecodeM (Vector VV.Value))
 sameTypeInlineBatch !tag = case tag of
   T.VARINT64 -> Just readVarInt64ValBatch
+  T.INT64    -> Just readInt64ValBatch
+  T.INT32    -> Just readInt32ValBatch
+  T.FLOAT64  -> Just readFloat64ValBatch
+  T.FLOAT32  -> Just readFloat32ValBatch
   _          -> Nothing
 {-# INLINE sameTypeInlineBatch #-}
 
@@ -764,6 +768,77 @@ readVarInt64ValBatch !count = DecodeM $ \d -> do
   writeIORef (decPos d) posF
   V.unsafeFreeze mvec
 {-# INLINE readVarInt64ValBatch #-}
+
+-- | Same-type batch decoder for INT64. Bypasses the per-
+-- element @(Value, Int)@ tuple from 'sameTypeFastReader'.
+readInt64ValBatch :: Int -> DecodeM (Vector VV.Value)
+readInt64ValBatch !count = DecodeM $ \d -> do
+  pos0 <- readIORef (decPos d)
+  let !p = decBase d
+  mvec <- VM.unsafeNew count
+  let go !i !pos
+        | i >= count = pure pos
+        | otherwise = do
+            n <- peekByteOff p pos :: IO Int64
+            VM.unsafeWrite mvec i (VV.Int64Val n)
+            go (i + 1) (pos + 8)
+  posF <- go 0 pos0
+  writeIORef (decPos d) posF
+  V.unsafeFreeze mvec
+{-# INLINE readInt64ValBatch #-}
+
+-- | Same-type batch decoder for INT32.
+readInt32ValBatch :: Int -> DecodeM (Vector VV.Value)
+readInt32ValBatch !count = DecodeM $ \d -> do
+  pos0 <- readIORef (decPos d)
+  let !p = decBase d
+  mvec <- VM.unsafeNew count
+  let go !i !pos
+        | i >= count = pure pos
+        | otherwise = do
+            n <- peekByteOff p pos :: IO Int32
+            VM.unsafeWrite mvec i (VV.Int32Val n)
+            go (i + 1) (pos + 4)
+  posF <- go 0 pos0
+  writeIORef (decPos d) posF
+  V.unsafeFreeze mvec
+{-# INLINE readInt32ValBatch #-}
+
+-- | Same-type batch decoder for FLOAT64.
+readFloat64ValBatch :: Int -> DecodeM (Vector VV.Value)
+readFloat64ValBatch !count = DecodeM $ \d -> do
+  pos0 <- readIORef (decPos d)
+  let !p = decBase d
+  mvec <- VM.unsafeNew count
+  let go !i !pos
+        | i >= count = pure pos
+        | otherwise = do
+            w <- peekByteOff p pos :: IO Word64
+            VM.unsafeWrite mvec i
+              (VV.Float64Val (castWord64ToDouble w))
+            go (i + 1) (pos + 8)
+  posF <- go 0 pos0
+  writeIORef (decPos d) posF
+  V.unsafeFreeze mvec
+{-# INLINE readFloat64ValBatch #-}
+
+-- | Same-type batch decoder for FLOAT32.
+readFloat32ValBatch :: Int -> DecodeM (Vector VV.Value)
+readFloat32ValBatch !count = DecodeM $ \d -> do
+  pos0 <- readIORef (decPos d)
+  let !p = decBase d
+  mvec <- VM.unsafeNew count
+  let go !i !pos
+        | i >= count = pure pos
+        | otherwise = do
+            w <- peekByteOff p pos :: IO Word32
+            VM.unsafeWrite mvec i
+              (VV.Float32Val (castWord32ToFloat w))
+            go (i + 1) (pos + 4)
+  posF <- go 0 pos0
+  writeIORef (decPos d) posF
+  V.unsafeFreeze mvec
+{-# INLINE readFloat32ValBatch #-}
 
 sameTypeFastReader
   :: T.TypeId
