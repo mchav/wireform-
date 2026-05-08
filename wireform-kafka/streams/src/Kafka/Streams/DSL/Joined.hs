@@ -8,6 +8,10 @@ module Kafka.Streams.DSL.Joined
   , joinWindowsBefore
   , joinWindowsAfter
   , symmetricJoinWindows
+  , withJoinWindowsGrace
+    -- * Sliding windows (KIP-450)
+  , slidingWindowsOf
+  , slidingWindowsWithGrace
   ) where
 
 import Data.Text (Text)
@@ -63,3 +67,30 @@ symmetricJoinWindows d =
         , jwAfterMs       = ms
         , jwGracePeriodMs = 0
         }
+
+-- | Override the grace period on a 'JoinWindows'. Mirrors Java's
+-- @JoinWindows.ofTimeDifference(...).grace(...)@.
+withJoinWindowsGrace :: Duration -> JoinWindows -> JoinWindows
+withJoinWindowsGrace g jw = jw { jwGracePeriodMs = durationMillis g }
+
+----------------------------------------------------------------------
+-- Sliding windows (KIP-450)
+----------------------------------------------------------------------
+
+-- | Sliding window of total time-difference @d@: a record on either
+-- side matches another within @[-d, +d]@. Mirrors Java's
+-- @SlidingWindows.ofTimeDifferenceWithNoGrace(Duration)@.
+--
+-- Internally a sliding window is a symmetric 'JoinWindows' — the
+-- distinct type in Java enables a different join /algorithm/
+-- (single buffer per key with full overlap), but the user-facing
+-- semantics here (left × right matches when ts difference <= d)
+-- are identical and the 'symmetricJoinWindows' implementation
+-- already handles them faithfully.
+slidingWindowsOf :: Duration -> JoinWindows
+slidingWindowsOf = symmetricJoinWindows
+
+-- | Sliding windows with an explicit grace period.
+slidingWindowsWithGrace :: Duration -> Duration -> JoinWindows
+slidingWindowsWithGrace size grace =
+  withJoinWindowsGrace grace (slidingWindowsOf size)
