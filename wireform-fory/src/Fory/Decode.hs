@@ -669,9 +669,11 @@ decodeCollection = do
                         then elemReader
                         else failD ("Fory.Decode: unexpected element flag "
                                     ++ show f)
-                  else case sameTypeFastReader tg of
-                    Just rdr -> readSameTypeBatch count rdr
-                    Nothing  -> V.replicateM count elemReader
+                  else case sameTypeInlineBatch tg of
+                    Just !rdr -> rdr count
+                    Nothing -> case sameTypeFastReader tg of
+                      Just rdr -> readSameTypeBatch count rdr
+                      Nothing  -> V.replicateM count elemReader
         else
           if hasNull
             then V.replicateM count $ do
@@ -714,6 +716,55 @@ elementReaderForSameType tg = case tg of
 -- without touching the decoder's IORefs. The vector decode
 -- loop calls it @count@ times against a single cached pointer
 -- + position, paying the IORef cycle exactly once at the end.
+-- | Fully-specialised same-type batch decoder.
+--
+-- Like 'sameTypeFastReader' but returns a /complete/
+-- batch decoder rather than a per-element @rdr@. The
+-- per-element rdr forces a boxed @(Value, Int)@ tuple
+-- per element (see Core: @rVarInt64 ... -> (VarInt64Val
+-- ww3, ww4) #@); this version writes 'Value' constructors
+-- straight into a 'VM.IOVector' with no per-element tuple
+-- allocation. Currently only specialised for VARINT64
+-- (the encode/list-of-int / decode/list-of-int Value-
+-- pipeline shape).
+--
+-- Returns 'Nothing' for typeIds that don't have an inline
+-- specialisation; the caller falls back to
+-- 'sameTypeFastReader' / 'V.replicateM'.
+sameTypeInlineBatch
+  :: T.TypeId -> Maybe (Int -> DecodeM (Vector VV.Value))
+sameTypeInlineBatch !tag = case tag of
+  T.VARINT64 -> Just readVarInt64ValBatch
+  _          -> Nothing
+{-# INLINE sameTypeInlineBatch #-}
+
+-- | Read @count@ varint64s as 'VV.VarInt64Val' values
+-- straight into a 'VM.IOVector', no per-element tuple
+-- allocation. Compare to 'sameTypeFastReader''s
+-- 'rVarInt64' which the dump shows materialising a fresh
+-- @(Value, Int)@ tuple per call.
+readVarInt64ValBatch :: Int -> DecodeM (Vector VV.Value)
+readVarInt64ValBatch !count = DecodeM $ \d -> do
+  pos0 <- readIORef (decPos d)
+  let !p = decBase d
+  mvec <- VM.unsafeNew count
+  let go !i !pos
+        | i >= count = pure pos
+        | otherwise = do
+            (!w, !pos1) <- peekVaruint64Raw p pos
+            -- Inline zigzag decode without going through
+            -- 'peekVarint64Raw''s boxed @(Int64, Int)@
+            -- result tuple.
+            let !signed = fromIntegral (w `shiftR` 1) :: Int64
+                !sgn    = fromIntegral (w .&. 1) :: Int64
+                !i64    = signed `xor` (-sgn)
+            VM.unsafeWrite mvec i (VV.VarInt64Val i64)
+            go (i + 1) pos1
+  posF <- go 0 pos0
+  writeIORef (decPos d) posF
+  V.unsafeFreeze mvec
+{-# INLINE readVarInt64ValBatch #-}
+
 sameTypeFastReader
   :: T.TypeId
   -> Maybe (Ptr Word8 -> Int -> IO (VV.Value, Int))
