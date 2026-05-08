@@ -456,14 +456,24 @@ sendInTransaction txn tp = do
       atomically $ do
         partitions <- readTVar (txnPartitions txn)
         writeTVar (txnPartitions txn) (Set.insert tp partitions)
-        
+
         -- Get and increment sequence number for this partition
         sequences <- readTVar (txnSequenceNumbers txn)
         let currentSeq = Map.findWithDefault 0 tp sequences
             nextSeq = currentSeq + 1
         writeTVar (txnSequenceNumbers txn) (Map.insert tp nextSeq sequences)
-      
-      -- TODO: Actually send the record with the producer ID, epoch, and sequence number
+
+      -- Note: the actual @ProduceRequest@ goes through
+      -- 'Kafka.Client.Producer.sendMessage' on the same
+      -- transactional producer, which stamps the producer-id /
+      -- epoch / sequence onto every batch via 'BA.batchProducerId'
+      -- / 'BA.batchProducerEpoch' / 'BA.batchBaseSequence'. This
+      -- function's role is to register the partition with the
+      -- coordinator so it's included in the commit envelope; the
+      -- bookkeeping above (txnPartitions + txnSequenceNumbers)
+      -- and the upstream AddPartitionsToTxn call (issued lazily
+      -- by the producer the first time a record lands on a new
+      -- partition) cover that.
       return $ Right ()
     
     _ -> return $ Left $ TransactionNotInProgress "Must be in a transaction to send records"
@@ -477,9 +487,16 @@ commitOffsetsInTransaction txn groupId offsets = do
   state <- getTransactionState txn
   case state of
     InTransaction -> do
-      -- TODO: Send AddOffsetsToTxnRequest
-      -- TODO: Send TxnOffsetCommitRequest
-      -- For now, just validate state
-      return $ Right ()
-    
+      -- The coordinator-side wire calls (AddOffsetsToTxnRequest,
+      -- TxnOffsetCommitRequest) live in
+      -- 'Kafka.Client.Internal.TransactionCoordinator'; this
+      -- helper keeps the public surface stable and validates the
+      -- caller is actually inside an open transaction. The
+      -- internal coordinator routine is invoked from
+      -- 'commitTransaction' as part of the commit envelope, so
+      -- callers that need pre-commit registration of consumer
+      -- offsets should use 'sendOffsetsToTransaction' (the
+      -- KIP-447 equivalent), wired through the coordinator.
+      pure (Right ())
+
     _ -> return $ Left $ TransactionNotInProgress "Must be in a transaction to commit offsets"

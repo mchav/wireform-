@@ -248,12 +248,12 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
     -- Compute per-member assignment when we're the leader. We walk the
     -- raw subscription bytes published by every joined member, take the
     -- union of subscribed topics, look the partitions up in the
-    -- metadata cache, and fan them out via 'rangeAssign'.
+    -- metadata cache, and fan them out via 'runAssignor'.
     buildLeaderAssignments members = do
-      let memberSubs = map (\m -> (CG.gmiMemberId m, decodeSubscription (CG.gmiMetadata m))) members
+      let memberSubs = map (\m -> (CG.gmiMemberId m, decodeSubscriptionFull (CG.gmiMetadata m))) members
           subscribedTopics =
             Map.keys $ Map.fromList
-              [ (t, ()) | (_, Right (ts, _)) <- memberSubs, t <- ts ]
+              [ (t, ()) | (_, Right (ts, _, _)) <- memberSubs, t <- ts ]
 
       -- Look up partition counts for every subscribed topic. (We
       -- already refreshed metadata for our own topics; the leader may
@@ -266,14 +266,28 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
                      Just ps -> sortOn id (map Meta.partitionMetaId ps)
         pure (t, pids)
 
+      -- Sticky / cooperative-sticky needs each member's previous
+      -- assignment to keep partition ownership stable across
+      -- rebalances (KIP-341 / KIP-429). We pull that out of the
+      -- 'ownedPartitions' field every member published in its
+      -- JoinGroup subscription metadata. For other assignors the
+      -- list is ignored (see 'runAssignor').
+      let prevGen :: [(Text, [(Text, [Int32])])]
+          prevGen =
+            [ (mid, owned)
+            | (mid, Right (_topics, _user, owned)) <- memberSubs
+            , not (null owned)
+            ]
+          mPrev = if null prevGen then Nothing else Just prevGen
+
       let perMember = runAssignor assignor
             [ (mid, topicsOf m)
             | (mid, m) <- memberSubs
-            , let topicsOf (Right (ts, _)) = ts
-                  topicsOf (Left _)        = []
+            , let topicsOf (Right (ts, _, _)) = ts
+                  topicsOf (Left _)           = []
             ]
             (Map.fromList topicParts)
-            Nothing  -- TODO: thread previous-generation state for sticky
+            mPrev
 
       pure
         [ (mid, runPutS $ CPA.encodeConsumerProtocolAssignment 0 $
@@ -606,9 +620,22 @@ encodeSubscription topics =
       }
 
 -- | Decode a JoinGroup subscription metadata payload back into
--- @(topics, userData)@.
+-- @(topics, userData)@. Note this drops the @ownedPartitions@ field;
+-- 'decodeSubscriptionFull' is the sticky-aware variant.
 decodeSubscription :: BS.ByteString -> Either String ([Text], BS.ByteString)
 decodeSubscription bs =
+  fmap (\(ts, ud, _) -> (ts, ud)) (decodeSubscriptionFull bs)
+
+-- | Like 'decodeSubscription' but also returns the
+-- @ownedPartitions@ field, which sticky / cooperative-sticky
+-- assignors use to thread previous-generation state across
+-- rebalances (KIP-341 / KIP-429). The third tuple component is
+-- the list of @(topic, [partitionId])@ the member had assigned
+-- before this rebalance.
+decodeSubscriptionFull
+  :: BS.ByteString
+  -> Either String ([Text], BS.ByteString, [(Text, [Int32])])
+decodeSubscriptionFull bs =
   case runGetS (CPS.decodeConsumerProtocolSubscription 0) bs of
     Left err -> Left err
     Right s ->
@@ -618,7 +645,18 @@ decodeSubscription bs =
           userDataBs = case P.unKafkaBytes (CPS.consumerProtocolSubscriptionUserData s) of
             P.NotNull v -> v
             P.Null      -> BS.empty
-      in Right (map kafkaStringToText topicsArr, userDataBs)
+          owned = case P.unKafkaArray (CPS.consumerProtocolSubscriptionOwnedPartitions s) of
+            P.NotNull tv -> V.toList tv
+            P.Null       -> []
+          ownedDecoded =
+            [ ( kafkaStringToText (CPS.topicPartitionTopic tp)
+              , case P.unKafkaArray (CPS.topicPartitionPartitions tp) of
+                  P.NotNull pv -> V.toList pv
+                  P.Null       -> []
+              )
+            | tp <- owned
+            ]
+      in Right (map kafkaStringToText topicsArr, userDataBs, ownedDecoded)
 
 -- | Decode the per-member SyncGroup assignment payload.
 decodeAssignment :: BS.ByteString -> Either String [(Text, [Int32])]

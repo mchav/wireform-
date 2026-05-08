@@ -56,6 +56,10 @@ unit_batchTimeoutDetection = testCase "Batch timeout detection" $ do
         , BA.batchCompression = Compression.NoCompression
         , BA.batchCompressionLevel = Compression.defaultLevel Compression.NoCompression
         , BA.batchCallbacks = []
+        , BA.batchAttempts = 0
+        , BA.batchProducerId = RB.noProducerId
+        , BA.batchProducerEpoch = RB.noProducerEpoch
+        , BA.batchBaseSequence = RB.noSequence
         }
   
   -- Test that the batch is detected as timed out
@@ -86,6 +90,10 @@ unit_batchNotTimedOut = testCase "Batch not timed out when within timeout" $ do
         , BA.batchCompression = Compression.NoCompression
         , BA.batchCompressionLevel = Compression.defaultLevel Compression.NoCompression
         , BA.batchCallbacks = []
+        , BA.batchAttempts = 0
+        , BA.batchProducerId = RB.noProducerId
+        , BA.batchProducerEpoch = RB.noProducerEpoch
+        , BA.batchBaseSequence = RB.noSequence
         }
   
   -- Test that the batch is NOT detected as timed out
@@ -117,6 +125,10 @@ prop_timeoutDetectionCorrectness = property $ do
         , BA.batchCompression = Compression.NoCompression
         , BA.batchCompressionLevel = Compression.defaultLevel Compression.NoCompression
         , BA.batchCallbacks = []
+        , BA.batchAttempts = 0
+        , BA.batchProducerId = RB.noProducerId
+        , BA.batchProducerEpoch = RB.noProducerEpoch
+        , BA.batchBaseSequence = RB.noSequence
         }
       
       isTimedOut = Sender.isBatchTimedOut currentTime deliveryTimeoutMs batch
@@ -151,6 +163,10 @@ prop_veryOldBatchesTimeout = property $ do
         , BA.batchCompression = Compression.NoCompression
         , BA.batchCompressionLevel = Compression.defaultLevel Compression.NoCompression
         , BA.batchCallbacks = []
+        , BA.batchAttempts = 0
+        , BA.batchProducerId = RB.noProducerId
+        , BA.batchProducerEpoch = RB.noProducerEpoch
+        , BA.batchBaseSequence = RB.noSequence
         }
       
       isTimedOut = Sender.isBatchTimedOut currentTime deliveryTimeoutMs batch
@@ -180,6 +196,10 @@ prop_freshBatchesNeverTimeout = property $ do
         , BA.batchCompression = Compression.NoCompression
         , BA.batchCompressionLevel = Compression.defaultLevel Compression.NoCompression
         , BA.batchCallbacks = []
+        , BA.batchAttempts = 0
+        , BA.batchProducerId = RB.noProducerId
+        , BA.batchProducerEpoch = RB.noProducerEpoch
+        , BA.batchBaseSequence = RB.noSequence
         }
       
       isTimedOut = Sender.isBatchTimedOut currentTime deliveryTimeoutMs batch

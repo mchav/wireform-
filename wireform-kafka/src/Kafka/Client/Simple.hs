@@ -228,15 +228,21 @@ extractTopicInfo topic = TopicInfo
   , topicErrorCode = MResp.metadataResponseTopicErrorCode topic
   }
 
--- Note: MetadataResponsePartition is not exported from the generated module,
--- so we cannot directly pattern match on it. For now, we'll return empty partition lists.
--- TODO: Update code generator to export all message types, or add accessor functions
 extractPartitions :: MResp.MetadataResponseTopic -> [PartitionInfo]
-extractPartitions topic = []
-  -- TODO: Once MetadataResponsePartition is exported, implement:
-  -- case P.unKafkaArray (MResp.metadataResponseTopicPartitions topic) of
-  --   P.Null -> []
-  --   P.NotNull vec -> V.toList $ V.map extractPartitionInfo vec
+extractPartitions topic =
+  case P.unKafkaArray (MResp.metadataResponseTopicPartitions topic) of
+    P.Null      -> []
+    P.NotNull v -> V.toList (V.map extractPartitionInfo v)
+
+extractPartitionInfo :: MResp.MetadataResponsePartition -> PartitionInfo
+extractPartitionInfo p =
+  PartitionInfo
+    { partitionId       = MResp.metadataResponsePartitionPartitionIndex p
+    , partitionLeader   = MResp.metadataResponsePartitionLeaderId p
+    , partitionReplicas = case P.unKafkaArray (MResp.metadataResponsePartitionReplicaNodes p) of
+        P.Null      -> []
+        P.NotNull v -> V.toList v
+    }
 
 -- | Helper to extract Text from KafkaString
 extractText :: P.KafkaString -> Text

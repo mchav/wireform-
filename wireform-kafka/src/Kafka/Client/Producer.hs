@@ -61,7 +61,9 @@ module Kafka.Client.Producer
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async)
+import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
+import qualified Data.Time.Clock.POSIX as Time
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable (hash)
@@ -284,6 +286,18 @@ data Producer = Producer
     -- ^ Sticky partition state per topic (KIP-480) - using stm-containers
   , producerRoundRobinCounters :: !(StmMap.Map Text Int32)
     -- ^ Round-robin counters per topic - using stm-containers
+  , producerIdempotentId :: !(TVar Int64)
+    -- ^ Producer id (KIP-98). 'noProducerId' (= -1) for
+    --   non-idempotent / non-transactional producers; otherwise
+    --   set by 'InitProducerId' on the broker. We initialise it
+    --   to 'noProducerId' and let the transactional bootstrap
+    --   path overwrite it.
+  , producerIdempotentEpoch :: !(TVar Int16)
+    -- ^ Producer epoch from 'InitProducerId'. Pairs with
+    --   'producerIdempotentId'.
+  , producerSequenceNumbers :: !(StmMap.Map BA.TopicPartition Int32)
+    -- ^ Per-(topic, partition) next sequence number to stamp
+    --   onto the next batch's 'batchBaseSequence'. KIP-98.
   }
 
 -- | Create a new Kafka producer.
@@ -372,7 +386,18 @@ createProducer brokerAddrs config = do
       -- Initialize sticky partition and round-robin state (KIP-480)
       stickyPartitions <- StmMap.newIO
       roundRobinCounters <- StmMap.newIO
-      
+
+      -- Idempotent / transactional producer state (KIP-98). The
+      -- producer id + epoch are populated by 'InitProducerId' on
+      -- first transactional bootstrap; until then they default to
+      -- 'noProducerId' / 'noProducerEpoch'. Non-idempotent
+      -- producers leave both at the no-op sentinels and the
+      -- sender writes 'RB.noProducerId' / 'RB.noSequence' onto
+      -- every batch.
+      idempotentPid   <- newTVarIO RB.noProducerId
+      idempotentEpoch <- newTVarIO RB.noProducerEpoch
+      sequenceNumbers <- StmMap.newIO
+
       -- Return producer handle
       return $ Right Producer
         { producerConfig = config
@@ -383,6 +408,9 @@ createProducer brokerAddrs config = do
         , producerSenderState = senderState
         , producerStickyPartitions = stickyPartitions
         , producerRoundRobinCounters = roundRobinCounters
+        , producerIdempotentId = idempotentPid
+        , producerIdempotentEpoch = idempotentEpoch
+        , producerSequenceNumbers = sequenceNumbers
         }
 
 -- | Parse broker address in "host:port" format
@@ -404,19 +432,47 @@ parseBrokerAddress addr =
 --   4. If transactional, abort any open transaction (TODO)
 --   5. Close all connections
 closeProducer :: Producer -> IO ()
-closeProducer Producer{..} = do
-  -- Close accumulator (marks all batches as ready)
+closeProducer p@Producer{..} = do
+  -- Close accumulator (marks all batches as ready). After this
+  -- returns no new records can be appended; the sender thread
+  -- will drain everything that's already been accumulated.
   BA.closeBatchAccumulator producerAccumulator
-  
-  -- Give the sender thread time to drain and send pending batches
-  -- TODO: Implement proper synchronization with sender thread completion
-  threadDelay 1000000  -- 1 second
-  
-  -- Stop sender thread
+
+  -- Wait for the sender thread to actually finish draining,
+  -- bounded by the producer's delivery timeout. This replaces a
+  -- previous fixed 1-second sleep that didn't actually wait for
+  -- the work to complete.
+  let deadlineMs = max 1000 (producerDeliveryTimeoutMs producerConfig)
+  _ <- waitForDrain p deadlineMs
+
+  -- Stop sender thread (idempotent if already stopped).
   Sender.stopSenderThread producerSenderState producerSender
-  
-  -- Close all connections
+
+  -- Close all connections.
   Conn.closeAllConnections producerConnManager
+
+-- | Poll the accumulator until it has no pending batches or the
+-- caller-supplied deadline elapses. Returns @True@ if everything
+-- drained cleanly, @False@ on timeout. The polling interval is
+-- 10ms which keeps the close path responsive without burning CPU.
+waitForDrain :: Producer -> Int -> IO Bool
+waitForDrain Producer{..} deadlineMs = do
+  start <- nowMillis
+  let loop = do
+        pending <- BA.hasReadyBatches producerAccumulator
+        now <- nowMillis
+        let elapsed = now - start
+        if not pending
+          then pure True
+          else if elapsed >= fromIntegral deadlineMs
+            then pure False
+            else do
+              threadDelay (10 * 1000) -- 10ms
+              loop
+  loop
+  where
+    nowMillis :: IO Int64
+    nowMillis = round . (* 1000) <$> Time.getPOSIXTime
 
 -- | Close the producer with a specified timeout (KIP-15).
 --
@@ -624,16 +680,19 @@ sendBatch
   -> [ProducerRecord]
   -> IO (Either String [RecordMetadata])
 sendBatch producer records = do
-  -- Send each record individually for now
-  -- TODO: Optimize to batch them together
-  results <- mapM (sendRecordIndividual producer) records
-  
-  -- Collect results
+  -- Fire each enqueue in its own async so the accumulator can
+  -- coalesce records targeting the same (topic, partition) into
+  -- the same RecordBatch on the wire. Sequencing them via plain
+  -- 'mapM' would block per-record on the broker round-trip and
+  -- defeat the batching.
+  asyncs   <- mapM (Async.async . sendRecordIndividual producer) records
+  results  <- mapM Async.wait asyncs
   let (errors, successes) = partitionEithers results
-  
   if null errors
     then return $ Right successes
-    else return $ Left $ "Some messages failed: " ++ show (length errors) ++ " errors"
+    else return $ Left $
+      "Some messages failed: "
+        <> show (length errors) <> " errors"
   where
     sendRecordIndividual :: Producer -> ProducerRecord -> IO (Either String RecordMetadata)
     sendRecordIndividual p ProducerRecord{..} =

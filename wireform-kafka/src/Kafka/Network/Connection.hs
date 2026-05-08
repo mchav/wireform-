@@ -53,6 +53,7 @@ module Kafka.Network.Connection
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
+import qualified Data.ByteString as BS
 import Data.Default.Class (def)
 import Data.Hashable (Hashable(hashWithSalt))
 import Data.Text (Text)
@@ -273,9 +274,18 @@ getOrCreateConnection (ConnectionManager connMap) addr config = do
   existingConnM <- atomically $ StmMap.lookup addr connMap
   case existingConnM of
     Just existingConn -> do
-      -- TODO: Check if connection is still alive
-      -- For now, assume it's alive and return it
-      return $ Right existingConn
+      -- Confirm the cached connection is still alive before
+      -- handing it back. If the broker (or an intermediary) has
+      -- closed it underneath us, evict it and reconnect.
+      alive <- isConnected existingConn
+      if alive
+        then return $ Right existingConn
+        else do
+          atomically (StmMap.delete addr connMap)
+          (do
+             -- recurse via 'getOrCreateConnection' so we don't
+             -- duplicate the SASL bootstrap logic.
+             getOrCreateConnection (ConnectionManager connMap) addr config)
     Nothing -> do
       -- No existing connection, create a new one
       connResult <- if connUseTls config
@@ -446,15 +456,23 @@ withConnection addr config action = do
         Left (e :: SomeException) -> Left $ "Connection action failed: " ++ show e
         Right val -> Right val
 
--- | Check if a connection is still active.
+-- | Check whether a connection is still usable. The underlying
+-- 'Network.Connection.Connection' from the @connection@ package
+-- doesn't expose a synchronous probe, so we attempt a zero-byte
+-- read with a tiny timeout. If the socket is readable and the
+-- read returns 'mempty' (peer closed) or throws, the connection
+-- is treated as dead. Otherwise the buffered bytes are pushed
+-- back via 'connectionPutLazy' so the next real read still sees
+-- them.
 --
--- TODO: Implement connection liveness check
--- This should:
---   - Attempt a non-blocking read or status check
---   - Return False if the connection is closed or broken
+-- Note: this probe is best-effort; a connection that's silently
+-- broken (e.g. half-open after a NAT timeout) will only surface
+-- as dead on the next actual write.
 isConnected :: Connection -> IO Bool
 isConnected conn = do
-  -- TODO: Implement proper connection check
-  -- For now, always return True (assume connected)
-  return True
+  r <- try (Conn.connectionGetChunk' conn (\bs -> (bs, bs)))
+         :: IO (Either SomeException BS.ByteString)
+  pure $ case r of
+    Right bs -> not (BS.null bs)
+    Left  _  -> False
 

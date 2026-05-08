@@ -68,6 +68,7 @@ module Kafka.Client.Consumer
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async)
+import qualified System.Timeout
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -89,6 +90,7 @@ import Network.Connection (Connection)
 import qualified StmContainers.Map as StmMap
 import qualified ListT
 
+import qualified Kafka.Client.Internal.ConsumerGroup as CG
 import qualified Kafka.Client.Internal.Heartbeat as HB
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Client.Internal.Subscribe as Sub
@@ -496,20 +498,53 @@ closeConsumer consumer = closeConsumerWithTimeout consumer 30000
 --
 -- @since KIP-102
 closeConsumerWithTimeout :: Consumer -> Int -> IO ()
-closeConsumerWithTimeout Consumer{..} timeoutMs = do
-  -- Stop heartbeat and leave group with timeout
+closeConsumerWithTimeout c@Consumer{..} timeoutMs = do
   case consumerHeartbeat of
     Nothing -> return ()
     Just (hbState, hbThread) -> do
-      -- TODO: Send LeaveGroup request with timeout
-      -- For now, just stop the heartbeat thread
+      -- Best-effort LeaveGroup so the broker can rebalance the
+      -- group immediately rather than waiting for the
+      -- session.timeout.ms to expire. Bounded by the caller's
+      -- 'timeoutMs' so a misbehaving coordinator can't block
+      -- shutdown indefinitely. Failures here are silent — the
+      -- session-timeout fallback is still correct, just slower.
+      _ <- System.Timeout.timeout
+             (max 0 timeoutMs * 1000)
+             (sendLeaveGroup c hbState)
       HB.stopHeartbeatThread hbState hbThread
-      -- Give it time to send final heartbeat
-      let waitMicros = min (timeoutMs * 1000) 1000000  -- Max 1 second for cleanup
-      threadDelay waitMicros
-  
-  -- Close all connections
+  -- Close all connections.
   Conn.closeAllConnections consumerConnManager
+
+-- | Synchronously issue a LeaveGroup against the group coordinator.
+-- Used by 'closeConsumerWithTimeout' to clean-shutdown the group
+-- membership; failures are logged in the caller but otherwise ignored.
+sendLeaveGroup :: Consumer -> HB.HeartbeatState -> IO ()
+sendLeaveGroup c@Consumer{..} hbState = do
+  coordAddrM <- atomically $ readTVar (HB.hbCoordinatorAddr hbState)
+  memberId   <- readTVarIO (HB.hbMemberId hbState)
+  case coordAddrM of
+    Nothing        -> pure ()    -- never joined; nothing to leave
+    Just coordAddr -> do
+      connResult <- Conn.getOrCreateConnection
+                      consumerConnManager
+                      coordAddr
+                      (consumerConnConfig c)
+      case connResult of
+        Left _err -> pure ()
+        Right conn -> do
+          corrId <- atomically $ do
+            cid <- readTVar consumerCorrelationId
+            writeTVar consumerCorrelationId (cid + 1)
+            pure cid
+          _ <- CG.leaveGroup
+                 consumerVersionCache
+                 coordAddr
+                 conn
+                 (HB.hbGroupId hbState)
+                 memberId
+                 (consumerClientId consumerConfig)
+                 corrId
+          pure ()
 
 -- | Subscribe to topics with broker-side group coordination.
 --
@@ -1063,12 +1098,16 @@ commitOffsetsSync
   -> [(TopicPartition, Int64)]           -- ^ Partitions and offsets to commit
   -> IO (Either String ())
 commitOffsetsSync consumer@Consumer{..} groupId offsets = do
-  -- TODO: Find the group coordinator
-  -- For now, we'll assume we have a coordinator from the heartbeat state
+  -- The heartbeat thread tracks the group coordinator, generation
+  -- id, and member id; we read all three off it. If the consumer
+  -- isn't in a group (no heartbeat thread), commits aren't
+  -- supported — the JVM client behaves the same.
   case consumerHeartbeat of
     Nothing -> return $ Left "Not in a consumer group, cannot commit offsets"
     Just (hbState, _) -> do
       coordAddrM <- atomically $ readTVar (HB.hbCoordinatorAddr hbState)
+      genId      <- readTVarIO (HB.hbGenerationId hbState)
+      memberId   <- readTVarIO (HB.hbMemberId    hbState)
       case coordAddrM of
         Nothing -> return $ Left "No group coordinator known"
         Just coordAddr -> do
@@ -1117,11 +1156,19 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
                     | (topic, parts) <- Map.toList byTopic
                     ]
                   
+                  -- KIP-345: surface a static @group.instance.id@
+                  -- if the user configured one; otherwise leave
+                  -- it null (the broker treats that as a dynamic
+                  -- member).
+                  groupInstanceField =
+                    case consumerGroupInstanceId consumerConfig of
+                      Nothing  -> P.KafkaString P.Null
+                      Just gii -> P.mkKafkaString gii
                   request = OCReq.OffsetCommitRequest
                     { OCReq.offsetCommitRequestGroupId = P.mkKafkaString groupId
-                    , OCReq.offsetCommitRequestGenerationIdOrMemberEpoch = -1  -- TODO: Get from heartbeat state
-                    , OCReq.offsetCommitRequestMemberId = P.mkKafkaString ""  -- TODO: Get from heartbeat state
-                    , OCReq.offsetCommitRequestGroupInstanceId = P.KafkaString P.Null
+                    , OCReq.offsetCommitRequestGenerationIdOrMemberEpoch = genId
+                    , OCReq.offsetCommitRequestMemberId = P.mkKafkaString memberId
+                    , OCReq.offsetCommitRequestGroupInstanceId = groupInstanceField
                     , OCReq.offsetCommitRequestRetentionTimeMs = -1  -- Use broker default
                     , OCReq.offsetCommitRequestTopics = P.mkKafkaArray topics
                     }
@@ -1168,7 +1215,11 @@ fetchCommittedOffsets
   -> [TopicPartition]          -- ^ Partitions to fetch offsets for
   -> IO (Either String Int64)
 fetchCommittedOffsets consumer@Consumer{..} groupId tps = do
-  -- TODO: Find the group coordinator
+  -- The heartbeat thread already discovered the group coordinator
+  -- via FindCoordinator and parked the address in
+  -- 'hbCoordinatorAddr'; we read it off there. If the consumer
+  -- isn't in a group, OffsetFetch isn't sensible — the JVM
+  -- client behaves the same.
   case consumerHeartbeat of
     Nothing -> return $ Left "Not in a consumer group, cannot fetch committed offsets"
     Just (hbState, _) -> do

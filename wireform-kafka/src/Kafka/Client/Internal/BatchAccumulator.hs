@@ -106,6 +106,29 @@ data ProducerBatch = ProducerBatch
     -- ^ Compression level (KIP-353/776/909)
   , batchCallbacks :: ![RecordCallback]
     -- ^ Completion callbacks for each record (in order)
+  , batchAttempts :: !Int
+    -- ^ Number of retry attempts already taken on this batch.
+    --   Bumped each time the sender re-enqueues the batch after a
+    --   retriable produce error. The 'shouldRetry' predicate
+    --   compares this against 'retryMaxAttempts' from the sender's
+    --   'RetryConfig'; 'retryBatch' passes it to 'nextRetryBackoffMs'
+    --   so successive attempts back off exponentially. 0 means the
+    --   batch hasn't been retried yet.
+  , batchProducerId :: !Int64
+    -- ^ Idempotent / transactional producer id stamped onto the
+    --   serialised RecordBatch. 'noProducerId' (= -1) for
+    --   non-idempotent producers; populated from
+    --   'Kafka.Client.Internal.ProducerSender.SenderState' when
+    --   the producer config has @producerIdempotent = True@ or
+    --   @producerTransactional = Just _@.
+  , batchProducerEpoch :: !Int16
+    -- ^ Producer epoch from @InitProducerId@. Pairs with
+    --   'batchProducerId'; together they fence stale producers.
+  , batchBaseSequence :: !Int32
+    -- ^ Sequence number assigned to the first record in this
+    --   batch. Each successive batch on the same (topic, partition)
+    --   gets the previous batch's @batchBaseSequence + count@.
+    --   'noSequence' (= -1) for non-idempotent producers.
   }
 
 -- | Per-partition batch queue
@@ -343,6 +366,10 @@ createBatch BatchAccumulatorConfig{..} tp currentTime =
     , batchCompression = accumulatorCompression
     , batchCompressionLevel = accumulatorCompressionLevel
     , batchCallbacks = []
+    , batchAttempts = 0
+    , batchProducerId = RB.noProducerId
+    , batchProducerEpoch = RB.noProducerEpoch
+    , batchBaseSequence = RB.noSequence
     }
 
 -- | Get current time in milliseconds

@@ -190,18 +190,19 @@ startKafkaStreams ks = do
                       logAndContinue
           writeIORef (ksEngine ks) (Just engine)
           -- Pick the EOS coordinator based on the configured
-          -- processing guarantee. We don't yet wire a real
-          -- transactional producer here — that requires fold-in
-          -- from Kafka.Client.Transaction once it can produce
-          -- through the same producer instance — but we set the
-          -- coordinator stub so the commit sequence is exercised.
-          case processingGuarantee (ksConfig ks) of
-            AtLeastOnceP  -> writeIORef (ksEosCoord ks) noopEOSCoordinator
-            ExactlyOnceV2 -> writeIORef (ksEosCoord ks) noopEOSCoordinator
-                             -- TODO: build a real EOSCoordinator from
-                             -- a transactional producer; gated on the
-                             -- producer growing producerTransactional
-                             -- support beyond the current stub.
+          -- processing guarantee. AtLeastOnceP uses the
+          -- 'noopEOSCoordinator' (commit cycles still fire, but
+          -- there's no transaction). ExactlyOnceV2 also defaults
+          -- to the no-op so the commit sequence is exercised
+          -- structurally; users that need wire-level EOS install
+          -- their own coordinator via 'applyEOSCoordinator', for
+          -- example wrapping a 'Kafka.Client.Transaction.Transaction'
+          -- with 'newRealEOSCoordinator'. We deliberately don't
+          -- auto-instantiate a 'Transaction' here: the producer's
+          -- send path doesn't yet route records through a txn
+          -- envelope, so a real coordinator combined with the
+          -- current producer would commit empty transactions.
+          writeIORef (ksEosCoord ks) noopEOSCoordinator
           let topics = sourceTopics topo
           eSubs <- KC.subscribe c (map unTopicName topics)
           case eSubs of
@@ -286,6 +287,24 @@ eventLoop ks engine consumer = go
                   (Timestamp (KC.crTimestamp rec))
                   (fromIntegral (KC.crPartition rec))
                   (KC.crOffset rec)
+
+            -- Collect the highest (offset + 1) per (topic, partition)
+            -- across the records we just fed; that's what the EOS
+            -- coordinator wants to commit. Skipping when paused
+            -- means we don't advance offsets past records we
+            -- never delivered.
+            let !commitOffsets =
+                  if paused
+                    then Map.empty
+                    else Map.fromListWith max
+                           [ ( KC.TopicPartition
+                                 (KC.crTopic rec)
+                                 (fromIntegral (KC.crPartition rec))
+                             , KC.crOffset rec + 1
+                             )
+                           | rec <- recs
+                           ]
+
             -- The /commit/ goes through the EOS coordinator: under
             -- AtLeastOnce this is the no-op coordinator and the
             -- behaviour is identical to the old (commitEngine +
@@ -296,7 +315,7 @@ eventLoop ks engine consumer = go
             outcome <- runCommitCycle
               coord
               (applicationId (ksConfig ks))
-              (pure mempty)         -- TODO: gather actual offsets
+              (pure commitOffsets)
               (commitEngine engine)
             case outcome of
               CommitSucceeded -> do
