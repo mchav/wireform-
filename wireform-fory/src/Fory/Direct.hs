@@ -972,6 +972,14 @@ instance forall a. DecodeDirect a => DecodeDirect [a] where
 instance {-# OVERLAPPING #-} DecodeDirect [Text] where
   directDecodePayload = V.toList <$> directDecodePayload @(Vector Text)
 
+-- | OVERLAPPING fast path for @[Int]@ decode. Routes
+-- through the existing 'Vector Int' inline decoder
+-- (which threads 'Int#' offsets and writes into
+-- 'VM.IOVector' with no per-element @(Int, Int)@ tuple
+-- alloc), then converts to a list.
+instance {-# OVERLAPPING #-} DecodeDirect [Int] where
+  directDecodePayload = V.toList <$> directDecodePayload @(Vector Int)
+
 -- 'Vector a' uses the same wire shape — boxed Vector is
 -- equivalent to '[a]' from the wire's perspective.
 instance ForyTypeId (Vector a) where directTypeId = T.LIST
