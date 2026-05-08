@@ -34,11 +34,20 @@ import qualified Kafka.Protocol.Primitives as P
 -- -----------------------------------------------------------------------------
 
 -- | Generate deterministic test data of a given size.
--- Uses a repeating pattern to ensure consistent memory usage and cache behavior.
+-- Uses a repeating pattern to ensure consistent memory usage and cache
+-- behavior. The previous implementation used
+-- @BS.take n (BS.concat (repeat pattern))@ which tries to materialise
+-- an infinite list of bytestrings before truncating — that's a textbook
+-- accidental @O(infinity)@ heap blowup; with the criterion harness it
+-- pinned a CPU at 1 TiB virtual memory and never returned.
 mkBenchData :: Int -> ByteString
-mkBenchData n = BS.take n (BS.concat (repeat pattern))
+mkBenchData n
+  | n <= 0    = BS.empty
+  | otherwise = BS.take n (BS.concat (replicate copies pat))
   where
-    pattern = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()-_=+[]{}|;:,.<>?/~`"
+    pat    = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()-_=+[]{}|;:,.<>?/~`"
+    pLen   = BS.length pat
+    copies = (n + pLen - 1) `quot` pLen
 
 -- | Generate pseudo-random bytes of a given size.
 -- Not cryptographically secure, but good enough for benchmarking.

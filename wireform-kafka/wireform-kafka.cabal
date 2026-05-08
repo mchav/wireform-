@@ -484,6 +484,7 @@ benchmark wireform-kafka-bench
     other-modules:
         Benchmarks.ClientOps
         Benchmarks.CRC32C
+        Benchmarks.SerLib
         Benchmarks.Serialization
         Benchmarks.Util
     build-depends:

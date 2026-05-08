@@ -52,3 +52,10 @@ package wireform-arrow
 
 package grpc-spec
   flags: -snappy
+
+-- The Kafka protocol primitives + RecordBatch decoder/encoder live on
+-- the per-record hot path. Build the library at -O2 so SPECIALISE /
+-- INLINE actually fire and the dictionary indirection in the
+-- Serial instances disappears.
+package wireform-kafka
+  optimization: 2

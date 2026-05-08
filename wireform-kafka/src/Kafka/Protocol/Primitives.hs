@@ -225,6 +225,7 @@ putUVarInt (UVarInt n) = go n
       | otherwise = do
           putWord8 (fromIntegral (v .&. 0x7F) .|. 0x80)
           go (v `shiftR` 7)
+{-# INLINE putUVarInt #-}
 
 -- | Decode an unsigned variable-length integer.
 getUVarInt :: MonadGet m => m UVarInt
@@ -237,6 +238,7 @@ getUVarInt = UVarInt <$> go 0 0
       if b .&. 0x80 == 0
         then return value
         else go (shift + 7) value
+{-# INLINE getUVarInt #-}
 
 -- | Encode an unsigned 64-bit variable-length integer (for VarLong).
 putUVarLong64 :: MonadPut m => Word64 -> m ()
@@ -247,6 +249,7 @@ putUVarLong64 n = go n
       | otherwise = do
           putWord8 (fromIntegral (v .&. 0x7F) .|. 0x80)
           go (v `shiftR` 7)
+{-# INLINE putUVarLong64 #-}
 
 -- | Decode an unsigned 64-bit variable-length integer (for VarLong).
 getUVarLong64 :: MonadGet m => m Word64
@@ -259,18 +262,25 @@ getUVarLong64 = go 0 0
       if b .&. 0x80 == 0
         then return value
         else go (shift + 7) value
+{-# INLINE getUVarLong64 #-}
 
 instance Serial VarInt where
   serialize = putVarInt
+  {-# INLINE serialize #-}
   deserialize = getVarInt
+  {-# INLINE deserialize #-}
 
 instance Serial VarLong where
   serialize = putVarLong
+  {-# INLINE serialize #-}
   deserialize = getVarLong
+  {-# INLINE deserialize #-}
 
 instance Serial UVarInt where
   serialize = putUVarInt
+  {-# INLINE serialize #-}
   deserialize = getUVarInt
+  {-# INLINE deserialize #-}
 
 -- -----------------------------------------------------------------------------
 -- String Types
@@ -291,7 +301,8 @@ instance Serial KafkaString where
     let bs = T.encodeUtf8 t
     serialize (fromIntegral (BS.length bs) :: Int16)
     putByteString bs
-  
+  {-# INLINE serialize #-}
+
   deserialize = do
     len <- deserialize
     if (len :: Int16) < 0
@@ -299,6 +310,7 @@ instance Serial KafkaString where
       else do
         bs <- getByteString (fromIntegral len)
         return $ KafkaString (NotNull $ T.decodeUtf8 bs)
+  {-# INLINE deserialize #-}
 
 -- | Compact Kafka string with variable-length unsigned length prefix.
 -- Used in flexible message versions. A length of 0 indicates null,
@@ -316,7 +328,8 @@ instance Serial CompactString where
     let bs = T.encodeUtf8 t
     serialize (UVarInt $ fromIntegral (BS.length bs) + 1)
     putByteString bs
-  
+  {-# INLINE serialize #-}
+
   deserialize = do
     UVarInt len <- deserialize
     if len == 0
@@ -324,6 +337,7 @@ instance Serial CompactString where
       else do
         bs <- getByteString (fromIntegral len - 1)
         return $ CompactString (NotNull $ T.decodeUtf8 bs)
+  {-# INLINE deserialize #-}
 
 -- -----------------------------------------------------------------------------
 -- UUID Type
@@ -371,14 +385,16 @@ instance Serial a => Serial (KafkaArray a) where
   serialize (KafkaArray (NotNull vec)) = do
     serialize (fromIntegral (V.length vec) :: Int32)
     V.mapM_ serialize vec
-  
+  {-# INLINE serialize #-}
+
   deserialize = do
     len <- deserialize
     if (len :: Int32) < 0
       then return (KafkaArray Null)
-      else do
-        items <- replicateM (fromIntegral len) deserialize
-        return $ KafkaArray (NotNull $ V.fromList items)
+      -- V.replicateM grows a mutable buffer in one allocation instead
+      -- of building a list of length n + V.fromList.
+      else KafkaArray . NotNull <$> V.replicateM (fromIntegral (len :: Int32)) deserialize
+  {-# INLINE deserialize #-}
 
 -- | Compact Kafka array with variable-length unsigned length prefix.
 -- Used in flexible message versions. A length of 0 indicates null,
@@ -395,14 +411,15 @@ instance Serial a => Serial (CompactArray a) where
   serialize (CompactArray (NotNull vec)) = do
     serialize (UVarInt $ fromIntegral (V.length vec) + 1)
     V.mapM_ serialize vec
-  
+  {-# INLINE serialize #-}
+
   deserialize = do
     UVarInt len <- deserialize
     if len == 0
       then return (CompactArray Null)
-      else do
-        items <- replicateM (fromIntegral len - 1) deserialize
-        return $ CompactArray (NotNull $ V.fromList items)
+      else CompactArray . NotNull
+             <$> V.replicateM (fromIntegral (len :: Word32) - 1) deserialize
+  {-# INLINE deserialize #-}
 
 -- -----------------------------------------------------------------------------
 -- Bytes Types
@@ -422,12 +439,14 @@ instance Serial KafkaBytes where
   serialize (KafkaBytes (NotNull bs)) = do
     serialize (fromIntegral (BS.length bs) :: Int32)
     putByteString bs
-  
+  {-# INLINE serialize #-}
+
   deserialize = do
     len <- deserialize
     if (len :: Int32) < 0
       then return (KafkaBytes Null)
       else KafkaBytes . NotNull <$> getByteString (fromIntegral len)
+  {-# INLINE deserialize #-}
 
 -- | Compact Kafka bytes with variable-length unsigned length prefix.
 -- Used in flexible message versions. A length of 0 indicates null,
@@ -444,12 +463,14 @@ instance Serial CompactBytes where
   serialize (CompactBytes (NotNull bs)) = do
     serialize (UVarInt $ fromIntegral (BS.length bs) + 1)
     putByteString bs
-  
+  {-# INLINE serialize #-}
+
   deserialize = do
     UVarInt len <- deserialize
     if len == 0
       then return (CompactBytes Null)
       else CompactBytes . NotNull <$> getByteString (fromIntegral len - 1)
+  {-# INLINE deserialize #-}
 
 -- -----------------------------------------------------------------------------
 -- Tagged Fields
