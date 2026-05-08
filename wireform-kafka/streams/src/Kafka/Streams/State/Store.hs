@@ -54,9 +54,8 @@ module Kafka.Streams.State.Store
   ) where
 
 import Control.Exception (Exception)
-import Data.ByteString (ByteString)
 import Data.Hashable (Hashable)
-import Data.IORef (IORef, newIORef, readIORef, writeIORef, atomicModifyIORef')
+import Data.IORef (newIORef, atomicModifyIORef', writeIORef)
 import Data.Int (Int64)
 import Data.Text (Text)
 import GHC.Generics (Generic)

@@ -39,18 +39,15 @@ module Kafka.Streams.State.KeyValue.Persistent
   , defaultPersistentConfig
   ) where
 
-import Control.Exception (bracket, try, SomeException, finally)
 import Control.Monad (when, unless)
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString.Lazy as BL
 import Data.Bits (shiftR, shiftL, (.|.))
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Text as T
-import Data.Word (Word32, Word8)
+import Data.Word (Word32)
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile, renameFile)
 import System.FilePath ((</>))
 import System.IO
@@ -336,7 +333,3 @@ beWord32 b =
 putBE32 :: Handle -> Word32 -> IO ()
 putBE32 h = BS.hPut h . beEncode32
 
--- Suppress 'unused-imports' on bracket / try when the WAL is single-handle.
-_unused :: IO ()
-_unused = bracket (pure ()) (\_ -> pure ()) (\_ -> pure ()) `finally` pure ()
-  >> (try (pure () :: IO ()) :: IO (Either SomeException ())) >> pure ()

@@ -50,7 +50,7 @@ module Kafka.Streams.Serde
   ) where
 
 import qualified Data.Aeson as Aeson
-import Data.Bits (shiftR, shiftL, (.&.), (.|.))
+import Data.Bits (shiftR, shiftL, (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
