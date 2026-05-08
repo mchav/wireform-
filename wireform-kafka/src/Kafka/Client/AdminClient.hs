@@ -62,6 +62,10 @@ module Kafka.Client.AdminClient
   , describeConfigs
     -- * Configuration
   , defaultAdminClientConfig
+    -- * Internal helpers (exposed for testing)
+  , decodeResourceTypeCode
+  , unpackResourceResult
+  , unpackConfigEntry
   ) where
 
 import Control.Concurrent.STM
@@ -822,13 +826,6 @@ describeConfigs client@AdminClient{..} resources = do
       ConfigResourceBroker       -> 4
       ConfigResourceBrokerLogger -> 8
 
-    decodeResourceType :: Int8 -> ConfigResourceType
-    decodeResourceType = \case
-      2 -> ConfigResourceTopic
-      4 -> ConfigResourceBroker
-      8 -> ConfigResourceBrokerLogger
-      _ -> ConfigResourceTopic    -- unknown: best-effort
-
     buildResource :: ConfigResource -> DCReq.DescribeConfigsResource
     buildResource cr = DCReq.DescribeConfigsResource
       { DCReq.describeConfigsResourceResourceType = encodeResourceType (crType cr)
@@ -839,51 +836,72 @@ describeConfigs client@AdminClient{..} resources = do
       , DCReq.describeConfigsResourceConfigurationKeys = P.mkKafkaArray V.empty
       }
 
-    processResourceResult :: DCResp.DescribeConfigsResult -> ConfigResourceResult
-    processResourceResult r =
-      let !rt        = decodeResourceType (DCResp.describeConfigsResultResourceType r)
-          !rn        = extractText (DCResp.describeConfigsResultResourceName r)
-          !errCode   = DCResp.describeConfigsResultErrorCode r
-          !errMsgT   = extractText (DCResp.describeConfigsResultErrorMessage r)
-          !configsV  = case P.unKafkaArray (DCResp.describeConfigsResultConfigs r) of
-                         P.Null      -> V.empty
-                         P.NotNull v -> v
-          !entries   = V.toList (V.map mkEntry configsV)
-       in ConfigResourceResult
-            { crrResource = ConfigResource { crType = rt, crName = rn }
-            , crrEntries  = entries
-            , crrError    =
-                if errCode == 0
-                  then Nothing
-                  else Just (if T.null errMsgT
-                              then T.pack ("Error code " <> show errCode)
-                              else errMsgT)
-            }
+    processResourceResult = unpackResourceResult
 
-    mkEntry :: DCResp.DescribeConfigsResourceResult -> ConfigEntry
-    mkEntry e =
-      let !nm  = extractText (DCResp.describeConfigsResourceResultName  e)
-          !rawValT = extractText (DCResp.describeConfigsResourceResultValue e)
-          -- Value is null iff the broker returned an empty / null
-          -- KafkaString; we surface that as Nothing so callers can
-          -- distinguish "config unset" from "config = empty".
-          !val = case DCResp.describeConfigsResourceResultValue e of
-                   P.KafkaString P.Null -> Nothing
-                   _                    -> Just rawValT
-          !ro  = DCResp.describeConfigsResourceResultReadOnly  e
-          !sen = DCResp.describeConfigsResourceResultIsSensitive e
-          -- KIP-226 ConfigSource: 5 = DEFAULT_CONFIG. We treat any
-          -- other source (TOPIC_CONFIG, DYNAMIC_*, STATIC_*) as
-          -- "not the default value".
-          !srcCode = DCResp.describeConfigsResourceResultConfigSource e
-          !isDef   = srcCode == 5
-       in ConfigEntry
-            { ceName      = nm
-            , ceValue     = val
-            , ceReadOnly  = ro
-            , ceIsDefault = isDef
-            , ceSensitive = sen
-            }
+-- | Decode a wire 'ResourceType' code (per the DescribeConfigs
+-- RPC) into the higher-level 'ConfigResourceType' enum. Unknown
+-- codes fall through to 'ConfigResourceTopic' as a best-effort
+-- default; the JVM client behaves the same way (it reads back
+-- 'ConfigResource.Type.UNKNOWN', but we don't model that here).
+decodeResourceTypeCode :: Int8 -> ConfigResourceType
+decodeResourceTypeCode = \case
+  2 -> ConfigResourceTopic
+  4 -> ConfigResourceBroker
+  8 -> ConfigResourceBrokerLogger
+  _ -> ConfigResourceTopic
+
+-- | Translate a single 'DescribeConfigsResult' (one per resource
+-- in the response) into a 'ConfigResourceResult'. Surfaces any
+-- per-resource error code via 'crrError'; preserves 'crrEntries'
+-- in the order the broker returned them.
+unpackResourceResult :: DCResp.DescribeConfigsResult -> ConfigResourceResult
+unpackResourceResult r =
+  let !rt        = decodeResourceTypeCode (DCResp.describeConfigsResultResourceType r)
+      !rn        = extractText (DCResp.describeConfigsResultResourceName r)
+      !errCode   = DCResp.describeConfigsResultErrorCode r
+      !errMsgT   = extractText (DCResp.describeConfigsResultErrorMessage r)
+      !configsV  = case P.unKafkaArray (DCResp.describeConfigsResultConfigs r) of
+                     P.Null      -> V.empty
+                     P.NotNull v -> v
+      !entries   = V.toList (V.map unpackConfigEntry configsV)
+   in ConfigResourceResult
+        { crrResource = ConfigResource { crType = rt, crName = rn }
+        , crrEntries  = entries
+        , crrError    =
+            if errCode == 0
+              then Nothing
+              else Just (if T.null errMsgT
+                          then T.pack ("Error code " <> show errCode)
+                          else errMsgT)
+        }
+
+-- | Translate a single 'DescribeConfigsResourceResult' (one per
+-- config key under a resource) into a 'ConfigEntry'. Notable
+-- mappings:
+--
+--   * a null 'KafkaString' value becomes 'Nothing' (caller can
+--     distinguish "unset" from "empty");
+--   * KIP-226 'ConfigSource': only @5@ (DEFAULT_CONFIG) sets
+--     'ceIsDefault' to True; everything else (topic / dynamic /
+--     static / per-broker) is treated as a non-default value.
+unpackConfigEntry :: DCResp.DescribeConfigsResourceResult -> ConfigEntry
+unpackConfigEntry e =
+  let !nm  = extractText (DCResp.describeConfigsResourceResultName  e)
+      !rawValT = extractText (DCResp.describeConfigsResourceResultValue e)
+      !val = case DCResp.describeConfigsResourceResultValue e of
+               P.KafkaString P.Null -> Nothing
+               _                    -> Just rawValT
+      !ro  = DCResp.describeConfigsResourceResultReadOnly  e
+      !sen = DCResp.describeConfigsResourceResultIsSensitive e
+      !srcCode = DCResp.describeConfigsResourceResultConfigSource e
+      !isDef   = srcCode == 5
+   in ConfigEntry
+        { ceName      = nm
+        , ceValue     = val
+        , ceReadOnly  = ro
+        , ceIsDefault = isDef
+        , ceSensitive = sen
+        }
 
 -- * Helper Functions
 
