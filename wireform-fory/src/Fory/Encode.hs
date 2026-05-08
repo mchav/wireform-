@@ -955,7 +955,7 @@ emitNamedStructListFast !e !vs =
                       x -> emitUntaggedPayload e x
                     goPermuted (i + 1)
           in if permIsId && allBNN
-               then goFastestBatched
+               then goFastest 0
                else if permIsId
                  then goIdentity 0
                  else goPermuted 0
