@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
@@ -59,6 +60,19 @@ module Kafka.Streams.Driver
   , decodeOutput
     -- * Re-export of the raw collected record shape
   , CollectedRecord (..)
+    -- * Typed input / output topic helpers (streams-test-utils)
+  , TestInputTopic
+  , TestOutputTopic
+  , createInputTopic
+  , createOutputTopic
+  , pipeKV
+  , pipeKVAt
+  , pipeValue
+  , pipeAll
+  , readKV
+  , readValuesToList
+  , readKeyValuesToList
+  , isOutputEmpty
   ) where
 
 import Control.Monad (forM)
@@ -99,6 +113,7 @@ import Kafka.Streams.Internal.RecordCollector
   , inMemoryCollector
   )
 import Kafka.Streams.Processor (TaskId (..))
+import qualified Kafka.Streams.Serde
 import Kafka.Streams.Serde (Serde, deserialize)
 import Kafka.Streams.State.Store
   ( AnyStateStore (..)
@@ -360,3 +375,109 @@ decodeOutput ks vs cr = do
     , orTimestamp = crTimestamp cr
     , orHeaders   = crHeaders cr
     }
+
+----------------------------------------------------------------------
+-- TestInputTopic / TestOutputTopic
+----------------------------------------------------------------------
+
+-- | Typed input topic. Mirrors @TestInputTopic<K, V>@ from Java's
+-- @streams-test-utils@: bind once, then 'pipeKV' / 'pipeValue'
+-- without re-supplying the topic name or serdes.
+data TestInputTopic k v = TestInputTopic
+  { titDriver    :: !TopologyTestDriver
+  , titTopic     :: !TopicName
+  , titKeySerde  :: !(Serde k)
+  , titValSerde  :: !(Serde v)
+  }
+
+-- | Typed output topic. Mirrors @TestOutputTopic<K, V>@.
+data TestOutputTopic k v = TestOutputTopic
+  { totDriver    :: !TopologyTestDriver
+  , totTopic     :: !TopicName
+  , totKeySerde  :: !(Serde k)
+  , totValSerde  :: !(Serde v)
+  }
+
+createInputTopic
+  :: TopologyTestDriver
+  -> TopicName
+  -> Serde k
+  -> Serde v
+  -> TestInputTopic k v
+createInputTopic d t ks vs = TestInputTopic d t ks vs
+
+createOutputTopic
+  :: TopologyTestDriver
+  -> TopicName
+  -> Serde k
+  -> Serde v
+  -> TestOutputTopic k v
+createOutputTopic d t ks vs = TestOutputTopic d t ks vs
+
+-- | Pipe a single (key, value) record using the topic's bound
+-- serdes. Timestamps default to @Timestamp 0@; use 'pipeKVAt' to
+-- override.
+pipeKV
+  :: TestInputTopic k v
+  -> Maybe k
+  -> v
+  -> IO ()
+pipeKV tit mk v = pipeKVAt tit mk v (Timestamp 0) 0
+
+-- | 'pipeKV' with an explicit timestamp + partition.
+pipeKVAt
+  :: TestInputTopic k v
+  -> Maybe k
+  -> v
+  -> Timestamp
+  -> Int
+  -> IO ()
+pipeKVAt TestInputTopic{..} mk v ts part = do
+  let kBytes = fmap (Kafka.Streams.Serde.serialize titKeySerde) mk
+      vBytes = Kafka.Streams.Serde.serialize titValSerde v
+  pipeInput titDriver titTopic kBytes vBytes ts part
+
+-- | Pipe a single value with no key.
+pipeValue :: TestInputTopic k v -> v -> IO ()
+pipeValue tit v = pipeKV tit Nothing v
+
+-- | Pipe a sequence of (key, value, timestamp) tuples in order.
+pipeAll
+  :: TestInputTopic k v
+  -> [(Maybe k, v, Timestamp)]
+  -> IO ()
+pipeAll tit = mapM_ (\(k, v, ts) -> pipeKVAt tit k v ts 0)
+
+-- | Drain every record currently on the output topic and decode
+-- each one through the bound serdes. Caller decides how to consume.
+readKeyValuesToList
+  :: TestOutputTopic k v -> IO [Either String (Maybe k, v)]
+readKeyValuesToList TestOutputTopic{..} = do
+  rs <- readOutput totDriver totTopic
+  pure (map decodePair rs)
+  where
+    decodePair cr = do
+      mk <- case crKey cr of
+        Nothing -> Right Nothing
+        Just kb -> Just <$> Kafka.Streams.Serde.deserialize totKeySerde kb
+      v  <- Kafka.Streams.Serde.deserialize totValSerde (crValue cr)
+      Right (mk, v)
+
+-- | Drain only the values, skipping any decode errors silently.
+readValuesToList :: TestOutputTopic k v -> IO [v]
+readValuesToList tot = do
+  pairs <- readKeyValuesToList tot
+  pure [ v | Right (_, v) <- pairs ]
+
+-- | Read one (key, value) pair, decoded. Returns @Nothing@ if the
+-- output topic is empty.
+readKV :: TestOutputTopic k v -> IO (Maybe (Either String (Maybe k, v)))
+readKV tot = do
+  pairs <- readKeyValuesToList tot
+  case pairs of
+    []      -> pure Nothing
+    (p : _) -> pure (Just p)
+
+-- | True iff the output topic has no records currently buffered.
+isOutputEmpty :: TestOutputTopic k v -> IO Bool
+isOutputEmpty tot = null <$> readKeyValuesToList tot
