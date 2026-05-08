@@ -74,6 +74,8 @@ module Kafka.Streams.DSL.KStream
     -- * Conversions
   , toTable
   , repartition
+  , toKStreamFromKTable
+  , groupByKTable
     -- * Joins
   , joinKStreamKTable
   , leftJoinKStreamKTable
@@ -86,6 +88,8 @@ module Kafka.Streams.DSL.KStream
   , branchedFrom
     -- * Low-level access
   , transformValuesStream
+  , processStream
+  , processValuesStream
   ) where
 
 import Data.IORef
@@ -1374,3 +1378,108 @@ toTopicNamed nm topic p s = do
     Topo.addSink nodeNm topic
                  (producedKeySerde p) (producedValueSerde p)
                  [kstreamParent s]
+
+----------------------------------------------------------------------
+-- KIP-820 process / processValues
+----------------------------------------------------------------------
+
+-- | Drop into the low-level Processor API for /side-effecting/
+-- processors that may or may not forward downstream. Mirrors
+-- @KStream.process(ProcessorSupplier, stateStoreNames)@.
+--
+-- The supplied 'Processor' receives @Record k v@; if the user code
+-- needs to forward records, it can do so via 'forwardRecord' on the
+-- 'ProcessorContext'. Returns 'Nothing'-typed wrapper since the
+-- processor is a /sink/ from the DSL's perspective (just like
+-- 'foreach', but with state-store access).
+processStream
+  :: forall k v
+   . T.Text                              -- ^ node-name prefix
+  -> [StoreName]                         -- ^ stores attached
+  -> IO (Processor k v)
+  -> KStream k v
+  -> IO ()
+processStream prefix stores supplier s = do
+  let b = kstreamBuilder s
+  nm <- freshNodeName b prefix
+  withTopology_ b $
+    Topo.addProcessorWith
+      Topo.ProcessorSpec
+        { Topo.processorSpecName     = nm
+        , Topo.processorSpecParents  = [kstreamParent s]
+        , Topo.processorSpecSupplier = Topo.AnyProcessor supplier
+        , Topo.processorSpecStores   = stores
+        }
+
+-- | Like 'processStream' but the resulting node feeds a downstream
+-- 'KStream'. The supplied 'Processor' takes input @Record k v@ and
+-- may forward records of type @Record k v'@ via 'ctxForward'; the
+-- caller supplies the output value 'Serde'.
+processValuesStream
+  :: forall k v v'
+   . T.Text
+  -> [StoreName]
+  -> IO (Processor k v)
+  -> Serde v'
+  -> KStream k v
+  -> IO (KStream k v')
+processValuesStream prefix stores supplier vs s = do
+  let b = kstreamBuilder s
+  nm <- freshNodeName b prefix
+  withTopology_ b $
+    Topo.addProcessorWith
+      Topo.ProcessorSpec
+        { Topo.processorSpecName     = nm
+        , Topo.processorSpecParents  = [kstreamParent s]
+        , Topo.processorSpecSupplier = Topo.AnyProcessor supplier
+        , Topo.processorSpecStores   = stores
+        }
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nm
+    , kstreamKeySerde   = kstreamKeySerde s
+    , kstreamValueSerde = vs
+    }
+
+----------------------------------------------------------------------
+-- KTable -> KStream / KTable.groupBy
+----------------------------------------------------------------------
+
+-- | Convert a 'KTable' to a 'KStream' carrying every change event.
+-- Mirrors @KTable.toStream@.
+toKStreamFromKTable
+  :: forall k v
+   . Kafka.Streams.DSL.KTable.KTable k v
+  -> IO (KStream k v)
+toKStreamFromKTable kt = do
+  let b = Kafka.Streams.DSL.KTable.ktableBuilder kt
+  nm <- freshNodeName b "KTABLE-TOSTREAM"
+  withTopology_ b $ \t ->
+    Topo.addProcessorWith
+      Topo.ProcessorSpec
+        { Topo.processorSpecName     = nm
+        , Topo.processorSpecParents  = [Kafka.Streams.DSL.KTable.ktableNode kt]
+        , Topo.processorSpecSupplier =
+            Topo.AnyProcessor (mkPassThrough "KTABLE-TOSTREAM")
+        , Topo.processorSpecStores   = []
+        } t
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nm
+    , kstreamKeySerde   = Kafka.Streams.DSL.KTable.ktableKeySerde kt
+    , kstreamValueSerde = Kafka.Streams.DSL.KTable.ktableValueSerde kt
+    }
+
+-- | Re-key a 'KTable'. The result is a 'KStream' on the new key
+-- (since re-keying conceptually requires a repartition); the user
+-- can call 'groupByKey' / 'aggregate' to produce a re-grouped
+-- KTable. Mirrors Java's @KTable.groupBy(KeyValueMapper)@.
+groupByKTable
+  :: forall k v k'
+   . (Ord k, Ord k')
+  => (k -> v -> k')
+  -> Kafka.Streams.DSL.KTable.KTable k v
+  -> IO (KStream k' v)
+groupByKTable keyMap kt = do
+  s <- toKStreamFromKTable kt
+  mapKeyValue (\k v -> (keyMap k v, v)) s

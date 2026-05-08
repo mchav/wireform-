@@ -85,6 +85,11 @@ import Kafka.Streams.State.Window.InMemory
 import Kafka.Streams.Time
 import Kafka.Streams.Topology
 import Kafka.Streams.Metrics
+-- 'Kafka.Streams.Stores' is intentionally NOT re-exported from the
+-- umbrella; it shadows every per-backend factory name. Users should
+-- import it qualified:
+--
+--   import qualified Kafka.Streams.Stores as Stores
 import Kafka.Streams.TopologyDescription
 import Kafka.Streams.Types
 import Kafka.Streams.Window

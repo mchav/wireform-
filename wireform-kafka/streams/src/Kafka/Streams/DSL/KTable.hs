@@ -564,3 +564,4 @@ computeJoinValue mode isLeft thisV mOther =
         else
           Just (f (Unsafe.unsafeCoerce <$> mOther :: Maybe v1)
                   (Just (Unsafe.unsafeCoerce thisV :: v2)))
+

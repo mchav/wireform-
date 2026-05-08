@@ -38,8 +38,12 @@ module Kafka.Streams.Serde
   , utf8Serde
   , int32Serde
   , int64Serde
+  , longSerde
   , doubleSerde
+  , floatSerde
   , voidSerde
+  , uuidSerde
+  , byteArraySerde
   , jsonSerde
     -- * Combinators
   , prefixedSerde
@@ -59,7 +63,10 @@ import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.UUID as UUID
+import Data.UUID (UUID)
 import GHC.Float (castWord64ToDouble, castDoubleToWord64)
+import GHC.Float (castWord32ToFloat, castFloatToWord32)
 import Data.Word (Word8, Word32, Word64)
 import GHC.Generics (Generic)
 
@@ -160,14 +167,43 @@ int64Serde = Serde encodeI64 decodeI64
                 (0 :: Word64) bytes
            in Right (fromIntegral w)
 
+-- | Alias for 'int64Serde' — matches Java's @LongSerializer@ /
+-- @LongDeserializer@.
+longSerde :: Serde Int64
+longSerde = int64Serde
+
 -- | IEEE-754 big-endian double. Matches @DoubleSerializer@ on the JVM.
 doubleSerde :: Serde Double
 doubleSerde = imap castDoubleToWord64 castWord64ToDouble word64Serde
+
+-- | IEEE-754 big-endian float. Matches @FloatSerializer@ on the JVM.
+floatSerde :: Serde Float
+floatSerde = imap castFloatToWord32 castWord32ToFloat word32Serde
 
 word64Serde :: Serde Word64
 word64Serde = Serde
   (serialize int64Serde . fromIntegral)
   (fmap fromIntegral . deserialize int64Serde)
+
+word32Serde :: Serde Word32
+word32Serde = Serde
+  (serialize int32Serde . fromIntegral)
+  (fmap fromIntegral . deserialize int32Serde)
+
+-- | Big-endian 16-byte UUID encoding (matches @UUIDSerializer@).
+uuidSerde :: Serde UUID
+uuidSerde = Serde
+  { serialize   = BS.toStrict . UUID.toByteString
+  , deserialize = \b ->
+      case UUID.fromByteString (BS.fromStrict b) of
+        Just u  -> Right u
+        Nothing -> Left "uuidSerde: not a valid 16-byte UUID"
+  }
+
+-- | Alias for 'byteStringSerde' (matches Java's
+-- @ByteArraySerializer@/@ByteArrayDeserializer@).
+byteArraySerde :: Serde ByteString
+byteArraySerde = byteStringSerde
 
 -- | Aeson 'ToJSON' / 'FromJSON'-backed serde.
 jsonSerde :: (Aeson.ToJSON a, Aeson.FromJSON a) => Serde a

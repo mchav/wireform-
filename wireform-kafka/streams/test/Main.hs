@@ -29,6 +29,7 @@ import qualified Streams.MetricsSpec
 import qualified Streams.NamedSpec
 import qualified Streams.WorkerPoolSpec
 import qualified Streams.EOSRuntimeSpec
+import qualified Streams.ExtensionsSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -59,4 +60,5 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.NamedSpec.tests
   , Streams.WorkerPoolSpec.tests
   , Streams.EOSRuntimeSpec.tests
+  , Streams.ExtensionsSpec.tests
   ]
