@@ -50,6 +50,7 @@ import qualified Client.MockBrokerCoopSpec
 import qualified Client.MockBrokerNetSpec
 import qualified Client.MockBrokerStoreSpec
 import qualified Client.MockBrokerProtoSpec
+import qualified Client.ConfigParitySpec
 import qualified Network.AuthSpec
 import qualified Network.ConnectionRetrySpec
 
@@ -113,6 +114,7 @@ clientTests = testGroup "Client"
   , Client.MockBrokerNetSpec.tests
   , Client.MockBrokerStoreSpec.tests
   , Client.MockBrokerProtoSpec.tests
+  , Client.ConfigParitySpec.tests
   ]
 
 networkTests :: TestTree

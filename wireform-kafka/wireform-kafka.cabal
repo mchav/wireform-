@@ -607,6 +607,7 @@ test-suite wireform-kafka-test
         Client.MockBrokerNetSpec
         Client.MockBrokerStoreSpec
         Client.MockBrokerProtoSpec
+        Client.ConfigParitySpec
         Network.AuthSpec
         Network.ConnectionRetrySpec
         Protocol.ApiVersionsSpec

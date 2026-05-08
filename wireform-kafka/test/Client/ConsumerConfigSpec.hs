@@ -35,22 +35,24 @@ unit_defaultMaxPollInterval = do
   let config = defaultConsumerConfig
   consumerMaxPollIntervalMs config @?= 300000
 
--- | KIP-256: Max poll interval should be separate from session timeout
+-- | KIP-256: Max poll interval should be separate from session timeout.
 unit_maxPollIntervalSeparateFromSessionTimeout :: Assertion
 unit_maxPollIntervalSeparateFromSessionTimeout = do
   let config = defaultConsumerConfig
       maxPollInterval = consumerMaxPollIntervalMs config
       sessionTimeout = consumerSessionTimeoutMs config
-  
-  -- Max poll interval (5 min) should be much longer than session timeout (10 sec)
-  assertBool "Max poll interval should be longer than session timeout" 
+
+  -- Max poll interval (5 min) should be longer than session timeout
+  -- (45s, post-KIP-735).
+  assertBool "Max poll interval should be longer than session timeout"
     (maxPollInterval > sessionTimeout)
-  
-  -- Specifically, default max poll interval should be 300000ms
+
+  -- Default max poll interval is still 300000ms.
   maxPollInterval @?= 300000
-  
-  -- And default session timeout should be 10000ms
-  sessionTimeout @?= 10000
+
+  -- KIP-735 widened the default session timeout from 10000ms to
+  -- 45000ms (Kafka 3.0). We track the JVM client's default.
+  sessionTimeout @?= 45000
 
 -- | KIP-256: Max poll interval should be configurable
 prop_maxPollIntervalConfigurable :: H.Property

@@ -29,6 +29,8 @@ module Kafka.Network.Connection
     Connection(..)
   , ConnectionConfig(..)
   , BrokerAddress(..)
+  , BrokerAddressFamily(..)
+  , DnsLookupMode(..)
     -- * Connection Management
   , connect
   , connectTls
@@ -79,22 +81,100 @@ instance Hashable BrokerAddress where
   hashWithSalt salt (BrokerAddress host port) =
     salt `hashWithSalt` host `hashWithSalt` (fromIntegral port :: Int)
 
--- | Connection configuration.
+-- | Address-family preference for DNS lookups. Mirrors
+-- librdkafka's @broker.address.family@.
+data BrokerAddressFamily
+  = BrokerAddressAny
+  | BrokerAddressIPv4
+  | BrokerAddressIPv6
+  deriving (Eq, Show, Generic)
+
+-- | DNS lookup strategy. Mirrors librdkafka's @client.dns.lookup@.
+data DnsLookupMode
+  = DnsResolveCanonicalBootstrapServersOnly
+    -- ^ Default. Resolve every bootstrap address but do NOT
+    --   re-resolve broker entries returned by metadata.
+  | DnsUseAllDnsIps
+    -- ^ For each broker address, walk all A/AAAA records.
+  deriving (Eq, Show, Generic)
+
+-- | Connection configuration. Field names track librdkafka's
+-- @CONFIGURATION.md@; the librdkafka name appears next to the
+-- Haskell field.
 data ConnectionConfig = ConnectionConfig
   { connTimeout :: !Int
-    -- ^ Connection timeout in seconds (default: 10)
+    -- ^ Connection timeout in seconds (default 10).
+    --   librdkafka @socket.connection.setup.timeout.ms@ /1000.
   , connReadTimeout :: !Int
-    -- ^ Read timeout in seconds (default: 30)
+    -- ^ Read timeout in seconds (default 30).
+    --   librdkafka @socket.timeout.ms@ /1000 (read side).
   , connWriteTimeout :: !Int
-    -- ^ Write timeout in seconds (default: 30)
+    -- ^ Write timeout in seconds (default 30). librdkafka
+    --   @socket.timeout.ms@ /1000 (write side).
+  , connRequestTimeoutMs :: !Int
+    -- ^ Per-request timeout in ms. Default 30000.
+    --   librdkafka @request.timeout.ms@.
   , connRetryDelay :: !Int
-    -- ^ Initial retry delay in milliseconds (default: 100)
+    -- ^ Initial reconnect backoff in ms. Default 100.
+    --   librdkafka @reconnect.backoff.ms@.
   , connMaxRetries :: !Int
-    -- ^ Maximum number of connection retries (default: 3)
+    -- ^ Maximum number of connection retries (default 3).
   , connBackoffMaxMs :: !Int
-    -- ^ Maximum backoff delay in milliseconds (default: 32000)
+    -- ^ Maximum reconnect backoff in ms. Default 10000.
+    --   librdkafka @reconnect.backoff.max.ms@.
   , connBackoffMultiplier :: !Double
-    -- ^ Backoff multiplier for exponential backoff (default: 2.0)
+    -- ^ Reconnect backoff multiplier. Default 2.0.
+  , connSocketKeepalive :: !Bool
+    -- ^ Enable SO_KEEPALIVE on the broker socket. Default 'False'.
+    --   librdkafka @socket.keepalive.enable@.
+  , connSocketNagleDisable :: !Bool
+    -- ^ Disable Nagle (TCP_NODELAY). Default 'False'.
+    --   librdkafka @socket.nagle.disable@.
+  , connSocketSendBuffer :: !Int
+    -- ^ Socket send-buffer hint in bytes. 0 means use the OS
+    --   default. librdkafka @socket.send.buffer.bytes@.
+  , connSocketReceiveBuffer :: !Int
+    -- ^ Socket receive-buffer hint in bytes. 0 means use the OS
+    --   default. librdkafka @socket.receive.buffer.bytes@.
+  , connSocketMaxFails :: !Int
+    -- ^ Disconnect after this many consecutive failed broker
+    --   requests. Default 1. librdkafka @socket.max.fails@.
+  , connMaxIdleMs :: !Int
+    -- ^ Disconnect idle broker connections after this many ms.
+    --   Default 540000 (9 minutes).
+    --   librdkafka @connections.max.idle.ms@.
+  , connMaxReauthMs :: !Int
+    -- ^ For SASL connections, force a re-authentication after
+    --   this many ms. Default 0 (disabled).
+    --   librdkafka @connections.max.reauth.ms@.
+  , connMessageMaxBytes :: !Int
+    -- ^ Hard limit on message size for both produce and fetch.
+    --   Default 1000000 (1 MB). librdkafka @message.max.bytes@.
+  , connReceiveMessageMaxBytes :: !Int
+    -- ^ Maximum size for any single response. Default 100000000
+    --   (100 MB). librdkafka @receive.message.max.bytes@.
+  , connMetadataMaxAgeMs :: !Int
+    -- ^ Period after which the metadata cache is unconditionally
+    --   refreshed. Default 900000 (15 minutes). librdkafka
+    --   @topic.metadata.refresh.interval.ms@.
+  , connTopicMetadataRefreshFastIntervalMs :: !Int
+    -- ^ Polling interval used while metadata is in a transient
+    --   error state (UNKNOWN_TOPIC, NOT_LEADER, etc.). Default 250.
+    --   librdkafka @topic.metadata.refresh.fast.interval.ms@.
+  , connTopicMetadataRefreshSparse :: !Bool
+    -- ^ Include only the topics this client knows about in
+    --   metadata requests. Default 'True'. librdkafka
+    --   @topic.metadata.refresh.sparse@.
+  , connBrokerAddressTtl :: !Int
+    -- ^ How long DNS results are cached in ms. Default 1000.
+    --   librdkafka @broker.address.ttl@.
+  , connBrokerAddressFamily :: !BrokerAddressFamily
+    -- ^ Resolver address-family preference. Default 'BrokerAddressAny'.
+    --   librdkafka @broker.address.family@.
+  , connDnsLookup :: !DnsLookupMode
+    -- ^ DNS lookup strategy. Default
+    --   'DnsResolveCanonicalBootstrapServersOnly'. librdkafka
+    --   @client.dns.lookup@.
   , connUseTls :: !Bool
     -- ^ Whether to use TLS encryption (default: False)
   , connTlsSettings :: !(Maybe TLS.ClientParams)
@@ -118,20 +198,40 @@ data ConnectionConfig = ConnectionConfig
     --   'connSasl' value.
   } deriving (Generic)
 
--- | Default connection configuration (plain TCP, no TLS).
+-- | Default connection configuration. Defaults follow librdkafka's
+-- @CONFIGURATION.md@ where possible, with two exceptions:
+-- 'connBackoffMaxMs' uses 10000 (Kafka 3.x JVM default) rather
+-- than librdkafka's 10000, and 'connMaxIdleMs' uses 540000 to
+-- match the JVM client's @connections.max.idle.ms@.
 defaultConnectionConfig :: ConnectionConfig
 defaultConnectionConfig = ConnectionConfig
-  { connTimeout = 10
-  , connReadTimeout = 30
-  , connWriteTimeout = 30
-  , connRetryDelay = 100
-  , connMaxRetries = 3
-  , connBackoffMaxMs = 32000
-  , connBackoffMultiplier = 2.0
-  , connUseTls = False
-  , connTlsSettings = Nothing
-  , connSasl = Nothing
-  , connClientId = T.pack "wireform-kafka"
+  { connTimeout                         = 10
+  , connReadTimeout                     = 30
+  , connWriteTimeout                    = 30
+  , connRequestTimeoutMs                = 30_000
+  , connRetryDelay                      = 100
+  , connMaxRetries                      = 3
+  , connBackoffMaxMs                    = 10_000
+  , connBackoffMultiplier               = 2.0
+  , connSocketKeepalive                 = False
+  , connSocketNagleDisable              = False
+  , connSocketSendBuffer                = 0
+  , connSocketReceiveBuffer             = 0
+  , connSocketMaxFails                  = 1
+  , connMaxIdleMs                       = 540_000
+  , connMaxReauthMs                     = 0
+  , connMessageMaxBytes                 = 1_000_000
+  , connReceiveMessageMaxBytes          = 100_000_000
+  , connMetadataMaxAgeMs                = 900_000
+  , connTopicMetadataRefreshFastIntervalMs = 250
+  , connTopicMetadataRefreshSparse      = True
+  , connBrokerAddressTtl                = 1000
+  , connBrokerAddressFamily             = BrokerAddressAny
+  , connDnsLookup                       = DnsResolveCanonicalBootstrapServersOnly
+  , connUseTls                          = False
+  , connTlsSettings                     = Nothing
+  , connSasl                            = Nothing
+  , connClientId                        = T.pack "wireform-kafka"
   }
 
 -- | Default TLS settings for secure connections.

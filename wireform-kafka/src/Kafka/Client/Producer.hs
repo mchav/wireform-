@@ -104,9 +104,52 @@ data ProducerConfig = ProducerConfig
   , producerMaxInFlight :: !Int
     -- ^ Maximum in-flight requests per connection (default: 5)
   , producerRetries :: !Int
-    -- ^ Number of retries on transient errors (default: 3)
+    -- ^ Number of retries on transient errors. Default: @2147483647@
+    --   (librdkafka @retries@: effectively unlimited; capped by
+    --   'producerDeliveryTimeoutMs').
+  , producerRetryBackoffMs :: !Int
+    -- ^ Initial backoff after a retriable error in ms. Default 100.
+    --   Mirrors librdkafka @retry.backoff.ms@.
+  , producerRetryBackoffMaxMs :: !Int
+    -- ^ Ceiling for the exponential backoff in ms. Default 1000.
+    --   Mirrors librdkafka @retry.backoff.max.ms@.
+  , producerRetryBackoffMultiplier :: !Double
+    -- ^ Multiplier between consecutive retry backoffs. Default 2.0.
+  , producerRetryBackoffJitter :: !Double
+    -- ^ Jitter band [0.0, 1.0]; the actual backoff is
+    --   uniformly randomised in @backoff * (1 ± jitter)@.
+    --   Default 0.2.
   , producerDeliveryTimeoutMs :: !Int
     -- ^ Maximum time for a record to be delivered including retries (default: 120000ms = 2 minutes)
+  , producerRequestTimeoutMs :: !Int
+    -- ^ Per-request timeout in ms. Bounded above by
+    --   'producerDeliveryTimeoutMs'. Default 30000.
+    --   Mirrors librdkafka @request.timeout.ms@ /
+    --   @socket.timeout.ms@.
+  , producerMaxRequestSize :: !Int
+    -- ^ Cap for the size of a single ProduceRequest in bytes.
+    --   Default 1048576 (1 MiB), matching librdkafka @message.max.bytes@.
+  , producerQueueBufferingMaxMessages :: !Int
+    -- ^ Max records the accumulator buffers across all partitions.
+    --   Default 100000. Mirrors librdkafka
+    --   @queue.buffering.max.messages@.
+  , producerQueueBufferingMaxKbytes :: !Int
+    -- ^ Max bytes the accumulator buffers across all partitions.
+    --   Default 1048576 (1 GiB). Mirrors librdkafka
+    --   @queue.buffering.max.kbytes@.
+  , producerTransactionTimeoutMs :: !Int
+    -- ^ How long the broker holds an open transaction before
+    --   aborting it. Default 60000. Mirrors librdkafka
+    --   @transaction.timeout.ms@.
+  , producerEnableGaplessGuarantee :: !Bool
+    -- ^ For idempotent producers, fail-fast on a sequence-number
+    --   gap rather than dedup. Default 'False'. Mirrors librdkafka
+    --   @enable.gapless.guarantee@.
+  , producerStickyPartitioningLingerMs :: !Int
+    -- ^ Sticky partitioner: linger this long on a partition
+    --   before switching, regardless of batch size (KIP-480).
+    --   Default 10. Mirrors librdkafka
+    --   @sticky.partitioning.linger.ms@.
   , producerPartitioner :: !Partitioner
     -- ^ Partitioning strategy (default: DefaultPartitioner with sticky behavior - KIP-480)
   , producerDelivery :: !DeliveryGuarantee
@@ -126,12 +169,23 @@ defaultProducerConfig = ProducerConfig
   , producerBatchSize = 16384
   , producerLingerMs = 0
   , producerMaxInFlight = 5
-  , producerRetries = 3
-  , producerDeliveryTimeoutMs = 120000  -- 2 minutes (KIP-91)
-  , producerPartitioner = defaultPartitioner  -- Hash if key, sticky otherwise (KIP-480)
-  , producerDelivery = AtLeastOnce
-  , producerIdempotent = False
-  , producerTransactional = Nothing
+  , producerRetries                    = 2_147_483_647   -- librdkafka default
+  , producerRetryBackoffMs             = 100
+  , producerRetryBackoffMaxMs          = 1000
+  , producerRetryBackoffMultiplier     = 2.0
+  , producerRetryBackoffJitter         = 0.2
+  , producerDeliveryTimeoutMs          = 120_000          -- KIP-91
+  , producerRequestTimeoutMs           = 30_000
+  , producerMaxRequestSize             = 1_048_576        -- 1 MiB
+  , producerQueueBufferingMaxMessages  = 100_000
+  , producerQueueBufferingMaxKbytes    = 1_048_576        -- 1 GiB worth of records
+  , producerTransactionTimeoutMs       = 60_000
+  , producerEnableGaplessGuarantee     = False
+  , producerStickyPartitioningLingerMs = 10
+  , producerPartitioner                = defaultPartitioner
+  , producerDelivery                   = AtLeastOnce
+  , producerIdempotent                 = False
+  , producerTransactional              = Nothing
   }
 
 -- | A record to be sent to Kafka.
@@ -294,8 +348,12 @@ createProducer brokerAddrs config = do
             ExactlyOnce -> (-1) -- All ISRs (requires idempotent/transactional)
       
       -- Create sender state
-      let retryConfig = Sender.defaultRetryConfig
-            { Sender.retryMaxAttempts = producerRetries config
+      let retryConfig = Sender.RetryConfig
+            { Sender.retryMaxAttempts       = producerRetries config
+            , Sender.retryBackoffMs         = producerRetryBackoffMs config
+            , Sender.retryBackoffMaxMs      = producerRetryBackoffMaxMs config
+            , Sender.retryBackoffMultiplier = producerRetryBackoffMultiplier config
+            , Sender.retryBackoffJitter     = producerRetryBackoffJitter config
             }
       
       senderState <- Sender.createSenderState

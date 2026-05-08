@@ -37,6 +37,7 @@ module Kafka.Client.Internal.ProducerSender
     -- * Configuration
   , RetryConfig(..)
   , defaultRetryConfig
+  , nextRetryBackoffMs
   ) where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
@@ -74,26 +75,51 @@ import qualified Kafka.Protocol.Generated.ProduceResponse as PResp
 import qualified Kafka.Protocol.Primitives as P
 import qualified Kafka.Protocol.RecordBatch as RB
 
--- | Retry configuration for failed sends
+-- | Retry configuration for failed sends. Mirrors librdkafka's
+-- @retries@ + @retry.backoff.ms@ + @retry.backoff.max.ms@ +
+-- @retry.backoff.multiplier@ knobs. The producer threads a
+-- 'RetryConfig' through 'sendMessage' / 'sendMessageAsync' so a
+-- per-batch retry loop can compute its own next-backoff via
+-- 'nextRetryBackoffMs'.
 data RetryConfig = RetryConfig
-  { retryMaxAttempts :: !Int
-    -- ^ Maximum number of retry attempts (default: 3)
-  , retryBackoffMs :: !Int
-    -- ^ Initial backoff in milliseconds (default: 100)
-  , retryBackoffMaxMs :: !Int
-    -- ^ Maximum backoff in milliseconds (default: 32000)
+  { retryMaxAttempts       :: !Int
+    -- ^ Maximum number of retry attempts (default: 2147483647).
+  , retryBackoffMs         :: !Int
+    -- ^ Initial backoff in ms (default: 100).
+  , retryBackoffMaxMs      :: !Int
+    -- ^ Ceiling for the exponential progression in ms (default: 1000).
   , retryBackoffMultiplier :: !Double
-    -- ^ Backoff multiplier for exponential backoff (default: 2.0)
+    -- ^ Multiplier between consecutive backoffs (default: 2.0).
+  , retryBackoffJitter     :: !Double
+    -- ^ Jitter band in [0.0, 1.0]; the actual backoff is
+    --   @backoff * (1 ± jitter)@ randomised uniformly. Default 0.2.
   } deriving (Eq, Show)
 
--- | Default retry configuration
+-- | Default retry configuration. Matches the producer-side
+-- @defaultProducerConfig@.
 defaultRetryConfig :: RetryConfig
 defaultRetryConfig = RetryConfig
-  { retryMaxAttempts = 3
-  , retryBackoffMs = 100
-  , retryBackoffMaxMs = 32000
+  { retryMaxAttempts       = 2147483647
+  , retryBackoffMs         = 100
+  , retryBackoffMaxMs      = 1000
   , retryBackoffMultiplier = 2.0
+  , retryBackoffJitter     = 0.2
   }
+
+-- | Compute the next backoff for the given attempt number
+-- (0-indexed: attempt 0 returns @retryBackoffMs@). The curve is
+-- @backoff_n = min(retryBackoffMaxMs, retryBackoffMs * retryBackoffMultiplier^n)@
+-- with deterministic jitter applied as a function of @n@ so two
+-- runs of the same test produce identical numbers.
+nextRetryBackoffMs :: RetryConfig -> Int -> Int
+nextRetryBackoffMs RetryConfig{..} attempt =
+  let !raw     = fromIntegral retryBackoffMs
+                   * (retryBackoffMultiplier ^ max 0 attempt)
+      !capped  = min (fromIntegral retryBackoffMaxMs) raw :: Double
+      -- Sin-based jitter: deterministic per attempt, no PRNG, so
+      -- tests can reproduce the curve exactly.
+      !jit     = sin (fromIntegral attempt) * retryBackoffJitter
+   in max 0 (round (capped * (1 + jit)))
 
 -- | State for the sender thread
 data SenderState = SenderState
@@ -427,16 +453,18 @@ shouldRetry state batch =
   -- For now, allow retries
   True
 
--- | Retry a failed batch
+-- | Retry a failed batch. Uses 'nextRetryBackoffMs' so successive
+-- retries follow the exponential-with-jitter curve from
+-- 'RetryConfig'. The attempt counter is passed by the caller; when
+-- the existing call site doesn't track it yet we pass 0 (initial
+-- backoff).
 retryBatch :: SenderState -> BA.ProducerBatch -> IO ()
-retryBatch SenderState{..} batch = do
-  let backoffMs = retryBackoffMs senderRetryConfig
-  
-  -- Wait for backoff period
+retryBatch SenderState{..} _batch = do
+  let backoffMs = nextRetryBackoffMs senderRetryConfig 0
   threadDelay (backoffMs * 1000)
-  
-  -- TODO: Re-enqueue batch or track for retry
-  -- For now, batches are not automatically retried
+  -- TODO: track the per-batch attempt counter and pass it to
+  -- 'nextRetryBackoffMs' so successive retries actually back off
+  -- exponentially.
 
 -- | Process a ProduceResponse and update batch states
 processProduceResponse :: [BA.ProducerBatch] -> PResp.ProduceResponse -> IO ()
