@@ -58,56 +58,106 @@ ByteString }. The `Serialization/*` benchmarks measure the full
 `SerLib/*` is a controlled head-to-head of that *same loop shape* across
 four serialisation libraries:
 
-| Stack                         | 1000-element loop | vs current |
-|-------------------------------|-------------------|------------|
-| `bytes` + `Serial` typeclass  | 95.98 µs          | 1.00× (current production path) |
-| `cereal` direct (no typeclass)| 64.50 µs          | 1.49×      |
-| `binary` direct               | 63.38 µs          | 1.51×      |
-| `Data.ByteString.Builder`     | 43.47 µs          | **2.21×**  |
+| Stack                                   | 10 elem | 100 elem | 1000 elem | vs current |
+|-----------------------------------------|--------:|---------:|----------:|-----------:|
+| `bytes` + `Serial` typeclass (current)  |  1.39 µs |  10.95 µs |  100.15 µs | 1.00× |
+| `cereal` direct (no typeclass)          |  1.03 µs |   6.86 µs |   64.54 µs | 1.55× |
+| `binary` direct                         |  1.03 µs |   8.11 µs |   64.86 µs | 1.54× |
+| `Data.ByteString.Builder`               |  0.93 µs |   5.72 µs |   43.06 µs | 2.33× |
+| **`unsafeCreate` + `pokeByteOff`**      | **0.28 µs** | **2.59 µs** | **27.60 µs** | **3.63×** |
 
-Two readings:
+Three readings:
 
-1. **~33% of current encode time is the `Serial`-typeclass dictionary
+1. **~35% of current encode time is the `Serial`-typeclass dictionary
    indirection.** The `INLINE` pragmas in `Kafka.Protocol.Primitives`
    help when the call site is monomorphic, but generated code passes
    the `MonadPut m` / `Serial a` constraints around so much that GHC
-   often can't specialise. Eliminating the typeclass and calling
-   primitives directly recovers that 33% wholesale.
+   often can't specialise. Calling primitives directly recovers that
+   wholesale.
 
-2. **Beyond that, switching the underlying buffer-builder library
-   from cereal to `Data.ByteString.Builder` recovers another ~33%
-   on top.** `Builder` has had years of focused tuning (chunked output,
-   bounded writes) that cereal's `PutM` doesn't — at the cost of a
-   slightly less convenient API surface.
+2. **Switching the underlying buffer-builder library from cereal to
+   `Data.ByteString.Builder` recovers another ~33% on top.**
+   `Builder` has had years of focused tuning (chunked output, bounded
+   writes) that cereal's `PutM` doesn't.
 
-Total realistic headroom on encode: **~2.2× (95.98 µs → 43.47 µs)** with
-no other architectural change. That is what librdkafka-style raw
-buffer writes look like in idiomatic Haskell.
+3. **Pre-sizing the output and writing into a `Ptr Word8` with
+   `pokeByteOff` + `memcpy` recovers another ~36% on top of Builder.**
+   This is what every Kafka request body actually wants — every
+   variable-length field is a length-prefix + raw bytes, so the size
+   *is* knowable up front, and Builder's chunked-buffer bookkeeping
+   becomes pure overhead. With `BSI.unsafeCreate (sizeOf msg) $ \p ->
+   ...` we get one allocation, one pass, no thunks. Counts at 1000
+   elements drop from ~17 GC bytes/iter (Builder) to ~9 GC bytes/iter
+   (poke), which is just the output ByteString itself.
+
+The size-then-poke approach is exactly what the Java client and
+librdkafka do internally; it is the realistic ceiling for what the
+encoder side can do without dropping into C, and the gap between
+"poke" and "Builder" is wider than the gap between "Builder" and
+"current". This is where the focus should be.
+
+Total realistic headroom on encode: **~3.6× (100 µs → 28 µs at 1000
+elements)** with no other architectural change.
 
 ### Plan to land it
 
 The 197 modules under `Kafka.Protocol.Generated.*` are emitted by the
-`kafka-codegen` executable from upstream JSON. Switching to a
-`Builder`-based encoder is therefore a *codegen* change, not a 197-file
-hand-edit:
+`kafka-codegen` executable from upstream JSON. Switching encoders is
+therefore a *codegen* change, not a 197-file hand-edit:
 
-1. Define a thin `KafkaPut` type in `Kafka.Protocol.Encoding` that is
-   either a newtype around `Builder` (encode side) or a CPS unboxed-sum
-   `Decoder` (decode side, similar to `Proto.Wire.Decode.Result#`).
-2. Add `kafkaPut*` primitives for the fixed-width types and length-
-   prefixed strings/bytes/arrays.
-3. Update `codegen/Kafka/Protocol/Codegen/Generator.hs` to emit calls
-   to the new `kafkaPut*` instead of `serialize`. The shape is the
-   same — each `serialize x` becomes `kafkaPutT x` with a known type.
-4. Regenerate the 197 modules.
-5. Keep the old `Serial` instances on the primitive types so
+1. Define two new typeclasses in `Kafka.Protocol.Encoding`:
+
+    * `KafkaSize`  — `kafkaSize :: ApiVersion -> a -> Int` so we can
+      pre-compute the buffer size for any message tree.
+    * `KafkaPoke`  — `kafkaPoke :: ApiVersion -> a -> Ptr Word8 ->
+      Int -> IO Int` (returns the new offset). Implementations are
+      direct `pokeByteOff` writes, plus a `memcpy` for byte arrays.
+
+2. Add `kafkaPokeInt32BE` / `kafkaPokeKafkaString` / etc. helpers in
+   `Kafka.Protocol.Primitives.Poke`.
+
+3. Update `codegen/Kafka/Protocol/Codegen/Generator.hs` to emit
+   `KafkaSize` / `KafkaPoke` instances alongside (or instead of) the
+   current `Serial`-style functions. The shape is the same — each
+   `serialize x` becomes one `pokeByteOff` write at a known offset
+   computed from the size pass.
+
+4. Top-level entry point becomes:
+
+   ```haskell
+   encodeProduceRequest version msg =
+     let !sz = kafkaSize version msg
+     in BSI.unsafeCreate sz $ \p -> do
+          _ <- kafkaPoke version msg p 0
+          pure ()
+   ```
+
+5. Regenerate the 197 modules.
+
+6. Keep the old `Serial` instances on the primitive types so
    non-codegen callers (and the existing test suite) keep working;
-   only the codegen output flips.
+   only the codegen output flips. After the cutover those instances
+   can be dropped if nothing else uses them.
 
 Property tests (`Protocol.Generated.SimpleRoundTripSpec`,
 `RoundTripSpec`, `RecordBatchSpec`) and the broker-gated integration
 suite both already cover end-to-end correctness, so the swap is
 testable.
+
+### Why not `store` / `flat` / `persist`?
+
+I considered but rejected each:
+
+* **`store`** — fastest existing library but assumes fixed-size types
+  with a `Storable` instance. Variable-length fields (every Kafka
+  string and array) need a custom `Peek` / `Poke` anyway, at which
+  point we are already doing what the size-then-poke plan does without
+  the type-class machinery overhead.
+* **`flat`** — bit-packed; optimised for compact output, not encode
+  speed. Wrong tradeoff for a wire protocol where the layout is fixed
+  by Kafka.
+* **`persist`** — strict `cereal` cousin. Does not give us anything
+  over the `cereal` direct row already in the table above.
 
 ## Decode
 
@@ -137,10 +187,9 @@ Haskell-side changes.
 
 ## What is *not* worth doing
 
-- **Hand-rolling `unsafeCreate` + raw `Ptr Word8` arithmetic.** Builder
-  is within ~10% of that according to the published benchmarks for
-  `bytestring`, and the maintenance cost is high.
 - **Chasing CRC32C improvements.** We are already at the SSE4.2
   ceiling; folding more bytes per cycle requires AVX-512 + VPCLMULQDQ
-  and is a ~2× win at best, vs. the >2× win available from the encoder
+  and is a ~2× win at best, vs. the >3× win available from the encoder
   swap.
+- **Switching to `store` / `flat` / `persist`.** See the table and the
+  rationale in the *Plan to land it* section above.

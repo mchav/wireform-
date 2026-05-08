@@ -1,6 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 {-|
 Module      : Benchmarks.SerLib
@@ -31,9 +33,16 @@ Implementations under test:
   3. *binary* — @Data.Binary.Put@ as a control. Same shape, different
      library.
   4. *bytestring-builder* — @Data.ByteString.Builder@ direct. The
-     idiomatic high-performance choice on Hackage today; this is the
-     reference for "what librdkafka-style raw buffer writes look like
-     in Haskell".
+     idiomatic high-performance choice on Hackage today.
+
+  5. *direct poke* — pre-compute the total output size, allocate the
+     bytestring with @Data.ByteString.Internal.unsafeCreate@, and
+     write into the @Ptr Word8@ with @pokeByteOff@ + @memcpy@. This
+     is the maximum-performance Haskell path: one allocation, one
+     pass, no chunked buffer bookkeeping, no Builder thunks. It is
+     what librdkafka-style raw buffer writes look like in idiomatic
+     Haskell, and is the realistic ceiling for what the encoder side
+     can do without dropping into C.
 
 Use:
 
@@ -46,12 +55,17 @@ import qualified Data.Binary.Put as BinP
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Builder as Builder
+import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Unsafe as BSU
 import Data.Bytes.Put (runPutS)
 import Data.Bytes.Serial (serialize)
 import qualified Data.Serialize.Put as Cereal
+import Data.Bits (shiftR)
 import Data.Int (Int32)
-import Data.Word (Word32)
+import Data.Word (Word8, Word32)
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
+import Foreign.Storable (poke)
 
 import Criterion (Benchmark, bench, bgroup, whnf)
 
@@ -143,6 +157,69 @@ encodeBuilder xs =
 {-# INLINE encodeBuilder #-}
 
 ------------------------------------------------------------------------
+-- 5. Direct address poking. Compute the total size up front, allocate
+--    once via 'BSI.unsafeCreate', and write into a 'Ptr Word8' with a
+--    single forward pass. No chunked-buffer bookkeeping, no builder
+--    thunks; the only allocation past the input list traversal is the
+--    output ByteString itself.
+--
+--    For every Kafka request body the size *is* knowable up front
+--    (every variable-length field is a length-prefix + raw bytes), so
+--    this approach is general — not a microbenchmark trick. The
+--    ProduceRequest size formula is exactly the per-element +
+--    per-topic recursion you would expect.
+------------------------------------------------------------------------
+
+-- | Number of bytes the encoded triple stream takes.
+sizeTriples :: [Triple] -> Int
+sizeTriples xs =
+  let go !acc [] = acc
+      go !acc ((_, _, bs):rest) =
+        go (acc + 4 + 4 + 4 + BS.length bs) rest
+  in 4 {- count prefix -} + go 0 xs
+{-# INLINE sizeTriples #-}
+
+encodePoke :: [Triple] -> ByteString
+encodePoke xs0 =
+  let !n     = length xs0
+      !total = sizeTriples xs0
+  in BSI.unsafeCreate total $ \p -> do
+       pokeBE32 p 0 (fromIntegral n)
+       go p 4 xs0
+  where
+    go :: Ptr Word8 -> Int -> [Triple] -> IO ()
+    go !_ !_   [] = return ()
+    go !p !off ((!pid, !epoch, !bs):rest) = do
+      pokeBE32 p  off       (fromIntegral pid)
+      pokeBE32 p (off + 4)  (fromIntegral epoch)
+      let !blen = BS.length bs
+      pokeBE32 p (off + 8)  (fromIntegral blen)
+      copyBytes p (off + 12) bs
+      go p (off + 12 + blen) rest
+{-# INLINE encodePoke #-}
+
+-- | Big-endian 32-bit write at a byte offset. Four discrete byte
+-- writes are just as fast as a single mov + bswap on every modern
+-- target the GHC NCG hits, and we avoid having to think about
+-- alignment.
+pokeBE32 :: Ptr Word8 -> Int -> Word32 -> IO ()
+pokeBE32 !p !off !w = do
+  poke (p `plusPtr` off)       (fromIntegral (w `shiftR` 24) :: Word8)
+  poke (p `plusPtr` (off + 1)) (fromIntegral (w `shiftR` 16) :: Word8)
+  poke (p `plusPtr` (off + 2)) (fromIntegral (w `shiftR`  8) :: Word8)
+  poke (p `plusPtr` (off + 3)) (fromIntegral  w              :: Word8)
+{-# INLINE pokeBE32 #-}
+
+-- | Copy a strict ByteString into the destination pointer at the given
+-- offset. Uses bytestring's Internal copy primitive (which bottoms out
+-- on @memcpy@) so the cost is whatever the libc memcpy gives us.
+copyBytes :: Ptr Word8 -> Int -> ByteString -> IO ()
+copyBytes !p !off !bs =
+  BSU.unsafeUseAsCStringLen bs $ \(src, len) ->
+    BSI.memcpy (p `plusPtr` off) (castPtr src) len
+{-# INLINE copyBytes #-}
+
+------------------------------------------------------------------------
 -- Benchmarks
 ------------------------------------------------------------------------
 
@@ -161,6 +238,7 @@ benchAt n =
        , bench "cereal direct"       $ whnf encodeCerealDirect  triples
        , bench "binary direct"       $ whnf encodeBinaryDirect  triples
        , bench "bytestring Builder"  $ whnf encodeBuilder       triples
+       , bench "direct poke"         $ whnf encodePoke          triples
        ]
 
 -- Suppress unused-import warning if the codepath above stops touching
