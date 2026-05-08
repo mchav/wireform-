@@ -21,6 +21,7 @@ module Kafka.Streams
   , module Kafka.Streams.State.Store
   , module Kafka.Streams.State.KeyValue.InMemory
   , module Kafka.Streams.State.KeyValue.Persistent
+  , module Kafka.Streams.State.KeyValue.Caching
   , module Kafka.Streams.State.Window.InMemory
   , module Kafka.Streams.State.Session.InMemory
     -- * DSL
@@ -61,6 +62,7 @@ import Kafka.Streams.InteractiveQueries
 import Kafka.Streams.Processor
 import Kafka.Streams.Runtime
 import Kafka.Streams.Serde
+import Kafka.Streams.State.KeyValue.Caching
 import Kafka.Streams.State.KeyValue.InMemory
 import Kafka.Streams.State.KeyValue.Persistent
 import Kafka.Streams.State.Session.InMemory

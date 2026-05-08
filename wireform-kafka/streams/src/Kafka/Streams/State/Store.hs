@@ -30,7 +30,7 @@ module Kafka.Streams.State.Store
   , StateStore (..)
     -- * Key-value store
   , KeyValueStore (..)
-  , KeyValueIterator
+  , KeyValueIterator (..)
   , kvIteratorFromList
   , kvIteratorToList
   , kvIteratorClose
