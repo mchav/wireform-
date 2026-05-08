@@ -49,21 +49,27 @@ module Kafka.Streams.DSL.KStream
   , streamFromTopic
     -- * Stateless transforms
   , filterStream
+  , filterStreamNamed
   , filterNotStream
   , mapValues
+  , mapValuesNamed
   , mapValuesM
   , mapKeyValue
+  , mapKeyValueNamed
   , mapKeyValueM
   , flatMapValues
   , flatMapKeyValue
   , peekStream
+  , peekStreamNamed
   , foreachStream
   , selectKey
+  , selectKeyNamed
     -- * Composition
   , mergeStreams
   , branchStream
     -- * Sinks
   , toTopic
+  , toTopicNamed
   , throughTopic
     -- * Conversions
   , toTable
@@ -94,6 +100,8 @@ import Kafka.Streams.DSL.Joined
   ( JoinWindows (..)
   , Joined (..)
   )
+import qualified Kafka.Streams.DSL.Named
+import qualified Kafka.Streams.DSL.Named
 import Kafka.Streams.DSL.Produced
   ( Produced (..)
   , produced
@@ -1236,3 +1244,133 @@ splitStream branches mDefault s = do
 -- without polluting the public surface.
 _unused_split :: Map.Map T.Text Int
 _unused_split = Map.empty
+
+----------------------------------------------------------------------
+-- Named variants (KIP-307)
+----------------------------------------------------------------------
+
+-- | 'filterStream' with an explicit topology node name.
+filterStreamNamed
+  :: forall k v
+   . Kafka.Streams.DSL.Named.Named
+  -> (Record k v -> Bool)
+  -> KStream k v
+  -> IO (KStream k v)
+filterStreamNamed nm pred_ s = do
+  let b = kstreamBuilder s
+  nodeNm <- Kafka.Streams.DSL.Named.namedOr b nm "KSTREAM-FILTER"
+  withTopology_ b $
+    Topo.addProcessor nodeNm [kstreamParent s]
+      (filterProcessor (Topo.unNodeName nodeNm) pred_)
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nodeNm
+    , kstreamKeySerde   = kstreamKeySerde s
+    , kstreamValueSerde = kstreamValueSerde s
+    }
+
+-- | 'mapValues' with an explicit topology node name.
+mapValuesNamed
+  :: forall k v v'
+   . Kafka.Streams.DSL.Named.Named
+  -> (v -> v')
+  -> KStream k v
+  -> IO (KStream k v')
+mapValuesNamed nm f s = do
+  let b = kstreamBuilder s
+  nodeNm <- Kafka.Streams.DSL.Named.namedOr b nm "KSTREAM-MAPVALUES"
+  withTopology_ b $
+    Topo.addProcessor nodeNm [kstreamParent s] (mapValuesProc (pure . f))
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nodeNm
+    , kstreamKeySerde   = kstreamKeySerde s
+    , kstreamValueSerde = error
+        "KStream.mapValuesNamed: downstream value Serde unset"
+    }
+
+-- | 'mapKeyValue' with an explicit topology node name.
+mapKeyValueNamed
+  :: forall k v k' v'
+   . Kafka.Streams.DSL.Named.Named
+  -> (k -> v -> (k', v'))
+  -> KStream k v
+  -> IO (KStream k' v')
+mapKeyValueNamed nm f s = do
+  let b = kstreamBuilder s
+  nodeNm <- Kafka.Streams.DSL.Named.namedOr b nm "KSTREAM-MAP"
+  withTopology_ b $
+    Topo.addProcessor nodeNm [kstreamParent s]
+      (mapKVProc (\k v -> pure (f k v)))
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nodeNm
+    , kstreamKeySerde   = error "mapKeyValueNamed: downstream key Serde unset"
+    , kstreamValueSerde = error "mapKeyValueNamed: downstream value Serde unset"
+    }
+
+-- | 'peekStream' with an explicit topology node name.
+peekStreamNamed
+  :: forall k v
+   . Kafka.Streams.DSL.Named.Named
+  -> (Record k v -> IO ())
+  -> KStream k v
+  -> IO (KStream k v)
+peekStreamNamed nm act s = do
+  let b = kstreamBuilder s
+  nodeNm <- Kafka.Streams.DSL.Named.namedOr b nm "KSTREAM-PEEK"
+  withTopology_ b $
+    Topo.addProcessor nodeNm [kstreamParent s] $ do
+      ctxRef <- newIORef Nothing
+      pure Processor
+        { procName    = processorName "KSTREAM-PEEK"
+        , procInit    = \ctx -> writeIORef ctxRef (Just ctx)
+        , procClose   = pure ()
+        , procProcess = \r -> do
+            act r
+            mctx <- readIORef ctxRef
+            case mctx of
+              Nothing  -> pure ()
+              Just ctx -> forwardRecord ctx r
+        }
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nodeNm
+    , kstreamKeySerde   = kstreamKeySerde s
+    , kstreamValueSerde = kstreamValueSerde s
+    }
+
+-- | 'selectKey' with an explicit topology node name.
+selectKeyNamed
+  :: forall k v k'
+   . Kafka.Streams.DSL.Named.Named
+  -> (Record k v -> k')
+  -> KStream k v
+  -> IO (KStream k' v)
+selectKeyNamed nm f s = do
+  let b = kstreamBuilder s
+  nodeNm <- Kafka.Streams.DSL.Named.namedOr b nm "KSTREAM-SELECTKEY"
+  withTopology_ b $
+    Topo.addProcessor nodeNm [kstreamParent s] (selectKeyProc f)
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nodeNm
+    , kstreamKeySerde   = error "selectKeyNamed: downstream key Serde unset"
+    , kstreamValueSerde = kstreamValueSerde s
+    }
+
+-- | 'toTopic' with an explicit topology node name.
+toTopicNamed
+  :: forall k v
+   . Kafka.Streams.DSL.Named.Named
+  -> TopicName
+  -> Produced k v
+  -> KStream k v
+  -> IO ()
+toTopicNamed nm topic p s = do
+  let b = kstreamBuilder s
+  nodeNm <- Kafka.Streams.DSL.Named.namedOr b nm "KSTREAM-SINK"
+  withTopology_ b $
+    Topo.addSink nodeNm topic
+                 (producedKeySerde p) (producedValueSerde p)
+                 [kstreamParent s]

@@ -388,6 +388,7 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.Produced
         Kafka.Streams.DSL.Grouped
         Kafka.Streams.DSL.Joined
+        Kafka.Streams.DSL.Named
         Kafka.Streams.DSL.StreamsBuilder
         Kafka.Streams.DSL.KStream
         Kafka.Streams.DSL.KTable
@@ -459,6 +460,7 @@ test-suite wireform-kafka-streams-test
         Streams.VersionedSpec
         Streams.TopologyDescriptionSpec
         Streams.MetricsSpec
+        Streams.NamedSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
