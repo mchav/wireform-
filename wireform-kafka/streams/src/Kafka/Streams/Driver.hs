@@ -73,6 +73,10 @@ module Kafka.Streams.Driver
   , readValuesToList
   , readKeyValuesToList
   , isOutputEmpty
+    -- * TestRecord
+  , TestRecord (..)
+  , toTestRecord
+  , kvFromTestRecord
   ) where
 
 import Control.Monad (forM)
@@ -124,6 +128,7 @@ import Kafka.Streams.State.Store
   )
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Time (Timestamp (..))
+import qualified Kafka.Streams.Types
 import Kafka.Streams.Types
   ( Headers
   , TopicName
@@ -481,3 +486,36 @@ readKV tot = do
 -- | True iff the output topic has no records currently buffered.
 isOutputEmpty :: TestOutputTopic k v -> IO Bool
 isOutputEmpty tot = null <$> readKeyValuesToList tot
+
+----------------------------------------------------------------------
+-- TestRecord
+----------------------------------------------------------------------
+
+-- | A typed test record. Mirrors Java's @TestRecord<K, V>@ —
+-- carries key / value / timestamp / headers in a single value
+-- so test assertions can compare them with '==' or pattern match
+-- structurally.
+data TestRecord k v = TestRecord
+  { trKey       :: !(Maybe k)
+  , trValue     :: !v
+  , trTimestamp :: !Timestamp
+  , trHeaders   :: !Kafka.Streams.Types.Headers
+  }
+  deriving (Eq, Show)
+
+toTestRecord
+  :: Serde k -> Serde v
+  -> CollectedRecord
+  -> Either String (TestRecord k v)
+toTestRecord ks vs cr = do
+  k <- maybe (Right Nothing) (fmap Just . deserialize ks) (crKey cr)
+  v <- deserialize vs (crValue cr)
+  pure TestRecord
+    { trKey       = k
+    , trValue     = v
+    , trTimestamp = crTimestamp cr
+    , trHeaders   = crHeaders cr
+    }
+
+kvFromTestRecord :: TestRecord k v -> (Maybe k, v)
+kvFromTestRecord r = (trKey r, trValue r)

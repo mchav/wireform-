@@ -280,3 +280,4 @@ deserializeRecord ks vs mkb vb = do
   k <- maybe (Right Nothing) (fmap Just . deserialize ks) mkb
   v <- deserialize vs vb
   Right (k, v)
+

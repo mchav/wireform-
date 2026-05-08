@@ -198,6 +198,7 @@ data Engine = Engine
   , engineStreamTime   :: !(IORef StreamTime)
   , engineWallClock    :: !(IORef Timestamp)
   , engineCurrentMd    :: !(IORef (Maybe RecordMetadata))
+  , engineCurrentHeaders :: !(IORef (Maybe Kafka.Streams.Types.Headers))
   , enginePunctuators  :: !(IORef [PunctuatorEntry])
   , engineDeserHandler :: !DeserializationHandler
   , engineMetrics      :: !MetricsRegistry
@@ -232,6 +233,7 @@ buildEngine validated tid appId collector deserHandler = do
   streamRef     <- newIORef initialStreamTime
   wallRef       <- nowAsTimestamp >>= newIORef
   currentMdRef  <- newIORef Nothing
+  currentHsRef  <- newIORef Nothing
   pesRef        <- newIORef []
   metrics       <- noopMetricsRegistry
 
@@ -247,6 +249,7 @@ buildEngine validated tid appId collector deserHandler = do
         , engineStreamTime   = streamRef
         , engineWallClock    = wallRef
         , engineCurrentMd    = currentMdRef
+        , engineCurrentHeaders = currentHsRef
         , enginePunctuators  = pesRef
         , engineDeserHandler = deserHandler
         , engineMetrics      = metrics
@@ -426,9 +429,11 @@ handleSource engine spec children si = do
             , recordTimestamp = ts
             , recordHeaders   = emptyHeaders
             }
+      writeIORef (engineCurrentHeaders engine) (Just emptyHeaders)
       Met.incCounter (engineMetrics engine) Met.processTotal
       mapM_ (\fw -> fw rec) children
       writeIORef (engineCurrentMd engine) Nothing
+      writeIORef (engineCurrentHeaders engine) Nothing
     _ -> do
       Met.incCounter (engineMetrics engine) Met.droppedRecordsTotal
       handleDeserError engine si mErasedKey eErasedVal
@@ -546,6 +551,12 @@ makeContext engine selfNm = ProcessorContext
         , crHeaders   = emptyHeaders
         , crPartition = Nothing
         }
+  , ctxRecordHeaders = readIORef (engineCurrentHeaders engine)
+  , ctxAddHeader = \h ->
+      atomicModifyIORef' (engineCurrentHeaders engine) $ \mhs ->
+        case mhs of
+          Nothing -> (Just (Kafka.Streams.Types.headersFromList [h]), ())
+          Just hs -> (Just (Kafka.Streams.Types.addHeader h hs), ())
   }
 
 eraseRecord :: Record k v -> Record Erased Erased

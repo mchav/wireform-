@@ -58,6 +58,7 @@ import GHC.Generics (Generic)
 
 import Kafka.Streams.State.Store (AnyStateStore, StoreName)
 import Kafka.Streams.Time (Timestamp)
+import qualified Kafka.Streams.Types
 import Kafka.Streams.Types (NodeName, Record, RecordMetadata)
 
 -- | Logical processor name. Two processors with the same name belong
@@ -165,6 +166,14 @@ data ProcessorContext = ProcessorContext
     -- collector under an explicitly chosen topic. Used by
     -- 'TopicNameExtractor' sinks; user code generally goes through
     -- 'forwardRecord' instead.
+  , ctxRecordHeaders   :: !(IO (Maybe Kafka.Streams.Types.Headers))
+    -- ^ Read the headers attached to the record currently being
+    -- processed. Returns 'Nothing' when called from outside a
+    -- record-processing context (e.g. from a punctuator).
+  , ctxAddHeader       :: !(Kafka.Streams.Types.Header -> IO ())
+    -- ^ Append a header to the in-flight record. Subsequent
+    -- 'forwardRecord' calls (in the same 'procProcess' invocation)
+    -- see the updated headers.
   }
 
 -- | Bytes-already-serialised emission record. Defined here (rather

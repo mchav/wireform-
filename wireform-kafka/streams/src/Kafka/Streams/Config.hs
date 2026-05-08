@@ -18,10 +18,16 @@ module Kafka.Streams.Config
   , defaultCommitIntervalMs
   , defaultPollMs
   , defaultStateDir
+    -- * Properties-style overrides
+  , streamsConfigFromMap
+  , StreamsConfigKey
   ) where
 
 import Data.Int (Int64)
+import Data.List (foldl')
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import qualified Data.Text as T
 import GHC.Generics (Generic)
 
 import Kafka.Streams.Errors
@@ -98,3 +104,66 @@ defaultStreamsConfig = StreamsConfig
   , defaultDeserHandler      = logAndContinue
   , defaultProductionHandler = Nothing
   }
+
+----------------------------------------------------------------------
+-- Properties-style overrides
+----------------------------------------------------------------------
+
+-- | The set of supported config keys, named to match the Java
+-- @StreamsConfig@ constants.
+type StreamsConfigKey = T.Text
+
+-- | Build a 'StreamsConfig' from the standard 'defaultStreamsConfig'
+-- by applying @Properties@-style overrides. Mirrors how Java users
+-- configure the runtime via @new StreamsConfig(properties)@.
+--
+-- Recognised keys (matching Java):
+--
+--   * @application.id@
+--   * @bootstrap.servers@           — comma-separated host:port list
+--   * @client.id@
+--   * @num.stream.threads@
+--   * @num.standby.replicas@
+--   * @commit.interval.ms@
+--   * @poll.ms@
+--   * @cache.max.bytes.buffering@
+--   * @max.task.idle.ms@
+--   * @processing.guarantee@         — @"at_least_once"@ or @"exactly_once_v2"@
+--   * @replication.factor@
+--   * @state.dir@
+--
+-- Unknown keys are silently ignored (same as Java's default).
+streamsConfigFromMap
+  :: Map.Map StreamsConfigKey T.Text -> StreamsConfig
+streamsConfigFromMap m = foldl' step defaultStreamsConfig (Map.toAscList m)
+  where
+    step !cfg (k, v) = case k of
+      "application.id"             -> cfg { applicationId = v }
+      "bootstrap.servers"          ->
+        cfg { bootstrapServers = T.splitOn "," v }
+      "client.id"                  -> cfg { clientId = v }
+      "num.stream.threads"         ->
+        maybe cfg (\n -> cfg { numStreamThreads = n }) (readT v)
+      "num.standby.replicas"       ->
+        maybe cfg (\n -> cfg { numStandbyReplicas = n }) (readT v)
+      "commit.interval.ms"         ->
+        maybe cfg (\n -> cfg { commitIntervalMs = n }) (readT v)
+      "poll.ms"                    ->
+        maybe cfg (\n -> cfg { pollMs = n }) (readT v)
+      "cache.max.bytes.buffering"  ->
+        maybe cfg (\n -> cfg { cacheMaxBytesBuffering = n }) (readT v)
+      "max.task.idle.ms"           ->
+        maybe cfg (\n -> cfg { maxTaskIdleMs = n }) (readT v)
+      "processing.guarantee"       -> case v of
+        "at_least_once"   -> cfg { processingGuarantee = AtLeastOnceP }
+        "exactly_once_v2" -> cfg { processingGuarantee = ExactlyOnceV2 }
+        _                 -> cfg
+      "replication.factor"         ->
+        maybe cfg (\n -> cfg { replicationFactor = n }) (readT v)
+      "state.dir"                  -> cfg { stateDir = T.unpack v }
+      _                            -> cfg
+
+readT :: Read a => T.Text -> Maybe a
+readT t = case reads (T.unpack t) of
+  [(n, "")] -> Just n
+  _         -> Nothing

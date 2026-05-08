@@ -367,6 +367,7 @@ library wireform-kafka-streams
         Kafka.Streams.Time
         Kafka.Streams.Types
         Kafka.Streams.Serde
+        Kafka.Streams.Serde.Windowed
         Kafka.Streams.Window
         Kafka.Streams.Processor
         Kafka.Streams.Topology
@@ -471,6 +472,7 @@ test-suite wireform-kafka-streams-test
         Streams.TestUtilsSpec
         Streams.StateListenerSpec
         Streams.QuerySpec
+        Streams.ParityBatchSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
