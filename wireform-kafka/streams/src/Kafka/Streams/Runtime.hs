@@ -45,6 +45,9 @@ module Kafka.Streams.Runtime
     -- * Status
   , StreamsStatus (..)
   , streamsStatus
+  , awaitState
+  , StateListener
+  , setStateListener
     -- * EOS
   , applyEOSCoordinator
     -- * Internal access (used by Kafka.Streams.InteractiveQueries)
@@ -101,6 +104,12 @@ data StreamsStatus
   | StreamsError !Text
   deriving (Eq, Show)
 
+-- | A user-installed callback fired on every state transition.
+type StateListener =
+  StreamsStatus       -- old state
+  -> StreamsStatus    -- new state
+  -> IO ()
+
 data KafkaStreams = KafkaStreams
   { ksConfig    :: !StreamsConfig
   , ksTopology  :: !Topo.TopologyValid
@@ -110,6 +119,7 @@ data KafkaStreams = KafkaStreams
   , ksConsumer  :: !(IORef (Maybe KC.Consumer))
   , ksEngine    :: !(IORef (Maybe Engine))
   , ksEosCoord  :: !(IORef EOSCoordinator)
+  , ksListener  :: !(IORef StateListener)
     -- ^ Set during 'startKafkaStreams' based on
     -- 'processingGuarantee'; defaults to 'noopEOSCoordinator'.
   }
@@ -125,6 +135,7 @@ newKafkaStreams cfg topo = do
   c <- newIORef Nothing
   e <- newIORef Nothing
   eos <- newIORef noopEOSCoordinator
+  lis <- newIORef (\_ _ -> pure ())
   pure KafkaStreams
     { ksConfig    = cfg
     , ksTopology  = topo
@@ -134,6 +145,7 @@ newKafkaStreams cfg topo = do
     , ksConsumer  = c
     , ksEngine    = e
     , ksEosCoord  = eos
+    , ksListener  = lis
     }
 
 -- | Start the runtime in the background. Returns immediately; once
@@ -181,7 +193,7 @@ startKafkaStreams ks = do
             Right () -> do
               ah <- async (eventLoop ks engine c)
               writeIORef (ksThread ks) (Just ah)
-              atomically (writeTVar (ksStatus ks) StreamsRunning)
+              transitionTo ks StreamsRunning
   where
     producerCfg = KP.defaultProducerConfig
       { KP.producerClientId  = clientId (ksConfig ks)
@@ -205,8 +217,7 @@ startKafkaStreams ks = do
       }
 
 setError :: KafkaStreams -> Text -> IO ()
-setError ks msg = atomically $
-  writeTVar (ksStatus ks) (StreamsError msg)
+setError ks msg = transitionTo ks (StreamsError msg)
 
 ----------------------------------------------------------------------
 -- Producer-backed collector
@@ -243,7 +254,7 @@ eventLoop ks engine consumer = go
         eRecs <- KC.poll consumer (pollMs (ksConfig ks))
         case eRecs of
           Left err ->
-            atomically (writeTVar (ksStatus ks) (StreamsError (Text.pack err)))
+            transitionTo ks (StreamsError (Text.pack err))
           Right recs -> do
             forM_ recs $ \rec ->
               feedSource engine
@@ -277,11 +288,11 @@ eventLoop ks engine consumer = go
                   <> Text.unpack reason)
                 go
               CommitFatal reason ->
-                atomically (writeTVar (ksStatus ks) (StreamsError reason))
+                transitionTo ks (StreamsError reason)
 
 closeKafkaStreams :: KafkaStreams -> IO ()
 closeKafkaStreams ks = do
-  atomically (writeTVar (ksStatus ks) StreamsClosing)
+  transitionTo ks StreamsClosing
   mAh <- readIORef (ksThread ks)
   case mAh of
     Just ah -> do
@@ -295,10 +306,36 @@ closeKafkaStreams ks = do
   forM_ mC KC.closeConsumer
   mP <- readIORef (ksProducer ks)
   forM_ mP KP.closeProducer
-  atomically (writeTVar (ksStatus ks) StreamsClosed)
+  transitionTo ks StreamsClosed
 
 streamsStatus :: KafkaStreams -> IO StreamsStatus
 streamsStatus = readTVarIO . ksStatus
+
+-- | Block until 'streamsStatus' reaches the given target. Used by
+-- tests for deterministic state-transition assertions; no
+-- 'threadDelay'.
+awaitState :: KafkaStreams -> StreamsStatus -> IO ()
+awaitState ks target = atomically $ do
+  cur <- readTVar (ksStatus ks)
+  if cur == target
+    then pure ()
+    else retry
+
+-- | Install a callback that fires on every state transition.
+-- Mirrors @KafkaStreams.setStateListener@.
+setStateListener :: KafkaStreams -> StateListener -> IO ()
+setStateListener ks lis = writeIORef (ksListener ks) lis
+
+-- | Internal helper: atomically transition to a new state and
+-- invoke the registered listener.
+transitionTo :: KafkaStreams -> StreamsStatus -> IO ()
+transitionTo ks new_ = do
+  old <- atomically $ do
+    cur <- readTVar (ksStatus ks)
+    writeTVar (ksStatus ks) new_
+    pure cur
+  lis <- readIORef (ksListener ks)
+  lis old new_
 
 -- | Replace the runtime's EOS coordinator. The default is
 -- 'noopEOSCoordinator'; tests inject a recording coordinator to

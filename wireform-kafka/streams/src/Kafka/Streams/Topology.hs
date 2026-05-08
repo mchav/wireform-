@@ -53,6 +53,8 @@ module Kafka.Streams.Topology
   , addStateStoreKV
   , addStateStoreW
   , addStateStoreS
+  , addGlobalStore
+  , topoGlobalStores
     -- * Validation
   , validateTopology
   , TopologyValid
@@ -108,6 +110,8 @@ import Kafka.Streams.State.Store
   , SessionStore
   , unStoreName
   )
+import qualified Kafka.Streams.State.Store
+import qualified Kafka.Streams.Time
 import Kafka.Streams.Time (TimestampExtractor)
 import Kafka.Streams.Types (NodeName (..), TopicName, nodeName, unNodeName)
 
@@ -182,6 +186,10 @@ data Topology = Topology
   , topoOrder         :: ![NodeName]
   , topoSourceOrder   :: ![NodeName]
   , topoChildrenIndex :: !(Map NodeName [NodeName])
+  , topoGlobalStores  :: !(Set StoreName)
+    -- ^ Stores registered via 'addGlobalStore'. The runtime treats
+    -- these as cluster-wide replicas and bypasses partition
+    -- assignment for their source topics.
   }
 
 emptyTopology :: Topology
@@ -194,6 +202,7 @@ emptyTopology = Topology
   , topoOrder         = []
   , topoSourceOrder   = []
   , topoChildrenIndex = Map.empty
+  , topoGlobalStores  = Set.empty
   }
 
 -- | Distinct error categories surfaced by 'validateTopology'.
@@ -352,6 +361,58 @@ addStoreInternal sn ab owners t =
             , topoStoreOwners = ownersNew
             , topoProcessors  = procsNew
             }
+
+-- | Register a /global/ state store backed by its own source +
+-- processor. Mirrors @Topology.addGlobalStore@.
+--
+-- The supplied store builder is realised as a regular state store,
+-- but the 'StoreName' is /also/ added to 'topoGlobalStores'. The
+-- runtime treats global stores as cluster-wide replicas: every
+-- instance subscribes to the source topic and writes to the local
+-- copy. Within the single-task 'TopologyTestDriver' the
+-- distinction is purely semantic — the same source/processor/store
+-- machinery handles the data flow.
+--
+-- The @processorSupplier@ takes (k, v) records and updates the
+-- store; a typical implementation just does @kvsPut store k v@.
+-- Use 'Kafka.Streams.DSL.GlobalKTable' for the high-level
+-- "global lookup table" API; this lower-level entry point lets
+-- you run arbitrary processor logic on the global side.
+addGlobalStore
+  :: StoreBuilderKV k v
+  -> NodeName                              -- ^ source name
+  -> NodeName                              -- ^ processor name
+  -> TopicName
+  -> Serde k
+  -> Serde v
+  -> Kafka.Streams.Time.TimestampExtractor k v
+  -> AnyProcessor                           -- ^ store updater
+  -> Topology
+  -> Topology
+addGlobalStore builder sourceNm procNm topic ks vs ex updater t0 =
+  ensureNameFree t0 sourceNm $
+    ensureNameFree (insertSource t0 srcSpec) procNm $
+      let !t1 = insertSource t0 srcSpec
+          !t2 = addProcessorWith
+                  ProcessorSpec
+                    { processorSpecName     = procNm
+                    , processorSpecParents  = [sourceNm]
+                    , processorSpecSupplier = updater
+                    , processorSpecStores   = [Kafka.Streams.State.Store.sbKvName builder]
+                    } t1
+          !t3 = addStateStoreKV builder [procNm] t2
+       in t3 { topoGlobalStores =
+                 Set.insert (Kafka.Streams.State.Store.sbKvName builder)
+                            (topoGlobalStores t3)
+             }
+  where
+    !srcSpec = SourceSpec
+      { sourceName       = sourceNm
+      , sourceTopics     = [topic]
+      , sourceKeySerde   = AnySerde ks
+      , sourceValueSerde = AnySerde vs
+      , sourceExtractor  = AnyTimestampExtractor ex
+      }
 
 attachToProcessor
   :: StoreName
