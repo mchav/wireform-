@@ -38,6 +38,7 @@ module Kafka.Streams
   , module Kafka.Streams.DSL.SessionWindowedKStream
   , module Kafka.Streams.DSL.GlobalKTable
   , module Kafka.Streams.DSL.ForeignKeyJoin
+  , module Kafka.Streams.DSL.Cogroup
     -- * Driver / Runtime / IQ
   , module Kafka.Streams.Driver
   , module Kafka.Streams.Runtime
@@ -53,6 +54,7 @@ import Kafka.Streams.DSL.KStream
 import Kafka.Streams.DSL.KTable
 import Kafka.Streams.DSL.Materialized
 import Kafka.Streams.DSL.Produced
+import Kafka.Streams.DSL.Cogroup
 import Kafka.Streams.DSL.ForeignKeyJoin
 import Kafka.Streams.DSL.GlobalKTable
 import Kafka.Streams.DSL.SessionWindowedKStream

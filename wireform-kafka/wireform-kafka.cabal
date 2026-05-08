@@ -392,6 +392,7 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.SessionWindowedKStream
         Kafka.Streams.DSL.GlobalKTable
         Kafka.Streams.DSL.ForeignKeyJoin
+        Kafka.Streams.DSL.Cogroup
         Kafka.Streams.Runtime
         Kafka.Streams.Runtime.EOS
         Kafka.Streams.Runtime.Task
@@ -447,6 +448,7 @@ test-suite wireform-kafka-streams-test
         Streams.StandbySpec
         Streams.AssignorSpec
         Streams.StreamConvSpec
+        Streams.CogroupSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

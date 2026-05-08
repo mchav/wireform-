@@ -20,6 +20,7 @@ import qualified Streams.MultiTaskSpec
 import qualified Streams.StandbySpec
 import qualified Streams.AssignorSpec
 import qualified Streams.StreamConvSpec
+import qualified Streams.CogroupSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -41,4 +42,5 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.StandbySpec.tests
   , Streams.AssignorSpec.tests
   , Streams.StreamConvSpec.tests
+  , Streams.CogroupSpec.tests
   ]
