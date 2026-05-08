@@ -65,17 +65,25 @@ module Kafka.Streams.DSL.KStream
     -- * Sinks
   , toTopic
   , throughTopic
+    -- * Conversions
+  , toTable
+  , repartition
     -- * Joins
   , joinKStreamKTable
   , leftJoinKStreamKTable
   , joinKStreamKStream
   , leftJoinKStreamKStream
   , outerJoinKStreamKStream
+    -- * Branching
+  , splitStream
+  , Branched (..)
+  , branchedFrom
     -- * Low-level access
   , transformValuesStream
   ) where
 
 import Data.IORef
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 
 import Kafka.Streams.DSL.Consumed
@@ -99,11 +107,16 @@ import Kafka.Streams.DSL.StreamsBuilder
 
 import qualified Unsafe.Coerce as Unsafe
 
+import qualified Kafka.Streams.DSL.KTable
 import Kafka.Streams.DSL.KTable
-  ( KTable
+  ( KTable (..)
   , ktableNode
   , ktableStore
   )
+import Kafka.Streams.DSL.Materialized
+  ( Materialized (..)
+  )
+import qualified Kafka.Streams.State.Store
 import Kafka.Streams.Processor
   ( Processor (..)
   , ProcessorContext (..)
@@ -1017,3 +1030,209 @@ transformValuesStream
   -> IO (KStream k v')
 transformValuesStream prefix _stores supplier vs s =
   attachProcessor s prefix supplier (kstreamKeySerde s) vs
+
+----------------------------------------------------------------------
+-- KStream -> KTable conversion
+----------------------------------------------------------------------
+
+-- | Convert a stream into a 'KTable' by materialising the latest
+-- value per key into a state store. Mirrors @KStream.toTable@.
+--
+-- Tombstones (records with @recordValue = ...@ but explicitly null
+-- in the wire form — represented in our model as a regular 'Record'
+-- whose user code chose to encode nullness explicitly) are NOT
+-- automatically interpreted as deletes here. If you need delete
+-- semantics, route through 'mapValues' producing 'Maybe' and write
+-- a tombstone-aware writer; the Java implementation is similarly
+-- caller-aware.
+toTable
+  :: forall k v
+   . Ord k
+  => Materialized k v
+  -> KStream k v
+  -> IO (KTable k v)
+toTable m s = do
+  let b = kstreamBuilder s
+  storeNm <- maybe
+               (freshStoreName b "KSTREAM-TOTABLE-STORE")
+               pure
+               (matName m)
+  procNm <- freshNodeName b "KSTREAM-TOTABLE"
+  let supplier = inMemoryKeyValueStoreBuilder storeNm
+                   :: Kafka.Streams.State.Store.StoreBuilderKV k v
+  withTopology_ b $ \t ->
+    let !t1 = Topo.addProcessorWith
+                Topo.ProcessorSpec
+                  { Topo.processorSpecName     = procNm
+                  , Topo.processorSpecParents  = [kstreamParent s]
+                  , Topo.processorSpecSupplier =
+                      Topo.AnyProcessor (toTableProc @k @v storeNm)
+                  , Topo.processorSpecStores   = []
+                  }
+                t
+        !t2 = Topo.addStateStoreKV supplier [procNm] t1
+     in t2
+  pure (mkKTableFromStream procNm storeNm b (kstreamKeySerde s) (kstreamValueSerde s))
+
+mkKTableFromStream
+  :: Topo.NodeName
+  -> Kafka.Streams.State.Store.StoreName
+  -> StreamsBuilder
+  -> Serde k -> Serde v
+  -> KTable k v
+mkKTableFromStream nm sn b ks vs =
+  -- KTable is a record with non-strict serde fields (we made them
+  -- lazy so the builder can stitch deferred error placeholders).
+  Kafka.Streams.DSL.KTable.KTable nm sn b ks vs
+
+toTableProc
+  :: forall k v
+   . Ord k
+  => Kafka.Streams.State.Store.StoreName
+  -> IO (Processor k v)
+toTableProc sn = do
+  ctxRef <- newIORef Nothing
+  storeRef <- newIORef (Nothing :: Maybe (KeyValueStore k v))
+  pure Processor
+    { procName = processorName "KSTREAM-TOTABLE"
+    , procInit = \ctx -> do
+        writeIORef ctxRef (Just ctx)
+        getStateStore ctx sn >>= \case
+          Just (AnyKeyValueStore kvs) ->
+            writeIORef storeRef (Just (Unsafe.unsafeCoerce kvs))
+          _ -> error $ "toTable: store missing: " <> show sn
+    , procClose = pure ()
+    , procProcess = \r -> case recordKey r of
+        Nothing -> pure ()
+        Just k  -> do
+          mctx <- readIORef ctxRef
+          mst  <- readIORef storeRef
+          case (mctx, mst) of
+            (Just ctx, Just kvs) -> do
+              kvsPut kvs k (recordValue r)
+              forwardRecord ctx r
+            _ -> pure ()
+    }
+
+----------------------------------------------------------------------
+-- Repartition
+----------------------------------------------------------------------
+
+-- | Force a repartition. In a single-task driver this is a no-op
+-- pass-through; in a multi-task / broker-backed runtime the
+-- generated topology routes the records through an internal
+-- repartition topic, which is what triggers the actual partitioning.
+--
+-- Mirrors @KStream.repartition()@ (KIP-221).
+repartition
+  :: forall k v
+   . T.Text                              -- ^ topic name prefix
+  -> KStream k v
+  -> IO (KStream k v)
+repartition topicPrefix s = do
+  let b = kstreamBuilder s
+  nm <- freshNodeName b ("KSTREAM-REPARTITION-" <> topicPrefix)
+  withTopology_ b $ \t ->
+    Topo.addProcessor nm [kstreamParent s] (mkPassThrough "KSTREAM-REPARTITION") t
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nm
+    , kstreamKeySerde   = kstreamKeySerde s
+    , kstreamValueSerde = kstreamValueSerde s
+    }
+
+----------------------------------------------------------------------
+-- Split (KIP-418)
+----------------------------------------------------------------------
+
+-- | A named branch in a 'splitStream'. The runtime evaluates each
+-- predicate in order; the first match routes the record to that
+-- branch's named output. The 'Branched' carries an optional
+-- continuation invoked /at build time/ on the resulting 'KStream'
+-- so users can chain into per-branch sink/transform pipelines
+-- without having to thread the result list manually.
+data Branched k v = Branched
+  { branchedName :: !T.Text
+  , branchedPred :: !(Record k v -> Bool)
+  , branchedAct  :: !(KStream k v -> IO ())
+  }
+
+-- | 'Branched' constructor with a pure predicate and no per-branch
+-- continuation. Equivalent to Java's @Branched.as("name").withPredicate(p)@.
+branchedFrom :: T.Text -> (Record k v -> Bool) -> Branched k v
+branchedFrom n p = Branched
+  { branchedName = n
+  , branchedPred = p
+  , branchedAct  = \_ -> pure ()
+  }
+
+-- | KIP-418-style split: each input record is routed to the first
+-- branch whose predicate matches. Records that match none are sent
+-- to the optional default branch ('Nothing' drops them).
+--
+-- Returns a 'Map' from branch name to the resulting 'KStream', plus
+-- (if requested) the default-branch stream.
+splitStream
+  :: forall k v
+   . [Branched k v]                      -- ^ branches in evaluation order
+  -> Maybe T.Text                        -- ^ optional default-branch name
+  -> KStream k v
+  -> IO (Map.Map T.Text (KStream k v))
+splitStream branches mDefault s = do
+  let b = kstreamBuilder s
+  router <- freshNodeName b "KSTREAM-SPLIT"
+  let allBranches = branches
+        ++ case mDefault of
+             Just n  -> [defaultBranch n]
+             Nothing -> []
+      defaultBranch n = Branched
+        { branchedName = n
+        , branchedPred = \_ -> True
+        , branchedAct  = \_ -> pure ()
+        }
+  childNodes <- mapM
+    (\br -> do
+        n <- freshNodeName b ("KSTREAM-SPLIT-" <> branchedName br)
+        pure (br, n))
+    allBranches
+  withTopology_ b $ \t ->
+    let !t1 = Topo.addProcessorWith
+                Topo.ProcessorSpec
+                  { Topo.processorSpecName     = router
+                  , Topo.processorSpecParents  = [kstreamParent s]
+                  , Topo.processorSpecSupplier =
+                      Topo.AnyProcessor
+                        (mkRouter (map (branchedPred . fst) childNodes)
+                                  (map snd childNodes))
+                  , Topo.processorSpecStores   = []
+                  }
+                t
+        !t2 = foldl
+                (\acc (_br, n) ->
+                   Topo.addProcessorWith
+                     Topo.ProcessorSpec
+                       { Topo.processorSpecName     = n
+                       , Topo.processorSpecParents  = [router]
+                       , Topo.processorSpecSupplier =
+                           Topo.AnyProcessor (mkPassThrough "KSTREAM-SPLIT-CHILD")
+                       , Topo.processorSpecStores   = []
+                       } acc)
+                t1 childNodes
+     in t2
+  results <- mapM
+    (\(br, n) -> do
+        let !sub = KStream
+              { kstreamBuilder    = b
+              , kstreamParent     = n
+              , kstreamKeySerde   = kstreamKeySerde s
+              , kstreamValueSerde = kstreamValueSerde s
+              }
+        branchedAct br sub
+        pure (branchedName br, sub))
+    childNodes
+  pure (Map.fromList results)
+
+-- 'Map' / 'KTable' kept imported here so helper signatures resolve
+-- without polluting the public surface.
+_unused_split :: Map.Map T.Text Int
+_unused_split = Map.empty
