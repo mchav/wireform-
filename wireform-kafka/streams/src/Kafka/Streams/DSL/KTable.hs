@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -18,17 +19,25 @@ module Kafka.Streams.DSL.KTable
   , ktableNode
   , ktableStore
   , ktableBuilder
+  , ktableKeySerde
+  , ktableValueSerde
     -- * Source
   , tableFromTopic
     -- * Stateless
   , filterTable
   , mapValuesTable
+    -- * Joins
+  , joinKTableKTable
+  , leftJoinKTableKTable
+  , outerJoinKTableKTable
     -- * Conversion
   , toStreamTable
   , queryKeyValueStore
   ) where
 
 import Data.IORef
+import qualified Data.Text
+import qualified GHC.Exts
 import qualified Unsafe.Coerce as Unsafe
 
 import Kafka.Streams.DSL.Consumed (Consumed (..))
@@ -41,6 +50,7 @@ import Kafka.Streams.DSL.StreamsBuilder
   )
 import Kafka.Streams.Processor
   ( Processor (..)
+  , ProcessorContext
   , forwardRecord
   , getStateStore
   , processorName
@@ -312,3 +322,245 @@ queryKeyValueStore _ _ _ =
 unsafeCastKV :: KeyValueStore k v -> KeyValueStore k' v'
 unsafeCastKV = Unsafe.unsafeCoerce
 {-# INLINE unsafeCastKV #-}
+
+----------------------------------------------------------------------
+-- KTable-KTable joins
+--
+-- The join is itself a materialised KTable. When either input side
+-- changes for a key, we recompute the join value for that key:
+--
+--   inner:   emit (joiner l r) iff both sides have a non-null value
+--   left:    emit (joiner l (Just r)) when right has a value;
+--            emit (joiner l Nothing) when right has no value
+--   outer:   emit (joiner (Just l) Nothing) / (Nothing (Just r)) /
+--            (Just l) (Just r)) depending on which sides have values
+----------------------------------------------------------------------
+
+-- | Inner KTable-KTable join.
+joinKTableKTable
+  :: forall k v1 v2 v'
+   . Ord k
+  => (v1 -> v2 -> v')
+  -> Materialized k v'
+  -> KTable k v1
+  -> KTable k v2
+  -> IO (KTable k v')
+joinKTableKTable joiner m =
+  buildKTableKTableJoin "KTABLE-INNER-JOIN" m
+    (KTKTInner joiner :: KTKTMode k v1 v2 v')
+
+-- | Left KTable-KTable join. Emits even when right has no value.
+leftJoinKTableKTable
+  :: forall k v1 v2 v'
+   . Ord k
+  => (v1 -> Maybe v2 -> v')
+  -> Materialized k v'
+  -> KTable k v1
+  -> KTable k v2
+  -> IO (KTable k v')
+leftJoinKTableKTable joiner m =
+  buildKTableKTableJoin "KTABLE-LEFT-JOIN" m
+    (KTKTLeft joiner :: KTKTMode k v1 v2 v')
+
+-- | Outer KTable-KTable join. Emits whenever either side has a value.
+outerJoinKTableKTable
+  :: forall k v1 v2 v'
+   . Ord k
+  => (Maybe v1 -> Maybe v2 -> v')
+  -> Materialized k v'
+  -> KTable k v1
+  -> KTable k v2
+  -> IO (KTable k v')
+outerJoinKTableKTable joiner m =
+  buildKTableKTableJoin "KTABLE-OUTER-JOIN" m
+    (KTKTOuter joiner :: KTKTMode k v1 v2 v')
+
+-- | Mode + joiner closure carried into the side processors.
+data KTKTMode k v1 v2 v' where
+  KTKTInner :: (v1 -> v2 -> v')                -> KTKTMode k v1 v2 v'
+  KTKTLeft  :: (v1 -> Maybe v2 -> v')          -> KTKTMode k v1 v2 v'
+  KTKTOuter :: (Maybe v1 -> Maybe v2 -> v')    -> KTKTMode k v1 v2 v'
+
+-- | Build the join topology. Two side processors (one per parent
+-- KTable), each owning a reference to the other side's store and to
+-- the shared output store.
+buildKTableKTableJoin
+  :: forall k v1 v2 v'
+   . Ord k
+  => Data.Text.Text                                  -- prefix
+  -> Materialized k v'
+  -> KTKTMode k v1 v2 v'
+  -> KTable k v1
+  -> KTable k v2
+  -> IO (KTable k v')
+buildKTableKTableJoin prefix m mode tl tr = do
+  let b = ktableBuilder tl
+  outStoreNm <- maybe (freshStoreName b (prefix <> "-STORE"))
+                      pure
+                      (matName m)
+  leftNm  <- freshNodeName b (prefix <> "-LEFT")
+  rightNm <- freshNodeName b (prefix <> "-RIGHT")
+  let outBuilder = inMemoryKeyValueStoreBuilder outStoreNm
+                     :: StoreBuilderKV k v'
+
+  withTopology_ b $ \t ->
+    let !t1 = Topo.addProcessorWith
+                Topo.ProcessorSpec
+                  { Topo.processorSpecName     = leftNm
+                  , Topo.processorSpecParents  = [ktableNode tl]
+                  , Topo.processorSpecSupplier =
+                      Topo.AnyProcessor
+                        (mkKTKTSideLeft @k @v1 @v2 @v'
+                           mode
+                           (ktableStore tr)
+                           outStoreNm)
+                  , Topo.processorSpecStores   =
+                      [ktableStore tl, ktableStore tr, outStoreNm]
+                  } t
+        !t2 = Topo.addProcessorWith
+                Topo.ProcessorSpec
+                  { Topo.processorSpecName     = rightNm
+                  , Topo.processorSpecParents  = [ktableNode tr]
+                  , Topo.processorSpecSupplier =
+                      Topo.AnyProcessor
+                        (mkKTKTSideRight @k @v1 @v2 @v'
+                           mode
+                           (ktableStore tl)
+                           outStoreNm)
+                  , Topo.processorSpecStores   =
+                      [ktableStore tl, ktableStore tr, outStoreNm]
+                  } t1
+        !t3 = Topo.addStateStoreKV outBuilder [leftNm, rightNm] t2
+     in t3
+
+  pure KTable
+    { ktableNode       = leftNm    -- arbitrary: both feed the same store
+    , ktableStore      = outStoreNm
+    , ktableBuilder    = b
+    , ktableKeySerde   = ktableKeySerde tl
+    , ktableValueSerde = error
+        "KTable-KTable join: pass Materialized with serde to set output"
+    }
+
+-- The left side processor receives a v1; looks up the right store
+-- for the current v2 (if any), evaluates the joiner per the mode,
+-- writes the result to the output store and forwards it.
+mkKTKTSideLeft
+  :: forall k v1 v2 v'
+   . Ord k
+  => KTKTMode k v1 v2 v'
+  -> StoreName              -- right store name
+  -> StoreName              -- output store name
+  -> IO (Processor k v1)
+mkKTKTSideLeft mode rightNm outNm =
+  mkKTKTSideAny "KTABLE-JOIN-LEFT" mode rightNm outNm True
+
+mkKTKTSideRight
+  :: forall k v1 v2 v'
+   . Ord k
+  => KTKTMode k v1 v2 v'
+  -> StoreName              -- left store name
+  -> StoreName              -- output store name
+  -> IO (Processor k v2)
+mkKTKTSideRight mode leftNm outNm =
+  mkKTKTSideAny "KTABLE-JOIN-RIGHT" mode leftNm outNm False
+
+mkKTKTSideAny
+  :: forall k v1 v2 v' vSelf
+   . Ord k
+  => Data.Text.Text
+  -> KTKTMode k v1 v2 v'
+  -> StoreName              -- the OTHER side's store
+  -> StoreName              -- output store
+  -> Bool                   -- True iff this is the LEFT side
+  -> IO (Processor k vSelf)
+mkKTKTSideAny nm mode otherNm outNm isLeft = do
+  ctxRef   <- newIORef Nothing
+  otherRef <- newIORef (Nothing :: Maybe (KeyValueStore k Any))
+  outRef   <- newIORef (Nothing :: Maybe (KeyValueStore k v'))
+  pure Processor
+    { procName  = processorName nm
+    , procInit  = \ctx -> do
+        writeIORef ctxRef (Just ctx)
+        st1 <- getStateStore ctx otherNm
+        case st1 of
+          Just (AnyKeyValueStore kvs) ->
+            writeIORef otherRef (Just (Unsafe.unsafeCoerce kvs))
+          _ -> error $ "KTable-KTable join: other store missing: " <> show otherNm
+        st2 <- getStateStore ctx outNm
+        case st2 of
+          Just (AnyKeyValueStore kvs) ->
+            writeIORef outRef (Just (Unsafe.unsafeCoerce kvs))
+          _ -> error $ "KTable-KTable join: out store missing: " <> show outNm
+    , procClose = pure ()
+    , procProcess = \r ->
+        case recordKey r of
+          Just k -> do
+            mctx   <- readIORef ctxRef
+            mother <- readIORef otherRef
+            mout   <- readIORef outRef
+            case (mctx, mother, mout) of
+              (Just ctx, Just other_, Just out_) -> do
+                mOtherVal <- kvsGet other_ k
+                let mResult = computeJoinValue mode isLeft (recordValue r) mOtherVal
+                case mResult of
+                  Just !vOut -> do
+                    kvsPut out_ k vOut
+                    forwardRecord ctx
+                      (Record
+                        { recordKey       = Just k
+                        , recordValue     = vOut
+                        , recordTimestamp = recordTimestamp r
+                        , recordHeaders   = recordHeaders r
+                        } :: Record k v')
+                  Nothing ->
+                    () <$ kvsDelete out_ k
+              _ -> pure ()
+          _ -> pure ()
+    }
+
+-- 'Any' from the type-erased engine boundary. We coerce in / out at
+-- the call sites since the topology builder paired the joiner with
+-- consistent v1/v2 types.
+type Any = GHC.Exts.Any
+
+-- | Apply the join mode given this side's value (already bound) and
+-- the other side's optional value.
+computeJoinValue
+  :: forall k v1 v2 v' vSelf
+   . KTKTMode k v1 v2 v'
+  -> Bool                     -- isLeft?
+  -> vSelf                    -- this side's incoming v
+  -> Maybe Any                -- other side's value (erased)
+  -> Maybe v'
+computeJoinValue mode isLeft thisV mOther =
+  case mode of
+    KTKTInner f ->
+      case mOther of
+        Just other_ ->
+          if isLeft
+            then Just (f (Unsafe.unsafeCoerce thisV  :: v1)
+                         (Unsafe.unsafeCoerce other_ :: v2))
+            else Just (f (Unsafe.unsafeCoerce other_ :: v1)
+                         (Unsafe.unsafeCoerce thisV  :: v2))
+        Nothing -> Nothing
+    KTKTLeft f ->
+      if isLeft
+        then Just (f (Unsafe.unsafeCoerce thisV :: v1)
+                     ((Unsafe.unsafeCoerce <$> mOther) :: Maybe v2))
+        else
+          -- Right-side update on a left-join: only emit if a left
+          -- value already exists; otherwise we have nothing to join on.
+          case mOther of
+            Just left_ ->
+              Just (f (Unsafe.unsafeCoerce left_ :: v1)
+                      (Just (Unsafe.unsafeCoerce thisV :: v2)))
+            Nothing -> Nothing
+    KTKTOuter f ->
+      if isLeft
+        then
+          Just (f (Just (Unsafe.unsafeCoerce thisV :: v1))
+                  (Unsafe.unsafeCoerce <$> mOther :: Maybe v2))
+        else
+          Just (f (Unsafe.unsafeCoerce <$> mOther :: Maybe v1)
+                  (Just (Unsafe.unsafeCoerce thisV :: v2)))

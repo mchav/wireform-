@@ -22,6 +22,10 @@ tests = testGroup "Joins"
   , kstream_kstream_inner_outside_window
   , kstream_kstream_left_unmatched_emits_nothing
   , kstream_kstream_outer_emits_both_sides
+    -- Table-table joins
+  , ktable_ktable_inner_join
+  , ktable_ktable_left_join
+  , ktable_ktable_outer_join
   ]
 
 bytes :: Text -> BSC.ByteString
@@ -243,4 +247,119 @@ kstream_kstream_outer_emits_both_sides =
 
     out <- readOutput driver (topicName "out")
     map (unbytes . crValue) out @?= ["L1/<>", "<>/R1"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- KTable-KTable join tests
+----------------------------------------------------------------------
+
+ktable_ktable_inner_join :: TestTree
+ktable_ktable_inner_join =
+  testCase "KTable-KTable inner join: only emits when both sides have a value" $ do
+    b <- newStreamsBuilder
+    tl <- tableFromTopic b (topicName "left")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "left-store"))
+    tr <- tableFromTopic b (topicName "right")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "right-store"))
+    out <- joinKTableKTable
+              (\l r -> l <> "+" <> r)
+              (materializedAs (storeName "join-store"))
+              tl
+              tr
+    topo <- buildTopology b
+    driver <- newDriver topo "ktkt-app"
+
+    -- Left only: no output yet (no matching right)
+    pipeInput driver (topicName "left") (Just (bytes "k")) (bytes "L1") (t 0) 0
+    s1 <- getKeyValueStore @Text @Text driver (ktableStore out)
+    case s1 of
+      Just kvs -> kvsGet kvs "k" >>= (@?= Nothing)
+      Nothing -> error "out store missing"
+
+    -- Right arrives: now both sides have values, output emitted.
+    pipeInput driver (topicName "right") (Just (bytes "k")) (bytes "R1") (t 1) 0
+    s2 <- getKeyValueStore @Text @Text driver (ktableStore out)
+    case s2 of
+      Just kvs -> kvsGet kvs "k" >>= (@?= Just "L1+R1")
+      Nothing -> error "out store missing"
+
+    -- Left updated: re-emits.
+    pipeInput driver (topicName "left") (Just (bytes "k")) (bytes "L2") (t 2) 0
+    s3 <- getKeyValueStore @Text @Text driver (ktableStore out)
+    case s3 of
+      Just kvs -> kvsGet kvs "k" >>= (@?= Just "L2+R1")
+      Nothing -> error "out store missing"
+    closeDriver driver
+
+ktable_ktable_left_join :: TestTree
+ktable_ktable_left_join =
+  testCase "KTable-KTable left join: emits whenever left has a value" $ do
+    b <- newStreamsBuilder
+    tl <- tableFromTopic b (topicName "left")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "left-store-l"))
+    tr <- tableFromTopic b (topicName "right")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "right-store-l"))
+    out <- leftJoinKTableKTable
+              (\l mr -> case mr of
+                          Just r  -> l <> "+" <> r
+                          Nothing -> l <> "+<>")
+              (materializedAs (storeName "join-store-l"))
+              tl
+              tr
+    topo <- buildTopology b
+    driver <- newDriver topo "ktkt-l-app"
+
+    -- Left without right: emits with Nothing.
+    pipeInput driver (topicName "left") (Just (bytes "k")) (bytes "L1") (t 0) 0
+    s1 <- getKeyValueStore @Text @Text driver (ktableStore out)
+    case s1 of
+      Just kvs -> kvsGet kvs "k" >>= (@?= Just "L1+<>")
+      Nothing -> error "out store missing"
+
+    -- Right arrives.
+    pipeInput driver (topicName "right") (Just (bytes "k")) (bytes "R1") (t 1) 0
+    s2 <- getKeyValueStore @Text @Text driver (ktableStore out)
+    case s2 of
+      Just kvs -> kvsGet kvs "k" >>= (@?= Just "L1+R1")
+      Nothing -> error "out store missing"
+    closeDriver driver
+
+ktable_ktable_outer_join :: TestTree
+ktable_ktable_outer_join =
+  testCase "KTable-KTable outer join: emits whenever either side has a value" $ do
+    b <- newStreamsBuilder
+    tl <- tableFromTopic b (topicName "left")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "left-store-o"))
+    tr <- tableFromTopic b (topicName "right")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "right-store-o"))
+    out <- outerJoinKTableKTable
+              (\ml mr ->
+                let l = maybe "<>" id ml
+                    r = maybe "<>" id mr
+                 in l <> "/" <> r)
+              (materializedAs (storeName "join-store-o"))
+              tl
+              tr
+    topo <- buildTopology b
+    driver <- newDriver topo "ktkt-o-app"
+
+    -- Right without left first.
+    pipeInput driver (topicName "right") (Just (bytes "k")) (bytes "R1") (t 0) 0
+    s1 <- getKeyValueStore @Text @Text driver (ktableStore out)
+    case s1 of
+      Just kvs -> kvsGet kvs "k" >>= (@?= Just "<>/R1")
+      Nothing -> error "out store missing"
+
+    -- Left arrives.
+    pipeInput driver (topicName "left") (Just (bytes "k")) (bytes "L1") (t 1) 0
+    s2 <- getKeyValueStore @Text @Text driver (ktableStore out)
+    case s2 of
+      Just kvs -> kvsGet kvs "k" >>= (@?= Just "L1/R1")
+      Nothing -> error "out store missing"
     closeDriver driver
