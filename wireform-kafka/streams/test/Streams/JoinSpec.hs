@@ -29,6 +29,11 @@ tests = testGroup "Joins"
     -- GlobalKTable joins
   , kstream_global_ktable_inner
   , kstream_global_ktable_left_no_match_emits_nothing
+    -- Foreign-key KTable-KTable joins
+  , fk_join_inner_basic
+  , fk_join_changing_fk_unsubscribes
+  , fk_join_right_update_re_emits
+  , fk_left_join_emits_when_no_right
   ]
 
 bytes :: Text -> BSC.ByteString
@@ -431,4 +436,136 @@ kstream_global_ktable_left_no_match_emits_nothing =
 
     out <- readOutput driver (topicName "out")
     map (unbytes . crValue) out @?= ["alice:x", "<unknown>:y"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- KTable-KTable foreign-key join tests
+----------------------------------------------------------------------
+
+fk_join_inner_basic :: TestTree
+fk_join_inner_basic =
+  testCase "FK join: left value's fk-extracted lookup hits right table" $ do
+    b <- newStreamsBuilder
+    -- Left: order id -> "user_id|amount"
+    tl <- tableFromTopic b (topicName "orders")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "orders-store"))
+    -- Right: user id -> name
+    tr <- tableFromTopic b (topicName "users")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "users-store"))
+    out <- foreignKeyJoinKTable
+            (\v -> T.takeWhile (/= '|') v)         -- extract user id
+            (\v userName ->
+              userName <> ":" <> T.dropWhile (== '|') (T.dropWhile (/= '|') v))
+            (materializedAs (storeName "fk-out"))
+            tl
+            tr
+    topo <- buildTopology b
+    driver <- newDriver topo "fk-app"
+
+    -- Right table loaded first.
+    pipeInput driver (topicName "users")  (Just (bytes "u1")) (bytes "alice") (t 0) 0
+    pipeInput driver (topicName "users")  (Just (bytes "u2")) (bytes "bob")   (t 0) 0
+    -- Left table updates.
+    pipeInput driver (topicName "orders") (Just (bytes "o1")) (bytes "u1|10") (t 1) 0
+    pipeInput driver (topicName "orders") (Just (bytes "o2")) (bytes "u2|20") (t 1) 0
+
+    Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
+    roKvGet rs "o1" >>= (@?= Just "alice:10")
+    roKvGet rs "o2" >>= (@?= Just "bob:20")
+    closeDriver driver
+
+fk_join_changing_fk_unsubscribes :: TestTree
+fk_join_changing_fk_unsubscribes =
+  testCase "FK join: changing the foreign key on a left record unsubscribes" $ do
+    b <- newStreamsBuilder
+    tl <- tableFromTopic b (topicName "orders")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "orders-store-2"))
+    tr <- tableFromTopic b (topicName "users")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "users-store-2"))
+    out <- foreignKeyJoinKTable
+            (\v -> T.takeWhile (/= '|') v)
+            (\v u -> u <> ":" <> T.dropWhile (== '|') (T.dropWhile (/= '|') v))
+            (materializedAs (storeName "fk-out-2"))
+            tl
+            tr
+    topo <- buildTopology b
+    driver <- newDriver topo "fk-app"
+
+    pipeInput driver (topicName "users")  (Just (bytes "u1")) (bytes "alice") (t 0) 0
+    pipeInput driver (topicName "users")  (Just (bytes "u2")) (bytes "bob")   (t 0) 0
+    -- o1 originally points at u1.
+    pipeInput driver (topicName "orders") (Just (bytes "o1")) (bytes "u1|x") (t 1) 0
+    -- Now o1 points at u2. Should unsubscribe from u1 and emit "bob:x".
+    pipeInput driver (topicName "orders") (Just (bytes "o1")) (bytes "u2|x") (t 2) 0
+    -- Updating u1 should NOT re-emit for o1 anymore (only the original
+    -- subscription window would fire).
+    pipeInput driver (topicName "users")  (Just (bytes "u1")) (bytes "ALICE2") (t 3) 0
+
+    Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
+    roKvGet rs "o1" >>= (@?= Just "bob:x")
+    closeDriver driver
+
+fk_join_right_update_re_emits :: TestTree
+fk_join_right_update_re_emits =
+  testCase "FK join: updating a right table value re-emits all subscribed left rows" $ do
+    b <- newStreamsBuilder
+    tl <- tableFromTopic b (topicName "orders")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "orders-store-3"))
+    tr <- tableFromTopic b (topicName "users")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "users-store-3"))
+    out <- foreignKeyJoinKTable
+            (\v -> T.takeWhile (/= '|') v)
+            (\v u -> u <> ":" <> T.dropWhile (== '|') (T.dropWhile (/= '|') v))
+            (materializedAs (storeName "fk-out-3"))
+            tl
+            tr
+    topo <- buildTopology b
+    driver <- newDriver topo "fk-app"
+
+    pipeInput driver (topicName "users")  (Just (bytes "u1")) (bytes "alice") (t 0) 0
+    -- Two orders both reference u1.
+    pipeInput driver (topicName "orders") (Just (bytes "o1")) (bytes "u1|10") (t 1) 0
+    pipeInput driver (topicName "orders") (Just (bytes "o2")) (bytes "u1|20") (t 1) 0
+    -- Update u1's name.
+    pipeInput driver (topicName "users")  (Just (bytes "u1")) (bytes "ALICE") (t 2) 0
+
+    Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
+    roKvGet rs "o1" >>= (@?= Just "ALICE:10")
+    roKvGet rs "o2" >>= (@?= Just "ALICE:20")
+    closeDriver driver
+
+fk_left_join_emits_when_no_right :: TestTree
+fk_left_join_emits_when_no_right =
+  testCase "FK left join: emits even when the right table has no row for fk" $ do
+    b <- newStreamsBuilder
+    tl <- tableFromTopic b (topicName "orders")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "orders-store-l"))
+    tr <- tableFromTopic b (topicName "users")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "users-store-l"))
+    out <- leftForeignKeyJoinKTable
+            (\v -> T.takeWhile (/= '|') v)
+            (\v mu -> case mu of
+                       Just u  -> u <> ":" <> T.dropWhile (== '|') (T.dropWhile (/= '|') v)
+                       Nothing -> "<>:" <> T.dropWhile (== '|') (T.dropWhile (/= '|') v))
+            (materializedAs (storeName "fk-out-l"))
+            tl
+            tr
+    topo <- buildTopology b
+    driver <- newDriver topo "fk-l-app"
+
+    -- Left first, no right yet.
+    pipeInput driver (topicName "orders") (Just (bytes "o1")) (bytes "u1|x") (t 0) 0
+    Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
+    roKvGet rs "o1" >>= (@?= Just "<>:x")
+    -- Now right arrives, re-emit.
+    pipeInput driver (topicName "users") (Just (bytes "u1")) (bytes "alice") (t 1) 0
+    roKvGet rs "o1" >>= (@?= Just "alice:x")
     closeDriver driver

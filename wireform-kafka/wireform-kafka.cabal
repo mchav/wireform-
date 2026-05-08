@@ -384,6 +384,7 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.TimeWindowedKStream
         Kafka.Streams.DSL.SessionWindowedKStream
         Kafka.Streams.DSL.GlobalKTable
+        Kafka.Streams.DSL.ForeignKeyJoin
         Kafka.Streams.Runtime
         Kafka.Streams.Runtime.EOS
         Kafka.Streams.Runtime.Task

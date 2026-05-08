@@ -15,7 +15,7 @@
 --
 -- Mirrors @org.apache.kafka.streams.kstream.KTable<K,V>@.
 module Kafka.Streams.DSL.KTable
-  ( KTable
+  ( KTable (..)
   , ktableNode
   , ktableStore
   , ktableBuilder
