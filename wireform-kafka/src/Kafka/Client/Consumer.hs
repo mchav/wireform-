@@ -90,6 +90,7 @@ import qualified ListT
 
 import qualified Kafka.Client.Internal.Heartbeat as HB
 import qualified Kafka.Client.Internal.Request as Req
+import qualified Kafka.Client.Internal.Subscribe as Sub
 import Kafka.Client.Metadata (MetadataCache)
 import qualified Kafka.Client.Metadata as Meta
 import qualified Kafka.Network.Connection as Conn
@@ -416,25 +417,64 @@ closeConsumerWithTimeout Consumer{..} timeoutMs = do
   -- Close all connections
   Conn.closeAllConnections consumerConnManager
 
--- | Subscribe to topics.
+-- | Subscribe to topics with broker-side group coordination.
 --
--- Subscribes to the given topics and triggers partition assignment.
--- For use with consumer groups - enables automatic partition assignment and rebalancing.
+-- Walks the full consumer-group lifecycle:
+--
+-- 1. Discover the group coordinator ('Sub.subscribeFlow' issues a
+--    FindCoordinator).
+-- 2. JoinGroup with our subscription metadata and the @range@
+--    assignor.
+-- 3. If the broker elects us as the group leader we run
+--    'Sub.rangeAssign' across every member's subscription list and
+--    publish the per-member assignments via SyncGroup; otherwise we
+--    just receive ours.
+-- 4. OffsetFetch to pick the resume offset for each assigned
+--    partition; missing offsets fall back to the consumer's
+--    @auto.offset.reset@ policy.
+-- 5. Populate the in-memory assignment map so 'poll' starts fetching.
+--
+-- The heartbeat thread (started in 'createConsumer') picks up the
+-- coordinator address / member id / generation id automatically — they
+-- live in the shared 'HB.HeartbeatState'.
+--
+-- Calling 'subscribe' a second time with a different topic set
+-- re-runs the whole flow (i.e. is the equivalent of an explicit
+-- rebalance request).
 subscribe :: Consumer -> [Text] -> IO (Either String ())
-subscribe consumer@Consumer{..} topics = do
+subscribe Consumer{..} topics = do
   case consumerHeartbeat of
     Nothing -> return $ Left "Cannot subscribe: consumer not in a group (groupId was empty)"
     Just (hbState, _) -> do
-      -- TODO: Full implementation would:
-      -- 1. Find group coordinator using FindCoordinator
-      -- 2. Join group with JoinGroup request (including subscribed topics)
-      -- 3. Wait for leader to assign partitions
-      -- 4. Sync group state with SyncGroup request
-      -- 5. Update consumerAssignment with assigned partitions
-      -- 6. Fetch initial offsets or use committed offsets
-      
-      -- For now, return a placeholder indicating partial implementation
-      return $ Left "subscribe: Group coordination flow not yet fully implemented. Use 'assign' for manual partition assignment."
+      let resetPolicy = case consumerAutoOffsetReset consumerConfig of
+            Earliest -> Sub.ResetEarliest
+            Latest   -> Sub.ResetLatest
+            None     -> Sub.ResetNone
+          sessionTimeout   = fromIntegral (consumerSessionTimeoutMs   consumerConfig)
+          rebalanceTimeout = fromIntegral (consumerMaxPollIntervalMs  consumerConfig)
+      result <- Sub.subscribeFlow
+                  consumerConnManager
+                  consumerMetadata
+                  consumerVersionCache
+                  hbState
+                  (consumerClientId consumerConfig)
+                  (consumerGroupId  consumerConfig)
+                  topics
+                  sessionTimeout
+                  rebalanceTimeout
+                  resetPolicy
+                  consumerCorrelationId
+      case result of
+        Left err -> return $ Left ("subscribe: " ++ show err)
+        Right tps -> do
+          -- Replace the assignment with the new one and seed offsets.
+          atomically $ do
+            existing <- ListT.toList $ StmMap.listT consumerAssignment
+            forM_ existing $ \(tp, _) -> StmMap.delete tp consumerAssignment
+            forM_ tps $ \(stp, off) ->
+              let tp = TopicPartition (Sub.tpTopic stp) (Sub.tpPartition stp)
+              in StmMap.insert off tp consumerAssignment
+          return $ Right ()
 
 -- | Unsubscribe from all topics.
 --

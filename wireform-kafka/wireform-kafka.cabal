@@ -82,11 +82,13 @@ library
         Kafka
         Kafka.Client.AdminClient
         Kafka.Client.Consumer
+        Kafka.Client.Group
         Kafka.Client.Internal.BatchAccumulator
         Kafka.Client.Internal.ConsumerGroup
         Kafka.Client.Internal.Heartbeat
         Kafka.Client.Internal.ProducerSender
         Kafka.Client.Internal.Request
+        Kafka.Client.Internal.Subscribe
         Kafka.Client.Internal.TransactionCoordinator
         Kafka.Client.Metadata
         Kafka.Client.Pipeline
@@ -406,6 +408,7 @@ test-suite wireform-kafka-test
         Client.AdminClientSpec
         Client.BatchAccumulatorSpec
         Client.ConsumerConfigSpec
+        Client.GroupSpec
         Client.MetadataSpec
         Client.PartitionerSpec
         Client.ProducerConsumerLifecycleSpec

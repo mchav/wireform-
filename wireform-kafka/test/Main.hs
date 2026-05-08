@@ -32,6 +32,7 @@ import qualified Protocol.VersionHandlingSpec
 import qualified Protocol.ApiVersionsSpec
 import qualified Client.BatchAccumulatorSpec
 import qualified Client.ConsumerConfigSpec
+import qualified Client.GroupSpec
 import qualified Client.MetadataSpec
 import qualified Client.PartitionerSpec
 import qualified Client.ProducerTimeoutSpec
@@ -90,6 +91,7 @@ clientTests = testGroup "Client"
   , Client.TransactionSpec.transactionSpec
   , Client.TransactionCoordinatorSpec.transactionCoordinatorSpec
   , Client.AdminClientSpec.tests
+  , Client.GroupSpec.groupSpec
   ]
 
 networkTests :: TestTree

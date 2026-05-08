@@ -30,7 +30,7 @@ The package is layered:
   @Transaction@ surface re-exported below.
 * "Kafka.Telemetry.OpenTelemetry" — semantic-convention instrumentation.
 
-= Quick start
+= Quick start: producer
 
 @
 import qualified Kafka
@@ -41,6 +41,31 @@ main = do
   _ <- Kafka.sendMessage p \"my-topic\" Nothing \"hello\"
   Kafka.closeProducer p
 @
+
+= Quick start: consumer (high-level group API)
+
+For just-give-me-records consumption, use "Kafka.Client.Group" (also
+re-exported as @Wireform.Kafka.Group@ from the umbrella package). It
+hides FindCoordinator \/ JoinGroup \/ SyncGroup \/ OffsetFetch \/
+heartbeat \/ commit behind a single bracket:
+
+@
+import qualified Kafka.Client.Group as Group
+
+main :: IO ()
+main =
+  Group.runConsumer
+    Group.defaultGroupConfig
+      { Group.gcBootstrapBrokers = [\"localhost:9092\"]
+      , Group.gcGroupId          = \"my-service\"
+      , Group.gcTopics           = [\"events\"]
+      }
+    $ \\rec -> putStrLn (show (Kafka.crKey rec, Kafka.crValue rec))
+@
+
+The lower-level "Kafka.Client.Consumer" (re-exported below) is still
+available for cases where you want to drive the poll loop or own
+offset management yourself.
 -}
 module Kafka
   ( -- * High-level producer
