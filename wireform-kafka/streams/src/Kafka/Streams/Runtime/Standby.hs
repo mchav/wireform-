@@ -41,6 +41,10 @@ module Kafka.Streams.Runtime.Standby
   , StandbyTask (..)
   , newStandbyTask
   , advanceStandby
+    -- * Restore listener
+  , RestoreListener (..)
+  , noopRestoreListener
+  , setRestoreListener
   ) where
 
 import Control.Concurrent.STM
@@ -151,15 +155,37 @@ loggedKeyValueStore underlying topic sn ks vs = pure KeyValueStore
 -- Standby task
 ----------------------------------------------------------------------
 
+-- | Callbacks fired during changelog replay. Mirrors Java's
+-- @StateRestoreListener@. Each callback receives the standby task's
+-- store name plus the offset (end-offset for batch / total restored
+-- for end).
+data RestoreListener = RestoreListener
+  { onRestoreStart :: !(StoreName -> Int64 -> Int64 -> IO ())
+  , onBatchRestored :: !(StoreName -> Int64 -> Int -> IO ())
+  , onRestoreEnd   :: !(StoreName -> Int64 -> IO ())
+  }
+
+noopRestoreListener :: RestoreListener
+noopRestoreListener = RestoreListener
+  { onRestoreStart  = \_ _ _ -> pure ()
+  , onBatchRestored = \_ _ _ -> pure ()
+  , onRestoreEnd    = \_ _   -> pure ()
+  }
+
 -- | A standby replica of one active task's store.
 data StandbyTask k v = StandbyTask
-  { sbStore   :: !(KeyValueStore k v)
-  , sbTopic   :: !ChangelogTopic
-  , sbOffset  :: !(IORef Int64)
-  , sbStoreNm :: !StoreName
-  , sbKeySerde   :: !(Serde k)
-  , sbValueSerde :: !(Serde v)
+  { sbStore       :: !(KeyValueStore k v)
+  , sbTopic       :: !ChangelogTopic
+  , sbOffset      :: !(IORef Int64)
+  , sbStoreNm     :: !StoreName
+  , sbKeySerde    :: !(Serde k)
+  , sbValueSerde  :: !(Serde v)
+  , sbListener    :: !(IORef RestoreListener)
   }
+
+-- | Replace the restore listener attached to a standby task.
+setRestoreListener :: StandbyTask k v -> RestoreListener -> IO ()
+setRestoreListener sb lis = writeIORef (sbListener sb) lis
 
 newStandbyTask
   :: KeyValueStore k v
@@ -170,30 +196,37 @@ newStandbyTask
   -> IO (StandbyTask k v)
 newStandbyTask kvs topic sn ks vs = do
   off <- newIORef 0
+  lis <- newIORef noopRestoreListener
   pure StandbyTask
-    { sbStore   = kvs
-    , sbTopic   = topic
-    , sbOffset  = off
-    , sbStoreNm = sn
-    , sbKeySerde   = ks
-    , sbValueSerde = vs
+    { sbStore       = kvs
+    , sbTopic       = topic
+    , sbOffset      = off
+    , sbStoreNm     = sn
+    , sbKeySerde    = ks
+    , sbValueSerde  = vs
+    , sbListener    = lis
     }
 
 -- | Replay every changelog entry that's newer than the standby's
--- last seen offset. Returns the number of entries applied.
+-- last seen offset. Returns the number of entries applied. Fires
+-- the registered 'RestoreListener' on start / batch / end.
 advanceStandby :: StandbyTask k v -> IO Int
 advanceStandby sb = do
   cur <- readIORef (sbOffset sb)
   entries <- readEntriesFrom (sbTopic sb) cur
   let !mine = filter (\e -> clStoreName e == sbStoreNm sb) entries
-  -- Apply each entry to the local store.
-  mapM_ apply mine
   case entries of
     [] -> pure 0
     _  -> do
+      lis <- readIORef (sbListener sb)
       let !lastOff = clOffset (last entries)
+          !applied = length mine
+      onRestoreStart lis (sbStoreNm sb) cur lastOff
+      mapM_ apply mine
+      onBatchRestored lis (sbStoreNm sb) lastOff applied
       writeIORef (sbOffset sb) (lastOff + 1)
-      pure (length mine)
+      onRestoreEnd lis (sbStoreNm sb) (fromIntegral applied)
+      pure applied
   where
     apply e =
       case clKey e of

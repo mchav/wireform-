@@ -3,6 +3,7 @@
 
 module Streams.StandbySpec (tests) where
 
+import qualified Data.IORef
 import qualified Data.Text as T
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
@@ -23,6 +24,7 @@ tests = testGroup "Standby"
   , standby_advance_returns_count_of_applied
   , standby_only_applies_its_store
   , logged_store_passes_reads_through
+  , restore_listener_fires_start_batch_end
   ]
 
 standby_replays_basic_writes :: TestTree
@@ -116,3 +118,30 @@ logged_store_passes_reads_through =
     -- And the topic recorded the put.
     es <- readEntriesFrom topic 0
     length es @?= 1
+
+restore_listener_fires_start_batch_end :: TestTree
+restore_listener_fires_start_batch_end =
+  testCase "RestoreListener gets onRestoreStart / Batch / End on advance" $ do
+    topic <- newInMemoryChangelogTopic
+    activeUnder <- inMemoryKeyValueStore @Text @Text (storeName "s")
+    active <- loggedKeyValueStore activeUnder topic (storeName "s") textSerde textSerde
+    standbyStore <- inMemoryKeyValueStore @Text @Text (storeName "s-sb")
+    sb <- newStandbyTask standbyStore topic (storeName "s") textSerde textSerde
+
+    starts  <- Data.IORef.newIORef ([] :: [Int])
+    batches <- Data.IORef.newIORef ([] :: [Int])
+    ends    <- Data.IORef.newIORef ([] :: [Int])
+    setRestoreListener sb RestoreListener
+      { onRestoreStart = \_ _ _ -> Data.IORef.modifyIORef' starts (1 :)
+      , onBatchRestored = \_ _ n ->
+          Data.IORef.modifyIORef' batches (n :)
+      , onRestoreEnd = \_ n ->
+          Data.IORef.modifyIORef' ends (fromIntegral n :)
+      }
+
+    kvsPut active "k1" "v1"
+    kvsPut active "k2" "v2"
+    _ <- advanceStandby sb
+    Data.IORef.readIORef starts  >>= ((@?= 1) . length)
+    Data.IORef.readIORef batches >>= (@?= [2])
+    Data.IORef.readIORef ends    >>= (@?= [2])
