@@ -759,21 +759,39 @@ emitMapChunks !e !kvs = do
 homogeneousMap
   :: Vector (VV.Value, VV.Value) -> Maybe (T.TypeId, T.TypeId)
 homogeneousMap !kvs =
-  let (kHomo, vHomo, ok) = V.foldl' step (Nothing, Nothing, True) kvs
-  in if ok then (,) <$> kHomo <*> vHomo else Nothing
-  where
-    step (mKt, mVt, ok) (k, v)
-      | not ok = (mKt, mVt, False)
-      | isNoneV k || isNoneV v = (mKt, mVt, False)
-      | otherwise =
-          let !kt = VV.typeIdOf k
-              !vt = VV.typeIdOf v
-          in case (mKt, mVt) of
-               (Nothing, Nothing) -> (Just kt, Just vt, True)
-               (Just kt0, Just vt0)
-                 | kt == kt0 && vt == vt0 -> (mKt, mVt, True)
-                 | otherwise              -> (mKt, mVt, False)
-               _ -> (mKt, mVt, False)
+  -- Same Int#-accumulator pattern as 'analyseCollection'.
+  -- The original 'V.foldl' step (Nothing, Nothing, True) kvs'
+  -- allocated a fresh @(Maybe TypeId, Maybe TypeId, Bool)@
+  -- tuple per iteration. Replaced with five 'Int'
+  -- accumulators (with explicit type sig so GHC doesn't
+  -- default literals to 'Integer') that strict-worker-
+  -- wrapper unboxes to @Int#@.
+  let !n = V.length kvs
+      goM :: Int -> Int -> Int -> Int -> Int
+          -> Maybe (T.TypeId, T.TypeId)
+      goM !i !ok !hasK !ktag !vtag
+        | ok == 0   = Nothing
+        | i >= n    =
+            if hasK /= 0
+              then Just ( T.TypeId (fromIntegral ktag)
+                        , T.TypeId (fromIntegral vtag) )
+              else Nothing
+        | otherwise =
+            let (k, v) = V.unsafeIndex kvs i
+            in if isNoneV k || isNoneV v
+                 then goM (i + 1) (0 :: Int) hasK ktag vtag
+                 else
+                   let !(T.TypeId kt) = VV.typeIdOf k
+                       !(T.TypeId vt) = VV.typeIdOf v
+                       !ktI = fromIntegral kt :: Int
+                       !vtI = fromIntegral vt :: Int
+                   in if hasK == (0 :: Int)
+                        then goM (i + 1) ok (1 :: Int) ktI vtI
+                        else if ktag == ktI && vtag == vtI
+                          then goM (i + 1) ok (1 :: Int) ktag vtag
+                          else goM (i + 1) (0 :: Int) hasK ktag vtag
+  in goM 0 (1 :: Int) (0 :: Int) (0 :: Int) (0 :: Int)
+{-# INLINABLE homogeneousMap #-}
 
 -- | Emit a homogeneous map as a sequence of large chunks
 -- (max 255 entries per chunk, since chunk_size is a single
@@ -808,12 +826,22 @@ emitMapHomogeneousPayload !e !kvs !keyTag !valTag
   | keyTag == T.STRING && valTag == T.VARINT64 =
       emitMapStringVarInt64 e kvs
   | otherwise =
-      case (sameTypeFastPath keyTag, sameTypeFastPath valTag) of
-        (Just (kMax, kw), Just (vMax, vw)) ->
-          IO.withReservedRaw e ((kMax + vMax) * V.length kvs) $ \p start ->
-            V.foldM' (\off (k, v) -> do
-              off1 <- kw p off k
-              vw p off1 v) start kvs
+      case (sameTypeFastTag keyTag, sameTypeFastTag valTag) of
+        (Just !kMax, Just !vMax) -> do
+          let !nKvs = V.length kvs
+          -- Hand-rolled inline loop using 'pokeUntaggedRaw'
+          -- with 'Int#'-threaded offset (same approach as
+          -- the list-of-int sameTypeFastTag path). The
+          -- previous 'V.foldM' kept the offset boxed.
+          IO.withReservedRaw e ((kMax + vMax) * nKvs) $ \p start -> do
+            let goM !i !off
+                  | i >= nKvs = pure off
+                  | otherwise = do
+                      let (!k, !v) = V.unsafeIndex kvs i
+                      !off1 <- pokeUntaggedRaw p off k
+                      !off2 <- pokeUntaggedRaw p off1 v
+                      goM (i + 1) off2
+            goM 0 start
         _ -> V.forM_ kvs $ \(k, v) -> do
           emitUntaggedPayload e k
           emitUntaggedPayload e v
