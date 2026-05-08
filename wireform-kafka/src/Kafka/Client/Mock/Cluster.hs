@@ -96,6 +96,18 @@ module Kafka.Client.Mock.Cluster
   , assignmentFor
   , RebalanceDelta (..)
   , cooperativeRebalance
+  , GenerationId (..)
+  , currentGeneration
+    -- * KRaft mode (KIP-500, librdkafka 0148)
+  , KRaftRole (..)
+  , setKRaftRole
+  , kraftRole
+  , controllerBroker
+  , setControllerBroker
+    -- * Re-authentication (KIP-368 / 0142)
+  , setReauthDeadline
+  , reauthDeadline
+  , isReauthExpired
     -- * Inspection
   , dumpPartition
   , partitionLogSize
@@ -216,7 +228,29 @@ data MockCluster = MockCluster
   , mcBrokers        :: !(TVar [BrokerId])
   , mcDownBrokers    :: !(TVar (Set BrokerId))
   , mcClock          :: !(TVar Int64)
+  , mcGroupGen       :: !(TVar (Map GroupId GenerationId))
+    -- ^ Per-group generation id. Bumped on every join / leave.
+  , mcKRaftRole      :: !(TVar KRaftRole)
+  , mcController     :: !(TVar (Maybe BrokerId))
+  , mcReauthDl       :: !(TVar (Maybe Int64))
+    -- ^ Wall-clock-derived deadline (in cluster-clock ms) past
+    -- which re-auth is required. 'Nothing' disables the window.
   }
+
+-- | Generation id tracking — bumped each time the group's
+-- membership changes. Mirrors the @generation_id@ on
+-- @JoinGroupResponse@.
+newtype GenerationId = GenerationId { unGenerationId :: Int }
+  deriving stock (Eq, Ord, Show, Generic)
+
+-- | Mirrors KIP-500's broker / controller role split. Tests use
+-- 'setKRaftRole' to flip the cluster between Zookeeper-style
+-- (KRaftBroker) and KRaft (KRaftCombined / KRaftController).
+data KRaftRole
+  = KRaftBroker
+  | KRaftController
+  | KRaftCombined
+  deriving stock (Eq, Show, Generic)
 
 type GroupOffsets = Map (Text, Int32) Int64
 
@@ -252,6 +286,12 @@ newMockCluster n = do
   bs <- newTVarIO [BrokerId i | i <- [0 .. n - 1]]
   ds <- newTVarIO Set.empty
   ck <- newTVarIO (0 :: Int64)
+  gg <- newTVarIO Map.empty
+  kr <- newTVarIO KRaftCombined
+  ctl <- newTVarIO (case [BrokerId i | i <- [0 .. n - 1]] of
+                     []      -> Nothing
+                     (b : _) -> Just b)
+  rd <- newTVarIO Nothing
   pure MockCluster
     { mcTopics          = ts
     , mcAutoCreate      = ac
@@ -266,6 +306,10 @@ newMockCluster n = do
     , mcBrokers         = bs
     , mcDownBrokers     = ds
     , mcClock           = ck
+    , mcGroupGen        = gg
+    , mcKRaftRole       = kr
+    , mcController      = ctl
+    , mcReauthDl        = rd
     }
 
 clusterClockNow :: MockCluster -> IO Int64
@@ -850,17 +894,35 @@ joinGroup
   -> MemberId
   -> [Text]
   -> IO ()
-joinGroup c grp mid topics = atomically $
+joinGroup c grp mid topics = atomically $ do
   modifyTVar' (mcGroupMembers c) $ \m ->
     let cur = Map.findWithDefault [] grp m
         !next = filter ((/= mid) . fst) cur
                 ++ [(mid, Set.fromList topics)]
     in Map.insert grp next m
+  bumpGen (mcGroupGen c) grp
 
 leaveGroup :: MockCluster -> GroupId -> MemberId -> IO ()
-leaveGroup c grp mid = atomically $
+leaveGroup c grp mid = atomically $ do
   modifyTVar' (mcGroupMembers c) $ \m ->
     Map.adjust (filter ((/= mid) . fst)) grp m
+  bumpGen (mcGroupGen c) grp
+
+-- | Read the group's current generation id (0 if the group has
+-- no members yet).
+currentGeneration :: MockCluster -> GroupId -> IO GenerationId
+currentGeneration c grp = do
+  m <- readTVarIO (mcGroupGen c)
+  pure (Map.findWithDefault (GenerationId 0) grp m)
+
+bumpGen
+  :: TVar (Map GroupId GenerationId)
+  -> GroupId
+  -> STM ()
+bumpGen ref grp = modifyTVar' ref $ \m ->
+  let !cur = Map.findWithDefault (GenerationId 0) grp m
+      !nxt = GenerationId (unGenerationId cur + 1)
+   in Map.insert grp nxt m
 
 membersOf :: MockCluster -> GroupId -> IO [MemberId]
 membersOf c grp = do
@@ -959,6 +1021,48 @@ cooperativeRebalance c grp mid current = do
     , rdAdded   = added
     , rdAfter   = Set.toAscList ns
     }
+
+----------------------------------------------------------------------
+-- KRaft mode
+----------------------------------------------------------------------
+
+setKRaftRole :: MockCluster -> KRaftRole -> IO ()
+setKRaftRole c r = atomically (writeTVar (mcKRaftRole c) r)
+
+kraftRole :: MockCluster -> IO KRaftRole
+kraftRole = readTVarIO . mcKRaftRole
+
+-- | The current KRaft controller, or 'Nothing' if one hasn't been
+-- elected.
+controllerBroker :: MockCluster -> IO (Maybe BrokerId)
+controllerBroker = readTVarIO . mcController
+
+setControllerBroker :: MockCluster -> Maybe BrokerId -> IO ()
+setControllerBroker c b = atomically (writeTVar (mcController c) b)
+
+----------------------------------------------------------------------
+-- Re-authentication
+----------------------------------------------------------------------
+
+-- | Set the wall-clock-aligned (cluster-clock) deadline at which
+-- re-auth is required. 'Just t' arms the window; 'Nothing' clears
+-- it.
+setReauthDeadline :: MockCluster -> Maybe Int64 -> IO ()
+setReauthDeadline c d = atomically (writeTVar (mcReauthDl c) d)
+
+reauthDeadline :: MockCluster -> IO (Maybe Int64)
+reauthDeadline = readTVarIO . mcReauthDl
+
+-- | True iff a re-auth deadline is set and the cluster's clock
+-- has passed it.
+isReauthExpired :: MockCluster -> IO Bool
+isReauthExpired c = do
+  mDl <- readTVarIO (mcReauthDl c)
+  case mDl of
+    Nothing -> pure False
+    Just dl -> do
+      now <- readTVarIO (mcClock c)
+      pure (now > dl)
 
 ----------------------------------------------------------------------
 -- Inspection helpers

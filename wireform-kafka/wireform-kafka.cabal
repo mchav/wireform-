@@ -106,6 +106,7 @@ library
         Kafka.Client.Mock.Admin
         Kafka.Client.Mock.Idempotent
         Kafka.Client.Mock.Backoff
+        Kafka.Client.Mock.Telemetry
         Kafka.Client.Pipeline
         Kafka.Client.Producer
         Kafka.Client.Simple
@@ -605,6 +606,7 @@ test-suite wireform-kafka-test
         Client.MockBrokerCoopSpec
         Client.MockBrokerNetSpec
         Client.MockBrokerStoreSpec
+        Client.MockBrokerProtoSpec
         Network.AuthSpec
         Network.ConnectionRetrySpec
         Protocol.ApiVersionsSpec
