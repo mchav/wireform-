@@ -463,6 +463,7 @@ test-suite wireform-kafka-streams-test
         Streams.MetricsSpec
         Streams.NamedSpec
         Streams.WorkerPoolSpec
+        Streams.EOSRuntimeSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

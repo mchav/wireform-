@@ -45,6 +45,8 @@ module Kafka.Streams.Runtime
     -- * Status
   , StreamsStatus (..)
   , streamsStatus
+    -- * EOS
+  , applyEOSCoordinator
     -- * Internal access (used by Kafka.Streams.InteractiveQueries)
   , ksEngine
   ) where
@@ -183,6 +185,19 @@ startKafkaStreams ks = do
   where
     producerCfg = KP.defaultProducerConfig
       { KP.producerClientId  = clientId (ksConfig ks)
+      , KP.producerTransactional =
+          case processingGuarantee (ksConfig ks) of
+            AtLeastOnceP  -> Nothing
+            ExactlyOnceV2 -> Just (applicationId (ksConfig ks)
+                                      <> "-txn")
+      , KP.producerIdempotent =
+          case processingGuarantee (ksConfig ks) of
+            AtLeastOnceP  -> False
+            ExactlyOnceV2 -> True
+      , KP.producerDelivery =
+          case processingGuarantee (ksConfig ks) of
+            AtLeastOnceP  -> KP.AtLeastOnce
+            ExactlyOnceV2 -> KP.ExactlyOnce
       }
     consumerCfg = KC.defaultConsumerConfig
       { KC.consumerClientId  = clientId (ksConfig ks)
@@ -284,6 +299,16 @@ closeKafkaStreams ks = do
 
 streamsStatus :: KafkaStreams -> IO StreamsStatus
 streamsStatus = readTVarIO . ksStatus
+
+-- | Replace the runtime's EOS coordinator. The default is
+-- 'noopEOSCoordinator'; tests inject a recording coordinator to
+-- assert the call sequence, and a future broker-backed runtime
+-- will swap in 'newRealEOSCoordinator' built from a
+-- transactional 'Kafka.Client.Transaction.Transaction' once the
+-- producer routes sends through the txn state machine.
+applyEOSCoordinator :: KafkaStreams -> EOSCoordinator -> IO ()
+applyEOSCoordinator ks coord =
+  writeIORef (ksEosCoord ks) coord
 
 ----------------------------------------------------------------------
 -- Helpers
