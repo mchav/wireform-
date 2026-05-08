@@ -1,8 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -58,6 +58,7 @@ import Control.Exception (SomeException, try)
 import Control.Monad (forM, forM_)
 import Data.ByteString (ByteString)
 import Data.IORef
+import GHC.Exts (Any)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Text (Text)
@@ -119,10 +120,11 @@ import Kafka.Streams.Types
 -- Type erasure
 ----------------------------------------------------------------------
 
--- | An /erased/ value. We use this as the existential carrier when
--- threading records and serdes across the engine. The DSL guarantees
--- that the runtime types match before the engine ever sees them.
-data Erased
+-- | An /erased/ value. We use 'GHC.Exts.Any' as the existential
+-- carrier when threading records and serdes across the engine. The
+-- DSL guarantees that the runtime types match before the engine
+-- ever sees them.
+type Erased = Any
 
 erase :: a -> Erased
 erase = unsafeCoerce
@@ -351,12 +353,14 @@ sinkForwarder :: Engine -> Topo.SinkSpec -> NodeForwarder
 sinkForwarder engine spec = \rec ->
   case (Topo.sinkKeySerde spec, Topo.sinkValueSerde spec) of
     (Topo.AnySerde ks, Topo.AnySerde vs) -> do
-      let serK = serialize (unsafeCoerce ks :: Serde Erased)
-          serV = serialize (unsafeCoerce vs :: Serde Erased)
-          out  = CollectedRecord
+      let !serK = serialize (unsafeCoerce ks :: Serde Erased)
+          !serV = serialize (unsafeCoerce vs :: Serde Erased)
+          !keyB = serK <$> recordKey rec
+          !valB = serV (recordValue rec)
+          out = CollectedRecord
             { crTopic     = Topo.sinkTopic spec
-            , crKey       = serK <$> recordKey rec
-            , crValue     = serV (recordValue rec)
+            , crKey       = keyB
+            , crValue     = valB
             , crTimestamp = recordTimestamp rec
             , crHeaders   = recordHeaders rec
             , crPartition = Nothing
@@ -405,13 +409,13 @@ handleSource engine spec children si = do
         , rmPartition = fromIntegral (siPartition si)
         , rmOffset    = siOffset si
         })
-      let !rec = Record
+      let rec = Record
             { recordKey       = mk
             , recordValue     = v
             , recordTimestamp = ts
             , recordHeaders   = emptyHeaders
             }
-      mapM_ ($ rec) children
+      mapM_ (\fw -> fw rec) children
       writeIORef (engineCurrentMd engine) Nothing
     _ -> handleDeserError engine si mErasedKey eErasedVal
 

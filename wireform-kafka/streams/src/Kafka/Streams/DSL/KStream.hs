@@ -106,11 +106,16 @@ import Kafka.Streams.Types
 ----------------------------------------------------------------------
 
 -- | A handle to a stream node in the topology being built.
+--
+-- Note: the serde fields are intentionally lazy. After a 'mapValues'
+-- the downstream value serde is unknown until the user attaches a
+-- 'Produced' / 'Materialized' downstream — we encode that as a
+-- thunk that errors out only if forced.
 data KStream k v = KStream
   { kstreamBuilder    :: !StreamsBuilder
   , kstreamParent     :: !Topo.NodeName
-  , kstreamKeySerde   :: !(Serde k)
-  , kstreamValueSerde :: !(Serde v)
+  , kstreamKeySerde   :: ~(Serde k)
+  , kstreamValueSerde :: ~(Serde v)
   }
 
 ----------------------------------------------------------------------

@@ -57,6 +57,8 @@ module Kafka.Streams.Driver
     -- * Output decoding helpers
   , OutputRecord (..)
   , decodeOutput
+    -- * Re-export of the raw collected record shape
+  , CollectedRecord (..)
   ) where
 
 import Control.Monad (forM)
