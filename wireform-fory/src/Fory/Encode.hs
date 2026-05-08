@@ -875,6 +875,37 @@ emitNamedStructListFast !e !vs =
                           e nFields hashCode fields
                       x -> emitUntaggedPayload e x
                     goFastest (i + 1)
+              -- Single-shot raw-poke variant: walk the
+              -- whole list once to compute the exact
+              -- total byte size, then do /one/
+              -- 'IO.withReservedRaw' that writes every
+              -- struct's hash + every field via raw
+              -- pointer pokes. Eliminates the per-field
+              -- 'ensure / readIORef pos / writeIORef pos'
+              -- trio that the regular Fastest path pays
+              -- inside 'emitUntaggedPayload' for every
+              -- field of every struct.
+              goFastestBatched = do
+                let !totalSize = totalListOfStructSize
+                                   vs nFields nVs
+                if totalSize < 0
+                  then goFastest 0
+                  else IO.withReservedRaw e totalSize
+                         $ \p start -> do
+                           let goB !i !off
+                                 | i >= nVs = pure off
+                                 | otherwise = case V.unsafeIndex vs i of
+                                     VV.RegisteredStructVal _ _ fields -> do
+                                       !off1 <- IO.pokeInt32LERaw p off
+                                                  hashCode
+                                       !off2 <- pokeAllBasicFields
+                                                  p off1 fields nFields
+                                       goB (i + 1) off2
+                                     _ ->
+                                       error "goFastestBatched: \
+                                             \mixed StructVal / \
+                                             \RegisteredStructVal"
+                           goB 0 start
               goIdentity !i
                 | i >= nVs = pure ()
                 | otherwise = do
@@ -896,7 +927,7 @@ emitNamedStructListFast !e !vs =
                       x -> emitUntaggedPayload e x
                     goPermuted (i + 1)
           in if permIsId && allBNN
-               then goFastest 0
+               then goFastestBatched
                else if permIsId
                  then goIdentity 0
                  else goPermuted 0
@@ -990,6 +1021,143 @@ isIdentityPerm !perm !n = go 0
       | V.unsafeIndex perm i /= i = False
       | otherwise = go (i + 1)
 {-# INLINE isIdentityPerm #-}
+
+-- | Walk a 'Vector Value' (the elements of a list-of-
+-- struct same-type collection where every element is a
+-- 'RegisteredStructVal' with all-basic-non-null fields)
+-- and compute the exact byte size needed to encode every
+-- struct as @int32 hash + sum of field payloads@.
+--
+-- Returns @-1@ on the first non-'RegisteredStructVal'
+-- element or unsupported field type, which is the
+-- "fall back to per-emit" sentinel.
+totalListOfStructSize
+  :: Vector VV.Value
+  -> Int
+  -- ^ field count from the schema
+  -> Int
+  -- ^ list length
+  -> Int
+totalListOfStructSize !vs !nFields !nVs = goS 0 0
+  where
+    goS !i !sz
+      | i >= nVs = sz
+      | otherwise = case V.unsafeIndex vs i of
+          VV.RegisteredStructVal _ _ fields ->
+            let !fsz = fieldsRawSize fields nFields
+            in if fsz < 0
+                 then -1
+                 else goS (i + 1) (sz + 4 + fsz)
+          _ -> -1
+{-# INLINE totalListOfStructSize #-}
+
+-- | Sum of 'valueRawSize' over a 'StructFields' vector.
+-- Returns @-1@ if any field is unsupported.
+fieldsRawSize :: VV.StructFields -> Int -> Int
+fieldsRawSize !fields !nFields = go 0 0
+  where
+    go !i !sz
+      | i >= nFields = sz
+      | otherwise =
+          let (_, !v) = V.unsafeIndex fields i
+              !s = valueRawSize v
+          in if s < 0
+               then -1
+               else go (i + 1) (sz + s)
+{-# INLINE fieldsRawSize #-}
+
+-- | Worst-case wire byte size of a basic-typeId 'Value'
+-- when raw-poked by 'pokeAllBasicFields'. Returns @-1@
+-- for non-basic types (LIST, MAP, STRUCT, refs, etc.) so
+-- the caller can fall back. Variable-size payloads
+-- (STRING / BINARY) account for the worst-case 9-byte
+-- varuint header plus the payload's actual byte length.
+valueRawSize :: VV.Value -> Int
+valueRawSize !v = case v of
+  VV.BoolVal _      -> 1
+  VV.Int8Val _      -> 1
+  VV.Int16Val _     -> 2
+  VV.Int32Val _     -> 4
+  VV.VarInt32Val _  -> 5
+  VV.Int64Val _     -> 8
+  VV.VarInt64Val _  -> 9
+  VV.Uint8Val _     -> 1
+  VV.Uint16Val _    -> 2
+  VV.Uint32Val _    -> 4
+  VV.VarUint32Val _ -> 5
+  VV.Uint64Val _    -> 8
+  VV.VarUint64Val _ -> 9
+  VV.Float32Val _   -> 4
+  VV.Float64Val _   -> 8
+  VV.StringVal (TI.Text _ _ len) -> 9 + len
+  VV.BinaryVal bs   -> 9 + BS.length bs
+  _                 -> -1
+{-# INLINE valueRawSize #-}
+
+-- | Raw-poke a 'StructFields' vector through. Each field
+-- writes via the raw-pointer pokes in 'IO' (no encoder
+-- 'IORef' cycle per field). Caller must have already
+-- reserved enough capacity (use 'fieldsRawSize' for the
+-- bound).
+pokeAllBasicFields
+  :: Ptr Word8 -> Int -> VV.StructFields -> Int -> IO Int
+pokeAllBasicFields !p !off0 !fields !nFields = go 0 off0
+  where
+    go !i !off
+      | i >= nFields = pure off
+      | otherwise = do
+          let (_, !v) = V.unsafeIndex fields i
+          !off' <- pokeUntaggedRawAll p off v
+          go (i + 1) off'
+{-# INLINE pokeAllBasicFields #-}
+
+-- | 'pokeUntaggedRaw' extended with raw-poke writers for
+-- 'StringVal' and 'BinaryVal'. The original
+-- 'pokeUntaggedRaw' covered only fixed-size primitives;
+-- this extends to the variable-size basic types so the
+-- 'goFastestBatched' single-allocation path can write a
+-- 'Person'-shaped struct (STRING + VARINT64) entirely
+-- inline.
+pokeUntaggedRawAll :: Ptr Word8 -> Int -> VV.Value -> IO Int
+pokeUntaggedRawAll !p !off !val = case val of
+  VV.StringVal t ->
+    pokeForyStringRaw p off t
+  VV.BinaryVal bs -> do
+    let !blen = BS.length bs
+    !off1 <- IO.pokeVaruint64Raw p off (fromIntegral blen)
+    let (BSI.BS fpSrc _) = bs
+    Foreign.ForeignPtr.withForeignPtr fpSrc $ \pSrc ->
+      Foreign.Marshal.Utils.copyBytes
+        (p `Foreign.Ptr.plusPtr` off1) pSrc blen
+    pure (off1 + blen)
+  _ -> pokeUntaggedRaw p off val
+{-# INLINE pokeUntaggedRawAll #-}
+
+-- | Raw-poke a 'Text' as a Fory string-payload. Mirrors
+-- 'emitForyString' but writes through a pre-reserved
+-- 'Ptr Word8' rather than through the encoder's
+-- 'IORef'-backed cursor.
+pokeForyStringRaw :: Ptr Word8 -> Int -> Text -> IO Int
+pokeForyStringRaw !p !off t@(TI.Text arr srcOff len)
+  | TH.byteArrayIsAscii arr srcOff (srcOff + len) = do
+      !off1 <- IO.pokeVaruint64Raw p off (fromIntegral len `shiftL` 2)
+      TH.copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+      pure (off1 + len)
+  | T.all (\c -> ord c < 256) t = do
+      let !raw  = B.latin1Bytes t
+          !rlen = BS.length raw
+      !off1 <- IO.pokeVaruint64Raw p off (fromIntegral rlen `shiftL` 2)
+      let (BSI.BS fpSrc _) = raw
+      Foreign.ForeignPtr.withForeignPtr fpSrc $ \pSrc ->
+        Foreign.Marshal.Utils.copyBytes
+          (p `Foreign.Ptr.plusPtr` off1) pSrc rlen
+      pure (off1 + rlen)
+  | otherwise = do
+      !off1 <- IO.pokeVaruint64Raw p off
+                 ((fromIntegral len `shiftL` 2) .|. 2)
+      TH.copyTextArrayToPtr arr srcOff (p `plusPtr` off1) len
+      pure (off1 + len)
+{-# INLINE pokeForyStringRaw #-}
 
 -- | Fastest specialisation of 'emitRegisteredStructPermuted'
 -- — used when both the user's field ordering matches the
