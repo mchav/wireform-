@@ -28,7 +28,10 @@ module Kafka.Client.Mock.Producer
   , MockProduceResult (..)
   , sendMock
   , sendMockH
+  , sendBatchMock
   , flushMock
+  , flushMockSync
+  , producerPendingCount
     -- * Transactions
   , beginTxnMP
   , commitTxnMP
@@ -171,6 +174,32 @@ transactionStamp p = do
 flushMock :: MockProducer -> IO ()
 flushMock _ = pure ()
   -- Sends are synchronous in this mock; nothing to flush.
+
+-- | Synchronous flush with timeout semantics. Always returns
+-- 'Right ()' for the in-memory mock since every 'sendMock' is
+-- already synchronous; the function exists so test fixtures that
+-- call @flushSync producer 5000@ on the real client port over to
+-- the mock without changing.
+flushMockSync :: MockProducer -> Int -> IO (Either MockError ())
+flushMockSync _ _ = pure (Right ())
+
+-- | Producer's currently-buffered record count. Synchronous mock
+-- always returns 0; matches the real producer's
+-- @ProducerMetrics.bufferedRecords@ /after/ a flush.
+producerPendingCount :: MockProducer -> IO Int
+producerPendingCount _ = pure 0
+
+-- | Send a batch of records as one logical unit. Each record is
+-- appended sequentially to its (topic, partition); the result is
+-- a list of per-record outcomes in input order. Mirrors what
+-- @KafkaProducer.send@ in a tight loop produces — useful for the
+-- barrier-batch test (librdkafka 0137).
+sendBatchMock
+  :: MockProducer
+  -> [(Text, Int32, Maybe ByteString, ByteString, Int64)]
+  -> IO [MockProduceResult]
+sendBatchMock p =
+  mapM (\(t, part, k, v, ts) -> sendMock p t part k v ts)
 
 ----------------------------------------------------------------------
 -- Transactions

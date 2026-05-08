@@ -255,7 +255,7 @@ transaction_commit_fault_keeps_records_in_open_state =
 
 markBroker_down_does_not_break_local_appends :: TestTree
 markBroker_down_does_not_break_local_appends =
-  testCase "marking a broker down doesn't stop appends in this in-memory model" $ do
+  testCase "broker-down on a partition's leader propagates as not_leader" $ do
     c <- newMockCluster 1
     createTopic c "out" 1
     fp <- noFaults
@@ -263,8 +263,8 @@ markBroker_down_does_not_break_local_appends =
     p <- newMockProducer c fp Nothing
     r <- sendMock p "out" 0 Nothing (bytes "v") (ts 0)
     case r of
-      MPSent 0 0 -> pure ()
-      other      -> error ("expected MPSent, got " <> show other)
+      MPNoSuchPartition msg | "not_leader" `T.isInfixOf` T.pack msg -> pure ()
+      other -> error ("expected not_leader error, got " <> show other)
 
 clock_advances_monotonically :: TestTree
 clock_advances_monotonically =

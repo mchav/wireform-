@@ -51,6 +51,13 @@ module Kafka.Client.Mock.Cluster
   , isBrokerUp
   , downedBrokers
   , clusterBrokers
+  , partitionLeader
+  , reassignPartitionLeader
+    -- * Cluster metadata
+  , ClusterMetadata (..)
+  , TopicMetadata (..)
+  , PartitionMetadata (..)
+  , describeClusterMetadata
     -- * Append + fetch
   , StoredRecord (..)
   , ProducerStamp (..)
@@ -387,6 +394,30 @@ downedBrokers c = Set.toList <$> readTVarIO (mcDownBrokers c)
 clusterBrokers :: MockCluster -> IO [BrokerId]
 clusterBrokers = readTVarIO . mcBrokers
 
+-- | Read the current leader for a (topic, partition).
+partitionLeader
+  :: MockCluster -> Text -> Int32 -> IO (Maybe BrokerId)
+partitionLeader c topic part = do
+  topics <- readTVarIO (mcTopics c)
+  case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+    Nothing -> pure Nothing
+    Just p  -> Just <$> readTVarIO (mpLeader p)
+
+-- | Reassign a partition's leader and bump its leader epoch.
+-- Tests use this to simulate a leader election after a broker
+-- went down. Returns the new epoch.
+reassignPartitionLeader
+  :: MockCluster -> Text -> Int32 -> BrokerId -> IO (Maybe Int32)
+reassignPartitionLeader c topic part newLeader = atomically $ do
+  topics <- readTVar (mcTopics c)
+  case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+    Nothing -> pure Nothing
+    Just p  -> do
+      writeTVar (mpLeader p) newLeader
+      modifyTVar' (mpLeaderEpoch p) (+ 1)
+      ep <- readTVar (mpLeaderEpoch p)
+      pure (Just ep)
+
 ----------------------------------------------------------------------
 -- Append + fetch
 ----------------------------------------------------------------------
@@ -428,21 +459,30 @@ appendToPartition c topic part mk v ts hdrs stamp = do
            <> show part <> " on topic "
            <> T.unpack topic)
         Just p  -> do
-          hwm <- readTVar (mpHwm p)
-          let !rec = StoredRecord
-                { srOffset    = hwm
-                , srKey       = mk
-                , srValue     = v
-                , srTimestamp = ts
-                , srHeaders   = hdrs
-                , srProducer  = stamp
-                }
-          modifyTVar' (mpLog p) (|> rec)
-          writeTVar (mpHwm p) (hwm + 1)
-          case stamp of
-            Nothing -> writeTVar (mpLastStableOffset p) (hwm + 1)
-            Just _  -> pure ()
-          pure (Right hwm)
+          -- Leader-down propagation: if the partition's current
+          -- leader is in 'mcDownBrokers', surface a 'not_leader'
+          -- error so the producer client can retry / refresh
+          -- metadata.
+          leader <- readTVar (mpLeader p)
+          downs  <- readTVar (mcDownBrokers c)
+          if Set.member leader downs
+            then pure (Left "not_leader_for_partition")
+            else do
+              hwm <- readTVar (mpHwm p)
+              let !rec = StoredRecord
+                    { srOffset    = hwm
+                    , srKey       = mk
+                    , srValue     = v
+                    , srTimestamp = ts
+                    , srHeaders   = hdrs
+                    , srProducer  = stamp
+                    }
+              modifyTVar' (mpLog p) (|> rec)
+              writeTVar (mpHwm p) (hwm + 1)
+              case stamp of
+                Nothing -> writeTVar (mpLastStableOffset p) (hwm + 1)
+                Just _  -> pure ()
+              pure (Right hwm)
 
 -- | Auto-create the topic if 'mcAutoCreate' is set and the topic
 -- doesn't already exist. No-op otherwise.
@@ -515,6 +555,59 @@ partitionLastStableOffset c topic part = do
   case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
     Nothing -> pure Nothing
     Just p  -> Just <$> readTVarIO (mpLastStableOffset p)
+
+----------------------------------------------------------------------
+-- Cluster metadata
+----------------------------------------------------------------------
+
+data PartitionMetadata = PartitionMetadata
+  { pmId          :: !Int32
+  , pmLeader      :: !(Maybe BrokerId)   -- 'Nothing' iff leader is down
+  , pmReplicas    :: ![BrokerId]
+  , pmLeaderEpoch :: !Int32
+  }
+  deriving stock (Eq, Show, Generic)
+
+data TopicMetadata = TopicMetadata
+  { tmName       :: !Text
+  , tmPartitions :: ![PartitionMetadata]
+  }
+  deriving stock (Eq, Show, Generic)
+
+data ClusterMetadata = ClusterMetadata
+  { cmClusterId :: !Text
+  , cmBrokers   :: ![BrokerId]
+  , cmTopics    :: ![TopicMetadata]
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Snapshot of the cluster's full metadata. Mirrors what a
+-- @MetadataRequest@ would surface to a client.
+describeClusterMetadata :: MockCluster -> IO ClusterMetadata
+describeClusterMetadata c = do
+  bs <- readTVarIO (mcBrokers c)
+  ds <- readTVarIO (mcDownBrokers c)
+  topics <- readTVarIO (mcTopics c)
+  tms <- mapM (mkTopicMeta ds) (Map.toAscList topics)
+  pure ClusterMetadata
+    { cmClusterId = "mock-cluster"
+    , cmBrokers   = bs
+    , cmTopics    = tms
+    }
+  where
+    mkTopicMeta ds (name, mt) = do
+      pms <- mapM (mkPartMeta ds) (Map.toAscList (mtPartitions mt))
+      pure TopicMetadata { tmName = name, tmPartitions = pms }
+
+    mkPartMeta ds (pid, p) = do
+      ld <- readTVarIO (mpLeader p)
+      ep <- readTVarIO (mpLeaderEpoch p)
+      pure PartitionMetadata
+        { pmId          = pid
+        , pmLeader      = if Set.member ld ds then Nothing else Just ld
+        , pmReplicas    = mpReplicas p
+        , pmLeaderEpoch = ep
+        }
 
 ----------------------------------------------------------------------
 -- Leader epoch (KIP-320)

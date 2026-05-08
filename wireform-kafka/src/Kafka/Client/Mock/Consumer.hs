@@ -38,6 +38,10 @@ module Kafka.Client.Mock.Consumer
   , pausePartitions
   , resumePartitions
   , pausedPartitions
+    -- * Manual offset store (KIP-392 store_offsets / 0130)
+  , storeOffsetMC
+  , storedOffsets
+  , commitStoredOffsetsMC
   ) where
 
 import Control.Concurrent.STM
@@ -99,6 +103,12 @@ data MockConsumer = MockConsumer
     -- might have read records but not yet committed.
   , mcSubscribed   :: !(TVar (Set Text))
   , mcPaused       :: !(TVar (Set (Text, Int32)))
+  , mcStored       :: !(TVar (Map (Text, Int32) Int64))
+    -- ^ Manual offset store: 'storeOffsetMC' writes here without
+    -- committing to the cluster; 'commitStoredOffsetsMC' drains
+    -- the store into a single commit. Mirrors the
+    -- @auto.offset.store / store_offsets@ semantics in the
+    -- librdkafka client.
     -- ^ Partitions on which 'pollMC' should currently skip the fetch.
     -- Mirrors @KafkaConsumer.pause(Collection<TopicPartition>)@.
   , mcIsolation    :: !IsolationLevel
@@ -140,6 +150,7 @@ newMockConsumerWithId c fp gid mid iso n = do
   pos <- newTVarIO Map.empty
   sub <- newTVarIO Set.empty
   pa  <- newTVarIO Set.empty
+  st  <- newTVarIO Map.empty
   pure MockConsumer
     { mcCluster    = c
     , mcFaults     = fp
@@ -149,6 +160,7 @@ newMockConsumerWithId c fp gid mid iso n = do
     , mcPositions  = pos
     , mcSubscribed = sub
     , mcPaused     = pa
+    , mcStored     = st
     , mcIsolation  = iso
     , mcFetchBatch = n
     }
@@ -312,6 +324,39 @@ resumePartitions mc tps = atomically $
 
 pausedPartitions :: MockConsumer -> IO [(Text, Int32)]
 pausedPartitions mc = Set.toList <$> readTVarIO (mcPaused mc)
+
+----------------------------------------------------------------------
+-- Manual offset store
+----------------------------------------------------------------------
+
+-- | Store an offset locally without committing it to the cluster.
+-- Mirrors librdkafka's @rd_kafka_offset_store / store_offsets@:
+-- the application is in full control of /when/ those local stores
+-- become commits via 'commitStoredOffsetsMC'.
+storeOffsetMC
+  :: MockConsumer -> Text -> Int32 -> Int64 -> IO ()
+storeOffsetMC mc t p o = atomically $
+  modifyTVar' (mcStored mc) (Map.insert (t, p) o)
+
+storedOffsets :: MockConsumer -> IO (Map (Text, Int32) Int64)
+storedOffsets = readTVarIO . mcStored
+
+-- | Commit every offset currently in the local store, then clear
+-- it. The commit goes through the regular 'takeCommitFault' check
+-- so test scenarios can still inject coordinator errors.
+commitStoredOffsetsMC :: MockConsumer -> IO (Either MockError ())
+commitStoredOffsetsMC mc = do
+  m <- readTVarIO (mcStored mc)
+  let !batch = [ (t, p, o) | ((t, p), o) <- Map.toList m ]
+  if null batch
+    then pure (Right ())
+    else do
+      r <- commitOffsetsMC mc batch
+      case r of
+        Right () -> do
+          atomically (writeTVar (mcStored mc) Map.empty)
+          pure (Right ())
+        Left e -> pure (Left e)
 
 -- | Move the consumer's read cursor on a partition. Mirrors
 -- @KafkaConsumer.seek@.

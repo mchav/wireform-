@@ -47,6 +47,8 @@ import qualified Client.MockBrokerExtSpec
 import qualified Client.MockBrokerIdempotentSpec
 import qualified Client.MockBrokerAdminSpec
 import qualified Client.MockBrokerCoopSpec
+import qualified Client.MockBrokerNetSpec
+import qualified Client.MockBrokerStoreSpec
 import qualified Network.AuthSpec
 import qualified Network.ConnectionRetrySpec
 
@@ -107,6 +109,8 @@ clientTests = testGroup "Client"
   , Client.MockBrokerIdempotentSpec.tests
   , Client.MockBrokerAdminSpec.tests
   , Client.MockBrokerCoopSpec.tests
+  , Client.MockBrokerNetSpec.tests
+  , Client.MockBrokerStoreSpec.tests
   ]
 
 networkTests :: TestTree
