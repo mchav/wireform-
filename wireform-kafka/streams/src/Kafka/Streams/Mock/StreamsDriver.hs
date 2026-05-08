@@ -19,16 +19,20 @@
 -- without 'threadDelay'.
 module Kafka.Streams.Mock.StreamsDriver
   ( MockStreamsDriver
+  , DriverMode (..)
   , newMockStreamsDriver
+  , newMockStreamsDriverEOS
   , driverCluster
   , driverProducer
   , driverConsumer
   , driverEngine
+  , driverPartitions
   , tickDriver
   , runUntilQuiet
   , closeMockDriver
     -- * Convenience producers (from outside the topology)
   , externalSend
+  , externalSendH
   ) where
 
 import Control.Concurrent.STM
@@ -61,6 +65,7 @@ import Kafka.Streams.Mock.Cluster
   ( GroupId (..)
   , MockCluster
   , StoredRecord (..)
+  , TxnId (..)
   , appendToPartition
   , createTopic
   )
@@ -80,6 +85,9 @@ import qualified Kafka.Streams.Mock.Fault as F
 import Kafka.Streams.Mock.Producer
   ( MockProducer
   , MockProduceResult (..)
+  , abortTxnMP
+  , beginTxnMP
+  , commitTxnMP
   , flushMock
   , newMockProducer
   , sendMock
@@ -93,6 +101,12 @@ import Kafka.Streams.Types (TopicName, unTopicName)
 -- Driver
 ----------------------------------------------------------------------
 
+-- | At-least-once vs exactly-once-V2 wiring.
+data DriverMode
+  = AtLeastOnceMode
+  | ExactlyOnceMode !TxnId
+  deriving (Eq, Show)
+
 data MockStreamsDriver = MockStreamsDriver
   { driverCluster   :: !MockCluster
   , driverFaults    :: !FaultPolicy
@@ -101,6 +115,7 @@ data MockStreamsDriver = MockStreamsDriver
   , driverEngine    :: !Engine
   , driverGroup     :: !GroupId
   , driverPartCount :: !(IORef (Map.Map TopicName Int))
+  , driverMode      :: !DriverMode
   }
 
 -- | Build a driver. The cluster + faults are caller-supplied so
@@ -110,14 +125,42 @@ data MockStreamsDriver = MockStreamsDriver
 --     given partition count (default 1) if it doesn't exist yet.
 --   * Subscribes the consumer to every source topic.
 --   * Spawns no threads; the test drives ticks manually.
+-- | Build an at-least-once driver. The output partition count is
+-- the same as the input partition count for every (source ∪ sink)
+-- topic.
 newMockStreamsDriver
   :: MockCluster
   -> FaultPolicy
   -> Topo.TopologyValid
   -> Text                              -- ^ application id (group id)
-  -> Int                               -- ^ partitions per source topic
+  -> Int                               -- ^ partitions per topic
   -> IO MockStreamsDriver
-newMockStreamsDriver cluster faults topo appId partsPerTopic = do
+newMockStreamsDriver = newMockStreamsDriver' AtLeastOnceMode
+
+-- | Build an EOS-V2 driver. Each tick wraps its emissions in a
+-- transaction; a fault on the txn commit aborts and re-tries on
+-- the next tick. The caller supplies the @TxnId@ — typically
+-- @applicationId <> "-txn"@ to mirror the JVM client.
+newMockStreamsDriverEOS
+  :: MockCluster
+  -> FaultPolicy
+  -> Topo.TopologyValid
+  -> Text                              -- ^ application id (group id)
+  -> TxnId                             -- ^ transactional id
+  -> Int                               -- ^ partitions per topic
+  -> IO MockStreamsDriver
+newMockStreamsDriverEOS c fp topo appId tid n =
+  newMockStreamsDriver' (ExactlyOnceMode tid) c fp topo appId n
+
+newMockStreamsDriver'
+  :: DriverMode
+  -> MockCluster
+  -> FaultPolicy
+  -> Topo.TopologyValid
+  -> Text
+  -> Int
+  -> IO MockStreamsDriver
+newMockStreamsDriver' mode cluster faults topo appId partsPerTopic = do
   let topo' = Topo.topologyValidGraph topo
       sourceTopics =
         Set.toList . Set.fromList
@@ -126,17 +169,21 @@ newMockStreamsDriver cluster faults topo appId partsPerTopic = do
       sinkTopics =
         Set.toList . Set.fromList
           $ map Topo.sinkTopic (Map.elems (Topo.topoSinks topo'))
-  -- Auto-create every topic the topology references, source AND sink.
-  forM_ (sourceTopics ++ sinkTopics) $ \t ->
-    createTopic cluster t partsPerTopic
+  forM_ (sourceTopics ++ sinkTopics) $ \tp ->
+    createTopic cluster tp partsPerTopic
   partRef <- newIORef
-    (Map.fromList [(t, partsPerTopic) | t <- sourceTopics ++ sinkTopics])
-  -- Producer + consumer.
-  prod <- newMockProducer cluster faults Nothing
+    (Map.fromList [(tp, partsPerTopic) | tp <- sourceTopics ++ sinkTopics])
+  let txnId = case mode of
+        AtLeastOnceMode    -> Nothing
+        ExactlyOnceMode tid -> Just tid
+  prod <- newMockProducer cluster faults txnId
   let !grp = GroupId appId
-  cons <- newMockConsumer cluster faults grp ReadUncommitted 100
+  cons <- newMockConsumer cluster faults grp
+            (case mode of
+               AtLeastOnceMode    -> ReadUncommitted
+               ExactlyOnceMode _  -> ReadCommitted)
+            100
   subscribeMC cons sourceTopics
-  -- Engine.
   collector <- inMemoryCollector
   engine    <- buildEngine topo (TaskId 0 0) appId collector logAndContinue
   pure MockStreamsDriver
@@ -147,52 +194,92 @@ newMockStreamsDriver cluster faults topo appId partsPerTopic = do
     , driverEngine    = engine
     , driverGroup     = grp
     , driverPartCount = partRef
+    , driverMode      = mode
     }
+
+-- | Read-only accessor for the driver's per-topic partition count
+-- (so tests can avoid hard-coding the value they passed at
+-- construction).
+driverPartitions :: MockStreamsDriver -> TopicName -> IO Int
+driverPartitions = partitionCountFor
 
 ----------------------------------------------------------------------
 -- Tick: one poll → process → drain → commit cycle
 ----------------------------------------------------------------------
 
--- | Run one full poll/process/drain/commit cycle. Returns 'True'
--- if the consumer actually saw fresh records (the test loop
--- typically calls 'tickDriver' until it returns 'False' to reach
--- quiescence).
+-- | Run one full poll/process/drain/commit cycle.
+--
+-- AtLeastOnce mode:
+--   * poll → feedSource for each record → drain collector → flush sink writes
+--   * commit consumer offsets to the group coordinator
+--
+-- ExactlyOnce mode:
+--   * begin a transaction (faults short-circuit; the commit cycle
+--     leaves offsets uncommitted and surfaces the fault on the
+--     producer side via MPFault)
+--   * poll → feedSource → drain collector through the transactional
+--     producer (records get stamped with the txn id + epoch)
+--   * commit transaction → commit consumer offsets. If the txn
+--     commit faults, abort and surface the fault to the caller
+--     (the consumer's positions don't advance; the next tick
+--     starts from the same offset).
+--
+-- Returns 'True' if any record was consumed.
 tickDriver :: MockStreamsDriver -> IO Bool
-tickDriver d = do
+tickDriver d = case driverMode d of
+  AtLeastOnceMode    -> tickAtLeastOnce d
+  ExactlyOnceMode _  -> tickExactlyOnce d
+
+tickAtLeastOnce :: MockStreamsDriver -> IO Bool
+tickAtLeastOnce d = do
   PollResult{ prRecords = recs, prErrors = errs } <- pollMC (driverConsumer d)
-  -- Surface fetch errors via a per-tick log of recent errors. For
-  -- the test driver we currently just count them — tests inspect
-  -- via 'driverConsumer' / 'pollMC' directly when they need the
-  -- exact error.
   when (not (null errs)) $ pure ()
-  -- Feed records into the engine in arrival order.
-  forM_ recs $ \(t, p, sr) ->
+  forM_ recs $ \(tp, p, sr) ->
     feedSource (driverEngine d)
-      t (srKey sr) (srValue sr) (srTimestamp sr)
+      tp (srKey sr) (srValue sr) (srTimestamp sr)
       (fromIntegral p) (srOffset sr)
-  -- Drain the engine's collector and route each record into the
-  -- mock cluster's partition log under the sink's topic.
   drainCollectedToMock d
-  -- Commit offsets to the consumer group if the engine asked for
-  -- one (or always — tests can be more aggressive).
-  reqd <- takeCommitRequested (driverEngine d)
-  when (reqd || True) $ do
-    commitEngine (driverEngine d)
-    -- Commit current positions to the group coordinator.
-    asg <- partitionsForCommit d
-    offs <- mapM (\(t, p) -> do
-                    mPos <- currentPosition (driverConsumer d) t p
-                    pure (t, p, maybe 0 id mPos))
-                 asg
-    _ <- commitOffsetsMC (driverConsumer d) offs
-    pure ()
+  _ <- takeCommitRequested (driverEngine d)
+  commitEngine (driverEngine d)
+  asg <- assignedPartitionsOnConsumer (driverConsumer d)
+  offs <- mapM
+            (\(tp, p) -> do
+                mPos <- currentPosition (driverConsumer d) tp p
+                pure (tp, p, maybe 0 id mPos))
+            asg
+  _ <- commitOffsetsMC (driverConsumer d) offs
   pure (not (null recs))
 
-partitionsForCommit
-  :: MockStreamsDriver -> IO [(TopicName, Int32)]
-partitionsForCommit d = do
-  asg <- assignedPartitionsOnConsumer (driverConsumer d)
-  pure asg
+-- | EOS tick: open a txn, feed + emit, commit-or-abort.
+tickExactlyOnce :: MockStreamsDriver -> IO Bool
+tickExactlyOnce d = do
+  beginR <- beginTxnMP (driverProducer d)
+  case beginR of
+    Left _  -> pure False    -- couldn't even begin; skip this tick
+    Right () -> do
+      PollResult{ prRecords = recs } <- pollMC (driverConsumer d)
+      forM_ recs $ \(tp, p, sr) ->
+        feedSource (driverEngine d)
+          tp (srKey sr) (srValue sr) (srTimestamp sr)
+          (fromIntegral p) (srOffset sr)
+      drainCollectedToMock d
+      _ <- takeCommitRequested (driverEngine d)
+      commitEngine (driverEngine d)
+      commitR <- commitTxnMP (driverProducer d)
+      case commitR of
+        Left _  -> do
+          -- Abort the txn (records become read-committed-invisible)
+          _ <- abortTxnMP (driverProducer d)
+          pure (not (null recs))
+        Right () -> do
+          asg <- assignedPartitionsOnConsumer (driverConsumer d)
+          offs <- mapM
+                    (\(tp, p) -> do
+                        mPos <- currentPosition (driverConsumer d) tp p
+                        pure (tp, p, maybe 0 id mPos))
+                    asg
+          _ <- commitOffsetsMC (driverConsumer d) offs
+          pure (not (null recs))
 
 -- The Consumer module already exports 'assignedPartitions' under
 -- that name; alias to avoid the small naming collision below.
@@ -277,3 +364,16 @@ externalSend
   -> IO (Either String Int64)
 externalSend d topic part k v ts =
   appendToPartition (driverCluster d) topic part k v ts [] Nothing
+
+-- | 'externalSend' with explicit headers.
+externalSendH
+  :: MockStreamsDriver
+  -> TopicName
+  -> Int32
+  -> Maybe ByteString
+  -> ByteString
+  -> Timestamp
+  -> [(Text, ByteString)]
+  -> IO (Either String Int64)
+externalSendH d topic part k v ts hdrs =
+  appendToPartition (driverCluster d) topic part k v ts hdrs Nothing

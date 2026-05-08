@@ -54,8 +54,9 @@ import qualified Kafka.Streams.Mock.Fault
 import Kafka.Streams.Mock.Fault
   ( FaultPolicy
   , MockError
+  , TxnOp (..)
   , takeProduceFault
-  , takeTxnFault
+  , takeTxnFaultFor
   )
 import Kafka.Streams.Time (Timestamp)
 import Kafka.Streams.Types (TopicName)
@@ -179,7 +180,7 @@ beginTxnMP :: MockProducer -> IO (Either MockError ())
 beginTxnMP p = case mpTxnId p of
   Nothing -> pure (Left (errCustom "non-transactional producer"))
   Just tid -> do
-    mFault <- takeTxnFault (mpFaults p) tid
+    mFault <- takeTxnFaultFor (mpFaults p) tid TxnBegin
     case mFault of
       Just e  -> pure (Left e)
       Nothing -> do
@@ -197,7 +198,7 @@ commitTxnMP :: MockProducer -> IO (Either MockError ())
 commitTxnMP p = case mpTxnId p of
   Nothing  -> pure (Left (Kafka.Streams.Mock.Fault.ErrCustom "non-transactional producer"))
   Just tid -> do
-    mFault <- takeTxnFault (mpFaults p) tid
+    mFault <- takeTxnFaultFor (mpFaults p) tid TxnCommit
     case mFault of
       Just e  -> pure (Left e)
       Nothing -> do
@@ -211,7 +212,7 @@ abortTxnMP :: MockProducer -> IO (Either MockError ())
 abortTxnMP p = case mpTxnId p of
   Nothing  -> pure (Left (Kafka.Streams.Mock.Fault.ErrCustom "non-transactional producer"))
   Just tid -> do
-    mFault <- takeTxnFault (mpFaults p) tid
+    mFault <- takeTxnFaultFor (mpFaults p) tid TxnAbort
     case mFault of
       Just e  -> pure (Left e)
       Nothing -> do

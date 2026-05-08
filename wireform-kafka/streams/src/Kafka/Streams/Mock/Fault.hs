@@ -27,16 +27,24 @@ module Kafka.Streams.Mock.Fault
   , queueFetchErrors
   , queueCommitErrors
   , queueTxnErrors
+  , queueTxnBeginErrors
+  , queueTxnCommitErrors
+  , queueTxnAbortErrors
   , addProduceFault
   , addFetchFault
   , addCommitFault
   , addTxnFault
+  , addTxnBeginFault
+  , addTxnCommitFault
+  , addTxnAbortFault
+  , TxnOp (..)
   , clearFaults
     -- * Querying / popping
   , takeProduceFault
   , takeFetchFault
   , takeCommitFault
   , takeTxnFault
+  , takeTxnFaultFor
     -- * Permanent (sticky) faults
   , setStickyProduce
   , setStickyFetch
@@ -144,11 +152,15 @@ kafkaErrorText = \case
 --     test calls @clearSticky*@.
 --
 -- Sticky takes precedence over the queue when both are present.
+-- | Which transactional operation a fault should target.
+data TxnOp = TxnBegin | TxnCommit | TxnAbort
+  deriving (Eq, Ord, Show)
+
 data FaultPolicy = FaultPolicy
   { fpProduceQ  :: !(TVar (Map (TopicName, Int32) (Seq MockError)))
   , fpFetchQ    :: !(TVar (Map (TopicName, Int32) (Seq MockError)))
   , fpCommitQ   :: !(TVar (Map GroupId (Seq MockError)))
-  , fpTxnQ      :: !(TVar (Map TxnId (Seq MockError)))
+  , fpTxnQ      :: !(TVar (Map (TxnId, TxnOp) (Seq MockError)))
   , fpStickyP   :: !(TVar (Map (TopicName, Int32) MockError))
   , fpStickyF   :: !(TVar (Map (TopicName, Int32) MockError))
   }
@@ -188,9 +200,31 @@ queueCommitErrors :: FaultPolicy -> GroupId -> [MockError] -> IO ()
 queueCommitErrors fp g errs = atomically $
   modifyTVar' (fpCommitQ fp) (Map.insertWith (Seq.><) g (Seq.fromList errs))
 
+-- | Queue errors for /every/ transactional op against a txn id.
+-- Faults fire in this order: 'TxnBegin' first, then 'TxnCommit',
+-- then 'TxnAbort' — the order in which a typical client makes
+-- those calls. Use 'queueTxnBeginErrors' / 'queueTxnCommitErrors'
+-- / 'queueTxnAbortErrors' for op-specific control.
 queueTxnErrors :: FaultPolicy -> TxnId -> [MockError] -> IO ()
-queueTxnErrors fp t errs = atomically $
-  modifyTVar' (fpTxnQ fp) (Map.insertWith (Seq.><) t (Seq.fromList errs))
+queueTxnErrors fp t errs = atomically $ do
+  forM_ [TxnBegin, TxnCommit, TxnAbort] $ \op ->
+    modifyTVar' (fpTxnQ fp)
+      (Map.insertWith (Seq.><) (t, op) (Seq.fromList errs))
+
+queueTxnBeginErrors :: FaultPolicy -> TxnId -> [MockError] -> IO ()
+queueTxnBeginErrors = queueTxnOpErrors TxnBegin
+
+queueTxnCommitErrors :: FaultPolicy -> TxnId -> [MockError] -> IO ()
+queueTxnCommitErrors = queueTxnOpErrors TxnCommit
+
+queueTxnAbortErrors :: FaultPolicy -> TxnId -> [MockError] -> IO ()
+queueTxnAbortErrors = queueTxnOpErrors TxnAbort
+
+queueTxnOpErrors
+  :: TxnOp -> FaultPolicy -> TxnId -> [MockError] -> IO ()
+queueTxnOpErrors op fp t errs = atomically $
+  modifyTVar' (fpTxnQ fp)
+    (Map.insertWith (Seq.><) (t, op) (Seq.fromList errs))
 
 addProduceFault :: FaultPolicy -> TopicName -> Int32 -> MockError -> IO ()
 addProduceFault fp t p e = queueProduceErrors fp t p [e]
@@ -201,8 +235,16 @@ addFetchFault fp t p e = queueFetchErrors fp t p [e]
 addCommitFault :: FaultPolicy -> GroupId -> MockError -> IO ()
 addCommitFault fp g e = queueCommitErrors fp g [e]
 
+-- | Queue a single error against /every/ txn op for this txn id.
+-- See 'queueTxnErrors' for the per-op variants.
 addTxnFault :: FaultPolicy -> TxnId -> MockError -> IO ()
 addTxnFault fp t e = queueTxnErrors fp t [e]
+
+addTxnBeginFault, addTxnCommitFault, addTxnAbortFault
+  :: FaultPolicy -> TxnId -> MockError -> IO ()
+addTxnBeginFault  fp t e = queueTxnBeginErrors  fp t [e]
+addTxnCommitFault fp t e = queueTxnCommitErrors fp t [e]
+addTxnAbortFault  fp t e = queueTxnAbortErrors  fp t [e]
 
 -- | Drain every fault out of every queue. Sticky overrides are
 -- left in place (call 'clearStickyProduce'/'clearStickyFetch'
@@ -269,5 +311,17 @@ takeFetchFault fp t p = do
 takeCommitFault :: FaultPolicy -> GroupId -> IO (Maybe MockError)
 takeCommitFault fp g = atomically (popHead (fpCommitQ fp) g)
 
+-- | Op-specific take. Use this from inside producer code so a
+-- queued begin-fault doesn't accidentally fire on a commit and
+-- vice-versa.
+takeTxnFaultFor :: FaultPolicy -> TxnId -> TxnOp -> IO (Maybe MockError)
+takeTxnFaultFor fp t op = atomically (popHead (fpTxnQ fp) (t, op))
+
+-- | Backwards-compatible: pop a fault for any op (tries begin
+-- first, then commit, then abort).
 takeTxnFault :: FaultPolicy -> TxnId -> IO (Maybe MockError)
-takeTxnFault fp t = atomically (popHead (fpTxnQ fp) t)
+takeTxnFault fp t = do
+  -- Caller doesn't know which op is firing; default to TxnCommit
+  -- which is the most common test target. Internal producers
+  -- should call 'takeTxnFaultFor' with the right op.
+  takeTxnFaultFor fp t TxnCommit

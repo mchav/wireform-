@@ -41,6 +41,7 @@ import qualified Streams.MoreParityThreeSpec
 import qualified Streams.MockClusterSpec
 import qualified Streams.MockFailureModesSpec
 import qualified Streams.MockAdvancedSpec
+import qualified Streams.MockDriverModesSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -83,4 +84,5 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.MockClusterSpec.tests
   , Streams.MockFailureModesSpec.tests
   , Streams.MockAdvancedSpec.tests
+  , Streams.MockDriverModesSpec.tests
   ]

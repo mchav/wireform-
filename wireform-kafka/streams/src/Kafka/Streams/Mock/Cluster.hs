@@ -162,10 +162,15 @@ data MockCluster = MockCluster
   , mcGroups         :: !(TVar (Map GroupId GroupOffsets))
   , mcGroupMembers   :: !(TVar (Map GroupId [(MemberId, Set TopicName)]))
   , mcTxns           :: !(TVar (Map TxnId TxnState))
+    -- ^ Latest state per txn id. Re-used txn ids overwrite the
+    -- previous state; for /per-snapshot/ visibility, see
+    -- 'mcCommittedStamps' and 'mcAbortedStamps'.
   , mcTxnEpoch       :: !(TVar (Map TxnId Int32))
     -- ^ Current epoch for each transactional id. 'commitTxn' /
     -- 'abortTxn' bump it; producers stamped with a stale epoch
     -- are fenced on their next send.
+  , mcCommittedStamps :: !(TVar (Set ProducerStamp))
+  , mcAbortedStamps   :: !(TVar (Set ProducerStamp))
   , mcBrokers        :: !(TVar [BrokerId])
   , mcDownBrokers    :: !(TVar (Set BrokerId))
   , mcClock          :: !(TVar Timestamp)
@@ -188,18 +193,22 @@ newMockCluster n = do
   gm <- newTVarIO Map.empty
   xs <- newTVarIO Map.empty
   ep <- newTVarIO Map.empty
+  cs <- newTVarIO Set.empty
+  as <- newTVarIO Set.empty
   bs <- newTVarIO [BrokerId i | i <- [0 .. n - 1]]
   ds <- newTVarIO Set.empty
   ck <- newTVarIO (Timestamp 0)
   pure MockCluster
-    { mcTopics       = ts
-    , mcGroups       = gs
-    , mcGroupMembers = gm
-    , mcTxns         = xs
-    , mcTxnEpoch     = ep
-    , mcBrokers      = bs
-    , mcDownBrokers  = ds
-    , mcClock        = ck
+    { mcTopics          = ts
+    , mcGroups          = gs
+    , mcGroupMembers    = gm
+    , mcTxns            = xs
+    , mcTxnEpoch        = ep
+    , mcCommittedStamps = cs
+    , mcAbortedStamps   = as
+    , mcBrokers         = bs
+    , mcDownBrokers     = ds
+    , mcClock           = ck
     }
 
 clusterClockNow :: MockCluster -> IO Timestamp
@@ -367,10 +376,11 @@ fetchSlice c topic part from maxN stableOnly = atomically $ do
       log_ <- readTVar (mpLog p)
       hwm  <- readTVar (mpHwm p)
       lso  <- readTVar (mpLastStableOffset p)
-      txns <- readTVar (mcTxns c)
+      committed <- readTVar (mcCommittedStamps c)
+      aborted   <- readTVar (mcAbortedStamps   c)
       let !ceiling_ = if stableOnly then lso else hwm
           !slice   = takeAt from maxN (F.toList log_) ceiling_
-          !visible = filter (visibleAt txns) slice
+          !visible = filter (visibleAt committed aborted) slice
           !next    = if null slice
                        then from
                        else srOffset (last slice) + 1
@@ -383,13 +393,12 @@ fetchSlice c topic part from maxN stableOnly = atomically $ do
       | n <= 0 = []
       | otherwise = r : takeAt from_ (n - 1) rs ceiling_
 
-    visibleAt txns r = case srProducer r of
+    visibleAt committed aborted r = case srProducer r of
       Nothing -> True
-      Just (ProducerStamp tid _) -> case Map.lookup tid txns of
-        Just TxnCommitted -> True
-        Just TxnAborted   -> False
-        Just TxnOpen      -> not stableOnly
-        Nothing           -> not stableOnly
+      Just stamp
+        | Set.member stamp aborted   -> False
+        | Set.member stamp committed -> True
+        | otherwise                  -> not stableOnly
 
 partitionHWM :: MockCluster -> TopicName -> Int32 -> IO (Maybe Int64)
 partitionHWM c topic part = do
@@ -456,7 +465,12 @@ currentTxnEpoch c tid = do
 -- real broker would do on a duplicate EndTxn).
 commitTxn :: MockCluster -> TxnId -> IO ()
 commitTxn c tid = atomically $ do
-  modifyTVar' (mcTxns c) (Map.adjust (const TxnCommitted) tid)
+  modifyTVar' (mcTxns c) (Map.insert tid TxnCommitted)
+  -- Mark THIS specific snapshot (current epoch) as committed.
+  ep <- readTVar (mcTxnEpoch c)
+  let !curEp = Map.findWithDefault 0 tid ep
+  modifyTVar' (mcCommittedStamps c)
+    (Set.insert (ProducerStamp tid curEp))
   -- Bump the epoch so any in-flight producer with the old epoch
   -- gets fenced on its next send.
   modifyTVar' (mcTxnEpoch c) (Map.adjust (+ 1) tid)
@@ -476,7 +490,11 @@ commitTxn c tid = atomically $ do
 
 abortTxn :: MockCluster -> TxnId -> IO ()
 abortTxn c tid = atomically $ do
-  modifyTVar' (mcTxns c) (Map.adjust (const TxnAborted) tid)
+  modifyTVar' (mcTxns c) (Map.insert tid TxnAborted)
+  ep <- readTVar (mcTxnEpoch c)
+  let !curEp = Map.findWithDefault 0 tid ep
+  modifyTVar' (mcAbortedStamps c)
+    (Set.insert (ProducerStamp tid curEp))
   modifyTVar' (mcTxnEpoch c) (Map.adjust (+ 1) tid)
   -- LSO advances past aborted records so read-committed consumers
   -- skip them on the next fetch.
