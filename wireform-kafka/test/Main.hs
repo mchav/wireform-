@@ -43,6 +43,10 @@ import qualified Client.AdminClientSpec
 import qualified Client.MockBrokerSpec
 import qualified Client.MockBrokerFailureModesSpec
 import qualified Client.MockBrokerAdvancedSpec
+import qualified Client.MockBrokerExtSpec
+import qualified Client.MockBrokerIdempotentSpec
+import qualified Client.MockBrokerAdminSpec
+import qualified Client.MockBrokerCoopSpec
 import qualified Network.AuthSpec
 import qualified Network.ConnectionRetrySpec
 
@@ -99,6 +103,10 @@ clientTests = testGroup "Client"
   , Client.MockBrokerSpec.tests
   , Client.MockBrokerFailureModesSpec.tests
   , Client.MockBrokerAdvancedSpec.tests
+  , Client.MockBrokerExtSpec.tests
+  , Client.MockBrokerIdempotentSpec.tests
+  , Client.MockBrokerAdminSpec.tests
+  , Client.MockBrokerCoopSpec.tests
   ]
 
 networkTests :: TestTree

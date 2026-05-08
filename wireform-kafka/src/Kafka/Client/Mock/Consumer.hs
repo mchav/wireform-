@@ -30,9 +30,14 @@ module Kafka.Client.Mock.Consumer
   , PollResult (..)
   , pollMC
   , commitOffsetsMC
+  , commitOffsetsWithMetadataMC
   , seekMC
   , currentPosition
   , IsolationLevel (..)
+    -- * Pause / resume (KIP-41)
+  , pausePartitions
+  , resumePartitions
+  , pausedPartitions
   ) where
 
 import Control.Concurrent.STM
@@ -50,9 +55,11 @@ import Kafka.Client.Mock.Cluster
   ( GroupId
   , MemberId (..)
   , MockCluster
+  , OffsetAndMetadata (..)
   , StoredRecord (..)
   , assignmentFor
   , commitGroupOffsets
+  , commitGroupOffsetsWithMetadata
   , fetchSlice
   , groupOffsetsFor
   , joinGroup
@@ -91,6 +98,9 @@ data MockConsumer = MockConsumer
     -- from the committed offset (group offset) because the consumer
     -- might have read records but not yet committed.
   , mcSubscribed   :: !(TVar (Set Text))
+  , mcPaused       :: !(TVar (Set (Text, Int32)))
+    -- ^ Partitions on which 'pollMC' should currently skip the fetch.
+    -- Mirrors @KafkaConsumer.pause(Collection<TopicPartition>)@.
   , mcIsolation    :: !IsolationLevel
   , mcFetchBatch   :: !Int
   }
@@ -129,6 +139,7 @@ newMockConsumerWithId c fp gid mid iso n = do
   asg <- newTVarIO Set.empty
   pos <- newTVarIO Map.empty
   sub <- newTVarIO Set.empty
+  pa  <- newTVarIO Set.empty
   pure MockConsumer
     { mcCluster    = c
     , mcFaults     = fp
@@ -137,6 +148,7 @@ newMockConsumerWithId c fp gid mid iso n = do
     , mcAssignment = asg
     , mcPositions  = pos
     , mcSubscribed = sub
+    , mcPaused     = pa
     , mcIsolation  = iso
     , mcFetchBatch = n
     }
@@ -210,8 +222,12 @@ data PollResult = PollResult
 pollMC :: MockConsumer -> IO PollResult
 pollMC mc = do
   asg <- readTVarIO (mcAssignment mc)
+  paused <- readTVarIO (mcPaused mc)
   positions <- readTVarIO (mcPositions mc)
-  results <- forM (Set.toList asg) $ \(t, p) -> do
+  -- Skip paused partitions entirely: no records, no fault, no
+  -- position advance. Mirrors KafkaConsumer.pause semantics.
+  let !active = Set.toList (Set.difference asg paused)
+  results <- forM active $ \(t, p) -> do
     let !pos = Map.findWithDefault 0 (t, p) positions
     mFault <- takeFetchFault (mcFaults mc) t p
     case mFault of
@@ -256,6 +272,46 @@ commitOffsetsMC mc offs = do
     Nothing -> do
       commitGroupOffsets (mcCluster mc) (mcGroupId mc) offs
       pure (Right ())
+
+-- | Like 'commitOffsetsMC' but records full
+-- 'OffsetAndMetadata' (including KIP-320 leaderEpoch + per-commit
+-- metadata bytes). Mirrors
+-- @KafkaConsumer.commitSync(Map<TopicPartition, OffsetAndMetadata>)@.
+commitOffsetsWithMetadataMC
+  :: MockConsumer
+  -> [((Text, Int32), OffsetAndMetadata)]
+  -> IO (Either MockError ())
+commitOffsetsWithMetadataMC mc offs = do
+  mFault <- takeCommitFault (mcFaults mc) (mcGroupId mc)
+  case mFault of
+    Just e  -> pure (Left e)
+    Nothing -> do
+      commitGroupOffsetsWithMetadata
+        (mcCluster mc) (mcGroupId mc) offs
+      pure (Right ())
+
+----------------------------------------------------------------------
+-- Pause / resume (KIP-41)
+----------------------------------------------------------------------
+
+-- | Mark a set of partitions paused on this consumer; subsequent
+-- 'pollMC' calls skip them entirely. Idempotent. Pause-state is
+-- consumer-local (not stored on the cluster), so a second
+-- consumer in the same group is unaffected.
+pausePartitions
+  :: MockConsumer -> [(Text, Int32)] -> IO ()
+pausePartitions mc tps = atomically $
+  modifyTVar' (mcPaused mc)
+    (Set.union (Set.fromList tps))
+
+resumePartitions
+  :: MockConsumer -> [(Text, Int32)] -> IO ()
+resumePartitions mc tps = atomically $
+  modifyTVar' (mcPaused mc)
+    (\s -> Set.difference s (Set.fromList tps))
+
+pausedPartitions :: MockConsumer -> IO [(Text, Int32)]
+pausedPartitions mc = Set.toList <$> readTVarIO (mcPaused mc)
 
 -- | Move the consumer's read cursor on a partition. Mirrors
 -- @KafkaConsumer.seek@.
