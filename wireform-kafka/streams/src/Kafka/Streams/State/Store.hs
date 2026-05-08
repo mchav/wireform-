@@ -135,6 +135,11 @@ data KeyValueStore k v = KeyValueStore
   , kvsRange           :: !(k -> k -> IO (KeyValueIterator k v))
   , kvsAll             :: !(IO (KeyValueIterator k v))
   , kvsApproxEntries   :: !(IO Int64)
+  , kvsReverseRange    :: !(k -> k -> IO (KeyValueIterator k v))
+    -- ^ Like 'kvsRange' but yields entries in descending key order.
+    -- Mirrors Java's @ReadOnlyKeyValueStore.reverseRange@ (KIP-617).
+  , kvsReverseAll      :: !(IO (KeyValueIterator k v))
+    -- ^ Like 'kvsAll' but in descending key order.
   }
 
 -- | Window-keyed value: @(key, windowStart)@. Window length is

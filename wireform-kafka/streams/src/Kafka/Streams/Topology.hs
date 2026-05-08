@@ -55,6 +55,7 @@ module Kafka.Streams.Topology
   , addStateStoreS
   , addGlobalStore
   , topoGlobalStores
+  , connectProcessorAndStateStores
     -- * Validation
   , validateTopology
   , TopologyValid
@@ -346,6 +347,29 @@ addStateStoreS
   :: StoreBuilderS k v -> [NodeName] -> Topology -> Topology
 addStateStoreS b owners =
   addStoreInternal (sbSName b) (AsSessionBuilder b) owners
+
+-- | Connect an existing processor to one or more existing state
+-- stores. Mirrors @Topology.connectProcessorAndStateStores@ —
+-- equivalent to having registered the stores at processor-add time
+-- via the @stores@ list, useful for after-the-fact re-wiring.
+connectProcessorAndStateStores
+  :: NodeName
+  -> [StoreName]
+  -> Topology
+  -> Topology
+connectProcessorAndStateStores procNm stores t =
+  case Map.lookup procNm (topoProcessors t) of
+    Nothing -> errorWithCtx
+      ("connectProcessorAndStateStores: unknown processor: "
+        <> unNodeName procNm)
+    Just _  ->
+      let !procsNew  = foldl' (\m sn -> attachToProcessor sn m procNm)
+                              (topoProcessors t) stores
+          !ownersNew = foldl' (\m sn -> Map.insertWith (++) sn [procNm] m)
+                              (topoStoreOwners t) stores
+       in t { topoProcessors = procsNew
+            , topoStoreOwners = ownersNew
+            }
 
 addStoreInternal
   :: StoreName -> AnyStoreBuilder -> [NodeName] -> Topology -> Topology

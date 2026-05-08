@@ -313,6 +313,8 @@ rawAsKeyValuePlaceholder ss = KeyValueStore
   , kvsRange         = \_ _ -> opaque
   , kvsAll           = opaque
   , kvsApproxEntries = pure 0
+  , kvsReverseRange  = \_ _ -> opaque
+  , kvsReverseAll    = opaque
   }
   where
     opaque :: IO a

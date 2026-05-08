@@ -473,6 +473,7 @@ test-suite wireform-kafka-streams-test
         Streams.StateListenerSpec
         Streams.QuerySpec
         Streams.ParityBatchSpec
+        Streams.MoreParitySpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

@@ -169,6 +169,14 @@ mkStore nm cfg snapPath walPath ref walRef = KeyValueStore
       m <- readIORef ref
       kvIteratorFromList (Map.toAscList m)
   , kvsApproxEntries = (fromIntegral . Map.size) <$> readIORef ref
+  , kvsReverseRange = \lo hi -> do
+      m <- readIORef ref
+      let inRange = Map.takeWhileAntitone (<= hi)
+                  $ Map.dropWhileAntitone (< lo) m
+      kvIteratorFromList (Map.toDescList inRange)
+  , kvsReverseAll = do
+      m <- readIORef ref
+      kvIteratorFromList (Map.toDescList m)
   }
 
 persistentKeyValueStoreBuilder

@@ -126,6 +126,9 @@ rocksDBKeyValueStore nm cfg = do
         rocksRangeIter db lo hi
     , kvsAll = rocksAllIter db
     , kvsApproxEntries = pure 0      -- RocksDB doesn't expose a cheap count
+    , kvsReverseRange = \lo hi ->
+        rocksReverseRangeIter db lo hi
+    , kvsReverseAll = rocksReverseAllIter db
     }
 
 rocksDBKeyValueStoreBuilder
@@ -183,6 +186,53 @@ rocksAllIter db = do
             case (mk, mv) of
               (Just kb, Just vb) -> do
                 RI.iterNext it
+                pure (Just (kb, vb))
+              _ -> pure Nothing
+    , kvIterClose = RI.releaseIter it
+    }
+
+rocksReverseRangeIter
+  :: R.DB
+  -> ByteString
+  -> ByteString
+  -> IO (KeyValueIterator ByteString ByteString)
+rocksReverseRangeIter db lo hi = do
+  it <- RI.createIter db R.defaultReadOptions
+  -- Seek to the upper bound, then walk backwards.
+  RI.iterSeek it hi
+  pure KeyValueIterator
+    { kvIterNext = do
+        valid <- RI.iterValid it
+        if not valid
+          then pure Nothing
+          else do
+            mk <- RI.iterKey it
+            mv <- RI.iterValue it
+            case (mk, mv) of
+              (Just kb, Just vb) | kb >= lo -> do
+                RI.iterPrev it
+                pure (Just (kb, vb))
+              _ -> pure Nothing
+    , kvIterClose = RI.releaseIter it
+    }
+
+rocksReverseAllIter
+  :: R.DB
+  -> IO (KeyValueIterator ByteString ByteString)
+rocksReverseAllIter db = do
+  it <- RI.createIter db R.defaultReadOptions
+  RI.iterLast it
+  pure KeyValueIterator
+    { kvIterNext = do
+        valid <- RI.iterValid it
+        if not valid
+          then pure Nothing
+          else do
+            mk <- RI.iterKey it
+            mv <- RI.iterValue it
+            case (mk, mv) of
+              (Just kb, Just vb) -> do
+                RI.iterPrev it
                 pure (Just (kb, vb))
               _ -> pure Nothing
     , kvIterClose = RI.releaseIter it

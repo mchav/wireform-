@@ -50,6 +50,10 @@ module Kafka.Streams.Runtime
   , setStateListener
     -- * EOS
   , applyEOSCoordinator
+    -- * Pause / resume (KIP-834)
+  , pauseKafkaStreams
+  , resumeKafkaStreams
+  , isPausedKafkaStreams
     -- * Internal access (used by Kafka.Streams.InteractiveQueries)
   , ksEngine
   ) where
@@ -120,6 +124,7 @@ data KafkaStreams = KafkaStreams
   , ksEngine    :: !(IORef (Maybe Engine))
   , ksEosCoord  :: !(IORef EOSCoordinator)
   , ksListener  :: !(IORef StateListener)
+  , ksPaused    :: !(TVar Bool)
     -- ^ Set during 'startKafkaStreams' based on
     -- 'processingGuarantee'; defaults to 'noopEOSCoordinator'.
   }
@@ -136,6 +141,7 @@ newKafkaStreams cfg topo = do
   e <- newIORef Nothing
   eos <- newIORef noopEOSCoordinator
   lis <- newIORef (\_ _ -> pure ())
+  pa  <- newTVarIO False
   pure KafkaStreams
     { ksConfig    = cfg
     , ksTopology  = topo
@@ -146,6 +152,7 @@ newKafkaStreams cfg topo = do
     , ksEngine    = e
     , ksEosCoord  = eos
     , ksListener  = lis
+    , ksPaused    = pa
     }
 
 -- | Start the runtime in the background. Returns immediately; once
@@ -256,14 +263,20 @@ eventLoop ks engine consumer = go
           Left err ->
             transitionTo ks (StreamsError (Text.pack err))
           Right recs -> do
-            forM_ recs $ \rec ->
-              feedSource engine
-                (topicName (KC.crTopic rec))
-                (KC.crKey rec)
-                (KC.crValue rec)
-                (Timestamp (KC.crTimestamp rec))
-                (fromIntegral (KC.crPartition rec))
-                (KC.crOffset rec)
+            paused <- readTVarIO (ksPaused ks)
+            -- While paused we still poll (heartbeat) but DON'T feed
+            -- the engine. Records that arrived during the pause are
+            -- silently dropped — the consumer will rewind via
+            -- offset commits to replay anything not committed.
+            unless paused $
+              forM_ recs $ \rec ->
+                feedSource engine
+                  (topicName (KC.crTopic rec))
+                  (KC.crKey rec)
+                  (KC.crValue rec)
+                  (Timestamp (KC.crTimestamp rec))
+                  (fromIntegral (KC.crPartition rec))
+                  (KC.crOffset rec)
             -- The /commit/ goes through the EOS coordinator: under
             -- AtLeastOnce this is the no-op coordinator and the
             -- behaviour is identical to the old (commitEngine +
@@ -336,6 +349,20 @@ transitionTo ks new_ = do
     pure cur
   lis <- readIORef (ksListener ks)
   lis old new_
+
+-- | Pause record processing (KIP-834). The runtime keeps polling
+-- the consumer (so heartbeats stay alive and the coordinator
+-- doesn't kick the member) but does not feed the engine. Call
+-- 'resumeKafkaStreams' to continue.
+pauseKafkaStreams :: KafkaStreams -> IO ()
+pauseKafkaStreams ks = atomically (writeTVar (ksPaused ks) True)
+
+-- | Resume processing after 'pauseKafkaStreams'.
+resumeKafkaStreams :: KafkaStreams -> IO ()
+resumeKafkaStreams ks = atomically (writeTVar (ksPaused ks) False)
+
+isPausedKafkaStreams :: KafkaStreams -> IO Bool
+isPausedKafkaStreams = readTVarIO . ksPaused
 
 -- | Replace the runtime's EOS coordinator. The default is
 -- 'noopEOSCoordinator'; tests inject a recording coordinator to

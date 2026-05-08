@@ -131,6 +131,8 @@ loggedKeyValueStore underlying topic sn ks vs = pure KeyValueStore
   , kvsRange           = kvsRange underlying
   , kvsAll             = kvsAll underlying
   , kvsApproxEntries   = kvsApproxEntries underlying
+  , kvsReverseRange    = kvsReverseRange underlying
+  , kvsReverseAll      = kvsReverseAll underlying
   , kvsPut = \k v -> do
       kvsPut underlying k v
       _ <- publishEntry topic sn (Just (serialize ks k)) (Just (serialize vs v))

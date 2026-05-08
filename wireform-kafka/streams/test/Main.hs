@@ -34,6 +34,7 @@ import qualified Streams.TestUtilsSpec
 import qualified Streams.StateListenerSpec
 import qualified Streams.QuerySpec
 import qualified Streams.ParityBatchSpec
+import qualified Streams.MoreParitySpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -69,4 +70,5 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.StateListenerSpec.tests
   , Streams.QuerySpec.tests
   , Streams.ParityBatchSpec.tests
+  , Streams.MoreParitySpec.tests
   ]

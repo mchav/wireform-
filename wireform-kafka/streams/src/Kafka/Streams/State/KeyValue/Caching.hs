@@ -164,6 +164,19 @@ cachingKeyValueStore underlying cfg emit = do
     , kvsRange         = cachedRange
     , kvsAll           = cachedAll
     , kvsApproxEntries = cachedCount
+    , kvsReverseRange  = \lo hi -> do
+        m <- readIORef cache
+        base <- kvsReverseRange underlying lo hi
+        baseList <- drainAll base
+        let cacheSlice = Map.takeWhileAntitone (<= hi)
+                       $ Map.dropWhileAntitone (<  lo) m
+        kvIteratorFromList (reverse (mergeRange cacheSlice
+                                       (reverse baseList)))
+    , kvsReverseAll = do
+        m <- readIORef cache
+        base <- kvsReverseAll underlying
+        baseList <- drainAll base
+        kvIteratorFromList (reverse (mergeRange m (reverse baseList)))
     }
   where
     drainAll it = go []
