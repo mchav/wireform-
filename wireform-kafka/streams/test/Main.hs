@@ -39,6 +39,7 @@ import qualified Streams.EndToEndChainSpec
 import qualified Streams.MorePartiyTwoSpec
 import qualified Streams.MoreParityThreeSpec
 import qualified Streams.MockClusterSpec
+import qualified Streams.MockFailureModesSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -79,4 +80,5 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.MorePartiyTwoSpec.tests
   , Streams.MoreParityThreeSpec.tests
   , Streams.MockClusterSpec.tests
+  , Streams.MockFailureModesSpec.tests
   ]

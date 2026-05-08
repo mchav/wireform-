@@ -484,6 +484,7 @@ test-suite wireform-kafka-streams-test
         Streams.MorePartiyTwoSpec
         Streams.MoreParityThreeSpec
         Streams.MockClusterSpec
+        Streams.MockFailureModesSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
