@@ -356,18 +356,84 @@ library wireform-kafka-streams
     exposed-modules:
         Kafka.Streams
         Kafka.Streams.Config
-        Kafka.Streams.KStream
-        Kafka.Streams.KTable
-        Kafka.Streams.Processor
-        Kafka.Streams.Serde
-        Kafka.Streams.Topology
+        Kafka.Streams.Errors
+        Kafka.Streams.Time
         Kafka.Streams.Types
+        Kafka.Streams.Serde
+        Kafka.Streams.Window
+        Kafka.Streams.Processor
+        Kafka.Streams.Topology
+        Kafka.Streams.State.Store
+        Kafka.Streams.State.KeyValue.InMemory
+        Kafka.Streams.State.KeyValue.Persistent
+        Kafka.Streams.State.Window.InMemory
+        Kafka.Streams.State.Session.InMemory
+        Kafka.Streams.Internal.RecordCollector
+        Kafka.Streams.Internal.Engine
+        Kafka.Streams.Driver
+        Kafka.Streams.DSL.Materialized
+        Kafka.Streams.DSL.Consumed
+        Kafka.Streams.DSL.Produced
+        Kafka.Streams.DSL.Grouped
+        Kafka.Streams.DSL.Joined
+        Kafka.Streams.DSL.StreamsBuilder
+        Kafka.Streams.DSL.KStream
+        Kafka.Streams.DSL.KTable
+        Kafka.Streams.DSL.KGroupedStream
+        Kafka.Streams.DSL.TimeWindowedKStream
+        Kafka.Streams.DSL.SessionWindowedKStream
+        Kafka.Streams.Runtime
     build-depends:
         base                      >= 4.16  && < 5,
+        aeson                     >= 2.0   && < 2.3,
+        async                     >= 2.2   && < 3,
         bytestring                >= 0.11  && < 0.13,
         containers                >= 0.6   && < 0.8,
+        deepseq                   >= 1.4   && < 1.6,
+        directory                 >= 1.3   && < 1.4,
+        filepath                  >= 1.4   && < 1.6,
+        hashable                  >= 1.3   && < 1.6,
+        stm                       >= 2.5   && < 2.6,
         text                      >= 2.0   && < 2.2,
+        time                      >= 1.11  && < 1.13,
+        unordered-containers      >= 0.2   && < 0.3,
         wireform-kafka
+
+test-suite wireform-kafka-streams-test
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: streams/test
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    other-modules:
+        Streams.SerdeSpec
+        Streams.TimeSpec
+        Streams.StateStoreSpec
+        Streams.WindowSpec
+        Streams.TopologySpec
+        Streams.DriverSpec
+        Streams.DSLSpec
+        Streams.PunctuatorSpec
+        Streams.PersistentStoreSpec
+        Streams.JoinSpec
+        Streams.AggregationSpec
+    build-depends:
+        base,
+        wireform-kafka:wireform-kafka-streams,
+        wireform-kafka,
+        async                     >= 2.2   && < 3,
+        bytestring,
+        containers,
+        directory,
+        filepath,
+        hedgehog                  >= 1.2   && < 2,
+        stm,
+        tasty                     >= 1.4   && < 1.6,
+        tasty-hedgehog            >= 1.4   && < 1.5,
+        tasty-hunit               >= 0.10  && < 0.11,
+        temporary                 >= 1.3   && < 1.4,
+        text,
+        time
 
 library wireform-kafka-codegen
     import: defaults

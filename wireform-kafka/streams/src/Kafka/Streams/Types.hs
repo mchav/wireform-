@@ -1,28 +1,153 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+
+-- |
+-- Module      : Kafka.Streams.Types
+-- Description : Record / Headers / metadata types used by Streams
 module Kafka.Streams.Types
-  ( Timestamp(..)
-  , Header
+  ( -- * Records
+    Record (..)
+  , mkRecord
+  , mapKey
+  , mapValue
+  , mapKV
+    -- * Headers
+  , Header (..)
   , Headers
-  , Record(..)
+  , emptyHeaders
+  , headersFromList
+  , headersToList
+  , addHeader
+  , removeHeader
+  , lastHeader
+  , allHeaders
+    -- * Topic-Partition
+  , TopicPartition (..)
+  , TopicName
+  , topicName
+  , unTopicName
+    -- * Node names (shared between Topology + Processor)
+  , NodeName (..)
+  , nodeName
+    -- * Source metadata
+  , RecordMetadata (..)
   ) where
 
 import Data.ByteString (ByteString)
-import Data.Int (Int64)
-import Data.Map.Strict (Map)
+import Data.Hashable (Hashable)
+import Data.Int (Int32, Int64)
+import Data.List (foldl')
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
-newtype Timestamp = Timestamp { unTimestamp :: Int64 }
-  deriving (Eq, Ord, Show, Generic)
+import Kafka.Streams.Time (Timestamp)
 
-type Header = (Text, ByteString)
-type Headers = Map Text ByteString
+-- | Topic name; thin newtype to avoid mixing topic names with other
+-- 'Text' values.
+newtype TopicName = TopicName { unTopicName :: Text }
+  deriving stock (Eq, Ord, Show, Generic)
+  deriving anyclass (Hashable)
 
+topicName :: Text -> TopicName
+topicName = TopicName
+
+-- | Topic-partition pair. Identical to the one in
+-- "Kafka.Client.Consumer" but defined here to keep the streams
+-- package self-contained.
+data TopicPartition = TopicPartition
+  { tpTopic     :: !TopicName
+  , tpPartition :: !Int32
+  }
+  deriving stock (Eq, Ord, Show, Generic)
+  deriving anyclass (Hashable)
+
+-- | A single header. Kafka allows duplicate keys so we keep header
+-- order through 'Headers'.
+data Header = Header
+  { headerKey   :: !Text
+  , headerValue :: !ByteString
+  }
+  deriving stock (Eq, Ord, Show, Generic)
+
+-- | Ordered, possibly-duplicating header collection (matches the Java
+-- @org.apache.kafka.common.header.Headers@ semantics). Backed by a
+-- 'Seq' so prepend / append / iteration are all amortised \(O(1)\)
+-- and 'lastHeader' is \(O(n)\) with a small constant.
+newtype Headers = Headers { headerEntries :: Seq Header }
+  deriving stock (Eq, Show, Generic)
+
+emptyHeaders :: Headers
+emptyHeaders = Headers Seq.empty
+
+headersFromList :: [Header] -> Headers
+headersFromList = Headers . Seq.fromList
+
+headersToList :: Headers -> [Header]
+headersToList (Headers s) = foldr (:) [] s
+
+addHeader :: Header -> Headers -> Headers
+addHeader h (Headers s) = Headers (s Seq.|> h)
+
+removeHeader :: Text -> Headers -> Headers
+removeHeader k (Headers s) =
+  Headers (Seq.filter ((/= k) . headerKey) s)
+
+-- | Last header with a given key (mirrors @Headers#lastHeader@).
+lastHeader :: Text -> Headers -> Maybe Header
+lastHeader k (Headers s) =
+  case Seq.viewr (Seq.filter ((== k) . headerKey) s) of
+    Seq.EmptyR -> Nothing
+    _ Seq.:> h -> Just h
+
+-- | All headers with the given key, in insertion order.
+allHeaders :: Text -> Headers -> [Header]
+allHeaders k (Headers s) =
+  foldl' (\acc h -> if headerKey h == k then h : acc else acc) []
+    (Seq.reverse s)
+
+-- | A record flowing through the topology. Mirrors the Java
+-- @org.apache.kafka.streams.processor.api.Record@ shape (key, value,
+-- timestamp, headers) plus the source 'RecordMetadata' (which is the
+-- Java @ProcessorContext#recordMetadata@).
 data Record k v = Record
   { recordKey       :: !(Maybe k)
   , recordValue     :: !v
   , recordTimestamp :: !Timestamp
   , recordHeaders   :: !Headers
-  } deriving (Eq, Show, Generic)
+  }
+  deriving stock (Eq, Show, Generic)
 
+mkRecord :: Maybe k -> v -> Timestamp -> Record k v
+mkRecord k v t = Record k v t emptyHeaders
 
+mapKey :: (Maybe k -> Maybe k') -> Record k v -> Record k' v
+mapKey f r = r { recordKey = f (recordKey r) }
+
+mapValue :: (v -> v') -> Record k v -> Record k v'
+mapValue f r = r { recordValue = f (recordValue r) }
+
+mapKV :: (Maybe k -> v -> (Maybe k', v')) -> Record k v -> Record k' v'
+mapKV f r =
+  let (k', v') = f (recordKey r) (recordValue r)
+   in r { recordKey = k', recordValue = v' }
+
+-- | Source-side metadata (broker offset, partition, original topic).
+-- Available inside processors via 'Kafka.Streams.Processor.recordMetadata'.
+data RecordMetadata = RecordMetadata
+  { rmTopic     :: !TopicName
+  , rmPartition :: !Int32
+  , rmOffset    :: !Int64
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Node identifier used by both the topology graph and processor
+-- forwarding. Every source / processor / sink in the topology has a
+-- unique 'NodeName'.
+newtype NodeName = NodeName { unNodeName :: Text }
+  deriving stock (Eq, Ord, Show, Generic)
+  deriving anyclass (Hashable)
+
+nodeName :: Text -> NodeName
+nodeName = NodeName

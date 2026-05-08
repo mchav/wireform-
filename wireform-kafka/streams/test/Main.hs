@@ -1,11 +1,30 @@
 module Main (main) where
 
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+
+import qualified Streams.SerdeSpec
+import qualified Streams.TimeSpec
+import qualified Streams.StateStoreSpec
+import qualified Streams.WindowSpec
+import qualified Streams.TopologySpec
+import qualified Streams.DriverSpec
+import qualified Streams.DSLSpec
+import qualified Streams.PunctuatorSpec
+import qualified Streams.PersistentStoreSpec
+import qualified Streams.JoinSpec
+import qualified Streams.AggregationSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
-  [ testCase "sanity" $ (1 :: Int) @?= 1
+  [ Streams.SerdeSpec.tests
+  , Streams.TimeSpec.tests
+  , Streams.StateStoreSpec.tests
+  , Streams.WindowSpec.tests
+  , Streams.TopologySpec.tests
+  , Streams.DriverSpec.tests
+  , Streams.DSLSpec.tests
+  , Streams.PunctuatorSpec.tests
+  , Streams.PersistentStoreSpec.tests
+  , Streams.JoinSpec.tests
+  , Streams.AggregationSpec.tests
   ]
-
-
