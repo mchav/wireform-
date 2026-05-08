@@ -59,7 +59,9 @@ common defaults
 library
     import: defaults
     hs-source-dirs: src
-    include-dirs: cbits
+    include-dirs:
+        cbits
+        cbits/simde
     install-includes:
         crc32c.h
         snappy_ffi.h
@@ -68,6 +70,11 @@ library
         cbits/crc32c.c
         cbits/snappy_ffi.c
         cbits/lz4_ffi.c
+    -- -O3 lets the compiler inline simde_mm_crc32_u* into the CRC32C
+    -- inner loop. -march=native picks up SSE4.2 / ARMv8.1 CRC32 on the
+    -- build host so SIMDe emits the hardware instruction; for portable
+    -- binaries override with cc-options: -msse4.2 or -march=armv8.1-a.
+    cc-options: -O3 -march=native
     pkgconfig-depends:
         snappy,
         liblz4
