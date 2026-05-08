@@ -65,6 +65,9 @@ module Kafka.Streams.DSL.KStream
     -- * Sinks
   , toTopic
   , throughTopic
+    -- * Joins
+  , joinKStreamKTable
+  , leftJoinKStreamKTable
     -- * Low-level access
   , transformValuesStream
   ) where
@@ -76,6 +79,7 @@ import Kafka.Streams.DSL.Consumed
   ( Consumed (..)
   , consumed
   )
+import Kafka.Streams.DSL.Joined (Joined (..))
 import Kafka.Streams.DSL.Produced
   ( Produced (..)
   , produced
@@ -86,14 +90,27 @@ import Kafka.Streams.DSL.StreamsBuilder
   , withTopology_
   )
 
+import qualified Unsafe.Coerce as Unsafe
+
+import Kafka.Streams.DSL.KTable
+  ( KTable
+  , ktableNode
+  , ktableStore
+  )
 import Kafka.Streams.Processor
   ( Processor (..)
   , ProcessorContext (..)
   , forwardRecord
   , forwardTo
+  , getStateStore
   , processorName
   )
 import Kafka.Streams.Serde (Serde)
+import Kafka.Streams.State.Store
+  ( AnyStateStore (..)
+  , KeyValueStore (..)
+  , StoreName
+  )
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Types
   ( Record (..)
@@ -586,6 +603,166 @@ throughTopic topic p s = do
 ----------------------------------------------------------------------
 -- Low-level
 ----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+-- KStream-KTable join
+----------------------------------------------------------------------
+
+-- | Inner join: for each stream record whose key matches an entry in
+-- the table, emit @joiner v_stream v_table@. Stream records that
+-- find no match are dropped. Mirrors @KStream.join(KTable, ValueJoiner)@.
+joinKStreamKTable
+  :: forall k v vt v'
+   . Ord k
+  => (v -> vt -> v')
+  -> Joined k v vt
+  -> KStream k v
+  -> KTable k vt
+  -> IO (KStream k v')
+joinKStreamKTable joiner _j s tab = do
+  let b = kstreamBuilder s
+  nm <- freshNodeName b "KSTREAM-KTABLE-JOIN"
+  -- Note on wiring: the join processor's only parent is the
+  -- /stream/ side. The table side updates its store via the topology
+  -- it was built with, /before/ any joiner evaluation, because the
+  -- engine processes records FIFO across the whole task. The table
+  -- store is read by the join processor via 'getStateStore'.
+  withTopology_ b $ \t ->
+    Topo.addProcessorWith
+      Topo.ProcessorSpec
+        { Topo.processorSpecName     = nm
+        , Topo.processorSpecParents  = [kstreamParent s]
+        , Topo.processorSpecSupplier =
+            Topo.AnyProcessor
+              (joinKStreamKTableProc @k @v @vt @v' (ktableStore tab) joiner False)
+        , Topo.processorSpecStores   = [ktableStore tab]
+        }
+      t
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nm
+    , kstreamKeySerde   = kstreamKeySerde s
+    , kstreamValueSerde = error "KStream.join: downstream value Serde unset"
+    }
+
+-- | Left join: stream records always emit, with @Nothing@ on the
+-- right side when the table has no entry. Mirrors @KStream.leftJoin@.
+leftJoinKStreamKTable
+  :: forall k v vt v'
+   . Ord k
+  => (v -> Maybe vt -> v')
+  -> Joined k v vt
+  -> KStream k v
+  -> KTable k vt
+  -> IO (KStream k v')
+leftJoinKStreamKTable joiner _j s tab = do
+  let b = kstreamBuilder s
+  nm <- freshNodeName b "KSTREAM-KTABLE-LEFTJOIN"
+  withTopology_ b $ \t ->
+    Topo.addProcessorWith
+      Topo.ProcessorSpec
+        { Topo.processorSpecName     = nm
+        , Topo.processorSpecParents  = [kstreamParent s]
+        , Topo.processorSpecSupplier =
+            Topo.AnyProcessor
+              (joinKStreamKTableProcL @k @v @vt @v' (ktableStore tab) joiner)
+        , Topo.processorSpecStores   = [ktableStore tab]
+        }
+      t
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nm
+    , kstreamKeySerde   = kstreamKeySerde s
+    , kstreamValueSerde = error "KStream.leftJoin: downstream value Serde unset"
+    }
+
+-- | The join processor. The KTable side has already updated its store
+-- before this processor sees a stream record (because the Topology
+-- builder lists the table's update node as a parent — and KTable
+-- updates flow before the join processor is invoked for the stream
+-- side, courtesy of the engine's per-record FIFO).
+--
+-- Note: in the JVM impl, both sides are "co-partitioned" before
+-- joining; here we operate within a single task so partitioning is
+-- trivially equal. A real multi-task runtime would need to ensure
+-- the upstream KTable store is reachable from the same task as the
+-- KStream — which is exactly why the join is materialised against
+-- the table's store name.
+joinKStreamKTableProc
+  :: forall k v vt v'
+   . Ord k
+  => StoreName
+  -> (v -> vt -> v')
+  -> Bool                                -- left-join?
+  -> IO (Processor k v)
+joinKStreamKTableProc storeNm joiner _isLeft = do
+  ctxRef <- newIORef Nothing
+  storeRef <- newIORef (Nothing :: Maybe (KeyValueStore k vt))
+  pure Processor
+    { procName = processorName "KSTREAM-KTABLE-JOIN"
+    , procInit = \ctx -> do
+        writeIORef ctxRef (Just ctx)
+        st <- getStateStore ctx storeNm
+        case st of
+          Just (AnyKeyValueStore kvs) ->
+            writeIORef storeRef (Just (Unsafe.unsafeCoerce kvs))
+          _ -> error $ "join: store not found: " <> show storeNm
+    , procClose = pure ()
+    , procProcess = \r -> do
+        mctx <- readIORef ctxRef
+        mst  <- readIORef storeRef
+        case (mctx, mst, recordKey r) of
+          (Just ctx, Just kvs, Just k) -> do
+            mt <- kvsGet kvs k
+            case mt of
+              Just tv ->
+                let !v' = joiner (recordValue r) tv
+                    !out = Record
+                      { recordKey       = Just k
+                      , recordValue     = v'
+                      , recordTimestamp = recordTimestamp r
+                      , recordHeaders   = recordHeaders r
+                      } :: Record k v'
+                 in forwardRecord ctx out
+              Nothing -> pure ()  -- inner-join drops
+          _ -> pure ()
+    }
+
+joinKStreamKTableProcL
+  :: forall k v vt v'
+   . Ord k
+  => StoreName
+  -> (v -> Maybe vt -> v')
+  -> IO (Processor k v)
+joinKStreamKTableProcL storeNm joiner = do
+  ctxRef <- newIORef Nothing
+  storeRef <- newIORef (Nothing :: Maybe (KeyValueStore k vt))
+  pure Processor
+    { procName = processorName "KSTREAM-KTABLE-LEFTJOIN"
+    , procInit = \ctx -> do
+        writeIORef ctxRef (Just ctx)
+        st <- getStateStore ctx storeNm
+        case st of
+          Just (AnyKeyValueStore kvs) ->
+            writeIORef storeRef (Just (Unsafe.unsafeCoerce kvs))
+          _ -> error $ "leftJoin: store not found: " <> show storeNm
+    , procClose = pure ()
+    , procProcess = \r -> do
+        mctx <- readIORef ctxRef
+        mst  <- readIORef storeRef
+        case (mctx, mst, recordKey r) of
+          (Just ctx, Just kvs, Just k) -> do
+            mt <- kvsGet kvs k
+            let !v' = joiner (recordValue r) mt
+                !out = Record
+                  { recordKey       = Just k
+                  , recordValue     = v'
+                  , recordTimestamp = recordTimestamp r
+                  , recordHeaders   = recordHeaders r
+                  } :: Record k v'
+             in forwardRecord ctx out
+          _ -> pure ()
+    }
 
 -- | Drop into the low-level Processor API for value-only state, with
 -- access to the typed 'ProcessorContext'.
