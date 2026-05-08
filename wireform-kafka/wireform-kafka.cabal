@@ -388,6 +388,7 @@ library wireform-kafka-streams
         Kafka.Streams.Runtime.EOS
         Kafka.Streams.Runtime.Task
         Kafka.Streams.Runtime.Standby
+        Kafka.Streams.Runtime.Assignor
         Kafka.Streams.InteractiveQueries
     build-depends:
         base                      >= 4.16  && < 5,
@@ -428,6 +429,7 @@ test-suite wireform-kafka-streams-test
         Streams.EOSSpec
         Streams.MultiTaskSpec
         Streams.StandbySpec
+        Streams.AssignorSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
