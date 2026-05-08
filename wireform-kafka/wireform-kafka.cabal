@@ -35,6 +35,13 @@ extra-source-files:
     data/message-inventory.json
     test-data/test-vectors.json
 
+flag rocksdb
+    description:
+        Enable the Kafka.Streams.State.KeyValue.RocksDB backend
+        (requires librocksdb at link time).
+    default: False
+    manual: True
+
 source-repository head
     type: git
     location: https://github.com/iand675/wireform-
@@ -406,6 +413,9 @@ library wireform-kafka-streams
         time                      >= 1.11  && < 1.13,
         unordered-containers      >= 0.2   && < 0.3,
         wireform-kafka
+    if flag(rocksdb)
+        exposed-modules: Kafka.Streams.State.KeyValue.RocksDB
+        build-depends:   rocksdb-haskell-kadena >= 1.1 && < 2
 
 test-suite wireform-kafka-streams-test
     import: defaults
@@ -413,6 +423,11 @@ test-suite wireform-kafka-streams-test
     main-is: Main.hs
     hs-source-dirs: streams/test
     ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    if flag(rocksdb)
+        other-modules: Streams.RocksDBSpec
+        build-depends:
+            rocksdb-haskell-kadena >= 1.1 && < 2
+        cpp-options: -DENABLE_ROCKSDB
     other-modules:
         Streams.SerdeSpec
         Streams.TimeSpec
