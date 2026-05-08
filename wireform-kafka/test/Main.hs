@@ -53,6 +53,8 @@ import qualified Client.MockBrokerProtoSpec
 import qualified Client.ConfigParitySpec
 import qualified Client.ProducerRetrySpec
 import qualified Client.PipelineSpec
+import qualified Client.SubscribeSpec
+import qualified Network.ConnectionLivenessSpec
 import qualified Network.AuthSpec
 import qualified Network.ConnectionRetrySpec
 
@@ -119,6 +121,8 @@ clientTests = testGroup "Client"
   , Client.ConfigParitySpec.tests
   , Client.ProducerRetrySpec.tests
   , Client.PipelineSpec.tests
+  , Client.SubscribeSpec.tests
+  , Network.ConnectionLivenessSpec.tests
   ]
 
 networkTests :: TestTree

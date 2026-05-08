@@ -610,6 +610,8 @@ test-suite wireform-kafka-test
         Client.ConfigParitySpec
         Client.ProducerRetrySpec
         Client.PipelineSpec
+        Client.SubscribeSpec
+        Network.ConnectionLivenessSpec
         Network.AuthSpec
         Network.ConnectionRetrySpec
         Protocol.ApiVersionsSpec
