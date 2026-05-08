@@ -475,6 +475,36 @@ test-suite wireform-kafka-test
         uuid,
         vector
 
+test-suite wireform-kafka-conformance
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test-conformance
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    other-modules:
+        Conformance.T0000.Unittests
+        Conformance.T0004.Conf
+        Conformance.T0006.Symbols
+        Conformance.T0017.Compression
+        Conformance.T0043.NoConnection
+        Conformance.T0072.Headers
+        Conformance.T0080.AdminUt
+        Conformance.T0086.PurgeLocal
+        Conformance.T0095.AllBrokersDown
+        Conformance.T0103.TransactionsLocal
+        Conformance.T0142.Reauthentication
+        Conformance.T0144.IdempotenceMock
+    build-depends:
+        base,
+        wireform-kafka,
+        bytestring,
+        containers,
+        stm,
+        tasty                     >= 1.4   && < 1.6,
+        tasty-hunit               >= 0.10  && < 0.11,
+        text,
+        time
+
 test-suite wireform-kafka-integration
     import: defaults
     type: exitcode-stdio-1.0
