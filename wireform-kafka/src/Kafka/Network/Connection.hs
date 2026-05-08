@@ -53,6 +53,8 @@ import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Data.Default.Class (def)
 import Data.Hashable (Hashable(hashWithSalt))
+import Data.Text (Text)
+import qualified Data.Text as T
 import GHC.Generics (Generic)
 import qualified ListT
 import Network.Connection (Connection(..), ConnectionParams(..))
@@ -62,6 +64,8 @@ import qualified Network.TLS as TLS
 import qualified Network.TLS.Extra.Cipher as TLS
 import qualified StmContainers.Map as StmMap
 import System.Random (randomRIO)
+
+import qualified Kafka.Network.Auth.SASL as SASL
 
 -- | Broker address (host and port).
 data BrokerAddress = BrokerAddress
@@ -95,6 +99,23 @@ data ConnectionConfig = ConnectionConfig
     -- ^ Whether to use TLS encryption (default: False)
   , connTlsSettings :: !(Maybe TLS.ClientParams)
     -- ^ TLS client parameters (required if connUseTls is True)
+  , connSasl :: !(Maybe SASL.SaslConfig)
+    -- ^ SASL authentication to perform after the TCP/TLS handshake.
+    --   When 'Just', 'getOrCreateConnection' runs the broker-side
+    --   SASL handshake (SaslHandshake + SaslAuthenticate loop) and
+    --   only stores the connection in the pool on success. Use:
+    --
+    --     * 'SASL.SaslPlain' over TLS for Confluent Cloud-style
+    --       username\/password.
+    --     * 'SASL.SaslScram' for Apache Kafka's built-in SCRAM
+    --       (also the only option on AWS MSK Provisioned with
+    --       \"SASL\/SCRAM\" enabled).
+    --     * 'SASL.SaslOAuthBearer' for OIDC / cloud-managed brokers.
+    --     * 'SASL.SaslAwsMskIam' for AWS MSK with IAM auth.
+  , connClientId :: !Text
+    -- ^ Client id used in the SASL request headers (defaults to
+    --   \"wireform-kafka\"). Has no effect on connections without a
+    --   'connSasl' value.
   } deriving (Generic)
 
 -- | Default connection configuration (plain TCP, no TLS).
@@ -109,6 +130,8 @@ defaultConnectionConfig = ConnectionConfig
   , connBackoffMultiplier = 2.0
   , connUseTls = False
   , connTlsSettings = Nothing
+  , connSasl = Nothing
+  , connClientId = T.pack "wireform-kafka"
   }
 
 -- | Default TLS settings for secure connections.
@@ -161,9 +184,25 @@ getOrCreateConnection (ConnectionManager connMap) addr config = do
       case connResult of
         Left err -> return $ Left err
         Right newConn -> do
-          -- Store the new connection
-          atomically $ StmMap.insert newConn addr connMap
-          return $ Right newConn
+          -- Run SASL authentication if configured. We do this *before*
+          -- caching the connection so a failed handshake doesn't leave
+          -- a poisoned connection in the pool.
+          authResult <- case connSasl config of
+            Nothing  -> return (Right ())
+            Just sc  -> do
+              let host = T.pack (brokerHost addr)
+              r <- SASL.authenticate newConn (connClientId config) host sc
+              case r of
+                Right () -> return (Right ())
+                Left e   -> return (Left ("SASL authentication failed: " ++ show e))
+          case authResult of
+            Left err -> do
+              Conn.connectionClose newConn
+              return $ Left err
+            Right () -> do
+              -- Store the (now-authenticated) connection
+              atomically $ StmMap.insert newConn addr connMap
+              return $ Right newConn
 
 -- | Close all connections managed by this connection manager.
 -- This should be called when shutting down the client.

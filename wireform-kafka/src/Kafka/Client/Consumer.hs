@@ -138,6 +138,12 @@ data ConsumerConfig = ConsumerConfig
     -- ^ What to do when no offset (default: Latest)
   , consumerRackId :: !(Maybe Text)
     -- ^ Rack ID for rack-aware fetching (default: Nothing) - KIP-392: fetch from replicas in same rack
+  , consumerConnectionConfig :: !Conn.ConnectionConfig
+    -- ^ Lower-level connection settings: TLS, SASL, retry/backoff
+    --   knobs. Defaults to 'Conn.defaultConnectionConfig' (plain TCP,
+    --   no SASL). Set 'Conn.connSasl' here to enable any of the SASL
+    --   mechanisms (PLAIN \/ SCRAM \/ OAUTHBEARER \/ AWS_MSK_IAM \/
+    --   GSSAPI-stub) — see "Kafka.Network.Auth.SASL".
   } deriving (Generic)
 
 -- | Offset reset strategy when no committed offset exists.
@@ -161,6 +167,7 @@ defaultConsumerConfig = ConsumerConfig
   , consumerAssignmentStrategy = RangeAssignment
   , consumerAutoOffsetReset = Latest
   , consumerRackId = Nothing  -- KIP-392: set to enable rack-aware fetching
+  , consumerConnectionConfig = Conn.defaultConnectionConfig
   }
 
 -- | A topic-partition pair.
@@ -197,6 +204,14 @@ data Consumer = Consumer
     -- ^ Paused partitions (uses stm-containers)
   }
 
+-- | Effective 'Conn.ConnectionConfig' for this consumer: takes the
+-- one stored in 'consumerConfig' and overlays the consumer's client
+-- id (so SASL request headers identify the right client).
+consumerConnConfig :: Consumer -> Conn.ConnectionConfig
+consumerConnConfig c =
+  let base = consumerConnectionConfig (consumerConfig c)
+  in base { Conn.connClientId = consumerClientId (consumerConfig c) }
+
 -- | Create a new Kafka consumer.
 --
 -- Initializes the consumer with connection management, metadata caching,
@@ -221,7 +236,9 @@ createConsumer brokers groupId config = do
       -- Fetch initial metadata from bootstrap brokers
       -- Connect to first bootstrap broker and fetch metadata
       let firstBroker = head brokerAddrs
-          connConfig = Conn.defaultConnectionConfig
+          baseConn   = consumerConnectionConfig config
+          -- Use the user's client id for any SASL handshake.
+          connConfig = baseConn { Conn.connClientId = consumerClientId config }
       connResult <- Conn.getOrCreateConnection connManager firstBroker connConfig
       case connResult of
         Left err -> return $ Left $ "Failed to connect to bootstrap broker: " ++ err
@@ -292,7 +309,7 @@ queryPartitionOffsets
   -> [TopicPartition]
   -> Int64  -- ^ Timestamp (-2 for earliest, -1 for latest)
   -> IO (Either String [(TopicPartition, Int64)])
-queryPartitionOffsets Consumer{..} partitions timestamp = do
+queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
   -- Group partitions by topic
   let byTopic = Map.fromListWith (++)
         [ (tpTopic tp, [tpPartition tp])
@@ -305,9 +322,10 @@ queryPartitionOffsets Consumer{..} partitions timestamp = do
     Nothing -> return $ Left "No brokers available in metadata cache"
     Just [] -> return $ Left "No brokers available in metadata cache"
     Just (broker:_) -> do
-      -- Connect to the broker
+      -- Connect to the broker (re-uses any cached / authenticated
+      -- connection in the manager).
       let brokerAddr = Meta.brokerMetaAddress broker
-          connConfig = Conn.defaultConnectionConfig
+          connConfig = consumerConnConfig consumer
       connResult <- Conn.getOrCreateConnection consumerConnManager brokerAddr connConfig
       case connResult of
         Left err -> return $ Left $ "Failed to connect to broker: " ++ err
@@ -454,6 +472,7 @@ subscribe Consumer{..} topics = do
           rebalanceTimeout = fromIntegral (consumerMaxPollIntervalMs  consumerConfig)
       result <- Sub.subscribeFlow
                   consumerConnManager
+                  (consumerConnConfig Consumer{..})
                   consumerMetadata
                   consumerVersionCache
                   hbState
@@ -660,7 +679,7 @@ fetchRecords consumer@Consumer{..} partitions timeoutMs = do
     Just [] -> return $ Left "No brokers available in metadata cache"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-          connConfig = Conn.defaultConnectionConfig
+          connConfig = consumerConnConfig consumer
       connResult <- Conn.getOrCreateConnection consumerConnManager brokerAddr connConfig
       case connResult of
         Left err -> return $ Left $ "Failed to connect to broker: " ++ err
@@ -701,7 +720,7 @@ fetchRecords consumer@Consumer{..} partitions timeoutMs = do
                   
                   -- Fetch from each broker (KIP-392: pass rack ID)
                   results <- forM (Map.toList byBroker) $ \(broker, reqs) ->
-                    fetchFromBroker consumerConnManager consumerVersionCache broker reqs timeoutMs consumerCorrelationId (consumerRackId consumerConfig)
+                    fetchFromBroker consumerConnManager consumerVersionCache broker reqs timeoutMs consumerCorrelationId (consumerRackId consumerConfig) (consumerConnConfig consumer)
                   
                   -- Combine results
                   case sequence results of
@@ -717,12 +736,13 @@ fetchFromBroker
   -> Int                     -- ^ Timeout (ms)
   -> TVar Int32              -- ^ Correlation ID source
   -> Maybe Text              -- ^ Rack ID for rack-aware fetching (KIP-392)
+  -> Conn.ConnectionConfig   -- ^ Connection / SASL config (re-used cached conns when matching)
   -> IO (Either String [ConsumerRecord])
-fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM = do
+fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM connConfig = do
   let brokerAddr = Meta.brokerMetaAddress broker
   
   -- Get connection
-  connResult <- Conn.getOrCreateConnection connMgr brokerAddr Conn.defaultConnectionConfig
+  connResult <- Conn.getOrCreateConnection connMgr brokerAddr connConfig
   
   case connResult of
     Left err -> return $ Left $ "Failed to connect: " ++ err
@@ -923,7 +943,7 @@ commitOffsetsSync
   -> Text                                 -- ^ Group ID
   -> [(TopicPartition, Int64)]           -- ^ Partitions and offsets to commit
   -> IO (Either String ())
-commitOffsetsSync Consumer{..} groupId offsets = do
+commitOffsetsSync consumer@Consumer{..} groupId offsets = do
   -- TODO: Find the group coordinator
   -- For now, we'll assume we have a coordinator from the heartbeat state
   case consumerHeartbeat of
@@ -934,7 +954,7 @@ commitOffsetsSync Consumer{..} groupId offsets = do
         Nothing -> return $ Left "No group coordinator known"
         Just coordAddr -> do
           -- Get connection to coordinator
-          connResult <- Conn.getOrCreateConnection consumerConnManager coordAddr Conn.defaultConnectionConfig
+          connResult <- Conn.getOrCreateConnection consumerConnManager coordAddr (consumerConnConfig consumer)
           case connResult of
             Left err -> return $ Left $ "Failed to connect to coordinator: " ++ err
             Right conn -> do
@@ -1028,7 +1048,7 @@ fetchCommittedOffsets
   -> Text                      -- ^ Group ID
   -> [TopicPartition]          -- ^ Partitions to fetch offsets for
   -> IO (Either String Int64)
-fetchCommittedOffsets Consumer{..} groupId tps = do
+fetchCommittedOffsets consumer@Consumer{..} groupId tps = do
   -- TODO: Find the group coordinator
   case consumerHeartbeat of
     Nothing -> return $ Left "Not in a consumer group, cannot fetch committed offsets"
@@ -1038,7 +1058,7 @@ fetchCommittedOffsets Consumer{..} groupId tps = do
         Nothing -> return $ Left "No group coordinator known"
         Just coordAddr -> do
           -- Get connection to coordinator
-          connResult <- Conn.getOrCreateConnection consumerConnManager coordAddr Conn.defaultConnectionConfig
+          connResult <- Conn.getOrCreateConnection consumerConnManager coordAddr (consumerConnConfig consumer)
           case connResult of
             Left err -> return $ Left $ "Failed to connect to coordinator: " ++ err
             Right conn -> do

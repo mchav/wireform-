@@ -93,6 +93,13 @@ module Kafka.Client.Group
   , C.TopicPartition(..)
   , C.AssignmentStrategy(..)
   , C.OffsetResetStrategy(..)
+    -- * Auth helpers (re-exported)
+  , SASL.SaslConfig(..)
+  , Scram.ScramAlgo(..)
+  , Iam.AwsCredentials(..)
+  , Iam.AwsCredentialsProvider(..)
+  , OAuth.OAuthToken(..)
+  , OAuth.OAuthTokenProvider(..)
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -111,6 +118,12 @@ import qualified Data.Vector as V
 import qualified System.IO as IO
 
 import qualified Kafka.Client.Consumer as C
+import qualified Kafka.Network.Auth.AwsMskIam as Iam
+import qualified Kafka.Network.Auth.OAuthBearer as OAuth
+import qualified Kafka.Network.Auth.SASL as SASL
+import qualified Kafka.Network.Auth.Scram as Scram
+import qualified Kafka.Network.Connection as Conn
+import qualified Network.TLS as TLS
 
 -- | What to do when the user-provided handler throws.
 data ErrorPolicy
@@ -166,6 +179,20 @@ data GroupConfig = GroupConfig
     --   stderr and back off briefly. Returning normally signals
     --   "retry"; throw to stop the loop.
   , gcCloseTimeoutMs     :: !Int
+  , gcUseTls             :: !Bool
+    -- ^ Whether to wrap the broker connection in TLS. Defaults to
+    --   'False' for local development; flip to 'True' for any
+    --   production / cloud broker. AWS MSK IAM (and Confluent
+    --   Cloud's PLAIN \/ OAUTHBEARER) /require/ TLS.
+  , gcTlsParams          :: !(Maybe TLS.ClientParams)
+    -- ^ Custom TLS parameters. When 'Nothing' but 'gcUseTls' is
+    --   'True' we fall back to 'Conn.defaultTlsSettings' against the
+    --   first bootstrap broker hostname (system trust store, strong
+    --   ciphers, hostname verification on).
+  , gcSasl               :: !(Maybe SASL.SaslConfig)
+    -- ^ SASL mechanism to use after the connection is up. 'Nothing'
+    --   means \"no SASL\" (i.e. the broker is configured for
+    --   PLAINTEXT or SSL-only auth).
   }
 
 -- | Sensible defaults: localhost broker, no topics yet (the caller is
@@ -189,6 +216,9 @@ defaultGroupConfig = GroupConfig
       TIO.hPutStrLn IO.stderr (T.pack ("[wireform-kafka] poll error: " <> msg))
       threadDelay 250000  -- back off 250ms
   , gcCloseTimeoutMs     = 30000
+  , gcUseTls             = False
+  , gcTlsParams          = Nothing
+  , gcSasl               = Nothing
   }
 
 -- | Opaque handle for the bracket-style API. Wraps the raw
@@ -224,7 +254,22 @@ withGroupConsumer cfg@GroupConfig{..} body = do
       Right () -> body gc
   where
     open = do
-      let ccfg = C.defaultConsumerConfig
+      let connBase = Conn.defaultConnectionConfig
+            { Conn.connUseTls      = gcUseTls
+            , Conn.connTlsSettings = case gcTlsParams of
+                Just p  -> Just p
+                Nothing -> case gcBootstrapBrokers of
+                  -- Fall back to a sensible default keyed off the
+                  -- first bootstrap broker hostname. We strip the
+                  -- ":port" if present.
+                  (b:_) | gcUseTls ->
+                    let hostOnly = T.unpack (T.takeWhile (/= ':') b)
+                    in Just (Conn.defaultTlsSettings hostOnly)
+                  _ -> Nothing
+            , Conn.connSasl        = gcSasl
+            , Conn.connClientId    = gcClientId
+            }
+          ccfg = C.defaultConsumerConfig
             { C.consumerClientId            = gcClientId
             , C.consumerGroupId             = gcGroupId
             , C.consumerSessionTimeoutMs    = gcSessionTimeoutMs
@@ -235,6 +280,7 @@ withGroupConsumer cfg@GroupConfig{..} body = do
             , C.consumerAutoCommit          = case gcCommitMode of
                 CommitManual -> True   -- let the broker-side timer drive it
                 _            -> False  -- the loop owns commits
+            , C.consumerConnectionConfig    = connBase
             }
       r <- C.createConsumer gcBootstrapBrokers gcGroupId ccfg
       case r of

@@ -88,6 +88,7 @@ data TopicPartition = TopicPartition
 -- starting point of a new assignment).
 subscribeFlow
   :: Conn.ConnectionManager
+  -> Conn.ConnectionConfig      -- ^ Used for any new broker connections (TLS / SASL)
   -> Meta.MetadataCache
   -> AV.ApiVersionCache
   -> HB.HeartbeatState
@@ -101,7 +102,7 @@ subscribeFlow
   -> ResetPolicy                -- ^ what to do when no committed offset exists
   -> TVar Int32                 -- ^ correlation id source
   -> IO (Either SubscribeError [(TopicPartition, Int64)])
-subscribeFlow connMgr metaCache versionCache hbState clientId groupId topics
+subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId topics
               sessionTimeoutMs rebalanceTimeoutMs resetPolicy corrIdVar = do
   -- 1. Make sure we have metadata for the topics we're about to subscribe
   --    to; we need the partition list locally so we (a) include accurate
@@ -129,7 +130,7 @@ subscribeFlow connMgr metaCache versionCache hbState clientId groupId topics
       case brokersM of
         Just (b:_) -> do
           let addr = Meta.brokerMetaAddress b
-          connRes <- Conn.getOrCreateConnection connMgr addr Conn.defaultConnectionConfig
+          connRes <- Conn.getOrCreateConnection connMgr addr connConfig
           case connRes of
             Left err -> pure (Left ("connect: " <> err))
             Right conn -> do
@@ -142,7 +143,7 @@ subscribeFlow connMgr metaCache versionCache hbState clientId groupId topics
       case brokersM of
         Just (b:_) -> do
           let addr = Meta.brokerMetaAddress b
-          connRes <- Conn.getOrCreateConnection connMgr addr Conn.defaultConnectionConfig
+          connRes <- Conn.getOrCreateConnection connMgr addr connConfig
           case connRes of
             Left err -> pure (Left (SubscribeOther ("bootstrap connect: " <> err)))
             Right conn -> k addr conn
@@ -151,7 +152,7 @@ subscribeFlow connMgr metaCache versionCache hbState clientId groupId topics
     joinAndSync coord = do
       let coordAddr = BrokerAddress (T.unpack (CG.coordHost coord))
                                     (fromIntegral (CG.coordPort coord))
-      coordConnR <- Conn.getOrCreateConnection connMgr coordAddr Conn.defaultConnectionConfig
+      coordConnR <- Conn.getOrCreateConnection connMgr coordAddr connConfig
       case coordConnR of
         Left err -> pure (Left (SubscribeCoordinator err))
         Right coordConn -> do

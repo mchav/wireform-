@@ -40,6 +40,7 @@ import qualified Client.ProducerConsumerLifecycleSpec
 import qualified Client.TransactionSpec
 import qualified Client.TransactionCoordinatorSpec
 import qualified Client.AdminClientSpec
+import qualified Network.AuthSpec
 import qualified Network.ConnectionRetrySpec
 
 main :: IO ()
@@ -97,4 +98,5 @@ clientTests = testGroup "Client"
 networkTests :: TestTree
 networkTests = testGroup "Network"
   [ Network.ConnectionRetrySpec.tests
+  , Network.AuthSpec.authSpec
   ]

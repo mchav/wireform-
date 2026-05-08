@@ -100,6 +100,8 @@ library
         Kafka.Compression.Snappy
         Kafka.Compression.Types
         Kafka.Compression.Zstd
+        Kafka.Network.Auth.AwsMskIam
+        Kafka.Network.Auth.OAuthBearer
         Kafka.Network.Auth.Plain
         Kafka.Network.Auth.SASL
         Kafka.Network.Auth.Scram
@@ -415,6 +417,7 @@ test-suite wireform-kafka-test
         Client.ProducerTimeoutSpec
         Client.TransactionCoordinatorSpec
         Client.TransactionSpec
+        Network.AuthSpec
         Network.ConnectionRetrySpec
         Protocol.ApiVersionsSpec
         Protocol.CompressionSpec
@@ -432,12 +435,15 @@ test-suite wireform-kafka-test
         wireform-kafka,
         aeson,
         async,
+        base64-bytestring,
         binary,
         bytes,
         bytestring,
         cereal,
         containers,
         directory                 >= 1.3   && < 1.4,
+        memory                    >= 0.18  && < 0.19,
+        time                      >= 1.11  && < 1.13,
         hedgehog                  >= 1.2   && < 2,
         hashable,
         network,
