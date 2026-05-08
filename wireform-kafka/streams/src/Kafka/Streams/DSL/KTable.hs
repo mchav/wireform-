@@ -67,8 +67,8 @@ data KTable k v = KTable
   { ktableNode    :: !Topo.NodeName
   , ktableStore   :: !StoreName
   , ktableBuilder :: !StreamsBuilder
-  , ktableKeySerde   :: !(Serde k)
-  , ktableValueSerde :: !(Serde v)
+  , ktableKeySerde   :: ~(Serde k)
+  , ktableValueSerde :: ~(Serde v)
   }
 
 -- | Materialise a topic as a 'KTable'. Each (key,value) updates the

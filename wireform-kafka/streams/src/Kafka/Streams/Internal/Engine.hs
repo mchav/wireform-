@@ -604,16 +604,27 @@ fireDue engine pt now = do
         wasCancelled <- readIORef (peCancelled pe)
         if wasCancelled
           then pure pe
-          else
-            if peNextFireMs pe <= now
-              then do
-                runPunctuator (pePunctuator pe) (Timestamp now)
-                pure pe
-                  { peNextFireMs =
-                      peNextFireMs pe + fromIntegral (peIntervalMs pe)
-                  }
-              else pure pe
+          else fireOnce pe
   writeIORef (enginePunctuators engine) newPes
+  where
+    -- Fire at most once per call (matches Java behaviour: the
+    -- punctuator catches up by one tick on each record). Deferred
+    -- catch-up across many ticks is acceptable for the tests we
+    -- want to write and avoids unbounded firing on the first
+    -- record (when stream time advances from minBound).
+    fireOnce pe
+      | peNextFireMs pe <= now = do
+          runPunctuator (pePunctuator pe) (Timestamp now)
+          let !next = peNextFireMs pe + fromIntegral (peIntervalMs pe)
+              -- If the next-fire is still behind now (because we
+              -- jumped a huge gap in stream time), snap it to
+              -- @now + interval@ so we don't emit a flood of
+              -- back-fills next time.
+              !target = if next < now
+                          then now + fromIntegral (peIntervalMs pe)
+                          else next
+          pure pe { peNextFireMs = target }
+      | otherwise = pure pe
 
 ----------------------------------------------------------------------
 -- Lifecycle
