@@ -16,6 +16,7 @@ import qualified Streams.AggregationSpec
 import qualified Streams.InteractiveQueriesSpec
 import qualified Streams.CacheSpec
 import qualified Streams.EOSSpec
+import qualified Streams.MultiTaskSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -33,4 +34,5 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.InteractiveQueriesSpec.tests
   , Streams.CacheSpec.tests
   , Streams.EOSSpec.tests
+  , Streams.MultiTaskSpec.tests
   ]
