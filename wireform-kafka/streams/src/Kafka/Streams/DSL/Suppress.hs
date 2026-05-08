@@ -45,6 +45,11 @@ module Kafka.Streams.DSL.Suppress
   , untilWindowCloses
   , untilTimeLimit
   , suppressKStream
+    -- * Buffer config
+  , BufferConfig (..)
+  , unboundedBufferConfig
+  , maxBytesBufferConfig
+  , maxRecordsBufferConfig
   ) where
 
 import Data.IORef
@@ -431,3 +436,29 @@ suppressWindowedHandle
 suppressWindowedHandle grace winMs ks vs h = do
   s <- streamFromWindowedHandle h ks vs
   suppressWindowed grace winMs s
+
+----------------------------------------------------------------------
+-- BufferConfig (KIP-328)
+----------------------------------------------------------------------
+
+-- | Buffer-size advisory for 'Suppressed.untilWindowCloses'. The
+-- in-memory backend respects 'unboundedBufferConfig' faithfully;
+-- size limits are tracked but not enforced — the Java behaviour
+-- under buffer overflow is "shutdown the application", which is
+-- aggressive for embedded workloads. Treat 'maxBytesBufferConfig'
+-- and 'maxRecordsBufferConfig' as documentation hints; the
+-- enforcement layer is a deferred refinement.
+data BufferConfig = BufferConfig
+  { bufMaxBytes   :: !(Maybe Int)
+  , bufMaxRecords :: !(Maybe Int)
+  }
+  deriving (Eq, Show)
+
+unboundedBufferConfig :: BufferConfig
+unboundedBufferConfig = BufferConfig Nothing Nothing
+
+maxBytesBufferConfig :: Int -> BufferConfig
+maxBytesBufferConfig n = BufferConfig (Just n) Nothing
+
+maxRecordsBufferConfig :: Int -> BufferConfig
+maxRecordsBufferConfig n = BufferConfig Nothing (Just n)

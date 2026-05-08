@@ -477,6 +477,7 @@ test-suite wireform-kafka-streams-test
         Streams.MoreParitySpec
         Streams.EndToEndChainSpec
         Streams.MorePartiyTwoSpec
+        Streams.MoreParityThreeSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

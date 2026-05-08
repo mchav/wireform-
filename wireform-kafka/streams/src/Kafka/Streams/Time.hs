@@ -9,6 +9,7 @@
 -- epoch (matching the broker @CreateTime@ / @LogAppendTime@ wire
 -- format).  Negative values denote /unknown/ / /no-timestamp-type/
 -- per @org.apache.kafka.common.record.TimestampType.NO_TIMESTAMP_TYPE@.
+{-# LANGUAGE BangPatterns #-}
 module Kafka.Streams.Time
   ( -- * Timestamps
     Timestamp (..)

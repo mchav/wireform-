@@ -37,6 +37,7 @@ import qualified Streams.ParityBatchSpec
 import qualified Streams.MoreParitySpec
 import qualified Streams.EndToEndChainSpec
 import qualified Streams.MorePartiyTwoSpec
+import qualified Streams.MoreParityThreeSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -75,4 +76,5 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.MoreParitySpec.tests
   , Streams.EndToEndChainSpec.tests
   , Streams.MorePartiyTwoSpec.tests
+  , Streams.MoreParityThreeSpec.tests
   ]

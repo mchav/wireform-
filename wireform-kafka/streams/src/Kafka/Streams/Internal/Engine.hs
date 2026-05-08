@@ -48,6 +48,7 @@ module Kafka.Streams.Internal.Engine
   , storeByName
   , streamTimeOfEngine
   , wallClockTimeOfEngine
+  , takeCommitRequested
     -- * Internals
   , StoreEntry (..)
   , Erased
@@ -202,6 +203,7 @@ data Engine = Engine
   , enginePunctuators  :: !(IORef [PunctuatorEntry])
   , engineDeserHandler :: !DeserializationHandler
   , engineMetrics      :: !MetricsRegistry
+  , engineCommitRequested :: !(IORef Bool)
   }
 
 ----------------------------------------------------------------------
@@ -236,6 +238,7 @@ buildEngine validated tid appId collector deserHandler = do
   currentHsRef  <- newIORef Nothing
   pesRef        <- newIORef []
   metrics       <- noopMetricsRegistry
+  commitReqRef  <- newIORef False
 
   let engine = Engine
         { engineTopology     = topo
@@ -253,6 +256,7 @@ buildEngine validated tid appId collector deserHandler = do
         , enginePunctuators  = pesRef
         , engineDeserHandler = deserHandler
         , engineMetrics      = metrics
+        , engineCommitRequested = commitReqRef
         }
 
   -- Wire processors first so children-of references resolve.
@@ -564,6 +568,8 @@ makeContext engine selfNm = ProcessorContext
         case mhs of
           Nothing -> (Just (Kafka.Streams.Types.headersFromList [h]), ())
           Just hs -> (Just (Kafka.Streams.Types.addHeader h hs), ())
+  , ctxRequestCommit =
+      writeIORef (engineCommitRequested engine) True
   }
 
 eraseRecord :: Record k v -> Record Erased Erased
@@ -678,6 +684,14 @@ fireDue engine pt now = do
 taskIdToText :: TaskId -> Text
 taskIdToText (TaskId topo part) =
   T.pack (show topo) <> "_" <> T.pack (show part)
+
+-- | Atomically read and reset the "commit requested by processor"
+-- flag. The runtime should call this at the top of each commit
+-- window; if the result is 'True' the runtime SHOULD commit
+-- regardless of whether the 'commit.interval.ms' boundary was hit.
+takeCommitRequested :: Engine -> IO Bool
+takeCommitRequested engine =
+  atomicModifyIORef' (engineCommitRequested engine) (\b -> (False, b))
 
 commitEngine :: Engine -> IO ()
 commitEngine engine = do

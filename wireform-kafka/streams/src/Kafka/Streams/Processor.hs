@@ -188,6 +188,11 @@ data ProcessorContext = ProcessorContext
     -- ^ Append a header to the in-flight record. Subsequent
     -- 'forwardRecord' calls (in the same 'procProcess' invocation)
     -- see the updated headers.
+  , ctxRequestCommit   :: !(IO ())
+    -- ^ Request that the runtime commit at the next safe point.
+    -- Mirrors @ProcessorContext.commit()@: the commit doesn't
+    -- happen synchronously; the runtime picks it up at the end of
+    -- the current commit window.
   }
 
 -- | Bytes-already-serialised emission record. Defined here (rather

@@ -62,6 +62,9 @@ module Kafka.Streams.DSL.KStream
   , peekStream
   , peekStreamNamed
   , foreachStream
+  , printStream
+  , printToHandle
+  , valuesStream
   , selectKey
   , selectKeyNamed
     -- * Composition
@@ -1569,5 +1572,53 @@ mergeStreamsN (s : ss) = do
     { kstreamBuilder    = bld
     , kstreamParent     = nm
     , kstreamKeySerde   = kstreamKeySerde s
+    , kstreamValueSerde = kstreamValueSerde s
+    }
+
+----------------------------------------------------------------------
+-- Debugging sinks
+----------------------------------------------------------------------
+
+-- | Print every record to standard out using @show@. Mirrors
+-- @KStream.print(Printed.toSysOut())@.
+printStream :: (Show k, Show v) => KStream k v -> IO ()
+printStream = printToHandle "[stream]" putStrLn
+
+-- | Print every record using a caller-supplied @putLine@ function.
+-- Lets users redirect to a logger / file handle without touching
+-- 'System.IO'.
+printToHandle
+  :: (Show k, Show v)
+  => T.Text                     -- prefix label
+  -> (String -> IO ())          -- write a line
+  -> KStream k v
+  -> IO ()
+printToHandle label putLine s =
+  foreachStream
+    (\r -> putLine $ T.unpack label
+                      <> " key=" <> show (recordKey r)
+                      <> " value=" <> show (recordValue r))
+    s
+
+----------------------------------------------------------------------
+-- KStream.values: emit only the value side
+----------------------------------------------------------------------
+
+-- | Drop the key from every record. Mirrors @KStream.values()@ —
+-- equivalent to @mapKeyValue (\_ v -> ((), v))@ followed by a
+-- consumer that ignores the unit key.
+valuesStream
+  :: forall k v
+   . KStream k v
+  -> IO (KStream () v)
+valuesStream s = do
+  let b = kstreamBuilder s
+  nm <- freshNodeName b "KSTREAM-VALUES"
+  withTopology_ b $
+    Topo.addProcessor nm [kstreamParent s] (mapKVProc (\_ v -> pure ((), v)))
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nm
+    , kstreamKeySerde   = error "valuesStream: () key serde unset"
     , kstreamValueSerde = kstreamValueSerde s
     }
