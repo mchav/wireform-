@@ -385,6 +385,7 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.SessionWindowedKStream
         Kafka.Streams.DSL.GlobalKTable
         Kafka.Streams.Runtime
+        Kafka.Streams.Runtime.EOS
         Kafka.Streams.InteractiveQueries
     build-depends:
         base                      >= 4.16  && < 5,
@@ -422,6 +423,7 @@ test-suite wireform-kafka-streams-test
         Streams.AggregationSpec
         Streams.InteractiveQueriesSpec
         Streams.CacheSpec
+        Streams.EOSSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

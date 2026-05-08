@@ -15,6 +15,7 @@ import qualified Streams.JoinSpec
 import qualified Streams.AggregationSpec
 import qualified Streams.InteractiveQueriesSpec
 import qualified Streams.CacheSpec
+import qualified Streams.EOSSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -31,4 +32,5 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.AggregationSpec.tests
   , Streams.InteractiveQueriesSpec.tests
   , Streams.CacheSpec.tests
+  , Streams.EOSSpec.tests
   ]

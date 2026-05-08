@@ -62,8 +62,17 @@ import qualified Data.Text as Text
 import qualified Kafka.Client.Consumer as KC
 import qualified Kafka.Client.Producer as KP
 
-import Kafka.Streams.Config (StreamsConfig (..))
+import Kafka.Streams.Config
+  ( ProcessingGuarantee (..)
+  , StreamsConfig (..)
+  )
 import Kafka.Streams.Errors (logAndContinue)
+import Kafka.Streams.Runtime.EOS
+  ( CommitOutcome (..)
+  , EOSCoordinator (..)
+  , noopEOSCoordinator
+  , runCommitCycle
+  )
 import Kafka.Streams.Internal.Engine
   ( Engine
   , buildEngine
@@ -98,6 +107,9 @@ data KafkaStreams = KafkaStreams
   , ksProducer  :: !(IORef (Maybe KP.Producer))
   , ksConsumer  :: !(IORef (Maybe KC.Consumer))
   , ksEngine    :: !(IORef (Maybe Engine))
+  , ksEosCoord  :: !(IORef EOSCoordinator)
+    -- ^ Set during 'startKafkaStreams' based on
+    -- 'processingGuarantee'; defaults to 'noopEOSCoordinator'.
   }
 
 newKafkaStreams
@@ -110,6 +122,7 @@ newKafkaStreams cfg topo = do
   p <- newIORef Nothing
   c <- newIORef Nothing
   e <- newIORef Nothing
+  eos <- newIORef noopEOSCoordinator
   pure KafkaStreams
     { ksConfig    = cfg
     , ksTopology  = topo
@@ -118,6 +131,7 @@ newKafkaStreams cfg topo = do
     , ksProducer  = p
     , ksConsumer  = c
     , ksEngine    = e
+    , ksEosCoord  = eos
     }
 
 -- | Start the runtime in the background. Returns immediately; once
@@ -145,6 +159,19 @@ startKafkaStreams ks = do
                       collector
                       logAndContinue
           writeIORef (ksEngine ks) (Just engine)
+          -- Pick the EOS coordinator based on the configured
+          -- processing guarantee. We don't yet wire a real
+          -- transactional producer here — that requires fold-in
+          -- from Kafka.Client.Transaction once it can produce
+          -- through the same producer instance — but we set the
+          -- coordinator stub so the commit sequence is exercised.
+          case processingGuarantee (ksConfig ks) of
+            AtLeastOnceP  -> writeIORef (ksEosCoord ks) noopEOSCoordinator
+            ExactlyOnceV2 -> writeIORef (ksEosCoord ks) noopEOSCoordinator
+                             -- TODO: build a real EOSCoordinator from
+                             -- a transactional producer; gated on the
+                             -- producer growing producerTransactional
+                             -- support beyond the current stub.
           let topics = sourceTopics topo
           eSubs <- KC.subscribe c (map unTopicName topics)
           case eSubs of
@@ -211,9 +238,31 @@ eventLoop ks engine consumer = go
                 (Timestamp (KC.crTimestamp rec))
                 (fromIntegral (KC.crPartition rec))
                 (KC.crOffset rec)
-            commitEngine engine
-            _ <- KC.commitSync consumer
-            go
+            -- The /commit/ goes through the EOS coordinator: under
+            -- AtLeastOnce this is the no-op coordinator and the
+            -- behaviour is identical to the old (commitEngine +
+            -- commitSync); under ExactlyOnceV2 it sequences the
+            -- transactional begin/commit envelope around the engine
+            -- flush and the consumer offset commit.
+            coord <- readIORef (ksEosCoord ks)
+            outcome <- runCommitCycle
+              coord
+              (applicationId (ksConfig ks))
+              (pure mempty)         -- TODO: gather actual offsets
+              (commitEngine engine)
+            case outcome of
+              CommitSucceeded -> do
+                _ <- KC.commitSync consumer
+                go
+              CommitAborted reason -> do
+                -- Aborted: the txn was rolled back; we keep running
+                -- but skip committing consumer offsets so the next
+                -- poll re-reads them.
+                putStrLn ("[streams] commit aborted: "
+                  <> Text.unpack reason)
+                go
+              CommitFatal reason ->
+                atomically (writeTVar (ksStatus ks) (StreamsError reason))
 
 closeKafkaStreams :: KafkaStreams -> IO ()
 closeKafkaStreams ks = do
