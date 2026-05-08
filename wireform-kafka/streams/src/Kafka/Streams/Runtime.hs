@@ -45,6 +45,8 @@ module Kafka.Streams.Runtime
     -- * Status
   , StreamsStatus (..)
   , streamsStatus
+    -- * Internal access (used by Kafka.Streams.InteractiveQueries)
+  , ksEngine
   ) where
 
 import Control.Concurrent (forkIO, threadDelay)

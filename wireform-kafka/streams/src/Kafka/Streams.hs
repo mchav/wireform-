@@ -36,9 +36,10 @@ module Kafka.Streams
   , module Kafka.Streams.DSL.TimeWindowedKStream
   , module Kafka.Streams.DSL.SessionWindowedKStream
   , module Kafka.Streams.DSL.GlobalKTable
-    -- * Driver / Runtime
+    -- * Driver / Runtime / IQ
   , module Kafka.Streams.Driver
   , module Kafka.Streams.Runtime
+  , module Kafka.Streams.InteractiveQueries
   ) where
 
 import Kafka.Streams.Config
@@ -56,6 +57,7 @@ import Kafka.Streams.DSL.StreamsBuilder
 import Kafka.Streams.DSL.TimeWindowedKStream
 import Kafka.Streams.Driver
 import Kafka.Streams.Errors
+import Kafka.Streams.InteractiveQueries
 import Kafka.Streams.Processor
 import Kafka.Streams.Runtime
 import Kafka.Streams.Serde

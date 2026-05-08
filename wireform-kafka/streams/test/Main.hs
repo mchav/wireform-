@@ -13,6 +13,7 @@ import qualified Streams.PunctuatorSpec
 import qualified Streams.PersistentStoreSpec
 import qualified Streams.JoinSpec
 import qualified Streams.AggregationSpec
+import qualified Streams.InteractiveQueriesSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -27,4 +28,5 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.PersistentStoreSpec.tests
   , Streams.JoinSpec.tests
   , Streams.AggregationSpec.tests
+  , Streams.InteractiveQueriesSpec.tests
   ]
