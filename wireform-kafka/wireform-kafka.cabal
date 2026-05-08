@@ -404,6 +404,7 @@ library wireform-kafka-streams
         Kafka.Streams.Runtime.Task
         Kafka.Streams.Runtime.Standby
         Kafka.Streams.Runtime.Assignor
+        Kafka.Streams.Runtime.WorkerPool
         Kafka.Streams.InteractiveQueries
     build-depends:
         base                      >= 4.16  && < 5,
@@ -461,6 +462,7 @@ test-suite wireform-kafka-streams-test
         Streams.TopologyDescriptionSpec
         Streams.MetricsSpec
         Streams.NamedSpec
+        Streams.WorkerPoolSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

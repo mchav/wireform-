@@ -27,6 +27,7 @@ import qualified Streams.VersionedSpec
 import qualified Streams.TopologyDescriptionSpec
 import qualified Streams.MetricsSpec
 import qualified Streams.NamedSpec
+import qualified Streams.WorkerPoolSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -55,4 +56,5 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.TopologyDescriptionSpec.tests
   , Streams.MetricsSpec.tests
   , Streams.NamedSpec.tests
+  , Streams.WorkerPoolSpec.tests
   ]
