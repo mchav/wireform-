@@ -373,6 +373,7 @@ library wireform-kafka-streams
         Kafka.Streams.TopologyDescription
         Kafka.Streams.Metrics
         Kafka.Streams.Stores
+        Kafka.Streams.Query
         Kafka.Streams.State.Store
         Kafka.Streams.State.KeyValue.InMemory
         Kafka.Streams.State.KeyValue.Persistent
@@ -469,6 +470,7 @@ test-suite wireform-kafka-streams-test
         Streams.ExtensionsSpec
         Streams.TestUtilsSpec
         Streams.StateListenerSpec
+        Streams.QuerySpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

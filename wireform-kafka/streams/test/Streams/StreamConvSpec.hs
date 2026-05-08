@@ -30,6 +30,8 @@ tests = testGroup "StreamConversions"
   , split_stream_routes_by_predicate
   , split_stream_default_branch_catches_residue
   , split_stream_no_default_drops_unmatched
+  , merge_streams_n_combines_three
+  , to_extracted_routes_per_record
   ]
 
 to_table_basic :: TestTree
@@ -166,4 +168,47 @@ split_stream_no_default_drops_unmatched =
 
     out <- readOutput driver (topicName "out-a")
     map (unbytes . crValue) out @?= ["alpha", "able"]
+    closeDriver driver
+
+merge_streams_n_combines_three :: TestTree
+merge_streams_n_combines_three =
+  testCase "mergeStreamsN combines three streams in submission order" $ do
+    b <- newStreamsBuilder
+    s1 <- streamFromTopic b (topicName "in1") (consumed textSerde textSerde)
+    s2 <- streamFromTopic b (topicName "in2") (consumed textSerde textSerde)
+    s3 <- streamFromTopic b (topicName "in3") (consumed textSerde textSerde)
+    merged <- mergeStreamsN [s1, s2, s3]
+    toTopic (topicName "out") (produced textSerde textSerde) merged
+    topo <- buildTopology b
+    driver <- newDriver topo "mn-app"
+
+    pipeInput driver (topicName "in1") Nothing (bytes "a") (t 0) 0
+    pipeInput driver (topicName "in2") Nothing (bytes "b") (t 0) 0
+    pipeInput driver (topicName "in3") Nothing (bytes "c") (t 0) 0
+    pipeInput driver (topicName "in1") Nothing (bytes "d") (t 0) 0
+
+    out <- readOutput driver (topicName "out")
+    map (unbytes . crValue) out @?= ["a", "b", "c", "d"]
+    closeDriver driver
+
+to_extracted_routes_per_record :: TestTree
+to_extracted_routes_per_record =
+  testCase "toExtracted routes each record to a topic chosen per-record" $ do
+    b <- newStreamsBuilder
+    s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
+    let ext = TopicNameExtractor $ \r ->
+          if T.isPrefixOf "a" (recordValue r)
+            then pure (topicName "out-a")
+            else pure (topicName "out-other")
+    toExtracted ext (produced textSerde textSerde) s
+    topo <- buildTopology b
+    driver <- newDriver topo "ext-app"
+
+    mapM_ (\v -> pipeInput driver (topicName "in") Nothing (bytes v) (t 0) 0)
+      ["alpha", "bravo", "ant", "charlie"]
+
+    outA <- readOutput driver (topicName "out-a")
+    outO <- readOutput driver (topicName "out-other")
+    map (unbytes . crValue) outA @?= ["alpha", "ant"]
+    map (unbytes . crValue) outO @?= ["bravo", "charlie"]
     closeDriver driver

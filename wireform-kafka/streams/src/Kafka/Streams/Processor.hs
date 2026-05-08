@@ -39,6 +39,7 @@ module Kafka.Streams.Processor
   , streamTimeC
   , wallClockTimeC
   , getStateStore
+  , SinkEmit (..)
     -- * Punctuators
   , Punctuator (..)
   , PunctuationType (..)
@@ -49,6 +50,7 @@ module Kafka.Streams.Processor
   , taskIdText
   ) where
 
+import Data.ByteString (ByteString)
 import Data.Int (Int32)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -158,7 +160,23 @@ data ProcessorContext = ProcessorContext
   , ctxGetStore        :: !(StoreName -> IO (Maybe AnyStateStore))
     -- ^ Look up an attached store by name. Returns 'Nothing' if no
     -- such store was declared on this processor.
+  , ctxEmitToTopic     :: !(SinkEmit -> IO ())
+    -- ^ Low-level: emit a record directly to the runtime's
+    -- collector under an explicitly chosen topic. Used by
+    -- 'TopicNameExtractor' sinks; user code generally goes through
+    -- 'forwardRecord' instead.
   }
+
+-- | Bytes-already-serialised emission record. Defined here (rather
+-- than in 'Kafka.Streams.Internal.RecordCollector') to avoid an
+-- import cycle.
+data SinkEmit = SinkEmit
+  { seTopic     :: !Text
+  , seKey       :: !(Maybe ByteString)
+  , seValue     :: !ByteString
+  , seTimestamp :: !Timestamp
+  }
+  deriving stock Generic
 
 -- | Convenience access to the lookup function.
 getStateStore :: ProcessorContext -> StoreName -> IO (Maybe AnyStateStore)

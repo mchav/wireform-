@@ -66,10 +66,13 @@ module Kafka.Streams.DSL.KStream
   , selectKeyNamed
     -- * Composition
   , mergeStreams
+  , mergeStreamsN
   , branchStream
     -- * Sinks
   , toTopic
   , toTopicNamed
+  , toExtracted
+  , TopicNameExtractor (..)
   , throughTopic
     -- * Conversions
   , toTable
@@ -129,6 +132,7 @@ import Kafka.Streams.DSL.Materialized
   ( Materialized (..)
   )
 import qualified Kafka.Streams.State.Store
+import qualified Kafka.Streams.Processor
 import Kafka.Streams.Processor
   ( Processor (..)
   , ProcessorContext (..)
@@ -137,7 +141,8 @@ import Kafka.Streams.Processor
   , getStateStore
   , processorName
   )
-import Kafka.Streams.Serde (Serde)
+import qualified Kafka.Streams.Types
+import Kafka.Streams.Serde (Serde, serialize)
 import Kafka.Streams.State.KeyValue.InMemory
   ( inMemoryKeyValueStoreBuilder
   )
@@ -1483,3 +1488,86 @@ groupByKTable
 groupByKTable keyMap kt = do
   s <- toKStreamFromKTable kt
   mapKeyValue (\k v -> (keyMap k v, v)) s
+
+----------------------------------------------------------------------
+-- TopicNameExtractor (KIP-303)
+----------------------------------------------------------------------
+
+-- | Mirrors Java's @org.apache.kafka.streams.processor.TopicNameExtractor@:
+-- decides the destination topic per-record. Receives the record plus the
+-- source 'Kafka.Streams.Types.RecordMetadata' (when available via the
+-- 'ProcessorContext').
+newtype TopicNameExtractor k v = TopicNameExtractor
+  { runTopicNameExtractor :: Record k v -> IO TopicName
+  }
+
+-- | Sink that routes each record to a topic determined by the
+-- supplied 'TopicNameExtractor'. Mirrors @KStream.to(TopicNameExtractor, Produced)@.
+toExtracted
+  :: forall k v
+   . TopicNameExtractor k v
+  -> Produced k v
+  -> KStream k v
+  -> IO ()
+toExtracted ext p s = do
+  let b = kstreamBuilder s
+  nm <- freshNodeName b "KSTREAM-EXTRACTING-SINK"
+  withTopology_ b $
+    Topo.addProcessor nm [kstreamParent s] $ do
+      ctxRef <- newIORef Nothing
+      pure Processor
+        { procName    = processorName "KSTREAM-EXTRACTING-SINK"
+        , procInit    = \ctx -> writeIORef ctxRef (Just ctx)
+        , procClose   = pure ()
+        , procProcess = \r -> do
+            mctx <- readIORef ctxRef
+            case mctx of
+              Nothing  -> pure ()
+              Just ctx -> do
+                tp <- runTopicNameExtractor ext r
+                let kBytes = fmap (serialize (producedKeySerde p))
+                                  (recordKey r)
+                    vBytes = serialize (producedValueSerde p)
+                                       (recordValue r)
+                ctxEmitToTopic ctx Kafka.Streams.Processor.SinkEmit
+                  { Kafka.Streams.Processor.seTopic     =
+                      Kafka.Streams.Types.unTopicName tp
+                  , Kafka.Streams.Processor.seKey       = kBytes
+                  , Kafka.Streams.Processor.seValue     = vBytes
+                  , Kafka.Streams.Processor.seTimestamp = recordTimestamp r
+                  }
+        }
+
+----------------------------------------------------------------------
+-- mergeStreamsN
+----------------------------------------------------------------------
+
+-- | Merge any number of streams into one. Equivalent to a left-fold
+-- over 'mergeStreams' but emits a single merge node with all inputs
+-- as parents — slightly cleaner than @foldr1 mergeStreams@ which
+-- creates a chain.
+mergeStreamsN
+  :: forall k v
+   . [KStream k v]
+  -> IO (KStream k v)
+mergeStreamsN [] = error "mergeStreamsN: empty input"
+mergeStreamsN [s] = pure s
+mergeStreamsN (s : ss) = do
+  let bld = kstreamBuilder s
+  nm <- freshNodeName bld "KSTREAM-MERGE-N"
+  withTopology_ bld $ \t ->
+    Topo.addProcessorWith
+      Topo.ProcessorSpec
+        { Topo.processorSpecName     = nm
+        , Topo.processorSpecParents  = map kstreamParent (s : ss)
+        , Topo.processorSpecSupplier =
+            Topo.AnyProcessor (mkPassThrough "KSTREAM-MERGE-N")
+        , Topo.processorSpecStores   = []
+        }
+      t
+  pure KStream
+    { kstreamBuilder    = bld
+    , kstreamParent     = nm
+    , kstreamKeySerde   = kstreamKeySerde s
+    , kstreamValueSerde = kstreamValueSerde s
+    }

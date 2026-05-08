@@ -32,6 +32,7 @@ import qualified Streams.EOSRuntimeSpec
 import qualified Streams.ExtensionsSpec
 import qualified Streams.TestUtilsSpec
 import qualified Streams.StateListenerSpec
+import qualified Streams.QuerySpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -65,4 +66,5 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.ExtensionsSpec.tests
   , Streams.TestUtilsSpec.tests
   , Streams.StateListenerSpec.tests
+  , Streams.QuerySpec.tests
   ]

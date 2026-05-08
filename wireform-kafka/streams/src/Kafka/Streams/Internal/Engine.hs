@@ -82,6 +82,7 @@ import Kafka.Streams.Internal.RecordCollector
   ( CollectedRecord (..)
   , RecordCollector (..)
   )
+import qualified Kafka.Streams.Processor
 import Kafka.Streams.Processor
   ( Cancellable (..)
   , ProcessorContext (..)
@@ -91,6 +92,7 @@ import Kafka.Streams.Processor
   , Punctuator (..)
   , TaskId (..)
   )
+import qualified Kafka.Streams.Types
 import Kafka.Streams.Serde (Serde (..))
 import Kafka.Streams.State.Store
   ( AnyStateStore (..)
@@ -534,6 +536,16 @@ makeContext engine selfNm = ProcessorContext
   , ctxGetStore = \sn -> do
       m <- readIORef (engineStores engine)
       pure (storeEntryAny <$> Map.lookup sn m)
+  , ctxEmitToTopic = \emit ->
+      collectorSend (engineCollector engine) CollectedRecord
+        { crTopic     = Kafka.Streams.Types.topicName
+                          (Kafka.Streams.Processor.seTopic emit)
+        , crKey       = Kafka.Streams.Processor.seKey emit
+        , crValue     = Kafka.Streams.Processor.seValue emit
+        , crTimestamp = Kafka.Streams.Processor.seTimestamp emit
+        , crHeaders   = emptyHeaders
+        , crPartition = Nothing
+        }
   }
 
 eraseRecord :: Record k v -> Record Erased Erased

@@ -39,6 +39,11 @@ module Kafka.Streams.DSL.Suppress
   ( suppressWindowed
   , suppressUntilTimeLimit
   , streamFromWindowedHandle
+    -- * Suppressed builder (KIP-328 surface API)
+  , Suppressed (..)
+  , untilWindowCloses
+  , untilTimeLimit
+  , suppressKStream
   ) where
 
 import Data.IORef
@@ -48,6 +53,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Text as T
 import qualified Unsafe.Coerce as Unsafe
 
+import qualified Kafka.Streams.DSL.KStream
 import Kafka.Streams.DSL.KStream (KStream (..))
 import Kafka.Streams.DSL.StreamsBuilder
   ( StreamsBuilder
@@ -360,3 +366,47 @@ suppressTimeLimitProc sn limitMs = do
 _keepImports
   :: Map () () -> Cancellable -> Punctuator -> PunctuationType -> T.Text -> ()
 _keepImports _ _ _ _ _ = ()
+----------------------------------------------------------------------
+-- Suppressed builder (Java's Suppressed.untilWindowCloses /
+-- .untilTimeLimit)
+----------------------------------------------------------------------
+
+-- | Mirrors Java's @Suppressed<K>@: a configuration value the
+-- caller hands to 'suppressKStream'.
+data Suppressed
+  = SuppressUntilWindowCloses
+      { suppressGrace      :: !Duration
+      , suppressWindowSize :: !Int64
+      }
+  | SuppressUntilTimeLimit
+      { suppressLimit :: !Duration
+      }
+
+untilWindowCloses :: Duration -> Int64 -> Suppressed
+untilWindowCloses g sz = SuppressUntilWindowCloses g sz
+
+untilTimeLimit :: Duration -> Suppressed
+untilTimeLimit = SuppressUntilTimeLimit
+
+-- | Apply a 'Suppressed' configuration to a 'KStream'. For
+-- 'SuppressUntilWindowCloses' the input must be a stream of
+-- windowed-key records (see 'streamFromWindowedHandle'); for
+-- 'SuppressUntilTimeLimit' any keyed stream works.
+--
+-- We expose two type-distinct call sites because the underlying
+-- key shapes differ; this convenience function picks the right
+-- backend based on the 'Suppressed' value.
+suppressKStream
+  :: forall k v
+   . Ord k
+  => Suppressed
+  -> Kafka.Streams.DSL.KStream.KStream k v
+  -> IO (Kafka.Streams.DSL.KStream.KStream k v)
+suppressKStream s =
+  case s of
+    SuppressUntilWindowCloses{} ->
+      error
+        "suppressKStream: untilWindowCloses requires a windowed-key \
+        \stream; use 'suppressWindowed' directly."
+    SuppressUntilTimeLimit{ suppressLimit = lim } ->
+      suppressUntilTimeLimit lim
