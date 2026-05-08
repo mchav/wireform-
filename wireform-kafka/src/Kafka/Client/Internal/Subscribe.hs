@@ -30,8 +30,14 @@ module Kafka.Client.Internal.Subscribe
   ( SubscribeError(..)
   , ResetPolicy(..)
   , TopicPartition(..)
-  , subscribeFlow
+    -- * Assignors
+  , Assignor(..)
+  , assignorName
+  , runAssignor
   , rangeAssign
+  , roundRobinAssign
+  , stickyAssign
+  , subscribeFlow
   ) where
 
 import Control.Concurrent.STM
@@ -73,6 +79,46 @@ data SubscribeError
   | SubscribeOther !String
   deriving (Eq, Show)
 
+-- | Which partition-assignment strategy a consumer should advertise to
+-- the group coordinator. The assignor that wins the protocol
+-- negotiation is the one every member of the group has in common; the
+-- broker picks one and the elected /leader/ then runs that assignor
+-- locally to compute the per-member assignments.
+--
+-- We support all three of the JVM client's defaults:
+--
+--   * 'AssignorRange'      - same as the JVM "range" default. Sort
+--                            consumers + partitions, give each consumer
+--                            a contiguous slice of partitions per topic.
+--                            Good when the consumer count divides the
+--                            partition count evenly.
+--   * 'AssignorRoundRobin' - JVM "roundrobin". Sort all
+--                            (topic, partition) pairs and consumers,
+--                            then assign one partition per consumer in
+--                            round-robin order until the supply is
+--                            exhausted. Better balance than range when
+--                            consumers subscribe to different topic
+--                            sets.
+--   * 'AssignorSticky'     - JVM "sticky". Tries to (a) balance the
+--                            count per consumer and (b) preserve the
+--                            previous generation's assignment so few
+--                            partitions move. Without previous-gen
+--                            state our impl degrades to a balanced
+--                            round-robin; with previous state passed
+--                            in, it preserves it greedily.
+data Assignor
+  = AssignorRange
+  | AssignorRoundRobin
+  | AssignorSticky
+  deriving (Eq, Show)
+
+-- | Wire-protocol name the broker negotiates on
+-- ('JoinGroupRequest.protocols.name'). Matches the JVM client.
+assignorName :: Assignor -> Text
+assignorName AssignorRange      = "range"
+assignorName AssignorRoundRobin = "roundrobin"
+assignorName AssignorSticky     = "cooperative-sticky"
+
 -- | Topic + partition pair (mirror of the one in 'Kafka.Client.Consumer'
 -- — we keep a local copy here to avoid the import cycle).
 data TopicPartition = TopicPartition
@@ -100,10 +146,11 @@ subscribeFlow
   -> Int32                      -- ^ session timeout (ms)
   -> Int32                      -- ^ rebalance / max-poll-interval (ms)
   -> ResetPolicy                -- ^ what to do when no committed offset exists
+  -> Assignor                   -- ^ partition assignor to advertise + run if elected leader
   -> TVar Int32                 -- ^ correlation id source
   -> IO (Either SubscribeError [(TopicPartition, Int64)])
 subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId topics
-              sessionTimeoutMs rebalanceTimeoutMs resetPolicy corrIdVar = do
+              sessionTimeoutMs rebalanceTimeoutMs resetPolicy assignor corrIdVar = do
   -- 1. Make sure we have metadata for the topics we're about to subscribe
   --    to; we need the partition list locally so we (a) include accurate
   --    "what I want" subscriptions in JoinGroup metadata and (b) know how
@@ -158,10 +205,11 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
         Right coordConn -> do
           atomically $ writeTVar (HB.hbCoordinatorAddr hbState) (Just coordAddr)
 
-          -- 3. JoinGroup. We advertise the "range" protocol with our
-          --    encoded subscription metadata.
+          -- 3. JoinGroup. Advertise the chosen assignor by name; the
+          --    coordinator picks one assignor that every member of the
+          --    group has in common.
           let subMeta = encodeSubscription topics
-              protocols = [("range", subMeta)]
+              protocols = [(assignorName assignor, subMeta)]
           cid1 <- nextCorrId
           existingMember <- atomically $ readTVar (HB.hbMemberId hbState)
           joinR <- CG.joinGroup versionCache coordAddr coordConn groupId
@@ -218,13 +266,14 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
                      Just ps -> sortOn id (map Meta.partitionMetaId ps)
         pure (t, pids)
 
-      let perMember = rangeAssign
+      let perMember = runAssignor assignor
             [ (mid, topicsOf m)
             | (mid, m) <- memberSubs
             , let topicsOf (Right (ts, _)) = ts
                   topicsOf (Left _)        = []
             ]
             (Map.fromList topicParts)
+            Nothing  -- TODO: thread previous-generation state for sticky
 
       pure
         [ (mid, runPutS $ CPA.encodeConsumerProtocolAssignment 0 $
@@ -268,6 +317,20 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
                     ]
               pure (Right resolved)
 
+-- | Dispatch on 'Assignor'. The third argument is the previous
+-- generation's assignment (if any), which only the sticky assignor
+-- consults — the others ignore it.
+runAssignor
+  :: Assignor
+  -> [(Text, [Text])]                -- ^ subscriptions: @(memberId, [topic])@
+  -> Map.Map Text [Int32]            -- ^ partition lists per topic
+  -> Maybe [(Text, [(Text, [Int32])])]
+                                     -- ^ previous-generation assignment
+  -> [(Text, [(Text, [Int32])])]
+runAssignor AssignorRange      members topicParts _    = rangeAssign      members topicParts
+runAssignor AssignorRoundRobin members topicParts _    = roundRobinAssign members topicParts
+runAssignor AssignorSticky     members topicParts prev = stickyAssign     members topicParts prev
+
 -- | Naive range assignment, in the spirit of the JVM client's
 -- @RangeAssignor@. For each topic, sort consumers and partitions
 -- lexicographically, then chunk partitions into roughly-equal slices.
@@ -284,8 +347,7 @@ rangeAssign
   -> Map.Map Text [Int32]
   -> [(Text, [(Text, [Int32])])]
 rangeAssign members topicParts =
-  let -- For each topic, compute which members subscribed to it.
-      memberOrder = sortOn fst members
+  let memberOrder = sortOn fst members
       assignmentsByMember =
         foldr accumulate (Map.fromList [(mid, []) | (mid, _) <- memberOrder])
               (Map.toList topicParts)
@@ -304,6 +366,215 @@ rangeAssign members topicParts =
                         acc pairs
   in [ (mid, byTopic) | (mid, _) <- memberOrder
                       , let byTopic = fromMaybe [] (Map.lookup mid assignmentsByMember) ]
+
+-- | Round-robin assignment in the spirit of the JVM client's
+-- @RoundRobinAssignor@:
+--
+--   1. Sort members lexicographically.
+--   2. Sort topics lexicographically; within a topic sort partitions
+--      ascending. Concatenate into one global list of
+--      @(topic, partition)@ pairs.
+--   3. Walk the global list, handing each partition to the next
+--      eligible consumer (one that is subscribed to that topic) in
+--      round-robin order.
+--
+-- Better than 'rangeAssign' when consumers subscribe to different
+-- topic sets: it keeps total partitions-per-consumer within ±1 across
+-- the whole subscription, not just within each individual topic.
+roundRobinAssign
+  :: [(Text, [Text])]
+  -> Map.Map Text [Int32]
+  -> [(Text, [(Text, [Int32])])]
+roundRobinAssign members topicParts =
+  let memberOrder    = sortOn fst members
+      memberIds      = map fst memberOrder
+      memberSubs     = Map.fromList memberOrder
+      sortedTopics   = sortOn fst (Map.toList topicParts)
+      allPairs       =
+        [ (t, p) | (t, ps) <- sortedTopics, p <- sortOn id ps ]
+
+      -- Cycle through consumers; skip those not subscribed to the
+      -- current topic. We use a pure index counter so the rotation
+      -- order is deterministic.
+      assignLoop
+        :: Int                           -- ^ rotation cursor
+        -> [(Text, Int32)]               -- ^ remaining (topic, partition) pairs
+        -> Map.Map Text [(Text, Int32)]  -- ^ accumulated assignments per member
+        -> Map.Map Text [(Text, Int32)]
+      assignLoop _   []             acc = acc
+      assignLoop cur ((t, p) : rest) acc =
+        case findEligible cur t of
+          Nothing -> assignLoop cur rest acc  -- no consumer wants this topic
+          Just (i, mid) ->
+            let acc' = Map.insertWith (++) mid [(t, p)] acc
+            in assignLoop (i + 1) rest acc'
+
+      n = length memberIds
+
+      findEligible :: Int -> Text -> Maybe (Int, Text)
+      findEligible start t =
+        let go k
+              | k == n     = Nothing
+              | otherwise =
+                  let i   = (start + k) `mod` n
+                      mid = memberIds !! i
+                  in case Map.lookup mid memberSubs of
+                       Just ts | t `elem` ts -> Just (i, mid)
+                       _                     -> go (k + 1)
+        in go 0
+
+      finalAcc = assignLoop 0 allPairs Map.empty
+
+  in [ (mid, groupByTopicSorted (fromMaybe [] (Map.lookup mid finalAcc)))
+     | mid <- memberIds
+     ]
+
+-- | Sticky assignment in the spirit of the JVM client's
+-- @StickyAssignor@:
+--
+--   * If a previous generation's assignment is supplied, every
+--     partition that the same consumer already owned (and is still
+--     subscribed to that topic) stays put.
+--   * Any unassigned partitions are then handed out in round-robin
+--     order to whichever subscribed consumer currently owns the fewest
+--     partitions, preserving balance within ±1 across the group.
+--
+-- Without a previous-generation assignment ('Nothing') sticky behaves
+-- like a balanced round-robin — which is the JVM client's behaviour on
+-- the first generation too.
+stickyAssign
+  :: [(Text, [Text])]
+  -> Map.Map Text [Int32]
+  -> Maybe [(Text, [(Text, [Int32])])]
+  -> [(Text, [(Text, [Int32])])]
+stickyAssign members topicParts mPrev =
+  case mPrev of
+    Nothing -> roundRobinAssign members topicParts
+    Just prev ->
+      let memberOrder = sortOn fst members
+          memberIds   = map fst memberOrder
+          memberSubs  = Map.fromList memberOrder
+
+          -- All partitions that *should* exist this generation.
+          allPairs :: Map.Map (Text, Int32) ()
+          allPairs = Map.fromList
+            [ ((t, p), ()) | (t, ps) <- Map.toList topicParts, p <- ps ]
+
+          -- Step 1: keep what the previous generation owned, modulo
+          -- partitions that no longer exist or that the consumer no
+          -- longer subscribes to.
+          startAcc :: Map.Map Text [(Text, Int32)]
+          startAcc = Map.fromList
+            [ (mid, kept)
+            | mid <- memberIds
+            , let subs = fromMaybe [] (Map.lookup mid memberSubs)
+                  prevByMember = fromMaybe [] (lookup mid prev)
+                  kept =
+                    [ (t, p)
+                    | (t, ps) <- prevByMember
+                    , t `elem` subs
+                    , p <- ps
+                    , Map.member (t, p) allPairs
+                    ]
+            ]
+
+          -- Step 2: partitions that aren't yet assigned (because the
+          -- member that owned them dropped them, or the partition is
+          -- new this generation).
+          owned :: Map.Map (Text, Int32) ()
+          owned =
+            foldr (\(_, xs) m ->
+                     foldr (\tp m' -> Map.insert tp () m') m xs)
+                  Map.empty
+                  (Map.toList startAcc)
+
+          stillUnassigned :: [(Text, Int32)]
+          stillUnassigned =
+            [ tp | tp <- Map.keys allPairs, not (Map.member tp owned) ]
+
+          -- Step 3: hand the unassigned out to the least-loaded
+          -- eligible consumer (deterministic tie-break on memberId).
+          afterHandout = handout startAcc stillUnassigned
+
+          -- Step 4: rebalance. If any consumer is over the natural
+          -- ceiling (ceil(total / n)), move its excess partitions to
+          -- consumers below the floor (floor(total / n)) that are
+          -- subscribed to the relevant topic. This is what makes
+          -- "previous gen had c1 with everything, c2 just joined"
+          -- end up with c1 and c2 sharing the load — the JVM sticky
+          -- behaviour.
+          totalParts = Map.size allPairs
+          n          = max 1 (length memberIds)
+          ceilLoad   = (totalParts + n - 1) `quot` n
+          floorLoad  = totalParts `quot` n
+
+          rebalance acc = go acc
+            where
+              go a =
+                let loads =
+                      [ (mid, length (fromMaybe [] (Map.lookup mid a)))
+                      | mid <- memberIds
+                      ]
+                    overs   = [ mid | (mid, l) <- loads, l > ceilLoad ]
+                    unders  = [ mid | (mid, l) <- loads, l < floorLoad ]
+                in if null overs || null unders
+                     then a
+                     else
+                       let !donor    = head overs
+                           !donorPs  = fromMaybe [] (Map.lookup donor a)
+                           tryMove [] keep moved =
+                             -- Couldn't find a movable partition for
+                             -- any 'unders' consumer; bail to avoid
+                             -- looping forever.
+                             Map.insert donor (reverse keep ++ moved) a
+                           tryMove (tp@(t, _):rest) keep moved =
+                             let willing =
+                                   [ mid
+                                   | mid <- unders
+                                   , Just subs <- [Map.lookup mid memberSubs]
+                                   , t `elem` subs
+                                   ]
+                             in case willing of
+                                  []         -> tryMove rest (tp:keep) moved
+                                  (taker:_)  ->
+                                    let a1 = Map.insert donor (reverse keep ++ rest ++ moved) a
+                                        a2 = Map.insertWith (++) taker [tp] a1
+                                    in go a2
+                       in tryMove donorPs [] []
+
+          finalAcc = rebalance afterHandout
+
+      in [ (mid, groupByTopicSorted (fromMaybe [] (Map.lookup mid finalAcc)))
+         | mid <- memberIds
+         ]
+  where
+    -- Hand a list of unassigned partitions out to whichever subscribed
+    -- consumer is currently carrying the lightest load.
+    handout
+      :: Map.Map Text [(Text, Int32)]
+      -> [(Text, Int32)]
+      -> Map.Map Text [(Text, Int32)]
+    handout acc [] = acc
+    handout acc ((t, p) : rest) =
+      let memberIds  = sortOn id (Map.keys acc)
+          memberSubs = Map.fromList members
+          candidates =
+            [ (length (fromMaybe [] (Map.lookup mid acc)), mid)
+            | mid <- memberIds
+            , Just subs <- [Map.lookup mid memberSubs]
+            , t `elem` subs
+            ]
+      in case sortOn id candidates of
+           []           -> handout acc rest
+           ((_, mid):_) -> handout (Map.insertWith (++) mid [(t, p)] acc) rest
+
+-- | Group an unsorted (topic, partition) list into a per-topic list
+-- with partitions sorted ascending. Used by every assignor so the
+-- output order is deterministic.
+groupByTopicSorted :: [(Text, Int32)] -> [(Text, [Int32])]
+groupByTopicSorted xs =
+  let m = Map.fromListWith (++) [(t, [p]) | (t, p) <- xs]
+  in [ (t, sortOn id ps) | (t, ps) <- Map.toAscList m ]
 
 -- | Split a list of partitions into @n@ contiguous chunks. The first
 -- @r@ chunks get one extra partition where @r = length xs `mod` n@.

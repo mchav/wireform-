@@ -33,6 +33,7 @@ extra-source-files:
     cbits/snappy_ffi.h
     cbits/lz4_ffi.h
     data/message-inventory.json
+    test-data/test-vectors.json
 
 source-repository head
     type: git
@@ -386,6 +387,22 @@ library wireform-kafka-codegen
         prettyprinter             >= 1.7   && < 1.8,
         scientific                >= 0.3   && < 0.4,
         text                      >= 2.0   && < 2.2
+
+executable gen-test-vectors
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: test-data/gen-test-vectors
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    build-depends:
+        base,
+        wireform-kafka,
+        aeson,
+        aeson-pretty             >= 0.8   && < 0.9,
+        bytes,
+        bytestring,
+        memory                   >= 0.18  && < 0.19,
+        text,
+        vector
 
 executable kafka-codegen
     import: defaults

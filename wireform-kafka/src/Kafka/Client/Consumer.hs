@@ -202,6 +202,12 @@ data Consumer = Consumer
   , consumerCorrelationId :: !(TVar Int32)
   , consumerPaused :: !(StmMap.Map TopicPartition ())
     -- ^ Paused partitions (uses stm-containers)
+  , consumerSubscription :: !(TVar (Maybe [Text]))
+    -- ^ Last topics subscribed via 'subscribe' (so 'poll' can
+    --   transparently re-run the JoinGroup flow when the heartbeat
+    --   thread tells us the group is rebalancing). 'Nothing' means
+    --   either we are using manual 'assign' instead of group
+    --   subscription, or 'subscribe' has not been called yet.
   }
 
 -- | Effective 'Conn.ConnectionConfig' for this consumer: takes the
@@ -254,7 +260,10 @@ createConsumer brokers groupId config = do
               -- Initialize assignment and paused maps
               assignment <- StmMap.newIO
               paused <- StmMap.newIO
-              
+
+              -- No active subscription yet.
+              subscription <- newTVarIO Nothing
+
               -- Initialize correlation ID
               corrId <- newTVarIO 0
               
@@ -284,8 +293,9 @@ createConsumer brokers groupId config = do
                     , consumerHeartbeat = heartbeatM
                     , consumerCorrelationId = corrId
                     , consumerPaused = paused
+                    , consumerSubscription = subscription
                     }
-              
+
               return $ Right consumer
 
 -- | Parse broker address in "host:port" format
@@ -468,6 +478,10 @@ subscribe Consumer{..} topics = do
             Earliest -> Sub.ResetEarliest
             Latest   -> Sub.ResetLatest
             None     -> Sub.ResetNone
+          assignor = case consumerAssignmentStrategy consumerConfig of
+            RangeAssignment      -> Sub.AssignorRange
+            RoundRobinAssignment -> Sub.AssignorRoundRobin
+            StickyAssignment     -> Sub.AssignorSticky
           sessionTimeout   = fromIntegral (consumerSessionTimeoutMs   consumerConfig)
           rebalanceTimeout = fromIntegral (consumerMaxPollIntervalMs  consumerConfig)
       result <- Sub.subscribeFlow
@@ -482,17 +496,25 @@ subscribe Consumer{..} topics = do
                   sessionTimeout
                   rebalanceTimeout
                   resetPolicy
+                  assignor
                   consumerCorrelationId
       case result of
         Left err -> return $ Left ("subscribe: " ++ show err)
         Right tps -> do
-          -- Replace the assignment with the new one and seed offsets.
+          -- Replace the assignment with the new one, seed offsets,
+          -- remember the subscription so 'poll' can transparently
+          -- re-run the JoinGroup flow on rebalance.
           atomically $ do
             existing <- ListT.toList $ StmMap.listT consumerAssignment
             forM_ existing $ \(tp, _) -> StmMap.delete tp consumerAssignment
             forM_ tps $ \(stp, off) ->
               let tp = TopicPartition (Sub.tpTopic stp) (Sub.tpPartition stp)
               in StmMap.insert off tp consumerAssignment
+            writeTVar consumerSubscription (Just topics)
+            -- Heartbeat thread set this when a previous reply
+            -- contained REBALANCE_IN_PROGRESS; clear it now that we
+            -- have re-joined.
+            writeTVar (HB.hbNeedsRebalance hbState) False
           return $ Right ()
 
 -- | Unsubscribe from all topics.
@@ -546,44 +568,75 @@ assign consumer@Consumer{..} partitions = do
 --
 -- Fetches records from all assigned partitions up to maxPollRecords.
 -- Returns records from multiple partitions in no particular order.
+--
+-- = Auto-rebalance
+--
+-- If the heartbeat thread has flagged a pending rebalance
+-- ('HB.hbNeedsRebalance' set by the broker's @REBALANCE_IN_PROGRESS@
+-- (error code 27) on a heartbeat reply), 'poll' transparently re-runs
+-- the JoinGroup \/ SyncGroup \/ OffsetFetch flow against the same
+-- subscription before fetching. Callers do not need to remember to
+-- call 'subscribe' again on rebalance — they only do that the first
+-- time, to declare what topics they want.
 poll
   :: Consumer
   -> Int  -- ^ Timeout in milliseconds
   -> IO (Either String [ConsumerRecord])
 poll consumer@Consumer{..} timeoutMs = do
-  -- Get current assignment and paused partitions using stm-containers
-  assignment <- atomically $ do
-    asgn <- ListT.toList $ StmMap.listT consumerAssignment
-    pausedList <- ListT.toList $ StmMap.listT consumerPaused
-    let pausedSet = Map.fromList pausedList
-    return [(tp, offset) | (tp, offset) <- asgn, not (Map.member tp pausedSet)]
-  
-  if null assignment
-    then return $ Right []  -- No assignment yet or all paused
-    else do
-      -- Fetch from all active partitions
-      result <- fetchRecords consumer assignment timeoutMs
-      
-      case result of
-        Left err -> return $ Left err
-        Right records -> do
-          -- Update fetch positions based on fetched records
-          atomically $ do
-            forM_ records $ \r -> do
-              let tp = TopicPartition (crTopic r) (crPartition r)
-                  nextOffset = crOffset r + 1
-              -- Update to max of current and next offset
-              currentM <- StmMap.lookup tp consumerAssignment
-              case currentM of
-                Nothing -> StmMap.insert nextOffset tp consumerAssignment
-                Just current -> when (nextOffset > current) $
-                  StmMap.insert nextOffset tp consumerAssignment
-          
-          -- Limit to maxPollRecords
-          let maxRecords = consumerMaxPollRecords consumerConfig
-              limitedRecords = take maxRecords records
-          
-          return $ Right limitedRecords
+  -- Auto-rebalance: if the heartbeat thread saw REBALANCE_IN_PROGRESS
+  -- and we know what topics we're subscribed to, re-join now.
+  needsRejoin <- atomically $ do
+    case consumerHeartbeat of
+      Nothing -> pure False
+      Just (hbSt, _) -> do
+        flag <- readTVar (HB.hbNeedsRebalance hbSt)
+        topicsM <- readTVar consumerSubscription
+        pure (flag && case topicsM of Just _ -> True; Nothing -> False)
+  rejoinR <- if needsRejoin
+    then do
+      topicsM <- readTVarIO consumerSubscription
+      case topicsM of
+        Just ts -> subscribe consumer ts
+        Nothing -> pure (Right ())
+    else pure (Right ())
+  case rejoinR of
+    Left err -> return (Left ("poll: rebalance rejoin failed: " <> err))
+    Right () -> doPoll
+  where
+   doPoll = do
+    -- Get current assignment and paused partitions using stm-containers
+    assignment <- atomically $ do
+      asgn <- ListT.toList $ StmMap.listT consumerAssignment
+      pausedList <- ListT.toList $ StmMap.listT consumerPaused
+      let pausedSet = Map.fromList pausedList
+      return [(tp, offset) | (tp, offset) <- asgn, not (Map.member tp pausedSet)]
+
+    if null assignment
+      then return $ Right []  -- No assignment yet or all paused
+      else do
+        -- Fetch from all active partitions
+        result <- fetchRecords consumer assignment timeoutMs
+
+        case result of
+          Left err -> return $ Left err
+          Right records -> do
+            -- Update fetch positions based on fetched records
+            atomically $ do
+              forM_ records $ \r -> do
+                let tp = TopicPartition (crTopic r) (crPartition r)
+                    nextOffset = crOffset r + 1
+                -- Update to max of current and next offset
+                currentM <- StmMap.lookup tp consumerAssignment
+                case currentM of
+                  Nothing -> StmMap.insert nextOffset tp consumerAssignment
+                  Just current -> when (nextOffset > current) $
+                    StmMap.insert nextOffset tp consumerAssignment
+
+            -- Limit to maxPollRecords
+            let maxRecords = consumerMaxPollRecords consumerConfig
+                limitedRecords = take maxRecords records
+
+            return $ Right limitedRecords
 
 -- | Seek to a specific offset.
 seek :: Consumer -> TopicPartition -> Int64 -> IO (Either String ())

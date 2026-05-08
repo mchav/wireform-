@@ -130,21 +130,28 @@ instance Aeson.FromJSON TestVector where
     <*> v Aeson..: "description"
     <*> v Aeson..: "hex"
 
--- | Load test vectors from JSON file. Returns an empty list if the
--- vectors aren't present so the suite can still run in environments
--- where the cross-language fixture hasn't been provisioned.
+-- | Load test vectors. See 'Protocol.Generated.KnownGoodSpec' for
+-- the search-path notes; we prefer the vendored snapshot in
+-- @wireform-kafka/test-data/test-vectors.json@.
 loadTestVectors :: IO [TestVector]
 loadTestVectors = do
-  exists <- Dir.doesFileExist vectorPath
-  if not exists
-    then pure []
-    else do
-      content <- BL.readFile vectorPath
+  candidate <- pickFirstExisting
+    [ "wireform-kafka/test-data/test-vectors.json"
+    , "test-data/test-vectors.json"
+    , "test-vectors.json"
+    ]
+  case candidate of
+    Nothing -> pure []
+    Just p -> do
+      content <- BL.readFile p
       case Aeson.eitherDecode content of
-        Left err -> error $ "Failed to parse test vectors: " ++ err
+        Left err -> error $ "Failed to parse test vectors at " <> p <> ": " <> err
         Right vectors -> return vectors
   where
-    vectorPath = "test-vectors.json"
+    pickFirstExisting [] = pure Nothing
+    pickFirstExisting (p:ps) = do
+      ok <- Dir.doesFileExist p
+      if ok then pure (Just p) else pickFirstExisting ps
 
 -- | Convert hex string to ByteString
 hexToBS :: Text -> Either String BS.ByteString

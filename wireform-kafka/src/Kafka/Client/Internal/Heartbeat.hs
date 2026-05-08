@@ -148,12 +148,17 @@ heartbeatLoop state@HeartbeatState{..} = do
                 Left (e :: SomeException) -> do
                   putStrLn $ "Heartbeat error: " ++ show e
                   -- Continue anyway, will retry next interval
-                  
+
                 Right (Left err) -> do
-                  putStrLn $ "Heartbeat failed: " ++ err
-                  -- Check if we need to rebalance based on error
-                  -- TODO: Parse error codes and set needsRebalance flag
-                  
+                  -- UNKNOWN_MEMBER_ID, ILLEGAL_GENERATION and the other
+                  -- "you must rejoin" outcomes from sendHeartbeat all
+                  -- come back as Left here. The fix is the same as a
+                  -- REBALANCE_IN_PROGRESS reply: flip the rebalance
+                  -- flag so the next 'poll' transparently re-runs the
+                  -- JoinGroup flow.
+                  putStrLn $ "Heartbeat needs rejoin: " ++ err
+                  atomically $ writeTVar hbNeedsRebalance True
+
                 Right (Right needsRebalance) -> do
                   when needsRebalance $ do
                     atomically $ writeTVar hbNeedsRebalance True

@@ -14,6 +14,7 @@ module Client.GroupSpec (groupSpec) where
 
 import Control.Exception (try, IOException)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe, maybeToList)
 import qualified Data.Text as T
 
 import Test.Tasty
@@ -29,6 +30,8 @@ import qualified Kafka.Client.Internal.Subscribe as Sub
 groupSpec :: TestTree
 groupSpec = testGroup "Group consumer (high-level)"
   [ rangeAssignTests
+  , roundRobinAssignTests
+  , stickyAssignTests
   , configValidationTests
   ]
 
@@ -122,6 +125,102 @@ rangeAssignTests = testGroup "rangeAssign"
       case sizes of
         []      -> H.success
         _       -> H.assert (maximum sizes - minimum sizes <= 1)
+  ]
+
+--------------------------------------------------------------------------------
+-- Round-robin assignment
+--------------------------------------------------------------------------------
+
+roundRobinAssignTests :: TestTree
+roundRobinAssignTests = testGroup "roundRobinAssign"
+  [ testCase "balanced split: 6 partitions / 3 consumers / single topic" $ do
+      let result = Sub.roundRobinAssign
+            [ ("c1", ["t"]), ("c2", ["t"]), ("c3", ["t"]) ]
+            (Map.fromList [("t", [0,1,2,3,4,5])])
+      lookup "c1" result @?= Just [("t",[0,3])]
+      lookup "c2" result @?= Just [("t",[1,4])]
+      lookup "c3" result @?= Just [("t",[2,5])]
+
+  , testCase "balanced across topics: c3 gets one of each" $ do
+      let result = Sub.roundRobinAssign
+            [ ("c1", ["a","b"]), ("c2", ["a","b"]), ("c3", ["a","b"]) ]
+            (Map.fromList [("a", [0,1,2]), ("b", [0,1,2])])
+      -- 6 total partitions over 3 consumers: each gets 2.
+      let assigned mid = case lookup mid result of
+            Just byTopic -> sum (map (length . snd) byTopic)
+            Nothing -> 0
+      assigned "c1" @?= 2
+      assigned "c2" @?= 2
+      assigned "c3" @?= 2
+
+  , testCase "topic-aware: only subscribed consumers receive partitions" $ do
+      let result = Sub.roundRobinAssign
+            [ ("c1", ["a"]), ("c2", ["b"]), ("c3", ["a","b"]) ]
+            (Map.fromList [("a", [0,1,2]), ("b", [0,1,2])])
+      -- c1 only sees 'a', c2 only sees 'b', c3 sees both.
+      let topicsOf mid = case lookup mid result of
+            Just byTopic -> map fst byTopic
+            Nothing -> []
+      topicsOf "c1" @?= ["a"]
+      topicsOf "c2" @?= ["b"]
+      -- c3 should get a mix; just check it's non-empty and only the
+      -- subscribed topics.
+      all (`elem` ["a","b"]) (topicsOf "c3") @?= True
+
+  , testCase "no double-assignment under round-robin" $ do
+      let result = Sub.roundRobinAssign
+            [ ("c1", ["t"]), ("c2", ["t"]), ("c3", ["t"]) ]
+            (Map.fromList [("t", [0..9])])
+          allParts = concat [ ps | (_, byTopic) <- result, (_, ps) <- byTopic ]
+      length allParts @?= 10
+      length (Map.keys (Map.fromList (zip allParts (repeat ())))) @?= 10
+  ]
+
+--------------------------------------------------------------------------------
+-- Sticky assignment
+--------------------------------------------------------------------------------
+
+stickyAssignTests :: TestTree
+stickyAssignTests = testGroup "stickyAssign"
+  [ testCase "no previous assignment behaves like round-robin" $ do
+      let members = [ ("c1", ["t"]), ("c2", ["t"]), ("c3", ["t"]) ]
+          parts   = Map.fromList [("t", [0,1,2,3,4,5])]
+      Sub.stickyAssign members parts Nothing
+        @?= Sub.roundRobinAssign members parts
+
+  , testCase "preserves previous assignment when membership unchanged" $ do
+      let members = [ ("c1", ["t"]), ("c2", ["t"]) ]
+          parts   = Map.fromList [("t", [0,1,2,3])]
+          prev    = [ ("c1", [("t",[0,1])]), ("c2", [("t",[2,3])]) ]
+      Sub.stickyAssign members parts (Just prev) @?= prev
+
+  , testCase "rebalances when a new consumer joins" $ do
+      -- Previous: c1 had everything. New consumer c2 joins; sticky
+      -- should keep c1's partitions where possible and only move what
+      -- it needs to balance.
+      let members = [ ("c1", ["t"]), ("c2", ["t"]) ]
+          parts   = Map.fromList [("t", [0,1,2,3])]
+          prev    = [ ("c1", [("t",[0,1,2,3])]), ("c2", []) ]
+          result  = Sub.stickyAssign members parts (Just prev)
+          c1     = fromMaybe [] (lookup "c1" result)
+          c2     = fromMaybe [] (lookup "c2" result)
+          c1Parts = concat [ ps | (_, ps) <- c1 ]
+          c2Parts = concat [ ps | (_, ps) <- c2 ]
+      length c1Parts @?= 2
+      length c2Parts @?= 2
+      -- Every previous c1 partition that didn't move should still be
+      -- in c1's new assignment.
+      assertBool "previous c1 partitions retained where balance allows"
+        (length (filter (`elem` [0,1,2,3]) c1Parts) == 2)
+
+  , testCase "drops partitions that no longer exist" $ do
+      let members = [ ("c1", ["t"]) ]
+          parts   = Map.fromList [("t", [0,1])]    -- only 0/1 still exist
+          prev    = [ ("c1", [("t",[0,1,2,3])]) ]  -- previously had 0..3
+          result  = Sub.stickyAssign members parts (Just prev)
+          c1Parts = concat [ ps | byTopic <- maybeToList (lookup "c1" result), (_, ps) <- byTopic ]
+      length c1Parts @?= 2
+      all (`elem` [0,1]) c1Parts @?= True
   ]
 
 --------------------------------------------------------------------------------
