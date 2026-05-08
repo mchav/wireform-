@@ -457,22 +457,42 @@ withConnection addr config action = do
         Right val -> Right val
 
 -- | Check whether a connection is still usable. The underlying
--- 'Network.Connection.Connection' from the @connection@ package
--- doesn't expose a synchronous probe, so we attempt a zero-byte
--- read with a tiny timeout. If the socket is readable and the
--- read returns 'mempty' (peer closed) or throws, the connection
--- is treated as dead. Otherwise the buffered bytes are pushed
--- back via 'connectionPutLazy' so the next real read still sees
--- them.
+-- 'Network.Connection' doesn't expose a non-blocking liveness
+-- probe, so we layer two checks:
 --
--- Note: this probe is best-effort; a connection that's silently
--- broken (e.g. half-open after a NAT timeout) will only surface
--- as dead on the next actual write.
+--   1. 'connectionWaitForInput' with a 0 ms timeout — returns
+--      'True' when the kernel recv buffer has either real data
+--      or a queued FIN, 'False' on an alive idle connection.
+--      Documented to never block when the timeout is zero.
+--
+--   2. If the wait reports input is available, do a
+--      side-effect-free 'connectionGetChunk'' that puts the
+--      chunk straight back into the buffer (so the next real
+--      read still sees it). An empty chunk indicates the kernel
+--      delivered EOF — the peer has closed.
+--
+-- A throw at any point (ECONNRESET, the socket fd was closed,
+-- etc.) is treated as a dead connection.
+--
+-- == Caveat
+--
+-- The probe is best-effort. Two scenarios can still report a
+-- dead connection as alive: (a) a silently half-open connection
+-- (intermediary NAT timed it out without sending a FIN), and
+-- (b) a peer that has closed but whose FIN hasn't yet propagated
+-- to the recv buffer at probe time. In both cases the next real
+-- I/O surfaces the failure and the pool eviction kicks in then.
 isConnected :: Connection -> IO Bool
 isConnected conn = do
-  r <- try (Conn.connectionGetChunk' conn (\bs -> (bs, bs)))
-         :: IO (Either SomeException BS.ByteString)
-  pure $ case r of
-    Right bs -> not (BS.null bs)
-    Left  _  -> False
+  waitR <- try (Conn.connectionWaitForInput conn 0)
+             :: IO (Either SomeException Bool)
+  case waitR of
+    Left  _      -> pure False
+    Right False  -> pure True   -- alive but idle
+    Right True   -> do
+      r <- try (Conn.connectionGetChunk' conn (\bs -> (bs, bs)))
+             :: IO (Either SomeException BS.ByteString)
+      pure $ case r of
+        Right bs -> not (BS.null bs)
+        Left  _  -> False
 
