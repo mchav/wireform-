@@ -40,6 +40,9 @@ import qualified Client.ProducerConsumerLifecycleSpec
 import qualified Client.TransactionSpec
 import qualified Client.TransactionCoordinatorSpec
 import qualified Client.AdminClientSpec
+import qualified Client.MockBrokerSpec
+import qualified Client.MockBrokerFailureModesSpec
+import qualified Client.MockBrokerAdvancedSpec
 import qualified Network.AuthSpec
 import qualified Network.ConnectionRetrySpec
 
@@ -93,6 +96,9 @@ clientTests = testGroup "Client"
   , Client.TransactionCoordinatorSpec.transactionCoordinatorSpec
   , Client.AdminClientSpec.tests
   , Client.GroupSpec.groupSpec
+  , Client.MockBrokerSpec.tests
+  , Client.MockBrokerFailureModesSpec.tests
+  , Client.MockBrokerAdvancedSpec.tests
   ]
 
 networkTests :: TestTree

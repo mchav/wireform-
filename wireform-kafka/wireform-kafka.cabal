@@ -99,6 +99,10 @@ library
         Kafka.Client.Internal.Subscribe
         Kafka.Client.Internal.TransactionCoordinator
         Kafka.Client.Metadata
+        Kafka.Client.Mock.Cluster
+        Kafka.Client.Mock.Fault
+        Kafka.Client.Mock.Producer
+        Kafka.Client.Mock.Consumer
         Kafka.Client.Pipeline
         Kafka.Client.Producer
         Kafka.Client.Simple
@@ -589,6 +593,9 @@ test-suite wireform-kafka-test
         Client.ProducerTimeoutSpec
         Client.TransactionCoordinatorSpec
         Client.TransactionSpec
+        Client.MockBrokerSpec
+        Client.MockBrokerFailureModesSpec
+        Client.MockBrokerAdvancedSpec
         Network.AuthSpec
         Network.ConnectionRetrySpec
         Protocol.ApiVersionsSpec
