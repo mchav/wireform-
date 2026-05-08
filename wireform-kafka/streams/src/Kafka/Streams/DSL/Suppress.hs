@@ -39,6 +39,7 @@ module Kafka.Streams.DSL.Suppress
   ( suppressWindowed
   , suppressUntilTimeLimit
   , streamFromWindowedHandle
+  , suppressWindowedHandle
     -- * Suppressed builder (KIP-328 surface API)
   , Suppressed (..)
   , untilWindowCloses
@@ -410,3 +411,23 @@ suppressKStream s =
         \stream; use 'suppressWindowed' directly."
     SuppressUntilTimeLimit{ suppressLimit = lim } ->
       suppressUntilTimeLimit lim
+
+----------------------------------------------------------------------
+-- High-level: KTable.suppress on a windowed aggregation
+----------------------------------------------------------------------
+
+-- | Convenience: take a 'WindowedTableHandle' from a windowed
+-- aggregation and apply 'suppressWindowed' to its change stream.
+-- Mirrors @KTable.suppress(Suppressed.untilWindowCloses(...))@.
+suppressWindowedHandle
+  :: forall k v
+   . Ord k
+  => Duration                              -- grace
+  -> Int64                                 -- window size
+  -> Serde k                               -- inner key serde
+  -> Serde v
+  -> WindowedTableHandle k v
+  -> IO (KStream (WindowedKey k) v)
+suppressWindowedHandle grace winMs ks vs h = do
+  s <- streamFromWindowedHandle h ks vs
+  suppressWindowed grace winMs s

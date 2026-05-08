@@ -45,6 +45,7 @@ module Kafka.Streams.Processor
   , PunctuationType (..)
   , Cancellable (..)
   , cancelled
+  , forwardingPunctuator
     -- * Task identifiers
   , TaskId (..)
   , taskIdText
@@ -101,6 +102,19 @@ newtype Cancellable = Cancellable
 -- | A no-op cancel token.
 cancelled :: Cancellable
 cancelled = Cancellable (pure ())
+
+-- | Build a 'Punctuator' that forwards a record on every fire by
+-- calling the supplied builder with the fire timestamp. Returning
+-- 'Nothing' from the builder skips that fire (no record forwarded).
+forwardingPunctuator
+  :: ProcessorContext
+  -> (Timestamp -> IO (Maybe (Record k v)))
+  -> Punctuator
+forwardingPunctuator ctx f = Punctuator $ \ts -> do
+  m <- f ts
+  case m of
+    Nothing -> pure ()
+    Just r  -> ctxForward ctx r
 
 -- | The full processor surface. Generic over the input @(k, v)@.
 --
