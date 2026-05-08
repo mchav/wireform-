@@ -609,6 +609,7 @@ test-suite wireform-kafka-test
         Client.MockBrokerProtoSpec
         Client.ConfigParitySpec
         Client.ProducerRetrySpec
+        Client.PipelineSpec
         Network.AuthSpec
         Network.ConnectionRetrySpec
         Protocol.ApiVersionsSpec
@@ -637,6 +638,8 @@ test-suite wireform-kafka-test
         memory                    >= 0.18  && < 0.19,
         time                      >= 1.11  && < 1.13,
         hedgehog                  >= 1.2   && < 2,
+        binary,
+        crypton-connection,
         hashable,
         network,
         random,
