@@ -3,6 +3,10 @@
 
 module Streams.WindowSpec (tests) where
 
+import qualified Data.ByteString.Char8 as BSC
+import Data.Int (Int64)
+import qualified Data.Text as T
+import Data.Text (Text)
 import qualified Hedgehog
 import Hedgehog ((===), forAll, property, assert)
 import qualified Hedgehog.Gen as Gen
@@ -11,6 +15,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 import Test.Tasty.Hedgehog (testProperty)
 
+import Kafka.Streams
 import Kafka.Streams.State.Store
   ( WindowStore (..)
   , kvIteratorToList
@@ -115,5 +120,68 @@ tests = testGroup "Window"
           v0 @?= Nothing
           v1 @?= Just 20
       ]
+  , testGroup "Session windows (driver)"
+      [ session_aggregation_merges
+      , session_aggregation_separate_sessions
+      ]
   ]
+
+bytes :: Text -> BSC.ByteString
+bytes = BSC.pack . T.unpack
+
+session_aggregation_merges :: TestTree
+session_aggregation_merges =
+  testCase "session aggregation merges adjacent records" $ do
+    b <- newStreamsBuilder
+    src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
+    let g = grouped textSerde textSerde
+        kgs = groupByKey g src
+        sw = sessionWindows (millis 100)
+        swks = windowedBySession sw kgs
+    handle <- countSessionWindowed materialized swks
+    topo <- buildTopology b
+    driver <- newDriver topo "session-app"
+
+    -- 3 records within 100ms inactivity gap merge into one session.
+    pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "v1") (Timestamp 0)   0
+    pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "v2") (Timestamp 50)  0
+    pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "v3") (Timestamp 90)  0
+
+    mStore <- getSessionStore @Text @Int64 driver (swthStore handle)
+    case mStore of
+      Just ss -> do
+        it <- ssFindAllSessions ss (Timestamp 0) (Timestamp 200)
+        rows <- kvIteratorToList it
+        length rows @?= 1
+        let (_, count) = head rows
+        count @?= 3
+      Nothing -> error "session store missing"
+    closeDriver driver
+
+session_aggregation_separate_sessions :: TestTree
+session_aggregation_separate_sessions =
+  testCase "gap > inactivity opens a new session" $ do
+    b <- newStreamsBuilder
+    src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
+    let g = grouped textSerde textSerde
+        kgs = groupByKey g src
+        sw = sessionWindows (millis 100)
+        swks = windowedBySession sw kgs
+    handle <- countSessionWindowed materialized swks
+    topo <- buildTopology b
+    driver <- newDriver topo "session-app"
+
+    pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "a") (Timestamp 0)   0
+    pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "b") (Timestamp 50)  0
+    -- 200ms gap > 100ms inactivity, opens a new session
+    pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "c") (Timestamp 250) 0
+
+    mStore <- getSessionStore @Text @Int64 driver (swthStore handle)
+    case mStore of
+      Just ss -> do
+        it <- ssFindAllSessions ss (Timestamp 0) (Timestamp 1000)
+        rows <- kvIteratorToList it
+        length rows @?= 2
+      Nothing -> error "session store missing"
+    closeDriver driver
 

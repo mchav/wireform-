@@ -143,18 +143,18 @@ sessionAggProc sn sw initial agg merger = do
                     (timestampMinus ts gap)
                     (timestampPlus  ts gap)
             adjacents <- kvIteratorToList it
-            -- Compute the merged session window.
-            let (lo, hi, !mergedAgg) =
-                  foldl
-                    (\(s, e, a) (SessionKey _ s' e', a') ->
-                       (min s s', max e e', merger k a a'))
-                    (ts, ts, error "session: initial deferred")
-                    adjacents
-            -- Remove the old sessions and write the merged one.
-            mapM_ (\(sk, _) -> ssRemove store_ sk) adjacents
+            -- Compute the merged session window bounds (always
+            -- includes 'ts'); compute the merged aggregate only if
+            -- there's at least one adjacent session.
+            let !lo = foldl (\s (SessionKey _ s' _, _) -> min s s')
+                            ts adjacents
+                !hi = foldl (\e (SessionKey _ _ e', _) -> max e e')
+                            ts adjacents
             base <- case adjacents of
               [] -> initial
-              _  -> pure mergedAgg
+              ((_, a0) : rest) ->
+                pure $! foldl (\a (_, a') -> merger k a a') a0 rest
+            mapM_ (\(sk, _) -> ssRemove store_ sk) adjacents
             let !newAgg = agg k (recordValue r) base
                 !sk = SessionKey k lo hi
             ssPut store_ sk newAgg

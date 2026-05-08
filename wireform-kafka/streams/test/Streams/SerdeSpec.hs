@@ -1,12 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Streams.SerdeSpec (tests) where
 
-import Data.ByteString (ByteString)
+import Control.Exception (try, SomeException)
 import qualified Data.ByteString as BS
-import Data.Int (Int32, Int64)
+import qualified Data.ByteString.Char8 as BSC
+import Data.IORef
+import Data.Int (Int32)
 import qualified Data.Text as T
-import Data.Text (Text)
 import Hedgehog ((===), forAll, property)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -14,7 +16,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 import Test.Tasty.Hedgehog (testProperty)
 
-import Kafka.Streams.Serde
+import Kafka.Streams
 
 tests :: TestTree
 tests = testGroup "Serde"
@@ -91,4 +93,60 @@ tests = testGroup "Serde"
                 Left _  -> pure ()
                 Right _ -> fail "should reject"
       ]
+  , testGroup "DeserializationHandler"
+      [ deser_log_and_continue
+      , deser_log_and_fail
+      ]
   ]
+
+----------------------------------------------------------------------
+-- Deserialization handler integration tests via TopologyTestDriver
+----------------------------------------------------------------------
+
+-- A serde that fails to decode anything that isn't the literal
+-- @\"good\"@ and otherwise returns the original text.
+strictGoodSerde :: Serde T.Text
+strictGoodSerde = unsafeSerde
+  (\t -> serialize textSerde t)
+  (\b -> case deserialize textSerde b of
+           Right t | t == "good" -> Right t
+           Right t -> Left ("rejected: " <> T.unpack t)
+           Left e  -> Left e)
+
+deser_log_and_continue :: TestTree
+deser_log_and_continue =
+  testCase "logAndContinue handler skips bad records, processes good ones" $ do
+    b <- newStreamsBuilder
+    s <- streamFromTopic b (topicName "in") (consumed textSerde strictGoodSerde)
+    toTopic (topicName "out") (produced textSerde strictGoodSerde) s
+    topo <- buildTopology b
+    case validateTopology topo of
+      Left  err -> error (show err)
+      Right v   -> do
+        driver <- newDriverWith v "deser-app" logAndContinue
+        pipeInput driver (topicName "in") Nothing (BSC.pack "bad1") (Timestamp 0) 0
+        pipeInput driver (topicName "in") Nothing (BSC.pack "good") (Timestamp 1) 0
+        pipeInput driver (topicName "in") Nothing (BSC.pack "bad2") (Timestamp 2) 0
+        out <- readOutput driver (topicName "out")
+        length out @?= 1
+        closeDriver driver
+
+deser_log_and_fail :: TestTree
+deser_log_and_fail =
+  testCase "logAndFail handler raises on the first bad record" $ do
+    b <- newStreamsBuilder
+    s <- streamFromTopic b (topicName "in") (consumed textSerde strictGoodSerde)
+    toTopic (topicName "out") (produced textSerde strictGoodSerde) s
+    topo <- buildTopology b
+    case validateTopology topo of
+      Left  err -> error (show err)
+      Right v   -> do
+        driver <- newDriverWith v "deser-app" logAndFail
+        ePipe <-
+          try (pipeInput driver (topicName "in")
+                Nothing (BSC.pack "bad") (Timestamp 0) 0)
+            :: IO (Either SomeException ())
+        case ePipe of
+          Left _  -> pure ()
+          Right _ -> fail "expected logAndFail to raise"
+        closeDriver driver
