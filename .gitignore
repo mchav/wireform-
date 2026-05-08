@@ -26,3 +26,7 @@ result-*
 /bench-*.html
 /bench-*.json
 wireform-yaml-bench.prof
+
+# bench artefacts: per-run html/json/csv reports stay local.
+benchmark/results/
+wireform-kafka/benchmark/results/
