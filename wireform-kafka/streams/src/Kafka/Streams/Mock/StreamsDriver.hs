@@ -276,4 +276,4 @@ externalSend
   -> Timestamp
   -> IO (Either String Int64)
 externalSend d topic part k v ts =
-  appendToPartition (driverCluster d) topic part k v ts Nothing
+  appendToPartition (driverCluster d) topic part k v ts [] Nothing

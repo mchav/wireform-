@@ -166,7 +166,7 @@ consumer_seek_overrides_committed_offset =
     c <- newMockCluster 1
     createTopic c (topicName "in") 1
     -- Seed five records.
-    mapM_ (\v -> appendToPartition c (topicName "in") 0 Nothing (bytes v) (t 0) Nothing)
+    mapM_ (\v -> appendToPartition c (topicName "in") 0 Nothing (bytes v) (t 0) [] Nothing)
       ["a", "b", "c", "d", "e"]
     let g = GroupId "g"
     fp <- noFaults
@@ -239,7 +239,7 @@ transaction_interleaved_one_committed_one_aborted =
     _ <- sendMock pB (topicName "out") 0 Nothing (bytes "B1") (t 1)
     Right () <- abortTxnMP pB
     -- A non-transactional record outside any txn.
-    _ <- appendToPartition c (topicName "out") 0 Nothing (bytes "plain") (t 2) Nothing
+    _ <- appendToPartition c (topicName "out") 0 Nothing (bytes "plain") (t 2) [] Nothing
 
     cc <- newMockConsumer c fp (GroupId "g") ReadCommitted 100
     subscribeMC cc [topicName "out"]

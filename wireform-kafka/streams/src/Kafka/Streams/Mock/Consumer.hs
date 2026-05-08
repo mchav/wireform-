@@ -21,7 +21,10 @@
 module Kafka.Streams.Mock.Consumer
   ( MockConsumer
   , newMockConsumer
+  , newMockConsumerWithId
+  , consumerMemberId
   , subscribeMC
+  , refreshAssignment
   , assignedPartitions
   , topicAssignment
   , PollResult (..)
@@ -39,14 +42,19 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
+import qualified Data.Text
+import System.IO.Unsafe (unsafePerformIO)
 
 import Kafka.Streams.Mock.Cluster
   ( GroupId
+  , MemberId (..)
   , MockCluster
   , StoredRecord (..)
+  , assignmentFor
   , commitGroupOffsets
   , fetchSlice
   , groupOffsetsFor
+  , joinGroup
   , listTopics
   , partitionCount
   )
@@ -75,6 +83,7 @@ data MockConsumer = MockConsumer
   { mcCluster      :: !MockCluster
   , mcFaults       :: !FaultPolicy
   , mcGroupId      :: !GroupId
+  , mcMemberId     :: !MemberId
   , mcAssignment   :: !(TVar (Set (TopicName, Int32)))
   , mcPositions    :: !(TVar (Map (TopicName, Int32) Int64))
     -- ^ The consumer's /current/ read cursor per partition. Distinct
@@ -91,6 +100,9 @@ data MockConsumer = MockConsumer
 -- (The mock collapses the rebalance protocol to a single-member
 -- group for simplicity; multi-member groups would use the
 -- 'Kafka.Streams.Runtime.Assignor' pure assigner.)
+-- | Build a fresh consumer with an auto-generated member id. Use
+-- the explicit-id variant if you need stable identifiers across
+-- runs (e.g. for sticky-assignment tests).
 newMockConsumer
   :: MockCluster
   -> FaultPolicy
@@ -99,6 +111,20 @@ newMockConsumer
   -> Int                             -- ^ fetch batch size
   -> IO MockConsumer
 newMockConsumer c fp gid iso n = do
+  ctr <- nextConsumerCounter
+  let !mid = MemberId (Data.Text.pack ("consumer-" <> show ctr))
+  newMockConsumerWithId c fp gid mid iso n
+
+-- | Build a consumer with an explicit member id.
+newMockConsumerWithId
+  :: MockCluster
+  -> FaultPolicy
+  -> GroupId
+  -> MemberId
+  -> IsolationLevel
+  -> Int
+  -> IO MockConsumer
+newMockConsumerWithId c fp gid mid iso n = do
   asg <- newTVarIO Set.empty
   pos <- newTVarIO Map.empty
   sub <- newTVarIO Set.empty
@@ -106,6 +132,7 @@ newMockConsumer c fp gid iso n = do
     { mcCluster    = c
     , mcFaults     = fp
     , mcGroupId    = gid
+    , mcMemberId   = mid
     , mcAssignment = asg
     , mcPositions  = pos
     , mcSubscribed = sub
@@ -113,26 +140,46 @@ newMockConsumer c fp gid iso n = do
     , mcFetchBatch = n
     }
 
--- | Subscribe to a list of topics, replacing any prior subscription.
--- Re-fetches the latest committed offsets for each (topic, partition)
--- and uses them as the starting position; partitions with no
--- committed offset start at 0 (earliest).
+consumerMemberId :: MockConsumer -> MemberId
+consumerMemberId = mcMemberId
+
+----------------------------------------------------------------------
+-- Member id counter
+----------------------------------------------------------------------
+
+{-# NOINLINE consumerCounter #-}
+consumerCounter :: TVar Int
+consumerCounter = unsafePerformIO (newTVarIO 0)
+
+nextConsumerCounter :: IO Int
+nextConsumerCounter = atomically $ do
+  n <- readTVar consumerCounter
+  writeTVar consumerCounter (n + 1)
+  pure n
+
+-- | Subscribe to a list of topics, replacing any prior
+-- subscription. Joins the consumer to its group; the cluster runs
+-- a deterministic round-robin assignor over every member's union
+-- of subscribed topics. Use 'refreshAssignment' to re-run the
+-- assignor after a sibling consumer joins or leaves.
 subscribeMC :: MockConsumer -> [TopicName] -> IO ()
 subscribeMC mc topics = do
-  -- Compute the new assignment.
-  newAsg <- fmap concat . forM topics $ \t -> do
-    mp <- partitionCount (mcCluster mc) t
-    case mp of
-      Nothing -> pure []
-      Just n  -> pure [(t, fromIntegral i) | i <- [0 .. n - 1]]
-  -- Fetch committed offsets and seed positions.
+  joinGroup (mcCluster mc) (mcGroupId mc) (mcMemberId mc) topics
+  atomically $ writeTVar (mcSubscribed mc) (Set.fromList topics)
+  refreshAssignment mc
+
+-- | Re-run the group assignor and update this consumer's
+-- assignment. Mirrors what the JVM client does after receiving an
+-- @onPartitionsAssigned@ callback from the consumer coordinator.
+refreshAssignment :: MockConsumer -> IO ()
+refreshAssignment mc = do
+  newAsg <- assignmentFor (mcCluster mc) (mcGroupId mc) (mcMemberId mc)
   committed <- groupOffsetsFor (mcCluster mc) (mcGroupId mc)
-  let !positions = Map.fromList
-        [ (tp, Map.findWithDefault 0 tp committed)
-        | tp <- newAsg
-        ]
+  let positionsList :: [((TopicName, Int32), Int64)]
+      positionsList =
+        map (\tp -> (tp, Map.findWithDefault 0 tp committed)) newAsg
+      !positions = Map.fromList positionsList
   atomically $ do
-    writeTVar (mcSubscribed mc) (Set.fromList topics)
     writeTVar (mcAssignment mc) (Set.fromList newAsg)
     writeTVar (mcPositions mc) positions
 

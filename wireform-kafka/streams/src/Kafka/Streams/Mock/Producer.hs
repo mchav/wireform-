@@ -27,6 +27,7 @@ module Kafka.Streams.Mock.Producer
   , newMockProducer
   , MockProduceResult (..)
   , sendMock
+  , sendMockH
   , flushMock
     -- * Transactions
   , beginTxnMP
@@ -38,6 +39,7 @@ module Kafka.Streams.Mock.Producer
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
 import Data.Int (Int32)
+import qualified Data.Text
 
 import Kafka.Streams.Mock.Cluster
   ( MockCluster
@@ -111,7 +113,19 @@ sendMock
   -> ByteString
   -> Timestamp
   -> IO MockProduceResult
-sendMock p topic part mk v ts = do
+sendMock p topic part mk v ts = sendMockH p topic part mk v ts []
+
+-- | 'sendMock' that also attaches headers to the stored record.
+sendMockH
+  :: MockProducer
+  -> TopicName
+  -> Int32
+  -> Maybe ByteString
+  -> ByteString
+  -> Timestamp
+  -> [(Data.Text.Text, ByteString)]
+  -> IO MockProduceResult
+sendMockH p topic part mk v ts hdrs = do
   fenced <- readTVarIO (mpFenced p)
   if fenced
     then pure MPFenced
@@ -121,9 +135,13 @@ sendMock p topic part mk v ts = do
         Just e -> handleFault p e
         Nothing -> do
           stamp <- transactionStamp p
-          r <- appendToPartition (mpCluster p) topic part mk v ts stamp
+          r <- appendToPartition (mpCluster p) topic part mk v ts hdrs stamp
           case r of
-            Left  err -> pure (MPNoSuchPartition err)
+            Left  err
+              | "fenced" `Data.Text.isPrefixOf` Data.Text.pack err -> do
+                  atomically $ writeTVar (mpFenced p) True
+                  pure MPFenced
+              | otherwise -> pure (MPNoSuchPartition err)
             Right off -> pure (MPSent part (fromIntegral off))
 
 handleFault :: MockProducer -> MockError -> IO MockProduceResult

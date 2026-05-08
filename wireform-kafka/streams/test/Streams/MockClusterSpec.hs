@@ -74,9 +74,9 @@ append_and_fetch = testCase "appendToPartition assigns offsets; fetchSlice reads
   c <- newMockCluster 1
   createTopic c (topicName "log") 1
   Right o0 <- appendToPartition c (topicName "log") 0
-                (Just (bytes "k")) (bytes "a") (t 0) Nothing
+                (Just (bytes "k")) (bytes "a") (t 0) [] Nothing
   Right o1 <- appendToPartition c (topicName "log") 0
-                (Just (bytes "k")) (bytes "b") (t 1) Nothing
+                (Just (bytes "k")) (bytes "b") (t 1) [] Nothing
   o0 @?= 0
   o1 @?= 1
   Right (rs, next) <- fetchSlice c (topicName "log") 0 0 100 False
@@ -161,8 +161,8 @@ consumer_fetch_retriable_isolated_to_partition =
     createTopic c (topicName "in") 2
     let g = GroupId "g"
     -- Seed both partitions with one record.
-    _ <- appendToPartition c (topicName "in") 0 Nothing (bytes "p0") (t 0) Nothing
-    _ <- appendToPartition c (topicName "in") 1 Nothing (bytes "p1") (t 0) Nothing
+    _ <- appendToPartition c (topicName "in") 0 Nothing (bytes "p0") (t 0) [] Nothing
+    _ <- appendToPartition c (topicName "in") 1 Nothing (bytes "p1") (t 0) [] Nothing
     fp <- noFaults
     -- Fault on partition 0 only.
     addFetchFault fp (topicName "in") 0 ErrCoordinatorLoadInProgress

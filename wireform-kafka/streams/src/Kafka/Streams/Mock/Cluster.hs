@@ -63,6 +63,13 @@ module Kafka.Streams.Mock.Cluster
   , commitTxn
   , abortTxn
   , txnState
+  , currentTxnEpoch
+    -- * Group rebalance / assignment
+  , MemberId (..)
+  , joinGroup
+  , leaveGroup
+  , membersOf
+  , assignmentFor
     -- * Inspection
   , dumpPartition
   , partitionLogSize
@@ -70,6 +77,7 @@ module Kafka.Streams.Mock.Cluster
 
 import Control.Concurrent.STM
 import Control.Monad (forM_, unless, when)
+import qualified Data.List as L
 import Data.ByteString (ByteString)
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
@@ -108,6 +116,7 @@ data StoredRecord = StoredRecord
   , srKey       :: !(Maybe ByteString)
   , srValue     :: !ByteString
   , srTimestamp :: !Timestamp
+  , srHeaders   :: ![(Text, ByteString)]
   , srProducer  :: !(Maybe ProducerStamp)
     -- ^ Set when the record was written inside an open transaction.
     -- Read-committed consumers skip records whose stamp belongs to
@@ -151,13 +160,23 @@ data MockTopic = MockTopic
 data MockCluster = MockCluster
   { mcTopics         :: !(TVar (Map TopicName MockTopic))
   , mcGroups         :: !(TVar (Map GroupId GroupOffsets))
+  , mcGroupMembers   :: !(TVar (Map GroupId [(MemberId, Set TopicName)]))
   , mcTxns           :: !(TVar (Map TxnId TxnState))
+  , mcTxnEpoch       :: !(TVar (Map TxnId Int32))
+    -- ^ Current epoch for each transactional id. 'commitTxn' /
+    -- 'abortTxn' bump it; producers stamped with a stale epoch
+    -- are fenced on their next send.
   , mcBrokers        :: !(TVar [BrokerId])
   , mcDownBrokers    :: !(TVar (Set BrokerId))
   , mcClock          :: !(TVar Timestamp)
   }
 
 type GroupOffsets = Map (TopicName, Int32) Int64
+
+-- | Identifier for a single consumer in a group. Mirrors the
+-- @member.id@ Kafka assigns at JoinGroup time.
+newtype MemberId = MemberId { unMemberId :: Text }
+  deriving stock (Eq, Ord, Show, Generic)
 
 -- | Build a fresh cluster with @n@ brokers (ids 0..n-1) and the
 -- clock at @t = 0@. Topics start empty; the caller adds them via
@@ -166,17 +185,21 @@ newMockCluster :: Int -> IO MockCluster
 newMockCluster n = do
   ts <- newTVarIO Map.empty
   gs <- newTVarIO Map.empty
+  gm <- newTVarIO Map.empty
   xs <- newTVarIO Map.empty
+  ep <- newTVarIO Map.empty
   bs <- newTVarIO [BrokerId i | i <- [0 .. n - 1]]
   ds <- newTVarIO Set.empty
   ck <- newTVarIO (Timestamp 0)
   pure MockCluster
-    { mcTopics      = ts
-    , mcGroups      = gs
-    , mcTxns        = xs
-    , mcBrokers     = bs
-    , mcDownBrokers = ds
-    , mcClock       = ck
+    { mcTopics       = ts
+    , mcGroups       = gs
+    , mcGroupMembers = gm
+    , mcTxns         = xs
+    , mcTxnEpoch     = ep
+    , mcBrokers      = bs
+    , mcDownBrokers  = ds
+    , mcClock        = ck
     }
 
 clusterClockNow :: MockCluster -> IO Timestamp
@@ -275,7 +298,10 @@ downedBrokers c = Set.toList <$> readTVarIO (mcDownBrokers c)
 ----------------------------------------------------------------------
 
 -- | Append one record to a (topic, partition) log. Returns the
--- assigned offset, or 'Left' if the partition doesn't exist.
+-- assigned offset, 'Left "fenced"' if the producer's epoch has been
+-- superseded, or 'Left "no partition"' if the partition doesn't
+-- exist. Carries headers (mirrors the JVM client's
+-- @ProducerRecord.headers@).
 appendToPartition
   :: MockCluster
   -> TopicName
@@ -283,32 +309,43 @@ appendToPartition
   -> Maybe ByteString
   -> ByteString
   -> Timestamp
+  -> [(Text, ByteString)]               -- ^ headers
   -> Maybe ProducerStamp
   -> IO (Either String Int64)
-appendToPartition c topic part mk v ts stamp = atomically $ do
+appendToPartition c topic part mk v ts hdrs stamp = atomically $ do
   topics <- readTVar (mcTopics c)
-  case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
-    Nothing -> pure (Left $
-      "appendToPartition: no partition "
-       <> show part <> " on topic "
-       <> T.unpack (unTopicName topic))
-    Just p  -> do
-      hwm <- readTVar (mpHwm p)
-      let !rec = StoredRecord
-            { srOffset    = hwm
-            , srKey       = mk
-            , srValue     = v
-            , srTimestamp = ts
-            , srProducer  = stamp
-            }
-      modifyTVar' (mpLog p) (|> rec)
-      writeTVar (mpHwm p) (hwm + 1)
-      -- LSO advances on non-transactional writes; transactional
-      -- ones bump it only when the txn commits/aborts.
-      case stamp of
-        Nothing -> writeTVar (mpLastStableOffset p) (hwm + 1)
-        Just _  -> pure ()
-      pure (Right hwm)
+  -- Fence check: stamp's epoch must match the cluster's current
+  -- epoch for that txn id (or be Nothing).
+  fenced <- case stamp of
+    Nothing -> pure False
+    Just (ProducerStamp tid ep) -> do
+      epochs <- readTVar (mcTxnEpoch c)
+      case Map.lookup tid epochs of
+        Just cur | cur > ep -> pure True
+        _                   -> pure False
+  if fenced
+    then pure (Left "fenced: producer epoch superseded")
+    else case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+      Nothing -> pure (Left $
+        "appendToPartition: no partition "
+         <> show part <> " on topic "
+         <> T.unpack (unTopicName topic))
+      Just p  -> do
+        hwm <- readTVar (mpHwm p)
+        let !rec = StoredRecord
+              { srOffset    = hwm
+              , srKey       = mk
+              , srValue     = v
+              , srTimestamp = ts
+              , srHeaders   = hdrs
+              , srProducer  = stamp
+              }
+        modifyTVar' (mpLog p) (|> rec)
+        writeTVar (mpHwm p) (hwm + 1)
+        case stamp of
+          Nothing -> writeTVar (mpLastStableOffset p) (hwm + 1)
+          Just _  -> pure ()
+        pure (Right hwm)
 
 -- | Fetch up to @maxRecords@ records starting at @from@ on a
 -- partition. Read-committed consumers should pass @stableOnly =
@@ -396,9 +433,22 @@ groupOffsetsFor c grp = do
 -- Transactions
 ----------------------------------------------------------------------
 
+-- | Open a transaction. If the txn id has been used before, the
+-- new attempt re-opens it at the current epoch (mirrors what the
+-- broker does on @InitProducerId@).
 beginTxn :: MockCluster -> TxnId -> IO ()
-beginTxn c tid = atomically $
+beginTxn c tid = atomically $ do
   modifyTVar' (mcTxns c) (Map.insert tid TxnOpen)
+  -- Initialise the epoch to 0 if this is the first time.
+  modifyTVar' (mcTxnEpoch c)
+    (Map.alter (Just . maybe 0 id) tid)
+
+-- | Read the current producer epoch for a txn id. Producers with a
+-- stamp whose epoch is below this are fenced.
+currentTxnEpoch :: MockCluster -> TxnId -> IO Int32
+currentTxnEpoch c tid = do
+  m <- readTVarIO (mcTxnEpoch c)
+  pure (Map.findWithDefault 0 tid m)
 
 -- | Commit a transaction. Bumps the LSO of every partition this
 -- transaction touched up to its high-water mark. Idempotent: a
@@ -407,6 +457,9 @@ beginTxn c tid = atomically $
 commitTxn :: MockCluster -> TxnId -> IO ()
 commitTxn c tid = atomically $ do
   modifyTVar' (mcTxns c) (Map.adjust (const TxnCommitted) tid)
+  -- Bump the epoch so any in-flight producer with the old epoch
+  -- gets fenced on its next send.
+  modifyTVar' (mcTxnEpoch c) (Map.adjust (+ 1) tid)
   -- Advance LSO on every partition that has at least one record
   -- belonging to this transaction.
   topics <- readTVar (mcTopics c)
@@ -424,6 +477,7 @@ commitTxn c tid = atomically $ do
 abortTxn :: MockCluster -> TxnId -> IO ()
 abortTxn c tid = atomically $ do
   modifyTVar' (mcTxns c) (Map.adjust (const TxnAborted) tid)
+  modifyTVar' (mcTxnEpoch c) (Map.adjust (+ 1) tid)
   -- LSO advances past aborted records so read-committed consumers
   -- skip them on the next fetch.
   topics <- readTVar (mcTopics c)
@@ -440,6 +494,91 @@ abortTxn c tid = atomically $ do
 
 txnState :: MockCluster -> TxnId -> IO (Maybe TxnState)
 txnState c tid = Map.lookup tid <$> readTVarIO (mcTxns c)
+
+----------------------------------------------------------------------
+-- Group rebalance / assignment
+----------------------------------------------------------------------
+
+-- | Add a member to a consumer group, declaring the topics it
+-- subscribes to. The cluster runs a round-robin assignment over
+-- every (topic, partition) of the union of subscribed topics
+-- across all current members; 'assignmentFor' returns each
+-- member's slice.
+joinGroup
+  :: MockCluster
+  -> GroupId
+  -> MemberId
+  -> [TopicName]
+  -> IO ()
+joinGroup c grp mid topics = atomically $
+  modifyTVar' (mcGroupMembers c) $ \m ->
+    let cur = Map.findWithDefault [] grp m
+        !next = filter ((/= mid) . fst) cur
+                ++ [(mid, Set.fromList topics)]
+    in Map.insert grp next m
+
+leaveGroup :: MockCluster -> GroupId -> MemberId -> IO ()
+leaveGroup c grp mid = atomically $
+  modifyTVar' (mcGroupMembers c) $ \m ->
+    Map.adjust (filter ((/= mid) . fst)) grp m
+
+membersOf :: MockCluster -> GroupId -> IO [MemberId]
+membersOf c grp = do
+  m <- readTVarIO (mcGroupMembers c)
+  pure (map fst (Map.findWithDefault [] grp m))
+
+-- | Compute this member's currently-assigned partitions under a
+-- deterministic round-robin assignor across the group's members.
+-- The assignor is sticky enough for tests: members are sorted by
+-- 'MemberId', topics by 'TopicName', and partitions are dealt out
+-- in order.
+assignmentFor
+  :: MockCluster -> GroupId -> MemberId -> IO [(TopicName, Int32)]
+assignmentFor c grp mid = do
+  members <- readTVarIO (mcGroupMembers c)
+  topics  <- readTVarIO (mcTopics c)
+  let !grpMems = Map.findWithDefault [] grp members
+      !sorted  = L.sortBy (\(a, _) (b, _) -> compare (unMemberId a) (unMemberId b)) grpMems
+  case lookupIdx mid sorted of
+    Nothing  -> pure []
+    Just self -> do
+      let !subscribed = Set.unions (map snd sorted)
+          !sortedTopics = L.sortBy
+                            (\a b -> compare (unTopicName a) (unTopicName b))
+                            (Set.toList subscribed)
+          !allParts = expandParts topics sortedTopics
+          !memberCount = length sorted
+          !assigned = takeEvery memberCount self allParts
+      pure assigned
+  where
+    lookupIdx :: MemberId -> [(MemberId, a)] -> Maybe Int
+    lookupIdx m = go 0
+      where
+        go _  []                = Nothing
+        go !i ((mm, _) : rest)
+          | mm == m   = Just i
+          | otherwise = go (i + 1) rest
+
+    expandParts :: Map TopicName MockTopic -> [TopicName] -> [(TopicName, Int32)]
+    expandParts topicMap = go []
+      where
+        go acc []     = reverse acc
+        go acc (t:ts) = case Map.lookup t topicMap of
+          Nothing -> go acc ts
+          Just mt ->
+            let !n = Map.size (mtPartitions mt)
+                !parts = map (\i -> (t, fromIntegral i)) [0 .. n - 1]
+             in go (reverse parts ++ acc) ts
+
+    -- Round-robin: keep entries whose 0-based index modulo
+    -- 'memberCount' equals 'self'.
+    takeEvery :: Int -> Int -> [a] -> [a]
+    takeEvery n self xs = go 0 xs
+      where
+        go _  []     = []
+        go !i (y:ys)
+          | i `mod` n == self = y : go (i + 1) ys
+          | otherwise        = go (i + 1) ys
 
 ----------------------------------------------------------------------
 -- Inspection helpers
