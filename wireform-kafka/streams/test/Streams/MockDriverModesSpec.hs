@@ -36,6 +36,8 @@ tests = testGroup "MockDriverModes"
   , eos_mode_round_trip_visible_to_read_committed
   , eos_mode_commit_fault_aborts_records
   , eos_mode_recovers_after_aborted_tick
+  , two_drivers_split_partitions_same_group
+  , driver_picks_up_partitions_after_sibling_leaves
   ]
 
 passthroughTopo :: IO TopologyValid
@@ -180,3 +182,60 @@ eos_mode_recovers_after_aborted_tick =
     -- Read-committed sees only the successfully-committed record.
     map (\(_, _, sr) -> unbytes (srValue sr)) rs @?= ["second"]
     closeMockDriver d
+
+----------------------------------------------------------------------
+-- Multi-driver rebalance
+----------------------------------------------------------------------
+
+two_drivers_split_partitions_same_group :: TestTree
+two_drivers_split_partitions_same_group =
+  testCase "two drivers in the same group split a 4-partition input" $ do
+    cluster <- newMockCluster 1
+    fp      <- noFaults
+    topo    <- passthroughTopo
+    -- Both drivers use application id "shared" → same group.
+    a <- newMockStreamsDriver cluster fp topo "shared" 4
+    b <- newMockStreamsDriver cluster fp topo "shared" 4
+    -- Driver A's consumer joined first and saw a single-member
+    -- group; refresh now that B is also in.
+    refreshAssignment (driverConsumer a)
+
+    -- Seed each input partition.
+    mapM_
+      (\(p, v) -> externalSend a (topicName "in") p Nothing (bytes v) (t 0))
+      [(0, "p0"), (1, "p1"), (2, "p2"), (3, "p3")]
+    -- Drive both drivers to quiescence.
+    runUntilQuiet a
+    runUntilQuiet b
+
+    aAsg <- L.sort <$> assignedPartitions (driverConsumer a)
+    bAsg <- L.sort <$> assignedPartitions (driverConsumer b)
+    -- The deterministic round-robin assignor sorts members by id;
+    -- since both auto-generated ids are "consumer-N" with N
+    -- monotonically increasing, the lower-N driver gets even
+    -- partitions and the higher-N driver gets odd ones.
+    map snd aAsg @?= [0, 2]
+    map snd bAsg @?= [1, 3]
+    -- Together they cover every partition.
+    Set.fromList (aAsg ++ bAsg)
+      @?= Set.fromList [(topicName "in", p) | p <- [0, 1, 2, 3]]
+    closeMockDriver a
+    closeMockDriver b
+
+driver_picks_up_partitions_after_sibling_leaves :: TestTree
+driver_picks_up_partitions_after_sibling_leaves =
+  testCase "after a sibling driver leaves, the remaining driver gets all partitions" $ do
+    cluster <- newMockCluster 1
+    fp      <- noFaults
+    topo    <- passthroughTopo
+    a <- newMockStreamsDriver cluster fp topo "shared" 4
+    b <- newMockStreamsDriver cluster fp topo "shared" 4
+    refreshAssignment (driverConsumer a)
+    -- Both have a partition slice. B leaves the group; A refreshes.
+    leaveGroup cluster (GroupId "shared")
+               (consumerMemberId (driverConsumer b))
+    refreshAssignment (driverConsumer a)
+    asg <- L.sort <$> assignedPartitions (driverConsumer a)
+    map snd asg @?= [0, 1, 2, 3]
+    closeMockDriver a
+    closeMockDriver b
