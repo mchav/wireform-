@@ -31,8 +31,14 @@ import Data.Int (Int16, Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 
+import Data.Bytes.Get (runGetS)
+import Data.Bytes.Put (runPutS)
+import qualified Data.Vector as V
 import Kafka.Client.Consumer (TopicPartition(..))
 import Kafka.Client.Internal.TransactionCoordinator
+import qualified Kafka.Protocol.Generated.AddOffsetsToTxnRequest as AOTReq
+import qualified Kafka.Protocol.Generated.TxnOffsetCommitRequest as TOCReq
+import qualified Kafka.Protocol.Primitives as P
 
 -- | Main test tree
 transactionCoordinatorSpec :: TestTree
@@ -40,6 +46,7 @@ transactionCoordinatorSpec = testGroup "TransactionCoordinator"
   [ errorInterpretationTests
   , coordinatorTypeTests
   , unitTests
+  , requestBuilderTests
   ]
 
 --------------------------------------------------------------------------------
@@ -166,6 +173,109 @@ unitTests = testGroup "Unit Tests"
           assertBool "Message not empty" (not $ T.null msg)
           assertBool "Message is descriptive" (T.length msg > 10)
         _ -> assertFailure "Wrong error type"
+  ]
+
+--------------------------------------------------------------------------------
+-- Request Builder Tests
+--
+-- 'addOffsetsToTxn' / 'txnOffsetCommitWith' both build their
+-- requests inline before sending; we lifted the construction to
+-- 'buildAddOffsetsToTxnRequest' / 'buildTxnOffsetCommitRequest'
+-- so we can assert the exact wire shape (encoder roundtrip + per
+-- field equality) without spinning up a coordinator.
+--------------------------------------------------------------------------------
+
+extractK :: P.KafkaString -> Text
+extractK (P.KafkaString P.Null)        = ""
+extractK (P.KafkaString (P.NotNull t)) = t
+
+requestBuilderTests :: TestTree
+requestBuilderTests = testGroup "Request Builders"
+  [ testCase "buildAddOffsetsToTxnRequest sets every field as supplied" $ do
+      let req = buildAddOffsetsToTxnRequest "tx-1" 4242 7 "consumer-grp"
+      extractK (AOTReq.addOffsetsToTxnRequestTransactionalId req) @?= "tx-1"
+      AOTReq.addOffsetsToTxnRequestProducerId    req @?= 4242
+      AOTReq.addOffsetsToTxnRequestProducerEpoch req @?= 7
+      extractK (AOTReq.addOffsetsToTxnRequestGroupId req) @?= "consumer-grp"
+
+  , testCase "AddOffsetsToTxnRequest round-trips through encoder/decoder (v3)" $ do
+      let req   = buildAddOffsetsToTxnRequest "tx-rt" 1 0 "g"
+          bytes = runPutS (AOTReq.encodeAddOffsetsToTxnRequest 3 req)
+      case runGetS (AOTReq.decodeAddOffsetsToTxnRequest 3) bytes of
+        Left err -> assertFailure ("decode failed: " <> err)
+        Right r2 -> do
+          extractK (AOTReq.addOffsetsToTxnRequestTransactionalId r2) @?= "tx-rt"
+          AOTReq.addOffsetsToTxnRequestProducerId    r2 @?= 1
+          AOTReq.addOffsetsToTxnRequestProducerEpoch r2 @?= 0
+          extractK (AOTReq.addOffsetsToTxnRequestGroupId r2) @?= "g"
+
+  , testCase "buildTxnOffsetCommitRequest groups partitions by topic" $ do
+      let req = buildTxnOffsetCommitRequest "grp" 100 5
+                  [ (TopicPartition "t1" 0, 10)
+                  , (TopicPartition "t1" 1, 11)
+                  , (TopicPartition "t2" 0, 20)
+                  ]
+      let topics = case P.unKafkaArray (TOCReq.txnOffsetCommitRequestTopics req) of
+                     P.Null      -> V.empty
+                     P.NotNull v -> v
+      V.length topics @?= 2
+      let names = [ extractK (TOCReq.txnOffsetCommitRequestTopicName t) | t <- V.toList topics ]
+      assertBool ("topics: " <> show names)
+                 ("t1" `elem` names && "t2" `elem` names)
+      -- The "t1" topic should have 2 partitions; "t2" should have 1.
+      let parts t = case P.unKafkaArray (TOCReq.txnOffsetCommitRequestTopicPartitions t) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+      let countsByName =
+            [ ( extractK (TOCReq.txnOffsetCommitRequestTopicName t)
+              , V.length (parts t)
+              )
+            | t <- V.toList topics
+            ]
+      lookup "t1" countsByName @?= Just 2
+      lookup "t2" countsByName @?= Just 1
+
+  , testCase "buildTxnOffsetCommitRequest stamps -1 leader epoch + null metadata" $ do
+      let req = buildTxnOffsetCommitRequest "g" 1 0 [(TopicPartition "x" 0, 99)]
+          [topic] = V.toList $ case P.unKafkaArray (TOCReq.txnOffsetCommitRequestTopics req) of
+                                 P.Null      -> V.empty
+                                 P.NotNull v -> v
+          [part] = V.toList $ case P.unKafkaArray (TOCReq.txnOffsetCommitRequestTopicPartitions topic) of
+                                P.Null      -> V.empty
+                                P.NotNull v -> v
+      TOCReq.txnOffsetCommitRequestPartitionPartitionIndex     part @?= 0
+      TOCReq.txnOffsetCommitRequestPartitionCommittedOffset    part @?= 99
+      TOCReq.txnOffsetCommitRequestPartitionCommittedLeaderEpoch part @?= -1
+      case TOCReq.txnOffsetCommitRequestPartitionCommittedMetadata part of
+        P.KafkaString P.Null -> pure ()
+        other                -> assertFailure ("expected null metadata, got " <> show other)
+
+  , testCase "buildTxnOffsetCommitRequest with empty offsets emits no topics" $ do
+      let req = buildTxnOffsetCommitRequest "g" 1 0 []
+          topics = case P.unKafkaArray (TOCReq.txnOffsetCommitRequestTopics req) of
+                     P.Null      -> V.empty
+                     P.NotNull v -> v
+      V.length topics @?= 0
+
+  , testCase "TxnOffsetCommitRequest round-trips through encoder/decoder (v3)" $ do
+      let req   = buildTxnOffsetCommitRequest "grp" 7 9
+                    [(TopicPartition "x" 0, 1), (TopicPartition "x" 1, 2)]
+          bytes = runPutS (TOCReq.encodeTxnOffsetCommitRequest 3 req)
+      case runGetS (TOCReq.decodeTxnOffsetCommitRequest 3) bytes of
+        Left err -> assertFailure ("decode failed: " <> err)
+        Right r2 -> do
+          extractK (TOCReq.txnOffsetCommitRequestGroupId r2)      @?= "grp"
+          TOCReq.txnOffsetCommitRequestProducerId       r2 @?= 7
+          TOCReq.txnOffsetCommitRequestProducerEpoch    r2 @?= 9
+          let topics = case P.unKafkaArray (TOCReq.txnOffsetCommitRequestTopics r2) of
+                         P.Null      -> V.empty
+                         P.NotNull v -> v
+          V.length topics @?= 1
+          let [topic] = V.toList topics
+              parts   = case P.unKafkaArray (TOCReq.txnOffsetCommitRequestTopicPartitions topic) of
+                          P.Null      -> V.empty
+                          P.NotNull v -> v
+          V.length parts @?= 2
   ]
 
 --------------------------------------------------------------------------------

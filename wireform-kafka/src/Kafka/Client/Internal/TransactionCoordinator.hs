@@ -22,6 +22,10 @@ module Kafka.Client.Internal.TransactionCoordinator
   , endTransaction
   , addOffsetsToTxn
   , txnOffsetCommit
+  , txnOffsetCommitWith
+    -- * Pure request builders (exposed for testing)
+  , buildAddOffsetsToTxnRequest
+  , buildTxnOffsetCommitRequest
   ) where
 
 import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
@@ -456,12 +460,7 @@ addOffsetsToTxn connMgr versionCache corrIdVar clientId coordinator transactiona
               Nothing -> 0
               Just v  -> v
 
-          request = AOTReq.AddOffsetsToTxnRequest
-            { AOTReq.addOffsetsToTxnRequestTransactionalId = P.mkKafkaString transactionalId
-            , AOTReq.addOffsetsToTxnRequestProducerId      = producerId
-            , AOTReq.addOffsetsToTxnRequestProducerEpoch   = epoch
-            , AOTReq.addOffsetsToTxnRequestGroupId         = P.mkKafkaString groupId
-            }
+          request = buildAddOffsetsToTxnRequest transactionalId producerId epoch groupId
           requestBody  = runPutS $ AOTReq.encodeAddOffsetsToTxnRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
 
@@ -550,36 +549,7 @@ txnOffsetCommitWith connMgr versionCache corrIdVar clientId groupCoordinator gro
               Nothing -> 0
               Just v  -> v
 
-      -- Group offsets by topic.
-      let byTopic = Map.fromListWith (++)
-            [ (tpTopic tp, [(tpPartition tp, offset)])
-            | (tp, offset) <- offsets
-            ]
-          topicVec = V.fromList
-            [ TOCReq.TxnOffsetCommitRequestTopic
-                { TOCReq.txnOffsetCommitRequestTopicName = P.mkKafkaString topic
-                , TOCReq.txnOffsetCommitRequestTopicPartitions = P.mkKafkaArray $ V.fromList
-                    [ TOCReq.TxnOffsetCommitRequestPartition
-                        { TOCReq.txnOffsetCommitRequestPartitionPartitionIndex   = pid
-                        , TOCReq.txnOffsetCommitRequestPartitionCommittedOffset = off
-                        , TOCReq.txnOffsetCommitRequestPartitionCommittedLeaderEpoch = -1
-                        , TOCReq.txnOffsetCommitRequestPartitionCommittedMetadata     = P.KafkaString P.Null
-                        }
-                    | (pid, off) <- parts
-                    ]
-                }
-            | (topic, parts) <- Map.toList byTopic
-            ]
-          request = TOCReq.TxnOffsetCommitRequest
-            { TOCReq.txnOffsetCommitRequestTransactionalId  = P.mkKafkaString (txnIdFromTxn epoch producerId)
-            , TOCReq.txnOffsetCommitRequestGroupId          = P.mkKafkaString groupId
-            , TOCReq.txnOffsetCommitRequestProducerId       = producerId
-            , TOCReq.txnOffsetCommitRequestProducerEpoch    = epoch
-            , TOCReq.txnOffsetCommitRequestGenerationId     = -1
-            , TOCReq.txnOffsetCommitRequestMemberId         = P.KafkaString P.Null
-            , TOCReq.txnOffsetCommitRequestGroupInstanceId  = P.KafkaString P.Null
-            , TOCReq.txnOffsetCommitRequestTopics           = P.mkKafkaArray topicVec
-            }
+      let request = buildTxnOffsetCommitRequest groupId producerId epoch offsets
           requestBody  = runPutS $ TOCReq.encodeTxnOffsetCommitRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
       result <- Req.sendRequestReceiveResponse
@@ -624,4 +594,73 @@ txnOffsetCommitWith connMgr versionCache corrIdVar clientId groupCoordinator gro
 txnIdFromTxn :: Int16 -> Int64 -> Text
 txnIdFromTxn epoch pid =
   T.pack ("txn-" <> show pid <> "-" <> show epoch)
+
+----------------------------------------------------------------------
+-- Pure request builders
+--
+-- The IO sites above inline request construction inside the
+-- network call. These pure helpers expose the same logic so
+-- tests can assert the exact wire shape without spinning up a
+-- broker.
+----------------------------------------------------------------------
+
+-- | Build an 'AddOffsetsToTxnRequest' (KIP-105 / API key 25).
+-- Identical to what 'addOffsetsToTxn' sends; lifted out so tests
+-- can round-trip the request through the encoder/decoder.
+buildAddOffsetsToTxnRequest
+  :: Text     -- ^ transactional id
+  -> Int64    -- ^ producer id
+  -> Int16    -- ^ producer epoch
+  -> Text     -- ^ consumer group id
+  -> AOTReq.AddOffsetsToTxnRequest
+buildAddOffsetsToTxnRequest transactionalId producerId epoch groupId =
+  AOTReq.AddOffsetsToTxnRequest
+    { AOTReq.addOffsetsToTxnRequestTransactionalId = P.mkKafkaString transactionalId
+    , AOTReq.addOffsetsToTxnRequestProducerId      = producerId
+    , AOTReq.addOffsetsToTxnRequestProducerEpoch   = epoch
+    , AOTReq.addOffsetsToTxnRequestGroupId         = P.mkKafkaString groupId
+    }
+
+-- | Build a 'TxnOffsetCommitRequest' (KIP-447 / API key 28).
+-- Groups input offsets by topic, attaches a placeholder
+-- transactional-id derived from (epoch, producer-id), and emits
+-- empty leader-epoch / metadata fields. Mirrors what
+-- 'txnOffsetCommitWith' constructs internally.
+buildTxnOffsetCommitRequest
+  :: Text     -- ^ consumer group id
+  -> Int64    -- ^ producer id
+  -> Int16    -- ^ producer epoch
+  -> [(TopicPartition, Int64)]
+              -- ^ offsets to commit
+  -> TOCReq.TxnOffsetCommitRequest
+buildTxnOffsetCommitRequest groupId producerId epoch offsets =
+  let !byTopic = Map.fromListWith (++)
+        [ (tpTopic tp, [(tpPartition tp, off)])
+        | (tp, off) <- offsets
+        ]
+      !topicVec = V.fromList
+        [ TOCReq.TxnOffsetCommitRequestTopic
+            { TOCReq.txnOffsetCommitRequestTopicName = P.mkKafkaString topic
+            , TOCReq.txnOffsetCommitRequestTopicPartitions = P.mkKafkaArray $ V.fromList
+                [ TOCReq.TxnOffsetCommitRequestPartition
+                    { TOCReq.txnOffsetCommitRequestPartitionPartitionIndex   = pid
+                    , TOCReq.txnOffsetCommitRequestPartitionCommittedOffset = off
+                    , TOCReq.txnOffsetCommitRequestPartitionCommittedLeaderEpoch = -1
+                    , TOCReq.txnOffsetCommitRequestPartitionCommittedMetadata     = P.KafkaString P.Null
+                    }
+                | (pid, off) <- parts
+                ]
+            }
+        | (topic, parts) <- Map.toList byTopic
+        ]
+   in TOCReq.TxnOffsetCommitRequest
+        { TOCReq.txnOffsetCommitRequestTransactionalId = P.mkKafkaString (txnIdFromTxn epoch producerId)
+        , TOCReq.txnOffsetCommitRequestGroupId         = P.mkKafkaString groupId
+        , TOCReq.txnOffsetCommitRequestProducerId      = producerId
+        , TOCReq.txnOffsetCommitRequestProducerEpoch   = epoch
+        , TOCReq.txnOffsetCommitRequestGenerationId    = -1
+        , TOCReq.txnOffsetCommitRequestMemberId        = P.KafkaString P.Null
+        , TOCReq.txnOffsetCommitRequestGroupInstanceId = P.KafkaString P.Null
+        , TOCReq.txnOffsetCommitRequestTopics          = P.mkKafkaArray topicVec
+        }
 
