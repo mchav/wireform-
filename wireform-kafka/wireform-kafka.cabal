@@ -382,6 +382,7 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.KGroupedStream
         Kafka.Streams.DSL.TimeWindowedKStream
         Kafka.Streams.DSL.SessionWindowedKStream
+        Kafka.Streams.DSL.GlobalKTable
         Kafka.Streams.Runtime
     build-depends:
         base                      >= 4.16  && < 5,

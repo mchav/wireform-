@@ -26,6 +26,9 @@ tests = testGroup "Joins"
   , ktable_ktable_inner_join
   , ktable_ktable_left_join
   , ktable_ktable_outer_join
+    -- GlobalKTable joins
+  , kstream_global_ktable_inner
+  , kstream_global_ktable_left_no_match_emits_nothing
   ]
 
 bytes :: Text -> BSC.ByteString
@@ -362,4 +365,70 @@ ktable_ktable_outer_join =
     case s2 of
       Just kvs -> kvsGet kvs "k" >>= (@?= Just "L1/R1")
       Nothing -> error "out store missing"
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- KStream-GlobalKTable join tests
+----------------------------------------------------------------------
+
+kstream_global_ktable_inner :: TestTree
+kstream_global_ktable_inner =
+  testCase "KStream-GlobalKTable inner join: stream key mapped to global key" $ do
+    b <- newStreamsBuilder
+    -- Global table keyed by "user-id" (independent of stream keys).
+    g <- globalTable b (topicName "users")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "g-store"))
+    -- Stream of events keyed by event-id, value contains "user-id|action".
+    s <- streamFromTopic b (topicName "events")
+           (consumed textSerde textSerde)
+    j <- joinKStreamGlobalKTable
+            (\_eventKey v ->
+               -- look up by user-id: the part before "|"
+               T.takeWhile (/= '|') v)
+            (\v userName -> userName <> ":" <> T.dropWhile (== '|') (T.dropWhile (/= '|') v))
+            s
+            g
+    toTopic (topicName "out") (produced textSerde textSerde) j
+    topo <- buildTopology b
+    driver <- newDriver topo "kgkt-app"
+
+    pipeInput driver (topicName "users")  (Just (bytes "u1")) (bytes "alice") (t 0) 0
+    pipeInput driver (topicName "users")  (Just (bytes "u2")) (bytes "bob")   (t 0) 0
+
+    pipeInput driver (topicName "events") (Just (bytes "e1")) (bytes "u1|click")  (t 1) 0
+    pipeInput driver (topicName "events") (Just (bytes "e2")) (bytes "uX|miss")   (t 2) 0
+    pipeInput driver (topicName "events") (Just (bytes "e3")) (bytes "u2|scroll") (t 3) 0
+
+    out <- readOutput driver (topicName "out")
+    map (unbytes . crValue) out @?= ["alice:click", "bob:scroll"]
+    closeDriver driver
+
+kstream_global_ktable_left_no_match_emits_nothing :: TestTree
+kstream_global_ktable_left_no_match_emits_nothing =
+  testCase "KStream-GlobalKTable left join: emits even when global has no match" $ do
+    b <- newStreamsBuilder
+    g <- globalTable b (topicName "users")
+            (consumed textSerde textSerde)
+            (materializedAs (storeName "g2-store"))
+    s <- streamFromTopic b (topicName "events")
+           (consumed textSerde textSerde)
+    j <- leftJoinKStreamGlobalKTable
+            (\_e v -> T.takeWhile (/= '|') v)
+            (\v mUser ->
+                let user = maybe "<unknown>" id mUser
+                    rest = T.dropWhile (== '|') (T.dropWhile (/= '|') v)
+                 in user <> ":" <> rest)
+            s
+            g
+    toTopic (topicName "out") (produced textSerde textSerde) j
+    topo <- buildTopology b
+    driver <- newDriver topo "kgkt-l-app"
+
+    pipeInput driver (topicName "users") (Just (bytes "u1")) (bytes "alice") (t 0) 0
+    pipeInput driver (topicName "events") (Just (bytes "e1")) (bytes "u1|x") (t 1) 0
+    pipeInput driver (topicName "events") (Just (bytes "e2")) (bytes "u9|y") (t 2) 0
+
+    out <- readOutput driver (topicName "out")
+    map (unbytes . crValue) out @?= ["alice:x", "<unknown>:y"]
     closeDriver driver

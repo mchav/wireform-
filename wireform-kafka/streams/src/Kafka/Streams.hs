@@ -35,6 +35,7 @@ module Kafka.Streams
   , module Kafka.Streams.DSL.KTable
   , module Kafka.Streams.DSL.TimeWindowedKStream
   , module Kafka.Streams.DSL.SessionWindowedKStream
+  , module Kafka.Streams.DSL.GlobalKTable
     -- * Driver / Runtime
   , module Kafka.Streams.Driver
   , module Kafka.Streams.Runtime
@@ -49,6 +50,7 @@ import Kafka.Streams.DSL.KStream
 import Kafka.Streams.DSL.KTable
 import Kafka.Streams.DSL.Materialized
 import Kafka.Streams.DSL.Produced
+import Kafka.Streams.DSL.GlobalKTable
 import Kafka.Streams.DSL.SessionWindowedKStream
 import Kafka.Streams.DSL.StreamsBuilder
 import Kafka.Streams.DSL.TimeWindowedKStream

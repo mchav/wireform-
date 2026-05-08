@@ -40,7 +40,7 @@
 --   * 'groupByStream'           — @KStream.groupBy@
 --   * 'transformValuesStream'   — @KStream.transformValues@
 module Kafka.Streams.DSL.KStream
-  ( KStream
+  ( KStream (..)
   , kstreamParent
   , kstreamBuilder
   , kstreamKeySerde
