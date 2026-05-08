@@ -36,6 +36,7 @@ module Kafka.Streams.Internal.Engine
   , engineCollector
   , engineStreamTime
   , engineWallClock
+  , engineMetrics
   , buildEngine
   , feedSource
   , advanceWallClock
@@ -71,6 +72,11 @@ import Kafka.Streams.Errors
   ( DeserializationException (..)
   , DeserializationHandler (..)
   , DeserializationResponse (..)
+  )
+import qualified Kafka.Streams.Metrics as Met
+import Kafka.Streams.Metrics
+  ( MetricsRegistry
+  , noopMetricsRegistry
   )
 import Kafka.Streams.Internal.RecordCollector
   ( CollectedRecord (..)
@@ -192,6 +198,7 @@ data Engine = Engine
   , engineCurrentMd    :: !(IORef (Maybe RecordMetadata))
   , enginePunctuators  :: !(IORef [PunctuatorEntry])
   , engineDeserHandler :: !DeserializationHandler
+  , engineMetrics      :: !MetricsRegistry
   }
 
 ----------------------------------------------------------------------
@@ -224,6 +231,7 @@ buildEngine validated tid appId collector deserHandler = do
   wallRef       <- nowAsTimestamp >>= newIORef
   currentMdRef  <- newIORef Nothing
   pesRef        <- newIORef []
+  metrics       <- noopMetricsRegistry
 
   let engine = Engine
         { engineTopology     = topo
@@ -239,6 +247,7 @@ buildEngine validated tid appId collector deserHandler = do
         , engineCurrentMd    = currentMdRef
         , enginePunctuators  = pesRef
         , engineDeserHandler = deserHandler
+        , engineMetrics      = metrics
         }
 
   -- Wire processors first so children-of references resolve.
@@ -415,9 +424,12 @@ handleSource engine spec children si = do
             , recordTimestamp = ts
             , recordHeaders   = emptyHeaders
             }
+      Met.incCounter (engineMetrics engine) Met.processTotal
       mapM_ (\fw -> fw rec) children
       writeIORef (engineCurrentMd engine) Nothing
-    _ -> handleDeserError engine si mErasedKey eErasedVal
+    _ -> do
+      Met.incCounter (engineMetrics engine) Met.droppedRecordsTotal
+      handleDeserError engine si mErasedKey eErasedVal
 
 -- | Decode the source's key bytes via its 'AnySerde' into a fully
 -- erased 'Maybe Erased'. The unsafeCoerce is sound because the
@@ -615,6 +627,7 @@ fireDue engine pt now = do
     fireOnce pe
       | peNextFireMs pe <= now = do
           runPunctuator (pePunctuator pe) (Timestamp now)
+          Met.incCounter (engineMetrics engine) Met.punctuateTotal
           let !next = peNextFireMs pe + fromIntegral (peIntervalMs pe)
               -- If the next-fire is still behind now (because we
               -- jumped a huge gap in stream time), snap it to
@@ -639,6 +652,7 @@ commitEngine engine = do
       Left e -> putStrLn ("[streams] store flush failed: " <> show e)
       _      -> pure ()
   collectorFlush (engineCollector engine)
+  Met.incCounter (engineMetrics engine) Met.commitTotal
 
 closeEngine :: Engine -> IO ()
 closeEngine engine = do

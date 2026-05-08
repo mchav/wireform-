@@ -17,6 +17,7 @@ module Kafka.Streams
   , module Kafka.Streams.Processor
   , module Kafka.Streams.Topology
   , module Kafka.Streams.TopologyDescription
+  , module Kafka.Streams.Metrics
   , module Kafka.Streams.Config
     -- * State stores
   , module Kafka.Streams.State.Store
@@ -81,6 +82,7 @@ import Kafka.Streams.State.Store
 import Kafka.Streams.State.Window.InMemory
 import Kafka.Streams.Time
 import Kafka.Streams.Topology
+import Kafka.Streams.Metrics
 import Kafka.Streams.TopologyDescription
 import Kafka.Streams.Types
 import Kafka.Streams.Window

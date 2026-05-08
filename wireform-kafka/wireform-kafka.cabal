@@ -371,6 +371,7 @@ library wireform-kafka-streams
         Kafka.Streams.Processor
         Kafka.Streams.Topology
         Kafka.Streams.TopologyDescription
+        Kafka.Streams.Metrics
         Kafka.Streams.State.Store
         Kafka.Streams.State.KeyValue.InMemory
         Kafka.Streams.State.KeyValue.Persistent
@@ -457,6 +458,7 @@ test-suite wireform-kafka-streams-test
         Streams.TimestampedSpec
         Streams.VersionedSpec
         Streams.TopologyDescriptionSpec
+        Streams.MetricsSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

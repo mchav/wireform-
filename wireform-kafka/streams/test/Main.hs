@@ -25,6 +25,7 @@ import qualified Streams.SuppressSpec
 import qualified Streams.TimestampedSpec
 import qualified Streams.VersionedSpec
 import qualified Streams.TopologyDescriptionSpec
+import qualified Streams.MetricsSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -51,4 +52,5 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.TimestampedSpec.tests
   , Streams.VersionedSpec.tests
   , Streams.TopologyDescriptionSpec.tests
+  , Streams.MetricsSpec.tests
   ]
