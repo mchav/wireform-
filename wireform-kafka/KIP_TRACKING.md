@@ -59,7 +59,7 @@ This document tracks the implementation status of **Kafka Client-related KIPs** 
 - **Protocol**: Flexible versions (tagged fields), version negotiation, all message types
 - **Compression**: Gzip ✅, LZ4 ✅, Zstd ✅, Snappy 🔄
 - **Authentication**: SASL/PLAIN ✅, SASL/SCRAM-SHA-256/512 ✅, TLS 1.2/1.3 ✅, OAuth ❌, Kerberos ❌
-- **Consumer**: Classic protocol 🔄, Background heartbeat ✅ (KIP-62), Max poll interval ✅ (KIP-256), Rack-aware fetching ✅ (KIP-392), Close with timeout ✅ (KIP-102), KIP-848 new protocol ❌, Static membership ❌
+- **Consumer**: Classic protocol 🔄, Background heartbeat ✅ (KIP-62), Max poll interval ✅ (KIP-256), Rack-aware fetching ✅ (KIP-392), Close with timeout ✅ (KIP-102), KIP-848 new protocol ❌, Static membership ✅ (KIP-345), Sticky assignment ✅ (KIP-54), Time-based offsets ✅ (KIP-79), Batch committed ✅ (KIP-211), seek/position ✅
 - **Producer**: Basic ✅, Delivery timeout ✅ (KIP-91), Flush ✅ (KIP-8), Close with timeout ✅ (KIP-15), Idempotent 🔄, Transactional 🔄, Sticky partitioning ✅ (KIP-480), Custom partitioners ✅
 - **AdminClient**: Protocol ✅, High-level APIs ✅ (KIP-117)
 - **Share Groups**: Protocol ✅ (KIP-912), Consumer implementation ❌
@@ -261,8 +261,8 @@ Kafka Connect API enhancement, not client-relevant.
 NetworkClient needs pluggable reconnect backoff policies for custom retry behavior.
 
 ### KIP-54: Sticky Partition Assignment Strategy
-**Status**: ❌ Not Implemented  
-Consumer group rebalance strategy that minimizes partition movement; requires implementation in partition assignor.
+**Status**: ✅ Implemented  
+Consumer group's rebalance strategy that minimizes partition movement: `StickyAssignment` is exposed via `ConsumerConfig.consumerAssignmentStrategy` and translates to `cooperative-sticky` on the wire (`Kafka.Client.Internal.Subscribe.AssignorSticky`). The pure `stickyAssign` core is exercised by `Streams.AssignorSpec` + `Client.SubscribeSpec`.
 
 ### KIP-55: Secure Quotas for Authenticated Users
 **Status**: ⚪ N/A  
@@ -333,8 +333,8 @@ Broker memory management, not client-relevant.
 Broker replication throttling, not client-relevant.
 
 ### KIP-74: Add Fetch Response Size Limit in Bytes
-**Status**: ❌ Not Implemented  
-Consumer needs max.partition.fetch.bytes and max.fetch.bytes configuration for memory control.
+**Status**: ✅ Implemented  
+`ConsumerConfig` exposes both `consumerFetchMaxBytes` (`fetch.max.bytes`, default 50 MiB) and `consumerFetchMessageMaxBytes` (`max.partition.fetch.bytes`, default 1 MiB); both are wired through to the FetchRequest in `Kafka.Client.Consumer.fetchFromBroker`.
 
 ### KIP-75: Add per-connector Converters
 **Status**: ⚪ N/A  
@@ -349,8 +349,8 @@ Configuration file password handling; Haskell clients typically use environment 
 Cluster ID returned in metadata responses; protocol support present, needs exposure in client API.
 
 ### KIP-79: ListOffsetRequest v1 with timestamp search
-**Status**: 🔄 Partial  
-ListOffsetRequest/Response protocol generated; needs consumer API for seeking by timestamp.
+**Status**: ✅ Implemented (this branch)  
+Consumer surface added in `Kafka.Client.Consumer`: `beginningOffsets`, `endOffsets`, `offsetsForTimes`. Each returns a `HashMap TopicPartition Int64` keyed on the input partition. Wired through `queryPartitionOffsetsByTimestamp` for the per-partition timestamp variant. Live-broker coverage in `Integration.ConsumerOffsetsSpec`.
 
 ### KIP-80: Kafka Rest Server
 **Status**: ⚪ N/A  
