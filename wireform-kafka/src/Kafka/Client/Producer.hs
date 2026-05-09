@@ -80,6 +80,8 @@ module Kafka.Client.Producer
     -- * Configuration
   , defaultProducerConfig
   , DeliveryGuarantee(..)
+    -- * Cluster info (KIP-78)
+  , producerClusterId
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -773,6 +775,14 @@ sendMessage p@Producer{..} topic key value = do
           let err = "Failed to append record (accumulator closed or full)"
           runAckInterceptor producerConfig iceptedRecord (Left err)
           return (Left err)
+
+-- | KIP-78: read the broker-supplied cluster id off this
+-- producer's metadata cache. Returns 'Nothing' until the first
+-- successful metadata refresh; afterwards reflects whatever the
+-- broker set in its @MetadataResponse@.
+producerClusterId :: Producer -> IO (Maybe Text)
+producerClusterId Producer{..} =
+  atomically (Meta.getClusterId producerMetadata)
 
 -- | Best-effort dispatch of the ack interceptor. Wraps in 'try' so
 -- a buggy interceptor can't take down the sender thread / caller.

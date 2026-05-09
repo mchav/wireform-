@@ -44,7 +44,8 @@ genTopicMetadata = do
   partitions <- replicateM numPartitions genPartitionMetadata
   let partMap = Map.fromList $ map (\p -> (partitionMetaId p, p)) partitions
   errorCode <- Gen.int16 (Range.linear 0 10)
-  return $ TopicMetadata name partMap errorCode
+  isInternal <- Gen.bool
+  return $ TopicMetadata name partMap errorCode isInternal
 
 -- | Generate cluster metadata
 genClusterMetadata :: Gen ClusterMetadata
@@ -58,8 +59,9 @@ genClusterMetadata = do
   let topicMap = Map.fromList $ map (\t -> (topicMetaName t, t)) topics
   
   controllerId <- Gen.int32 (Range.linear 0 (fromIntegral numBrokers - 1))
-  
-  return $ ClusterMetadata brokerMap topicMap controllerId
+  -- KIP-78 cluster id; sometimes Nothing to exercise both paths.
+  cId <- Gen.maybe (Gen.text (Range.linear 8 16) Gen.alphaNum)
+  return $ ClusterMetadata brokerMap topicMap controllerId cId
 
 -- | Test creating an empty metadata cache
 unit_createMetadataCache :: Assertion

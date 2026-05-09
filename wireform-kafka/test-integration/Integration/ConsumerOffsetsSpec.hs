@@ -59,10 +59,16 @@ testEndAndBeginning brokerText = do
     (Right bm, Right em) -> do
       let begOff = fromMaybe (-9999) (HashMap.lookup tp bm)
           endOff = fromMaybe (-9999) (HashMap.lookup tp em)
-      assertEqual "beginning offset for fresh topic is 0"
-                  0 begOff
-      assertBool  ("end offset >= 5 (got " ++ show endOff ++ ")")
-                  (endOff >= 5)
+      -- Kafka may have cleaned earlier log segments due to
+      -- retention; the begin offset isn't guaranteed to be 0.
+      -- All we need is begin >= 0 (i.e. the topic exists) and
+      -- end >= begin + 5 (the records we just produced are
+      -- visible).
+      assertBool ("begin offset should be >= 0 (got " ++ show begOff ++ ")")
+                 (begOff >= 0)
+      assertBool ("end offset should be >= begin + 5 (got begin=" ++ show begOff
+                    ++ ", end=" ++ show endOff ++ ")")
+                 (endOff >= begOff + 5)
     _ -> error ("offsets failed: beg=" ++ show beg ++ " end=" ++ show end)
   KC.closeConsumer consumer
 

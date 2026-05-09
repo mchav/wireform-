@@ -345,8 +345,8 @@ Kafka Connect configuration, not client-relevant.
 Configuration file password handling; Haskell clients typically use environment variables or config values directly.
 
 ### KIP-78: Cluster Id
-**Status**: 🔄 Partial  
-Cluster ID returned in metadata responses; protocol support present, needs exposure in client API.
+**Status**: ✅ Implemented (this branch)  
+The cluster id (KIP-78) is now parsed off the v2+ MetadataResponse and surfaced via three matching APIs: `Kafka.Client.Producer.producerClusterId`, `Kafka.Client.Consumer.consumerClusterId`, and `Kafka.Client.AdminClient.adminClusterId`. Each reads from the `MetadataCache` populated on connect; exercised by `Integration.AdminClientExtendedSpec` against a live broker.
 
 ### KIP-79: ListOffsetRequest v1 with timestamp search
 **Status**: ✅ Implemented (this branch)  
@@ -429,8 +429,8 @@ Broker-side listener configuration, clients connect regardless of internal/exter
 Broker configuration default change, not client-relevant.
 
 ### KIP-107: Add deleteRecordsBefore() API in AdminClient
-**Status**: 🔄 Partial  
-DeleteRecordsRequest/Response protocol generated; AdminClient API not yet implemented.
+**Status**: ✅ Implemented (this branch)  
+`Kafka.Client.AdminClient.deleteRecords` wraps `DeleteRecordsRequest` v1; takes `[(Text, Int32, Int64)]` and returns one `DeleteRecordsResultEntry` per partition with the new low-watermark + error code.
 
 ### KIP-109: Old Consumer Deprecation
 **Status**: ✅ Implemented  
@@ -481,8 +481,8 @@ Kafka Connect converter, not client-relevant.
 Kafka Connect API, not client-relevant.
 
 ### KIP-133: Describe and Alter Configs Admin APIs
-**Status**: 🔄 Partial  
-DescribeConfigsRequest/Response and AlterConfigsRequest/Response generated; AdminClient API not exposed.
+**Status**: ✅ Implemented (this branch)  
+`Kafka.Client.AdminClient.describeConfigs` (KIP-133 read side, has been here) + `Kafka.Client.AdminClient.alterConfigs` (KIP-133 write side, replacing-style). For incremental updates use `incrementalAlterConfigs` (KIP-339 below).
 
 ### KIP-134: Delay initial consumer group rebalance
 **Status**: ✅ Implemented (this branch)  
@@ -1029,8 +1029,8 @@ Metadata protocol extension; if adopted, handled by protocol generation.
 AdminClient protocol messages support authentication just like producer/consumer.
 
 ### KIP-339: Create a new IncrementalAlterConfigs API
-**Status**: 🔄 Partial  
-IncrementalAlterConfigsRequest/Response generated; AdminClient API not exposed.
+**Status**: ✅ Implemented (this branch)  
+`Kafka.Client.AdminClient.incrementalAlterConfigs` exposes Set / Delete / Append / Subtract per key via `AlterableConfigEntry`. Live-broker round-trip exercised in `Integration.AdminClientExtendedSpec`.
 
 ### KIP-340: Remove ZOOKEEPER config from MirrorMaker2
 **Status**: ⚪ N/A  
@@ -1337,8 +1337,8 @@ Kafka Connect exactly-once, not client-relevant.
 Zstandard compression fully supported (duplicate of KIP-110/KIP-385).
 
 ### KIP-444: Augment MetadataResponse to include topic internal flag
-**Status**: 🔄 Partial  
-MetadataResponse includes isInternal flag; needs API exposure for topic filtering.
+**Status**: ✅ Implemented (this branch)  
+`TopicMetadata` now carries `topicMetaIsInternal`; `Kafka.Client.Metadata.getTopicIsInternal` queries it and `Kafka.Client.AdminClient.listTopicsExcludeInternal` filters Kafka-internal topics out of the listing.
 
 ### KIP-445: Add Earliest and Latest flags to KafkaConsumer::OffsetsForTimes
 **Status**: ✅ Implemented (this branch)  
@@ -1381,8 +1381,8 @@ Error message standardization across Kafka; implementation concern.
 Configuration deprecation policy, handled per-config.
 
 ### KIP-460: Admin Leader Election RPC
-**Status**: 🔄 Partial  
-ElectLeadersRequest/Response protocol generated; AdminClient API not exposed.
+**Status**: ✅ Implemented (this branch)  
+`Kafka.Client.AdminClient.electLeaders` exposes the request with both election types (`PreferredElection` / `UncleanElection`) and decodes the per-partition error code map.
 
 ### KIP-461: Improve Replica Fetcher behavior at handling partition failure
 **Status**: ⚪ N/A  
@@ -1401,8 +1401,8 @@ Broker ACL authorization, clients handle 401/403 responses.
 AdminClient should have sensible default configurations separate from producer/consumer.
 
 ### KIP-465: Make consumer offsets available through Admin API
-**Status**: 🔄 Partial  
-OffsetFetchRequest protocol exists; AdminClient wrapper for listing all consumer group offsets not exposed.
+**Status**: ✅ Implemented (this branch)  
+`Kafka.Client.AdminClient.listConsumerGroupOffsets` issues an OffsetFetch with a /null/ topics array (the broker's "all offsets for this group" sentinel) and returns a `HashMap (Text, Int32) Int64` keyed on each (topic, partition).
 
 ### KIP-467: Add subscription() method to Share Consumer
 **Status**: ⚪ N/A  
@@ -1505,8 +1505,8 @@ Broker metadata management; transparent to clients connecting to KRaft or ZK clu
 API cleanup; only new consumer APIs should be implemented.
 
 ### KIP-503: Add API for managing consumer group offsets
-**Status**: 🔄 Partial  
-OffsetCommitRequest can commit offsets; AdminClient API for managing external consumer group offsets not fully exposed.
+**Status**: ✅ Implemented (this branch)  
+`Kafka.Client.AdminClient.alterConsumerGroupOffsets` writes externally-supplied offsets to a consumer group via OffsetCommit v5 (memberId="" sentinel + generationId=-1, matching the JVM client's external-commit shape).
 
 ### KIP-504: Add new Java Authorizer interface
 **Status**: ⚪ N/A  

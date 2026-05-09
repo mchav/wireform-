@@ -73,6 +73,8 @@ module Kafka.Client.Consumer
   , ConsumerConfig(..)
   , StaticMembershipState(..)
   , currentStaticMembershipState
+    -- * Cluster info (KIP-78)
+  , consumerClusterId
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -607,6 +609,14 @@ currentStaticMembershipState Consumer{..} = case consumerHeartbeat of
     gen <- readTVarIO (HB.hbGenerationId hbState)
     pure (Just (StaticMembershipState mid gen))
 
+-- | KIP-78: read the broker-supplied cluster id off the
+-- consumer's metadata cache. Returns 'Nothing' until the first
+-- successful metadata refresh; afterwards reflects whatever the
+-- broker set in its @MetadataResponse@.
+consumerClusterId :: Consumer -> IO (Maybe Text)
+consumerClusterId Consumer{..} =
+  atomically (Meta.getClusterId consumerMetadata)
+
 -- | Synchronously issue a LeaveGroup against the group coordinator.
 -- Used by 'closeConsumerWithTimeout' to clean-shutdown the group
 -- membership; failures are logged in the caller but otherwise ignored.
@@ -614,8 +624,14 @@ sendLeaveGroup :: Consumer -> HB.HeartbeatState -> IO ()
 sendLeaveGroup c@Consumer{..} hbState = do
   coordAddrM <- atomically $ readTVar (HB.hbCoordinatorAddr hbState)
   memberId   <- readTVarIO (HB.hbMemberId hbState)
+  -- Skip if we never actually joined the group (no coordinator
+  -- discovered, or no memberId issued). Sending LeaveGroup with
+  -- an empty memberId triggers an InvalidRequestException on the
+  -- broker, which then closes the connection — and the next
+  -- request sees an EOF.
   case coordAddrM of
-    Nothing        -> pure ()    -- never joined; nothing to leave
+    Nothing -> pure ()    -- never joined; nothing to leave
+    _ | T.null memberId -> pure ()
     Just coordAddr -> do
       connResult <- Conn.getOrCreateConnection
                       consumerConnManager

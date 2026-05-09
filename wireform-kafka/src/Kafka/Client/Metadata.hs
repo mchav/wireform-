@@ -35,6 +35,8 @@ module Kafka.Client.Metadata
   , getTopicPartitions
   , getPartitionCount
   , getAllBrokers
+  , getClusterId
+  , getTopicIsInternal
     -- * Metadata Refresh
   , refreshMetadata
   , refreshTopicMetadata
@@ -92,6 +94,10 @@ data TopicMetadata = TopicMetadata
     -- hot path looks up by 'Int32' partition id; O(1) average
     -- vs. tree-based O(log n).
   , topicMetaErrorCode :: !Int16
+  , topicMetaIsInternal :: !Bool
+    -- ^ KIP-444: whether this topic is a Kafka-internal topic
+    -- (e.g. @__consumer_offsets@, @__transaction_state@). Allows
+    -- callers to filter internals out of @listTopics@.
   } deriving (Eq, Show, Generic)
 
 -- | Complete cluster metadata
@@ -106,6 +112,13 @@ data ClusterMetadata = ClusterMetadata
     -- would do at every level of the tree on each lookup.
   , clusterControllerId :: !Int32
     -- ^ Node ID of the cluster controller
+  , clusterClusterId :: !(Maybe Text)
+    -- ^ KIP-78: the broker's cluster id (a UUID-shaped string),
+    -- as returned by @MetadataResponse@ from version 2 onward.
+    -- 'Nothing' on older brokers or when the broker hasn't
+    -- populated the field. Useful for clients that talk to
+    -- multiple Kafka clusters and want to pin requests / metrics
+    -- per-cluster.
   } deriving (Eq, Show, Generic)
 
 -- | Metadata cache with STM for concurrent access
@@ -210,6 +223,27 @@ getAllBrokers (MetadataCache metaVar) = do
     Just ClusterMetadata{..} ->
       return $ Just $ HashMap.elems clusterBrokers
 
+-- | KIP-78: read the broker-supplied cluster id, if known.
+-- Returns 'Nothing' before the first metadata refresh, on
+-- pre-MetadataResponse-v2 brokers, and when the broker has not
+-- populated the field. Otherwise returns the (UUID-shaped)
+-- cluster id string.
+getClusterId :: MetadataCache -> STM (Maybe Text)
+getClusterId (MetadataCache metaVar) = do
+  metaM <- readTVar metaVar
+  pure (metaM >>= clusterClusterId)
+
+-- | KIP-444: query the cached @isInternal@ flag for a topic.
+-- Returns 'Nothing' if the topic isn't in the cache (or the cache
+-- hasn't been populated yet).
+getTopicIsInternal :: MetadataCache -> Text -> STM (Maybe Bool)
+getTopicIsInternal (MetadataCache metaVar) topic = do
+  metaM <- readTVar metaVar
+  pure $ do
+    ClusterMetadata{..} <- metaM
+    tm <- HashMap.lookup topic clusterTopics
+    pure (topicMetaIsInternal tm)
+
 -- | Refresh metadata for all topics
 refreshMetadata
   :: Connection
@@ -227,15 +261,26 @@ refreshTopicMetadata
   -> Int32         -- ^ Correlation ID
   -> IO (Either String ())
 refreshTopicMetadata conn (MetadataCache metaVar) topicsM correlationId = do
-  -- Create metadata request
+  -- Create metadata request. For v4+ Metadata the convention is
+  -- /null/ topics array means "fetch every topic"; an empty
+  -- non-null array means "fetch nothing". v0-v3 also accepts an
+  -- empty array as "all topics", but we always go through v8
+  -- here so the null sentinel is required.
   let topics = case topicsM of
-        Nothing -> P.mkKafkaArray V.empty  -- Empty array means all topics
+        Nothing -> P.KafkaArray P.Null
         Just ts -> P.mkKafkaArray $ V.fromList $ map (\t -> MR.MetadataRequestTopic
           { MR.metadataRequestTopicTopicId = P.nullUuid
           , MR.metadataRequestTopicName = P.mkKafkaString t
           }) ts
       
-      apiVersion = 0  -- Use version 0 for maximum compatibility
+      -- v8 is the highest non-flexible Metadata version. Using
+      -- it here (instead of v0) buys us the ClusterId field
+      -- (KIP-78, v2+) and the IsInternal flag (KIP-444, v1+)
+      -- on the populated 'ClusterMetadata' without having to
+      -- thread the v9+ flexible-versions request header through
+      -- this code path. Brokers from Kafka 0.11 onward all
+      -- support v8.
+      apiVersion = 8
       request = MR.MetadataRequest
         { MR.metadataRequestTopics = topics
         , MR.metadataRequestAllowAutoTopicCreation = False
@@ -272,13 +317,22 @@ refreshTopicMetadata conn (MetadataCache metaVar) topicsM correlationId = do
 -- | Parse metadata response into our internal format
 parseMetadataResponse :: MResp.MetadataResponse -> ClusterMetadata
 parseMetadataResponse response =
-  let brokers = parseBrokers response
-      topics = parseTopics response
-      controllerId = MResp.metadataResponseControllerId response
+  let !brokers = parseBrokers response
+      !topics = parseTopics response
+      !controllerId = MResp.metadataResponseControllerId response
+      -- KIP-78: ClusterId is a 'KafkaString' that's null on
+      -- pre-v2 metadata responses; keep the 'Nothing' shape so
+      -- callers can tell "broker didn't tell us" apart from
+      -- "we never asked".
+      !cId = case P.unKafkaString (MResp.metadataResponseClusterId response) of
+              P.Null      -> Nothing
+              P.NotNull t | T.null t  -> Nothing
+                          | otherwise -> Just t
   in ClusterMetadata
-      { clusterBrokers = brokers
-      , clusterTopics = topics
+      { clusterBrokers      = brokers
+      , clusterTopics       = topics
       , clusterControllerId = controllerId
+      , clusterClusterId    = cId
       }
 
 -- | Parse broker information from metadata response
@@ -308,7 +362,8 @@ parseTopics response =
       let name = extractText $ MResp.metadataResponseTopicName topic
           errorCode = MResp.metadataResponseTopicErrorCode topic
           partitions = parsePartitions topic
-      in (name, TopicMetadata name partitions errorCode)
+          isInternal = MResp.metadataResponseTopicIsInternal topic
+      in (name, TopicMetadata name partitions errorCode isInternal)
 
 -- | Parse partition information from a topic
 parsePartitions :: MResp.MetadataResponseTopic -> HashMap Int32 PartitionMetadata

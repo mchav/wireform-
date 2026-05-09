@@ -49,9 +49,11 @@ baseMetadata = Meta.ClusterMetadata
                [ (0, Meta.PartitionMetadata 0 1 [1, 2] [1, 2])
                , (1, Meta.PartitionMetadata 1 2 [1, 2] [1, 2])
                ])
-            0)
+            0
+            False)
       ]
   , Meta.clusterControllerId = 1
+  , Meta.clusterClusterId    = Nothing
   }
 
 -- The @MetadataCache@ constructor is intentionally hidden; we
