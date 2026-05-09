@@ -39,8 +39,8 @@ module Kafka.Client.Filter
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.Set as Set
-import Data.Set (Set)
+import qualified Data.HashSet as HashSet
+import Data.HashSet (HashSet)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
@@ -73,9 +73,14 @@ byHeaderEquals name expected = RecordFilter $ \r ->
     Just v  -> v == expected
     Nothing -> False
 
-byTopicIn :: Set Text -> RecordFilter
+-- | Pass records whose topic is in the supplied set.
+--
+-- Uses 'HashSet Text' for O(1) average membership; for sparse
+-- consumers with large allow-lists the 'Data.Set'-based variant
+-- this used to be was a measurable hit on the 'poll' path.
+byTopicIn :: HashSet Text -> RecordFilter
 byTopicIn topics = RecordFilter $ \r ->
-  Set.member (crTopic r) topics
+  HashSet.member (crTopic r) topics
 
 byPredicate :: (ConsumerRecord -> Bool) -> RecordFilter
 byPredicate = RecordFilter

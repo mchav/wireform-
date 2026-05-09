@@ -42,10 +42,10 @@ import Control.Concurrent.STM
 import Control.Exception (Exception, try, SomeException)
 import Control.Monad (unless)
 import Data.Int (Int16, Int32, Int64)
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
-import Data.Set (Set)
-import qualified Data.Set as Set
+import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashSet as HashSet
+import Data.HashSet (HashSet)
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -95,10 +95,17 @@ data Transaction = Transaction
   , txnProducerId :: !(TVar (Maybe ProducerId))
   , txnProducerEpoch :: !(TVar (Maybe ProducerEpoch))
   , txnState :: !(TVar TransactionState)
-  , txnPartitions :: !(TVar (Set TopicPartition))
-  -- ^ Partitions involved in current transaction
-  , txnSequenceNumbers :: !(TVar (Map TopicPartition Int32))
-  -- ^ Sequence numbers per partition for idempotency
+  , txnPartitions :: !(TVar (HashSet TopicPartition))
+  -- ^ Partitions involved in current transaction. 'HashSet' (not
+  -- 'Data.Set') because every transactional 'sendInTransaction'
+  -- inserts into this set; with many partitions in flight the
+  -- O(1) average insert / member is materially faster than the
+  -- tree-based version, which compares the @(Text, Int32)@ pair
+  -- lexicographically at every level.
+  , txnSequenceNumbers :: !(TVar (HashMap TopicPartition Int32))
+  -- ^ Sequence numbers per partition for idempotency. Same
+  -- reasoning as 'txnPartitions': hot per-record bookkeeping on
+  -- a 'TopicPartition' key benefits from hash-based access.
   , txnCoordinator :: !(TVar (Maybe TransactionCoordinator))
   -- ^ Cached transaction coordinator
   , txnConnectionManager :: !ConnectionManager
@@ -142,8 +149,8 @@ createTransaction transactionalId connMgr versionCache clientId bootstrapBroker 
   producerId <- newTVarIO Nothing
   producerEpoch <- newTVarIO Nothing
   state <- newTVarIO Uninitialized
-  partitions <- newTVarIO Set.empty
-  sequences <- newTVarIO Map.empty
+  partitions <- newTVarIO HashSet.empty
+  sequences <- newTVarIO HashMap.empty
   coordinator <- newTVarIO Nothing
   correlationId <- newTVarIO 0
   return Transaction
@@ -268,7 +275,7 @@ beginTransaction txn = do
       if success
         then do
           -- Clear partition tracking for new transaction
-          atomically $ writeTVar (txnPartitions txn) Set.empty
+          atomically $ writeTVar (txnPartitions txn) HashSet.empty
           return $ Right ()
         else return $ Left $ InvalidStateTransition state InTransaction
     
@@ -302,7 +309,7 @@ commitTransaction txn = do
               let transactionalId = unTransactionalId $ txnTransactionalId txn
               
               -- Add partitions to transaction if any exist
-              unless (Set.null partitions) $ do
+              unless (HashSet.null partitions) $ do
                 _ <- TC.addPartitionsToTxn
                   (txnConnectionManager txn)
                   (txnVersionCache txn)
@@ -312,7 +319,7 @@ commitTransaction txn = do
                   transactionalId
                   pid
                   epoch
-                  (Set.toList partitions)
+                  (HashSet.toList partitions)
                 return ()
               
               -- End transaction with commit=true
@@ -372,7 +379,7 @@ abortTransaction txn = do
               let transactionalId = unTransactionalId $ txnTransactionalId txn
               
               -- Add partitions to transaction if any exist
-              unless (Set.null partitions) $ do
+              unless (HashSet.null partitions) $ do
                 _ <- TC.addPartitionsToTxn
                   (txnConnectionManager txn)
                   (txnVersionCache txn)
@@ -382,7 +389,7 @@ abortTransaction txn = do
                   transactionalId
                   pid
                   epoch
-                  (Set.toList partitions)
+                  (HashSet.toList partitions)
                 return ()
               
               -- End transaction with commit=false (abort)
@@ -455,13 +462,13 @@ sendInTransaction txn tp = do
       -- Add partition to transaction tracking
       atomically $ do
         partitions <- readTVar (txnPartitions txn)
-        writeTVar (txnPartitions txn) (Set.insert tp partitions)
+        writeTVar (txnPartitions txn) (HashSet.insert tp partitions)
 
         -- Get and increment sequence number for this partition
         sequences <- readTVar (txnSequenceNumbers txn)
-        let currentSeq = Map.findWithDefault 0 tp sequences
+        let currentSeq = HashMap.lookupDefault 0 tp sequences
             nextSeq = currentSeq + 1
-        writeTVar (txnSequenceNumbers txn) (Map.insert tp nextSeq sequences)
+        writeTVar (txnSequenceNumbers txn) (HashMap.insert tp nextSeq sequences)
 
       -- Note: the actual @ProduceRequest@ goes through
       -- 'Kafka.Client.Producer.sendMessage' on the same
@@ -479,9 +486,9 @@ sendInTransaction txn tp = do
     _ -> return $ Left $ TransactionNotInProgress "Must be in a transaction to send records"
 
 -- | Commit consumer offsets within a transaction (KIP-447)
-commitOffsetsInTransaction :: Transaction 
+commitOffsetsInTransaction :: Transaction
                            -> Text  -- ^ Consumer group ID
-                           -> Map TopicPartition Int64  -- ^ Offsets to commit
+                           -> HashMap TopicPartition Int64  -- ^ Offsets to commit
                            -> IO (Either TransactionError ())
 commitOffsetsInTransaction txn groupId offsets = do
   state <- getTransactionState txn

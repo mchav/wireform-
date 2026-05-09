@@ -45,9 +45,8 @@ module Kafka.Streams.Runtime.NativeDriver
 
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
+import Data.HashMap.Strict (HashMap)
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
@@ -85,7 +84,7 @@ data StreamDriver = StreamDriver
     -- | Send consumer offsets as part of the open transaction
     --   (KIP-447).
   , sdProducerSendOffsetsToTxn
-      :: !(Text -> Map KC.TopicPartition Int64
+      :: !(Text -> HashMap KC.TopicPartition Int64
            -> IO (Either String ()))
     -- | Drain an event from the rebalance listener queue, if
     --   one is pending.

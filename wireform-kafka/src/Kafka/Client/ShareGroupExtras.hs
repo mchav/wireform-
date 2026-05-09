@@ -34,8 +34,8 @@ module Kafka.Client.ShareGroupExtras
   ) where
 
 import Control.Concurrent.STM
-import qualified Data.Set as Set
-import Data.Set (Set)
+import qualified Data.HashSet as HashSet
+import Data.HashSet (HashSet)
 import Data.Int (Int32)
 import Data.Text (Text)
 import GHC.Generics (Generic)
@@ -46,23 +46,28 @@ import qualified Kafka.Client.ShareConsumer as SC
 -- Pause / resume (KIP-1119)
 ----------------------------------------------------------------------
 
-newtype PauseSet = PauseSet (TVar (Set (Text, Int32)))
+-- | Set of paused (topic, partition) pairs, backed by a 'HashSet'
+-- (rather than the previous 'Data.Set'-based shape) for O(1)
+-- average membership / union / difference. Pause sets follow
+-- partition cardinality, so the asymptotic improvement matters
+-- under high partition counts.
+newtype PauseSet = PauseSet (TVar (HashSet (Text, Int32)))
 
 newPauseSet :: IO PauseSet
-newPauseSet = PauseSet <$> newTVarIO Set.empty
+newPauseSet = PauseSet <$> newTVarIO HashSet.empty
 
 pausePartitionsSG :: PauseSet -> [(Text, Int32)] -> IO ()
 pausePartitionsSG (PauseSet v) tps = atomically $
-  modifyTVar' v (Set.union (Set.fromList tps))
+  modifyTVar' v (HashSet.union (HashSet.fromList tps))
 
 resumePartitionsSG :: PauseSet -> [(Text, Int32)] -> IO ()
 resumePartitionsSG (PauseSet v) tps = atomically $
-  modifyTVar' v (\s -> Set.difference s (Set.fromList tps))
+  modifyTVar' v (\s -> HashSet.difference s (HashSet.fromList tps))
 
 isPausedSG :: PauseSet -> Text -> Int32 -> IO Bool
 isPausedSG (PauseSet v) topic part = do
   s <- readTVarIO v
-  pure (Set.member (topic, part) s)
+  pure (HashSet.member (topic, part) s)
 
 ----------------------------------------------------------------------
 -- DLQ (KIP-1129)

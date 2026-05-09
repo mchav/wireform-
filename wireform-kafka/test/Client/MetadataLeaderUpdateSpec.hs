@@ -5,7 +5,7 @@
 module Client.MetadataLeaderUpdateSpec (tests) where
 
 import Control.Concurrent.STM (atomically)
-import qualified Data.Map.Strict as Map
+import qualified Data.HashMap.Strict as Map
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 

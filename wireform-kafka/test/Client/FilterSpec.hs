@@ -3,7 +3,7 @@
 -- | Tests for the KIP-906 client-side record filter.
 module Client.FilterSpec (tests) where
 
-import qualified Data.Set as Set
+import qualified Data.HashSet as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Test.Tasty (TestTree, testGroup)

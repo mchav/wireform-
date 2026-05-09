@@ -69,6 +69,7 @@ import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Control.Monad (forM_, unless, when)
 import Data.IORef
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -295,8 +296,8 @@ eventLoop ks engine consumer = go
             -- never delivered.
             let !commitOffsets =
                   if paused
-                    then Map.empty
-                    else Map.fromListWith max
+                    then HashMap.empty
+                    else HashMap.fromListWith max
                            [ ( KC.TopicPartition
                                  (KC.crTopic rec)
                                  (fromIntegral (KC.crPartition rec))

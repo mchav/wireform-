@@ -38,8 +38,8 @@ module Kafka.Streams.Runtime.EOS
 import Control.Exception (SomeException, try)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
+import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -58,8 +58,8 @@ data EOSCoordinator = EOSCoordinator
   , eosBegin           :: !(IO (Either Text ()))
   , eosCommit          :: !(IO (Either Text ()))
   , eosAbort           :: !(IO (Either Text ()))
-  , eosCommitOffsets   :: !(Text                              -- consumer group id
-                            -> Map KC.TopicPartition Int64
+  , eosCommitOffsets   :: !(Text                                  -- consumer group id
+                            -> HashMap KC.TopicPartition Int64
                             -> IO (Either Text ()))
   }
 
@@ -87,9 +87,9 @@ data CommitOutcome
 -- producer.
 runCommitCycle
   :: EOSCoordinator
-  -> Text                                       -- consumer group id
-  -> IO (Map KC.TopicPartition Int64)            -- offsets to commit
-  -> IO ()                                      -- flush body
+  -> Text                                            -- consumer group id
+  -> IO (HashMap KC.TopicPartition Int64)            -- offsets to commit
+  -> IO ()                                           -- flush body
   -> IO CommitOutcome
 runCommitCycle coord groupId getOffsets flushBody = do
   step1 <- eosBegin coord
