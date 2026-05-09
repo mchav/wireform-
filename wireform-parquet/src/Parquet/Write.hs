@@ -69,6 +69,10 @@ module Parquet.Write
   , parquetColumnLength
   , parquetColumnParquetType
   , buildParquetFileMixed
+  , buildParquetFileMixedWith
+    -- * Size statistics
+  , columnDataUnencodedByteArrayBytes
+  , buildOffsetIndexWithSizeStats
   ) where
 
 import Data.ByteString (ByteString)
@@ -110,7 +114,9 @@ import Parquet.Page
   , PageHeader (..)
   , PageType (..)
   , pageTypeTag
+  , readPageHeaderAt
   )
+import Parquet.Compress (compressPageBytes)
 import Parquet.Thrift.Schema
 import Parquet.Types
   ( ColumnChunk (..)
@@ -972,7 +978,9 @@ layoutBlooms rgs auxes start = go 0 start [] V.empty
       { cmType = PTInt32, cmEncodings = V.empty, cmPathInSchema = V.empty
       , cmCodec = Uncompressed, cmNumValues = 0
       , cmTotalUncompressedSize = 0, cmTotalCompressedSize = 0
-      , cmDataPageOffset = 0, cmStatistics = Nothing
+      , cmDataPageOffset = 0
+      , cmDictionaryPageOffset = Nothing
+      , cmStatistics = Nothing
       , cmBloomFilterOffset = Nothing, cmBloomFilterLength = Nothing
       }
 
@@ -1210,6 +1218,7 @@ buildParquetFileWithIndex' mFootEnc schema rowGroups auxes =
         , fmNumRows = totalRows
         , fmRowGroups = rgMetasCol
         , fmCreatedBy = Just "wireform"
+        , fmColumnOrders = Nothing
         }
       -- Encrypted-footer mode (parquet-format Encryption.md §5.4):
       --
@@ -1328,6 +1337,7 @@ buildParquetFileWithIndex' mFootEnc schema rowGroups auxes =
             { rgColumns = cols
             , rgTotalByteSize = fromIntegral (off2 - off)
             , rgNumRows = nRows
+            , rgSortingColumns = Nothing
             }
       in (V.snoc rgs rg, off2)
 
@@ -1351,6 +1361,7 @@ buildParquetFileWithIndex' mFootEnc schema rowGroups auxes =
                 , cmTotalUncompressedSize = fromIntegral uncompSize
                 , cmTotalCompressedSize = fromIntegral sz
                 , cmDataPageOffset = fromIntegral cOff
+                , cmDictionaryPageOffset = Nothing
                 , cmStatistics = Just (columnDataStatistics cd)
                 , cmBloomFilterOffset = Nothing
                 , cmBloomFilterLength = Nothing
@@ -1416,6 +1427,27 @@ encodeMixedPageV1 = \case
     let !pg = encodeOptionalColumnPage oc
     in  (pg, BS.length pg)
 
+-- | Compression-aware mixed page encoder. Compresses the page
+-- /body/ (header stays plaintext) and rewrites the page header
+-- with the new compressed_page_size so the round-trip readers
+-- in "Parquet.Read" can decompress on the way back.
+encodeMixedPageV1With
+  :: Compression -> ParquetColumn -> Either String (ByteString, Int)
+encodeMixedPageV1With Uncompressed col =
+  Right (encodeMixedPageV1 col)
+encodeMixedPageV1With codec col = do
+  let (uncompPage, uncompSz) = encodeMixedPageV1 col
+  -- Layout is [PageHeader thrift][body]; re-encode the header
+  -- with a compressed size matching the compressed body, then
+  -- stitch the two together.
+  (hdr, afterHdr) <- readPageHeaderAt uncompPage 0
+  let !body = BS.drop afterHdr uncompPage
+  compBody <- compressPageBytes codec body
+  let !newHdr = hdr { phCompressedPageSize = Just (fromIntegral (BS.length compBody)) }
+      !hdrBs  = encodePageHeader newHdr
+      !page   = hdrBs <> compBody
+  Right (page, uncompSz)
+
 -- | Assemble a Parquet file from a flat schema + row groups
 -- where each column is either required ('PCRequired') or
 -- nullable ('PCOptional'). Unlike 'buildParquetFileWithIndex',
@@ -1436,9 +1468,55 @@ buildParquetFileMixed
   :: V.Vector SchemaElement
   -> V.Vector (V.Vector ParquetColumn)
   -> ByteString
-buildParquetFileMixed schema rowGroups =
+buildParquetFileMixed = buildParquetFileMixedRaw Uncompressed
+
+-- | Compression-aware variant of 'buildParquetFileMixed'.
+-- The named codec is applied to every page body and stamped on
+-- every column-chunk metadata @cmCodec@. Returns 'Left' if the
+-- caller picks a codec the build doesn't support (e.g. Snappy
+-- without the @+snappy@ flag).
+buildParquetFileMixedWith
+  :: Compression
+  -> V.Vector SchemaElement
+  -> V.Vector (V.Vector ParquetColumn)
+  -> Either String ByteString
+buildParquetFileMixedWith Uncompressed schema rgs =
+  Right (buildParquetFileMixed schema rgs)
+buildParquetFileMixedWith codec schema rgs = do
+  -- Build the file under the requested codec; the recursive
+  -- 'buildParquetFileMixedRaw' threads compression through the
+  -- per-page encoder + the cmCodec slot.
+  let !rgPages = V.map (V.map (encodeMixedPageV1With codec)) rgs
+  -- If any page failed to compress (e.g. Snappy without the
+  -- flag), surface the first error.
+  case V.foldr collectFirstError Nothing rgPages of
+    Just e -> Left e
+    Nothing -> Right (buildParquetFileMixedRaw codec schema rgs)
+  where
+    collectFirstError :: V.Vector (Either String a) -> Maybe String -> Maybe String
+    collectFirstError vec acc = case acc of
+      Just _  -> acc
+      Nothing -> V.foldr (\r a -> case (a, r) of
+                            (Just _, _) -> a
+                            (Nothing, Left e) -> Just e
+                            _ -> a) Nothing vec
+
+-- | Internal: 'buildParquetFileMixed' parameterised by codec.
+buildParquetFileMixedRaw
+  :: Compression
+  -> V.Vector SchemaElement
+  -> V.Vector (V.Vector ParquetColumn)
+  -> ByteString
+buildParquetFileMixedRaw codec schema rowGroups =
   let !leaves = V.filter (maybe False (const True) . seType) schema
-      !encodedRGs = V.map (V.map encodeMixedPageV1) rowGroups
+      -- For Uncompressed, encodeMixedPageV1 trivially returns
+      -- (Right page); for any other codec we route through the
+      -- compression-aware variant. Either-failures bubble up via
+      -- 'error' here because 'buildParquetFileMixedWith' has
+      -- already validated the codec choice.
+      !encodedRGs = V.map (V.map (\c -> case encodeMixedPageV1With codec c of
+                                          Right x -> x
+                                          Left e  -> error e)) rowGroups
       !allPageBytes = concat
         [ V.toList (V.map fst rg) | rg <- V.toList encodedRGs ]
       !rgBytesLen = sum (map BS.length allPageBytes)
@@ -1458,6 +1536,7 @@ buildParquetFileMixed schema rowGroups =
                     { rgColumns = chunks
                     , rgTotalByteSize = fromIntegral (off' - off)
                     , rgNumRows = nRows
+                    , rgSortingColumns = Nothing
                     }
                in (V.snoc rgs rg, off'))
           (V.empty, startOfData)
@@ -1470,6 +1549,7 @@ buildParquetFileMixed schema rowGroups =
         , fmNumRows   = totalRows
         , fmRowGroups = rgMetas
         , fmCreatedBy = Just "wireform"
+        , fmColumnOrders = Nothing
         }
   in BL.toStrict $ B.toLazyByteString $
        B.byteString parquetMagic
@@ -1493,11 +1573,12 @@ buildParquetFileMixed schema rowGroups =
                 { cmType = fromMaybe (parquetColumnParquetType cd) (seType leaf)
                 , cmEncodings = V.singleton Plain
                 , cmPathInSchema = V.singleton (seName leaf)
-                , cmCodec = Uncompressed
+                , cmCodec = codec
                 , cmNumValues = fromIntegral (parquetColumnLength cd)
                 , cmTotalUncompressedSize = fromIntegral uncompSize
                 , cmTotalCompressedSize = fromIntegral sz
                 , cmDataPageOffset = fromIntegral cOff
+                , cmDictionaryPageOffset = Nothing
                 , cmStatistics = Just (parquetColumnStatistics cd)
                 , cmBloomFilterOffset = Nothing
                 , cmBloomFilterLength = Nothing
@@ -1508,3 +1589,37 @@ buildParquetFileMixed schema rowGroups =
             , ccColumnIndexLength = Nothing
             }
       in (V.snoc cs cc, cOff + sz)
+
+-- ============================================================
+-- Size statistics
+-- ============================================================
+
+-- | Per-page unencoded byte counts for a BYTE_ARRAY column.
+-- Used to populate 'OffsetIndex.oiUnencodedByteArrayDataBytes'
+-- (parquet-format 2.11). For non-BYTE_ARRAY columns returns
+-- 'Nothing'.
+--
+-- The unit is /unencoded bytes/ — for PLAIN-encoded BYTE_ARRAY
+-- pages that's the sum of value lengths (not including the
+-- 4-byte length prefixes the wire format adds).
+columnDataUnencodedByteArrayBytes
+  :: ColumnData
+  -> Maybe Int64
+columnDataUnencodedByteArrayBytes = \case
+  ColByteArray vs ->
+    Just $! V.foldl' (\a bs -> a + fromIntegral (BS.length bs)) 0 vs
+  _ -> Nothing
+
+-- | Attach 'oiUnencodedByteArrayDataBytes' to an existing
+-- 'OffsetIndex' using the supplied per-page byte counts. The
+-- vector length must match the number of page locations or the
+-- attached field is dropped (silently — readers tolerate the
+-- missing slot, an inconsistent one would be worse).
+buildOffsetIndexWithSizeStats
+  :: V.Vector Int64
+  -> OffsetIndex
+  -> OffsetIndex
+buildOffsetIndexWithSizeStats sizes oi
+  | V.length sizes == V.length (oiPageLocations oi) =
+      oi { oiUnencodedByteArrayDataBytes = Just sizes }
+  | otherwise = oi

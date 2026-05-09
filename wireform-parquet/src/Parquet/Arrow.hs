@@ -39,12 +39,19 @@ module Parquet.Arrow
   , columnArrayToNestedRows
     -- * Parquet → Arrow
   , parquetRowGroupToArrow
+  , parquetRowGroupToArrowProjected
   , readParquetColumn
   , parquetFileArrowSchema
   , ProjectionError (..)
     -- * Streaming reader (one row group at a time)
   , streamRowGroups
+  , streamRowGroupsIter
+  , streamRowGroupsProjectedIter
+  , streamRowGroupsFilteredIter
+  , streamRowGroupsProjectedFilteredIter
   , numRowGroups
+    -- * Page-index-driven page skipping
+  , readParquetColumnWithPagePruning
   ) where
 
 import Data.ByteString (ByteString)
@@ -61,7 +68,11 @@ import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Arrow.Column as AC
 import qualified Arrow.Types as AT
 
+import qualified Columnar.Stream as IS
+
 import qualified Parquet.Nested as PN
+import qualified Parquet.PageIndex as PI
+import qualified Parquet.Predicate as Pred
 import qualified Parquet.Read as PR
 import qualified Parquet.Types as P
 import qualified Parquet.Write as PW
@@ -218,16 +229,25 @@ arrowFieldToSchemaElement f = do
              <> show other <> " has no Parquet flat-primitive equivalent"
   let !rep = if AT.fieldNullable f then P.Optional else P.Required
       !logical = case AT.fieldType f of
-        AT.AUtf8           -> Just P.LTString
-        AT.ALargeUtf8      -> Just P.LTString
-        AT.ADate _         -> Just P.LTDate
-        -- Arrow Time / Timestamp / Duration map to Parquet's
-        -- @TIME(unit, isAdjustedToUTC)@ / @TIMESTAMP(unit, utc)@
-        -- logical types. We only record the converted-type
-        -- fallback here; the LogicalType-specific fields
-        -- (precision, scale, isUtc) aren't exposed by
-        -- Parquet.Types.LogicalType yet — a separate item.
-        _                  -> Nothing
+        AT.AUtf8                           -> Just P.LTString
+        AT.ALargeUtf8                      -> Just P.LTString
+        AT.ADate _                         -> Just P.LTDate
+        AT.ATime AT.Millisecond _          -> Just (P.LTTime False P.LtMillis)
+        AT.ATime AT.Microsecond _          -> Just (P.LTTime False P.LtMicros)
+        AT.ATime AT.Nanosecond _           -> Just (P.LTTime False P.LtNanos)
+        AT.ATime AT.Second _               -> Just (P.LTTime False P.LtMillis)
+          -- Parquet doesn't model second precision; widen.
+        AT.ATimestamp AT.Millisecond mtz   ->
+          Just (P.LTTimestamp (isJustUtc mtz) P.LtMillis)
+        AT.ATimestamp AT.Microsecond mtz   ->
+          Just (P.LTTimestamp (isJustUtc mtz) P.LtMicros)
+        AT.ATimestamp AT.Nanosecond mtz    ->
+          Just (P.LTTimestamp (isJustUtc mtz) P.LtNanos)
+        AT.ATimestamp AT.Second mtz        ->
+          Just (P.LTTimestamp (isJustUtc mtz) P.LtMillis)
+        _                                  -> Nothing
+      isJustUtc Nothing  = False
+      isJustUtc (Just _) = True
   Right P.SchemaElement
     { P.seName          = AT.fieldName f
     , P.seRepetition    = Just rep
@@ -372,8 +392,10 @@ parquetFileArrowSchema pf =
   let !leaves = V.filter (maybe False (const True) . P.seType)
                          (P.fmSchema (PR.pfFooter pf))
   in AT.Schema
-       { AT.arrowFields = V.map schemaElementToArrowField leaves
+       { AT.arrowFields     = V.map schemaElementToArrowField leaves
        , AT.arrowEndianness = AT.Little
+       , AT.arrowMetadata   = V.empty
+       , AT.arrowFeatures   = V.empty
        }
 
 -- | Map a Parquet 'P.SchemaElement' back to an Arrow leaf
@@ -386,28 +408,73 @@ schemaElementToArrowField se =
                     Just P.Optional -> True
                     _                -> False
       !ty = arrowTypeFromSchemaElement se
-  in AT.Field name nullable ty V.empty Nothing
+  in AT.Field name nullable ty V.empty Nothing V.empty
 
 arrowTypeFromSchemaElement :: P.SchemaElement -> AT.ArrowType
 arrowTypeFromSchemaElement se = case P.seType se of
+  Just P.PTInt96     ->
+    -- INT96 is the legacy 12-byte timestamp (Hive / impala /
+    -- older parquet writers). Expose as a 12-byte
+    -- fixed-size-binary; downstream callers that know the
+    -- (julian_day, nanos) interpretation can decode further.
+    AT.AFixedSizeBinary 12
+  Just P.PTFixedLenByteArray ->
+    -- The concrete byte width lives in schema's type_length
+    -- field, which we don't currently surface on
+    -- 'P.SchemaElement'. Reasonable default is 16 (matches
+    -- UUID / decimal128 columns that are the common case);
+    -- callers needing the exact width drop into
+    -- 'PR.readPlainFixedLenByteArrayColumnChunk' directly.
+    case P.seLogicalType se of
+      Just P.LTFloat16 -> AT.AFloatingPoint AT.Half
+      Just P.LTUUID    -> AT.AFixedSizeBinary 16
+      _                -> AT.AFixedSizeBinary 16
   Just P.PTBoolean   -> AT.ABool
   Just P.PTInt32     -> case (P.seLogicalType se, P.seConvertedType se) of
-    (Just P.LTDate, _)            -> AT.ADate AT.DateDay
-    (_,  Just P.CTDate)           -> AT.ADate AT.DateDay
-    (_,  Just P.CTTimeMillis)     -> AT.ATime AT.Millisecond 32
-    _                             -> AT.AInt 32 True
+    (Just P.LTDate, _)               -> AT.ADate AT.DateDay
+    (Just (P.LTTime _ unit), _)
+      | Just u <- arrowTimeUnit unit -> AT.ATime u 32
+    (Just (P.LTInteger w isSigned), _)
+      | w <= 32                      -> AT.AInt (fromIntegral w) isSigned
+    (_,  Just P.CTDate)              -> AT.ADate AT.DateDay
+    (_,  Just P.CTTimeMillis)        -> AT.ATime AT.Millisecond 32
+    _                                -> AT.AInt 32 True
   Just P.PTInt64     -> case (P.seLogicalType se, P.seConvertedType se) of
-    (_, Just P.CTTimeMicros)      -> AT.ATime AT.Microsecond 64
-    (_, Just P.CTTimestampMillis) -> AT.ATimestamp AT.Millisecond Nothing
-    (_, Just P.CTTimestampMicros) -> AT.ATimestamp AT.Microsecond Nothing
-    _                             -> AT.AInt 64 True
+    (Just (P.LTTime _ unit), _)
+      | Just u <- arrowTimeUnit unit -> AT.ATime u 64
+    (Just (P.LTTimestamp adj unit), _)
+      | Just u <- arrowTimeUnit unit ->
+          AT.ATimestamp u
+            (if adj then Just (T.pack "UTC") else Nothing)
+    (Just (P.LTInteger 64 isSigned), _)
+                                     -> AT.AInt 64 isSigned
+    (_, Just P.CTTimeMicros)         -> AT.ATime AT.Microsecond 64
+    (_, Just P.CTTimestampMillis)    -> AT.ATimestamp AT.Millisecond Nothing
+    (_, Just P.CTTimestampMicros)    -> AT.ATimestamp AT.Microsecond Nothing
+    _                                -> AT.AInt 64 True
   Just P.PTFloat     -> AT.AFloatingPoint AT.Single
   Just P.PTDouble    -> AT.AFloatingPoint AT.DoublePrecision
   Just P.PTByteArray -> case (P.seLogicalType se, P.seConvertedType se) of
-    (Just P.LTString, _)    -> AT.AUtf8
-    (_,  Just P.CTUtf8)     -> AT.AUtf8
-    _                        -> AT.ABinary
+    (Just P.LTString, _)             -> AT.AUtf8
+    -- Geometry / Geography / Variant + Json / Bson are all
+    -- bytes on the wire; expose as ABinary so callers see the
+    -- raw WKB / JSON / variant bytes. The LogicalType
+    -- annotation survives round-trip for downstream tools.
+    (Just P.LTGeometry, _)           -> AT.ABinary
+    (Just P.LTGeography, _)          -> AT.ABinary
+    (Just (P.LTVariant _), _)        -> AT.ABinary
+    (Just P.LTJson, _)               -> AT.AUtf8
+    (Just P.LTBson, _)               -> AT.ABinary
+    (_,  Just P.CTUtf8)              -> AT.AUtf8
+    (_,  Just P.CTJson)              -> AT.AUtf8
+    (_,  Just P.CTBson)              -> AT.ABinary
+    _                                -> AT.ABinary
   _                  -> AT.ABinary  -- FIXED_LEN_BYTE_ARRAY / Int96 fallback
+
+arrowTimeUnit :: P.LtTimeUnit -> Maybe AT.TimeUnit
+arrowTimeUnit P.LtMillis = Just AT.Millisecond
+arrowTimeUnit P.LtMicros = Just AT.Microsecond
+arrowTimeUnit P.LtNanos  = Just AT.Nanosecond
 
 -- | Core per-column reader used by 'parquetRowGroupToArrow'.
 -- Looks up the column by name, reads it at the file's native
@@ -470,37 +537,51 @@ readParquetColumn pf rgIdx colIdx fld = do
   chunk <- PR.columnChunkSlice pf rgIdx colIdx
   let !codec = chunkCodec pf rgIdx colIdx
       !nullable = AT.fieldNullable fld
+  -- Use the generic per-page dispatchers throughout: they handle
+  -- every encoding the spec defines for the matching physical
+  -- type (PLAIN, dictionary, DELTA_*, BYTE_STREAM_SPLIT) and
+  -- both DATA_PAGE and DATA_PAGE_V2.
   case AT.fieldType fld of
     -- Non-nullable primitives.
     AT.AInt 32 True | not nullable ->
-      AC.ColInt32   <$> PR.readPlainInt32ColumnChunk codec chunk
+      AC.ColInt32   <$> PR.readGenericInt32ColumnChunk codec chunk
     AT.AInt 64 True | not nullable ->
-      AC.ColInt64   <$> PR.readPlainInt64ColumnChunk codec chunk
+      AC.ColInt64   <$> PR.readGenericInt64ColumnChunk codec chunk
     AT.AFloatingPoint AT.Single | not nullable ->
-      AC.ColFloat   <$> PR.readPlainFloatColumnChunk codec chunk
+      AC.ColFloat   <$> PR.readGenericFloatColumnChunk codec chunk
     AT.AFloatingPoint AT.DoublePrecision | not nullable ->
-      AC.ColDouble  <$> PR.readPlainDoubleColumnChunk codec chunk
+      AC.ColDouble  <$> PR.readGenericDoubleColumnChunk codec chunk
     AT.ABool | not nullable ->
-      AC.ColBool    <$> PR.readPlainBoolColumnChunk codec chunk
+      AC.ColBool    <$> PR.readGenericBoolColumnChunk codec chunk
     AT.AUtf8 | not nullable -> do
-      bs <- PR.readPlainByteArrayColumnChunk codec chunk
+      bs <- PR.readGenericByteArrayColumnChunk codec chunk
       Right $ AC.ColUtf8 (V.map decodeUtf8Lossy bs)
     AT.ABinary | not nullable ->
-      AC.ColBinary  <$> PR.readPlainByteArrayColumnChunk codec chunk
+      AC.ColBinary  <$> PR.readGenericByteArrayColumnChunk codec chunk
     -- Temporal non-nullable: read the underlying int stream and
     -- cast to the Arrow column flavour.
     AT.ADate AT.DateDay | not nullable ->
-      AC.ColDate32 <$> PR.readPlainInt32ColumnChunk codec chunk
+      AC.ColDate32 <$> PR.readGenericInt32ColumnChunk codec chunk
     AT.ADate AT.DateMillisecond | not nullable ->
-      AC.ColDate64 <$> PR.readPlainInt64ColumnChunk codec chunk
+      AC.ColDate64 <$> PR.readGenericInt64ColumnChunk codec chunk
     AT.ATime _ 32 | not nullable ->
-      AC.ColTime32 <$> PR.readPlainInt32ColumnChunk codec chunk
+      AC.ColTime32 <$> PR.readGenericInt32ColumnChunk codec chunk
     AT.ATime _ 64 | not nullable ->
-      AC.ColTime64 <$> PR.readPlainInt64ColumnChunk codec chunk
+      AC.ColTime64 <$> PR.readGenericInt64ColumnChunk codec chunk
     AT.ATimestamp _ _ | not nullable ->
-      AC.ColTimestamp <$> PR.readPlainInt64ColumnChunk codec chunk
+      AC.ColTimestamp <$> PR.readGenericInt64ColumnChunk codec chunk
     AT.ADuration _ | not nullable ->
-      AC.ColDuration <$> PR.readPlainInt64ColumnChunk codec chunk
+      AC.ColDuration <$> PR.readGenericInt64ColumnChunk codec chunk
+
+    -- INT96 (legacy 12-byte timestamp) and FIXED_LEN_BYTE_ARRAY
+    -- (UUIDs / float16 / decimal128 in fixed form). Both are
+    -- exposed via 'ColFixedSizeBinary'; the bridge currently
+    -- only handles the required-page case (PLAIN encoding).
+    AT.AFixedSizeBinary 12 | not nullable ->
+      AC.ColFixedSizeBinary 12 <$> PR.readPlainInt96ColumnChunk codec chunk
+    AT.AFixedSizeBinary n | not nullable ->
+      AC.ColFixedSizeBinary n <$>
+        PR.readPlainFixedLenByteArrayColumnChunk n codec chunk
 
     -- Nullable primitives + temporals. The @*Optional@ readers
     -- take (max_repetition_level, max_definition_level); for a
@@ -508,32 +589,32 @@ readParquetColumn pf rgIdx colIdx fld = do
     -- doesn't currently emit nested-optional columns through
     -- this path, so we hardcode the flat-optional pair.
     AT.AInt 32 True | nullable ->
-      AC.ColInt32Maybe <$> PR.readPlainInt32OptionalColumnChunk codec 0 1 chunk
+      AC.ColInt32Maybe <$> PR.readGenericInt32OptionalColumnChunk codec 0 1 chunk
     AT.AInt 64 True | nullable ->
-      AC.ColInt64Maybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+      AC.ColInt64Maybe <$> PR.readGenericInt64OptionalColumnChunk codec 0 1 chunk
     AT.AFloatingPoint AT.Single | nullable ->
-      AC.ColFloatMaybe <$> PR.readPlainFloatOptionalColumnChunk codec 0 1 chunk
+      AC.ColFloatMaybe <$> PR.readGenericFloatOptionalColumnChunk codec 0 1 chunk
     AT.AFloatingPoint AT.DoublePrecision | nullable ->
-      AC.ColDoubleMaybe <$> PR.readPlainDoubleOptionalColumnChunk codec 0 1 chunk
+      AC.ColDoubleMaybe <$> PR.readGenericDoubleOptionalColumnChunk codec 0 1 chunk
     AT.ABool | nullable ->
-      AC.ColBoolMaybe <$> PR.readPlainBoolOptionalColumnChunk codec 0 1 chunk
+      AC.ColBoolMaybe <$> PR.readGenericBoolOptionalColumnChunk codec 0 1 chunk
     AT.AUtf8 | nullable -> do
-      bs <- PR.readPlainByteArrayOptionalColumnChunk codec 0 1 chunk
+      bs <- PR.readGenericByteArrayOptionalColumnChunk codec 0 1 chunk
       Right $ AC.ColUtf8Maybe (V.map (fmap decodeUtf8Lossy) bs)
     AT.ABinary | nullable ->
-      AC.ColBinaryMaybe <$> PR.readPlainByteArrayOptionalColumnChunk codec 0 1 chunk
+      AC.ColBinaryMaybe <$> PR.readGenericByteArrayOptionalColumnChunk codec 0 1 chunk
     AT.ADate AT.DateDay | nullable ->
-      AC.ColDate32Maybe <$> PR.readPlainInt32OptionalColumnChunk codec 0 1 chunk
+      AC.ColDate32Maybe <$> PR.readGenericInt32OptionalColumnChunk codec 0 1 chunk
     AT.ADate AT.DateMillisecond | nullable ->
-      AC.ColDate64Maybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+      AC.ColDate64Maybe <$> PR.readGenericInt64OptionalColumnChunk codec 0 1 chunk
     AT.ATime _ 32 | nullable ->
-      AC.ColTime32Maybe <$> PR.readPlainInt32OptionalColumnChunk codec 0 1 chunk
+      AC.ColTime32Maybe <$> PR.readGenericInt32OptionalColumnChunk codec 0 1 chunk
     AT.ATime _ 64 | nullable ->
-      AC.ColTime64Maybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+      AC.ColTime64Maybe <$> PR.readGenericInt64OptionalColumnChunk codec 0 1 chunk
     AT.ATimestamp _ _ | nullable ->
-      AC.ColTimestampMaybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+      AC.ColTimestampMaybe <$> PR.readGenericInt64OptionalColumnChunk codec 0 1 chunk
     AT.ADuration _ | nullable ->
-      AC.ColDurationMaybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+      AC.ColDurationMaybe <$> PR.readGenericInt64OptionalColumnChunk codec 0 1 chunk
 
     other ->
       Left $ "Parquet.Arrow: column type "
@@ -543,6 +624,42 @@ readParquetColumn pf rgIdx colIdx fld = do
              <> "specialised readers in Parquet.Read"
 
 -- | Look up the column's 'Compression' codec from the footer.
+-- | Compute @max_repetition_level@ for a column chunk by
+-- walking its 'cmPathInSchema' back through the file's schema
+-- and counting 'Repeated' elements. Returns 'Nothing' if the
+-- chunk's metadata is absent or the path can't be resolved
+-- (in which case the caller should treat it as conservatively
+-- repetition-bearing).
+--
+-- Spec: parquet-format/Nested-Layout.md, "Computing levels".
+-- max_repetition_level = number of @REPEATED@ elements on the
+-- path from the root to (and including) the leaf.
+columnMaxRepetitionLevel :: PR.ParquetFile -> Int -> Int -> Maybe Int
+columnMaxRepetitionLevel pf rgIdx colIdx = do
+  rg <- (P.fmRowGroups (PR.pfFooter pf)) V.!? rgIdx
+  cc <- P.rgColumns rg V.!? colIdx
+  cm <- P.ccMetadata cc
+  let !path     = P.cmPathInSchema cm
+      !schemaV  = P.fmSchema (PR.pfFooter pf)
+      !pathSegs = V.toList path
+  walkPath schemaV pathSegs
+  where
+    -- Schema is a flattened pre-order walk: root + children
+    -- (each carrying num_children). For each segment of the
+    -- column path we walk the current subtree's children
+    -- until we find a name match, then descend.
+    --
+    -- We don't need the exact sub-tree positions — only to
+    -- count REPEATED reps along the way — so a simple
+    -- name-based scan over the flattened list is enough.
+    walkPath schemaV segs = Just (sum (countRepetition schemaV <$> segs))
+
+    countRepetition schemaV name =
+      let matches = V.filter (\se -> P.seName se == name) schemaV
+       in case V.toList matches of
+            (se : _) | P.seRepetition se == Just P.Repeated -> 1
+            _                                               -> 0
+
 chunkCodec :: PR.ParquetFile -> Int -> Int -> P.Compression
 chunkCodec pf rgIdx colIdx =
   let fm   = PR.pfFooter pf
@@ -724,3 +841,308 @@ streamRowGroups sch pf =
       Left  err  -> Left (show err)
   | i <- [0 .. numRowGroups pf - 1]
   ]
+
+-- | Iterator-shaped variant of 'streamRowGroups'. Each
+-- 'IS.iterStep' decodes one row group on demand. Use
+-- 'Columnar.Stream.iterTake' / 'Columnar.Stream.iterFold' /
+-- friends to drive it without materialising every row group up
+-- front.
+--
+-- Behaves like 'streamRowGroups' for the per-row-group decode
+-- (same target Arrow schema controls projection / coercion);
+-- the difference is that decoding errors halt the iterator at
+-- the failing step instead of being threaded through a list.
+streamRowGroupsIter
+  :: AT.Schema
+  -> PR.ParquetFile
+  -> IS.Iter (V.Vector AC.ColumnArray)
+streamRowGroupsIter sch pf =
+  IS.iterFromIndexed (numRowGroups pf) $ \i ->
+    case parquetRowGroupToArrow sch pf i of
+      Right cols -> Right cols
+      Left  err  -> Left (show err)
+
+-- | Like 'streamRowGroupsIter' but projects each row group to a
+-- subset of named columns (and an optional reordering). The
+-- caller supplies the target Arrow schema /before/ projection;
+-- this helper extracts the named subset and runs the
+-- per-row-group decode against the narrower schema, so only the
+-- requested columns are read off disk.
+--
+-- Names not present in the source schema cause every iterator
+-- step to fail with the same error (matching the
+-- 'Arrow.Stream.streamReaderProjectedIter' shape).
+streamRowGroupsProjectedIter
+  :: AT.Schema
+  -> [Text]
+  -> PR.ParquetFile
+  -> IS.Iter (V.Vector AC.ColumnArray)
+streamRowGroupsProjectedIter sch names pf =
+  case projectFields names sch of
+    Left e          -> IS.iterUnfold () (\_ -> Left e)
+    Right narrowSch -> streamRowGroupsIter narrowSch pf
+
+-- | Decode a single row group with column projection. Equivalent
+-- to @'parquetRowGroupToArrow' (projectSchema names target) pf
+-- rgIdx@ but checks the projection up front so the error path is
+-- single-shot rather than per-column.
+parquetRowGroupToArrowProjected
+  :: AT.Schema
+  -> [Text]
+  -> PR.ParquetFile
+  -> Int
+  -> Either ProjectionError (V.Vector AC.ColumnArray)
+parquetRowGroupToArrowProjected target names pf rgIdx = do
+  narrow <- case projectFields names target of
+    Right s -> Right s
+    Left  _ -> Left (MissingColumn (T.pack "<projection>"))
+  parquetRowGroupToArrow narrow pf rgIdx
+
+-- | Iterator over row groups that drops any row group whose
+-- statistics prove the predicate matches no rows.
+--
+-- Skipping is /sound/: only row groups whose
+-- 'Parquet.Predicate.evalRowGroup' returns 'Pred.PSkip' are
+-- elided. Row groups whose statistics are missing or
+-- inconclusive are decoded normally and yielded as iterator
+-- elements.
+--
+-- Returns the iterator paired with the planning summary
+-- @(totalRowGroups, skippedRowGroups)@ so callers can log how
+-- effective the predicate was without holding onto the file.
+streamRowGroupsFilteredIter
+  :: AT.Schema
+  -> Pred.Predicate
+  -> PR.ParquetFile
+  -> (Int, Int, IS.Iter (V.Vector AC.ColumnArray))
+streamRowGroupsFilteredIter sch predicate pf =
+  let !leafNames = leafColumnNames pf
+      !rgs       = P.fmRowGroups (PR.pfFooter pf)
+      !nRg       = V.length rgs
+      keep i =
+        Pred.evalRowGroup leafNames predicate (V.unsafeIndex rgs i)
+          == Pred.PMaybeKeep
+      !kept   = V.filter keep (V.enumFromN 0 nRg)
+      !nKept  = V.length kept
+      !nSkip  = nRg - nKept
+      step k =
+        let !i = V.unsafeIndex kept k
+        in case parquetRowGroupToArrow sch pf i of
+             Right cols -> Right cols
+             Left  err  -> Left (show err)
+  in (nRg, nSkip, IS.iterFromIndexed nKept step)
+
+-- | Combination of 'streamRowGroupsProjectedIter' and
+-- 'streamRowGroupsFilteredIter': only decodes the named
+-- columns of row groups whose statistics survive the
+-- predicate.
+streamRowGroupsProjectedFilteredIter
+  :: AT.Schema
+  -> [Text]
+  -> Pred.Predicate
+  -> PR.ParquetFile
+  -> Either String (Int, Int, IS.Iter (V.Vector AC.ColumnArray))
+streamRowGroupsProjectedFilteredIter sch names predicate pf = do
+  narrowSch <- projectFields names sch
+  let (nRg, nSkip, it) =
+        streamRowGroupsFilteredIter narrowSch predicate pf
+  Right (nRg, nSkip, it)
+
+-- | Leaf column names of a 'PR.ParquetFile' in the same order
+-- the row groups' @rgColumns@ vectors use. Built from the
+-- footer's flat schema (skipping the synthetic root struct).
+leafColumnNames :: PR.ParquetFile -> V.Vector Text
+leafColumnNames pf =
+  V.map P.seName
+        (V.filter (maybe False (const True) . P.seType)
+                  (P.fmSchema (PR.pfFooter pf)))
+
+-- | Read one column with page-level predicate pushdown.
+--
+-- Looks up the column chunk's 'OffsetIndex' + 'ColumnIndex',
+-- evaluates the predicate against the 'ColumnIndex' to produce
+-- a per-page keep mask, then decodes only the surviving pages
+-- using the file-offset-based 'PR.readGeneric*SelectedPages'
+-- family.
+--
+-- Handles both required and (top-level-)nullable columns
+-- automatically, dispatching to the optional-pages decoder
+-- when 'AT.fieldNullable' is set.
+--
+-- Returns 'Right (Nothing, ...)' when the column doesn't carry
+-- a 'ColumnIndex' / 'OffsetIndex' pair (page-level pruning isn't
+-- possible without the page-index region — fall back to
+-- 'readParquetColumn'). Returns 'Right (Just (kept, total), col)'
+-- when pruning ran, with @kept@ pages decoded out of @total@.
+--
+-- /Repeated columns are rejected/: a column whose path crosses
+-- a 'Repeated' schema element (lists, maps, or any field with
+-- @max_repetition_level > 0@) carries per-page repetition
+-- streams that change the row count of every kept page. The
+-- simple keep-mask shape this function exposes can't model
+-- that, so it returns 'Left' with a typed error rather than
+-- silently producing the wrong row count. Callers reading
+-- nested columns should fall through to 'readParquetColumn'
+-- (no pushdown) or to 'Parquet.Nested' for the Dremel-shredded
+-- read path.
+readParquetColumnWithPagePruning
+  :: PR.ParquetFile
+  -> Int                  -- ^ row-group index
+  -> Int                  -- ^ column index within the row group
+  -> AT.Field             -- ^ Arrow target field
+  -> Pred.PColPredicate   -- ^ predicate to push down to the page index
+  -> Either String (Maybe (Int, Int), AC.ColumnArray)
+readParquetColumnWithPagePruning pf rgIdx colIdx fld predicate = do
+  -- Refuse repeated columns up front (see haddock).
+  case columnMaxRepetitionLevel pf rgIdx colIdx of
+    Just rep | rep > 0 ->
+      Left $ "Parquet.Arrow.readParquetColumnWithPagePruning: column "
+              ++ show colIdx ++ " has max_repetition_level=" ++ show rep
+              ++ " (lists/maps/repeated fields). Page-level pushdown "
+              ++ "doesn't model per-page row-count changes from "
+              ++ "repetition streams; use 'readParquetColumn' or "
+              ++ "'Parquet.Nested' instead."
+    _ -> Right ()
+  mIdx <- loadIndices pf rgIdx colIdx
+  case mIdx of
+    Nothing -> do
+      col <- mapLeftShow (readParquetColumn pf rgIdx colIdx fld)
+      Right (Nothing, col)
+    Just (oi, ci, ptype) -> do
+      let !decisions = Pred.evalPagesByColumnIndex ptype ci predicate
+          !keep      = V.map (== Pred.PMaybeKeep) decisions
+          !total     = V.length keep
+          !nKept     = V.length (V.filter id keep)
+          !codec     = chunkCodec pf rgIdx colIdx
+          !fileBs    = PR.pfBytes pf
+          !locs      = P.oiPageLocations oi
+      col <- if AT.fieldNullable fld
+               then decodeSelectedOptionalColumn codec fileBs locs keep fld
+               else decodeSelectedColumn codec fileBs locs keep fld
+      Right (Just (nKept, total), col)
+  where
+    mapLeftShow :: Either e a -> Either String a
+    mapLeftShow (Right x) = Right x
+    mapLeftShow (Left _ ) = Left "Parquet.Arrow: page-pruning fallback failed"
+
+loadIndices
+  :: PR.ParquetFile
+  -> Int -> Int
+  -> Either String (Maybe (P.OffsetIndex, P.ColumnIndex, P.ParquetType))
+loadIndices pf rgIdx colIdx = do
+  mOff <- PI.readOffsetIndex pf rgIdx colIdx
+  mCol <- PI.readColumnIndex pf rgIdx colIdx
+  case (mOff, mCol) of
+    (Just oi, Just ci) -> do
+      let !rgs  = P.fmRowGroups (PR.pfFooter pf)
+          !rg   = V.unsafeIndex rgs rgIdx
+          !cc   = V.unsafeIndex (P.rgColumns rg) colIdx
+      case P.ccMetadata cc of
+        Just md -> Right (Just (oi, ci, P.cmType md))
+        Nothing -> Right Nothing
+    _ -> Right Nothing
+
+decodeSelectedColumn
+  :: P.Compression
+  -> ByteString
+  -> V.Vector P.PageLocation
+  -> V.Vector Bool
+  -> AT.Field
+  -> Either String AC.ColumnArray
+decodeSelectedColumn codec fileBs locs keep fld = case AT.fieldType fld of
+  AT.AInt 32 True -> AC.ColInt32  <$> PR.readGenericInt32SelectedPages  codec fileBs locs keep
+  AT.AInt 64 True -> AC.ColInt64  <$> PR.readGenericInt64SelectedPages  codec fileBs locs keep
+  AT.AFloatingPoint AT.Single          ->
+    AC.ColFloat  <$> PR.readGenericFloatSelectedPages  codec fileBs locs keep
+  AT.AFloatingPoint AT.DoublePrecision ->
+    AC.ColDouble <$> PR.readGenericDoubleSelectedPages codec fileBs locs keep
+  AT.ABool        -> AC.ColBool   <$> PR.readGenericBoolSelectedPages   codec fileBs locs keep
+  AT.AUtf8        -> do
+    bs <- PR.readGenericByteArraySelectedPages codec fileBs locs keep
+    Right $ AC.ColUtf8 (V.map decodeUtf8Lossy bs)
+  AT.ABinary      -> AC.ColBinary <$> PR.readGenericByteArraySelectedPages codec fileBs locs keep
+  AT.ADate AT.DateDay         ->
+    AC.ColDate32   <$> PR.readGenericInt32SelectedPages codec fileBs locs keep
+  AT.ADate AT.DateMillisecond ->
+    AC.ColDate64   <$> PR.readGenericInt64SelectedPages codec fileBs locs keep
+  AT.ATime _ 32 ->
+    AC.ColTime32   <$> PR.readGenericInt32SelectedPages codec fileBs locs keep
+  AT.ATime _ 64 ->
+    AC.ColTime64   <$> PR.readGenericInt64SelectedPages codec fileBs locs keep
+  AT.ATimestamp _ _ ->
+    AC.ColTimestamp <$> PR.readGenericInt64SelectedPages codec fileBs locs keep
+  AT.ADuration _ ->
+    AC.ColDuration  <$> PR.readGenericInt64SelectedPages codec fileBs locs keep
+  other ->
+    Left $ "Parquet.Arrow: page-pruning bridge doesn't yet cover "
+            ++ show other
+
+-- | Page-pruning variant for nullable columns. Same shape as
+-- 'decodeSelectedColumn' but routes through the
+-- @readGenericXxxOptionalSelectedPages@ family which carries
+-- per-page def-level streams.
+decodeSelectedOptionalColumn
+  :: P.Compression
+  -> ByteString
+  -> V.Vector P.PageLocation
+  -> V.Vector Bool
+  -> AT.Field
+  -> Either String AC.ColumnArray
+decodeSelectedOptionalColumn codec fileBs locs keep fld = case AT.fieldType fld of
+  AT.AInt 32 True ->
+    AC.ColInt32Maybe  <$> PR.readGenericInt32OptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.AInt 64 True ->
+    AC.ColInt64Maybe  <$> PR.readGenericInt64OptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.AFloatingPoint AT.Single ->
+    AC.ColFloatMaybe  <$> PR.readGenericFloatOptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.AFloatingPoint AT.DoublePrecision ->
+    AC.ColDoubleMaybe <$> PR.readGenericDoubleOptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.ABool ->
+    AC.ColBoolMaybe   <$> PR.readGenericBoolOptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.AUtf8 -> do
+    bs <- PR.readGenericByteArrayOptionalSelectedPages
+            codec 0 1 fileBs locs keep
+    Right $ AC.ColUtf8Maybe (V.map (fmap decodeUtf8Lossy) bs)
+  AT.ABinary ->
+    AC.ColBinaryMaybe <$> PR.readGenericByteArrayOptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.ADate AT.DateDay ->
+    AC.ColDate32Maybe <$> PR.readGenericInt32OptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.ADate AT.DateMillisecond ->
+    AC.ColDate64Maybe <$> PR.readGenericInt64OptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.ATime _ 32 ->
+    AC.ColTime32Maybe <$> PR.readGenericInt32OptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.ATime _ 64 ->
+    AC.ColTime64Maybe <$> PR.readGenericInt64OptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.ATimestamp _ _ ->
+    AC.ColTimestampMaybe <$> PR.readGenericInt64OptionalSelectedPages
+                              codec 0 1 fileBs locs keep
+  AT.ADuration _ ->
+    AC.ColDurationMaybe <$> PR.readGenericInt64OptionalSelectedPages
+                              codec 0 1 fileBs locs keep
+  other ->
+    Left $ "Parquet.Arrow: nullable page-pruning bridge doesn't yet cover "
+            ++ show other
+
+-- | Build a sub-schema by name. Preserves the order of @names@.
+projectFields :: [Text] -> AT.Schema -> Either String AT.Schema
+projectFields names sch =
+  let !fields = AT.arrowFields sch
+      !byName = Map.fromList
+        [ (AT.fieldName f, f) | f <- V.toList fields ]
+      pickOne nm = case Map.lookup nm byName of
+        Just f  -> Right f
+        Nothing -> Left $ "Parquet.Arrow: projected column "
+                          ++ show nm ++ " not present in target schema"
+  in do
+    fs <- traverse pickOne names
+    Right sch { AT.arrowFields = V.fromList fs }

@@ -46,6 +46,9 @@ module Arrow.Record.Generic
   ( -- * Type classes for Generic deriving
     HasEncoder (..)
   , HasDecoder (..)
+    -- * Row-level (nested-record) classes
+  , HasRowEncoder (..)
+  , HasRowDecoder (..)
     -- * Deriver
   , genericTable
   , genericRowEncoder
@@ -79,6 +82,7 @@ import Arrow.Record
   , int64D, int64E
   , int8D, int8E
   , nullable, nullableD
+  , structD, structE
   , utf8D, utf8E
   , word16D, word16E
   , word32D, word32E
@@ -100,6 +104,38 @@ class HasEncoder a where
 -- | Mirror of 'HasEncoder' on the decoding side.
 class HasDecoder a where
   hasDecoder :: Decoder a
+
+-- | Per-record class used when a nested record needs to be
+-- embedded as an Arrow @ColStruct@ column.
+--
+-- Default implementation uses 'genericRowEncoder', so any
+-- 'Generic' record whose fields all have 'HasEncoder' or
+-- 'HasEncoder (Maybe a)' instances picks up the instance for
+-- free:
+--
+-- @
+-- data Address = Address { city :: Text, zip :: Text }
+--   deriving stock ('Generic')
+--
+-- instance 'HasRowEncoder' Address
+-- instance 'HasRowDecoder' Address
+-- @
+--
+-- Once the inner record has these, lift it into a parent
+-- 'RowEncoder' / 'RowDecoder' with @'structE' "addr" addr
+-- 'hasRowEncoder'@ / @'structD' "addr" 'hasRowDecoder'@.
+class HasRowEncoder a where
+  hasRowEncoder :: RowEncoder a
+  default hasRowEncoder
+    :: (Generic a, GRowEncoder (Rep a)) => RowEncoder a
+  hasRowEncoder = genericRowEncoder
+
+-- | Mirror of 'HasRowEncoder' on the decoding side.
+class HasRowDecoder a where
+  hasRowDecoder :: RowDecoder a
+  default hasRowDecoder
+    :: (Generic a, GRowDecoder (Rep a)) => RowDecoder a
+  hasRowDecoder = genericRowDecoder
 
 -- Primitive instances just delegate to the corresponding
 -- combinator from "Arrow.Record".

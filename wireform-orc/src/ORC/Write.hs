@@ -57,7 +57,10 @@ import ORC.RLE
   , putVulong
   , zigzagEncode
   )
-import ORC.Stripe (encodeStripeFooter, encodeStream, Stream (..), StripeFooter (..))
+import ORC.Stripe
+  ( encodeStripeFooter, encodeStream, Stream (..), StripeFooter (..)
+  , defaultColumnEncodings, encodingsForTypes
+  )
 import ORC.Types
 
 ------------------------------------------------------------------------
@@ -315,12 +318,21 @@ writeVarSigned !x =
 
 -- | Build a stripe from stream payloads and stream metadata.
 --
--- Concatenates the DATA streams and appends a protobuf stripe footer.
-buildStripe :: V.Vector (Word64, Word64, ByteString) -> ByteString
-buildStripe streamInfos =
+-- Concatenates the DATA streams and appends a protobuf stripe
+-- footer that includes one 'ColumnEncoding' entry per column
+-- in the file's type tree (synthetic root + every leaf), each
+-- defaulted to @DIRECT_V2@ since wireform's writer emits RLEv2
+-- streams. Real ORC readers (pyarrow.orc, the Java reader,
+-- arrow-rs, DuckDB) refuse stripes whose encoding count
+-- doesn't match the schema.
+buildStripe
+  :: Int   -- ^ total column count (synthetic root + leaves)
+  -> V.Vector (Word64, Word64, ByteString)
+  -> ByteString
+buildStripe !nCols streamInfos =
   let !streams = V.map (\(kind, col, bs) ->
         Stream { stKind = kind, stColumn = col, stLength = fromIntegral (BS.length bs) }) streamInfos
-      !footer = StripeFooter streams
+      !footer = StripeFooter streams (defaultColumnEncodings nCols)
       !footerBs = encodeStripeFooter footer
       !dataParts = V.toList (V.map (\(_, _, bs) -> bs) streamInfos)
   in BS.concat (dataParts ++ [footerBs])
@@ -391,6 +403,13 @@ buildORCFileWithRowLookupFooter adjustFooter rowsForStripe types stripeData =
   let !headerMagic = orcMagic
       !headerLen   = fromIntegral (BS.length headerMagic) :: Word64
 
+      !nCols = V.length types
+      !encs  = encodingsForTypes
+                 (\i -> fromIntegral (typeKindToInt
+                                        (otKind
+                                           (V.unsafeIndex types i))))
+                 nCols
+
       buildStripes :: Int -> Word64 -> V.Vector StripeInformation -> [ByteString]
                    -> (V.Vector StripeInformation, [ByteString])
       buildStripes !i !off !siAcc !bsAcc
@@ -399,7 +418,7 @@ buildORCFileWithRowLookupFooter adjustFooter rowsForStripe types stripeData =
             let !sdata = V.unsafeIndex stripeData i
                 !streams = V.map (\(kind, col, bs) ->
                   Stream { stKind = kind, stColumn = col, stLength = fromIntegral (BS.length bs) }) sdata
-                !footer = StripeFooter streams
+                !footer = StripeFooter streams encs
                 !footerBs = encodeStripeFooter footer
                 !dataLen = V.foldl' (\a (_, _, bs) -> a + fromIntegral (BS.length bs)) 0 sdata :: Word64
                 !ftrLen = fromIntegral (BS.length footerBs) :: Word64

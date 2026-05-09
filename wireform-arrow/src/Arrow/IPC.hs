@@ -158,7 +158,12 @@ decodeSchema bs = do
   let !endian = if rdByte bs 0 == 0 then Little else Big
       !nFields = fromIntegral (readLE32 bs 1) :: Int
   (fields, _) <- decodeFields bs 5 nFields
-  Right Schema { arrowFields = V.fromList fields, arrowEndianness = endian }
+  Right Schema
+    { arrowFields     = V.fromList fields
+    , arrowEndianness = endian
+    , arrowMetadata   = V.empty
+    , arrowFeatures = V.empty
+    }
 
 decodeFields :: ByteString -> Int -> Int -> Either String ([Field], Int)
 decodeFields bs off 0 = Right ([], off)
@@ -184,7 +189,7 @@ decodeField bs off = do
   ensure bs off3 4
   let !nChildren = fromIntegral (readLE32 bs off3) :: Int
   (children, off4) <- decodeFields bs (off3 + 4) nChildren
-  Right (Field name nullable atype (V.fromList children) Nothing, off4)
+  Right (Field name nullable atype (V.fromList children) Nothing V.empty, off4)
 
 decodeArrowType :: ByteString -> Int -> Either String (ArrowType, Int)
 decodeArrowType bs off = do

@@ -1,0 +1,127 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StrictData #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
+
+{-|
+Module      : Kafka.Protocol.Generated.ExpireDelegationTokenResponse
+Description : Kafka ExpireDelegationTokenResponse message
+Copyright   : (c) 2025
+License     : BSD-3-Clause
+
+Kafka response for API key 40.
+
+
+
+Valid versions: 1-2
+Flexible versions: 2+
+
+This code is auto-generated from Kafka protocol definitions.
+-}
+
+module Kafka.Protocol.Generated.ExpireDelegationTokenResponse
+  (
+    ExpireDelegationTokenResponse(..),
+    encodeExpireDelegationTokenResponse,
+    decodeExpireDelegationTokenResponse,
+    maxExpireDelegationTokenResponseVersion
+  ) where
+
+import Control.Monad (when)
+import Data.Bytes.Get (MonadGet)
+import Data.Bytes.Put (MonadPut)
+import Data.Bytes.Serial (Serial(..), serialize, deserialize)
+import Data.Int (Int8, Int16, Int32, Int64)
+import Data.Word (Word16, Word32)
+import GHC.Generics (Generic)
+import qualified Data.Vector as V
+import qualified Data.ByteString as BS
+import qualified Kafka.Protocol.Primitives as P
+import Kafka.Protocol.Primitives
+  ( VarInt(..), VarLong(..), UVarInt(..)
+  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , CompactString, CompactBytes, CompactArray
+  , TaggedFields, emptyTaggedFields, Nullable(..)
+  , toCompactString, toCompactBytes, toCompactArray
+  )
+import qualified Kafka.Protocol.Encoding as E
+
+
+
+
+data ExpireDelegationTokenResponse = ExpireDelegationTokenResponse
+  {
+
+  -- | The error code, or 0 if there was no error.
+
+  -- Versions: 0+
+  expireDelegationTokenResponseErrorCode :: !(Int16)
+,
+
+  -- | The timestamp in milliseconds at which this token expires.
+
+  -- Versions: 0+
+  expireDelegationTokenResponseExpiryTimestampMs :: !(Int64)
+,
+
+  -- | The duration in milliseconds for which the request was throttled due to a quota violation, or zero i
+
+  -- Versions: 0+
+  expireDelegationTokenResponseThrottleTimeMs :: !(Int32)
+
+  }
+  deriving (Eq, Show, Generic)
+
+-- | Maximum supported version for ExpireDelegationTokenResponse.
+maxExpireDelegationTokenResponseVersion :: Int16
+maxExpireDelegationTokenResponseVersion = 2
+
+-- | Encode ExpireDelegationTokenResponse with the given API version.
+encodeExpireDelegationTokenResponse :: MonadPut m => E.ApiVersion -> ExpireDelegationTokenResponse -> m ()
+encodeExpireDelegationTokenResponse version msg
+  | version == 1 =
+    do
+      serialize (expireDelegationTokenResponseErrorCode msg)
+      serialize (expireDelegationTokenResponseExpiryTimestampMs msg)
+      serialize (expireDelegationTokenResponseThrottleTimeMs msg)
+
+
+  | version == 2 =
+    do
+      serialize (expireDelegationTokenResponseErrorCode msg)
+      serialize (expireDelegationTokenResponseExpiryTimestampMs msg)
+      serialize (expireDelegationTokenResponseThrottleTimeMs msg)
+      serialize (emptyTaggedFields :: TaggedFields)
+  | otherwise = error $ "Unsupported version: " ++ show version
+
+-- | Decode ExpireDelegationTokenResponse with the given API version.
+decodeExpireDelegationTokenResponse :: MonadGet m => E.ApiVersion -> m ExpireDelegationTokenResponse
+decodeExpireDelegationTokenResponse version
+  | version == 1 =
+    do
+      fielderrorcode <- deserialize
+      fieldexpirytimestampms <- deserialize
+      fieldthrottletimems <- deserialize
+      pure ExpireDelegationTokenResponse
+        {
+        expireDelegationTokenResponseErrorCode = fielderrorcode
+        ,
+        expireDelegationTokenResponseExpiryTimestampMs = fieldexpirytimestampms
+        ,
+        expireDelegationTokenResponseThrottleTimeMs = fieldthrottletimems
+        }
+
+  | version == 2 =
+    do
+      fielderrorcode <- deserialize
+      fieldexpirytimestampms <- deserialize
+      fieldthrottletimems <- deserialize
+      _ <- (deserialize :: MonadGet m => m TaggedFields)
+      pure ExpireDelegationTokenResponse
+        {
+        expireDelegationTokenResponseErrorCode = fielderrorcode
+        ,
+        expireDelegationTokenResponseExpiryTimestampMs = fieldexpirytimestampms
+        ,
+        expireDelegationTokenResponseThrottleTimeMs = fieldthrottletimems
+        }
+  | otherwise = fail $ "Unsupported version: " ++ show version

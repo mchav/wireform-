@@ -73,6 +73,12 @@ module ORC.BloomFilter
   , encodeBloomFilterAs
   , encodeBloomFilterIndex
   , encodeBloomFilterIndexAs
+    -- * Decoders
+  , decodeBloomFilter
+  , decodeBloomFilterIndex
+    -- * Membership probes
+  , bfCheckBytes
+  , bfCheckLong
   ) where
 
 import Data.Bits (shiftL, shiftR, complement, xor, (.|.), (.&.), setBit, testBit)
@@ -342,3 +348,68 @@ bitsetToLEBytes :: VU.Vector Word64 -> ByteString
 bitsetToLEBytes bits =
   BL.toStrict $ B.toLazyByteString $
     VU.foldl' (\b w -> b <> B.word64LE w) mempty bits
+
+-- ============================================================
+-- Decoders + membership probes
+-- ============================================================
+
+-- | Parse a single 'BloomFilter' from its protobuf wire bytes.
+-- Handles both the legacy @bitset@ (field 2, packed @fixed64@)
+-- and the modern @utf8bitset@ (field 3, length-delimited LE
+-- bytes) layouts; the resulting filter is bit-identical
+-- regardless of which slot the writer used.
+decodeBloomFilter :: ByteString -> Either String BloomFilter
+decodeBloomFilter bs =
+  decodeMsg bs (BloomFilter VU.empty 0) step
+  where
+    -- The legacy 'bitset' field (proto field 2) is
+    -- @repeated fixed64@; ORC's writer emits it /unpacked/,
+    -- one (tag, 8-byte LE) pair per word, so each match here
+    -- contributes exactly one Word64 to the bitset.
+    --
+    -- The modern 'utf8bitset' field (proto field 3) is
+    -- length-delimited bytes whose payload is a contiguous
+    -- run of 8-byte LE words. Same in-memory result.
+    step bf = \case
+      BloomFilter_NumHashFunctions ->
+        ReadVarint $ \v -> bf { bfNumHashFunctions = fromIntegral v }
+      BloomFilter_Bitset ->
+        ReadFixed64 $ \w -> bf { bfBits = bfBits bf <> VU.singleton w }
+      BloomFilter_Utf8Bitset ->
+        ReadBytes $ \payload -> bf { bfBits = bfBits bf <> readFixed64Words payload }
+      _ -> SkipUnknown
+
+-- | Parse a 'BloomFilterIndex' (one filter per row group)
+-- from its wire bytes — typically the payload of a
+-- @BLOOM_FILTER_UTF8@ stream in an ORC stripe footer.
+decodeBloomFilterIndex :: ByteString -> Either String [BloomFilter]
+decodeBloomFilterIndex bs = do
+  acc <- decodeMsg bs [] $ \xs (fn, wt) -> case (fn, wt) of
+    BloomFilterIndex_Entry ->
+      ReadNested decodeBloomFilter (\bf -> bf : xs)
+    _ -> SkipUnknown
+  Right (reverse acc)
+
+readFixed64Words :: ByteString -> VU.Vector Word64
+readFixed64Words bs =
+  let !len = BS.length bs `div` 8
+      readAt !i =
+        let !off = i * 8
+            r j = fromIntegral (BS.index bs (off + j)) :: Word64
+        in r 0
+            .|. (r 1 `shiftL` 8)  .|. (r 2 `shiftL` 16) .|. (r 3 `shiftL` 24)
+            .|. (r 4 `shiftL` 32) .|. (r 5 `shiftL` 40) .|. (r 6 `shiftL` 48)
+            .|. (r 7 `shiftL` 56)
+  in VU.generate len readAt
+
+-- | Probe a 'BloomFilter' for membership of the given byte
+-- string. Hashes via the same Murmur3-64 construction the
+-- writer uses; returns 'False' iff the filter proves the
+-- string isn't present.
+bfCheckBytes :: ByteString -> BloomFilter -> Bool
+bfCheckBytes bs bf = checkBitOps (murmur3_64 bs) bf
+
+-- | Probe for membership of an integer value (Thomas Wang
+-- 64-bit hash, matching ORC's @getLongHash@).
+bfCheckLong :: Int64 -> BloomFilter -> Bool
+bfCheckLong n bf = checkBitOps (longHash n) bf

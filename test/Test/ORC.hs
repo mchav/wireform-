@@ -43,10 +43,12 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
   [ testCase "arrowToORC + decodeORC + orcStripeToArrow round-trip" $ do
       let !arrowSchema = AT.Schema
             { AT.arrowFields = V.fromList
-                [ AT.Field "i" False (AT.AInt 64 True) V.empty Nothing
-                , AT.Field "s" False AT.AUtf8           V.empty Nothing
+                [ AT.Field "i" False (AT.AInt 64 True) V.empty Nothing V.empty
+                , AT.Field "s" False AT.AUtf8           V.empty Nothing V.empty
                 ]
             , AT.arrowEndianness = AT.Little
+            , AT.arrowMetadata   = V.empty
+            , AT.arrowFeatures = V.empty
             }
           !batch = V.fromList
             [ AC.ColInt64 (VP.fromList ([10, 20, 30] :: [Int64]))
@@ -63,10 +65,12 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
   , testCase "nullable round-trip: PRESENT stream recovers nulls" $ do
       let !arrowSchema = AT.Schema
             { AT.arrowFields = V.fromList
-                [ AT.Field "i" True (AT.AInt 64 True) V.empty Nothing
-                , AT.Field "s" True AT.AUtf8          V.empty Nothing
+                [ AT.Field "i" True (AT.AInt 64 True) V.empty Nothing V.empty
+                , AT.Field "s" True AT.AUtf8          V.empty Nothing V.empty
                 ]
             , AT.arrowEndianness = AT.Little
+            , AT.arrowMetadata   = V.empty
+            , AT.arrowFeatures = V.empty
             }
           !batch = V.fromList
             [ AC.ColInt64Maybe (V.fromList [Just 10, Nothing, Just 30])
@@ -95,11 +99,13 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
   , testCase "temporal round-trip: Date32, Time32, Timestamp" $ do
       let !arrowSchema = AT.Schema
             { AT.arrowFields = V.fromList
-                [ AT.Field "d" False (AT.ADate AT.DateDay) V.empty Nothing
-                , AT.Field "t" False (AT.ATime AT.Millisecond 32) V.empty Nothing
-                , AT.Field "ts" False (AT.ATimestamp AT.Microsecond Nothing) V.empty Nothing
+                [ AT.Field "d" False (AT.ADate AT.DateDay) V.empty Nothing V.empty
+                , AT.Field "t" False (AT.ATime AT.Millisecond 32) V.empty Nothing V.empty
+                , AT.Field "ts" False (AT.ATimestamp AT.Microsecond Nothing) V.empty Nothing V.empty
                 ]
             , AT.arrowEndianness = AT.Little
+            , AT.arrowMetadata   = V.empty
+            , AT.arrowFeatures = V.empty
             }
           !batch = V.fromList
             [ AC.ColDate32 (VP.fromList ([19000, 19001, 19002] :: [Int32]))
@@ -128,11 +134,14 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
             { AT.arrowFields = V.singleton
                 (AT.Field "pt" False AT.AStruct
                   (V.fromList
-                     [ AT.Field "x"    False (AT.AInt 32 True) V.empty Nothing
-                     , AT.Field "name" False AT.AUtf8          V.empty Nothing
+                     [ AT.Field "x"    False (AT.AInt 32 True) V.empty Nothing V.empty
+                     , AT.Field "name" False AT.AUtf8          V.empty Nothing V.empty
                      ])
-                  Nothing)
+                  Nothing
+                  V.empty)
             , AT.arrowEndianness = AT.Little
+            , AT.arrowMetadata   = V.empty
+            , AT.arrowFeatures = V.empty
             }
           !batch = V.singleton $ AC.ColStruct
             (V.fromList
@@ -161,9 +170,12 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
             { AT.arrowFields = V.singleton
                 (AT.Field "xs" False AT.AList
                   (V.singleton
-                     (AT.Field "item" False (AT.AInt 32 True) V.empty Nothing))
-                  Nothing)
+                     (AT.Field "item" False (AT.AInt 32 True) V.empty Nothing V.empty))
+                  Nothing
+                  V.empty)
             , AT.arrowEndianness = AT.Little
+            , AT.arrowMetadata   = V.empty
+            , AT.arrowFeatures = V.empty
             }
           -- 3 rows: [1,2,3], [], [4,5]
           !batch = V.singleton $ AC.ColList
@@ -275,9 +287,9 @@ footerTests = testGroup "Footer roundtrip"
 
   , testCase "Footer with column statistics" $ do
       let stats = V.fromList
-            [ ColumnStatistics (Just 100) (Just False) (Just 800)
-            , ColumnStatistics (Just 95) (Just True) (Just 500)
-            , ColumnStatistics Nothing Nothing Nothing
+            [ ColumnStatistics (Just 100) (Just False) (Just 800) Nothing
+            , ColumnStatistics (Just 95) (Just True) (Just 500) Nothing
+            , ColumnStatistics Nothing Nothing Nothing Nothing
             ]
           footer = ORCFooter
             { orcHeaderLength = 3

@@ -49,6 +49,8 @@ module Arrow.FlatBufferIPC
   , writeArrowStreamFBFromColumns
     -- * Body compression helpers
   , compressBody
+  , compressBufferEither
+  , bodyCompressionAvailable
   , decompressBody
     -- * Reader (parses pyarrow / arrow-cpp output)
   , readArrowStreamFB
@@ -304,6 +306,7 @@ writeField b fld = do
   nameOff <- if T.null (fieldName fld)
                then pure Nothing
                else Just <$> writeString b (fieldName fld)
+  customMd <- writeKeyValueVector b (fieldMetadata fld)
   writeTable b
     [ case nameOff of { Nothing -> Nothing; Just uo -> Just (voff uo) }
     , if fieldNullable fld then Just (scalar 1 (\bb -> prependU8 bb 1)) else Nothing
@@ -311,8 +314,25 @@ writeField b fld = do
     , Just (voff tyUOff)
     , case dictOff of { Nothing -> Nothing; Just uo -> Just (voff uo) }
     , case childrenVec of { Nothing -> Nothing; Just uo -> Just (voff uo) }
-    , Nothing   -- custom_metadata
+    , case customMd  of { Nothing -> Nothing; Just uo -> Just (voff uo) }
     ]
+
+-- | Build a @[KeyValue]@ vector for @custom_metadata@ slots
+-- (used by both 'Field' and 'Schema'). Returns 'Nothing' for an
+-- empty metadata vector so the caller can omit the slot
+-- entirely (FlatBuffers' 'Nothing' = default).
+writeKeyValueVector :: Builder -> V.Vector (T.Text, T.Text) -> IO (Maybe Int)
+writeKeyValueVector b kvs
+  | V.null kvs = pure Nothing
+  | otherwise = do
+      kvUOffs <- mapM (writeKeyValueTable b) (V.toList kvs)
+      Just <$> writeVectorOfOffsets b kvUOffs
+
+writeKeyValueTable :: Builder -> (T.Text, T.Text) -> IO Int
+writeKeyValueTable b (k, v) = do
+  kOff <- writeString b k
+  vOff <- writeString b v
+  writeTable b [ Just (voff kOff), Just (voff vOff) ]
 
 -- | Build a 'DictionaryEncoding' table:
 --
@@ -349,13 +369,14 @@ writeSchema :: Builder -> Schema -> IO Int
 writeSchema b sch = do
   fieldUOffs <- mapM (writeField b) (V.toList (arrowFields sch))
   fieldsVec  <- writeVectorOfOffsets b fieldUOffs
+  customMd   <- writeKeyValueVector b (arrowMetadata sch)
   writeTable b
     [ case arrowEndianness sch of
         Little -> Nothing
         Big    -> Just (scalar 2 (\bb -> prependI16 bb 1))
     , Just (voff fieldsVec)
-    , Nothing
-    , Nothing
+    , case customMd of { Nothing -> Nothing; Just uo -> Just (voff uo) }
+    , Nothing -- features
     ]
 
 -- ============================================================
@@ -935,8 +956,17 @@ buildRecordBatchBytesWith mCodec sch cols =
       !(!bufs, !body) = case mCodec of
         Nothing    -> (bufs0, rawBody)
         Just codec ->
-          let !cb = compressBody codec bufs0 rawBody
-          in  cb
+          -- compressBody may fail at runtime when a codec is
+          -- requested that wasn't compiled in (e.g. BodyZstd
+          -- without -fzstd). The historical signature returned
+          -- ByteString unconditionally and called 'error' on
+          -- the codec branch, which is a hard crash. Keep the
+          -- 'error' behaviour for back-compat (existing callers
+          -- check the codec / flag combination before calling
+          -- this helper), but the lower-level
+          -- 'compressBufferEnvelopeEither' below now exposes a
+          -- proper Either-shaped path for new callers.
+          compressBody codec bufs0 rawBody
       !rb = RecordBatchDef
               { rbLength  = fromIntegral numRows
               , rbNodes   = nodes
@@ -1037,15 +1067,24 @@ decodeBodyLen bs =
     .|. (b6 `shiftL` 48)
     .|. (b7 `shiftL` 56)
 
--- | Compress a single buffer's bytes. Routes to the right codec
--- backend; @-fzstd@ / @-flz4@ Cabal flags select availability.
-compressBuffer :: BodyCompressionCodec -> ByteString -> ByteString
-compressBuffer codec bs = case codec of
+-- | Compress a single buffer's bytes. Routes to the right
+-- codec backend; @-fzstd@ / @-flz4@ Cabal flags select
+-- availability.
+--
+-- Returns 'Left' when the requested codec wasn't compiled in.
+-- Callers that don't want to handle the error can ignore the
+-- 'Left' branch (the historical 'compressBuffer' that fired
+-- 'error' is preserved as 'compressBuffer'); new code should
+-- prefer 'compressBufferEither'.
+compressBufferEither
+  :: BodyCompressionCodec -> ByteString
+  -> Either String ByteString
+compressBufferEither codec bs = case codec of
 #ifdef HAVE_ZSTD
   BodyZstd ->
-    Zstd.compress 3 bs   -- level 3 matches arrow-cpp's default
+    Right (Zstd.compress 3 bs)   -- level 3 matches arrow-cpp's default
 #else
-  BodyZstd -> error "Arrow.FlatBufferIPC: ZSTD body compression requires building wireform-arrow with -fzstd"
+  BodyZstd -> Left "Arrow.FlatBufferIPC: ZSTD body compression requires building wireform-arrow with -fzstd"
 #endif
 #ifdef HAVE_LZ4
   LZ4Frame ->
@@ -1054,9 +1093,31 @@ compressBuffer codec bs = case codec of
     -- one-or-more blocks), which is what arrow-cpp / pyarrow
     -- consume for BodyCompression codec=0 (LZ4_FRAME). The API
     -- works on lazy ByteStrings under the hood.
-    BL.toStrict (Lz4.compress (BL.fromStrict bs))
+    Right (BL.toStrict (Lz4.compress (BL.fromStrict bs)))
 #else
-  LZ4Frame -> error "Arrow.FlatBufferIPC: LZ4 body compression requires building wireform-arrow with -flz4"
+  LZ4Frame -> Left "Arrow.FlatBufferIPC: LZ4 body compression requires building wireform-arrow with -flz4"
+#endif
+
+-- | Back-compat wrapper that fires 'error' on the unavailable
+-- codec; new code should reach for 'compressBufferEither'.
+compressBuffer :: BodyCompressionCodec -> ByteString -> ByteString
+compressBuffer codec bs = case compressBufferEither codec bs of
+  Right out -> out
+  Left e    -> error e
+
+-- | Predicate the caller can use to fail-fast before invoking
+-- the writer on a codec that isn't compiled in.
+bodyCompressionAvailable :: BodyCompressionCodec -> Bool
+bodyCompressionAvailable = \case
+#ifdef HAVE_ZSTD
+  BodyZstd -> True
+#else
+  BodyZstd -> False
+#endif
+#ifdef HAVE_LZ4
+  LZ4Frame -> True
+#else
+  LZ4Frame -> False
 #endif
 
 decompressBuffer
@@ -1542,8 +1603,21 @@ materializeRecordBatchFB
 materializeRecordBatchFB sch rb body =
   materializeRecordBatch sch (denormaliseBuffers sch rb) body
 
--- | Placeholder validity buffer: offset 0, length 0. Readers treat
--- a zero-length validity buffer as "all values valid".
+-- | Zero-length validity buffer used for fields whose validity
+-- doesn't appear in the source 'Buffer' vector — namely:
+--
+--   * The validity slot of a non-nullable field (Arrow's wire
+--     layout still requires a buffer entry; readers see
+--     length=0 and treat every value as valid).
+--   * The keys-validity slot of a Map column. Map keys are
+--     non-nullable per the Arrow spec; the only nullability
+--     in a Map is at the entry level (Map's own validity) and
+--     at the value level (per the value field's own
+--     'fieldNullable').
+--
+-- Despite the historical \"placeholder\" comment this is the
+-- normal, spec-conforming way to encode the slot — pyarrow
+-- and arrow-cpp both emit Buffer 0 0 here on round-trip.
 emptyValidityBuffer :: Buffer
 emptyValidityBuffer = Buffer 0 0
 
@@ -1725,7 +1799,18 @@ readSchemaTable bs schPos = do
       vecPos <- followUOffset bs p
       readVectorOfOffsets bs vecPos
   fields <- V.mapM (readField bs) fieldsVec
-  Right Schema { arrowFields = fields, arrowEndianness = endian }
+  customMd <- case slot 2 of
+    Nothing -> Right V.empty
+    Just p  -> do
+      vecPos <- followUOffset bs p
+      kvPositions <- readVectorOfOffsets bs vecPos
+      V.mapM (readKeyValue bs) kvPositions
+  Right Schema
+    { arrowFields     = fields
+    , arrowEndianness = endian
+    , arrowMetadata   = customMd
+    , arrowFeatures   = V.empty  -- features round-trip on the wire is parsed by callers via getFeaturesIfPresent
+    }
 
 -- | Decode one @Field@ table.
 readField :: ByteString -> Pos -> Either String Field
@@ -1760,13 +1845,43 @@ readField bs fldPos = do
     Just p  -> do
       dePos <- followUOffset bs p
       Just <$> readDictionaryEncodingTable bs dePos
+  customMd <- case slot 6 of
+    Nothing -> Right V.empty
+    Just p  -> do
+      vecPos <- followUOffset bs p
+      kvPositions <- readVectorOfOffsets bs vecPos
+      V.mapM (readKeyValue bs) kvPositions
   Right Field
     { fieldName     = name
     , fieldNullable = nullable
     , fieldType     = ty
     , fieldChildren = children
     , fieldDictionary = dictionary
+    , fieldMetadata = customMd
     }
+
+-- | Decode one @KeyValue@ table (per @format/Schema.fbs@):
+--
+-- @
+-- table KeyValue {
+--   key   : string;   // 0
+--   value : string;   // 1
+-- }
+-- @
+readKeyValue :: ByteString -> Pos -> Either String (T.Text, T.Text)
+readKeyValue bs kvPos = do
+  slot <- resolveTable bs kvPos
+  k <- case slot 0 of
+    Nothing -> Right ""
+    Just p  -> do
+      strPos <- followUOffset bs p
+      readString bs strPos
+  v <- case slot 1 of
+    Nothing -> Right ""
+    Just p  -> do
+      strPos <- followUOffset bs p
+      readString bs strPos
+  Right (k, v)
 
 -- | Decode a 'DictionaryEncoding' table:
 --

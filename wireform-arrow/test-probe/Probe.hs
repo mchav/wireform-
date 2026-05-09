@@ -5,15 +5,21 @@
 module Main (main) where
 
 import qualified Data.ByteString as BS
+import Data.ByteString (ByteString)
 import Data.Text (Text)
 import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
-import Data.Int (Int32, Int64)
+import Data.Int (Int8, Int16, Int32, Int64)
+import Data.Word (Word8, Word16, Word32, Word64)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 
 import Arrow.Column (ColumnArray (..))
 import Arrow.Types
+  ( ArrowType (..), DateUnit (..), Precision (..)
+  , TimeUnit (..), UnionMode (..)
+  , Schema (..), Field (..), DictionaryEncoding (..), Endianness (..)
+  )
 import Arrow.Stream
   ( BodyCompressionCodec (..)
   , WriteOptions (..)
@@ -51,13 +57,13 @@ readMode path = do
 -- | Smart constructor: a Field with no dictionary encoding.
 pField :: Text -> Bool -> ArrowType -> V.Vector Field -> Field
 pField nm nullable ty children =
-  Field nm nullable ty children Nothing
+  Field nm nullable ty children Nothing V.empty
 
 -- | Field with a dictionary encoding.
 dField :: Text -> Bool -> ArrowType -> Int64 -> Field
 dField nm nullable ty did =
   Field nm nullable ty V.empty
-    (Just (DictionaryEncoding did (AInt 32 True) False))
+    (Just (DictionaryEncoding did (AInt 32 True) False)) V.empty
 
 writeMode :: FilePath -> IO ()
 writeMode outDir = do
@@ -74,6 +80,8 @@ writeMode outDir = do
     Schema
       { arrowFields = V.singleton (pField "a" False (AInt 32 True) V.empty)
       , arrowEndianness = Little
+      , arrowMetadata = V.empty
+      , arrowFeatures = V.empty
       }
     [V.singleton (ColInt32 (VP.fromList ([1,2,3,4,5] :: [Int32])))]
 
@@ -86,6 +94,8 @@ writeMode outDir = do
           , pField "b" True  ABool           V.empty
           ]
       , arrowEndianness = Little
+      , arrowMetadata = V.empty
+      , arrowFeatures = V.empty
       }
     [V.fromList
        [ ColInt64 (VP.fromList ([10,20,30] :: [Int64]))
@@ -98,6 +108,8 @@ writeMode outDir = do
     Schema
       { arrowFields = V.singleton (pField "v" True AUtf8View V.empty)
       , arrowEndianness = Little
+      , arrowMetadata = V.empty
+      , arrowFeatures = V.empty
       }
     [V.singleton (ColUtf8ViewMaybe (V.fromList
        [ Just "short"
@@ -112,6 +124,8 @@ writeMode outDir = do
           pField "lv" False AListView
             (V.singleton (pField "item" False (AInt 32 True) V.empty))
       , arrowEndianness = Little
+      , arrowMetadata = V.empty
+      , arrowFeatures = V.empty
       }
     [V.singleton (ColListView
         (VP.fromList ([0,2,5] :: [Int32]))
@@ -127,6 +141,8 @@ writeMode outDir = do
             , pField "values"   True  (AInt 64 True) V.empty
             ]
       , arrowEndianness = Little
+      , arrowMetadata = V.empty
+      , arrowFeatures = V.empty
       }
     [V.singleton (ColRunEndEncoded
         (ColInt32 (VP.fromList ([3,5,8] :: [Int32])))
@@ -138,6 +154,8 @@ writeMode outDir = do
     Schema
       { arrowFields = V.singleton (dField "d" True AUtf8 0)
       , arrowEndianness = Little
+      , arrowMetadata = V.empty
+      , arrowFeatures = V.empty
       }
     [V.singleton (ColDictionary 0
         (VP.fromList ([0,1,0,2,1] :: [Int32]))
@@ -147,7 +165,7 @@ writeMode outDir = do
   -- per Arrow's BodyCompression spec.
   let zstdOpts    = defaultWriteOptions { writeBodyCompression = Just BodyZstd }
       zstdSchema  = Schema
-        (V.singleton (pField "n" False (AInt 64 True) V.empty)) Little
+        (V.singleton (pField "n" False (AInt 64 True) V.empty)) Little V.empty V.empty
       zstdBatch   = V.singleton (ColInt64 (VP.fromList ([1..500] :: [Int64])))
   BS.writeFile (outDir <> "/ours_zstd_compressed.arrows")
     (encodeArrowStream zstdOpts zstdSchema [zstdBatch])
@@ -156,6 +174,8 @@ writeMode outDir = do
   let intSchema = Schema
         { arrowFields = V.singleton (pField "a" False (AInt 32 True) V.empty)
         , arrowEndianness = Little
+        , arrowMetadata = V.empty
+        , arrowFeatures = V.empty
         }
       intBatch = V.singleton (ColInt32 (VP.fromList ([1,2,3,4,5] :: [Int32])))
   BS.writeFile (outDir <> "/ours_int32_batch.arrow")
@@ -166,6 +186,8 @@ writeMode outDir = do
   let dictSchema = Schema
         { arrowFields = V.singleton (dField "d" True AUtf8 0)
         , arrowEndianness = Little
+        , arrowMetadata = V.empty
+        , arrowFeatures = V.empty
         }
       dictBatch = V.singleton (ColDictionary 0
         (VP.fromList ([0,1,0,2,1] :: [Int32]))
@@ -173,4 +195,182 @@ writeMode outDir = do
   BS.writeFile (outDir <> "/ours_dict.arrow")
     (encodeArrowFile defaultWriteOptions dictSchema [dictBatch])
 
+  -- 7) Every primitive integer width (signed + unsigned).
+  let intWidths =
+        [ ("int8",  ColInt8  (VP.fromList ([0, 1, -1, 127, -128] :: [Int8])))
+        , ("int16", ColInt16 (VP.fromList ([0, 1, -1, 32767, -32768] :: [Int16])))
+        , ("uint8",  ColUInt8  (VP.fromList ([0, 1, 255] :: [Word8])))
+        , ("uint16", ColUInt16 (VP.fromList ([0, 1, 65535] :: [Word16])))
+        , ("uint32", ColUInt32 (VP.fromList ([0, 1, maxBound] :: [Word32])))
+        , ("uint64", ColUInt64 (VP.fromList ([0, 1, maxBound] :: [Word64])))
+        ]
+  mapM_
+    (\(nm, col) ->
+       writeSample nm
+         (Schema
+            (V.singleton (pField "x" False (colType col) V.empty))
+            Little V.empty V.empty)
+         [V.singleton col])
+    intWidths
+
+  -- 8) Float / Double (Float16 deferred — the spec stores it as
+  --    a Word16 view; the reader handles it but writers in
+  --    pyarrow rarely round-trip without explicit Half cast).
+  writeSample "float"
+    (Schema (V.singleton (pField "x" False (AFloatingPoint Single) V.empty))
+            Little V.empty V.empty)
+    [V.singleton (ColFloat (VP.fromList [1.5, -2.5, 3.5]))]
+  writeSample "double"
+    (Schema (V.singleton (pField "x" False (AFloatingPoint DoublePrecision) V.empty))
+            Little V.empty V.empty)
+    [V.singleton (ColDouble (VP.fromList [1.5, -2.5, 3.14159]))]
+
+  -- 9) Binary (raw bytes) + FixedSizeBinary.
+  writeSample "binary"
+    (Schema (V.singleton (pField "b" False ABinary V.empty))
+            Little V.empty V.empty)
+    [V.singleton (ColBinary (V.fromList
+       ["\x00\x01\x02", "\xff", "" :: ByteString]))]
+  writeSample "fixedbin16"
+    (Schema (V.singleton (pField "u" False (AFixedSizeBinary 16) V.empty))
+            Little V.empty V.empty)
+    [V.singleton (ColFixedSizeBinary 16 (V.fromList
+       [ BS.replicate 16 0xAA
+       , BS.replicate 16 0x55
+       ]))]
+
+  -- 10) Date / Time / Timestamp / Duration. Each one is a
+  --     primitive integer under the hood with a logical type
+  --     annotation.
+  writeSample "date32"
+    (Schema (V.singleton (pField "d" False (ADate DateDay) V.empty))
+            Little V.empty V.empty)
+    [V.singleton (ColDate32 (VP.fromList [0, 18000, -1]))]
+  writeSample "time64_us"
+    (Schema (V.singleton (pField "t" False (ATime Microsecond 64) V.empty))
+            Little V.empty V.empty)
+    [V.singleton (ColTime64 (VP.fromList [0, 12345000000]))]
+  writeSample "timestamp_ns_utc"
+    (Schema (V.singleton (pField "ts" False
+                            (ATimestamp Nanosecond (Just "UTC")) V.empty))
+            Little V.empty V.empty)
+    [V.singleton (ColTimestamp (VP.fromList
+       [0, 1700000000_000_000_000]))]
+  writeSample "duration_ns"
+    (Schema (V.singleton (pField "d" False (ADuration Nanosecond) V.empty))
+            Little V.empty V.empty)
+    [V.singleton (ColDuration (VP.fromList [0, 60_000_000_000]))]
+
+  -- 11) Decimal128.
+  writeSample "decimal128"
+    (Schema (V.singleton (pField "d" False (ADecimal 18 2) V.empty))
+            Little V.empty V.empty)
+    [V.singleton (ColDecimal128 18 2 (V.fromList
+       [ BS.replicate 16 0
+       , BS.replicate 16 1
+       ]))]
+
+  -- 12) List<int32> — the classic non-view list shape.
+  writeSample "list_int32"
+    (Schema (V.singleton $
+        pField "lst" False AList
+          (V.singleton (pField "item" False (AInt 32 True) V.empty)))
+       Little V.empty V.empty)
+    [V.singleton (ColList
+       (VP.fromList ([0,2,5,7] :: [Int32]))
+       (ColInt32 (VP.fromList [10,20,30,40,50,60,70])))]
+
+  -- 13) Struct<int32, utf8>.
+  writeSample "struct"
+    (Schema (V.singleton $
+        pField "s" False AStruct $ V.fromList
+          [ pField "i" False (AInt 32 True) V.empty
+          , pField "n" False AUtf8           V.empty
+          ])
+       Little V.empty V.empty)
+    [V.singleton (ColStruct (V.fromList
+       [ ("i", ColInt32 (VP.fromList ([1, 2, 3] :: [Int32])))
+       , ("n", ColUtf8  (V.fromList ["a", "b", "c"]))
+       ]))]
+
+  -- 14) Map<utf8, int32>. Per Arrow spec the Map is encoded
+  -- as List<Struct<key, value>> with the parent type being
+  -- AMap and the (single) child being a non-nullable struct
+  -- of {key, value}.
+  writeSample "map_utf8_int32"
+    (Schema (V.singleton $
+        pField "m" False (AMap False) $ V.singleton $
+          pField "entries" False AStruct $ V.fromList
+            [ pField "key"   False AUtf8           V.empty
+            , pField "value" True  (AInt 32 True)  V.empty
+            ])
+       Little V.empty V.empty)
+    [V.singleton (ColMap
+        (VP.fromList ([0, 2, 5] :: [Int32]))
+        (ColUtf8 (V.fromList ["k1", "k2", "k3", "k4", "k5"]))
+        (ColInt32 (VP.fromList ([10, 20, 30, 40, 50] :: [Int32]))))]
+
+  -- 15) LargeList<int32> — 64-bit offsets.
+  writeSample "large_list_int32"
+    (Schema (V.singleton $
+        pField "lst" False ALargeList
+          (V.singleton (pField "item" False (AInt 32 True) V.empty)))
+       Little V.empty V.empty)
+    [V.singleton (ColLargeList
+        (VP.fromList ([0, 2, 5, 7] :: [Int64]))
+        (ColInt32 (VP.fromList ([10,20,30,40,50,60,70] :: [Int32]))))]
+
+  -- 16) FixedSizeList<int32, 3>.
+  writeSample "fixed_size_list3_int32"
+    (Schema (V.singleton $
+        pField "fsl" False (AFixedSizeList 3)
+          (V.singleton (pField "item" False (AInt 32 True) V.empty)))
+       Little V.empty V.empty)
+    [V.singleton (ColFixedSizeList 3
+        (ColInt32 (VP.fromList ([1, 2, 3, 4, 5, 6] :: [Int32]))))]
+
+  -- 17) LargeUtf8.
+  writeSample "large_utf8"
+    (Schema (V.singleton (pField "s" False ALargeUtf8 V.empty))
+       Little V.empty V.empty)
+    [V.singleton (ColLargeUtf8 (V.fromList ["alpha", "beta", "gamma"]))]
+
+  -- 18) DenseUnion<int32, utf8>.
+  --
+  --     Arrow's union has type ids in [0, n_children) and an
+  --     offsets buffer indexing into the per-child storage.
+  --     Spec ref: format/Layout.rst Dense Union section.
+  writeSample "dense_union_int32_utf8"
+    (Schema (V.singleton $
+        pField "u" False (AUnion Dense (V.fromList [0, 1])) $ V.fromList
+          [ pField "i" False (AInt 32 True) V.empty
+          , pField "s" False AUtf8           V.empty
+          ])
+       Little V.empty V.empty)
+    [V.singleton (ColDenseUnion
+        (VP.fromList ([0, 1, 0, 1, 0] :: [Int8]))    -- type ids
+        (VP.fromList ([0, 0, 1, 1, 2] :: [Int32]))   -- per-child offsets
+        (V.fromList
+           [ ColInt32 (VP.fromList ([10, 20, 30] :: [Int32]))
+           , ColUtf8  (V.fromList ["a", "b"])
+           ]))]
+
   putStrLn ("wrote probe outputs to " ++ outDir)
+
+-- | Pick the right ArrowType for a ColumnArray. Used by the
+-- table-driven integer-width gallery so we don't have to
+-- repeat the type for each writeSample call.
+colType :: ColumnArray -> ArrowType
+colType = \case
+  ColInt8 _   -> AInt 8 True
+  ColInt16 _  -> AInt 16 True
+  ColInt32 _  -> AInt 32 True
+  ColInt64 _  -> AInt 64 True
+  ColUInt8 _  -> AInt 8 False
+  ColUInt16 _ -> AInt 16 False
+  ColUInt32 _ -> AInt 32 False
+  ColUInt64 _ -> AInt 64 False
+  ColFloat _  -> AFloatingPoint Single
+  ColDouble _ -> AFloatingPoint DoublePrecision
+  ColBool _   -> ABool
+  _           -> error "colType: unsupported"

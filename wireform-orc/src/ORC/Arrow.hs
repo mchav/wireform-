@@ -31,11 +31,21 @@ module ORC.Arrow
   , columnArrayToORCStreams
     -- * ORC → Arrow
   , orcStripeToArrow
+  , orcStripeToArrowProjected
+    -- * Streaming reader (one stripe at a time)
+  , streamStripes
+  , streamStripesIter
+  , streamStripesProjectedIter
+  , streamStripesFilteredIter
+  , streamStripesProjectedFilteredIter
+  , numStripes
   ) where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int (Int8, Int16, Int32, Int64)
+import qualified Data.Map.Strict as Map
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
@@ -45,7 +55,10 @@ import Data.Word (Word32, Word64)
 import qualified Arrow.Column as AC
 import qualified Arrow.Types as AT
 
+import qualified Columnar.Stream as IS
+
 import qualified ORC.Read   as OR
+import qualified ORC.Statistics as OStats
 import qualified ORC.Stripe as OSt
 import qualified ORC.Types  as OT
 import qualified ORC.Write  as OW
@@ -66,10 +79,30 @@ streamData = 1
 streamLength :: Word64
 streamLength = 2
 
--- | @Kind = SECONDARY@ — used for ORC timestamp nanoseconds (not
--- exercised in this bridge yet).
-_streamSecondary :: Word64
-_streamSecondary = 7
+-- | @Kind = SECONDARY@ (id 5) — used for ORC timestamp
+-- nanoseconds and decimal scale. The previous value here
+-- was 7, which is actually @BLOOM_FILTER@; that mistake
+-- silently mis-tagged every SECONDARY stream we wrote so
+-- pyarrow's reader couldn't find them.
+streamSecondary :: Word64
+streamSecondary = 5
+
+-- | The ORC timestamp epoch is 2015-01-01 00:00:00 UTC, /not/
+-- the Unix epoch. Per spec
+-- (https://orc.apache.org/specification/ORCv1/#timestamp-data)
+-- the DATA stream stores seconds relative to ORC's epoch; we
+-- shift between the two when round-tripping with anything that
+-- speaks Unix time. The constant below is
+-- @1_420_070_400 = (2015 - 1970) * 365.25 * 86400@ rounded down
+-- to the second (the exact value Java / C++ / Rust ORC use).
+orcEpochSecondsFromUnix :: Int64
+orcEpochSecondsFromUnix = 1_420_070_400
+
+-- | Convert an 'OR.ORCTimestamp' (seconds-since-ORC-epoch +
+-- decoded-nanos) back to whole nanoseconds since the Unix epoch.
+timestampToUnixNanos :: OR.ORCTimestamp -> Int64
+timestampToUnixNanos (OR.ORCTimestamp s n) =
+  (s + orcEpochSecondsFromUnix) * 1_000_000_000 + n
 
 -- ============================================================
 -- Arrow → ORC
@@ -252,7 +285,10 @@ arrowLeafKindFor ty = case ty of
   AT.ALargeUtf8                -> Right OT.TKString
   AT.ALargeBinary              -> Right OT.TKBinary
   AT.ADate _                   -> Right OT.TKDate
-  AT.ATimestamp _ _            -> Right OT.TKTimestamp
+  -- Arrow Timestamp(_, Just tz) maps to ORC's TIMESTAMP_INSTANT
+  -- (UTC-anchored); without tz it maps to local-time TIMESTAMP.
+  AT.ATimestamp _ (Just _)     -> Right OT.TKTimestampInstant
+  AT.ATimestamp _ Nothing      -> Right OT.TKTimestamp
   AT.ADuration _               -> Right OT.TKLong
   AT.ATime _ _                 -> Right OT.TKLong
   AT.ADecimal _ _              -> Right OT.TKDecimal
@@ -398,7 +434,7 @@ columnArrayToORCStreams !cid = go
       AC.ColDate64 v -> Right (intStreams Nothing cid v)
       AC.ColTime32 v -> Right (intStreams Nothing cid (signedI32 v))
       AC.ColTime64 v -> Right (intStreams Nothing cid v)
-      AC.ColTimestamp v -> Right (intStreams Nothing cid v)
+      AC.ColTimestamp v -> Right (timestampStreams Nothing cid v)
       AC.ColDuration  v -> Right (intStreams Nothing cid v)
 
       -- Nullable variants: emit PRESENT + present-only data.
@@ -442,7 +478,7 @@ columnArrayToORCStreams !cid = go
       AC.ColDate64Maybe    v -> Right (intMaybe v cid id)
       AC.ColTime32Maybe    v -> Right (intMaybe v cid signedI32')
       AC.ColTime64Maybe    v -> Right (intMaybe v cid id)
-      AC.ColTimestampMaybe v -> Right (intMaybe v cid id)
+      AC.ColTimestampMaybe v -> Right (timestampMaybe v cid)
       AC.ColDurationMaybe  v -> Right (intMaybe v cid id)
 
       other -> Left $ "ORC.Arrow: column shape "
@@ -496,6 +532,41 @@ columnArrayToORCStreams !cid = go
     intStreams mPres !c xs =
       presentPrefix mPres c <>
         V.singleton (streamData, c, OW.encodeIntColumn xs True)
+
+    -- ORC timestamps need both a DATA stream (signed seconds
+    -- with the SPEC-defined epoch of 2015-01-01 GMT, NOT
+    -- 1970-01-01 — the famous ORC epoch gotcha) and a
+    -- SECONDARY stream (nanoseconds with the 3-bit
+    -- trailing-zero encoding ORC defines). The Arrow
+    -- 'ColTimestamp' payload is whole nanoseconds since
+    -- 1970-01-01; convert to ORC's epoch by subtracting
+    -- 'orcEpochSecondsFromUnix' from the seconds part. Negative
+    -- timestamps are fine since the seconds field is signed.
+    timestampStreams mPres !c (nsVec :: VP.Vector Int64) =
+      let !secsUnix = VP.map (\ns -> ns `quot` 1_000_000_000) nsVec
+          !secs     = VP.map (\s -> s - orcEpochSecondsFromUnix) secsUnix
+          !nanos    = VP.map (\ns -> ns `rem`  1_000_000_000) nsVec
+          !(secBs, nanoBs) = OW.encodeTimestampColumn secs nanos
+      in  presentPrefix mPres c <>
+            V.fromList
+              [ (streamData,      c, secBs)
+              , (streamSecondary, c, nanoBs)
+              ]
+
+    -- Nullable timestamp: PRESENT mask + per-present timestamp
+    -- pair (DATA + SECONDARY).
+    timestampMaybe v !c =
+      let (!pres, !justs) = presentBytes v
+          !nsVec    = VP.fromList (V.toList justs)
+          !secsUnix = VP.map (\ns -> ns `quot` 1_000_000_000) nsVec
+          !secs     = VP.map (\s -> s - orcEpochSecondsFromUnix) secsUnix
+          !nanos    = VP.map (\ns -> ns `rem`  1_000_000_000) nsVec
+          !(secBs, nanoBs) = OW.encodeTimestampColumn secs nanos
+      in  V.fromList
+            [ (streamPresent,   c, pres)
+            , (streamData,      c, secBs)
+            , (streamSecondary, c, nanoBs)
+            ]
     boolStreams mPres !c xs =
       presentPrefix mPres c <>
         V.singleton (streamData, c, OW.encodeBooleanRLE xs)
@@ -783,9 +854,17 @@ decodeOneColumn cid fld numRows stripeBs streams = do
       xs <- OR.decodeIntColumn True numRows dataBs mPresentBs
       temporalToArrow (AT.fieldType fld) (AT.fieldNullable fld) xs
     AT.ATimestamp _ _ -> do
+      -- ORC timestamps are encoded as DATA (signed seconds
+      -- since 2015-01-01 GMT, the ORC epoch — NOT 1970) +
+      -- SECONDARY (per-row nano-of-second with the 3-bit
+      -- trailing-zero scale). Reconstruct nanoseconds since
+      -- 1970-01-01 from both streams so callers see the same
+      -- semantics as Arrow's ColTimestamp.
       dataBs <- sliceFor streamData
-      xs <- OR.decodeIntColumn True numRows dataBs mPresentBs
-      temporalToArrow (AT.fieldType fld) (AT.fieldNullable fld) xs
+      nanoBs <- sliceFor streamSecondary
+      tss <- OR.decodeTimestampColumn numRows dataBs nanoBs mPresentBs
+      let !nsVec = V.map (fmap timestampToUnixNanos) tss
+      temporalToArrow (AT.fieldType fld) (AT.fieldNullable fld) nsVec
     AT.ADuration _ -> do
       dataBs <- sliceFor streamData
       xs <- OR.decodeIntColumn True numRows dataBs mPresentBs
@@ -909,3 +988,145 @@ temporalToArrow ty nullable xs = case (ty, nullable) of
   where
     narrow32 :: Int64 -> Int32
     narrow32 = fromIntegral
+
+-- ============================================================
+-- Streaming reader (one stripe at a time)
+-- ============================================================
+
+-- | Number of stripes in an ORC file's footer. Useful as a loop
+-- bound for 'orcStripeToArrow' / 'streamStripesIter'.
+numStripes :: OT.ORCFooter -> Int
+numStripes = V.length . OT.orcStripes
+
+-- | Eager list of @Either String batch@: one slot per stripe.
+-- Mirrors 'Parquet.Arrow.streamRowGroups' shape so callers can
+-- pick whichever format they're targeting and use the same
+-- driver. Prefer 'streamStripesIter' for new code.
+streamStripes
+  :: AT.Schema
+  -> ByteString
+  -> OT.ORCFooter
+  -> [Either String (V.Vector AC.ColumnArray)]
+streamStripes sch fileBs footer =
+  [ orcStripeToArrow sch fileBs footer i
+  | i <- [0 .. numStripes footer - 1]
+  ]
+
+-- | Iterator over stripes. Each step decodes one stripe to an
+-- Arrow batch on demand. Errors halt the iterator at the failing
+-- stripe (rather than being threaded through a list).
+streamStripesIter
+  :: AT.Schema
+  -> ByteString
+  -> OT.ORCFooter
+  -> IS.Iter (V.Vector AC.ColumnArray)
+streamStripesIter sch fileBs footer =
+  IS.iterFromIndexed (numStripes footer) $ \i ->
+    orcStripeToArrow sch fileBs footer i
+
+-- | Like 'streamStripesIter' but only decodes the named columns
+-- of each stripe. Names absent from the source schema cause every
+-- iterator step to fail with the same error.
+--
+-- Equivalent to @'streamStripesIter' (projectFields names sch)@
+-- but with an explicit error path so the caller doesn't have to
+-- pre-project the schema.
+streamStripesProjectedIter
+  :: AT.Schema
+  -> [Text]
+  -> ByteString
+  -> OT.ORCFooter
+  -> IS.Iter (V.Vector AC.ColumnArray)
+streamStripesProjectedIter sch names fileBs footer =
+  case projectFields names sch of
+    Left e          -> IS.iterUnfold () (\_ -> Left e)
+    Right narrow    -> streamStripesIter narrow fileBs footer
+
+-- | Decode a single stripe with column projection.
+orcStripeToArrowProjected
+  :: AT.Schema
+  -> [Text]
+  -> ByteString
+  -> OT.ORCFooter
+  -> Int
+  -> Either String (V.Vector AC.ColumnArray)
+orcStripeToArrowProjected sch names fileBs footer stripeIdx = do
+  narrow <- projectFields names sch
+  orcStripeToArrow narrow fileBs footer stripeIdx
+
+-- | Build a sub-schema by name, preserving the order of @names@.
+-- Names not present in the source schema produce an error.
+projectFields :: [Text] -> AT.Schema -> Either String AT.Schema
+projectFields names sch =
+  let !fields = AT.arrowFields sch
+      !byName = Map.fromList
+        [ (AT.fieldName f, f) | f <- V.toList fields ]
+      pickOne nm = case Map.lookup nm byName of
+        Just f  -> Right f
+        Nothing -> Left $ "ORC.Arrow: projected column "
+                          ++ show nm ++ " not present in target schema"
+  in do
+    fs <- traverse pickOne names
+    Right sch { AT.arrowFields = V.fromList fs }
+
+-- ============================================================
+-- Stripe-level predicate pushdown
+-- ============================================================
+
+-- | Iterator over stripes that drops any stripe whose
+-- file-footer 'ColumnStatistics' prove the predicate matches
+-- no rows. ORC stores per-file column statistics in the footer
+-- (one entry per leaf column, /not/ per-stripe); the read API
+-- has to reconstruct per-stripe stats from the protobuf
+-- @StripeStatistics@ payloads in @Metadata@. For now this
+-- shape uses the file-level stats — accurate when the file is
+-- a single stripe (the common Iceberg case) and conservatively
+-- safe (PMaybeKeep) for multi-stripe files where per-stripe
+-- stats would be tighter.
+--
+-- Returns @(totalStripes, droppedStripes, iter)@ so callers
+-- can log the skip ratio.
+streamStripesFilteredIter
+  :: AT.Schema
+  -> OStats.Predicate
+  -> ByteString
+  -> OT.ORCFooter
+  -> (Int, Int, IS.Iter (V.Vector AC.ColumnArray))
+streamStripesFilteredIter sch predicate fileBs footer =
+  let !leafNames = leafColumnNames sch
+      !stats     = OT.orcStatistics footer
+      !allDecide =
+        -- File-level decision applies to every stripe (we
+        -- don't yet read the per-stripe Metadata payload).
+        OStats.evalStripe leafNames stats predicate
+      !nStripes  = numStripes footer
+      keep _ = allDecide == OStats.PMaybeKeep
+      !kept   = V.filter keep (V.enumFromN 0 nStripes)
+      !nKept  = V.length kept
+      !nSkip  = nStripes - nKept
+      step k =
+        let !i = V.unsafeIndex kept k
+        in orcStripeToArrow sch fileBs footer i
+  in (nStripes, nSkip, IS.iterFromIndexed nKept step)
+
+-- | Combination of 'streamStripesProjectedIter' and
+-- 'streamStripesFilteredIter': only decodes the named columns
+-- of stripes that survive the predicate.
+streamStripesProjectedFilteredIter
+  :: AT.Schema
+  -> [Text]
+  -> OStats.Predicate
+  -> ByteString
+  -> OT.ORCFooter
+  -> Either String (Int, Int, IS.Iter (V.Vector AC.ColumnArray))
+streamStripesProjectedFilteredIter sch names predicate fileBs footer = do
+  narrow <- projectFields names sch
+  let (nStripes, nSkip, it) =
+        streamStripesFilteredIter narrow predicate fileBs footer
+  Right (nStripes, nSkip, it)
+
+-- | Leaf column names for an Arrow schema (used as the column
+-- name vector by the predicate evaluator).
+leafColumnNames :: AT.Schema -> V.Vector Text
+leafColumnNames sch =
+  V.map AT.fieldName (AT.arrowFields sch)
