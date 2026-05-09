@@ -732,6 +732,7 @@ test-suite wireform-kafka-test
         Protocol.Generated.KnownGoodSpec
         Protocol.Generated.SimpleRoundTripSpec
         Protocol.PrimitivesSpec
+        Protocol.RecordBatchAttributesSpec
         Protocol.RecordBatchSpec
         Protocol.RoundTripSpec
         Protocol.VersionHandlingSpec

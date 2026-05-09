@@ -23,6 +23,7 @@ import Test.Tasty
 import qualified Protocol.CRC32CSpec
 import qualified Protocol.PrimitivesSpec
 import qualified Protocol.RoundTripSpec
+import qualified Protocol.RecordBatchAttributesSpec
 import qualified Protocol.RecordBatchSpec
 import qualified Protocol.CompressionSpec
 import qualified Protocol.Generated.SimpleRoundTripSpec
@@ -118,6 +119,7 @@ protocolTests = testGroup "Protocol"
   , Protocol.PrimitivesSpec.tests
   , Protocol.RoundTripSpec.tests
   , Protocol.RecordBatchSpec.tests
+  , Protocol.RecordBatchAttributesSpec.tests
   , Protocol.WireSpec.tests
   , Protocol.RecordBatchWireSpec.tests
   , Protocol.SliceVectorSpec.tests

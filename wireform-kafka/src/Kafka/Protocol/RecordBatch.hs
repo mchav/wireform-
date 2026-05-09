@@ -67,6 +67,8 @@ module Kafka.Protocol.RecordBatch
   , Attributes(..)
   , mkAttributes
   , defaultAttributes
+  , encodeAttributes
+  , decodeAttributes
     -- * Encoding/Decoding
   , encodeRecordBatch
   , decodeRecordBatch
