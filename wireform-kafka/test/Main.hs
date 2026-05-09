@@ -59,6 +59,7 @@ import qualified Client.RebalanceListenerSpec
 import qualified Client.AdminTimeoutsSpec
 import qualified Client.RetryClassifierSpec
 import qualified Client.BatchSplittingSpec
+import qualified Client.ResponseFrameSpec
 import qualified Network.OAuthOidcSpec
 import qualified Network.BootstrapSpec
 import qualified Network.ReauthDriverSpec
@@ -160,6 +161,7 @@ clientTests = testGroup "Client"
   , Client.AdminTimeoutsSpec.tests
   , Client.RetryClassifierSpec.tests
   , Client.BatchSplittingSpec.tests
+  , Client.ResponseFrameSpec.tests
   , Client.ConsumerExtrasSpec.tests
   , Client.MetadataCacheControlSpec.tests
   , Client.RackAwareSpec.tests

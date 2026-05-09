@@ -807,12 +807,12 @@ describeConfigs client@AdminClient{..} resources = do
       let brokerAddr = Meta.brokerMetaAddress broker
           apiKey = 32  -- DescribeConfigs
       -- DescribeConfigs has been v1+ since Kafka 0.11; the encoder
-      -- doesn't handle v0. We cap the client max at v1 for now —
-      -- our codegen handles v2+ in principle (DescribeConfigs goes
-      -- flexible at v4), but the v4 response shape isn't covered
-      -- by our decoder tests yet. Bumping the cap is safe once
-      -- we've added round-trip coverage for the v4 wire format.
-      withNegotiatedVersion client brokerAddr apiKey 1 1 1 $ \conn corrId apiVersion -> do
+      -- doesn't handle v0. We accept v1..v4 — v4 is the flexible
+      -- variant and is exercised by the live-broker integration
+      -- suite now that 'parseResponseFrame' correctly skips the
+      -- v1 response-header tagged-fields trailer for flexible
+      -- responses.
+      withNegotiatedVersion client brokerAddr apiKey 1 4 1 $ \conn corrId apiVersion -> do
         let resourcesV = V.fromList (map buildResource resources)
             request = DCReq.DescribeConfigsRequest
               { DCReq.describeConfigsRequestResources = P.mkKafkaArray resourcesV

@@ -688,6 +688,7 @@ test-suite wireform-kafka-test
         Client.AdminTimeoutsSpec
         Client.RetryClassifierSpec
         Client.BatchSplittingSpec
+        Client.ResponseFrameSpec
         Network.OAuthOidcSpec
         Network.BootstrapSpec
         Client.ConsumerExtrasSpec

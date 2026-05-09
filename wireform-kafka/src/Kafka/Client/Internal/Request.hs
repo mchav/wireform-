@@ -19,9 +19,14 @@ module Kafka.Client.Internal.Request
     -- * Frame Construction
   , frameRequest
   , parseResponseFrame
+    -- * Header version selection (exposed for tests + the
+    -- Pipeline module)
+  , requestHeaderVersionFor
+  , responseHeaderVersionFor
   ) where
 
 import Control.Monad (when)
+import Data.Bits ((.&.), shiftL)
 import Data.Bytes.Get (runGetS)
 import Data.Bytes.Put (runPutS)
 import Data.Bytes.Serial (serialize, deserialize)
@@ -123,6 +128,45 @@ requestHeaderVersionFor apiKey apiVersion =
     Nothing  -> 1                       -- non-flexible API
     Just t   -> if apiVersion >= t then 2 else 1
 
+-- | Pick the right Kafka /response/-header version for a given
+-- API key + body version. Symmetric to 'requestHeaderVersionFor'
+-- but needed because the response framing is asymmetric: flexible
+-- responses carry the response header /v1/, which adds a
+-- 'TaggedFields' trailer between the correlation id and the body
+-- proper. Skipping that trailer is what 'parseResponseFrame' uses
+-- this for.
+--
+-- == ApiVersions special case
+--
+-- The 'ApiVersionsResponse' is the one exception that has bitten
+-- everyone who ports a Kafka client: the broker /always/ sends
+-- it with response header v0, even when the body is the flexible
+-- v3+ shape. The JVM client documents this as a workaround for
+-- the chicken-and-egg problem — the broker can't know which
+-- header version the client expects until /after/ it has parsed
+-- the @ApiVersionsRequest@ and consulted the negotiated set, by
+-- which point the response is already going out. Mirror that
+-- here so we don't try to consume a non-existent
+-- 'TaggedFields' trailer on the @ApiVersionsResponse@ for
+-- v3+ bodies.
+--
+-- (Bug we found before this fix: with negotiation pushing
+-- @DescribeConfigs@ up to v4 — flexible — every call returned
+-- an empty @results@ array because the parser was reading the
+-- v1-header tagged-fields byte (0x00) as the high byte of
+-- @throttle_time_ms@, then four more bytes from what was
+-- actually the throttle field, and finally interpreting the
+-- next byte (the actual results-array compact-length prefix) as
+-- the start of the first result. The single 0x00 of the empty
+-- tagged-fields byte was enough to derail every subsequent
+-- field decode.)
+responseHeaderVersionFor :: Int16 -> Int16 -> Int16
+responseHeaderVersionFor apiKey apiVersion = case apiKey of
+  18 -> 0  -- ApiVersions: always response-header v0
+  _  -> case lookup apiKey flexibleVersionTable of
+          Nothing -> 0                       -- non-flexible API
+          Just t  -> if apiVersion >= t then 1 else 0
+
 -- | Per-API flexible-from version (i.e. the lowest body version
 -- that uses the v2 request header). Sourced from the upstream
 -- @data/messages/*Request.json@ "flexibleVersions" field.
@@ -192,36 +236,112 @@ flexibleVersionTable =
   , (72, 0)  -- PushTelemetry
   ]
 
--- | Parse a response frame, extracting the correlation ID and response body.
+-- | Parse a response frame, extracting the correlation ID and
+-- response body.
 --
 -- Kafka response format:
+--
+-- @
 -- [4 bytes: message length] [response header] [response body]
-parseResponseFrame :: ByteString -> Either String (Int32, ByteString)
-parseResponseFrame bs = do
-  -- Read the size prefix
+-- @
+--
+-- The response header is /version-aware/: non-flexible APIs use
+-- header v0 (just the 4-byte correlation id); flexible APIs use
+-- header v1 (correlation id + a 'TaggedFields' trailer).
+-- 'ApiVersionsResponse' is a special case — the broker always
+-- sends it with header v0 regardless of body version, so we
+-- mirror that here too. See 'responseHeaderVersionFor'.
+--
+-- Skipping the right number of header bytes is mandatory for
+-- flexible-bodied responses: leaving the v1-header tagged-fields
+-- trailer attached to @responseBody@ shifts every subsequent
+-- field by one byte and corrupts the entire decode.
+parseResponseFrame
+  :: Int16          -- ^ API key
+  -> Int16          -- ^ API version
+  -> ByteString     -- ^ raw bytes (including the 4-byte size prefix)
+  -> Either String (Int32, ByteString)
+parseResponseFrame apiKey apiVersion bs = do
   when (BS.length bs < 4) $
     Left "Response too short: missing size prefix"
-  
+
   let sizeResult = runGetS deserialize (BS.take 4 bs)
   messageSize <- sizeResult
-  
+
   let remainingBytes = BS.drop 4 bs
   when (BS.length remainingBytes < fromIntegral (messageSize :: Int32)) $
-    Left $ "Response too short: expected " ++ show messageSize ++ " bytes, got " ++ show (BS.length remainingBytes)
-  
+    Left $ "Response too short: expected " ++ show messageSize
+            ++ " bytes, got " ++ show (BS.length remainingBytes)
+
   let messageBytes = BS.take (fromIntegral messageSize) remainingBytes
-  
-  -- Parse response header (version 0 is simplest - just correlation ID)
-  -- Response header v0: correlation_id (4 bytes)
+
+  -- Always at least the correlation id.
   when (BS.length messageBytes < 4) $
     Left "Response message too short: missing correlation ID"
-  
+
   let correlationIdResult = runGetS deserialize (BS.take 4 messageBytes)
   correlationId <- correlationIdResult
-  
-  let responseBody = BS.drop 4 messageBytes
-  
-  return (correlationId, responseBody)
+
+  -- Response header v1 (flexible APIs) carries an extra
+  -- 'TaggedFields' field after the correlation id. The
+  -- canonical empty-tagged-fields encoding is a single 0x00
+  -- byte (UVarInt 0); we skip exactly the bytes of whatever
+  -- TaggedFields blob the broker sent, even if non-empty.
+  let !headerVersion = responseHeaderVersionFor apiKey apiVersion
+  if headerVersion == 0
+    then return (correlationId, BS.drop 4 messageBytes)
+    else do
+      let !afterCid = BS.drop 4 messageBytes
+      taggedLen <- consumeTaggedFieldsLen afterCid
+      let !body = BS.drop taggedLen afterCid
+      return (correlationId, body)
+  where
+    -- Decode the leading 'TaggedFields' value off @bs0@ and
+    -- return how many bytes it occupied. We don't actually
+    -- look inside any tagged field; the broker's response
+    -- headers historically contain only the empty-tagged-fields
+    -- placeholder (a single 0x00) but the wire format does
+    -- allow non-empty trailers, so be defensive.
+    consumeTaggedFieldsLen
+      :: ByteString -> Either String Int
+    consumeTaggedFieldsLen bs0 = do
+      when (BS.null bs0) $
+        Left "Response header v1: missing tagged-fields trailer"
+      -- TaggedFields = UVarInt count + count * (UVarInt tag, UVarInt len, len bytes)
+      (count, after1) <- decodeUVarInt bs0
+      walkFields (fromIntegral count) after1 (BS.length bs0 - BS.length after1)
+
+    walkFields
+      :: Int          -- ^ remaining count
+      -> ByteString   -- ^ slice past the count
+      -> Int          -- ^ bytes consumed so far
+      -> Either String Int
+    walkFields 0 _ acc = Right acc
+    walkFields !n rest acc = do
+      (_tag, r1) <- decodeUVarInt rest
+      (sz,   r2) <- decodeUVarInt r1
+      let !szI = fromIntegral sz
+      when (BS.length r2 < szI) $
+        Left "Response header tagged field: payload shorter than declared length"
+      let !consumedThisField = (BS.length rest - BS.length r2) + szI
+      walkFields (n - 1) (BS.drop szI r2) (acc + consumedThisField)
+
+    -- Inline UVarInt decoder so we don't pull in the Wire
+    -- module here (the Wire module is for the hot record-batch
+    -- path; this is one-shot per response).
+    decodeUVarInt :: ByteString -> Either String (Int, ByteString)
+    decodeUVarInt = go 0 0
+      where
+        go !shift !acc bs0
+          | shift > 28 = Left "Response header tagged field: UVarInt > 5 bytes"
+          | BS.null bs0 = Left "Response header tagged field: truncated UVarInt"
+          | otherwise =
+              let !b   = BS.head bs0
+                  !tail0 = BS.tail bs0
+                  !v   = acc + (fromIntegral (b .&. 0x7F) `shiftL` shift)
+              in if b .&. 0x80 == 0
+                   then Right (v, tail0)
+                   else go (shift + 7) v tail0
 
 -- | Send a raw framed request to the connection.
 sendRawRequest :: Connection -> ByteString -> IO ()
@@ -310,13 +430,11 @@ sendRequestReceiveResponse
   -> ByteString     -- ^ Serialized request body
   -> IO (Either String (Int32, ByteString))
 sendRequestReceiveResponse conn apiKey apiVersion correlationId clientId requestBody = do
-  -- Frame and send the request
   let framedRequest = frameRequest apiKey apiVersion correlationId clientId requestBody
   sendRawRequest conn framedRequest
-  
-  -- Receive the response
   response <- receiveRawResponse conn
-  
-  -- Parse the response frame
-  return $ parseResponseFrame response
+  -- Pass the api key + version through so the response-header
+  -- parser knows whether to skip a v1 'TaggedFields' trailer
+  -- before returning the body. See 'parseResponseFrame'.
+  return $ parseResponseFrame apiKey apiVersion response
 
