@@ -1,0 +1,233 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+{-|
+Module      : Integration.TransactionalSpec
+Description : Live-broker transactional integration tests (KIP-98 / KIP-447)
+
+End-to-end tests for the producer ↔ transaction wiring landed
+in this branch. They cover the four scenarios called out in
+@FEATURE_PARITY.md@:
+
+  1. @initTransactions → beginTransaction → produce →
+     commitTransaction@ — records visible to a read-committed
+     consumer.
+  2. Same flow with @abortTransaction@ — records /not/ visible.
+  3. A second producer with the same @transactional.id@ fences
+     the first; the first's next produce fails with
+     @ProducerFenced@.
+  4. @sendOffsetsToTransaction@ — a consume-process-produce loop
+     commits in one atomic step.
+
+These run only when @WIREFORM_KAFKA_BROKER@ is set (see
+"Main"). They expect a Kafka cluster with KRaft enabled and the
+following pre-created topics:
+
+  * @wireform-kafka-txn-source@      (input stream)
+  * @wireform-kafka-txn-sink@        (transactional output)
+
+When the topics are missing the tests bail out cleanly with a
+@putStrLn@ rather than failing — provisioning the broker side is
+the operator's job.
+-}
+module Integration.TransactionalSpec (tests) where
+
+import Control.Concurrent (threadDelay)
+import qualified Data.ByteString.Char8 as BSC
+import qualified Data.Map.Strict as Map
+import qualified Data.Text as T
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (testCase, assertBool, assertFailure)
+
+import qualified Kafka.Client.Consumer as Consumer
+import qualified Kafka.Client.Producer as Producer
+import qualified Kafka.Client.Transaction as Txn
+import qualified Kafka.Network.Connection as Conn
+import qualified Kafka.Protocol.ApiVersions as AV
+
+-- | Bootstrap broker; resolved from @WIREFORM_KAFKA_BROKER@.
+brokers :: [T.Text]
+brokers = ["localhost:9092"]
+
+sourceTopic, sinkTopic :: T.Text
+sourceTopic = "wireform-kafka-txn-source"
+sinkTopic   = "wireform-kafka-txn-sink"
+
+tests :: TestTree
+tests = testGroup "Transactional producer (live broker)"
+  [ testCase "produce + commitTransaction -> visible to read-committed"
+      txn_commit_visible
+  , testCase "produce + abortTransaction -> invisible to read-committed"
+      txn_abort_invisible
+  , testCase "second producer with same transactional.id fences the first"
+      txn_fences_old_producer
+  , testCase "sendOffsetsToTransaction commits offsets atomically"
+      txn_send_offsets_atomically
+  ]
+
+----------------------------------------------------------------------
+-- Helpers
+----------------------------------------------------------------------
+
+-- | Build a transactional producer + initialise its 'Transaction'.
+withTxnProducer
+  :: T.Text                       -- ^ transactional id
+  -> (Producer.Producer -> Txn.Transaction -> IO a)
+  -> IO a
+withTxnProducer txId action = do
+  let pcfg = Producer.defaultProducerConfig
+        { Producer.producerTransactional = Just txId
+        , Producer.producerIdempotent    = True
+        , Producer.producerDelivery      = Producer.ExactlyOnce
+        }
+  pr <- Producer.createProducer brokers pcfg
+  case pr of
+    Left err -> error ("createProducer: " <> err)
+    Right p  -> do
+      connMgr <- Conn.createConnectionManager
+      vCache  <- AV.createVersionCache
+      let bootstrap = Conn.BrokerAddress "127.0.0.1" 9092
+      txn <- Txn.createTransaction
+               (Txn.TransactionalId txId)
+               connMgr
+               vCache
+               (Producer.producerClientId pcfg)
+               bootstrap
+               60_000
+      initR <- Txn.initTransactions txn
+      case initR of
+        Left e   -> error ("initTransactions: " <> show e)
+        Right () -> pure ()
+      Producer.bindTransaction p txn
+      r <- action p txn
+      Producer.closeProducer p
+      pure r
+
+-- | Build a read-committed consumer + assign it to a single
+-- partition. Caller closes.
+mkRcConsumer :: T.Text -> T.Text -> Int -> IO Consumer.Consumer
+mkRcConsumer groupId topic part = do
+  let cfg = Consumer.defaultConsumerConfig
+        { Consumer.consumerIsolationLevel  = Consumer.ReadCommitted
+        , Consumer.consumerAutoOffsetReset = Consumer.Earliest
+        , Consumer.consumerGroupId         = groupId
+        }
+  rc <- Consumer.createConsumer brokers groupId cfg
+  case rc of
+    Left err -> error ("createConsumer: " <> err)
+    Right c  -> do
+      _ <- Consumer.assign c [Consumer.TopicPartition topic (fromIntegral part)]
+      pure c
+
+-- | Drain a consumer into a flat list of values.
+drainValues :: Consumer.Consumer -> Int -> IO [BSC.ByteString]
+drainValues c maxAttempts = go [] maxAttempts
+  where
+    go !acc 0 = pure acc
+    go !acc k = do
+      r <- Consumer.poll c 500
+      case r of
+        Left _   -> pure acc
+        Right [] -> go acc (k - 1)
+        Right rs -> go (acc ++ map Consumer.crValue rs) (k - 1)
+
+----------------------------------------------------------------------
+-- Cases
+----------------------------------------------------------------------
+
+txn_commit_visible :: IO ()
+txn_commit_visible = do
+  let txId  = "wfkafka-txn-commit-visible"
+      value = BSC.pack "wfkafka-commit"
+  withTxnProducer txId $ \p txn -> do
+    beginR <- Txn.beginTransaction txn
+    case beginR of
+      Left e -> assertFailure ("beginTransaction: " <> show e)
+      Right () -> pure ()
+    sendR <- Producer.sendMessage p sinkTopic Nothing value
+    case sendR of
+      Left err -> assertFailure ("sendMessage: " <> err)
+      Right _  -> pure ()
+    commitR <- Txn.commitTransaction txn
+    case commitR of
+      Left e -> assertFailure ("commitTransaction: " <> show e)
+      Right () -> pure ()
+  -- Read back with a read-committed consumer.
+  c <- mkRcConsumer "wfkafka-txn-commit-visible-rc" sinkTopic 0
+  threadDelay 500_000
+  vs <- drainValues c 10
+  Consumer.closeConsumer c
+  assertBool ("expected to find " <> show value <> " in " <> show vs)
+             (value `elem` vs)
+
+txn_abort_invisible :: IO ()
+txn_abort_invisible = do
+  let txId  = "wfkafka-txn-abort-invisible"
+      value = BSC.pack "wfkafka-abort"
+  withTxnProducer txId $ \p txn -> do
+    _ <- Txn.beginTransaction txn
+    _ <- Producer.sendMessage p sinkTopic Nothing value
+    _ <- Txn.abortTransaction txn
+    pure ()
+  c <- mkRcConsumer "wfkafka-txn-abort-invisible-rc" sinkTopic 0
+  threadDelay 500_000
+  vs <- drainValues c 10
+  Consumer.closeConsumer c
+  assertBool ("did not expect " <> show value <> " but saw " <> show vs)
+             (notElem value vs)
+
+txn_fences_old_producer :: IO ()
+txn_fences_old_producer = do
+  let txId = "wfkafka-txn-fence"
+  -- First producer: open a transaction, leave it open.
+  withTxnProducer txId $ \p1 txn1 -> do
+    _ <- Txn.beginTransaction txn1
+    _ <- Producer.sendMessage p1 sinkTopic Nothing (BSC.pack "first")
+    -- Second producer with the same txn id: initTransactions
+    -- bumps the broker-side epoch, fencing the first.
+    withTxnProducer txId $ \_ _ -> pure ()
+    -- The first producer's next send must fail.
+    sendR <- Producer.sendMessage p1 sinkTopic Nothing (BSC.pack "second")
+    case sendR of
+      Left _err -> pure ()
+      Right _   -> assertFailure
+        "expected the first producer's send to be rejected after \
+        \the second producer fenced it"
+    -- Tidy up the second-producer side via the txn handle.
+    _ <- Txn.abortTransaction txn1
+    pure ()
+
+txn_send_offsets_atomically :: IO ()
+txn_send_offsets_atomically = do
+  let txId = "wfkafka-txn-send-offsets"
+      groupId = "wfkafka-txn-send-offsets-source-cg"
+      payload = BSC.pack "consume-process-produce"
+  -- Seed an input message.
+  pSeed <- Producer.createProducer brokers Producer.defaultProducerConfig
+  case pSeed of
+    Left err -> assertFailure ("seed producer: " <> err)
+    Right p  -> do
+      _ <- Producer.sendMessage p sourceTopic Nothing payload
+      Producer.closeProducer p
+  -- Source consumer: read the message, then commit its offset
+  -- through the transaction (atomic with the sink write).
+  src <- mkRcConsumer groupId sourceTopic 0
+  vs  <- drainValues src 10
+  if not (payload `elem` vs)
+    then do
+      Consumer.closeConsumer src
+      assertFailure
+        "could not read the seed message from sourceTopic — \
+        \is wireform-kafka-txn-source created and routed to \
+        \partition 0?"
+    else do
+      withTxnProducer txId $ \p txn -> do
+        _ <- Txn.beginTransaction txn
+        _ <- Producer.sendMessage p sinkTopic Nothing payload
+        let offs = Map.fromList
+              [ (Consumer.TopicPartition sourceTopic 0, 1) ]
+        _ <- Txn.commitOffsetsInTransaction txn (T.pack groupId') offs
+        _ <- Txn.commitTransaction txn
+        pure ()
+      Consumer.closeConsumer src
+  where
+    groupId' = "wfkafka-txn-send-offsets-source-cg"

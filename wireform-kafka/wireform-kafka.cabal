@@ -709,11 +709,13 @@ test-suite wireform-kafka-integration
     ghc-options: -threaded -rtsopts -with-rtsopts=-N
     other-modules:
         Integration.BasicSpec
+        Integration.TransactionalSpec
     -- Skipped at run time unless WIREFORM_KAFKA_BROKER=host:port is set.
     build-depends:
         base,
         wireform-kafka,
         bytestring,
+        containers,
         tasty                     >= 1.4   && < 1.6,
         tasty-hunit               >= 0.10  && < 0.11,
         text
