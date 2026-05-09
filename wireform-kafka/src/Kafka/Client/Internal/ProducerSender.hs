@@ -36,6 +36,8 @@ module Kafka.Client.Internal.ProducerSender
   , bumpBatchAttempts
   , batchBackoffMs
   , shouldRetry
+    -- * Pure batch construction (exposed for testing)
+  , buildRecordBatch
     -- * Timeout Checking (KIP-91)
   , isBatchTimedOut
     -- * Configuration

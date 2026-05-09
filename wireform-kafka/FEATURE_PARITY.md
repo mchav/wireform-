@@ -85,13 +85,27 @@ with the implementation.
     the `TransactionCoordinator`. Per-stamp `(TxnId, Epoch)`
     visibility tracking in the mock means aborted records *stay*
     aborted across epoch reuse.
-  - **Important caveat**: the `Transaction` value and the `Producer`
-    value are still separate. The send path doesn't yet automatically
-    `addPartitionsToTxn` for partitions touched inside an open
-    transaction, doesn't stamp the transactional producer-id/epoch
-    onto outgoing batches (it uses the idempotent producer-id), and
-    doesn't fence sends after commit/abort. End-to-end transactional
-    use therefore still requires manual orchestration. See §3.1.
+  - `bindTransaction :: Producer -> Transaction -> IO ()` attaches
+    a `Transaction` to a `Producer`. Once bound:
+      - `sendMessage` rejects with a typed-string error unless the
+        transaction is in `InTransaction` (gate logic exposed
+        publicly as `producerTxnGate` for testing);
+      - the first send on a (topic, partition) inside the open
+        transaction issues `AddPartitionsToTxn` to the coordinator
+        (memoised per-txn so subsequent sends are STM-only);
+      - outgoing record batches are stamped with the transactional
+        producer-id / epoch / sequence (allocated via
+        `appendRecordStamped` + `BatchStamp` on the
+        accumulator) and the `attrIsTransactional` bit is flipped
+        on the wire-level `Attributes` word;
+      - `closeProducer` aborts an open transaction before shutdown
+        so the broker doesn't keep the txn id locked for
+        `transaction.timeout.ms`.
+    What's still pending: the end-to-end live-broker test, plus the
+    Streams runtime hooking the engine's commit ticks into the
+    bound producer's `beginTransaction` /
+    `sendOffsetsToTransaction` / `commitTransaction` cycle (S0
+    "Full `KafkaStreams` runtime against the real client" in §3.2).
 - `Consumer`:
   - `subscribeFlow` with FindCoordinator → JoinGroup → SyncGroup →
     OffsetFetch.
@@ -211,7 +225,7 @@ with the implementation.
 
 | Suite                              | Count |
 |------------------------------------|-------|
-| `wireform-kafka:wireform-kafka-test`         | 416 |
+| `wireform-kafka:wireform-kafka-test`         | 429 |
 | `wireform-kafka:wireform-kafka-streams-test` | 258 |
 
 Both green on every commit on this branch.
@@ -226,61 +240,27 @@ surface that must land.
 
 ### 3.1 Core client gaps
 
-#### S0 — Wire `Transaction` into `Producer` (end-to-end transactional support)
+#### S0 — End-to-end transactional integration test (live broker)
 
-- **What's missing.** The transaction coordinator protocol
-  (`Kafka.Client.Transaction`) and the producer (`Kafka.Client.Producer`)
-  are independent values today. Concretely the producer's send path:
-  - does **not** stamp the transactional producer-id / epoch onto
-    outgoing record batches — it uses `producerIdempotentId` /
-    `producerIdempotentEpoch` regardless of whether a transaction is
-    open;
-  - does **not** call `AddPartitionsToTxn` the first time a transaction
-    touches a new (topic, partition); the broker therefore rejects the
-    eventual `EndTxn` with `INVALID_TXN_STATE`;
-  - does **not** block sends issued outside `InTransaction` state once a
-    `Transaction` has been initialised, so callers can accidentally
-    produce non-transactional records on a transactional producer;
-  - does **not** stamp the `isTransactional` bit on the record-batch
-    header even when one is open.
-  Net effect: the API surface (`initTransactions` / `beginTransaction`
-  / `commitTransaction` / `abortTransaction` /
-  `sendOffsetsToTransaction`) exists, but a user calling them and
-  `produce` cannot get exactly-once semantics — the records simply
-  aren't part of the transaction the broker sees.
-- **Why this matters.** This is the entire reason
-  exactly-once (KIP-98 / KIP-447) exists. Until this lands, every
-  Streams EOS-V2 path is also blocked (§3.2), and KIP-892 (S0,
-  EOS-V3 store transactions) cannot be implemented at all.
-- **Invasiveness.** Medium. The cleanest model is to bind a
-  `Transaction` to the `Producer` at creation (so
-  `Producer.producerTransactional` carries an `Maybe Transaction`
-  alongside its config), then thread that `TVar TransactionState`
-  through:
-  - the send path: stamp `(producerId, epoch)` from the txn state
-    into the batch header instead of from `producerIdempotentId`;
-  - `BatchAccumulator.addRecord`: enqueue an
-    `AddPartitionsToTxn` request via the transaction coordinator
-    when a (topic, partition) is first observed in this txn;
-  - send-time checks: refuse to enqueue when state is not
-    `InTransaction` (or `Ready` for non-transactional producers);
-  - `closeProducer`: if state is `InTransaction`, abort.
-- **Tests.**
-  - End-to-end against the mock broker: `initTransactions →
-    beginTransaction → produce → commitTransaction` results in the
-    records being visible to a read-committed consumer; the same
-    sequence with `abortTransaction` results in records *not* being
-    visible (we already have per-stamp visibility in the mock; it
-    just isn't being driven from the producer).
-  - Producer-fence test: a second producer with the same
-    `transactional.id` fences the first; the first's next produce
-    fails with `ProducerFenced` instead of writing.
-  - `sendOffsetsToTransaction` round-trip: a producer-consumer
-    consume-process-produce loop commits in one atomic step.
-  - Producer with `transactional.id` set but no `beginTransaction`
-    rejects `produce`.
-- **Dependencies.** None new. All the protocol pieces are already
-  implemented; this is integration / wiring work.
+- **What's left.** The wiring described in §2.1 ("`bindTransaction`
+  / `producerTxnGate` / `appendRecordStamped`") is in place: the
+  send path stamps the transactional producer-id / epoch /
+  sequence, sets `attrIsTransactional`, lazily issues
+  `AddPartitionsToTxn`, and the gate refuses sends that aren't
+  `InTransaction`. What hasn't landed yet is a live-broker
+  end-to-end fixture asserting:
+  - `initTransactions → beginTransaction → produce →
+    commitTransaction` produces records visible to a
+    read-committed consumer; the same sequence with `abortTransaction`
+    leaves them invisible.
+  - A second producer with the same `transactional.id` fences the
+    first; the first's next produce fails with `ProducerFenced`.
+  - `sendOffsetsToTransaction`: a consume-process-produce loop
+    commits atomically.
+  All four are covered by pure tests in
+  `Client.ProducerTransactionWiringSpec` against the gate /
+  stamping invariants; the live-broker version of each is gated
+  behind `WIREFORM_KAFKA_BROKER` and pending.
 
 #### S0 — TLS/SSL
 
@@ -516,13 +496,14 @@ surface that must land.
 
 In approximate order:
 
-1. **Wire `Transaction` into `Producer`** (S0). Strict prerequisite
-   for everything EOS-related: Streams EOS-V2, KIP-892 EOS-V3,
-   `sendOffsetsToTransaction` consume-process-produce loops. This is
-   wiring, not new protocol work.
+1. **End-to-end transactional integration test** (S0). The
+   `Transaction` ↔ `Producer` wiring is in place; the remaining
+   work is a live-broker fixture exercising the end-to-end
+   commit / abort / fence / `sendOffsetsToTransaction` paths.
 2. **`KafkaStreams` runtime against the real client** (S0). Unblocks
    end-to-end tests and is a prerequisite for KIP-892 store
-   transactions; also depends on (1) for genuine EOS commit boundaries.
+   transactions; the Producer side is now ready for the engine to
+   drive `beginTransaction` / `commitTransaction` cycles.
 3. **TLS handshake test fixture + reauth** (S0). Needed for any
    production deploy.
 4. **KIP-892 store transactions** (S0). Brings EOS into Kafka 4.0
@@ -540,13 +521,11 @@ In approximate order:
 
 Difficulty notes (no calendar estimates):
 
-- 1 (Producer ↔ Transaction wiring) is integration work. The
-  protocol pieces all exist and are unit-tested; the change is
-  threading the `Transaction` state through the producer's send
-  path and `BatchAccumulator`. Expect to touch `Producer`, the
-  send loop in `Internal.ProducerSender`, the batch header
-  stamping in `Internal.BatchAccumulator`, and add new
-  end-to-end specs against the mock.
+- 1 (live-broker integration test) is mostly fixture work: spin up
+  a Kafka 4.0 broker (Docker / testcontainers), translate the
+  in-process MockProducer/MockConsumer scenarios over to the real
+  client, and gate the suite behind `WIREFORM_KAFKA_BROKER`. The
+  Producer wiring it would assert on is already merged.
 - 2, 4 are deep refactors of internal abstractions (engine driver,
   store transactional buffer). They cascade into existing tests; expect
   to update most of `Streams/MockDriverModesSpec` and
@@ -606,15 +585,14 @@ commit message.
 
 The current snapshot of in-progress / pending work is:
 
-- **Top of the queue:** wire `Kafka.Client.Transaction` into
-  `Kafka.Client.Producer` so that `produce` calls inside an
-  `InTransaction` window actually become part of the broker-side
-  transaction (§3.1). The protocol coordinator already exists and
-  is unit-tested; this is integration work in the producer's send
-  path. Until it lands, exactly-once is API-shaped only — not
-  semantically real — and every Streams EOS-V2 / KIP-892 EOS-V3
-  step is blocked.
-- All other in-flight items from prior chats are landed; this branch
-  brings the Pipeline implementation, AdminClient/TC/Subscribe codec
-  exposure, the consumer-protocol-v0→v1 sticky-assignor fix, and the
-  alive-idle Connection probe in line with the spec above.
+- **Top of the queue:** stand up a live-broker integration suite
+  (Docker / testcontainers) that exercises the transactional
+  producer end-to-end (commit / abort / fence /
+  `sendOffsetsToTransaction`). The producer-side wiring for
+  these paths landed alongside this snapshot and is exercised by
+  pure unit tests in `Client.ProducerTransactionWiringSpec`; the
+  outstanding piece is just the live-broker fixture.
+- The next runtime piece is to drive the `KafkaStreams` engine's
+  commit ticks through a `Transaction` bound to its producer
+  (§3.2 "Full `KafkaStreams` runtime against the real client" /
+  EOS-V2). Now unblocked.

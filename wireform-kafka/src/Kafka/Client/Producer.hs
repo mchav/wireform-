@@ -70,6 +70,7 @@ module Kafka.Client.Producer
     --     their @attrIsTransactional@ bit set.
   , bindTransaction
   , producerBoundTransaction
+  , producerTxnGate
     -- * Partitioning
   , Partitioner
   , defaultPartitioner
@@ -734,29 +735,11 @@ producerPreSendCheck p@Producer{..} topic key = do
     Nothing  -> return (Right Nothing)
     Just txn -> do
       st <- Txn.getTransactionState txn
-      case st of
-        Txn.InTransaction -> do
-          mPid   <- readTVarIO (Txn.txnProducerId    txn)
-          mEpoch <- readTVarIO (Txn.txnProducerEpoch txn)
-          case (mPid, mEpoch) of
-            (Just (Txn.ProducerId pid), Just (Txn.ProducerEpoch ep)) ->
-              return (Right (Just (txn, pid, ep)))
-            _ -> return $ Left
-              "transactional producer: missing producer-id/epoch \
-              \(call initTransactions before sending)"
-        Txn.Uninitialized -> return $ Left
-          "transactional producer: must call initTransactions \
-          \before sending"
-        Txn.Ready -> return $ Left
-          "transactional producer: must call beginTransaction \
-          \before sending"
-        Txn.Fenced -> return $ Left
-          "transactional producer: producer fenced"
-        Txn.Error msg -> return $ Left $
-          "transactional producer in error state: " <> T.unpack msg
-        _ -> return $ Left $
-          "transactional producer: cannot send in state "
-            <> show st
+      mPid   <- readTVarIO (Txn.txnProducerId    txn)
+      mEpoch <- readTVarIO (Txn.txnProducerEpoch txn)
+      case producerTxnGate st mPid mEpoch of
+        Left err           -> return (Left err)
+        Right (pid, epoch) -> return (Right (Just (txn, pid, epoch)))
   case txnGate of
     Left err -> return (Left err)
     Right txnInfo -> do
@@ -847,6 +830,41 @@ resetStmMap :: (Eq k, Hashable.Hashable k) => StmMap.Map k v -> STM ()
 resetStmMap m = do
   pairs <- ListT.toList (StmMap.listT m)
   mapM_ (\(k, _) -> StmMap.delete k m) pairs
+
+-- | Pure transactional state gate. Given the current
+-- 'Txn.TransactionState' plus the (possibly populated) producer-id
+-- / epoch from the bound 'Txn.Transaction', either:
+--
+--   * @Right (pid, epoch)@ — the producer is in 'Txn.InTransaction'
+--     with both values populated, so the caller may proceed and
+--     stamp the outgoing batch with @(pid, epoch)@; or
+--   * @Left reason@ — surface a typed-string error matching what
+--     'sendMessage' reports to the application.
+--
+-- Exposed so unit tests can drive every branch without spinning up
+-- a real 'Producer' or transaction-coordinator round-trip.
+producerTxnGate
+  :: Txn.TransactionState
+  -> Maybe Txn.ProducerId
+  -> Maybe Txn.ProducerEpoch
+  -> Either String (Int64, Int16)
+producerTxnGate st mPid mEpoch = case st of
+  Txn.InTransaction -> case (mPid, mEpoch) of
+    (Just (Txn.ProducerId pid), Just (Txn.ProducerEpoch ep)) ->
+      Right (pid, ep)
+    _ -> Left
+      "transactional producer: missing producer-id/epoch \
+      \(call initTransactions before sending)"
+  Txn.Uninitialized -> Left
+    "transactional producer: must call initTransactions before sending"
+  Txn.Ready -> Left
+    "transactional producer: must call beginTransaction before sending"
+  Txn.Fenced -> Left
+    "transactional producer: producer fenced"
+  Txn.Error msg -> Left $
+    "transactional producer in error state: " <> T.unpack msg
+  _ -> Left $
+    "transactional producer: cannot send in state " <> show st
 
 -- | Send a message asynchronously (returns immediately).
 --
