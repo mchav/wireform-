@@ -68,6 +68,7 @@ import qualified Kafka.Protocol.Generated.FetchResponse as FResp
 
 import Kafka.Client.Internal.Request
 import qualified Kafka.Protocol.RecordBatch as RB
+import qualified Kafka.Protocol.RecordBatchWire as RBW
 
 -- | A simple Kafka client with synchronous operations
 data SimpleClient = SimpleClient
@@ -280,8 +281,9 @@ produceSimple client topic partition keyM value = do
         timestamp       -- Base timestamp
         (V.singleton record)
   
-  -- Encode the batch to bytes
-  let batchBytes = RB.encodeRecordBatch batch
+  -- Encode the batch via the direct-poke Wire encoder
+  -- (~10x faster than the legacy Builder shape).
+  let batchBytes = RBW.encodeRecordBatchWire batch
       recordsField = P.mkKafkaBytes batchBytes
   
   -- Create partition data
@@ -394,27 +396,29 @@ decodeRecordBatches kafkaBytes =
     P.NotNull bytes ->
       if BS.null bytes
         then return []
-        else decodeBatches bytes []
+        else decodeBatches bytes ([] :: [[Record]])
   where
-    -- Recursively decode batches from the bytes
-    decodeBatches :: ByteString -> [Record] -> IO [Record]
-    decodeBatches bs acc
-      | BS.null bs = return $ reverse acc  -- Done, return accumulated records
+    -- Recursively decode batches. Accumulate /chunks/ of records in
+    -- reverse order, then 'concat . reverse' once at the end. The
+    -- previous shape did 'batchRecords ++ acc' on every iteration,
+    -- which is O(|acc|) per step and O(n^2) total in record count.
+    decodeBatches :: ByteString -> [[Record]] -> IO [Record]
+    decodeBatches bs chunks
+      | BS.null bs = return $! concat (reverse chunks)
       | otherwise = do
-          -- Try to decode a RecordBatch with decompression
           result <- RB.decodeRecordBatchWithDecompression bs
           case result of
-            Left err -> 
+            Left _err ->
               -- If decode fails, return what we have so far
-              -- (In production, we might want to log this error)
-              return $ reverse acc
+              -- (In production we might want to log this error.)
+              return $! concat (reverse chunks)
             Right batch -> do
-              let batchRecords = convertRecords batch
+              let !batchRecords = convertRecords batch
                   -- Calculate how many bytes this batch consumed
                   -- Base offset (8) + Length field (4) + Length value
-                  batchSize = 8 + 4 + fromIntegral (calculateBatchLength batch)
-                  remaining = BS.drop batchSize bs
-              decodeBatches remaining (batchRecords ++ acc)
+                  !batchSize = 8 + 4 + fromIntegral (calculateBatchLength batch)
+                  !remaining = BS.drop batchSize bs
+              decodeBatches remaining (batchRecords : chunks)
     
     -- Calculate the length field value for a batch (everything after the length field)
     calculateBatchLength :: RB.RecordBatch -> Int32

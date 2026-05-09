@@ -82,11 +82,11 @@ import qualified Data.Binary.Put as BP
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
 import Data.Int
 import qualified Data.IntSet as IntSet
 import Data.IntSet (IntSet)
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import qualified Data.Time.Clock.POSIX as Time
 import GHC.Generics (Generic)
 import Network.Connection
@@ -140,7 +140,12 @@ data Pipeline = Pipeline
   { pipelineConnection :: !Connection
   , pipelineConfig     :: !PipelineConfig
   , pipelineNextId     :: !(TVar RequestId)
-  , pipelinePending    :: !(TVar (Map RequestId PendingRequest))
+  , pipelinePending    :: !(TVar (HashMap RequestId PendingRequest))
+    -- ^ 'HashMap' (not 'Data.Map.Strict.Map') because the receive
+    -- loop's per-response 'lookup' + 'delete' is the hottest
+    -- access on the pipeline; with a 32-bit 'RequestId' key the
+    -- O(1) average path is materially cheaper than the tree
+    -- variant under high in-flight counts.
   , pipelineSendQueue  :: !(TQueue SendItem)
   , pipelineStats      :: !(TVar PipelineStats)
   , pipelineClosed     :: !(TVar Bool)
@@ -169,7 +174,7 @@ createPipeline
   -> IO Pipeline
 createPipeline conn config = do
   nextId    <- newTVarIO 0
-  pending   <- newTVarIO Map.empty
+  pending   <- newTVarIO HashMap.empty
   sendQueue <- newTQueueIO
   stats     <- newTVarIO emptyStats
   closed    <- newTVarIO False
@@ -208,8 +213,8 @@ closePipeline Pipeline{..} = do
       mapM_
         (\PendingRequest{..} ->
             tryPutTMVar pendingResponse (Left "pipeline closed"))
-        (Map.elems m)
-      writeTVar pipelinePending Map.empty
+        (HashMap.elems m)
+      writeTVar pipelinePending HashMap.empty
     -- Cancel background threads.
     ts <- readTVarIO pipelineThreads
     mapM_ cancel ts
@@ -264,7 +269,7 @@ allocateAndQueue Pipeline{..} builder now = do
       -- Backpressure: block until both inflight + queue have headroom.
       qSize <- queueSize pipelineSendQueue
       pendingMap <- readTVar pipelinePending
-      let !inFlight = Map.size pendingMap
+      let !inFlight = HashMap.size pendingMap
       check (qSize <  pipelineMaxQueueSize pipelineConfig)
       check (inFlight < pipelineMaxInFlight pipelineConfig)
       -- Allocate a fresh correlation id. We loop until we find
@@ -277,7 +282,7 @@ allocateAndQueue Pipeline{..} builder now = do
             , pendingResponse  = slot
             , pendingTimestamp = now
             }
-      writeTVar pipelinePending (Map.insert cid req pendingMap)
+      writeTVar pipelinePending (HashMap.insert cid req pendingMap)
       let !bytes = builder cid
       writeTQueue pipelineSendQueue (SendItem cid bytes)
       modifyTVar' pipelineStats $ \s -> s
@@ -301,7 +306,7 @@ queueSize q = go 0 []
         Just h -> go (n + 1) (h : acc)
 
 nextFreeCorrelationId
-  :: TVar RequestId -> Map RequestId a -> STM RequestId
+  :: TVar RequestId -> HashMap RequestId a -> STM RequestId
 nextFreeCorrelationId ref m = go (32 :: Int)
   where
     go 0 = pure 0  -- gave up (every id pending — practically impossible)
@@ -309,7 +314,7 @@ nextFreeCorrelationId ref m = go (32 :: Int)
       cid <- readTVar ref
       let !next = if cid == maxBound then 0 else cid + 1
       writeTVar ref next
-      if Map.member cid m
+      if HashMap.member cid m
         then go (n - 1)
         else pure cid
 
@@ -399,10 +404,10 @@ receiveLoop p@Pipeline{..} = loop
           Right (Right (cid, body)) -> do
             mReq <- atomically $ do
               m <- readTVar pipelinePending
-              case Map.lookup cid m of
+              case HashMap.lookup cid m of
                 Nothing -> pure Nothing
                 Just req -> do
-                  writeTVar pipelinePending (Map.delete cid m)
+                  writeTVar pipelinePending (HashMap.delete cid m)
                   modifyTVar' pipelineStats $ \s -> s
                     { statsResponsesReceived = statsResponsesReceived s + 1
                     , statsCurrentInFlight   = max 0 (statsCurrentInFlight s - 1)
@@ -454,16 +459,24 @@ timeoutLoop p@Pipeline{..} = loop
         let cutoff = now - pipelineTimeout pipelineConfig
         timedOut <- atomically $ do
           m <- readTVar pipelinePending
-          let (expired, alive) = Map.partition
-                (\PendingRequest{..} -> pendingTimestamp <= cutoff) m
+          -- 'HashMap' has no 'partition'; do the split in one
+          -- 'foldlWithKey'' pass so we don't traverse twice.
+          let !(expiredList, !alive, !nExpired) =
+                HashMap.foldlWithKey'
+                  (\(es, a, n) k req@PendingRequest{..} ->
+                      if pendingTimestamp <= cutoff
+                        then (req : es, a, n + 1)
+                        else (es, HashMap.insert k req a, n))
+                  ([], HashMap.empty, 0 :: Int)
+                  m
           writeTVar pipelinePending alive
           modifyTVar' pipelineStats $ \s -> s
             { statsRequestsTimedOut =
-                statsRequestsTimedOut s + Map.size expired
+                statsRequestsTimedOut s + nExpired
             , statsCurrentInFlight =
-                max 0 (statsCurrentInFlight s - Map.size expired)
+                max 0 (statsCurrentInFlight s - nExpired)
             }
-          pure (Map.elems expired)
+          pure expiredList
         mapM_ (\PendingRequest{..} ->
                   atomically $
                     tryPutTMVar pendingResponse (Left "timed out") >> pure ())
@@ -481,8 +494,8 @@ failPipeline Pipeline{..} reason = do
     mapM_
       (\PendingRequest{..} ->
           tryPutTMVar pendingResponse (Left reason))
-      (Map.elems m)
-    writeTVar pipelinePending Map.empty
+      (HashMap.elems m)
+    writeTVar pipelinePending HashMap.empty
 
 ----------------------------------------------------------------------
 -- Helpers
