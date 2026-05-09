@@ -10,6 +10,7 @@ import qualified Data.Int as Int
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Text (Text)
+import qualified Data.Vector as V
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
@@ -64,7 +65,7 @@ pool_routes_to_owner =
     waitForQuiescence pool
     -- Allow a short interval for engine processing to settle.
 
-    case poolWorkers pool of
+    case V.toList (poolWorkers pool) of
       [w0, w1] -> do
         out0 <- collectorTake (workerCollector w0) (topicName "out")
         out1 <- collectorTake (workerCollector w1) (topicName "out")
@@ -93,7 +94,7 @@ pool_per_worker_state_isolation =
 
     waitForQuiescence pool
 
-    case poolWorkers pool of
+    case V.toList (poolWorkers pool) of
       [w0, w1] -> do
         c0 <- workerProcessedCount w0
         c1 <- workerProcessedCount w1
@@ -111,7 +112,7 @@ pool_count_processed =
       (\v -> submitRecord pool (topicName "in") Nothing (bytes v) (t 0) 0)
       ["v1", "v2", "v3", "v4", "v5"]
     waitForQuiescence pool
-    case poolWorkers pool of
+    case V.toList (poolWorkers pool) of
       [w] -> workerProcessedCount w >>= (@?= 5)
       _   -> error "expected 1 worker"
     closeWorkerPool pool

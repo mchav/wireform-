@@ -48,7 +48,7 @@ import Control.Concurrent.Async
   , waitCatch
   )
 import Control.Concurrent.STM
-import Control.Monad (forM, forM_, unless)
+import Control.Monad (unless)
 import Data.ByteString (ByteString)
 import Data.Int (Int32, Int64)
 import Data.IORef
@@ -61,6 +61,8 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
 import Data.HashSet (HashSet)
 import Data.Text (Text)
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 import Kafka.Streams.Errors (logAndContinue)
 import Kafka.Streams.Internal.Engine
@@ -119,12 +121,17 @@ data WorkRecord = WorkRecord
 ----------------------------------------------------------------------
 
 data WorkerPool = WorkerPool
-  { poolWorkers       :: ![Worker]
+  { poolWorkers       :: !(Vector Worker)
+    -- ^ Workers in deterministic order. 'Vector' (not '[]') so the
+    -- iteration sites in 'commitAllWorkers' / 'closeWorkerPool' /
+    -- 'waitForQuiescence' are tight loops over contiguous storage
+    -- instead of a thunky cons-list walk. The lookup hot path
+    -- ('submitRecord') routes through 'poolWorkersByIdx' instead.
   , poolWorkersByIdx  :: !(HashMap.HashMap Int Worker)
     -- ^ Cache of 'poolWorkers' keyed by 'workerId' so the hot
     -- 'submitRecord' lookup is O(1) instead of an O(n) walk over
-    -- the list. Built once in 'newWorkerPool'; the worker list
-    -- is fixed for the pool's lifetime.
+    -- the worker list. Built once in 'newWorkerPool'; the worker
+    -- list is fixed for the pool's lifetime.
   , poolRouting       :: !(TVar (HashMap.HashMap (TopicName, Int32) Int))
     -- ^ 'HashMap' (not 'Data.Map') for the routing table — every
     -- 'submitRecord' looks up by '(TopicName, Int32)' which has a
@@ -144,36 +151,44 @@ newWorkerPool
 newWorkerPool topo appId perWorkerOwnership = do
   off <- newIORef 0
   routing <- newTVarIO (buildRouting perWorkerOwnership)
-  workers <- forM (zip [0 ..] perWorkerOwnership) $ \(idx, owned) -> do
-    inbox     <- newTQueueIO
-    stop      <- newTVarIO False
-    processed <- newTVarIO 0
-    submitted <- newTVarIO 0
-    coll      <- inMemoryCollector
-    eng       <- buildEngine topo (TaskId 0 (fromIntegral idx))
-                   appId coll logAndContinue
-    threadRef <- newIORef Nothing
-    let !w = Worker
-          { workerId        = idx
-          , workerEngine    = eng
-          , workerCollector = coll
-          , workerOwned     = owned
-          , workerInbox     = inbox
-          , workerStop      = stop
-          , workerProcessed = processed
-          , workerSubmitted = submitted
-          , workerThread    = threadRef
-          }
-    th <- async (workerLoop w)
-    -- Park the Async handle so closeWorkerPool can cancel it.
-    atomicModifyIORef' threadRef (\_ -> (Just th, ()))
-    pure w
+  -- Build workers into a 'Vector' directly so we don't pay the
+  -- 'fromList' cost on every iteration site. 'V.imapM' gives us
+  -- the deterministic 0..n-1 worker id and the matching ownership
+  -- entry in one pass.
+  let !ownedV = V.fromList perWorkerOwnership
+  workers <- V.imapM (buildWorker topo appId) ownedV
   pure WorkerPool
     { poolWorkers      = workers
-    , poolWorkersByIdx = HashMap.fromList [(workerId w, w) | w <- workers]
+    , poolWorkersByIdx = HashMap.fromList
+        (V.toList (V.map (\w -> (workerId w, w)) workers))
     , poolRouting      = routing
     , poolNextOff      = off
     }
+  where
+    buildWorker topology aId idx owned = do
+      inbox     <- newTQueueIO
+      stop      <- newTVarIO False
+      processed <- newTVarIO 0
+      submitted <- newTVarIO 0
+      coll      <- inMemoryCollector
+      eng       <- buildEngine topology (TaskId 0 (fromIntegral idx))
+                     aId coll logAndContinue
+      threadRef <- newIORef Nothing
+      let !w = Worker
+            { workerId        = idx
+            , workerEngine    = eng
+            , workerCollector = coll
+            , workerOwned     = owned
+            , workerInbox     = inbox
+            , workerStop      = stop
+            , workerProcessed = processed
+            , workerSubmitted = submitted
+            , workerThread    = threadRef
+            }
+      th <- async (workerLoop w)
+      -- Park the Async handle so closeWorkerPool can cancel it.
+      atomicModifyIORef' threadRef (\_ -> (Just th, ()))
+      pure w
 
 buildRouting :: [HashSet (TopicName, Int32)] -> HashMap.HashMap (TopicName, Int32) Int
 buildRouting perWorker =
@@ -221,7 +236,7 @@ submitRecord pool topic key val ts part = do
 waitForQuiescence :: WorkerPool -> IO ()
 waitForQuiescence pool =
   atomically $
-    forM_ (poolWorkers pool) $ \w -> do
+    V.forM_ (poolWorkers pool) $ \w -> do
       sub  <- readTVar (workerSubmitted w)
       done <- readTVar (workerProcessed w)
       unless (done >= sub) retry
@@ -229,16 +244,16 @@ waitForQuiescence pool =
 -- | Force a commit on every worker's engine.
 commitAllWorkers :: WorkerPool -> IO ()
 commitAllWorkers pool =
-  forM_ (poolWorkers pool) (commitEngine . workerEngine)
+  V.mapM_ (commitEngine . workerEngine) (poolWorkers pool)
 
 closeWorkerPool :: WorkerPool -> IO ()
 closeWorkerPool pool = do
   -- Drain in-flight records first.
   waitForQuiescence pool
-  forM_ (poolWorkers pool) $ \w ->
+  V.forM_ (poolWorkers pool) $ \w ->
     atomically (writeTVar (workerStop w) True)
   -- Cancel each worker thread.
-  forM_ (poolWorkers pool) $ \w -> do
+  V.forM_ (poolWorkers pool) $ \w -> do
     mTh <- readIORef (workerThread w)
     case mTh of
       Just th -> do
@@ -247,7 +262,7 @@ closeWorkerPool pool = do
         pure ()
       Nothing -> pure ()
   -- Close engines.
-  forM_ (poolWorkers pool) (closeEngine . workerEngine)
+  V.mapM_ (closeEngine . workerEngine) (poolWorkers pool)
 
 ----------------------------------------------------------------------
 -- Worker loop

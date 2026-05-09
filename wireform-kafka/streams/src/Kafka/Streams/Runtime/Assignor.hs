@@ -55,6 +55,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
+import qualified Data.Vector as V
 import GHC.Generics (Generic)
 
 import Kafka.Streams.Processor (TaskId (..))
@@ -239,12 +240,17 @@ pickStandbys
   -> MemberId              -- active member to exclude
   -> (Int, [MemberId])     -- (new index, picked standbys)
 pickStandbys startIdx members n exclude =
-  let total = length members
+  -- Project the input into a 'Vector' so the rotating @i `mod` total@
+  -- lookup is O(1) instead of the previous list (!!) walk; the cost
+  -- of the conversion is paid once per outer 'computeStandbys' fold
+  -- rather than per element.
+  let !memV = V.fromList members
+      !total = V.length memV
       go i picked needed
         | needed == 0 = (i, reverse picked)
         | i >= startIdx + total = (startIdx + total, reverse picked)
         | otherwise =
-            let !m = members !! (i `mod` total)
+            let !m = memV `V.unsafeIndex` (i `mod` total)
              in if m == exclude || m `elem` picked
                   then go (i + 1) picked needed
                   else go (i + 1) (m : picked) (needed - 1)

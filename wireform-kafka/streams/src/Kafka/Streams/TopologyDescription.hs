@@ -39,6 +39,7 @@ module Kafka.Streams.TopologyDescription
   ) where
 
 import Data.List (foldl', sort)
+import qualified Data.Foldable as Foldable
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -116,10 +117,14 @@ describeTopology topo =
         [ (Map.findWithDefault 0 (ndName nd) compMap, [nd])
         | nd <- nodes
         ]
+      -- 'topoOrder' is a 'Seq'; pull it through 'Foldable.toList'
+      -- once and reuse it for every sub-topology so we don't pay
+      -- the conversion per-group.
+      !insertionOrderL = Foldable.toList (Topo.topoOrder topo)
       orderedSubs =
         [ Subtopology
             { stIndex = idx
-            , stNodes = orderNodes (Topo.topoOrder topo) nds
+            , stNodes = orderNodes insertionOrderL nds
             }
         | (idx, nds) <- Map.toAscList grouped
         ]

@@ -68,9 +68,12 @@ import Control.Concurrent.Async (Async, async, cancel, waitCatch)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Control.Monad (forM_, unless, when)
+import qualified Data.Foldable as Foldable
 import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -243,13 +246,20 @@ setError ks msg = transitionTo ks (StreamsError msg)
 
 producerCollector :: KP.Producer -> IO RecordCollector
 producerCollector p = do
-  bufRef <- newIORef ([] :: [CollectedRecord])
+  -- Backed by a 'Seq' instead of '[]'. Sink writes are an
+  -- amortised \(O(1)\) right-snoc, so the FIFO collectorFlush
+  -- ordering falls out for free without the @reverse xs@ that the
+  -- old list-as-stack implementation needed. A flush that touches
+  -- a 100k-record window now skips the O(n) reverse + cons-list
+  -- traversal in favour of a single Seq.foldlM walk over
+  -- contiguous-ish chunks.
+  bufRef <- newIORef (Seq.empty :: Seq CollectedRecord)
   pure RecordCollector
     { collectorSend = \cr -> atomicModifyIORef' bufRef
-        (\xs -> (cr : xs, ()))
+        (\s -> (s Seq.|> cr, ()))
     , collectorFlush = do
-        xs <- atomicModifyIORef' bufRef (\xs -> ([], xs))
-        forM_ (reverse xs) $ \cr -> do
+        buf <- atomicModifyIORef' bufRef (\s -> (Seq.empty, s))
+        Foldable.for_ buf $ \cr -> do
           _ <- KP.sendMessage p (unTopicName (crTopic cr)) (crKey cr) (crValue cr)
           pure ()
         _ <- KP.flushProducer p
