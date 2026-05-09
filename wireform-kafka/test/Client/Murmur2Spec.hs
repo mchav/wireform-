@@ -41,6 +41,31 @@ tests = testGroup "Murmur2 (Kafka-compatible partitioner hash)"
       , testCase "vector new byte[]{'a', 'b', 'c'}" $
           murmur2 (BSC.pack "abc") @?= 479470107
       ]
+
+  , testGroup "boundary inputs"
+      -- The boundary set the original JVM 'UtilsTest' doesn't
+      -- exercise. The expected outputs are pinned to whatever the
+      -- 'murmur2' implementation produced when this test was
+      -- written; the implementation is independently confirmed
+      -- byte-identical with the JVM's @Utils.murmur2@ via the
+      -- canonical vectors above, so any drift here implies a
+      -- regression in the implementation, not a divergence from
+      -- the JVM.
+      --
+      -- The empty-key case in particular is what the producer
+      -- hits whenever the caller uses 'sendMessage' with an
+      -- explicit @Just BS.empty@ key (which JVM treats as "use
+      -- the key" rather than "no key", landing every empty-key
+      -- message on the same partition).
+      [ testCase "empty bytestring (length=0 tail path)" $
+          murmur2 BS.empty @?= 275646681
+      , testCase "single null byte (length=1 tail path)" $
+          murmur2 (BS.singleton 0) @?= 375494588
+      , testCase "single 0xFF byte (length=1 tail path, sign bit set)" $
+          murmur2 (BS.singleton 0xFF) @?= -311467685
+      , testCase "four-byte aligned input \"abcd\" (one body iter, no tail)" $
+          murmur2 (BSC.pack "abcd") @?= -1323649548
+      ]
   , testGroup "partitionForKey is in range"
       [ testCase "always non-negative for any partition count" $ do
           let !p = partitionForKey (BSC.pack "any-key") 16
