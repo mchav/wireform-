@@ -1,11 +1,88 @@
 module Main (main) where
 
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+
+import qualified Streams.SerdeSpec
+import qualified Streams.TimeSpec
+import qualified Streams.StateStoreSpec
+import qualified Streams.WindowSpec
+import qualified Streams.TopologySpec
+import qualified Streams.DriverSpec
+import qualified Streams.DSLSpec
+import qualified Streams.PunctuatorSpec
+import qualified Streams.PersistentStoreSpec
+import qualified Streams.JoinSpec
+import qualified Streams.AggregationSpec
+import qualified Streams.InteractiveQueriesSpec
+import qualified Streams.CacheSpec
+import qualified Streams.EOSSpec
+import qualified Streams.MultiTaskSpec
+import qualified Streams.StandbySpec
+import qualified Streams.AssignorSpec
+import qualified Streams.StreamConvSpec
+import qualified Streams.CogroupSpec
+import qualified Streams.SuppressSpec
+import qualified Streams.TimestampedSpec
+import qualified Streams.VersionedSpec
+import qualified Streams.TopologyDescriptionSpec
+import qualified Streams.MetricsSpec
+import qualified Streams.NamedSpec
+import qualified Streams.WorkerPoolSpec
+import qualified Streams.EOSRuntimeSpec
+import qualified Streams.ExtensionsSpec
+import qualified Streams.TestUtilsSpec
+import qualified Streams.StateListenerSpec
+import qualified Streams.QuerySpec
+import qualified Streams.ParityBatchSpec
+import qualified Streams.MoreParitySpec
+import qualified Streams.EndToEndChainSpec
+import qualified Streams.MorePartiyTwoSpec
+import qualified Streams.MoreParityThreeSpec
+import qualified Streams.MockClusterSpec
+import qualified Streams.MockFailureModesSpec
+import qualified Streams.MockAdvancedSpec
+import qualified Streams.MockDriverModesSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
-  [ testCase "sanity" $ (1 :: Int) @?= 1
+  [ Streams.SerdeSpec.tests
+  , Streams.TimeSpec.tests
+  , Streams.StateStoreSpec.tests
+  , Streams.WindowSpec.tests
+  , Streams.TopologySpec.tests
+  , Streams.DriverSpec.tests
+  , Streams.DSLSpec.tests
+  , Streams.PunctuatorSpec.tests
+  , Streams.PersistentStoreSpec.tests
+  , Streams.JoinSpec.tests
+  , Streams.AggregationSpec.tests
+  , Streams.InteractiveQueriesSpec.tests
+  , Streams.CacheSpec.tests
+  , Streams.EOSSpec.tests
+  , Streams.MultiTaskSpec.tests
+  , Streams.StandbySpec.tests
+  , Streams.AssignorSpec.tests
+  , Streams.StreamConvSpec.tests
+  , Streams.CogroupSpec.tests
+  , Streams.SuppressSpec.tests
+  , Streams.TimestampedSpec.tests
+  , Streams.VersionedSpec.tests
+  , Streams.TopologyDescriptionSpec.tests
+  , Streams.MetricsSpec.tests
+  , Streams.NamedSpec.tests
+  , Streams.WorkerPoolSpec.tests
+  , Streams.EOSRuntimeSpec.tests
+  , Streams.ExtensionsSpec.tests
+  , Streams.TestUtilsSpec.tests
+  , Streams.StateListenerSpec.tests
+  , Streams.QuerySpec.tests
+  , Streams.ParityBatchSpec.tests
+  , Streams.MoreParitySpec.tests
+  , Streams.EndToEndChainSpec.tests
+  , Streams.MorePartiyTwoSpec.tests
+  , Streams.MoreParityThreeSpec.tests
+  , Streams.MockClusterSpec.tests
+  , Streams.MockFailureModesSpec.tests
+  , Streams.MockAdvancedSpec.tests
+  , Streams.MockDriverModesSpec.tests
   ]
-
-

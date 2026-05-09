@@ -62,11 +62,13 @@ module Kafka.Client.Consumer
   , defaultConsumerConfig
   , AssignmentStrategy(..)
   , OffsetResetStrategy(..)
+  , IsolationLevel(..)
   , ConsumerConfig(..)
   ) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async)
+import qualified System.Timeout
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -88,6 +90,7 @@ import Network.Connection (Connection)
 import qualified StmContainers.Map as StmMap
 import qualified ListT
 
+import qualified Kafka.Client.Internal.ConsumerGroup as CG
 import qualified Kafka.Client.Internal.Heartbeat as HB
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Client.Internal.Subscribe as Sub
@@ -114,30 +117,81 @@ data AssignmentStrategy
   | StickyAssignment      -- ^ Sticky assignment (minimizes rebalance)
   deriving (Eq, Show, Generic)
 
--- | Consumer configuration.
+-- | Isolation level for fetched records (KIP-98).
+data IsolationLevel
+  = ReadUncommitted
+    -- ^ Default. The fetcher returns every record, including
+    --   those still inside an open transaction.
+  | ReadCommitted
+    -- ^ Only return records that belong to a committed
+    --   transaction (or no transaction at all).
+  deriving (Eq, Show, Generic)
+
+-- | Consumer configuration. Field names + defaults map onto
+-- librdkafka's @CONFIGURATION.md@ entries; the librdkafka name
+-- is given inline next to the Haskell field.
 data ConsumerConfig = ConsumerConfig
   { consumerClientId :: !Text
-    -- ^ Client identifier
+    -- ^ @client.id@ — identifier sent on every request.
   , consumerGroupId :: !Text
-    -- ^ Consumer group ID
+    -- ^ @group.id@ — consumer group id.
+  , consumerGroupInstanceId :: !(Maybe Text)
+    -- ^ @group.instance.id@ — KIP-345 static membership.
+    --   Default 'Nothing'.
   , consumerAutoCommit :: !Bool
-    -- ^ Enable auto-commit (default: True)
+    -- ^ @enable.auto.commit@. Default 'True'.
   , consumerAutoCommitIntervalMs :: !Int
-    -- ^ Auto-commit interval in ms (default: 5000)
+    -- ^ @auto.commit.interval.ms@. Default 5000.
+  , consumerEnableAutoOffsetStore :: !Bool
+    -- ^ @enable.auto.offset.store@: when 'True' (the default),
+    --   'poll' implicitly stages every fetched offset for the
+    --   next auto-commit. When 'False', the application must
+    --   call 'storeOffset' before commit.
   , consumerSessionTimeoutMs :: !Int
-    -- ^ Session timeout in ms (default: 10000 = 10 seconds) - KIP-256: separate from max poll interval
+    -- ^ @session.timeout.ms@. Default 45000 (KIP-735 widened
+    --   from 10000 in Kafka 3.0).
   , consumerHeartbeatIntervalMs :: !Int
-    -- ^ Heartbeat interval in ms (default: 3000)
+    -- ^ @heartbeat.interval.ms@. Default 3000.
   , consumerMaxPollRecords :: !Int
-    -- ^ Maximum records per poll (default: 500)
+    -- ^ @max.poll.records@. Default 500.
   , consumerMaxPollIntervalMs :: !Int
-    -- ^ Maximum time between polls in ms (default: 300000 = 5 minutes) - KIP-256: separate from session timeout
+    -- ^ @max.poll.interval.ms@. Default 300000 (5 minutes).
   , consumerAssignmentStrategy :: !AssignmentStrategy
-    -- ^ Partition assignment strategy
+    -- ^ @partition.assignment.strategy@.
   , consumerAutoOffsetReset :: !OffsetResetStrategy
-    -- ^ What to do when no offset (default: Latest)
+    -- ^ @auto.offset.reset@. Default 'Latest'.
+  , consumerIsolationLevel :: !IsolationLevel
+    -- ^ @isolation.level@. Default 'ReadUncommitted'.
+  , consumerEnablePartitionEof :: !Bool
+    -- ^ @enable.partition.eof@: emit a synthetic EOF event when
+    --   the fetcher reaches the partition's high-water mark.
+    --   Default 'False'.
+  , consumerCheckCrcs :: !Bool
+    -- ^ @check.crcs@: verify the CRC32C of every fetched record
+    --   batch. Default 'True'.
+  , consumerFetchMinBytes :: !Int
+    -- ^ @fetch.min.bytes@: hold the fetch response until at
+    --   least this many bytes are available (or
+    --   'consumerFetchMaxWaitMs' elapses). Default 1.
+  , consumerFetchMaxBytes :: !Int
+    -- ^ @fetch.max.bytes@: maximum total bytes returned by a
+    --   single fetch across all partitions. Default 52428800
+    --   (50 MiB).
+  , consumerFetchMaxWaitMs :: !Int
+    -- ^ @fetch.wait.max.ms@: how long the broker waits to
+    --   accumulate 'consumerFetchMinBytes'. Default 500.
+  , consumerFetchMessageMaxBytes :: !Int
+    -- ^ @max.partition.fetch.bytes@ /
+    --   @fetch.message.max.bytes@: cap per (topic, partition).
+    --   Default 1048576 (1 MiB).
+  , consumerFetchErrorBackoffMs :: !Int
+    -- ^ @fetch.error.backoff.ms@: backoff after a failed fetch
+    --   before retrying. Default 500.
+  , consumerQueuedMaxMessagesKbytes :: !Int
+    -- ^ @queued.max.messages.kbytes@: per-partition fetch queue
+    --   ceiling in KB. Default 65536.
   , consumerRackId :: !(Maybe Text)
-    -- ^ Rack ID for rack-aware fetching (default: Nothing) - KIP-392: fetch from replicas in same rack
+    -- ^ @client.rack@ — KIP-392 rack-aware fetching.
   , consumerConnectionConfig :: !Conn.ConnectionConfig
     -- ^ Lower-level connection settings: TLS, SASL, retry/backoff
     --   knobs. Defaults to 'Conn.defaultConnectionConfig' (plain TCP,
@@ -153,21 +207,35 @@ data OffsetResetStrategy
   | None      -- ^ Throw error if no offset exists
   deriving (Eq, Show, Generic)
 
--- | Default consumer configuration.
+-- | Default consumer configuration. Values track librdkafka's
+-- @CONFIGURATION.md@ defaults except where the JVM client diverges
+-- (and we follow the JVM-Kafka 3.x defaults so application
+-- behaviour matches what users see in @kafka-console-consumer@).
 defaultConsumerConfig :: ConsumerConfig
 defaultConsumerConfig = ConsumerConfig
-  { consumerClientId = "kafka-native-consumer"
-  , consumerGroupId = "default-group"
-  , consumerAutoCommit = True
-  , consumerAutoCommitIntervalMs = 5000
-  , consumerSessionTimeoutMs = 10000
-  , consumerHeartbeatIntervalMs = 3000
-  , consumerMaxPollRecords = 500
-  , consumerMaxPollIntervalMs = 300000
-  , consumerAssignmentStrategy = RangeAssignment
-  , consumerAutoOffsetReset = Latest
-  , consumerRackId = Nothing  -- KIP-392: set to enable rack-aware fetching
-  , consumerConnectionConfig = Conn.defaultConnectionConfig
+  { consumerClientId                = "kafka-native-consumer"
+  , consumerGroupId                 = "default-group"
+  , consumerGroupInstanceId         = Nothing
+  , consumerAutoCommit              = True
+  , consumerAutoCommitIntervalMs    = 5000
+  , consumerEnableAutoOffsetStore   = True
+  , consumerSessionTimeoutMs        = 45_000        -- KIP-735
+  , consumerHeartbeatIntervalMs     = 3000
+  , consumerMaxPollRecords          = 500
+  , consumerMaxPollIntervalMs       = 300_000       -- 5 minutes
+  , consumerAssignmentStrategy      = RangeAssignment
+  , consumerAutoOffsetReset         = Latest
+  , consumerIsolationLevel          = ReadUncommitted
+  , consumerEnablePartitionEof      = False
+  , consumerCheckCrcs               = True
+  , consumerFetchMinBytes           = 1
+  , consumerFetchMaxBytes           = 52_428_800    -- 50 MiB
+  , consumerFetchMaxWaitMs          = 500
+  , consumerFetchMessageMaxBytes    = 1_048_576     -- 1 MiB
+  , consumerFetchErrorBackoffMs     = 500
+  , consumerQueuedMaxMessagesKbytes = 65_536
+  , consumerRackId                  = Nothing       -- KIP-392
+  , consumerConnectionConfig        = Conn.defaultConnectionConfig
   }
 
 -- | A topic-partition pair.
@@ -430,20 +498,53 @@ closeConsumer consumer = closeConsumerWithTimeout consumer 30000
 --
 -- @since KIP-102
 closeConsumerWithTimeout :: Consumer -> Int -> IO ()
-closeConsumerWithTimeout Consumer{..} timeoutMs = do
-  -- Stop heartbeat and leave group with timeout
+closeConsumerWithTimeout c@Consumer{..} timeoutMs = do
   case consumerHeartbeat of
     Nothing -> return ()
     Just (hbState, hbThread) -> do
-      -- TODO: Send LeaveGroup request with timeout
-      -- For now, just stop the heartbeat thread
+      -- Best-effort LeaveGroup so the broker can rebalance the
+      -- group immediately rather than waiting for the
+      -- session.timeout.ms to expire. Bounded by the caller's
+      -- 'timeoutMs' so a misbehaving coordinator can't block
+      -- shutdown indefinitely. Failures here are silent — the
+      -- session-timeout fallback is still correct, just slower.
+      _ <- System.Timeout.timeout
+             (max 0 timeoutMs * 1000)
+             (sendLeaveGroup c hbState)
       HB.stopHeartbeatThread hbState hbThread
-      -- Give it time to send final heartbeat
-      let waitMicros = min (timeoutMs * 1000) 1000000  -- Max 1 second for cleanup
-      threadDelay waitMicros
-  
-  -- Close all connections
+  -- Close all connections.
   Conn.closeAllConnections consumerConnManager
+
+-- | Synchronously issue a LeaveGroup against the group coordinator.
+-- Used by 'closeConsumerWithTimeout' to clean-shutdown the group
+-- membership; failures are logged in the caller but otherwise ignored.
+sendLeaveGroup :: Consumer -> HB.HeartbeatState -> IO ()
+sendLeaveGroup c@Consumer{..} hbState = do
+  coordAddrM <- atomically $ readTVar (HB.hbCoordinatorAddr hbState)
+  memberId   <- readTVarIO (HB.hbMemberId hbState)
+  case coordAddrM of
+    Nothing        -> pure ()    -- never joined; nothing to leave
+    Just coordAddr -> do
+      connResult <- Conn.getOrCreateConnection
+                      consumerConnManager
+                      coordAddr
+                      (consumerConnConfig c)
+      case connResult of
+        Left _err -> pure ()
+        Right conn -> do
+          corrId <- atomically $ do
+            cid <- readTVar consumerCorrelationId
+            writeTVar consumerCorrelationId (cid + 1)
+            pure cid
+          _ <- CG.leaveGroup
+                 consumerVersionCache
+                 coordAddr
+                 conn
+                 (HB.hbGroupId hbState)
+                 memberId
+                 (consumerClientId consumerConfig)
+                 corrId
+          pure ()
 
 -- | Subscribe to topics with broker-side group coordination.
 --
@@ -997,12 +1098,16 @@ commitOffsetsSync
   -> [(TopicPartition, Int64)]           -- ^ Partitions and offsets to commit
   -> IO (Either String ())
 commitOffsetsSync consumer@Consumer{..} groupId offsets = do
-  -- TODO: Find the group coordinator
-  -- For now, we'll assume we have a coordinator from the heartbeat state
+  -- The heartbeat thread tracks the group coordinator, generation
+  -- id, and member id; we read all three off it. If the consumer
+  -- isn't in a group (no heartbeat thread), commits aren't
+  -- supported — the JVM client behaves the same.
   case consumerHeartbeat of
     Nothing -> return $ Left "Not in a consumer group, cannot commit offsets"
     Just (hbState, _) -> do
       coordAddrM <- atomically $ readTVar (HB.hbCoordinatorAddr hbState)
+      genId      <- readTVarIO (HB.hbGenerationId hbState)
+      memberId   <- readTVarIO (HB.hbMemberId    hbState)
       case coordAddrM of
         Nothing -> return $ Left "No group coordinator known"
         Just coordAddr -> do
@@ -1051,11 +1156,19 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
                     | (topic, parts) <- Map.toList byTopic
                     ]
                   
+                  -- KIP-345: surface a static @group.instance.id@
+                  -- if the user configured one; otherwise leave
+                  -- it null (the broker treats that as a dynamic
+                  -- member).
+                  groupInstanceField =
+                    case consumerGroupInstanceId consumerConfig of
+                      Nothing  -> P.KafkaString P.Null
+                      Just gii -> P.mkKafkaString gii
                   request = OCReq.OffsetCommitRequest
                     { OCReq.offsetCommitRequestGroupId = P.mkKafkaString groupId
-                    , OCReq.offsetCommitRequestGenerationIdOrMemberEpoch = -1  -- TODO: Get from heartbeat state
-                    , OCReq.offsetCommitRequestMemberId = P.mkKafkaString ""  -- TODO: Get from heartbeat state
-                    , OCReq.offsetCommitRequestGroupInstanceId = P.KafkaString P.Null
+                    , OCReq.offsetCommitRequestGenerationIdOrMemberEpoch = genId
+                    , OCReq.offsetCommitRequestMemberId = P.mkKafkaString memberId
+                    , OCReq.offsetCommitRequestGroupInstanceId = groupInstanceField
                     , OCReq.offsetCommitRequestRetentionTimeMs = -1  -- Use broker default
                     , OCReq.offsetCommitRequestTopics = P.mkKafkaArray topics
                     }
@@ -1102,7 +1215,11 @@ fetchCommittedOffsets
   -> [TopicPartition]          -- ^ Partitions to fetch offsets for
   -> IO (Either String Int64)
 fetchCommittedOffsets consumer@Consumer{..} groupId tps = do
-  -- TODO: Find the group coordinator
+  -- The heartbeat thread already discovered the group coordinator
+  -- via FindCoordinator and parked the address in
+  -- 'hbCoordinatorAddr'; we read it off there. If the consumer
+  -- isn't in a group, OffsetFetch isn't sensible — the JVM
+  -- client behaves the same.
   case consumerHeartbeat of
     Nothing -> return $ Left "Not in a consumer group, cannot fetch committed offsets"
     Just (hbState, _) -> do

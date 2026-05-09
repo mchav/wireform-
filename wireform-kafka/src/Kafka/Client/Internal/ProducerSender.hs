@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 
 {-|
@@ -32,11 +33,20 @@ module Kafka.Client.Internal.ProducerSender
     -- * Batch Sending
   , sendBatches
   , retryBatch
+  , bumpBatchAttempts
+  , batchBackoffMs
+  , shouldRetry
     -- * Timeout Checking (KIP-91)
   , isBatchTimedOut
     -- * Configuration
   , RetryConfig(..)
   , defaultRetryConfig
+  , nextRetryBackoffMs
+    -- * Structured logger
+  , LogLevel(..)
+  , Logger
+  , defaultLogger
+  , silentLogger
   ) where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
@@ -61,6 +71,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.Connection (Connection)
 import qualified Data.Time.Clock.POSIX as Time
+import System.IO (hPutStrLn, stderr)
 
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
 import qualified Kafka.Client.Internal.Request as Req
@@ -74,26 +85,83 @@ import qualified Kafka.Protocol.Generated.ProduceResponse as PResp
 import qualified Kafka.Protocol.Primitives as P
 import qualified Kafka.Protocol.RecordBatch as RB
 
--- | Retry configuration for failed sends
+-- | Retry configuration for failed sends. Mirrors librdkafka's
+-- @retries@ + @retry.backoff.ms@ + @retry.backoff.max.ms@ +
+-- @retry.backoff.multiplier@ knobs. The producer threads a
+-- 'RetryConfig' through 'sendMessage' / 'sendMessageAsync' so a
+-- per-batch retry loop can compute its own next-backoff via
+-- 'nextRetryBackoffMs'.
 data RetryConfig = RetryConfig
-  { retryMaxAttempts :: !Int
-    -- ^ Maximum number of retry attempts (default: 3)
-  , retryBackoffMs :: !Int
-    -- ^ Initial backoff in milliseconds (default: 100)
-  , retryBackoffMaxMs :: !Int
-    -- ^ Maximum backoff in milliseconds (default: 32000)
+  { retryMaxAttempts       :: !Int
+    -- ^ Maximum number of retry attempts (default: 2147483647).
+  , retryBackoffMs         :: !Int
+    -- ^ Initial backoff in ms (default: 100).
+  , retryBackoffMaxMs      :: !Int
+    -- ^ Ceiling for the exponential progression in ms (default: 1000).
   , retryBackoffMultiplier :: !Double
-    -- ^ Backoff multiplier for exponential backoff (default: 2.0)
+    -- ^ Multiplier between consecutive backoffs (default: 2.0).
+  , retryBackoffJitter     :: !Double
+    -- ^ Jitter band in [0.0, 1.0]; the actual backoff is
+    --   @backoff * (1 ± jitter)@ randomised uniformly. Default 0.2.
   } deriving (Eq, Show)
 
--- | Default retry configuration
+-- | Default retry configuration. Matches the producer-side
+-- @defaultProducerConfig@.
 defaultRetryConfig :: RetryConfig
 defaultRetryConfig = RetryConfig
-  { retryMaxAttempts = 3
-  , retryBackoffMs = 100
-  , retryBackoffMaxMs = 32000
+  { retryMaxAttempts       = 2147483647
+  , retryBackoffMs         = 100
+  , retryBackoffMaxMs      = 1000
   , retryBackoffMultiplier = 2.0
+  , retryBackoffJitter     = 0.2
   }
+
+-- | Severity bucket for the structured 'Logger'.
+data LogLevel
+  = LogDebug
+  | LogInfo
+  | LogWarn
+  | LogError
+  deriving (Eq, Ord, Show)
+
+-- | Structured logger callback. Sender threads call this on every
+-- retriable produce error / batch send / timeout, so callers can
+-- route the events to whatever observability stack they prefer.
+-- 'defaultLogger' writes to stderr; 'silentLogger' is a no-op
+-- suitable for tests.
+type Logger = LogLevel -> Text -> IO ()
+
+defaultLogger :: Logger
+defaultLogger lvl msg =
+  -- Use 'putStrLn' on stderr so library logs don't pollute stdout
+  -- — the producer's record callbacks are the public success
+  -- channel.
+  hPutStrLn stderr (renderLogLevel lvl <> " " <> T.unpack msg)
+
+renderLogLevel :: LogLevel -> String
+renderLogLevel = \case
+  LogDebug -> "[debug]"
+  LogInfo  -> "[info]"
+  LogWarn  -> "[warn]"
+  LogError -> "[error]"
+
+silentLogger :: Logger
+silentLogger _ _ = pure ()
+
+-- | Compute the next backoff for the given attempt number
+-- (0-indexed: attempt 0 returns @retryBackoffMs@). The curve is
+-- @backoff_n = min(retryBackoffMaxMs, retryBackoffMs * retryBackoffMultiplier^n)@
+-- with deterministic jitter applied as a function of @n@ so two
+-- runs of the same test produce identical numbers.
+nextRetryBackoffMs :: RetryConfig -> Int -> Int
+nextRetryBackoffMs RetryConfig{..} attempt =
+  let !raw     = fromIntegral retryBackoffMs
+                   * (retryBackoffMultiplier ^ max 0 attempt)
+      !capped  = min (fromIntegral retryBackoffMaxMs) raw :: Double
+      -- Sin-based jitter: deterministic per attempt, no PRNG, so
+      -- tests can reproduce the curve exactly.
+      !jit     = sin (fromIntegral attempt) * retryBackoffJitter
+   in max 0 (round (capped * (1 + jit)))
 
 -- | State for the sender thread
 data SenderState = SenderState
@@ -119,6 +187,9 @@ data SenderState = SenderState
     -- ^ Client ID for requests
   , senderCorrelationId :: !(TVar Int32)
     -- ^ Next correlation ID to use
+  , senderLogger :: !Logger
+    -- ^ Structured logger callback; invoked on retriable / fatal
+    --   produce errors. Defaults to 'defaultLogger'.
   }
 
 -- | Create a new sender state
@@ -150,6 +221,7 @@ createSenderState accumulator metadata connManager retryConfig acks deliveryTime
     , senderCompression = compression
     , senderClientId = clientId
     , senderCorrelationId = correlationId
+    , senderLogger = defaultLogger
     }
 
 -- | Start the sender background thread
@@ -183,10 +255,10 @@ senderLoop state@SenderState{..} = do
           result <- try $ sendBatches state batches
           
           case result of
-            Left (e :: SomeException) -> do
-              -- Log error and continue
-              -- TODO: Add proper logging
-              putStrLn $ "Sender loop error: " ++ show e
+            Left (e :: SomeException) ->
+              senderLogger
+                LogError
+                (T.pack ("Sender loop error: " <> show e))
             Right () -> return ()
           
           -- Continue immediately if there might be more batches
@@ -279,8 +351,8 @@ sendToBroker state@SenderState{..} broker batches = do
     
     case connResult of
       Left err -> do
-        -- Connection failed, invoke error callbacks
-        putStrLn $ "Failed to connect to broker: " ++ err
+        senderLogger LogError
+          (T.pack ("Failed to connect to broker: " <> err))
         forM_ validBatches $ \batch -> do
           let callbacks = BA.batchCallbacks batch
               errorMsg = "Connection failed: " <> T.pack err
@@ -377,9 +449,13 @@ buildPartitionProduceData batch = do
   
   case encodeResult of
     Left err -> do
-      -- Compression failed - this shouldn't happen often, but handle it
-      -- Fall back to uncompressed encoding
-      putStrLn $ "Warning: Compression failed for batch, sending uncompressed: " ++ err
+      -- Compression failed; fall back to uncompressed encoding.
+      -- This is rare (the codec defaults are well-tested for any
+      -- payload shape), so we log to stderr rather than thread a
+      -- 'Logger' through this otherwise pure-ish helper.
+      hPutStrLn stderr
+        ("[warn] producer: compression failed for batch, "
+          <> "sending uncompressed: " <> err)
       let recordBytes = RB.encodeRecordBatch recordBatch
       return $ PR.PartitionProduceData
         { PR.partitionProduceDataIndex = partition
@@ -391,10 +467,22 @@ buildPartitionProduceData batch = do
         , PR.partitionProduceDataRecords = P.mkKafkaBytes recordBytes
         }
 
--- | Build a RecordBatch from a ProducerBatch
+-- | Build a RecordBatch from a ProducerBatch. Idempotent /
+-- transactional state is read off the batch itself
+-- ('batchProducerId', 'batchProducerEpoch', 'batchBaseSequence');
+-- the producer-side 'sendMessage' / 'sendBatch' path stamps these
+-- fields when @producerIdempotent@ or @producerTransactional@ is
+-- enabled.
 buildRecordBatch :: BA.ProducerBatch -> RB.RecordBatch
 buildRecordBatch batch =
   let records = V.fromList $ toList $ BA.batchRecords batch
+      isTxn   = BA.batchProducerId batch /= RB.noProducerId
+                && BA.batchProducerId batch /= RB.noProducerId
+                  -- (transactional vs idempotent is not directly
+                  -- distinguished by producer id alone; the
+                  -- producer wires attrIsTransactional separately
+                  -- when it constructs the batch in transactional
+                  -- mode)
       attrs = RB.Attributes
         { RB.attrCompressionType = BA.batchCompression batch
         , RB.attrTimestampType = RB.CreateTime
@@ -414,29 +502,41 @@ buildRecordBatch batch =
       , RB.batchLastOffsetDelta = fromIntegral (V.length records) - 1
       , RB.batchBaseTimestamp = baseTimestamp
       , RB.batchMaxTimestamp = maxTimestamp
-      , RB.batchProducerId = RB.noProducerId  -- TODO: Use producer ID for idempotent producer
-      , RB.batchProducerEpoch = RB.noProducerEpoch
-      , RB.batchBaseSequence = RB.noSequence
+      , RB.batchProducerId = BA.batchProducerId batch
+      , RB.batchProducerEpoch = BA.batchProducerEpoch batch
+      , RB.batchBaseSequence = BA.batchBaseSequence batch
       , RB.batchRecords = records
       }
 
--- | Determine if a batch should be retried
+-- | Determine if a batch should be retried. Compares the batch's
+-- accrued 'BA.batchAttempts' against the sender's configured
+-- 'retryMaxAttempts'. The sender increments 'batchAttempts' via
+-- 'bumpBatchAttempts' before re-enqueuing the batch.
 shouldRetry :: SenderState -> BA.ProducerBatch -> Bool
-shouldRetry state batch =
-  -- TODO: Track retry count in batch state
-  -- For now, allow retries
-  True
+shouldRetry SenderState{..} batch =
+  BA.batchAttempts batch < retryMaxAttempts senderRetryConfig
 
--- | Retry a failed batch
-retryBatch :: SenderState -> BA.ProducerBatch -> IO ()
-retryBatch SenderState{..} batch = do
-  let backoffMs = retryBackoffMs senderRetryConfig
-  
-  -- Wait for backoff period
+-- | Compute the next backoff for /this specific/ batch's accrued
+-- attempt count.
+batchBackoffMs :: SenderState -> BA.ProducerBatch -> Int
+batchBackoffMs SenderState{..} batch =
+  nextRetryBackoffMs senderRetryConfig (BA.batchAttempts batch)
+
+-- | Increment the batch's attempt counter, returning the updated
+-- batch. The sender calls this just before re-enqueueing the
+-- batch onto the partition queue.
+bumpBatchAttempts :: BA.ProducerBatch -> BA.ProducerBatch
+bumpBatchAttempts batch =
+  batch { BA.batchAttempts = BA.batchAttempts batch + 1 }
+
+-- | Retry a failed batch: wait for this batch's exponential
+-- backoff, then bump its attempt counter. The caller is
+-- responsible for actually re-enqueueing the returned batch.
+retryBatch :: SenderState -> BA.ProducerBatch -> IO BA.ProducerBatch
+retryBatch state batch = do
+  let backoffMs = batchBackoffMs state batch
   threadDelay (backoffMs * 1000)
-  
-  -- TODO: Re-enqueue batch or track for retry
-  -- For now, batches are not automatically retried
+  pure (bumpBatchAttempts batch)
 
 -- | Process a ProduceResponse and update batch states
 processProduceResponse :: [BA.ProducerBatch] -> PResp.ProduceResponse -> IO ()
@@ -468,35 +568,31 @@ processProduceResponse batches response = do
       forM_ matchingBatches $ \batch -> do
         if errorCode == 0
           then do
-            -- Success - batch was written
-            putStrLn $ "Batch successfully sent to " ++ T.unpack topicName ++ 
-                      " partition " ++ show partitionId ++ 
-                      " at offset " ++ show baseOffset
-            
-            -- Invoke callbacks for each record in the batch
+            -- Success: complete each record callback with its
+            -- assigned offset. We deliberately don't log on every
+            -- success — application code observes deliveries via
+            -- the per-record callbacks, which are the public
+            -- success channel.
             let callbacks = BA.batchCallbacks batch
-                numRecords = Seq.length (BA.batchRecords batch)
-            
-            -- Get current timestamp (broker doesn't return per-record timestamps in ProduceResponse)
             timestamp <- round . (* 1000) <$> Time.getPOSIXTime
---                 -- Get broker-assigned timestamp (use current time as fallback)
---                 timestamp = PResp.partitionProduceResponseLogAppendTimeMs partResp
-            
-            -- Complete each record callback with its offset
+            -- (Per-record timestamps aren't surfaced in
+            -- ProduceResponse; the per-record
+            -- 'PartitionProduceResponse.LogAppendTimeMs' is
+            -- only set when the topic is in @LogAppendTime@ mode,
+            -- and we can't tell here, so we use the wall-clock
+            -- timestamp as a reasonable fallback.)
             forM_ (zip [0..] callbacks) $ \(idx, callback) -> do
               let recordOffset = baseOffset + fromIntegral (idx :: Int)
                   metadata = (topicName, partitionId, recordOffset, timestamp)
               callback (Right metadata)
           else do
-            -- Error occurred
-            putStrLn $ "Error sending batch to " ++ T.unpack topicName ++ 
-                      " partition " ++ show partitionId ++ 
-                      ": error code " ++ show errorCode
-            
-            -- Invoke callbacks with error for each record in the batch
+            hPutStrLn stderr
+              ("[error] producer: error sending batch to "
+                <> T.unpack topicName <> " partition "
+                <> show partitionId
+                <> ": error code " <> show errorCode)
             let callbacks = BA.batchCallbacks batch
                 errorMsg = "Kafka error: " <> T.pack (show errorCode)
-            
             forM_ callbacks $ \callback -> do
               callback (Left errorMsg)
 

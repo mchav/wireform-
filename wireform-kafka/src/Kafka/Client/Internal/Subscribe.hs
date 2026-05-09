@@ -38,6 +38,11 @@ module Kafka.Client.Internal.Subscribe
   , roundRobinAssign
   , stickyAssign
   , subscribeFlow
+    -- * Subscription metadata codec (exposed for testing)
+  , encodeSubscription
+  , encodeSubscriptionWithOwned
+  , decodeSubscription
+  , decodeSubscriptionFull
   ) where
 
 import Control.Concurrent.STM
@@ -45,7 +50,7 @@ import Control.Monad (forM)
 import qualified Data.ByteString as BS
 import Data.Bytes.Get (runGetS)
 import Data.Bytes.Put (runPutS)
-import Data.Int (Int32, Int64)
+import Data.Int (Int16, Int32, Int64)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
@@ -248,12 +253,12 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
     -- Compute per-member assignment when we're the leader. We walk the
     -- raw subscription bytes published by every joined member, take the
     -- union of subscribed topics, look the partitions up in the
-    -- metadata cache, and fan them out via 'rangeAssign'.
+    -- metadata cache, and fan them out via 'runAssignor'.
     buildLeaderAssignments members = do
-      let memberSubs = map (\m -> (CG.gmiMemberId m, decodeSubscription (CG.gmiMetadata m))) members
+      let memberSubs = map (\m -> (CG.gmiMemberId m, decodeSubscriptionFull (CG.gmiMetadata m))) members
           subscribedTopics =
             Map.keys $ Map.fromList
-              [ (t, ()) | (_, Right (ts, _)) <- memberSubs, t <- ts ]
+              [ (t, ()) | (_, Right (ts, _, _)) <- memberSubs, t <- ts ]
 
       -- Look up partition counts for every subscribed topic. (We
       -- already refreshed metadata for our own topics; the leader may
@@ -266,14 +271,28 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
                      Just ps -> sortOn id (map Meta.partitionMetaId ps)
         pure (t, pids)
 
+      -- Sticky / cooperative-sticky needs each member's previous
+      -- assignment to keep partition ownership stable across
+      -- rebalances (KIP-341 / KIP-429). We pull that out of the
+      -- 'ownedPartitions' field every member published in its
+      -- JoinGroup subscription metadata. For other assignors the
+      -- list is ignored (see 'runAssignor').
+      let prevGen :: [(Text, [(Text, [Int32])])]
+          prevGen =
+            [ (mid, owned)
+            | (mid, Right (_topics, _user, owned)) <- memberSubs
+            , not (null owned)
+            ]
+          mPrev = if null prevGen then Nothing else Just prevGen
+
       let perMember = runAssignor assignor
             [ (mid, topicsOf m)
             | (mid, m) <- memberSubs
-            , let topicsOf (Right (ts, _)) = ts
-                  topicsOf (Left _)        = []
+            , let topicsOf (Right (ts, _, _)) = ts
+                  topicsOf (Left _)           = []
             ]
             (Map.fromList topicParts)
-            Nothing  -- TODO: thread previous-generation state for sticky
+            mPrev
 
       pure
         [ (mid, runPutS $ CPA.encodeConsumerProtocolAssignment 0 $
@@ -592,24 +611,69 @@ chunkRange xs n
       let (here, rest) = splitAt s ys
       in here : go ss rest
 
--- | Encode the JoinGroup subscription metadata payload.
+-- | Encode the JoinGroup subscription metadata payload, with no
+-- previous-generation owned partitions (the first time a member
+-- joins a group, or for non-sticky assignors).
 encodeSubscription :: [Text] -> BS.ByteString
-encodeSubscription topics =
-  runPutS $ CPS.encodeConsumerProtocolSubscription 0 $
+encodeSubscription topics = encodeSubscriptionWithOwned topics BS.empty []
+
+-- | Like 'encodeSubscription' but stamps a previous-generation
+-- @ownedPartitions@ list (KIP-341 / KIP-429) into the
+-- subscription metadata. The leader extracts this back out via
+-- 'decodeSubscriptionFull' so the sticky / cooperative-sticky
+-- assignors can preserve assignments across rebalances.
+--
+-- Uses consumer-protocol v1, the lowest version that carries the
+-- @ownedPartitions@ field on the wire. Both 'encodeSubscription'
+-- (no owned partitions) and 'decodeSubscriptionFull' agree on
+-- v1; v0 silently drops the field.
+encodeSubscriptionWithOwned
+  :: [Text]                 -- ^ subscribed topics
+  -> BS.ByteString          -- ^ user-supplied opaque metadata
+  -> [(Text, [Int32])]      -- ^ owned partitions: @(topic, [pid])@
+  -> BS.ByteString
+encodeSubscriptionWithOwned topics userData owned =
+  runPutS $ CPS.encodeConsumerProtocolSubscription consumerProtocolVersion $
     CPS.ConsumerProtocolSubscription
       { CPS.consumerProtocolSubscriptionTopics =
           P.mkKafkaArray $ V.fromList (map P.mkKafkaString topics)
-      , CPS.consumerProtocolSubscriptionUserData = P.mkKafkaBytes BS.empty
-      , CPS.consumerProtocolSubscriptionOwnedPartitions = P.mkKafkaArray V.empty
+      , CPS.consumerProtocolSubscriptionUserData = P.mkKafkaBytes userData
+      , CPS.consumerProtocolSubscriptionOwnedPartitions =
+          P.mkKafkaArray $ V.fromList
+            [ CPS.TopicPartition
+                { CPS.topicPartitionTopic = P.mkKafkaString t
+                , CPS.topicPartitionPartitions = P.mkKafkaArray (V.fromList ps)
+                }
+            | (t, ps) <- owned
+            ]
       , CPS.consumerProtocolSubscriptionGenerationId = -1
       , CPS.consumerProtocolSubscriptionRackId = P.KafkaString P.Null
       }
 
+-- | Subscription metadata schema version we negotiate. v1
+-- introduced @ownedPartitions@ (KIP-341), needed for sticky and
+-- cooperative-sticky assignors.
+consumerProtocolVersion :: Int16
+consumerProtocolVersion = 1
+
 -- | Decode a JoinGroup subscription metadata payload back into
--- @(topics, userData)@.
+-- @(topics, userData)@. Note this drops the @ownedPartitions@ field;
+-- 'decodeSubscriptionFull' is the sticky-aware variant.
 decodeSubscription :: BS.ByteString -> Either String ([Text], BS.ByteString)
 decodeSubscription bs =
-  case runGetS (CPS.decodeConsumerProtocolSubscription 0) bs of
+  fmap (\(ts, ud, _) -> (ts, ud)) (decodeSubscriptionFull bs)
+
+-- | Like 'decodeSubscription' but also returns the
+-- @ownedPartitions@ field, which sticky / cooperative-sticky
+-- assignors use to thread previous-generation state across
+-- rebalances (KIP-341 / KIP-429). The third tuple component is
+-- the list of @(topic, [partitionId])@ the member had assigned
+-- before this rebalance.
+decodeSubscriptionFull
+  :: BS.ByteString
+  -> Either String ([Text], BS.ByteString, [(Text, [Int32])])
+decodeSubscriptionFull bs =
+  case runGetS (CPS.decodeConsumerProtocolSubscription consumerProtocolVersion) bs of
     Left err -> Left err
     Right s ->
       let topicsArr = case P.unKafkaArray (CPS.consumerProtocolSubscriptionTopics s) of
@@ -618,7 +682,18 @@ decodeSubscription bs =
           userDataBs = case P.unKafkaBytes (CPS.consumerProtocolSubscriptionUserData s) of
             P.NotNull v -> v
             P.Null      -> BS.empty
-      in Right (map kafkaStringToText topicsArr, userDataBs)
+          owned = case P.unKafkaArray (CPS.consumerProtocolSubscriptionOwnedPartitions s) of
+            P.NotNull tv -> V.toList tv
+            P.Null       -> []
+          ownedDecoded =
+            [ ( kafkaStringToText (CPS.topicPartitionTopic tp)
+              , case P.unKafkaArray (CPS.topicPartitionPartitions tp) of
+                  P.NotNull pv -> V.toList pv
+                  P.Null       -> []
+              )
+            | tp <- owned
+            ]
+      in Right (map kafkaStringToText topicsArr, userDataBs, ownedDecoded)
 
 -- | Decode the per-member SyncGroup assignment payload.
 decodeAssignment :: BS.ByteString -> Either String [(Text, [Int32])]

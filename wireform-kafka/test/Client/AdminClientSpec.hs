@@ -10,7 +10,11 @@ import Test.Tasty
 import Test.Tasty.Hedgehog
 import Test.Tasty.HUnit hiding (assert)
 
+import Data.Int (Int8, Int16)
+import qualified Data.Vector as V
 import qualified Kafka.Client.AdminClient as Admin
+import qualified Kafka.Protocol.Generated.DescribeConfigsResponse as DCResp
+import qualified Kafka.Protocol.Primitives as P
 
 -- | Test that default admin client config has reasonable values
 unit_defaultConfig :: TestTree
@@ -234,6 +238,136 @@ unit_emptyConsumerGroup = testCase "Empty consumer group" $ do
   Admin.cgdState groupDesc @?= "Empty"
   null (Admin.cgdMembers groupDesc) @?= True
 
+----------------------------------------------------------------------
+-- DescribeConfigs response decoding
+--
+-- We exercise 'unpackResourceResult' / 'unpackConfigEntry' /
+-- 'decodeResourceTypeCode' directly with synthetic
+-- 'DescribeConfigsResult' values, so the per-resource and
+-- per-entry mapping logic is tested without spinning up a broker.
+----------------------------------------------------------------------
+
+mkResult
+  :: Int8                                       -- ^ resourceType
+  -> Data.Text.Text                             -- ^ resourceName
+  -> Int16                                      -- ^ errorCode
+  -> Data.Text.Text                             -- ^ errorMessage
+  -> [DCResp.DescribeConfigsResourceResult]     -- ^ entries
+  -> DCResp.DescribeConfigsResult
+mkResult ty nm ec msg entries = DCResp.DescribeConfigsResult
+  { DCResp.describeConfigsResultErrorCode    = ec
+  , DCResp.describeConfigsResultErrorMessage = P.mkKafkaString msg
+  , DCResp.describeConfigsResultResourceType = ty
+  , DCResp.describeConfigsResultResourceName = P.mkKafkaString nm
+  , DCResp.describeConfigsResultConfigs      = P.mkKafkaArray (V.fromList entries)
+  }
+
+mkEntry'
+  :: Data.Text.Text                             -- ^ name
+  -> Maybe Data.Text.Text                       -- ^ value (Nothing = null)
+  -> Bool                                       -- ^ readOnly
+  -> Bool                                       -- ^ isSensitive
+  -> Int8                                       -- ^ KIP-226 ConfigSource
+  -> DCResp.DescribeConfigsResourceResult
+mkEntry' nm mval ro sen src = DCResp.DescribeConfigsResourceResult
+  { DCResp.describeConfigsResourceResultName       = P.mkKafkaString nm
+  , DCResp.describeConfigsResourceResultValue      = case mval of
+      Nothing -> P.KafkaString P.Null
+      Just t  -> P.mkKafkaString t
+  , DCResp.describeConfigsResourceResultReadOnly      = ro
+  , DCResp.describeConfigsResourceResultConfigSource  = src
+  , DCResp.describeConfigsResourceResultIsSensitive   = sen
+  , DCResp.describeConfigsResourceResultSynonyms      = P.mkKafkaArray V.empty
+  , DCResp.describeConfigsResourceResultConfigType    = 0
+  , DCResp.describeConfigsResourceResultDocumentation = P.mkKafkaString ""
+  }
+
+unit_decodeResourceTypeCode_known :: TestTree
+unit_decodeResourceTypeCode_known =
+  testCase "decodeResourceTypeCode: 2/4/8 round-trip to Topic/Broker/BrokerLogger" $ do
+    Admin.decodeResourceTypeCode 2 @?= Admin.ConfigResourceTopic
+    Admin.decodeResourceTypeCode 4 @?= Admin.ConfigResourceBroker
+    Admin.decodeResourceTypeCode 8 @?= Admin.ConfigResourceBrokerLogger
+
+unit_decodeResourceTypeCode_unknown_falls_back :: TestTree
+unit_decodeResourceTypeCode_unknown_falls_back =
+  testCase "decodeResourceTypeCode: unknown code falls back to Topic" $ do
+    Admin.decodeResourceTypeCode (-1) @?= Admin.ConfigResourceTopic
+    Admin.decodeResourceTypeCode 99   @?= Admin.ConfigResourceTopic
+
+unit_unpackConfigEntry_default_value :: TestTree
+unit_unpackConfigEntry_default_value =
+  testCase "unpackConfigEntry: ConfigSource=5 (DEFAULT_CONFIG) sets ceIsDefault=True" $ do
+    let e = Admin.unpackConfigEntry $
+              mkEntry' "retention.ms" (Just "604800000") False False 5
+    Admin.ceName e      @?= "retention.ms"
+    Admin.ceValue e     @?= Just "604800000"
+    Admin.ceReadOnly e  @?= False
+    Admin.ceIsDefault e @?= True
+    Admin.ceSensitive e @?= False
+
+unit_unpackConfigEntry_topic_override :: TestTree
+unit_unpackConfigEntry_topic_override =
+  testCase "unpackConfigEntry: ConfigSource=1 (TOPIC_CONFIG) sets ceIsDefault=False" $ do
+    let e = Admin.unpackConfigEntry $
+              mkEntry' "cleanup.policy" (Just "compact") False False 1
+    Admin.ceIsDefault e @?= False
+
+unit_unpackConfigEntry_null_value :: TestTree
+unit_unpackConfigEntry_null_value =
+  testCase "unpackConfigEntry: null KafkaString value yields ceValue=Nothing" $ do
+    let e = Admin.unpackConfigEntry $
+              mkEntry' "leader.replication.throttled.replicas" Nothing True False 5
+    Admin.ceValue e    @?= Nothing
+    Admin.ceReadOnly e @?= True
+
+unit_unpackConfigEntry_sensitive :: TestTree
+unit_unpackConfigEntry_sensitive =
+  testCase "unpackConfigEntry: sensitive flag is propagated" $ do
+    let e = Admin.unpackConfigEntry $
+              mkEntry' "ssl.keystore.password" (Just "redacted") False True 4
+    Admin.ceSensitive e @?= True
+
+unit_unpackResourceResult_success :: TestTree
+unit_unpackResourceResult_success =
+  testCase "unpackResourceResult: errorCode=0 -> crrError=Nothing" $ do
+    let r = Admin.unpackResourceResult $
+              mkResult 2 "my-topic" 0 ""
+                [ mkEntry' "retention.ms" (Just "604800000") False False 5
+                , mkEntry' "cleanup.policy" (Just "compact")  False False 1
+                ]
+    Admin.crType (Admin.crrResource r) @?= Admin.ConfigResourceTopic
+    Admin.crName (Admin.crrResource r) @?= "my-topic"
+    Admin.crrError r                   @?= Nothing
+    length (Admin.crrEntries r)        @?= 2
+
+unit_unpackResourceResult_error_with_message :: TestTree
+unit_unpackResourceResult_error_with_message =
+  testCase "unpackResourceResult: non-zero errorCode + message surface in crrError" $ do
+    let r = Admin.unpackResourceResult $
+              mkResult 4 "1" 41 "broker not authorized" []
+    Admin.crrError r @?= Just "broker not authorized"
+    Admin.crrEntries r @?= []
+
+unit_unpackResourceResult_error_blank_message :: TestTree
+unit_unpackResourceResult_error_blank_message =
+  testCase "unpackResourceResult: non-zero errorCode + blank message synthesises 'Error code N'" $ do
+    let r = Admin.unpackResourceResult $
+              mkResult 2 "topic-x" 3 ""    -- 3 = UNKNOWN_TOPIC_OR_PARTITION
+                []
+    Admin.crrError r @?= Just "Error code 3"
+
+unit_unpackResourceResult_preserves_entry_order :: TestTree
+unit_unpackResourceResult_preserves_entry_order =
+  testCase "unpackResourceResult preserves the order of entries returned by the broker" $ do
+    let r = Admin.unpackResourceResult $
+              mkResult 2 "ordered" 0 ""
+                [ mkEntry' "a" (Just "1") False False 5
+                , mkEntry' "b" (Just "2") False False 5
+                , mkEntry' "c" (Just "3") False False 5
+                ]
+    map Admin.ceName (Admin.crrEntries r) @?= ["a", "b", "c"]
+
 tests :: TestTree
 tests = testGroup "AdminClient (KIP-117)"
   [ testGroup "Properties"
@@ -251,6 +385,18 @@ tests = testGroup "AdminClient (KIP-117)"
       , unit_consumerGroupDescription
       , unit_configResourceTypes
       , unit_emptyConsumerGroup
+      ]
+  , testGroup "describeConfigs unwrap"
+      [ unit_decodeResourceTypeCode_known
+      , unit_decodeResourceTypeCode_unknown_falls_back
+      , unit_unpackConfigEntry_default_value
+      , unit_unpackConfigEntry_topic_override
+      , unit_unpackConfigEntry_null_value
+      , unit_unpackConfigEntry_sensitive
+      , unit_unpackResourceResult_success
+      , unit_unpackResourceResult_error_with_message
+      , unit_unpackResourceResult_error_blank_message
+      , unit_unpackResourceResult_preserves_entry_order
       ]
   ]
 

@@ -40,6 +40,21 @@ import qualified Client.ProducerConsumerLifecycleSpec
 import qualified Client.TransactionSpec
 import qualified Client.TransactionCoordinatorSpec
 import qualified Client.AdminClientSpec
+import qualified Client.MockBrokerSpec
+import qualified Client.MockBrokerFailureModesSpec
+import qualified Client.MockBrokerAdvancedSpec
+import qualified Client.MockBrokerExtSpec
+import qualified Client.MockBrokerIdempotentSpec
+import qualified Client.MockBrokerAdminSpec
+import qualified Client.MockBrokerCoopSpec
+import qualified Client.MockBrokerNetSpec
+import qualified Client.MockBrokerStoreSpec
+import qualified Client.MockBrokerProtoSpec
+import qualified Client.ConfigParitySpec
+import qualified Client.ProducerRetrySpec
+import qualified Client.PipelineSpec
+import qualified Client.SubscribeSpec
+import qualified Network.ConnectionLivenessSpec
 import qualified Network.AuthSpec
 import qualified Network.ConnectionRetrySpec
 
@@ -93,6 +108,21 @@ clientTests = testGroup "Client"
   , Client.TransactionCoordinatorSpec.transactionCoordinatorSpec
   , Client.AdminClientSpec.tests
   , Client.GroupSpec.groupSpec
+  , Client.MockBrokerSpec.tests
+  , Client.MockBrokerFailureModesSpec.tests
+  , Client.MockBrokerAdvancedSpec.tests
+  , Client.MockBrokerExtSpec.tests
+  , Client.MockBrokerIdempotentSpec.tests
+  , Client.MockBrokerAdminSpec.tests
+  , Client.MockBrokerCoopSpec.tests
+  , Client.MockBrokerNetSpec.tests
+  , Client.MockBrokerStoreSpec.tests
+  , Client.MockBrokerProtoSpec.tests
+  , Client.ConfigParitySpec.tests
+  , Client.ProducerRetrySpec.tests
+  , Client.PipelineSpec.tests
+  , Client.SubscribeSpec.tests
+  , Network.ConnectionLivenessSpec.tests
   ]
 
 networkTests :: TestTree

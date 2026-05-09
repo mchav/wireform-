@@ -61,7 +61,9 @@ module Kafka.Client.Producer
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async)
+import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
+import qualified Data.Time.Clock.POSIX as Time
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable (hash)
@@ -104,9 +106,52 @@ data ProducerConfig = ProducerConfig
   , producerMaxInFlight :: !Int
     -- ^ Maximum in-flight requests per connection (default: 5)
   , producerRetries :: !Int
-    -- ^ Number of retries on transient errors (default: 3)
+    -- ^ Number of retries on transient errors. Default: @2147483647@
+    --   (librdkafka @retries@: effectively unlimited; capped by
+    --   'producerDeliveryTimeoutMs').
+  , producerRetryBackoffMs :: !Int
+    -- ^ Initial backoff after a retriable error in ms. Default 100.
+    --   Mirrors librdkafka @retry.backoff.ms@.
+  , producerRetryBackoffMaxMs :: !Int
+    -- ^ Ceiling for the exponential backoff in ms. Default 1000.
+    --   Mirrors librdkafka @retry.backoff.max.ms@.
+  , producerRetryBackoffMultiplier :: !Double
+    -- ^ Multiplier between consecutive retry backoffs. Default 2.0.
+  , producerRetryBackoffJitter :: !Double
+    -- ^ Jitter band [0.0, 1.0]; the actual backoff is
+    --   uniformly randomised in @backoff * (1 ± jitter)@.
+    --   Default 0.2.
   , producerDeliveryTimeoutMs :: !Int
     -- ^ Maximum time for a record to be delivered including retries (default: 120000ms = 2 minutes)
+  , producerRequestTimeoutMs :: !Int
+    -- ^ Per-request timeout in ms. Bounded above by
+    --   'producerDeliveryTimeoutMs'. Default 30000.
+    --   Mirrors librdkafka @request.timeout.ms@ /
+    --   @socket.timeout.ms@.
+  , producerMaxRequestSize :: !Int
+    -- ^ Cap for the size of a single ProduceRequest in bytes.
+    --   Default 1048576 (1 MiB), matching librdkafka @message.max.bytes@.
+  , producerQueueBufferingMaxMessages :: !Int
+    -- ^ Max records the accumulator buffers across all partitions.
+    --   Default 100000. Mirrors librdkafka
+    --   @queue.buffering.max.messages@.
+  , producerQueueBufferingMaxKbytes :: !Int
+    -- ^ Max bytes the accumulator buffers across all partitions.
+    --   Default 1048576 (1 GiB). Mirrors librdkafka
+    --   @queue.buffering.max.kbytes@.
+  , producerTransactionTimeoutMs :: !Int
+    -- ^ How long the broker holds an open transaction before
+    --   aborting it. Default 60000. Mirrors librdkafka
+    --   @transaction.timeout.ms@.
+  , producerEnableGaplessGuarantee :: !Bool
+    -- ^ For idempotent producers, fail-fast on a sequence-number
+    --   gap rather than dedup. Default 'False'. Mirrors librdkafka
+    --   @enable.gapless.guarantee@.
+  , producerStickyPartitioningLingerMs :: !Int
+    -- ^ Sticky partitioner: linger this long on a partition
+    --   before switching, regardless of batch size (KIP-480).
+    --   Default 10. Mirrors librdkafka
+    --   @sticky.partitioning.linger.ms@.
   , producerPartitioner :: !Partitioner
     -- ^ Partitioning strategy (default: DefaultPartitioner with sticky behavior - KIP-480)
   , producerDelivery :: !DeliveryGuarantee
@@ -126,12 +171,23 @@ defaultProducerConfig = ProducerConfig
   , producerBatchSize = 16384
   , producerLingerMs = 0
   , producerMaxInFlight = 5
-  , producerRetries = 3
-  , producerDeliveryTimeoutMs = 120000  -- 2 minutes (KIP-91)
-  , producerPartitioner = defaultPartitioner  -- Hash if key, sticky otherwise (KIP-480)
-  , producerDelivery = AtLeastOnce
-  , producerIdempotent = False
-  , producerTransactional = Nothing
+  , producerRetries                    = 2_147_483_647   -- librdkafka default
+  , producerRetryBackoffMs             = 100
+  , producerRetryBackoffMaxMs          = 1000
+  , producerRetryBackoffMultiplier     = 2.0
+  , producerRetryBackoffJitter         = 0.2
+  , producerDeliveryTimeoutMs          = 120_000          -- KIP-91
+  , producerRequestTimeoutMs           = 30_000
+  , producerMaxRequestSize             = 1_048_576        -- 1 MiB
+  , producerQueueBufferingMaxMessages  = 100_000
+  , producerQueueBufferingMaxKbytes    = 1_048_576        -- 1 GiB worth of records
+  , producerTransactionTimeoutMs       = 60_000
+  , producerEnableGaplessGuarantee     = False
+  , producerStickyPartitioningLingerMs = 10
+  , producerPartitioner                = defaultPartitioner
+  , producerDelivery                   = AtLeastOnce
+  , producerIdempotent                 = False
+  , producerTransactional              = Nothing
   }
 
 -- | A record to be sent to Kafka.
@@ -230,6 +286,18 @@ data Producer = Producer
     -- ^ Sticky partition state per topic (KIP-480) - using stm-containers
   , producerRoundRobinCounters :: !(StmMap.Map Text Int32)
     -- ^ Round-robin counters per topic - using stm-containers
+  , producerIdempotentId :: !(TVar Int64)
+    -- ^ Producer id (KIP-98). 'noProducerId' (= -1) for
+    --   non-idempotent / non-transactional producers; otherwise
+    --   set by 'InitProducerId' on the broker. We initialise it
+    --   to 'noProducerId' and let the transactional bootstrap
+    --   path overwrite it.
+  , producerIdempotentEpoch :: !(TVar Int16)
+    -- ^ Producer epoch from 'InitProducerId'. Pairs with
+    --   'producerIdempotentId'.
+  , producerSequenceNumbers :: !(StmMap.Map BA.TopicPartition Int32)
+    -- ^ Per-(topic, partition) next sequence number to stamp
+    --   onto the next batch's 'batchBaseSequence'. KIP-98.
   }
 
 -- | Create a new Kafka producer.
@@ -294,8 +362,12 @@ createProducer brokerAddrs config = do
             ExactlyOnce -> (-1) -- All ISRs (requires idempotent/transactional)
       
       -- Create sender state
-      let retryConfig = Sender.defaultRetryConfig
-            { Sender.retryMaxAttempts = producerRetries config
+      let retryConfig = Sender.RetryConfig
+            { Sender.retryMaxAttempts       = producerRetries config
+            , Sender.retryBackoffMs         = producerRetryBackoffMs config
+            , Sender.retryBackoffMaxMs      = producerRetryBackoffMaxMs config
+            , Sender.retryBackoffMultiplier = producerRetryBackoffMultiplier config
+            , Sender.retryBackoffJitter     = producerRetryBackoffJitter config
             }
       
       senderState <- Sender.createSenderState
@@ -314,7 +386,18 @@ createProducer brokerAddrs config = do
       -- Initialize sticky partition and round-robin state (KIP-480)
       stickyPartitions <- StmMap.newIO
       roundRobinCounters <- StmMap.newIO
-      
+
+      -- Idempotent / transactional producer state (KIP-98). The
+      -- producer id + epoch are populated by 'InitProducerId' on
+      -- first transactional bootstrap; until then they default to
+      -- 'noProducerId' / 'noProducerEpoch'. Non-idempotent
+      -- producers leave both at the no-op sentinels and the
+      -- sender writes 'RB.noProducerId' / 'RB.noSequence' onto
+      -- every batch.
+      idempotentPid   <- newTVarIO RB.noProducerId
+      idempotentEpoch <- newTVarIO RB.noProducerEpoch
+      sequenceNumbers <- StmMap.newIO
+
       -- Return producer handle
       return $ Right Producer
         { producerConfig = config
@@ -325,6 +408,9 @@ createProducer brokerAddrs config = do
         , producerSenderState = senderState
         , producerStickyPartitions = stickyPartitions
         , producerRoundRobinCounters = roundRobinCounters
+        , producerIdempotentId = idempotentPid
+        , producerIdempotentEpoch = idempotentEpoch
+        , producerSequenceNumbers = sequenceNumbers
         }
 
 -- | Parse broker address in "host:port" format
@@ -346,19 +432,47 @@ parseBrokerAddress addr =
 --   4. If transactional, abort any open transaction (TODO)
 --   5. Close all connections
 closeProducer :: Producer -> IO ()
-closeProducer Producer{..} = do
-  -- Close accumulator (marks all batches as ready)
+closeProducer p@Producer{..} = do
+  -- Close accumulator (marks all batches as ready). After this
+  -- returns no new records can be appended; the sender thread
+  -- will drain everything that's already been accumulated.
   BA.closeBatchAccumulator producerAccumulator
-  
-  -- Give the sender thread time to drain and send pending batches
-  -- TODO: Implement proper synchronization with sender thread completion
-  threadDelay 1000000  -- 1 second
-  
-  -- Stop sender thread
+
+  -- Wait for the sender thread to actually finish draining,
+  -- bounded by the producer's delivery timeout. This replaces a
+  -- previous fixed 1-second sleep that didn't actually wait for
+  -- the work to complete.
+  let deadlineMs = max 1000 (producerDeliveryTimeoutMs producerConfig)
+  _ <- waitForDrain p deadlineMs
+
+  -- Stop sender thread (idempotent if already stopped).
   Sender.stopSenderThread producerSenderState producerSender
-  
-  -- Close all connections
+
+  -- Close all connections.
   Conn.closeAllConnections producerConnManager
+
+-- | Poll the accumulator until it has no pending batches or the
+-- caller-supplied deadline elapses. Returns @True@ if everything
+-- drained cleanly, @False@ on timeout. The polling interval is
+-- 10ms which keeps the close path responsive without burning CPU.
+waitForDrain :: Producer -> Int -> IO Bool
+waitForDrain Producer{..} deadlineMs = do
+  start <- nowMillis
+  let loop = do
+        pending <- BA.hasReadyBatches producerAccumulator
+        now <- nowMillis
+        let elapsed = now - start
+        if not pending
+          then pure True
+          else if elapsed >= fromIntegral deadlineMs
+            then pure False
+            else do
+              threadDelay (10 * 1000) -- 10ms
+              loop
+  loop
+  where
+    nowMillis :: IO Int64
+    nowMillis = round . (* 1000) <$> Time.getPOSIXTime
 
 -- | Close the producer with a specified timeout (KIP-15).
 --
@@ -566,16 +680,19 @@ sendBatch
   -> [ProducerRecord]
   -> IO (Either String [RecordMetadata])
 sendBatch producer records = do
-  -- Send each record individually for now
-  -- TODO: Optimize to batch them together
-  results <- mapM (sendRecordIndividual producer) records
-  
-  -- Collect results
+  -- Fire each enqueue in its own async so the accumulator can
+  -- coalesce records targeting the same (topic, partition) into
+  -- the same RecordBatch on the wire. Sequencing them via plain
+  -- 'mapM' would block per-record on the broker round-trip and
+  -- defeat the batching.
+  asyncs   <- mapM (Async.async . sendRecordIndividual producer) records
+  results  <- mapM Async.wait asyncs
   let (errors, successes) = partitionEithers results
-  
   if null errors
     then return $ Right successes
-    else return $ Left $ "Some messages failed: " ++ show (length errors) ++ " errors"
+    else return $ Left $
+      "Some messages failed: "
+        <> show (length errors) <> " errors"
   where
     sendRecordIndividual :: Producer -> ProducerRecord -> IO (Either String RecordMetadata)
     sendRecordIndividual p ProducerRecord{..} =

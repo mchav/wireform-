@@ -1,4 +1,6 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 
 {-|
@@ -60,6 +62,10 @@ module Kafka.Client.AdminClient
   , describeConfigs
     -- * Configuration
   , defaultAdminClientConfig
+    -- * Internal helpers (exposed for testing)
+  , decodeResourceTypeCode
+  , unpackResourceResult
+  , unpackConfigEntry
   ) where
 
 import Control.Concurrent.STM
@@ -80,6 +86,8 @@ import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Protocol.Generated.CreateTopicsRequest as CTReq
 import qualified Kafka.Protocol.Generated.CreateTopicsResponse as CTResp
+import qualified Kafka.Protocol.Generated.DescribeConfigsRequest as DCReq
+import qualified Kafka.Protocol.Generated.DescribeConfigsResponse as DCResp
 import qualified Kafka.Protocol.Generated.DeleteTopicsRequest as DTReq
 import qualified Kafka.Protocol.Generated.DeleteTopicsResponse as DTResp
 import qualified Kafka.Protocol.Generated.MetadataRequest as MReq
@@ -755,14 +763,145 @@ data ConfigResourceResult = ConfigResourceResult
     -- ^ Error message, if any
   } deriving (Eq, Show, Generic)
 
--- | Describe configurations for one or more resources
+-- | Describe configurations for one or more resources. Mirrors
+-- @AdminClient.describeConfigs@: issues a single DescribeConfigs
+-- RPC against any broker (the broker forwards to the controller
+-- for broker-config requests), and unpacks each per-resource
+-- result into a 'ConfigResourceResult'. Errors at the resource
+-- level are surfaced via 'crrError'; transport-level failures
+-- collapse into the outer 'Left'.
 describeConfigs
   :: AdminClient
   -> [ConfigResource]
   -> IO (Either String [ConfigResourceResult])
-describeConfigs client resources = do
-  -- TODO: Implement describeConfigs  
-  return $ Left "describeConfigs not yet implemented"
+describeConfigs client@AdminClient{..} resources = do
+  brokersM <- atomically $ Meta.getAllBrokers adminMetadata
+  case brokersM of
+    Nothing       -> return $ Left "No brokers available"
+    Just []       -> return $ Left "No brokers available"
+    Just (broker:_) -> do
+      let brokerAddr = Meta.brokerMetaAddress broker
+      connResult <- Conn.getOrCreateConnection
+                      adminConnManager brokerAddr Conn.defaultConnectionConfig
+      case connResult of
+        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
+        Right conn -> do
+          corrId <- getNextCorrelationId client
+          let apiKey = 32  -- DescribeConfigs API key
+              clientMaxVersion = 4
+          brokerVersionM <- atomically $
+            AV.queryApiVersion adminVersionCache brokerAddr apiKey
+          let apiVersion = case brokerVersionM of
+                Nothing    -> 0
+                Just range -> case AV.selectVersion clientMaxVersion range of
+                  Nothing -> 0
+                  Just v  -> v
+
+          let resourcesV = V.fromList (map buildResource resources)
+              request = DCReq.DescribeConfigsRequest
+                { DCReq.describeConfigsRequestResources = P.mkKafkaArray resourcesV
+                , DCReq.describeConfigsRequestIncludeSynonyms = False
+                , DCReq.describeConfigsRequestIncludeDocumentation = False
+                }
+              requestBody  = runPutS $ DCReq.encodeDescribeConfigsRequest apiVersion request
+              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+
+          result <- Req.sendRequestReceiveResponse
+                      conn apiKey apiVersion corrId clientIdKafka requestBody
+          case result of
+            Left err -> return $ Left $ "DescribeConfigs request failed: " ++ err
+            Right (_, responseBody) ->
+              case runGetS (DCResp.decodeDescribeConfigsResponse apiVersion) responseBody of
+                Left err -> return $ Left $
+                  "Failed to parse DescribeConfigsResponse: " ++ err
+                Right response -> do
+                  let results = case P.unKafkaArray (DCResp.describeConfigsResponseResults response) of
+                        P.Null      -> V.empty
+                        P.NotNull v -> v
+                  return $ Right $ V.toList $ V.map processResourceResult results
+  where
+    encodeResourceType :: ConfigResourceType -> Int8
+    encodeResourceType = \case
+      ConfigResourceTopic        -> 2
+      ConfigResourceBroker       -> 4
+      ConfigResourceBrokerLogger -> 8
+
+    buildResource :: ConfigResource -> DCReq.DescribeConfigsResource
+    buildResource cr = DCReq.DescribeConfigsResource
+      { DCReq.describeConfigsResourceResourceType = encodeResourceType (crType cr)
+      , DCReq.describeConfigsResourceResourceName = P.mkKafkaString (crName cr)
+        -- Empty 'configurationKeys' means "every key"; matches
+        -- the JVM client's Map<ConfigResource,Collection<String>>
+        -- where an empty inner collection requests all configs.
+      , DCReq.describeConfigsResourceConfigurationKeys = P.mkKafkaArray V.empty
+      }
+
+    processResourceResult = unpackResourceResult
+
+-- | Decode a wire 'ResourceType' code (per the DescribeConfigs
+-- RPC) into the higher-level 'ConfigResourceType' enum. Unknown
+-- codes fall through to 'ConfigResourceTopic' as a best-effort
+-- default; the JVM client behaves the same way (it reads back
+-- 'ConfigResource.Type.UNKNOWN', but we don't model that here).
+decodeResourceTypeCode :: Int8 -> ConfigResourceType
+decodeResourceTypeCode = \case
+  2 -> ConfigResourceTopic
+  4 -> ConfigResourceBroker
+  8 -> ConfigResourceBrokerLogger
+  _ -> ConfigResourceTopic
+
+-- | Translate a single 'DescribeConfigsResult' (one per resource
+-- in the response) into a 'ConfigResourceResult'. Surfaces any
+-- per-resource error code via 'crrError'; preserves 'crrEntries'
+-- in the order the broker returned them.
+unpackResourceResult :: DCResp.DescribeConfigsResult -> ConfigResourceResult
+unpackResourceResult r =
+  let !rt        = decodeResourceTypeCode (DCResp.describeConfigsResultResourceType r)
+      !rn        = extractText (DCResp.describeConfigsResultResourceName r)
+      !errCode   = DCResp.describeConfigsResultErrorCode r
+      !errMsgT   = extractText (DCResp.describeConfigsResultErrorMessage r)
+      !configsV  = case P.unKafkaArray (DCResp.describeConfigsResultConfigs r) of
+                     P.Null      -> V.empty
+                     P.NotNull v -> v
+      !entries   = V.toList (V.map unpackConfigEntry configsV)
+   in ConfigResourceResult
+        { crrResource = ConfigResource { crType = rt, crName = rn }
+        , crrEntries  = entries
+        , crrError    =
+            if errCode == 0
+              then Nothing
+              else Just (if T.null errMsgT
+                          then T.pack ("Error code " <> show errCode)
+                          else errMsgT)
+        }
+
+-- | Translate a single 'DescribeConfigsResourceResult' (one per
+-- config key under a resource) into a 'ConfigEntry'. Notable
+-- mappings:
+--
+--   * a null 'KafkaString' value becomes 'Nothing' (caller can
+--     distinguish "unset" from "empty");
+--   * KIP-226 'ConfigSource': only @5@ (DEFAULT_CONFIG) sets
+--     'ceIsDefault' to True; everything else (topic / dynamic /
+--     static / per-broker) is treated as a non-default value.
+unpackConfigEntry :: DCResp.DescribeConfigsResourceResult -> ConfigEntry
+unpackConfigEntry e =
+  let !nm  = extractText (DCResp.describeConfigsResourceResultName  e)
+      !rawValT = extractText (DCResp.describeConfigsResourceResultValue e)
+      !val = case DCResp.describeConfigsResourceResultValue e of
+               P.KafkaString P.Null -> Nothing
+               _                    -> Just rawValT
+      !ro  = DCResp.describeConfigsResourceResultReadOnly  e
+      !sen = DCResp.describeConfigsResourceResultIsSensitive e
+      !srcCode = DCResp.describeConfigsResourceResultConfigSource e
+      !isDef   = srcCode == 5
+   in ConfigEntry
+        { ceName      = nm
+        , ceValue     = val
+        , ceReadOnly  = ro
+        , ceIsDefault = isDef
+        , ceSensitive = sen
+        }
 
 -- * Helper Functions
 

@@ -35,6 +35,13 @@ extra-source-files:
     data/message-inventory.json
     test-data/test-vectors.json
 
+flag rocksdb
+    description:
+        Enable the Kafka.Streams.State.KeyValue.RocksDB backend
+        (requires librocksdb at link time).
+    default: False
+    manual: True
+
 source-repository head
     type: git
     location: https://github.com/iand675/wireform-
@@ -92,6 +99,14 @@ library
         Kafka.Client.Internal.Subscribe
         Kafka.Client.Internal.TransactionCoordinator
         Kafka.Client.Metadata
+        Kafka.Client.Mock.Cluster
+        Kafka.Client.Mock.Fault
+        Kafka.Client.Mock.Producer
+        Kafka.Client.Mock.Consumer
+        Kafka.Client.Mock.Admin
+        Kafka.Client.Mock.Idempotent
+        Kafka.Client.Mock.Backoff
+        Kafka.Client.Mock.Telemetry
         Kafka.Client.Pipeline
         Kafka.Client.Producer
         Kafka.Client.Simple
@@ -356,18 +371,166 @@ library wireform-kafka-streams
     exposed-modules:
         Kafka.Streams
         Kafka.Streams.Config
-        Kafka.Streams.KStream
-        Kafka.Streams.KTable
-        Kafka.Streams.Processor
-        Kafka.Streams.Serde
-        Kafka.Streams.Topology
+        Kafka.Streams.Errors
+        Kafka.Streams.Time
         Kafka.Streams.Types
+        Kafka.Streams.Serde
+        Kafka.Streams.Serde.Windowed
+        Kafka.Streams.Window
+        Kafka.Streams.Processor
+        Kafka.Streams.Topology
+        Kafka.Streams.TopologyDescription
+        Kafka.Streams.Metrics
+        Kafka.Streams.Stores
+        Kafka.Streams.Query
+        Kafka.Streams.Mock.Cluster
+        Kafka.Streams.Mock.Fault
+        Kafka.Streams.Mock.Producer
+        Kafka.Streams.Mock.Consumer
+        Kafka.Streams.Mock.StreamsDriver
+        Kafka.Streams.State.Store
+        Kafka.Streams.State.KeyValue.InMemory
+        Kafka.Streams.State.KeyValue.Persistent
+        Kafka.Streams.State.KeyValue.Caching
+        Kafka.Streams.State.KeyValue.Timestamped
+        Kafka.Streams.State.KeyValue.Versioned
+        Kafka.Streams.State.Window.InMemory
+        Kafka.Streams.State.Session.InMemory
+        Kafka.Streams.Internal.RecordCollector
+        Kafka.Streams.Internal.Engine
+        Kafka.Streams.Driver
+        Kafka.Streams.DSL.Materialized
+        Kafka.Streams.DSL.Consumed
+        Kafka.Streams.DSL.Produced
+        Kafka.Streams.DSL.Grouped
+        Kafka.Streams.DSL.Joined
+        Kafka.Streams.DSL.Named
+        Kafka.Streams.DSL.StreamsBuilder
+        Kafka.Streams.DSL.KStream
+        Kafka.Streams.DSL.KTable
+        Kafka.Streams.DSL.KGroupedStream
+        Kafka.Streams.DSL.TimeWindowedKStream
+        Kafka.Streams.DSL.SessionWindowedKStream
+        Kafka.Streams.DSL.GlobalKTable
+        Kafka.Streams.DSL.ForeignKeyJoin
+        Kafka.Streams.DSL.Cogroup
+        Kafka.Streams.DSL.Suppress
+        Kafka.Streams.DSL.DslStoreSuppliers
+        Kafka.Streams.Runtime
+        Kafka.Streams.Runtime.EOS
+        Kafka.Streams.Runtime.Task
+        Kafka.Streams.Runtime.Standby
+        Kafka.Streams.Runtime.Assignor
+        Kafka.Streams.Runtime.WorkerPool
+        Kafka.Streams.InteractiveQueries
     build-depends:
         base                      >= 4.16  && < 5,
+        aeson                     >= 2.0   && < 2.3,
+        async                     >= 2.2   && < 3,
         bytestring                >= 0.11  && < 0.13,
         containers                >= 0.6   && < 0.8,
+        deepseq                   >= 1.4   && < 1.6,
+        directory                 >= 1.3   && < 1.4,
+        filepath                  >= 1.4   && < 1.6,
+        hashable                  >= 1.3   && < 1.6,
+        stm                       >= 2.5   && < 2.6,
         text                      >= 2.0   && < 2.2,
+        time                      >= 1.11  && < 1.13,
+        unordered-containers      >= 0.2   && < 0.3,
+        uuid                      >= 1.3   && < 1.4,
         wireform-kafka
+    if flag(rocksdb)
+        exposed-modules: Kafka.Streams.State.KeyValue.RocksDB
+        build-depends:   rocksdb-haskell-kadena >= 1.1 && < 2
+
+test-suite wireform-kafka-streams-test
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: streams/test
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    if flag(rocksdb)
+        other-modules: Streams.RocksDBSpec
+        build-depends:
+            rocksdb-haskell-kadena >= 1.1 && < 2
+        cpp-options: -DENABLE_ROCKSDB
+    other-modules:
+        Streams.SerdeSpec
+        Streams.TimeSpec
+        Streams.StateStoreSpec
+        Streams.WindowSpec
+        Streams.TopologySpec
+        Streams.DriverSpec
+        Streams.DSLSpec
+        Streams.PunctuatorSpec
+        Streams.PersistentStoreSpec
+        Streams.JoinSpec
+        Streams.AggregationSpec
+        Streams.InteractiveQueriesSpec
+        Streams.CacheSpec
+        Streams.EOSSpec
+        Streams.MultiTaskSpec
+        Streams.StandbySpec
+        Streams.AssignorSpec
+        Streams.StreamConvSpec
+        Streams.CogroupSpec
+        Streams.SuppressSpec
+        Streams.TimestampedSpec
+        Streams.VersionedSpec
+        Streams.TopologyDescriptionSpec
+        Streams.MetricsSpec
+        Streams.NamedSpec
+        Streams.WorkerPoolSpec
+        Streams.EOSRuntimeSpec
+        Streams.ExtensionsSpec
+        Streams.TestUtilsSpec
+        Streams.StateListenerSpec
+        Streams.QuerySpec
+        Streams.ParityBatchSpec
+        Streams.MoreParitySpec
+        Streams.EndToEndChainSpec
+        Streams.MorePartiyTwoSpec
+        Streams.MoreParityThreeSpec
+        Streams.MockClusterSpec
+        Streams.MockFailureModesSpec
+        Streams.MockAdvancedSpec
+        Streams.MockDriverModesSpec
+    build-depends:
+        base,
+        wireform-kafka:wireform-kafka-streams,
+        wireform-kafka,
+        async                     >= 2.2   && < 3,
+        bytestring,
+        containers,
+        directory,
+        filepath,
+        hedgehog                  >= 1.2   && < 2,
+        stm,
+        tasty                     >= 1.4   && < 1.6,
+        tasty-hedgehog            >= 1.4   && < 1.5,
+        tasty-hunit               >= 0.10  && < 0.11,
+        temporary                 >= 1.3   && < 1.4,
+        text,
+        time,
+        uuid                      >= 1.3   && < 1.4
+
+test-suite wireform-kafka-streams-integration
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: streams/test-integration
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    other-modules:
+        Streams.Integration.RoundTrip
+    -- Skipped at run time unless WIREFORM_KAFKA_BROKER=host:port is set.
+    build-depends:
+        base,
+        wireform-kafka:wireform-kafka-streams,
+        wireform-kafka,
+        bytestring,
+        tasty                     >= 1.4   && < 1.6,
+        tasty-hunit               >= 0.10  && < 0.11,
+        text
 
 library wireform-kafka-codegen
     import: defaults
@@ -434,6 +597,21 @@ test-suite wireform-kafka-test
         Client.ProducerTimeoutSpec
         Client.TransactionCoordinatorSpec
         Client.TransactionSpec
+        Client.MockBrokerSpec
+        Client.MockBrokerFailureModesSpec
+        Client.MockBrokerAdvancedSpec
+        Client.MockBrokerExtSpec
+        Client.MockBrokerIdempotentSpec
+        Client.MockBrokerAdminSpec
+        Client.MockBrokerCoopSpec
+        Client.MockBrokerNetSpec
+        Client.MockBrokerStoreSpec
+        Client.MockBrokerProtoSpec
+        Client.ConfigParitySpec
+        Client.ProducerRetrySpec
+        Client.PipelineSpec
+        Client.SubscribeSpec
+        Network.ConnectionLivenessSpec
         Network.AuthSpec
         Network.ConnectionRetrySpec
         Protocol.ApiVersionsSpec
@@ -462,6 +640,8 @@ test-suite wireform-kafka-test
         memory                    >= 0.18  && < 0.19,
         time                      >= 1.11  && < 1.13,
         hedgehog                  >= 1.2   && < 2,
+        binary,
+        crypton-connection,
         hashable,
         network,
         random,
