@@ -50,7 +50,8 @@ import qualified Data.ByteString.Internal as BSI
 import Data.Foldable (foldl')
 import Data.Int (Int16, Int32, Int64)
 import Data.Word (Word8)
-import Foreign.ForeignPtr (mallocForeignPtrBytes, withForeignPtr)
+import Foreign.ForeignPtr
+  ( ForeignPtr, mallocForeignPtrBytes, withForeignPtr )
 import Foreign.Ptr (Ptr, minusPtr, plusPtr)
 import Foreign.Storable (peek, poke)
 import GHC.IO (unsafePerformIO)
@@ -84,6 +85,7 @@ import Kafka.Protocol.Wire
   , peekWord8
   , peekVarInt
   , peekVarLong
+  , peekByteStringSlice
   , ensureBytes
   )
 
@@ -406,14 +408,26 @@ decodeRecordBatchWire bs = unsafePerformIO $ do
         !endPtr   = startPtr `plusPtr` len
     -- Catch every exception because both 'WireError' (from the Wire
     -- primitives) and 'IOError' (from 'errOut' below) can fire.
-    r <- try (peekBatch startPtr endPtr) :: IO (Either SomeException RecordBatch)
+    r <- try (peekBatch fp basePtr startPtr endPtr)
+           :: IO (Either SomeException RecordBatch)
     case r of
       Left e   -> pure (Left (show e))
       Right rb -> pure (Right rb)
 
+-- | The source 'ForeignPtr' threads down into 'peekRecord' so
+-- per-record key + value + header reads can hand back
+-- /zero-copy slices/ over the input buffer instead of memcpy'ing
+-- each one. The slices keep the source 'ForeignPtr' alive
+-- through their own reference, so leaving the
+-- 'withForeignPtr' scope is safe.
 {-# INLINE peekBatch #-}
-peekBatch :: Ptr Word8 -> Ptr Word8 -> IO RecordBatch
-peekBatch p endPtr = do
+peekBatch
+  :: ForeignPtr Word8
+  -> Ptr Word8           -- ^ basePtr (start of the source buffer in this scope)
+  -> Ptr Word8           -- ^ start of this batch
+  -> Ptr Word8           -- ^ end of buffer
+  -> IO RecordBatch
+peekBatch fp basePtr p endPtr = do
   ensureBytes p endPtr 21 "RecordBatch header"
   (baseOffset, p1) <- peekInt64BE p endPtr
   (lenValue,   p2) <- peekInt32BE p1 endPtr
@@ -448,7 +462,7 @@ peekBatch p endPtr = do
           records <-
             if n <= 0
               then pure V.empty
-              else readRecords n q8 bodyEnd
+              else readRecords fp basePtr n q8 bodyEnd
           pure RecordBatch
             { batchBaseOffset           = baseOffset
             , batchPartitionLeaderEpoch = leaderEp
@@ -488,21 +502,35 @@ decodeAttributes attrs =
 -- @replicateM n decodeRecord >>= return . V.fromList@ by skipping
 -- the intermediate list / array fusion handshake.
 {-# INLINE readRecords #-}
-readRecords :: Int -> Ptr Word8 -> Ptr Word8 -> IO (V.Vector Record)
-readRecords n start endPtr = do
+readRecords
+  :: ForeignPtr Word8
+  -> Ptr Word8                -- ^ basePtr (start of source buffer)
+  -> Int -> Ptr Word8 -> Ptr Word8 -> IO (V.Vector Record)
+readRecords fp basePtr n start endPtr = do
   mv <- MV.unsafeNew n
   let go !i !p
         | i >= n = pure ()
         | otherwise = do
-            (rec, p') <- peekRecord p endPtr
+            (rec, p') <- peekRecord fp basePtr p endPtr
             MV.unsafeWrite mv i rec
             go (i + 1) p'
   go 0 start
   V.unsafeFreeze mv
 
+-- | Per-record peek that hands back zero-copy slices of the
+-- source buffer for the key, value, and each header's bytes
+-- (rather than memcpy'ing each into a fresh 'ByteString'). For
+-- a typical 50 MiB fetch response with thousands of records
+-- that's tens of MiB of memcpy / allocation eliminated; the
+-- record's lifetime keeps the source 'ForeignPtr' alive.
 {-# INLINE peekRecord #-}
-peekRecord :: Ptr Word8 -> Ptr Word8 -> IO (Record, Ptr Word8)
-peekRecord p endPtr = do
+peekRecord
+  :: ForeignPtr Word8
+  -> Ptr Word8
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO (Record, Ptr Word8)
+peekRecord fp basePtr p endPtr = do
   -- Outer length VarInt (we don't need it, but it has to be
   -- consumed so the cursor advances past it).
   (_len, p0)        <- peekVarInt p endPtr
@@ -510,15 +538,15 @@ peekRecord p endPtr = do
   (_attrs, p1)      <- peekWord8 p0 endPtr
   (tsDelta, p2)     <- peekVarLong p1 endPtr
   (offDelta, p3)    <- peekVarInt p2 endPtr
-  (mKey, p4)        <- peekVarBytes p3 endPtr
-  (mVal, p5)        <- peekVarBytes p4 endPtr
+  (mKey, p4)        <- peekVarBytesSlice fp basePtr p3 endPtr
+  (mVal, p5)        <- peekVarBytesSlice fp basePtr p4 endPtr
   -- The legacy decoder turns null (length=-1) value into BS.empty;
   -- preserve that.
   let !value = case mVal of
                   Nothing -> BS.empty
                   Just v  -> v
   (hdrCount, p6)    <- peekVarInt p5 endPtr
-  (hdrs, p7)        <- readHeaders (fromIntegral hdrCount) p6 endPtr
+  (hdrs, p7)        <- readHeaders fp basePtr (fromIntegral hdrCount) p6 endPtr
   pure ( Record
            { recordTimestampDelta = tsDelta
            , recordOffsetDelta    = offDelta
@@ -529,22 +557,31 @@ peekRecord p endPtr = do
        , p7
        )
 
-{-# INLINE peekVarBytes #-}
-peekVarBytes :: Ptr Word8 -> Ptr Word8 -> IO (Maybe ByteString, Ptr Word8)
-peekVarBytes p endPtr = do
+-- | Length-prefixed bytes, returned as a zero-copy slice over
+-- the source 'ForeignPtr'.
+{-# INLINE peekVarBytesSlice #-}
+peekVarBytesSlice
+  :: ForeignPtr Word8
+  -> Ptr Word8
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO (Maybe ByteString, Ptr Word8)
+peekVarBytesSlice fp basePtr p endPtr = do
   (n, p1) <- peekVarInt p endPtr
   if n < 0
     then pure (Nothing, p1)
     else do
       let !ni = fromIntegral n
-      ensureBytes p1 endPtr ni "VarBytes"
-      bs <- BSI.create ni $ \dst -> BSI.memcpy dst p1 ni
-      pure (Just bs, p1 `plusPtr` ni)
+      (bs, p2) <- peekByteStringSlice fp basePtr p1 endPtr ni
+      pure (Just bs, p2)
 
 {-# INLINE readHeaders #-}
-readHeaders :: Int -> Ptr Word8 -> Ptr Word8 -> IO ([RecordHeader], Ptr Word8)
-readHeaders 0 !p _ = pure ([], p)
-readHeaders n !p endPtr = do
+readHeaders
+  :: ForeignPtr Word8
+  -> Ptr Word8
+  -> Int -> Ptr Word8 -> Ptr Word8 -> IO ([RecordHeader], Ptr Word8)
+readHeaders _ _ 0 !p _ = pure ([], p)
+readHeaders fp basePtr n !p endPtr = do
   -- Build a list right-to-left so we don't reverse afterwards;
   -- each header is small enough that a list is fine here.
   (hs, p') <- go n p []
@@ -552,18 +589,21 @@ readHeaders n !p endPtr = do
   where
     go 0 q acc = pure (acc, q)
     go !k q acc = do
-      (h, q') <- peekHeader q endPtr
+      (h, q') <- peekHeader fp basePtr q endPtr
       go (k - 1) q' (h : acc)
 
 {-# INLINE peekHeader #-}
-peekHeader :: Ptr Word8 -> Ptr Word8 -> IO (RecordHeader, Ptr Word8)
-peekHeader p endPtr = do
+peekHeader
+  :: ForeignPtr Word8
+  -> Ptr Word8
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO (RecordHeader, Ptr Word8)
+peekHeader fp basePtr p endPtr = do
   (kLen, p1) <- peekVarInt p endPtr
   let !ki = fromIntegral kLen
-  ensureBytes p1 endPtr ki "header key"
-  k <- BSI.create ki $ \dst -> BSI.memcpy dst p1 ki
-  let !p2 = p1 `plusPtr` ki
-  (mv, p3) <- peekVarBytes p2 endPtr
+  (k, p2) <- peekByteStringSlice fp basePtr p1 endPtr ki
+  (mv, p3) <- peekVarBytesSlice fp basePtr p2 endPtr
   pure (RecordHeader { headerKey = k, headerValue = mv }, p3)
 
 errOut :: String -> IO a

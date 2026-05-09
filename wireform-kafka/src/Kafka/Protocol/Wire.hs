@@ -89,6 +89,7 @@ module Kafka.Protocol.Wire
   , peekVarLong
   , pokeByteString
   , peekByteString
+  , peekByteStringSlice
     -- * Bound checking
   , ensureBytes
   ) where
@@ -101,7 +102,7 @@ import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word8, Word16, Word32, Word64)
 import Foreign.ForeignPtr
-  ( mallocForeignPtrBytes, withForeignPtr )
+  ( ForeignPtr, mallocForeignPtrBytes, withForeignPtr )
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (Ptr, minusPtr, plusPtr)
 import Foreign.Storable (peek, peekByteOff, poke, pokeByteOff)
@@ -464,8 +465,14 @@ pokeByteString p bs = do
     copyBytes p (srcBase `plusPtr` srcOff) srcLen
   pure (p `plusPtr` srcLen)
 
--- | Read a raw blob of exactly @n@ bytes. Returns a /zero-copy/
--- 'ByteString' that shares the input buffer's backing storage.
+-- | Read a raw blob of exactly @n@ bytes into a /freshly
+-- allocated/ 'ByteString'. The source buffer is not retained.
+--
+-- Use this when the caller doesn't have access to the source
+-- 'ForeignPtr' (so a zero-copy slice would risk the source
+-- buffer being collected before the slice is consumed). For the
+-- hot consumer poll path, prefer 'peekByteStringSlice' — it
+-- avoids the per-record memcpy by sharing the source buffer.
 {-# INLINE peekByteString #-}
 peekByteString
   :: Ptr Word8        -- ^ start
@@ -474,11 +481,40 @@ peekByteString
   -> IO (ByteString, Ptr Word8)
 peekByteString p endPtr n = do
   ensureBytes p endPtr n "raw bytes"
-  -- Zero-copy: build a fresh ByteString that re-uses the source
-  -- buffer. Safe because the source is held alive by whoever passed
-  -- the pointer in.
   bs <- BSI.create n $ \dst -> copyBytes dst p n
   pure (bs, p `plusPtr` n)
+
+-- | True zero-copy variant of 'peekByteString'. Returns a
+-- 'ByteString' that shares the source 'ForeignPtr' (no @memcpy@,
+-- no allocation beyond the small @BS.PS@ constructor).
+--
+-- Caller-supplied invariants:
+--
+--   * @basePtr@ is the address of @fp@ inside the same
+--     'withForeignPtr' scope. The function asserts this with a
+--     pointer-arithmetic check, but the caller is responsible
+--     for making sure 'unsafePerformIO' / 'withForeignPtr'
+--     boundaries don't break the lifetime guarantee.
+--   * @cur@ lies in @[basePtr, endPtr]@.
+--
+-- Used by the consumer's 'decodeRecordBatchWire' path to make
+-- per-record key/value/header reads share the fetch-response
+-- buffer instead of memcpy'ing each record. A fetch response
+-- with N records of avg M bytes goes from O(N*M) bytes copied
+-- to O(N) ByteString headers (each ~24 bytes).
+{-# INLINE peekByteStringSlice #-}
+peekByteStringSlice
+  :: ForeignPtr Word8 -- ^ source ForeignPtr
+  -> Ptr Word8        -- ^ basePtr (= the source ForeignPtr's address inside @withForeignPtr@)
+  -> Ptr Word8        -- ^ current cursor
+  -> Ptr Word8        -- ^ end of buffer
+  -> Int              -- ^ exact byte count
+  -> IO (ByteString, Ptr Word8)
+peekByteStringSlice fp basePtr cur endPtr n = do
+  ensureBytes cur endPtr n "raw bytes (slice)"
+  let !off = cur `minusPtr` basePtr
+      !bs  = BSI.fromForeignPtr fp off n
+  pure (bs, cur `plusPtr` n)
 
 ----------------------------------------------------------------------
 -- Wire instances for the primitive Haskell types
