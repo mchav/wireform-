@@ -139,7 +139,9 @@ generateImports :: Doc ann
 generateImports =
   vsep
     [ "import Control.Monad (when)"
+    , "import qualified Data.Bytes.Get"
     , "import Data.Bytes.Get (MonadGet)"
+    , "import qualified Data.Bytes.Put"
     , "import Data.Bytes.Put (MonadPut)"
     , "import Data.Bytes.Serial (Serial(..), serialize, deserialize)"
     , "import Data.Int (Int8, Int16, Int32, Int64)"
@@ -220,6 +222,20 @@ isTaggedField version field =
         Right spec -> inVersionRange version spec
         Left _ -> False
     _ -> False
+
+-- | Compile-time check: does this field have a tag number assigned?
+-- Used to decide whether the codegen needs to emit per-tag encode /
+-- decode dispatch in the nested-struct generators. (A field with
+-- 'fieldTag = Just _' is treated as tagged on the wire from
+-- 'fieldTaggedVersions' onwards; before that it's absent entirely.)
+isPotentiallyTaggedField :: FieldSpec -> Bool
+isPotentiallyTaggedField f = isJust (fieldTag f)
+
+-- | Sub-list of tagged fields. Used by the nested-struct generators
+-- to skip them in the regular-field loop and emit them inside the
+-- TaggedFields envelope instead.
+nestedTaggedFields :: [FieldSpec] -> [FieldSpec]
+nestedTaggedFields = filter isPotentiallyTaggedField
 
 -- | Generate a common struct type definition.
 -- Common structs are top-level struct definitions in the schema.
@@ -379,13 +395,36 @@ generateSerialInstance typeName fields =
       in "field" <> base
 
 -- | Generate a version-aware encode function for a nested struct with version-dependent fields.
+--
+-- /Tagged-field handling/: any field with a 'fieldTag' is omitted
+-- from the regular field encode loop and instead emitted inside
+-- the 'TaggedFields' envelope at the end. The envelope is built
+-- by accumulating @(tag, encoded-bytes)@ pairs from each tagged
+-- field's runtime presence check (@version >= taggedVersions@),
+-- then serialised as a UVarInt count + per-entry
+-- (UVarInt tag, UVarInt size, bytes).
+--
+-- The previous implementation treated tagged fields as regular
+-- fields, which produced wire bytes the broker could parse going
+-- /out/ but couldn't generate going /in/ — every flexible-version
+-- response with tagged fields decoded as garbage from the
+-- tagged-field count byte onwards. (KIP-951's CurrentLeader on
+-- ProduceResponse v10+ and KIP-866 NodeEndpoints on v10+
+-- top-level were the most visible casualties.)
 generateNestedEncodeFunction :: Text -> [FieldSpec] -> Maybe Int16 -> Doc ann
 generateNestedEncodeFunction typeName fields flexibleVersion =
   let lowerTypeName = T.toLower $ T.take 1 typeName
       funName = "encode" <> pretty typeName
       varName = lowerTypeName <> "msg"
+      -- Split into regular vs tagged fields. Tagged fields go
+      -- into the trailer envelope, regular fields into the
+      -- main encode loop.
+      taggedFields  = nestedTaggedFields fields
+      regularFields = filter (not . isPotentiallyTaggedField) fields
       -- Check if version is actually used (for nested structs or version conditions)
-      versionUsed = any (needsVersionForEncode) fields || isJust flexibleVersion
+      versionUsed = any needsVersionForEncode regularFields
+                    || not (null taggedFields)
+                    || isJust flexibleVersion
       versionPattern :: Text = if versionUsed then "version" else "_version"
       -- Generate conditional encoding for each field based on its version range
       generateFieldEncodeConditional :: FieldSpec -> Doc ann
@@ -395,7 +434,7 @@ generateNestedEncodeFunction typeName fields flexibleVersion =
             -- Check if this field should use flexible encoding based on version
             -- We need to generate code that checks at runtime if version >= flexibleVersion
             encodeExpr = case flexibleVersion of
-              Just flexVer -> 
+              Just flexVer ->
                 -- Generate conditional code: if version >= flexVer, use compact format
                 generateTypeEncodeVersionAware flexVer field accessor isNullable flexibleVersion
               Nothing ->
@@ -408,11 +447,20 @@ generateNestedEncodeFunction typeName fields flexibleVersion =
             , indent 2 encodeExpr
             ]
           Nothing -> encodeExpr
-      encodeStmts = map generateFieldEncodeConditional fields
-      -- For flexible versions, nested structures need to write tagged fields
+      encodeStmts = map generateFieldEncodeConditional regularFields
+      -- For flexible versions, nested structures need to write
+      -- the TaggedFields envelope. If we have no tagged fields,
+      -- it's the empty case (single 0x00 byte).
       tagFieldStmt = case flexibleVersion of
-        Just flexVer ->
-          ["when" <+> parens ("version >=" <+> pretty flexVer) <+> "$ serialize (emptyTaggedFields :: TaggedFields)"]
+        Just flexVer
+          | null taggedFields ->
+              [ "when" <+> parens ("version >=" <+> pretty flexVer) <+>
+                "$ serialize (emptyTaggedFields :: TaggedFields)"
+              ]
+          | otherwise ->
+              [ "when" <+> parens ("version >=" <+> pretty flexVer) <+> "$ do"
+              , indent 2 (generateTaggedFieldsEncode typeName varName taggedFields)
+              ]
         Nothing -> []
       allStmts = encodeStmts ++ tagFieldStmt
   in vsep
@@ -443,11 +491,88 @@ generateNestedEncodeFunction typeName fields flexibleVersion =
           Right _ -> True  -- Version-dependent field
           Left _ -> False
 
+-- | Build the 'TaggedFields' encode envelope for a nested
+-- struct's tagged fields.
+--
+-- Output shape (Haskell expression):
+--
+-- @
+-- do
+--   let _entries =
+--         (case (taggedVersionsCheck) of
+--             True  -> [(tagN, P.runPutS (encodeTagN msg))]
+--             False -> [])
+--         ++ ... ++ []
+--   P.serializeTaggedFieldEntries _entries
+-- @
+--
+-- We rely on 'P.serializeTaggedFieldEntries' from
+-- "Kafka.Protocol.Primitives" to do the
+-- @UVarInt count + per-entry (tag, size, payload)@ framing — the
+-- same framing the existing 'TaggedFields' Serial instance uses,
+-- but parameterised over a list of pre-encoded entries so we
+-- don't have to round-trip through a 'Map' just to write them out.
+generateTaggedFieldsEncode :: Text -> Text -> [FieldSpec] -> Doc ann
+generateTaggedFieldsEncode typeName varName taggedFields =
+  let entryExpr field =
+        let accessor    = parens $ pretty (toHaskellFieldName typeName (fieldName field))
+                                 <+> pretty varName
+            tagNum      = case fieldTag field of
+              Just t  -> pretty t
+              Nothing -> "0"
+            condition   = case fieldTaggedVersions field of
+              Just spec -> case parseVersionSpec spec of
+                Right (VersionFrom v)       -> "version >=" <+> pretty v
+                Right (VersionRange a b)    -> "version >=" <+> pretty a
+                                                <+> "&& version <=" <+> pretty b
+                Right (ExactVersion v)      -> "version ==" <+> pretty v
+                _                            -> "True"
+              Nothing -> "True"
+            encoderCall = generateTaggedFieldEncoder field accessor
+        in parens
+             ("if" <+> condition
+                <+> "then [(" <> tagNum <> "," <+> encoderCall <> ")]"
+                <+> "else []")
+      entriesExpr = case taggedFields of
+        []    -> "([] :: [(Word32, BS.ByteString)])"
+        _     -> hsep (punctuate " ++" (map entryExpr taggedFields))
+  in vsep
+       [ "let _entries =" <+> entriesExpr
+       , "P.serializeTaggedFieldEntries _entries"
+       ]
+
+-- | Return the bytes encoding for a single tagged field's value.
+generateTaggedFieldEncoder :: FieldSpec -> Doc ann -> Doc ann
+generateTaggedFieldEncoder field accessor = case fieldType field of
+  StructType structName ->
+    "Data.Bytes.Put.runPutS (encode" <> pretty structName <+> "version" <+> accessor <> ")"
+  ArrayType (StructType structName) ->
+    "Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encode"
+      <> pretty structName
+      <+> parens ("case P.unKafkaArray" <+> accessor
+                    <+> "of { P.NotNull v -> v; P.Null -> V.empty }")
+      <> ")"
+  _ ->
+    -- Other tagged-field shapes (primitives, arrays of primitives, …)
+    -- aren't observed in the upstream 3.7 schemas; fall back to
+    -- 'serialize' which does the right thing for primitives.
+    "Data.Bytes.Put.runPutS (serialize" <+> accessor <> ")"
+
 -- | Generate a version-aware decode function for a nested struct with version-dependent fields.
+--
+-- Tagged-field handling mirrors 'generateNestedEncodeFunction':
+-- tagged fields aren't decoded in the regular field loop, they're
+-- pulled out of the 'TaggedFields' envelope by tag number after
+-- the regular fields have been read. Each known tag is dispatched
+-- to a per-field decoder; the field defaults to the value
+-- 'generateFieldDefault' returns when its tag is absent (i.e.
+-- when @version@ is below the field's @taggedVersions@).
 generateNestedDecodeFunction :: Text -> [FieldSpec] -> Maybe Int16 -> Doc ann
 generateNestedDecodeFunction typeName fields flexibleVersion =
   let funName = "decode" <> pretty typeName
-      -- Generate conditional decoding for each field based on its version range
+      taggedFields  = nestedTaggedFields fields
+      regularFields = filter (not . isPotentiallyTaggedField) fields
+      -- Generate conditional decoding for each /regular/ field based on its version range
       generateFieldDecodeConditional :: FieldSpec -> Doc ann
       generateFieldDecodeConditional field =
         let var = makeLowerFieldVar (fieldName field)
@@ -465,20 +590,36 @@ generateNestedDecodeFunction typeName fields flexibleVersion =
             , indent 6 $ "else pure" <+> parens (generateFieldDefault field)
             ]
           Nothing -> indent 4 $ pretty var <+> "<-" <+> decodeExpr
-      decodeStmts = map generateFieldDecodeConditional fields
+      decodeStmts = map generateFieldDecodeConditional regularFields
+      -- Tagged-field decoding: read the envelope once, then
+      -- pull each known tag out and bind it to the field's
+      -- variable. Absent tags fall back to the field's default.
+      tagFieldStmts = case flexibleVersion of
+        Just flexVer
+          | null taggedFields ->
+              [ indent 4 $ "_ <- if version >="
+                  <+> pretty flexVer
+                  <+> "then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields"
+              ]
+          | otherwise ->
+              [ indent 4 $ "_taggedFields <- if version >="
+                  <+> pretty flexVer
+                  <+> "then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields"
+              ]
+              ++ map (indent 4 . generateTaggedFieldDecode typeName) taggedFields
+        Nothing -> []
+      -- Build the record using the variable bindings for both
+      -- regular fields and the tagged-field bindings produced above.
       recordFields = map (\f ->
         let fieldRec = toHaskellFieldName typeName (fieldName f)
             fieldVar = makeLowerFieldVar (fieldName f)
         in pretty fieldRec <+> "=" <+> pretty fieldVar) fields
       -- Check if version is actually used (for nested structs or version conditions)
-      versionUsed = any (needsVersionForDecode) fields || isJust flexibleVersion
+      versionUsed = any needsVersionForDecode fields
+                    || not (null taggedFields)
+                    || isJust flexibleVersion
       versionPattern :: Text = if versionUsed then "version" else "_version"
-      -- For flexible versions, nested structures need to read tagged fields
-      tagFieldStmt = case flexibleVersion of
-        Just flexVer ->
-          [indent 4 $ "_ <- if version >=" <+> pretty flexVer <+> "then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields"]
-        Nothing -> []
-      allStmts = decodeStmts ++ tagFieldStmt
+      allStmts = decodeStmts ++ tagFieldStmts
   in vsep
     [ "-- | Decode" <+> pretty typeName <+> "with version-aware field handling."
     , funName <+> ":: MonadGet m => E.ApiVersion -> m" <+> pretty typeName
@@ -493,7 +634,7 @@ generateNestedDecodeFunction typeName fields flexibleVersion =
     ]
   where
     makeLowerFieldVar :: Text -> Text
-    makeLowerFieldVar fname = 
+    makeLowerFieldVar fname =
       let base = T.pack $ map toLower $ T.unpack fname
       in "field" <> base
     generateVersionCondition :: Text -> Maybe (Doc ann)
@@ -513,6 +654,60 @@ generateNestedDecodeFunction typeName fields flexibleVersion =
           Right (VersionFrom 0) -> False  -- Always present, no version check needed
           Right _ -> True  -- Version-dependent field
           Left _ -> False
+
+-- | Generate a single tagged-field decode binding.
+--
+-- Output shape (Haskell statement):
+--
+-- @
+-- let fieldname =
+--       if version >= taggedFromVersion
+--         then case P.lookupTaggedField <tag> _taggedFields of
+--           Just bs -> case Data.Bytes.Get.runGetS (decoderCall version) bs of
+--             Right v -> v
+--             Left _  -> <default>
+--           Nothing -> <default>
+--         else <default>
+-- @
+generateTaggedFieldDecode :: Text -> FieldSpec -> Doc ann
+generateTaggedFieldDecode _typeName field =
+  let var       = "field" <> T.pack (map toLower (T.unpack (fieldName field)))
+      tagNum    = case fieldTag field of
+        Just t  -> pretty t
+        Nothing -> "0"
+      versionGate = case fieldTaggedVersions field of
+        Just spec -> case parseVersionSpec spec of
+          Right (VersionFrom v)        -> "version >=" <+> pretty v
+          Right (VersionRange a b)     -> "version >=" <+> pretty a
+                                            <+> "&& version <=" <+> pretty b
+          Right (ExactVersion v)       -> "version ==" <+> pretty v
+          _                             -> "True"
+        Nothing -> "True"
+      defaultExpr = parens (generateFieldDefault field)
+      decoderCall = generateTaggedFieldDecoder field
+  in vsep
+       [ "let" <+> pretty var <+> "="
+       , indent 6 $ "if" <+> versionGate
+       , indent 8 $ "then case P.lookupTaggedField" <+> tagNum <+> "_taggedFields of"
+       , indent 10 $ "Just _bs -> case Data.Bytes.Get.runGetS"
+                       <+> parens decoderCall <+> "_bs of"
+       , indent 14 $ "Right _v -> _v"
+       , indent 14 $ "Left  _  ->" <+> defaultExpr
+       , indent 10 $ "Nothing  ->" <+> defaultExpr
+       , indent 8 $ "else" <+> defaultExpr
+       ]
+
+-- | Return the per-field decoder expression for a tagged field.
+generateTaggedFieldDecoder :: FieldSpec -> Doc ann
+generateTaggedFieldDecoder field = case fieldType field of
+  StructType structName ->
+    "decode" <> pretty structName <+> "version"
+  ArrayType (StructType structName) ->
+    "P.mkKafkaArray <$> E.decodeVersionedArray version 999 decode"
+      <> pretty structName
+  _ ->
+    -- Primitives: the bytes are just the serialized value.
+    "deserialize"
 
 -- | Convert a field spec to a Haskell type, considering nullable versions.
 fieldToHaskellType :: FieldSpec -> Text
@@ -702,56 +897,87 @@ generateVersionCase flexibleVer funcType typeName fields (minV, maxV)
       in vsep [guard, indent 4 body]
 
 -- | Generate the body of a version-specific encode/decode function.
+--
+-- /Tagged-field handling/ for the top-level message body mirrors
+-- the nested-struct generators ('generateNestedEncodeFunction' /
+-- 'generateNestedDecodeFunction'): tagged fields are filtered
+-- out of the regular-field loop and emitted inside the
+-- 'TaggedFields' envelope at the end. Without this fix, top-level
+-- tagged fields like 'NodeEndpoints' on @ProduceResponse v10+@
+-- (KIP-866) decoded as empty even when the broker sent populated
+-- entries.
 generateVersionBody :: Maybe Int16 -> Text -> Text -> [FieldSpec] -> Int16 -> Int16 -> Doc ann
 generateVersionBody flexibleVer "encode" typeName fields minV maxV =
   let isFlexible = maybe False (<= minV) flexibleVer
-      -- Filter out fields that are tagged in this version range
-      -- Tagged fields go into the TaggedFields structure, not regular field encoding
-      regularFields = filter (\f -> fieldInVersionRange minV maxV f && not (isTaggedField minV f)) fields
+      -- Tagged fields present at this version (we use the
+      -- compile-time presence of 'fieldTag', then bake the
+      -- runtime version check into the envelope code).
+      taggedFields  = filter isPotentiallyTaggedField fields
+      regularFields = filter (\f -> fieldInVersionRange minV maxV f
+                                     && not (isPotentiallyTaggedField f)) fields
       hasFields = not (null regularFields)
       fieldEncodes = map (\f -> generateFieldEncode typeName isFlexible f flexibleVer) regularFields
+      -- Tagged-fields envelope. If the message has no tagged
+      -- fields, we keep the existing single-byte empty trailer;
+      -- otherwise emit the per-tag entry-list build.
+      taggedTrailer
+        | not isFlexible = mempty
+        | null taggedFields =
+            indent 2 "serialize (emptyTaggedFields :: TaggedFields)"
+        | otherwise = vsep
+            [ indent 2 "do"
+            , indent 4 (generateTaggedFieldsEncode typeName "msg" taggedFields)
+            ]
   in if hasFields || isFlexible
-     then vsep 
+     then vsep
        [ "do"
        , indent 2 $ vsep fieldEncodes
-       , if isFlexible
-           then indent 2 "serialize (emptyTaggedFields :: TaggedFields)"
-           else mempty
+       , taggedTrailer
        ]
      else "pure ()"
 
-generateVersionBody flexibleVer "decode" typeName fields minV maxV =
+generateVersionBody flexibleVer _funcName typeName fields minV maxV =
   let isFlexible = maybe False (<= minV) flexibleVer
-      -- Filter out fields that are tagged in this version range
-      -- Tagged fields are decoded from the TaggedFields structure
-      regularFieldsInVersion = filter (\f -> fieldInVersionRange minV maxV f && not (isTaggedField minV f)) fields
+      -- Tagged fields: same compile-time split as the encode side.
+      taggedFields = filter isPotentiallyTaggedField fields
+      -- Filter out tagged fields from the regular decode loop.
+      regularFieldsInVersion = filter (\f -> fieldInVersionRange minV maxV f
+                                              && not (isPotentiallyTaggedField f)) fields
       allFields = fields  -- Need to include all fields for record construction
-      hasFields = not (null regularFieldsInVersion)
+      _hasFields = not (null regularFieldsInVersion)
       -- Generate lowercase variable names for pattern matching
-      decodeStmts = map (\f -> 
+      decodeStmts = map (\f ->
         let var = makeLowerFieldVar (fieldName f)
-            -- Use version-aware decode for fields in flexible version ranges
             decodeExpr = case flexibleVer of
-              Just flexVer | minV >= flexVer -> 
-                -- This version range is in flexible territory, use version-aware decode
+              Just flexVer | minV >= flexVer ->
                 generateFieldDecodeExprVersionAware flexVer f flexibleVer
-              _ -> 
-                -- Non-flexible range, use regular decode
+              _ ->
                 generateFieldDecodeExpr f flexibleVer
         in indent 2 $ pretty var <+> "<-" <+> decodeExpr) regularFieldsInVersion
-      -- Map fields to their variables
+      -- Tagged-fields trailer. If we have known tagged fields,
+      -- bind '_taggedFields' so per-tag dispatch can inspect it;
+      -- otherwise discard the envelope as before.
+      tagFieldStmt
+        | not isFlexible        = []
+        | null taggedFields     =
+            [indent 2 "_ <- (deserialize :: MonadGet m => m TaggedFields)"]
+        | otherwise = (indent 2 "_taggedFields <- (deserialize :: MonadGet m => m TaggedFields)")
+                      : map (indent 2 . generateTaggedFieldDecode typeName) taggedFields
+      -- Map fields to their variables (regular AND tagged — the
+      -- tagged-field decode emits its own 'let fieldX = ...').
       fieldVarMap = map (\f -> (f, makeLowerFieldVar (fieldName f))) regularFieldsInVersion
+      taggedVarMap = if isFlexible
+                       then map (\f -> (f, makeLowerFieldVar (fieldName f))) taggedFields
+                       else []
       recordFields = map (\f ->
         let fieldRec = toHaskellFieldName typeName (fieldName f)
-            -- Find the variable for this field if it was decoded
-            fieldVal = case lookup f fieldVarMap of
+            fieldVal = case lookupByName f fieldVarMap of
               Just var -> pretty var
-              Nothing -> generateFieldDefault f
+              Nothing  -> case lookupByName f taggedVarMap of
+                Just var -> pretty var
+                Nothing  -> generateFieldDefault f
         in pretty fieldRec <+> "=" <+> fieldVal
         ) allFields
-      tagFieldStmt = if isFlexible
-                     then [indent 2 "_ <- (deserialize :: MonadGet m => m TaggedFields)"]
-                     else []
       allStmts = decodeStmts ++ tagFieldStmt
   in vsep
     [ "do"
@@ -764,13 +990,13 @@ generateVersionBody flexibleVer "decode" typeName fields minV maxV =
   where
     -- Helper to create a lowercase variable name from a field name
     makeLowerFieldVar :: Text -> Text
-    makeLowerFieldVar fname = 
+    makeLowerFieldVar fname =
       let base = T.pack $ map toLower $ T.unpack fname
       in "field" <> base
-    
+
     -- Helper for lookup that compares fields by name
-    lookup :: FieldSpec -> [(FieldSpec, Text)] -> Maybe Text
-    lookup target pairs = 
+    lookupByName :: FieldSpec -> [(FieldSpec, Text)] -> Maybe Text
+    lookupByName target pairs =
       case filter (\(f, _) -> fieldName f == fieldName target) pairs of
         ((_, v):_) -> Just v
         [] -> Nothing

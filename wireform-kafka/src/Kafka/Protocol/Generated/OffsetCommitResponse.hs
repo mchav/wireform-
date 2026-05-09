@@ -12,7 +12,7 @@ Kafka response for API key 8.
 
 
 
-Valid versions: 2-10
+Valid versions: 2-9
 Flexible versions: 8+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.OffsetCommitResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,6 +48,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 -- | The responses for each partition in the topic.
@@ -97,14 +100,8 @@ data OffsetCommitResponseTopic = OffsetCommitResponseTopic
 
   -- | The topic name.
 
-  -- Versions: 0-9
+  -- Versions: 0+
   offsetCommitResponseTopicName :: !(KafkaString)
-,
-
-  -- | The topic ID.
-
-  -- Versions: 10+
-  offsetCommitResponseTopicTopicId :: !(KafkaUuid)
 ,
 
   -- | The responses for each partition in the topic.
@@ -120,10 +117,7 @@ data OffsetCommitResponseTopic = OffsetCommitResponseTopic
 encodeOffsetCommitResponseTopic :: MonadPut m => E.ApiVersion -> OffsetCommitResponseTopic -> m ()
 encodeOffsetCommitResponseTopic version omsg =
   do
-    when (version >= 0 && version <= 9) $
-      if version >= 8 then serialize (toCompactString (offsetCommitResponseTopicName omsg)) else serialize (offsetCommitResponseTopicName omsg)
-    when (version >= 10) $
-      serialize (offsetCommitResponseTopicTopicId omsg)
+    if version >= 8 then serialize (toCompactString (offsetCommitResponseTopicName omsg)) else serialize (offsetCommitResponseTopicName omsg)
     E.encodeVersionedArray version 8 encodeOffsetCommitResponsePartition (case P.unKafkaArray (offsetCommitResponseTopicPartitions omsg) of { P.NotNull v -> v; P.Null -> V.empty })
     when (version >= 8) $ serialize (emptyTaggedFields :: TaggedFields)
 
@@ -132,19 +126,12 @@ encodeOffsetCommitResponseTopic version omsg =
 decodeOffsetCommitResponseTopic :: MonadGet m => E.ApiVersion -> m OffsetCommitResponseTopic
 decodeOffsetCommitResponseTopic version =
   do
-    fieldname <- if version >= 0 && version <= 9
-      then if version >= 8 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldtopicid <- if version >= 10
-      then deserialize
-      else pure (P.nullUuid)
+    fieldname <- if version >= 8 then P.fromCompactString <$> deserialize else deserialize
     fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 8 decodeOffsetCommitResponsePartition
     _ <- if version >= 8 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
     pure OffsetCommitResponseTopic
       {
       offsetCommitResponseTopicName = fieldname
-      ,
-      offsetCommitResponseTopicTopicId = fieldtopicid
       ,
       offsetCommitResponseTopicPartitions = fieldpartitions
       }
@@ -170,7 +157,14 @@ data OffsetCommitResponse = OffsetCommitResponse
 
 -- | Maximum supported version for OffsetCommitResponse.
 maxOffsetCommitResponseVersion :: Int16
-maxOffsetCommitResponseVersion = 10
+maxOffsetCommitResponseVersion = 9
+
+-- | KafkaMessage instance for OffsetCommitResponse.
+instance KafkaMessage OffsetCommitResponse where
+  messageApiKey = 8
+  messageMinVersion = 2
+  messageMaxVersion = 9
+  messageFlexibleVersion = Just 8
 
 -- | Encode OffsetCommitResponse with the given API version.
 encodeOffsetCommitResponse :: MonadPut m => E.ApiVersion -> OffsetCommitResponse -> m ()
@@ -180,7 +174,7 @@ encodeOffsetCommitResponse version msg
       E.encodeVersionedArray version 8 encodeOffsetCommitResponseTopic (case P.unKafkaArray (offsetCommitResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
 
 
-  | version >= 8 && version <= 10 =
+  | version >= 8 && version <= 9 =
     do
       serialize (offsetCommitResponseThrottleTimeMs msg)
       E.encodeVersionedArray version 8 encodeOffsetCommitResponseTopic (case P.unKafkaArray (offsetCommitResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
@@ -206,7 +200,7 @@ decodeOffsetCommitResponse version
         offsetCommitResponseTopics = fieldtopics
         }
 
-  | version >= 8 && version <= 10 =
+  | version >= 8 && version <= 9 =
     do
       fieldthrottletimems <- deserialize
       fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 8 decodeOffsetCommitResponseTopic

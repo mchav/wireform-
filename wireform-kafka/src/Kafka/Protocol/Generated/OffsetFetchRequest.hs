@@ -12,7 +12,7 @@ Kafka request for API key 9.
 
 
 
-Valid versions: 1-10
+Valid versions: 1-9
 Flexible versions: 6+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -30,7 +30,9 @@ module Kafka.Protocol.Generated.OffsetFetchRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,6 +49,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 -- | Each topic we would like to fetch offsets for, or null to fetch offsets for all topics.
@@ -104,14 +107,8 @@ data OffsetFetchRequestTopics = OffsetFetchRequestTopics
 
   -- | The topic name.
 
-  -- Versions: 8-9
+  -- Versions: 8+
   offsetFetchRequestTopicsName :: !(KafkaString)
-,
-
-  -- | The topic ID.
-
-  -- Versions: 10+
-  offsetFetchRequestTopicsTopicId :: !(KafkaUuid)
 ,
 
   -- | The partition indexes we would like to fetch offsets for.
@@ -127,10 +124,8 @@ data OffsetFetchRequestTopics = OffsetFetchRequestTopics
 encodeOffsetFetchRequestTopics :: MonadPut m => E.ApiVersion -> OffsetFetchRequestTopics -> m ()
 encodeOffsetFetchRequestTopics version omsg =
   do
-    when (version >= 8 && version <= 9) $
+    when (version >= 8) $
       if version >= 6 then serialize (toCompactString (offsetFetchRequestTopicsName omsg)) else serialize (offsetFetchRequestTopicsName omsg)
-    when (version >= 10) $
-      serialize (offsetFetchRequestTopicsTopicId omsg)
     when (version >= 8) $
       E.encodeVersionedArray version 6 (\_ x -> serialize x) (case P.unKafkaArray (offsetFetchRequestTopicsPartitionIndexes omsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
     when (version >= 6) $ serialize (emptyTaggedFields :: TaggedFields)
@@ -140,12 +135,9 @@ encodeOffsetFetchRequestTopics version omsg =
 decodeOffsetFetchRequestTopics :: MonadGet m => E.ApiVersion -> m OffsetFetchRequestTopics
 decodeOffsetFetchRequestTopics version =
   do
-    fieldname <- if version >= 8 && version <= 9
+    fieldname <- if version >= 8
       then if version >= 6 then P.fromCompactString <$> deserialize else deserialize
       else pure (P.KafkaString Null)
-    fieldtopicid <- if version >= 10
-      then deserialize
-      else pure (P.nullUuid)
     fieldpartitionindexes <- if version >= 8
       then P.mkKafkaArray <$> E.decodeVersionedArray version 6 (\_ -> deserialize)
       else pure (P.mkKafkaArray V.empty)
@@ -153,8 +145,6 @@ decodeOffsetFetchRequestTopics version =
     pure OffsetFetchRequestTopics
       {
       offsetFetchRequestTopicsName = fieldname
-      ,
-      offsetFetchRequestTopicsTopicId = fieldtopicid
       ,
       offsetFetchRequestTopicsPartitionIndexes = fieldpartitionindexes
       }
@@ -267,7 +257,14 @@ data OffsetFetchRequest = OffsetFetchRequest
 
 -- | Maximum supported version for OffsetFetchRequest.
 maxOffsetFetchRequestVersion :: Int16
-maxOffsetFetchRequestVersion = 10
+maxOffsetFetchRequestVersion = 9
+
+-- | KafkaMessage instance for OffsetFetchRequest.
+instance KafkaMessage OffsetFetchRequest where
+  messageApiKey = 9
+  messageMinVersion = 1
+  messageMaxVersion = 9
+  messageFlexibleVersion = Just 6
 
 -- | Encode OffsetFetchRequest with the given API version.
 encodeOffsetFetchRequest :: MonadPut m => E.ApiVersion -> OffsetFetchRequest -> m ()
@@ -285,7 +282,7 @@ encodeOffsetFetchRequest version msg
       serialize (offsetFetchRequestRequireStable msg)
       serialize (emptyTaggedFields :: TaggedFields)
 
-  | version >= 8 && version <= 10 =
+  | version >= 8 && version <= 9 =
     do
       E.encodeVersionedArray version 6 encodeOffsetFetchRequestGroup (case P.unKafkaArray (offsetFetchRequestGroups msg) of { P.NotNull v -> v; P.Null -> V.empty })
       serialize (offsetFetchRequestRequireStable msg)
@@ -334,7 +331,7 @@ decodeOffsetFetchRequest version
         offsetFetchRequestRequireStable = fieldrequirestable
         }
 
-  | version >= 8 && version <= 10 =
+  | version >= 8 && version <= 9 =
     do
       fieldgroups <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeOffsetFetchRequestGroup
       fieldrequirestable <- deserialize

@@ -556,7 +556,7 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
                 { LOReq.listOffsetsRequestReplicaId = -1  -- Consumer
                 , LOReq.listOffsetsRequestIsolationLevel = 0  -- Read uncommitted
                 , LOReq.listOffsetsRequestTopics = P.mkKafkaArray topics
-                , LOReq.listOffsetsRequestTimeoutMs = 30000  -- 30 second timeout
+                , LOReq.listOffsetsRequestTimeoutMs = 30000  -- v10+; ignored otherwise
                 }
               
               requestBody = runPutS $ LOReq.encodeListOffsetsRequest apiVersion request
@@ -1196,23 +1196,23 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
       corrId <- nextCid
       let apiKey = 1  -- Fetch
       -- FetchRequest is the trickiest negotiation surface.
-      -- Versions added these things at the bodylevel:
-      -- v4 KIP-98 IsolationLevel; v7 SessionId/Epoch (KIP-227);
-      -- v11 RackId / ClusterId (KIP-392 / KIP-573); v12 went
-      -- flexible; v13+ moved to TopicId-based identification.
+      -- Body-level changes by version:
+      --   v4  KIP-98  IsolationLevel
+      --   v7  KIP-227 SessionId / SessionEpoch
+      --   v11 KIP-392 RackId; KIP-573 ClusterId
+      --   v12 went flexible (compact strings + tagged fields)
+      --   v13 moved to TopicId-based identification
+      --   v15 ReplicaState moved into a tagged field
+      --   v17 ReplicaDirectoryId added (tagged)
       -- Codegen handles up to v18.
       --
-      -- Cap at v10 — v11 broke the live-broker poll round-trip
-      -- on Kafka 3.7 with a connection EOF (the broker rejects
-      -- something about our v11 request shape — most likely
-      -- the rackId field, which ends up doubly-stamped against
-      -- a broker that doesn't have @broker.rack@ set). v10 is
-      -- safe and we've pinned a live integration test
-      -- ('produce + assign + poll round-trips records') against
-      -- it. Bumping to v11+ requires a separate request-shape
-      -- audit; v12+ additionally requires the response-side
-      -- decoder to handle the flexible record-batch envelope.
-      verR <- VN.pickApiVersion versionCache brokerAddr apiKey 4 10 4
+      -- Cap at v11. v12 still EOFs against Kafka 3.7 — the
+      -- flexible-version Fetch envelope has more nuance
+      -- around session shape that needs investigation. v11 is
+      -- the highest non-flexible Fetch and works against every
+      -- Kafka 2.4+ broker; v11+'s RackId field is now wired
+      -- through 'consumerRackId' (KIP-392).
+      verR <- VN.pickApiVersion versionCache brokerAddr apiKey 4 11 4
       let apiVersion = case verR of
             Right v -> v
             Left  _ -> 4   -- min supported (matches legacy fallback)
@@ -1236,8 +1236,13 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
                         , FR.fetchPartitionLastFetchedEpoch = -1
                         , FR.fetchPartitionLogStartOffset = -1
                         , FR.fetchPartitionPartitionMaxBytes = 1048576  -- 1MB per partition
+                        -- KIP-915 ReplicaDirectoryId (tagged v17+).
+                        -- The wire encoding writes this only on
+                        -- v17+ and only inside the TaggedFields
+                        -- envelope; non-replica consumers always
+                        -- set nullUuid which is the broker's
+                        -- "no specific directory" sentinel.
                         , FR.fetchPartitionReplicaDirectoryId = P.nullUuid
-                        , FR.fetchPartitionHighWatermark = 9223372036854775807
                         }
                     | (partId, offset) <- parts
                     ]
@@ -1245,9 +1250,13 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
             | (topic, parts) <- Map.toList byTopic
             ]
           
-          -- KIP-392: Use rack ID for rack-aware fetching if configured
+          -- KIP-392: Use rack ID for rack-aware fetching if
+          -- configured. The field is non-nullable in the upstream
+          -- spec (default ""), so a 'Nothing' from the consumer
+          -- config sends the empty string — sending 'Null'
+          -- (length=-1) breaks the broker's parser at v11+.
           rackIdKafka = case rackIdM of
-            Nothing -> P.KafkaString P.Null
+            Nothing     -> P.mkKafkaString ""
             Just rackId -> P.mkKafkaString rackId
           
           request = FR.FetchRequest
@@ -1506,7 +1515,6 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
                   topics = V.fromList
                     [ OCReq.OffsetCommitRequestTopic
                         { OCReq.offsetCommitRequestTopicName = P.mkKafkaString topic
-                        , OCReq.offsetCommitRequestTopicTopicId = P.nullUuid
                         , OCReq.offsetCommitRequestTopicPartitions = P.mkKafkaArray $ V.fromList
                             [ OCReq.OffsetCommitRequestPartition
                                 { OCReq.offsetCommitRequestPartitionPartitionIndex = partId
@@ -1799,7 +1807,7 @@ queryPartitionOffsetsByTimestamp consumer@Consumer{..} pts = do
                 { LOReq.listOffsetsRequestReplicaId = -1
                 , LOReq.listOffsetsRequestIsolationLevel = 0
                 , LOReq.listOffsetsRequestTopics = P.mkKafkaArray topics
-                , LOReq.listOffsetsRequestTimeoutMs = 30000
+                , LOReq.listOffsetsRequestTimeoutMs = 30000  -- v10+; ignored otherwise
                 }
               requestBody = runPutS $ LOReq.encodeListOffsetsRequest apiVersion request
               clientId    = P.mkKafkaString (consumerClientId consumerConfig)

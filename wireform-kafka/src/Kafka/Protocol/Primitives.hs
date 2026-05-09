@@ -89,6 +89,7 @@ module Kafka.Protocol.Primitives
   , emptyTaggedFields
   , lookupTaggedField
   , insertTaggedField
+  , serializeTaggedFieldEntries
     -- * Nullable Types
   , Nullable(..)
   , toNullable
@@ -522,6 +523,27 @@ instance Serial TaggedFields where
         UVarInt size <- deserialize
         bs <- getByteString (fromIntegral size)
         return (tag, bs)
+
+-- | Write out a list of @(tag, bytes)@ pairs in the wire format
+-- the @TaggedFields@ envelope expects: a UVarInt count followed
+-- by per-entry @UVarInt tag, UVarInt size, bytes@.
+--
+-- Used by the codegen-emitted nested-struct encoders for messages
+-- that carry per-field @taggedVersions@ overrides (e.g.
+-- KIP-951 @CurrentLeader@ on @ProduceResponse v10+@).
+-- Going through this entry-list shape (rather than building a
+-- 'TaggedFields' value first) lets the generated code skip the
+-- 'Map' round-trip for a payload it always emits in tag order
+-- already.
+serializeTaggedFieldEntries :: MonadPut m => [(Word32, ByteString)] -> m ()
+serializeTaggedFieldEntries entries = do
+  serialize (UVarInt (fromIntegral (length entries)))
+  mapM_ writeEntry entries
+  where
+    writeEntry (tag, bs) = do
+      serialize (UVarInt tag)
+      serialize (UVarInt (fromIntegral (BS.length bs)))
+      putByteString bs
 
 -- -----------------------------------------------------------------------------
 -- Type Conversions

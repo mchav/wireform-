@@ -12,7 +12,7 @@ Kafka response for API key 2.
 
 
 
-Valid versions: 1-11
+Valid versions: 1-10
 Flexible versions: 6+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.ListOffsetsResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,6 +48,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 -- | Each partition in the response.
@@ -193,7 +196,14 @@ data ListOffsetsResponse = ListOffsetsResponse
 
 -- | Maximum supported version for ListOffsetsResponse.
 maxListOffsetsResponseVersion :: Int16
-maxListOffsetsResponseVersion = 11
+maxListOffsetsResponseVersion = 10
+
+-- | KafkaMessage instance for ListOffsetsResponse.
+instance KafkaMessage ListOffsetsResponse where
+  messageApiKey = 2
+  messageMinVersion = 1
+  messageMaxVersion = 10
+  messageFlexibleVersion = Just 6
 
 -- | Encode ListOffsetsResponse with the given API version.
 encodeListOffsetsResponse :: MonadPut m => E.ApiVersion -> ListOffsetsResponse -> m ()
@@ -209,7 +219,7 @@ encodeListOffsetsResponse version msg
       E.encodeVersionedArray version 6 encodeListOffsetsTopicResponse (case P.unKafkaArray (listOffsetsResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
 
 
-  | version >= 6 && version <= 11 =
+  | version >= 6 && version <= 10 =
     do
       serialize (listOffsetsResponseThrottleTimeMs msg)
       E.encodeVersionedArray version 6 encodeListOffsetsTopicResponse (case P.unKafkaArray (listOffsetsResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
@@ -240,7 +250,7 @@ decodeListOffsetsResponse version
         listOffsetsResponseTopics = fieldtopics
         }
 
-  | version >= 6 && version <= 11 =
+  | version >= 6 && version <= 10 =
     do
       fieldthrottletimems <- deserialize
       fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeListOffsetsTopicResponse

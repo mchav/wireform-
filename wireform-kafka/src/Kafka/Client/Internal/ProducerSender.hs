@@ -405,7 +405,7 @@ sendToBroker state@SenderState{..} broker batches = do
         -- and adding round-trip coverage for the new fields.
         verR <- VN.pickApiVersion senderVersionCache brokerAddr
                   0  {- API key 0 = Produce -}
-                  3 9 3
+                  3 11 3
         let apiVersion = case verR of
               Right v -> v
               Left  _ -> 3

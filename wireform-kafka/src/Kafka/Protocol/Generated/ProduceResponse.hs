@@ -12,7 +12,7 @@ Kafka response for API key 0.
 
 
 
-Valid versions: 3-13
+Valid versions: 3-12
 Flexible versions: 9+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -32,7 +32,9 @@ module Kafka.Protocol.Generated.ProduceResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -49,6 +51,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 -- | The batch indices of records that caused the batch to be dropped.
@@ -219,9 +222,9 @@ encodePartitionProduceResponse version pmsg =
       E.encodeVersionedArray version 9 encodeBatchIndexAndErrorMessage (case P.unKafkaArray (partitionProduceResponseRecordErrors pmsg) of { P.NotNull v -> v; P.Null -> V.empty })
     when (version >= 8) $
       if version >= 9 then serialize (toCompactString (partitionProduceResponseErrorMessage pmsg)) else serialize (partitionProduceResponseErrorMessage pmsg)
-    when (version >= 10) $
-      encodeLeaderIdAndEpoch version (partitionProduceResponseCurrentLeader pmsg)
-    when (version >= 9) $ serialize (emptyTaggedFields :: TaggedFields)
+    when (version >= 9) $ do
+      let _entries = (if version >= 10 then [(0, Data.Bytes.Put.runPutS (encodeLeaderIdAndEpoch version (partitionProduceResponseCurrentLeader pmsg)))] else [])
+      P.serializeTaggedFieldEntries _entries
 
 
 -- | Decode PartitionProduceResponse with version-aware field handling.
@@ -243,10 +246,15 @@ decodePartitionProduceResponse version =
     fielderrormessage <- if version >= 8
       then if version >= 9 then P.fromCompactString <$> deserialize else deserialize
       else pure (P.KafkaString Null)
-    fieldcurrentleader <- if version >= 10
-      then decodeLeaderIdAndEpoch version
-      else pure (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = (-1), leaderIdAndEpochLeaderEpoch = (-1) })
-    _ <- if version >= 9 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
+    _taggedFields <- if version >= 9 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
+    let fieldcurrentleader =
+          if version >= 10
+            then case P.lookupTaggedField 0 _taggedFields of
+              Just _bs -> case Data.Bytes.Get.runGetS (decodeLeaderIdAndEpoch version) _bs of
+                  Right _v -> _v
+                  Left  _  -> (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = (-1), leaderIdAndEpochLeaderEpoch = (-1) })
+              Nothing  -> (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = (-1), leaderIdAndEpochLeaderEpoch = (-1) })
+            else (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = (-1), leaderIdAndEpochLeaderEpoch = (-1) })
     pure PartitionProduceResponse
       {
       partitionProduceResponseIndex = fieldindex
@@ -273,14 +281,8 @@ data TopicProduceResponse = TopicProduceResponse
 
   -- | The topic name.
 
-  -- Versions: 0-12
+  -- Versions: 0+
   topicProduceResponseName :: !(KafkaString)
-,
-
-  -- | The unique topic ID
-
-  -- Versions: 13+
-  topicProduceResponseTopicId :: !(KafkaUuid)
 ,
 
   -- | Each partition that we produced to within the topic.
@@ -296,10 +298,7 @@ data TopicProduceResponse = TopicProduceResponse
 encodeTopicProduceResponse :: MonadPut m => E.ApiVersion -> TopicProduceResponse -> m ()
 encodeTopicProduceResponse version tmsg =
   do
-    when (version >= 0 && version <= 12) $
-      if version >= 9 then serialize (toCompactString (topicProduceResponseName tmsg)) else serialize (topicProduceResponseName tmsg)
-    when (version >= 13) $
-      serialize (topicProduceResponseTopicId tmsg)
+    if version >= 9 then serialize (toCompactString (topicProduceResponseName tmsg)) else serialize (topicProduceResponseName tmsg)
     E.encodeVersionedArray version 9 encodePartitionProduceResponse (case P.unKafkaArray (topicProduceResponsePartitionResponses tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
     when (version >= 9) $ serialize (emptyTaggedFields :: TaggedFields)
 
@@ -308,19 +307,12 @@ encodeTopicProduceResponse version tmsg =
 decodeTopicProduceResponse :: MonadGet m => E.ApiVersion -> m TopicProduceResponse
 decodeTopicProduceResponse version =
   do
-    fieldname <- if version >= 0 && version <= 12
-      then if version >= 9 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldtopicid <- if version >= 13
-      then deserialize
-      else pure (P.nullUuid)
+    fieldname <- if version >= 9 then P.fromCompactString <$> deserialize else deserialize
     fieldpartitionresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 9 decodePartitionProduceResponse
     _ <- if version >= 9 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
     pure TopicProduceResponse
       {
       topicProduceResponseName = fieldname
-      ,
-      topicProduceResponseTopicId = fieldtopicid
       ,
       topicProduceResponsePartitionResponses = fieldpartitionresponses
       }
@@ -427,7 +419,14 @@ data ProduceResponse = ProduceResponse
 
 -- | Maximum supported version for ProduceResponse.
 maxProduceResponseVersion :: Int16
-maxProduceResponseVersion = 13
+maxProduceResponseVersion = 12
+
+-- | KafkaMessage instance for ProduceResponse.
+instance KafkaMessage ProduceResponse where
+  messageApiKey = 0
+  messageMinVersion = 3
+  messageMaxVersion = 12
+  messageFlexibleVersion = Just 9
 
 -- | Encode ProduceResponse with the given API version.
 encodeProduceResponse :: MonadPut m => E.ApiVersion -> ProduceResponse -> m ()
@@ -436,13 +435,17 @@ encodeProduceResponse version msg
     do
       E.encodeVersionedArray version 9 encodeTopicProduceResponse (case P.unKafkaArray (produceResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
       serialize (produceResponseThrottleTimeMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
+      do
+        let _entries = (if version >= 10 then [(0, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeNodeEndpoint (case P.unKafkaArray (produceResponseNodeEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else [])
+        P.serializeTaggedFieldEntries _entries
 
-  | version >= 10 && version <= 13 =
+  | version >= 10 && version <= 12 =
     do
       E.encodeVersionedArray version 9 encodeTopicProduceResponse (case P.unKafkaArray (produceResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
       serialize (produceResponseThrottleTimeMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
+      do
+        let _entries = (if version >= 10 then [(0, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeNodeEndpoint (case P.unKafkaArray (produceResponseNodeEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else [])
+        P.serializeTaggedFieldEntries _entries
 
   | version >= 3 && version <= 8 =
     do
@@ -458,28 +461,44 @@ decodeProduceResponse version
     do
       fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 9 decodeTopicProduceResponse
       fieldthrottletimems <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
+      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
+      let fieldnodeendpoints =
+            if version >= 10
+              then case P.lookupTaggedField 0 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeNodeEndpoint) _bs of
+                    Right _v -> _v
+                    Left  _  -> (P.mkKafkaArray V.empty)
+                Nothing  -> (P.mkKafkaArray V.empty)
+              else (P.mkKafkaArray V.empty)
       pure ProduceResponse
         {
         produceResponseResponses = fieldresponses
         ,
         produceResponseThrottleTimeMs = fieldthrottletimems
         ,
-        produceResponseNodeEndpoints = P.mkKafkaArray V.empty
+        produceResponseNodeEndpoints = fieldnodeendpoints
         }
 
-  | version >= 10 && version <= 13 =
+  | version >= 10 && version <= 12 =
     do
       fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 9 decodeTopicProduceResponse
       fieldthrottletimems <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
+      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
+      let fieldnodeendpoints =
+            if version >= 10
+              then case P.lookupTaggedField 0 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeNodeEndpoint) _bs of
+                    Right _v -> _v
+                    Left  _  -> (P.mkKafkaArray V.empty)
+                Nothing  -> (P.mkKafkaArray V.empty)
+              else (P.mkKafkaArray V.empty)
       pure ProduceResponse
         {
         produceResponseResponses = fieldresponses
         ,
         produceResponseThrottleTimeMs = fieldthrottletimems
         ,
-        produceResponseNodeEndpoints = P.mkKafkaArray V.empty
+        produceResponseNodeEndpoints = fieldnodeendpoints
         }
 
   | version >= 3 && version <= 8 =

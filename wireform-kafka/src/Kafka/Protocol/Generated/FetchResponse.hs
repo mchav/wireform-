@@ -12,7 +12,7 @@ Kafka response for API key 1.
 
 
 
-Valid versions: 4-18
+Valid versions: 4-17
 Flexible versions: 12+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -34,7 +34,9 @@ module Kafka.Protocol.Generated.FetchResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -51,6 +53,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 -- | In case divergence is detected based on the `LastFetchedEpoch` and `FetchOffset` in the request, this field indicates the largest epoch and its end offset such that subsequent records are known to div
@@ -327,18 +330,14 @@ encodePartitionData version pmsg =
       serialize (partitionDataLastStableOffset pmsg)
     when (version >= 5) $
       serialize (partitionDataLogStartOffset pmsg)
-    when (version >= 12) $
-      encodeEpochEndOffset version (partitionDataDivergingEpoch pmsg)
-    when (version >= 12) $
-      encodeLeaderIdAndEpoch version (partitionDataCurrentLeader pmsg)
-    when (version >= 12) $
-      encodeSnapshotId version (partitionDataSnapshotId pmsg)
     when (version >= 4) $
       E.encodeVersionedNullableArray version 12 encodeAbortedTransaction (partitionDataAbortedTransactions pmsg)
     when (version >= 11) $
       serialize (partitionDataPreferredReadReplica pmsg)
     if version >= 12 then serialize (toCompactBytes (partitionDataRecords pmsg)) else serialize (partitionDataRecords pmsg)
-    when (version >= 12) $ serialize (emptyTaggedFields :: TaggedFields)
+    when (version >= 12) $ do
+      let _entries = (if version >= 12 then [(0, Data.Bytes.Put.runPutS (encodeEpochEndOffset version (partitionDataDivergingEpoch pmsg)))] else []) ++ (if version >= 12 then [(1, Data.Bytes.Put.runPutS (encodeLeaderIdAndEpoch version (partitionDataCurrentLeader pmsg)))] else []) ++ (if version >= 12 then [(2, Data.Bytes.Put.runPutS (encodeSnapshotId version (partitionDataSnapshotId pmsg)))] else [])
+      P.serializeTaggedFieldEntries _entries
 
 
 -- | Decode PartitionData with version-aware field handling.
@@ -354,15 +353,6 @@ decodePartitionData version =
     fieldlogstartoffset <- if version >= 5
       then deserialize
       else pure ((-1))
-    fielddivergingepoch <- if version >= 12
-      then decodeEpochEndOffset version
-      else pure (EpochEndOffset { epochEndOffsetEpoch = (-1), epochEndOffsetEndOffset = (-1) })
-    fieldcurrentleader <- if version >= 12
-      then decodeLeaderIdAndEpoch version
-      else pure (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = (-1), leaderIdAndEpochLeaderEpoch = (-1) })
-    fieldsnapshotid <- if version >= 12
-      then decodeSnapshotId version
-      else pure (SnapshotId { snapshotIdEndOffset = (-1), snapshotIdEpoch = (-1) })
     fieldabortedtransactions <- if version >= 4
       then E.decodeVersionedNullableArray version 12 decodeAbortedTransaction
       else pure (P.KafkaArray P.Null)
@@ -370,7 +360,31 @@ decodePartitionData version =
       then deserialize
       else pure ((-1))
     fieldrecords <- if version >= 12 then P.fromCompactBytes <$> deserialize else deserialize
-    _ <- if version >= 12 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
+    _taggedFields <- if version >= 12 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
+    let fielddivergingepoch =
+          if version >= 12
+            then case P.lookupTaggedField 0 _taggedFields of
+              Just _bs -> case Data.Bytes.Get.runGetS (decodeEpochEndOffset version) _bs of
+                  Right _v -> _v
+                  Left  _  -> (EpochEndOffset { epochEndOffsetEpoch = (-1), epochEndOffsetEndOffset = (-1) })
+              Nothing  -> (EpochEndOffset { epochEndOffsetEpoch = (-1), epochEndOffsetEndOffset = (-1) })
+            else (EpochEndOffset { epochEndOffsetEpoch = (-1), epochEndOffsetEndOffset = (-1) })
+    let fieldcurrentleader =
+          if version >= 12
+            then case P.lookupTaggedField 1 _taggedFields of
+              Just _bs -> case Data.Bytes.Get.runGetS (decodeLeaderIdAndEpoch version) _bs of
+                  Right _v -> _v
+                  Left  _  -> (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = (-1), leaderIdAndEpochLeaderEpoch = (-1) })
+              Nothing  -> (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = (-1), leaderIdAndEpochLeaderEpoch = (-1) })
+            else (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = (-1), leaderIdAndEpochLeaderEpoch = (-1) })
+    let fieldsnapshotid =
+          if version >= 12
+            then case P.lookupTaggedField 2 _taggedFields of
+              Just _bs -> case Data.Bytes.Get.runGetS (decodeSnapshotId version) _bs of
+                  Right _v -> _v
+                  Left  _  -> (SnapshotId { snapshotIdEndOffset = (-1), snapshotIdEpoch = (-1) })
+              Nothing  -> (SnapshotId { snapshotIdEndOffset = (-1), snapshotIdEpoch = (-1) })
+            else (SnapshotId { snapshotIdEndOffset = (-1), snapshotIdEpoch = (-1) })
     pure PartitionData
       {
       partitionDataPartitionIndex = fieldpartitionindex
@@ -569,24 +583,33 @@ data FetchResponse = FetchResponse
 
 -- | Maximum supported version for FetchResponse.
 maxFetchResponseVersion :: Int16
-maxFetchResponseVersion = 18
+maxFetchResponseVersion = 17
+
+-- | KafkaMessage instance for FetchResponse.
+instance KafkaMessage FetchResponse where
+  messageApiKey = 1
+  messageMinVersion = 4
+  messageMaxVersion = 17
+  messageFlexibleVersion = Just 12
 
 -- | Encode FetchResponse with the given API version.
 encodeFetchResponse :: MonadPut m => E.ApiVersion -> FetchResponse -> m ()
 encodeFetchResponse version msg
-  | version >= 4 && version <= 6 =
-    do
-      serialize (fetchResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 12 encodeFetchableTopicResponse (case P.unKafkaArray (fetchResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version >= 16 && version <= 18 =
+  | version >= 16 && version <= 17 =
     do
       serialize (fetchResponseThrottleTimeMs msg)
       serialize (fetchResponseErrorCode msg)
       serialize (fetchResponseSessionId msg)
       E.encodeVersionedArray version 12 encodeFetchableTopicResponse (case P.unKafkaArray (fetchResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
+      do
+        let _entries = (if version >= 16 then [(0, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeNodeEndpoint (case P.unKafkaArray (fetchResponseNodeEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else [])
+        P.serializeTaggedFieldEntries _entries
+
+  | version >= 4 && version <= 6 =
+    do
+      serialize (fetchResponseThrottleTimeMs msg)
+      E.encodeVersionedArray version 12 encodeFetchableTopicResponse (case P.unKafkaArray (fetchResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
+
 
   | version >= 12 && version <= 15 =
     do
@@ -594,7 +617,9 @@ encodeFetchResponse version msg
       serialize (fetchResponseErrorCode msg)
       serialize (fetchResponseSessionId msg)
       E.encodeVersionedArray version 12 encodeFetchableTopicResponse (case P.unKafkaArray (fetchResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
+      do
+        let _entries = (if version >= 16 then [(0, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeNodeEndpoint (case P.unKafkaArray (fetchResponseNodeEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else [])
+        P.serializeTaggedFieldEntries _entries
 
   | version >= 7 && version <= 11 =
     do
@@ -608,6 +633,34 @@ encodeFetchResponse version msg
 -- | Decode FetchResponse with the given API version.
 decodeFetchResponse :: MonadGet m => E.ApiVersion -> m FetchResponse
 decodeFetchResponse version
+  | version >= 16 && version <= 17 =
+    do
+      fieldthrottletimems <- deserialize
+      fielderrorcode <- deserialize
+      fieldsessionid <- deserialize
+      fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 12 decodeFetchableTopicResponse
+      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
+      let fieldnodeendpoints =
+            if version >= 16
+              then case P.lookupTaggedField 0 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeNodeEndpoint) _bs of
+                    Right _v -> _v
+                    Left  _  -> (P.mkKafkaArray V.empty)
+                Nothing  -> (P.mkKafkaArray V.empty)
+              else (P.mkKafkaArray V.empty)
+      pure FetchResponse
+        {
+        fetchResponseThrottleTimeMs = fieldthrottletimems
+        ,
+        fetchResponseErrorCode = fielderrorcode
+        ,
+        fetchResponseSessionId = fieldsessionid
+        ,
+        fetchResponseResponses = fieldresponses
+        ,
+        fetchResponseNodeEndpoints = fieldnodeendpoints
+        }
+
   | version >= 4 && version <= 6 =
     do
       fieldthrottletimems <- deserialize
@@ -625,33 +678,21 @@ decodeFetchResponse version
         fetchResponseNodeEndpoints = P.mkKafkaArray V.empty
         }
 
-  | version >= 16 && version <= 18 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldsessionid <- deserialize
-      fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 12 decodeFetchableTopicResponse
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure FetchResponse
-        {
-        fetchResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        fetchResponseErrorCode = fielderrorcode
-        ,
-        fetchResponseSessionId = fieldsessionid
-        ,
-        fetchResponseResponses = fieldresponses
-        ,
-        fetchResponseNodeEndpoints = P.mkKafkaArray V.empty
-        }
-
   | version >= 12 && version <= 15 =
     do
       fieldthrottletimems <- deserialize
       fielderrorcode <- deserialize
       fieldsessionid <- deserialize
       fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 12 decodeFetchableTopicResponse
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
+      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
+      let fieldnodeendpoints =
+            if version >= 16
+              then case P.lookupTaggedField 0 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeNodeEndpoint) _bs of
+                    Right _v -> _v
+                    Left  _  -> (P.mkKafkaArray V.empty)
+                Nothing  -> (P.mkKafkaArray V.empty)
+              else (P.mkKafkaArray V.empty)
       pure FetchResponse
         {
         fetchResponseThrottleTimeMs = fieldthrottletimems
@@ -662,7 +703,7 @@ decodeFetchResponse version
         ,
         fetchResponseResponses = fieldresponses
         ,
-        fetchResponseNodeEndpoints = P.mkKafkaArray V.empty
+        fetchResponseNodeEndpoints = fieldnodeendpoints
         }
 
   | version >= 7 && version <= 11 =

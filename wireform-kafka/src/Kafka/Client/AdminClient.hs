@@ -1416,7 +1416,6 @@ alterConsumerGroupOffsets client@AdminClient{..} groupId entries = do
               map (\(topic, parts) ->
                      OCReq.OffsetCommitRequestTopic
                        { OCReq.offsetCommitRequestTopicName       = P.mkKafkaString topic
-                       , OCReq.offsetCommitRequestTopicTopicId    = P.nullUuid
                        , OCReq.offsetCommitRequestTopicPartitions = P.mkKafkaArray $ V.fromList $
                            map (\(p, o) -> OCReq.OffsetCommitRequestPartition
                                   { OCReq.offsetCommitRequestPartitionPartitionIndex = p

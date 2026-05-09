@@ -12,7 +12,7 @@ Kafka request for API key 1.
 
 
 
-Valid versions: 4-18
+Valid versions: 4-17
 Flexible versions: 12+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -31,7 +31,9 @@ module Kafka.Protocol.Generated.FetchRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -48,6 +50,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 -- | The state of the replica in the follower.
@@ -143,12 +146,6 @@ data FetchPartition = FetchPartition
 
   -- Versions: 17+
   fetchPartitionReplicaDirectoryId :: !(KafkaUuid)
-,
-
-  -- | The high-watermark known by the replica. -1 if the high-watermark is not known and 92233720368547758
-
-  -- Versions: 18+
-  fetchPartitionHighWatermark :: !(Int64)
 
   }
   deriving (Eq, Show, Generic)
@@ -167,11 +164,9 @@ encodeFetchPartition version fmsg =
     when (version >= 5) $
       serialize (fetchPartitionLogStartOffset fmsg)
     serialize (fetchPartitionPartitionMaxBytes fmsg)
-    when (version >= 17) $
-      serialize (fetchPartitionReplicaDirectoryId fmsg)
-    when (version >= 18) $
-      serialize (fetchPartitionHighWatermark fmsg)
-    when (version >= 12) $ serialize (emptyTaggedFields :: TaggedFields)
+    when (version >= 12) $ do
+      let _entries = (if version >= 17 then [(0, Data.Bytes.Put.runPutS (serialize (fetchPartitionReplicaDirectoryId fmsg)))] else [])
+      P.serializeTaggedFieldEntries _entries
 
 
 -- | Decode FetchPartition with version-aware field handling.
@@ -190,13 +185,15 @@ decodeFetchPartition version =
       then deserialize
       else pure ((-1))
     fieldpartitionmaxbytes <- deserialize
-    fieldreplicadirectoryid <- if version >= 17
-      then deserialize
-      else pure (P.nullUuid)
-    fieldhighwatermark <- if version >= 18
-      then deserialize
-      else pure (9223372036854775807)
-    _ <- if version >= 12 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
+    _taggedFields <- if version >= 12 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
+    let fieldreplicadirectoryid =
+          if version >= 17
+            then case P.lookupTaggedField 0 _taggedFields of
+              Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
+                  Right _v -> _v
+                  Left  _  -> (P.nullUuid)
+              Nothing  -> (P.nullUuid)
+            else (P.nullUuid)
     pure FetchPartition
       {
       fetchPartitionPartition = fieldpartition
@@ -212,8 +209,6 @@ decodeFetchPartition version =
       fetchPartitionPartitionMaxBytes = fieldpartitionmaxbytes
       ,
       fetchPartitionReplicaDirectoryId = fieldreplicadirectoryid
-      ,
-      fetchPartitionHighWatermark = fieldhighwatermark
       }
 
 
@@ -418,7 +413,14 @@ data FetchRequest = FetchRequest
 
 -- | Maximum supported version for FetchRequest.
 maxFetchRequestVersion :: Int16
-maxFetchRequestVersion = 18
+maxFetchRequestVersion = 17
+
+-- | KafkaMessage instance for FetchRequest.
+instance KafkaMessage FetchRequest where
+  messageApiKey = 1
+  messageMinVersion = 4
+  messageMaxVersion = 17
+  messageFlexibleVersion = Just 12
 
 -- | Encode FetchRequest with the given API version.
 encodeFetchRequest :: MonadPut m => E.ApiVersion -> FetchRequest -> m ()
@@ -459,7 +461,24 @@ encodeFetchRequest version msg
       E.encodeVersionedArray version 12 encodeFetchTopic (case P.unKafkaArray (fetchRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
       E.encodeVersionedArray version 12 encodeForgottenTopic (case P.unKafkaArray (fetchRequestForgottenTopicsData msg) of { P.NotNull v -> v; P.Null -> V.empty })
       serialize (toCompactString (fetchRequestRackId msg))
-      serialize (emptyTaggedFields :: TaggedFields)
+      do
+        let _entries = (if version >= 12 then [(0, Data.Bytes.Put.runPutS (serialize (fetchRequestClusterId msg)))] else []) ++ (if version >= 15 then [(1, Data.Bytes.Put.runPutS (encodeReplicaState version (fetchRequestReplicaState msg)))] else [])
+        P.serializeTaggedFieldEntries _entries
+
+  | version >= 15 && version <= 17 =
+    do
+      serialize (fetchRequestMaxWaitMs msg)
+      serialize (fetchRequestMinBytes msg)
+      serialize (fetchRequestMaxBytes msg)
+      serialize (fetchRequestIsolationLevel msg)
+      serialize (fetchRequestSessionId msg)
+      serialize (fetchRequestSessionEpoch msg)
+      E.encodeVersionedArray version 12 encodeFetchTopic (case P.unKafkaArray (fetchRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
+      E.encodeVersionedArray version 12 encodeForgottenTopic (case P.unKafkaArray (fetchRequestForgottenTopicsData msg) of { P.NotNull v -> v; P.Null -> V.empty })
+      serialize (toCompactString (fetchRequestRackId msg))
+      do
+        let _entries = (if version >= 12 then [(0, Data.Bytes.Put.runPutS (serialize (fetchRequestClusterId msg)))] else []) ++ (if version >= 15 then [(1, Data.Bytes.Put.runPutS (encodeReplicaState version (fetchRequestReplicaState msg)))] else [])
+        P.serializeTaggedFieldEntries _entries
 
   | version >= 7 && version <= 10 =
     do
@@ -473,19 +492,6 @@ encodeFetchRequest version msg
       E.encodeVersionedArray version 12 encodeFetchTopic (case P.unKafkaArray (fetchRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
       E.encodeVersionedArray version 12 encodeForgottenTopic (case P.unKafkaArray (fetchRequestForgottenTopicsData msg) of { P.NotNull v -> v; P.Null -> V.empty })
 
-
-  | version >= 15 && version <= 18 =
-    do
-      serialize (fetchRequestMaxWaitMs msg)
-      serialize (fetchRequestMinBytes msg)
-      serialize (fetchRequestMaxBytes msg)
-      serialize (fetchRequestIsolationLevel msg)
-      serialize (fetchRequestSessionId msg)
-      serialize (fetchRequestSessionEpoch msg)
-      E.encodeVersionedArray version 12 encodeFetchTopic (case P.unKafkaArray (fetchRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 12 encodeForgottenTopic (case P.unKafkaArray (fetchRequestForgottenTopicsData msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (toCompactString (fetchRequestRackId msg))
-      serialize (emptyTaggedFields :: TaggedFields)
   | otherwise = error $ "Unsupported version: " ++ show version
 
 -- | Decode FetchRequest with the given API version.
@@ -577,14 +583,85 @@ decodeFetchRequest version
       fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 12 decodeFetchTopic
       fieldforgottentopicsdata <- P.mkKafkaArray <$> E.decodeVersionedArray version 12 decodeForgottenTopic
       fieldrackid <- if version >= 12 then P.fromCompactString <$> deserialize else deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
+      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
+      let fieldclusterid =
+            if version >= 12
+              then case P.lookupTaggedField 0 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
+                    Right _v -> _v
+                    Left  _  -> (P.KafkaString Null)
+                Nothing  -> (P.KafkaString Null)
+              else (P.KafkaString Null)
+      let fieldreplicastate =
+            if version >= 15
+              then case P.lookupTaggedField 1 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (decodeReplicaState version) _bs of
+                    Right _v -> _v
+                    Left  _  -> (ReplicaState { replicaStateReplicaId = (-1), replicaStateReplicaEpoch = (-1) })
+                Nothing  -> (ReplicaState { replicaStateReplicaId = (-1), replicaStateReplicaEpoch = (-1) })
+              else (ReplicaState { replicaStateReplicaId = (-1), replicaStateReplicaEpoch = (-1) })
       pure FetchRequest
         {
-        fetchRequestClusterId = P.KafkaString Null
+        fetchRequestClusterId = fieldclusterid
         ,
         fetchRequestReplicaId = fieldreplicaid
         ,
-        fetchRequestReplicaState = ReplicaState { replicaStateReplicaId = (-1), replicaStateReplicaEpoch = (-1) }
+        fetchRequestReplicaState = fieldreplicastate
+        ,
+        fetchRequestMaxWaitMs = fieldmaxwaitms
+        ,
+        fetchRequestMinBytes = fieldminbytes
+        ,
+        fetchRequestMaxBytes = fieldmaxbytes
+        ,
+        fetchRequestIsolationLevel = fieldisolationlevel
+        ,
+        fetchRequestSessionId = fieldsessionid
+        ,
+        fetchRequestSessionEpoch = fieldsessionepoch
+        ,
+        fetchRequestTopics = fieldtopics
+        ,
+        fetchRequestForgottenTopicsData = fieldforgottentopicsdata
+        ,
+        fetchRequestRackId = fieldrackid
+        }
+
+  | version >= 15 && version <= 17 =
+    do
+      fieldmaxwaitms <- deserialize
+      fieldminbytes <- deserialize
+      fieldmaxbytes <- deserialize
+      fieldisolationlevel <- deserialize
+      fieldsessionid <- deserialize
+      fieldsessionepoch <- deserialize
+      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 12 decodeFetchTopic
+      fieldforgottentopicsdata <- P.mkKafkaArray <$> E.decodeVersionedArray version 12 decodeForgottenTopic
+      fieldrackid <- if version >= 12 then P.fromCompactString <$> deserialize else deserialize
+      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
+      let fieldclusterid =
+            if version >= 12
+              then case P.lookupTaggedField 0 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
+                    Right _v -> _v
+                    Left  _  -> (P.KafkaString Null)
+                Nothing  -> (P.KafkaString Null)
+              else (P.KafkaString Null)
+      let fieldreplicastate =
+            if version >= 15
+              then case P.lookupTaggedField 1 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (decodeReplicaState version) _bs of
+                    Right _v -> _v
+                    Left  _  -> (ReplicaState { replicaStateReplicaId = (-1), replicaStateReplicaEpoch = (-1) })
+                Nothing  -> (ReplicaState { replicaStateReplicaId = (-1), replicaStateReplicaEpoch = (-1) })
+              else (ReplicaState { replicaStateReplicaId = (-1), replicaStateReplicaEpoch = (-1) })
+      pure FetchRequest
+        {
+        fetchRequestClusterId = fieldclusterid
+        ,
+        fetchRequestReplicaId = (-1)
+        ,
+        fetchRequestReplicaState = fieldreplicastate
         ,
         fetchRequestMaxWaitMs = fieldmaxwaitms
         ,
@@ -641,44 +718,5 @@ decodeFetchRequest version
         fetchRequestForgottenTopicsData = fieldforgottentopicsdata
         ,
         fetchRequestRackId = P.KafkaString Null
-        }
-
-  | version >= 15 && version <= 18 =
-    do
-      fieldmaxwaitms <- deserialize
-      fieldminbytes <- deserialize
-      fieldmaxbytes <- deserialize
-      fieldisolationlevel <- deserialize
-      fieldsessionid <- deserialize
-      fieldsessionepoch <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 12 decodeFetchTopic
-      fieldforgottentopicsdata <- P.mkKafkaArray <$> E.decodeVersionedArray version 12 decodeForgottenTopic
-      fieldrackid <- if version >= 12 then P.fromCompactString <$> deserialize else deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure FetchRequest
-        {
-        fetchRequestClusterId = P.KafkaString Null
-        ,
-        fetchRequestReplicaId = (-1)
-        ,
-        fetchRequestReplicaState = ReplicaState { replicaStateReplicaId = (-1), replicaStateReplicaEpoch = (-1) }
-        ,
-        fetchRequestMaxWaitMs = fieldmaxwaitms
-        ,
-        fetchRequestMinBytes = fieldminbytes
-        ,
-        fetchRequestMaxBytes = fieldmaxbytes
-        ,
-        fetchRequestIsolationLevel = fieldisolationlevel
-        ,
-        fetchRequestSessionId = fieldsessionid
-        ,
-        fetchRequestSessionEpoch = fieldsessionepoch
-        ,
-        fetchRequestTopics = fieldtopics
-        ,
-        fetchRequestForgottenTopicsData = fieldforgottentopicsdata
-        ,
-        fetchRequestRackId = fieldrackid
         }
   | otherwise = fail $ "Unsupported version: " ++ show version

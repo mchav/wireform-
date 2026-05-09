@@ -30,7 +30,9 @@ module Kafka.Protocol.Generated.MetadataResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,6 +49,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 -- | A list of brokers present in the cluster.
@@ -357,6 +360,13 @@ data MetadataResponse = MetadataResponse
 -- | Maximum supported version for MetadataResponse.
 maxMetadataResponseVersion :: Int16
 maxMetadataResponseVersion = 13
+
+-- | KafkaMessage instance for MetadataResponse.
+instance KafkaMessage MetadataResponse where
+  messageApiKey = 3
+  messageMinVersion = 0
+  messageMaxVersion = 13
+  messageFlexibleVersion = Just 9
 
 -- | Encode MetadataResponse with the given API version.
 encodeMetadataResponse :: MonadPut m => E.ApiVersion -> MetadataResponse -> m ()

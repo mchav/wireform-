@@ -34,7 +34,7 @@ tests = testGroup "Integration: Consumer offset / seek APIs"
       withBroker testEndAndBeginning
   , testCase "seekToEnd / seek + position behave consistently" $
       withBroker testSeekAndPosition
-  , testCase "produce + assign + poll round-trips records (Produce v9 / Fetch v10)" $
+  , testCase "produce + assign + poll round-trips records (Produce v11 / Fetch v11)" $
       withBroker testProduceAndPollRoundTrip
   ]
 

@@ -12,7 +12,7 @@ Kafka request for API key 2.
 
 
 
-Valid versions: 1-11
+Valid versions: 1-10
 Flexible versions: 6+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.ListOffsetsRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,6 +48,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 -- | Each partition in the request.
@@ -179,7 +182,14 @@ data ListOffsetsRequest = ListOffsetsRequest
 
 -- | Maximum supported version for ListOffsetsRequest.
 maxListOffsetsRequestVersion :: Int16
-maxListOffsetsRequestVersion = 11
+maxListOffsetsRequestVersion = 10
+
+-- | KafkaMessage instance for ListOffsetsRequest.
+instance KafkaMessage ListOffsetsRequest where
+  messageApiKey = 2
+  messageMinVersion = 1
+  messageMaxVersion = 10
+  messageFlexibleVersion = Just 6
 
 -- | Encode ListOffsetsRequest with the given API version.
 encodeListOffsetsRequest :: MonadPut m => E.ApiVersion -> ListOffsetsRequest -> m ()
@@ -190,7 +200,7 @@ encodeListOffsetsRequest version msg
       E.encodeVersionedArray version 6 encodeListOffsetsTopic (case P.unKafkaArray (listOffsetsRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
 
 
-  | version >= 10 && version <= 11 =
+  | version == 10 =
     do
       serialize (listOffsetsRequestReplicaId msg)
       serialize (listOffsetsRequestIsolationLevel msg)
@@ -231,7 +241,7 @@ decodeListOffsetsRequest version
         listOffsetsRequestTimeoutMs = 0
         }
 
-  | version >= 10 && version <= 11 =
+  | version == 10 =
     do
       fieldreplicaid <- deserialize
       fieldisolationlevel <- deserialize

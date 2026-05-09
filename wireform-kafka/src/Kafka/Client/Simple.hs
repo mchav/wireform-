@@ -469,8 +469,7 @@ fetchSimple client topic partition offset maxBytes = do
         , FR.fetchPartitionLastFetchedEpoch = -1
         , FR.fetchPartitionLogStartOffset = -1
         , FR.fetchPartitionPartitionMaxBytes = maxBytes
-        , FR.fetchPartitionReplicaDirectoryId = P.nullUuid  -- v17+, will be ignored for v11
-        , FR.fetchPartitionHighWatermark = 9223372036854775807  -- v18+, max value means not known
+        , FR.fetchPartitionReplicaDirectoryId = P.nullUuid  -- KIP-915 tagged v17+
         }
       
       -- Create topic fetch request
