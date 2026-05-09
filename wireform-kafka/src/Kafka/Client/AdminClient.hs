@@ -493,9 +493,12 @@ listTopics client@AdminClient{..} = do
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
           apiKey = 3  -- Metadata
-      -- client supports v0..v8 (last non-flexible Metadata); fall
-      -- back to v8 when the broker doesn't speak ApiVersions.
-      withNegotiatedVersion client brokerAddr apiKey 0 8 8 $ \conn corrId apiVersion -> do
+      -- Metadata is flexible from v9. With the response-header
+      -- v1 trailer skipped correctly the flexible variants
+      -- decode cleanly; we still cap at v12 because v13+ adds
+      -- TopicId fields the high-level 'TopicDescription' API
+      -- doesn't expose yet.
+      withNegotiatedVersion client brokerAddr apiKey 0 12 8 $ \conn corrId apiVersion -> do
         let request = MReq.MetadataRequest
               { MReq.metadataRequestTopics = P.mkKafkaArray V.empty
               , MReq.metadataRequestAllowAutoTopicCreation = False
@@ -531,7 +534,8 @@ describeTopics client@AdminClient{..} topicNames = do
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
           apiKey = 3  -- Metadata
-      withNegotiatedVersion client brokerAddr apiKey 0 8 8 $ \conn corrId apiVersion -> do
+      -- v9+ is flexible; cap at v12 (see 'listTopics').
+      withNegotiatedVersion client brokerAddr apiKey 0 12 8 $ \conn corrId apiVersion -> do
         let topicReqs = V.fromList $ map (\name -> MReq.MetadataRequestTopic
               { MReq.metadataRequestTopicTopicId = P.nullUuid
               , MReq.metadataRequestTopicName = P.mkKafkaString name
@@ -944,7 +948,8 @@ listTopicsExcludeInternal client@AdminClient{..} = do
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
           apiKey = 3  -- Metadata
-      withNegotiatedVersion client brokerAddr apiKey 0 8 8 $ \conn corrId apiVersion -> do
+      -- v9+ is flexible; cap at v12 (see 'listTopics').
+      withNegotiatedVersion client brokerAddr apiKey 0 12 8 $ \conn corrId apiVersion -> do
         let request = MReq.MetadataRequest
               { MReq.metadataRequestTopics = P.mkKafkaArray V.empty
               , MReq.metadataRequestAllowAutoTopicCreation = False
