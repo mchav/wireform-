@@ -332,6 +332,7 @@ library
         Kafka.Protocol.Primitives
         Kafka.Protocol.RecordBatch
         Kafka.Telemetry.OpenTelemetry
+        Kafka.Telemetry.StatsJson
     build-depends:
         base                      >= 4.16  && < 5,
         aeson                     >= 2.0   && < 2.3,
@@ -422,6 +423,7 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.Cogroup
         Kafka.Streams.DSL.Suppress
         Kafka.Streams.DSL.DslStoreSuppliers
+        Kafka.Streams.DSL.ForeignKeyJoinV2
         Kafka.Streams.Runtime
         Kafka.Streams.Runtime.EOS
         Kafka.Streams.Runtime.Task
@@ -431,6 +433,7 @@ library wireform-kafka-streams
         Kafka.Streams.Runtime.ProbingRebalance
         Kafka.Streams.Runtime.RevocationGrace
         Kafka.Streams.Runtime.NativeDriver
+        Kafka.Streams.Runtime.MultiInstanceHarness
         Kafka.Streams.State.Transactional
         Kafka.Streams.Topology.Optimization
         Kafka.Streams.Topology.StableNames
@@ -517,6 +520,8 @@ test-suite wireform-kafka-streams-test
         Streams.SchemaRegistrySerdeSpec
         Streams.TransactionalStoreSpec
         Streams.StreamsConfigSurfaceSpec
+        Streams.ForeignKeyJoinV2Spec
+        Streams.MultiInstanceHarnessSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
@@ -622,6 +627,7 @@ test-suite wireform-kafka-test
         Client.ProducerTransactionWiringSpec
         Client.InterceptorSpec
         Client.MetadataLeaderUpdateSpec
+        Client.StatsJsonSpec
         Client.MockBrokerSpec
         Client.MockBrokerFailureModesSpec
         Client.MockBrokerAdvancedSpec
@@ -747,6 +753,7 @@ benchmark wireform-kafka-bench
         Benchmarks.CRC32C
         Benchmarks.SerLib
         Benchmarks.Serialization
+        Benchmarks.StatsAndStamping
         Benchmarks.Util
     build-depends:
         base,
@@ -756,6 +763,7 @@ benchmark wireform-kafka-bench
         bytes,
         bytestring,
         cereal,
+        containers,
         criterion                 >= 1.5   && < 1.7,
         deepseq,
         directory,

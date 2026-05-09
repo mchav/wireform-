@@ -33,6 +33,7 @@ import qualified Benchmarks.CRC32C as CRC32C
 import qualified Benchmarks.SerLib as SerLib
 import qualified Benchmarks.Serialization as Serialization
 import qualified Benchmarks.ClientOps as ClientOps
+import qualified Benchmarks.StatsAndStamping as StatsAndStamping
 
 -- -----------------------------------------------------------------------------
 -- Main Entry Point
@@ -69,6 +70,7 @@ main = do
     , Serialization.benchmarks
     , SerLib.benchmarks
     , ClientOps.benchmarks
+    , StatsAndStamping.benchmarks
     ]
 
 -- -----------------------------------------------------------------------------

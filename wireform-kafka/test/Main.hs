@@ -42,6 +42,7 @@ import qualified Client.TransactionCoordinatorSpec
 import qualified Client.ProducerTransactionWiringSpec
 import qualified Client.InterceptorSpec
 import qualified Client.MetadataLeaderUpdateSpec
+import qualified Client.StatsJsonSpec
 import qualified Client.AdminClientSpec
 import qualified Client.MockBrokerSpec
 import qualified Client.MockBrokerFailureModesSpec
@@ -115,6 +116,7 @@ clientTests = testGroup "Client"
   , Client.ProducerTransactionWiringSpec.tests
   , Client.InterceptorSpec.tests
   , Client.MetadataLeaderUpdateSpec.tests
+  , Client.StatsJsonSpec.tests
   , Client.AdminClientSpec.tests
   , Client.GroupSpec.groupSpec
   , Client.MockBrokerSpec.tests
