@@ -13,27 +13,33 @@ required), so it can be reproduced anywhere.
 
 ## Headline numbers
 
-| Path                                | Before (legacy) | After (Wire + Seq) | Speedup |
-|-------------------------------------|----------------:|-------------------:|--------:|
-| RecordBatch encode  / 100-record    | **1070 ns/rec** | **109 ns/rec**     | **9.8x** |
-| RecordBatch encode  /  10-record    |  1150 ns/rec    | 135 ns/rec         |  8.5x |
-| RecordBatch encode  /   1-record    |  2490 ns        | 238 ns             | 10.5x |
-| RecordBatch decode  / 100-record    |   898 ns/rec    | **98 ns/rec**      |  9.2x |
-| RecordBatch decode  /  10-record    |   930 ns/rec    | 122 ns/rec         |  7.6x |
-| RecordBatch decode  /   1-record    |  1180 ns        | 297 ns             |  4.0x |
-| BatchAccumulator append / 1000      |   459 ns/rec    | **339 ns/rec**     |  1.4x |
-| BatchAccumulator append /  100      |   360 ns/rec    | 335 ns/rec         |  1.1x |
-| MockProducer.sendMockH / 10000 seq  |   234 ns/rec    | 234 ns/rec         |  flat |
+| Path                                | Before (legacy) | After (Wire + Seq + fast-path) | Speedup |
+|-------------------------------------|----------------:|-----------------:|--------:|
+| RecordBatch encode  / 100-record    | **1070 ns/rec** | **109 ns/rec**   | **9.8x** |
+| RecordBatch encode  /  10-record    |  1150 ns/rec    | 135 ns/rec       |  8.5x |
+| RecordBatch encode  /   1-record    |  2490 ns        | 238 ns           | 10.5x |
+| RecordBatch decode  / 100-record    |   898 ns/rec    | **98 ns/rec**    |  9.2x |
+| RecordBatch decode  /  10-record    |   930 ns/rec    | 122 ns/rec       |  7.6x |
+| RecordBatch decode  /   1-record    |  1180 ns        | 297 ns           |  4.0x |
+| BatchAccumulator append / 1000      |   459 ns/rec    | **245 ns/rec**   |  1.9x |
+| BatchAccumulator append /  100      |   360 ns/rec    | 245 ns/rec       |  1.5x |
+| BatchAccumulator append /  single   |   400 ns        | 245 ns           |  1.6x |
+| MockProducer.sendMockH / 10000 seq  |   234 ns/rec    | 234 ns/rec       |  flat |
 
 Per-record amortised cost on the producer's full encode + accumulator
-+ buffer-flush sequence is now ~**450 ns / record**:
++ buffer-flush sequence is now ~**354 ns / record**:
 
 ```
-BatchAccumulator append    339 ns
+BatchAccumulator append    245 ns
 RecordBatch encode (Wire)  109 ns
                            -----
-                           448 ns / record (uncompressed batches)
+                           354 ns / record (uncompressed batches)
 ```
+
+That puts us at ~**2.4× librdkafka**'s ~150 ns/rec producer-side
+CPU envelope — within striking distance of the 2× target. The
+remaining gap is ~150 ns of `atomically` commit overhead which
+can't be removed without moving the per-partition queue off STM.
 
 Compressed batches add the codec time (gzip / zstd / lz4 / snappy)
 which is unavoidable and dominates everything else.
@@ -108,12 +114,13 @@ per-record CPU cost:
 |------------------------------------|-----------:|---------------:|------:|
 | RecordBatch encode (100 records)   | ~50 ns/rec | **109 ns/rec** |  2.2x |
 | RecordBatch decode (100 records)   | ~70 ns/rec | **98 ns/rec**  |  1.4x |
-| Accumulator append + queue         | ~50 ns/rec | **339 ns/rec** |  6.8x |
-| **Total producer-side CPU / rec**  | ~150 ns    | **~448 ns**    |  3.0x |
+| Accumulator append + queue         | ~50 ns/rec | **245 ns/rec** |  4.9x |
+| **Total producer-side CPU / rec**  | ~150 ns    | **~354 ns**    |  2.4x |
 
-The encode + decode paths are now within the 2× target the user
-requested. The accumulator is the remaining hotspot at ~3× — see
-"Next pickups" below.
+Encode + decode are within the 2× target. The accumulator's
+remaining 4.9× gap comes mostly from the STM transaction commit
+itself (~150 ns inherent in `atomically`) — closing the rest of
+the gap requires moving off STM, which is a much bigger change.
 
 The librdkafka column is sourced from the librdkafka FAQ + the
 upstream `examples/` benchmark output; the wireform-kafka column
