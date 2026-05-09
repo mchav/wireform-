@@ -598,6 +598,8 @@ test-suite wireform-kafka-test
         Client.TransactionCoordinatorSpec
         Client.TransactionSpec
         Client.ProducerTransactionWiringSpec
+        Client.InterceptorSpec
+        Client.MetadataLeaderUpdateSpec
         Client.MockBrokerSpec
         Client.MockBrokerFailureModesSpec
         Client.MockBrokerAdvancedSpec

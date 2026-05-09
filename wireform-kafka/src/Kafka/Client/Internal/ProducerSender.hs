@@ -406,7 +406,7 @@ sendToBroker state@SenderState{..} broker batches = do
                   
                   Right response -> do
                     -- Process the response and update batch states
-                    processProduceResponse validBatches response
+                    processProduceResponse (Just senderMetadata) validBatches response
 
 -- | Build a ProduceRequest from a list of batches
 -- Compression happens here, so this is an IO operation
@@ -533,9 +533,23 @@ retryBatch state batch = do
   threadDelay (backoffMs * 1000)
   pure (bumpBatchAttempts batch)
 
--- | Process a ProduceResponse and update batch states
-processProduceResponse :: [BA.ProducerBatch] -> PResp.ProduceResponse -> IO ()
-processProduceResponse batches response = do
+-- | Process a ProduceResponse and update batch states. Honours
+-- the broker's @ThrottleTimeMs@ (KIP-219): if the broker has
+-- requested back-pressure, the sender thread sleeps for that
+-- duration /before/ returning to its loop, so the next produce
+-- request waits the broker-requested interval. This is the same
+-- behaviour the JVM client / librdkafka implement.
+processProduceResponse
+  :: Maybe Meta.MetadataCache  -- ^ Optional metadata cache for KIP-466 leader-cache patches
+  -> [BA.ProducerBatch]
+  -> PResp.ProduceResponse
+  -> IO ()
+processProduceResponse metaCacheM batches response = do
+  -- KIP-219 throttle. Negative / zero values are no-ops.
+  let throttleMs = PResp.produceResponseThrottleTimeMs response
+  when (throttleMs > 0) $
+    threadDelay (fromIntegral throttleMs * 1000)
+
   -- Extract topic responses
   let topics = case P.unKafkaArray (PResp.produceResponseResponses response) of
         P.Null -> V.empty
@@ -553,7 +567,19 @@ processProduceResponse batches response = do
       let partitionId = PResp.partitionProduceResponseIndex partResp
           errorCode = PResp.partitionProduceResponseErrorCode partResp
           baseOffset = PResp.partitionProduceResponseBaseOffset partResp
-      
+          curLeader   = PResp.partitionProduceResponseCurrentLeader partResp
+          curLeaderId = PResp.leaderIdAndEpochLeaderId curLeader
+
+      -- KIP-466: if the broker reports a CurrentLeader for this
+      -- partition (>= 0), patch the metadata cache so the next
+      -- produce goes to that broker without an extra
+      -- MetadataRequest round-trip.
+      case metaCacheM of
+        Just cache | curLeaderId >= 0 ->
+          atomically $
+            Meta.updatePartitionLeader cache topicName partitionId curLeaderId
+        _ -> pure ()
+
       -- Find the batch for this topic-partition
       let matchingBatches = filter (\b ->
             let tp = BA.batchTopicPartition b

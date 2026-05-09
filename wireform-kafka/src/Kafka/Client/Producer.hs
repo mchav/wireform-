@@ -86,6 +86,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
+import Control.Exception (SomeException, try)
 import qualified Data.Time.Clock.POSIX as Time
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -188,6 +189,28 @@ data ProducerConfig = ProducerConfig
     -- ^ Enable idempotent producer (default: False)
   , producerTransactional :: !(Maybe Text)
     -- ^ Transactional ID (Nothing = non-transactional)
+  , producerInterceptor :: !(ProducerRecord -> IO ProducerRecord)
+    -- ^ Pre-send interceptor. Mirrors
+    --   @org.apache.kafka.clients.producer.ProducerInterceptor.onSend@.
+    --   Applied to every record /before/ partition selection +
+    --   batch accumulation. Defaults to 'pure', i.e. the record
+    --   is forwarded unchanged. Exceptions in the interceptor
+    --   are propagated to the caller of 'sendMessage' (the JVM
+    --   client logs + skips, but a typed exception is more
+    --   useful in Haskell).
+  , producerOnAcknowledgement
+      :: !(ProducerRecord -> Either String RecordMetadata -> IO ())
+    -- ^ Per-record acknowledgement callback. Mirrors
+    --   @ProducerInterceptor.onAcknowledgement@. Called from the
+    --   sender thread when the broker ACK arrives (success path)
+    --   or when the record's delivery times out / fails. Exceptions
+    --   are caught and dropped so an interceptor bug can't take
+    --   down the sender loop.
+  , producerCompressionDictionary :: !(Maybe ByteString)
+    -- ^ Optional zstd dictionary used by the configured
+    --   'producerCompression' codec (currently only honoured for
+    --   'Kafka.Compression.Zstd'). Mirrors librdkafka's
+    --   @compression.dictionary@. Default 'Nothing' (no dict).
   } deriving (Generic)
 
 -- | Default producer configuration.
@@ -216,6 +239,9 @@ defaultProducerConfig = ProducerConfig
   , producerDelivery                   = AtLeastOnce
   , producerIdempotent                 = False
   , producerTransactional              = Nothing
+  , producerInterceptor                = pure
+  , producerOnAcknowledgement          = \_ _ -> pure ()
+  , producerCompressionDictionary      = Nothing
   }
 
 -- | A record to be sent to Kafka.
@@ -668,23 +694,46 @@ sendMessage
   -> ByteString      -- ^ Value
   -> IO (Either String RecordMetadata)
 sendMessage p@Producer{..} topic key value = do
-  -- Decide whether the producer is in a transactional / idempotent
-  -- mode that requires stamping. We read the transaction state
-  -- once up front; if the txn finishes between this read and the
-  -- broker round-trip, the broker fences us — that's the
-  -- intended JVM-client behaviour.
-  preCheck <- producerPreSendCheck p topic key
+  -- 1. Run the user-supplied interceptor first (KIP-388 / JVM
+  --    ProducerInterceptor.onSend). This is allowed to rewrite
+  --    the record (e.g. attach trace headers, drop a field, …).
+  --    Errors propagate.
+  let preInterceptRecord = ProducerRecord
+        { recordTopic     = topic
+        , recordKey       = key
+        , recordValue     = value
+        , recordHeaders   = []
+        , recordPartition = Nothing
+        , recordTimestamp = Nothing
+        }
+  iceptedRecord <- producerInterceptor producerConfig preInterceptRecord
+  let icTopic = recordTopic   iceptedRecord
+      icKey   = recordKey     iceptedRecord
+      icValue = recordValue   iceptedRecord
+      icHdrs  = recordHeaders iceptedRecord
+  -- 2. Decide whether the producer is in a transactional /
+  --    idempotent mode that requires stamping. We read the
+  --    transaction state once up front; if the txn finishes
+  --    between this read and the broker round-trip, the broker
+  --    fences us — that's the intended JVM-client behaviour.
+  preCheck <- producerPreSendCheck p icTopic icKey
   case preCheck of
-    Left err -> return (Left err)
+    Left err -> do
+      -- Surface the failure through the ack interceptor /before/
+      -- returning to the caller, so observability tools see every
+      -- send attempt regardless of where it failed.
+      runAckInterceptor producerConfig iceptedRecord (Left err)
+      return (Left err)
     Right (partition, stamp) -> do
       let record = RB.Record
             { RB.recordTimestampDelta = 0
             , RB.recordOffsetDelta = 0
-            , RB.recordKey = key
-            , RB.recordValue = value
-            , RB.recordHeaders = []
+            , RB.recordKey = icKey
+            , RB.recordValue = icValue
+            , RB.recordHeaders =
+                map (\(k, v) -> RB.RecordHeader (TE.encodeUtf8 k) (Just v)) icHdrs
             }
-          topicPartition = BA.TopicPartition topic partition
+          topicPartition = BA.TopicPartition icTopic partition
 
       resultVar <- newEmptyTMVarIO
       let callback result =
@@ -711,13 +760,33 @@ sendMessage p@Producer{..} topic key value = do
           result <- timeout timeoutMicros $
                       atomically (readTMVar resultVar)
           case result of
-            Nothing -> return $ Left $
-              "Delivery timeout exceeded ("
-                <> show (producerDeliveryTimeoutMs producerConfig)
-                <> "ms)"
-            Just r -> return r
-        else
-          return $ Left "Failed to append record (accumulator closed or full)"
+            Nothing -> do
+              let err = "Delivery timeout exceeded ("
+                          <> show (producerDeliveryTimeoutMs producerConfig)
+                          <> "ms)"
+              runAckInterceptor producerConfig iceptedRecord (Left err)
+              return $ Left err
+            Just r -> do
+              runAckInterceptor producerConfig iceptedRecord r
+              return r
+        else do
+          let err = "Failed to append record (accumulator closed or full)"
+          runAckInterceptor producerConfig iceptedRecord (Left err)
+          return (Left err)
+
+-- | Best-effort dispatch of the ack interceptor. Wraps in 'try' so
+-- a buggy interceptor can't take down the sender thread / caller.
+runAckInterceptor
+  :: ProducerConfig
+  -> ProducerRecord
+  -> Either String RecordMetadata
+  -> IO ()
+runAckInterceptor cfg rec_ outcome = do
+  r <- try (producerOnAcknowledgement cfg rec_ outcome)
+       :: IO (Either SomeException ())
+  case r of
+    Right () -> pure ()
+    Left  _  -> pure ()
 
 -- | Combined gate + partitioning + sequence allocation. Run in a
 -- single STM transaction (modulo the IO-scoped partitioner +

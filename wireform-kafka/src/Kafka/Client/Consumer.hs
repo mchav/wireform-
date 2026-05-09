@@ -64,10 +64,14 @@ module Kafka.Client.Consumer
   , OffsetResetStrategy(..)
   , IsolationLevel(..)
   , ConsumerConfig(..)
+  , StaticMembershipState(..)
+  , currentStaticMembershipState
   ) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async)
+import qualified Control.Exception
+import Control.Exception (try)
 import qualified System.Timeout
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
@@ -198,7 +202,42 @@ data ConsumerConfig = ConsumerConfig
     --   no SASL). Set 'Conn.connSasl' here to enable any of the SASL
     --   mechanisms (PLAIN \/ SCRAM \/ OAUTHBEARER \/ AWS_MSK_IAM \/
     --   GSSAPI-stub) — see "Kafka.Network.Auth.SASL".
+  , consumerInterceptor :: !([ConsumerRecord] -> IO [ConsumerRecord])
+    -- ^ Post-fetch interceptor (analogue of
+    --   @org.apache.kafka.clients.consumer.ConsumerInterceptor.onConsume@).
+    --   Applied to the batch returned by 'poll' before the
+    --   caller sees it. Defaults to 'pure'. Exceptions propagate.
+  , consumerOnCommit
+      :: !([(TopicPartition, Int64)] -> IO ())
+    -- ^ Per-commit callback (mirrors
+    --   @ConsumerInterceptor.onCommit@). Best-effort: exceptions
+    --   in the callback are caught + dropped so a buggy hook
+    --   can't break the commit pipeline.
+  , consumerStaticMembershipPersist
+      :: !(Maybe (StaticMembershipState -> IO ()))
+    -- ^ KIP-345 callback invoked just before the heartbeat thread
+    --   stops (i.e. on 'closeConsumer'). Receives the consumer's
+    --   final @(memberId, generationId)@ so the application can
+    --   persist them somewhere (a file, a KV store, …) and pass
+    --   them back via 'consumerStaticMembershipResume' on the
+    --   next start. 'Nothing' (default) disables persistence.
+  , consumerStaticMembershipResume
+      :: !(Maybe StaticMembershipState)
+    -- ^ KIP-345 resume hook: when set, 'createConsumer' uses the
+    --   given member id / generation id when joining the group,
+    --   so a restart with the same @group.instance.id@ avoids
+    --   a generation-bump rebalance.
   } deriving (Generic)
+
+-- | KIP-345 static-membership state to persist across restarts.
+-- Mirrors the JVM client's behaviour where a static member sends
+-- its previously-assigned 'memberId' on JoinGroup and the broker
+-- avoids triggering a rebalance.
+data StaticMembershipState = StaticMembershipState
+  { staticMemberId     :: !Text
+  , staticGenerationId :: !Int32
+  }
+  deriving (Eq, Show, Generic)
 
 -- | Offset reset strategy when no committed offset exists.
 data OffsetResetStrategy
@@ -236,6 +275,10 @@ defaultConsumerConfig = ConsumerConfig
   , consumerQueuedMaxMessagesKbytes = 65_536
   , consumerRackId                  = Nothing       -- KIP-392
   , consumerConnectionConfig        = Conn.defaultConnectionConfig
+  , consumerInterceptor             = pure
+  , consumerOnCommit                = \_ -> pure ()
+  , consumerStaticMembershipPersist = Nothing
+  , consumerStaticMembershipResume  = Nothing
   }
 
 -- | A topic-partition pair.
@@ -346,10 +389,21 @@ createConsumer brokers groupId config = do
                     connManager
                     versionCache
                     (consumerClientId config)
-                  
+
+                  -- KIP-345 static-membership resume: if the
+                  -- application supplied a previously persisted
+                  -- @(memberId, generationId)@, seed the
+                  -- heartbeat state with it so the next JoinGroup
+                  -- reuses the existing slot.
+                  case consumerStaticMembershipResume config of
+                    Nothing -> pure ()
+                    Just StaticMembershipState{..} -> atomically $ do
+                      writeTVar (HB.hbMemberId    hbState) staticMemberId
+                      writeTVar (HB.hbGenerationId hbState) staticGenerationId
+
                   -- Start heartbeat thread
                   hbThread <- HB.startHeartbeatThread hbState
-                  
+
                   return $ Just (hbState, hbThread)
               
               let consumer = Consumer
@@ -502,6 +556,20 @@ closeConsumerWithTimeout c@Consumer{..} timeoutMs = do
   case consumerHeartbeat of
     Nothing -> return ()
     Just (hbState, hbThread) -> do
+      -- KIP-345 static-membership persistence: hand the
+      -- application the (memberId, generationId) tuple just
+      -- before we tear the heartbeat down so a restart with the
+      -- same group.instance.id can avoid a generation bump.
+      case consumerStaticMembershipPersist consumerConfig of
+        Nothing -> pure ()
+        Just k -> do
+          memberId <- readTVarIO (HB.hbMemberId    hbState)
+          genId    <- readTVarIO (HB.hbGenerationId hbState)
+          r <- try (k (StaticMembershipState memberId genId))
+                 :: IO (Either Control.Exception.SomeException ())
+          case r of
+            Right () -> pure ()
+            Left  _  -> pure ()  -- best effort
       -- Best-effort LeaveGroup so the broker can rebalance the
       -- group immediately rather than waiting for the
       -- session.timeout.ms to expire. Bounded by the caller's
@@ -514,6 +582,20 @@ closeConsumerWithTimeout c@Consumer{..} timeoutMs = do
       HB.stopHeartbeatThread hbState hbThread
   -- Close all connections.
   Conn.closeAllConnections consumerConnManager
+
+-- | Read the consumer's current @(memberId, generationId)@ as a
+-- 'StaticMembershipState'. Useful for tests and for callers that
+-- want to snapshot the value mid-lifetime (in addition to the
+-- 'consumerStaticMembershipPersist' callback that fires on
+-- close).
+currentStaticMembershipState
+  :: Consumer -> IO (Maybe StaticMembershipState)
+currentStaticMembershipState Consumer{..} = case consumerHeartbeat of
+  Nothing -> pure Nothing
+  Just (hbState, _) -> do
+    mid <- readTVarIO (HB.hbMemberId    hbState)
+    gen <- readTVarIO (HB.hbGenerationId hbState)
+    pure (Just (StaticMembershipState mid gen))
 
 -- | Synchronously issue a LeaveGroup against the group coordinator.
 -- Used by 'closeConsumerWithTimeout' to clean-shutdown the group
@@ -733,11 +815,15 @@ poll consumer@Consumer{..} timeoutMs = do
                   Just current -> when (nextOffset > current) $
                     StmMap.insert nextOffset tp consumerAssignment
 
-            -- Limit to maxPollRecords
+            -- Limit to maxPollRecords, then run user interceptor
             let maxRecords = consumerMaxPollRecords consumerConfig
                 limitedRecords = take maxRecords records
+            -- ConsumerInterceptor.onConsume (KIP-388 / JVM): an
+            -- exception here propagates; tracing tools that just
+            -- need to attach attributes shouldn't throw.
+            iceptedRecords <- consumerInterceptor consumerConfig limitedRecords
 
-            return $ Right limitedRecords
+            return $ Right iceptedRecords
 
 -- | Seek to a specific offset.
 seek :: Consumer -> TopicPartition -> Int64 -> IO (Either String ())
@@ -762,10 +848,14 @@ commitSync :: Consumer -> IO (Either String ())
 commitSync consumer@Consumer{..} = do
   -- Get current offsets to commit
   offsets <- atomically $ ListT.toList $ StmMap.listT consumerAssignment
-  
+
   if null offsets
     then return $ Right ()  -- Nothing to commit
-    else commitOffsetsSync consumer (consumerGroupId consumerConfig) offsets
+    else do
+      r <- commitOffsetsSync consumer (consumerGroupId consumerConfig) offsets
+      case r of
+        Right () -> dispatchOnCommit consumer offsets >> pure (Right ())
+        Left e   -> pure (Left e)
 
 -- | Commit offsets asynchronously.
 --
@@ -775,13 +865,31 @@ commitAsync :: Consumer -> IO (Either String ())
 commitAsync consumer@Consumer{..} = do
   -- Get current offsets to commit
   offsets <- atomically $ ListT.toList $ StmMap.listT consumerAssignment
-  
+
   if null offsets
     then return $ Right ()  -- Nothing to commit
     else do
-      -- Fire and forget - don't wait for response
-      _ <- async $ commitOffsetsSync consumer (consumerGroupId consumerConfig) offsets
+      -- Fire-and-forget; the on-commit callback runs in the same
+      -- async after the broker reply.
+      _ <- async $ do
+        r <- commitOffsetsSync consumer (consumerGroupId consumerConfig) offsets
+        case r of
+          Right () -> dispatchOnCommit consumer offsets
+          Left _   -> pure ()
       return $ Right ()
+
+-- | Best-effort dispatch of 'consumerOnCommit'. Wrapped in 'try'
+-- so a buggy hook can't interfere with the commit pipeline.
+dispatchOnCommit
+  :: Consumer
+  -> [(TopicPartition, Int64)]
+  -> IO ()
+dispatchOnCommit Consumer{..} offsets = do
+  r <- try (consumerOnCommit consumerConfig offsets)
+       :: IO (Either Control.Exception.SomeException ())
+  case r of
+    Right () -> pure ()
+    Left  _  -> pure ()
 
 -- | Get committed offset for a partition.
 --

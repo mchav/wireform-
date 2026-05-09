@@ -38,6 +38,8 @@ module Kafka.Client.Metadata
     -- * Metadata Refresh
   , refreshMetadata
   , refreshTopicMetadata
+    -- * KIP-466 client-side leader cache update
+  , updatePartitionLeader
     -- * Metadata Types
   , ClusterMetadata(..)
   , TopicMetadata(..)
@@ -156,6 +158,41 @@ getPartitionCount (MetadataCache metaVar) topic = do
         Nothing -> return Nothing
         Just TopicMetadata{..} ->
           return $ Just $ fromIntegral $ Map.size topicMetaPartitions
+
+-- | KIP-466: update the cached leader for a (topic, partition).
+-- Called when a Produce / Fetch response surfaces the
+-- @CurrentLeader@ tag (an out-of-band leader change). Avoids
+-- having to re-issue a full @MetadataRequest@ just to learn the
+-- new leader; we patch it into the cache and let the next request
+-- pick it up.
+--
+-- A no-op if the cache hasn't been populated yet, or if the
+-- (topic, partition) isn't known. The broker-id need not be a
+-- broker we already know about — the caller is expected to pair
+-- this with an updated broker registration if necessary.
+updatePartitionLeader
+  :: MetadataCache
+  -> Text       -- ^ topic name
+  -> Int32      -- ^ partition id
+  -> Int32      -- ^ new leader broker id
+  -> STM ()
+updatePartitionLeader (MetadataCache metaVar) topic partitionId newLeaderId = do
+  metaM <- readTVar metaVar
+  case metaM of
+    Nothing -> pure ()
+    Just m@ClusterMetadata{..} ->
+      case Map.lookup topic clusterTopics of
+        Nothing -> pure ()
+        Just t@TopicMetadata{..} ->
+          case Map.lookup partitionId topicMetaPartitions of
+            Nothing -> pure ()
+            Just p ->
+              let !p'  = p { partitionMetaLeader = newLeaderId }
+                  !t'  = t { topicMetaPartitions =
+                              Map.insert partitionId p' topicMetaPartitions }
+                  !m'  = m { clusterTopics =
+                              Map.insert topic t' clusterTopics }
+               in writeTVar metaVar (Just m')
 
 -- | Get all brokers in the cluster
 getAllBrokers :: MetadataCache -> STM (Maybe [BrokerMetadata])

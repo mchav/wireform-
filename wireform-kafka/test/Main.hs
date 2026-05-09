@@ -40,6 +40,8 @@ import qualified Client.ProducerConsumerLifecycleSpec
 import qualified Client.TransactionSpec
 import qualified Client.TransactionCoordinatorSpec
 import qualified Client.ProducerTransactionWiringSpec
+import qualified Client.InterceptorSpec
+import qualified Client.MetadataLeaderUpdateSpec
 import qualified Client.AdminClientSpec
 import qualified Client.MockBrokerSpec
 import qualified Client.MockBrokerFailureModesSpec
@@ -108,6 +110,8 @@ clientTests = testGroup "Client"
   , Client.TransactionSpec.transactionSpec
   , Client.TransactionCoordinatorSpec.transactionCoordinatorSpec
   , Client.ProducerTransactionWiringSpec.tests
+  , Client.InterceptorSpec.tests
+  , Client.MetadataLeaderUpdateSpec.tests
   , Client.AdminClientSpec.tests
   , Client.GroupSpec.groupSpec
   , Client.MockBrokerSpec.tests
