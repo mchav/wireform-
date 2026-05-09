@@ -277,38 +277,116 @@ appendRecordStamped
   -> RecordCallback
   -> BatchStamp
   -> IO Bool
-appendRecordStamped BatchAccumulator{..} tp record callback stamp = do
-  currentTime <- getCurrentTimeMillis
-  atomically $ do
-    isClosed <- readTVar accumulatorClosed
-    if isClosed
-      then return False
-      else do
-        queue <- getOrCreatePartitionQueue accumulatorPartitions tp
-        current <- readTVar (queueCurrentBatch queue)
-        batch <- case current of
-          Just b -> return b
-          Nothing -> do
-            let !newBatch = applyStamp stamp $
-                  createBatch accumulatorConfig tp currentTime
-            writeTVar (queueCurrentBatch queue) (Just newBatch)
-            return newBatch
-        let !recordSize = approximateRecordSize record
-            !newSize    = batchSizeBytes batch + recordSize
-            !newBatch   = batch
-              { batchRecords   = batchRecords batch |> record
-              , batchSizeBytes = newSize
-              , batchCallbacks = batchCallbacks batch |> callback
-              }
-        if newSize >= accumulatorBatchSize accumulatorConfig
-          then do
-            let !readyBatch = newBatch { batchState = Ready }
-            modifyTVar' (queueBatches queue) (|> readyBatch)
-            writeTVar (queueCurrentBatch queue) Nothing
-            return True
-          else do
-            writeTVar (queueCurrentBatch queue) (Just newBatch)
-            return True
+appendRecordStamped acc@BatchAccumulator{..} tp record callback stamp = do
+  -- Fast path: try to append to an existing /filling/ batch
+  -- without paying for getCurrentTime + new-batch construction.
+  -- This is the common case once a partition's batch has been
+  -- created; for steady-state high-throughput producers it skips
+  -- the syscall on every record except the first per batch.
+  r <- atomically (tryFastAppend tp record callback acc)
+  case r of
+    FastAppendDone done -> pure done
+    FastAppendNeedsNewBatch -> do
+      currentTime <- getCurrentTimeMillis
+      atomically (slowAppend tp record callback stamp currentTime acc)
+
+-- | Result of an optimistic append into an already-filling batch.
+data FastAppendResult
+  = FastAppendDone !Bool
+    -- ^ The append landed (or the accumulator is closed). The
+    -- 'Bool' mirrors 'appendRecordStamped's return value.
+  | FastAppendNeedsNewBatch
+    -- ^ No existing /filling/ batch for this partition; the
+    -- caller must take the slow path (which fetches a timestamp
+    -- before creating a fresh batch).
+  deriving (Eq, Show)
+
+-- | STM-only fast path. Re-uses the existing 'PartitionQueue'
+-- for this 'TopicPartition' and the existing /filling/
+-- 'ProducerBatch' on it. Falls through to 'FastAppendNeedsNewBatch'
+-- when either is missing so the caller can do the IO bits
+-- (clock + new batch construction) outside the transaction.
+{-# INLINE tryFastAppend #-}
+tryFastAppend
+  :: TopicPartition
+  -> RB.Record
+  -> RecordCallback
+  -> BatchAccumulator
+  -> STM FastAppendResult
+tryFastAppend tp record callback BatchAccumulator{..} = do
+  isClosed <- readTVar accumulatorClosed
+  if isClosed
+    then pure (FastAppendDone False)
+    else do
+      mq <- StmMap.lookup tp accumulatorPartitions
+      case mq of
+        Nothing    -> pure FastAppendNeedsNewBatch
+        Just queue -> do
+          mc <- readTVar (queueCurrentBatch queue)
+          case mc of
+            Nothing    -> pure FastAppendNeedsNewBatch
+            Just batch -> do
+              let !recordSize = approximateRecordSize record
+                  !newSize    = batchSizeBytes batch + recordSize
+                  !newBatch   = batch
+                    { batchRecords   = batchRecords batch |> record
+                    , batchSizeBytes = newSize
+                    , batchCallbacks = batchCallbacks batch |> callback
+                    }
+              if newSize >= accumulatorBatchSize accumulatorConfig
+                then do
+                  let !readyBatch = newBatch { batchState = Ready }
+                  modifyTVar' (queueBatches queue) (|> readyBatch)
+                  writeTVar (queueCurrentBatch queue) Nothing
+                  pure (FastAppendDone True)
+                else do
+                  writeTVar (queueCurrentBatch queue) (Just newBatch)
+                  pure (FastAppendDone True)
+
+-- | Slow path: clock has been read, we may need to create a new
+-- partition queue + new batch. If between the fast-path peek and
+-- this call another thread already filled in a batch, we still
+-- append to it (so we don't lose the timestamp work, but also
+-- don't double-create the batch).
+{-# INLINE slowAppend #-}
+slowAppend
+  :: TopicPartition
+  -> RB.Record
+  -> RecordCallback
+  -> BatchStamp
+  -> Int64           -- ^ current time, fetched in IO
+  -> BatchAccumulator
+  -> STM Bool
+slowAppend tp record callback stamp currentTime BatchAccumulator{..} = do
+  isClosed <- readTVar accumulatorClosed
+  if isClosed
+    then pure False
+    else do
+      queue <- getOrCreatePartitionQueue accumulatorPartitions tp
+      current <- readTVar (queueCurrentBatch queue)
+      batch <- case current of
+        Just b  -> pure b
+        Nothing -> do
+          let !newBatch = applyStamp stamp $
+                createBatch accumulatorConfig tp currentTime
+          writeTVar (queueCurrentBatch queue) (Just newBatch)
+          pure newBatch
+      let !recordSize = approximateRecordSize record
+          !newSize    = batchSizeBytes batch + recordSize
+          !newBatch   = batch
+            { batchRecords   = batchRecords batch |> record
+            , batchSizeBytes = newSize
+            , batchCallbacks = batchCallbacks batch |> callback
+            }
+      if newSize >= accumulatorBatchSize accumulatorConfig
+        then do
+          let !readyBatch = newBatch { batchState = Ready }
+          modifyTVar' (queueBatches queue) (|> readyBatch)
+          writeTVar (queueCurrentBatch queue) Nothing
+          pure True
+        else do
+          writeTVar (queueCurrentBatch queue) (Just newBatch)
+          pure True
   where
     applyStamp BatchStamp{..} b = b
       { batchProducerId      = stampProducerId
