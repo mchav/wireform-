@@ -58,6 +58,14 @@ import qualified Client.BatchSplittingSpec
 import qualified Network.OAuthOidcSpec
 import qualified Network.BootstrapSpec
 import qualified Network.ReauthDriverSpec
+import qualified Client.ConsumerExtrasSpec
+import qualified Client.MetadataCacheControlSpec
+import qualified Client.RackAwareSpec
+import qualified Client.ProducerExtrasSpec
+import qualified Client.ConnectionExtrasSpec
+import qualified Client.AdminExtrasSpec
+import qualified Client.SerdeContextSpec
+import qualified Client.ShareGroupExtrasSpec
 import qualified Client.AdminClientSpec
 import qualified Client.MockBrokerSpec
 import qualified Client.MockBrokerFailureModesSpec
@@ -144,6 +152,14 @@ clientTests = testGroup "Client"
   , Client.AdminTimeoutsSpec.tests
   , Client.RetryClassifierSpec.tests
   , Client.BatchSplittingSpec.tests
+  , Client.ConsumerExtrasSpec.tests
+  , Client.MetadataCacheControlSpec.tests
+  , Client.RackAwareSpec.tests
+  , Client.ProducerExtrasSpec.tests
+  , Client.ConnectionExtrasSpec.tests
+  , Client.AdminExtrasSpec.tests
+  , Client.SerdeContextSpec.tests
+  , Client.ShareGroupExtrasSpec.tests
   , Client.AdminClientSpec.tests
   , Client.GroupSpec.groupSpec
   , Client.MockBrokerSpec.tests
