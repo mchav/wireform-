@@ -54,6 +54,10 @@ import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
 import Foreign.Ptr (Ptr)
 import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
 import qualified Kafka.Protocol.Wire as W
 import qualified Kafka.Protocol.Wire.Primitives as WP
 
@@ -423,16 +427,58 @@ wirePeekNodeEndpoint version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (NodeEndpoint { nodeEndpointNodeId = f0_nodeid, nodeEndpointHost = f1_host, nodeEndpointPort = f2_port }, pTagsEnd)
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries tagged fields with payloads — KIP-866
--- style — that the generator hasn't been taught yet), so
--- we lift the legacy 'encodeVoteResponse' / 'decodeVoteResponse'
--- pair into a 'WireCodecImpl' via 'WC.serialShimCodec'.
--- The dispatch shape is identical to the native case —
--- every 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through
--- a 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a VoteResponse.
+wireMaxSizeVoteResponse :: Int -> VoteResponse -> Int
+wireMaxSizeVoteResponse _version msg =
+  0
+  + 2
+  + (5 + (case P.unKafkaArray (voteResponseTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicData _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (voteResponseNodeEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNodeEndpoint _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for VoteResponse.
+wirePokeVoteResponse :: Int -> Ptr Word8 -> VoteResponse -> IO (Ptr Word8)
+wirePokeVoteResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (voteResponseErrorCode msg)
+    p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicData version p x) p1 (voteResponseTopics msg)
+    let !_taggedEntries = (if version >= 1 then [(0, W.runWirePokeWith (5 + (case P.unKafkaArray (voteResponseNodeEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNodeEndpoint version x) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray (\p_ x -> wirePokeNodeEndpoint version p_ x) p (voteResponseNodeEndpoints msg)))] else [])
+    WP.pokeTaggedFieldEntries p2 _taggedEntries
+  | version >= 1 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (voteResponseErrorCode msg)
+    p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicData version p x) p1 (voteResponseTopics msg)
+    let !_taggedEntries = (if version >= 1 then [(0, W.runWirePokeWith (5 + (case P.unKafkaArray (voteResponseNodeEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNodeEndpoint version x) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray (\p_ x -> wirePokeNodeEndpoint version p_ x) p (voteResponseNodeEndpoints msg)))] else [])
+    WP.pokeTaggedFieldEntries p2 _taggedEntries
+  | otherwise = error $ "wirePoke VoteResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for VoteResponse.
+wirePeekVoteResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (VoteResponse, Ptr Word8)
+wirePeekVoteResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
+    (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p2 endPtr
+    let !_tag_nodeendpoints = if version >= 1 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray (\p e -> wirePeekNodeEndpoint version _fp _bp p e) p e)) _bs of { Right _v -> _v ; Left _ -> P.mkKafkaArray V.empty}; Nothing -> P.mkKafkaArray V.empty} else P.mkKafkaArray V.empty
+    pure (VoteResponse { voteResponseErrorCode = f0_errorcode, voteResponseTopics = f1_topics, voteResponseNodeEndpoints = _tag_nodeendpoints }, pTagsEnd)
+  | version >= 1 && version <= 2 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
+    (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p2 endPtr
+    let !_tag_nodeendpoints = if version >= 1 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray (\p e -> wirePeekNodeEndpoint version _fp _bp p e) p e)) _bs of { Right _v -> _v ; Left _ -> P.mkKafkaArray V.empty}; Nothing -> P.mkKafkaArray V.empty} else P.mkKafkaArray V.empty
+    pure (VoteResponse { voteResponseErrorCode = f0_errorcode, voteResponseTopics = f1_topics, voteResponseNodeEndpoints = _tag_nodeendpoints }, pTagsEnd)
+  | otherwise = error $ "wirePeek VoteResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
 instance WC.WireCodec VoteResponse where
-  wireCodec = Just (WC.serialShimCodec encodeVoteResponse decodeVoteResponse)
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeVoteResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeVoteResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekVoteResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

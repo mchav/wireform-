@@ -60,7 +60,9 @@ tests = testGroup "WireGenerator (codegen snapshot)"
       , testCase "WireCodec override points at the natives"
           (assertOverrideContains requestHeader
              [ "instance WC.WireCodec RequestHeader where"
-             , "Just WC.WireCodecImpl"
+             , -- After the no-Maybe migration the codec is a direct
+               -- 'WireCodecImpl' value rather than a Just-wrapper.
+               "wireCodec = WC.WireCodecImpl"
              , "wireMaxSizeRequestHeader"
              , "wirePokeRequestHeader"
              , "wirePeekRequestHeader"

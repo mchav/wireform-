@@ -74,6 +74,7 @@ module Kafka.Protocol.Wire.Primitives
   , peekTaggedFieldsCount
   , skipTaggedFieldsBody
   , peekAndSkipTaggedFields
+  , peekTaggedFieldsMap
     -- * Estimators (called by 'wireMaxSize' implementations)
   , kafkaStringMaxSize
   , kafkaBytesMaxSize
@@ -86,14 +87,17 @@ import Control.Exception (throwIO)
 import Data.Bits ((.&.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Lazy as LBS
 import Data.Int (Int16, Int32)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import qualified Data.Vector as Vector
 import qualified Data.Vector.Mutable as VM
 import Data.Word (Word8, Word32)
+import qualified Foreign.Marshal.Utils
 import Foreign.Ptr (Ptr, plusPtr)
 
 import qualified Kafka.Protocol.Primitives as P
@@ -635,6 +639,31 @@ peekAndSkipTaggedFields :: Ptr Word8 -> Ptr Word8 -> IO (Ptr Word8)
 peekAndSkipTaggedFields p endPtr = do
   (n, p') <- peekTaggedFieldsCount p endPtr
   skipTaggedFieldsBody n p' endPtr
+
+-- | Read a tagged-fields envelope into a @Map Word32 ByteString@
+-- so the codegen-emitted Wire peek can dispatch each known tag to
+-- a per-field decoder. Used by messages that surface tagged fields
+-- to the caller (KIP-866-style payloads). The payload bytes are
+-- copied (not sliced) so the caller doesn't need to keep the source
+-- 'ForeignPtr' alive for the lifetime of the returned map.
+peekTaggedFieldsMap
+  :: Ptr Word8
+  -> Ptr Word8
+  -> IO (Map.Map Word32 BS.ByteString, Ptr Word8)
+peekTaggedFieldsMap p endPtr = do
+  (n, p') <- peekTaggedFieldsCount p endPtr
+  go n p' Map.empty
+  where
+    go !k !cur !acc
+      | k <= 0 = pure (acc, cur)
+      | otherwise = do
+          (tag,    cur1) <- peekUVarInt cur  endPtr
+          (sz,     cur2) <- peekUVarInt cur1 endPtr
+          let !nbytes = fromIntegral sz
+          ensureBytes cur2 endPtr nbytes "tagged-field payload"
+          payload <- BSI.create nbytes $ \dst ->
+                       Foreign.Marshal.Utils.copyBytes dst cur2 nbytes
+          go (k - 1) (cur2 `plusPtr` nbytes) (Map.insert tag payload acc)
 
 ----------------------------------------------------------------------
 -- Wire instances

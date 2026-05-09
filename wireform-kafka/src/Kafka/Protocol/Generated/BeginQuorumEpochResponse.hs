@@ -54,6 +54,10 @@ import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
 import Foreign.Ptr (Ptr)
 import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
 import qualified Kafka.Protocol.Wire as W
 import qualified Kafka.Protocol.Wire.Primitives as WP
 
@@ -399,16 +403,55 @@ wirePeekNodeEndpoint version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (NodeEndpoint { nodeEndpointNodeId = f0_nodeid, nodeEndpointHost = f1_host, nodeEndpointPort = f2_port }, pTagsEnd)
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries tagged fields with payloads — KIP-866
--- style — that the generator hasn't been taught yet), so
--- we lift the legacy 'encodeBeginQuorumEpochResponse' / 'decodeBeginQuorumEpochResponse'
--- pair into a 'WireCodecImpl' via 'WC.serialShimCodec'.
--- The dispatch shape is identical to the native case —
--- every 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through
--- a 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a BeginQuorumEpochResponse.
+wireMaxSizeBeginQuorumEpochResponse :: Int -> BeginQuorumEpochResponse -> Int
+wireMaxSizeBeginQuorumEpochResponse _version msg =
+  0
+  + 2
+  + (5 + (case P.unKafkaArray (beginQuorumEpochResponseTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicData _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (beginQuorumEpochResponseNodeEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNodeEndpoint _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for BeginQuorumEpochResponse.
+wirePokeBeginQuorumEpochResponse :: Int -> Ptr Word8 -> BeginQuorumEpochResponse -> IO (Ptr Word8)
+wirePokeBeginQuorumEpochResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (beginQuorumEpochResponseErrorCode msg)
+    p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeTopicData version p x) p1 (beginQuorumEpochResponseTopics msg)
+    pure p2
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (beginQuorumEpochResponseErrorCode msg)
+    p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeTopicData version p x) p1 (beginQuorumEpochResponseTopics msg)
+    let !_taggedEntries = (if version >= 1 then [(0, W.runWirePokeWith (5 + (case P.unKafkaArray (beginQuorumEpochResponseNodeEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNodeEndpoint version x) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray (\p_ x -> wirePokeNodeEndpoint version p_ x) p (beginQuorumEpochResponseNodeEndpoints msg)))] else [])
+    WP.pokeTaggedFieldEntries p2 _taggedEntries
+  | otherwise = error $ "wirePoke BeginQuorumEpochResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for BeginQuorumEpochResponse.
+wirePeekBeginQuorumEpochResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (BeginQuorumEpochResponse, Ptr Word8)
+wirePeekBeginQuorumEpochResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_topics, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
+    pure (BeginQuorumEpochResponse { beginQuorumEpochResponseErrorCode = f0_errorcode, beginQuorumEpochResponseTopics = f1_topics, beginQuorumEpochResponseNodeEndpoints = P.mkKafkaArray V.empty }, p2)
+  | version == 1 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_topics, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
+    (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p2 endPtr
+    let !_tag_nodeendpoints = if version >= 1 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray (\p e -> wirePeekNodeEndpoint version _fp _bp p e) p e)) _bs of { Right _v -> _v ; Left _ -> P.mkKafkaArray V.empty}; Nothing -> P.mkKafkaArray V.empty} else P.mkKafkaArray V.empty
+    pure (BeginQuorumEpochResponse { beginQuorumEpochResponseErrorCode = f0_errorcode, beginQuorumEpochResponseTopics = f1_topics, beginQuorumEpochResponseNodeEndpoints = _tag_nodeendpoints }, pTagsEnd)
+  | otherwise = error $ "wirePeek BeginQuorumEpochResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
 instance WC.WireCodec BeginQuorumEpochResponse where
-  wireCodec = Just (WC.serialShimCodec encodeBeginQuorumEpochResponse decodeBeginQuorumEpochResponse)
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeBeginQuorumEpochResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeBeginQuorumEpochResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekBeginQuorumEpochResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

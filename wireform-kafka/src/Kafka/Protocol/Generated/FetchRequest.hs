@@ -55,6 +55,10 @@ import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
 import Foreign.Ptr (Ptr)
 import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
 import qualified Kafka.Protocol.Wire as W
 import qualified Kafka.Protocol.Wire.Primitives as WP
 
@@ -767,6 +771,76 @@ wirePeekReplicaState version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 12 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ReplicaState { replicaStateReplicaId = f0_replicaid, replicaStateReplicaEpoch = f1_replicaepoch }, pTagsEnd)
 
+-- | Worst-case wire size of a FetchPartition.
+wireMaxSizeFetchPartition :: Int -> FetchPartition -> Int
+wireMaxSizeFetchPartition _version msg =
+  0
+  + 4
+  + 4
+  + 8
+  + 4
+  + 8
+  + 4
+  + 16
+  + 8
+  + 1
+
+-- | Direct-poke encoder for FetchPartition.
+wirePokeFetchPartition :: Int -> Ptr Word8 -> FetchPartition -> IO (Ptr Word8)
+wirePokeFetchPartition version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (fetchPartitionPartition msg)
+  p2 <- W.pokeInt32BE p1 (fetchPartitionCurrentLeaderEpoch msg)
+  p3 <- W.pokeInt64BE p2 (fetchPartitionFetchOffset msg)
+  p4 <- W.pokeInt32BE p3 (fetchPartitionLastFetchedEpoch msg)
+  p5 <- W.pokeInt64BE p4 (fetchPartitionLogStartOffset msg)
+  p6 <- W.pokeInt32BE p5 (fetchPartitionPartitionMaxBytes msg)
+  if version >= 12 then do
+    let !_taggedEntries = (if version >= 17 then [(0, W.runWirePut (fetchPartitionReplicaDirectoryId msg))] else []) ++ (if version >= 18 then [(1, W.runWirePut (fetchPartitionHighWatermark msg))] else [])
+    WP.pokeTaggedFieldEntries p6 _taggedEntries
+  else pure p6
+
+-- | Direct-poke decoder for FetchPartition.
+wirePeekFetchPartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (FetchPartition, Ptr Word8)
+wirePeekFetchPartition version _fp _basePtr p0 endPtr = do
+  (f0_partition, p1) <- W.peekInt32BE p0 endPtr
+  (f1_currentleaderepoch, p2) <- W.peekInt32BE p1 endPtr
+  (f2_fetchoffset, p3) <- W.peekInt64BE p2 endPtr
+  (f3_lastfetchedepoch, p4) <- W.peekInt32BE p3 endPtr
+  (f4_logstartoffset, p5) <- W.peekInt64BE p4 endPtr
+  (f5_partitionmaxbytes, p6) <- W.peekInt32BE p5 endPtr
+  (_taggedMap, pTagsEnd) <- if version >= 12 then WP.peekTaggedFieldsMap p6 endPtr else pure (Data.Map.Strict.empty, p6)
+  let !_tag_replicadirectoryid = if version >= 17 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGet :: Data.ByteString.ByteString -> Either String P.KafkaUuid) _bs of { Right _v -> _v ; Left _ -> P.nullUuid}; Nothing -> P.nullUuid} else P.nullUuid
+  let !_tag_highwatermark = if version >= 18 then case Data.Map.Strict.lookup 1 _taggedMap of { Just _bs -> case (W.runWireGet :: Data.ByteString.ByteString -> Either String Data.Int.Int64) _bs of { Right _v -> _v ; Left _ -> 0}; Nothing -> 0} else 0
+  pure (FetchPartition { fetchPartitionPartition = f0_partition, fetchPartitionCurrentLeaderEpoch = f1_currentleaderepoch, fetchPartitionFetchOffset = f2_fetchoffset, fetchPartitionLastFetchedEpoch = f3_lastfetchedepoch, fetchPartitionLogStartOffset = f4_logstartoffset, fetchPartitionPartitionMaxBytes = f5_partitionmaxbytes, fetchPartitionReplicaDirectoryId = _tag_replicadirectoryid, fetchPartitionHighWatermark = _tag_highwatermark }, pTagsEnd)
+
+-- | Worst-case wire size of a FetchTopic.
+wireMaxSizeFetchTopic :: Int -> FetchTopic -> Int
+wireMaxSizeFetchTopic _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (fetchTopicTopic msg))
+  + 16
+  + (5 + (case P.unKafkaArray (fetchTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeFetchPartition _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for FetchTopic.
+wirePokeFetchTopic :: Int -> Ptr Word8 -> FetchTopic -> IO (Ptr Word8)
+wirePokeFetchTopic version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (fetchTopicTopic msg))
+  p2 <- WP.pokeKafkaUuid p1 (fetchTopicTopicId msg)
+  p3 <- WP.pokeVersionedArray version 12 (\p x -> wirePokeFetchPartition version p x) p2 (fetchTopicPartitions msg)
+  if version >= 12 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for FetchTopic.
+wirePeekFetchTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (FetchTopic, Ptr Word8)
+wirePeekFetchTopic version _fp _basePtr p0 endPtr = do
+  (f0_topic, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_topicid, p2) <- WP.peekKafkaUuid p1 endPtr
+  (f2_partitions, p3) <- WP.peekVersionedArray version 12 (\p e -> wirePeekFetchPartition version _fp _basePtr p e) p2 endPtr
+  pTagsEnd <- if version >= 12 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (FetchTopic { fetchTopicTopic = f0_topic, fetchTopicTopicId = f1_topicid, fetchTopicPartitions = f2_partitions }, pTagsEnd)
+
 -- | Worst-case wire size of a ForgottenTopic.
 wireMaxSizeForgottenTopic :: Int -> ForgottenTopic -> Int
 wireMaxSizeForgottenTopic _version msg =
@@ -794,16 +868,164 @@ wirePeekForgottenTopic version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 12 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (ForgottenTopic { forgottenTopicTopic = f0_topic, forgottenTopicTopicId = f1_topicid, forgottenTopicPartitions = f2_partitions }, pTagsEnd)
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries tagged fields with payloads — KIP-866
--- style — that the generator hasn't been taught yet), so
--- we lift the legacy 'encodeFetchRequest' / 'decodeFetchRequest'
--- pair into a 'WireCodecImpl' via 'WC.serialShimCodec'.
--- The dispatch shape is identical to the native case —
--- every 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through
--- a 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a FetchRequest.
+wireMaxSizeFetchRequest :: Int -> FetchRequest -> Int
+wireMaxSizeFetchRequest _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (fetchRequestClusterId msg))
+  + 4
+  + wireMaxSizeReplicaState _version (fetchRequestReplicaState msg)
+  + 4
+  + 4
+  + 4
+  + 1
+  + 4
+  + 4
+  + (5 + (case P.unKafkaArray (fetchRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeFetchTopic _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (fetchRequestForgottenTopicsData msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeForgottenTopic _version x ) v); P.Null -> 0 }))
+  + WP.compactStringMaxSize (P.toCompactString (fetchRequestRackId msg))
+  + 1
+
+-- | Direct-poke encoder for FetchRequest.
+wirePokeFetchRequest :: Int -> Ptr Word8 -> FetchRequest -> IO (Ptr Word8)
+wirePokeFetchRequest version basePtr msg
+  | version == 11 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (fetchRequestReplicaId msg)
+    p2 <- W.pokeInt32BE p1 (fetchRequestMaxWaitMs msg)
+    p3 <- W.pokeInt32BE p2 (fetchRequestMinBytes msg)
+    p4 <- W.pokeInt32BE p3 (fetchRequestMaxBytes msg)
+    p5 <- W.pokeWord8 p4 (fromIntegral (fetchRequestIsolationLevel msg))
+    p6 <- W.pokeInt32BE p5 (fetchRequestSessionId msg)
+    p7 <- W.pokeInt32BE p6 (fetchRequestSessionEpoch msg)
+    p8 <- WP.pokeVersionedArray version 12 (\p x -> wirePokeFetchTopic version p x) p7 (fetchRequestTopics msg)
+    p9 <- WP.pokeVersionedArray version 12 (\p x -> wirePokeForgottenTopic version p x) p8 (fetchRequestForgottenTopicsData msg)
+    p10 <- WP.pokeCompactString p9 (P.toCompactString (fetchRequestRackId msg))
+    pure p10
+  | version >= 4 && version <= 6 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (fetchRequestReplicaId msg)
+    p2 <- W.pokeInt32BE p1 (fetchRequestMaxWaitMs msg)
+    p3 <- W.pokeInt32BE p2 (fetchRequestMinBytes msg)
+    p4 <- W.pokeInt32BE p3 (fetchRequestMaxBytes msg)
+    p5 <- W.pokeWord8 p4 (fromIntegral (fetchRequestIsolationLevel msg))
+    p6 <- WP.pokeVersionedArray version 12 (\p x -> wirePokeFetchTopic version p x) p5 (fetchRequestTopics msg)
+    pure p6
+  | version >= 12 && version <= 14 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (fetchRequestReplicaId msg)
+    p2 <- W.pokeInt32BE p1 (fetchRequestMaxWaitMs msg)
+    p3 <- W.pokeInt32BE p2 (fetchRequestMinBytes msg)
+    p4 <- W.pokeInt32BE p3 (fetchRequestMaxBytes msg)
+    p5 <- W.pokeWord8 p4 (fromIntegral (fetchRequestIsolationLevel msg))
+    p6 <- W.pokeInt32BE p5 (fetchRequestSessionId msg)
+    p7 <- W.pokeInt32BE p6 (fetchRequestSessionEpoch msg)
+    p8 <- WP.pokeVersionedArray version 12 (\p x -> wirePokeFetchTopic version p x) p7 (fetchRequestTopics msg)
+    p9 <- WP.pokeVersionedArray version 12 (\p x -> wirePokeForgottenTopic version p x) p8 (fetchRequestForgottenTopicsData msg)
+    p10 <- WP.pokeCompactString p9 (P.toCompactString (fetchRequestRackId msg))
+    let !_taggedEntries = (if version >= 12 then [(0, W.runWirePut (P.toCompactString (fetchRequestClusterId msg)))] else []) ++ (if version >= 15 then [(1, W.runWirePokeWith (wireMaxSizeReplicaState version (fetchRequestReplicaState msg)) (\p -> wirePokeReplicaState version p (fetchRequestReplicaState msg)))] else [])
+    WP.pokeTaggedFieldEntries p10 _taggedEntries
+  | version >= 7 && version <= 10 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (fetchRequestReplicaId msg)
+    p2 <- W.pokeInt32BE p1 (fetchRequestMaxWaitMs msg)
+    p3 <- W.pokeInt32BE p2 (fetchRequestMinBytes msg)
+    p4 <- W.pokeInt32BE p3 (fetchRequestMaxBytes msg)
+    p5 <- W.pokeWord8 p4 (fromIntegral (fetchRequestIsolationLevel msg))
+    p6 <- W.pokeInt32BE p5 (fetchRequestSessionId msg)
+    p7 <- W.pokeInt32BE p6 (fetchRequestSessionEpoch msg)
+    p8 <- WP.pokeVersionedArray version 12 (\p x -> wirePokeFetchTopic version p x) p7 (fetchRequestTopics msg)
+    p9 <- WP.pokeVersionedArray version 12 (\p x -> wirePokeForgottenTopic version p x) p8 (fetchRequestForgottenTopicsData msg)
+    pure p9
+  | version >= 15 && version <= 18 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (fetchRequestMaxWaitMs msg)
+    p2 <- W.pokeInt32BE p1 (fetchRequestMinBytes msg)
+    p3 <- W.pokeInt32BE p2 (fetchRequestMaxBytes msg)
+    p4 <- W.pokeWord8 p3 (fromIntegral (fetchRequestIsolationLevel msg))
+    p5 <- W.pokeInt32BE p4 (fetchRequestSessionId msg)
+    p6 <- W.pokeInt32BE p5 (fetchRequestSessionEpoch msg)
+    p7 <- WP.pokeVersionedArray version 12 (\p x -> wirePokeFetchTopic version p x) p6 (fetchRequestTopics msg)
+    p8 <- WP.pokeVersionedArray version 12 (\p x -> wirePokeForgottenTopic version p x) p7 (fetchRequestForgottenTopicsData msg)
+    p9 <- WP.pokeCompactString p8 (P.toCompactString (fetchRequestRackId msg))
+    let !_taggedEntries = (if version >= 12 then [(0, W.runWirePut (P.toCompactString (fetchRequestClusterId msg)))] else []) ++ (if version >= 15 then [(1, W.runWirePokeWith (wireMaxSizeReplicaState version (fetchRequestReplicaState msg)) (\p -> wirePokeReplicaState version p (fetchRequestReplicaState msg)))] else [])
+    WP.pokeTaggedFieldEntries p9 _taggedEntries
+  | otherwise = error $ "wirePoke FetchRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for FetchRequest.
+wirePeekFetchRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (FetchRequest, Ptr Word8)
+wirePeekFetchRequest version _fp _basePtr p0 endPtr
+  | version == 11 = do
+    (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
+    (f1_maxwaitms, p2) <- W.peekInt32BE p1 endPtr
+    (f2_minbytes, p3) <- W.peekInt32BE p2 endPtr
+    (f3_maxbytes, p4) <- W.peekInt32BE p3 endPtr
+    (f4_isolationlevel, p5) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p4 endPtr
+    (f5_sessionid, p6) <- W.peekInt32BE p5 endPtr
+    (f6_sessionepoch, p7) <- W.peekInt32BE p6 endPtr
+    (f7_topics, p8) <- WP.peekVersionedArray version 12 (\p e -> wirePeekFetchTopic version _fp _basePtr p e) p7 endPtr
+    (f8_forgottentopicsdata, p9) <- WP.peekVersionedArray version 12 (\p e -> wirePeekForgottenTopic version _fp _basePtr p e) p8 endPtr
+    (f9_rackid, p10) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p9 endPtr
+    pure (FetchRequest { fetchRequestClusterId = P.KafkaString Null, fetchRequestReplicaId = f0_replicaid, fetchRequestReplicaState = undefined :: ReplicaState, fetchRequestMaxWaitMs = f1_maxwaitms, fetchRequestMinBytes = f2_minbytes, fetchRequestMaxBytes = f3_maxbytes, fetchRequestIsolationLevel = f4_isolationlevel, fetchRequestSessionId = f5_sessionid, fetchRequestSessionEpoch = f6_sessionepoch, fetchRequestTopics = f7_topics, fetchRequestForgottenTopicsData = f8_forgottentopicsdata, fetchRequestRackId = f9_rackid }, p10)
+  | version >= 4 && version <= 6 = do
+    (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
+    (f1_maxwaitms, p2) <- W.peekInt32BE p1 endPtr
+    (f2_minbytes, p3) <- W.peekInt32BE p2 endPtr
+    (f3_maxbytes, p4) <- W.peekInt32BE p3 endPtr
+    (f4_isolationlevel, p5) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p4 endPtr
+    (f5_topics, p6) <- WP.peekVersionedArray version 12 (\p e -> wirePeekFetchTopic version _fp _basePtr p e) p5 endPtr
+    pure (FetchRequest { fetchRequestClusterId = P.KafkaString Null, fetchRequestReplicaId = f0_replicaid, fetchRequestReplicaState = undefined :: ReplicaState, fetchRequestMaxWaitMs = f1_maxwaitms, fetchRequestMinBytes = f2_minbytes, fetchRequestMaxBytes = f3_maxbytes, fetchRequestIsolationLevel = f4_isolationlevel, fetchRequestSessionId = 0, fetchRequestSessionEpoch = 0, fetchRequestTopics = f5_topics, fetchRequestForgottenTopicsData = P.mkKafkaArray V.empty, fetchRequestRackId = P.KafkaString Null }, p6)
+  | version >= 12 && version <= 14 = do
+    (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
+    (f1_maxwaitms, p2) <- W.peekInt32BE p1 endPtr
+    (f2_minbytes, p3) <- W.peekInt32BE p2 endPtr
+    (f3_maxbytes, p4) <- W.peekInt32BE p3 endPtr
+    (f4_isolationlevel, p5) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p4 endPtr
+    (f5_sessionid, p6) <- W.peekInt32BE p5 endPtr
+    (f6_sessionepoch, p7) <- W.peekInt32BE p6 endPtr
+    (f7_topics, p8) <- WP.peekVersionedArray version 12 (\p e -> wirePeekFetchTopic version _fp _basePtr p e) p7 endPtr
+    (f8_forgottentopicsdata, p9) <- WP.peekVersionedArray version 12 (\p e -> wirePeekForgottenTopic version _fp _basePtr p e) p8 endPtr
+    (f9_rackid, p10) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p9 endPtr
+    (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p10 endPtr
+    let !_tag_clusterid = if version >= 12 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (\b -> fmap P.fromCompactString ((W.runWireGet :: Data.ByteString.ByteString -> Either String P.CompactString) b)) _bs of { Right _v -> _v ; Left _ -> P.KafkaString Null}; Nothing -> P.KafkaString Null} else P.KafkaString Null
+    let !_tag_replicastate = if version >= 15 then case Data.Map.Strict.lookup 1 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> wirePeekReplicaState version _fp _bp p e)) _bs of { Right _v -> _v ; Left _ -> undefined :: ReplicaState}; Nothing -> undefined :: ReplicaState} else undefined :: ReplicaState
+    pure (FetchRequest { fetchRequestClusterId = _tag_clusterid, fetchRequestReplicaId = f0_replicaid, fetchRequestReplicaState = _tag_replicastate, fetchRequestMaxWaitMs = f1_maxwaitms, fetchRequestMinBytes = f2_minbytes, fetchRequestMaxBytes = f3_maxbytes, fetchRequestIsolationLevel = f4_isolationlevel, fetchRequestSessionId = f5_sessionid, fetchRequestSessionEpoch = f6_sessionepoch, fetchRequestTopics = f7_topics, fetchRequestForgottenTopicsData = f8_forgottentopicsdata, fetchRequestRackId = f9_rackid }, pTagsEnd)
+  | version >= 7 && version <= 10 = do
+    (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
+    (f1_maxwaitms, p2) <- W.peekInt32BE p1 endPtr
+    (f2_minbytes, p3) <- W.peekInt32BE p2 endPtr
+    (f3_maxbytes, p4) <- W.peekInt32BE p3 endPtr
+    (f4_isolationlevel, p5) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p4 endPtr
+    (f5_sessionid, p6) <- W.peekInt32BE p5 endPtr
+    (f6_sessionepoch, p7) <- W.peekInt32BE p6 endPtr
+    (f7_topics, p8) <- WP.peekVersionedArray version 12 (\p e -> wirePeekFetchTopic version _fp _basePtr p e) p7 endPtr
+    (f8_forgottentopicsdata, p9) <- WP.peekVersionedArray version 12 (\p e -> wirePeekForgottenTopic version _fp _basePtr p e) p8 endPtr
+    pure (FetchRequest { fetchRequestClusterId = P.KafkaString Null, fetchRequestReplicaId = f0_replicaid, fetchRequestReplicaState = undefined :: ReplicaState, fetchRequestMaxWaitMs = f1_maxwaitms, fetchRequestMinBytes = f2_minbytes, fetchRequestMaxBytes = f3_maxbytes, fetchRequestIsolationLevel = f4_isolationlevel, fetchRequestSessionId = f5_sessionid, fetchRequestSessionEpoch = f6_sessionepoch, fetchRequestTopics = f7_topics, fetchRequestForgottenTopicsData = f8_forgottentopicsdata, fetchRequestRackId = P.KafkaString Null }, p9)
+  | version >= 15 && version <= 18 = do
+    (f0_maxwaitms, p1) <- W.peekInt32BE p0 endPtr
+    (f1_minbytes, p2) <- W.peekInt32BE p1 endPtr
+    (f2_maxbytes, p3) <- W.peekInt32BE p2 endPtr
+    (f3_isolationlevel, p4) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr
+    (f4_sessionid, p5) <- W.peekInt32BE p4 endPtr
+    (f5_sessionepoch, p6) <- W.peekInt32BE p5 endPtr
+    (f6_topics, p7) <- WP.peekVersionedArray version 12 (\p e -> wirePeekFetchTopic version _fp _basePtr p e) p6 endPtr
+    (f7_forgottentopicsdata, p8) <- WP.peekVersionedArray version 12 (\p e -> wirePeekForgottenTopic version _fp _basePtr p e) p7 endPtr
+    (f8_rackid, p9) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p8 endPtr
+    (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p9 endPtr
+    let !_tag_clusterid = if version >= 12 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (\b -> fmap P.fromCompactString ((W.runWireGet :: Data.ByteString.ByteString -> Either String P.CompactString) b)) _bs of { Right _v -> _v ; Left _ -> P.KafkaString Null}; Nothing -> P.KafkaString Null} else P.KafkaString Null
+    let !_tag_replicastate = if version >= 15 then case Data.Map.Strict.lookup 1 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> wirePeekReplicaState version _fp _bp p e)) _bs of { Right _v -> _v ; Left _ -> undefined :: ReplicaState}; Nothing -> undefined :: ReplicaState} else undefined :: ReplicaState
+    pure (FetchRequest { fetchRequestClusterId = _tag_clusterid, fetchRequestReplicaId = 0, fetchRequestReplicaState = _tag_replicastate, fetchRequestMaxWaitMs = f0_maxwaitms, fetchRequestMinBytes = f1_minbytes, fetchRequestMaxBytes = f2_maxbytes, fetchRequestIsolationLevel = f3_isolationlevel, fetchRequestSessionId = f4_sessionid, fetchRequestSessionEpoch = f5_sessionepoch, fetchRequestTopics = f6_topics, fetchRequestForgottenTopicsData = f7_forgottentopicsdata, fetchRequestRackId = f8_rackid }, pTagsEnd)
+  | otherwise = error $ "wirePeek FetchRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
 instance WC.WireCodec FetchRequest where
-  wireCodec = Just (WC.serialShimCodec encodeFetchRequest decodeFetchRequest)
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeFetchRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeFetchRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekFetchRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

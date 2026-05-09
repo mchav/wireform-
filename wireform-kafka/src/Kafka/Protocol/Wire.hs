@@ -66,6 +66,8 @@ module Kafka.Protocol.Wire
   , runWirePut
   , runWireGet
   , runWirePutWithSize
+  , runWirePokeWith
+  , runWireGetWith
     -- * Errors
   , WireError (..)
     -- * Low-level helpers (exposed for hand-tuned modules)
@@ -180,6 +182,55 @@ runWirePutIO x = do
 {-# INLINE runWirePutWithSize #-}
 runWirePutWithSize :: Wire a => a -> (ByteString, Int)
 runWirePutWithSize x = (runWirePut x, wireMaxSize x)
+
+-- | Encode an arbitrary 'Wire'-shape poker into a strict
+-- 'ByteString'. Used by the codegen for tagged-field payloads when
+-- the field's type has no Wire instance (nested struct, array of
+-- struct, ...): the codegen passes a closure capturing the
+-- per-field 'wirePokeStructName version (...)' or
+-- 'pokeKafkaArray ...' and an upper-bound size.
+--
+-- The buffer is allocated with 'mallocForeignPtrBytes' so the
+-- resulting 'ByteString' is a normal compactable strict
+-- ByteString (no special lifetime).
+{-# INLINE runWirePokeWith #-}
+runWirePokeWith
+  :: Int                              -- ^ upper-bound size in bytes
+  -> (Ptr Word8 -> IO (Ptr Word8))    -- ^ poker
+  -> ByteString
+runWirePokeWith maxSize poker = unsafePerformIO $ do
+  let !ub = max 1 maxSize
+  fp <- mallocForeignPtrBytes ub
+  withForeignPtr fp $ \basePtr -> do
+    !endPtr <- poker basePtr
+    let !len = endPtr `minusPtr` basePtr
+    pure (BSI.fromForeignPtr fp 0 len)
+
+-- | Decode an arbitrary 'Wire'-shape peeker from a strict
+-- 'ByteString'. Mirror of 'runWirePokeWith'; the codegen uses it
+-- for tagged-field payloads when the field's type has no Wire
+-- instance (nested struct, array of struct, ...).
+{-# INLINE runWireGetWith #-}
+runWireGetWith
+  :: forall a.
+     (ForeignPtr Word8 -> Ptr Word8
+        -> Ptr Word8 -> Ptr Word8 -> IO (a, Ptr Word8))
+  -> ByteString
+  -> Either String a
+runWireGetWith peeker bs =
+  let (fp, off, len) = BSI.toForeignPtr bs
+  in unsafePerformIO $ withForeignPtr fp $ \basePtr -> do
+        let !startPtr = basePtr `plusPtr` off
+            !endPtr   = startPtr `plusPtr` len
+        r <- safelyPeek fp basePtr startPtr endPtr
+        case r of
+          Left e        -> pure (Left e)
+          Right (v, _)  -> pure (Right v)
+  where
+    safelyPeek f b s e =
+      (Right <$> peeker f b s e)
+        `Exc.catch` (\(err :: WireError)     -> pure (Left (show err)))
+        `Exc.catch` (\(err :: SomeException) -> pure (Left (show err)))
 
 -- | Decode a 'Wire' value from a strict 'ByteString'.
 --

@@ -41,11 +41,13 @@ schemas use:
     generator uses.
 
 Tagged fields with payload bodies (KIP-866-style; e.g.
-@CurrentLeader@ on @ProduceResponse v10+@) currently go through
-'WC.serialShimCodec' — the encoder logic for those is non-trivial
-(per-tag conditional emit, sorted by tag) and will move to native
-in a follow-up. The shim is byte-identical with the native path on
-the wire, so the dispatch surface stays uniform.
+@CurrentLeader@ on @ProduceResponse v10+@) are emitted natively:
+encode builds a @[(tag, ByteString)]@ entry list and writes it via
+'WP.pokeTaggedFieldEntries'; decode builds a
+@Map Word32 ByteString@ via 'WP.peekTaggedFieldsMap' and
+dispatches each known tag through a per-field 'W.runWireGetWith'
+decoder, with field defaults for missing tags. There is no Serial
+fallback — every schema the parser accepts gets a native codec.
 -}
 module Kafka.Protocol.Codegen.WireGenerator
   ( -- * Per-message generation
@@ -76,6 +78,10 @@ generateWireImports = vsep
   [ "import Foreign.ForeignPtr (ForeignPtr)"
   , "import Foreign.Ptr (Ptr)"
   , "import Data.Word (Word8)"
+  , "import qualified Data.ByteString"
+  , "import qualified Data.Int"
+  , "import qualified Data.Map.Strict"
+  , "import qualified Data.Word"
   , "import qualified Kafka.Protocol.Wire as W"
   , "import qualified Kafka.Protocol.Wire.Primitives as WP"
   ]
@@ -100,17 +106,15 @@ isWireSupported schema =
                      Nothing -> True)
            (schemaCommonStructs schema)
 
--- | A field set is "wire-supported" iff none of its fields carry a
--- tag, and every nested struct + array element is also wire-
--- supported (recursively).
+-- | A field set is "wire-supported" iff every nested struct + array
+-- element is wire-supported (recursively). Tagged fields with
+-- payloads are now handled natively (KIP-866 NodeEndpoints,
+-- ProduceResponse CurrentLeader, ...) so they no longer disqualify a
+-- schema; the encode emits a per-tag entry list and the decode
+-- builds a 'Map Word32 ByteString' that per-tag lookups dispatch
+-- through.
 fieldsSupportedTransitive :: [FieldSpec] -> Bool
-fieldsSupportedTransitive fs =
-  noTaggedWithPayload fs && all isFieldSupportedTransitive fs
-
--- | Are any of these fields tagged-with-payload? A field is
--- "tagged-with-payload" iff it has a tag number assigned.
-noTaggedWithPayload :: [FieldSpec] -> Bool
-noTaggedWithPayload = not . any isPotentiallyTaggedField
+fieldsSupportedTransitive = all isFieldSupportedTransitive
 
 isFieldSupportedTransitive :: FieldSpec -> Bool
 isFieldSupportedTransitive f = case fieldType f of
@@ -154,10 +158,12 @@ isSupportedPrimitive = \case
 ----------------------------------------------------------------------
 
 -- | Emit @wireMaxSizeFoo@ + @wirePokeFoo@ + @wirePeekFoo@ for the
--- supplied schema, plus a @WireCodec@ instance pointing at them.
--- Returns 'Nothing' for schemas the generator doesn't yet handle
--- natively (see 'isWireSupported'); the caller will fall back to a
--- 'serialShimCodec' instance in that case.
+-- supplied schema. Returns 'Nothing' only if the schema's parser
+-- output contains a type the generator can't handle (currently:
+-- nothing — the 'isWireSupported' check is structural and always
+-- returns True against the trunk schema set). The 'Maybe' wrapper
+-- is kept defensively in case a future schema introduces a new
+-- type spec we haven't taught the generator about.
 generateWireFunctions :: ProtocolSchema -> Maybe [Doc ann]
 generateWireFunctions schema
   | not (isWireSupported schema) = Nothing
@@ -194,59 +200,32 @@ generateNestedWireFunctions flexibleVer structName fields
     , generateNestedWirePeek    structName fields flexibleVer
     ]
 
--- | Emit a @WireCodec@ instance for /every/ schema. Always Just —
--- there is no @wireCodec = Nothing@ fallback any more. If the
--- WireGenerator can't yet emit a native codec for the schema it
--- carries arrays-of-tagged-fields-with-payloads, the instance
--- points at 'WC.serialShimCodec', which lifts the legacy 'Serial'
--- encoder / decoder into a 'WireCodecImpl'.
+-- | Emit a native @WireCodec@ instance for /every/ schema. The
+-- instance points at codegen-emitted 'wirePokeFoo' / 'wirePeekFoo'
+-- / 'wireMaxSizeFoo' functions; there is no Serial fallback.
 generateWireCodecOverride :: ProtocolSchema -> Doc ann
-generateWireCodecOverride schema
-  | isWireSupported schema = nativeInstance
-  | otherwise              = shimInstance
+generateWireCodecOverride schema = vsep
+  [ "-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /"
+  , "-- 'WC.runDecodeVer' dispatch into the direct-poke functions"
+  , "-- generated above. There is no Serial fallback path."
+  , "instance WC.WireCodec" <+> pretty typeName <+> "where"
+  , indent 2 $ vsep
+      [ "wireCodec = WC.WireCodecImpl"
+      , indent 2 $ vsep
+          [ "{ WC.wireMaxSizeFor = \\v msg -> wireMaxSize" <> pretty typeName
+              <+> "(fromIntegral v) msg"
+          , ", WC.wirePokeFor    = \\v p msg -> wirePoke" <> pretty typeName
+              <+> "(fromIntegral v) p msg"
+          , ", WC.wirePeekFor    = \\v fp basePtr p endPtr ->"
+          , indent 4 ("wirePeek" <> pretty typeName
+              <+> "(fromIntegral v) fp basePtr p endPtr")
+          , "}"
+          ]
+      , "{-# INLINE wireCodec #-}"
+      ]
+  ]
   where
     typeName = toHaskellTypeName (schemaName schema)
-
-    nativeInstance = vsep
-      [ "-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /"
-      , "-- 'WC.runDecodeVer' dispatch into the direct-poke functions"
-      , "-- generated below, skipping the 'Data.Bytes.Serial' runner."
-      , "instance WC.WireCodec" <+> pretty typeName <+> "where"
-      , indent 2 $ vsep
-          [ "wireCodec = Just WC.WireCodecImpl"
-          , indent 2 $ vsep
-              [ "{ WC.wireMaxSizeFor = \\v msg -> wireMaxSize" <> pretty typeName
-                  <+> "(fromIntegral v) msg"
-              , ", WC.wirePokeFor    = \\v p msg -> wirePoke" <> pretty typeName
-                  <+> "(fromIntegral v) p msg"
-              , ", WC.wirePeekFor    = \\v fp basePtr p endPtr ->"
-              , indent 4 ("wirePeek" <> pretty typeName
-                  <+> "(fromIntegral v) fp basePtr p endPtr")
-              , "}"
-              ]
-          , "{-# INLINE wireCodec #-}"
-          ]
-      ]
-
-    shimInstance = vsep
-      [ "-- | 'WC.WireCodec' instance via the Serial shim. The"
-      , "-- WireGenerator can't yet emit a native codec for this"
-      , "-- schema (it carries tagged fields with payloads — KIP-866"
-      , "-- style — that the generator hasn't been taught yet), so"
-      , "-- we lift the legacy 'encode" <> pretty typeName
-          <> "' / 'decode" <> pretty typeName <> "'"
-      , "-- pair into a 'WireCodecImpl' via 'WC.serialShimCodec'."
-      , "-- The dispatch shape is identical to the native case —"
-      , "-- every 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through"
-      , "-- a 'Just'-valued codec, no 'Nothing' fallback survives in"
-      , "-- the generated output."
-      , "instance WC.WireCodec" <+> pretty typeName <+> "where"
-      , indent 2 $ vsep
-          [ "wireCodec = Just (WC.serialShimCodec encode" <> pretty typeName
-              <+> "decode" <> pretty typeName <> ")"
-          , "{-# INLINE wireCodec #-}"
-          ]
-      ]
 
 ----------------------------------------------------------------------
 -- wireMaxSize
@@ -395,21 +374,34 @@ generateNestedWirePoke
   -> Maybe Int16
   -> Doc ann
 generateNestedWirePoke structName fields flexibleVer =
-  let funName    = "wirePoke" <> pretty structName
-      isFlexible = case flexibleVer of
+  let funName       = "wirePoke" <> pretty structName
+      isFlexCond    = case flexibleVer of
         Just v  -> "version >=" <+> pretty v
         Nothing -> "False"
-      regular = filter (not . isPotentiallyTaggedField) fields
+      regular       = filter (not . isPotentiallyTaggedField) fields
+      taggedFields  = filter isPotentiallyTaggedField fields
       (lastVar, stmts) = pokeFieldStmts structName flexibleVer regular
-      -- Tagged-fields trailer is conditional on the message version
-      -- (not the struct's own version range — nested structs don't
-      -- have one). Mirrors what the legacy generator emits.
+      -- Tagged-fields trailer; same three-way split as
+      -- 'generatePokeBranch'. The nested struct uses the parent
+      -- message's version, so the tagged-field gates compose
+      -- transparently.
       trailer = case flexibleVer of
-        Just _  ->
-          [ "if" <+> isFlexible <+> "then WP.pokeEmptyTaggedFields"
-              <+> pretty lastVar <+> "else pure" <+> pretty lastVar
-          ]
         Nothing -> ["pure" <+> pretty lastVar]
+        Just _ -> case taggedFields of
+          [] ->
+            [ "if" <+> isFlexCond <+> "then WP.pokeEmptyTaggedFields"
+                <+> pretty lastVar <+> "else pure" <+> pretty lastVar
+            ]
+          _ ->
+            [ "if" <+> isFlexCond <+> "then do"
+            , indent 2 $ vsep
+                [ "let !_taggedEntries = "
+                    <> taggedEntriesExpr structName taggedFields
+                , "WP.pokeTaggedFieldEntries"
+                    <+> pretty lastVar <+> "_taggedEntries"
+                ]
+            , "else pure" <+> pretty lastVar
+            ]
   in vsep
     [ "-- | Direct-poke encoder for" <+> pretty structName <> "."
     , funName
@@ -431,6 +423,8 @@ generatePokeBranch typeName fields flexibleVer (minV, maxV) =
       regularFields =
         filter (\f -> fieldInVersionRange minV maxV f
                        && not (isPotentiallyTaggedField f)) fields
+      taggedFields =
+        filter isPotentiallyTaggedField fields
       guard
         | minV == maxV =
             "  | version ==" <+> pretty minV <+> "= do"
@@ -438,15 +432,121 @@ generatePokeBranch typeName fields flexibleVer (minV, maxV) =
             "  | version >=" <+> pretty minV
               <+> "&& version <=" <+> pretty maxV <+> "= do"
       (lastVar, stmts) = pokeFieldStmts typeName flexibleVer regularFields
+      -- Tagged-fields trailer. Three cases:
+      --   * non-flexible message version: nothing (no trailer at all)
+      --   * flexible + no tagged fields: emit the empty-tag marker
+      --   * flexible + tagged fields: build the entry list, then
+      --     emit it via 'pokeTaggedFieldEntries'.
       taggedStmt
-        | isFlexible =
+        | not isFlexible       = ["pure" <+> pretty lastVar]
+        | null taggedFields    =
             ["WP.pokeEmptyTaggedFields" <+> pretty lastVar]
         | otherwise =
-            ["pure" <+> pretty lastVar]
+            [ "let !_taggedEntries = "
+                <> taggedEntriesExpr typeName taggedFields
+            , "WP.pokeTaggedFieldEntries"
+                <+> pretty lastVar <+> "_taggedEntries"
+            ]
   in vsep
     [ guard
     , indent 4 (vsep (("p0 <- pure basePtr" :: Doc ann) : stmts ++ taggedStmt))
     ]
+
+-- | Build the @[(Word32, ByteString)]@ expression for a message's
+-- tagged-field trailer. Each entry is conditionally included based
+-- on the field's @taggedVersions@ gate.
+taggedEntriesExpr :: Text -> [FieldSpec] -> Doc ann
+taggedEntriesExpr _typeName [] = "([] :: [(Data.Word.Word32, Data.ByteString.ByteString)])"
+taggedEntriesExpr typeName fs =
+  hsep $ punctuate " ++"
+    [ taggedEntryGuard typeName f
+    | f <- fs
+    ]
+
+taggedEntryGuard :: Text -> FieldSpec -> Doc ann
+taggedEntryGuard typeName f =
+  let acc = parens (pretty (toHaskellFieldName typeName (fieldName f))
+                      <+> "msg")
+      tagNum = case fieldTag f of
+        Just t  -> pretty t
+        Nothing -> "0"
+      cond = case fieldTaggedVersions f of
+        Just spec -> case parseVersionSpec spec of
+          Right (VersionFrom v)    -> "version >=" <+> pretty v
+          Right (VersionRange a b) -> "version >=" <+> pretty a
+                                        <+> "&& version <=" <+> pretty b
+          Right (ExactVersion v)   -> "version ==" <+> pretty v
+          _                        -> "True"
+        Nothing -> "True"
+      payload = taggedFieldPayloadExpr f acc
+  in parens
+       ("if" <+> cond
+          <+> "then [(" <> tagNum <> "," <+> payload <> ")]"
+          <+> "else []")
+
+-- | Encode the field's value as a 'ByteString' for inclusion in the
+-- tagged-field trailer. Tagged fields always use the flexible
+-- encoding for their payload (compact strings / bytes / arrays);
+-- the wire codec of the field's type takes care of that.
+taggedFieldPayloadExpr :: FieldSpec -> Doc ann -> Doc ann
+taggedFieldPayloadExpr f acc = case fieldType f of
+  PrimitiveType "bool"    -> "W.runWirePut" <+> acc
+  PrimitiveType "int8"    -> "W.runWirePut" <+> parens ("(" <> acc <> " :: Data.Int.Int8)")
+  PrimitiveType "int16"   -> "W.runWirePut" <+> acc
+  PrimitiveType "int32"   -> "W.runWirePut" <+> acc
+  PrimitiveType "int64"   -> "W.runWirePut" <+> acc
+  PrimitiveType "uint16"  -> "W.runWirePut" <+> acc
+  PrimitiveType "uint32"  -> "W.runWirePut" <+> acc
+  PrimitiveType "float64" -> "W.runWirePut" <+> acc
+  PrimitiveType "uuid"    -> "W.runWirePut" <+> acc
+  PrimitiveType "string"  -> "W.runWirePut" <+> parens ("P.toCompactString" <+> acc)
+  PrimitiveType "bytes"   -> "W.runWirePut" <+> parens ("P.toCompactBytes" <+> acc)
+  PrimitiveType _         -> "(error \"WireGenerator: tagged primitive\")"
+  StructType structName ->
+    "W.runWirePokeWith"
+      <+> parens ("wireMaxSize" <> pretty structName <+> "version" <+> acc)
+      <+> parens ("\\p -> wirePoke" <> pretty structName <+> "version p" <+> acc)
+  ArrayType inner ->
+    "W.runWirePokeWith"
+      <+> parens ("5 + (case P.unKafkaArray" <+> acc
+                    <+> "of { P.NotNull v -> sum (fmap (\\x -> "
+                      <> elementSize inner
+                      <> ") v); P.Null -> 0 })")
+      <+> parens ("\\p -> WP.pokeCompactArray"
+                    <+> elementPokeForTagged inner
+                    <+> "p" <+> acc)
+  where
+    elementSize :: TypeSpec -> Doc ann
+    elementSize = \case
+      PrimitiveType "bool"    -> "1"
+      PrimitiveType "int8"    -> "1"
+      PrimitiveType "int16"   -> "2"
+      PrimitiveType "int32"   -> "4"
+      PrimitiveType "int64"   -> "8"
+      PrimitiveType "uint16"  -> "2"
+      PrimitiveType "uint32"  -> "4"
+      PrimitiveType "uuid"    -> "16"
+      PrimitiveType "float64" -> "8"
+      PrimitiveType "string"  -> "WP.compactStringMaxSize (P.toCompactString x)"
+      PrimitiveType "bytes"   -> "WP.compactBytesMaxSize  (P.toCompactBytes  x)"
+      StructType s            -> "wireMaxSize" <> pretty s <+> "version x"
+      _                       -> "0"
+
+    elementPokeForTagged :: TypeSpec -> Doc ann
+    elementPokeForTagged = \case
+      PrimitiveType "bool"    -> "(\\p_ x -> W.pokeWord8 p_ (if x then 1 else 0))"
+      PrimitiveType "int8"    -> "(\\p_ x -> W.pokeWord8 p_ (fromIntegral (x :: Data.Int.Int8)))"
+      PrimitiveType "int16"   -> "W.pokeInt16BE"
+      PrimitiveType "int32"   -> "W.pokeInt32BE"
+      PrimitiveType "int64"   -> "W.pokeInt64BE"
+      PrimitiveType "uint16"  -> "W.pokeWord16BE"
+      PrimitiveType "uint32"  -> "W.pokeWord32BE"
+      PrimitiveType "uuid"    -> "WP.pokeKafkaUuid"
+      PrimitiveType "float64" -> "W.pokeFloat64BE"
+      PrimitiveType "string"  -> "(\\p_ s -> WP.pokeCompactString p_ (P.toCompactString s))"
+      PrimitiveType "bytes"   -> "(\\p_ b -> WP.pokeCompactBytes  p_ (P.toCompactBytes  b))"
+      StructType s            -> "(\\p_ x -> wirePoke" <> pretty s <+> "version p_ x)"
+      _                       -> "(\\p_ _ -> pure p_)"
 
 -- | Emit per-field poke statements; threads cursor through @p0, p1, …@.
 pokeFieldStmts
@@ -599,20 +699,39 @@ generateNestedWirePeek
 generateNestedWirePeek structName fields flexibleVer =
   let funName       = "wirePeek" <> pretty structName
       regular       = filter (not . isPotentiallyTaggedField) fields
+      taggedFields  = filter isPotentiallyTaggedField fields
       (lastVar, decodeStmts, fieldVarMap) =
         peekFieldStmts structName flexibleVer regular
-      trailerStmt = case flexibleVer of
-        Just v ->
-          [ "pTagsEnd <- if version >="
-              <+> pretty v
-              <+> "then WP.peekAndSkipTaggedFields"
-              <+> pretty lastVar <+> "endPtr"
-              <+> "else pure" <+> pretty lastVar
-          ]
-        Nothing -> []
-      finalCur =
-        if isJust flexibleVer then "pTagsEnd" else lastVar
-      recordBuild = buildRecord structName fields fieldVarMap
+      -- Tagged-fields trailer. When the nested struct has known
+      -- tagged fields and the parent is at a flexible version, read
+      -- the tagged-fields envelope into a 'Map Word32 ByteString'
+      -- and bind each known tag via a per-field decode + default.
+      (trailerStmt, taggedVarMap, finalCur) = case flexibleVer of
+        Nothing ->
+          ([], [], lastVar)
+        Just v -> case taggedFields of
+          [] ->
+            ( [ "pTagsEnd <- if version >=" <+> pretty v
+                  <+> "then WP.peekAndSkipTaggedFields"
+                    <+> pretty lastVar <+> "endPtr"
+                  <+> "else pure" <+> pretty lastVar
+              ]
+            , []
+            , "pTagsEnd"
+            )
+          _ ->
+            ( [ "(_taggedMap, pTagsEnd) <- if version >=" <+> pretty v
+                  <+> "then WP.peekTaggedFieldsMap"
+                    <+> pretty lastVar <+> "endPtr"
+                  <+> "else pure (Data.Map.Strict.empty, "
+                    <> pretty lastVar <> ")"
+              ]
+              ++ map (taggedFieldBinding structName) taggedFields
+            , [ (fieldName f, taggedVarFor f) | f <- taggedFields ]
+            , "pTagsEnd"
+            )
+      recordBuild =
+        buildRecordWithTagged structName fields fieldVarMap taggedVarMap
   in vsep
     [ "-- | Direct-poke decoder for" <+> pretty structName <> "."
     , funName
@@ -635,6 +754,8 @@ generatePeekBranch typeName allFields flexibleVer (minV, maxV) =
       regularFields =
         filter (\f -> fieldInVersionRange minV maxV f
                        && not (isPotentiallyTaggedField f)) allFields
+      taggedFields =
+        filter isPotentiallyTaggedField allFields
       guard
         | minV == maxV =
             "  | version ==" <+> pretty minV <+> "= do"
@@ -643,19 +764,125 @@ generatePeekBranch typeName allFields flexibleVer (minV, maxV) =
               <+> "&& version <=" <+> pretty maxV <+> "= do"
       (lastVar, decodeStmts, fieldVarMap) =
         peekFieldStmts typeName flexibleVer regularFields
-      trailerStmt
-        | isFlexible =
-            ["pTagsEnd <- WP.peekAndSkipTaggedFields" <+> pretty lastVar
-              <+> "endPtr"]
-        | otherwise = []
-      finalCur =
-        if isFlexible then "pTagsEnd" else lastVar
-      recordBuild = buildRecord typeName allFields fieldVarMap
+      -- Tagged-fields trailer. If the message has known tagged
+      -- fields with payloads, read them into a 'Map Word32
+      -- ByteString' and bind each known field via a per-tag
+      -- decode + default.
+      (trailerStmt, taggedVarMap, finalCur)
+        | not isFlexible =
+            ([], [], lastVar)
+        | null taggedFields =
+            ( ["pTagsEnd <- WP.peekAndSkipTaggedFields"
+                <+> pretty lastVar <+> "endPtr"]
+            , []
+            , "pTagsEnd"
+            )
+        | otherwise =
+            let mapStmt =
+                  "(_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap"
+                    <+> pretty lastVar <+> "endPtr"
+                taggedBindings = map (taggedFieldBinding typeName) taggedFields
+            in ( mapStmt : taggedBindings
+               , [ (fieldName f, taggedVarFor f) | f <- taggedFields ]
+               , "pTagsEnd"
+               )
+      recordBuild =
+        buildRecordWithTagged typeName allFields fieldVarMap taggedVarMap
   in vsep
     [ guard
     , indent 4 $ vsep $ decodeStmts ++ trailerStmt ++
         [ "pure" <+> parens (recordBuild <> "," <+> pretty finalCur) ]
     ]
+
+-- | Variable name we bind a tagged field's decoded value to.
+taggedVarFor :: FieldSpec -> Text
+taggedVarFor f = "_tag_" <> sanitiseVar (fieldName f)
+
+-- | Emit @let _tag_x = case Map.lookup tag _taggedMap of { Just bs ->
+-- ... ; Nothing -> default }@ for a single tagged field.
+taggedFieldBinding :: Text -> FieldSpec -> Doc ann
+taggedFieldBinding typeName f =
+  let var       = pretty (taggedVarFor f)
+      tagNum    = case fieldTag f of
+        Just t  -> pretty t
+        Nothing -> "0"
+      gate = case fieldTaggedVersions f of
+        Just spec -> case parseVersionSpec spec of
+          Right (VersionFrom v)    -> "version >=" <+> pretty v
+          Right (VersionRange a b) -> "version >=" <+> pretty a
+                                        <+> "&& version <=" <+> pretty b
+          Right (ExactVersion v)   -> "version ==" <+> pretty v
+          _                        -> "True"
+        Nothing -> "True"
+      decoder = taggedFieldDecodeExpr typeName f
+      defaultVal = generateFieldDefaultDoc f
+  in "let !" <> var <+> "= if" <+> gate
+       <+> "then case Data.Map.Strict.lookup"
+       <+> tagNum <+> "_taggedMap of {"
+       <+> "Just _bs -> case" <+> decoder <+> "_bs of {"
+       <+> "Right _v -> _v ; Left _ -> " <> defaultVal
+       <> "}; Nothing -> " <> defaultVal
+       <> "} else " <> defaultVal
+
+-- | Wire-shape decoder for a single tagged field's payload.
+taggedFieldDecodeExpr :: Text -> FieldSpec -> Doc ann
+taggedFieldDecodeExpr _typeName f = case fieldType f of
+  PrimitiveType "bool"    -> "(W.runWireGet :: Data.ByteString.ByteString -> Either String Bool)"
+  PrimitiveType "int8"    -> "(\\b -> fmap (fromIntegral :: Data.Word.Word8 -> Data.Int.Int8) (W.runWireGet b))"
+  PrimitiveType "int16"   -> "(W.runWireGet :: Data.ByteString.ByteString -> Either String Data.Int.Int16)"
+  PrimitiveType "int32"   -> "(W.runWireGet :: Data.ByteString.ByteString -> Either String Data.Int.Int32)"
+  PrimitiveType "int64"   -> "(W.runWireGet :: Data.ByteString.ByteString -> Either String Data.Int.Int64)"
+  PrimitiveType "uint16"  -> "(W.runWireGet :: Data.ByteString.ByteString -> Either String Data.Word.Word16)"
+  PrimitiveType "uint32"  -> "(W.runWireGet :: Data.ByteString.ByteString -> Either String Data.Word.Word32)"
+  PrimitiveType "float64" -> "(W.runWireGet :: Data.ByteString.ByteString -> Either String Double)"
+  PrimitiveType "uuid"    -> "(W.runWireGet :: Data.ByteString.ByteString -> Either String P.KafkaUuid)"
+  PrimitiveType "string"  ->
+    "(\\b -> fmap P.fromCompactString ((W.runWireGet :: Data.ByteString.ByteString -> Either String P.CompactString) b))"
+  PrimitiveType "bytes"   ->
+    "(\\b -> fmap P.fromCompactBytes  ((W.runWireGet :: Data.ByteString.ByteString -> Either String P.CompactBytes ) b))"
+  PrimitiveType _         -> "(\\_ -> Left \"WireGenerator: tagged primitive\")"
+  StructType s ->
+    "(W.runWireGetWith (\\_fp _bp p e -> wirePeek" <> pretty s
+      <+> "version _fp _bp p e))"
+  ArrayType inner ->
+    "(W.runWireGetWith (\\_fp _bp p e -> WP.peekCompactArray "
+      <> elementPeekForTagged inner <+> "p e))"
+  where
+    elementPeekForTagged :: TypeSpec -> Doc ann
+    elementPeekForTagged = \case
+      PrimitiveType "bool"    -> "(\\p e -> (\\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p e)"
+      PrimitiveType "int8"    -> "(\\p e -> (\\(w, p') -> (fromIntegral w :: Data.Int.Int8, p')) <$> W.peekWord8 p e)"
+      PrimitiveType "int16"   -> "W.peekInt16BE"
+      PrimitiveType "int32"   -> "W.peekInt32BE"
+      PrimitiveType "int64"   -> "W.peekInt64BE"
+      PrimitiveType "uint16"  -> "W.peekWord16BE"
+      PrimitiveType "uint32"  -> "W.peekWord32BE"
+      PrimitiveType "uuid"    -> "WP.peekKafkaUuid"
+      PrimitiveType "float64" -> "W.peekFloat64BE"
+      PrimitiveType "string"  -> "(\\p e -> (\\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e)"
+      PrimitiveType "bytes"   -> "(\\p e -> (\\(cb, p') -> (P.fromCompactBytes  cb, p')) <$> WP.peekCompactBytes  p e)"
+      StructType s            -> "(\\p e -> wirePeek" <> pretty s <+> "version _fp _bp p e)"
+      _                       -> "(\\p _ -> error \"WireGenerator: unsupported tagged-array element\")"
+
+-- | Same as 'buildRecord' but also splices in tagged-field var
+-- bindings.
+buildRecordWithTagged
+  :: Text
+  -> [FieldSpec]
+  -> [(Text, Text)]    -- regular field var map
+  -> [(Text, Text)]    -- tagged field var map
+  -> Doc ann
+buildRecordWithTagged typeName allFields regularMap taggedMap =
+  let fieldDoc f =
+        let recName = toHaskellFieldName typeName (fieldName f)
+            value   = case lookup (fieldName f) regularMap of
+              Just var -> pretty var
+              Nothing  -> case lookup (fieldName f) taggedMap of
+                Just var -> pretty var
+                Nothing  -> generateFieldDefaultDoc f
+        in pretty recName <+> "=" <+> value
+      assignments = punctuate "," (map fieldDoc allFields)
+  in pretty typeName <+> "{" <+> hsep assignments <+> "}"
 
 peekFieldStmts
   :: Text

@@ -220,13 +220,10 @@ generateMessage schema =
     , -- Per-struct Wire pokes / peeks (children first so the
       -- message-level codec can call them transparently).
       vsep perStructWire
-    , -- Wire-codec block. Every schema gets a 'Just'-valued
-      -- 'WireCodec' instance — there is no 'wireCodec = Nothing'
-      -- fallback in the generated output. Schemas the WireGenerator
-      -- can natively emit a poke / peek / size for ship those
-      -- functions plus an instance pointing at them; the rest get a
-      -- shim instance that lifts the legacy 'Serial' encoder /
-      -- decoder into the same 'WireCodecImpl' shape.
+    , -- Native Wire codec block: per-message 'wireMaxSize' /
+      -- 'wirePoke' / 'wirePeek' functions + the 'WireCodec'
+      -- instance pointing at them. There is no Serial fallback —
+      -- the WireGenerator handles every schema the parser accepts.
       case WG.generateWireFunctions schema of
         Just fns -> vsep (fns ++ ["", WG.generateWireCodecOverride schema])
         Nothing  -> WG.generateWireCodecOverride schema
@@ -344,30 +341,6 @@ generateMaxVersionConstant typeName maxVer =
     , constantName <+> ":: Int16"
     , constantName <+> "=" <+> versionValue
     ]
-
--- | Generate the default 'WC.WireCodec' instance every message
--- gets. The instance returns 'Nothing', which makes
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' fall back to the
--- 'runPutS' / 'runGetS' shape — same wire bytes as before this
--- typeclass landed.
---
--- Modules that are migrated to a native 'Wire' codec
--- (i.e. once "Kafka.Protocol.Codegen.WireGenerator" emits real
--- @wirePokeFoo@ / @wirePeekFoo@ functions for them) override
--- this instance via a separate code path; for now every message
--- ships the pass-through default.
-generateWireCodecInstance :: Text -> Doc ann
-generateWireCodecInstance typeName = vsep
-  [ "-- | Default 'WC.WireCodec' instance: 'wireCodec = Nothing'"
-  , "-- means 'WC.runEncodeVer' and 'WC.runDecodeVer' route through"
-  , "-- the 'Data.Bytes.Serial' encoders / decoders defined above."
-  , "-- A future codegen pass will override this with a 'Just'-valued"
-  , "-- 'WireCodecImpl' wrapping the native @wirePokeFoo@ /"
-  , "-- @wirePeekFoo@ functions."
-  , "instance WC.WireCodec" <+> pretty typeName <+> "where"
-  , indent 2 "wireCodec = Nothing"
-  , indent 2 "{-# INLINE wireCodec #-}"
-  ]
 
 -- | Generate a KafkaMessage instance for messages with API keys.
 -- Messages without an API key (e.g., headers, internal types) won't have an instance.

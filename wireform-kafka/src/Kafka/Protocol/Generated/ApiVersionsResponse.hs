@@ -54,6 +54,10 @@ import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
 import Foreign.Ptr (Ptr)
 import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
 import qualified Kafka.Protocol.Wire as W
 import qualified Kafka.Protocol.Wire.Primitives as WP
 
@@ -503,16 +507,75 @@ wirePeekFinalizedFeatureKey version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (FinalizedFeatureKey { finalizedFeatureKeyName = f0_name, finalizedFeatureKeyMaxVersionLevel = f1_maxversionlevel, finalizedFeatureKeyMinVersionLevel = f2_minversionlevel }, pTagsEnd)
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries tagged fields with payloads — KIP-866
--- style — that the generator hasn't been taught yet), so
--- we lift the legacy 'encodeApiVersionsResponse' / 'decodeApiVersionsResponse'
--- pair into a 'WireCodecImpl' via 'WC.serialShimCodec'.
--- The dispatch shape is identical to the native case —
--- every 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through
--- a 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a ApiVersionsResponse.
+wireMaxSizeApiVersionsResponse :: Int -> ApiVersionsResponse -> Int
+wireMaxSizeApiVersionsResponse _version msg =
+  0
+  + 2
+  + (5 + (case P.unKafkaArray (apiVersionsResponseApiKeys msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeApiVersion _version x ) v); P.Null -> 0 }))
+  + 4
+  + (5 + (case P.unKafkaArray (apiVersionsResponseSupportedFeatures msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeSupportedFeatureKey _version x ) v); P.Null -> 0 }))
+  + 8
+  + (5 + (case P.unKafkaArray (apiVersionsResponseFinalizedFeatures msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeFinalizedFeatureKey _version x ) v); P.Null -> 0 }))
+  + 1
+  + 1
+
+-- | Direct-poke encoder for ApiVersionsResponse.
+wirePokeApiVersionsResponse :: Int -> Ptr Word8 -> ApiVersionsResponse -> IO (Ptr Word8)
+wirePokeApiVersionsResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (apiVersionsResponseErrorCode msg)
+    p2 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeApiVersion version p x) p1 (apiVersionsResponseApiKeys msg)
+    pure p2
+  | version >= 1 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (apiVersionsResponseErrorCode msg)
+    p2 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeApiVersion version p x) p1 (apiVersionsResponseApiKeys msg)
+    p3 <- W.pokeInt32BE p2 (apiVersionsResponseThrottleTimeMs msg)
+    pure p3
+  | version >= 3 && version <= 5 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (apiVersionsResponseErrorCode msg)
+    p2 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeApiVersion version p x) p1 (apiVersionsResponseApiKeys msg)
+    p3 <- W.pokeInt32BE p2 (apiVersionsResponseThrottleTimeMs msg)
+    let !_taggedEntries = (if version >= 3 then [(0, W.runWirePokeWith (5 + (case P.unKafkaArray (apiVersionsResponseSupportedFeatures msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeSupportedFeatureKey version x) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray (\p_ x -> wirePokeSupportedFeatureKey version p_ x) p (apiVersionsResponseSupportedFeatures msg)))] else []) ++ (if version >= 3 then [(1, W.runWirePut (apiVersionsResponseFinalizedFeaturesEpoch msg))] else []) ++ (if version >= 3 then [(2, W.runWirePokeWith (5 + (case P.unKafkaArray (apiVersionsResponseFinalizedFeatures msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeFinalizedFeatureKey version x) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray (\p_ x -> wirePokeFinalizedFeatureKey version p_ x) p (apiVersionsResponseFinalizedFeatures msg)))] else []) ++ (if version >= 3 then [(3, W.runWirePut (apiVersionsResponseZkMigrationReady msg))] else [])
+    WP.pokeTaggedFieldEntries p3 _taggedEntries
+  | otherwise = error $ "wirePoke ApiVersionsResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ApiVersionsResponse.
+wirePeekApiVersionsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ApiVersionsResponse, Ptr Word8)
+wirePeekApiVersionsResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_apikeys, p2) <- WP.peekVersionedArray version 3 (\p e -> wirePeekApiVersion version _fp _basePtr p e) p1 endPtr
+    pure (ApiVersionsResponse { apiVersionsResponseErrorCode = f0_errorcode, apiVersionsResponseApiKeys = f1_apikeys, apiVersionsResponseThrottleTimeMs = 0, apiVersionsResponseSupportedFeatures = P.mkKafkaArray V.empty, apiVersionsResponseFinalizedFeaturesEpoch = 0, apiVersionsResponseFinalizedFeatures = P.mkKafkaArray V.empty, apiVersionsResponseZkMigrationReady = False }, p2)
+  | version >= 1 && version <= 2 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_apikeys, p2) <- WP.peekVersionedArray version 3 (\p e -> wirePeekApiVersion version _fp _basePtr p e) p1 endPtr
+    (f2_throttletimems, p3) <- W.peekInt32BE p2 endPtr
+    pure (ApiVersionsResponse { apiVersionsResponseErrorCode = f0_errorcode, apiVersionsResponseApiKeys = f1_apikeys, apiVersionsResponseThrottleTimeMs = f2_throttletimems, apiVersionsResponseSupportedFeatures = P.mkKafkaArray V.empty, apiVersionsResponseFinalizedFeaturesEpoch = 0, apiVersionsResponseFinalizedFeatures = P.mkKafkaArray V.empty, apiVersionsResponseZkMigrationReady = False }, p3)
+  | version >= 3 && version <= 5 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_apikeys, p2) <- WP.peekVersionedArray version 3 (\p e -> wirePeekApiVersion version _fp _basePtr p e) p1 endPtr
+    (f2_throttletimems, p3) <- W.peekInt32BE p2 endPtr
+    (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p3 endPtr
+    let !_tag_supportedfeatures = if version >= 3 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray (\p e -> wirePeekSupportedFeatureKey version _fp _bp p e) p e)) _bs of { Right _v -> _v ; Left _ -> P.mkKafkaArray V.empty}; Nothing -> P.mkKafkaArray V.empty} else P.mkKafkaArray V.empty
+    let !_tag_finalizedfeaturesepoch = if version >= 3 then case Data.Map.Strict.lookup 1 _taggedMap of { Just _bs -> case (W.runWireGet :: Data.ByteString.ByteString -> Either String Data.Int.Int64) _bs of { Right _v -> _v ; Left _ -> 0}; Nothing -> 0} else 0
+    let !_tag_finalizedfeatures = if version >= 3 then case Data.Map.Strict.lookup 2 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray (\p e -> wirePeekFinalizedFeatureKey version _fp _bp p e) p e)) _bs of { Right _v -> _v ; Left _ -> P.mkKafkaArray V.empty}; Nothing -> P.mkKafkaArray V.empty} else P.mkKafkaArray V.empty
+    let !_tag_zkmigrationready = if version >= 3 then case Data.Map.Strict.lookup 3 _taggedMap of { Just _bs -> case (W.runWireGet :: Data.ByteString.ByteString -> Either String Bool) _bs of { Right _v -> _v ; Left _ -> False}; Nothing -> False} else False
+    pure (ApiVersionsResponse { apiVersionsResponseErrorCode = f0_errorcode, apiVersionsResponseApiKeys = f1_apikeys, apiVersionsResponseThrottleTimeMs = f2_throttletimems, apiVersionsResponseSupportedFeatures = _tag_supportedfeatures, apiVersionsResponseFinalizedFeaturesEpoch = _tag_finalizedfeaturesepoch, apiVersionsResponseFinalizedFeatures = _tag_finalizedfeatures, apiVersionsResponseZkMigrationReady = _tag_zkmigrationready }, pTagsEnd)
+  | otherwise = error $ "wirePeek ApiVersionsResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
 instance WC.WireCodec ApiVersionsResponse where
-  wireCodec = Just (WC.serialShimCodec encodeApiVersionsResponse decodeApiVersionsResponse)
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeApiVersionsResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeApiVersionsResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekApiVersionsResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

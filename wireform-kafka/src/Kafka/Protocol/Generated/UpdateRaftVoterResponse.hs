@@ -52,6 +52,10 @@ import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
 import Foreign.Ptr (Ptr)
 import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
 import qualified Kafka.Protocol.Wire as W
 import qualified Kafka.Protocol.Wire.Primitives as WP
 
@@ -222,16 +226,46 @@ wirePeekCurrentLeader version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (CurrentLeader { currentLeaderLeaderId = f0_leaderid, currentLeaderLeaderEpoch = f1_leaderepoch, currentLeaderHost = f2_host, currentLeaderPort = f3_port }, pTagsEnd)
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries tagged fields with payloads — KIP-866
--- style — that the generator hasn't been taught yet), so
--- we lift the legacy 'encodeUpdateRaftVoterResponse' / 'decodeUpdateRaftVoterResponse'
--- pair into a 'WireCodecImpl' via 'WC.serialShimCodec'.
--- The dispatch shape is identical to the native case —
--- every 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through
--- a 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a UpdateRaftVoterResponse.
+wireMaxSizeUpdateRaftVoterResponse :: Int -> UpdateRaftVoterResponse -> Int
+wireMaxSizeUpdateRaftVoterResponse _version msg =
+  0
+  + 4
+  + 2
+  + wireMaxSizeCurrentLeader _version (updateRaftVoterResponseCurrentLeader msg)
+  + 1
+
+-- | Direct-poke encoder for UpdateRaftVoterResponse.
+wirePokeUpdateRaftVoterResponse :: Int -> Ptr Word8 -> UpdateRaftVoterResponse -> IO (Ptr Word8)
+wirePokeUpdateRaftVoterResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (updateRaftVoterResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (updateRaftVoterResponseErrorCode msg)
+    let !_taggedEntries = (if version >= 0 then [(0, W.runWirePokeWith (wireMaxSizeCurrentLeader version (updateRaftVoterResponseCurrentLeader msg)) (\p -> wirePokeCurrentLeader version p (updateRaftVoterResponseCurrentLeader msg)))] else [])
+    WP.pokeTaggedFieldEntries p2 _taggedEntries
+  | otherwise = error $ "wirePoke UpdateRaftVoterResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for UpdateRaftVoterResponse.
+wirePeekUpdateRaftVoterResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (UpdateRaftVoterResponse, Ptr Word8)
+wirePeekUpdateRaftVoterResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p2 endPtr
+    let !_tag_currentleader = if version >= 0 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> wirePeekCurrentLeader version _fp _bp p e)) _bs of { Right _v -> _v ; Left _ -> undefined :: CurrentLeader}; Nothing -> undefined :: CurrentLeader} else undefined :: CurrentLeader
+    pure (UpdateRaftVoterResponse { updateRaftVoterResponseThrottleTimeMs = f0_throttletimems, updateRaftVoterResponseErrorCode = f1_errorcode, updateRaftVoterResponseCurrentLeader = _tag_currentleader }, pTagsEnd)
+  | otherwise = error $ "wirePeek UpdateRaftVoterResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
 instance WC.WireCodec UpdateRaftVoterResponse where
-  wireCodec = Just (WC.serialShimCodec encodeUpdateRaftVoterResponse decodeUpdateRaftVoterResponse)
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeUpdateRaftVoterResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeUpdateRaftVoterResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekUpdateRaftVoterResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

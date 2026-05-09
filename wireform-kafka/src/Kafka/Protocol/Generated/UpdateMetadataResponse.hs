@@ -51,6 +51,10 @@ import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
 import Foreign.Ptr (Ptr)
 import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
 import qualified Kafka.Protocol.Wire as W
 import qualified Kafka.Protocol.Wire.Primitives as WP
 
@@ -105,9 +109,9 @@ wirePeekUpdateMetadataResponse _version _fp _basePtr _p _endPtr =
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated below, skipping the 'Data.Bytes.Serial' runner.
+-- generated above. There is no Serial fallback path.
 instance WC.WireCodec UpdateMetadataResponse where
-  wireCodec = Just WC.WireCodecImpl
+  wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeUpdateMetadataResponse (fromIntegral v) msg
     , WC.wirePokeFor    = \v p msg -> wirePokeUpdateMetadataResponse (fromIntegral v) p msg
     , WC.wirePeekFor    = \v fp basePtr p endPtr ->
