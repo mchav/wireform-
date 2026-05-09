@@ -31,6 +31,7 @@ import qualified Protocol.Generated.ComprehensiveSpec
 import qualified Protocol.VersionHandlingSpec
 import qualified Protocol.WireSpec
 import qualified Protocol.RecordBatchWireSpec
+import qualified Protocol.VersionNegotiationSpec
 import qualified Protocol.ApiVersionsSpec
 import qualified Client.BatchAccumulatorSpec
 import qualified Client.ConsumerConfigSpec
@@ -115,6 +116,7 @@ protocolTests = testGroup "Protocol"
   , Protocol.RecordBatchSpec.tests
   , Protocol.WireSpec.tests
   , Protocol.RecordBatchWireSpec.tests
+  , Protocol.VersionNegotiationSpec.tests
   ]
 
 generatedTests :: TestTree -> TestTree -> TestTree

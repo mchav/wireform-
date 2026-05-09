@@ -722,6 +722,7 @@ test-suite wireform-kafka-test
         Protocol.VersionHandlingSpec
         Protocol.WireSpec
         Protocol.RecordBatchWireSpec
+        Protocol.VersionNegotiationSpec
         TestUtil.BrokerGate
     build-depends:
         base,

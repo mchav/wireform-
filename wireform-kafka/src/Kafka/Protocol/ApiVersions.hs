@@ -29,6 +29,8 @@ module Kafka.Protocol.ApiVersions
     -- * Utilities
   , selectVersion
   , isVersionSupported
+    -- * Test seeding (use with care)
+  , unsafeSeedVersionCache
   ) where
 
 import Control.Concurrent.STM
@@ -157,3 +159,21 @@ selectVersion clientMaxVersion ApiVersionRange{..}
 isVersionSupported :: Int16 -> ApiVersionRange -> Bool
 isVersionSupported version ApiVersionRange{..} =
   version >= rangeMinVersion && version <= rangeMaxVersion
+
+-- | Manually seed a 'ApiVersionCache' with a (broker, apiKey
+-- range) entry, bypassing the wire-level handshake. Intended
+-- for the test suite — production callers should use
+-- 'negotiateVersions' (or 'Kafka.Protocol.VersionNegotiation.ensureVersionsNegotiated')
+-- which both populates the cache and validates the broker is
+-- actually reachable.
+--
+-- The function is named @unsafeSeed*@ so a @grep@ for it picks
+-- it up; if you find yourself reaching for this in
+-- application code, prefer the negotiation helpers.
+unsafeSeedVersionCache
+  :: ApiVersionCache
+  -> BrokerAddress
+  -> Map Int16 ApiVersionRange
+  -> IO ()
+unsafeSeedVersionCache (ApiVersionCache cache) addr m =
+  atomically (StmMap.insert m addr cache)
