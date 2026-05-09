@@ -60,6 +60,7 @@ unit_batchTimeoutDetection = testCase "Batch timeout detection" $ do
         , BA.batchProducerId = RB.noProducerId
         , BA.batchProducerEpoch = RB.noProducerEpoch
         , BA.batchBaseSequence = RB.noSequence
+        , BA.batchIsTransactional = False
         }
   
   -- Test that the batch is detected as timed out
@@ -94,6 +95,7 @@ unit_batchNotTimedOut = testCase "Batch not timed out when within timeout" $ do
         , BA.batchProducerId = RB.noProducerId
         , BA.batchProducerEpoch = RB.noProducerEpoch
         , BA.batchBaseSequence = RB.noSequence
+        , BA.batchIsTransactional = False
         }
   
   -- Test that the batch is NOT detected as timed out
@@ -129,6 +131,7 @@ prop_timeoutDetectionCorrectness = property $ do
         , BA.batchProducerId = RB.noProducerId
         , BA.batchProducerEpoch = RB.noProducerEpoch
         , BA.batchBaseSequence = RB.noSequence
+        , BA.batchIsTransactional = False
         }
       
       isTimedOut = Sender.isBatchTimedOut currentTime deliveryTimeoutMs batch
@@ -167,6 +170,7 @@ prop_veryOldBatchesTimeout = property $ do
         , BA.batchProducerId = RB.noProducerId
         , BA.batchProducerEpoch = RB.noProducerEpoch
         , BA.batchBaseSequence = RB.noSequence
+        , BA.batchIsTransactional = False
         }
       
       isTimedOut = Sender.isBatchTimedOut currentTime deliveryTimeoutMs batch
@@ -200,6 +204,7 @@ prop_freshBatchesNeverTimeout = property $ do
         , BA.batchProducerId = RB.noProducerId
         , BA.batchProducerEpoch = RB.noProducerEpoch
         , BA.batchBaseSequence = RB.noSequence
+        , BA.batchIsTransactional = False
         }
       
       isTimedOut = Sender.isBatchTimedOut currentTime deliveryTimeoutMs batch

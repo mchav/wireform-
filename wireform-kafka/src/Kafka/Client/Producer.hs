@@ -48,6 +48,28 @@ module Kafka.Client.Producer
   , sendMessage
   , sendMessageAsync
   , sendBatch
+    -- * Transactions
+    --
+    -- | The high-level KIP-98 / KIP-447 lifecycle (initTransactions /
+    -- beginTransaction / commitTransaction / abortTransaction /
+    -- sendOffsetsToTransaction) lives in
+    -- "Kafka.Client.Transaction". To make 'sendMessage' actually
+    -- participate in a transaction, bind a 'Txn.Transaction' to the
+    -- producer with 'bindTransaction' /after/
+    -- 'Txn.initTransactions' has populated its producer-id / epoch.
+    --
+    -- After binding:
+    --
+    --   * 'sendMessage' is rejected with 'Left' unless the
+    --     transaction is in the 'Txn.InTransaction' state;
+    --   * the first 'sendMessage' on a (topic, partition) issues an
+    --     @AddPartitionsToTxn@ to the coordinator before enqueuing
+    --     the record;
+    --   * outgoing record batches are stamped with the
+    --     transactional producer-id / epoch / sequence and have
+    --     their @attrIsTransactional@ bit set.
+  , bindTransaction
+  , producerBoundTransaction
     -- * Partitioning
   , Partitioner
   , defaultPartitioner
@@ -67,19 +89,24 @@ import qualified Data.Time.Clock.POSIX as Time
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable (hash)
+import qualified Data.Hashable as Hashable
 import Data.Int
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import GHC.Generics (Generic)
+import qualified ListT
 import qualified StmContainers.Map as StmMap
 import System.Timeout (timeout)
 
 import qualified Kafka.Compression.Types as Compression
 import Kafka.Compression.Types (CompressionCodec, defaultCodec)
+import qualified Kafka.Client.Consumer as KCC
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
 import qualified Kafka.Client.Internal.ProducerSender as Sender
+import qualified Kafka.Client.Internal.TransactionCoordinator as TC
 import qualified Kafka.Client.Metadata as Meta
+import qualified Kafka.Client.Transaction as Txn
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.RecordBatch as RB
 
@@ -298,6 +325,24 @@ data Producer = Producer
   , producerSequenceNumbers :: !(StmMap.Map BA.TopicPartition Int32)
     -- ^ Per-(topic, partition) next sequence number to stamp
     --   onto the next batch's 'batchBaseSequence'. KIP-98.
+  , producerTransaction :: !(TVar (Maybe Txn.Transaction))
+    -- ^ When 'Just', the producer is bound to a 'Txn.Transaction'
+    --   and 'sendMessage' participates in its KIP-98 / KIP-447
+    --   transactional lifecycle: state is enforced to be
+    --   'Txn.InTransaction', record batches are stamped with the
+    --   transaction's producer-id / epoch and the
+    --   'attrIsTransactional' bit, and the first send to a
+    --   (topic, partition) lazily issues an
+    --   @AddPartitionsToTxn@ to the coordinator. Set via
+    --   'bindTransaction'; cleared on 'closeProducer' (which also
+    --   aborts an open txn).
+  , producerRegisteredPartitions :: !(StmMap.Map BA.TopicPartition ())
+    -- ^ Partitions that have already been registered with the
+    --   transaction coordinator inside the /current/
+    --   transaction. Reset by 'beginTransaction' / on each
+    --   commit/abort cycle. Used to make
+    --   'AddPartitionsToTxn' idempotent without re-issuing the
+    --   request on every send.
   }
 
 -- | Create a new Kafka producer.
@@ -397,6 +442,8 @@ createProducer brokerAddrs config = do
       idempotentPid   <- newTVarIO RB.noProducerId
       idempotentEpoch <- newTVarIO RB.noProducerEpoch
       sequenceNumbers <- StmMap.newIO
+      transaction     <- newTVarIO Nothing
+      registeredParts <- StmMap.newIO
 
       -- Return producer handle
       return $ Right Producer
@@ -411,6 +458,8 @@ createProducer brokerAddrs config = do
         , producerIdempotentId = idempotentPid
         , producerIdempotentEpoch = idempotentEpoch
         , producerSequenceNumbers = sequenceNumbers
+        , producerTransaction = transaction
+        , producerRegisteredPartitions = registeredParts
         }
 
 -- | Parse broker address in "host:port" format
@@ -433,6 +482,22 @@ parseBrokerAddress addr =
 --   5. Close all connections
 closeProducer :: Producer -> IO ()
 closeProducer p@Producer{..} = do
+  -- If a transaction is bound and currently open, abort it before
+  -- shutdown. Mirrors the JVM client's @KafkaProducer.close@
+  -- behaviour: an open transaction at close time is rolled back
+  -- so the broker doesn't keep the txn id locked until its
+  -- @transaction.timeout.ms@ deadline elapses.
+  mTxn <- readTVarIO producerTransaction
+  case mTxn of
+    Nothing  -> pure ()
+    Just txn -> do
+      st <- Txn.getTransactionState txn
+      case st of
+        Txn.InTransaction -> do
+          _ <- Txn.abortTransaction txn
+          pure ()
+        _ -> pure ()
+
   -- Close accumulator (marks all batches as ready). After this
   -- returns no new records can be appended; the sender thread
   -- will drain everything that's already been accumulated.
@@ -543,61 +608,245 @@ flushProducer Producer{..} = do
           threadDelay 100000  -- 100ms
           waitForAllBatches (n - 1)
 
+-- | Bind a 'Txn.Transaction' to this producer.
+--
+-- After this call returns:
+--
+--   * 'sendMessage' (and the variants below) read the
+--     transaction's state on every call: a send is rejected with
+--     a typed error unless the transaction is in
+--     'Txn.InTransaction';
+--   * record batches are stamped with the transaction's
+--     producer-id / epoch (set by 'Txn.initTransactions') and the
+--     'attrIsTransactional' bit;
+--   * the first send to a (topic, partition) registers it with
+--     the transaction coordinator via 'AddPartitionsToTxn'
+--     (KIP-98).
+--
+-- The producer takes a non-owning reference: closing the producer
+-- aborts the transaction if one is open at that point but does
+-- not close the 'Transaction' value itself. Multiple producers
+-- bound to the same transaction would race on the underlying
+-- coordinator state, so don't do that.
+--
+-- It is safe to call 'bindTransaction' /before/
+-- 'Txn.initTransactions': sends will simply be rejected (the
+-- transaction's state is 'Txn.Uninitialized' until init runs).
+bindTransaction :: Producer -> Txn.Transaction -> IO ()
+bindTransaction Producer{..} txn = atomically $ do
+  writeTVar producerTransaction (Just txn)
+  -- Reset the per-transaction registered-partition memo. The
+  -- 'beginTransaction' lifecycle should also clear this, but we
+  -- do it on bind so a freshly bound transaction starts clean.
+  resetStmMap producerRegisteredPartitions
+
+-- | The currently bound transaction, if any. Mostly useful for
+-- test scaffolding and observability; production code should hold
+-- onto its 'Txn.Transaction' explicitly.
+producerBoundTransaction :: Producer -> IO (Maybe Txn.Transaction)
+producerBoundTransaction p = readTVarIO (producerTransaction p)
+
 -- | Send a message synchronously (blocks until acknowledged).
 --
 -- Steps:
---   1. Convert ProducerRecord to internal Record format
---   2. Determine target partition (if not specified)
---   3. Append record to batch accumulator with completion callback
---   4. Wait for acknowledgment from broker
+--   1. If a transaction is bound, verify it's in
+--      'Txn.InTransaction' state; reject otherwise.
+--   2. Determine target partition (if not specified).
+--   3. If transactional, register the partition with the
+--      coordinator on first observation (idempotent within the
+--      txn).
+--   4. Allocate a per-(topic, partition) sequence number for
+--      idempotent / transactional producers.
+--   5. Append record to the batch accumulator with the
+--      appropriate stamp and completion callback.
+--   6. Wait for acknowledgment from broker.
 sendMessage
   :: Producer
   -> Text            -- ^ Topic
   -> Maybe ByteString  -- ^ Key (optional)
   -> ByteString      -- ^ Value
   -> IO (Either String RecordMetadata)
-sendMessage Producer{..} topic key value = do
-  -- Create internal record
-  let record = RB.Record
-        { RB.recordTimestampDelta = 0  -- Will be set by accumulator
-        , RB.recordOffsetDelta = 0     -- Will be set by accumulator
-        , RB.recordKey = key
-        , RB.recordValue = value
-        , RB.recordHeaders = []
-        }
-  
-  -- Determine partition using configured partitioner (KIP-480)
-  partition <- selectPartition Producer{..} topic key
-  let topicPartition = BA.TopicPartition topic partition
-  
-  -- Create completion variable to wait for broker ack
-  resultVar <- newEmptyTMVarIO
-  
-  -- Define callback that fills the completion variable
-  let callback result = atomically $ putTMVar resultVar $ case result of
-        Left err -> Left (T.unpack err)
-        Right (topic', part, offset, timestamp) -> Right RecordMetadata
-          { metadataTopic = topic'
-          , metadataPartition = part
-          , metadataOffset = offset
-          , metadataTimestamp = timestamp
-          }
-  
-  -- Append to accumulator with callback
-  success <- BA.appendRecordWithCallback producerAccumulator topicPartition record callback
-  
-  if success
-    then do
-      -- Wait for broker acknowledgment with delivery timeout (KIP-91)
-      -- Convert milliseconds to microseconds for timeout
-      let timeoutMicros = producerDeliveryTimeoutMs producerConfig * 1000
-      result <- timeout timeoutMicros $ atomically $ readTMVar resultVar
-      case result of
-        Nothing -> return $ Left $ "Delivery timeout exceeded (" ++ 
-                                   show (producerDeliveryTimeoutMs producerConfig) ++ "ms)"
-        Just r -> return r
-    else
-      return $ Left "Failed to append record (accumulator closed or full)"
+sendMessage p@Producer{..} topic key value = do
+  -- Decide whether the producer is in a transactional / idempotent
+  -- mode that requires stamping. We read the transaction state
+  -- once up front; if the txn finishes between this read and the
+  -- broker round-trip, the broker fences us — that's the
+  -- intended JVM-client behaviour.
+  preCheck <- producerPreSendCheck p topic key
+  case preCheck of
+    Left err -> return (Left err)
+    Right (partition, stamp) -> do
+      let record = RB.Record
+            { RB.recordTimestampDelta = 0
+            , RB.recordOffsetDelta = 0
+            , RB.recordKey = key
+            , RB.recordValue = value
+            , RB.recordHeaders = []
+            }
+          topicPartition = BA.TopicPartition topic partition
+
+      resultVar <- newEmptyTMVarIO
+      let callback result =
+            atomically $ putTMVar resultVar $ case result of
+              Left err -> Left (T.unpack err)
+              Right (topic', part, offset, timestamp) ->
+                Right RecordMetadata
+                  { metadataTopic     = topic'
+                  , metadataPartition = part
+                  , metadataOffset    = offset
+                  , metadataTimestamp = timestamp
+                  }
+
+      success <- BA.appendRecordStamped
+                   producerAccumulator
+                   topicPartition
+                   record
+                   callback
+                   stamp
+
+      if success
+        then do
+          let timeoutMicros = producerDeliveryTimeoutMs producerConfig * 1000
+          result <- timeout timeoutMicros $
+                      atomically (readTMVar resultVar)
+          case result of
+            Nothing -> return $ Left $
+              "Delivery timeout exceeded ("
+                <> show (producerDeliveryTimeoutMs producerConfig)
+                <> "ms)"
+            Just r -> return r
+        else
+          return $ Left "Failed to append record (accumulator closed or full)"
+
+-- | Combined gate + partitioning + sequence allocation. Run in a
+-- single STM transaction (modulo the IO-scoped partitioner +
+-- 'AddPartitionsToTxn' coordinator round-trip) so the
+-- (state-check, partition-pick, sequence-bump) tuple is atomic.
+producerPreSendCheck
+  :: Producer
+  -> Text
+  -> Maybe ByteString
+  -> IO (Either String (Int32, BA.BatchStamp))
+producerPreSendCheck p@Producer{..} topic key = do
+  mTxn <- readTVarIO producerTransaction
+  -- 1. Transactional state guard.
+  txnGate <- case mTxn of
+    Nothing  -> return (Right Nothing)
+    Just txn -> do
+      st <- Txn.getTransactionState txn
+      case st of
+        Txn.InTransaction -> do
+          mPid   <- readTVarIO (Txn.txnProducerId    txn)
+          mEpoch <- readTVarIO (Txn.txnProducerEpoch txn)
+          case (mPid, mEpoch) of
+            (Just (Txn.ProducerId pid), Just (Txn.ProducerEpoch ep)) ->
+              return (Right (Just (txn, pid, ep)))
+            _ -> return $ Left
+              "transactional producer: missing producer-id/epoch \
+              \(call initTransactions before sending)"
+        Txn.Uninitialized -> return $ Left
+          "transactional producer: must call initTransactions \
+          \before sending"
+        Txn.Ready -> return $ Left
+          "transactional producer: must call beginTransaction \
+          \before sending"
+        Txn.Fenced -> return $ Left
+          "transactional producer: producer fenced"
+        Txn.Error msg -> return $ Left $
+          "transactional producer in error state: " <> T.unpack msg
+        _ -> return $ Left $
+          "transactional producer: cannot send in state "
+            <> show st
+  case txnGate of
+    Left err -> return (Left err)
+    Right txnInfo -> do
+      realPartition <- selectPartition p topic key
+      let tp = BA.TopicPartition topic realPartition
+
+      -- 2. For transactional sends, lazily register the partition
+      --    with the coordinator. Memoised in
+      --    'producerRegisteredPartitions' so subsequent sends are
+      --    just an STM lookup.
+      regResult <- case txnInfo of
+        Nothing -> return (Right ())
+        Just (txn, pid, ep) -> do
+          alreadyKnown <- atomically $ do
+            r <- StmMap.lookup tp producerRegisteredPartitions
+            case r of
+              Just () -> return True
+              Nothing -> do
+                StmMap.insert () tp producerRegisteredPartitions
+                return False
+          if alreadyKnown
+            then return (Right ())
+            else do
+              -- Track in the Transaction's partition set too — that
+              -- drives the commit-time AddPartitionsToTxn envelope
+              -- and the per-partition sequence bookkeeping.
+              _ <- Txn.sendInTransaction txn (KCC.TopicPartition topic realPartition)
+              -- Best-effort coordinator round-trip; on failure
+              -- back the memo out so a future send retries.
+              mCoord <- readTVarIO (Txn.txnCoordinator txn)
+              case mCoord of
+                Nothing -> do
+                  atomically $ StmMap.delete tp producerRegisteredPartitions
+                  return $ Left
+                    "transactional producer: no transaction \
+                    \coordinator (initTransactions never \
+                    \completed?)"
+                Just coord -> do
+                  r <- TC.addPartitionsToTxn
+                         (Txn.txnConnectionManager txn)
+                         (Txn.txnVersionCache txn)
+                         (Txn.txnCorrelationId txn)
+                         (Txn.txnClientId txn)
+                         coord
+                         (Txn.unTransactionalId
+                            (Txn.txnTransactionalId txn))
+                         pid
+                         ep
+                         [KCC.TopicPartition topic realPartition]
+                  case r of
+                    Left e  -> do
+                      atomically $ StmMap.delete tp producerRegisteredPartitions
+                      return $ Left $
+                        "transactional producer: \
+                        \AddPartitionsToTxn failed: " <> show e
+                    Right () -> return (Right ())
+      case regResult of
+        Left err -> return (Left err)
+        Right () -> do
+          -- 3. Allocate sequence + producer-id stamp.
+          stamp <- atomically $ do
+            curM <- StmMap.lookup tp producerSequenceNumbers
+            let !cur = case curM of
+                  Just s  -> s
+                  Nothing -> 0
+            StmMap.insert (cur + 1) tp producerSequenceNumbers
+            (pid, ep) <- case txnInfo of
+              Just (_, pid', ep') -> return (pid', ep')
+              Nothing -> do
+                pid' <- readTVar producerIdempotentId
+                ep'  <- readTVar producerIdempotentEpoch
+                return (pid', ep')
+            return BA.BatchStamp
+              { BA.stampProducerId      = pid
+              , BA.stampProducerEpoch   = ep
+              , BA.stampBaseSequence    = cur
+              , BA.stampIsTransactional =
+                  case txnInfo of
+                    Just _  -> True
+                    Nothing -> False
+              }
+          return (Right (realPartition, stamp))
+
+-- | Drain every key from an stm-containers 'StmMap.Map' inside an
+-- STM transaction. There's no built-in primitive for this, hence
+-- the @ListT.toList@ + delete loop.
+resetStmMap :: (Eq k, Hashable.Hashable k) => StmMap.Map k v -> STM ()
+resetStmMap m = do
+  pairs <- ListT.toList (StmMap.listT m)
+  mapM_ (\(k, _) -> StmMap.delete k m) pairs
 
 -- | Send a message asynchronously (returns immediately).
 --

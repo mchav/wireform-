@@ -469,24 +469,17 @@ buildPartitionProduceData batch = do
 
 -- | Build a RecordBatch from a ProducerBatch. Idempotent /
 -- transactional state is read off the batch itself
--- ('batchProducerId', 'batchProducerEpoch', 'batchBaseSequence');
--- the producer-side 'sendMessage' / 'sendBatch' path stamps these
--- fields when @producerIdempotent@ or @producerTransactional@ is
--- enabled.
+-- ('batchProducerId', 'batchProducerEpoch', 'batchBaseSequence',
+-- 'batchIsTransactional'); the producer-side 'sendMessage' /
+-- 'sendBatch' path stamps these fields when @producerIdempotent@
+-- or @producerTransactional@ is enabled, via 'BA.appendRecordStamped'.
 buildRecordBatch :: BA.ProducerBatch -> RB.RecordBatch
 buildRecordBatch batch =
   let records = V.fromList $ toList $ BA.batchRecords batch
-      isTxn   = BA.batchProducerId batch /= RB.noProducerId
-                && BA.batchProducerId batch /= RB.noProducerId
-                  -- (transactional vs idempotent is not directly
-                  -- distinguished by producer id alone; the
-                  -- producer wires attrIsTransactional separately
-                  -- when it constructs the batch in transactional
-                  -- mode)
       attrs = RB.Attributes
         { RB.attrCompressionType = BA.batchCompression batch
         , RB.attrTimestampType = RB.CreateTime
-        , RB.attrIsTransactional = False
+        , RB.attrIsTransactional = BA.batchIsTransactional batch
         , RB.attrIsControl = False
         , RB.attrHasDeleteHorizon = False
         }

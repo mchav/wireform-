@@ -32,6 +32,9 @@ module Kafka.Client.Internal.BatchAccumulator
     -- * Adding Records
   , appendRecord
   , appendRecordWithCallback
+  , appendRecordStamped
+  , BatchStamp (..)
+  , noStamp
   , TopicPartition(..)
     -- * Draining Batches
   , drainReadyBatches
@@ -129,6 +132,14 @@ data ProducerBatch = ProducerBatch
     --   batch. Each successive batch on the same (topic, partition)
     --   gets the previous batch's @batchBaseSequence + count@.
     --   'noSequence' (= -1) for non-idempotent producers.
+  , batchIsTransactional :: !Bool
+    -- ^ Whether this batch is part of an open transaction. When
+    --   'True', 'Kafka.Client.Internal.ProducerSender.buildRecordBatch'
+    --   sets 'attrIsTransactional' on the wire-level
+    --   'RecordBatch.Attributes' so the broker treats the batch as a
+    --   transactional write (consumed by read-committed consumers
+    --   only after 'EndTxn(commit)'). Always 'False' for
+    --   non-transactional / idempotent-only producers.
   }
 
 -- | Per-partition batch queue
@@ -213,6 +224,94 @@ appendRecord
 appendRecord accumulator tp record = do
   -- Use appendRecordWithCallback with a no-op callback
   appendRecordWithCallback accumulator tp record (\_ -> return ())
+
+-- | Producer-id / epoch / sequence triple stamped onto each new
+-- batch when the producer is idempotent (KIP-98) or transactional
+-- (KIP-98 / KIP-447). Carries an 'isTransactional' flag so the
+-- record-batch encoder can flip the corresponding bit in the
+-- attributes word.
+--
+-- Use 'noStamp' for non-idempotent producers; the accumulator will
+-- leave 'batchProducerId' / 'batchProducerEpoch' / 'batchBaseSequence'
+-- at the @no…@ sentinels.
+data BatchStamp = BatchStamp
+  { stampProducerId      :: !Int64
+  , stampProducerEpoch   :: !Int16
+  , stampBaseSequence    :: !Int32
+    -- ^ Sequence number to stamp on a /freshly created/ batch.
+    --   Records appended to a batch that's already filling inherit
+    --   that batch's sequence base; the producer-side counter
+    --   should therefore be advanced /after/ a batch is sealed.
+  , stampIsTransactional :: !Bool
+  }
+  deriving (Eq, Show)
+
+-- | Stamp value used when no idempotent / transactional state is
+-- in scope.
+noStamp :: BatchStamp
+noStamp = BatchStamp
+  { stampProducerId      = RB.noProducerId
+  , stampProducerEpoch   = RB.noProducerEpoch
+  , stampBaseSequence    = RB.noSequence
+  , stampIsTransactional = False
+  }
+
+-- | Append a record carrying an explicit 'BatchStamp'. If the
+-- record creates a new batch, the stamp is recorded on the batch;
+-- if it joins an existing /filling/ batch, the existing stamp is
+-- preserved and the call asserts (in debug mode) that the
+-- producer-id + epoch match.
+--
+-- The producer is responsible for ensuring that consecutive
+-- 'stampBaseSequence' values across batches on the same
+-- (topic, partition) form a gapless sequence; the accumulator only
+-- records what it's given.
+appendRecordStamped
+  :: BatchAccumulator
+  -> TopicPartition
+  -> RB.Record
+  -> RecordCallback
+  -> BatchStamp
+  -> IO Bool
+appendRecordStamped BatchAccumulator{..} tp record callback stamp = do
+  currentTime <- getCurrentTimeMillis
+  atomically $ do
+    isClosed <- readTVar accumulatorClosed
+    if isClosed
+      then return False
+      else do
+        queue <- getOrCreatePartitionQueue accumulatorPartitions tp
+        current <- readTVar (queueCurrentBatch queue)
+        batch <- case current of
+          Just b -> return b
+          Nothing -> do
+            let !newBatch = applyStamp stamp $
+                  createBatch accumulatorConfig tp currentTime
+            writeTVar (queueCurrentBatch queue) (Just newBatch)
+            return newBatch
+        let !recordSize = approximateRecordSize record
+            !newSize    = batchSizeBytes batch + recordSize
+            !newBatch   = batch
+              { batchRecords   = batchRecords batch |> record
+              , batchSizeBytes = newSize
+              , batchCallbacks = batchCallbacks batch ++ [callback]
+              }
+        if newSize >= accumulatorBatchSize accumulatorConfig
+          then do
+            let !readyBatch = newBatch { batchState = Ready }
+            modifyTVar' (queueBatches queue) (|> readyBatch)
+            writeTVar (queueCurrentBatch queue) Nothing
+            return True
+          else do
+            writeTVar (queueCurrentBatch queue) (Just newBatch)
+            return True
+  where
+    applyStamp BatchStamp{..} b = b
+      { batchProducerId      = stampProducerId
+      , batchProducerEpoch   = stampProducerEpoch
+      , batchBaseSequence    = stampBaseSequence
+      , batchIsTransactional = stampIsTransactional
+      }
 
 -- | Append a record with a completion callback
 -- Returns True if the record was added, False if accumulator is closed
@@ -370,6 +469,7 @@ createBatch BatchAccumulatorConfig{..} tp currentTime =
     , batchProducerId = RB.noProducerId
     , batchProducerEpoch = RB.noProducerEpoch
     , batchBaseSequence = RB.noSequence
+    , batchIsTransactional = False
     }
 
 -- | Get current time in milliseconds

@@ -39,6 +39,7 @@ mkBatch = BA.ProducerBatch
   , BA.batchProducerId = RB.noProducerId
   , BA.batchProducerEpoch = RB.noProducerEpoch
   , BA.batchBaseSequence = RB.noSequence
+  , BA.batchIsTransactional = False
   }
 
 batch_starts_at_attempt_zero :: TestTree
