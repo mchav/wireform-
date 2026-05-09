@@ -20,9 +20,10 @@ module Kafka.Client.DeleteRecords
   , partitionLowWatermark
   ) where
 
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
+import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
 import Data.Int (Int16, Int64)
+import qualified Data.Text as T
 import GHC.Generics (Generic)
 
 import qualified Kafka.Client.Consumer as KC
@@ -45,21 +46,38 @@ data DeleteRecordsResult = DeleteRecordsResult
 
 -- | Build the broker-side payload (a list of (topic, [(partition,
 -- offset)])) from the user's input map.
+--
+-- The previous implementation pretended that the per-topic
+-- accumulator was a multimap by repeatedly walking an
+-- association list with @lookup@ + @++ [(part, off)]@; that's
+-- O(n^2) in the number of (topic, partition) entries. Rewrite as
+-- a single 'HashMap.foldlWithKey'' that builds a 'HashMap' /
+-- multimap and then a final pass to materialise the result list.
 buildDeleteRecordsRequest
-  :: Map KC.TopicPartition DeleteRecordsRequest
+  :: HashMap KC.TopicPartition DeleteRecordsRequest
   -> [(String, [(Int, Int64)])]
 buildDeleteRecordsRequest =
-  Map.foldlWithKey' step []
+  -- Use 'HashMap' (not list) for the per-topic grouping. We keep
+  -- the per-topic value as a snoc-list reversed at the end so
+  -- partition order matches the input iteration order.
+  finalise . HashMap.foldlWithKey' step HashMap.empty
   where
-    step acc tp dr =
-      let !topic = show (KC.tpTopic tp)
+    step :: HashMap String [(Int, Int64)]
+         -> KC.TopicPartition
+         -> DeleteRecordsRequest
+         -> HashMap String [(Int, Int64)]
+    step !acc tp dr =
+      let !topic = T.unpack (KC.tpTopic tp)
           !part  = fromIntegral (KC.tpPartition tp)
           !off   = drBeforeOffset dr
-      in case lookup topic acc of
-        Just ps -> map (\(t, p) -> if t == topic
-                                     then (t, p ++ [(part, off)])
-                                     else (t, p)) acc
-        Nothing -> acc ++ [(topic, [(part, off)])]
+      in HashMap.insertWith (\_new old -> (part, off) : old)
+                            topic
+                            [(part, off)]
+                            acc
+
+    finalise :: HashMap String [(Int, Int64)] -> [(String, [(Int, Int64)])]
+    finalise =
+      map (\(t, ps) -> (t, reverse ps)) . HashMap.toList
 
 -- | Pure helper: given a partition's current high-watermark and
 -- a delete-records request, return the new low-watermark the

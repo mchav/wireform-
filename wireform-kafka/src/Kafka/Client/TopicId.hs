@@ -38,8 +38,9 @@ module Kafka.Client.TopicId
 import Control.Concurrent.STM
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
+import Data.Hashable (Hashable)
+import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
@@ -48,6 +49,7 @@ import GHC.Generics (Generic)
 -- Use 'nullTopicId' for "no id known".
 newtype TopicId = TopicId { unTopicId :: ByteString }
   deriving stock (Eq, Ord, Show, Generic)
+  deriving anyclass Hashable
 
 nullTopicId :: TopicId
 nullTopicId = TopicId (BS.replicate 16 0)
@@ -56,15 +58,19 @@ isNullTopicId :: TopicId -> Bool
 isNullTopicId (TopicId bs) = bs == BS.replicate 16 0
 
 -- | Bidirectional lookup table.
+--
+-- Both directions use 'HashMap'; metadata refresh can touch many
+-- topics in a single response so the O(1) average path is the
+-- right shape.
 data TopicIdTable = TopicIdTable
-  { titByName :: !(TVar (Map Text TopicId))
-  , titById   :: !(TVar (Map TopicId Text))
+  { titByName :: !(TVar (HashMap Text TopicId))
+  , titById   :: !(TVar (HashMap TopicId Text))
   }
 
 newTopicIdTable :: IO TopicIdTable
 newTopicIdTable = do
-  byName <- newTVarIO Map.empty
-  byId   <- newTVarIO Map.empty
+  byName <- newTVarIO HashMap.empty
+  byId   <- newTVarIO HashMap.empty
   pure TopicIdTable { titByName = byName, titById = byId }
 
 -- | Insert or replace a (name, id) pair. The producer / consumer
@@ -73,15 +79,15 @@ newTopicIdTable = do
 registerTopicId
   :: TopicIdTable -> Text -> TopicId -> STM ()
 registerTopicId t name tid = do
-  modifyTVar' (titByName t) (Map.insert name tid)
-  modifyTVar' (titById   t) (Map.insert tid name)
+  modifyTVar' (titByName t) (HashMap.insert name tid)
+  modifyTVar' (titById   t) (HashMap.insert tid name)
 
 topicIdFor :: TopicIdTable -> Text -> STM (Maybe TopicId)
 topicIdFor t name = do
   m <- readTVar (titByName t)
-  pure (Map.lookup name m)
+  pure (HashMap.lookup name m)
 
 topicNameFor :: TopicIdTable -> TopicId -> STM (Maybe Text)
 topicNameFor t tid = do
   m <- readTVar (titById t)
-  pure (Map.lookup tid m)
+  pure (HashMap.lookup tid m)

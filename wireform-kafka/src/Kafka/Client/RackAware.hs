@@ -88,30 +88,42 @@ rackAwareAssignment
   -> Map m [p]
 rackAwareAssignment RackAwareInputs{..} =
   let memberList = Map.keys raiMembers
+      -- Carry a parallel @loads :: Map m Int@ so we don't scan
+      -- the per-member partition list (O(n)) on every placement.
+      loads0     = Map.fromList [(m, 0 :: Int) | m <- memberList]
       empty0     = Map.fromList [(m, []) | m <- memberList]
-      placed     = L.foldl' place empty0 (sortByAffinity raiPartitions)
-  in placed
+      (placed, _finalLoads) =
+        L.foldl' place (empty0, loads0)
+                 (sortByAffinity raiPartitions)
+  in
+    -- Per-member lists were built with cons (O(1)) for snoc, so
+    -- reverse once at the end to restore input partition order.
+    Map.map reverse placed
   where
-    place !acc pri =
-      let -- Score every member by affinity then current load.
-          loads     = [ ( -(rackAffinityScore (Map.findWithDefault Nothing m raiMembers) pri)
-                        , length (Map.findWithDefault [] m acc)
-                        , m
-                        )
-                      | m <- Map.keys raiMembers
-                      ]
-          -- Filter out at-cap members unless every member is at cap.
-          underCap = filter (\(_, l, _) -> l < raiTargetLoad) loads
-          pool     = if null underCap then loads else underCap
-          (_, _, chosen) = L.minimum pool
-      in Map.adjust (++ [priPartition pri]) chosen acc
+    place !(!acc, !loads) pri =
+      let scored =
+            [ ( -(rackAffinityScore
+                    (Map.findWithDefault Nothing m raiMembers) pri)
+              , Map.findWithDefault 0 m loads
+              , m
+              )
+            | m <- Map.keys raiMembers
+            ]
+          underCap = filter (\(_, l, _) -> l < raiTargetLoad) scored
+          pool     = if null underCap then scored else underCap
+          (_, _, !chosen) = L.minimum pool
+      in
+        ( Map.adjust (priPartition pri :) chosen acc
+        , Map.adjust (+ 1) chosen loads
+        )
 
     sortByAffinity =
       L.sortBy (\a b ->
         compare (negate (maxAffinity a))
                 (negate (maxAffinity b)))
     maxAffinity pri =
-      maximum (0 : [rackAffinityScore (Map.findWithDefault Nothing m raiMembers) pri
+      maximum (0 : [rackAffinityScore
+                       (Map.findWithDefault Nothing m raiMembers) pri
                     | m <- Map.keys raiMembers])
 
 -- | Convenience: among the partitions a member is /already/

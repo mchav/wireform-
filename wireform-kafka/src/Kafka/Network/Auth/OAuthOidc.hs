@@ -56,8 +56,8 @@ import qualified Data.ByteArray.Encoding as BAE
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
+import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -149,19 +149,25 @@ shouldRefreshToken now t = now >= tokenRefreshDeadlineMs t
 -- Cache
 ----------------------------------------------------------------------
 
-newtype TokenCache = TokenCache (TVar (Map Text OidcToken))
+-- | In-memory cache of OIDC tokens keyed by client id.
+--
+-- Backed by 'HashMap' (not 'Data.Map') because client ids are
+-- 'Text' and the cache is meant to handle the multi-tenant case
+-- (one process talking to N upstream identity providers); O(1)
+-- average lookup beats O(log n) tree-based access at scale.
+newtype TokenCache = TokenCache (TVar (HashMap Text OidcToken))
 
 newTokenCache :: IO TokenCache
-newTokenCache = TokenCache <$> newTVarIO Map.empty
+newTokenCache = TokenCache <$> newTVarIO HashMap.empty
 
 storeToken :: TokenCache -> Text -> OidcToken -> IO ()
 storeToken (TokenCache v) clientId tok = atomically $
-  modifyTVar' v (Map.insert clientId tok)
+  modifyTVar' v (HashMap.insert clientId tok)
 
 lookupToken :: TokenCache -> Text -> IO (Maybe OidcToken)
 lookupToken (TokenCache v) clientId = do
   m <- readTVarIO v
-  pure (Map.lookup clientId m)
+  pure (HashMap.lookup clientId m)
 
 ----------------------------------------------------------------------
 -- Pluggable fetcher
