@@ -434,53 +434,26 @@ decodeRecord = do
 encodeRecordBatch :: RecordBatch -> ByteString
 encodeRecordBatch RecordBatch{..} =
   let
-    -- Encode the records
     recordsBytes = runPutS $ V.mapM_ encodeRecord batchRecords
-    
-    -- Encode attributes
     attributes = encodeAttributes batchAttributes
-    
-    -- Encode the batch body (everything after the CRC field)
     bodyBytes = runPutS $ do
-      -- Attributes (2 bytes)
       serialize attributes
-      -- Last offset delta (4 bytes)
       serialize batchLastOffsetDelta
-      -- Base timestamp (8 bytes)
       serialize batchBaseTimestamp
-      -- Max timestamp (8 bytes)
       serialize batchMaxTimestamp
-      -- Producer ID (8 bytes)
       serialize batchProducerId
-      -- Producer epoch (2 bytes)
       serialize batchProducerEpoch
-      -- Base sequence (4 bytes)
       serialize batchBaseSequence
-      -- Records count (4 bytes)
       serialize (fromIntegral (V.length batchRecords) :: Int32)
-      -- Records
       putByteString recordsBytes
-    
-    -- Calculate CRC32C over the body
     crc = crc32c bodyBytes
-    
-    -- Calculate the length (everything after the Length field)
-    -- = partition leader epoch (4) + magic (1) + crc (4) + body
     lengthValue = 4 + 1 + 4 + BS.length bodyBytes
-    
-    -- Encode the complete batch
     batchBytes = runPutS $ do
-      -- Base offset (8 bytes)
       serialize batchBaseOffset
-      -- Length (4 bytes)
       serialize (fromIntegral lengthValue :: Int32)
-      -- Partition leader epoch (4 bytes)
       serialize batchPartitionLeaderEpoch
-      -- Magic (1 byte)
       serialize magicV2
-      -- CRC (4 bytes)
       serialize crc
-      -- Body
       putByteString bodyBytes
   in
     batchBytes
@@ -569,8 +542,6 @@ calculateBatchSize batch = BS.length (encodeRecordBatch batch)
 encodeRecordBatchWithCompression :: RecordBatch -> IO (Either String ByteString)
 encodeRecordBatchWithCompression batch@RecordBatch{..} = do
   let codec = attrCompressionType batchAttributes
-  
-  -- Encode the records
   let recordsBytes = runPutS $ V.mapM_ encodeRecord batchRecords
   
   -- Compress the records if needed
@@ -638,8 +609,6 @@ encodeRecordBatchWithCompression batch@RecordBatch{..} = do
 encodeRecordBatchWithCompressionLevel :: RecordBatch -> Compression.CompressionLevel -> IO (Either String ByteString)
 encodeRecordBatchWithCompressionLevel batch@RecordBatch{..} level = do
   let codec = attrCompressionType batchAttributes
-  
-  -- Encode the records
   let recordsBytes = runPutS $ V.mapM_ encodeRecord batchRecords
   
   -- Compress the records with specified level if needed

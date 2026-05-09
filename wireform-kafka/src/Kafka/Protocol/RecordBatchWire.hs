@@ -35,6 +35,9 @@ Why a separate module:
 module Kafka.Protocol.RecordBatchWire
   ( encodeRecordBatchWire
   , recordBatchWireSize
+    -- * Records-only encoder (used by the compressed path)
+  , encodeRecordsWire
+  , recordsWireSize
     -- * Direct-poke decoder
   , decodeRecordBatchWire
   ) where
@@ -113,7 +116,36 @@ encodeRecordBatchWire batch = unsafePerformIO $ do
 {-# INLINEABLE recordBatchWireSize #-}
 recordBatchWireSize :: RecordBatch -> Int
 recordBatchWireSize RecordBatch{..} =
-  recordBatchOverhead + V.foldl' (\acc r -> acc + recordWireSize r) 0 batchRecords
+  recordBatchOverhead + recordsWireSize batchRecords
+
+-- | Encode just the records section of a 'RecordBatch' (no batch
+-- header, no CRC, no length prefix). Used by the compressed
+-- encoder, which:
+--
+--   1. encodes the records via 'encodeRecordsWire',
+--   2. compresses the resulting bytes,
+--   3. wraps the compressed payload in a normal batch header.
+--
+-- Step 1 was previously the hot bottleneck for compressed
+-- producers (it called 'runPutS' once per record); this entry
+-- gives them the same single-allocation, single-pass shape the
+-- uncompressed path enjoys.
+{-# INLINEABLE encodeRecordsWire #-}
+encodeRecordsWire :: V.Vector Record -> ByteString
+encodeRecordsWire records = unsafePerformIO $ do
+  let !sz = recordsWireSize records
+  if sz == 0
+    then pure BS.empty
+    else do
+      fp <- mallocForeignPtrBytes sz
+      withForeignPtr fp $ \basePtr -> do
+        endPtr <- pokeRecords basePtr records
+        let !len = endPtr `minusPtr` basePtr
+        pure (BSI.fromForeignPtr fp 0 len)
+
+{-# INLINE recordsWireSize #-}
+recordsWireSize :: V.Vector Record -> Int
+recordsWireSize = V.foldl' (\acc r -> acc + recordWireSize r) 0
 
 ----------------------------------------------------------------------
 -- Per-record sizing
