@@ -498,7 +498,13 @@ listTopics client@AdminClient{..} = do
       -- decode cleanly; we still cap at v12 because v13+ adds
       -- TopicId fields the high-level 'TopicDescription' API
       -- doesn't expose yet.
-      withNegotiatedVersion client brokerAddr apiKey 0 12 8 $ \conn corrId apiVersion -> do
+      -- Metadata: codegen handles up to v13. v9 went flexible
+      -- (response-header v1 trailer); v12 added Uuid topic id;
+      -- v13 made per-topic name nullable when topic id is set.
+      -- Our request always supplies the name (TopicId = nullUuid),
+      -- which the broker treats as a name-based lookup at every
+      -- version up to and including 13.
+      withNegotiatedVersion client brokerAddr apiKey 0 13 8 $ \conn corrId apiVersion -> do
         let request = MReq.MetadataRequest
               { MReq.metadataRequestTopics = P.mkKafkaArray V.empty
               , MReq.metadataRequestAllowAutoTopicCreation = False
@@ -535,7 +541,7 @@ describeTopics client@AdminClient{..} topicNames = do
       let brokerAddr = Meta.brokerMetaAddress broker
           apiKey = 3  -- Metadata
       -- v9+ is flexible; cap at v12 (see 'listTopics').
-      withNegotiatedVersion client brokerAddr apiKey 0 12 8 $ \conn corrId apiVersion -> do
+      withNegotiatedVersion client brokerAddr apiKey 0 13 8 $ \conn corrId apiVersion -> do
         let topicReqs = V.fromList $ map (\name -> MReq.MetadataRequestTopic
               { MReq.metadataRequestTopicTopicId = P.nullUuid
               , MReq.metadataRequestTopicName = P.mkKafkaString name
@@ -632,7 +638,9 @@ listConsumerGroups client@AdminClient{..} = do
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
           apiKey = 16  -- ListGroups
-      withNegotiatedVersion client brokerAddr apiKey 0 4 0 $ \conn corrId apiVersion -> do
+      -- ListGroups: codegen handles up to v5 (KIP-848 added the
+      -- typesFilter field, which we already supply as empty).
+      withNegotiatedVersion client brokerAddr apiKey 0 5 0 $ \conn corrId apiVersion -> do
         let request = LGReq.ListGroupsRequest
               { LGReq.listGroupsRequestStatesFilter = P.mkKafkaArray V.empty
               , LGReq.listGroupsRequestTypesFilter = P.mkKafkaArray V.empty
@@ -670,7 +678,11 @@ describeConsumerGroups client@AdminClient{..} groupIds = do
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
           apiKey = 15  -- DescribeGroups
-      withNegotiatedVersion client brokerAddr apiKey 0 5 0 $ \conn corrId apiVersion -> do
+      -- DescribeGroups: codegen handles up to v6 (KIP-848 added
+      -- additional response fields the high-level
+      -- 'ConsumerGroupDescription' surface ignores, which is
+      -- fine — extra fields decode and we just don't expose them).
+      withNegotiatedVersion client brokerAddr apiKey 0 6 0 $ \conn corrId apiVersion -> do
         let groupVec = V.fromList $ map P.mkKafkaString groupIds
             request = DGReq.DescribeGroupsRequest
               { DGReq.describeGroupsRequestGroups = P.mkKafkaArray groupVec
@@ -949,7 +961,7 @@ listTopicsExcludeInternal client@AdminClient{..} = do
       let brokerAddr = Meta.brokerMetaAddress broker
           apiKey = 3  -- Metadata
       -- v9+ is flexible; cap at v12 (see 'listTopics').
-      withNegotiatedVersion client brokerAddr apiKey 0 12 8 $ \conn corrId apiVersion -> do
+      withNegotiatedVersion client brokerAddr apiKey 0 13 8 $ \conn corrId apiVersion -> do
         let request = MReq.MetadataRequest
               { MReq.metadataRequestTopics = P.mkKafkaArray V.empty
               , MReq.metadataRequestAllowAutoTopicCreation = False
@@ -1171,7 +1183,10 @@ deleteRecords client@AdminClient{..} entries = do
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
           apiKey = 21  -- DeleteRecords
-      withNegotiatedVersion client brokerAddr apiKey 0 1 1 $ \conn corrId apiVersion -> do
+      -- DeleteRecords: codegen handles up to v2 (v2 went flexible).
+      -- Request shape unchanged — same (topic, partition, offset,
+      -- timeout) tuples at every version.
+      withNegotiatedVersion client brokerAddr apiKey 0 2 1 $ \conn corrId apiVersion -> do
         -- Group partitions under their topic so we send one
         -- DeleteRecordsTopic per topic.
         let byTopic = Map.fromListWith (++)
@@ -1312,10 +1327,19 @@ listConsumerGroupOffsets client@AdminClient{..} groupId = do
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
           apiKey = 9  -- OffsetFetch
-      -- Cap at v5 for now: v6+ adds the OffsetFetchRequestGroup
-      -- "groups" array which we don't populate from this code
-      -- path. v5 is widely supported (Kafka 2.4+).
-      withNegotiatedVersion client brokerAddr apiKey 0 5 5 $ \conn corrId apiVersion -> do
+      -- OffsetFetch: codegen handles up to v10. v6 went
+      -- flexible. v7 added 'requireStable' which we always
+      -- pass as False (matches the JVM client default). v8
+      -- introduced the per-group 'groups[]' batched lookup
+      -- shape, but our request continues to use the legacy
+      -- single-group shape (groups = [], topics = Null) which
+      -- the broker still honours through v10. v9/v10 added
+      -- response fields ('topicAuthorizedOperations',
+      -- KIP-941 'errorCode' on the per-group result) we
+      -- decode but don't expose at the high-level
+      -- surface — extra fields just round-trip and are
+      -- ignored.
+      withNegotiatedVersion client brokerAddr apiKey 0 7 5 $ \conn corrId apiVersion -> do
         -- KIP-211 / KIP-465: a /null/ topics array (not an empty
         -- one) is the broker's "fetch every committed offset for
         -- this group" sentinel. 'mkKafkaArray V.empty' produces an
@@ -1377,9 +1401,15 @@ alterConsumerGroupOffsets client@AdminClient{..} groupId entries = do
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
           apiKey = 8  -- OffsetCommit
-      -- Cap at v5: v6+ adds member-epoch semantics not supported
-      -- by the external-commit path.
-      withNegotiatedVersion client brokerAddr apiKey 0 5 5 $ \conn corrId apiVersion -> do
+      -- OffsetCommit: codegen handles up to v10. v6+ went
+      -- flexible. v7 added 'groupInstanceId' (we send Null for
+      -- the external-commit path — there's no group member to
+      -- impersonate). v8 added per-topic 'topicId' (nullUuid =
+      -- name-based lookup, broker compatible). v9+ moved to the
+      -- KIP-848 member-epoch shape but the broker accepts
+      -- generationId=-1 + empty memberId through v10 (the
+      -- KIP-503 external-commit sentinel).
+      withNegotiatedVersion client brokerAddr apiKey 0 9 5 $ \conn corrId apiVersion -> do
         let byTopic = Map.fromListWith (++)
               [ (topic, [(part, off)]) | (topic, part, off) <- entries ]
             topicsV = V.fromList $

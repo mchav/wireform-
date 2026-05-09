@@ -524,11 +524,14 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
             writeTVar consumerCorrelationId (cid + 1)
             return cid
           let apiKey = 2  -- ListOffsets
-          -- Cap at v1 for now (matches the legacy behaviour);
-          -- v2+ adds the IsolationLevel field which we always
-          -- send as 0 anyway, but bumping the cap requires
-          -- exercising the v2+ response shape.
-          verR <- VN.pickApiVersion consumerVersionCache brokerAddr apiKey 0 1 1
+          -- ListOffsets: codegen handles up to v11. v2 added the
+          -- IsolationLevel field (we send 0 = ReadUncommitted
+          -- everywhere; the consumer's own isolation-level config
+          -- is honoured in fetchFromBroker, not here). v6 went
+          -- flexible. Subsequent versions only added response
+          -- fields the high-level (TopicPartition, Int64) result
+          -- map ignores.
+          verR <- VN.pickApiVersion consumerVersionCache brokerAddr apiKey 0 7 1
           let apiVersion = case verR of
                 Right v -> v
                 Left  _ -> 1   -- preserve legacy fallback
@@ -1191,13 +1194,25 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
       -- Negotiate ApiVersions if we haven't already; idempotent.
       _ <- VN.ensureVersionsNegotiated conn brokerAddr versionCache nextCid
       corrId <- nextCid
-      let apiKey = 1  -- Fetch API
-      -- FetchRequest is the trickiest negotiation surface:
-      -- v4 added KIP-98 IsolationLevel, v7 the SessionId/Epoch
-      -- (KIP-227), v11 the RackId / ClusterId (KIP-392 / KIP-573),
-      -- v12 went flexible. We cap at v11 because our v12+
-      -- decoder hasn't been exercised against a live broker.
-      verR <- VN.pickApiVersion versionCache brokerAddr apiKey 4 11 4
+      let apiKey = 1  -- Fetch
+      -- FetchRequest is the trickiest negotiation surface.
+      -- Versions added these things at the bodylevel:
+      -- v4 KIP-98 IsolationLevel; v7 SessionId/Epoch (KIP-227);
+      -- v11 RackId / ClusterId (KIP-392 / KIP-573); v12 went
+      -- flexible; v13+ moved to TopicId-based identification.
+      -- Codegen handles up to v18.
+      --
+      -- Cap at v10 — v11 broke the live-broker poll round-trip
+      -- on Kafka 3.7 with a connection EOF (the broker rejects
+      -- something about our v11 request shape — most likely
+      -- the rackId field, which ends up doubly-stamped against
+      -- a broker that doesn't have @broker.rack@ set). v10 is
+      -- safe and we've pinned a live integration test
+      -- ('produce + assign + poll round-trips records') against
+      -- it. Bumping to v11+ requires a separate request-shape
+      -- audit; v12+ additionally requires the response-side
+      -- decoder to handle the flexible record-batch envelope.
+      verR <- VN.pickApiVersion versionCache brokerAddr apiKey 4 10 4
       let apiVersion = case verR of
             Right v -> v
             Left  _ -> 4   -- min supported (matches legacy fallback)
@@ -1468,12 +1483,16 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
                 writeTVar consumerCorrelationId (cid + 1)
                 return cid
               let apiKey = 8  -- OffsetCommit
-              -- Cap at v5 — v6+ adds member-epoch semantics for
-              -- the new consumer-group protocol; our request
-              -- shape is the v5 (legacy generation+memberId)
-              -- one. Bumping requires moving to the v8/v9
-              -- record shape.
-              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 5 5
+              -- OffsetCommit: codegen handles up to v10. The
+              -- consumer's commitSync path is identical in
+              -- request shape from v0 through v8; v9+ moved to
+              -- the KIP-848 member-epoch shape but the broker
+              -- still accepts the legacy generation/member-id
+              -- pair we send through v9. v10's KIP-1043 added
+              -- per-topic 'topicId' (we send nullUuid =
+              -- name-based lookup). v8 added 'topicId' which we
+              -- already supply as nullUuid.
+              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 9 5
               let apiVersion = case verR of
                     Right v -> v
                     Left  _ -> 5
@@ -1581,11 +1600,15 @@ fetchCommittedOffsets consumer@Consumer{..} groupId tps = do
                 writeTVar consumerCorrelationId (cid + 1)
                 return cid
               let apiKey = 9  -- OffsetFetch
-              -- Cap at v5; v6+ adds the per-group request shape
-              -- used by KIP-211 batched lookups (the
-              -- 'offsetFetchRequestGroups' field). Single-group
-              -- semantics unchanged.
-              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 5 5
+              -- OffsetFetch: codegen handles up to v10. v6+
+              -- went flexible. v7 added 'requireStable' (we
+              -- always pass False). v8+'s per-group batched
+              -- shape is also wired in the codegen; we send
+              -- 'groups = []' so the broker uses the legacy
+              -- single-group + topics-array shape at every
+              -- version through v7. Cap at v7 to stay on the
+              -- single-group code path.
+              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 7 5
               let apiVersion = case verR of
                     Right v -> v
                     Left  _ -> 5
@@ -1675,7 +1698,8 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
                 writeTVar consumerCorrelationId (cid + 1)
                 pure cid
               let apiKey = 9  -- OffsetFetch
-              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 5 5
+              -- See 'fetchCommittedOffsets' for the v7 cap rationale.
+              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 7 5
               let apiVersion = case verR of
                     Right v -> v
                     Left  _ -> 5
@@ -1754,7 +1778,8 @@ queryPartitionOffsetsByTimestamp consumer@Consumer{..} pts = do
             writeTVar consumerCorrelationId (cid + 1)
             pure cid
           let apiKey = 2  -- ListOffsets
-          verR <- VN.pickApiVersion consumerVersionCache brokerAddr apiKey 0 1 1
+          -- See 'queryPartitionOffsets' for the v7 cap rationale.
+          verR <- VN.pickApiVersion consumerVersionCache brokerAddr apiKey 0 7 1
           let apiVersion = case verR of
                 Right v -> v
                 Left  _ -> 1

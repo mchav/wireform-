@@ -19,6 +19,7 @@ module Integration.AdminClientExtendedSpec
 import Control.Monad (forM_)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Time.Clock.POSIX as Time
 import System.Environment (lookupEnv)
 import Test.Tasty (TestTree, testGroup)
@@ -46,6 +47,12 @@ tests = testGroup "Integration: AdminClient extended (KIP-78/-339/-444/-460/-503
       withBroker testIncrementalAlterConfigs
   , testCase "listConsumerGroupOffsets returns committed offsets" $
       withBroker testListConsumerGroupOffsets
+  , testCase "listConsumerGroups + describeConsumerGroups (negotiated v5/v6)" $
+      withBroker testListAndDescribeConsumerGroups
+  , testCase "deleteRecords trims partition log (negotiated v2)" $
+      withBroker testDeleteRecords
+  , testCase "describeTopics returns partition info (negotiated Metadata v13)" $
+      withBroker testDescribeTopics
   ]
 
 ----------------------------------------------------------------------
@@ -178,6 +185,101 @@ testListConsumerGroupOffsets brokerText = do
       assertEqual "should round-trip the offset we just wrote"
                   (Just 42)
                   (HashMap.lookup (topic, 0) hm)
+
+testListAndDescribeConsumerGroups :: T.Text -> IO ()
+testListAndDescribeConsumerGroups brokerText = do
+  -- Make sure at least one consumer group exists so the
+  -- listConsumerGroups call has something to iterate. Use the
+  -- KIP-503 external commit path again to register the group
+  -- with the broker without standing up a full consumer.
+  ts <- round <$> Time.getPOSIXTime :: IO Int
+  let groupId = T.pack ("wf-it-listdesc-" ++ show ts)
+  ac <- mkAdmin brokerText
+  altR <- AC.alterConsumerGroupOffsets ac groupId
+            [(T.pack "wireform-bench-cmp", 0, 0)]
+  case altR of
+    Left e -> do
+      AC.closeAdminClient ac
+      assertFailure ("alterConsumerGroupOffsets seed: " <> e)
+    Right _ -> pure ()
+  -- Negotiated ListGroups v5: should include the group we
+  -- just registered (along with whatever else lives on the
+  -- broker).
+  listR <- AC.listConsumerGroups ac
+  case listR of
+    Left e -> do
+      AC.closeAdminClient ac
+      assertFailure ("listConsumerGroups: " <> e)
+    Right listings -> do
+      let ids = map AC.cglGroupId listings
+      assertBool ("listConsumerGroups missing seed group "
+                    <> T.unpack groupId <> " (got " <> show ids <> ")")
+                 (groupId `elem` ids)
+  -- Negotiated DescribeGroups v6: round-trip the same group
+  -- id and confirm the broker echoes it back. (The group has
+  -- no live members because we only used the external commit
+  -- path; the broker still tracks it as an "Empty" group.)
+  descR <- AC.describeConsumerGroups ac [groupId]
+  AC.closeAdminClient ac
+  case descR of
+    Left e -> assertFailure ("describeConsumerGroups: " <> e)
+    Right [d] -> do
+      AC.cgdGroupId d @?= groupId
+      assertBool ("expected non-empty state, got "
+                    <> T.unpack (AC.cgdState d))
+                 (not (T.null (AC.cgdState d)))
+    Right ds -> assertFailure
+      ("expected exactly one group description, got " <> show (length ds))
+
+testDeleteRecords :: T.Text -> IO ()
+testDeleteRecords brokerText = do
+  -- Produce a few records first so there's something to trim.
+  let topic = T.pack "wireform-bench-cmp"
+  pcfg <- pure $ KP.defaultProducerConfig
+            { KP.producerClientId = "wf-it-deleterecords-prod"
+            }
+  pr   <- either error pure =<< KP.createProducer [brokerText] pcfg
+  forM_ ([0 .. 4] :: [Int]) $ \i -> do
+    r <- KP.sendMessage pr topic Nothing
+           (T.encodeUtf8 (T.pack ("rec-" <> show i)))
+    case r of
+      Right _ -> pure ()
+      Left  e -> assertFailure ("produce seed " <> show i <> ": " <> e)
+  KP.closeProducer pr
+  -- Now delete every record below offset 1; expect the broker's
+  -- low-watermark to come back >= 1.
+  ac <- mkAdmin brokerText
+  drR <- AC.deleteRecords ac [(topic, 0, 1)]
+  AC.closeAdminClient ac
+  case drR of
+    Left e -> assertFailure ("deleteRecords: " <> e)
+    Right entries -> do
+      assertBool "expected at least one DeleteRecordsResultEntry"
+                 (not (null entries))
+      forM_ entries $ \e -> do
+        AC.dreErrorCode e @?= 0
+        assertBool ("expected lowWatermark >= 1, got "
+                      <> show (AC.dreLowWatermark e))
+                   (AC.dreLowWatermark e >= 1)
+
+testDescribeTopics :: T.Text -> IO ()
+testDescribeTopics brokerText = do
+  ac <- mkAdmin brokerText
+  -- Negotiated Metadata v13 path. The high-level
+  -- 'TopicDescription' surface ignores TopicId / IsInternal /
+  -- AuthorizedOperations but the underlying decode has to walk
+  -- every flexible-encoded field cleanly to even reach the
+  -- partition list.
+  descR <- AC.describeTopics ac [T.pack "wireform-bench-cmp"]
+  AC.closeAdminClient ac
+  case descR of
+    Left e -> assertFailure ("describeTopics: " <> e)
+    Right [td] -> do
+      AC.tdName td @?= T.pack "wireform-bench-cmp"
+      assertBool "expected at least one partition"
+                 (not (null (AC.tdPartitions td)))
+    Right tds -> assertFailure
+      ("expected exactly one TopicDescription, got " <> show (length tds))
 
 ----------------------------------------------------------------------
 -- Helpers

@@ -389,15 +389,23 @@ sendToBroker state@SenderState{..} broker batches = do
 
         -- Build and encode the request (compression is IO)
         request <- buildProduceRequest senderAcks senderTimeoutMs validBatches
-        -- ProduceRequest version selection. We cap at v3 (the
-        -- shape we've actively tested end-to-end) but accept
-        -- whatever the broker advertises down to v3. Bumping
-        -- the cap requires exercising the v4+ response shape
-        -- (KIP-219 throttle is already in v3) and v9+'s
-        -- flexible encoding.
+        -- ProduceRequest: codegen handles up to v13. The request
+        -- shape is stable from v3 onwards (v3 added the
+        -- transactional id, which we send as Null on the
+        -- non-transactional path). v9 went flexible (the broker
+        -- expects compact strings + tagged-fields trailer).
+        --
+        -- Cap at v9 — the live-broker test against Kafka 3.7
+        -- shows v9 round-trips cleanly but v10+ add response
+        -- fields (KIP-467 'RecordErrors' + 'ErrorMessage' on
+        -- the per-partition response from v10; KIP-848 record
+        -- errors at v11) that our /per-partition-response/
+        -- decoder doesn't handle yet. Bumping further requires
+        -- checking each response shape against a live broker
+        -- and adding round-trip coverage for the new fields.
         verR <- VN.pickApiVersion senderVersionCache brokerAddr
                   0  {- API key 0 = Produce -}
-                  3 3 3
+                  3 9 3
         let apiVersion = case verR of
               Right v -> v
               Left  _ -> 3

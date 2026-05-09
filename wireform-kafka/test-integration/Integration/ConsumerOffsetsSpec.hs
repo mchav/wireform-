@@ -16,9 +16,10 @@ import Control.Monad (replicateM_)
 import qualified Data.HashMap.Strict as HashMap
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import System.Environment (lookupEnv)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, assertBool, assertEqual, (@?=))
+import Test.Tasty.HUnit (testCase, assertBool, assertEqual, assertFailure, (@?=))
 
 import qualified Kafka.Client.Consumer as KC
 import qualified Kafka.Client.Producer as KP
@@ -33,6 +34,8 @@ tests = testGroup "Integration: Consumer offset / seek APIs"
       withBroker testEndAndBeginning
   , testCase "seekToEnd / seek + position behave consistently" $
       withBroker testSeekAndPosition
+  , testCase "produce + assign + poll round-trips records (Produce v9 / Fetch v10)" $
+      withBroker testProduceAndPollRoundTrip
   ]
 
 -- The fixed pre-created topic name. Operators are expected to
@@ -112,6 +115,54 @@ testSeekAndPosition brokerText = do
       (o >= begOff + 10)
     Left e  -> error e
   KC.closeConsumer consumer
+
+testProduceAndPollRoundTrip :: T.Text -> IO ()
+testProduceAndPollRoundTrip brokerText = do
+  -- This is the only AdminClient-extended test that exercises
+  -- the bumped Produce v9 (flexible) + Fetch v12 (flexible)
+  -- code paths end-to-end. The other tests above only call
+  -- ListOffsets, which is its own separate negotiation site.
+  let topic   = fixedTopic
+      payload = T.encodeUtf8 (T.pack "wf-it-poll-payload")
+  pcfg <- pure $ KP.defaultProducerConfig
+            { KP.producerClientId  = "wf-it-poll-prod"
+            , KP.producerLingerMs  = 5
+            , KP.producerBatchSize = 16384
+            }
+  pr <- either error pure =<< KP.createProducer [brokerText] pcfg
+  -- Stamp the record with a known offset so the test can find
+  -- it in the poll output without relying on broker state.
+  sendR <- KP.sendMessage pr topic Nothing payload
+  case sendR of
+    Left e -> assertFailure ("produce: " <> e)
+    Right md -> do
+      let producedOffset = KP.metadataOffset md
+      KP.closeProducer pr
+      consumer <- mkConsumerOrFail brokerText "wf-it-poll-grp"
+      let tp = KC.TopicPartition topic 0
+      KC.assign consumer [tp] >>= either error (\_ -> pure ())
+      KC.seek   consumer tp producedOffset
+        >>= either error (\_ -> pure ())
+      -- Poll once with a 2-second timeout. The broker should
+      -- return our record in the first response (the request
+      -- has min.bytes=1 so it doesn't wait for more data).
+      pollR <- KC.poll consumer 2000
+      KC.closeConsumer consumer
+      case pollR of
+        Left e -> assertFailure ("poll: " <> e)
+        Right rs -> do
+          assertBool "expected at least one record from poll"
+                     (not (null rs))
+          let !mr = filter (\r -> KC.crOffset r == producedOffset) rs
+          case mr of
+            (r:_) -> do
+              KC.crTopic     r @?= topic
+              KC.crPartition r @?= 0
+              KC.crValue     r @?= payload
+            [] -> assertFailure
+              ("poll did not return the record we just produced "
+                 <> "(offset=" <> show producedOffset
+                 <> "; got offsets=" <> show (map KC.crOffset rs) <> ")")
 
 ----------------------------------------------------------------------
 -- Helpers
