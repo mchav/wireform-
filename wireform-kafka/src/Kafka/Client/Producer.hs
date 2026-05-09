@@ -89,7 +89,6 @@ import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
-import qualified Data.Time.Clock.POSIX as Time
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable (hash)
@@ -116,6 +115,7 @@ import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Protocol.RecordBatch as RB
 import qualified Kafka.Protocol.VersionNegotiation as VN
+import qualified Kafka.Time as KafkaTime
 
 -- | Delivery guarantee level.
 data DeliveryGuarantee
@@ -584,7 +584,7 @@ waitForDrain Producer{..} deadlineMs = do
   loop
   where
     nowMillis :: IO Int64
-    nowMillis = round . (* 1000) <$> Time.getPOSIXTime
+    nowMillis = KafkaTime.currentTimeMillis
 
 -- | Close the producer with a specified timeout (KIP-15).
 --

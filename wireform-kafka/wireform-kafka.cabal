@@ -32,6 +32,7 @@ extra-source-files:
     cbits/crc32c.h
     cbits/snappy_ffi.h
     cbits/lz4_ffi.h
+    cbits/wireform_time.h
     data/message-inventory.json
     test-data/test-vectors.json
     test/Network/TLS/server.crt
@@ -79,10 +80,17 @@ library
         crc32c.h
         snappy_ffi.h
         lz4_ffi.h
+        wireform_time.h
     c-sources:
         cbits/crc32c.c
         cbits/snappy_ffi.c
         cbits/lz4_ffi.c
+    -- The fast-clock C shim is gated to non-Windows. On Windows
+    -- 'Kafka.Time' falls back to 'Data.Time.Clock.POSIX.getPOSIXTime'
+    -- which itself uses 'GetSystemTimeAsFileTime' (also a fast
+    -- vDSO-style page read; no syscall).
+    if !os(windows)
+      c-sources: cbits/wireform_time.c
     -- -O3 lets the compiler inline simde_mm_crc32_u* into the CRC32C
     -- inner loop. -march=native picks up SSE4.2 / ARMv8.1 CRC32 on the
     -- build host so SIMDe emits the hardware instruction; for portable
@@ -363,6 +371,7 @@ library
         Kafka.Telemetry.OpenTelemetry
         Kafka.Telemetry.Push
         Kafka.Telemetry.StatsJson
+        Kafka.Time
     build-depends:
         base                      >= 4.16  && < 5,
         aeson                     >= 2.0   && < 2.3,

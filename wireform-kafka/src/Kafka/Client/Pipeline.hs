@@ -87,8 +87,8 @@ import Data.HashMap.Strict (HashMap)
 import Data.Int
 import qualified Data.IntSet as IntSet
 import Data.IntSet (IntSet)
-import qualified Data.Time.Clock.POSIX as Time
 import GHC.Generics (Generic)
+import qualified Kafka.Time as KafkaTime
 import Network.Connection
   ( Connection
   , connectionGetExact
@@ -501,8 +501,12 @@ failPipeline Pipeline{..} reason = do
 -- Helpers
 ----------------------------------------------------------------------
 
+-- | Wall-clock seconds since the POSIX epoch via the fast
+-- vDSO-coarse clock; used by the timeout loop to age out
+-- pending requests. Sub-second jitter is fine here — the
+-- timeout loop ticks once a second.
 nowSeconds :: IO Int
-nowSeconds = round <$> Time.getPOSIXTime
+nowSeconds = (`div` 1000) . fromIntegral <$> KafkaTime.currentTimeMillis
 
 -- 'IntSet' kept imported for future use (not currently required
 -- but the timeout loop's cancel-set is a likely follow-up).

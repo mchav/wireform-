@@ -55,10 +55,10 @@ import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Data.Int (Int64)
-import qualified Data.Time.Clock.POSIX as Time
 import GHC.Generics (Generic)
 
 import qualified Kafka.Network.Auth.SASL as SASL
+import qualified Kafka.Time as KafkaTime
 
 -- | Pluggable re-auth runner. The pipeline supplies one whose
 -- 'rrAuthenticate' opens a fresh handshake on the connection
@@ -240,4 +240,4 @@ reauthInProgress = readTVarIO . reauthInFlight
 ----------------------------------------------------------------------
 
 nowMs :: IO Int64
-nowMs = round . (* 1000) <$> Time.getPOSIXTime
+nowMs = KafkaTime.currentTimeMillis

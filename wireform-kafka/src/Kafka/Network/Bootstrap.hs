@@ -46,10 +46,10 @@ module Kafka.Network.Bootstrap
 import Control.Concurrent.STM
 import Data.IORef
 import Data.Int (Int64)
-import qualified Data.Time.Clock.POSIX as Time
 import qualified System.Random as Rand
 
 import Kafka.Network.Connection (BrokerAddress (..))
+import qualified Kafka.Time as KafkaTime
 
 -- | The pluggable bootstrap-discovery interface. Returns the
 -- current candidate broker list. The producer / consumer calls
@@ -113,7 +113,7 @@ discoverBootstrap = runDiscoverer
 ----------------------------------------------------------------------
 
 nowMs :: IO Int64
-nowMs = round . (* 1000) <$> Time.getPOSIXTime
+nowMs = KafkaTime.currentTimeMillis
 
 -- | Fisher–Yates shuffle on a list. We use 'System.Random' so
 -- the dependency tree stays small; callers needing a CSPRNG can

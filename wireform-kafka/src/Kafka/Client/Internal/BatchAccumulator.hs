@@ -58,7 +58,7 @@ import Data.Sequence (Seq, (|>))
 import qualified Data.Sequence as Seq
 import Data.Hashable (Hashable)
 import Data.Text (Text)
-import qualified Data.Time.Clock.POSIX as Time
+import qualified Kafka.Time as KafkaTime
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
 import qualified ListT
@@ -554,9 +554,16 @@ createBatch BatchAccumulatorConfig{..} tp currentTime =
     , batchIsTransactional = False
     }
 
--- | Get current time in milliseconds
+-- | Get current time in milliseconds.
+--
+-- Uses 'Kafka.Time.currentTimeMillis' which on Linux reads the
+-- vDSO-mapped @CLOCK_REALTIME_COARSE@ (~8 ns per call) and on
+-- macOS/BSD reads the regular vDSO 'CLOCK_REALTIME'. The
+-- accumulator's @tryFastAppend@ STM-only path skips this call
+-- entirely; only the @slowAppend@ path (one in N records) needs
+-- the timestamp to seed a fresh batch.
 getCurrentTimeMillis :: IO Int64
-getCurrentTimeMillis = round . (* 1000) <$> Time.getPOSIXTime
+getCurrentTimeMillis = KafkaTime.currentTimeMillis
 
 -- | Approximate size of a record in bytes
 -- This is a rough estimate for batch size tracking

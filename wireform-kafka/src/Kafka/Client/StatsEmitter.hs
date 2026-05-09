@@ -41,11 +41,11 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Time.Clock.POSIX as Time
 import GHC.Generics (Generic)
 
 import qualified Kafka.Telemetry.Metrics as M
 import qualified Kafka.Telemetry.StatsJson as Stats
+import qualified Kafka.Time as KafkaTime
 
 data StatsEmitterConfig = StatsEmitterConfig
   { secIntervalMs :: !Int
@@ -116,7 +116,7 @@ startStatsEmitter cfg reg = do
 emitOnce :: StatsEmitterConfig -> M.MetricsRegistry -> IO ()
 emitOnce StatsEmitterConfig{..} reg = do
   snap <- M.snapshotMetrics reg
-  nowMicro <- round . (* 1_000_000) <$> Time.getPOSIXTime :: IO Int
+  nowMicro <- fromIntegral <$> KafkaTime.currentTimeMicros :: IO Int
   let !st = (Stats.defaultSnapshot secName secClientId secClientType)
         { Stats.ssTimestampUs = fromIntegral nowMicro
         , Stats.ssMsgCount    = lookupCounter snap "kafka.producer.record.send.total"

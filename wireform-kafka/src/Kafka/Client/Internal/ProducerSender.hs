@@ -74,8 +74,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.Connection (Connection)
-import qualified Data.Time.Clock.POSIX as Time
 import System.IO (hPutStrLn, stderr)
+import qualified Kafka.Time as KafkaTime
 
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
 import qualified Kafka.Client.Internal.Request as Req
@@ -346,8 +346,10 @@ isBatchTimedOut currentTime deliveryTimeoutMs batch =
 -- | Send batches to a specific broker
 sendToBroker :: SenderState -> Meta.BrokerMetadata -> [BA.ProducerBatch] -> IO ()
 sendToBroker state@SenderState{..} broker batches = do
-  -- Get current time to check delivery timeout (KIP-91)
-  currentTime <- round . (* 1000) <$> Time.getPOSIXTime
+  -- Get current time to check delivery timeout (KIP-91).
+  -- 'KafkaTime.currentTimeMillis' is the fast vDSO-coarse clock
+  -- (~8 ns on Linux), called once per send-loop iteration.
+  currentTime <- KafkaTime.currentTimeMillis
   
   -- Partition batches into those that have exceeded delivery timeout and those that haven't
   let (timedOutBatches, validBatches) = partition (isBatchTimedOut currentTime senderDeliveryTimeoutMs) batches
@@ -661,7 +663,7 @@ processProduceResponse metaCacheM batches response = do
             -- the per-record callbacks, which are the public
             -- success channel.
             let callbacks = BA.batchCallbacks batch
-            timestamp <- round . (* 1000) <$> Time.getPOSIXTime
+            timestamp <- KafkaTime.currentTimeMillis
             -- (Per-record timestamps aren't surfaced in
             -- ProduceResponse; the per-record
             -- 'PartitionProduceResponse.LogAppendTimeMs' is

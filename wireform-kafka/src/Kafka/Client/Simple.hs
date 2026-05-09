@@ -50,7 +50,7 @@ import Data.Int
 import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Time.Clock.POSIX as Time
+import qualified Kafka.Time as KafkaTime
 import qualified Data.Vector as V
 import Data.Word
 import GHC.Generics (Generic)
@@ -263,8 +263,8 @@ produceSimple
   -> ByteString  -- ^ Value
   -> IO (Either String ProduceResult)
 produceSimple client topic partition keyM value = do
-  -- Get current timestamp
-  timestamp <- round . (* 1000) <$> Time.getPOSIXTime
+  -- Get current timestamp via the fast vDSO-coarse clock.
+  timestamp <- KafkaTime.currentTimeMillis
   
   -- Create a single record
   let record = RB.Record
