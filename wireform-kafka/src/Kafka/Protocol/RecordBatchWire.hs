@@ -38,6 +38,9 @@ module Kafka.Protocol.RecordBatchWire
     -- * Records-only encoder (used by the compressed path)
   , encodeRecordsWire
   , recordsWireSize
+    -- * Wire-based compressed encoder
+  , encodeRecordBatchWireCompressed
+  , encodeRecordBatchWireCompressedWithLevel
     -- * Direct-poke decoder
   , decodeRecordBatchWire
   ) where
@@ -148,6 +151,97 @@ encodeRecordsWire records = unsafePerformIO $ do
 {-# INLINE recordsWireSize #-}
 recordsWireSize :: V.Vector Record -> Int
 recordsWireSize = V.foldl' (\acc r -> acc + recordWireSize r) 0
+
+----------------------------------------------------------------------
+-- Compressed-records encoder (uses the Wire records helper +
+-- the existing Compression layer, then wraps the compressed
+-- bytes in a single-allocation batch envelope written with the
+-- direct-poke primitives).
+----------------------------------------------------------------------
+
+-- | Wire-based version of
+-- 'Kafka.Protocol.RecordBatch.encodeRecordBatchWithCompression':
+--
+--   1. Encodes the records section in one pass via
+--      'encodeRecordsWire' (~10x faster than the legacy
+--      Builder-per-record path).
+--   2. Compresses the resulting bytes through the codec named
+--      in the batch attributes.
+--   3. Wraps the compressed payload in a single-allocation
+--      batch envelope written with the same direct-poke
+--      primitives as 'encodeRecordBatchWire' (one
+--      'mallocForeignPtrBytes', body CRC32C computed in place
+--      via 'crc32cPtr', length back-patched on completion).
+--
+-- For 'NoCompression' callers, prefer 'encodeRecordBatchWire'
+-- directly — it skips the no-op compression layer entirely.
+encodeRecordBatchWireCompressed
+  :: RecordBatch -> IO (Either String ByteString)
+encodeRecordBatchWireCompressed b =
+  encodeRecordBatchWireCompressedWithLevel b
+    (Compression.defaultLevel
+       (attrCompressionType (batchAttributes b)))
+
+-- | Like 'encodeRecordBatchWireCompressed' but takes an explicit
+-- compression level (KIP-353 / KIP-776 / KIP-909).
+encodeRecordBatchWireCompressedWithLevel
+  :: RecordBatch
+  -> Compression.CompressionLevel
+  -> IO (Either String ByteString)
+encodeRecordBatchWireCompressedWithLevel batch@RecordBatch{..} level = do
+  let !codec = attrCompressionType batchAttributes
+      !rawRecordsBytes = encodeRecordsWire batchRecords
+  compressedR <- Compression.compressWithLevel codec level rawRecordsBytes
+  case compressedR of
+    Left err -> pure (Left err)
+    Right compressedRecords -> do
+      -- Build the batch envelope directly into a
+      -- single-allocation buffer. Layout matches v2:
+      --   [0  .. 8)  baseOffset           Int64 BE
+      --   [8  .. 12) length               Int32 BE  (back-patched)
+      --   [12 .. 16) partitionLeaderEpoch Int32 BE
+      --   [16]       magic                Int8     (2)
+      --   [17 .. 21) crc                  Word32 BE (back-patched)
+      --   [21 .. 61) body header (attrs/lastDelta/timestamps/
+      --              producer fields/recordsCount)
+      --   [61 ..  )  compressed records bytes
+      let !nRec       = V.length batchRecords
+          !compLen    = BS.length compressedRecords
+          !sz         = recordBatchOverhead + compLen
+      fp <- mallocForeignPtrBytes sz
+      withForeignPtr fp $ \basePtr -> do
+        _ <- pokeInt64BE basePtr batchBaseOffset
+        let !lengthPtr = basePtr `plusPtr` 8
+        _ <- pokeInt32BE lengthPtr 0       -- placeholder
+        let !leaderPtr = basePtr `plusPtr` 12
+        _ <- pokeInt32BE leaderPtr batchPartitionLeaderEpoch
+        let !magicPtr  = basePtr `plusPtr` 16
+        _ <- pokeWord8 magicPtr (fromIntegral magicV2 :: Word8)
+        let !crcPtr    = basePtr `plusPtr` 17
+        _ <- pokeWord32BE crcPtr 0         -- placeholder
+        let !bodyStart = basePtr `plusPtr` 21
+        bodyEnd <- writeCompressedBody bodyStart batch nRec compressedRecords
+        let !lenValue = fromIntegral (bodyEnd `minusPtr` leaderPtr) :: Int32
+        _ <- pokeInt32BE lengthPtr lenValue
+        let !bodyLen = bodyEnd `minusPtr` bodyStart
+        !crc <- CRC.crc32cPtr bodyStart bodyLen
+        _ <- pokeWord32BE crcPtr crc
+        let !len = bodyEnd `minusPtr` basePtr
+        pure (Right (BSI.fromForeignPtr fp 0 len))
+
+{-# INLINE writeCompressedBody #-}
+writeCompressedBody
+  :: Ptr Word8 -> RecordBatch -> Int -> ByteString -> IO (Ptr Word8)
+writeCompressedBody p RecordBatch{..} nRec compressedRecords = do
+  p1 <- pokeInt16BE p (encodeAttributes batchAttributes)
+  p2 <- pokeInt32BE p1 batchLastOffsetDelta
+  p3 <- pokeInt64BE p2 batchBaseTimestamp
+  p4 <- pokeInt64BE p3 batchMaxTimestamp
+  p5 <- pokeInt64BE p4 batchProducerId
+  p6 <- pokeInt16BE p5 batchProducerEpoch
+  p7 <- pokeInt32BE p6 batchBaseSequence
+  p8 <- pokeInt32BE p7 (fromIntegral nRec :: Int32)
+  pokeByteString p8 compressedRecords
 
 ----------------------------------------------------------------------
 -- Per-record sizing

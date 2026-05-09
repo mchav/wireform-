@@ -461,15 +461,20 @@ buildPartitionProduceData batch = do
       , PR.partitionProduceDataRecords = P.mkKafkaBytes (RBW.encodeRecordBatchWire recordBatch)
       }
     else do
-      encodeResult <- RB.encodeRecordBatchWithCompressionLevel recordBatch compressionLevel
+      -- Compressed path now goes through the Wire-based
+      -- compressed encoder ('encodeRecordBatchWireCompressedWithLevel'):
+      -- the records section is built once via 'encodeRecordsWire'
+      -- (~10x faster than the legacy Builder-per-record loop)
+      -- and the batch envelope is back-patched in place. Bytes
+      -- are byte-identical with 'RB.encodeRecordBatchWithCompressionLevel'
+      -- (verified by 'Protocol.RecordBatchWireSpec').
+      encodeResult <- RBW.encodeRecordBatchWireCompressedWithLevel recordBatch compressionLevel
       case encodeResult of
         Left err -> do
-          -- Compression failed; fall back to uncompressed encoding
-          -- via the direct-poke Wire encoder (~10x faster than the
-          -- legacy Builder shape). This is rare (the codec defaults
-          -- are well-tested for any payload shape), so we log to
-          -- stderr rather than thread a 'Logger' through this
-          -- otherwise pure-ish helper.
+          -- Compression failed; fall back to uncompressed
+          -- encoding via the direct-poke Wire encoder. Rare,
+          -- so we log to stderr rather than thread a 'Logger'
+          -- through this otherwise pure-ish helper.
           hPutStrLn stderr
             ("[warn] producer: compression failed for batch, "
               <> "sending uncompressed: " <> err)

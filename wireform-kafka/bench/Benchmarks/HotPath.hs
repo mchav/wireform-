@@ -100,6 +100,16 @@ producerBench = bgroup "Producer"
       , bench "wire     (100 records)" $
           nf (BS.length . RBW.encodeRecordBatchWire) builtBatch100
       ]
+  , bgroup "RecordBatch encode: gzip Wire vs legacy (head-to-head)"
+      [ bench "legacy gzip (10 records)" $
+          whnfIO (sizeOfRight =<< RB.encodeRecordBatchWithCompression  gzipBatch10)
+      , bench "wire   gzip (10 records)" $
+          whnfIO (sizeOfRight =<< RBW.encodeRecordBatchWireCompressed gzipBatch10)
+      , bench "legacy gzip (100 records)" $
+          whnfIO (sizeOfRight =<< RB.encodeRecordBatchWithCompression  gzipBatch100)
+      , bench "wire   gzip (100 records)" $
+          whnfIO (sizeOfRight =<< RBW.encodeRecordBatchWireCompressed gzipBatch100)
+      ]
   ]
 
 ----------------------------------------------------------------------
@@ -231,6 +241,27 @@ builtBatch1, builtBatch10, builtBatch100 :: RB.RecordBatch
 builtBatch1   = Sender.buildRecordBatch (sampleBatch 1)
 builtBatch10  = Sender.buildRecordBatch (sampleBatch 10)
 builtBatch100 = Sender.buildRecordBatch (sampleBatch 100)
+
+-- Same shape but with the gzip compression bit set on the
+-- batch attributes — used by the compressed-encoder bench
+-- group below.
+gzipBatch10, gzipBatch100 :: RB.RecordBatch
+gzipBatch10  = withGzipAttrs builtBatch10
+gzipBatch100 = withGzipAttrs builtBatch100
+
+withGzipAttrs :: RB.RecordBatch -> RB.RecordBatch
+withGzipAttrs b =
+  b { RB.batchAttributes = (RB.batchAttributes b)
+        { RB.attrCompressionType = Compression.Gzip }
+    }
+
+-- | Force the size of the @Right@ payload so 'whnfIO' actually
+-- measures the encoder work. Without this, criterion only times
+-- 'whnfIO' on @Either String ByteString@, which is two
+-- nanoseconds of pattern-matching.
+sizeOfRight :: Either e BS.ByteString -> IO Int
+sizeOfRight (Left  _) = pure 0
+sizeOfRight (Right b) = pure $! BS.length b
 
 encoded1, encoded10, encoded100 :: BS.ByteString
 encoded1   = RB.encodeRecordBatch builtBatch1
