@@ -57,9 +57,9 @@ import Data.IORef
   , newIORef
   , readIORef
   )
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
-import Data.Set (Set)
+import qualified Data.HashMap.Strict as HashMap
+import qualified Data.HashSet as HashSet
+import Data.HashSet (HashSet)
 import Data.Text (Text)
 
 import Kafka.Streams.Errors (logAndContinue)
@@ -94,7 +94,7 @@ data Worker = Worker
   { workerId        :: !Int
   , workerEngine    :: !Engine
   , workerCollector :: !RecordCollector
-  , workerOwned     :: !(Set (TopicName, Int32))
+  , workerOwned     :: !(HashSet (TopicName, Int32))
   , workerInbox     :: !(TQueue WorkRecord)
   , workerStop      :: !(TVar Bool)
   , workerProcessed :: !(TVar Int64)
@@ -119,9 +119,17 @@ data WorkRecord = WorkRecord
 ----------------------------------------------------------------------
 
 data WorkerPool = WorkerPool
-  { poolWorkers  :: ![Worker]
-  , poolRouting  :: !(TVar (Map.Map (TopicName, Int32) Int))
-  , poolNextOff  :: !(IORef Int64)
+  { poolWorkers       :: ![Worker]
+  , poolWorkersByIdx  :: !(HashMap.HashMap Int Worker)
+    -- ^ Cache of 'poolWorkers' keyed by 'workerId' so the hot
+    -- 'submitRecord' lookup is O(1) instead of an O(n) walk over
+    -- the list. Built once in 'newWorkerPool'; the worker list
+    -- is fixed for the pool's lifetime.
+  , poolRouting       :: !(TVar (HashMap.HashMap (TopicName, Int32) Int))
+    -- ^ 'HashMap' (not 'Data.Map') for the routing table — every
+    -- 'submitRecord' looks up by '(TopicName, Int32)' which has a
+    -- 'Hashable' instance.
+  , poolNextOff       :: !(IORef Int64)
   }
 
 -- | Build a pool of @length perWorkerOwnership@ workers. Each entry
@@ -131,7 +139,7 @@ data WorkerPool = WorkerPool
 newWorkerPool
   :: Topo.TopologyValid
   -> Text                                 -- ^ application id
-  -> [Set (TopicName, Int32)]
+  -> [HashSet (TopicName, Int32)]
   -> IO WorkerPool
 newWorkerPool topo appId perWorkerOwnership = do
   off <- newIORef 0
@@ -161,17 +169,18 @@ newWorkerPool topo appId perWorkerOwnership = do
     atomicModifyIORef' threadRef (\_ -> (Just th, ()))
     pure w
   pure WorkerPool
-    { poolWorkers = workers
-    , poolRouting = routing
-    , poolNextOff = off
+    { poolWorkers      = workers
+    , poolWorkersByIdx = HashMap.fromList [(workerId w, w) | w <- workers]
+    , poolRouting      = routing
+    , poolNextOff      = off
     }
 
-buildRouting :: [Set (TopicName, Int32)] -> Map.Map (TopicName, Int32) Int
+buildRouting :: [HashSet (TopicName, Int32)] -> HashMap.HashMap (TopicName, Int32) Int
 buildRouting perWorker =
-  Map.fromList
+  HashMap.fromList
     [ (tp, idx)
     | (idx, owned) <- zip [0 ..] perWorker
-    , tp <- Set.toList owned
+    , tp <- HashSet.toList owned
     ]
 
 ----------------------------------------------------------------------
@@ -192,10 +201,13 @@ submitRecord
 submitRecord pool topic key val ts part = do
   off <- atomicModifyIORef' (poolNextOff pool) (\n -> (n + 1, n))
   routing <- readTVarIO (poolRouting pool)
-  case Map.lookup (topic, fromIntegral part) routing of
+  case HashMap.lookup (topic, fromIntegral part) routing of
     Nothing  -> pure ()
     Just idx ->
-      case lookup idx [(workerId w, w) | w <- poolWorkers pool] of
+      -- O(1) lookup against the cached index; the previous shape
+      -- walked '[(workerId w, w) | w <- poolWorkers pool]' on
+      -- every record (O(numWorkers)).
+      case HashMap.lookup idx (poolWorkersByIdx pool) of
         Nothing -> pure ()
         Just w  ->
           atomically $ do
@@ -256,7 +268,7 @@ workerLoop w = loop
           -- Filter on ownership for safety; the routing index
           -- shouldn't have sent us anything we don't own.
           let !tp = (wrTopic r, fromIntegral (wrPartition r))
-          if Set.member tp (workerOwned w)
+          if HashSet.member tp (workerOwned w)
             then do
               feedSource (workerEngine w) (wrTopic r)
                 (wrKey r) (wrValue r) (wrTimestamp r)

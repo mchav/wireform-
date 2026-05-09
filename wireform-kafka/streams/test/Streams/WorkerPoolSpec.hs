@@ -4,9 +4,10 @@
 module Streams.WorkerPoolSpec (tests) where
 
 import qualified Data.ByteString.Char8 as BSC
+import qualified Data.HashSet as HashSet
+import Data.HashSet (HashSet)
 import qualified Data.Int as Int
 import qualified Data.Set as Set
-import Data.Set (Set)
 import qualified Data.Text as T
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
@@ -25,8 +26,8 @@ unbytes = T.pack . BSC.unpack
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-owned :: [(Text, Int)] -> Set (TopicName, Int.Int32)
-owned = Set.fromList . map (\(tp, p) -> (topicName tp, fromIntegral p))
+owned :: [(Text, Int)] -> HashSet (TopicName, Int.Int32)
+owned = HashSet.fromList . map (\(tp, p) -> (topicName tp, fromIntegral p))
 
 tests :: TestTree
 tests = testGroup "WorkerPool"

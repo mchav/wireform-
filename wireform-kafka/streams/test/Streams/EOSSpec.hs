@@ -4,7 +4,7 @@
 module Streams.EOSSpec (tests) where
 
 import Data.IORef
-import qualified Data.Map.Strict as Map
+import qualified Data.HashMap.Strict as Map
 import qualified Data.Text as T
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)

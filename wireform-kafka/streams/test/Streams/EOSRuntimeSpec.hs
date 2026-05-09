@@ -8,7 +8,7 @@
 module Streams.EOSRuntimeSpec (tests) where
 
 import Data.IORef
-import qualified Data.Map.Strict as Map
+import qualified Data.HashMap.Strict as Map
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))

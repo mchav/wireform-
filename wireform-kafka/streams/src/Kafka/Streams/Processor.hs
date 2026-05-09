@@ -52,6 +52,7 @@ module Kafka.Streams.Processor
   ) where
 
 import Data.ByteString (ByteString)
+import Data.Hashable (Hashable)
 import Data.Int (Int32)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -67,6 +68,7 @@ import Kafka.Streams.Types (NodeName, Record, RecordMetadata)
 -- instances may share a name.
 newtype ProcessorName = ProcessorName { unProcessorName :: Text }
   deriving stock (Eq, Ord, Show, Generic)
+  deriving anyclass Hashable
 
 processorName :: Text -> ProcessorName
 processorName = ProcessorName
@@ -78,6 +80,7 @@ data TaskId = TaskId
   , taskPartition   :: !Int32
   }
   deriving stock (Eq, Ord, Show, Generic)
+  deriving anyclass Hashable
 
 taskIdText :: TaskId -> Text
 taskIdText (TaskId sub p) =
