@@ -27,6 +27,8 @@ module Kafka.Client.Internal.Heartbeat
   , stopHeartbeatThread
     -- * Heartbeat Operations
   , sendHeartbeat
+  , HeartbeatOutcome(..)
+  , applyHeartbeatOutcome
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -34,7 +36,7 @@ import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
-import Data.Int
+import Data.Int (Int16, Int32)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Network.Connection (Connection)
@@ -148,15 +150,9 @@ heartbeatLoop state@HeartbeatState{..} = do
                   putStrLn $ "Heartbeat error: " ++ show e
                   -- Continue anyway, will retry next interval
 
-                Right (Left err) -> do
-                  -- UNKNOWN_MEMBER_ID, ILLEGAL_GENERATION and the other
-                  -- "you must rejoin" outcomes from sendHeartbeat all
-                  -- come back as Left here. The fix is the same as a
-                  -- REBALANCE_IN_PROGRESS reply: flip the rebalance
-                  -- flag so the next 'poll' transparently re-runs the
-                  -- JoinGroup flow.
-                  putStrLn $ "Heartbeat needs rejoin: " ++ err
-                  atomically $ writeTVar hbNeedsRebalance True
+                Right (Left outcome) -> do
+                  putStrLn $ "Heartbeat needs rejoin: " ++ describe outcome
+                  atomically $ applyHeartbeatOutcome state outcome
 
                 Right (Right needsRebalance) -> do
                   when needsRebalance $ do
@@ -171,19 +167,76 @@ heartbeatLoop state@HeartbeatState{..} = do
           threadDelay (hbIntervalMs * 1000)
           heartbeatLoop state
 
--- | Send a single heartbeat to the coordinator
+-- | Classified rejoin signal returned by a single 'sendHeartbeat'
+-- call. The heartbeat loop pattern-matches on this so it can decide
+-- whether to wipe the cached memberId before the next JoinGroup
+-- (KIP-389: the broker has dropped us, so we must come back with an
+-- empty memberId).
+data HeartbeatOutcome
+  = HeartbeatUnknownMember
+    -- ^ Broker returned @UNKNOWN_MEMBER_ID (25)@. KIP-389: clear the
+    --   cached memberId before rejoining.
+  | HeartbeatFencedInstance
+    -- ^ Broker returned @FENCED_INSTANCE_ID (82)@. KIP-345 static
+    --   member that lost its slot to a newer instance. Clear memberId
+    --   and rejoin so we get a fresh slot.
+  | HeartbeatIllegalGeneration
+    -- ^ Broker returned @ILLEGAL_GENERATION (22)@. The generation
+    --   counter is stale; the memberId is still valid so don't clear
+    --   it, just rejoin to pick up the new generation.
+  | HeartbeatOtherError !Int16 !String
+    -- ^ Any other broker-level error. Treat as "needs rejoin" but
+    --   keep the memberId so the rejoin can be a no-op.
+  | HeartbeatTransport !String
+    -- ^ The request itself failed (network / parse error). The
+    --   memberId is still valid; we'll just retry on the next tick.
+  deriving (Eq, Show)
+
+describe :: HeartbeatOutcome -> String
+describe HeartbeatUnknownMember        = "UNKNOWN_MEMBER_ID (KIP-389)"
+describe HeartbeatFencedInstance       = "FENCED_INSTANCE_ID (KIP-345)"
+describe HeartbeatIllegalGeneration    = "ILLEGAL_GENERATION"
+describe (HeartbeatOtherError ec _)    = "broker error " <> show ec
+describe (HeartbeatTransport msg)      = "transport: " <> msg
+
+-- | Update the in-memory heartbeat state in response to a non-OK
+-- 'HeartbeatOutcome'. Always flips 'hbNeedsRebalance' so the next
+-- 'poll' re-runs JoinGroup; additionally clears the cached
+-- @memberId@ for UNKNOWN_MEMBER_ID / FENCED_INSTANCE_ID so the
+-- rejoin goes out with an empty memberId (KIP-389 / KIP-345).
+-- Transport-level failures don't touch any state because the broker
+-- still considers us a member.
+applyHeartbeatOutcome :: HeartbeatState -> HeartbeatOutcome -> STM ()
+applyHeartbeatOutcome HeartbeatState{..} outcome = case outcome of
+  HeartbeatTransport _ -> pure ()
+  HeartbeatUnknownMember -> do
+    writeTVar hbNeedsRebalance True
+    writeTVar hbMemberId ""
+  HeartbeatFencedInstance -> do
+    writeTVar hbNeedsRebalance True
+    writeTVar hbMemberId ""
+  HeartbeatIllegalGeneration ->
+    writeTVar hbNeedsRebalance True
+  HeartbeatOtherError _ _ ->
+    writeTVar hbNeedsRebalance True
+
+-- | Send a single heartbeat to the coordinator. The 'Left' arm
+-- carries a typed 'HeartbeatOutcome' so the heartbeat loop can
+-- branch on UNKNOWN_MEMBER_ID / FENCED_INSTANCE_ID without parsing
+-- string error messages.
 sendHeartbeat
   :: HeartbeatState
   -> BrokerAddress      -- ^ Coordinator address
   -> Text               -- ^ Member ID
   -> Int32              -- ^ Generation ID
-  -> IO (Either String Bool)  -- ^ Returns whether rebalance is needed
+  -> IO (Either HeartbeatOutcome Bool)
 sendHeartbeat HeartbeatState{..} coordAddr memberId genId = do
   -- Get or create connection to coordinator
   connResult <- Conn.getOrCreateConnection hbConnManager coordAddr Conn.defaultConnectionConfig
   
   case connResult of
-    Left err -> return $ Left $ "Failed to connect to coordinator: " ++ err
+    Left err -> return $ Left $ HeartbeatTransport $
+      "Failed to connect to coordinator: " ++ err
     
     Right conn -> do
       -- Get correlation ID
@@ -218,23 +271,23 @@ sendHeartbeat HeartbeatState{..} coordAddr memberId genId = do
       result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
       
       case result of
-        Left err -> return $ Left $ "Heartbeat request failed: " ++ err
+        Left err -> return $ Left $ HeartbeatTransport $
+          "Heartbeat request failed: " ++ err
         
         Right (_, responseBody) -> do
           case WC.runDecodeVer HBResp.decodeHeartbeatResponse apiVersion responseBody of
-            Left err -> return $ Left $ "Failed to parse HeartbeatResponse: " ++ err
+            Left err -> return $ Left $ HeartbeatTransport $
+              "Failed to parse HeartbeatResponse: " ++ err
             
             Right response -> do
               let errorCode = HBResp.heartbeatResponseErrorCode response
               
               case errorCode of
-                0 -> return $ Right False  -- Success, no rebalance needed
-                
-                27 -> return $ Right True  -- REBALANCE_IN_PROGRESS
-                
-                25 -> return $ Left "Unknown member ID, need to rejoin"  -- UNKNOWN_MEMBER_ID
-                
-                22 -> return $ Left "Illegal generation, need to rejoin"  -- ILLEGAL_GENERATION
-                
-                _ -> return $ Left $ "Heartbeat error code: " ++ show errorCode
+                0  -> return $ Right False           -- success
+                27 -> return $ Right True            -- REBALANCE_IN_PROGRESS
+                25 -> return $ Left HeartbeatUnknownMember
+                22 -> return $ Left HeartbeatIllegalGeneration
+                82 -> return $ Left HeartbeatFencedInstance
+                _  -> return $ Left $ HeartbeatOtherError errorCode $
+                  "Heartbeat error code: " ++ show errorCode
 

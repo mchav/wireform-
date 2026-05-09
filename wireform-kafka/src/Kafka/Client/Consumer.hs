@@ -76,6 +76,8 @@ module Kafka.Client.Consumer
   , ConsumerConfig(..)
   , StaticMembershipState(..)
   , currentStaticMembershipState
+    -- * Configuration validation (KIP-360)
+  , validateConsumerConfig
     -- * Cluster info (KIP-78)
   , consumerClusterId
   ) where
@@ -105,6 +107,9 @@ import qualified StmContainers.Map as StmMap
 import qualified ListT
 
 import qualified Kafka.Client.Internal.ConsumerGroup as CG
+import Kafka.Client.ConfigValidation
+  ( ConfigError, renderConfigErrors )
+import qualified Kafka.Client.ConfigValidation as CV
 import qualified Kafka.Client.Internal.Heartbeat as HB
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Client.Internal.Subscribe as Sub
@@ -374,11 +379,62 @@ consumerConnect c@Consumer{..} addr = do
 --
 -- Initializes the consumer with connection management, metadata caching,
 -- and optionally joins a consumer group for automatic partition assignment.
+-- | Pure config-validation rules (KIP-360). Mirrors the JVM client's
+-- @org.apache.kafka.clients.consumer.ConsumerConfig@ checks: every
+-- rule we apply here is something the broker (or, worse, a runtime
+-- assertion deep in the fetch loop) would otherwise blow up on with
+-- a far less actionable error.
+--
+-- We deliberately don't enforce a non-empty @group.id@ here because
+-- the simple consumer (no group) leaves it blank and only assigns
+-- partitions manually; 'Kafka.Client.Group.validateConfig' enforces
+-- the non-empty requirement when subscribing through the group API.
+--
+-- Returns the empty list when the config is acceptable.
+validateConsumerConfig :: ConsumerConfig -> [ConfigError]
+validateConsumerConfig ConsumerConfig{..} = concat
+  [ CV.check (T.null consumerClientId)
+      "client.id" "must be non-empty"
+  , CV.check (consumerSessionTimeoutMs <= 0)
+      "session.timeout.ms" "must be > 0"
+  , CV.check (consumerHeartbeatIntervalMs <= 0)
+      "heartbeat.interval.ms" "must be > 0"
+  , CV.check (consumerHeartbeatIntervalMs >= consumerSessionTimeoutMs)
+      "heartbeat.interval.ms"
+      "must be < session.timeout.ms (broker fences members otherwise)"
+  , CV.check (consumerMaxPollIntervalMs < consumerSessionTimeoutMs)
+      "max.poll.interval.ms"
+      "must be >= session.timeout.ms (KIP-62)"
+  , CV.check (consumerMaxPollRecords < 1)
+      "max.poll.records" "must be >= 1 (KIP-41)"
+  , CV.check (consumerFetchMinBytes < 0)
+      "fetch.min.bytes" "must be >= 0"
+  , CV.check (consumerFetchMaxBytes <= 0)
+      "fetch.max.bytes" "must be > 0"
+  , CV.check (consumerFetchMinBytes > consumerFetchMaxBytes)
+      "fetch.min.bytes" "must be <= fetch.max.bytes"
+  , CV.check (consumerFetchMaxWaitMs < 0)
+      "fetch.wait.max.ms" "must be >= 0"
+  , CV.check (consumerFetchMessageMaxBytes <= 0)
+      "max.partition.fetch.bytes" "must be > 0"
+  , CV.check (consumerFetchErrorBackoffMs < 0)
+      "fetch.error.backoff.ms" "must be >= 0"
+  , CV.check (consumerQueuedMaxMessagesKbytes <= 0)
+      "queued.max.messages.kbytes" "must be > 0"
+  , CV.check (consumerAutoCommit && consumerAutoCommitIntervalMs <= 0)
+      "auto.commit.interval.ms"
+      "must be > 0 when enable.auto.commit=true"
+  ]
+
 createConsumer
   :: [Text]          -- ^ Bootstrap brokers
   -> Text            -- ^ Consumer group ID
   -> ConsumerConfig  -- ^ Configuration
   -> IO (Either String Consumer)
+createConsumer _ _ config
+  | configErrs <- validateConsumerConfig config
+  , not (null configErrs)
+  = return $ Left $ renderConfigErrors configErrs
 createConsumer brokers groupId config = do
   -- Parse broker addresses
   let parsedBrokers = map parseBrokerAddress brokers

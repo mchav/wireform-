@@ -1093,8 +1093,15 @@ MirrorMaker 2 implementation, not client library concern.
 Serialization framework should support header serialization/deserialization.
 
 ### KIP-360: Improve configuration validation
-**Status**: ❌ Not Implemented  
-Client configuration validation should provide better error messages for invalid configs.
+**Status**: ✅ Implemented (this branch)  
+`Kafka.Client.ConfigValidation` exposes a typed `ConfigError` plus
+per-side `validateProducerConfig` / `validateConsumerConfig` rules that
+mirror the JVM `ProducerConfig` / `ConsumerConfig` checks (KIP-91 invariant,
+KIP-679 in-flight cap under idempotence, KIP-98 transactional / acks
+coupling, KIP-62 max.poll.interval >= session.timeout, etc.). Both
+`createProducer` and `createConsumer` short-circuit with a multi-line
+error message before opening any socket so a broken config surfaces at
+construction time instead of as an opaque broker error later.
 
 ### KIP-361: Add Consumer Fetch Lag Metrics
 **Status**: ✅ Implemented (this branch)  
@@ -1169,8 +1176,15 @@ Consumer needs comprehensive metrics for poll latency, fetch throughput, etc.
 Kafka Connect producer configuration, not client-relevant.
 
 ### KIP-389: Unknown Members Should Leave Group
-**Status**: ❌ Not Implemented  
-Consumer group coordinator should handle unknown member ID by leaving group.
+**Status**: ✅ Implemented (this branch)  
+The heartbeat loop now classifies broker error codes into a typed
+`HeartbeatOutcome`. On `UNKNOWN_MEMBER_ID` (25) or `FENCED_INSTANCE_ID`
+(82) we wipe the cached `memberId` so the next JoinGroup goes out with
+an empty memberId — which is what the broker requires after fencing —
+instead of being immediately re-rejected. `ILLEGAL_GENERATION` (22)
+preserves the memberId and only flips the rebalance flag (rejoin picks
+up the new generation). The reaction is implemented in pure
+`applyHeartbeatOutcome` and unit-tested in `Client.HeartbeatRejoinSpec`.
 
 ### KIP-391: Allow consumers to wait for committed offset sync
 **Status**: ✅ Implemented (this branch)  

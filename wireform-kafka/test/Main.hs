@@ -84,6 +84,8 @@ import qualified Client.MockBrokerNetSpec
 import qualified Client.MockBrokerStoreSpec
 import qualified Client.MockBrokerProtoSpec
 import qualified Client.ConfigParitySpec
+import qualified Client.ConfigValidationSpec
+import qualified Client.HeartbeatRejoinSpec
 import qualified Client.ProducerRetrySpec
 import qualified Client.PipelineSpec
 import qualified Client.SubscribeSpec
@@ -185,6 +187,8 @@ clientTests = testGroup "Client"
   , Client.MockBrokerStoreSpec.tests
   , Client.MockBrokerProtoSpec.tests
   , Client.ConfigParitySpec.tests
+  , Client.ConfigValidationSpec.tests
+  , Client.HeartbeatRejoinSpec.tests
   , Client.ProducerRetrySpec.tests
   , Client.PipelineSpec.tests
   , Client.SubscribeSpec.tests

@@ -80,6 +80,8 @@ module Kafka.Client.Producer
     -- * Configuration
   , defaultProducerConfig
   , DeliveryGuarantee(..)
+    -- * Configuration validation (KIP-360)
+  , validateProducerConfig
     -- * Cluster info (KIP-78)
   , producerClusterId
   ) where
@@ -104,6 +106,8 @@ import System.Timeout (timeout)
 
 import qualified Kafka.Compression.Types as Compression
 import Kafka.Compression.Types (CompressionCodec, defaultCodec)
+import Kafka.Client.ConfigValidation (ConfigError, renderConfigErrors)
+import qualified Kafka.Client.ConfigValidation as CV
 import qualified Kafka.Client.Consumer as KCC
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
 import qualified Kafka.Client.Internal.Murmur2 as Murmur2
@@ -385,10 +389,78 @@ data Producer = Producer
 --   3. Initialize batch accumulator
 --   4. Start background sender thread
 --   5. If transactional, initialize transaction coordinator (TODO)
+-- | Pure config-validation rules (KIP-360). Each rule mirrors a
+-- check the JVM client performs in
+-- @org.apache.kafka.clients.producer.ProducerConfig@; we run them
+-- before opening any socket so an obviously broken config (e.g.
+-- @delivery.timeout.ms < request.timeout.ms@) fails fast with a
+-- clear message instead of being deferred to the broker as an
+-- opaque @POLICY_VIOLATION@ much later.
+--
+-- Returns the empty list when the config is acceptable.
+validateProducerConfig :: ProducerConfig -> [ConfigError]
+validateProducerConfig ProducerConfig{..} = concat
+  [ CV.check (T.null producerClientId)
+      "client.id" "must be non-empty"
+  , CV.check (producerBatchSize < 0)
+      "batch.size" "must be >= 0"
+  , CV.check (producerLingerMs < 0)
+      "linger.ms" "must be >= 0"
+  , CV.check (producerMaxInFlight < 1)
+      "max.in.flight.requests.per.connection" "must be >= 1"
+  , CV.check (producerRetries < 0)
+      "retries" "must be >= 0"
+  , CV.check (producerRetryBackoffMs < 0)
+      "retry.backoff.ms" "must be >= 0"
+  , CV.check (producerRetryBackoffMaxMs < producerRetryBackoffMs)
+      "retry.backoff.max.ms" "must be >= retry.backoff.ms"
+  , CV.check (producerRetryBackoffMultiplier < 1.0)
+      "retry.backoff.multiplier" "must be >= 1.0 (otherwise backoff shrinks)"
+  , CV.check (producerRetryBackoffJitter < 0.0 || producerRetryBackoffJitter > 1.0)
+      "retry.backoff.jitter" "must be in [0.0, 1.0]"
+  , CV.check (producerRequestTimeoutMs <= 0)
+      "request.timeout.ms" "must be > 0"
+  , CV.check (producerDeliveryTimeoutMs < producerRequestTimeoutMs + producerLingerMs)
+      "delivery.timeout.ms"
+      "must be >= request.timeout.ms + linger.ms (KIP-91 invariant)"
+  , CV.check (producerMaxRequestSize <= 0)
+      "message.max.bytes" "must be > 0"
+  , CV.check (producerQueueBufferingMaxMessages <= 0)
+      "queue.buffering.max.messages" "must be > 0"
+  , CV.check (producerQueueBufferingMaxKbytes <= 0)
+      "queue.buffering.max.kbytes" "must be > 0"
+  , CV.check (producerTransactionTimeoutMs <= 0)
+      "transaction.timeout.ms" "must be > 0"
+  , CV.check (producerStickyPartitioningLingerMs < 0)
+      "sticky.partitioning.linger.ms" "must be >= 0"
+  -- Idempotence / EOS coupling. KIP-679 hard-cap of in-flight=5
+  -- for the idempotent producer to preserve sequence ordering.
+  , CV.check (producerIdempotent && producerMaxInFlight > 5)
+      "max.in.flight.requests.per.connection"
+      "must be <= 5 when enable.idempotence=true (KIP-679)"
+  , CV.check (producerIdempotent && producerDelivery == AtMostOnce)
+      "acks"
+      "must be all/-1 (ExactlyOnce/AtLeastOnce) when enable.idempotence=true"
+  , CV.check (isJustNonEmpty producerTransactional && not producerIdempotent)
+      "enable.idempotence"
+      "transactional.id requires enable.idempotence=true (KIP-98)"
+  , CV.check (isJustNonEmpty producerTransactional
+              && producerDelivery /= ExactlyOnce)
+      "acks"
+      "transactional producers require acks=all (ExactlyOnce delivery guarantee)"
+  ]
+  where
+    isJustNonEmpty (Just t) = not (T.null t)
+    isJustNonEmpty Nothing  = False
+
 createProducer
   :: [Text]          -- ^ Bootstrap broker addresses (host:port format)
   -> ProducerConfig  -- ^ Configuration
   -> IO (Either String Producer)
+createProducer brokerAddrs config
+  | configErrs <- validateProducerConfig config
+  , not (null configErrs)
+  = return $ Left $ renderConfigErrors configErrs
 createProducer brokerAddrs config = do
   -- Parse broker addresses
   let parsedBrokers = map parseBrokerAddress brokerAddrs

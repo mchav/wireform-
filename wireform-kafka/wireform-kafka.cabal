@@ -104,6 +104,7 @@ library
         Kafka.Client.AdminClient
         Kafka.Client.AdminExtras
         Kafka.Client.AdminTimeouts
+        Kafka.Client.ConfigValidation
         Kafka.Client.ConnectionExtras
         Kafka.Client.Consumer
         Kafka.Client.ConsumerExtras
@@ -712,6 +713,8 @@ test-suite wireform-kafka-test
         Client.MockBrokerStoreSpec
         Client.MockBrokerProtoSpec
         Client.ConfigParitySpec
+        Client.ConfigValidationSpec
+        Client.HeartbeatRejoinSpec
         Client.ProducerRetrySpec
         Client.PipelineSpec
         Client.SubscribeSpec
