@@ -107,6 +107,7 @@ import qualified Kafka.Compression.Types as Compression
 import Kafka.Compression.Types (CompressionCodec, defaultCodec)
 import qualified Kafka.Client.Consumer as KCC
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
+import qualified Kafka.Client.Internal.Murmur2 as Murmur2
 import qualified Kafka.Client.Internal.ProducerSender as Sender
 import qualified Kafka.Client.Internal.TransactionCoordinator as TC
 import qualified Kafka.Client.Metadata as Meta
@@ -979,11 +980,22 @@ selectPartition producer@Producer{..} topic keyM = do
       let partitioner = producerPartitioner producerConfig
       partitioner producer topic keyM partitionCount
 
--- | Hash-based partitioning: murmur2 hash (Kafka-compatible)
+-- | Hash-based partitioning using Kafka's murmur2 variant.
+--
+-- This is the SAME hash + selection rule the JVM client's
+-- @DefaultPartitioner@ uses (via
+-- @org.apache.kafka.common.utils.Utils.murmur2(byte[])@):
+-- @(murmur2(key) & 0x7FFFFFFF) % numPartitions@. Every official
+-- Kafka client (JVM, librdkafka, kafka-go, …) computes the same
+-- result, so a record with @key=\"foo\"@ produced from any
+-- language lands on the same partition.
+--
+-- Until this commit we used 'Data.Hashable.hash' (siphash),
+-- which routed the same key to /different/ partitions than the
+-- JVM client. That broke per-key ordering whenever a topic was
+-- written by multiple Kafka client implementations.
 hashPartition :: ByteString -> Int32 -> Int32
-hashPartition key partCount =
-  let keyHash = hash key  -- Using Data.Hashable
-  in fromIntegral (abs keyHash) `mod` partCount
+hashPartition = Murmur2.partitionForKey
 
 -- | Sticky partitioning (KIP-480): stick to partition until batch is ready,
 -- then switch to a different partition (improves batching)

@@ -45,6 +45,7 @@ import qualified Client.ProducerTransactionWiringSpec
 import qualified Client.InterceptorSpec
 import qualified Client.MetadataLeaderUpdateSpec
 import qualified Client.MetricsRegistrySpec
+import qualified Client.Murmur2Spec
 import qualified Client.StatsJsonSpec
 import qualified Client.ConsumerGroupV2Spec
 import qualified Client.ShareConsumerSpec
@@ -144,6 +145,7 @@ clientTests = testGroup "Client"
   , Client.InterceptorSpec.tests
   , Client.MetadataLeaderUpdateSpec.tests
   , Client.MetricsRegistrySpec.tests
+  , Client.Murmur2Spec.tests
   , Client.StatsJsonSpec.tests
   , Client.ConsumerGroupV2Spec.tests
   , Client.ShareConsumerSpec.tests
