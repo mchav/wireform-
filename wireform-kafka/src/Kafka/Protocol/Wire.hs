@@ -77,6 +77,8 @@ module Kafka.Protocol.Wire
   , peekInt32BE
   , pokeInt64BE
   , peekInt64BE
+  , pokeFloat64BE
+  , peekFloat64BE
   , pokeWord16BE
   , peekWord16BE
   , pokeWord32BE
@@ -111,6 +113,7 @@ import Foreign.ForeignPtr
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (Ptr, minusPtr, plusPtr)
 import Foreign.Storable (peek, peekByteOff, poke, pokeByteOff)
+import GHC.Float (castDoubleToWord64, castWord64ToDouble)
 import GHC.Generics (Generic)
 import GHC.IO (unsafePerformIO)
 
@@ -354,6 +357,46 @@ peekInt64BE p endPtr = do
         .|. (fromIntegral b6 `shiftL`  8)
         .|. fromIntegral b7            :: Word64
   pure (fromIntegral w :: Int64, p `plusPtr` 8)
+
+-- | Encode a 64-bit IEEE-754 'Double' big-endian. The Kafka protocol
+-- transmits @float64@ fields as their raw IEEE-754 bit pattern in
+-- network byte order; we reinterpret the 'Double' as a 'Word64' via
+-- 'castDoubleToWord64' and reuse 'pokeWord64BE'-style assembly.
+{-# INLINE pokeFloat64BE #-}
+pokeFloat64BE :: Ptr Word8 -> Double -> IO (Ptr Word8)
+pokeFloat64BE p d = do
+  let !w = castDoubleToWord64 d
+  pokeByteOff p 0 (fromIntegral (w `shiftR` 56) :: Word8)
+  pokeByteOff p 1 (fromIntegral (w `shiftR` 48) :: Word8)
+  pokeByteOff p 2 (fromIntegral (w `shiftR` 40) :: Word8)
+  pokeByteOff p 3 (fromIntegral (w `shiftR` 32) :: Word8)
+  pokeByteOff p 4 (fromIntegral (w `shiftR` 24) :: Word8)
+  pokeByteOff p 5 (fromIntegral (w `shiftR` 16) :: Word8)
+  pokeByteOff p 6 (fromIntegral (w `shiftR`  8) :: Word8)
+  pokeByteOff p 7 (fromIntegral (w .&. 0xFF)    :: Word8)
+  pure (p `plusPtr` 8)
+
+{-# INLINE peekFloat64BE #-}
+peekFloat64BE :: Ptr Word8 -> Ptr Word8 -> IO (Double, Ptr Word8)
+peekFloat64BE p endPtr = do
+  ensureBytes p endPtr 8 "Float64"
+  b0 <- peekByteOff p 0 :: IO Word8
+  b1 <- peekByteOff p 1 :: IO Word8
+  b2 <- peekByteOff p 2 :: IO Word8
+  b3 <- peekByteOff p 3 :: IO Word8
+  b4 <- peekByteOff p 4 :: IO Word8
+  b5 <- peekByteOff p 5 :: IO Word8
+  b6 <- peekByteOff p 6 :: IO Word8
+  b7 <- peekByteOff p 7 :: IO Word8
+  let !w = (fromIntegral b0 `shiftL` 56)
+        .|. (fromIntegral b1 `shiftL` 48)
+        .|. (fromIntegral b2 `shiftL` 40)
+        .|. (fromIntegral b3 `shiftL` 32)
+        .|. (fromIntegral b4 `shiftL` 24)
+        .|. (fromIntegral b5 `shiftL` 16)
+        .|. (fromIntegral b6 `shiftL`  8)
+        .|. fromIntegral b7            :: Word64
+  pure (castWord64ToDouble w, p `plusPtr` 8)
 
 ----------------------------------------------------------------------
 -- Variable-length integers (UVarInt + ZigZag VarInt / VarLong)
@@ -626,6 +669,14 @@ instance Wire Bool where
   wirePeek p endPtr = do
     (w, p') <- peekWord8 p endPtr
     pure (w /= 0, p')
+  {-# INLINE wirePeek #-}
+
+instance Wire Double where
+  wireMaxSize _ = 8
+  {-# INLINE wireMaxSize #-}
+  wirePoke = pokeFloat64BE
+  {-# INLINE wirePoke #-}
+  wirePeek = peekFloat64BE
   {-# INLINE wirePeek #-}
 
 ----------------------------------------------------------------------

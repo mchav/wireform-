@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.ResponseHeader
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,6 +46,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
 import Foreign.Ptr (Ptr)
@@ -68,6 +71,8 @@ data ResponseHeader = ResponseHeader
 -- | Maximum supported version for ResponseHeader.
 maxResponseHeaderVersion :: Int16
 maxResponseHeaderVersion = 1
+
+
 
 -- | Encode ResponseHeader with the given API version.
 encodeResponseHeader :: MonadPut m => E.ApiVersion -> ResponseHeader -> m ()
@@ -104,21 +109,14 @@ decodeResponseHeader version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
-----------------------------------------------------------------------
--- Native 'Wire' codec — emitted by
--- "Kafka.Protocol.Codegen.WireGenerator". See the matching block in
--- 'Kafka.Protocol.Generated.RequestHeader' for the full rationale;
--- the same snapshot + cross-codec parity tests cover this module.
-----------------------------------------------------------------------
 
 -- | Worst-case wire size of a ResponseHeader.
--- Sums the per-field upper bounds; the actual poke may advance
--- the cursor by less.
 wireMaxSizeResponseHeader :: Int -> ResponseHeader -> Int
 wireMaxSizeResponseHeader _version msg =
   0
   + 4
   + 1
+
 -- | Direct-poke encoder for ResponseHeader.
 wirePokeResponseHeader :: Int -> Ptr Word8 -> ResponseHeader -> IO (Ptr Word8)
 wirePokeResponseHeader version basePtr msg
@@ -131,6 +129,7 @@ wirePokeResponseHeader version basePtr msg
     p1 <- W.pokeInt32BE p0 (responseHeaderCorrelationId msg)
     WP.pokeEmptyTaggedFields p1
   | otherwise = error $ "wirePoke ResponseHeader : unsupported version: " ++ show version
+
 -- | Direct-poke decoder for ResponseHeader.
 wirePeekResponseHeader :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ResponseHeader, Ptr Word8)
 wirePeekResponseHeader version _fp _basePtr p0 endPtr
@@ -142,6 +141,8 @@ wirePeekResponseHeader version _fp _basePtr p0 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
     pure (ResponseHeader { responseHeaderCorrelationId = f0_correlationid }, pTagsEnd)
   | otherwise = error $ "wirePeek ResponseHeader : unsupported version: " ++ show version
+
+
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
 -- generated below, skipping the 'Data.Bytes.Serial' runner.

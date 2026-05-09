@@ -32,7 +32,9 @@ module Kafka.Protocol.Generated.DescribeQuorumResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -49,7 +51,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 data ReplicaState = ReplicaState
@@ -427,6 +435,13 @@ data DescribeQuorumResponse = DescribeQuorumResponse
 maxDescribeQuorumResponseVersion :: Int16
 maxDescribeQuorumResponseVersion = 2
 
+-- | KafkaMessage instance for DescribeQuorumResponse.
+instance KafkaMessage DescribeQuorumResponse where
+  messageApiKey = 55
+  messageMinVersion = 0
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 0
+
 -- | Encode DescribeQuorumResponse with the given API version.
 encodeDescribeQuorumResponse :: MonadPut m => E.ApiVersion -> DescribeQuorumResponse -> m ()
 encodeDescribeQuorumResponse version msg
@@ -483,16 +498,209 @@ decodeDescribeQuorumResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeQuorumResponse' / 'decodeDescribeQuorumResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a ReplicaState.
+wireMaxSizeReplicaState :: Int -> ReplicaState -> Int
+wireMaxSizeReplicaState _version msg =
+  0
+  + 4
+  + 16
+  + 8
+  + 8
+  + 8
+  + 1
+
+-- | Direct-poke encoder for ReplicaState.
+wirePokeReplicaState :: Int -> Ptr Word8 -> ReplicaState -> IO (Ptr Word8)
+wirePokeReplicaState version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (replicaStateReplicaId msg)
+  p2 <- WP.pokeKafkaUuid p1 (replicaStateReplicaDirectoryId msg)
+  p3 <- W.pokeInt64BE p2 (replicaStateLogEndOffset msg)
+  p4 <- W.pokeInt64BE p3 (replicaStateLastFetchTimestamp msg)
+  p5 <- W.pokeInt64BE p4 (replicaStateLastCaughtUpTimestamp msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p5 else pure p5
+
+-- | Direct-poke decoder for ReplicaState.
+wirePeekReplicaState :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ReplicaState, Ptr Word8)
+wirePeekReplicaState version _fp _basePtr p0 endPtr = do
+  (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
+  (f1_replicadirectoryid, p2) <- WP.peekKafkaUuid p1 endPtr
+  (f2_logendoffset, p3) <- W.peekInt64BE p2 endPtr
+  (f3_lastfetchtimestamp, p4) <- W.peekInt64BE p3 endPtr
+  (f4_lastcaughtuptimestamp, p5) <- W.peekInt64BE p4 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (ReplicaState { replicaStateReplicaId = f0_replicaid, replicaStateReplicaDirectoryId = f1_replicadirectoryid, replicaStateLogEndOffset = f2_logendoffset, replicaStateLastFetchTimestamp = f3_lastfetchtimestamp, replicaStateLastCaughtUpTimestamp = f4_lastcaughtuptimestamp }, pTagsEnd)
+
+-- | Worst-case wire size of a PartitionData.
+wireMaxSizePartitionData :: Int -> PartitionData -> Int
+wireMaxSizePartitionData _version msg =
+  0
+  + 4
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (partitionDataErrorMessage msg))
+  + 4
+  + 4
+  + 8
+  + (5 + (case P.unKafkaArray (partitionDataCurrentVoters msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeReplicaState _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (partitionDataObservers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeReplicaState _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for PartitionData.
+wirePokePartitionData :: Int -> Ptr Word8 -> PartitionData -> IO (Ptr Word8)
+wirePokePartitionData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (partitionDataPartitionIndex msg)
+  p2 <- W.pokeInt16BE p1 (partitionDataErrorCode msg)
+  p3 <- WP.pokeCompactString p2 (P.toCompactString (partitionDataErrorMessage msg))
+  p4 <- W.pokeInt32BE p3 (partitionDataLeaderId msg)
+  p5 <- W.pokeInt32BE p4 (partitionDataLeaderEpoch msg)
+  p6 <- W.pokeInt64BE p5 (partitionDataHighWatermark msg)
+  p7 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeReplicaState version p x) p6 (partitionDataCurrentVoters msg)
+  p8 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeReplicaState version p x) p7 (partitionDataObservers msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p8 else pure p8
+
+-- | Direct-poke decoder for PartitionData.
+wirePeekPartitionData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (PartitionData, Ptr Word8)
+wirePeekPartitionData version _fp _basePtr p0 endPtr = do
+  (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f3_leaderid, p4) <- W.peekInt32BE p3 endPtr
+  (f4_leaderepoch, p5) <- W.peekInt32BE p4 endPtr
+  (f5_highwatermark, p6) <- W.peekInt64BE p5 endPtr
+  (f6_currentvoters, p7) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReplicaState version _fp _basePtr p e) p6 endPtr
+  (f7_observers, p8) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReplicaState version _fp _basePtr p e) p7 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p8 endPtr else pure p8
+  pure (PartitionData { partitionDataPartitionIndex = f0_partitionindex, partitionDataErrorCode = f1_errorcode, partitionDataErrorMessage = f2_errormessage, partitionDataLeaderId = f3_leaderid, partitionDataLeaderEpoch = f4_leaderepoch, partitionDataHighWatermark = f5_highwatermark, partitionDataCurrentVoters = f6_currentvoters, partitionDataObservers = f7_observers }, pTagsEnd)
+
+-- | Worst-case wire size of a TopicData.
+wireMaxSizeTopicData :: Int -> TopicData -> Int
+wireMaxSizeTopicData _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (topicDataTopicName msg))
+  + (5 + (case P.unKafkaArray (topicDataPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionData _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TopicData.
+wirePokeTopicData :: Int -> Ptr Word8 -> TopicData -> IO (Ptr Word8)
+wirePokeTopicData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicDataTopicName msg))
+  p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokePartitionData version p x) p1 (topicDataPartitions msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for TopicData.
+wirePeekTopicData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicData, Ptr Word8)
+wirePeekTopicData version _fp _basePtr p0 endPtr = do
+  (f0_topicname, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekPartitionData version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TopicData { topicDataTopicName = f0_topicname, topicDataPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a Listener.
+wireMaxSizeListener :: Int -> Listener -> Int
+wireMaxSizeListener _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (listenerName msg))
+  + WP.compactStringMaxSize (P.toCompactString (listenerHost msg))
+  + 2
+  + 1
+
+-- | Direct-poke encoder for Listener.
+wirePokeListener :: Int -> Ptr Word8 -> Listener -> IO (Ptr Word8)
+wirePokeListener version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (listenerName msg))
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (listenerHost msg))
+  p3 <- W.pokeWord16BE p2 (listenerPort msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for Listener.
+wirePeekListener :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Listener, Ptr Word8)
+wirePeekListener version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_port, p3) <- W.peekWord16BE p2 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (Listener { listenerName = f0_name, listenerHost = f1_host, listenerPort = f2_port }, pTagsEnd)
+
+-- | Worst-case wire size of a Node.
+wireMaxSizeNode :: Int -> Node -> Int
+wireMaxSizeNode _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (nodeListeners msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeListener _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for Node.
+wirePokeNode :: Int -> Ptr Word8 -> Node -> IO (Ptr Word8)
+wirePokeNode version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (nodeNodeId msg)
+  p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeListener version p x) p1 (nodeListeners msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for Node.
+wirePeekNode :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Node, Ptr Word8)
+wirePeekNode version _fp _basePtr p0 endPtr = do
+  (f0_nodeid, p1) <- W.peekInt32BE p0 endPtr
+  (f1_listeners, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekListener version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (Node { nodeNodeId = f0_nodeid, nodeListeners = f1_listeners }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeQuorumResponse.
+wireMaxSizeDescribeQuorumResponse :: Int -> DescribeQuorumResponse -> Int
+wireMaxSizeDescribeQuorumResponse _version msg =
+  0
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (describeQuorumResponseErrorMessage msg))
+  + (5 + (case P.unKafkaArray (describeQuorumResponseTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicData _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (describeQuorumResponseNodes msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNode _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeQuorumResponse.
+wirePokeDescribeQuorumResponse :: Int -> Ptr Word8 -> DescribeQuorumResponse -> IO (Ptr Word8)
+wirePokeDescribeQuorumResponse version basePtr msg
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (describeQuorumResponseErrorCode msg)
+    p2 <- WP.pokeCompactString p1 (P.toCompactString (describeQuorumResponseErrorMessage msg))
+    p3 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicData version p x) p2 (describeQuorumResponseTopics msg)
+    p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeNode version p x) p3 (describeQuorumResponseNodes msg)
+    WP.pokeEmptyTaggedFields p4
+  | version >= 0 && version <= 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (describeQuorumResponseErrorCode msg)
+    p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicData version p x) p1 (describeQuorumResponseTopics msg)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke DescribeQuorumResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeQuorumResponse.
+wirePeekDescribeQuorumResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeQuorumResponse, Ptr Word8)
+wirePeekDescribeQuorumResponse version _fp _basePtr p0 endPtr
+  | version == 2 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_errormessage, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f2_topics, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicData version _fp _basePtr p e) p2 endPtr
+    (f3_nodes, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekNode version _fp _basePtr p e) p3 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (DescribeQuorumResponse { describeQuorumResponseErrorCode = f0_errorcode, describeQuorumResponseErrorMessage = f1_errormessage, describeQuorumResponseTopics = f2_topics, describeQuorumResponseNodes = f3_nodes }, pTagsEnd)
+  | version >= 0 && version <= 1 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (DescribeQuorumResponse { describeQuorumResponseErrorCode = f0_errorcode, describeQuorumResponseErrorMessage = P.KafkaString Null, describeQuorumResponseTopics = f1_topics, describeQuorumResponseNodes = P.mkKafkaArray V.empty }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeQuorumResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeQuorumResponse where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeQuorumResponse decodeDescribeQuorumResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeQuorumResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeQuorumResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeQuorumResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

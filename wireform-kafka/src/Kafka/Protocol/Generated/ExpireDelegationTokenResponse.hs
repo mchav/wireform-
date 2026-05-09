@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.ExpireDelegationTokenResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -75,6 +83,13 @@ data ExpireDelegationTokenResponse = ExpireDelegationTokenResponse
 -- | Maximum supported version for ExpireDelegationTokenResponse.
 maxExpireDelegationTokenResponseVersion :: Int16
 maxExpireDelegationTokenResponseVersion = 2
+
+-- | KafkaMessage instance for ExpireDelegationTokenResponse.
+instance KafkaMessage ExpireDelegationTokenResponse where
+  messageApiKey = 40
+  messageMinVersion = 1
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 2
 
 -- | Encode ExpireDelegationTokenResponse with the given API version.
 encodeExpireDelegationTokenResponse :: MonadPut m => E.ApiVersion -> ExpireDelegationTokenResponse -> m ()
@@ -127,16 +142,58 @@ decodeExpireDelegationTokenResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeExpireDelegationTokenResponse' / 'decodeExpireDelegationTokenResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a ExpireDelegationTokenResponse.
+wireMaxSizeExpireDelegationTokenResponse :: Int -> ExpireDelegationTokenResponse -> Int
+wireMaxSizeExpireDelegationTokenResponse _version msg =
+  0
+  + 2
+  + 8
+  + 4
+  + 1
+
+-- | Direct-poke encoder for ExpireDelegationTokenResponse.
+wirePokeExpireDelegationTokenResponse :: Int -> Ptr Word8 -> ExpireDelegationTokenResponse -> IO (Ptr Word8)
+wirePokeExpireDelegationTokenResponse version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (expireDelegationTokenResponseErrorCode msg)
+    p2 <- W.pokeInt64BE p1 (expireDelegationTokenResponseExpiryTimestampMs msg)
+    p3 <- W.pokeInt32BE p2 (expireDelegationTokenResponseThrottleTimeMs msg)
+    pure p3
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (expireDelegationTokenResponseErrorCode msg)
+    p2 <- W.pokeInt64BE p1 (expireDelegationTokenResponseExpiryTimestampMs msg)
+    p3 <- W.pokeInt32BE p2 (expireDelegationTokenResponseThrottleTimeMs msg)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke ExpireDelegationTokenResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ExpireDelegationTokenResponse.
+wirePeekExpireDelegationTokenResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ExpireDelegationTokenResponse, Ptr Word8)
+wirePeekExpireDelegationTokenResponse version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_expirytimestampms, p2) <- W.peekInt64BE p1 endPtr
+    (f2_throttletimems, p3) <- W.peekInt32BE p2 endPtr
+    pure (ExpireDelegationTokenResponse { expireDelegationTokenResponseErrorCode = f0_errorcode, expireDelegationTokenResponseExpiryTimestampMs = f1_expirytimestampms, expireDelegationTokenResponseThrottleTimeMs = f2_throttletimems }, p3)
+  | version == 2 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_expirytimestampms, p2) <- W.peekInt64BE p1 endPtr
+    (f2_throttletimems, p3) <- W.peekInt32BE p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (ExpireDelegationTokenResponse { expireDelegationTokenResponseErrorCode = f0_errorcode, expireDelegationTokenResponseExpiryTimestampMs = f1_expirytimestampms, expireDelegationTokenResponseThrottleTimeMs = f2_throttletimems }, pTagsEnd)
+  | otherwise = error $ "wirePeek ExpireDelegationTokenResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ExpireDelegationTokenResponse where
-  wireCodec = Just (WC.serialShimCodec encodeExpireDelegationTokenResponse decodeExpireDelegationTokenResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeExpireDelegationTokenResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeExpireDelegationTokenResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekExpireDelegationTokenResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

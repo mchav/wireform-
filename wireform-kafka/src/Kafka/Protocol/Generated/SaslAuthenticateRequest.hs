@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.SaslAuthenticateRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -63,6 +71,13 @@ data SaslAuthenticateRequest = SaslAuthenticateRequest
 -- | Maximum supported version for SaslAuthenticateRequest.
 maxSaslAuthenticateRequestVersion :: Int16
 maxSaslAuthenticateRequestVersion = 2
+
+-- | KafkaMessage instance for SaslAuthenticateRequest.
+instance KafkaMessage SaslAuthenticateRequest where
+  messageApiKey = 36
+  messageMinVersion = 0
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 2
 
 -- | Encode SaslAuthenticateRequest with the given API version.
 encodeSaslAuthenticateRequest :: MonadPut m => E.ApiVersion -> SaslAuthenticateRequest -> m ()
@@ -99,16 +114,48 @@ decodeSaslAuthenticateRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeSaslAuthenticateRequest' / 'decodeSaslAuthenticateRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a SaslAuthenticateRequest.
+wireMaxSizeSaslAuthenticateRequest :: Int -> SaslAuthenticateRequest -> Int
+wireMaxSizeSaslAuthenticateRequest _version msg =
+  0
+  + WP.compactBytesMaxSize (P.toCompactBytes (saslAuthenticateRequestAuthBytes msg))
+  + 1
+
+-- | Direct-poke encoder for SaslAuthenticateRequest.
+wirePokeSaslAuthenticateRequest :: Int -> Ptr Word8 -> SaslAuthenticateRequest -> IO (Ptr Word8)
+wirePokeSaslAuthenticateRequest version basePtr msg
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactBytes p0 (P.toCompactBytes (saslAuthenticateRequestAuthBytes msg))
+    WP.pokeEmptyTaggedFields p1
+  | version >= 0 && version <= 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactBytes p0 (P.toCompactBytes (saslAuthenticateRequestAuthBytes msg))
+    pure p1
+  | otherwise = error $ "wirePoke SaslAuthenticateRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for SaslAuthenticateRequest.
+wirePeekSaslAuthenticateRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (SaslAuthenticateRequest, Ptr Word8)
+wirePeekSaslAuthenticateRequest version _fp _basePtr p0 endPtr
+  | version == 2 = do
+    (f0_authbytes, p1) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (SaslAuthenticateRequest { saslAuthenticateRequestAuthBytes = f0_authbytes }, pTagsEnd)
+  | version >= 0 && version <= 1 = do
+    (f0_authbytes, p1) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr
+    pure (SaslAuthenticateRequest { saslAuthenticateRequestAuthBytes = f0_authbytes }, p1)
+  | otherwise = error $ "wirePeek SaslAuthenticateRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec SaslAuthenticateRequest where
-  wireCodec = Just (WC.serialShimCodec encodeSaslAuthenticateRequest decodeSaslAuthenticateRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeSaslAuthenticateRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeSaslAuthenticateRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekSaslAuthenticateRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

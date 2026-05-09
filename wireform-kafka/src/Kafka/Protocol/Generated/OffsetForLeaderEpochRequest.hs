@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.OffsetForLeaderEpochRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,7 +48,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Each partition to get offsets for.
@@ -170,6 +178,13 @@ data OffsetForLeaderEpochRequest = OffsetForLeaderEpochRequest
 maxOffsetForLeaderEpochRequestVersion :: Int16
 maxOffsetForLeaderEpochRequestVersion = 4
 
+-- | KafkaMessage instance for OffsetForLeaderEpochRequest.
+instance KafkaMessage OffsetForLeaderEpochRequest where
+  messageApiKey = 23
+  messageMinVersion = 2
+  messageMaxVersion = 4
+  messageFlexibleVersion = Just 4
+
 -- | Encode OffsetForLeaderEpochRequest with the given API version.
 encodeOffsetForLeaderEpochRequest :: MonadPut m => E.ApiVersion -> OffsetForLeaderEpochRequest -> m ()
 encodeOffsetForLeaderEpochRequest version msg
@@ -228,16 +243,110 @@ decodeOffsetForLeaderEpochRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeOffsetForLeaderEpochRequest' / 'decodeOffsetForLeaderEpochRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a OffsetForLeaderPartition.
+wireMaxSizeOffsetForLeaderPartition :: Int -> OffsetForLeaderPartition -> Int
+wireMaxSizeOffsetForLeaderPartition _version msg =
+  0
+  + 4
+  + 4
+  + 4
+  + 1
+
+-- | Direct-poke encoder for OffsetForLeaderPartition.
+wirePokeOffsetForLeaderPartition :: Int -> Ptr Word8 -> OffsetForLeaderPartition -> IO (Ptr Word8)
+wirePokeOffsetForLeaderPartition version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (offsetForLeaderPartitionPartition msg)
+  p2 <- W.pokeInt32BE p1 (offsetForLeaderPartitionCurrentLeaderEpoch msg)
+  p3 <- W.pokeInt32BE p2 (offsetForLeaderPartitionLeaderEpoch msg)
+  if version >= 4 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for OffsetForLeaderPartition.
+wirePeekOffsetForLeaderPartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OffsetForLeaderPartition, Ptr Word8)
+wirePeekOffsetForLeaderPartition version _fp _basePtr p0 endPtr = do
+  (f0_partition, p1) <- W.peekInt32BE p0 endPtr
+  (f1_currentleaderepoch, p2) <- W.peekInt32BE p1 endPtr
+  (f2_leaderepoch, p3) <- W.peekInt32BE p2 endPtr
+  pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (OffsetForLeaderPartition { offsetForLeaderPartitionPartition = f0_partition, offsetForLeaderPartitionCurrentLeaderEpoch = f1_currentleaderepoch, offsetForLeaderPartitionLeaderEpoch = f2_leaderepoch }, pTagsEnd)
+
+-- | Worst-case wire size of a OffsetForLeaderTopic.
+wireMaxSizeOffsetForLeaderTopic :: Int -> OffsetForLeaderTopic -> Int
+wireMaxSizeOffsetForLeaderTopic _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (offsetForLeaderTopicTopic msg))
+  + (5 + (case P.unKafkaArray (offsetForLeaderTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOffsetForLeaderPartition _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for OffsetForLeaderTopic.
+wirePokeOffsetForLeaderTopic :: Int -> Ptr Word8 -> OffsetForLeaderTopic -> IO (Ptr Word8)
+wirePokeOffsetForLeaderTopic version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (offsetForLeaderTopicTopic msg))
+  p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeOffsetForLeaderPartition version p x) p1 (offsetForLeaderTopicPartitions msg)
+  if version >= 4 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for OffsetForLeaderTopic.
+wirePeekOffsetForLeaderTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OffsetForLeaderTopic, Ptr Word8)
+wirePeekOffsetForLeaderTopic version _fp _basePtr p0 endPtr = do
+  (f0_topic, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderPartition version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (OffsetForLeaderTopic { offsetForLeaderTopicTopic = f0_topic, offsetForLeaderTopicPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a OffsetForLeaderEpochRequest.
+wireMaxSizeOffsetForLeaderEpochRequest :: Int -> OffsetForLeaderEpochRequest -> Int
+wireMaxSizeOffsetForLeaderEpochRequest _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (offsetForLeaderEpochRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOffsetForLeaderTopic _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for OffsetForLeaderEpochRequest.
+wirePokeOffsetForLeaderEpochRequest :: Int -> Ptr Word8 -> OffsetForLeaderEpochRequest -> IO (Ptr Word8)
+wirePokeOffsetForLeaderEpochRequest version basePtr msg
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeOffsetForLeaderTopic version p x) p0 (offsetForLeaderEpochRequestTopics msg)
+    pure p1
+  | version == 3 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (offsetForLeaderEpochRequestReplicaId msg)
+    p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeOffsetForLeaderTopic version p x) p1 (offsetForLeaderEpochRequestTopics msg)
+    pure p2
+  | version == 4 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (offsetForLeaderEpochRequestReplicaId msg)
+    p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeOffsetForLeaderTopic version p x) p1 (offsetForLeaderEpochRequestTopics msg)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke OffsetForLeaderEpochRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for OffsetForLeaderEpochRequest.
+wirePeekOffsetForLeaderEpochRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OffsetForLeaderEpochRequest, Ptr Word8)
+wirePeekOffsetForLeaderEpochRequest version _fp _basePtr p0 endPtr
+  | version == 2 = do
+    (f0_topics, p1) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderTopic version _fp _basePtr p e) p0 endPtr
+    pure (OffsetForLeaderEpochRequest { offsetForLeaderEpochRequestReplicaId = 0, offsetForLeaderEpochRequestTopics = f0_topics }, p1)
+  | version == 3 = do
+    (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
+    (f1_topics, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderTopic version _fp _basePtr p e) p1 endPtr
+    pure (OffsetForLeaderEpochRequest { offsetForLeaderEpochRequestReplicaId = f0_replicaid, offsetForLeaderEpochRequestTopics = f1_topics }, p2)
+  | version == 4 = do
+    (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
+    (f1_topics, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderTopic version _fp _basePtr p e) p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (OffsetForLeaderEpochRequest { offsetForLeaderEpochRequestReplicaId = f0_replicaid, offsetForLeaderEpochRequestTopics = f1_topics }, pTagsEnd)
+  | otherwise = error $ "wirePeek OffsetForLeaderEpochRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec OffsetForLeaderEpochRequest where
-  wireCodec = Just (WC.serialShimCodec encodeOffsetForLeaderEpochRequest decodeOffsetForLeaderEpochRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeOffsetForLeaderEpochRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeOffsetForLeaderEpochRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekOffsetForLeaderEpochRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

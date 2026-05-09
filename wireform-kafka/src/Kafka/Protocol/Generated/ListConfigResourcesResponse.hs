@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.ListConfigResourcesResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -45,7 +47,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Each config resource in the response.
@@ -122,6 +130,13 @@ data ListConfigResourcesResponse = ListConfigResourcesResponse
 maxListConfigResourcesResponseVersion :: Int16
 maxListConfigResourcesResponseVersion = 1
 
+-- | KafkaMessage instance for ListConfigResourcesResponse.
+instance KafkaMessage ListConfigResourcesResponse where
+  messageApiKey = 74
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 0
+
 -- | Encode ListConfigResourcesResponse with the given API version.
 encodeListConfigResourcesResponse :: MonadPut m => E.ApiVersion -> ListConfigResourcesResponse -> m ()
 encodeListConfigResourcesResponse version msg
@@ -152,16 +167,70 @@ decodeListConfigResourcesResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeListConfigResourcesResponse' / 'decodeListConfigResourcesResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a ConfigResource.
+wireMaxSizeConfigResource :: Int -> ConfigResource -> Int
+wireMaxSizeConfigResource _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (configResourceResourceName msg))
+  + 1
+  + 1
+
+-- | Direct-poke encoder for ConfigResource.
+wirePokeConfigResource :: Int -> Ptr Word8 -> ConfigResource -> IO (Ptr Word8)
+wirePokeConfigResource version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (configResourceResourceName msg))
+  p2 <- W.pokeWord8 p1 (fromIntegral (configResourceResourceType msg))
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for ConfigResource.
+wirePeekConfigResource :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ConfigResource, Ptr Word8)
+wirePeekConfigResource version _fp _basePtr p0 endPtr = do
+  (f0_resourcename, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_resourcetype, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (ConfigResource { configResourceResourceName = f0_resourcename, configResourceResourceType = f1_resourcetype }, pTagsEnd)
+
+-- | Worst-case wire size of a ListConfigResourcesResponse.
+wireMaxSizeListConfigResourcesResponse :: Int -> ListConfigResourcesResponse -> Int
+wireMaxSizeListConfigResourcesResponse _version msg =
+  0
+  + 4
+  + 2
+  + (5 + (case P.unKafkaArray (listConfigResourcesResponseConfigResources msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeConfigResource _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ListConfigResourcesResponse.
+wirePokeListConfigResourcesResponse :: Int -> Ptr Word8 -> ListConfigResourcesResponse -> IO (Ptr Word8)
+wirePokeListConfigResourcesResponse version basePtr msg
+  | version >= 0 && version <= 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (listConfigResourcesResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (listConfigResourcesResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeConfigResource version p x) p2 (listConfigResourcesResponseConfigResources msg)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke ListConfigResourcesResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ListConfigResourcesResponse.
+wirePeekListConfigResourcesResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListConfigResourcesResponse, Ptr Word8)
+wirePeekListConfigResourcesResponse version _fp _basePtr p0 endPtr
+  | version >= 0 && version <= 1 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_configresources, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekConfigResource version _fp _basePtr p e) p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (ListConfigResourcesResponse { listConfigResourcesResponseThrottleTimeMs = f0_throttletimems, listConfigResourcesResponseErrorCode = f1_errorcode, listConfigResourcesResponseConfigResources = f2_configresources }, pTagsEnd)
+  | otherwise = error $ "wirePeek ListConfigResourcesResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ListConfigResourcesResponse where
-  wireCodec = Just (WC.serialShimCodec encodeListConfigResourcesResponse decodeListConfigResourcesResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeListConfigResourcesResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeListConfigResourcesResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekListConfigResourcesResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.DescribeDelegationTokenRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -45,7 +47,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Each owner that we want to describe delegation tokens for, or null to describe all tokens.
@@ -107,6 +115,13 @@ data DescribeDelegationTokenRequest = DescribeDelegationTokenRequest
 maxDescribeDelegationTokenRequestVersion :: Int16
 maxDescribeDelegationTokenRequestVersion = 3
 
+-- | KafkaMessage instance for DescribeDelegationTokenRequest.
+instance KafkaMessage DescribeDelegationTokenRequest where
+  messageApiKey = 41
+  messageMinVersion = 1
+  messageMaxVersion = 3
+  messageFlexibleVersion = Just 2
+
 -- | Encode DescribeDelegationTokenRequest with the given API version.
 encodeDescribeDelegationTokenRequest :: MonadPut m => E.ApiVersion -> DescribeDelegationTokenRequest -> m ()
 encodeDescribeDelegationTokenRequest version msg
@@ -142,16 +157,71 @@ decodeDescribeDelegationTokenRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeDelegationTokenRequest' / 'decodeDescribeDelegationTokenRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a DescribeDelegationTokenOwner.
+wireMaxSizeDescribeDelegationTokenOwner :: Int -> DescribeDelegationTokenOwner -> Int
+wireMaxSizeDescribeDelegationTokenOwner _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (describeDelegationTokenOwnerPrincipalType msg))
+  + WP.compactStringMaxSize (P.toCompactString (describeDelegationTokenOwnerPrincipalName msg))
+  + 1
+
+-- | Direct-poke encoder for DescribeDelegationTokenOwner.
+wirePokeDescribeDelegationTokenOwner :: Int -> Ptr Word8 -> DescribeDelegationTokenOwner -> IO (Ptr Word8)
+wirePokeDescribeDelegationTokenOwner version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (describeDelegationTokenOwnerPrincipalType msg))
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeDelegationTokenOwnerPrincipalName msg))
+  if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for DescribeDelegationTokenOwner.
+wirePeekDescribeDelegationTokenOwner :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeDelegationTokenOwner, Ptr Word8)
+wirePeekDescribeDelegationTokenOwner version _fp _basePtr p0 endPtr = do
+  (f0_principaltype, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_principalname, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (DescribeDelegationTokenOwner { describeDelegationTokenOwnerPrincipalType = f0_principaltype, describeDelegationTokenOwnerPrincipalName = f1_principalname }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeDelegationTokenRequest.
+wireMaxSizeDescribeDelegationTokenRequest :: Int -> DescribeDelegationTokenRequest -> Int
+wireMaxSizeDescribeDelegationTokenRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (describeDelegationTokenRequestOwners msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeDelegationTokenOwner _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeDelegationTokenRequest.
+wirePokeDescribeDelegationTokenRequest :: Int -> Ptr Word8 -> DescribeDelegationTokenRequest -> IO (Ptr Word8)
+wirePokeDescribeDelegationTokenRequest version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeDescribeDelegationTokenOwner version p x) p0 (describeDelegationTokenRequestOwners msg)
+    pure p1
+  | version >= 2 && version <= 3 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeDescribeDelegationTokenOwner version p x) p0 (describeDelegationTokenRequestOwners msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke DescribeDelegationTokenRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeDelegationTokenRequest.
+wirePeekDescribeDelegationTokenRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeDelegationTokenRequest, Ptr Word8)
+wirePeekDescribeDelegationTokenRequest version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_owners, p1) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekDescribeDelegationTokenOwner version _fp _basePtr p e) p0 endPtr
+    pure (DescribeDelegationTokenRequest { describeDelegationTokenRequestOwners = f0_owners }, p1)
+  | version >= 2 && version <= 3 = do
+    (f0_owners, p1) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekDescribeDelegationTokenOwner version _fp _basePtr p e) p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (DescribeDelegationTokenRequest { describeDelegationTokenRequestOwners = f0_owners }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeDelegationTokenRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeDelegationTokenRequest where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeDelegationTokenRequest decodeDescribeDelegationTokenRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeDelegationTokenRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeDelegationTokenRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeDelegationTokenRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

@@ -468,7 +468,11 @@ fetchSimple client topic partition offset maxBytes = do
         , FR.fetchPartitionLastFetchedEpoch = -1
         , FR.fetchPartitionLogStartOffset = -1
         , FR.fetchPartitionPartitionMaxBytes = maxBytes
-        , FR.fetchPartitionReplicaDirectoryId = P.nullUuid  -- KIP-915 tagged v17+
+        , -- New v17+ fields (KIP-853 / KIP-405). We don't track
+          -- replica directory IDs or high watermarks in the simple
+          -- client; the broker accepts the sentinels.
+          FR.fetchPartitionReplicaDirectoryId = P.nullUuid
+        , FR.fetchPartitionHighWatermark = -1
         }
       
       -- Create topic fetch request

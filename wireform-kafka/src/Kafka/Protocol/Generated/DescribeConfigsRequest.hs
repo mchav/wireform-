@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.DescribeConfigsRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -45,7 +47,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The resources whose configurations we want to describe.
@@ -129,6 +137,13 @@ data DescribeConfigsRequest = DescribeConfigsRequest
 maxDescribeConfigsRequestVersion :: Int16
 maxDescribeConfigsRequestVersion = 4
 
+-- | KafkaMessage instance for DescribeConfigsRequest.
+instance KafkaMessage DescribeConfigsRequest where
+  messageApiKey = 32
+  messageMinVersion = 1
+  messageMaxVersion = 4
+  messageFlexibleVersion = Just 4
+
 -- | Encode DescribeConfigsRequest with the given API version.
 encodeDescribeConfigsRequest :: MonadPut m => E.ApiVersion -> DescribeConfigsRequest -> m ()
 encodeDescribeConfigsRequest version msg
@@ -199,16 +214,93 @@ decodeDescribeConfigsRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeConfigsRequest' / 'decodeDescribeConfigsRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a DescribeConfigsResource.
+wireMaxSizeDescribeConfigsResource :: Int -> DescribeConfigsResource -> Int
+wireMaxSizeDescribeConfigsResource _version msg =
+  0
+  + 1
+  + WP.compactStringMaxSize (P.toCompactString (describeConfigsResourceResourceName msg))
+  + (5 + (case P.unKafkaArray (describeConfigsResourceConfigurationKeys msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeConfigsResource.
+wirePokeDescribeConfigsResource :: Int -> Ptr Word8 -> DescribeConfigsResource -> IO (Ptr Word8)
+wirePokeDescribeConfigsResource version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeWord8 p0 (fromIntegral (describeConfigsResourceResourceType msg))
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeConfigsResourceResourceName msg))
+  p3 <- WP.pokeVersionedNullableArray version 4 (\p s -> if version >= 4 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p2 (describeConfigsResourceConfigurationKeys msg)
+  if version >= 4 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for DescribeConfigsResource.
+wirePeekDescribeConfigsResource :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeConfigsResource, Ptr Word8)
+wirePeekDescribeConfigsResource version _fp _basePtr p0 endPtr = do
+  (f0_resourcetype, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
+  (f1_resourcename, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_configurationkeys, p3) <- WP.peekVersionedNullableArray version 4 (\p e -> if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p2 endPtr
+  pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (DescribeConfigsResource { describeConfigsResourceResourceType = f0_resourcetype, describeConfigsResourceResourceName = f1_resourcename, describeConfigsResourceConfigurationKeys = f2_configurationkeys }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeConfigsRequest.
+wireMaxSizeDescribeConfigsRequest :: Int -> DescribeConfigsRequest -> Int
+wireMaxSizeDescribeConfigsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (describeConfigsRequestResources msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeConfigsResource _version x ) v); P.Null -> 0 }))
+  + 1
+  + 1
+  + 1
+
+-- | Direct-poke encoder for DescribeConfigsRequest.
+wirePokeDescribeConfigsRequest :: Int -> Ptr Word8 -> DescribeConfigsRequest -> IO (Ptr Word8)
+wirePokeDescribeConfigsRequest version basePtr msg
+  | version == 3 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDescribeConfigsResource version p x) p0 (describeConfigsRequestResources msg)
+    p2 <- W.pokeWord8 p1 (if (describeConfigsRequestIncludeSynonyms msg) then 1 else 0)
+    p3 <- W.pokeWord8 p2 (if (describeConfigsRequestIncludeDocumentation msg) then 1 else 0)
+    pure p3
+  | version == 4 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDescribeConfigsResource version p x) p0 (describeConfigsRequestResources msg)
+    p2 <- W.pokeWord8 p1 (if (describeConfigsRequestIncludeSynonyms msg) then 1 else 0)
+    p3 <- W.pokeWord8 p2 (if (describeConfigsRequestIncludeDocumentation msg) then 1 else 0)
+    WP.pokeEmptyTaggedFields p3
+  | version >= 1 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDescribeConfigsResource version p x) p0 (describeConfigsRequestResources msg)
+    p2 <- W.pokeWord8 p1 (if (describeConfigsRequestIncludeSynonyms msg) then 1 else 0)
+    pure p2
+  | otherwise = error $ "wirePoke DescribeConfigsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeConfigsRequest.
+wirePeekDescribeConfigsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeConfigsRequest, Ptr Word8)
+wirePeekDescribeConfigsRequest version _fp _basePtr p0 endPtr
+  | version == 3 = do
+    (f0_resources, p1) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDescribeConfigsResource version _fp _basePtr p e) p0 endPtr
+    (f1_includesynonyms, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    (f2_includedocumentation, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    pure (DescribeConfigsRequest { describeConfigsRequestResources = f0_resources, describeConfigsRequestIncludeSynonyms = f1_includesynonyms, describeConfigsRequestIncludeDocumentation = f2_includedocumentation }, p3)
+  | version == 4 = do
+    (f0_resources, p1) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDescribeConfigsResource version _fp _basePtr p e) p0 endPtr
+    (f1_includesynonyms, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    (f2_includedocumentation, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (DescribeConfigsRequest { describeConfigsRequestResources = f0_resources, describeConfigsRequestIncludeSynonyms = f1_includesynonyms, describeConfigsRequestIncludeDocumentation = f2_includedocumentation }, pTagsEnd)
+  | version >= 1 && version <= 2 = do
+    (f0_resources, p1) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDescribeConfigsResource version _fp _basePtr p e) p0 endPtr
+    (f1_includesynonyms, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    pure (DescribeConfigsRequest { describeConfigsRequestResources = f0_resources, describeConfigsRequestIncludeSynonyms = f1_includesynonyms, describeConfigsRequestIncludeDocumentation = False }, p2)
+  | otherwise = error $ "wirePeek DescribeConfigsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeConfigsRequest where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeConfigsRequest decodeDescribeConfigsRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeConfigsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeConfigsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeConfigsRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

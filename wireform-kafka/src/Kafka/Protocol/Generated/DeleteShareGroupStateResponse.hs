@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.DeleteShareGroupStateResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,7 +48,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The results for the partitions.
@@ -161,6 +169,13 @@ data DeleteShareGroupStateResponse = DeleteShareGroupStateResponse
 maxDeleteShareGroupStateResponseVersion :: Int16
 maxDeleteShareGroupStateResponseVersion = 0
 
+-- | KafkaMessage instance for DeleteShareGroupStateResponse.
+instance KafkaMessage DeleteShareGroupStateResponse where
+  messageApiKey = 86
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
+
 -- | Encode DeleteShareGroupStateResponse with the given API version.
 encodeDeleteShareGroupStateResponse :: MonadPut m => E.ApiVersion -> DeleteShareGroupStateResponse -> m ()
 encodeDeleteShareGroupStateResponse version msg
@@ -183,16 +198,91 @@ decodeDeleteShareGroupStateResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDeleteShareGroupStateResponse' / 'decodeDeleteShareGroupStateResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a PartitionResult.
+wireMaxSizePartitionResult :: Int -> PartitionResult -> Int
+wireMaxSizePartitionResult _version msg =
+  0
+  + 4
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (partitionResultErrorMessage msg))
+  + 1
+
+-- | Direct-poke encoder for PartitionResult.
+wirePokePartitionResult :: Int -> Ptr Word8 -> PartitionResult -> IO (Ptr Word8)
+wirePokePartitionResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (partitionResultPartition msg)
+  p2 <- W.pokeInt16BE p1 (partitionResultErrorCode msg)
+  p3 <- WP.pokeCompactString p2 (P.toCompactString (partitionResultErrorMessage msg))
+  if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for PartitionResult.
+wirePeekPartitionResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (PartitionResult, Ptr Word8)
+wirePeekPartitionResult version _fp _basePtr p0 endPtr = do
+  (f0_partition, p1) <- W.peekInt32BE p0 endPtr
+  (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (PartitionResult { partitionResultPartition = f0_partition, partitionResultErrorCode = f1_errorcode, partitionResultErrorMessage = f2_errormessage }, pTagsEnd)
+
+-- | Worst-case wire size of a DeleteStateResult.
+wireMaxSizeDeleteStateResult :: Int -> DeleteStateResult -> Int
+wireMaxSizeDeleteStateResult _version msg =
+  0
+  + 16
+  + (5 + (case P.unKafkaArray (deleteStateResultPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DeleteStateResult.
+wirePokeDeleteStateResult :: Int -> Ptr Word8 -> DeleteStateResult -> IO (Ptr Word8)
+wirePokeDeleteStateResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeKafkaUuid p0 (deleteStateResultTopicId msg)
+  p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokePartitionResult version p x) p1 (deleteStateResultPartitions msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for DeleteStateResult.
+wirePeekDeleteStateResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteStateResult, Ptr Word8)
+wirePeekDeleteStateResult version _fp _basePtr p0 endPtr = do
+  (f0_topicid, p1) <- WP.peekKafkaUuid p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekPartitionResult version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (DeleteStateResult { deleteStateResultTopicId = f0_topicid, deleteStateResultPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a DeleteShareGroupStateResponse.
+wireMaxSizeDeleteShareGroupStateResponse :: Int -> DeleteShareGroupStateResponse -> Int
+wireMaxSizeDeleteShareGroupStateResponse _version msg =
+  0
+  + (5 + (case P.unKafkaArray (deleteShareGroupStateResponseResults msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDeleteStateResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DeleteShareGroupStateResponse.
+wirePokeDeleteShareGroupStateResponse :: Int -> Ptr Word8 -> DeleteShareGroupStateResponse -> IO (Ptr Word8)
+wirePokeDeleteShareGroupStateResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeDeleteStateResult version p x) p0 (deleteShareGroupStateResponseResults msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke DeleteShareGroupStateResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DeleteShareGroupStateResponse.
+wirePeekDeleteShareGroupStateResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteShareGroupStateResponse, Ptr Word8)
+wirePeekDeleteShareGroupStateResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_results, p1) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDeleteStateResult version _fp _basePtr p e) p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (DeleteShareGroupStateResponse { deleteShareGroupStateResponseResults = f0_results }, pTagsEnd)
+  | otherwise = error $ "wirePeek DeleteShareGroupStateResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DeleteShareGroupStateResponse where
-  wireCodec = Just (WC.serialShimCodec encodeDeleteShareGroupStateResponse decodeDeleteShareGroupStateResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDeleteShareGroupStateResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDeleteShareGroupStateResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDeleteShareGroupStateResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

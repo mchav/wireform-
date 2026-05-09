@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.DescribeProducersRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -45,7 +47,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The topics to list producers for.
@@ -107,6 +115,13 @@ data DescribeProducersRequest = DescribeProducersRequest
 maxDescribeProducersRequestVersion :: Int16
 maxDescribeProducersRequestVersion = 0
 
+-- | KafkaMessage instance for DescribeProducersRequest.
+instance KafkaMessage DescribeProducersRequest where
+  messageApiKey = 61
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
+
 -- | Encode DescribeProducersRequest with the given API version.
 encodeDescribeProducersRequest :: MonadPut m => E.ApiVersion -> DescribeProducersRequest -> m ()
 encodeDescribeProducersRequest version msg
@@ -129,16 +144,64 @@ decodeDescribeProducersRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeProducersRequest' / 'decodeDescribeProducersRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a TopicRequest.
+wireMaxSizeTopicRequest :: Int -> TopicRequest -> Int
+wireMaxSizeTopicRequest _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (topicRequestName msg))
+  + (5 + (case P.unKafkaArray (topicRequestPartitionIndexes msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TopicRequest.
+wirePokeTopicRequest :: Int -> Ptr Word8 -> TopicRequest -> IO (Ptr Word8)
+wirePokeTopicRequest version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicRequestName msg))
+  p2 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p1 (topicRequestPartitionIndexes msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for TopicRequest.
+wirePeekTopicRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicRequest, Ptr Word8)
+wirePeekTopicRequest version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitionindexes, p2) <- WP.peekVersionedArray version 0 W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TopicRequest { topicRequestName = f0_name, topicRequestPartitionIndexes = f1_partitionindexes }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeProducersRequest.
+wireMaxSizeDescribeProducersRequest :: Int -> DescribeProducersRequest -> Int
+wireMaxSizeDescribeProducersRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (describeProducersRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicRequest _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeProducersRequest.
+wirePokeDescribeProducersRequest :: Int -> Ptr Word8 -> DescribeProducersRequest -> IO (Ptr Word8)
+wirePokeDescribeProducersRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicRequest version p x) p0 (describeProducersRequestTopics msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke DescribeProducersRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeProducersRequest.
+wirePeekDescribeProducersRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeProducersRequest, Ptr Word8)
+wirePeekDescribeProducersRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_topics, p1) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicRequest version _fp _basePtr p e) p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (DescribeProducersRequest { describeProducersRequestTopics = f0_topics }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeProducersRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeProducersRequest where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeProducersRequest decodeDescribeProducersRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeProducersRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeProducersRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeProducersRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

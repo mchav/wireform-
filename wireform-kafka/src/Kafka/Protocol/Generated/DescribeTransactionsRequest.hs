@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.DescribeTransactionsRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -63,6 +71,13 @@ data DescribeTransactionsRequest = DescribeTransactionsRequest
 -- | Maximum supported version for DescribeTransactionsRequest.
 maxDescribeTransactionsRequestVersion :: Int16
 maxDescribeTransactionsRequestVersion = 0
+
+-- | KafkaMessage instance for DescribeTransactionsRequest.
+instance KafkaMessage DescribeTransactionsRequest where
+  messageApiKey = 65
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
 
 -- | Encode DescribeTransactionsRequest with the given API version.
 encodeDescribeTransactionsRequest :: MonadPut m => E.ApiVersion -> DescribeTransactionsRequest -> m ()
@@ -86,16 +101,41 @@ decodeDescribeTransactionsRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeTransactionsRequest' / 'decodeDescribeTransactionsRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a DescribeTransactionsRequest.
+wireMaxSizeDescribeTransactionsRequest :: Int -> DescribeTransactionsRequest -> Int
+wireMaxSizeDescribeTransactionsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (describeTransactionsRequestTransactionalIds msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeTransactionsRequest.
+wirePokeDescribeTransactionsRequest :: Int -> Ptr Word8 -> DescribeTransactionsRequest -> IO (Ptr Word8)
+wirePokeDescribeTransactionsRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (describeTransactionsRequestTransactionalIds msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke DescribeTransactionsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeTransactionsRequest.
+wirePeekDescribeTransactionsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeTransactionsRequest, Ptr Word8)
+wirePeekDescribeTransactionsRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_transactionalids, p1) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (DescribeTransactionsRequest { describeTransactionsRequestTransactionalIds = f0_transactionalids }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeTransactionsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeTransactionsRequest where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeTransactionsRequest decodeDescribeTransactionsRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeTransactionsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeTransactionsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeTransactionsRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

@@ -30,7 +30,9 @@ module Kafka.Protocol.Generated.DescribeConfigsResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,7 +49,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The synonyms for this configuration key.
@@ -322,6 +330,13 @@ data DescribeConfigsResponse = DescribeConfigsResponse
 maxDescribeConfigsResponseVersion :: Int16
 maxDescribeConfigsResponseVersion = 4
 
+-- | KafkaMessage instance for DescribeConfigsResponse.
+instance KafkaMessage DescribeConfigsResponse where
+  messageApiKey = 32
+  messageMinVersion = 1
+  messageMaxVersion = 4
+  messageFlexibleVersion = Just 4
+
 -- | Encode DescribeConfigsResponse with the given API version.
 encodeDescribeConfigsResponse :: MonadPut m => E.ApiVersion -> DescribeConfigsResponse -> m ()
 encodeDescribeConfigsResponse version msg
@@ -365,16 +380,154 @@ decodeDescribeConfigsResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeConfigsResponse' / 'decodeDescribeConfigsResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a DescribeConfigsSynonym.
+wireMaxSizeDescribeConfigsSynonym :: Int -> DescribeConfigsSynonym -> Int
+wireMaxSizeDescribeConfigsSynonym _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (describeConfigsSynonymName msg))
+  + WP.compactStringMaxSize (P.toCompactString (describeConfigsSynonymValue msg))
+  + 1
+  + 1
+
+-- | Direct-poke encoder for DescribeConfigsSynonym.
+wirePokeDescribeConfigsSynonym :: Int -> Ptr Word8 -> DescribeConfigsSynonym -> IO (Ptr Word8)
+wirePokeDescribeConfigsSynonym version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (describeConfigsSynonymName msg))
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeConfigsSynonymValue msg))
+  p3 <- W.pokeWord8 p2 (fromIntegral (describeConfigsSynonymSource msg))
+  if version >= 4 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for DescribeConfigsSynonym.
+wirePeekDescribeConfigsSynonym :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeConfigsSynonym, Ptr Word8)
+wirePeekDescribeConfigsSynonym version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_value, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_source, p3) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr
+  pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (DescribeConfigsSynonym { describeConfigsSynonymName = f0_name, describeConfigsSynonymValue = f1_value, describeConfigsSynonymSource = f2_source }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeConfigsResourceResult.
+wireMaxSizeDescribeConfigsResourceResult :: Int -> DescribeConfigsResourceResult -> Int
+wireMaxSizeDescribeConfigsResourceResult _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (describeConfigsResourceResultName msg))
+  + WP.compactStringMaxSize (P.toCompactString (describeConfigsResourceResultValue msg))
+  + 1
+  + 1
+  + 1
+  + (5 + (case P.unKafkaArray (describeConfigsResourceResultSynonyms msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeConfigsSynonym _version x ) v); P.Null -> 0 }))
+  + 1
+  + WP.compactStringMaxSize (P.toCompactString (describeConfigsResourceResultDocumentation msg))
+  + 1
+
+-- | Direct-poke encoder for DescribeConfigsResourceResult.
+wirePokeDescribeConfigsResourceResult :: Int -> Ptr Word8 -> DescribeConfigsResourceResult -> IO (Ptr Word8)
+wirePokeDescribeConfigsResourceResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (describeConfigsResourceResultName msg))
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeConfigsResourceResultValue msg))
+  p3 <- W.pokeWord8 p2 (if (describeConfigsResourceResultReadOnly msg) then 1 else 0)
+  p4 <- W.pokeWord8 p3 (fromIntegral (describeConfigsResourceResultConfigSource msg))
+  p5 <- W.pokeWord8 p4 (if (describeConfigsResourceResultIsSensitive msg) then 1 else 0)
+  p6 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDescribeConfigsSynonym version p x) p5 (describeConfigsResourceResultSynonyms msg)
+  p7 <- W.pokeWord8 p6 (fromIntegral (describeConfigsResourceResultConfigType msg))
+  p8 <- WP.pokeCompactString p7 (P.toCompactString (describeConfigsResourceResultDocumentation msg))
+  if version >= 4 then WP.pokeEmptyTaggedFields p8 else pure p8
+
+-- | Direct-poke decoder for DescribeConfigsResourceResult.
+wirePeekDescribeConfigsResourceResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeConfigsResourceResult, Ptr Word8)
+wirePeekDescribeConfigsResourceResult version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_value, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_readonly, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+  (f3_configsource, p4) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr
+  (f4_issensitive, p5) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr
+  (f5_synonyms, p6) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDescribeConfigsSynonym version _fp _basePtr p e) p5 endPtr
+  (f6_configtype, p7) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p6 endPtr
+  (f7_documentation, p8) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr
+  pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p8 endPtr else pure p8
+  pure (DescribeConfigsResourceResult { describeConfigsResourceResultName = f0_name, describeConfigsResourceResultValue = f1_value, describeConfigsResourceResultReadOnly = f2_readonly, describeConfigsResourceResultConfigSource = f3_configsource, describeConfigsResourceResultIsSensitive = f4_issensitive, describeConfigsResourceResultSynonyms = f5_synonyms, describeConfigsResourceResultConfigType = f6_configtype, describeConfigsResourceResultDocumentation = f7_documentation }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeConfigsResult.
+wireMaxSizeDescribeConfigsResult :: Int -> DescribeConfigsResult -> Int
+wireMaxSizeDescribeConfigsResult _version msg =
+  0
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (describeConfigsResultErrorMessage msg))
+  + 1
+  + WP.compactStringMaxSize (P.toCompactString (describeConfigsResultResourceName msg))
+  + (5 + (case P.unKafkaArray (describeConfigsResultConfigs msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeConfigsResourceResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeConfigsResult.
+wirePokeDescribeConfigsResult :: Int -> Ptr Word8 -> DescribeConfigsResult -> IO (Ptr Word8)
+wirePokeDescribeConfigsResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt16BE p0 (describeConfigsResultErrorCode msg)
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeConfigsResultErrorMessage msg))
+  p3 <- W.pokeWord8 p2 (fromIntegral (describeConfigsResultResourceType msg))
+  p4 <- WP.pokeCompactString p3 (P.toCompactString (describeConfigsResultResourceName msg))
+  p5 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDescribeConfigsResourceResult version p x) p4 (describeConfigsResultConfigs msg)
+  if version >= 4 then WP.pokeEmptyTaggedFields p5 else pure p5
+
+-- | Direct-poke decoder for DescribeConfigsResult.
+wirePeekDescribeConfigsResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeConfigsResult, Ptr Word8)
+wirePeekDescribeConfigsResult version _fp _basePtr p0 endPtr = do
+  (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+  (f1_errormessage, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_resourcetype, p3) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr
+  (f3_resourcename, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  (f4_configs, p5) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDescribeConfigsResourceResult version _fp _basePtr p e) p4 endPtr
+  pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (DescribeConfigsResult { describeConfigsResultErrorCode = f0_errorcode, describeConfigsResultErrorMessage = f1_errormessage, describeConfigsResultResourceType = f2_resourcetype, describeConfigsResultResourceName = f3_resourcename, describeConfigsResultConfigs = f4_configs }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeConfigsResponse.
+wireMaxSizeDescribeConfigsResponse :: Int -> DescribeConfigsResponse -> Int
+wireMaxSizeDescribeConfigsResponse _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (describeConfigsResponseResults msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeConfigsResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeConfigsResponse.
+wirePokeDescribeConfigsResponse :: Int -> Ptr Word8 -> DescribeConfigsResponse -> IO (Ptr Word8)
+wirePokeDescribeConfigsResponse version basePtr msg
+  | version == 4 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeConfigsResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDescribeConfigsResult version p x) p1 (describeConfigsResponseResults msg)
+    WP.pokeEmptyTaggedFields p2
+  | version >= 1 && version <= 3 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeConfigsResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDescribeConfigsResult version p x) p1 (describeConfigsResponseResults msg)
+    pure p2
+  | otherwise = error $ "wirePoke DescribeConfigsResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeConfigsResponse.
+wirePeekDescribeConfigsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeConfigsResponse, Ptr Word8)
+wirePeekDescribeConfigsResponse version _fp _basePtr p0 endPtr
+  | version == 4 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_results, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDescribeConfigsResult version _fp _basePtr p e) p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (DescribeConfigsResponse { describeConfigsResponseThrottleTimeMs = f0_throttletimems, describeConfigsResponseResults = f1_results }, pTagsEnd)
+  | version >= 1 && version <= 3 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_results, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDescribeConfigsResult version _fp _basePtr p e) p1 endPtr
+    pure (DescribeConfigsResponse { describeConfigsResponseThrottleTimeMs = f0_throttletimems, describeConfigsResponseResults = f1_results }, p2)
+  | otherwise = error $ "wirePeek DescribeConfigsResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeConfigsResponse where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeConfigsResponse decodeDescribeConfigsResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeConfigsResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeConfigsResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeConfigsResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

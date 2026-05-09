@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.InitProducerIdResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -93,6 +101,13 @@ data InitProducerIdResponse = InitProducerIdResponse
 -- | Maximum supported version for InitProducerIdResponse.
 maxInitProducerIdResponseVersion :: Int16
 maxInitProducerIdResponseVersion = 6
+
+-- | KafkaMessage instance for InitProducerIdResponse.
+instance KafkaMessage InitProducerIdResponse where
+  messageApiKey = 22
+  messageMinVersion = 0
+  messageMaxVersion = 6
+  messageFlexibleVersion = Just 2
 
 -- | Encode InitProducerIdResponse with the given API version.
 encodeInitProducerIdResponse :: MonadPut m => E.ApiVersion -> InitProducerIdResponse -> m ()
@@ -195,16 +210,83 @@ decodeInitProducerIdResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeInitProducerIdResponse' / 'decodeInitProducerIdResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a InitProducerIdResponse.
+wireMaxSizeInitProducerIdResponse :: Int -> InitProducerIdResponse -> Int
+wireMaxSizeInitProducerIdResponse _version msg =
+  0
+  + 4
+  + 2
+  + 8
+  + 2
+  + 8
+  + 2
+  + 1
+
+-- | Direct-poke encoder for InitProducerIdResponse.
+wirePokeInitProducerIdResponse :: Int -> Ptr Word8 -> InitProducerIdResponse -> IO (Ptr Word8)
+wirePokeInitProducerIdResponse version basePtr msg
+  | version == 6 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (initProducerIdResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (initProducerIdResponseErrorCode msg)
+    p3 <- W.pokeInt64BE p2 (initProducerIdResponseProducerId msg)
+    p4 <- W.pokeInt16BE p3 (initProducerIdResponseProducerEpoch msg)
+    p5 <- W.pokeInt64BE p4 (initProducerIdResponseOngoingTxnProducerId msg)
+    p6 <- W.pokeInt16BE p5 (initProducerIdResponseOngoingTxnProducerEpoch msg)
+    WP.pokeEmptyTaggedFields p6
+  | version >= 0 && version <= 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (initProducerIdResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (initProducerIdResponseErrorCode msg)
+    p3 <- W.pokeInt64BE p2 (initProducerIdResponseProducerId msg)
+    p4 <- W.pokeInt16BE p3 (initProducerIdResponseProducerEpoch msg)
+    pure p4
+  | version >= 2 && version <= 5 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (initProducerIdResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (initProducerIdResponseErrorCode msg)
+    p3 <- W.pokeInt64BE p2 (initProducerIdResponseProducerId msg)
+    p4 <- W.pokeInt16BE p3 (initProducerIdResponseProducerEpoch msg)
+    WP.pokeEmptyTaggedFields p4
+  | otherwise = error $ "wirePoke InitProducerIdResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for InitProducerIdResponse.
+wirePeekInitProducerIdResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (InitProducerIdResponse, Ptr Word8)
+wirePeekInitProducerIdResponse version _fp _basePtr p0 endPtr
+  | version == 6 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_producerid, p3) <- W.peekInt64BE p2 endPtr
+    (f3_producerepoch, p4) <- W.peekInt16BE p3 endPtr
+    (f4_ongoingtxnproducerid, p5) <- W.peekInt64BE p4 endPtr
+    (f5_ongoingtxnproducerepoch, p6) <- W.peekInt16BE p5 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
+    pure (InitProducerIdResponse { initProducerIdResponseThrottleTimeMs = f0_throttletimems, initProducerIdResponseErrorCode = f1_errorcode, initProducerIdResponseProducerId = f2_producerid, initProducerIdResponseProducerEpoch = f3_producerepoch, initProducerIdResponseOngoingTxnProducerId = f4_ongoingtxnproducerid, initProducerIdResponseOngoingTxnProducerEpoch = f5_ongoingtxnproducerepoch }, pTagsEnd)
+  | version >= 0 && version <= 1 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_producerid, p3) <- W.peekInt64BE p2 endPtr
+    (f3_producerepoch, p4) <- W.peekInt16BE p3 endPtr
+    pure (InitProducerIdResponse { initProducerIdResponseThrottleTimeMs = f0_throttletimems, initProducerIdResponseErrorCode = f1_errorcode, initProducerIdResponseProducerId = f2_producerid, initProducerIdResponseProducerEpoch = f3_producerepoch, initProducerIdResponseOngoingTxnProducerId = 0, initProducerIdResponseOngoingTxnProducerEpoch = 0 }, p4)
+  | version >= 2 && version <= 5 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_producerid, p3) <- W.peekInt64BE p2 endPtr
+    (f3_producerepoch, p4) <- W.peekInt16BE p3 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (InitProducerIdResponse { initProducerIdResponseThrottleTimeMs = f0_throttletimems, initProducerIdResponseErrorCode = f1_errorcode, initProducerIdResponseProducerId = f2_producerid, initProducerIdResponseProducerEpoch = f3_producerepoch, initProducerIdResponseOngoingTxnProducerId = 0, initProducerIdResponseOngoingTxnProducerEpoch = 0 }, pTagsEnd)
+  | otherwise = error $ "wirePeek InitProducerIdResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec InitProducerIdResponse where
-  wireCodec = Just (WC.serialShimCodec encodeInitProducerIdResponse decodeInitProducerIdResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeInitProducerIdResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeInitProducerIdResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekInitProducerIdResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

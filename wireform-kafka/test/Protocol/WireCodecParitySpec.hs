@@ -191,6 +191,13 @@ genApiVersionsRequest = do
   pure AVR.ApiVersionsRequest
     { AVR.apiVersionsRequestClientSoftwareName    = P.mkKafkaString name
     , AVR.apiVersionsRequestClientSoftwareVersion = P.mkKafkaString ver
+    -- KIP-1242 tagged fields (v5+ in the wire spec). At v3-4 (the
+    -- versions exercised below) these aren't on the wire, so the
+    -- decoder fills them with the field's Haskell default (Int32 0,
+    -- nullable string Null). Match those here so the round-trip
+    -- @rt === msg@ assertion holds.
+    , AVR.apiVersionsRequestClusterId             = P.KafkaString P.Null
+    , AVR.apiVersionsRequestNodeId                = 0
     }
 
 prop_apiVersionsRequest_encodeEq :: Property

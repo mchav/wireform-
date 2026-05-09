@@ -12,7 +12,7 @@ Kafka response for API key 1.
 
 
 
-Valid versions: 4-17
+Valid versions: 4-18
 Flexible versions: 12+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -55,6 +55,11 @@ import Kafka.Protocol.Primitives
 import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | In case divergence is detected based on the `LastFetchedEpoch` and `FetchOffset` in the request, this field indicates the largest epoch and its end offset such that subsequent records are known to div
@@ -584,19 +589,25 @@ data FetchResponse = FetchResponse
 
 -- | Maximum supported version for FetchResponse.
 maxFetchResponseVersion :: Int16
-maxFetchResponseVersion = 17
+maxFetchResponseVersion = 18
 
 -- | KafkaMessage instance for FetchResponse.
 instance KafkaMessage FetchResponse where
   messageApiKey = 1
   messageMinVersion = 4
-  messageMaxVersion = 17
+  messageMaxVersion = 18
   messageFlexibleVersion = Just 12
 
 -- | Encode FetchResponse with the given API version.
 encodeFetchResponse :: MonadPut m => E.ApiVersion -> FetchResponse -> m ()
 encodeFetchResponse version msg
-  | version >= 16 && version <= 17 =
+  | version >= 4 && version <= 6 =
+    do
+      serialize (fetchResponseThrottleTimeMs msg)
+      E.encodeVersionedArray version 12 encodeFetchableTopicResponse (case P.unKafkaArray (fetchResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
+
+
+  | version >= 16 && version <= 18 =
     do
       serialize (fetchResponseThrottleTimeMs msg)
       serialize (fetchResponseErrorCode msg)
@@ -605,12 +616,6 @@ encodeFetchResponse version msg
       do
         let _entries = (if version >= 16 then [(0, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeNodeEndpoint (case P.unKafkaArray (fetchResponseNodeEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else [])
         P.serializeTaggedFieldEntries _entries
-
-  | version >= 4 && version <= 6 =
-    do
-      serialize (fetchResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 12 encodeFetchableTopicResponse (case P.unKafkaArray (fetchResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
 
   | version >= 12 && version <= 15 =
     do
@@ -634,7 +639,24 @@ encodeFetchResponse version msg
 -- | Decode FetchResponse with the given API version.
 decodeFetchResponse :: MonadGet m => E.ApiVersion -> m FetchResponse
 decodeFetchResponse version
-  | version >= 16 && version <= 17 =
+  | version >= 4 && version <= 6 =
+    do
+      fieldthrottletimems <- deserialize
+      fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 12 decodeFetchableTopicResponse
+      pure FetchResponse
+        {
+        fetchResponseThrottleTimeMs = fieldthrottletimems
+        ,
+        fetchResponseErrorCode = 0
+        ,
+        fetchResponseSessionId = 0
+        ,
+        fetchResponseResponses = fieldresponses
+        ,
+        fetchResponseNodeEndpoints = P.mkKafkaArray V.empty
+        }
+
+  | version >= 16 && version <= 18 =
     do
       fieldthrottletimems <- deserialize
       fielderrorcode <- deserialize
@@ -660,23 +682,6 @@ decodeFetchResponse version
         fetchResponseResponses = fieldresponses
         ,
         fetchResponseNodeEndpoints = fieldnodeendpoints
-        }
-
-  | version >= 4 && version <= 6 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 12 decodeFetchableTopicResponse
-      pure FetchResponse
-        {
-        fetchResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        fetchResponseErrorCode = 0
-        ,
-        fetchResponseSessionId = 0
-        ,
-        fetchResponseResponses = fieldresponses
-        ,
-        fetchResponseNodeEndpoints = P.mkKafkaArray V.empty
         }
 
   | version >= 12 && version <= 15 =
@@ -727,15 +732,141 @@ decodeFetchResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
+-- | Worst-case wire size of a EpochEndOffset.
+wireMaxSizeEpochEndOffset :: Int -> EpochEndOffset -> Int
+wireMaxSizeEpochEndOffset _version msg =
+  0
+  + 4
+  + 8
+  + 1
+
+-- | Direct-poke encoder for EpochEndOffset.
+wirePokeEpochEndOffset :: Int -> Ptr Word8 -> EpochEndOffset -> IO (Ptr Word8)
+wirePokeEpochEndOffset version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (epochEndOffsetEpoch msg)
+  p2 <- W.pokeInt64BE p1 (epochEndOffsetEndOffset msg)
+  if version >= 12 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for EpochEndOffset.
+wirePeekEpochEndOffset :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EpochEndOffset, Ptr Word8)
+wirePeekEpochEndOffset version _fp _basePtr p0 endPtr = do
+  (f0_epoch, p1) <- W.peekInt32BE p0 endPtr
+  (f1_endoffset, p2) <- W.peekInt64BE p1 endPtr
+  pTagsEnd <- if version >= 12 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (EpochEndOffset { epochEndOffsetEpoch = f0_epoch, epochEndOffsetEndOffset = f1_endoffset }, pTagsEnd)
+
+-- | Worst-case wire size of a LeaderIdAndEpoch.
+wireMaxSizeLeaderIdAndEpoch :: Int -> LeaderIdAndEpoch -> Int
+wireMaxSizeLeaderIdAndEpoch _version msg =
+  0
+  + 4
+  + 4
+  + 1
+
+-- | Direct-poke encoder for LeaderIdAndEpoch.
+wirePokeLeaderIdAndEpoch :: Int -> Ptr Word8 -> LeaderIdAndEpoch -> IO (Ptr Word8)
+wirePokeLeaderIdAndEpoch version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (leaderIdAndEpochLeaderId msg)
+  p2 <- W.pokeInt32BE p1 (leaderIdAndEpochLeaderEpoch msg)
+  if version >= 12 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for LeaderIdAndEpoch.
+wirePeekLeaderIdAndEpoch :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (LeaderIdAndEpoch, Ptr Word8)
+wirePeekLeaderIdAndEpoch version _fp _basePtr p0 endPtr = do
+  (f0_leaderid, p1) <- W.peekInt32BE p0 endPtr
+  (f1_leaderepoch, p2) <- W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 12 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = f0_leaderid, leaderIdAndEpochLeaderEpoch = f1_leaderepoch }, pTagsEnd)
+
+-- | Worst-case wire size of a SnapshotId.
+wireMaxSizeSnapshotId :: Int -> SnapshotId -> Int
+wireMaxSizeSnapshotId _version msg =
+  0
+  + 8
+  + 4
+  + 1
+
+-- | Direct-poke encoder for SnapshotId.
+wirePokeSnapshotId :: Int -> Ptr Word8 -> SnapshotId -> IO (Ptr Word8)
+wirePokeSnapshotId version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt64BE p0 (snapshotIdEndOffset msg)
+  p2 <- W.pokeInt32BE p1 (snapshotIdEpoch msg)
+  if version >= 12 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for SnapshotId.
+wirePeekSnapshotId :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (SnapshotId, Ptr Word8)
+wirePeekSnapshotId version _fp _basePtr p0 endPtr = do
+  (f0_endoffset, p1) <- W.peekInt64BE p0 endPtr
+  (f1_epoch, p2) <- W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 12 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (SnapshotId { snapshotIdEndOffset = f0_endoffset, snapshotIdEpoch = f1_epoch }, pTagsEnd)
+
+-- | Worst-case wire size of a AbortedTransaction.
+wireMaxSizeAbortedTransaction :: Int -> AbortedTransaction -> Int
+wireMaxSizeAbortedTransaction _version msg =
+  0
+  + 8
+  + 8
+  + 1
+
+-- | Direct-poke encoder for AbortedTransaction.
+wirePokeAbortedTransaction :: Int -> Ptr Word8 -> AbortedTransaction -> IO (Ptr Word8)
+wirePokeAbortedTransaction version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt64BE p0 (abortedTransactionProducerId msg)
+  p2 <- W.pokeInt64BE p1 (abortedTransactionFirstOffset msg)
+  if version >= 12 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for AbortedTransaction.
+wirePeekAbortedTransaction :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AbortedTransaction, Ptr Word8)
+wirePeekAbortedTransaction version _fp _basePtr p0 endPtr = do
+  (f0_producerid, p1) <- W.peekInt64BE p0 endPtr
+  (f1_firstoffset, p2) <- W.peekInt64BE p1 endPtr
+  pTagsEnd <- if version >= 12 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (AbortedTransaction { abortedTransactionProducerId = f0_producerid, abortedTransactionFirstOffset = f1_firstoffset }, pTagsEnd)
+
+-- | Worst-case wire size of a NodeEndpoint.
+wireMaxSizeNodeEndpoint :: Int -> NodeEndpoint -> Int
+wireMaxSizeNodeEndpoint _version msg =
+  0
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (nodeEndpointHost msg))
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (nodeEndpointRack msg))
+  + 1
+
+-- | Direct-poke encoder for NodeEndpoint.
+wirePokeNodeEndpoint :: Int -> Ptr Word8 -> NodeEndpoint -> IO (Ptr Word8)
+wirePokeNodeEndpoint version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (nodeEndpointNodeId msg)
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (nodeEndpointHost msg))
+  p3 <- W.pokeInt32BE p2 (nodeEndpointPort msg)
+  p4 <- WP.pokeCompactString p3 (P.toCompactString (nodeEndpointRack msg))
+  if version >= 12 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for NodeEndpoint.
+wirePeekNodeEndpoint :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (NodeEndpoint, Ptr Word8)
+wirePeekNodeEndpoint version _fp _basePtr p0 endPtr = do
+  (f0_nodeid, p1) <- W.peekInt32BE p0 endPtr
+  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_port, p3) <- W.peekInt32BE p2 endPtr
+  (f3_rack, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  pTagsEnd <- if version >= 12 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (NodeEndpoint { nodeEndpointNodeId = f0_nodeid, nodeEndpointHost = f1_host, nodeEndpointPort = f2_port, nodeEndpointRack = f3_rack }, pTagsEnd)
+
 -- | 'WC.WireCodec' instance via the Serial shim. The
 -- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeFetchResponse' / 'decodeFetchResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
+-- schema (it carries tagged fields with payloads — KIP-866
+-- style — that the generator hasn't been taught yet), so
+-- we lift the legacy 'encodeFetchResponse' / 'decodeFetchResponse'
+-- pair into a 'WireCodecImpl' via 'WC.serialShimCodec'.
+-- The dispatch shape is identical to the native case —
+-- every 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through
+-- a 'Just'-valued codec, no 'Nothing' fallback survives in
 -- the generated output.
 instance WC.WireCodec FetchResponse where
   wireCodec = Just (WC.serialShimCodec encodeFetchResponse decodeFetchResponse)

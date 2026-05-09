@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.AllocateProducerIdsRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -69,6 +77,13 @@ data AllocateProducerIdsRequest = AllocateProducerIdsRequest
 -- | Maximum supported version for AllocateProducerIdsRequest.
 maxAllocateProducerIdsRequestVersion :: Int16
 maxAllocateProducerIdsRequestVersion = 0
+
+-- | KafkaMessage instance for AllocateProducerIdsRequest.
+instance KafkaMessage AllocateProducerIdsRequest where
+  messageApiKey = 67
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
 
 -- | Encode AllocateProducerIdsRequest with the given API version.
 encodeAllocateProducerIdsRequest :: MonadPut m => E.ApiVersion -> AllocateProducerIdsRequest -> m ()
@@ -96,16 +111,44 @@ decodeAllocateProducerIdsRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeAllocateProducerIdsRequest' / 'decodeAllocateProducerIdsRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a AllocateProducerIdsRequest.
+wireMaxSizeAllocateProducerIdsRequest :: Int -> AllocateProducerIdsRequest -> Int
+wireMaxSizeAllocateProducerIdsRequest _version msg =
+  0
+  + 4
+  + 8
+  + 1
+
+-- | Direct-poke encoder for AllocateProducerIdsRequest.
+wirePokeAllocateProducerIdsRequest :: Int -> Ptr Word8 -> AllocateProducerIdsRequest -> IO (Ptr Word8)
+wirePokeAllocateProducerIdsRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (allocateProducerIdsRequestBrokerId msg)
+    p2 <- W.pokeInt64BE p1 (allocateProducerIdsRequestBrokerEpoch msg)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke AllocateProducerIdsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for AllocateProducerIdsRequest.
+wirePeekAllocateProducerIdsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AllocateProducerIdsRequest, Ptr Word8)
+wirePeekAllocateProducerIdsRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
+    (f1_brokerepoch, p2) <- W.peekInt64BE p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (AllocateProducerIdsRequest { allocateProducerIdsRequestBrokerId = f0_brokerid, allocateProducerIdsRequestBrokerEpoch = f1_brokerepoch }, pTagsEnd)
+  | otherwise = error $ "wirePeek AllocateProducerIdsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec AllocateProducerIdsRequest where
-  wireCodec = Just (WC.serialShimCodec encodeAllocateProducerIdsRequest decodeAllocateProducerIdsRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeAllocateProducerIdsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeAllocateProducerIdsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekAllocateProducerIdsRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

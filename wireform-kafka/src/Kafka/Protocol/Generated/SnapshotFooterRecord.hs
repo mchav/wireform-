@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.SnapshotFooterRecord
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -63,6 +71,8 @@ data SnapshotFooterRecord = SnapshotFooterRecord
 -- | Maximum supported version for SnapshotFooterRecord.
 maxSnapshotFooterRecordVersion :: Int16
 maxSnapshotFooterRecordVersion = 0
+
+
 
 -- | Encode SnapshotFooterRecord with the given API version.
 encodeSnapshotFooterRecord :: MonadPut m => E.ApiVersion -> SnapshotFooterRecord -> m ()
@@ -86,16 +96,41 @@ decodeSnapshotFooterRecord version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeSnapshotFooterRecord' / 'decodeSnapshotFooterRecord' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a SnapshotFooterRecord.
+wireMaxSizeSnapshotFooterRecord :: Int -> SnapshotFooterRecord -> Int
+wireMaxSizeSnapshotFooterRecord _version msg =
+  0
+  + 2
+  + 1
+
+-- | Direct-poke encoder for SnapshotFooterRecord.
+wirePokeSnapshotFooterRecord :: Int -> Ptr Word8 -> SnapshotFooterRecord -> IO (Ptr Word8)
+wirePokeSnapshotFooterRecord version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (snapshotFooterRecordVersion msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke SnapshotFooterRecord : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for SnapshotFooterRecord.
+wirePeekSnapshotFooterRecord :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (SnapshotFooterRecord, Ptr Word8)
+wirePeekSnapshotFooterRecord version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_version, p1) <- W.peekInt16BE p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (SnapshotFooterRecord { snapshotFooterRecordVersion = f0_version }, pTagsEnd)
+  | otherwise = error $ "wirePeek SnapshotFooterRecord : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec SnapshotFooterRecord where
-  wireCodec = Just (WC.serialShimCodec encodeSnapshotFooterRecord decodeSnapshotFooterRecord)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeSnapshotFooterRecord (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeSnapshotFooterRecord (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekSnapshotFooterRecord (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

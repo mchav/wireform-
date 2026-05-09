@@ -12,7 +12,7 @@ Kafka response for API key 35.
 
 
 
-Valid versions: 1-4
+Valid versions: 1-5
 Flexible versions: 2+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -30,7 +30,9 @@ module Kafka.Protocol.Generated.DescribeLogDirsResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,7 +49,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The partitions.
@@ -188,6 +196,12 @@ data DescribeLogDirsResult = DescribeLogDirsResult
 
   -- Versions: 4+
   describeLogDirsResultUsableBytes :: !(Int64)
+,
+
+  -- | True if this log directory is cordoned.
+
+  -- Versions: 5+
+  describeLogDirsResultIsCordoned :: !(Bool)
 
   }
   deriving (Eq, Show, Generic)
@@ -204,6 +218,8 @@ encodeDescribeLogDirsResult version dmsg =
       serialize (describeLogDirsResultTotalBytes dmsg)
     when (version >= 4) $
       serialize (describeLogDirsResultUsableBytes dmsg)
+    when (version >= 5) $
+      serialize (describeLogDirsResultIsCordoned dmsg)
     when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
 
 
@@ -220,6 +236,9 @@ decodeDescribeLogDirsResult version =
     fieldusablebytes <- if version >= 4
       then deserialize
       else pure ((-1))
+    fieldiscordoned <- if version >= 5
+      then deserialize
+      else pure (False)
     _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
     pure DescribeLogDirsResult
       {
@@ -232,6 +251,8 @@ decodeDescribeLogDirsResult version =
       describeLogDirsResultTotalBytes = fieldtotalbytes
       ,
       describeLogDirsResultUsableBytes = fieldusablebytes
+      ,
+      describeLogDirsResultIsCordoned = fieldiscordoned
       }
 
 
@@ -261,7 +282,14 @@ data DescribeLogDirsResponse = DescribeLogDirsResponse
 
 -- | Maximum supported version for DescribeLogDirsResponse.
 maxDescribeLogDirsResponseVersion :: Int16
-maxDescribeLogDirsResponseVersion = 4
+maxDescribeLogDirsResponseVersion = 5
+
+-- | KafkaMessage instance for DescribeLogDirsResponse.
+instance KafkaMessage DescribeLogDirsResponse where
+  messageApiKey = 35
+  messageMinVersion = 1
+  messageMaxVersion = 5
+  messageFlexibleVersion = Just 2
 
 -- | Encode DescribeLogDirsResponse with the given API version.
 encodeDescribeLogDirsResponse :: MonadPut m => E.ApiVersion -> DescribeLogDirsResponse -> m ()
@@ -278,7 +306,7 @@ encodeDescribeLogDirsResponse version msg
       E.encodeVersionedArray version 2 encodeDescribeLogDirsResult (case P.unKafkaArray (describeLogDirsResponseResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
       serialize (emptyTaggedFields :: TaggedFields)
 
-  | version >= 3 && version <= 4 =
+  | version >= 3 && version <= 5 =
     do
       serialize (describeLogDirsResponseThrottleTimeMs msg)
       serialize (describeLogDirsResponseErrorCode msg)
@@ -316,7 +344,7 @@ decodeDescribeLogDirsResponse version
         describeLogDirsResponseResults = fieldresults
         }
 
-  | version >= 3 && version <= 4 =
+  | version >= 3 && version <= 5 =
     do
       fieldthrottletimems <- deserialize
       fielderrorcode <- deserialize
@@ -332,16 +360,155 @@ decodeDescribeLogDirsResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeLogDirsResponse' / 'decodeDescribeLogDirsResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a DescribeLogDirsPartition.
+wireMaxSizeDescribeLogDirsPartition :: Int -> DescribeLogDirsPartition -> Int
+wireMaxSizeDescribeLogDirsPartition _version msg =
+  0
+  + 4
+  + 8
+  + 8
+  + 1
+  + 1
+
+-- | Direct-poke encoder for DescribeLogDirsPartition.
+wirePokeDescribeLogDirsPartition :: Int -> Ptr Word8 -> DescribeLogDirsPartition -> IO (Ptr Word8)
+wirePokeDescribeLogDirsPartition version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (describeLogDirsPartitionPartitionIndex msg)
+  p2 <- W.pokeInt64BE p1 (describeLogDirsPartitionPartitionSize msg)
+  p3 <- W.pokeInt64BE p2 (describeLogDirsPartitionOffsetLag msg)
+  p4 <- W.pokeWord8 p3 (if (describeLogDirsPartitionIsFutureKey msg) then 1 else 0)
+  if version >= 2 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for DescribeLogDirsPartition.
+wirePeekDescribeLogDirsPartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeLogDirsPartition, Ptr Word8)
+wirePeekDescribeLogDirsPartition version _fp _basePtr p0 endPtr = do
+  (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_partitionsize, p2) <- W.peekInt64BE p1 endPtr
+  (f2_offsetlag, p3) <- W.peekInt64BE p2 endPtr
+  (f3_isfuturekey, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (DescribeLogDirsPartition { describeLogDirsPartitionPartitionIndex = f0_partitionindex, describeLogDirsPartitionPartitionSize = f1_partitionsize, describeLogDirsPartitionOffsetLag = f2_offsetlag, describeLogDirsPartitionIsFutureKey = f3_isfuturekey }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeLogDirsTopic.
+wireMaxSizeDescribeLogDirsTopic :: Int -> DescribeLogDirsTopic -> Int
+wireMaxSizeDescribeLogDirsTopic _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (describeLogDirsTopicName msg))
+  + (5 + (case P.unKafkaArray (describeLogDirsTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeLogDirsPartition _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeLogDirsTopic.
+wirePokeDescribeLogDirsTopic :: Int -> Ptr Word8 -> DescribeLogDirsTopic -> IO (Ptr Word8)
+wirePokeDescribeLogDirsTopic version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (describeLogDirsTopicName msg))
+  p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribeLogDirsPartition version p x) p1 (describeLogDirsTopicPartitions msg)
+  if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for DescribeLogDirsTopic.
+wirePeekDescribeLogDirsTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeLogDirsTopic, Ptr Word8)
+wirePeekDescribeLogDirsTopic version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeLogDirsPartition version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (DescribeLogDirsTopic { describeLogDirsTopicName = f0_name, describeLogDirsTopicPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeLogDirsResult.
+wireMaxSizeDescribeLogDirsResult :: Int -> DescribeLogDirsResult -> Int
+wireMaxSizeDescribeLogDirsResult _version msg =
+  0
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (describeLogDirsResultLogDir msg))
+  + (5 + (case P.unKafkaArray (describeLogDirsResultTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeLogDirsTopic _version x ) v); P.Null -> 0 }))
+  + 8
+  + 8
+  + 1
+  + 1
+
+-- | Direct-poke encoder for DescribeLogDirsResult.
+wirePokeDescribeLogDirsResult :: Int -> Ptr Word8 -> DescribeLogDirsResult -> IO (Ptr Word8)
+wirePokeDescribeLogDirsResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt16BE p0 (describeLogDirsResultErrorCode msg)
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeLogDirsResultLogDir msg))
+  p3 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribeLogDirsTopic version p x) p2 (describeLogDirsResultTopics msg)
+  p4 <- W.pokeInt64BE p3 (describeLogDirsResultTotalBytes msg)
+  p5 <- W.pokeInt64BE p4 (describeLogDirsResultUsableBytes msg)
+  p6 <- W.pokeWord8 p5 (if (describeLogDirsResultIsCordoned msg) then 1 else 0)
+  if version >= 2 then WP.pokeEmptyTaggedFields p6 else pure p6
+
+-- | Direct-poke decoder for DescribeLogDirsResult.
+wirePeekDescribeLogDirsResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeLogDirsResult, Ptr Word8)
+wirePeekDescribeLogDirsResult version _fp _basePtr p0 endPtr = do
+  (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+  (f1_logdir, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_topics, p3) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeLogDirsTopic version _fp _basePtr p e) p2 endPtr
+  (f3_totalbytes, p4) <- W.peekInt64BE p3 endPtr
+  (f4_usablebytes, p5) <- W.peekInt64BE p4 endPtr
+  (f5_iscordoned, p6) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p5 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
+  pure (DescribeLogDirsResult { describeLogDirsResultErrorCode = f0_errorcode, describeLogDirsResultLogDir = f1_logdir, describeLogDirsResultTopics = f2_topics, describeLogDirsResultTotalBytes = f3_totalbytes, describeLogDirsResultUsableBytes = f4_usablebytes, describeLogDirsResultIsCordoned = f5_iscordoned }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeLogDirsResponse.
+wireMaxSizeDescribeLogDirsResponse :: Int -> DescribeLogDirsResponse -> Int
+wireMaxSizeDescribeLogDirsResponse _version msg =
+  0
+  + 4
+  + 2
+  + (5 + (case P.unKafkaArray (describeLogDirsResponseResults msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeLogDirsResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeLogDirsResponse.
+wirePokeDescribeLogDirsResponse :: Int -> Ptr Word8 -> DescribeLogDirsResponse -> IO (Ptr Word8)
+wirePokeDescribeLogDirsResponse version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeLogDirsResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribeLogDirsResult version p x) p1 (describeLogDirsResponseResults msg)
+    pure p2
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeLogDirsResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribeLogDirsResult version p x) p1 (describeLogDirsResponseResults msg)
+    WP.pokeEmptyTaggedFields p2
+  | version >= 3 && version <= 5 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeLogDirsResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (describeLogDirsResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribeLogDirsResult version p x) p2 (describeLogDirsResponseResults msg)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke DescribeLogDirsResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeLogDirsResponse.
+wirePeekDescribeLogDirsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeLogDirsResponse, Ptr Word8)
+wirePeekDescribeLogDirsResponse version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_results, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeLogDirsResult version _fp _basePtr p e) p1 endPtr
+    pure (DescribeLogDirsResponse { describeLogDirsResponseThrottleTimeMs = f0_throttletimems, describeLogDirsResponseErrorCode = 0, describeLogDirsResponseResults = f1_results }, p2)
+  | version == 2 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_results, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeLogDirsResult version _fp _basePtr p e) p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (DescribeLogDirsResponse { describeLogDirsResponseThrottleTimeMs = f0_throttletimems, describeLogDirsResponseErrorCode = 0, describeLogDirsResponseResults = f1_results }, pTagsEnd)
+  | version >= 3 && version <= 5 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_results, p3) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeLogDirsResult version _fp _basePtr p e) p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (DescribeLogDirsResponse { describeLogDirsResponseThrottleTimeMs = f0_throttletimems, describeLogDirsResponseErrorCode = f1_errorcode, describeLogDirsResponseResults = f2_results }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeLogDirsResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeLogDirsResponse where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeLogDirsResponse decodeDescribeLogDirsResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeLogDirsResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeLogDirsResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeLogDirsResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

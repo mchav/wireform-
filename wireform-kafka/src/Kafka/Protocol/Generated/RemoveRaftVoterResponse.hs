@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.RemoveRaftVoterResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -76,6 +84,13 @@ data RemoveRaftVoterResponse = RemoveRaftVoterResponse
 maxRemoveRaftVoterResponseVersion :: Int16
 maxRemoveRaftVoterResponseVersion = 0
 
+-- | KafkaMessage instance for RemoveRaftVoterResponse.
+instance KafkaMessage RemoveRaftVoterResponse where
+  messageApiKey = 81
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
+
 -- | Encode RemoveRaftVoterResponse with the given API version.
 encodeRemoveRaftVoterResponse :: MonadPut m => E.ApiVersion -> RemoveRaftVoterResponse -> m ()
 encodeRemoveRaftVoterResponse version msg
@@ -106,16 +121,47 @@ decodeRemoveRaftVoterResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeRemoveRaftVoterResponse' / 'decodeRemoveRaftVoterResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a RemoveRaftVoterResponse.
+wireMaxSizeRemoveRaftVoterResponse :: Int -> RemoveRaftVoterResponse -> Int
+wireMaxSizeRemoveRaftVoterResponse _version msg =
+  0
+  + 4
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (removeRaftVoterResponseErrorMessage msg))
+  + 1
+
+-- | Direct-poke encoder for RemoveRaftVoterResponse.
+wirePokeRemoveRaftVoterResponse :: Int -> Ptr Word8 -> RemoveRaftVoterResponse -> IO (Ptr Word8)
+wirePokeRemoveRaftVoterResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (removeRaftVoterResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (removeRaftVoterResponseErrorCode msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (removeRaftVoterResponseErrorMessage msg))
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke RemoveRaftVoterResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for RemoveRaftVoterResponse.
+wirePeekRemoveRaftVoterResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (RemoveRaftVoterResponse, Ptr Word8)
+wirePeekRemoveRaftVoterResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (RemoveRaftVoterResponse { removeRaftVoterResponseThrottleTimeMs = f0_throttletimems, removeRaftVoterResponseErrorCode = f1_errorcode, removeRaftVoterResponseErrorMessage = f2_errormessage }, pTagsEnd)
+  | otherwise = error $ "wirePeek RemoveRaftVoterResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec RemoveRaftVoterResponse where
-  wireCodec = Just (WC.serialShimCodec encodeRemoveRaftVoterResponse decodeRemoveRaftVoterResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeRemoveRaftVoterResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeRemoveRaftVoterResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekRemoveRaftVoterResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

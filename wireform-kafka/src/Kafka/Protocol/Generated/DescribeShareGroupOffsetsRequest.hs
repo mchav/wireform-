@@ -12,7 +12,7 @@ Kafka request for API key 90.
 
 
 
-Valid versions: 0
+Valid versions: 0-1
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.DescribeShareGroupOffsetsRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,7 +48,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The topics to describe offsets for, or null for all topic-partitions.
@@ -149,12 +157,19 @@ data DescribeShareGroupOffsetsRequest = DescribeShareGroupOffsetsRequest
 
 -- | Maximum supported version for DescribeShareGroupOffsetsRequest.
 maxDescribeShareGroupOffsetsRequestVersion :: Int16
-maxDescribeShareGroupOffsetsRequestVersion = 0
+maxDescribeShareGroupOffsetsRequestVersion = 1
+
+-- | KafkaMessage instance for DescribeShareGroupOffsetsRequest.
+instance KafkaMessage DescribeShareGroupOffsetsRequest where
+  messageApiKey = 90
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 0
 
 -- | Encode DescribeShareGroupOffsetsRequest with the given API version.
 encodeDescribeShareGroupOffsetsRequest :: MonadPut m => E.ApiVersion -> DescribeShareGroupOffsetsRequest -> m ()
 encodeDescribeShareGroupOffsetsRequest version msg
-  | version == 0 =
+  | version >= 0 && version <= 1 =
     do
       E.encodeVersionedArray version 0 encodeDescribeShareGroupOffsetsRequestGroup (case P.unKafkaArray (describeShareGroupOffsetsRequestGroups msg) of { P.NotNull v -> v; P.Null -> V.empty })
       serialize (emptyTaggedFields :: TaggedFields)
@@ -163,7 +178,7 @@ encodeDescribeShareGroupOffsetsRequest version msg
 -- | Decode DescribeShareGroupOffsetsRequest with the given API version.
 decodeDescribeShareGroupOffsetsRequest :: MonadGet m => E.ApiVersion -> m DescribeShareGroupOffsetsRequest
 decodeDescribeShareGroupOffsetsRequest version
-  | version == 0 =
+  | version >= 0 && version <= 1 =
     do
       fieldgroups <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeDescribeShareGroupOffsetsRequestGroup
       _ <- (deserialize :: MonadGet m => m TaggedFields)
@@ -173,16 +188,88 @@ decodeDescribeShareGroupOffsetsRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeShareGroupOffsetsRequest' / 'decodeDescribeShareGroupOffsetsRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a DescribeShareGroupOffsetsRequestTopic.
+wireMaxSizeDescribeShareGroupOffsetsRequestTopic :: Int -> DescribeShareGroupOffsetsRequestTopic -> Int
+wireMaxSizeDescribeShareGroupOffsetsRequestTopic _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (describeShareGroupOffsetsRequestTopicTopicName msg))
+  + (5 + (case P.unKafkaArray (describeShareGroupOffsetsRequestTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeShareGroupOffsetsRequestTopic.
+wirePokeDescribeShareGroupOffsetsRequestTopic :: Int -> Ptr Word8 -> DescribeShareGroupOffsetsRequestTopic -> IO (Ptr Word8)
+wirePokeDescribeShareGroupOffsetsRequestTopic version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (describeShareGroupOffsetsRequestTopicTopicName msg))
+  p2 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p1 (describeShareGroupOffsetsRequestTopicPartitions msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for DescribeShareGroupOffsetsRequestTopic.
+wirePeekDescribeShareGroupOffsetsRequestTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeShareGroupOffsetsRequestTopic, Ptr Word8)
+wirePeekDescribeShareGroupOffsetsRequestTopic version _fp _basePtr p0 endPtr = do
+  (f0_topicname, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 0 W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (DescribeShareGroupOffsetsRequestTopic { describeShareGroupOffsetsRequestTopicTopicName = f0_topicname, describeShareGroupOffsetsRequestTopicPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeShareGroupOffsetsRequestGroup.
+wireMaxSizeDescribeShareGroupOffsetsRequestGroup :: Int -> DescribeShareGroupOffsetsRequestGroup -> Int
+wireMaxSizeDescribeShareGroupOffsetsRequestGroup _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (describeShareGroupOffsetsRequestGroupGroupId msg))
+  + (5 + (case P.unKafkaArray (describeShareGroupOffsetsRequestGroupTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeShareGroupOffsetsRequestTopic _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeShareGroupOffsetsRequestGroup.
+wirePokeDescribeShareGroupOffsetsRequestGroup :: Int -> Ptr Word8 -> DescribeShareGroupOffsetsRequestGroup -> IO (Ptr Word8)
+wirePokeDescribeShareGroupOffsetsRequestGroup version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (describeShareGroupOffsetsRequestGroupGroupId msg))
+  p2 <- WP.pokeVersionedNullableArray version 0 (\p x -> wirePokeDescribeShareGroupOffsetsRequestTopic version p x) p1 (describeShareGroupOffsetsRequestGroupTopics msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for DescribeShareGroupOffsetsRequestGroup.
+wirePeekDescribeShareGroupOffsetsRequestGroup :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeShareGroupOffsetsRequestGroup, Ptr Word8)
+wirePeekDescribeShareGroupOffsetsRequestGroup version _fp _basePtr p0 endPtr = do
+  (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_topics, p2) <- WP.peekVersionedNullableArray version 0 (\p e -> wirePeekDescribeShareGroupOffsetsRequestTopic version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (DescribeShareGroupOffsetsRequestGroup { describeShareGroupOffsetsRequestGroupGroupId = f0_groupid, describeShareGroupOffsetsRequestGroupTopics = f1_topics }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeShareGroupOffsetsRequest.
+wireMaxSizeDescribeShareGroupOffsetsRequest :: Int -> DescribeShareGroupOffsetsRequest -> Int
+wireMaxSizeDescribeShareGroupOffsetsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (describeShareGroupOffsetsRequestGroups msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeShareGroupOffsetsRequestGroup _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeShareGroupOffsetsRequest.
+wirePokeDescribeShareGroupOffsetsRequest :: Int -> Ptr Word8 -> DescribeShareGroupOffsetsRequest -> IO (Ptr Word8)
+wirePokeDescribeShareGroupOffsetsRequest version basePtr msg
+  | version >= 0 && version <= 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeDescribeShareGroupOffsetsRequestGroup version p x) p0 (describeShareGroupOffsetsRequestGroups msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke DescribeShareGroupOffsetsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeShareGroupOffsetsRequest.
+wirePeekDescribeShareGroupOffsetsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeShareGroupOffsetsRequest, Ptr Word8)
+wirePeekDescribeShareGroupOffsetsRequest version _fp _basePtr p0 endPtr
+  | version >= 0 && version <= 1 = do
+    (f0_groups, p1) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDescribeShareGroupOffsetsRequestGroup version _fp _basePtr p e) p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (DescribeShareGroupOffsetsRequest { describeShareGroupOffsetsRequestGroups = f0_groups }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeShareGroupOffsetsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeShareGroupOffsetsRequest where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeShareGroupOffsetsRequest decodeDescribeShareGroupOffsetsRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeShareGroupOffsetsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeShareGroupOffsetsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeShareGroupOffsetsRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

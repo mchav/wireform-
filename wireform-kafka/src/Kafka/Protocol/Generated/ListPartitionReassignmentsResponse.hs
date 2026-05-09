@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.ListPartitionReassignmentsResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,7 +48,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The ongoing reassignments for each partition.
@@ -189,6 +197,13 @@ data ListPartitionReassignmentsResponse = ListPartitionReassignmentsResponse
 maxListPartitionReassignmentsResponseVersion :: Int16
 maxListPartitionReassignmentsResponseVersion = 0
 
+-- | KafkaMessage instance for ListPartitionReassignmentsResponse.
+instance KafkaMessage ListPartitionReassignmentsResponse where
+  messageApiKey = 46
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
+
 -- | Encode ListPartitionReassignmentsResponse with the given API version.
 encodeListPartitionReassignmentsResponse :: MonadPut m => E.ApiVersion -> ListPartitionReassignmentsResponse -> m ()
 encodeListPartitionReassignmentsResponse version msg
@@ -223,16 +238,103 @@ decodeListPartitionReassignmentsResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeListPartitionReassignmentsResponse' / 'decodeListPartitionReassignmentsResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a OngoingPartitionReassignment.
+wireMaxSizeOngoingPartitionReassignment :: Int -> OngoingPartitionReassignment -> Int
+wireMaxSizeOngoingPartitionReassignment _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (ongoingPartitionReassignmentReplicas msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (ongoingPartitionReassignmentAddingReplicas msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (ongoingPartitionReassignmentRemovingReplicas msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for OngoingPartitionReassignment.
+wirePokeOngoingPartitionReassignment :: Int -> Ptr Word8 -> OngoingPartitionReassignment -> IO (Ptr Word8)
+wirePokeOngoingPartitionReassignment version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (ongoingPartitionReassignmentPartitionIndex msg)
+  p2 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p1 (ongoingPartitionReassignmentReplicas msg)
+  p3 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p2 (ongoingPartitionReassignmentAddingReplicas msg)
+  p4 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p3 (ongoingPartitionReassignmentRemovingReplicas msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for OngoingPartitionReassignment.
+wirePeekOngoingPartitionReassignment :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OngoingPartitionReassignment, Ptr Word8)
+wirePeekOngoingPartitionReassignment version _fp _basePtr p0 endPtr = do
+  (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_replicas, p2) <- WP.peekVersionedArray version 0 W.peekInt32BE p1 endPtr
+  (f2_addingreplicas, p3) <- WP.peekVersionedArray version 0 W.peekInt32BE p2 endPtr
+  (f3_removingreplicas, p4) <- WP.peekVersionedArray version 0 W.peekInt32BE p3 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (OngoingPartitionReassignment { ongoingPartitionReassignmentPartitionIndex = f0_partitionindex, ongoingPartitionReassignmentReplicas = f1_replicas, ongoingPartitionReassignmentAddingReplicas = f2_addingreplicas, ongoingPartitionReassignmentRemovingReplicas = f3_removingreplicas }, pTagsEnd)
+
+-- | Worst-case wire size of a OngoingTopicReassignment.
+wireMaxSizeOngoingTopicReassignment :: Int -> OngoingTopicReassignment -> Int
+wireMaxSizeOngoingTopicReassignment _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (ongoingTopicReassignmentName msg))
+  + (5 + (case P.unKafkaArray (ongoingTopicReassignmentPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOngoingPartitionReassignment _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for OngoingTopicReassignment.
+wirePokeOngoingTopicReassignment :: Int -> Ptr Word8 -> OngoingTopicReassignment -> IO (Ptr Word8)
+wirePokeOngoingTopicReassignment version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (ongoingTopicReassignmentName msg))
+  p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeOngoingPartitionReassignment version p x) p1 (ongoingTopicReassignmentPartitions msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for OngoingTopicReassignment.
+wirePeekOngoingTopicReassignment :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OngoingTopicReassignment, Ptr Word8)
+wirePeekOngoingTopicReassignment version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekOngoingPartitionReassignment version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (OngoingTopicReassignment { ongoingTopicReassignmentName = f0_name, ongoingTopicReassignmentPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a ListPartitionReassignmentsResponse.
+wireMaxSizeListPartitionReassignmentsResponse :: Int -> ListPartitionReassignmentsResponse -> Int
+wireMaxSizeListPartitionReassignmentsResponse _version msg =
+  0
+  + 4
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (listPartitionReassignmentsResponseErrorMessage msg))
+  + (5 + (case P.unKafkaArray (listPartitionReassignmentsResponseTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOngoingTopicReassignment _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ListPartitionReassignmentsResponse.
+wirePokeListPartitionReassignmentsResponse :: Int -> Ptr Word8 -> ListPartitionReassignmentsResponse -> IO (Ptr Word8)
+wirePokeListPartitionReassignmentsResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (listPartitionReassignmentsResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (listPartitionReassignmentsResponseErrorCode msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (listPartitionReassignmentsResponseErrorMessage msg))
+    p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeOngoingTopicReassignment version p x) p3 (listPartitionReassignmentsResponseTopics msg)
+    WP.pokeEmptyTaggedFields p4
+  | otherwise = error $ "wirePoke ListPartitionReassignmentsResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ListPartitionReassignmentsResponse.
+wirePeekListPartitionReassignmentsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListPartitionReassignmentsResponse, Ptr Word8)
+wirePeekListPartitionReassignmentsResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_topics, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekOngoingTopicReassignment version _fp _basePtr p e) p3 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (ListPartitionReassignmentsResponse { listPartitionReassignmentsResponseThrottleTimeMs = f0_throttletimems, listPartitionReassignmentsResponseErrorCode = f1_errorcode, listPartitionReassignmentsResponseErrorMessage = f2_errormessage, listPartitionReassignmentsResponseTopics = f3_topics }, pTagsEnd)
+  | otherwise = error $ "wirePeek ListPartitionReassignmentsResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ListPartitionReassignmentsResponse where
-  wireCodec = Just (WC.serialShimCodec encodeListPartitionReassignmentsResponse decodeListPartitionReassignmentsResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeListPartitionReassignmentsResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeListPartitionReassignmentsResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekListPartitionReassignmentsResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

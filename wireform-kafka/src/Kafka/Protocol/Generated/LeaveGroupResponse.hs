@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.LeaveGroupResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -45,7 +47,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | List of leaving member responses.
@@ -138,6 +146,13 @@ data LeaveGroupResponse = LeaveGroupResponse
 maxLeaveGroupResponseVersion :: Int16
 maxLeaveGroupResponseVersion = 5
 
+-- | KafkaMessage instance for LeaveGroupResponse.
+instance KafkaMessage LeaveGroupResponse where
+  messageApiKey = 13
+  messageMinVersion = 0
+  messageMaxVersion = 5
+  messageFlexibleVersion = Just 4
+
 -- | Encode LeaveGroupResponse with the given API version.
 encodeLeaveGroupResponse :: MonadPut m => E.ApiVersion -> LeaveGroupResponse -> m ()
 encodeLeaveGroupResponse version msg
@@ -225,16 +240,100 @@ decodeLeaveGroupResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeLeaveGroupResponse' / 'decodeLeaveGroupResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a MemberResponse.
+wireMaxSizeMemberResponse :: Int -> MemberResponse -> Int
+wireMaxSizeMemberResponse _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (memberResponseMemberId msg))
+  + WP.compactStringMaxSize (P.toCompactString (memberResponseGroupInstanceId msg))
+  + 2
+  + 1
+
+-- | Direct-poke encoder for MemberResponse.
+wirePokeMemberResponse :: Int -> Ptr Word8 -> MemberResponse -> IO (Ptr Word8)
+wirePokeMemberResponse version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (memberResponseMemberId msg))
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (memberResponseGroupInstanceId msg))
+  p3 <- W.pokeInt16BE p2 (memberResponseErrorCode msg)
+  if version >= 4 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for MemberResponse.
+wirePeekMemberResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (MemberResponse, Ptr Word8)
+wirePeekMemberResponse version _fp _basePtr p0 endPtr = do
+  (f0_memberid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_groupinstanceid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_errorcode, p3) <- W.peekInt16BE p2 endPtr
+  pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (MemberResponse { memberResponseMemberId = f0_memberid, memberResponseGroupInstanceId = f1_groupinstanceid, memberResponseErrorCode = f2_errorcode }, pTagsEnd)
+
+-- | Worst-case wire size of a LeaveGroupResponse.
+wireMaxSizeLeaveGroupResponse :: Int -> LeaveGroupResponse -> Int
+wireMaxSizeLeaveGroupResponse _version msg =
+  0
+  + 4
+  + 2
+  + (5 + (case P.unKafkaArray (leaveGroupResponseMembers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeMemberResponse _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for LeaveGroupResponse.
+wirePokeLeaveGroupResponse :: Int -> Ptr Word8 -> LeaveGroupResponse -> IO (Ptr Word8)
+wirePokeLeaveGroupResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (leaveGroupResponseErrorCode msg)
+    pure p1
+  | version == 3 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (leaveGroupResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (leaveGroupResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeMemberResponse version p x) p2 (leaveGroupResponseMembers msg)
+    pure p3
+  | version >= 1 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (leaveGroupResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (leaveGroupResponseErrorCode msg)
+    pure p2
+  | version >= 4 && version <= 5 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (leaveGroupResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (leaveGroupResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeMemberResponse version p x) p2 (leaveGroupResponseMembers msg)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke LeaveGroupResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for LeaveGroupResponse.
+wirePeekLeaveGroupResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (LeaveGroupResponse, Ptr Word8)
+wirePeekLeaveGroupResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    pure (LeaveGroupResponse { leaveGroupResponseThrottleTimeMs = 0, leaveGroupResponseErrorCode = f0_errorcode, leaveGroupResponseMembers = P.mkKafkaArray V.empty }, p1)
+  | version == 3 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_members, p3) <- WP.peekVersionedArray version 4 (\p e -> wirePeekMemberResponse version _fp _basePtr p e) p2 endPtr
+    pure (LeaveGroupResponse { leaveGroupResponseThrottleTimeMs = f0_throttletimems, leaveGroupResponseErrorCode = f1_errorcode, leaveGroupResponseMembers = f2_members }, p3)
+  | version >= 1 && version <= 2 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    pure (LeaveGroupResponse { leaveGroupResponseThrottleTimeMs = f0_throttletimems, leaveGroupResponseErrorCode = f1_errorcode, leaveGroupResponseMembers = P.mkKafkaArray V.empty }, p2)
+  | version >= 4 && version <= 5 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_members, p3) <- WP.peekVersionedArray version 4 (\p e -> wirePeekMemberResponse version _fp _basePtr p e) p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (LeaveGroupResponse { leaveGroupResponseThrottleTimeMs = f0_throttletimems, leaveGroupResponseErrorCode = f1_errorcode, leaveGroupResponseMembers = f2_members }, pTagsEnd)
+  | otherwise = error $ "wirePeek LeaveGroupResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec LeaveGroupResponse where
-  wireCodec = Just (WC.serialShimCodec encodeLeaveGroupResponse decodeLeaveGroupResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeLeaveGroupResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeLeaveGroupResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekLeaveGroupResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

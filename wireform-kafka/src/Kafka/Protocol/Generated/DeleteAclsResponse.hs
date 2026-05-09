@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.DeleteAclsResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,7 +48,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The ACLs which matched this filter.
@@ -240,6 +248,13 @@ data DeleteAclsResponse = DeleteAclsResponse
 maxDeleteAclsResponseVersion :: Int16
 maxDeleteAclsResponseVersion = 3
 
+-- | KafkaMessage instance for DeleteAclsResponse.
+instance KafkaMessage DeleteAclsResponse where
+  messageApiKey = 31
+  messageMinVersion = 1
+  messageMaxVersion = 3
+  messageFlexibleVersion = Just 2
+
 -- | Encode DeleteAclsResponse with the given API version.
 encodeDeleteAclsResponse :: MonadPut m => E.ApiVersion -> DeleteAclsResponse -> m ()
 encodeDeleteAclsResponse version msg
@@ -283,16 +298,124 @@ decodeDeleteAclsResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDeleteAclsResponse' / 'decodeDeleteAclsResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a DeleteAclsMatchingAcl.
+wireMaxSizeDeleteAclsMatchingAcl :: Int -> DeleteAclsMatchingAcl -> Int
+wireMaxSizeDeleteAclsMatchingAcl _version msg =
+  0
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (deleteAclsMatchingAclErrorMessage msg))
+  + 1
+  + WP.compactStringMaxSize (P.toCompactString (deleteAclsMatchingAclResourceName msg))
+  + 1
+  + WP.compactStringMaxSize (P.toCompactString (deleteAclsMatchingAclPrincipal msg))
+  + WP.compactStringMaxSize (P.toCompactString (deleteAclsMatchingAclHost msg))
+  + 1
+  + 1
+  + 1
+
+-- | Direct-poke encoder for DeleteAclsMatchingAcl.
+wirePokeDeleteAclsMatchingAcl :: Int -> Ptr Word8 -> DeleteAclsMatchingAcl -> IO (Ptr Word8)
+wirePokeDeleteAclsMatchingAcl version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt16BE p0 (deleteAclsMatchingAclErrorCode msg)
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (deleteAclsMatchingAclErrorMessage msg))
+  p3 <- W.pokeWord8 p2 (fromIntegral (deleteAclsMatchingAclResourceType msg))
+  p4 <- WP.pokeCompactString p3 (P.toCompactString (deleteAclsMatchingAclResourceName msg))
+  p5 <- W.pokeWord8 p4 (fromIntegral (deleteAclsMatchingAclPatternType msg))
+  p6 <- WP.pokeCompactString p5 (P.toCompactString (deleteAclsMatchingAclPrincipal msg))
+  p7 <- WP.pokeCompactString p6 (P.toCompactString (deleteAclsMatchingAclHost msg))
+  p8 <- W.pokeWord8 p7 (fromIntegral (deleteAclsMatchingAclOperation msg))
+  p9 <- W.pokeWord8 p8 (fromIntegral (deleteAclsMatchingAclPermissionType msg))
+  if version >= 2 then WP.pokeEmptyTaggedFields p9 else pure p9
+
+-- | Direct-poke decoder for DeleteAclsMatchingAcl.
+wirePeekDeleteAclsMatchingAcl :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteAclsMatchingAcl, Ptr Word8)
+wirePeekDeleteAclsMatchingAcl version _fp _basePtr p0 endPtr = do
+  (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+  (f1_errormessage, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_resourcetype, p3) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr
+  (f3_resourcename, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  (f4_patterntype, p5) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p4 endPtr
+  (f5_principal, p6) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr
+  (f6_host, p7) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p6 endPtr
+  (f7_operation, p8) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p7 endPtr
+  (f8_permissiontype, p9) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p8 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p9 endPtr else pure p9
+  pure (DeleteAclsMatchingAcl { deleteAclsMatchingAclErrorCode = f0_errorcode, deleteAclsMatchingAclErrorMessage = f1_errormessage, deleteAclsMatchingAclResourceType = f2_resourcetype, deleteAclsMatchingAclResourceName = f3_resourcename, deleteAclsMatchingAclPatternType = f4_patterntype, deleteAclsMatchingAclPrincipal = f5_principal, deleteAclsMatchingAclHost = f6_host, deleteAclsMatchingAclOperation = f7_operation, deleteAclsMatchingAclPermissionType = f8_permissiontype }, pTagsEnd)
+
+-- | Worst-case wire size of a DeleteAclsFilterResult.
+wireMaxSizeDeleteAclsFilterResult :: Int -> DeleteAclsFilterResult -> Int
+wireMaxSizeDeleteAclsFilterResult _version msg =
+  0
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (deleteAclsFilterResultErrorMessage msg))
+  + (5 + (case P.unKafkaArray (deleteAclsFilterResultMatchingAcls msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDeleteAclsMatchingAcl _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DeleteAclsFilterResult.
+wirePokeDeleteAclsFilterResult :: Int -> Ptr Word8 -> DeleteAclsFilterResult -> IO (Ptr Word8)
+wirePokeDeleteAclsFilterResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt16BE p0 (deleteAclsFilterResultErrorCode msg)
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (deleteAclsFilterResultErrorMessage msg))
+  p3 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDeleteAclsMatchingAcl version p x) p2 (deleteAclsFilterResultMatchingAcls msg)
+  if version >= 2 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for DeleteAclsFilterResult.
+wirePeekDeleteAclsFilterResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteAclsFilterResult, Ptr Word8)
+wirePeekDeleteAclsFilterResult version _fp _basePtr p0 endPtr = do
+  (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+  (f1_errormessage, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_matchingacls, p3) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDeleteAclsMatchingAcl version _fp _basePtr p e) p2 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (DeleteAclsFilterResult { deleteAclsFilterResultErrorCode = f0_errorcode, deleteAclsFilterResultErrorMessage = f1_errormessage, deleteAclsFilterResultMatchingAcls = f2_matchingacls }, pTagsEnd)
+
+-- | Worst-case wire size of a DeleteAclsResponse.
+wireMaxSizeDeleteAclsResponse :: Int -> DeleteAclsResponse -> Int
+wireMaxSizeDeleteAclsResponse _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (deleteAclsResponseFilterResults msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDeleteAclsFilterResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DeleteAclsResponse.
+wirePokeDeleteAclsResponse :: Int -> Ptr Word8 -> DeleteAclsResponse -> IO (Ptr Word8)
+wirePokeDeleteAclsResponse version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (deleteAclsResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDeleteAclsFilterResult version p x) p1 (deleteAclsResponseFilterResults msg)
+    pure p2
+  | version >= 2 && version <= 3 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (deleteAclsResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDeleteAclsFilterResult version p x) p1 (deleteAclsResponseFilterResults msg)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke DeleteAclsResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DeleteAclsResponse.
+wirePeekDeleteAclsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteAclsResponse, Ptr Word8)
+wirePeekDeleteAclsResponse version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_filterresults, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDeleteAclsFilterResult version _fp _basePtr p e) p1 endPtr
+    pure (DeleteAclsResponse { deleteAclsResponseThrottleTimeMs = f0_throttletimems, deleteAclsResponseFilterResults = f1_filterresults }, p2)
+  | version >= 2 && version <= 3 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_filterresults, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDeleteAclsFilterResult version _fp _basePtr p e) p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (DeleteAclsResponse { deleteAclsResponseThrottleTimeMs = f0_throttletimems, deleteAclsResponseFilterResults = f1_filterresults }, pTagsEnd)
+  | otherwise = error $ "wirePeek DeleteAclsResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DeleteAclsResponse where
-  wireCodec = Just (WC.serialShimCodec encodeDeleteAclsResponse decodeDeleteAclsResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDeleteAclsResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDeleteAclsResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDeleteAclsResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

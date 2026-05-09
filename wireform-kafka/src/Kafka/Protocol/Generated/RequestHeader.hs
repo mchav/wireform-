@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.RequestHeader
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -149,23 +151,8 @@ decodeRequestHeader version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
-----------------------------------------------------------------------
--- Native 'Wire' codec
---
--- The functions below are emitted by
--- "Kafka.Protocol.Codegen.WireGenerator" alongside the legacy
--- 'Serial'-shape @encode@ / @decode@ pair above. Both coexist so
--- callers can flip between them per-call-site, but the @WireCodec@
--- instance at the bottom of this module dispatches every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' through the native pokes.
---
--- The shape is locked down by 'Codegen.WireGeneratorSpec' (snapshot)
--- and 'Protocol.WireCodecParitySpec' (cross-codec byte equivalence).
-----------------------------------------------------------------------
 
 -- | Worst-case wire size of a RequestHeader.
--- Sums the per-field upper bounds; the actual poke may advance
--- the cursor by less.
 wireMaxSizeRequestHeader :: Int -> RequestHeader -> Int
 wireMaxSizeRequestHeader _version msg =
   0
@@ -174,6 +161,7 @@ wireMaxSizeRequestHeader _version msg =
   + 4
   + WP.kafkaStringMaxSize (requestHeaderClientId msg)
   + 1
+
 -- | Direct-poke encoder for RequestHeader.
 wirePokeRequestHeader :: Int -> Ptr Word8 -> RequestHeader -> IO (Ptr Word8)
 wirePokeRequestHeader version basePtr msg
@@ -192,6 +180,7 @@ wirePokeRequestHeader version basePtr msg
     p4 <- WP.pokeKafkaString p3 (requestHeaderClientId msg)
     WP.pokeEmptyTaggedFields p4
   | otherwise = error $ "wirePoke RequestHeader : unsupported version: " ++ show version
+
 -- | Direct-poke decoder for RequestHeader.
 wirePeekRequestHeader :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (RequestHeader, Ptr Word8)
 wirePeekRequestHeader version _fp _basePtr p0 endPtr
@@ -209,6 +198,8 @@ wirePeekRequestHeader version _fp _basePtr p0 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (RequestHeader { requestHeaderRequestApiKey = f0_requestapikey, requestHeaderRequestApiVersion = f1_requestapiversion, requestHeaderCorrelationId = f2_correlationid, requestHeaderClientId = f3_clientid }, pTagsEnd)
   | otherwise = error $ "wirePeek RequestHeader : unsupported version: " ++ show version
+
+
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
 -- generated below, skipping the 'Data.Bytes.Serial' runner.

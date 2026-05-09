@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.ListGroupsResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -45,7 +47,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Each group in the response.
@@ -145,6 +153,13 @@ data ListGroupsResponse = ListGroupsResponse
 maxListGroupsResponseVersion :: Int16
 maxListGroupsResponseVersion = 5
 
+-- | KafkaMessage instance for ListGroupsResponse.
+instance KafkaMessage ListGroupsResponse where
+  messageApiKey = 16
+  messageMinVersion = 0
+  messageMaxVersion = 5
+  messageFlexibleVersion = Just 3
+
 -- | Encode ListGroupsResponse with the given API version.
 encodeListGroupsResponse :: MonadPut m => E.ApiVersion -> ListGroupsResponse -> m ()
 encodeListGroupsResponse version msg
@@ -215,16 +230,96 @@ decodeListGroupsResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeListGroupsResponse' / 'decodeListGroupsResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a ListedGroup.
+wireMaxSizeListedGroup :: Int -> ListedGroup -> Int
+wireMaxSizeListedGroup _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (listedGroupGroupId msg))
+  + WP.compactStringMaxSize (P.toCompactString (listedGroupProtocolType msg))
+  + WP.compactStringMaxSize (P.toCompactString (listedGroupGroupState msg))
+  + WP.compactStringMaxSize (P.toCompactString (listedGroupGroupType msg))
+  + 1
+
+-- | Direct-poke encoder for ListedGroup.
+wirePokeListedGroup :: Int -> Ptr Word8 -> ListedGroup -> IO (Ptr Word8)
+wirePokeListedGroup version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (listedGroupGroupId msg))
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (listedGroupProtocolType msg))
+  p3 <- WP.pokeCompactString p2 (P.toCompactString (listedGroupGroupState msg))
+  p4 <- WP.pokeCompactString p3 (P.toCompactString (listedGroupGroupType msg))
+  if version >= 3 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for ListedGroup.
+wirePeekListedGroup :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListedGroup, Ptr Word8)
+wirePeekListedGroup version _fp _basePtr p0 endPtr = do
+  (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_protocoltype, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_groupstate, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f3_grouptype, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (ListedGroup { listedGroupGroupId = f0_groupid, listedGroupProtocolType = f1_protocoltype, listedGroupGroupState = f2_groupstate, listedGroupGroupType = f3_grouptype }, pTagsEnd)
+
+-- | Worst-case wire size of a ListGroupsResponse.
+wireMaxSizeListGroupsResponse :: Int -> ListGroupsResponse -> Int
+wireMaxSizeListGroupsResponse _version msg =
+  0
+  + 4
+  + 2
+  + (5 + (case P.unKafkaArray (listGroupsResponseGroups msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeListedGroup _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ListGroupsResponse.
+wirePokeListGroupsResponse :: Int -> Ptr Word8 -> ListGroupsResponse -> IO (Ptr Word8)
+wirePokeListGroupsResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (listGroupsResponseErrorCode msg)
+    p2 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeListedGroup version p x) p1 (listGroupsResponseGroups msg)
+    pure p2
+  | version >= 1 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (listGroupsResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (listGroupsResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeListedGroup version p x) p2 (listGroupsResponseGroups msg)
+    pure p3
+  | version >= 3 && version <= 5 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (listGroupsResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (listGroupsResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeListedGroup version p x) p2 (listGroupsResponseGroups msg)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke ListGroupsResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ListGroupsResponse.
+wirePeekListGroupsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListGroupsResponse, Ptr Word8)
+wirePeekListGroupsResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_groups, p2) <- WP.peekVersionedArray version 3 (\p e -> wirePeekListedGroup version _fp _basePtr p e) p1 endPtr
+    pure (ListGroupsResponse { listGroupsResponseThrottleTimeMs = 0, listGroupsResponseErrorCode = f0_errorcode, listGroupsResponseGroups = f1_groups }, p2)
+  | version >= 1 && version <= 2 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_groups, p3) <- WP.peekVersionedArray version 3 (\p e -> wirePeekListedGroup version _fp _basePtr p e) p2 endPtr
+    pure (ListGroupsResponse { listGroupsResponseThrottleTimeMs = f0_throttletimems, listGroupsResponseErrorCode = f1_errorcode, listGroupsResponseGroups = f2_groups }, p3)
+  | version >= 3 && version <= 5 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_groups, p3) <- WP.peekVersionedArray version 3 (\p e -> wirePeekListedGroup version _fp _basePtr p e) p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (ListGroupsResponse { listGroupsResponseThrottleTimeMs = f0_throttletimems, listGroupsResponseErrorCode = f1_errorcode, listGroupsResponseGroups = f2_groups }, pTagsEnd)
+  | otherwise = error $ "wirePeek ListGroupsResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ListGroupsResponse where
-  wireCodec = Just (WC.serialShimCodec encodeListGroupsResponse decodeListGroupsResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeListGroupsResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeListGroupsResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekListGroupsResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

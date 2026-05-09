@@ -12,7 +12,7 @@ Kafka response for API key 0.
 
 
 
-Valid versions: 3-12
+Valid versions: 3-13
 Flexible versions: 9+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -53,6 +53,11 @@ import Kafka.Protocol.Primitives
 import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The batch indices of records that caused the batch to be dropped.
@@ -282,8 +287,14 @@ data TopicProduceResponse = TopicProduceResponse
 
   -- | The topic name.
 
-  -- Versions: 0+
+  -- Versions: 0-12
   topicProduceResponseName :: !(KafkaString)
+,
+
+  -- | The unique topic ID
+
+  -- Versions: 13+
+  topicProduceResponseTopicId :: !(KafkaUuid)
 ,
 
   -- | Each partition that we produced to within the topic.
@@ -299,7 +310,10 @@ data TopicProduceResponse = TopicProduceResponse
 encodeTopicProduceResponse :: MonadPut m => E.ApiVersion -> TopicProduceResponse -> m ()
 encodeTopicProduceResponse version tmsg =
   do
-    if version >= 9 then serialize (toCompactString (topicProduceResponseName tmsg)) else serialize (topicProduceResponseName tmsg)
+    when (version >= 0 && version <= 12) $
+      if version >= 9 then serialize (toCompactString (topicProduceResponseName tmsg)) else serialize (topicProduceResponseName tmsg)
+    when (version >= 13) $
+      serialize (topicProduceResponseTopicId tmsg)
     E.encodeVersionedArray version 9 encodePartitionProduceResponse (case P.unKafkaArray (topicProduceResponsePartitionResponses tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
     when (version >= 9) $ serialize (emptyTaggedFields :: TaggedFields)
 
@@ -308,12 +322,19 @@ encodeTopicProduceResponse version tmsg =
 decodeTopicProduceResponse :: MonadGet m => E.ApiVersion -> m TopicProduceResponse
 decodeTopicProduceResponse version =
   do
-    fieldname <- if version >= 9 then P.fromCompactString <$> deserialize else deserialize
+    fieldname <- if version >= 0 && version <= 12
+      then if version >= 9 then P.fromCompactString <$> deserialize else deserialize
+      else pure (P.KafkaString Null)
+    fieldtopicid <- if version >= 13
+      then deserialize
+      else pure (P.nullUuid)
     fieldpartitionresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 9 decodePartitionProduceResponse
     _ <- if version >= 9 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
     pure TopicProduceResponse
       {
       topicProduceResponseName = fieldname
+      ,
+      topicProduceResponseTopicId = fieldtopicid
       ,
       topicProduceResponsePartitionResponses = fieldpartitionresponses
       }
@@ -420,13 +441,13 @@ data ProduceResponse = ProduceResponse
 
 -- | Maximum supported version for ProduceResponse.
 maxProduceResponseVersion :: Int16
-maxProduceResponseVersion = 12
+maxProduceResponseVersion = 13
 
 -- | KafkaMessage instance for ProduceResponse.
 instance KafkaMessage ProduceResponse where
   messageApiKey = 0
   messageMinVersion = 3
-  messageMaxVersion = 12
+  messageMaxVersion = 13
   messageFlexibleVersion = Just 9
 
 -- | Encode ProduceResponse with the given API version.
@@ -440,7 +461,7 @@ encodeProduceResponse version msg
         let _entries = (if version >= 10 then [(0, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeNodeEndpoint (case P.unKafkaArray (produceResponseNodeEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else [])
         P.serializeTaggedFieldEntries _entries
 
-  | version >= 10 && version <= 12 =
+  | version >= 10 && version <= 13 =
     do
       E.encodeVersionedArray version 9 encodeTopicProduceResponse (case P.unKafkaArray (produceResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
       serialize (produceResponseThrottleTimeMs msg)
@@ -480,7 +501,7 @@ decodeProduceResponse version
         produceResponseNodeEndpoints = fieldnodeendpoints
         }
 
-  | version >= 10 && version <= 12 =
+  | version >= 10 && version <= 13 =
     do
       fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 9 decodeTopicProduceResponse
       fieldthrottletimems <- deserialize
@@ -516,15 +537,93 @@ decodeProduceResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
+-- | Worst-case wire size of a BatchIndexAndErrorMessage.
+wireMaxSizeBatchIndexAndErrorMessage :: Int -> BatchIndexAndErrorMessage -> Int
+wireMaxSizeBatchIndexAndErrorMessage _version msg =
+  0
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (batchIndexAndErrorMessageBatchIndexErrorMessage msg))
+  + 1
+
+-- | Direct-poke encoder for BatchIndexAndErrorMessage.
+wirePokeBatchIndexAndErrorMessage :: Int -> Ptr Word8 -> BatchIndexAndErrorMessage -> IO (Ptr Word8)
+wirePokeBatchIndexAndErrorMessage version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (batchIndexAndErrorMessageBatchIndex msg)
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (batchIndexAndErrorMessageBatchIndexErrorMessage msg))
+  if version >= 9 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for BatchIndexAndErrorMessage.
+wirePeekBatchIndexAndErrorMessage :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (BatchIndexAndErrorMessage, Ptr Word8)
+wirePeekBatchIndexAndErrorMessage version _fp _basePtr p0 endPtr = do
+  (f0_batchindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_batchindexerrormessage, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  pTagsEnd <- if version >= 9 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (BatchIndexAndErrorMessage { batchIndexAndErrorMessageBatchIndex = f0_batchindex, batchIndexAndErrorMessageBatchIndexErrorMessage = f1_batchindexerrormessage }, pTagsEnd)
+
+-- | Worst-case wire size of a LeaderIdAndEpoch.
+wireMaxSizeLeaderIdAndEpoch :: Int -> LeaderIdAndEpoch -> Int
+wireMaxSizeLeaderIdAndEpoch _version msg =
+  0
+  + 4
+  + 4
+  + 1
+
+-- | Direct-poke encoder for LeaderIdAndEpoch.
+wirePokeLeaderIdAndEpoch :: Int -> Ptr Word8 -> LeaderIdAndEpoch -> IO (Ptr Word8)
+wirePokeLeaderIdAndEpoch version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (leaderIdAndEpochLeaderId msg)
+  p2 <- W.pokeInt32BE p1 (leaderIdAndEpochLeaderEpoch msg)
+  if version >= 9 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for LeaderIdAndEpoch.
+wirePeekLeaderIdAndEpoch :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (LeaderIdAndEpoch, Ptr Word8)
+wirePeekLeaderIdAndEpoch version _fp _basePtr p0 endPtr = do
+  (f0_leaderid, p1) <- W.peekInt32BE p0 endPtr
+  (f1_leaderepoch, p2) <- W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 9 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = f0_leaderid, leaderIdAndEpochLeaderEpoch = f1_leaderepoch }, pTagsEnd)
+
+-- | Worst-case wire size of a NodeEndpoint.
+wireMaxSizeNodeEndpoint :: Int -> NodeEndpoint -> Int
+wireMaxSizeNodeEndpoint _version msg =
+  0
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (nodeEndpointHost msg))
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (nodeEndpointRack msg))
+  + 1
+
+-- | Direct-poke encoder for NodeEndpoint.
+wirePokeNodeEndpoint :: Int -> Ptr Word8 -> NodeEndpoint -> IO (Ptr Word8)
+wirePokeNodeEndpoint version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (nodeEndpointNodeId msg)
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (nodeEndpointHost msg))
+  p3 <- W.pokeInt32BE p2 (nodeEndpointPort msg)
+  p4 <- WP.pokeCompactString p3 (P.toCompactString (nodeEndpointRack msg))
+  if version >= 9 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for NodeEndpoint.
+wirePeekNodeEndpoint :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (NodeEndpoint, Ptr Word8)
+wirePeekNodeEndpoint version _fp _basePtr p0 endPtr = do
+  (f0_nodeid, p1) <- W.peekInt32BE p0 endPtr
+  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_port, p3) <- W.peekInt32BE p2 endPtr
+  (f3_rack, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  pTagsEnd <- if version >= 9 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (NodeEndpoint { nodeEndpointNodeId = f0_nodeid, nodeEndpointHost = f1_host, nodeEndpointPort = f2_port, nodeEndpointRack = f3_rack }, pTagsEnd)
+
 -- | 'WC.WireCodec' instance via the Serial shim. The
 -- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeProduceResponse' / 'decodeProduceResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
+-- schema (it carries tagged fields with payloads — KIP-866
+-- style — that the generator hasn't been taught yet), so
+-- we lift the legacy 'encodeProduceResponse' / 'decodeProduceResponse'
+-- pair into a 'WireCodecImpl' via 'WC.serialShimCodec'.
+-- The dispatch shape is identical to the native case —
+-- every 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through
+-- a 'Just'-valued codec, no 'Nothing' fallback survives in
 -- the generated output.
 instance WC.WireCodec ProduceResponse where
   wireCodec = Just (WC.serialShimCodec encodeProduceResponse decodeProduceResponse)

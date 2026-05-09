@@ -30,7 +30,9 @@ module Kafka.Protocol.Generated.CreateTopicsRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,7 +49,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The manual partition assignment, or the empty array if we are using automatic assignment.
@@ -237,6 +245,13 @@ data CreateTopicsRequest = CreateTopicsRequest
 maxCreateTopicsRequestVersion :: Int16
 maxCreateTopicsRequestVersion = 7
 
+-- | KafkaMessage instance for CreateTopicsRequest.
+instance KafkaMessage CreateTopicsRequest where
+  messageApiKey = 19
+  messageMinVersion = 2
+  messageMaxVersion = 7
+  messageFlexibleVersion = Just 5
+
 -- | Encode CreateTopicsRequest with the given API version.
 encodeCreateTopicsRequest :: MonadPut m => E.ApiVersion -> CreateTopicsRequest -> m ()
 encodeCreateTopicsRequest version msg
@@ -288,16 +303,138 @@ decodeCreateTopicsRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeCreateTopicsRequest' / 'decodeCreateTopicsRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a CreatableReplicaAssignment.
+wireMaxSizeCreatableReplicaAssignment :: Int -> CreatableReplicaAssignment -> Int
+wireMaxSizeCreatableReplicaAssignment _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (creatableReplicaAssignmentBrokerIds msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for CreatableReplicaAssignment.
+wirePokeCreatableReplicaAssignment :: Int -> Ptr Word8 -> CreatableReplicaAssignment -> IO (Ptr Word8)
+wirePokeCreatableReplicaAssignment version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (creatableReplicaAssignmentPartitionIndex msg)
+  p2 <- WP.pokeVersionedArray version 5 W.pokeInt32BE p1 (creatableReplicaAssignmentBrokerIds msg)
+  if version >= 5 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for CreatableReplicaAssignment.
+wirePeekCreatableReplicaAssignment :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatableReplicaAssignment, Ptr Word8)
+wirePeekCreatableReplicaAssignment version _fp _basePtr p0 endPtr = do
+  (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_brokerids, p2) <- WP.peekVersionedArray version 5 W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 5 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (CreatableReplicaAssignment { creatableReplicaAssignmentPartitionIndex = f0_partitionindex, creatableReplicaAssignmentBrokerIds = f1_brokerids }, pTagsEnd)
+
+-- | Worst-case wire size of a CreatableTopicConfig.
+wireMaxSizeCreatableTopicConfig :: Int -> CreatableTopicConfig -> Int
+wireMaxSizeCreatableTopicConfig _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (creatableTopicConfigName msg))
+  + WP.compactStringMaxSize (P.toCompactString (creatableTopicConfigValue msg))
+  + 1
+
+-- | Direct-poke encoder for CreatableTopicConfig.
+wirePokeCreatableTopicConfig :: Int -> Ptr Word8 -> CreatableTopicConfig -> IO (Ptr Word8)
+wirePokeCreatableTopicConfig version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (creatableTopicConfigName msg))
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (creatableTopicConfigValue msg))
+  if version >= 5 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for CreatableTopicConfig.
+wirePeekCreatableTopicConfig :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatableTopicConfig, Ptr Word8)
+wirePeekCreatableTopicConfig version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_value, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  pTagsEnd <- if version >= 5 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (CreatableTopicConfig { creatableTopicConfigName = f0_name, creatableTopicConfigValue = f1_value }, pTagsEnd)
+
+-- | Worst-case wire size of a CreatableTopic.
+wireMaxSizeCreatableTopic :: Int -> CreatableTopic -> Int
+wireMaxSizeCreatableTopic _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (creatableTopicName msg))
+  + 4
+  + 2
+  + (5 + (case P.unKafkaArray (creatableTopicAssignments msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCreatableReplicaAssignment _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (creatableTopicConfigs msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCreatableTopicConfig _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for CreatableTopic.
+wirePokeCreatableTopic :: Int -> Ptr Word8 -> CreatableTopic -> IO (Ptr Word8)
+wirePokeCreatableTopic version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (creatableTopicName msg))
+  p2 <- W.pokeInt32BE p1 (creatableTopicNumPartitions msg)
+  p3 <- W.pokeInt16BE p2 (creatableTopicReplicationFactor msg)
+  p4 <- WP.pokeVersionedArray version 5 (\p x -> wirePokeCreatableReplicaAssignment version p x) p3 (creatableTopicAssignments msg)
+  p5 <- WP.pokeVersionedArray version 5 (\p x -> wirePokeCreatableTopicConfig version p x) p4 (creatableTopicConfigs msg)
+  if version >= 5 then WP.pokeEmptyTaggedFields p5 else pure p5
+
+-- | Direct-poke decoder for CreatableTopic.
+wirePeekCreatableTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatableTopic, Ptr Word8)
+wirePeekCreatableTopic version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_numpartitions, p2) <- W.peekInt32BE p1 endPtr
+  (f2_replicationfactor, p3) <- W.peekInt16BE p2 endPtr
+  (f3_assignments, p4) <- WP.peekVersionedArray version 5 (\p e -> wirePeekCreatableReplicaAssignment version _fp _basePtr p e) p3 endPtr
+  (f4_configs, p5) <- WP.peekVersionedArray version 5 (\p e -> wirePeekCreatableTopicConfig version _fp _basePtr p e) p4 endPtr
+  pTagsEnd <- if version >= 5 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (CreatableTopic { creatableTopicName = f0_name, creatableTopicNumPartitions = f1_numpartitions, creatableTopicReplicationFactor = f2_replicationfactor, creatableTopicAssignments = f3_assignments, creatableTopicConfigs = f4_configs }, pTagsEnd)
+
+-- | Worst-case wire size of a CreateTopicsRequest.
+wireMaxSizeCreateTopicsRequest :: Int -> CreateTopicsRequest -> Int
+wireMaxSizeCreateTopicsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (createTopicsRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCreatableTopic _version x ) v); P.Null -> 0 }))
+  + 4
+  + 1
+  + 1
+
+-- | Direct-poke encoder for CreateTopicsRequest.
+wirePokeCreateTopicsRequest :: Int -> Ptr Word8 -> CreateTopicsRequest -> IO (Ptr Word8)
+wirePokeCreateTopicsRequest version basePtr msg
+  | version >= 2 && version <= 4 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 5 (\p x -> wirePokeCreatableTopic version p x) p0 (createTopicsRequestTopics msg)
+    p2 <- W.pokeInt32BE p1 (createTopicsRequesttimeoutMs msg)
+    p3 <- W.pokeWord8 p2 (if (createTopicsRequestvalidateOnly msg) then 1 else 0)
+    pure p3
+  | version >= 5 && version <= 7 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 5 (\p x -> wirePokeCreatableTopic version p x) p0 (createTopicsRequestTopics msg)
+    p2 <- W.pokeInt32BE p1 (createTopicsRequesttimeoutMs msg)
+    p3 <- W.pokeWord8 p2 (if (createTopicsRequestvalidateOnly msg) then 1 else 0)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke CreateTopicsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for CreateTopicsRequest.
+wirePeekCreateTopicsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreateTopicsRequest, Ptr Word8)
+wirePeekCreateTopicsRequest version _fp _basePtr p0 endPtr
+  | version >= 2 && version <= 4 = do
+    (f0_topics, p1) <- WP.peekVersionedArray version 5 (\p e -> wirePeekCreatableTopic version _fp _basePtr p e) p0 endPtr
+    (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
+    (f2_validateonly, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    pure (CreateTopicsRequest { createTopicsRequestTopics = f0_topics, createTopicsRequesttimeoutMs = f1_timeoutms, createTopicsRequestvalidateOnly = f2_validateonly }, p3)
+  | version >= 5 && version <= 7 = do
+    (f0_topics, p1) <- WP.peekVersionedArray version 5 (\p e -> wirePeekCreatableTopic version _fp _basePtr p e) p0 endPtr
+    (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
+    (f2_validateonly, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (CreateTopicsRequest { createTopicsRequestTopics = f0_topics, createTopicsRequesttimeoutMs = f1_timeoutms, createTopicsRequestvalidateOnly = f2_validateonly }, pTagsEnd)
+  | otherwise = error $ "wirePeek CreateTopicsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec CreateTopicsRequest where
-  wireCodec = Just (WC.serialShimCodec encodeCreateTopicsRequest decodeCreateTopicsRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeCreateTopicsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeCreateTopicsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekCreateTopicsRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

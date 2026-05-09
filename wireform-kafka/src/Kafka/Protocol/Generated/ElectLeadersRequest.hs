@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.ElectLeadersRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -45,7 +47,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The topic partitions to elect leaders.
@@ -119,6 +127,13 @@ data ElectLeadersRequest = ElectLeadersRequest
 maxElectLeadersRequestVersion :: Int16
 maxElectLeadersRequestVersion = 2
 
+-- | KafkaMessage instance for ElectLeadersRequest.
+instance KafkaMessage ElectLeadersRequest where
+  messageApiKey = 43
+  messageMinVersion = 0
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 2
+
 -- | Encode ElectLeadersRequest with the given API version.
 encodeElectLeadersRequest :: MonadPut m => E.ApiVersion -> ElectLeadersRequest -> m ()
 encodeElectLeadersRequest version msg
@@ -189,16 +204,90 @@ decodeElectLeadersRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeElectLeadersRequest' / 'decodeElectLeadersRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a TopicPartitions.
+wireMaxSizeTopicPartitions :: Int -> TopicPartitions -> Int
+wireMaxSizeTopicPartitions _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (topicPartitionsTopic msg))
+  + (5 + (case P.unKafkaArray (topicPartitionsPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TopicPartitions.
+wirePokeTopicPartitions :: Int -> Ptr Word8 -> TopicPartitions -> IO (Ptr Word8)
+wirePokeTopicPartitions version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicPartitionsTopic msg))
+  p2 <- WP.pokeVersionedArray version 2 W.pokeInt32BE p1 (topicPartitionsPartitions msg)
+  if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for TopicPartitions.
+wirePeekTopicPartitions :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicPartitions, Ptr Word8)
+wirePeekTopicPartitions version _fp _basePtr p0 endPtr = do
+  (f0_topic, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 2 W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TopicPartitions { topicPartitionsTopic = f0_topic, topicPartitionsPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a ElectLeadersRequest.
+wireMaxSizeElectLeadersRequest :: Int -> ElectLeadersRequest -> Int
+wireMaxSizeElectLeadersRequest _version msg =
+  0
+  + 1
+  + (5 + (case P.unKafkaArray (electLeadersRequestTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicPartitions _version x ) v); P.Null -> 0 }))
+  + 4
+  + 1
+
+-- | Direct-poke encoder for ElectLeadersRequest.
+wirePokeElectLeadersRequest :: Int -> Ptr Word8 -> ElectLeadersRequest -> IO (Ptr Word8)
+wirePokeElectLeadersRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeTopicPartitions version p x) p0 (electLeadersRequestTopicPartitions msg)
+    p2 <- W.pokeInt32BE p1 (electLeadersRequestTimeoutMs msg)
+    pure p2
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeWord8 p0 (fromIntegral (electLeadersRequestElectionType msg))
+    p2 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeTopicPartitions version p x) p1 (electLeadersRequestTopicPartitions msg)
+    p3 <- W.pokeInt32BE p2 (electLeadersRequestTimeoutMs msg)
+    pure p3
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeWord8 p0 (fromIntegral (electLeadersRequestElectionType msg))
+    p2 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeTopicPartitions version p x) p1 (electLeadersRequestTopicPartitions msg)
+    p3 <- W.pokeInt32BE p2 (electLeadersRequestTimeoutMs msg)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke ElectLeadersRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ElectLeadersRequest.
+wirePeekElectLeadersRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ElectLeadersRequest, Ptr Word8)
+wirePeekElectLeadersRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_topicpartitions, p1) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekTopicPartitions version _fp _basePtr p e) p0 endPtr
+    (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
+    pure (ElectLeadersRequest { electLeadersRequestElectionType = 0, electLeadersRequestTopicPartitions = f0_topicpartitions, electLeadersRequestTimeoutMs = f1_timeoutms }, p2)
+  | version == 1 = do
+    (f0_electiontype, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
+    (f1_topicpartitions, p2) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekTopicPartitions version _fp _basePtr p e) p1 endPtr
+    (f2_timeoutms, p3) <- W.peekInt32BE p2 endPtr
+    pure (ElectLeadersRequest { electLeadersRequestElectionType = f0_electiontype, electLeadersRequestTopicPartitions = f1_topicpartitions, electLeadersRequestTimeoutMs = f2_timeoutms }, p3)
+  | version == 2 = do
+    (f0_electiontype, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
+    (f1_topicpartitions, p2) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekTopicPartitions version _fp _basePtr p e) p1 endPtr
+    (f2_timeoutms, p3) <- W.peekInt32BE p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (ElectLeadersRequest { electLeadersRequestElectionType = f0_electiontype, electLeadersRequestTopicPartitions = f1_topicpartitions, electLeadersRequestTimeoutMs = f2_timeoutms }, pTagsEnd)
+  | otherwise = error $ "wirePeek ElectLeadersRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ElectLeadersRequest where
-  wireCodec = Just (WC.serialShimCodec encodeElectLeadersRequest decodeElectLeadersRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeElectLeadersRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeElectLeadersRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekElectLeadersRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

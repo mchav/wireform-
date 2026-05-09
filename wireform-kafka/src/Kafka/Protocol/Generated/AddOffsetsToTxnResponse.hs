@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.AddOffsetsToTxnResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -69,6 +77,13 @@ data AddOffsetsToTxnResponse = AddOffsetsToTxnResponse
 -- | Maximum supported version for AddOffsetsToTxnResponse.
 maxAddOffsetsToTxnResponseVersion :: Int16
 maxAddOffsetsToTxnResponseVersion = 4
+
+-- | KafkaMessage instance for AddOffsetsToTxnResponse.
+instance KafkaMessage AddOffsetsToTxnResponse where
+  messageApiKey = 25
+  messageMinVersion = 0
+  messageMaxVersion = 4
+  messageFlexibleVersion = Just 3
 
 -- | Encode AddOffsetsToTxnResponse with the given API version.
 encodeAddOffsetsToTxnResponse :: MonadPut m => E.ApiVersion -> AddOffsetsToTxnResponse -> m ()
@@ -113,16 +128,53 @@ decodeAddOffsetsToTxnResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeAddOffsetsToTxnResponse' / 'decodeAddOffsetsToTxnResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a AddOffsetsToTxnResponse.
+wireMaxSizeAddOffsetsToTxnResponse :: Int -> AddOffsetsToTxnResponse -> Int
+wireMaxSizeAddOffsetsToTxnResponse _version msg =
+  0
+  + 4
+  + 2
+  + 1
+
+-- | Direct-poke encoder for AddOffsetsToTxnResponse.
+wirePokeAddOffsetsToTxnResponse :: Int -> Ptr Word8 -> AddOffsetsToTxnResponse -> IO (Ptr Word8)
+wirePokeAddOffsetsToTxnResponse version basePtr msg
+  | version >= 3 && version <= 4 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (addOffsetsToTxnResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (addOffsetsToTxnResponseErrorCode msg)
+    WP.pokeEmptyTaggedFields p2
+  | version >= 0 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (addOffsetsToTxnResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (addOffsetsToTxnResponseErrorCode msg)
+    pure p2
+  | otherwise = error $ "wirePoke AddOffsetsToTxnResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for AddOffsetsToTxnResponse.
+wirePeekAddOffsetsToTxnResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AddOffsetsToTxnResponse, Ptr Word8)
+wirePeekAddOffsetsToTxnResponse version _fp _basePtr p0 endPtr
+  | version >= 3 && version <= 4 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (AddOffsetsToTxnResponse { addOffsetsToTxnResponseThrottleTimeMs = f0_throttletimems, addOffsetsToTxnResponseErrorCode = f1_errorcode }, pTagsEnd)
+  | version >= 0 && version <= 2 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    pure (AddOffsetsToTxnResponse { addOffsetsToTxnResponseThrottleTimeMs = f0_throttletimems, addOffsetsToTxnResponseErrorCode = f1_errorcode }, p2)
+  | otherwise = error $ "wirePeek AddOffsetsToTxnResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec AddOffsetsToTxnResponse where
-  wireCodec = Just (WC.serialShimCodec encodeAddOffsetsToTxnResponse decodeAddOffsetsToTxnResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeAddOffsetsToTxnResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeAddOffsetsToTxnResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekAddOffsetsToTxnResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

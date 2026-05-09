@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.ElectLeadersResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,7 +48,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The results for each partition.
@@ -173,6 +181,13 @@ data ElectLeadersResponse = ElectLeadersResponse
 maxElectLeadersResponseVersion :: Int16
 maxElectLeadersResponseVersion = 2
 
+-- | KafkaMessage instance for ElectLeadersResponse.
+instance KafkaMessage ElectLeadersResponse where
+  messageApiKey = 43
+  messageMinVersion = 0
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 2
+
 -- | Encode ElectLeadersResponse with the given API version.
 encodeElectLeadersResponse :: MonadPut m => E.ApiVersion -> ElectLeadersResponse -> m ()
 encodeElectLeadersResponse version msg
@@ -243,16 +258,117 @@ decodeElectLeadersResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeElectLeadersResponse' / 'decodeElectLeadersResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a PartitionResult.
+wireMaxSizePartitionResult :: Int -> PartitionResult -> Int
+wireMaxSizePartitionResult _version msg =
+  0
+  + 4
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (partitionResultErrorMessage msg))
+  + 1
+
+-- | Direct-poke encoder for PartitionResult.
+wirePokePartitionResult :: Int -> Ptr Word8 -> PartitionResult -> IO (Ptr Word8)
+wirePokePartitionResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (partitionResultPartitionId msg)
+  p2 <- W.pokeInt16BE p1 (partitionResultErrorCode msg)
+  p3 <- WP.pokeCompactString p2 (P.toCompactString (partitionResultErrorMessage msg))
+  if version >= 2 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for PartitionResult.
+wirePeekPartitionResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (PartitionResult, Ptr Word8)
+wirePeekPartitionResult version _fp _basePtr p0 endPtr = do
+  (f0_partitionid, p1) <- W.peekInt32BE p0 endPtr
+  (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (PartitionResult { partitionResultPartitionId = f0_partitionid, partitionResultErrorCode = f1_errorcode, partitionResultErrorMessage = f2_errormessage }, pTagsEnd)
+
+-- | Worst-case wire size of a ReplicaElectionResult.
+wireMaxSizeReplicaElectionResult :: Int -> ReplicaElectionResult -> Int
+wireMaxSizeReplicaElectionResult _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (replicaElectionResultTopic msg))
+  + (5 + (case P.unKafkaArray (replicaElectionResultPartitionResult msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ReplicaElectionResult.
+wirePokeReplicaElectionResult :: Int -> Ptr Word8 -> ReplicaElectionResult -> IO (Ptr Word8)
+wirePokeReplicaElectionResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (replicaElectionResultTopic msg))
+  p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokePartitionResult version p x) p1 (replicaElectionResultPartitionResult msg)
+  if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for ReplicaElectionResult.
+wirePeekReplicaElectionResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ReplicaElectionResult, Ptr Word8)
+wirePeekReplicaElectionResult version _fp _basePtr p0 endPtr = do
+  (f0_topic, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitionresult, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekPartitionResult version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (ReplicaElectionResult { replicaElectionResultTopic = f0_topic, replicaElectionResultPartitionResult = f1_partitionresult }, pTagsEnd)
+
+-- | Worst-case wire size of a ElectLeadersResponse.
+wireMaxSizeElectLeadersResponse :: Int -> ElectLeadersResponse -> Int
+wireMaxSizeElectLeadersResponse _version msg =
+  0
+  + 4
+  + 2
+  + (5 + (case P.unKafkaArray (electLeadersResponseReplicaElectionResults msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeReplicaElectionResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ElectLeadersResponse.
+wirePokeElectLeadersResponse :: Int -> Ptr Word8 -> ElectLeadersResponse -> IO (Ptr Word8)
+wirePokeElectLeadersResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (electLeadersResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeReplicaElectionResult version p x) p1 (electLeadersResponseReplicaElectionResults msg)
+    pure p2
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (electLeadersResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (electLeadersResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeReplicaElectionResult version p x) p2 (electLeadersResponseReplicaElectionResults msg)
+    pure p3
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (electLeadersResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (electLeadersResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeReplicaElectionResult version p x) p2 (electLeadersResponseReplicaElectionResults msg)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke ElectLeadersResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ElectLeadersResponse.
+wirePeekElectLeadersResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ElectLeadersResponse, Ptr Word8)
+wirePeekElectLeadersResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_replicaelectionresults, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekReplicaElectionResult version _fp _basePtr p e) p1 endPtr
+    pure (ElectLeadersResponse { electLeadersResponseThrottleTimeMs = f0_throttletimems, electLeadersResponseErrorCode = 0, electLeadersResponseReplicaElectionResults = f1_replicaelectionresults }, p2)
+  | version == 1 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_replicaelectionresults, p3) <- WP.peekVersionedArray version 2 (\p e -> wirePeekReplicaElectionResult version _fp _basePtr p e) p2 endPtr
+    pure (ElectLeadersResponse { electLeadersResponseThrottleTimeMs = f0_throttletimems, electLeadersResponseErrorCode = f1_errorcode, electLeadersResponseReplicaElectionResults = f2_replicaelectionresults }, p3)
+  | version == 2 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_replicaelectionresults, p3) <- WP.peekVersionedArray version 2 (\p e -> wirePeekReplicaElectionResult version _fp _basePtr p e) p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (ElectLeadersResponse { electLeadersResponseThrottleTimeMs = f0_throttletimems, electLeadersResponseErrorCode = f1_errorcode, electLeadersResponseReplicaElectionResults = f2_replicaelectionresults }, pTagsEnd)
+  | otherwise = error $ "wirePeek ElectLeadersResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ElectLeadersResponse where
-  wireCodec = Just (WC.serialShimCodec encodeElectLeadersResponse decodeElectLeadersResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeElectLeadersResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeElectLeadersResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekElectLeadersResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

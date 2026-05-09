@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.ShareGroupHeartbeatResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,7 +48,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 data TopicPartitions = TopicPartitions
@@ -176,6 +184,13 @@ data ShareGroupHeartbeatResponse = ShareGroupHeartbeatResponse
 maxShareGroupHeartbeatResponseVersion :: Int16
 maxShareGroupHeartbeatResponseVersion = 1
 
+-- | KafkaMessage instance for ShareGroupHeartbeatResponse.
+instance KafkaMessage ShareGroupHeartbeatResponse where
+  messageApiKey = 76
+  messageMinVersion = 1
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 0
+
 -- | Encode ShareGroupHeartbeatResponse with the given API version.
 encodeShareGroupHeartbeatResponse :: MonadPut m => E.ApiVersion -> ShareGroupHeartbeatResponse -> m ()
 encodeShareGroupHeartbeatResponse version msg
@@ -222,16 +237,103 @@ decodeShareGroupHeartbeatResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeShareGroupHeartbeatResponse' / 'decodeShareGroupHeartbeatResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a TopicPartitions.
+wireMaxSizeTopicPartitions :: Int -> TopicPartitions -> Int
+wireMaxSizeTopicPartitions _version msg =
+  0
+  + 16
+  + (5 + (case P.unKafkaArray (topicPartitionsPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TopicPartitions.
+wirePokeTopicPartitions :: Int -> Ptr Word8 -> TopicPartitions -> IO (Ptr Word8)
+wirePokeTopicPartitions version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeKafkaUuid p0 (topicPartitionsTopicId msg)
+  p2 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p1 (topicPartitionsPartitions msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for TopicPartitions.
+wirePeekTopicPartitions :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicPartitions, Ptr Word8)
+wirePeekTopicPartitions version _fp _basePtr p0 endPtr = do
+  (f0_topicid, p1) <- WP.peekKafkaUuid p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 0 W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TopicPartitions { topicPartitionsTopicId = f0_topicid, topicPartitionsPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a Assignment.
+wireMaxSizeAssignment :: Int -> Assignment -> Int
+wireMaxSizeAssignment _version msg =
+  0
+  + (5 + (case P.unKafkaArray (assignmentTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicPartitions _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for Assignment.
+wirePokeAssignment :: Int -> Ptr Word8 -> Assignment -> IO (Ptr Word8)
+wirePokeAssignment version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicPartitions version p x) p0 (assignmentTopicPartitions msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p1 else pure p1
+
+-- | Direct-poke decoder for Assignment.
+wirePeekAssignment :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Assignment, Ptr Word8)
+wirePeekAssignment version _fp _basePtr p0 endPtr = do
+  (f0_topicpartitions, p1) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicPartitions version _fp _basePtr p e) p0 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p1 endPtr else pure p1
+  pure (Assignment { assignmentTopicPartitions = f0_topicpartitions }, pTagsEnd)
+
+-- | Worst-case wire size of a ShareGroupHeartbeatResponse.
+wireMaxSizeShareGroupHeartbeatResponse :: Int -> ShareGroupHeartbeatResponse -> Int
+wireMaxSizeShareGroupHeartbeatResponse _version msg =
+  0
+  + 4
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (shareGroupHeartbeatResponseErrorMessage msg))
+  + WP.compactStringMaxSize (P.toCompactString (shareGroupHeartbeatResponseMemberId msg))
+  + 4
+  + 4
+  + (case (shareGroupHeartbeatResponseAssignment msg) of { P.Null -> 1; P.NotNull s -> 1 + wireMaxSizeAssignment _version s })
+  + 1
+
+-- | Direct-poke encoder for ShareGroupHeartbeatResponse.
+wirePokeShareGroupHeartbeatResponse :: Int -> Ptr Word8 -> ShareGroupHeartbeatResponse -> IO (Ptr Word8)
+wirePokeShareGroupHeartbeatResponse version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (shareGroupHeartbeatResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (shareGroupHeartbeatResponseErrorCode msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (shareGroupHeartbeatResponseErrorMessage msg))
+    p4 <- WP.pokeCompactString p3 (P.toCompactString (shareGroupHeartbeatResponseMemberId msg))
+    p5 <- W.pokeInt32BE p4 (shareGroupHeartbeatResponseMemberEpoch msg)
+    p6 <- W.pokeInt32BE p5 (shareGroupHeartbeatResponseHeartbeatIntervalMs msg)
+    p7 <- (case (shareGroupHeartbeatResponseAssignment msg) of { P.Null -> W.pokeWord8 p6 0; P.NotNull s -> W.pokeWord8 p6 1 >>= \p' -> wirePokeAssignment version p' s })
+    WP.pokeEmptyTaggedFields p7
+  | otherwise = error $ "wirePoke ShareGroupHeartbeatResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ShareGroupHeartbeatResponse.
+wirePeekShareGroupHeartbeatResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ShareGroupHeartbeatResponse, Ptr Word8)
+wirePeekShareGroupHeartbeatResponse version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_memberid, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+    (f4_memberepoch, p5) <- W.peekInt32BE p4 endPtr
+    (f5_heartbeatintervalms, p6) <- W.peekInt32BE p5 endPtr
+    (f6_assignment, p7) <- (do { (flag, pAfterFlag) <- W.peekWord8 p6 endPtr; case flag of { 0 -> pure (P.Null, pAfterFlag); _ -> do { (s, p'') <- wirePeekAssignment version _fp _basePtr pAfterFlag endPtr; pure (P.NotNull s, p'') } } })
+    pTagsEnd <- WP.peekAndSkipTaggedFields p7 endPtr
+    pure (ShareGroupHeartbeatResponse { shareGroupHeartbeatResponseThrottleTimeMs = f0_throttletimems, shareGroupHeartbeatResponseErrorCode = f1_errorcode, shareGroupHeartbeatResponseErrorMessage = f2_errormessage, shareGroupHeartbeatResponseMemberId = f3_memberid, shareGroupHeartbeatResponseMemberEpoch = f4_memberepoch, shareGroupHeartbeatResponseHeartbeatIntervalMs = f5_heartbeatintervalms, shareGroupHeartbeatResponseAssignment = f6_assignment }, pTagsEnd)
+  | otherwise = error $ "wirePeek ShareGroupHeartbeatResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ShareGroupHeartbeatResponse where
-  wireCodec = Just (WC.serialShimCodec encodeShareGroupHeartbeatResponse decodeShareGroupHeartbeatResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeShareGroupHeartbeatResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeShareGroupHeartbeatResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekShareGroupHeartbeatResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

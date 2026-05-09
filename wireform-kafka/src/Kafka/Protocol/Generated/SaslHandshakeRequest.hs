@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.SaslHandshakeRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,6 +48,11 @@ import Kafka.Protocol.Primitives
 import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -93,16 +100,40 @@ decodeSaslHandshakeRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeSaslHandshakeRequest' / 'decodeSaslHandshakeRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a SaslHandshakeRequest.
+wireMaxSizeSaslHandshakeRequest :: Int -> SaslHandshakeRequest -> Int
+wireMaxSizeSaslHandshakeRequest _version msg =
+  0
+  + WP.kafkaStringMaxSize (saslHandshakeRequestMechanism msg)
+
+
+-- | Direct-poke encoder for SaslHandshakeRequest.
+wirePokeSaslHandshakeRequest :: Int -> Ptr Word8 -> SaslHandshakeRequest -> IO (Ptr Word8)
+wirePokeSaslHandshakeRequest version basePtr msg
+  | version >= 0 && version <= 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeKafkaString p0 (saslHandshakeRequestMechanism msg)
+    pure p1
+  | otherwise = error $ "wirePoke SaslHandshakeRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for SaslHandshakeRequest.
+wirePeekSaslHandshakeRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (SaslHandshakeRequest, Ptr Word8)
+wirePeekSaslHandshakeRequest version _fp _basePtr p0 endPtr
+  | version >= 0 && version <= 1 = do
+    (f0_mechanism, p1) <- WP.peekKafkaString p0 endPtr
+    pure (SaslHandshakeRequest { saslHandshakeRequestMechanism = f0_mechanism }, p1)
+  | otherwise = error $ "wirePeek SaslHandshakeRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec SaslHandshakeRequest where
-  wireCodec = Just (WC.serialShimCodec encodeSaslHandshakeRequest decodeSaslHandshakeRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeSaslHandshakeRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeSaslHandshakeRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekSaslHandshakeRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

@@ -12,7 +12,7 @@ Kafka response for API key 18.
 
 
 
-Valid versions: 0-4
+Valid versions: 0-5
 Flexible versions: 3+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -30,7 +30,9 @@ module Kafka.Protocol.Generated.ApiVersionsResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,7 +49,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The APIs supported by the broker.
@@ -277,7 +285,14 @@ data ApiVersionsResponse = ApiVersionsResponse
 
 -- | Maximum supported version for ApiVersionsResponse.
 maxApiVersionsResponseVersion :: Int16
-maxApiVersionsResponseVersion = 4
+maxApiVersionsResponseVersion = 5
+
+-- | KafkaMessage instance for ApiVersionsResponse.
+instance KafkaMessage ApiVersionsResponse where
+  messageApiKey = 18
+  messageMinVersion = 0
+  messageMaxVersion = 5
+  messageFlexibleVersion = Just 3
 
 -- | Encode ApiVersionsResponse with the given API version.
 encodeApiVersionsResponse :: MonadPut m => E.ApiVersion -> ApiVersionsResponse -> m ()
@@ -295,12 +310,14 @@ encodeApiVersionsResponse version msg
       serialize (apiVersionsResponseThrottleTimeMs msg)
 
 
-  | version >= 3 && version <= 4 =
+  | version >= 3 && version <= 5 =
     do
       serialize (apiVersionsResponseErrorCode msg)
       E.encodeVersionedArray version 3 encodeApiVersion (case P.unKafkaArray (apiVersionsResponseApiKeys msg) of { P.NotNull v -> v; P.Null -> V.empty })
       serialize (apiVersionsResponseThrottleTimeMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
+      do
+        let _entries = (if version >= 3 then [(0, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeSupportedFeatureKey (case P.unKafkaArray (apiVersionsResponseSupportedFeatures msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else []) ++ (if version >= 3 then [(1, Data.Bytes.Put.runPutS (serialize (apiVersionsResponseFinalizedFeaturesEpoch msg)))] else []) ++ (if version >= 3 then [(2, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeFinalizedFeatureKey (case P.unKafkaArray (apiVersionsResponseFinalizedFeatures msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else []) ++ (if version >= 3 then [(3, Data.Bytes.Put.runPutS (serialize (apiVersionsResponseZkMigrationReady msg)))] else [])
+        P.serializeTaggedFieldEntries _entries
   | otherwise = error $ "Unsupported version: " ++ show version
 
 -- | Decode ApiVersionsResponse with the given API version.
@@ -349,12 +366,44 @@ decodeApiVersionsResponse version
         apiVersionsResponseZkMigrationReady = False
         }
 
-  | version >= 3 && version <= 4 =
+  | version >= 3 && version <= 5 =
     do
       fielderrorcode <- deserialize
       fieldapikeys <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 decodeApiVersion
       fieldthrottletimems <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
+      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
+      let fieldsupportedfeatures =
+            if version >= 3
+              then case P.lookupTaggedField 0 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeSupportedFeatureKey) _bs of
+                    Right _v -> _v
+                    Left  _  -> (P.mkKafkaArray V.empty)
+                Nothing  -> (P.mkKafkaArray V.empty)
+              else (P.mkKafkaArray V.empty)
+      let fieldfinalizedfeaturesepoch =
+            if version >= 3
+              then case P.lookupTaggedField 1 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
+                    Right _v -> _v
+                    Left  _  -> ((-1))
+                Nothing  -> ((-1))
+              else ((-1))
+      let fieldfinalizedfeatures =
+            if version >= 3
+              then case P.lookupTaggedField 2 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeFinalizedFeatureKey) _bs of
+                    Right _v -> _v
+                    Left  _  -> (P.mkKafkaArray V.empty)
+                Nothing  -> (P.mkKafkaArray V.empty)
+              else (P.mkKafkaArray V.empty)
+      let fieldzkmigrationready =
+            if version >= 3
+              then case P.lookupTaggedField 3 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
+                    Right _v -> _v
+                    Left  _  -> (False)
+                Nothing  -> (False)
+              else (False)
       pure ApiVersionsResponse
         {
         apiVersionsResponseErrorCode = fielderrorcode
@@ -363,25 +412,106 @@ decodeApiVersionsResponse version
         ,
         apiVersionsResponseThrottleTimeMs = fieldthrottletimems
         ,
-        apiVersionsResponseSupportedFeatures = P.mkKafkaArray V.empty
+        apiVersionsResponseSupportedFeatures = fieldsupportedfeatures
         ,
-        apiVersionsResponseFinalizedFeaturesEpoch = (-1)
+        apiVersionsResponseFinalizedFeaturesEpoch = fieldfinalizedfeaturesepoch
         ,
-        apiVersionsResponseFinalizedFeatures = P.mkKafkaArray V.empty
+        apiVersionsResponseFinalizedFeatures = fieldfinalizedfeatures
         ,
-        apiVersionsResponseZkMigrationReady = False
+        apiVersionsResponseZkMigrationReady = fieldzkmigrationready
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
+-- | Worst-case wire size of a ApiVersion.
+wireMaxSizeApiVersion :: Int -> ApiVersion -> Int
+wireMaxSizeApiVersion _version msg =
+  0
+  + 2
+  + 2
+  + 2
+  + 1
+
+-- | Direct-poke encoder for ApiVersion.
+wirePokeApiVersion :: Int -> Ptr Word8 -> ApiVersion -> IO (Ptr Word8)
+wirePokeApiVersion version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt16BE p0 (apiVersionApiKey msg)
+  p2 <- W.pokeInt16BE p1 (apiVersionMinVersion msg)
+  p3 <- W.pokeInt16BE p2 (apiVersionMaxVersion msg)
+  if version >= 3 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for ApiVersion.
+wirePeekApiVersion :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ApiVersion, Ptr Word8)
+wirePeekApiVersion version _fp _basePtr p0 endPtr = do
+  (f0_apikey, p1) <- W.peekInt16BE p0 endPtr
+  (f1_minversion, p2) <- W.peekInt16BE p1 endPtr
+  (f2_maxversion, p3) <- W.peekInt16BE p2 endPtr
+  pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (ApiVersion { apiVersionApiKey = f0_apikey, apiVersionMinVersion = f1_minversion, apiVersionMaxVersion = f2_maxversion }, pTagsEnd)
+
+-- | Worst-case wire size of a SupportedFeatureKey.
+wireMaxSizeSupportedFeatureKey :: Int -> SupportedFeatureKey -> Int
+wireMaxSizeSupportedFeatureKey _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (supportedFeatureKeyName msg))
+  + 2
+  + 2
+  + 1
+
+-- | Direct-poke encoder for SupportedFeatureKey.
+wirePokeSupportedFeatureKey :: Int -> Ptr Word8 -> SupportedFeatureKey -> IO (Ptr Word8)
+wirePokeSupportedFeatureKey version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (supportedFeatureKeyName msg))
+  p2 <- W.pokeInt16BE p1 (supportedFeatureKeyMinVersion msg)
+  p3 <- W.pokeInt16BE p2 (supportedFeatureKeyMaxVersion msg)
+  if version >= 3 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for SupportedFeatureKey.
+wirePeekSupportedFeatureKey :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (SupportedFeatureKey, Ptr Word8)
+wirePeekSupportedFeatureKey version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_minversion, p2) <- W.peekInt16BE p1 endPtr
+  (f2_maxversion, p3) <- W.peekInt16BE p2 endPtr
+  pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (SupportedFeatureKey { supportedFeatureKeyName = f0_name, supportedFeatureKeyMinVersion = f1_minversion, supportedFeatureKeyMaxVersion = f2_maxversion }, pTagsEnd)
+
+-- | Worst-case wire size of a FinalizedFeatureKey.
+wireMaxSizeFinalizedFeatureKey :: Int -> FinalizedFeatureKey -> Int
+wireMaxSizeFinalizedFeatureKey _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (finalizedFeatureKeyName msg))
+  + 2
+  + 2
+  + 1
+
+-- | Direct-poke encoder for FinalizedFeatureKey.
+wirePokeFinalizedFeatureKey :: Int -> Ptr Word8 -> FinalizedFeatureKey -> IO (Ptr Word8)
+wirePokeFinalizedFeatureKey version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (finalizedFeatureKeyName msg))
+  p2 <- W.pokeInt16BE p1 (finalizedFeatureKeyMaxVersionLevel msg)
+  p3 <- W.pokeInt16BE p2 (finalizedFeatureKeyMinVersionLevel msg)
+  if version >= 3 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for FinalizedFeatureKey.
+wirePeekFinalizedFeatureKey :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (FinalizedFeatureKey, Ptr Word8)
+wirePeekFinalizedFeatureKey version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_maxversionlevel, p2) <- W.peekInt16BE p1 endPtr
+  (f2_minversionlevel, p3) <- W.peekInt16BE p2 endPtr
+  pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (FinalizedFeatureKey { finalizedFeatureKeyName = f0_name, finalizedFeatureKeyMaxVersionLevel = f1_maxversionlevel, finalizedFeatureKeyMinVersionLevel = f2_minversionlevel }, pTagsEnd)
+
 -- | 'WC.WireCodec' instance via the Serial shim. The
 -- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeApiVersionsResponse' / 'decodeApiVersionsResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
+-- schema (it carries tagged fields with payloads — KIP-866
+-- style — that the generator hasn't been taught yet), so
+-- we lift the legacy 'encodeApiVersionsResponse' / 'decodeApiVersionsResponse'
+-- pair into a 'WireCodecImpl' via 'WC.serialShimCodec'.
+-- The dispatch shape is identical to the native case —
+-- every 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through
+-- a 'Just'-valued codec, no 'Nothing' fallback survives in
 -- the generated output.
 instance WC.WireCodec ApiVersionsResponse where
   wireCodec = Just (WC.serialShimCodec encodeApiVersionsResponse decodeApiVersionsResponse)

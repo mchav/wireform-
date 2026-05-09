@@ -30,7 +30,9 @@ module Kafka.Protocol.Generated.AssignReplicasToDirsResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,7 +49,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The list of assigned partitions.
@@ -207,6 +215,13 @@ data AssignReplicasToDirsResponse = AssignReplicasToDirsResponse
 maxAssignReplicasToDirsResponseVersion :: Int16
 maxAssignReplicasToDirsResponseVersion = 0
 
+-- | KafkaMessage instance for AssignReplicasToDirsResponse.
+instance KafkaMessage AssignReplicasToDirsResponse where
+  messageApiKey = 73
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
+
 -- | Encode AssignReplicasToDirsResponse with the given API version.
 encodeAssignReplicasToDirsResponse :: MonadPut m => E.ApiVersion -> AssignReplicasToDirsResponse -> m ()
 encodeAssignReplicasToDirsResponse version msg
@@ -237,16 +252,118 @@ decodeAssignReplicasToDirsResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeAssignReplicasToDirsResponse' / 'decodeAssignReplicasToDirsResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a PartitionData.
+wireMaxSizePartitionData :: Int -> PartitionData -> Int
+wireMaxSizePartitionData _version msg =
+  0
+  + 4
+  + 2
+  + 1
+
+-- | Direct-poke encoder for PartitionData.
+wirePokePartitionData :: Int -> Ptr Word8 -> PartitionData -> IO (Ptr Word8)
+wirePokePartitionData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (partitionDataPartitionIndex msg)
+  p2 <- W.pokeInt16BE p1 (partitionDataErrorCode msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for PartitionData.
+wirePeekPartitionData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (PartitionData, Ptr Word8)
+wirePeekPartitionData version _fp _basePtr p0 endPtr = do
+  (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (PartitionData { partitionDataPartitionIndex = f0_partitionindex, partitionDataErrorCode = f1_errorcode }, pTagsEnd)
+
+-- | Worst-case wire size of a TopicData.
+wireMaxSizeTopicData :: Int -> TopicData -> Int
+wireMaxSizeTopicData _version msg =
+  0
+  + 16
+  + (5 + (case P.unKafkaArray (topicDataPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionData _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TopicData.
+wirePokeTopicData :: Int -> Ptr Word8 -> TopicData -> IO (Ptr Word8)
+wirePokeTopicData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeKafkaUuid p0 (topicDataTopicId msg)
+  p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokePartitionData version p x) p1 (topicDataPartitions msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for TopicData.
+wirePeekTopicData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicData, Ptr Word8)
+wirePeekTopicData version _fp _basePtr p0 endPtr = do
+  (f0_topicid, p1) <- WP.peekKafkaUuid p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekPartitionData version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TopicData { topicDataTopicId = f0_topicid, topicDataPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a DirectoryData.
+wireMaxSizeDirectoryData :: Int -> DirectoryData -> Int
+wireMaxSizeDirectoryData _version msg =
+  0
+  + 16
+  + (5 + (case P.unKafkaArray (directoryDataTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicData _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DirectoryData.
+wirePokeDirectoryData :: Int -> Ptr Word8 -> DirectoryData -> IO (Ptr Word8)
+wirePokeDirectoryData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeKafkaUuid p0 (directoryDataId msg)
+  p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicData version p x) p1 (directoryDataTopics msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for DirectoryData.
+wirePeekDirectoryData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DirectoryData, Ptr Word8)
+wirePeekDirectoryData version _fp _basePtr p0 endPtr = do
+  (f0_id, p1) <- WP.peekKafkaUuid p0 endPtr
+  (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (DirectoryData { directoryDataId = f0_id, directoryDataTopics = f1_topics }, pTagsEnd)
+
+-- | Worst-case wire size of a AssignReplicasToDirsResponse.
+wireMaxSizeAssignReplicasToDirsResponse :: Int -> AssignReplicasToDirsResponse -> Int
+wireMaxSizeAssignReplicasToDirsResponse _version msg =
+  0
+  + 4
+  + 2
+  + (5 + (case P.unKafkaArray (assignReplicasToDirsResponseDirectories msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDirectoryData _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for AssignReplicasToDirsResponse.
+wirePokeAssignReplicasToDirsResponse :: Int -> Ptr Word8 -> AssignReplicasToDirsResponse -> IO (Ptr Word8)
+wirePokeAssignReplicasToDirsResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (assignReplicasToDirsResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (assignReplicasToDirsResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeDirectoryData version p x) p2 (assignReplicasToDirsResponseDirectories msg)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke AssignReplicasToDirsResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for AssignReplicasToDirsResponse.
+wirePeekAssignReplicasToDirsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AssignReplicasToDirsResponse, Ptr Word8)
+wirePeekAssignReplicasToDirsResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_directories, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDirectoryData version _fp _basePtr p e) p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (AssignReplicasToDirsResponse { assignReplicasToDirsResponseThrottleTimeMs = f0_throttletimems, assignReplicasToDirsResponseErrorCode = f1_errorcode, assignReplicasToDirsResponseDirectories = f2_directories }, pTagsEnd)
+  | otherwise = error $ "wirePeek AssignReplicasToDirsResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec AssignReplicasToDirsResponse where
-  wireCodec = Just (WC.serialShimCodec encodeAssignReplicasToDirsResponse decodeAssignReplicasToDirsResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeAssignReplicasToDirsResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeAssignReplicasToDirsResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekAssignReplicasToDirsResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

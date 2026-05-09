@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.DeleteGroupsRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -63,6 +71,13 @@ data DeleteGroupsRequest = DeleteGroupsRequest
 -- | Maximum supported version for DeleteGroupsRequest.
 maxDeleteGroupsRequestVersion :: Int16
 maxDeleteGroupsRequestVersion = 2
+
+-- | KafkaMessage instance for DeleteGroupsRequest.
+instance KafkaMessage DeleteGroupsRequest where
+  messageApiKey = 42
+  messageMinVersion = 0
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 2
 
 -- | Encode DeleteGroupsRequest with the given API version.
 encodeDeleteGroupsRequest :: MonadPut m => E.ApiVersion -> DeleteGroupsRequest -> m ()
@@ -99,16 +114,48 @@ decodeDeleteGroupsRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDeleteGroupsRequest' / 'decodeDeleteGroupsRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a DeleteGroupsRequest.
+wireMaxSizeDeleteGroupsRequest :: Int -> DeleteGroupsRequest -> Int
+wireMaxSizeDeleteGroupsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (deleteGroupsRequestGroupsNames msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DeleteGroupsRequest.
+wirePokeDeleteGroupsRequest :: Int -> Ptr Word8 -> DeleteGroupsRequest -> IO (Ptr Word8)
+wirePokeDeleteGroupsRequest version basePtr msg
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 2 (\p s -> if version >= 2 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (deleteGroupsRequestGroupsNames msg)
+    WP.pokeEmptyTaggedFields p1
+  | version >= 0 && version <= 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 2 (\p s -> if version >= 2 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (deleteGroupsRequestGroupsNames msg)
+    pure p1
+  | otherwise = error $ "wirePoke DeleteGroupsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DeleteGroupsRequest.
+wirePeekDeleteGroupsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteGroupsRequest, Ptr Word8)
+wirePeekDeleteGroupsRequest version _fp _basePtr p0 endPtr
+  | version == 2 = do
+    (f0_groupsnames, p1) <- WP.peekVersionedArray version 2 (\p e -> if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (DeleteGroupsRequest { deleteGroupsRequestGroupsNames = f0_groupsnames }, pTagsEnd)
+  | version >= 0 && version <= 1 = do
+    (f0_groupsnames, p1) <- WP.peekVersionedArray version 2 (\p e -> if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
+    pure (DeleteGroupsRequest { deleteGroupsRequestGroupsNames = f0_groupsnames }, p1)
+  | otherwise = error $ "wirePeek DeleteGroupsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DeleteGroupsRequest where
-  wireCodec = Just (WC.serialShimCodec encodeDeleteGroupsRequest decodeDeleteGroupsRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDeleteGroupsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDeleteGroupsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDeleteGroupsRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

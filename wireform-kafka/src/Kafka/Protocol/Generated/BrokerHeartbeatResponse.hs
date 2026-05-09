@@ -12,7 +12,7 @@ Kafka response for API key 63.
 
 
 
-Valid versions: 0-1
+Valid versions: 0-2
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.BrokerHeartbeatResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -86,12 +94,19 @@ data BrokerHeartbeatResponse = BrokerHeartbeatResponse
 
 -- | Maximum supported version for BrokerHeartbeatResponse.
 maxBrokerHeartbeatResponseVersion :: Int16
-maxBrokerHeartbeatResponseVersion = 1
+maxBrokerHeartbeatResponseVersion = 2
+
+-- | KafkaMessage instance for BrokerHeartbeatResponse.
+instance KafkaMessage BrokerHeartbeatResponse where
+  messageApiKey = 63
+  messageMinVersion = 0
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 0
 
 -- | Encode BrokerHeartbeatResponse with the given API version.
 encodeBrokerHeartbeatResponse :: MonadPut m => E.ApiVersion -> BrokerHeartbeatResponse -> m ()
 encodeBrokerHeartbeatResponse version msg
-  | version >= 0 && version <= 1 =
+  | version >= 0 && version <= 2 =
     do
       serialize (brokerHeartbeatResponseThrottleTimeMs msg)
       serialize (brokerHeartbeatResponseErrorCode msg)
@@ -104,7 +119,7 @@ encodeBrokerHeartbeatResponse version msg
 -- | Decode BrokerHeartbeatResponse with the given API version.
 decodeBrokerHeartbeatResponse :: MonadGet m => E.ApiVersion -> m BrokerHeartbeatResponse
 decodeBrokerHeartbeatResponse version
-  | version >= 0 && version <= 1 =
+  | version >= 0 && version <= 2 =
     do
       fieldthrottletimems <- deserialize
       fielderrorcode <- deserialize
@@ -126,16 +141,53 @@ decodeBrokerHeartbeatResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeBrokerHeartbeatResponse' / 'decodeBrokerHeartbeatResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a BrokerHeartbeatResponse.
+wireMaxSizeBrokerHeartbeatResponse :: Int -> BrokerHeartbeatResponse -> Int
+wireMaxSizeBrokerHeartbeatResponse _version msg =
+  0
+  + 4
+  + 2
+  + 1
+  + 1
+  + 1
+  + 1
+
+-- | Direct-poke encoder for BrokerHeartbeatResponse.
+wirePokeBrokerHeartbeatResponse :: Int -> Ptr Word8 -> BrokerHeartbeatResponse -> IO (Ptr Word8)
+wirePokeBrokerHeartbeatResponse version basePtr msg
+  | version >= 0 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (brokerHeartbeatResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (brokerHeartbeatResponseErrorCode msg)
+    p3 <- W.pokeWord8 p2 (if (brokerHeartbeatResponseIsCaughtUp msg) then 1 else 0)
+    p4 <- W.pokeWord8 p3 (if (brokerHeartbeatResponseIsFenced msg) then 1 else 0)
+    p5 <- W.pokeWord8 p4 (if (brokerHeartbeatResponseShouldShutDown msg) then 1 else 0)
+    WP.pokeEmptyTaggedFields p5
+  | otherwise = error $ "wirePoke BrokerHeartbeatResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for BrokerHeartbeatResponse.
+wirePeekBrokerHeartbeatResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (BrokerHeartbeatResponse, Ptr Word8)
+wirePeekBrokerHeartbeatResponse version _fp _basePtr p0 endPtr
+  | version >= 0 && version <= 2 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_iscaughtup, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    (f3_isfenced, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+    (f4_shouldshutdown, p5) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
+    pure (BrokerHeartbeatResponse { brokerHeartbeatResponseThrottleTimeMs = f0_throttletimems, brokerHeartbeatResponseErrorCode = f1_errorcode, brokerHeartbeatResponseIsCaughtUp = f2_iscaughtup, brokerHeartbeatResponseIsFenced = f3_isfenced, brokerHeartbeatResponseShouldShutDown = f4_shouldshutdown }, pTagsEnd)
+  | otherwise = error $ "wirePeek BrokerHeartbeatResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec BrokerHeartbeatResponse where
-  wireCodec = Just (WC.serialShimCodec encodeBrokerHeartbeatResponse decodeBrokerHeartbeatResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeBrokerHeartbeatResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeBrokerHeartbeatResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekBrokerHeartbeatResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

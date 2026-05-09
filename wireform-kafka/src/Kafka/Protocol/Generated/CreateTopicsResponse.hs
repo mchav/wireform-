@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.CreateTopicsResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,7 +48,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Configuration of the topic.
@@ -203,14 +211,14 @@ encodeCreatableTopicResult version cmsg =
     when (version >= 1) $
       if version >= 5 then serialize (toCompactString (creatableTopicResultErrorMessage cmsg)) else serialize (creatableTopicResultErrorMessage cmsg)
     when (version >= 5) $
-      serialize (creatableTopicResultTopicConfigErrorCode cmsg)
-    when (version >= 5) $
       serialize (creatableTopicResultNumPartitions cmsg)
     when (version >= 5) $
       serialize (creatableTopicResultReplicationFactor cmsg)
     when (version >= 5) $
       E.encodeVersionedNullableArray version 5 encodeCreatableTopicConfigs (creatableTopicResultConfigs cmsg)
-    when (version >= 5) $ serialize (emptyTaggedFields :: TaggedFields)
+    when (version >= 5) $ do
+      let _entries = (if version >= 5 then [(0, Data.Bytes.Put.runPutS (serialize (creatableTopicResultTopicConfigErrorCode cmsg)))] else [])
+      P.serializeTaggedFieldEntries _entries
 
 
 -- | Decode CreatableTopicResult with version-aware field handling.
@@ -225,9 +233,6 @@ decodeCreatableTopicResult version =
     fielderrormessage <- if version >= 1
       then if version >= 5 then P.fromCompactString <$> deserialize else deserialize
       else pure (P.KafkaString Null)
-    fieldtopicconfigerrorcode <- if version >= 5
-      then deserialize
-      else pure (0)
     fieldnumpartitions <- if version >= 5
       then deserialize
       else pure ((-1))
@@ -237,7 +242,15 @@ decodeCreatableTopicResult version =
     fieldconfigs <- if version >= 5
       then E.decodeVersionedNullableArray version 5 decodeCreatableTopicConfigs
       else pure (P.KafkaArray P.Null)
-    _ <- if version >= 5 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
+    _taggedFields <- if version >= 5 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
+    let fieldtopicconfigerrorcode =
+          if version >= 5
+            then case P.lookupTaggedField 0 _taggedFields of
+              Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
+                  Right _v -> _v
+                  Left  _  -> (0)
+              Nothing  -> (0)
+            else (0)
     pure CreatableTopicResult
       {
       creatableTopicResultName = fieldname
@@ -279,6 +292,13 @@ data CreateTopicsResponse = CreateTopicsResponse
 -- | Maximum supported version for CreateTopicsResponse.
 maxCreateTopicsResponseVersion :: Int16
 maxCreateTopicsResponseVersion = 7
+
+-- | KafkaMessage instance for CreateTopicsResponse.
+instance KafkaMessage CreateTopicsResponse where
+  messageApiKey = 19
+  messageMinVersion = 2
+  messageMaxVersion = 7
+  messageFlexibleVersion = Just 5
 
 -- | Encode CreateTopicsResponse with the given API version.
 encodeCreateTopicsResponse :: MonadPut m => E.ApiVersion -> CreateTopicsResponse -> m ()
@@ -323,15 +343,48 @@ decodeCreateTopicsResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
+-- | Worst-case wire size of a CreatableTopicConfigs.
+wireMaxSizeCreatableTopicConfigs :: Int -> CreatableTopicConfigs -> Int
+wireMaxSizeCreatableTopicConfigs _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (creatableTopicConfigsName msg))
+  + WP.compactStringMaxSize (P.toCompactString (creatableTopicConfigsValue msg))
+  + 1
+  + 1
+  + 1
+  + 1
+
+-- | Direct-poke encoder for CreatableTopicConfigs.
+wirePokeCreatableTopicConfigs :: Int -> Ptr Word8 -> CreatableTopicConfigs -> IO (Ptr Word8)
+wirePokeCreatableTopicConfigs version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (creatableTopicConfigsName msg))
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (creatableTopicConfigsValue msg))
+  p3 <- W.pokeWord8 p2 (if (creatableTopicConfigsReadOnly msg) then 1 else 0)
+  p4 <- W.pokeWord8 p3 (fromIntegral (creatableTopicConfigsConfigSource msg))
+  p5 <- W.pokeWord8 p4 (if (creatableTopicConfigsIsSensitive msg) then 1 else 0)
+  if version >= 5 then WP.pokeEmptyTaggedFields p5 else pure p5
+
+-- | Direct-poke decoder for CreatableTopicConfigs.
+wirePeekCreatableTopicConfigs :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatableTopicConfigs, Ptr Word8)
+wirePeekCreatableTopicConfigs version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_value, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_readonly, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+  (f3_configsource, p4) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr
+  (f4_issensitive, p5) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr
+  pTagsEnd <- if version >= 5 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (CreatableTopicConfigs { creatableTopicConfigsName = f0_name, creatableTopicConfigsValue = f1_value, creatableTopicConfigsReadOnly = f2_readonly, creatableTopicConfigsConfigSource = f3_configsource, creatableTopicConfigsIsSensitive = f4_issensitive }, pTagsEnd)
+
 -- | 'WC.WireCodec' instance via the Serial shim. The
 -- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeCreateTopicsResponse' / 'decodeCreateTopicsResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
+-- schema (it carries tagged fields with payloads — KIP-866
+-- style — that the generator hasn't been taught yet), so
+-- we lift the legacy 'encodeCreateTopicsResponse' / 'decodeCreateTopicsResponse'
+-- pair into a 'WireCodecImpl' via 'WC.serialShimCodec'.
+-- The dispatch shape is identical to the native case —
+-- every 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through
+-- a 'Just'-valued codec, no 'Nothing' fallback survives in
 -- the generated output.
 instance WC.WireCodec CreateTopicsResponse where
   wireCodec = Just (WC.serialShimCodec encodeCreateTopicsResponse decodeCreateTopicsResponse)

@@ -30,7 +30,9 @@ module Kafka.Protocol.Generated.FetchSnapshotRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,7 +49,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The snapshot endOffset and epoch to fetch.
@@ -138,9 +146,9 @@ encodePartitionSnapshot version pmsg =
     serialize (partitionSnapshotCurrentLeaderEpoch pmsg)
     encodeSnapshotId version (partitionSnapshotSnapshotId pmsg)
     serialize (partitionSnapshotPosition pmsg)
-    when (version >= 1) $
-      serialize (partitionSnapshotReplicaDirectoryId pmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
+    when (version >= 0) $ do
+      let _entries = (if version >= 1 then [(0, Data.Bytes.Put.runPutS (serialize (partitionSnapshotReplicaDirectoryId pmsg)))] else [])
+      P.serializeTaggedFieldEntries _entries
 
 
 -- | Decode PartitionSnapshot with version-aware field handling.
@@ -151,10 +159,15 @@ decodePartitionSnapshot version =
     fieldcurrentleaderepoch <- deserialize
     fieldsnapshotid <- decodeSnapshotId version
     fieldposition <- deserialize
-    fieldreplicadirectoryid <- if version >= 1
-      then deserialize
-      else pure (P.nullUuid)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
+    _taggedFields <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
+    let fieldreplicadirectoryid =
+          if version >= 1
+            then case P.lookupTaggedField 0 _taggedFields of
+              Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
+                  Right _v -> _v
+                  Left  _  -> (P.nullUuid)
+              Nothing  -> (P.nullUuid)
+            else (P.nullUuid)
     pure PartitionSnapshot
       {
       partitionSnapshotPartition = fieldpartition
@@ -246,6 +259,13 @@ data FetchSnapshotRequest = FetchSnapshotRequest
 maxFetchSnapshotRequestVersion :: Int16
 maxFetchSnapshotRequestVersion = 1
 
+-- | KafkaMessage instance for FetchSnapshotRequest.
+instance KafkaMessage FetchSnapshotRequest where
+  messageApiKey = 59
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 0
+
 -- | Encode FetchSnapshotRequest with the given API version.
 encodeFetchSnapshotRequest :: MonadPut m => E.ApiVersion -> FetchSnapshotRequest -> m ()
 encodeFetchSnapshotRequest version msg
@@ -254,7 +274,9 @@ encodeFetchSnapshotRequest version msg
       serialize (fetchSnapshotRequestReplicaId msg)
       serialize (fetchSnapshotRequestMaxBytes msg)
       E.encodeVersionedArray version 0 encodeTopicSnapshot (case P.unKafkaArray (fetchSnapshotRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
+      do
+        let _entries = (if version >= 0 then [(0, Data.Bytes.Put.runPutS (serialize (toCompactString (fetchSnapshotRequestClusterId msg))))] else [])
+        P.serializeTaggedFieldEntries _entries
   | otherwise = error $ "Unsupported version: " ++ show version
 
 -- | Decode FetchSnapshotRequest with the given API version.
@@ -265,10 +287,18 @@ decodeFetchSnapshotRequest version
       fieldreplicaid <- deserialize
       fieldmaxbytes <- deserialize
       fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicSnapshot
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
+      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
+      let fieldclusterid =
+            if version >= 0
+              then case P.lookupTaggedField 0 _taggedFields of
+                Just _bs -> case Data.Bytes.Get.runGetS (P.fromCompactString <$> deserialize) _bs of
+                    Right _v -> _v
+                    Left  _  -> (P.KafkaString Null)
+                Nothing  -> (P.KafkaString Null)
+              else (P.KafkaString Null)
       pure FetchSnapshotRequest
         {
-        fetchSnapshotRequestClusterId = P.KafkaString Null
+        fetchSnapshotRequestClusterId = fieldclusterid
         ,
         fetchSnapshotRequestReplicaId = fieldreplicaid
         ,
@@ -278,15 +308,39 @@ decodeFetchSnapshotRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
+-- | Worst-case wire size of a SnapshotId.
+wireMaxSizeSnapshotId :: Int -> SnapshotId -> Int
+wireMaxSizeSnapshotId _version msg =
+  0
+  + 8
+  + 4
+  + 1
+
+-- | Direct-poke encoder for SnapshotId.
+wirePokeSnapshotId :: Int -> Ptr Word8 -> SnapshotId -> IO (Ptr Word8)
+wirePokeSnapshotId version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt64BE p0 (snapshotIdEndOffset msg)
+  p2 <- W.pokeInt32BE p1 (snapshotIdEpoch msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for SnapshotId.
+wirePeekSnapshotId :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (SnapshotId, Ptr Word8)
+wirePeekSnapshotId version _fp _basePtr p0 endPtr = do
+  (f0_endoffset, p1) <- W.peekInt64BE p0 endPtr
+  (f1_epoch, p2) <- W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (SnapshotId { snapshotIdEndOffset = f0_endoffset, snapshotIdEpoch = f1_epoch }, pTagsEnd)
+
 -- | 'WC.WireCodec' instance via the Serial shim. The
 -- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeFetchSnapshotRequest' / 'decodeFetchSnapshotRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
+-- schema (it carries tagged fields with payloads — KIP-866
+-- style — that the generator hasn't been taught yet), so
+-- we lift the legacy 'encodeFetchSnapshotRequest' / 'decodeFetchSnapshotRequest'
+-- pair into a 'WireCodecImpl' via 'WC.serialShimCodec'.
+-- The dispatch shape is identical to the native case —
+-- every 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through
+-- a 'Just'-valued codec, no 'Nothing' fallback survives in
 -- the generated output.
 instance WC.WireCodec FetchSnapshotRequest where
   wireCodec = Just (WC.serialShimCodec encodeFetchSnapshotRequest decodeFetchSnapshotRequest)

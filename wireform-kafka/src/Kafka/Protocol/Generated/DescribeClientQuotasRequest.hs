@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.DescribeClientQuotasRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -45,7 +47,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Filter components to apply to quota entities.
@@ -123,6 +131,13 @@ data DescribeClientQuotasRequest = DescribeClientQuotasRequest
 maxDescribeClientQuotasRequestVersion :: Int16
 maxDescribeClientQuotasRequestVersion = 1
 
+-- | KafkaMessage instance for DescribeClientQuotasRequest.
+instance KafkaMessage DescribeClientQuotasRequest where
+  messageApiKey = 48
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 1
+
 -- | Encode DescribeClientQuotasRequest with the given API version.
 encodeDescribeClientQuotasRequest :: MonadPut m => E.ApiVersion -> DescribeClientQuotasRequest -> m ()
 encodeDescribeClientQuotasRequest version msg
@@ -166,16 +181,79 @@ decodeDescribeClientQuotasRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeClientQuotasRequest' / 'decodeDescribeClientQuotasRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a ComponentData.
+wireMaxSizeComponentData :: Int -> ComponentData -> Int
+wireMaxSizeComponentData _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (componentDataEntityType msg))
+  + 1
+  + WP.compactStringMaxSize (P.toCompactString (componentDataMatch msg))
+  + 1
+
+-- | Direct-poke encoder for ComponentData.
+wirePokeComponentData :: Int -> Ptr Word8 -> ComponentData -> IO (Ptr Word8)
+wirePokeComponentData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (componentDataEntityType msg))
+  p2 <- W.pokeWord8 p1 (fromIntegral (componentDataMatchType msg))
+  p3 <- WP.pokeCompactString p2 (P.toCompactString (componentDataMatch msg))
+  if version >= 1 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for ComponentData.
+wirePeekComponentData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ComponentData, Ptr Word8)
+wirePeekComponentData version _fp _basePtr p0 endPtr = do
+  (f0_entitytype, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_matchtype, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+  (f2_match, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (ComponentData { componentDataEntityType = f0_entitytype, componentDataMatchType = f1_matchtype, componentDataMatch = f2_match }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeClientQuotasRequest.
+wireMaxSizeDescribeClientQuotasRequest :: Int -> DescribeClientQuotasRequest -> Int
+wireMaxSizeDescribeClientQuotasRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (describeClientQuotasRequestComponents msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeComponentData _version x ) v); P.Null -> 0 }))
+  + 1
+  + 1
+
+-- | Direct-poke encoder for DescribeClientQuotasRequest.
+wirePokeDescribeClientQuotasRequest :: Int -> Ptr Word8 -> DescribeClientQuotasRequest -> IO (Ptr Word8)
+wirePokeDescribeClientQuotasRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeComponentData version p x) p0 (describeClientQuotasRequestComponents msg)
+    p2 <- W.pokeWord8 p1 (if (describeClientQuotasRequestStrict msg) then 1 else 0)
+    pure p2
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeComponentData version p x) p0 (describeClientQuotasRequestComponents msg)
+    p2 <- W.pokeWord8 p1 (if (describeClientQuotasRequestStrict msg) then 1 else 0)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke DescribeClientQuotasRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeClientQuotasRequest.
+wirePeekDescribeClientQuotasRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeClientQuotasRequest, Ptr Word8)
+wirePeekDescribeClientQuotasRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_components, p1) <- WP.peekVersionedArray version 1 (\p e -> wirePeekComponentData version _fp _basePtr p e) p0 endPtr
+    (f1_strict, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    pure (DescribeClientQuotasRequest { describeClientQuotasRequestComponents = f0_components, describeClientQuotasRequestStrict = f1_strict }, p2)
+  | version == 1 = do
+    (f0_components, p1) <- WP.peekVersionedArray version 1 (\p e -> wirePeekComponentData version _fp _basePtr p e) p0 endPtr
+    (f1_strict, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (DescribeClientQuotasRequest { describeClientQuotasRequestComponents = f0_components, describeClientQuotasRequestStrict = f1_strict }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeClientQuotasRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeClientQuotasRequest where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeClientQuotasRequest decodeDescribeClientQuotasRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeClientQuotasRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeClientQuotasRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeClientQuotasRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

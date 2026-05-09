@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.EnvelopeRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -76,6 +84,13 @@ data EnvelopeRequest = EnvelopeRequest
 maxEnvelopeRequestVersion :: Int16
 maxEnvelopeRequestVersion = 0
 
+-- | KafkaMessage instance for EnvelopeRequest.
+instance KafkaMessage EnvelopeRequest where
+  messageApiKey = 58
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
+
 -- | Encode EnvelopeRequest with the given API version.
 encodeEnvelopeRequest :: MonadPut m => E.ApiVersion -> EnvelopeRequest -> m ()
 encodeEnvelopeRequest version msg
@@ -106,16 +121,47 @@ decodeEnvelopeRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeEnvelopeRequest' / 'decodeEnvelopeRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a EnvelopeRequest.
+wireMaxSizeEnvelopeRequest :: Int -> EnvelopeRequest -> Int
+wireMaxSizeEnvelopeRequest _version msg =
+  0
+  + WP.compactBytesMaxSize (P.toCompactBytes (envelopeRequestRequestData msg))
+  + WP.compactBytesMaxSize (P.toCompactBytes (envelopeRequestRequestPrincipal msg))
+  + WP.compactBytesMaxSize (P.toCompactBytes (envelopeRequestClientHostAddress msg))
+  + 1
+
+-- | Direct-poke encoder for EnvelopeRequest.
+wirePokeEnvelopeRequest :: Int -> Ptr Word8 -> EnvelopeRequest -> IO (Ptr Word8)
+wirePokeEnvelopeRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactBytes p0 (P.toCompactBytes (envelopeRequestRequestData msg))
+    p2 <- WP.pokeCompactBytes p1 (P.toCompactBytes (envelopeRequestRequestPrincipal msg))
+    p3 <- WP.pokeCompactBytes p2 (P.toCompactBytes (envelopeRequestClientHostAddress msg))
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke EnvelopeRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for EnvelopeRequest.
+wirePeekEnvelopeRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EnvelopeRequest, Ptr Word8)
+wirePeekEnvelopeRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_requestdata, p1) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr
+    (f1_requestprincipal, p2) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p1 endPtr
+    (f2_clienthostaddress, p3) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (EnvelopeRequest { envelopeRequestRequestData = f0_requestdata, envelopeRequestRequestPrincipal = f1_requestprincipal, envelopeRequestClientHostAddress = f2_clienthostaddress }, pTagsEnd)
+  | otherwise = error $ "wirePeek EnvelopeRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec EnvelopeRequest where
-  wireCodec = Just (WC.serialShimCodec encodeEnvelopeRequest decodeEnvelopeRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeEnvelopeRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeEnvelopeRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekEnvelopeRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

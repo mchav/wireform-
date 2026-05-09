@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.DescribeClusterResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -45,7 +47,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Each broker in the response.
@@ -182,6 +190,13 @@ data DescribeClusterResponse = DescribeClusterResponse
 maxDescribeClusterResponseVersion :: Int16
 maxDescribeClusterResponseVersion = 2
 
+-- | KafkaMessage instance for DescribeClusterResponse.
+instance KafkaMessage DescribeClusterResponse where
+  messageApiKey = 60
+  messageMinVersion = 0
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 0
+
 -- | Encode DescribeClusterResponse with the given API version.
 encodeDescribeClusterResponse :: MonadPut m => E.ApiVersion -> DescribeClusterResponse -> m ()
 encodeDescribeClusterResponse version msg
@@ -272,16 +287,114 @@ decodeDescribeClusterResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeClusterResponse' / 'decodeDescribeClusterResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a DescribeClusterBroker.
+wireMaxSizeDescribeClusterBroker :: Int -> DescribeClusterBroker -> Int
+wireMaxSizeDescribeClusterBroker _version msg =
+  0
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (describeClusterBrokerHost msg))
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (describeClusterBrokerRack msg))
+  + 1
+  + 1
+
+-- | Direct-poke encoder for DescribeClusterBroker.
+wirePokeDescribeClusterBroker :: Int -> Ptr Word8 -> DescribeClusterBroker -> IO (Ptr Word8)
+wirePokeDescribeClusterBroker version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (describeClusterBrokerBrokerId msg)
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeClusterBrokerHost msg))
+  p3 <- W.pokeInt32BE p2 (describeClusterBrokerPort msg)
+  p4 <- WP.pokeCompactString p3 (P.toCompactString (describeClusterBrokerRack msg))
+  p5 <- W.pokeWord8 p4 (if (describeClusterBrokerIsFenced msg) then 1 else 0)
+  if version >= 0 then WP.pokeEmptyTaggedFields p5 else pure p5
+
+-- | Direct-poke decoder for DescribeClusterBroker.
+wirePeekDescribeClusterBroker :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeClusterBroker, Ptr Word8)
+wirePeekDescribeClusterBroker version _fp _basePtr p0 endPtr = do
+  (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
+  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_port, p3) <- W.peekInt32BE p2 endPtr
+  (f3_rack, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  (f4_isfenced, p5) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (DescribeClusterBroker { describeClusterBrokerBrokerId = f0_brokerid, describeClusterBrokerHost = f1_host, describeClusterBrokerPort = f2_port, describeClusterBrokerRack = f3_rack, describeClusterBrokerIsFenced = f4_isfenced }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeClusterResponse.
+wireMaxSizeDescribeClusterResponse :: Int -> DescribeClusterResponse -> Int
+wireMaxSizeDescribeClusterResponse _version msg =
+  0
+  + 4
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (describeClusterResponseErrorMessage msg))
+  + 1
+  + WP.compactStringMaxSize (P.toCompactString (describeClusterResponseClusterId msg))
+  + 4
+  + (5 + (case P.unKafkaArray (describeClusterResponseBrokers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeClusterBroker _version x ) v); P.Null -> 0 }))
+  + 4
+  + 1
+
+-- | Direct-poke encoder for DescribeClusterResponse.
+wirePokeDescribeClusterResponse :: Int -> Ptr Word8 -> DescribeClusterResponse -> IO (Ptr Word8)
+wirePokeDescribeClusterResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeClusterResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (describeClusterResponseErrorCode msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (describeClusterResponseErrorMessage msg))
+    p4 <- WP.pokeCompactString p3 (P.toCompactString (describeClusterResponseClusterId msg))
+    p5 <- W.pokeInt32BE p4 (describeClusterResponseControllerId msg)
+    p6 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeDescribeClusterBroker version p x) p5 (describeClusterResponseBrokers msg)
+    p7 <- W.pokeInt32BE p6 (describeClusterResponseClusterAuthorizedOperations msg)
+    WP.pokeEmptyTaggedFields p7
+  | version >= 1 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeClusterResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (describeClusterResponseErrorCode msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (describeClusterResponseErrorMessage msg))
+    p4 <- W.pokeWord8 p3 (fromIntegral (describeClusterResponseEndpointType msg))
+    p5 <- WP.pokeCompactString p4 (P.toCompactString (describeClusterResponseClusterId msg))
+    p6 <- W.pokeInt32BE p5 (describeClusterResponseControllerId msg)
+    p7 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeDescribeClusterBroker version p x) p6 (describeClusterResponseBrokers msg)
+    p8 <- W.pokeInt32BE p7 (describeClusterResponseClusterAuthorizedOperations msg)
+    WP.pokeEmptyTaggedFields p8
+  | otherwise = error $ "wirePoke DescribeClusterResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeClusterResponse.
+wirePeekDescribeClusterResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeClusterResponse, Ptr Word8)
+wirePeekDescribeClusterResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_clusterid, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+    (f4_controllerid, p5) <- W.peekInt32BE p4 endPtr
+    (f5_brokers, p6) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDescribeClusterBroker version _fp _basePtr p e) p5 endPtr
+    (f6_clusterauthorizedoperations, p7) <- W.peekInt32BE p6 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p7 endPtr
+    pure (DescribeClusterResponse { describeClusterResponseThrottleTimeMs = f0_throttletimems, describeClusterResponseErrorCode = f1_errorcode, describeClusterResponseErrorMessage = f2_errormessage, describeClusterResponseEndpointType = 0, describeClusterResponseClusterId = f3_clusterid, describeClusterResponseControllerId = f4_controllerid, describeClusterResponseBrokers = f5_brokers, describeClusterResponseClusterAuthorizedOperations = f6_clusterauthorizedoperations }, pTagsEnd)
+  | version >= 1 && version <= 2 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_endpointtype, p4) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr
+    (f4_clusterid, p5) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr
+    (f5_controllerid, p6) <- W.peekInt32BE p5 endPtr
+    (f6_brokers, p7) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDescribeClusterBroker version _fp _basePtr p e) p6 endPtr
+    (f7_clusterauthorizedoperations, p8) <- W.peekInt32BE p7 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p8 endPtr
+    pure (DescribeClusterResponse { describeClusterResponseThrottleTimeMs = f0_throttletimems, describeClusterResponseErrorCode = f1_errorcode, describeClusterResponseErrorMessage = f2_errormessage, describeClusterResponseEndpointType = f3_endpointtype, describeClusterResponseClusterId = f4_clusterid, describeClusterResponseControllerId = f5_controllerid, describeClusterResponseBrokers = f6_brokers, describeClusterResponseClusterAuthorizedOperations = f7_clusterauthorizedoperations }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeClusterResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeClusterResponse where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeClusterResponse decodeDescribeClusterResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeClusterResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeClusterResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeClusterResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

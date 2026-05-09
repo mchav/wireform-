@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.ShareGroupDescribeRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -69,6 +77,13 @@ data ShareGroupDescribeRequest = ShareGroupDescribeRequest
 -- | Maximum supported version for ShareGroupDescribeRequest.
 maxShareGroupDescribeRequestVersion :: Int16
 maxShareGroupDescribeRequestVersion = 1
+
+-- | KafkaMessage instance for ShareGroupDescribeRequest.
+instance KafkaMessage ShareGroupDescribeRequest where
+  messageApiKey = 77
+  messageMinVersion = 1
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 0
 
 -- | Encode ShareGroupDescribeRequest with the given API version.
 encodeShareGroupDescribeRequest :: MonadPut m => E.ApiVersion -> ShareGroupDescribeRequest -> m ()
@@ -96,16 +111,44 @@ decodeShareGroupDescribeRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeShareGroupDescribeRequest' / 'decodeShareGroupDescribeRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a ShareGroupDescribeRequest.
+wireMaxSizeShareGroupDescribeRequest :: Int -> ShareGroupDescribeRequest -> Int
+wireMaxSizeShareGroupDescribeRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (shareGroupDescribeRequestGroupIds msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
+  + 1
+  + 1
+
+-- | Direct-poke encoder for ShareGroupDescribeRequest.
+wirePokeShareGroupDescribeRequest :: Int -> Ptr Word8 -> ShareGroupDescribeRequest -> IO (Ptr Word8)
+wirePokeShareGroupDescribeRequest version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (shareGroupDescribeRequestGroupIds msg)
+    p2 <- W.pokeWord8 p1 (if (shareGroupDescribeRequestIncludeAuthorizedOperations msg) then 1 else 0)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke ShareGroupDescribeRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ShareGroupDescribeRequest.
+wirePeekShareGroupDescribeRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ShareGroupDescribeRequest, Ptr Word8)
+wirePeekShareGroupDescribeRequest version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_groupids, p1) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
+    (f1_includeauthorizedoperations, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (ShareGroupDescribeRequest { shareGroupDescribeRequestGroupIds = f0_groupids, shareGroupDescribeRequestIncludeAuthorizedOperations = f1_includeauthorizedoperations }, pTagsEnd)
+  | otherwise = error $ "wirePeek ShareGroupDescribeRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ShareGroupDescribeRequest where
-  wireCodec = Just (WC.serialShimCodec encodeShareGroupDescribeRequest decodeShareGroupDescribeRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeShareGroupDescribeRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeShareGroupDescribeRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekShareGroupDescribeRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

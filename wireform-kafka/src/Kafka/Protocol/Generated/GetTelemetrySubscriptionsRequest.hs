@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.GetTelemetrySubscriptionsRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -63,6 +71,13 @@ data GetTelemetrySubscriptionsRequest = GetTelemetrySubscriptionsRequest
 -- | Maximum supported version for GetTelemetrySubscriptionsRequest.
 maxGetTelemetrySubscriptionsRequestVersion :: Int16
 maxGetTelemetrySubscriptionsRequestVersion = 0
+
+-- | KafkaMessage instance for GetTelemetrySubscriptionsRequest.
+instance KafkaMessage GetTelemetrySubscriptionsRequest where
+  messageApiKey = 71
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
 
 -- | Encode GetTelemetrySubscriptionsRequest with the given API version.
 encodeGetTelemetrySubscriptionsRequest :: MonadPut m => E.ApiVersion -> GetTelemetrySubscriptionsRequest -> m ()
@@ -86,16 +101,41 @@ decodeGetTelemetrySubscriptionsRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeGetTelemetrySubscriptionsRequest' / 'decodeGetTelemetrySubscriptionsRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a GetTelemetrySubscriptionsRequest.
+wireMaxSizeGetTelemetrySubscriptionsRequest :: Int -> GetTelemetrySubscriptionsRequest -> Int
+wireMaxSizeGetTelemetrySubscriptionsRequest _version msg =
+  0
+  + 16
+  + 1
+
+-- | Direct-poke encoder for GetTelemetrySubscriptionsRequest.
+wirePokeGetTelemetrySubscriptionsRequest :: Int -> Ptr Word8 -> GetTelemetrySubscriptionsRequest -> IO (Ptr Word8)
+wirePokeGetTelemetrySubscriptionsRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeKafkaUuid p0 (getTelemetrySubscriptionsRequestClientInstanceId msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke GetTelemetrySubscriptionsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for GetTelemetrySubscriptionsRequest.
+wirePeekGetTelemetrySubscriptionsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (GetTelemetrySubscriptionsRequest, Ptr Word8)
+wirePeekGetTelemetrySubscriptionsRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_clientinstanceid, p1) <- WP.peekKafkaUuid p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (GetTelemetrySubscriptionsRequest { getTelemetrySubscriptionsRequestClientInstanceId = f0_clientinstanceid }, pTagsEnd)
+  | otherwise = error $ "wirePeek GetTelemetrySubscriptionsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec GetTelemetrySubscriptionsRequest where
-  wireCodec = Just (WC.serialShimCodec encodeGetTelemetrySubscriptionsRequest decodeGetTelemetrySubscriptionsRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeGetTelemetrySubscriptionsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeGetTelemetrySubscriptionsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekGetTelemetrySubscriptionsRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.EndTxnRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -81,6 +89,13 @@ data EndTxnRequest = EndTxnRequest
 -- | Maximum supported version for EndTxnRequest.
 maxEndTxnRequestVersion :: Int16
 maxEndTxnRequestVersion = 5
+
+-- | KafkaMessage instance for EndTxnRequest.
+instance KafkaMessage EndTxnRequest where
+  messageApiKey = 26
+  messageMinVersion = 0
+  messageMaxVersion = 5
+  messageFlexibleVersion = Just 3
 
 -- | Encode EndTxnRequest with the given API version.
 encodeEndTxnRequest :: MonadPut m => E.ApiVersion -> EndTxnRequest -> m ()
@@ -141,16 +156,63 @@ decodeEndTxnRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeEndTxnRequest' / 'decodeEndTxnRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a EndTxnRequest.
+wireMaxSizeEndTxnRequest :: Int -> EndTxnRequest -> Int
+wireMaxSizeEndTxnRequest _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (endTxnRequestTransactionalId msg))
+  + 8
+  + 2
+  + 1
+  + 1
+
+-- | Direct-poke encoder for EndTxnRequest.
+wirePokeEndTxnRequest :: Int -> Ptr Word8 -> EndTxnRequest -> IO (Ptr Word8)
+wirePokeEndTxnRequest version basePtr msg
+  | version >= 0 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactString p0 (P.toCompactString (endTxnRequestTransactionalId msg))
+    p2 <- W.pokeInt64BE p1 (endTxnRequestProducerId msg)
+    p3 <- W.pokeInt16BE p2 (endTxnRequestProducerEpoch msg)
+    p4 <- W.pokeWord8 p3 (if (endTxnRequestCommitted msg) then 1 else 0)
+    pure p4
+  | version >= 3 && version <= 5 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactString p0 (P.toCompactString (endTxnRequestTransactionalId msg))
+    p2 <- W.pokeInt64BE p1 (endTxnRequestProducerId msg)
+    p3 <- W.pokeInt16BE p2 (endTxnRequestProducerEpoch msg)
+    p4 <- W.pokeWord8 p3 (if (endTxnRequestCommitted msg) then 1 else 0)
+    WP.pokeEmptyTaggedFields p4
+  | otherwise = error $ "wirePoke EndTxnRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for EndTxnRequest.
+wirePeekEndTxnRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EndTxnRequest, Ptr Word8)
+wirePeekEndTxnRequest version _fp _basePtr p0 endPtr
+  | version >= 0 && version <= 2 = do
+    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f1_producerid, p2) <- W.peekInt64BE p1 endPtr
+    (f2_producerepoch, p3) <- W.peekInt16BE p2 endPtr
+    (f3_committed, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+    pure (EndTxnRequest { endTxnRequestTransactionalId = f0_transactionalid, endTxnRequestProducerId = f1_producerid, endTxnRequestProducerEpoch = f2_producerepoch, endTxnRequestCommitted = f3_committed }, p4)
+  | version >= 3 && version <= 5 = do
+    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f1_producerid, p2) <- W.peekInt64BE p1 endPtr
+    (f2_producerepoch, p3) <- W.peekInt16BE p2 endPtr
+    (f3_committed, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (EndTxnRequest { endTxnRequestTransactionalId = f0_transactionalid, endTxnRequestProducerId = f1_producerid, endTxnRequestProducerEpoch = f2_producerepoch, endTxnRequestCommitted = f3_committed }, pTagsEnd)
+  | otherwise = error $ "wirePeek EndTxnRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec EndTxnRequest where
-  wireCodec = Just (WC.serialShimCodec encodeEndTxnRequest decodeEndTxnRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeEndTxnRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeEndTxnRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekEndTxnRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

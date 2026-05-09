@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.ListConfigResourcesRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -63,6 +71,13 @@ data ListConfigResourcesRequest = ListConfigResourcesRequest
 -- | Maximum supported version for ListConfigResourcesRequest.
 maxListConfigResourcesRequestVersion :: Int16
 maxListConfigResourcesRequestVersion = 1
+
+-- | KafkaMessage instance for ListConfigResourcesRequest.
+instance KafkaMessage ListConfigResourcesRequest where
+  messageApiKey = 74
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 0
 
 -- | Encode ListConfigResourcesRequest with the given API version.
 encodeListConfigResourcesRequest :: MonadPut m => E.ApiVersion -> ListConfigResourcesRequest -> m ()
@@ -99,16 +114,47 @@ decodeListConfigResourcesRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeListConfigResourcesRequest' / 'decodeListConfigResourcesRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a ListConfigResourcesRequest.
+wireMaxSizeListConfigResourcesRequest :: Int -> ListConfigResourcesRequest -> Int
+wireMaxSizeListConfigResourcesRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (listConfigResourcesRequestResourceTypes msg) of { P.NotNull v -> sum (fmap (\x -> 1 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ListConfigResourcesRequest.
+wirePokeListConfigResourcesRequest :: Int -> Ptr Word8 -> ListConfigResourcesRequest -> IO (Ptr Word8)
+wirePokeListConfigResourcesRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    WP.pokeEmptyTaggedFields p0
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 0 (\p x -> W.pokeWord8 p (fromIntegral (x :: Int8))) p0 (listConfigResourcesRequestResourceTypes msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke ListConfigResourcesRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ListConfigResourcesRequest.
+wirePeekListConfigResourcesRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListConfigResourcesRequest, Ptr Word8)
+wirePeekListConfigResourcesRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    pTagsEnd <- WP.peekAndSkipTaggedFields p0 endPtr
+    pure (ListConfigResourcesRequest { listConfigResourcesRequestResourceTypes = P.mkKafkaArray V.empty }, pTagsEnd)
+  | version == 1 = do
+    (f0_resourcetypes, p1) <- WP.peekVersionedArray version 0 (\p e -> (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p e) p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (ListConfigResourcesRequest { listConfigResourcesRequestResourceTypes = f0_resourcetypes }, pTagsEnd)
+  | otherwise = error $ "wirePeek ListConfigResourcesRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ListConfigResourcesRequest where
-  wireCodec = Just (WC.serialShimCodec encodeListConfigResourcesRequest decodeListConfigResourcesRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeListConfigResourcesRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeListConfigResourcesRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekListConfigResourcesRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

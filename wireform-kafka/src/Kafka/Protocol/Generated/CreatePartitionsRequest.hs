@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.CreatePartitionsRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,7 +48,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The new partition assignments.
@@ -163,6 +171,13 @@ data CreatePartitionsRequest = CreatePartitionsRequest
 maxCreatePartitionsRequestVersion :: Int16
 maxCreatePartitionsRequestVersion = 3
 
+-- | KafkaMessage instance for CreatePartitionsRequest.
+instance KafkaMessage CreatePartitionsRequest where
+  messageApiKey = 37
+  messageMinVersion = 0
+  messageMaxVersion = 3
+  messageFlexibleVersion = Just 2
+
 -- | Encode CreatePartitionsRequest with the given API version.
 encodeCreatePartitionsRequest :: MonadPut m => E.ApiVersion -> CreatePartitionsRequest -> m ()
 encodeCreatePartitionsRequest version msg
@@ -214,16 +229,105 @@ decodeCreatePartitionsRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeCreatePartitionsRequest' / 'decodeCreatePartitionsRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a CreatePartitionsAssignment.
+wireMaxSizeCreatePartitionsAssignment :: Int -> CreatePartitionsAssignment -> Int
+wireMaxSizeCreatePartitionsAssignment _version msg =
+  0
+  + (5 + (case P.unKafkaArray (createPartitionsAssignmentBrokerIds msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for CreatePartitionsAssignment.
+wirePokeCreatePartitionsAssignment :: Int -> Ptr Word8 -> CreatePartitionsAssignment -> IO (Ptr Word8)
+wirePokeCreatePartitionsAssignment version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeVersionedArray version 2 W.pokeInt32BE p0 (createPartitionsAssignmentBrokerIds msg)
+  if version >= 2 then WP.pokeEmptyTaggedFields p1 else pure p1
+
+-- | Direct-poke decoder for CreatePartitionsAssignment.
+wirePeekCreatePartitionsAssignment :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatePartitionsAssignment, Ptr Word8)
+wirePeekCreatePartitionsAssignment version _fp _basePtr p0 endPtr = do
+  (f0_brokerids, p1) <- WP.peekVersionedArray version 2 W.peekInt32BE p0 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p1 endPtr else pure p1
+  pure (CreatePartitionsAssignment { createPartitionsAssignmentBrokerIds = f0_brokerids }, pTagsEnd)
+
+-- | Worst-case wire size of a CreatePartitionsTopic.
+wireMaxSizeCreatePartitionsTopic :: Int -> CreatePartitionsTopic -> Int
+wireMaxSizeCreatePartitionsTopic _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (createPartitionsTopicName msg))
+  + 4
+  + (5 + (case P.unKafkaArray (createPartitionsTopicAssignments msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCreatePartitionsAssignment _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for CreatePartitionsTopic.
+wirePokeCreatePartitionsTopic :: Int -> Ptr Word8 -> CreatePartitionsTopic -> IO (Ptr Word8)
+wirePokeCreatePartitionsTopic version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (createPartitionsTopicName msg))
+  p2 <- W.pokeInt32BE p1 (createPartitionsTopicCount msg)
+  p3 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeCreatePartitionsAssignment version p x) p2 (createPartitionsTopicAssignments msg)
+  if version >= 2 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for CreatePartitionsTopic.
+wirePeekCreatePartitionsTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatePartitionsTopic, Ptr Word8)
+wirePeekCreatePartitionsTopic version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_count, p2) <- W.peekInt32BE p1 endPtr
+  (f2_assignments, p3) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekCreatePartitionsAssignment version _fp _basePtr p e) p2 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (CreatePartitionsTopic { createPartitionsTopicName = f0_name, createPartitionsTopicCount = f1_count, createPartitionsTopicAssignments = f2_assignments }, pTagsEnd)
+
+-- | Worst-case wire size of a CreatePartitionsRequest.
+wireMaxSizeCreatePartitionsRequest :: Int -> CreatePartitionsRequest -> Int
+wireMaxSizeCreatePartitionsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (createPartitionsRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCreatePartitionsTopic _version x ) v); P.Null -> 0 }))
+  + 4
+  + 1
+  + 1
+
+-- | Direct-poke encoder for CreatePartitionsRequest.
+wirePokeCreatePartitionsRequest :: Int -> Ptr Word8 -> CreatePartitionsRequest -> IO (Ptr Word8)
+wirePokeCreatePartitionsRequest version basePtr msg
+  | version >= 0 && version <= 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeCreatePartitionsTopic version p x) p0 (createPartitionsRequestTopics msg)
+    p2 <- W.pokeInt32BE p1 (createPartitionsRequestTimeoutMs msg)
+    p3 <- W.pokeWord8 p2 (if (createPartitionsRequestValidateOnly msg) then 1 else 0)
+    pure p3
+  | version >= 2 && version <= 3 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeCreatePartitionsTopic version p x) p0 (createPartitionsRequestTopics msg)
+    p2 <- W.pokeInt32BE p1 (createPartitionsRequestTimeoutMs msg)
+    p3 <- W.pokeWord8 p2 (if (createPartitionsRequestValidateOnly msg) then 1 else 0)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke CreatePartitionsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for CreatePartitionsRequest.
+wirePeekCreatePartitionsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatePartitionsRequest, Ptr Word8)
+wirePeekCreatePartitionsRequest version _fp _basePtr p0 endPtr
+  | version >= 0 && version <= 1 = do
+    (f0_topics, p1) <- WP.peekVersionedArray version 2 (\p e -> wirePeekCreatePartitionsTopic version _fp _basePtr p e) p0 endPtr
+    (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
+    (f2_validateonly, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    pure (CreatePartitionsRequest { createPartitionsRequestTopics = f0_topics, createPartitionsRequestTimeoutMs = f1_timeoutms, createPartitionsRequestValidateOnly = f2_validateonly }, p3)
+  | version >= 2 && version <= 3 = do
+    (f0_topics, p1) <- WP.peekVersionedArray version 2 (\p e -> wirePeekCreatePartitionsTopic version _fp _basePtr p e) p0 endPtr
+    (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
+    (f2_validateonly, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (CreatePartitionsRequest { createPartitionsRequestTopics = f0_topics, createPartitionsRequestTimeoutMs = f1_timeoutms, createPartitionsRequestValidateOnly = f2_validateonly }, pTagsEnd)
+  | otherwise = error $ "wirePeek CreatePartitionsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec CreatePartitionsRequest where
-  wireCodec = Just (WC.serialShimCodec encodeCreatePartitionsRequest decodeCreatePartitionsRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeCreatePartitionsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeCreatePartitionsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekCreatePartitionsRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

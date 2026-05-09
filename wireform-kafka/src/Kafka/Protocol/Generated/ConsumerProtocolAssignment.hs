@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.ConsumerProtocolAssignment
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,6 +49,11 @@ import Kafka.Protocol.Primitives
 import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The list of topics and partitions assigned to this consumer.
@@ -139,16 +146,65 @@ decodeConsumerProtocolAssignment version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeConsumerProtocolAssignment' / 'decodeConsumerProtocolAssignment' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a TopicPartition.
+wireMaxSizeTopicPartition :: Int -> TopicPartition -> Int
+wireMaxSizeTopicPartition _version msg =
+  0
+  + WP.kafkaStringMaxSize (topicPartitionTopic msg)
+  + (5 + (case P.unKafkaArray (topicPartitionPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+
+
+-- | Direct-poke encoder for TopicPartition.
+wirePokeTopicPartition :: Int -> Ptr Word8 -> TopicPartition -> IO (Ptr Word8)
+wirePokeTopicPartition version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeKafkaString p0 (topicPartitionTopic msg)
+  p2 <- WP.pokeKafkaArray W.pokeInt32BE p1 (topicPartitionPartitions msg)
+  pure p2
+
+-- | Direct-poke decoder for TopicPartition.
+wirePeekTopicPartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicPartition, Ptr Word8)
+wirePeekTopicPartition version _fp _basePtr p0 endPtr = do
+  (f0_topic, p1) <- WP.peekKafkaString p0 endPtr
+  (f1_partitions, p2) <- WP.peekKafkaArray W.peekInt32BE p1 endPtr
+  pure (TopicPartition { topicPartitionTopic = f0_topic, topicPartitionPartitions = f1_partitions }, p2)
+
+-- | Worst-case wire size of a ConsumerProtocolAssignment.
+wireMaxSizeConsumerProtocolAssignment :: Int -> ConsumerProtocolAssignment -> Int
+wireMaxSizeConsumerProtocolAssignment _version msg =
+  0
+  + (5 + (case P.unKafkaArray (consumerProtocolAssignmentAssignedPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicPartition _version x ) v); P.Null -> 0 }))
+  + WP.kafkaBytesMaxSize (consumerProtocolAssignmentUserData msg)
+
+
+-- | Direct-poke encoder for ConsumerProtocolAssignment.
+wirePokeConsumerProtocolAssignment :: Int -> Ptr Word8 -> ConsumerProtocolAssignment -> IO (Ptr Word8)
+wirePokeConsumerProtocolAssignment version basePtr msg
+  | version >= 0 && version <= 3 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeKafkaArray (\p x -> wirePokeTopicPartition version p x) p0 (consumerProtocolAssignmentAssignedPartitions msg)
+    p2 <- WP.pokeKafkaBytes p1 (consumerProtocolAssignmentUserData msg)
+    pure p2
+  | otherwise = error $ "wirePoke ConsumerProtocolAssignment : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ConsumerProtocolAssignment.
+wirePeekConsumerProtocolAssignment :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ConsumerProtocolAssignment, Ptr Word8)
+wirePeekConsumerProtocolAssignment version _fp _basePtr p0 endPtr
+  | version >= 0 && version <= 3 = do
+    (f0_assignedpartitions, p1) <- WP.peekKafkaArray (\p e -> wirePeekTopicPartition version _fp _basePtr p e) p0 endPtr
+    (f1_userdata, p2) <- WP.peekKafkaBytes p1 endPtr
+    pure (ConsumerProtocolAssignment { consumerProtocolAssignmentAssignedPartitions = f0_assignedpartitions, consumerProtocolAssignmentUserData = f1_userdata }, p2)
+  | otherwise = error $ "wirePeek ConsumerProtocolAssignment : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ConsumerProtocolAssignment where
-  wireCodec = Just (WC.serialShimCodec encodeConsumerProtocolAssignment decodeConsumerProtocolAssignment)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeConsumerProtocolAssignment (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeConsumerProtocolAssignment (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekConsumerProtocolAssignment (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

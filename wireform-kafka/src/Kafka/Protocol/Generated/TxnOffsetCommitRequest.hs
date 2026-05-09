@@ -12,7 +12,7 @@ Kafka request for API key 28.
 
 
 
-Valid versions: 0-5
+Valid versions: 0-6
 Flexible versions: 3+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.TxnOffsetCommitRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,7 +48,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The partitions inside the topic that we want to commit offsets for.
@@ -121,8 +129,14 @@ data TxnOffsetCommitRequestTopic = TxnOffsetCommitRequestTopic
 
   -- | The topic name.
 
-  -- Versions: 0+
+  -- Versions: 0-5
   txnOffsetCommitRequestTopicName :: !(KafkaString)
+,
+
+  -- | The topic ID.
+
+  -- Versions: 6+
+  txnOffsetCommitRequestTopicTopicId :: !(KafkaUuid)
 ,
 
   -- | The partitions inside the topic that we want to commit offsets for.
@@ -138,7 +152,10 @@ data TxnOffsetCommitRequestTopic = TxnOffsetCommitRequestTopic
 encodeTxnOffsetCommitRequestTopic :: MonadPut m => E.ApiVersion -> TxnOffsetCommitRequestTopic -> m ()
 encodeTxnOffsetCommitRequestTopic version tmsg =
   do
-    if version >= 3 then serialize (toCompactString (txnOffsetCommitRequestTopicName tmsg)) else serialize (txnOffsetCommitRequestTopicName tmsg)
+    when (version >= 0 && version <= 5) $
+      if version >= 3 then serialize (toCompactString (txnOffsetCommitRequestTopicName tmsg)) else serialize (txnOffsetCommitRequestTopicName tmsg)
+    when (version >= 6) $
+      serialize (txnOffsetCommitRequestTopicTopicId tmsg)
     E.encodeVersionedArray version 3 encodeTxnOffsetCommitRequestPartition (case P.unKafkaArray (txnOffsetCommitRequestTopicPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
     when (version >= 3) $ serialize (emptyTaggedFields :: TaggedFields)
 
@@ -147,12 +164,19 @@ encodeTxnOffsetCommitRequestTopic version tmsg =
 decodeTxnOffsetCommitRequestTopic :: MonadGet m => E.ApiVersion -> m TxnOffsetCommitRequestTopic
 decodeTxnOffsetCommitRequestTopic version =
   do
-    fieldname <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
+    fieldname <- if version >= 0 && version <= 5
+      then if version >= 3 then P.fromCompactString <$> deserialize else deserialize
+      else pure (P.KafkaString Null)
+    fieldtopicid <- if version >= 6
+      then deserialize
+      else pure (P.nullUuid)
     fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 decodeTxnOffsetCommitRequestPartition
     _ <- if version >= 3 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
     pure TxnOffsetCommitRequestTopic
       {
       txnOffsetCommitRequestTopicName = fieldname
+      ,
+      txnOffsetCommitRequestTopicTopicId = fieldtopicid
       ,
       txnOffsetCommitRequestTopicPartitions = fieldpartitions
       }
@@ -186,10 +210,10 @@ data TxnOffsetCommitRequest = TxnOffsetCommitRequest
   txnOffsetCommitRequestProducerEpoch :: !(Int16)
 ,
 
-  -- | The generation of the consumer.
+  -- | The generation of the group if using the classic group protocol or the member epoch if using the con
 
   -- Versions: 3+
-  txnOffsetCommitRequestGenerationId :: !(Int32)
+  txnOffsetCommitRequestGenerationIdOrMemberEpoch :: !(Int32)
 ,
 
   -- | The member ID assigned by the group coordinator.
@@ -214,7 +238,14 @@ data TxnOffsetCommitRequest = TxnOffsetCommitRequest
 
 -- | Maximum supported version for TxnOffsetCommitRequest.
 maxTxnOffsetCommitRequestVersion :: Int16
-maxTxnOffsetCommitRequestVersion = 5
+maxTxnOffsetCommitRequestVersion = 6
+
+-- | KafkaMessage instance for TxnOffsetCommitRequest.
+instance KafkaMessage TxnOffsetCommitRequest where
+  messageApiKey = 28
+  messageMinVersion = 0
+  messageMaxVersion = 6
+  messageFlexibleVersion = Just 3
 
 -- | Encode TxnOffsetCommitRequest with the given API version.
 encodeTxnOffsetCommitRequest :: MonadPut m => E.ApiVersion -> TxnOffsetCommitRequest -> m ()
@@ -228,13 +259,13 @@ encodeTxnOffsetCommitRequest version msg
       E.encodeVersionedArray version 3 encodeTxnOffsetCommitRequestTopic (case P.unKafkaArray (txnOffsetCommitRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
 
 
-  | version >= 3 && version <= 5 =
+  | version >= 3 && version <= 6 =
     do
       serialize (toCompactString (txnOffsetCommitRequestTransactionalId msg))
       serialize (toCompactString (txnOffsetCommitRequestGroupId msg))
       serialize (txnOffsetCommitRequestProducerId msg)
       serialize (txnOffsetCommitRequestProducerEpoch msg)
-      serialize (txnOffsetCommitRequestGenerationId msg)
+      serialize (txnOffsetCommitRequestGenerationIdOrMemberEpoch msg)
       serialize (toCompactString (txnOffsetCommitRequestMemberId msg))
       serialize (toCompactString (txnOffsetCommitRequestGroupInstanceId msg))
       E.encodeVersionedArray version 3 encodeTxnOffsetCommitRequestTopic (case P.unKafkaArray (txnOffsetCommitRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
@@ -261,7 +292,7 @@ decodeTxnOffsetCommitRequest version
         ,
         txnOffsetCommitRequestProducerEpoch = fieldproducerepoch
         ,
-        txnOffsetCommitRequestGenerationId = (-1)
+        txnOffsetCommitRequestGenerationIdOrMemberEpoch = (-1)
         ,
         txnOffsetCommitRequestMemberId = P.KafkaString Null
         ,
@@ -270,13 +301,13 @@ decodeTxnOffsetCommitRequest version
         txnOffsetCommitRequestTopics = fieldtopics
         }
 
-  | version >= 3 && version <= 5 =
+  | version >= 3 && version <= 6 =
     do
       fieldtransactionalid <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
       fieldgroupid <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
       fieldproducerid <- deserialize
       fieldproducerepoch <- deserialize
-      fieldgenerationid <- deserialize
+      fieldgenerationidormemberepoch <- deserialize
       fieldmemberid <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
       fieldgroupinstanceid <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
       fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 decodeTxnOffsetCommitRequestTopic
@@ -291,7 +322,7 @@ decodeTxnOffsetCommitRequest version
         ,
         txnOffsetCommitRequestProducerEpoch = fieldproducerepoch
         ,
-        txnOffsetCommitRequestGenerationId = fieldgenerationid
+        txnOffsetCommitRequestGenerationIdOrMemberEpoch = fieldgenerationidormemberepoch
         ,
         txnOffsetCommitRequestMemberId = fieldmemberid
         ,
@@ -301,16 +332,133 @@ decodeTxnOffsetCommitRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeTxnOffsetCommitRequest' / 'decodeTxnOffsetCommitRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a TxnOffsetCommitRequestPartition.
+wireMaxSizeTxnOffsetCommitRequestPartition :: Int -> TxnOffsetCommitRequestPartition -> Int
+wireMaxSizeTxnOffsetCommitRequestPartition _version msg =
+  0
+  + 4
+  + 8
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitRequestPartitionCommittedMetadata msg))
+  + 1
+
+-- | Direct-poke encoder for TxnOffsetCommitRequestPartition.
+wirePokeTxnOffsetCommitRequestPartition :: Int -> Ptr Word8 -> TxnOffsetCommitRequestPartition -> IO (Ptr Word8)
+wirePokeTxnOffsetCommitRequestPartition version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (txnOffsetCommitRequestPartitionPartitionIndex msg)
+  p2 <- W.pokeInt64BE p1 (txnOffsetCommitRequestPartitionCommittedOffset msg)
+  p3 <- W.pokeInt32BE p2 (txnOffsetCommitRequestPartitionCommittedLeaderEpoch msg)
+  p4 <- WP.pokeCompactString p3 (P.toCompactString (txnOffsetCommitRequestPartitionCommittedMetadata msg))
+  if version >= 3 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for TxnOffsetCommitRequestPartition.
+wirePeekTxnOffsetCommitRequestPartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TxnOffsetCommitRequestPartition, Ptr Word8)
+wirePeekTxnOffsetCommitRequestPartition version _fp _basePtr p0 endPtr = do
+  (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_committedoffset, p2) <- W.peekInt64BE p1 endPtr
+  (f2_committedleaderepoch, p3) <- W.peekInt32BE p2 endPtr
+  (f3_committedmetadata, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (TxnOffsetCommitRequestPartition { txnOffsetCommitRequestPartitionPartitionIndex = f0_partitionindex, txnOffsetCommitRequestPartitionCommittedOffset = f1_committedoffset, txnOffsetCommitRequestPartitionCommittedLeaderEpoch = f2_committedleaderepoch, txnOffsetCommitRequestPartitionCommittedMetadata = f3_committedmetadata }, pTagsEnd)
+
+-- | Worst-case wire size of a TxnOffsetCommitRequestTopic.
+wireMaxSizeTxnOffsetCommitRequestTopic :: Int -> TxnOffsetCommitRequestTopic -> Int
+wireMaxSizeTxnOffsetCommitRequestTopic _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitRequestTopicName msg))
+  + 16
+  + (5 + (case P.unKafkaArray (txnOffsetCommitRequestTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTxnOffsetCommitRequestPartition _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TxnOffsetCommitRequestTopic.
+wirePokeTxnOffsetCommitRequestTopic :: Int -> Ptr Word8 -> TxnOffsetCommitRequestTopic -> IO (Ptr Word8)
+wirePokeTxnOffsetCommitRequestTopic version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (txnOffsetCommitRequestTopicName msg))
+  p2 <- WP.pokeKafkaUuid p1 (txnOffsetCommitRequestTopicTopicId msg)
+  p3 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeTxnOffsetCommitRequestPartition version p x) p2 (txnOffsetCommitRequestTopicPartitions msg)
+  if version >= 3 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for TxnOffsetCommitRequestTopic.
+wirePeekTxnOffsetCommitRequestTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TxnOffsetCommitRequestTopic, Ptr Word8)
+wirePeekTxnOffsetCommitRequestTopic version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_topicid, p2) <- WP.peekKafkaUuid p1 endPtr
+  (f2_partitions, p3) <- WP.peekVersionedArray version 3 (\p e -> wirePeekTxnOffsetCommitRequestPartition version _fp _basePtr p e) p2 endPtr
+  pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (TxnOffsetCommitRequestTopic { txnOffsetCommitRequestTopicName = f0_name, txnOffsetCommitRequestTopicTopicId = f1_topicid, txnOffsetCommitRequestTopicPartitions = f2_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a TxnOffsetCommitRequest.
+wireMaxSizeTxnOffsetCommitRequest :: Int -> TxnOffsetCommitRequest -> Int
+wireMaxSizeTxnOffsetCommitRequest _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitRequestTransactionalId msg))
+  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitRequestGroupId msg))
+  + 8
+  + 2
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitRequestMemberId msg))
+  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitRequestGroupInstanceId msg))
+  + (5 + (case P.unKafkaArray (txnOffsetCommitRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTxnOffsetCommitRequestTopic _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TxnOffsetCommitRequest.
+wirePokeTxnOffsetCommitRequest :: Int -> Ptr Word8 -> TxnOffsetCommitRequest -> IO (Ptr Word8)
+wirePokeTxnOffsetCommitRequest version basePtr msg
+  | version >= 0 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactString p0 (P.toCompactString (txnOffsetCommitRequestTransactionalId msg))
+    p2 <- WP.pokeCompactString p1 (P.toCompactString (txnOffsetCommitRequestGroupId msg))
+    p3 <- W.pokeInt64BE p2 (txnOffsetCommitRequestProducerId msg)
+    p4 <- W.pokeInt16BE p3 (txnOffsetCommitRequestProducerEpoch msg)
+    p5 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeTxnOffsetCommitRequestTopic version p x) p4 (txnOffsetCommitRequestTopics msg)
+    pure p5
+  | version >= 3 && version <= 6 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactString p0 (P.toCompactString (txnOffsetCommitRequestTransactionalId msg))
+    p2 <- WP.pokeCompactString p1 (P.toCompactString (txnOffsetCommitRequestGroupId msg))
+    p3 <- W.pokeInt64BE p2 (txnOffsetCommitRequestProducerId msg)
+    p4 <- W.pokeInt16BE p3 (txnOffsetCommitRequestProducerEpoch msg)
+    p5 <- W.pokeInt32BE p4 (txnOffsetCommitRequestGenerationIdOrMemberEpoch msg)
+    p6 <- WP.pokeCompactString p5 (P.toCompactString (txnOffsetCommitRequestMemberId msg))
+    p7 <- WP.pokeCompactString p6 (P.toCompactString (txnOffsetCommitRequestGroupInstanceId msg))
+    p8 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeTxnOffsetCommitRequestTopic version p x) p7 (txnOffsetCommitRequestTopics msg)
+    WP.pokeEmptyTaggedFields p8
+  | otherwise = error $ "wirePoke TxnOffsetCommitRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for TxnOffsetCommitRequest.
+wirePeekTxnOffsetCommitRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TxnOffsetCommitRequest, Ptr Word8)
+wirePeekTxnOffsetCommitRequest version _fp _basePtr p0 endPtr
+  | version >= 0 && version <= 2 = do
+    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f1_groupid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f2_producerid, p3) <- W.peekInt64BE p2 endPtr
+    (f3_producerepoch, p4) <- W.peekInt16BE p3 endPtr
+    (f4_topics, p5) <- WP.peekVersionedArray version 3 (\p e -> wirePeekTxnOffsetCommitRequestTopic version _fp _basePtr p e) p4 endPtr
+    pure (TxnOffsetCommitRequest { txnOffsetCommitRequestTransactionalId = f0_transactionalid, txnOffsetCommitRequestGroupId = f1_groupid, txnOffsetCommitRequestProducerId = f2_producerid, txnOffsetCommitRequestProducerEpoch = f3_producerepoch, txnOffsetCommitRequestGenerationIdOrMemberEpoch = 0, txnOffsetCommitRequestMemberId = P.KafkaString Null, txnOffsetCommitRequestGroupInstanceId = P.KafkaString Null, txnOffsetCommitRequestTopics = f4_topics }, p5)
+  | version >= 3 && version <= 6 = do
+    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f1_groupid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f2_producerid, p3) <- W.peekInt64BE p2 endPtr
+    (f3_producerepoch, p4) <- W.peekInt16BE p3 endPtr
+    (f4_generationidormemberepoch, p5) <- W.peekInt32BE p4 endPtr
+    (f5_memberid, p6) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr
+    (f6_groupinstanceid, p7) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p6 endPtr
+    (f7_topics, p8) <- WP.peekVersionedArray version 3 (\p e -> wirePeekTxnOffsetCommitRequestTopic version _fp _basePtr p e) p7 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p8 endPtr
+    pure (TxnOffsetCommitRequest { txnOffsetCommitRequestTransactionalId = f0_transactionalid, txnOffsetCommitRequestGroupId = f1_groupid, txnOffsetCommitRequestProducerId = f2_producerid, txnOffsetCommitRequestProducerEpoch = f3_producerepoch, txnOffsetCommitRequestGenerationIdOrMemberEpoch = f4_generationidormemberepoch, txnOffsetCommitRequestMemberId = f5_memberid, txnOffsetCommitRequestGroupInstanceId = f6_groupinstanceid, txnOffsetCommitRequestTopics = f7_topics }, pTagsEnd)
+  | otherwise = error $ "wirePeek TxnOffsetCommitRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec TxnOffsetCommitRequest where
-  wireCodec = Just (WC.serialShimCodec encodeTxnOffsetCommitRequest decodeTxnOffsetCommitRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeTxnOffsetCommitRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeTxnOffsetCommitRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekTxnOffsetCommitRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

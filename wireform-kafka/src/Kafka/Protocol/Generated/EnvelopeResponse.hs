@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.EnvelopeResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -69,6 +77,13 @@ data EnvelopeResponse = EnvelopeResponse
 -- | Maximum supported version for EnvelopeResponse.
 maxEnvelopeResponseVersion :: Int16
 maxEnvelopeResponseVersion = 0
+
+-- | KafkaMessage instance for EnvelopeResponse.
+instance KafkaMessage EnvelopeResponse where
+  messageApiKey = 58
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
 
 -- | Encode EnvelopeResponse with the given API version.
 encodeEnvelopeResponse :: MonadPut m => E.ApiVersion -> EnvelopeResponse -> m ()
@@ -96,16 +111,44 @@ decodeEnvelopeResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeEnvelopeResponse' / 'decodeEnvelopeResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a EnvelopeResponse.
+wireMaxSizeEnvelopeResponse :: Int -> EnvelopeResponse -> Int
+wireMaxSizeEnvelopeResponse _version msg =
+  0
+  + WP.compactBytesMaxSize (P.toCompactBytes (envelopeResponseResponseData msg))
+  + 2
+  + 1
+
+-- | Direct-poke encoder for EnvelopeResponse.
+wirePokeEnvelopeResponse :: Int -> Ptr Word8 -> EnvelopeResponse -> IO (Ptr Word8)
+wirePokeEnvelopeResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactBytes p0 (P.toCompactBytes (envelopeResponseResponseData msg))
+    p2 <- W.pokeInt16BE p1 (envelopeResponseErrorCode msg)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke EnvelopeResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for EnvelopeResponse.
+wirePeekEnvelopeResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EnvelopeResponse, Ptr Word8)
+wirePeekEnvelopeResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_responsedata, p1) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (EnvelopeResponse { envelopeResponseResponseData = f0_responsedata, envelopeResponseErrorCode = f1_errorcode }, pTagsEnd)
+  | otherwise = error $ "wirePeek EnvelopeResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec EnvelopeResponse where
-  wireCodec = Just (WC.serialShimCodec encodeEnvelopeResponse decodeEnvelopeResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeEnvelopeResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeEnvelopeResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekEnvelopeResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

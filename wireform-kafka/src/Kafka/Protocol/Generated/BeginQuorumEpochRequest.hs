@@ -30,7 +30,9 @@ module Kafka.Protocol.Generated.BeginQuorumEpochRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,7 +49,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The partitions.
@@ -255,6 +263,13 @@ data BeginQuorumEpochRequest = BeginQuorumEpochRequest
 maxBeginQuorumEpochRequestVersion :: Int16
 maxBeginQuorumEpochRequestVersion = 1
 
+-- | KafkaMessage instance for BeginQuorumEpochRequest.
+instance KafkaMessage BeginQuorumEpochRequest where
+  messageApiKey = 53
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 1
+
 -- | Encode BeginQuorumEpochRequest with the given API version.
 encodeBeginQuorumEpochRequest :: MonadPut m => E.ApiVersion -> BeginQuorumEpochRequest -> m ()
 encodeBeginQuorumEpochRequest version msg
@@ -310,16 +325,139 @@ decodeBeginQuorumEpochRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeBeginQuorumEpochRequest' / 'decodeBeginQuorumEpochRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a PartitionData.
+wireMaxSizePartitionData :: Int -> PartitionData -> Int
+wireMaxSizePartitionData _version msg =
+  0
+  + 4
+  + 16
+  + 4
+  + 4
+  + 1
+
+-- | Direct-poke encoder for PartitionData.
+wirePokePartitionData :: Int -> Ptr Word8 -> PartitionData -> IO (Ptr Word8)
+wirePokePartitionData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (partitionDataPartitionIndex msg)
+  p2 <- WP.pokeKafkaUuid p1 (partitionDataVoterDirectoryId msg)
+  p3 <- W.pokeInt32BE p2 (partitionDataLeaderId msg)
+  p4 <- W.pokeInt32BE p3 (partitionDataLeaderEpoch msg)
+  if version >= 1 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for PartitionData.
+wirePeekPartitionData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (PartitionData, Ptr Word8)
+wirePeekPartitionData version _fp _basePtr p0 endPtr = do
+  (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_voterdirectoryid, p2) <- WP.peekKafkaUuid p1 endPtr
+  (f2_leaderid, p3) <- W.peekInt32BE p2 endPtr
+  (f3_leaderepoch, p4) <- W.peekInt32BE p3 endPtr
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (PartitionData { partitionDataPartitionIndex = f0_partitionindex, partitionDataVoterDirectoryId = f1_voterdirectoryid, partitionDataLeaderId = f2_leaderid, partitionDataLeaderEpoch = f3_leaderepoch }, pTagsEnd)
+
+-- | Worst-case wire size of a TopicData.
+wireMaxSizeTopicData :: Int -> TopicData -> Int
+wireMaxSizeTopicData _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (topicDataTopicName msg))
+  + (5 + (case P.unKafkaArray (topicDataPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionData _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TopicData.
+wirePokeTopicData :: Int -> Ptr Word8 -> TopicData -> IO (Ptr Word8)
+wirePokeTopicData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicDataTopicName msg))
+  p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokePartitionData version p x) p1 (topicDataPartitions msg)
+  if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for TopicData.
+wirePeekTopicData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicData, Ptr Word8)
+wirePeekTopicData version _fp _basePtr p0 endPtr = do
+  (f0_topicname, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekPartitionData version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TopicData { topicDataTopicName = f0_topicname, topicDataPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a LeaderEndpoint.
+wireMaxSizeLeaderEndpoint :: Int -> LeaderEndpoint -> Int
+wireMaxSizeLeaderEndpoint _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (leaderEndpointName msg))
+  + WP.compactStringMaxSize (P.toCompactString (leaderEndpointHost msg))
+  + 2
+  + 1
+
+-- | Direct-poke encoder for LeaderEndpoint.
+wirePokeLeaderEndpoint :: Int -> Ptr Word8 -> LeaderEndpoint -> IO (Ptr Word8)
+wirePokeLeaderEndpoint version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (leaderEndpointName msg))
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (leaderEndpointHost msg))
+  p3 <- W.pokeWord16BE p2 (leaderEndpointPort msg)
+  if version >= 1 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for LeaderEndpoint.
+wirePeekLeaderEndpoint :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (LeaderEndpoint, Ptr Word8)
+wirePeekLeaderEndpoint version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_port, p3) <- W.peekWord16BE p2 endPtr
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (LeaderEndpoint { leaderEndpointName = f0_name, leaderEndpointHost = f1_host, leaderEndpointPort = f2_port }, pTagsEnd)
+
+-- | Worst-case wire size of a BeginQuorumEpochRequest.
+wireMaxSizeBeginQuorumEpochRequest :: Int -> BeginQuorumEpochRequest -> Int
+wireMaxSizeBeginQuorumEpochRequest _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (beginQuorumEpochRequestClusterId msg))
+  + 4
+  + (5 + (case P.unKafkaArray (beginQuorumEpochRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicData _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (beginQuorumEpochRequestLeaderEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeLeaderEndpoint _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for BeginQuorumEpochRequest.
+wirePokeBeginQuorumEpochRequest :: Int -> Ptr Word8 -> BeginQuorumEpochRequest -> IO (Ptr Word8)
+wirePokeBeginQuorumEpochRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactString p0 (P.toCompactString (beginQuorumEpochRequestClusterId msg))
+    p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeTopicData version p x) p1 (beginQuorumEpochRequestTopics msg)
+    pure p2
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactString p0 (P.toCompactString (beginQuorumEpochRequestClusterId msg))
+    p2 <- W.pokeInt32BE p1 (beginQuorumEpochRequestVoterId msg)
+    p3 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeTopicData version p x) p2 (beginQuorumEpochRequestTopics msg)
+    p4 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeLeaderEndpoint version p x) p3 (beginQuorumEpochRequestLeaderEndpoints msg)
+    WP.pokeEmptyTaggedFields p4
+  | otherwise = error $ "wirePoke BeginQuorumEpochRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for BeginQuorumEpochRequest.
+wirePeekBeginQuorumEpochRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (BeginQuorumEpochRequest, Ptr Word8)
+wirePeekBeginQuorumEpochRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_clusterid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f1_topics, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
+    pure (BeginQuorumEpochRequest { beginQuorumEpochRequestClusterId = f0_clusterid, beginQuorumEpochRequestVoterId = 0, beginQuorumEpochRequestTopics = f1_topics, beginQuorumEpochRequestLeaderEndpoints = P.mkKafkaArray V.empty }, p2)
+  | version == 1 = do
+    (f0_clusterid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f1_voterid, p2) <- W.peekInt32BE p1 endPtr
+    (f2_topics, p3) <- WP.peekVersionedArray version 1 (\p e -> wirePeekTopicData version _fp _basePtr p e) p2 endPtr
+    (f3_leaderendpoints, p4) <- WP.peekVersionedArray version 1 (\p e -> wirePeekLeaderEndpoint version _fp _basePtr p e) p3 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (BeginQuorumEpochRequest { beginQuorumEpochRequestClusterId = f0_clusterid, beginQuorumEpochRequestVoterId = f1_voterid, beginQuorumEpochRequestTopics = f2_topics, beginQuorumEpochRequestLeaderEndpoints = f3_leaderendpoints }, pTagsEnd)
+  | otherwise = error $ "wirePeek BeginQuorumEpochRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec BeginQuorumEpochRequest where
-  wireCodec = Just (WC.serialShimCodec encodeBeginQuorumEpochRequest decodeBeginQuorumEpochRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeBeginQuorumEpochRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeBeginQuorumEpochRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekBeginQuorumEpochRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

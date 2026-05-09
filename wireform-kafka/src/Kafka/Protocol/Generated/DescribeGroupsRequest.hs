@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.DescribeGroupsRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -69,6 +77,13 @@ data DescribeGroupsRequest = DescribeGroupsRequest
 -- | Maximum supported version for DescribeGroupsRequest.
 maxDescribeGroupsRequestVersion :: Int16
 maxDescribeGroupsRequestVersion = 6
+
+-- | KafkaMessage instance for DescribeGroupsRequest.
+instance KafkaMessage DescribeGroupsRequest where
+  messageApiKey = 15
+  messageMinVersion = 0
+  messageMaxVersion = 6
+  messageFlexibleVersion = Just 5
 
 -- | Encode DescribeGroupsRequest with the given API version.
 encodeDescribeGroupsRequest :: MonadPut m => E.ApiVersion -> DescribeGroupsRequest -> m ()
@@ -128,16 +143,60 @@ decodeDescribeGroupsRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeGroupsRequest' / 'decodeDescribeGroupsRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a DescribeGroupsRequest.
+wireMaxSizeDescribeGroupsRequest :: Int -> DescribeGroupsRequest -> Int
+wireMaxSizeDescribeGroupsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (describeGroupsRequestGroups msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
+  + 1
+  + 1
+
+-- | Direct-poke encoder for DescribeGroupsRequest.
+wirePokeDescribeGroupsRequest :: Int -> Ptr Word8 -> DescribeGroupsRequest -> IO (Ptr Word8)
+wirePokeDescribeGroupsRequest version basePtr msg
+  | version >= 3 && version <= 4 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 5 (\p s -> if version >= 5 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (describeGroupsRequestGroups msg)
+    p2 <- W.pokeWord8 p1 (if (describeGroupsRequestIncludeAuthorizedOperations msg) then 1 else 0)
+    pure p2
+  | version >= 5 && version <= 6 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 5 (\p s -> if version >= 5 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (describeGroupsRequestGroups msg)
+    p2 <- W.pokeWord8 p1 (if (describeGroupsRequestIncludeAuthorizedOperations msg) then 1 else 0)
+    WP.pokeEmptyTaggedFields p2
+  | version >= 0 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 5 (\p s -> if version >= 5 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (describeGroupsRequestGroups msg)
+    pure p1
+  | otherwise = error $ "wirePoke DescribeGroupsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeGroupsRequest.
+wirePeekDescribeGroupsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeGroupsRequest, Ptr Word8)
+wirePeekDescribeGroupsRequest version _fp _basePtr p0 endPtr
+  | version >= 3 && version <= 4 = do
+    (f0_groups, p1) <- WP.peekVersionedArray version 5 (\p e -> if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
+    (f1_includeauthorizedoperations, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    pure (DescribeGroupsRequest { describeGroupsRequestGroups = f0_groups, describeGroupsRequestIncludeAuthorizedOperations = f1_includeauthorizedoperations }, p2)
+  | version >= 5 && version <= 6 = do
+    (f0_groups, p1) <- WP.peekVersionedArray version 5 (\p e -> if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
+    (f1_includeauthorizedoperations, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (DescribeGroupsRequest { describeGroupsRequestGroups = f0_groups, describeGroupsRequestIncludeAuthorizedOperations = f1_includeauthorizedoperations }, pTagsEnd)
+  | version >= 0 && version <= 2 = do
+    (f0_groups, p1) <- WP.peekVersionedArray version 5 (\p e -> if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
+    pure (DescribeGroupsRequest { describeGroupsRequestGroups = f0_groups, describeGroupsRequestIncludeAuthorizedOperations = False }, p1)
+  | otherwise = error $ "wirePeek DescribeGroupsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeGroupsRequest where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeGroupsRequest decodeDescribeGroupsRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeGroupsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeGroupsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeGroupsRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

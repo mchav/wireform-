@@ -30,7 +30,9 @@ module Kafka.Protocol.Generated.DescribeProducersResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,7 +49,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The active producers for the partition.
@@ -261,6 +269,13 @@ data DescribeProducersResponse = DescribeProducersResponse
 maxDescribeProducersResponseVersion :: Int16
 maxDescribeProducersResponseVersion = 0
 
+-- | KafkaMessage instance for DescribeProducersResponse.
+instance KafkaMessage DescribeProducersResponse where
+  messageApiKey = 61
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
+
 -- | Encode DescribeProducersResponse with the given API version.
 encodeDescribeProducersResponse :: MonadPut m => E.ApiVersion -> DescribeProducersResponse -> m ()
 encodeDescribeProducersResponse version msg
@@ -287,16 +302,133 @@ decodeDescribeProducersResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeProducersResponse' / 'decodeDescribeProducersResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a ProducerState.
+wireMaxSizeProducerState :: Int -> ProducerState -> Int
+wireMaxSizeProducerState _version msg =
+  0
+  + 8
+  + 4
+  + 4
+  + 8
+  + 4
+  + 8
+  + 1
+
+-- | Direct-poke encoder for ProducerState.
+wirePokeProducerState :: Int -> Ptr Word8 -> ProducerState -> IO (Ptr Word8)
+wirePokeProducerState version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt64BE p0 (producerStateProducerId msg)
+  p2 <- W.pokeInt32BE p1 (producerStateProducerEpoch msg)
+  p3 <- W.pokeInt32BE p2 (producerStateLastSequence msg)
+  p4 <- W.pokeInt64BE p3 (producerStateLastTimestamp msg)
+  p5 <- W.pokeInt32BE p4 (producerStateCoordinatorEpoch msg)
+  p6 <- W.pokeInt64BE p5 (producerStateCurrentTxnStartOffset msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p6 else pure p6
+
+-- | Direct-poke decoder for ProducerState.
+wirePeekProducerState :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ProducerState, Ptr Word8)
+wirePeekProducerState version _fp _basePtr p0 endPtr = do
+  (f0_producerid, p1) <- W.peekInt64BE p0 endPtr
+  (f1_producerepoch, p2) <- W.peekInt32BE p1 endPtr
+  (f2_lastsequence, p3) <- W.peekInt32BE p2 endPtr
+  (f3_lasttimestamp, p4) <- W.peekInt64BE p3 endPtr
+  (f4_coordinatorepoch, p5) <- W.peekInt32BE p4 endPtr
+  (f5_currenttxnstartoffset, p6) <- W.peekInt64BE p5 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
+  pure (ProducerState { producerStateProducerId = f0_producerid, producerStateProducerEpoch = f1_producerepoch, producerStateLastSequence = f2_lastsequence, producerStateLastTimestamp = f3_lasttimestamp, producerStateCoordinatorEpoch = f4_coordinatorepoch, producerStateCurrentTxnStartOffset = f5_currenttxnstartoffset }, pTagsEnd)
+
+-- | Worst-case wire size of a PartitionResponse.
+wireMaxSizePartitionResponse :: Int -> PartitionResponse -> Int
+wireMaxSizePartitionResponse _version msg =
+  0
+  + 4
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (partitionResponseErrorMessage msg))
+  + (5 + (case P.unKafkaArray (partitionResponseActiveProducers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeProducerState _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for PartitionResponse.
+wirePokePartitionResponse :: Int -> Ptr Word8 -> PartitionResponse -> IO (Ptr Word8)
+wirePokePartitionResponse version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (partitionResponsePartitionIndex msg)
+  p2 <- W.pokeInt16BE p1 (partitionResponseErrorCode msg)
+  p3 <- WP.pokeCompactString p2 (P.toCompactString (partitionResponseErrorMessage msg))
+  p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeProducerState version p x) p3 (partitionResponseActiveProducers msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for PartitionResponse.
+wirePeekPartitionResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (PartitionResponse, Ptr Word8)
+wirePeekPartitionResponse version _fp _basePtr p0 endPtr = do
+  (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f3_activeproducers, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekProducerState version _fp _basePtr p e) p3 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (PartitionResponse { partitionResponsePartitionIndex = f0_partitionindex, partitionResponseErrorCode = f1_errorcode, partitionResponseErrorMessage = f2_errormessage, partitionResponseActiveProducers = f3_activeproducers }, pTagsEnd)
+
+-- | Worst-case wire size of a TopicResponse.
+wireMaxSizeTopicResponse :: Int -> TopicResponse -> Int
+wireMaxSizeTopicResponse _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (topicResponseName msg))
+  + (5 + (case P.unKafkaArray (topicResponsePartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionResponse _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TopicResponse.
+wirePokeTopicResponse :: Int -> Ptr Word8 -> TopicResponse -> IO (Ptr Word8)
+wirePokeTopicResponse version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicResponseName msg))
+  p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokePartitionResponse version p x) p1 (topicResponsePartitions msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for TopicResponse.
+wirePeekTopicResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicResponse, Ptr Word8)
+wirePeekTopicResponse version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekPartitionResponse version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TopicResponse { topicResponseName = f0_name, topicResponsePartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeProducersResponse.
+wireMaxSizeDescribeProducersResponse :: Int -> DescribeProducersResponse -> Int
+wireMaxSizeDescribeProducersResponse _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (describeProducersResponseTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicResponse _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeProducersResponse.
+wirePokeDescribeProducersResponse :: Int -> Ptr Word8 -> DescribeProducersResponse -> IO (Ptr Word8)
+wirePokeDescribeProducersResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeProducersResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicResponse version p x) p1 (describeProducersResponseTopics msg)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke DescribeProducersResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeProducersResponse.
+wirePeekDescribeProducersResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeProducersResponse, Ptr Word8)
+wirePeekDescribeProducersResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicResponse version _fp _basePtr p e) p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (DescribeProducersResponse { describeProducersResponseThrottleTimeMs = f0_throttletimems, describeProducersResponseTopics = f1_topics }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeProducersResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeProducersResponse where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeProducersResponse decodeDescribeProducersResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeProducersResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeProducersResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeProducersResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

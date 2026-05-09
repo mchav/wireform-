@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.DescribeClusterRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -75,6 +83,13 @@ data DescribeClusterRequest = DescribeClusterRequest
 -- | Maximum supported version for DescribeClusterRequest.
 maxDescribeClusterRequestVersion :: Int16
 maxDescribeClusterRequestVersion = 2
+
+-- | KafkaMessage instance for DescribeClusterRequest.
+instance KafkaMessage DescribeClusterRequest where
+  messageApiKey = 60
+  messageMinVersion = 0
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 0
 
 -- | Encode DescribeClusterRequest with the given API version.
 encodeDescribeClusterRequest :: MonadPut m => E.ApiVersion -> DescribeClusterRequest -> m ()
@@ -144,16 +159,65 @@ decodeDescribeClusterRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeClusterRequest' / 'decodeDescribeClusterRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a DescribeClusterRequest.
+wireMaxSizeDescribeClusterRequest :: Int -> DescribeClusterRequest -> Int
+wireMaxSizeDescribeClusterRequest _version msg =
+  0
+  + 1
+  + 1
+  + 1
+  + 1
+
+-- | Direct-poke encoder for DescribeClusterRequest.
+wirePokeDescribeClusterRequest :: Int -> Ptr Word8 -> DescribeClusterRequest -> IO (Ptr Word8)
+wirePokeDescribeClusterRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeWord8 p0 (if (describeClusterRequestIncludeClusterAuthorizedOperations msg) then 1 else 0)
+    WP.pokeEmptyTaggedFields p1
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeWord8 p0 (if (describeClusterRequestIncludeClusterAuthorizedOperations msg) then 1 else 0)
+    p2 <- W.pokeWord8 p1 (fromIntegral (describeClusterRequestEndpointType msg))
+    WP.pokeEmptyTaggedFields p2
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeWord8 p0 (if (describeClusterRequestIncludeClusterAuthorizedOperations msg) then 1 else 0)
+    p2 <- W.pokeWord8 p1 (fromIntegral (describeClusterRequestEndpointType msg))
+    p3 <- W.pokeWord8 p2 (if (describeClusterRequestIncludeFencedBrokers msg) then 1 else 0)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke DescribeClusterRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeClusterRequest.
+wirePeekDescribeClusterRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeClusterRequest, Ptr Word8)
+wirePeekDescribeClusterRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_includeclusterauthorizedoperations, p1) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (DescribeClusterRequest { describeClusterRequestIncludeClusterAuthorizedOperations = f0_includeclusterauthorizedoperations, describeClusterRequestEndpointType = 0, describeClusterRequestIncludeFencedBrokers = False }, pTagsEnd)
+  | version == 1 = do
+    (f0_includeclusterauthorizedoperations, p1) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p0 endPtr
+    (f1_endpointtype, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (DescribeClusterRequest { describeClusterRequestIncludeClusterAuthorizedOperations = f0_includeclusterauthorizedoperations, describeClusterRequestEndpointType = f1_endpointtype, describeClusterRequestIncludeFencedBrokers = False }, pTagsEnd)
+  | version == 2 = do
+    (f0_includeclusterauthorizedoperations, p1) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p0 endPtr
+    (f1_endpointtype, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+    (f2_includefencedbrokers, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (DescribeClusterRequest { describeClusterRequestIncludeClusterAuthorizedOperations = f0_includeclusterauthorizedoperations, describeClusterRequestEndpointType = f1_endpointtype, describeClusterRequestIncludeFencedBrokers = f2_includefencedbrokers }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeClusterRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeClusterRequest where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeClusterRequest decodeDescribeClusterRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeClusterRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeClusterRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeClusterRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

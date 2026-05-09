@@ -51,6 +51,11 @@ import Kafka.Protocol.Primitives
 import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | A list of brokers present in the cluster.
@@ -638,16 +643,260 @@ decodeMetadataResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeMetadataResponse' / 'decodeMetadataResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a MetadataResponseBroker.
+wireMaxSizeMetadataResponseBroker :: Int -> MetadataResponseBroker -> Int
+wireMaxSizeMetadataResponseBroker _version msg =
+  0
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (metadataResponseBrokerHost msg))
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (metadataResponseBrokerRack msg))
+  + 1
+
+-- | Direct-poke encoder for MetadataResponseBroker.
+wirePokeMetadataResponseBroker :: Int -> Ptr Word8 -> MetadataResponseBroker -> IO (Ptr Word8)
+wirePokeMetadataResponseBroker version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (metadataResponseBrokerNodeId msg)
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (metadataResponseBrokerHost msg))
+  p3 <- W.pokeInt32BE p2 (metadataResponseBrokerPort msg)
+  p4 <- WP.pokeCompactString p3 (P.toCompactString (metadataResponseBrokerRack msg))
+  if version >= 9 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for MetadataResponseBroker.
+wirePeekMetadataResponseBroker :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (MetadataResponseBroker, Ptr Word8)
+wirePeekMetadataResponseBroker version _fp _basePtr p0 endPtr = do
+  (f0_nodeid, p1) <- W.peekInt32BE p0 endPtr
+  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_port, p3) <- W.peekInt32BE p2 endPtr
+  (f3_rack, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  pTagsEnd <- if version >= 9 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (MetadataResponseBroker { metadataResponseBrokerNodeId = f0_nodeid, metadataResponseBrokerHost = f1_host, metadataResponseBrokerPort = f2_port, metadataResponseBrokerRack = f3_rack }, pTagsEnd)
+
+-- | Worst-case wire size of a MetadataResponsePartition.
+wireMaxSizeMetadataResponsePartition :: Int -> MetadataResponsePartition -> Int
+wireMaxSizeMetadataResponsePartition _version msg =
+  0
+  + 2
+  + 4
+  + 4
+  + 4
+  + (5 + (case P.unKafkaArray (metadataResponsePartitionReplicaNodes msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (metadataResponsePartitionIsrNodes msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (metadataResponsePartitionOfflineReplicas msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for MetadataResponsePartition.
+wirePokeMetadataResponsePartition :: Int -> Ptr Word8 -> MetadataResponsePartition -> IO (Ptr Word8)
+wirePokeMetadataResponsePartition version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt16BE p0 (metadataResponsePartitionErrorCode msg)
+  p2 <- W.pokeInt32BE p1 (metadataResponsePartitionPartitionIndex msg)
+  p3 <- W.pokeInt32BE p2 (metadataResponsePartitionLeaderId msg)
+  p4 <- W.pokeInt32BE p3 (metadataResponsePartitionLeaderEpoch msg)
+  p5 <- WP.pokeVersionedArray version 9 W.pokeInt32BE p4 (metadataResponsePartitionReplicaNodes msg)
+  p6 <- WP.pokeVersionedArray version 9 W.pokeInt32BE p5 (metadataResponsePartitionIsrNodes msg)
+  p7 <- WP.pokeVersionedArray version 9 W.pokeInt32BE p6 (metadataResponsePartitionOfflineReplicas msg)
+  if version >= 9 then WP.pokeEmptyTaggedFields p7 else pure p7
+
+-- | Direct-poke decoder for MetadataResponsePartition.
+wirePeekMetadataResponsePartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (MetadataResponsePartition, Ptr Word8)
+wirePeekMetadataResponsePartition version _fp _basePtr p0 endPtr = do
+  (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+  (f1_partitionindex, p2) <- W.peekInt32BE p1 endPtr
+  (f2_leaderid, p3) <- W.peekInt32BE p2 endPtr
+  (f3_leaderepoch, p4) <- W.peekInt32BE p3 endPtr
+  (f4_replicanodes, p5) <- WP.peekVersionedArray version 9 W.peekInt32BE p4 endPtr
+  (f5_isrnodes, p6) <- WP.peekVersionedArray version 9 W.peekInt32BE p5 endPtr
+  (f6_offlinereplicas, p7) <- WP.peekVersionedArray version 9 W.peekInt32BE p6 endPtr
+  pTagsEnd <- if version >= 9 then WP.peekAndSkipTaggedFields p7 endPtr else pure p7
+  pure (MetadataResponsePartition { metadataResponsePartitionErrorCode = f0_errorcode, metadataResponsePartitionPartitionIndex = f1_partitionindex, metadataResponsePartitionLeaderId = f2_leaderid, metadataResponsePartitionLeaderEpoch = f3_leaderepoch, metadataResponsePartitionReplicaNodes = f4_replicanodes, metadataResponsePartitionIsrNodes = f5_isrnodes, metadataResponsePartitionOfflineReplicas = f6_offlinereplicas }, pTagsEnd)
+
+-- | Worst-case wire size of a MetadataResponseTopic.
+wireMaxSizeMetadataResponseTopic :: Int -> MetadataResponseTopic -> Int
+wireMaxSizeMetadataResponseTopic _version msg =
+  0
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (metadataResponseTopicName msg))
+  + 16
+  + 1
+  + (5 + (case P.unKafkaArray (metadataResponseTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeMetadataResponsePartition _version x ) v); P.Null -> 0 }))
+  + 4
+  + 1
+
+-- | Direct-poke encoder for MetadataResponseTopic.
+wirePokeMetadataResponseTopic :: Int -> Ptr Word8 -> MetadataResponseTopic -> IO (Ptr Word8)
+wirePokeMetadataResponseTopic version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt16BE p0 (metadataResponseTopicErrorCode msg)
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (metadataResponseTopicName msg))
+  p3 <- WP.pokeKafkaUuid p2 (metadataResponseTopicTopicId msg)
+  p4 <- W.pokeWord8 p3 (if (metadataResponseTopicIsInternal msg) then 1 else 0)
+  p5 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponsePartition version p x) p4 (metadataResponseTopicPartitions msg)
+  p6 <- W.pokeInt32BE p5 (metadataResponseTopicTopicAuthorizedOperations msg)
+  if version >= 9 then WP.pokeEmptyTaggedFields p6 else pure p6
+
+-- | Direct-poke decoder for MetadataResponseTopic.
+wirePeekMetadataResponseTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (MetadataResponseTopic, Ptr Word8)
+wirePeekMetadataResponseTopic version _fp _basePtr p0 endPtr = do
+  (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+  (f1_name, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_topicid, p3) <- WP.peekKafkaUuid p2 endPtr
+  (f3_isinternal, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+  (f4_partitions, p5) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponsePartition version _fp _basePtr p e) p4 endPtr
+  (f5_topicauthorizedoperations, p6) <- W.peekInt32BE p5 endPtr
+  pTagsEnd <- if version >= 9 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
+  pure (MetadataResponseTopic { metadataResponseTopicErrorCode = f0_errorcode, metadataResponseTopicName = f1_name, metadataResponseTopicTopicId = f2_topicid, metadataResponseTopicIsInternal = f3_isinternal, metadataResponseTopicPartitions = f4_partitions, metadataResponseTopicTopicAuthorizedOperations = f5_topicauthorizedoperations }, pTagsEnd)
+
+-- | Worst-case wire size of a MetadataResponse.
+wireMaxSizeMetadataResponse :: Int -> MetadataResponse -> Int
+wireMaxSizeMetadataResponse _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (metadataResponseBrokers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeMetadataResponseBroker _version x ) v); P.Null -> 0 }))
+  + WP.compactStringMaxSize (P.toCompactString (metadataResponseClusterId msg))
+  + 4
+  + (5 + (case P.unKafkaArray (metadataResponseTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeMetadataResponseTopic _version x ) v); P.Null -> 0 }))
+  + 4
+  + 2
+  + 1
+
+-- | Direct-poke encoder for MetadataResponse.
+wirePokeMetadataResponse :: Int -> Ptr Word8 -> MetadataResponse -> IO (Ptr Word8)
+wirePokeMetadataResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseBroker version p x) p0 (metadataResponseBrokers msg)
+    p2 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseTopic version p x) p1 (metadataResponseTopics msg)
+    pure p2
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseBroker version p x) p0 (metadataResponseBrokers msg)
+    p2 <- W.pokeInt32BE p1 (metadataResponseControllerId msg)
+    p3 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseTopic version p x) p2 (metadataResponseTopics msg)
+    pure p3
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseBroker version p x) p0 (metadataResponseBrokers msg)
+    p2 <- WP.pokeCompactString p1 (P.toCompactString (metadataResponseClusterId msg))
+    p3 <- W.pokeInt32BE p2 (metadataResponseControllerId msg)
+    p4 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseTopic version p x) p3 (metadataResponseTopics msg)
+    pure p4
+  | version == 8 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (metadataResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseBroker version p x) p1 (metadataResponseBrokers msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (metadataResponseClusterId msg))
+    p4 <- W.pokeInt32BE p3 (metadataResponseControllerId msg)
+    p5 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseTopic version p x) p4 (metadataResponseTopics msg)
+    p6 <- W.pokeInt32BE p5 (metadataResponseClusterAuthorizedOperations msg)
+    pure p6
+  | version == 13 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (metadataResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseBroker version p x) p1 (metadataResponseBrokers msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (metadataResponseClusterId msg))
+    p4 <- W.pokeInt32BE p3 (metadataResponseControllerId msg)
+    p5 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseTopic version p x) p4 (metadataResponseTopics msg)
+    p6 <- W.pokeInt16BE p5 (metadataResponseErrorCode msg)
+    WP.pokeEmptyTaggedFields p6
+  | version >= 9 && version <= 10 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (metadataResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseBroker version p x) p1 (metadataResponseBrokers msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (metadataResponseClusterId msg))
+    p4 <- W.pokeInt32BE p3 (metadataResponseControllerId msg)
+    p5 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseTopic version p x) p4 (metadataResponseTopics msg)
+    p6 <- W.pokeInt32BE p5 (metadataResponseClusterAuthorizedOperations msg)
+    WP.pokeEmptyTaggedFields p6
+  | version >= 11 && version <= 12 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (metadataResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseBroker version p x) p1 (metadataResponseBrokers msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (metadataResponseClusterId msg))
+    p4 <- W.pokeInt32BE p3 (metadataResponseControllerId msg)
+    p5 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseTopic version p x) p4 (metadataResponseTopics msg)
+    WP.pokeEmptyTaggedFields p5
+  | version >= 3 && version <= 7 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (metadataResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseBroker version p x) p1 (metadataResponseBrokers msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (metadataResponseClusterId msg))
+    p4 <- W.pokeInt32BE p3 (metadataResponseControllerId msg)
+    p5 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeMetadataResponseTopic version p x) p4 (metadataResponseTopics msg)
+    pure p5
+  | otherwise = error $ "wirePoke MetadataResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for MetadataResponse.
+wirePeekMetadataResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (MetadataResponse, Ptr Word8)
+wirePeekMetadataResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_brokers, p1) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p0 endPtr
+    (f1_topics, p2) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p1 endPtr
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = 0, metadataResponseBrokers = f0_brokers, metadataResponseClusterId = P.KafkaString Null, metadataResponseControllerId = 0, metadataResponseTopics = f1_topics, metadataResponseClusterAuthorizedOperations = 0, metadataResponseErrorCode = 0 }, p2)
+  | version == 1 = do
+    (f0_brokers, p1) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p0 endPtr
+    (f1_controllerid, p2) <- W.peekInt32BE p1 endPtr
+    (f2_topics, p3) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p2 endPtr
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = 0, metadataResponseBrokers = f0_brokers, metadataResponseClusterId = P.KafkaString Null, metadataResponseControllerId = f1_controllerid, metadataResponseTopics = f2_topics, metadataResponseClusterAuthorizedOperations = 0, metadataResponseErrorCode = 0 }, p3)
+  | version == 2 = do
+    (f0_brokers, p1) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p0 endPtr
+    (f1_clusterid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f2_controllerid, p3) <- W.peekInt32BE p2 endPtr
+    (f3_topics, p4) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p3 endPtr
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = 0, metadataResponseBrokers = f0_brokers, metadataResponseClusterId = f1_clusterid, metadataResponseControllerId = f2_controllerid, metadataResponseTopics = f3_topics, metadataResponseClusterAuthorizedOperations = 0, metadataResponseErrorCode = 0 }, p4)
+  | version == 8 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_brokers, p2) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p1 endPtr
+    (f2_clusterid, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_controllerid, p4) <- W.peekInt32BE p3 endPtr
+    (f4_topics, p5) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p4 endPtr
+    (f5_clusterauthorizedoperations, p6) <- W.peekInt32BE p5 endPtr
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = f5_clusterauthorizedoperations, metadataResponseErrorCode = 0 }, p6)
+  | version == 13 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_brokers, p2) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p1 endPtr
+    (f2_clusterid, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_controllerid, p4) <- W.peekInt32BE p3 endPtr
+    (f4_topics, p5) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p4 endPtr
+    (f5_errorcode, p6) <- W.peekInt16BE p5 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = 0, metadataResponseErrorCode = f5_errorcode }, pTagsEnd)
+  | version >= 9 && version <= 10 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_brokers, p2) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p1 endPtr
+    (f2_clusterid, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_controllerid, p4) <- W.peekInt32BE p3 endPtr
+    (f4_topics, p5) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p4 endPtr
+    (f5_clusterauthorizedoperations, p6) <- W.peekInt32BE p5 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = f5_clusterauthorizedoperations, metadataResponseErrorCode = 0 }, pTagsEnd)
+  | version >= 11 && version <= 12 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_brokers, p2) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p1 endPtr
+    (f2_clusterid, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_controllerid, p4) <- W.peekInt32BE p3 endPtr
+    (f4_topics, p5) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p4 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = 0, metadataResponseErrorCode = 0 }, pTagsEnd)
+  | version >= 3 && version <= 7 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_brokers, p2) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p1 endPtr
+    (f2_clusterid, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_controllerid, p4) <- W.peekInt32BE p3 endPtr
+    (f4_topics, p5) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p4 endPtr
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = 0, metadataResponseErrorCode = 0 }, p5)
+  | otherwise = error $ "wirePeek MetadataResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec MetadataResponse where
-  wireCodec = Just (WC.serialShimCodec encodeMetadataResponse decodeMetadataResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeMetadataResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeMetadataResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekMetadataResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

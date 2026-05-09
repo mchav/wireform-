@@ -189,7 +189,20 @@ generateMessage schema =
     -- Generate common struct types
     commonTypes = concatMap (generateCommonStruct flexibleVersion) (schemaCommonStructs schema)
   in
-  vsep
+  let
+      -- Collect every (structName, fields) pair the schema introduces
+      -- (common structs + nested ones, in declaration order — children
+      -- before parents, so 'wirePoke' calls always have their target
+      -- in scope). Used to emit per-struct Wire pokes/peeks alongside
+      -- the message-level codec.
+      allStructs = collectStructs schema
+      perStructWire =
+        [ vsep fns
+        | (structName, structFields) <- allStructs
+        , Just fns <- [WG.generateNestedWireFunctions
+                         flexibleVersion structName structFields]
+        ]
+  in vsep
     [ -- Generate common struct types
       vsep (map (<> line) commonTypes)
     , -- Generate nested structure types
@@ -204,6 +217,9 @@ generateMessage schema =
     , ""
     , generateDecodeFunction schema flexibleVersion validVersions
     , ""
+    , -- Per-struct Wire pokes / peeks (children first so the
+      -- message-level codec can call them transparently).
+      vsep perStructWire
     , -- Wire-codec block. Every schema gets a 'Just'-valued
       -- 'WireCodec' instance — there is no 'wireCodec = Nothing'
       -- fallback in the generated output. Schemas the WireGenerator
@@ -215,6 +231,28 @@ generateMessage schema =
         Just fns -> vsep (fns ++ ["", WG.generateWireCodecOverride schema])
         Nothing  -> WG.generateWireCodecOverride schema
     ]
+
+-- | Walk the schema's common structs + nested struct fields and
+-- collect every named struct type along with its fields, in
+-- declaration order (children before parents).
+collectStructs :: ProtocolSchema -> [(Text, [FieldSpec])]
+collectStructs schema =
+  concatMap (collectStructsField "")  (schemaCommonStructs schema)
+    ++ concatMap (collectStructsField (schemaName schema)) (schemaFields schema)
+
+collectStructsField :: Text -> FieldSpec -> [(Text, [FieldSpec])]
+collectStructsField _parent f = case fieldType f of
+  StructType structName -> case fieldFields f of
+    Just fs ->
+         concatMap (collectStructsField structName) fs
+      ++ [(structName, fs)]
+    Nothing -> []
+  ArrayType (StructType structName) -> case fieldFields f of
+    Just fs ->
+         concatMap (collectStructsField structName) fs
+      ++ [(structName, fs)]
+    Nothing -> []
+  _ -> []
 
 -- | Check if a structure has version-dependent fields (fields not present in all versions).
 hasVersionDependentFields :: [FieldSpec] -> Bool
@@ -1289,7 +1327,18 @@ generateFieldDefault field =
     Just (Aeson.Number n) -> formatNumber (fieldType field) n
     -- String defaults in JSON represent Haskell code - interpret based on field type
     Just (Aeson.String s) -> interpretStringDefault (fieldType field) s
-    Just Aeson.Null -> "Null"
+    -- A literal JSON @null@ default has to be wrapped in the
+    -- field's type-specific Null constructor, otherwise the
+    -- generated record assignment is a type error. We previously
+    -- emitted a bare 'Null' which only worked for fields whose
+    -- Haskell type is 'Nullable a' (struct refs); arrays / strings
+    -- / bytes / uuid all need the nested-Null shape.
+    Just Aeson.Null -> case fieldType field of
+      ArrayType _            -> "P.KafkaArray P.Null"
+      PrimitiveType "string" -> "P.KafkaString Null"
+      PrimitiveType "bytes"  -> "P.KafkaBytes Null"
+      PrimitiveType "uuid"   -> "P.nullUuid"
+      _                      -> "Null"
     Nothing -> 
       -- Default based on type
       let isNullable = isJust (fieldNullableVersions field)
@@ -1345,7 +1394,13 @@ generateFieldDefault field =
     interpretStringDefault (PrimitiveType "string") "" = "P.KafkaString Null"  -- Empty string default means null
     interpretStringDefault (PrimitiveType "string") s = "P.mkKafkaString" <+> dquotes (pretty s)
     interpretStringDefault (PrimitiveType "bytes") "null" = "P.KafkaBytes Null"
-    interpretStringDefault _ "null" = "Null"  -- For other types, raw Null
+    -- The string default @"null"@ for an /array/ field has to wrap
+    -- the inner Null in 'P.KafkaArray', otherwise the bare @Null@
+    -- doesn't unify with the @KafkaArray X@ field type. Same shape
+    -- as the @Just Aeson.Null@ branch in 'generateFieldDefault'.
+    interpretStringDefault (ArrayType _)            "null" = "P.KafkaArray P.Null"
+    interpretStringDefault (PrimitiveType "uuid")   "null" = "P.nullUuid"
+    interpretStringDefault _                        "null" = "Null"
     interpretStringDefault _ s = 
       if not (T.null s) && T.head s == '-' then parens (pretty s)  -- Wrap negative numbers
       else pretty s

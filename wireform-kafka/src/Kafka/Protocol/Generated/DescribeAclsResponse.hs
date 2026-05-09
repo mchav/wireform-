@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.DescribeAclsResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,7 +48,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The ACLs.
@@ -212,6 +220,13 @@ data DescribeAclsResponse = DescribeAclsResponse
 maxDescribeAclsResponseVersion :: Int16
 maxDescribeAclsResponseVersion = 3
 
+-- | KafkaMessage instance for DescribeAclsResponse.
+instance KafkaMessage DescribeAclsResponse where
+  messageApiKey = 29
+  messageMinVersion = 1
+  messageMaxVersion = 3
+  messageFlexibleVersion = Just 2
+
 -- | Encode DescribeAclsResponse with the given API version.
 encodeDescribeAclsResponse :: MonadPut m => E.ApiVersion -> DescribeAclsResponse -> m ()
 encodeDescribeAclsResponse version msg
@@ -271,16 +286,122 @@ decodeDescribeAclsResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeAclsResponse' / 'decodeDescribeAclsResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a AclDescription.
+wireMaxSizeAclDescription :: Int -> AclDescription -> Int
+wireMaxSizeAclDescription _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (aclDescriptionPrincipal msg))
+  + WP.compactStringMaxSize (P.toCompactString (aclDescriptionHost msg))
+  + 1
+  + 1
+  + 1
+
+-- | Direct-poke encoder for AclDescription.
+wirePokeAclDescription :: Int -> Ptr Word8 -> AclDescription -> IO (Ptr Word8)
+wirePokeAclDescription version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (aclDescriptionPrincipal msg))
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (aclDescriptionHost msg))
+  p3 <- W.pokeWord8 p2 (fromIntegral (aclDescriptionOperation msg))
+  p4 <- W.pokeWord8 p3 (fromIntegral (aclDescriptionPermissionType msg))
+  if version >= 2 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for AclDescription.
+wirePeekAclDescription :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AclDescription, Ptr Word8)
+wirePeekAclDescription version _fp _basePtr p0 endPtr = do
+  (f0_principal, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_operation, p3) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr
+  (f3_permissiontype, p4) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (AclDescription { aclDescriptionPrincipal = f0_principal, aclDescriptionHost = f1_host, aclDescriptionOperation = f2_operation, aclDescriptionPermissionType = f3_permissiontype }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeAclsResource.
+wireMaxSizeDescribeAclsResource :: Int -> DescribeAclsResource -> Int
+wireMaxSizeDescribeAclsResource _version msg =
+  0
+  + 1
+  + WP.compactStringMaxSize (P.toCompactString (describeAclsResourceResourceName msg))
+  + 1
+  + (5 + (case P.unKafkaArray (describeAclsResourceAcls msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAclDescription _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeAclsResource.
+wirePokeDescribeAclsResource :: Int -> Ptr Word8 -> DescribeAclsResource -> IO (Ptr Word8)
+wirePokeDescribeAclsResource version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeWord8 p0 (fromIntegral (describeAclsResourceResourceType msg))
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeAclsResourceResourceName msg))
+  p3 <- W.pokeWord8 p2 (fromIntegral (describeAclsResourcePatternType msg))
+  p4 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeAclDescription version p x) p3 (describeAclsResourceAcls msg)
+  if version >= 2 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for DescribeAclsResource.
+wirePeekDescribeAclsResource :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeAclsResource, Ptr Word8)
+wirePeekDescribeAclsResource version _fp _basePtr p0 endPtr = do
+  (f0_resourcetype, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
+  (f1_resourcename, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_patterntype, p3) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr
+  (f3_acls, p4) <- WP.peekVersionedArray version 2 (\p e -> wirePeekAclDescription version _fp _basePtr p e) p3 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (DescribeAclsResource { describeAclsResourceResourceType = f0_resourcetype, describeAclsResourceResourceName = f1_resourcename, describeAclsResourcePatternType = f2_patterntype, describeAclsResourceAcls = f3_acls }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeAclsResponse.
+wireMaxSizeDescribeAclsResponse :: Int -> DescribeAclsResponse -> Int
+wireMaxSizeDescribeAclsResponse _version msg =
+  0
+  + 4
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (describeAclsResponseErrorMessage msg))
+  + (5 + (case P.unKafkaArray (describeAclsResponseResources msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeAclsResource _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeAclsResponse.
+wirePokeDescribeAclsResponse :: Int -> Ptr Word8 -> DescribeAclsResponse -> IO (Ptr Word8)
+wirePokeDescribeAclsResponse version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeAclsResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (describeAclsResponseErrorCode msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (describeAclsResponseErrorMessage msg))
+    p4 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribeAclsResource version p x) p3 (describeAclsResponseResources msg)
+    pure p4
+  | version >= 2 && version <= 3 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeAclsResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (describeAclsResponseErrorCode msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (describeAclsResponseErrorMessage msg))
+    p4 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribeAclsResource version p x) p3 (describeAclsResponseResources msg)
+    WP.pokeEmptyTaggedFields p4
+  | otherwise = error $ "wirePoke DescribeAclsResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeAclsResponse.
+wirePeekDescribeAclsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeAclsResponse, Ptr Word8)
+wirePeekDescribeAclsResponse version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_resources, p4) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeAclsResource version _fp _basePtr p e) p3 endPtr
+    pure (DescribeAclsResponse { describeAclsResponseThrottleTimeMs = f0_throttletimems, describeAclsResponseErrorCode = f1_errorcode, describeAclsResponseErrorMessage = f2_errormessage, describeAclsResponseResources = f3_resources }, p4)
+  | version >= 2 && version <= 3 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_resources, p4) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeAclsResource version _fp _basePtr p e) p3 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (DescribeAclsResponse { describeAclsResponseThrottleTimeMs = f0_throttletimems, describeAclsResponseErrorCode = f1_errorcode, describeAclsResponseErrorMessage = f2_errormessage, describeAclsResponseResources = f3_resources }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeAclsResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeAclsResponse where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeAclsResponse decodeDescribeAclsResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeAclsResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeAclsResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeAclsResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.MetadataRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,6 +49,11 @@ import Kafka.Protocol.Primitives
 import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The topics to fetch metadata for.
@@ -259,16 +266,114 @@ decodeMetadataRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeMetadataRequest' / 'decodeMetadataRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a MetadataRequestTopic.
+wireMaxSizeMetadataRequestTopic :: Int -> MetadataRequestTopic -> Int
+wireMaxSizeMetadataRequestTopic _version msg =
+  0
+  + 16
+  + WP.compactStringMaxSize (P.toCompactString (metadataRequestTopicName msg))
+  + 1
+
+-- | Direct-poke encoder for MetadataRequestTopic.
+wirePokeMetadataRequestTopic :: Int -> Ptr Word8 -> MetadataRequestTopic -> IO (Ptr Word8)
+wirePokeMetadataRequestTopic version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeKafkaUuid p0 (metadataRequestTopicTopicId msg)
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (metadataRequestTopicName msg))
+  if version >= 9 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for MetadataRequestTopic.
+wirePeekMetadataRequestTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (MetadataRequestTopic, Ptr Word8)
+wirePeekMetadataRequestTopic version _fp _basePtr p0 endPtr = do
+  (f0_topicid, p1) <- WP.peekKafkaUuid p0 endPtr
+  (f1_name, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  pTagsEnd <- if version >= 9 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (MetadataRequestTopic { metadataRequestTopicTopicId = f0_topicid, metadataRequestTopicName = f1_name }, pTagsEnd)
+
+-- | Worst-case wire size of a MetadataRequest.
+wireMaxSizeMetadataRequest :: Int -> MetadataRequest -> Int
+wireMaxSizeMetadataRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (metadataRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeMetadataRequestTopic _version x ) v); P.Null -> 0 }))
+  + 1
+  + 1
+  + 1
+  + 1
+
+-- | Direct-poke encoder for MetadataRequest.
+wirePokeMetadataRequest :: Int -> Ptr Word8 -> MetadataRequest -> IO (Ptr Word8)
+wirePokeMetadataRequest version basePtr msg
+  | version == 8 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedNullableArray version 9 (\p x -> wirePokeMetadataRequestTopic version p x) p0 (metadataRequestTopics msg)
+    p2 <- W.pokeWord8 p1 (if (metadataRequestAllowAutoTopicCreation msg) then 1 else 0)
+    p3 <- W.pokeWord8 p2 (if (metadataRequestIncludeClusterAuthorizedOperations msg) then 1 else 0)
+    p4 <- W.pokeWord8 p3 (if (metadataRequestIncludeTopicAuthorizedOperations msg) then 1 else 0)
+    pure p4
+  | version >= 9 && version <= 10 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedNullableArray version 9 (\p x -> wirePokeMetadataRequestTopic version p x) p0 (metadataRequestTopics msg)
+    p2 <- W.pokeWord8 p1 (if (metadataRequestAllowAutoTopicCreation msg) then 1 else 0)
+    p3 <- W.pokeWord8 p2 (if (metadataRequestIncludeClusterAuthorizedOperations msg) then 1 else 0)
+    p4 <- W.pokeWord8 p3 (if (metadataRequestIncludeTopicAuthorizedOperations msg) then 1 else 0)
+    WP.pokeEmptyTaggedFields p4
+  | version >= 11 && version <= 13 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedNullableArray version 9 (\p x -> wirePokeMetadataRequestTopic version p x) p0 (metadataRequestTopics msg)
+    p2 <- W.pokeWord8 p1 (if (metadataRequestAllowAutoTopicCreation msg) then 1 else 0)
+    p3 <- W.pokeWord8 p2 (if (metadataRequestIncludeTopicAuthorizedOperations msg) then 1 else 0)
+    WP.pokeEmptyTaggedFields p3
+  | version >= 0 && version <= 3 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedNullableArray version 9 (\p x -> wirePokeMetadataRequestTopic version p x) p0 (metadataRequestTopics msg)
+    pure p1
+  | version >= 4 && version <= 7 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedNullableArray version 9 (\p x -> wirePokeMetadataRequestTopic version p x) p0 (metadataRequestTopics msg)
+    p2 <- W.pokeWord8 p1 (if (metadataRequestAllowAutoTopicCreation msg) then 1 else 0)
+    pure p2
+  | otherwise = error $ "wirePoke MetadataRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for MetadataRequest.
+wirePeekMetadataRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (MetadataRequest, Ptr Word8)
+wirePeekMetadataRequest version _fp _basePtr p0 endPtr
+  | version == 8 = do
+    (f0_topics, p1) <- WP.peekVersionedNullableArray version 9 (\p e -> wirePeekMetadataRequestTopic version _fp _basePtr p e) p0 endPtr
+    (f1_allowautotopiccreation, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    (f2_includeclusterauthorizedoperations, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    (f3_includetopicauthorizedoperations, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+    pure (MetadataRequest { metadataRequestTopics = f0_topics, metadataRequestAllowAutoTopicCreation = f1_allowautotopiccreation, metadataRequestIncludeClusterAuthorizedOperations = f2_includeclusterauthorizedoperations, metadataRequestIncludeTopicAuthorizedOperations = f3_includetopicauthorizedoperations }, p4)
+  | version >= 9 && version <= 10 = do
+    (f0_topics, p1) <- WP.peekVersionedNullableArray version 9 (\p e -> wirePeekMetadataRequestTopic version _fp _basePtr p e) p0 endPtr
+    (f1_allowautotopiccreation, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    (f2_includeclusterauthorizedoperations, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    (f3_includetopicauthorizedoperations, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (MetadataRequest { metadataRequestTopics = f0_topics, metadataRequestAllowAutoTopicCreation = f1_allowautotopiccreation, metadataRequestIncludeClusterAuthorizedOperations = f2_includeclusterauthorizedoperations, metadataRequestIncludeTopicAuthorizedOperations = f3_includetopicauthorizedoperations }, pTagsEnd)
+  | version >= 11 && version <= 13 = do
+    (f0_topics, p1) <- WP.peekVersionedNullableArray version 9 (\p e -> wirePeekMetadataRequestTopic version _fp _basePtr p e) p0 endPtr
+    (f1_allowautotopiccreation, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    (f2_includetopicauthorizedoperations, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (MetadataRequest { metadataRequestTopics = f0_topics, metadataRequestAllowAutoTopicCreation = f1_allowautotopiccreation, metadataRequestIncludeClusterAuthorizedOperations = False, metadataRequestIncludeTopicAuthorizedOperations = f2_includetopicauthorizedoperations }, pTagsEnd)
+  | version >= 0 && version <= 3 = do
+    (f0_topics, p1) <- WP.peekVersionedNullableArray version 9 (\p e -> wirePeekMetadataRequestTopic version _fp _basePtr p e) p0 endPtr
+    pure (MetadataRequest { metadataRequestTopics = f0_topics, metadataRequestAllowAutoTopicCreation = False, metadataRequestIncludeClusterAuthorizedOperations = False, metadataRequestIncludeTopicAuthorizedOperations = False }, p1)
+  | version >= 4 && version <= 7 = do
+    (f0_topics, p1) <- WP.peekVersionedNullableArray version 9 (\p e -> wirePeekMetadataRequestTopic version _fp _basePtr p e) p0 endPtr
+    (f1_allowautotopiccreation, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    pure (MetadataRequest { metadataRequestTopics = f0_topics, metadataRequestAllowAutoTopicCreation = f1_allowautotopiccreation, metadataRequestIncludeClusterAuthorizedOperations = False, metadataRequestIncludeTopicAuthorizedOperations = False }, p2)
+  | otherwise = error $ "wirePeek MetadataRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec MetadataRequest where
-  wireCodec = Just (WC.serialShimCodec encodeMetadataRequest decodeMetadataRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeMetadataRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeMetadataRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekMetadataRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

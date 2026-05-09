@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.LeaderAndIsrRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -59,6 +67,13 @@ data LeaderAndIsrRequest = LeaderAndIsrRequest
 maxLeaderAndIsrRequestVersion :: Int16
 maxLeaderAndIsrRequestVersion = -1 -- No valid versions
 
+-- | KafkaMessage instance for LeaderAndIsrRequest.
+instance KafkaMessage LeaderAndIsrRequest where
+  messageApiKey = 4
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Nothing
+
 -- | Encode LeaderAndIsrRequest with the given API version.
 encodeLeaderAndIsrRequest :: MonadPut m => E.ApiVersion -> LeaderAndIsrRequest -> m ()
 encodeLeaderAndIsrRequest version msg
@@ -70,16 +85,32 @@ decodeLeaderAndIsrRequest :: MonadGet m => E.ApiVersion -> m LeaderAndIsrRequest
 decodeLeaderAndIsrRequest version
   = fail "No valid versions"
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeLeaderAndIsrRequest' / 'decodeLeaderAndIsrRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+
+-- | Worst-case wire size of a LeaderAndIsrRequest.
+wireMaxSizeLeaderAndIsrRequest :: Int -> LeaderAndIsrRequest -> Int
+wireMaxSizeLeaderAndIsrRequest _version msg =
+  0
+
+
+
+wirePokeLeaderAndIsrRequest :: Int -> Ptr Word8 -> LeaderAndIsrRequest -> IO (Ptr Word8)
+wirePokeLeaderAndIsrRequest _version _basePtr _msg =
+  error "wirePoke LeaderAndIsrRequest: no valid versions"
+
+wirePeekLeaderAndIsrRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (LeaderAndIsrRequest, Ptr Word8)
+wirePeekLeaderAndIsrRequest _version _fp _basePtr _p _endPtr =
+  error "wirePeek LeaderAndIsrRequest: no valid versions"
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec LeaderAndIsrRequest where
-  wireCodec = Just (WC.serialShimCodec encodeLeaderAndIsrRequest decodeLeaderAndIsrRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeLeaderAndIsrRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeLeaderAndIsrRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekLeaderAndIsrRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

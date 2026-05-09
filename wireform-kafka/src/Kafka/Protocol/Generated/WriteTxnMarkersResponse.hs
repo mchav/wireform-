@@ -12,7 +12,7 @@ Kafka response for API key 27.
 
 
 
-Valid versions: 1
+Valid versions: 1-2
 Flexible versions: 1+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -30,7 +30,9 @@ module Kafka.Protocol.Generated.WriteTxnMarkersResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -47,7 +49,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The results by partition.
@@ -193,12 +201,19 @@ data WriteTxnMarkersResponse = WriteTxnMarkersResponse
 
 -- | Maximum supported version for WriteTxnMarkersResponse.
 maxWriteTxnMarkersResponseVersion :: Int16
-maxWriteTxnMarkersResponseVersion = 1
+maxWriteTxnMarkersResponseVersion = 2
+
+-- | KafkaMessage instance for WriteTxnMarkersResponse.
+instance KafkaMessage WriteTxnMarkersResponse where
+  messageApiKey = 27
+  messageMinVersion = 1
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 1
 
 -- | Encode WriteTxnMarkersResponse with the given API version.
 encodeWriteTxnMarkersResponse :: MonadPut m => E.ApiVersion -> WriteTxnMarkersResponse -> m ()
 encodeWriteTxnMarkersResponse version msg
-  | version == 1 =
+  | version >= 1 && version <= 2 =
     do
       E.encodeVersionedArray version 1 encodeWritableTxnMarkerResult (case P.unKafkaArray (writeTxnMarkersResponseMarkers msg) of { P.NotNull v -> v; P.Null -> V.empty })
       serialize (emptyTaggedFields :: TaggedFields)
@@ -207,7 +222,7 @@ encodeWriteTxnMarkersResponse version msg
 -- | Decode WriteTxnMarkersResponse with the given API version.
 decodeWriteTxnMarkersResponse :: MonadGet m => E.ApiVersion -> m WriteTxnMarkersResponse
 decodeWriteTxnMarkersResponse version
-  | version == 1 =
+  | version >= 1 && version <= 2 =
     do
       fieldmarkers <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeWritableTxnMarkerResult
       _ <- (deserialize :: MonadGet m => m TaggedFields)
@@ -217,16 +232,112 @@ decodeWriteTxnMarkersResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeWriteTxnMarkersResponse' / 'decodeWriteTxnMarkersResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a WritableTxnMarkerPartitionResult.
+wireMaxSizeWritableTxnMarkerPartitionResult :: Int -> WritableTxnMarkerPartitionResult -> Int
+wireMaxSizeWritableTxnMarkerPartitionResult _version msg =
+  0
+  + 4
+  + 2
+  + 1
+
+-- | Direct-poke encoder for WritableTxnMarkerPartitionResult.
+wirePokeWritableTxnMarkerPartitionResult :: Int -> Ptr Word8 -> WritableTxnMarkerPartitionResult -> IO (Ptr Word8)
+wirePokeWritableTxnMarkerPartitionResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (writableTxnMarkerPartitionResultPartitionIndex msg)
+  p2 <- W.pokeInt16BE p1 (writableTxnMarkerPartitionResultErrorCode msg)
+  if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for WritableTxnMarkerPartitionResult.
+wirePeekWritableTxnMarkerPartitionResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (WritableTxnMarkerPartitionResult, Ptr Word8)
+wirePeekWritableTxnMarkerPartitionResult version _fp _basePtr p0 endPtr = do
+  (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (WritableTxnMarkerPartitionResult { writableTxnMarkerPartitionResultPartitionIndex = f0_partitionindex, writableTxnMarkerPartitionResultErrorCode = f1_errorcode }, pTagsEnd)
+
+-- | Worst-case wire size of a WritableTxnMarkerTopicResult.
+wireMaxSizeWritableTxnMarkerTopicResult :: Int -> WritableTxnMarkerTopicResult -> Int
+wireMaxSizeWritableTxnMarkerTopicResult _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (writableTxnMarkerTopicResultName msg))
+  + (5 + (case P.unKafkaArray (writableTxnMarkerTopicResultPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeWritableTxnMarkerPartitionResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for WritableTxnMarkerTopicResult.
+wirePokeWritableTxnMarkerTopicResult :: Int -> Ptr Word8 -> WritableTxnMarkerTopicResult -> IO (Ptr Word8)
+wirePokeWritableTxnMarkerTopicResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (writableTxnMarkerTopicResultName msg))
+  p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeWritableTxnMarkerPartitionResult version p x) p1 (writableTxnMarkerTopicResultPartitions msg)
+  if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for WritableTxnMarkerTopicResult.
+wirePeekWritableTxnMarkerTopicResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (WritableTxnMarkerTopicResult, Ptr Word8)
+wirePeekWritableTxnMarkerTopicResult version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekWritableTxnMarkerPartitionResult version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (WritableTxnMarkerTopicResult { writableTxnMarkerTopicResultName = f0_name, writableTxnMarkerTopicResultPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a WritableTxnMarkerResult.
+wireMaxSizeWritableTxnMarkerResult :: Int -> WritableTxnMarkerResult -> Int
+wireMaxSizeWritableTxnMarkerResult _version msg =
+  0
+  + 8
+  + (5 + (case P.unKafkaArray (writableTxnMarkerResultTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeWritableTxnMarkerTopicResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for WritableTxnMarkerResult.
+wirePokeWritableTxnMarkerResult :: Int -> Ptr Word8 -> WritableTxnMarkerResult -> IO (Ptr Word8)
+wirePokeWritableTxnMarkerResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt64BE p0 (writableTxnMarkerResultProducerId msg)
+  p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeWritableTxnMarkerTopicResult version p x) p1 (writableTxnMarkerResultTopics msg)
+  if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for WritableTxnMarkerResult.
+wirePeekWritableTxnMarkerResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (WritableTxnMarkerResult, Ptr Word8)
+wirePeekWritableTxnMarkerResult version _fp _basePtr p0 endPtr = do
+  (f0_producerid, p1) <- W.peekInt64BE p0 endPtr
+  (f1_topics, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekWritableTxnMarkerTopicResult version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (WritableTxnMarkerResult { writableTxnMarkerResultProducerId = f0_producerid, writableTxnMarkerResultTopics = f1_topics }, pTagsEnd)
+
+-- | Worst-case wire size of a WriteTxnMarkersResponse.
+wireMaxSizeWriteTxnMarkersResponse :: Int -> WriteTxnMarkersResponse -> Int
+wireMaxSizeWriteTxnMarkersResponse _version msg =
+  0
+  + (5 + (case P.unKafkaArray (writeTxnMarkersResponseMarkers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeWritableTxnMarkerResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for WriteTxnMarkersResponse.
+wirePokeWriteTxnMarkersResponse :: Int -> Ptr Word8 -> WriteTxnMarkersResponse -> IO (Ptr Word8)
+wirePokeWriteTxnMarkersResponse version basePtr msg
+  | version >= 1 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeWritableTxnMarkerResult version p x) p0 (writeTxnMarkersResponseMarkers msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke WriteTxnMarkersResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for WriteTxnMarkersResponse.
+wirePeekWriteTxnMarkersResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (WriteTxnMarkersResponse, Ptr Word8)
+wirePeekWriteTxnMarkersResponse version _fp _basePtr p0 endPtr
+  | version >= 1 && version <= 2 = do
+    (f0_markers, p1) <- WP.peekVersionedArray version 1 (\p e -> wirePeekWritableTxnMarkerResult version _fp _basePtr p e) p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (WriteTxnMarkersResponse { writeTxnMarkersResponseMarkers = f0_markers }, pTagsEnd)
+  | otherwise = error $ "wirePeek WriteTxnMarkersResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec WriteTxnMarkersResponse where
-  wireCodec = Just (WC.serialShimCodec encodeWriteTxnMarkersResponse decodeWriteTxnMarkersResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeWriteTxnMarkersResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeWriteTxnMarkersResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekWriteTxnMarkersResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

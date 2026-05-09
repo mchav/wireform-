@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.ShareGroupHeartbeatRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -88,6 +96,13 @@ data ShareGroupHeartbeatRequest = ShareGroupHeartbeatRequest
 maxShareGroupHeartbeatRequestVersion :: Int16
 maxShareGroupHeartbeatRequestVersion = 1
 
+-- | KafkaMessage instance for ShareGroupHeartbeatRequest.
+instance KafkaMessage ShareGroupHeartbeatRequest where
+  messageApiKey = 76
+  messageMinVersion = 1
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 0
+
 -- | Encode ShareGroupHeartbeatRequest with the given API version.
 encodeShareGroupHeartbeatRequest :: MonadPut m => E.ApiVersion -> ShareGroupHeartbeatRequest -> m ()
 encodeShareGroupHeartbeatRequest version msg
@@ -126,16 +141,53 @@ decodeShareGroupHeartbeatRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeShareGroupHeartbeatRequest' / 'decodeShareGroupHeartbeatRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a ShareGroupHeartbeatRequest.
+wireMaxSizeShareGroupHeartbeatRequest :: Int -> ShareGroupHeartbeatRequest -> Int
+wireMaxSizeShareGroupHeartbeatRequest _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (shareGroupHeartbeatRequestGroupId msg))
+  + WP.compactStringMaxSize (P.toCompactString (shareGroupHeartbeatRequestMemberId msg))
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (shareGroupHeartbeatRequestRackId msg))
+  + (5 + (case P.unKafkaArray (shareGroupHeartbeatRequestSubscribedTopicNames msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ShareGroupHeartbeatRequest.
+wirePokeShareGroupHeartbeatRequest :: Int -> Ptr Word8 -> ShareGroupHeartbeatRequest -> IO (Ptr Word8)
+wirePokeShareGroupHeartbeatRequest version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactString p0 (P.toCompactString (shareGroupHeartbeatRequestGroupId msg))
+    p2 <- WP.pokeCompactString p1 (P.toCompactString (shareGroupHeartbeatRequestMemberId msg))
+    p3 <- W.pokeInt32BE p2 (shareGroupHeartbeatRequestMemberEpoch msg)
+    p4 <- WP.pokeCompactString p3 (P.toCompactString (shareGroupHeartbeatRequestRackId msg))
+    p5 <- WP.pokeVersionedNullableArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p4 (shareGroupHeartbeatRequestSubscribedTopicNames msg)
+    WP.pokeEmptyTaggedFields p5
+  | otherwise = error $ "wirePoke ShareGroupHeartbeatRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ShareGroupHeartbeatRequest.
+wirePeekShareGroupHeartbeatRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ShareGroupHeartbeatRequest, Ptr Word8)
+wirePeekShareGroupHeartbeatRequest version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f1_memberid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f2_memberepoch, p3) <- W.peekInt32BE p2 endPtr
+    (f3_rackid, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+    (f4_subscribedtopicnames, p5) <- WP.peekVersionedNullableArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p4 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
+    pure (ShareGroupHeartbeatRequest { shareGroupHeartbeatRequestGroupId = f0_groupid, shareGroupHeartbeatRequestMemberId = f1_memberid, shareGroupHeartbeatRequestMemberEpoch = f2_memberepoch, shareGroupHeartbeatRequestRackId = f3_rackid, shareGroupHeartbeatRequestSubscribedTopicNames = f4_subscribedtopicnames }, pTagsEnd)
+  | otherwise = error $ "wirePeek ShareGroupHeartbeatRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ShareGroupHeartbeatRequest where
-  wireCodec = Just (WC.serialShimCodec encodeShareGroupHeartbeatRequest decodeShareGroupHeartbeatRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeShareGroupHeartbeatRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeShareGroupHeartbeatRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekShareGroupHeartbeatRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

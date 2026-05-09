@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.StopReplicaRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -59,6 +67,13 @@ data StopReplicaRequest = StopReplicaRequest
 maxStopReplicaRequestVersion :: Int16
 maxStopReplicaRequestVersion = -1 -- No valid versions
 
+-- | KafkaMessage instance for StopReplicaRequest.
+instance KafkaMessage StopReplicaRequest where
+  messageApiKey = 5
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Nothing
+
 -- | Encode StopReplicaRequest with the given API version.
 encodeStopReplicaRequest :: MonadPut m => E.ApiVersion -> StopReplicaRequest -> m ()
 encodeStopReplicaRequest version msg
@@ -70,16 +85,32 @@ decodeStopReplicaRequest :: MonadGet m => E.ApiVersion -> m StopReplicaRequest
 decodeStopReplicaRequest version
   = fail "No valid versions"
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeStopReplicaRequest' / 'decodeStopReplicaRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+
+-- | Worst-case wire size of a StopReplicaRequest.
+wireMaxSizeStopReplicaRequest :: Int -> StopReplicaRequest -> Int
+wireMaxSizeStopReplicaRequest _version msg =
+  0
+
+
+
+wirePokeStopReplicaRequest :: Int -> Ptr Word8 -> StopReplicaRequest -> IO (Ptr Word8)
+wirePokeStopReplicaRequest _version _basePtr _msg =
+  error "wirePoke StopReplicaRequest: no valid versions"
+
+wirePeekStopReplicaRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (StopReplicaRequest, Ptr Word8)
+wirePeekStopReplicaRequest _version _fp _basePtr _p _endPtr =
+  error "wirePeek StopReplicaRequest: no valid versions"
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec StopReplicaRequest where
-  wireCodec = Just (WC.serialShimCodec encodeStopReplicaRequest decodeStopReplicaRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeStopReplicaRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeStopReplicaRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekStopReplicaRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

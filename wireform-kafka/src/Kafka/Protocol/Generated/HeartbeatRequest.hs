@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.HeartbeatRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -81,6 +89,13 @@ data HeartbeatRequest = HeartbeatRequest
 -- | Maximum supported version for HeartbeatRequest.
 maxHeartbeatRequestVersion :: Int16
 maxHeartbeatRequestVersion = 4
+
+-- | KafkaMessage instance for HeartbeatRequest.
+instance KafkaMessage HeartbeatRequest where
+  messageApiKey = 12
+  messageMinVersion = 0
+  messageMaxVersion = 4
+  messageFlexibleVersion = Just 4
 
 -- | Encode HeartbeatRequest with the given API version.
 encodeHeartbeatRequest :: MonadPut m => E.ApiVersion -> HeartbeatRequest -> m ()
@@ -164,16 +179,74 @@ decodeHeartbeatRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeHeartbeatRequest' / 'decodeHeartbeatRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a HeartbeatRequest.
+wireMaxSizeHeartbeatRequest :: Int -> HeartbeatRequest -> Int
+wireMaxSizeHeartbeatRequest _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (heartbeatRequestGroupId msg))
+  + 4
+  + WP.compactStringMaxSize (P.toCompactString (heartbeatRequestMemberId msg))
+  + WP.compactStringMaxSize (P.toCompactString (heartbeatRequestGroupInstanceId msg))
+  + 1
+
+-- | Direct-poke encoder for HeartbeatRequest.
+wirePokeHeartbeatRequest :: Int -> Ptr Word8 -> HeartbeatRequest -> IO (Ptr Word8)
+wirePokeHeartbeatRequest version basePtr msg
+  | version == 3 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactString p0 (P.toCompactString (heartbeatRequestGroupId msg))
+    p2 <- W.pokeInt32BE p1 (heartbeatRequestGenerationId msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (heartbeatRequestMemberId msg))
+    p4 <- WP.pokeCompactString p3 (P.toCompactString (heartbeatRequestGroupInstanceId msg))
+    pure p4
+  | version == 4 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactString p0 (P.toCompactString (heartbeatRequestGroupId msg))
+    p2 <- W.pokeInt32BE p1 (heartbeatRequestGenerationId msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (heartbeatRequestMemberId msg))
+    p4 <- WP.pokeCompactString p3 (P.toCompactString (heartbeatRequestGroupInstanceId msg))
+    WP.pokeEmptyTaggedFields p4
+  | version >= 0 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactString p0 (P.toCompactString (heartbeatRequestGroupId msg))
+    p2 <- W.pokeInt32BE p1 (heartbeatRequestGenerationId msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (heartbeatRequestMemberId msg))
+    pure p3
+  | otherwise = error $ "wirePoke HeartbeatRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for HeartbeatRequest.
+wirePeekHeartbeatRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (HeartbeatRequest, Ptr Word8)
+wirePeekHeartbeatRequest version _fp _basePtr p0 endPtr
+  | version == 3 = do
+    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f1_generationid, p2) <- W.peekInt32BE p1 endPtr
+    (f2_memberid, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_groupinstanceid, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+    pure (HeartbeatRequest { heartbeatRequestGroupId = f0_groupid, heartbeatRequestGenerationId = f1_generationid, heartbeatRequestMemberId = f2_memberid, heartbeatRequestGroupInstanceId = f3_groupinstanceid }, p4)
+  | version == 4 = do
+    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f1_generationid, p2) <- W.peekInt32BE p1 endPtr
+    (f2_memberid, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_groupinstanceid, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (HeartbeatRequest { heartbeatRequestGroupId = f0_groupid, heartbeatRequestGenerationId = f1_generationid, heartbeatRequestMemberId = f2_memberid, heartbeatRequestGroupInstanceId = f3_groupinstanceid }, pTagsEnd)
+  | version >= 0 && version <= 2 = do
+    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f1_generationid, p2) <- W.peekInt32BE p1 endPtr
+    (f2_memberid, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    pure (HeartbeatRequest { heartbeatRequestGroupId = f0_groupid, heartbeatRequestGenerationId = f1_generationid, heartbeatRequestMemberId = f2_memberid, heartbeatRequestGroupInstanceId = P.KafkaString Null }, p3)
+  | otherwise = error $ "wirePeek HeartbeatRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec HeartbeatRequest where
-  wireCodec = Just (WC.serialShimCodec encodeHeartbeatRequest decodeHeartbeatRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeHeartbeatRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeHeartbeatRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekHeartbeatRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

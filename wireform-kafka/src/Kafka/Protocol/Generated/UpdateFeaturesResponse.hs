@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.UpdateFeaturesResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -45,7 +47,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Results for each feature update.
@@ -135,6 +143,13 @@ data UpdateFeaturesResponse = UpdateFeaturesResponse
 maxUpdateFeaturesResponseVersion :: Int16
 maxUpdateFeaturesResponseVersion = 2
 
+-- | KafkaMessage instance for UpdateFeaturesResponse.
+instance KafkaMessage UpdateFeaturesResponse where
+  messageApiKey = 57
+  messageMinVersion = 0
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 0
+
 -- | Encode UpdateFeaturesResponse with the given API version.
 encodeUpdateFeaturesResponse :: MonadPut m => E.ApiVersion -> UpdateFeaturesResponse -> m ()
 encodeUpdateFeaturesResponse version msg
@@ -193,16 +208,88 @@ decodeUpdateFeaturesResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeUpdateFeaturesResponse' / 'decodeUpdateFeaturesResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a UpdatableFeatureResult.
+wireMaxSizeUpdatableFeatureResult :: Int -> UpdatableFeatureResult -> Int
+wireMaxSizeUpdatableFeatureResult _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (updatableFeatureResultFeature msg))
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (updatableFeatureResultErrorMessage msg))
+  + 1
+
+-- | Direct-poke encoder for UpdatableFeatureResult.
+wirePokeUpdatableFeatureResult :: Int -> Ptr Word8 -> UpdatableFeatureResult -> IO (Ptr Word8)
+wirePokeUpdatableFeatureResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (updatableFeatureResultFeature msg))
+  p2 <- W.pokeInt16BE p1 (updatableFeatureResultErrorCode msg)
+  p3 <- WP.pokeCompactString p2 (P.toCompactString (updatableFeatureResultErrorMessage msg))
+  if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for UpdatableFeatureResult.
+wirePeekUpdatableFeatureResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (UpdatableFeatureResult, Ptr Word8)
+wirePeekUpdatableFeatureResult version _fp _basePtr p0 endPtr = do
+  (f0_feature, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (UpdatableFeatureResult { updatableFeatureResultFeature = f0_feature, updatableFeatureResultErrorCode = f1_errorcode, updatableFeatureResultErrorMessage = f2_errormessage }, pTagsEnd)
+
+-- | Worst-case wire size of a UpdateFeaturesResponse.
+wireMaxSizeUpdateFeaturesResponse :: Int -> UpdateFeaturesResponse -> Int
+wireMaxSizeUpdateFeaturesResponse _version msg =
+  0
+  + 4
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (updateFeaturesResponseErrorMessage msg))
+  + (5 + (case P.unKafkaArray (updateFeaturesResponseResults msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeUpdatableFeatureResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for UpdateFeaturesResponse.
+wirePokeUpdateFeaturesResponse :: Int -> Ptr Word8 -> UpdateFeaturesResponse -> IO (Ptr Word8)
+wirePokeUpdateFeaturesResponse version basePtr msg
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (updateFeaturesResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (updateFeaturesResponseErrorCode msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (updateFeaturesResponseErrorMessage msg))
+    WP.pokeEmptyTaggedFields p3
+  | version >= 0 && version <= 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (updateFeaturesResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (updateFeaturesResponseErrorCode msg)
+    p3 <- WP.pokeCompactString p2 (P.toCompactString (updateFeaturesResponseErrorMessage msg))
+    p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeUpdatableFeatureResult version p x) p3 (updateFeaturesResponseResults msg)
+    WP.pokeEmptyTaggedFields p4
+  | otherwise = error $ "wirePoke UpdateFeaturesResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for UpdateFeaturesResponse.
+wirePeekUpdateFeaturesResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (UpdateFeaturesResponse, Ptr Word8)
+wirePeekUpdateFeaturesResponse version _fp _basePtr p0 endPtr
+  | version == 2 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (UpdateFeaturesResponse { updateFeaturesResponseThrottleTimeMs = f0_throttletimems, updateFeaturesResponseErrorCode = f1_errorcode, updateFeaturesResponseErrorMessage = f2_errormessage, updateFeaturesResponseResults = P.mkKafkaArray V.empty }, pTagsEnd)
+  | version >= 0 && version <= 1 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f3_results, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekUpdatableFeatureResult version _fp _basePtr p e) p3 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (UpdateFeaturesResponse { updateFeaturesResponseThrottleTimeMs = f0_throttletimems, updateFeaturesResponseErrorCode = f1_errorcode, updateFeaturesResponseErrorMessage = f2_errormessage, updateFeaturesResponseResults = f3_results }, pTagsEnd)
+  | otherwise = error $ "wirePeek UpdateFeaturesResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec UpdateFeaturesResponse where
-  wireCodec = Just (WC.serialShimCodec encodeUpdateFeaturesResponse decodeUpdateFeaturesResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeUpdateFeaturesResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeUpdateFeaturesResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekUpdateFeaturesResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

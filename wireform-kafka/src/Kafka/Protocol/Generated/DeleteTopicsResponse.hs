@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.DeleteTopicsResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -45,7 +47,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The results for each topic we tried to delete.
@@ -139,6 +147,13 @@ data DeleteTopicsResponse = DeleteTopicsResponse
 maxDeleteTopicsResponseVersion :: Int16
 maxDeleteTopicsResponseVersion = 6
 
+-- | KafkaMessage instance for DeleteTopicsResponse.
+instance KafkaMessage DeleteTopicsResponse where
+  messageApiKey = 20
+  messageMinVersion = 1
+  messageMaxVersion = 6
+  messageFlexibleVersion = Just 4
+
 -- | Encode DeleteTopicsResponse with the given API version.
 encodeDeleteTopicsResponse :: MonadPut m => E.ApiVersion -> DeleteTopicsResponse -> m ()
 encodeDeleteTopicsResponse version msg
@@ -182,16 +197,82 @@ decodeDeleteTopicsResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDeleteTopicsResponse' / 'decodeDeleteTopicsResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a DeletableTopicResult.
+wireMaxSizeDeletableTopicResult :: Int -> DeletableTopicResult -> Int
+wireMaxSizeDeletableTopicResult _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (deletableTopicResultName msg))
+  + 16
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (deletableTopicResultErrorMessage msg))
+  + 1
+
+-- | Direct-poke encoder for DeletableTopicResult.
+wirePokeDeletableTopicResult :: Int -> Ptr Word8 -> DeletableTopicResult -> IO (Ptr Word8)
+wirePokeDeletableTopicResult version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (deletableTopicResultName msg))
+  p2 <- WP.pokeKafkaUuid p1 (deletableTopicResultTopicId msg)
+  p3 <- W.pokeInt16BE p2 (deletableTopicResultErrorCode msg)
+  p4 <- WP.pokeCompactString p3 (P.toCompactString (deletableTopicResultErrorMessage msg))
+  if version >= 4 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for DeletableTopicResult.
+wirePeekDeletableTopicResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeletableTopicResult, Ptr Word8)
+wirePeekDeletableTopicResult version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_topicid, p2) <- WP.peekKafkaUuid p1 endPtr
+  (f2_errorcode, p3) <- W.peekInt16BE p2 endPtr
+  (f3_errormessage, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (DeletableTopicResult { deletableTopicResultName = f0_name, deletableTopicResultTopicId = f1_topicid, deletableTopicResultErrorCode = f2_errorcode, deletableTopicResultErrorMessage = f3_errormessage }, pTagsEnd)
+
+-- | Worst-case wire size of a DeleteTopicsResponse.
+wireMaxSizeDeleteTopicsResponse :: Int -> DeleteTopicsResponse -> Int
+wireMaxSizeDeleteTopicsResponse _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (deleteTopicsResponseResponses msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDeletableTopicResult _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DeleteTopicsResponse.
+wirePokeDeleteTopicsResponse :: Int -> Ptr Word8 -> DeleteTopicsResponse -> IO (Ptr Word8)
+wirePokeDeleteTopicsResponse version basePtr msg
+  | version >= 1 && version <= 3 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (deleteTopicsResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDeletableTopicResult version p x) p1 (deleteTopicsResponseResponses msg)
+    pure p2
+  | version >= 4 && version <= 6 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (deleteTopicsResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDeletableTopicResult version p x) p1 (deleteTopicsResponseResponses msg)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke DeleteTopicsResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DeleteTopicsResponse.
+wirePeekDeleteTopicsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteTopicsResponse, Ptr Word8)
+wirePeekDeleteTopicsResponse version _fp _basePtr p0 endPtr
+  | version >= 1 && version <= 3 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_responses, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDeletableTopicResult version _fp _basePtr p e) p1 endPtr
+    pure (DeleteTopicsResponse { deleteTopicsResponseThrottleTimeMs = f0_throttletimems, deleteTopicsResponseResponses = f1_responses }, p2)
+  | version >= 4 && version <= 6 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_responses, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDeletableTopicResult version _fp _basePtr p e) p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (DeleteTopicsResponse { deleteTopicsResponseThrottleTimeMs = f0_throttletimems, deleteTopicsResponseResponses = f1_responses }, pTagsEnd)
+  | otherwise = error $ "wirePeek DeleteTopicsResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DeleteTopicsResponse where
-  wireCodec = Just (WC.serialShimCodec encodeDeleteTopicsResponse decodeDeleteTopicsResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDeleteTopicsResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDeleteTopicsResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDeleteTopicsResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

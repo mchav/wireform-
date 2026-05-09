@@ -12,7 +12,7 @@ Kafka request for API key 35.
 
 
 
-Valid versions: 1-4
+Valid versions: 1-5
 Flexible versions: 2+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -28,7 +28,9 @@ module Kafka.Protocol.Generated.DescribeLogDirsRequest
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -45,7 +47,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Each topic that we want to describe log directories for, or null for all topics.
@@ -105,7 +113,14 @@ data DescribeLogDirsRequest = DescribeLogDirsRequest
 
 -- | Maximum supported version for DescribeLogDirsRequest.
 maxDescribeLogDirsRequestVersion :: Int16
-maxDescribeLogDirsRequestVersion = 4
+maxDescribeLogDirsRequestVersion = 5
+
+-- | KafkaMessage instance for DescribeLogDirsRequest.
+instance KafkaMessage DescribeLogDirsRequest where
+  messageApiKey = 35
+  messageMinVersion = 1
+  messageMaxVersion = 5
+  messageFlexibleVersion = Just 2
 
 -- | Encode DescribeLogDirsRequest with the given API version.
 encodeDescribeLogDirsRequest :: MonadPut m => E.ApiVersion -> DescribeLogDirsRequest -> m ()
@@ -115,7 +130,7 @@ encodeDescribeLogDirsRequest version msg
       E.encodeVersionedNullableArray version 2 encodeDescribableLogDirTopic (describeLogDirsRequestTopics msg)
 
 
-  | version >= 2 && version <= 4 =
+  | version >= 2 && version <= 5 =
     do
       E.encodeVersionedNullableArray version 2 encodeDescribableLogDirTopic (describeLogDirsRequestTopics msg)
       serialize (emptyTaggedFields :: TaggedFields)
@@ -132,7 +147,7 @@ decodeDescribeLogDirsRequest version
         describeLogDirsRequestTopics = fieldtopics
         }
 
-  | version >= 2 && version <= 4 =
+  | version >= 2 && version <= 5 =
     do
       fieldtopics <- E.decodeVersionedNullableArray version 2 decodeDescribableLogDirTopic
       _ <- (deserialize :: MonadGet m => m TaggedFields)
@@ -142,16 +157,71 @@ decodeDescribeLogDirsRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeLogDirsRequest' / 'decodeDescribeLogDirsRequest' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a DescribableLogDirTopic.
+wireMaxSizeDescribableLogDirTopic :: Int -> DescribableLogDirTopic -> Int
+wireMaxSizeDescribableLogDirTopic _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (describableLogDirTopicTopic msg))
+  + (5 + (case P.unKafkaArray (describableLogDirTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribableLogDirTopic.
+wirePokeDescribableLogDirTopic :: Int -> Ptr Word8 -> DescribableLogDirTopic -> IO (Ptr Word8)
+wirePokeDescribableLogDirTopic version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (describableLogDirTopicTopic msg))
+  p2 <- WP.pokeVersionedArray version 2 W.pokeInt32BE p1 (describableLogDirTopicPartitions msg)
+  if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for DescribableLogDirTopic.
+wirePeekDescribableLogDirTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribableLogDirTopic, Ptr Word8)
+wirePeekDescribableLogDirTopic version _fp _basePtr p0 endPtr = do
+  (f0_topic, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 2 W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (DescribableLogDirTopic { describableLogDirTopicTopic = f0_topic, describableLogDirTopicPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeLogDirsRequest.
+wireMaxSizeDescribeLogDirsRequest :: Int -> DescribeLogDirsRequest -> Int
+wireMaxSizeDescribeLogDirsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (describeLogDirsRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribableLogDirTopic _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeLogDirsRequest.
+wirePokeDescribeLogDirsRequest :: Int -> Ptr Word8 -> DescribeLogDirsRequest -> IO (Ptr Word8)
+wirePokeDescribeLogDirsRequest version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeDescribableLogDirTopic version p x) p0 (describeLogDirsRequestTopics msg)
+    pure p1
+  | version >= 2 && version <= 5 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeDescribableLogDirTopic version p x) p0 (describeLogDirsRequestTopics msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke DescribeLogDirsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeLogDirsRequest.
+wirePeekDescribeLogDirsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeLogDirsRequest, Ptr Word8)
+wirePeekDescribeLogDirsRequest version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_topics, p1) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekDescribableLogDirTopic version _fp _basePtr p e) p0 endPtr
+    pure (DescribeLogDirsRequest { describeLogDirsRequestTopics = f0_topics }, p1)
+  | version >= 2 && version <= 5 = do
+    (f0_topics, p1) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekDescribableLogDirTopic version _fp _basePtr p e) p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (DescribeLogDirsRequest { describeLogDirsRequestTopics = f0_topics }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeLogDirsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeLogDirsRequest where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeLogDirsRequest decodeDescribeLogDirsRequest)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeLogDirsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeLogDirsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeLogDirsRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

@@ -29,7 +29,9 @@ module Kafka.Protocol.Generated.DescribeTransactionsResponse
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -46,7 +48,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The set of partitions included in the current transaction (if active). When a transaction is preparing to commit or abort, this will include only partitions which do not have markers.
@@ -217,6 +225,13 @@ data DescribeTransactionsResponse = DescribeTransactionsResponse
 maxDescribeTransactionsResponseVersion :: Int16
 maxDescribeTransactionsResponseVersion = 0
 
+-- | KafkaMessage instance for DescribeTransactionsResponse.
+instance KafkaMessage DescribeTransactionsResponse where
+  messageApiKey = 65
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
+
 -- | Encode DescribeTransactionsResponse with the given API version.
 encodeDescribeTransactionsResponse :: MonadPut m => E.ApiVersion -> DescribeTransactionsResponse -> m ()
 encodeDescribeTransactionsResponse version msg
@@ -243,16 +258,109 @@ decodeDescribeTransactionsResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeDescribeTransactionsResponse' / 'decodeDescribeTransactionsResponse' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+-- | Worst-case wire size of a TopicData.
+wireMaxSizeTopicData :: Int -> TopicData -> Int
+wireMaxSizeTopicData _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (topicDataTopic msg))
+  + (5 + (case P.unKafkaArray (topicDataPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TopicData.
+wirePokeTopicData :: Int -> Ptr Word8 -> TopicData -> IO (Ptr Word8)
+wirePokeTopicData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicDataTopic msg))
+  p2 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p1 (topicDataPartitions msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for TopicData.
+wirePeekTopicData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicData, Ptr Word8)
+wirePeekTopicData version _fp _basePtr p0 endPtr = do
+  (f0_topic, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 0 W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TopicData { topicDataTopic = f0_topic, topicDataPartitions = f1_partitions }, pTagsEnd)
+
+-- | Worst-case wire size of a TransactionState.
+wireMaxSizeTransactionState :: Int -> TransactionState -> Int
+wireMaxSizeTransactionState _version msg =
+  0
+  + 2
+  + WP.compactStringMaxSize (P.toCompactString (transactionStateTransactionalId msg))
+  + WP.compactStringMaxSize (P.toCompactString (transactionStateTransactionState msg))
+  + 4
+  + 8
+  + 8
+  + 2
+  + (5 + (case P.unKafkaArray (transactionStateTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicData _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TransactionState.
+wirePokeTransactionState :: Int -> Ptr Word8 -> TransactionState -> IO (Ptr Word8)
+wirePokeTransactionState version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt16BE p0 (transactionStateErrorCode msg)
+  p2 <- WP.pokeCompactString p1 (P.toCompactString (transactionStateTransactionalId msg))
+  p3 <- WP.pokeCompactString p2 (P.toCompactString (transactionStateTransactionState msg))
+  p4 <- W.pokeInt32BE p3 (transactionStateTransactionTimeoutMs msg)
+  p5 <- W.pokeInt64BE p4 (transactionStateTransactionStartTimeMs msg)
+  p6 <- W.pokeInt64BE p5 (transactionStateProducerId msg)
+  p7 <- W.pokeInt16BE p6 (transactionStateProducerEpoch msg)
+  p8 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicData version p x) p7 (transactionStateTopics msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p8 else pure p8
+
+-- | Direct-poke decoder for TransactionState.
+wirePeekTransactionState :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TransactionState, Ptr Word8)
+wirePeekTransactionState version _fp _basePtr p0 endPtr = do
+  (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+  (f1_transactionalid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f2_transactionstate, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f3_transactiontimeoutms, p4) <- W.peekInt32BE p3 endPtr
+  (f4_transactionstarttimems, p5) <- W.peekInt64BE p4 endPtr
+  (f5_producerid, p6) <- W.peekInt64BE p5 endPtr
+  (f6_producerepoch, p7) <- W.peekInt16BE p6 endPtr
+  (f7_topics, p8) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicData version _fp _basePtr p e) p7 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p8 endPtr else pure p8
+  pure (TransactionState { transactionStateErrorCode = f0_errorcode, transactionStateTransactionalId = f1_transactionalid, transactionStateTransactionState = f2_transactionstate, transactionStateTransactionTimeoutMs = f3_transactiontimeoutms, transactionStateTransactionStartTimeMs = f4_transactionstarttimems, transactionStateProducerId = f5_producerid, transactionStateProducerEpoch = f6_producerepoch, transactionStateTopics = f7_topics }, pTagsEnd)
+
+-- | Worst-case wire size of a DescribeTransactionsResponse.
+wireMaxSizeDescribeTransactionsResponse :: Int -> DescribeTransactionsResponse -> Int
+wireMaxSizeDescribeTransactionsResponse _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (describeTransactionsResponseTransactionStates msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTransactionState _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeTransactionsResponse.
+wirePokeDescribeTransactionsResponse :: Int -> Ptr Word8 -> DescribeTransactionsResponse -> IO (Ptr Word8)
+wirePokeDescribeTransactionsResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeTransactionsResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTransactionState version p x) p1 (describeTransactionsResponseTransactionStates msg)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke DescribeTransactionsResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeTransactionsResponse.
+wirePeekDescribeTransactionsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeTransactionsResponse, Ptr Word8)
+wirePeekDescribeTransactionsResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_transactionstates, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTransactionState version _fp _basePtr p e) p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (DescribeTransactionsResponse { describeTransactionsResponseThrottleTimeMs = f0_throttletimems, describeTransactionsResponseTransactionStates = f1_transactionstates }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeTransactionsResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec DescribeTransactionsResponse where
-  wireCodec = Just (WC.serialShimCodec encodeDescribeTransactionsResponse decodeDescribeTransactionsResponse)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeTransactionsResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeTransactionsResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeTransactionsResponse (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

@@ -27,7 +27,9 @@ module Kafka.Protocol.Generated.KRaftVersionRecord
   ) where
 
 import Control.Monad (when)
+import qualified Data.Bytes.Get
 import Data.Bytes.Get (MonadGet)
+import qualified Data.Bytes.Put
 import Data.Bytes.Put (MonadPut)
 import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -44,7 +46,13 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -69,6 +77,8 @@ data KRaftVersionRecord = KRaftVersionRecord
 -- | Maximum supported version for KRaftVersionRecord.
 maxKRaftVersionRecordVersion :: Int16
 maxKRaftVersionRecordVersion = 0
+
+
 
 -- | Encode KRaftVersionRecord with the given API version.
 encodeKRaftVersionRecord :: MonadPut m => E.ApiVersion -> KRaftVersionRecord -> m ()
@@ -96,16 +106,44 @@ decodeKRaftVersionRecord version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | 'WC.WireCodec' instance via the Serial shim. The
--- WireGenerator can't yet emit a native codec for this
--- schema (it carries arrays or nested struct fields the
--- generator hasn't been taught yet), so we lift the legacy
--- 'encodeKRaftVersionRecord' / 'decodeKRaftVersionRecord' pair into a
--- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
--- shape is identical to the native case — every
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
--- 'Just'-valued codec, no 'Nothing' fallback survives in
--- the generated output.
+
+-- | Worst-case wire size of a KRaftVersionRecord.
+wireMaxSizeKRaftVersionRecord :: Int -> KRaftVersionRecord -> Int
+wireMaxSizeKRaftVersionRecord _version msg =
+  0
+  + 2
+  + 2
+  + 1
+
+-- | Direct-poke encoder for KRaftVersionRecord.
+wirePokeKRaftVersionRecord :: Int -> Ptr Word8 -> KRaftVersionRecord -> IO (Ptr Word8)
+wirePokeKRaftVersionRecord version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (kRaftVersionRecordVersion msg)
+    p2 <- W.pokeInt16BE p1 (kRaftVersionRecordKRaftVersion msg)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke KRaftVersionRecord : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for KRaftVersionRecord.
+wirePeekKRaftVersionRecord :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (KRaftVersionRecord, Ptr Word8)
+wirePeekKRaftVersionRecord version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_version, p1) <- W.peekInt16BE p0 endPtr
+    (f1_kraftversion, p2) <- W.peekInt16BE p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (KRaftVersionRecord { kRaftVersionRecordVersion = f0_version, kRaftVersionRecordKRaftVersion = f1_kraftversion }, pTagsEnd)
+  | otherwise = error $ "wirePeek KRaftVersionRecord : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec KRaftVersionRecord where
-  wireCodec = Just (WC.serialShimCodec encodeKRaftVersionRecord decodeKRaftVersionRecord)
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeKRaftVersionRecord (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeKRaftVersionRecord (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekKRaftVersionRecord (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

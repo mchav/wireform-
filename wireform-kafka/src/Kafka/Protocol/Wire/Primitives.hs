@@ -51,6 +51,24 @@ module Kafka.Protocol.Wire.Primitives
   , peekNullableArrayLen
   , pokeNullableCompactArrayLen
   , peekNullableCompactArrayLen
+    -- * Full-array helpers (length prefix + element loop)
+  , pokeKafkaArray
+  , peekKafkaArray
+  , pokeCompactArray
+  , peekCompactArray
+  , pokeNullableKafkaArray
+  , peekNullableKafkaArray
+  , pokeNullableCompactArray
+  , peekNullableCompactArray
+    -- * Versioned arrays — switches between the compact and the
+    -- non-compact codec at the supplied flexible-version threshold
+    -- (mirrors @E.encodeVersionedArray@'s shape).
+  , pokeVersionedArray
+  , peekVersionedArray
+  , pokeVersionedNullableArray
+  , peekVersionedNullableArray
+    -- * Tagged-field entries (KIP-866-style payloads)
+  , pokeTaggedFieldEntries
     -- * Tagged fields
   , pokeEmptyTaggedFields
   , peekTaggedFieldsCount
@@ -73,6 +91,8 @@ import Data.Int (Int16, Int32)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
+import qualified Data.Vector as Vector
+import qualified Data.Vector.Mutable as VM
 import Data.Word (Word8, Word32)
 import Foreign.Ptr (Ptr, plusPtr)
 
@@ -318,6 +338,248 @@ peekNullableCompactArrayLen p endPtr = do
 -- by 'wireMaxSize' implementations to add 5 bytes per array header.
 compactArrayHeaderMaxSize :: Int
 compactArrayHeaderMaxSize = 5
+
+----------------------------------------------------------------------
+-- Full-array helpers
+--
+-- The codegen emits these for every array field. Splitting the
+-- length prefix from the element loop (the @poke*Len@ helpers above)
+-- is still useful for hand-written hot paths that already have the
+-- element bytes in hand; the per-array helpers below are what the
+-- generated code uses.
+----------------------------------------------------------------------
+
+-- | Encode a non-nullable, non-compact 'P.KafkaArray' by writing the
+-- 4-byte length prefix and then each element via the supplied
+-- per-element poke. Treats @P.KafkaArray P.Null@ as the empty array
+-- (mirrors the legacy @E.encodeVersionedArray@'s default case).
+{-# INLINE pokeKafkaArray #-}
+pokeKafkaArray
+  :: (Ptr Word8 -> a -> IO (Ptr Word8))
+  -> Ptr Word8
+  -> P.KafkaArray a
+  -> IO (Ptr Word8)
+pokeKafkaArray pokeElt p arr = do
+  let !v   = case P.unKafkaArray arr of
+        P.NotNull v' -> v'
+        P.Null       -> Vector.empty
+      !n   = Vector.length v
+  p1 <- pokeInt32BE p (fromIntegral n)
+  Vector.foldM' (\cur x -> pokeElt cur x) p1 v
+
+-- | Decode a non-nullable, non-compact 'P.KafkaArray'. Reads the
+-- 4-byte length prefix, then runs the element peek that many times.
+peekKafkaArray
+  :: (Ptr Word8 -> Ptr Word8 -> IO (a, Ptr Word8))
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO (P.KafkaArray a, Ptr Word8)
+peekKafkaArray peekElt p endPtr = do
+  (n, p1) <- peekInt32BE p endPtr
+  if n < 0
+    then pure (P.mkKafkaArray Vector.empty, p1)
+    else do
+      (v, p2) <- replicateMVec (fromIntegral n) peekElt p1 endPtr
+      pure (P.mkKafkaArray v, p2)
+
+-- | Encode a non-nullable compact 'P.KafkaArray' (UVarInt @len + 1@
+-- prefix). Treats 'P.Null' as length 0 (which the broker reads as
+-- "absent"; non-nullable arrays should never carry 'P.Null' in
+-- practice but we mirror the legacy generator's permissive behaviour).
+{-# INLINE pokeCompactArray #-}
+pokeCompactArray
+  :: (Ptr Word8 -> a -> IO (Ptr Word8))
+  -> Ptr Word8
+  -> P.KafkaArray a
+  -> IO (Ptr Word8)
+pokeCompactArray pokeElt p arr = do
+  let !v   = case P.unKafkaArray arr of
+        P.NotNull v' -> v'
+        P.Null       -> Vector.empty
+      !n   = Vector.length v
+  p1 <- pokeUVarInt p (fromIntegral (n + 1))
+  Vector.foldM' (\cur x -> pokeElt cur x) p1 v
+
+peekCompactArray
+  :: (Ptr Word8 -> Ptr Word8 -> IO (a, Ptr Word8))
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO (P.KafkaArray a, Ptr Word8)
+peekCompactArray peekElt p endPtr = do
+  (lenPlus1, p1) <- peekUVarInt p endPtr
+  if lenPlus1 == 0
+    then pure (P.mkKafkaArray Vector.empty, p1)
+    else do
+      let !n = fromIntegral lenPlus1 - 1
+      (v, p2) <- replicateMVec n peekElt p1 endPtr
+      pure (P.mkKafkaArray v, p2)
+
+-- | Encode a nullable, non-compact 'P.KafkaArray'. 'P.Null' becomes
+-- @-1@ for the length; otherwise the same shape as 'pokeKafkaArray'.
+{-# INLINE pokeNullableKafkaArray #-}
+pokeNullableKafkaArray
+  :: (Ptr Word8 -> a -> IO (Ptr Word8))
+  -> Ptr Word8
+  -> P.KafkaArray a
+  -> IO (Ptr Word8)
+pokeNullableKafkaArray pokeElt p arr = case P.unKafkaArray arr of
+  P.Null       -> pokeInt32BE p (-1)
+  P.NotNull v  -> do
+    let !n = Vector.length v
+    p1 <- pokeInt32BE p (fromIntegral n)
+    Vector.foldM' (\cur x -> pokeElt cur x) p1 v
+
+peekNullableKafkaArray
+  :: (Ptr Word8 -> Ptr Word8 -> IO (a, Ptr Word8))
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO (P.KafkaArray a, Ptr Word8)
+peekNullableKafkaArray peekElt p endPtr = do
+  (n, p1) <- peekInt32BE p endPtr
+  if n < 0
+    then pure (P.KafkaArray P.Null, p1)
+    else do
+      (v, p2) <- replicateMVec (fromIntegral n) peekElt p1 endPtr
+      pure (P.mkKafkaArray v, p2)
+
+-- | Encode a nullable compact 'P.KafkaArray'. 'P.Null' becomes 0;
+-- otherwise the same shape as 'pokeCompactArray'.
+{-# INLINE pokeNullableCompactArray #-}
+pokeNullableCompactArray
+  :: (Ptr Word8 -> a -> IO (Ptr Word8))
+  -> Ptr Word8
+  -> P.KafkaArray a
+  -> IO (Ptr Word8)
+pokeNullableCompactArray pokeElt p arr = case P.unKafkaArray arr of
+  P.Null       -> pokeUVarInt p 0
+  P.NotNull v  -> do
+    let !n = Vector.length v
+    p1 <- pokeUVarInt p (fromIntegral (n + 1))
+    Vector.foldM' (\cur x -> pokeElt cur x) p1 v
+
+peekNullableCompactArray
+  :: (Ptr Word8 -> Ptr Word8 -> IO (a, Ptr Word8))
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO (P.KafkaArray a, Ptr Word8)
+peekNullableCompactArray peekElt p endPtr = do
+  (lenPlus1, p1) <- peekUVarInt p endPtr
+  if lenPlus1 == 0
+    then pure (P.KafkaArray P.Null, p1)
+    else do
+      let !n = fromIntegral lenPlus1 - 1
+      (v, p2) <- replicateMVec n peekElt p1 endPtr
+      pure (P.mkKafkaArray v, p2)
+
+----------------------------------------------------------------------
+-- Versioned arrays
+--
+-- Switches between the compact and the non-compact codec at the
+-- supplied flexible-version threshold; mirrors the legacy
+-- 'Kafka.Protocol.Encoding.encodeVersionedArray' shape. The codegen
+-- emits @pokeVersionedArray version threshold elementPoke (accessor msg)@
+-- per array field.
+----------------------------------------------------------------------
+
+{-# INLINE pokeVersionedArray #-}
+pokeVersionedArray
+  :: Int                           -- ^ message version
+  -> Int                           -- ^ flexible-version threshold
+  -> (Ptr Word8 -> a -> IO (Ptr Word8))
+  -> Ptr Word8
+  -> P.KafkaArray a
+  -> IO (Ptr Word8)
+pokeVersionedArray version threshold pokeElt p arr
+  | version >= threshold = pokeCompactArray pokeElt p arr
+  | otherwise            = pokeKafkaArray   pokeElt p arr
+
+peekVersionedArray
+  :: Int
+  -> Int
+  -> (Ptr Word8 -> Ptr Word8 -> IO (a, Ptr Word8))
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO (P.KafkaArray a, Ptr Word8)
+peekVersionedArray version threshold peekElt p endPtr
+  | version >= threshold = peekCompactArray peekElt p endPtr
+  | otherwise            = peekKafkaArray   peekElt p endPtr
+
+{-# INLINE pokeVersionedNullableArray #-}
+pokeVersionedNullableArray
+  :: Int
+  -> Int
+  -> (Ptr Word8 -> a -> IO (Ptr Word8))
+  -> Ptr Word8
+  -> P.KafkaArray a
+  -> IO (Ptr Word8)
+pokeVersionedNullableArray version threshold pokeElt p arr
+  | version >= threshold = pokeNullableCompactArray pokeElt p arr
+  | otherwise            = pokeNullableKafkaArray   pokeElt p arr
+
+peekVersionedNullableArray
+  :: Int
+  -> Int
+  -> (Ptr Word8 -> Ptr Word8 -> IO (a, Ptr Word8))
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO (P.KafkaArray a, Ptr Word8)
+peekVersionedNullableArray version threshold peekElt p endPtr
+  | version >= threshold = peekNullableCompactArray peekElt p endPtr
+  | otherwise            = peekNullableKafkaArray   peekElt p endPtr
+
+-- | Run @peekElt@ exactly @n@ times. Builds a strict 'V.Vector' from
+-- the results without going through an intermediate list (which
+-- would force the spine + thunk every cell).
+replicateMVec
+  :: Int
+  -> (Ptr Word8 -> Ptr Word8 -> IO (a, Ptr Word8))
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO (Vector.Vector a, Ptr Word8)
+replicateMVec n peekElt p endPtr = do
+  -- Pre-allocate a mutable vector to avoid the @[a] -> Vector a@
+  -- copy that the legacy 'Vector.replicateM' would have done. The
+  -- threading of the cursor is sequential so we walk in-place.
+  mv <- VM.new n
+  finalCur <- loop 0 p mv
+  v <- Vector.unsafeFreeze mv
+  pure (v, finalCur)
+  where
+    loop !i !cur !mv
+      | i == n    = pure cur
+      | otherwise = do
+          (x, cur') <- peekElt cur endPtr
+          VM.write mv i x
+          loop (i + 1) cur' mv
+
+----------------------------------------------------------------------
+-- Tagged-field entries (KIP-866-style payloads)
+----------------------------------------------------------------------
+
+-- | Write a list of @(tag, payloadBytes)@ entries in the wire format
+-- the @TaggedFields@ envelope expects: a UVarInt count followed by
+-- per-entry @UVarInt tag, UVarInt size, bytes@. Mirrors the legacy
+-- 'P.serializeTaggedFieldEntries' helper but writes through 'Wire'
+-- primitives instead of 'Data.Bytes.Put'.
+--
+-- Used by codegen-emitted Wire pokes for messages that carry tagged
+-- fields with payloads (e.g. KIP-866 @NodeEndpoints@ on
+-- @ProduceResponse v10+@).
+pokeTaggedFieldEntries
+  :: Ptr Word8
+  -> [(Word32, BS.ByteString)]
+  -> IO (Ptr Word8)
+pokeTaggedFieldEntries p entries = do
+  let !n = length entries
+  p1 <- pokeUVarInt p (fromIntegral n)
+  go p1 entries
+  where
+    go !cur []                  = pure cur
+    go !cur ((tag, payload):rs) = do
+      cur1 <- pokeUVarInt cur tag
+      cur2 <- pokeUVarInt cur1 (fromIntegral (BS.length payload))
+      cur3 <- pokeByteString cur2 payload
+      go cur3 rs
 
 ----------------------------------------------------------------------
 -- Tagged fields
