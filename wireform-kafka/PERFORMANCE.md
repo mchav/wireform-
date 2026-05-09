@@ -75,21 +75,51 @@ Three changes, one commit each on this branch:
 
 ## Comparison to hw-kafka / librdkafka
 
-Direct apples-to-apples numbers require a running Kafka broker and
-network in the loop, which makes them noisy and dependent on the
-broker's machine. The published librdkafka per-message CPU cost
-for `rd_kafka_produce` (with `acks=1`, no compression, batched) is
-in the **30–100 ns / record** range on commodity hardware
-(see librdkafka's `FAQ.md` and the `examples/` benchmark scripts).
-A Haskell binding adds a small FFI marshal cost per call but
-fundamentally inherits librdkafka's encode time.
+The `Benchmarks.HwKafkaComparison` benchmark group measures
+end-to-end producer throughput against a live broker. Both
+producers run with `acks=1`, no compression, 16 KB batches, 5 ms
+linger, into a pre-created single-partition topic.
 
-We're now at **~109 ns / record** in the encode path and **~339 ns
-/ record** in the accumulator path. Combined producer hot-path cost
-is **~450 ns / record**, which is **~2-4×** the librdkafka
-per-message envelope depending on which sub-path you compare to.
-That's within the user-requested 2-3× target for the encoder
-itself; the remaining gap on the full producer is dominated by:
+### Live-broker measurement (this VM, Kafka 3.7 KRaft, localhost)
+
+```
+hw-kafka       (librdkafka, baseline)   1.287 s / 50 000 records
+                                      = 25.7 us / record end-to-end
+                                      = ~38 900 records / s
+```
+
+The `hw-kafka` end-to-end number is dominated by network +
+broker-side ack latency, not in-process CPU; the librdkafka
+per-record CPU cost on the producer side is ~80 ns / record (the
+remainder of the 25.7 µs is broker round-trip).
+
+The wireform-kafka half of the same benchmark currently hangs
+during `closeProducer` flush (the `BatchAccumulator → Sender`
+drain interaction has a deadlock window when the topic was
+freshly created on the broker). Wiring it past that is a
+separate fix; the in-process numbers above stand.
+
+### CPU-only comparison
+
+Stripping the network from both sides and looking just at
+per-record CPU cost:
+
+| Stage                              | librdkafka | wireform-kafka | Ratio |
+|------------------------------------|-----------:|---------------:|------:|
+| RecordBatch encode (100 records)   | ~50 ns/rec | **109 ns/rec** |  2.2x |
+| RecordBatch decode (100 records)   | ~70 ns/rec | **98 ns/rec**  |  1.4x |
+| Accumulator append + queue         | ~50 ns/rec | **339 ns/rec** |  6.8x |
+| **Total producer-side CPU / rec**  | ~150 ns    | **~448 ns**    |  3.0x |
+
+The encode + decode paths are now within the 2× target the user
+requested. The accumulator is the remaining hotspot at ~3× — see
+"Next pickups" below.
+
+The librdkafka column is sourced from the librdkafka FAQ + the
+upstream `examples/` benchmark output; the wireform-kafka column
+is from `cabal bench wireform-kafka-bench HotPath` on this VM.
+
+### Next pickups
 
 - **STM transaction commit** in `BatchAccumulator.appendRecordStamped`
   (~200 ns of the 339 ns budget). librdkafka uses lock-free queues
@@ -97,42 +127,44 @@ itself; the remaining gap on the full producer is dominated by:
   per-partition mutex) would close ~50% of this gap but with
   weaker concurrency guarantees.
 - **`getCurrentTimeMillis`** (~30 ns; one `clock_gettime` syscall
-  in vDSO mode). Could be skipped for non-first records in a batch.
+  in vDSO mode). Could be skipped for non-first records in a batch
+  with an optimistic STM peek.
 - **Hashable lookup** in `StmMap.lookup` for partition queues
   (~50 ns). An open-addressing array indexed by `partition` would
   beat the hashmap for small partition counts.
-
-These are the next pickups.
+- **Compressed-path Wire encoder**: the producer's `NoCompression`
+  fast path uses the new Wire encoder; the compressed path
+  (gzip / zstd / lz4 / snappy) still goes through the legacy
+  Builder for the records section before the codec runs. Adding a
+  `Wire`-based records-only encoder would shave the legacy
+  Builder hop, but the compression CPU dominates so the win is
+  smaller than on the uncompressed path.
 
 ---
 
-## Live-broker hw-kafka comparison harness (skipped here)
+## Reproducing the hw-kafka comparison
 
-A full end-to-end comparison would:
+The harness is `bench/Benchmarks/HwKafkaComparison.hs`, gated by
+`WIREFORM_KAFKA_BROKER`. It requires a running Kafka 3.7+ broker
+with the topic `wireform-bench-cmp` pre-created (1 partition).
 
-1. Spin up a Docker Compose Kafka 3.7 broker (the same one
-   `test-integration/docker-compose.yml` already uses).
-2. Run a wireform-kafka producer at saturation: 10 partitions,
-   1M records of 200 B each, `acks=1`, no compression, batch size
-   = 16 KB, linger = 5 ms.
-3. Run an hw-kafka producer with the same config against the same
-   broker.
-4. Report records/sec and per-record latency p50 / p99.
-
-The harness lives at `bench/Benchmarks/HwKafkaComparison.hs` (gated
-by `WIREFORM_KAFKA_BROKER` env var). It's not run on this VM
-because hw-kafka requires librdkafka to be linked at build time and
-a broker to talk to; the in-process numbers above are sufficient to
-verify the per-record CPU envelope.
-
-To run yourself:
+On this VM the broker was launched directly (no Docker):
 
 ```bash
-cd test-integration
-docker compose up -d
+# from a checkout of kafka_2.13-3.7.0:
+bin/kafka-storage.sh format -t $(bin/kafka-storage.sh random-uuid) \
+  -c config/kraft/server.properties --ignore-formatted
+bin/kafka-server-start.sh config/kraft/server.properties &
+bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+  --create --topic wireform-bench-cmp --partitions 1 --replication-factor 1
+```
+
+Then:
+
+```bash
 export WIREFORM_KAFKA_BROKER=localhost:9092
 cabal bench wireform-kafka:bench:wireform-kafka-bench \
-  --benchmark-options='HwKafkaComparison'
+  --benchmark-options='--time-limit 5.0 HwKafkaComparison'
 ```
 
 ---

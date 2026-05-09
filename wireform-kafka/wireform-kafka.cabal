@@ -835,4 +835,5 @@ benchmark wireform-kafka-bench
         stm,
         text,
         time,
-        vector
+        vector,
+        hw-kafka-client
