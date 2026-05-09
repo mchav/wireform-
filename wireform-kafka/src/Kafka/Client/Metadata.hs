@@ -51,8 +51,6 @@ module Kafka.Client.Metadata
   ) where
 
 import Control.Concurrent.STM
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 import Data.Int

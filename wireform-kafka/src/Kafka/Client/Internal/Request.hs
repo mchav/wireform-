@@ -27,9 +27,6 @@ module Kafka.Client.Internal.Request
 
 import Control.Monad (when)
 import Data.Bits ((.&.), shiftL)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
-import Data.Bytes.Serial (serialize, deserialize)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
@@ -266,8 +263,11 @@ parseResponseFrame apiKey apiVersion bs = do
   when (BS.length bs < 4) $
     Left "Response too short: missing size prefix"
 
-  let sizeResult = runGetS deserialize (BS.take 4 bs)
-  messageSize <- sizeResult
+  -- 4-byte big-endian Int32 size prefix. Wire's 'readInt32BE'
+  -- is a direct ForeignPtr peek; the previous shape went through
+  -- 'runGetS deserialize' (Builder + parser-monad) for a single
+  -- 4-byte read.
+  messageSize <- W.readInt32BE (BS.take 4 bs)
 
   let remainingBytes = BS.drop 4 bs
   when (BS.length remainingBytes < fromIntegral (messageSize :: Int32)) $
@@ -280,8 +280,7 @@ parseResponseFrame apiKey apiVersion bs = do
   when (BS.length messageBytes < 4) $
     Left "Response message too short: missing correlation ID"
 
-  let correlationIdResult = runGetS deserialize (BS.take 4 messageBytes)
-  correlationId <- correlationIdResult
+  correlationId <- W.readInt32BE (BS.take 4 messageBytes)
 
   -- Response header v1 (flexible APIs) carries an extra
   -- 'TaggedFields' field after the correlation id. The
@@ -392,8 +391,7 @@ receiveRawResponse :: Connection -> IO ByteString
 receiveRawResponse conn = do
   -- Read the 4-byte size prefix
   sizeBytes <- readExactly conn 4
-  let sizeResult = runGetS deserialize sizeBytes
-  messageSize <- case sizeResult of
+  messageSize <- case W.readInt32BE sizeBytes of
     Left err -> fail $ "Failed to parse response size: " ++ err
     Right size -> return (size :: Int32)
   let !msgLen = fromIntegral messageSize :: Int

@@ -41,9 +41,6 @@ module Kafka.Client.Simple
 
 import Control.Exception (bracket)
 import Control.Monad (forM)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
-import Data.Bytes.Serial (serialize, deserialize)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int
@@ -69,6 +66,7 @@ import qualified Kafka.Protocol.Generated.FetchResponse as FResp
 import Kafka.Client.Internal.Request
 import qualified Kafka.Protocol.RecordBatch as RB
 import qualified Kafka.Protocol.RecordBatchWire as RBW
+import qualified Kafka.Protocol.Wire as W
 import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | A simple Kafka client with synchronous operations
@@ -427,7 +425,7 @@ decodeRecordBatches kafkaBytes =
       let encoded = RB.encodeRecordBatch batch
           -- Skip base offset (8 bytes) to get to length field
           lengthBytes = BS.take 4 $ BS.drop 8 encoded
-      in case runGetS deserialize lengthBytes of
+      in case W.readInt32BE lengthBytes of
           Left _ -> 0
           Right len -> len
 

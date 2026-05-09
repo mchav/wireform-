@@ -40,8 +40,6 @@ module Kafka.Client.Internal.ConsumerGroup
 
 import Control.Concurrent.STM
 import Control.Monad (forM)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int

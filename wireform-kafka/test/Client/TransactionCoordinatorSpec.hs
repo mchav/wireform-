@@ -31,14 +31,13 @@ import Data.Int (Int16, Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import qualified Data.Vector as V
 import Kafka.Client.Consumer (TopicPartition(..))
 import Kafka.Client.Internal.TransactionCoordinator
 import qualified Kafka.Protocol.Generated.AddOffsetsToTxnRequest as AOTReq
 import qualified Kafka.Protocol.Generated.TxnOffsetCommitRequest as TOCReq
 import qualified Kafka.Protocol.Primitives as P
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Main test tree
 transactionCoordinatorSpec :: TestTree
@@ -199,8 +198,8 @@ requestBuilderTests = testGroup "Request Builders"
 
   , testCase "AddOffsetsToTxnRequest round-trips through encoder/decoder (v3)" $ do
       let req   = buildAddOffsetsToTxnRequest "tx-rt" 1 0 "g"
-          bytes = runPutS (AOTReq.encodeAddOffsetsToTxnRequest 3 req)
-      case runGetS (AOTReq.decodeAddOffsetsToTxnRequest 3) bytes of
+          bytes = WC.runEncodeVer AOTReq.encodeAddOffsetsToTxnRequest 3 req
+      case WC.runDecodeVer AOTReq.decodeAddOffsetsToTxnRequest 3 bytes of
         Left err -> assertFailure ("decode failed: " <> err)
         Right r2 -> do
           extractK (AOTReq.addOffsetsToTxnRequestTransactionalId r2) @?= "tx-rt"
@@ -259,8 +258,8 @@ requestBuilderTests = testGroup "Request Builders"
   , testCase "TxnOffsetCommitRequest round-trips through encoder/decoder (v3)" $ do
       let req   = buildTxnOffsetCommitRequest "grp" 7 9
                     [(TopicPartition "x" 0, 1), (TopicPartition "x" 1, 2)]
-          bytes = runPutS (TOCReq.encodeTxnOffsetCommitRequest 3 req)
-      case runGetS (TOCReq.decodeTxnOffsetCommitRequest 3) bytes of
+          bytes = WC.runEncodeVer TOCReq.encodeTxnOffsetCommitRequest 3 req
+      case WC.runDecodeVer TOCReq.decodeTxnOffsetCommitRequest 3 bytes of
         Left err -> assertFailure ("decode failed: " <> err)
         Right r2 -> do
           extractK (TOCReq.txnOffsetCommitRequestGroupId r2)      @?= "grp"

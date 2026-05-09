@@ -88,9 +88,6 @@ import qualified System.Timeout
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
-import Data.Bytes.Serial (deserialize)
 import Data.Hashable (Hashable)
 import Data.Int
 import Data.List (nub)
@@ -129,6 +126,7 @@ import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.Primitives as P
 import qualified Kafka.Protocol.RecordBatch as RB
 import qualified Kafka.Protocol.RecordBatchWire as RBW
+import qualified Kafka.Protocol.Wire as W
 import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Partition assignment strategy.
@@ -1589,7 +1587,7 @@ calculateBatchLength batch =
   let encoded = RB.encodeRecordBatch batch
       -- Skip base offset (8 bytes) to get to length field
       lengthBytes = BS.take 4 $ BS.drop 8 encoded
-  in case runGetS deserialize lengthBytes of
+  in case W.readInt32BE lengthBytes of
       Left _ -> 0
       Right len -> len
 

@@ -92,12 +92,17 @@ module Kafka.Protocol.Wire
   , peekByteStringSlice
     -- * Bound checking
   , ensureBytes
+    -- * ByteString-shaped fast helpers (for callers that have a
+    -- 'ByteString' in hand and want a single primitive read
+    -- without going through the Serial-monad runner).
+  , readInt32BE
   ) where
 
 import Control.Exception (Exception, SomeException, throwIO)
 import qualified Control.Exception as Exc
 import Data.Bits ((.|.), (.&.), shiftL, shiftR, xor)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word8, Word16, Word32, Word64)
@@ -587,4 +592,38 @@ instance Wire Bool where
     (w, p') <- peekWord8 p endPtr
     pure (w /= 0, p')
   {-# INLINE wirePeek #-}
+
+----------------------------------------------------------------------
+-- ByteString-shaped fast helpers
+----------------------------------------------------------------------
+
+-- | Decode a big-endian 'Int32' from the first 4 bytes of a
+-- 'ByteString'. Returns @Left@ when the buffer is shorter than 4
+-- bytes; trailing bytes past the first 4 are ignored.
+--
+-- This is the Wire-shaped sibling of
+-- @runGetS deserialize :: ByteString -> Either String Int32@,
+-- without the Builder / parser-monad overhead. Callers that have
+-- a 'ByteString' (e.g. a 4-byte length prefix peeled off the
+-- network frame, or the size field of a record-batch header)
+-- should prefer this over 'runGetS' — it's a direct
+-- 'peekByteOff' on the ForeignPtr, no allocation.
+{-# INLINE readInt32BE #-}
+readInt32BE :: ByteString -> Either String Int32
+readInt32BE bs
+  | BS.length bs < 4 =
+      Left ("readInt32BE: need 4 bytes, got " <> show (BS.length bs))
+  | otherwise = unsafePerformIO $ do
+      let (fp, off, _) = BSI.toForeignPtr bs
+      withForeignPtr fp $ \basePtr -> do
+        let !p = basePtr `plusPtr` off
+        b0 <- peekByteOff p 0 :: IO Word8
+        b1 <- peekByteOff p 1 :: IO Word8
+        b2 <- peekByteOff p 2 :: IO Word8
+        b3 <- peekByteOff p 3 :: IO Word8
+        let !w = (fromIntegral b0 `shiftL` 24)
+              .|. (fromIntegral b1 `shiftL` 16)
+              .|. (fromIntegral b2 `shiftL`  8)
+              .|. fromIntegral b3            :: Word32
+        pure (Right (fromIntegral w :: Int32))
 

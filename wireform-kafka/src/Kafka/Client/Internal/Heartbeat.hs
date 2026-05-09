@@ -34,8 +34,6 @@ import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import Data.Int
 import Data.Text (Text)
 import qualified Data.Text as T

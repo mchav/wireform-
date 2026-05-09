@@ -34,8 +34,6 @@ module Kafka.Protocol.ApiVersions
   ) where
 
 import Control.Concurrent.STM
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import Data.Int
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map

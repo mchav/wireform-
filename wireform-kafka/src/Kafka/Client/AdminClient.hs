@@ -87,8 +87,6 @@ module Kafka.Client.AdminClient
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Control.Monad (forM, forM_)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 import Data.Int

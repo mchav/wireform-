@@ -31,8 +31,6 @@ module Kafka.Client.Internal.TransactionCoordinator
 import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
 import Control.Exception (Exception)
 import Data.ByteString (ByteString)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map

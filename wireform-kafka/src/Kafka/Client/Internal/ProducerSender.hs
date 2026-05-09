@@ -57,8 +57,6 @@ import Control.Concurrent.Async (Async, async, wait, cancel)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try, bracket)
 import Control.Monad (forever, when, unless, forM, forM_)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import qualified Data.ByteString as BS
 import Data.Foldable (toList)
 import Data.Int
