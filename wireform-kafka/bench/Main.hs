@@ -35,6 +35,7 @@ import qualified Benchmarks.Serialization as Serialization
 import qualified Benchmarks.ClientOps as ClientOps
 import qualified Benchmarks.StatsAndStamping as StatsAndStamping
 import qualified Benchmarks.WireVsSerial as WireVsSerial
+import qualified Benchmarks.HotPath as HotPath
 
 -- -----------------------------------------------------------------------------
 -- Main Entry Point
@@ -73,6 +74,7 @@ main = do
     , ClientOps.benchmarks
     , StatsAndStamping.benchmarks
     , WireVsSerial.benchmarks
+    , HotPath.benchmarks
     ]
 
 -- -----------------------------------------------------------------------------

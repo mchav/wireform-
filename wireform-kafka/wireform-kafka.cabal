@@ -354,6 +354,7 @@ library
         Kafka.Protocol.Message
         Kafka.Protocol.Primitives
         Kafka.Protocol.RecordBatch
+        Kafka.Protocol.RecordBatchWire
         Kafka.Protocol.Wire
         Kafka.Protocol.Wire.Primitives
         Kafka.Telemetry.Metrics
@@ -716,6 +717,7 @@ test-suite wireform-kafka-test
         Protocol.RoundTripSpec
         Protocol.VersionHandlingSpec
         Protocol.WireSpec
+        Protocol.RecordBatchWireSpec
         TestUtil.BrokerGate
     build-depends:
         base,
@@ -813,6 +815,7 @@ benchmark wireform-kafka-bench
         Benchmarks.Serialization
         Benchmarks.StatsAndStamping
         Benchmarks.WireVsSerial
+        Benchmarks.HotPath
         Benchmarks.Util
     build-depends:
         base,
