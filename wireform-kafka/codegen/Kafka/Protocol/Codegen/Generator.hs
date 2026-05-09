@@ -51,6 +51,7 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
 import Kafka.Protocol.Codegen.Types
+import qualified Kafka.Protocol.Codegen.WireGenerator as WG
 import Prettyprinter
 import Prettyprinter.Render.Text
 
@@ -160,6 +161,7 @@ generateImports =
     , "import qualified Kafka.Protocol.Encoding as E"
     , "import Kafka.Protocol.Message (KafkaMessage(..))"
     , "import qualified Kafka.Protocol.Wire.Codec as WC"
+    , WG.generateWireImports
     ]
 
 -- | Generate code for a complete message (data type + encode/decode functions).
@@ -202,7 +204,15 @@ generateMessage schema =
     , ""
     , generateDecodeFunction schema flexibleVersion validVersions
     , ""
-    , generateWireCodecInstance (schemaName schema)
+    , -- Native 'Wire' codec block. Either three top-level functions
+      -- + an override @WireCodec@ instance (when the schema falls
+      -- inside the supported subset), or just the default
+      -- @wireCodec = Nothing@ instance that routes through the
+      -- 'Serial' fallback.
+      case (WG.generateWireFunctions schema, WG.generateWireCodecOverride schema) of
+        (Just fns, Just override) -> vsep (fns ++ ["", override])
+        _                         ->
+          generateWireCodecInstance (schemaName schema)
     ]
 
 -- | Check if a structure has version-dependent fields (fields not present in all versions).

@@ -87,6 +87,8 @@ import qualified Client.MockBrokerProtoSpec
 import qualified Client.ConfigParitySpec
 import qualified Client.ConfigValidationSpec
 import qualified Client.HeartbeatRejoinSpec
+import qualified Codegen.WireGeneratorSpec
+import qualified Protocol.WireCodecParitySpec
 import qualified Client.ProducerRetrySpec
 import qualified Client.PipelineSpec
 import qualified Client.SubscribeSpec
@@ -191,6 +193,8 @@ clientTests = testGroup "Client"
   , Client.ConfigParitySpec.tests
   , Client.ConfigValidationSpec.tests
   , Client.HeartbeatRejoinSpec.tests
+  , Codegen.WireGeneratorSpec.tests
+  , Protocol.WireCodecParitySpec.tests
   , Client.ProducerRetrySpec.tests
   , Client.PipelineSpec.tests
   , Client.SubscribeSpec.tests

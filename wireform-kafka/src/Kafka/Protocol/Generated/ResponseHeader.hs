@@ -45,6 +45,11 @@ import Kafka.Protocol.Primitives
   )
 import qualified Kafka.Protocol.Encoding as E
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -99,11 +104,52 @@ decodeResponseHeader version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | Default 'WC.WireCodec' instance: 'wireCodec = Nothing' makes
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' fall through to the
--- 'Data.Bytes.Serial' encoders / decoders defined above. Modules
--- migrated to a native 'Wire' codec override this with a
--- 'Just'-valued 'WireCodecImpl'.
+----------------------------------------------------------------------
+-- Native 'Wire' codec — emitted by
+-- "Kafka.Protocol.Codegen.WireGenerator". See the matching block in
+-- 'Kafka.Protocol.Generated.RequestHeader' for the full rationale;
+-- the same snapshot + cross-codec parity tests cover this module.
+----------------------------------------------------------------------
+
+-- | Worst-case wire size of a ResponseHeader.
+-- Sums the per-field upper bounds; the actual poke may advance
+-- the cursor by less.
+wireMaxSizeResponseHeader :: Int -> ResponseHeader -> Int
+wireMaxSizeResponseHeader _version msg =
+  0
+  + 4
+  + 1
+-- | Direct-poke encoder for ResponseHeader.
+wirePokeResponseHeader :: Int -> Ptr Word8 -> ResponseHeader -> IO (Ptr Word8)
+wirePokeResponseHeader version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (responseHeaderCorrelationId msg)
+    pure p1
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (responseHeaderCorrelationId msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke ResponseHeader : unsupported version: " ++ show version
+-- | Direct-poke decoder for ResponseHeader.
+wirePeekResponseHeader :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ResponseHeader, Ptr Word8)
+wirePeekResponseHeader version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_correlationid, p1) <- W.peekInt32BE p0 endPtr
+    pure (ResponseHeader { responseHeaderCorrelationId = f0_correlationid }, p1)
+  | version == 1 = do
+    (f0_correlationid, p1) <- W.peekInt32BE p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (ResponseHeader { responseHeaderCorrelationId = f0_correlationid }, pTagsEnd)
+  | otherwise = error $ "wirePeek ResponseHeader : unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ResponseHeader where
-  wireCodec = Nothing
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeResponseHeader (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeResponseHeader (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekResponseHeader (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

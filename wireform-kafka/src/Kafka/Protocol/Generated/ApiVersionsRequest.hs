@@ -45,6 +45,11 @@ import Kafka.Protocol.Primitives
   )
 import qualified Kafka.Protocol.Encoding as E
 import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -109,11 +114,52 @@ decodeApiVersionsRequest version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | Default 'WC.WireCodec' instance: 'wireCodec = Nothing' makes
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' fall through to the
--- 'Data.Bytes.Serial' encoders / decoders defined above. Modules
--- migrated to a native 'Wire' codec override this with a
--- 'Just'-valued 'WireCodecImpl'.
+----------------------------------------------------------------------
+-- Native 'Wire' codec — emitted by
+-- "Kafka.Protocol.Codegen.WireGenerator". See the matching block in
+-- 'Kafka.Protocol.Generated.RequestHeader' for the full rationale.
+----------------------------------------------------------------------
+
+-- | Worst-case wire size of a ApiVersionsRequest.
+-- Sums the per-field upper bounds; the actual poke may advance
+-- the cursor by less.
+wireMaxSizeApiVersionsRequest :: Int -> ApiVersionsRequest -> Int
+wireMaxSizeApiVersionsRequest _version msg =
+  0
+  + WP.compactStringMaxSize (P.toCompactString (apiVersionsRequestClientSoftwareName msg))
+  + WP.compactStringMaxSize (P.toCompactString (apiVersionsRequestClientSoftwareVersion msg))
+  + 1
+-- | Direct-poke encoder for ApiVersionsRequest.
+wirePokeApiVersionsRequest :: Int -> Ptr Word8 -> ApiVersionsRequest -> IO (Ptr Word8)
+wirePokeApiVersionsRequest version basePtr msg
+  | version >= 3 && version <= 4 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeCompactString p0 (P.toCompactString (apiVersionsRequestClientSoftwareName msg))
+    p2 <- WP.pokeCompactString p1 (P.toCompactString (apiVersionsRequestClientSoftwareVersion msg))
+    WP.pokeEmptyTaggedFields p2
+  | version >= 0 && version <= 2 = do
+    p0 <- pure basePtr
+    pure p0
+  | otherwise = error $ "wirePoke ApiVersionsRequest : unsupported version: " ++ show version
+-- | Direct-poke decoder for ApiVersionsRequest.
+wirePeekApiVersionsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ApiVersionsRequest, Ptr Word8)
+wirePeekApiVersionsRequest version _fp _basePtr p0 endPtr
+  | version >= 3 && version <= 4 = do
+    (f0_clientsoftwarename, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f1_clientsoftwareversion, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (ApiVersionsRequest { apiVersionsRequestClientSoftwareName = f0_clientsoftwarename, apiVersionsRequestClientSoftwareVersion = f1_clientsoftwareversion }, pTagsEnd)
+  | version >= 0 && version <= 2 = do
+    pure (ApiVersionsRequest { apiVersionsRequestClientSoftwareName = P.KafkaString Null, apiVersionsRequestClientSoftwareVersion = P.KafkaString Null }, p0)
+  | otherwise = error $ "wirePeek ApiVersionsRequest : unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated below, skipping the 'Data.Bytes.Serial' runner.
 instance WC.WireCodec ApiVersionsRequest where
-  wireCodec = Nothing
+  wireCodec = Just WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeApiVersionsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeApiVersionsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekApiVersionsRequest (fromIntegral v) fp basePtr p endPtr
+    }
   {-# INLINE wireCodec #-}

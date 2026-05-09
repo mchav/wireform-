@@ -646,6 +646,17 @@ executable gen-test-vectors
         text,
         vector
 
+executable kafka-codegen-emit-snapshot
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: codegen-emit-snapshot
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    build-depends:
+        base,
+        wireform-kafka:wireform-kafka-codegen,
+        prettyprinter             >= 1.7   && < 1.8,
+        text                      >= 2.0   && < 2.2
+
 executable kafka-codegen
     import: defaults
     main-is: Main.hs
@@ -717,6 +728,7 @@ test-suite wireform-kafka-test
         Client.ConfigParitySpec
         Client.ConfigValidationSpec
         Client.HeartbeatRejoinSpec
+        Codegen.WireGeneratorSpec
         Client.ProducerRetrySpec
         Client.PipelineSpec
         Client.SubscribeSpec
@@ -735,6 +747,7 @@ test-suite wireform-kafka-test
         Protocol.Generated.SimpleRoundTripSpec
         Protocol.PrimitivesSpec
         Protocol.RecordBatchAttributesSpec
+        Protocol.WireCodecParitySpec
         Protocol.RecordBatchSpec
         Protocol.RoundTripSpec
         Protocol.VersionHandlingSpec
@@ -746,6 +759,8 @@ test-suite wireform-kafka-test
     build-depends:
         base,
         wireform-kafka,
+        wireform-kafka:wireform-kafka-codegen,
+        prettyprinter             >= 1.7   && < 1.8,
         aeson,
         async,
         base64-bytestring,

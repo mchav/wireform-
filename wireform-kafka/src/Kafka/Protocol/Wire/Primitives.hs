@@ -54,6 +54,8 @@ module Kafka.Protocol.Wire.Primitives
     -- * Tagged fields
   , pokeEmptyTaggedFields
   , peekTaggedFieldsCount
+  , skipTaggedFieldsBody
+  , peekAndSkipTaggedFields
     -- * Estimators (called by 'wireMaxSize' implementations)
   , kafkaStringMaxSize
   , kafkaBytesMaxSize
@@ -336,6 +338,41 @@ peekTaggedFieldsCount :: Ptr Word8 -> Ptr Word8 -> IO (Int, Ptr Word8)
 peekTaggedFieldsCount p endPtr = do
   (n, p') <- peekUVarInt p endPtr
   pure (fromIntegral n, p')
+
+-- | Skip a single @(tag, size, bytes)@ tagged-field triple. Reads
+-- the tag UVarInt, the size UVarInt, then advances the cursor past
+-- @size@ bytes. Used by 'skipTaggedFieldsBody'.
+{-# INLINE skipOneTaggedField #-}
+skipOneTaggedField :: Ptr Word8 -> Ptr Word8 -> IO (Ptr Word8)
+skipOneTaggedField p endPtr = do
+  (_tag,  p1) <- peekUVarInt p  endPtr
+  (sz,    p2) <- peekUVarInt p1 endPtr
+  let !n = fromIntegral sz
+  ensureBytes p2 endPtr n "tagged-field payload"
+  pure (p2 `plusPtr` n)
+
+-- | Skip @n@ tagged-field entries. The caller is responsible for
+-- having already consumed the leading UVarInt count; this just
+-- walks the per-entry triples.
+skipTaggedFieldsBody :: Int -> Ptr Word8 -> Ptr Word8 -> IO (Ptr Word8)
+skipTaggedFieldsBody = go
+  where
+    go !n !p !endPtr
+      | n <= 0    = pure p
+      | otherwise = do
+          p' <- skipOneTaggedField p endPtr
+          go (n - 1) p' endPtr
+
+-- | Combined: read the count + skip every entry, returning just the
+-- cursor past the last byte consumed. The codegen-emitted Wire peek
+-- uses this for messages that don't surface tagged fields to the
+-- caller (i.e. discards the body, like the legacy
+-- @_ <- (deserialize :: m TaggedFields)@ pattern).
+{-# INLINE peekAndSkipTaggedFields #-}
+peekAndSkipTaggedFields :: Ptr Word8 -> Ptr Word8 -> IO (Ptr Word8)
+peekAndSkipTaggedFields p endPtr = do
+  (n, p') <- peekTaggedFieldsCount p endPtr
+  skipTaggedFieldsBody n p' endPtr
 
 ----------------------------------------------------------------------
 -- Wire instances
