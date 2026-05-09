@@ -95,7 +95,15 @@ library
         Kafka
         Kafka.Client.AdminClient
         Kafka.Client.Consumer
+        Kafka.Client.ConsumerGroupV2
+        Kafka.Client.Filter
+        Kafka.Client.Future
         Kafka.Client.Group
+        Kafka.Client.RebalanceListener
+        Kafka.Client.RecordMetadata
+        Kafka.Client.ShareConsumer
+        Kafka.Client.StatsEmitter
+        Kafka.Client.TopicId
         Kafka.Client.Internal.BatchAccumulator
         Kafka.Client.Internal.ConsumerGroup
         Kafka.Client.Internal.Heartbeat
@@ -331,7 +339,9 @@ library
         Kafka.Protocol.Message
         Kafka.Protocol.Primitives
         Kafka.Protocol.RecordBatch
+        Kafka.Telemetry.Metrics
         Kafka.Telemetry.OpenTelemetry
+        Kafka.Telemetry.Push
         Kafka.Telemetry.StatsJson
     build-depends:
         base                      >= 4.16  && < 5,
@@ -627,7 +637,16 @@ test-suite wireform-kafka-test
         Client.ProducerTransactionWiringSpec
         Client.InterceptorSpec
         Client.MetadataLeaderUpdateSpec
+        Client.MetricsRegistrySpec
         Client.StatsJsonSpec
+        Client.ConsumerGroupV2Spec
+        Client.ShareConsumerSpec
+        Client.TelemetryPushSpec
+        Client.RecordMetadataSpec
+        Client.FilterSpec
+        Client.FutureSpec
+        Client.TopicIdSpec
+        Client.RebalanceListenerSpec
         Client.MockBrokerSpec
         Client.MockBrokerFailureModesSpec
         Client.MockBrokerAdvancedSpec

@@ -42,7 +42,16 @@ import qualified Client.TransactionCoordinatorSpec
 import qualified Client.ProducerTransactionWiringSpec
 import qualified Client.InterceptorSpec
 import qualified Client.MetadataLeaderUpdateSpec
+import qualified Client.MetricsRegistrySpec
 import qualified Client.StatsJsonSpec
+import qualified Client.ConsumerGroupV2Spec
+import qualified Client.ShareConsumerSpec
+import qualified Client.TelemetryPushSpec
+import qualified Client.RecordMetadataSpec
+import qualified Client.FilterSpec
+import qualified Client.FutureSpec
+import qualified Client.TopicIdSpec
+import qualified Client.RebalanceListenerSpec
 import qualified Client.AdminClientSpec
 import qualified Client.MockBrokerSpec
 import qualified Client.MockBrokerFailureModesSpec
@@ -116,7 +125,16 @@ clientTests = testGroup "Client"
   , Client.ProducerTransactionWiringSpec.tests
   , Client.InterceptorSpec.tests
   , Client.MetadataLeaderUpdateSpec.tests
+  , Client.MetricsRegistrySpec.tests
   , Client.StatsJsonSpec.tests
+  , Client.ConsumerGroupV2Spec.tests
+  , Client.ShareConsumerSpec.tests
+  , Client.TelemetryPushSpec.tests
+  , Client.RecordMetadataSpec.tests
+  , Client.FilterSpec.tests
+  , Client.FutureSpec.tests
+  , Client.TopicIdSpec.tests
+  , Client.RebalanceListenerSpec.tests
   , Client.AdminClientSpec.tests
   , Client.GroupSpec.groupSpec
   , Client.MockBrokerSpec.tests

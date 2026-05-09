@@ -1,0 +1,83 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+-- | Tests for the enriched record / error metadata module
+-- (KIP-359 / 597 / 843 / 1054 / 1218).
+module Client.RecordMetadataSpec (tests) where
+
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+
+import qualified Kafka.Client.RecordMetadata as R
+
+tests :: TestTree
+tests = testGroup "Record metadata helpers"
+  [ testCase "utf8HeaderSerde round-trips text"
+      utf8_round_trip
+  , testCase "doubleHeaderSerde round-trips"
+      double_round_trip
+  , testCase "readHeader returns Nothing for missing header"
+      missing_header
+  , testCase "readHeader surfaces decode errors as Left"
+      bad_header
+  , testCase "withLeaderEpoch sets the field"
+      with_leader_epoch
+  , testCase "isCorruptRecordError matches PECorruptRecord"
+      corrupt_check
+  , testCase "producerErrorMessage is human-readable for every constructor"
+      every_message
+  ]
+
+utf8_round_trip :: IO ()
+utf8_round_trip = do
+  let b = R.writeHeader R.utf8HeaderSerde "hello"
+  R.readHeader "k" R.utf8HeaderSerde [("k", b)] @?= Just (Right "hello")
+
+double_round_trip :: IO ()
+double_round_trip = do
+  let b = R.writeHeader R.doubleHeaderSerde 3.14
+  case R.readHeader "k" R.doubleHeaderSerde [("k", b)] of
+    Just (Right d) -> assertBool "close to 3.14" (abs (d - 3.14) < 1e-9)
+    _              -> error "expected Just (Right ...)"
+
+missing_header :: IO ()
+missing_header =
+  R.readHeader "absent" R.utf8HeaderSerde [] @?= Nothing
+
+bad_header :: IO ()
+bad_header =
+  -- Invalid UTF-8 byte 0xC0 is recognised by decodeUtf8' as bad.
+  case R.readHeader "k" R.utf8HeaderSerde [("k", "\xC0\xC0")] of
+    Just (Left _) -> pure ()
+    other         -> error ("expected Left, got " <> show other)
+
+with_leader_epoch :: IO ()
+with_leader_epoch = do
+  let r = R.EnrichedRecord "t" 0 0 0 Nothing "v" [] Nothing Nothing
+      r' = R.withLeaderEpoch r 7
+  R.erLeaderEpoch r' @?= Just 7
+
+corrupt_check :: IO ()
+corrupt_check = do
+  R.isCorruptRecordError (R.PECorruptRecord "x") @?= True
+  R.isCorruptRecordError (R.PEAccumulatorClosed) @?= False
+
+every_message :: IO ()
+every_message = do
+  -- Just verify each constructor produces a non-empty, non-trivial
+  -- message; if a future constructor is added without a matching
+  -- branch GHC's exhaustiveness warning will fire on the case
+  -- expression in producerErrorMessage.
+  let cases =
+        [ R.PEDeliveryTimeout 1000
+        , R.PEAccumulatorClosed
+        , R.PEAccumulatorFull
+        , R.PEBrokerError 17 "x"
+        , R.PERequestFailed "y"
+        , R.PEFenced "z"
+        , R.PEAuthorizationFailed "no"
+        , R.PERecordTooLarge 9999
+        , R.PECorruptRecord "crc"
+        , R.PEUnknown "?"
+        ]
+  mapM_ (\e -> assertBool "non-empty message"
+    (length (show (R.producerErrorMessage e)) > 4)) cases
