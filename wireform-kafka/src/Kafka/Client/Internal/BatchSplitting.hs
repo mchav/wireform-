@@ -48,12 +48,12 @@ splitBatch b
           !leftBatch  = b { BA.batchRecords = left
                           , BA.batchSizeBytes = approxSize left
                           , BA.batchCallbacks =
-                              take (Seq.length left) (BA.batchCallbacks b)
+                              Seq.take (Seq.length left) (BA.batchCallbacks b)
                           }
           !rightBatch = b { BA.batchRecords = right
                           , BA.batchSizeBytes = approxSize right
                           , BA.batchCallbacks =
-                              drop (Seq.length left) (BA.batchCallbacks b)
+                              Seq.drop (Seq.length left) (BA.batchCallbacks b)
                           }
       in Just (leftBatch, rightBatch)
   where

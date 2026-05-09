@@ -226,7 +226,7 @@ mkBatchWith isTxn = BA.ProducerBatch
   , BA.batchCompression    = Compression.NoCompression
   , BA.batchCompressionLevel =
       Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks      = []
+  , BA.batchCallbacks      = Seq.empty
   , BA.batchAttempts       = 0
   , BA.batchProducerId     = if isTxn then 12345 else RB.noProducerId
   , BA.batchProducerEpoch  = if isTxn then 7     else RB.noProducerEpoch

@@ -219,7 +219,7 @@ sampleBatch n = BA.ProducerBatch
   , BA.batchCompression    = Compression.NoCompression
   , BA.batchCompressionLevel =
       Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks      = replicate n (\_ -> pure ())
+  , BA.batchCallbacks      = Seq.replicate n (\_ -> pure ())
   , BA.batchAttempts       = 0
   , BA.batchProducerId     = RB.noProducerId
   , BA.batchProducerEpoch  = RB.noProducerEpoch

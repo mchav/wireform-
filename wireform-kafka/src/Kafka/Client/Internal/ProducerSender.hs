@@ -602,7 +602,9 @@ processProduceResponse metaCacheM batches response = do
             -- only set when the topic is in @LogAppendTime@ mode,
             -- and we can't tell here, so we use the wall-clock
             -- timestamp as a reasonable fallback.)
-            forM_ (zip [0..] callbacks) $ \(idx, callback) -> do
+            -- 'callbacks' is a 'Seq', so we walk the sequence
+            -- with its index to assign each record's offset.
+            forM_ (Seq.mapWithIndex (,) callbacks) $ \(idx, callback) -> do
               let recordOffset = baseOffset + fromIntegral (idx :: Int)
                   metadata = (topicName, partitionId, recordOffset, timestamp)
               callback (Right metadata)

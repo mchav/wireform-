@@ -37,7 +37,7 @@ mkBatch isTxn n = BA.ProducerBatch
   , BA.batchCompression    = Compression.NoCompression
   , BA.batchCompressionLevel =
       Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks      = replicate n (\_ -> pure ())
+  , BA.batchCallbacks      = Seq.replicate n (\_ -> pure ())
   , BA.batchAttempts       = 0
   , BA.batchProducerId     = if isTxn then 12345 else RB.noProducerId
   , BA.batchProducerEpoch  = if isTxn then 7     else RB.noProducerEpoch
@@ -52,8 +52,8 @@ half_split = case BS.splitBatch (mkBatch False 6) of
     Seq.length (BA.batchRecords l) @?= 3
     Seq.length (BA.batchRecords r) @?= 3
     -- Callbacks split on the same boundary.
-    length (BA.batchCallbacks l) @?= 3
-    length (BA.batchCallbacks r) @?= 3
+    Seq.length (BA.batchCallbacks l) @?= 3
+    Seq.length (BA.batchCallbacks r) @?= 3
 
 single :: IO ()
 single = case BS.splitBatch (mkBatch False 1) of

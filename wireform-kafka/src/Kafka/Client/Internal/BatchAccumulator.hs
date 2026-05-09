@@ -107,8 +107,12 @@ data ProducerBatch = ProducerBatch
     -- ^ Compression codec to use
   , batchCompressionLevel :: !Compression.CompressionLevel
     -- ^ Compression level (KIP-353/776/909)
-  , batchCallbacks :: ![RecordCallback]
-    -- ^ Completion callbacks for each record (in order)
+  , batchCallbacks :: !(Seq RecordCallback)
+    -- ^ Completion callbacks for each record (in order). A 'Seq'
+    -- rather than a list because the producer hot path appends to
+    -- this on every record; a list would be O(n) per append and
+    -- therefore O(n^2) per batch (the older shape was the
+    -- dominant cost in the BatchAccumulator append benchmark).
   , batchAttempts :: !Int
     -- ^ Number of retry attempts already taken on this batch.
     --   Bumped each time the sender re-enqueues the batch after a
@@ -294,7 +298,7 @@ appendRecordStamped BatchAccumulator{..} tp record callback stamp = do
             !newBatch   = batch
               { batchRecords   = batchRecords batch |> record
               , batchSizeBytes = newSize
-              , batchCallbacks = batchCallbacks batch ++ [callback]
+              , batchCallbacks = batchCallbacks batch |> callback
               }
         if newSize >= accumulatorBatchSize accumulatorConfig
           then do
@@ -347,7 +351,7 @@ appendRecordWithCallback BatchAccumulator{..} tp record callback = do
             newBatch = batch
               { batchRecords = batchRecords batch |> record
               , batchSizeBytes = newSize
-              , batchCallbacks = batchCallbacks batch ++ [callback]
+              , batchCallbacks = batchCallbacks batch |> callback
               }
         
         -- Check if batch is now full
@@ -464,7 +468,7 @@ createBatch BatchAccumulatorConfig{..} tp currentTime =
     , batchState = Filling
     , batchCompression = accumulatorCompression
     , batchCompressionLevel = accumulatorCompressionLevel
-    , batchCallbacks = []
+    , batchCallbacks = Seq.empty
     , batchAttempts = 0
     , batchProducerId = RB.noProducerId
     , batchProducerEpoch = RB.noProducerEpoch

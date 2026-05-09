@@ -74,7 +74,7 @@ sampleBatch isTxn n = BA.ProducerBatch
   , BA.batchCompression    = Compression.NoCompression
   , BA.batchCompressionLevel =
       Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks      = replicate n (\_ -> pure ())
+  , BA.batchCallbacks      = Seq.replicate n (\_ -> pure ())
   , BA.batchAttempts       = 0
   , BA.batchProducerId     = if isTxn then 12345 else RB.noProducerId
   , BA.batchProducerEpoch  = if isTxn then 7     else RB.noProducerEpoch
