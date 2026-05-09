@@ -63,6 +63,8 @@ import Data.Foldable (toList)
 import Data.Int
 import qualified Data.Sequence as Seq
 import Data.List (groupBy, sortBy, partition)
+import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Ord (comparing)
@@ -489,7 +491,13 @@ buildPartitionProduceData batch = do
 -- or @producerTransactional@ is enabled, via 'BA.appendRecordStamped'.
 buildRecordBatch :: BA.ProducerBatch -> RB.RecordBatch
 buildRecordBatch batch =
-  let records = V.fromList $ toList $ BA.batchRecords batch
+  let !recSeq = BA.batchRecords batch
+      -- Single-pass Seq -> Vector: ask 'Vector' to fill itself
+      -- from the 'Seq' length + indexed access. Avoids the
+      -- intermediate list spine 'V.fromList . toList' would
+      -- allocate (one cons cell per record).
+      !nRec = Seq.length recSeq
+      !records = V.generate nRec (Seq.index recSeq)
       attrs = RB.Attributes
         { RB.attrCompressionType = BA.batchCompression batch
         , RB.attrTimestampType = RB.CreateTime
@@ -498,9 +506,15 @@ buildRecordBatch batch =
         , RB.attrHasDeleteHorizon = False
         }
       baseTimestamp = BA.batchBaseTimestamp batch
-      maxTimestamp = if V.null records
-                     then baseTimestamp
-                     else maximum $ baseTimestamp : map (\r -> baseTimestamp + RB.recordTimestampDelta r) (V.toList records)
+      -- Single fold instead of (V.toList + map + maximum +
+      -- intermediate list). 'V.foldl'' walks the vector in one
+      -- pass and computes the max delta directly.
+      !maxTimestamp =
+        if nRec == 0
+          then baseTimestamp
+          else baseTimestamp
+                 + V.foldl' (\acc r -> max acc (RB.recordTimestampDelta r))
+                            0 records
   in
     RB.RecordBatch
       { RB.batchBaseOffset = 0  -- Broker will assign
@@ -566,14 +580,24 @@ processProduceResponse metaCacheM batches response = do
   let topics = case P.unKafkaArray (PResp.produceResponseResponses response) of
         P.Null -> V.empty
         P.NotNull vec -> vec
-  
+
+  -- Pre-index outbound batches by their (topic, partition) so
+  -- the per-response lookup is O(1) instead of an O(#batches)
+  -- 'filter' on every partition row. For the common one-batch-
+  -- per-(topic, partition) shape the map values are singleton
+  -- lists (HashMap is keyed on 'TopicPartition' which already
+  -- has a 'Hashable' instance via 'BA.TopicPartition').
+  let batchIndex :: HashMap BA.TopicPartition [BA.ProducerBatch]
+      !batchIndex = HashMap.fromListWith (++)
+        [ (BA.batchTopicPartition b, [b]) | b <- batches ]
+
   -- Process each topic response
   V.forM_ topics $ \topicResp -> do
     let topicName = extractText $ PResp.topicProduceResponseName topicResp
         partitions = case P.unKafkaArray (PResp.topicProduceResponsePartitionResponses topicResp) of
           P.Null -> V.empty
           P.NotNull vec -> vec
-    
+
     -- Process each partition response
     V.forM_ partitions $ \partResp -> do
       let partitionId = PResp.partitionProduceResponseIndex partResp
@@ -592,11 +616,10 @@ processProduceResponse metaCacheM batches response = do
             Meta.updatePartitionLeader cache topicName partitionId curLeaderId
         _ -> pure ()
 
-      -- Find the batch for this topic-partition
-      let matchingBatches = filter (\b ->
-            let tp = BA.batchTopicPartition b
-            in BA.tpTopic tp == topicName && BA.tpPartition tp == partitionId) batches
-      
+      -- O(1) average lookup into the pre-built index.
+      let !key = BA.TopicPartition topicName partitionId
+          matchingBatches = HashMap.lookupDefault [] key batchIndex
+
       -- Update batch state based on error code
       forM_ matchingBatches $ \batch -> do
         if errorCode == 0
