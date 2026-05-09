@@ -16,6 +16,63 @@ drift from what the code generator produces and mask codegen bugs.
 - Benchmark comparison types must also be code-generated so that benchmarks
   measure the *actual* codegen output, not idealised hand-written decoders.
 
+### Never hand-edit a generated file
+
+Generated files are **output**, not source. Editing them creates silent drift
+between what the codegen produces and what the repo claims it produces; the
+next regen pass clobbers the edit and the change disappears. The pattern that
+broke this rule before:
+
+  * a generated module needed a tweak (an extra import, a missing instance,
+    a fixed comment),
+  * the tweak was applied directly to `<Format>/Generated/Foo.hs`,
+  * the codegen kept generating the old shape,
+  * a later regen wiped the tweak and reintroduced the original bug.
+
+**Always make the change in the codegen** (`<Format>.CodeGen.*` /
+`<Format>/codegen/`) and **regenerate**. The regen output is what gets committed.
+
+#### Audit before committing
+
+Before committing changes that touch any `*/Generated/*.hs` file, run a
+regen + diff to make sure the source tree exactly matches what the codegen
+produces. For Kafka:
+
+```
+./scripts/regen-kafka-protocol.sh /path/to/kafka/clients/src/main/resources/common/message
+git diff --stat wireform-kafka/src/Kafka/Protocol/Generated/
+# expect zero non-codegen diff (only what your codegen change introduced)
+```
+
+If `git diff` shows changes you did not intend, you have a hand-edit somewhere
+in the source tree (or a stale Generator output). Revert the hand-edit, fold
+the intent into the codegen instead, and re-regen.
+
+#### Per-format codegen entry points
+
+| Format        | Codegen entry                                              | Regen helper                                  | Generated dir                                       |
+| ------------- | ---------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------- |
+| `wireform-proto` | `gen-wkt` executable, sources in `wireform-proto/wkt-codegen/` | (manual: `cabal run gen-wkt`)                | `wireform-proto/src/Proto/Google/Protobuf/`         |
+| `wireform-kafka` | `wireform-kafka:exe:kafka-codegen`, sources in `wireform-kafka/codegen/Kafka/Protocol/Codegen/` | `scripts/regen-kafka-protocol.sh`             | `wireform-kafka/src/Kafka/Protocol/Generated/`      |
+
+#### Kafka-specific notes
+
+The `kafka-codegen` exe **deletes every existing `.hs` file in the output
+directory** before writing fresh output (`cleanGeneratedFiles` in
+`codegen-exe/Main.hs`). Consequences:
+
+  * Any module in `wireform-kafka/src/Kafka/Protocol/Generated/` whose schema
+    is **not** in the supplied message-dir will be deleted by a regen.
+  * If `wireform-kafka.cabal` lists modules that aren't in the schema dir
+    (e.g. `KIP-932` share-group messages, `StreamsGroup*` from a newer Kafka
+    than what you regenerated against), the build will break after a regen
+    until the cabal file is updated to match.
+
+When importing a newer Kafka schema set, also reconcile the cabal
+`exposed-modules` list in the same change: every regen-produced `.hs`
+should appear there, and every entry there should map to a regen-produced
+`.hs`.
+
 ## Performance
 
 ### Allocation discipline
