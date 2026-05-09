@@ -126,6 +126,7 @@ library
     Wireform.YAML
     Wireform.CSV
     Wireform.NDJSON
+    Wireform.Fory
     Wireform.Kafka
   other-modules:
     Paths_wireform
@@ -157,6 +158,7 @@ library
     , wireform-yaml
     , wireform-csv
     , wireform-ndjson
+    , wireform-fory
     , wireform-kafka
     , bytestring
     , text

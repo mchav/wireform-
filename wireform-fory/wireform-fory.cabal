@@ -1,0 +1,185 @@
+cabal-version: 3.0
+name: wireform-fory
+version: 0.1.0.0
+synopsis: Apache Fory (formerly Fury) xlang serialization
+description:
+  An implementation of the
+  <https://fory.apache.org/docs/specification/xlang_serialization_spec
+  Apache Fory xlang> binary serialization format.
+  .
+  The current scope is the spec\'s primitive value layer (varuint32,
+  varuint64, zigzag varint32\/64, tagged int64, varuint36_small,
+  IEEE float\/double, UTF-8 string headers) plus a self-describing
+  collection framing that round-trips inside this package. Reference
+  tracking, meta-string deduplication, and the streaming TypeDef
+  cache are intentionally not enabled in this initial release; see
+  the @Fory.Encode@ haddock for the exact subset.
+license: BSD-3-Clause
+build-type: Simple
+
+common defaults
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -O1
+  default-language: GHC2021
+  default-extensions:
+    StrictData
+    DerivingStrategies
+    DeriveGeneric
+    DeriveAnyClass
+    OverloadedStrings
+    LambdaCase
+
+library
+  import: defaults
+  hs-source-dirs: src
+  exposed-modules:
+    Fory.Bulk
+    Fory.Class
+    Fory.Decode
+    Fory.Derive
+    Fory.Direct
+    Fory.Encode
+    Fory.Encoding
+    Fory.IO
+    Fory.MetaString
+    Fory.MetaString.Encoder
+    Fory.MetaString.Hash
+    Fory.Options
+    Fory.Struct
+    Fory.TextHelpers
+    Fory.TypeId
+    Fory.Value
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-core,
+    wireform-derive,
+    template-haskell >= 2.18 && < 2.24,
+    bytestring >= 0.11 && < 0.13,
+    containers >= 0.6 && < 0.8,
+    text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14,
+    deepseq >= 1.4 && < 1.6,
+    hashable >= 1.3 && < 1.6,
+    primitive >= 0.7 && < 0.10,
+    unordered-containers >= 0.2.16 && < 0.3
+
+test-suite wireform-fory-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.Fory.Direct
+    Test.Fory.Encoding
+    Test.Fory.Value
+    Test.Fory.SpecExtensions
+    Test.Fory.MetaStringInterop
+    Test.Fory.Derive
+    Test.Fory.Derive.Types
+    Test.Fory.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-fory,
+    wireform-derive,
+    bytestring,
+    containers,
+    text,
+    unordered-containers,
+    vector,
+    tasty,
+    tasty-hunit,
+    tasty-hedgehog,
+    hedgehog
+
+flag python-interop
+  description: Build the wireform-fory-interop test suite, which
+               shells out to python3 / pyfory to verify byte-for-byte
+               compatibility. Off by default because it requires a
+               working pyfory install on the build host.
+  manual: True
+  default: False
+
+test-suite wireform-fory-interop
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test-interop
+  main-is: Main.hs
+  if !flag(python-interop)
+    buildable: False
+  build-depends:
+    base,
+    wireform-fory,
+    bytestring,
+    containers    >= 0.6 && < 0.8,
+    text,
+    vector,
+    aeson         >= 2.1 && < 2.3,
+    scientific    >= 0.3 && < 0.4,
+    process       >= 1.6 && < 1.8,
+    directory     >= 1.3 && < 1.4
+
+-- Property-based fuzz audit: generates random fory Values, asks
+-- pyfory to deserialise them, and reports the first one pyfory
+-- can't accept. Keeps the wire format honest as we add features.
+test-suite wireform-fory-interop-fuzz
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test-interop
+  main-is: Fuzz.hs
+  if !flag(python-interop)
+    buildable: False
+  build-depends:
+    base,
+    wireform-fory,
+    bytestring,
+    text,
+    vector,
+    process       >= 1.6 && < 1.8,
+    directory     >= 1.3 && < 1.4,
+    hedgehog      >= 1.0 && < 1.5
+
+benchmark wireform-fory-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -O2
+  default-extensions:
+    ScopedTypeVariables
+    TypeApplications
+  build-depends:
+    base,
+    wireform-fory,
+    bytestring,
+    containers,
+    deepseq,
+    text,
+    vector,
+    criterion >= 1.5 && < 1.7
+
+executable wireform-fory-fuzz-trace
+  import: defaults
+  hs-source-dirs: test-interop
+  main-is: Manual.hs
+  ghc-options: -O0
+  if !flag(python-interop)
+    buildable: False
+  build-depends:
+    base,
+    wireform-fory,
+    bytestring,
+    text,
+    vector,
+    process       >= 1.6 && < 1.8,
+    directory     >= 1.3 && < 1.4,
+    hedgehog      >= 1.0 && < 1.5

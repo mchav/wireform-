@@ -29,6 +29,7 @@ packages:
   wireform-yaml/
   wireform-csv/
   wireform-ndjson/
+  wireform-fory/
   wireform-grpc/
   wireform-kafka/
 

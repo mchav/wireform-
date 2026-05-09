@@ -38,6 +38,9 @@ module Wireform.Derive.Backend
   , backendBencode
   , backendION
 
+    -- * Cross-language object serialization
+  , backendFory
+
     -- * Columnar / tabular
   , backendArrow
   , backendParquet
@@ -160,6 +163,16 @@ backendBencode = Backend "bencode"
 -- | Amazon ION (rich-typed JSON superset).
 backendION :: Backend
 backendION = Backend "ion"
+
+-- ---------------------------------------------------------------------------
+-- Cross-language object serialization
+-- ---------------------------------------------------------------------------
+
+-- | Apache Fory (formerly Fury) xlang serialization. Field names
+-- are converted to @snake_case@ before being written as the
+-- spec\'s meta-string field name.
+backendFory :: Backend
+backendFory = Backend "fory"
 
 -- ---------------------------------------------------------------------------
 -- Columnar / tabular
