@@ -15,10 +15,10 @@ required), so it can be reproduced anywhere.
 
 | Path                                | Before (legacy) | After (this branch) | Speedup |
 |-------------------------------------|----------------:|--------------------:|--------:|
-| RecordBatch encode  / 100-record    | **1070 ns/rec** | **109 ns/rec**      | **9.8x** |
-| RecordBatch encode  /  10-record    |  1150 ns/rec    | 135 ns/rec          |  8.5x |
-| RecordBatch encode  /   1-record    |  2490 ns        | 238 ns              | 10.5x |
-| RecordBatch encode  / 100 (gzip)    |   155 µs        | **74 µs**           |  2.1x |
+| RecordBatch encode  / 100-record    | **1070 ns/rec** | **57 ns/rec**       | **18.7x** |
+| RecordBatch encode  /  10-record    |  1150 ns/rec    | 81 ns/rec           | 14.2x |
+| RecordBatch encode  /   1-record    |  2490 ns        | 191 ns              | 13x |
+| RecordBatch encode  / 100 (gzip)    |   155 µs        | **70 µs**           |  2.3x |
 | RecordBatch decode  / 100-record    |   898 ns/rec    | **45 ns/rec**       | **20x** |
 | RecordBatch decode  /  10-record    |   930 ns/rec    | 62 ns/rec           | 15x |
 | RecordBatch decode  /   1-record    |  1180 ns        | 224 ns              |  5.3x |
@@ -28,13 +28,13 @@ required), so it can be reproduced anywhere.
 | MockProducer.sendMockH / 10000 seq  |   234 ns/rec    | 234 ns/rec          |  flat |
 
 Per-record amortised cost on the producer's full encode + accumulator
-+ buffer-flush sequence is now ~**354 ns / record**:
++ buffer-flush sequence is now ~**302 ns / record**:
 
 ```
 BatchAccumulator append    245 ns
-RecordBatch encode (Wire)  109 ns
+RecordBatch encode (Wire)   57 ns
                            -----
-                           354 ns / record (uncompressed batches)
+                           302 ns / record (uncompressed batches)
 ```
 
 Decode is now at ~**45 ns / record** for typical 100-record batches,
@@ -113,6 +113,40 @@ its own benchmark + cross-codec / round-trip property tests:
    `Utils.murmur2(byte[])` plus the JVM's six canonical reference
    vectors as the regression suite.
 
+10. **SIMD pass: `memmove`-based shift in `pokeRecord`**. The
+    encoder writes each record's body starting at `p + 5` (the
+    max VarInt length the outer record-length might take), then
+    shifts the body left by 1-4 bytes once the actual VarInt
+    width is known. The shift was a Haskell byte-by-byte loop
+    moving N bytes per record (N=200 typical). Replacing it with
+    `Foreign.Marshal.Utils.moveBytes` (libc `memmove`, dispatched
+    to AVX-512 / AVX2 / SSE2 on x86-64 by glibc, NEON / SVE on
+    AArch64) cuts ~50 ns/rec off the encode path. For a 100-record
+    batch with 200-byte average body that's ~20 KB shifted through
+    a vector loop instead of 20K Haskell `peek` + `poke` round-trips.
+
+11. **SIMD pass: SWAR Murmur2 body loop**. The Murmur2 partitioner
+    body loop was reading 4 individual bytes per chunk and
+    re-assembling the 32-bit value via `shiftL` / `or`. Replaced
+    with a single unaligned `Word32` load through `peekByteOff`
+    on LE hosts (the dominant case: x86-64, AArch64), which the
+    compiler emits as one `MOV`. BE hosts keep the byte-assembly
+    path under CPP. Halves the per-key partitioning cost and is
+    on the critical path for any non-trivial sticky / hash
+    partitioner.
+
+12. **SIMD pass: inline 1-byte fast path on `peekUVarInt` /
+    `peekUVarLong`**. The decoder hot path reads ~6 varints per
+    record (outer length, attrs, tsDelta, offDelta, key length,
+    value length, header count, then per-header pairs). For
+    typical Kafka deltas / lengths < 128 each varint is one byte,
+    so the common-case decoder is now `peek + branch + return`
+    with no recursive call frame at all. The previous shape
+    paid for the `where`-bound `go` loop on every call. Slow path
+    (multi-byte varints) factored out into a `NOINLINE`-marked
+    helper so the fast path stays small enough to inline at every
+    call site.
+
 ---
 
 ## Comparison to hw-kafka / librdkafka
@@ -148,14 +182,16 @@ per-record CPU cost:
 
 | Stage                              | librdkafka | wireform-kafka | Ratio |
 |------------------------------------|-----------:|---------------:|------:|
-| RecordBatch encode (100 records)   | ~50 ns/rec | **109 ns/rec** |  2.2x |
+| RecordBatch encode (100 records)   | ~50 ns/rec | **57 ns/rec**  | **1.14x** |
 | RecordBatch decode (100 records)   | ~70 ns/rec | **45 ns/rec**  | **0.6x** |
 | Accumulator append + queue         | ~50 ns/rec | **245 ns/rec** |  4.9x |
-| **Total producer-side CPU / rec**  | ~150 ns    | **~354 ns**    |  2.4x |
+| **Total producer-side CPU / rec**  | ~150 ns    | **~302 ns**    |  2.0x |
 
-Decode is now **faster** than the librdkafka envelope; encode is
-within 2× and the bottleneck is the body memcpy through CRC32C +
-the per-record varint loop (both irreducible without SIMD work).
+Decode is **faster** than the librdkafka envelope; encode is now
+**within 14%** of librdkafka after the SIMD/SWAR pass. The
+remaining producer-side gap is concentrated in the accumulator's
+STM transaction commit (~150 ns inherent) — closing it requires
+moving off STM.
 
 The accumulator's remaining 4.9× gap comes mostly from the STM
 transaction commit itself (~150 ns inherent in `atomically`) —

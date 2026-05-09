@@ -372,9 +372,27 @@ pokeUVarInt = go
 
 -- | Decode an unsigned 32-bit varint. Refuses inputs longer than 5
 -- bytes (the worst case for Word32).
+--
+-- Inlines the 1-byte fast path (the by-far-most-common case for
+-- record deltas / lengths) so the common path is two memory reads
+-- + one branch with no recursive call frame. The slow path
+-- ('peekUVarIntSlow') handles 2-5 byte values and the truncated
+-- input case via the original loop.
 {-# INLINE peekUVarInt #-}
 peekUVarInt :: Ptr Word8 -> Ptr Word8 -> IO (Word32, Ptr Word8)
-peekUVarInt p endPtr = go p 0 0
+peekUVarInt p endPtr = do
+  ensureBytes p endPtr 1 "UVarInt"
+  b0 <- peek p :: IO Word8
+  if b0 .&. 0x80 == 0
+    then pure (fromIntegral b0, p `plusPtr` 1)
+    else peekUVarIntSlow p b0 endPtr
+
+-- | Slow-path UVarInt decoder. Called when the first byte's high
+-- bit is set (i.e. the value is at least 2 bytes long). Already
+-- consumed the first byte from 'peekUVarInt'.
+{-# NOINLINE peekUVarIntSlow #-}
+peekUVarIntSlow :: Ptr Word8 -> Word8 -> Ptr Word8 -> IO (Word32, Ptr Word8)
+peekUVarIntSlow p b0 endPtr = go (p `plusPtr` 1) 7 (fromIntegral (b0 .&. 0x7F))
   where
     go !cur !shift !acc
       | shift > 28 =
@@ -401,9 +419,26 @@ pokeUVarLong = go
 
 -- | Decode an unsigned 64-bit varint. Refuses inputs longer than 10
 -- bytes.
+--
+-- Inlines the 1-byte fast path; see 'peekUVarInt' for the rationale.
+-- This matters here too — the per-record @timestampDelta@ /
+-- @offsetDelta@ pair is one VarLong + one VarInt, both of which are
+-- almost always 1 byte for adjacent records inside a batch.
 {-# INLINE peekUVarLong #-}
 peekUVarLong :: Ptr Word8 -> Ptr Word8 -> IO (Word64, Ptr Word8)
-peekUVarLong p endPtr = go p 0 0
+peekUVarLong p endPtr = do
+  ensureBytes p endPtr 1 "UVarLong"
+  b0 <- peek p :: IO Word8
+  if b0 .&. 0x80 == 0
+    then pure (fromIntegral b0, p `plusPtr` 1)
+    else peekUVarLongSlow p b0 endPtr
+
+-- | Slow-path UVarLong decoder. Called when the first byte's high
+-- bit is set (i.e. the value is at least 2 bytes long). Already
+-- consumed the first byte from 'peekUVarLong'.
+{-# NOINLINE peekUVarLongSlow #-}
+peekUVarLongSlow :: Ptr Word8 -> Word8 -> Ptr Word8 -> IO (Word64, Ptr Word8)
+peekUVarLongSlow p b0 endPtr = go (p `plusPtr` 1) 7 (fromIntegral (b0 .&. 0x7F))
   where
     go !cur !shift !acc
       | shift > 63 =

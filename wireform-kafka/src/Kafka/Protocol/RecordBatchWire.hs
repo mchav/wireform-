@@ -55,8 +55,8 @@ import Data.Int (Int16, Int32, Int64)
 import Data.Word (Word8)
 import Foreign.ForeignPtr
   ( ForeignPtr, mallocForeignPtrBytes, withForeignPtr )
+import Foreign.Marshal.Utils (moveBytes)
 import Foreign.Ptr (Ptr, minusPtr, plusPtr)
-import Foreign.Storable (peek, poke)
 import GHC.IO (unsafePerformIO)
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
@@ -449,27 +449,23 @@ encodeAttributes Attributes{..} =
 
 -- | @memmoveLeft src dst n@ copies @n@ bytes from @src@ to @dst@,
 -- where @dst < src@ (i.e. shifting the data left in the buffer).
--- Implemented as a forward byte-by-byte loop because @memcpy@ is
--- undefined when the regions overlap; for the small shifts we do
--- (1..4 bytes per record) the loop is fine.
+--
+-- Delegates to libc 'memmove' via 'Foreign.Marshal.Utils.moveBytes'.
+-- 'memmove' handles overlapping regions correctly (unlike 'memcpy')
+-- /and/ is SIMD-vectorised on every modern target — glibc dispatches
+-- to AVX2 / AVX-512 / SSE2 on x86, NEON / SVE on ARM. For typical
+-- record bodies (100s of bytes) shifted left by 1-4 bytes per record
+-- on the encode hot path, this turns into a couple of vector
+-- loads + stores, which is dramatically faster than the previous
+-- byte-by-byte Haskell loop (which paid one peek + one poke + one
+-- branch per byte and never vectorised).
+--
+-- A 100-record batch with 200-byte average body length shifts ~20 KB
+-- of data through this hop on every encode; switching to libc cuts
+-- it from a tight Haskell loop to an SSE2/AVX move.
 {-# INLINE memmoveLeft #-}
 memmoveLeft :: Ptr Word8 -> Ptr Word8 -> Int -> IO ()
-memmoveLeft !src !dst !n = go 0
-  where
-    go !i
-      | i >= n = pure ()
-      | otherwise = do
-          b <- peekByte (src `plusPtr` i)
-          pokeByte (dst `plusPtr` i) b
-          go (i + 1)
-
-{-# INLINE peekByte #-}
-peekByte :: Ptr Word8 -> IO Word8
-peekByte = peek
-
-{-# INLINE pokeByte #-}
-pokeByte :: Ptr Word8 -> Word8 -> IO ()
-pokeByte = poke
+memmoveLeft !src !dst !n = moveBytes dst src n
 
 ----------------------------------------------------------------------
 -- Decoder
