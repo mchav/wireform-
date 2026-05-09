@@ -45,6 +45,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 
 -- | Each owner that we want to describe delegation tokens for, or null to describe all tokens.
@@ -140,3 +141,12 @@ decodeDescribeDelegationTokenRequest version
         describeDelegationTokenRequestOwners = fieldowners
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
+
+-- | Default 'WC.WireCodec' instance: 'wireCodec = Nothing' makes
+-- 'WC.runEncodeVer' / 'WC.runDecodeVer' fall through to the
+-- 'Data.Bytes.Serial' encoders / decoders defined above. Modules
+-- migrated to a native 'Wire' codec override this with a
+-- 'Just'-valued 'WireCodecImpl'.
+instance WC.WireCodec DescribeDelegationTokenRequest where
+  wireCodec = Nothing
+  {-# INLINE wireCodec #-}

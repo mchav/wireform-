@@ -159,6 +159,7 @@ generateImports =
     , "  )"
     , "import qualified Kafka.Protocol.Encoding as E"
     , "import Kafka.Protocol.Message (KafkaMessage(..))"
+    , "import qualified Kafka.Protocol.Wire.Codec as WC"
     ]
 
 -- | Generate code for a complete message (data type + encode/decode functions).
@@ -200,6 +201,8 @@ generateMessage schema =
     , generateEncodeFunction schema flexibleVersion validVersions
     , ""
     , generateDecodeFunction schema flexibleVersion validVersions
+    , ""
+    , generateWireCodecInstance (schemaName schema)
     ]
 
 -- | Check if a structure has version-dependent fields (fields not present in all versions).
@@ -292,6 +295,30 @@ generateMaxVersionConstant typeName maxVer =
     , constantName <+> ":: Int16"
     , constantName <+> "=" <+> versionValue
     ]
+
+-- | Generate the default 'WC.WireCodec' instance every message
+-- gets. The instance returns 'Nothing', which makes
+-- 'WC.runEncodeVer' / 'WC.runDecodeVer' fall back to the
+-- 'runPutS' / 'runGetS' shape — same wire bytes as before this
+-- typeclass landed.
+--
+-- Modules that are migrated to a native 'Wire' codec
+-- (i.e. once "Kafka.Protocol.Codegen.WireGenerator" emits real
+-- @wirePokeFoo@ / @wirePeekFoo@ functions for them) override
+-- this instance via a separate code path; for now every message
+-- ships the pass-through default.
+generateWireCodecInstance :: Text -> Doc ann
+generateWireCodecInstance typeName = vsep
+  [ "-- | Default 'WC.WireCodec' instance: 'wireCodec = Nothing'"
+  , "-- means 'WC.runEncodeVer' and 'WC.runDecodeVer' route through"
+  , "-- the 'Data.Bytes.Serial' encoders / decoders defined above."
+  , "-- A future codegen pass will override this with a 'Just'-valued"
+  , "-- 'WireCodecImpl' wrapping the native @wirePokeFoo@ /"
+  , "-- @wirePeekFoo@ functions."
+  , "instance WC.WireCodec" <+> pretty typeName <+> "where"
+  , indent 2 "wireCodec = Nothing"
+  , indent 2 "{-# INLINE wireCodec #-}"
+  ]
 
 -- | Generate a KafkaMessage instance for messages with API keys.
 -- Messages without an API key (e.g., headers, internal types) won't have an instance.

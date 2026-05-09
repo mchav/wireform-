@@ -45,6 +45,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 
 -- | A list of those who are allowed to renew this token before it expires.
@@ -200,3 +201,12 @@ decodeCreateDelegationTokenRequest version
         createDelegationTokenRequestMaxLifetimeMs = fieldmaxlifetimems
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
+
+-- | Default 'WC.WireCodec' instance: 'wireCodec = Nothing' makes
+-- 'WC.runEncodeVer' / 'WC.runDecodeVer' fall through to the
+-- 'Data.Bytes.Serial' encoders / decoders defined above. Modules
+-- migrated to a native 'Wire' codec override this with a
+-- 'Just'-valued 'WireCodecImpl'.
+instance WC.WireCodec CreateDelegationTokenRequest where
+  wireCodec = Nothing
+  {-# INLINE wireCodec #-}

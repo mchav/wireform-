@@ -52,6 +52,7 @@ import Kafka.Protocol.Primitives
   )
 import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 
 -- | The responses per partition.
@@ -547,3 +548,12 @@ decodeOffsetFetchResponse version
         offsetFetchResponseGroups = P.mkKafkaArray V.empty
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
+
+-- | Default 'WC.WireCodec' instance: 'wireCodec = Nothing' makes
+-- 'WC.runEncodeVer' / 'WC.runDecodeVer' fall through to the
+-- 'Data.Bytes.Serial' encoders / decoders defined above. Modules
+-- migrated to a native 'Wire' codec override this with a
+-- 'Just'-valued 'WireCodecImpl'.
+instance WC.WireCodec OffsetFetchResponse where
+  wireCodec = Nothing
+  {-# INLINE wireCodec #-}

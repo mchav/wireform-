@@ -46,6 +46,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 
 -- | The set of partitions included in the current transaction (if active). When a transaction is preparing to commit or abort, this will include only partitions which do not have markers.
@@ -241,3 +242,12 @@ decodeDescribeTransactionsResponse version
         describeTransactionsResponseTransactionStates = fieldtransactionstates
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
+
+-- | Default 'WC.WireCodec' instance: 'wireCodec = Nothing' makes
+-- 'WC.runEncodeVer' / 'WC.runDecodeVer' fall through to the
+-- 'Data.Bytes.Serial' encoders / decoders defined above. Modules
+-- migrated to a native 'Wire' codec override this with a
+-- 'Just'-valued 'WireCodecImpl'.
+instance WC.WireCodec DescribeTransactionsResponse where
+  wireCodec = Nothing
+  {-# INLINE wireCodec #-}

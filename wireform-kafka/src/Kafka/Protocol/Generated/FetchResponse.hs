@@ -54,6 +54,7 @@ import Kafka.Protocol.Primitives
   )
 import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 
 -- | In case divergence is detected based on the `LastFetchedEpoch` and `FetchOffset` in the request, this field indicates the largest epoch and its end offset such that subsequent records are known to div
@@ -725,3 +726,12 @@ decodeFetchResponse version
         fetchResponseNodeEndpoints = P.mkKafkaArray V.empty
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
+
+-- | Default 'WC.WireCodec' instance: 'wireCodec = Nothing' makes
+-- 'WC.runEncodeVer' / 'WC.runDecodeVer' fall through to the
+-- 'Data.Bytes.Serial' encoders / decoders defined above. Modules
+-- migrated to a native 'Wire' codec override this with a
+-- 'Just'-valued 'WireCodecImpl'.
+instance WC.WireCodec FetchResponse where
+  wireCodec = Nothing
+  {-# INLINE wireCodec #-}

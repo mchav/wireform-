@@ -48,6 +48,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 
 -- | Record batches to acknowledge.
@@ -434,3 +435,12 @@ decodeShareFetchRequest version
         shareFetchRequestForgottenTopicsData = fieldforgottentopicsdata
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
+
+-- | Default 'WC.WireCodec' instance: 'wireCodec = Nothing' makes
+-- 'WC.runEncodeVer' / 'WC.runDecodeVer' fall through to the
+-- 'Data.Bytes.Serial' encoders / decoders defined above. Modules
+-- migrated to a native 'Wire' codec override this with a
+-- 'Just'-valued 'WireCodecImpl'.
+instance WC.WireCodec ShareFetchRequest where
+  wireCodec = Nothing
+  {-# INLINE wireCodec #-}
