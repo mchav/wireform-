@@ -34,6 +34,10 @@ tests = testGroup "RecordBatchWire vs RecordBatch (legacy)"
       prop_cross_codec_eq
   , testProperty "any batch: round-trip via legacy decoder"
       prop_round_trip_via_legacy_decoder
+  , testProperty "any batch: round-trip via wire decoder"
+      prop_round_trip_via_wire_decoder
+  , testProperty "wire decoder accepts legacy-encoded bytes"
+      prop_wire_decoder_accepts_legacy
   ]
 
 empty_match :: IO ()
@@ -58,6 +62,24 @@ prop_round_trip_via_legacy_decoder = property $ do
   let !b   = mkBatch records
       !bs  = RBW.encodeRecordBatchWire b
   case RB.decodeRecordBatch bs of
+    Left err -> annotate err >> failure
+    Right b' -> b' === b
+
+prop_round_trip_via_wire_decoder :: Property
+prop_round_trip_via_wire_decoder = property $ do
+  records <- forAll (Gen.list (Range.linear 0 16) genRecord)
+  let !b  = mkBatch records
+      !bs = RBW.encodeRecordBatchWire b
+  case RBW.decodeRecordBatchWire bs of
+    Left err -> annotate err >> failure
+    Right b' -> b' === b
+
+prop_wire_decoder_accepts_legacy :: Property
+prop_wire_decoder_accepts_legacy = property $ do
+  records <- forAll (Gen.list (Range.linear 0 16) genRecord)
+  let !b  = mkBatch records
+      !bs = RB.encodeRecordBatch b
+  case RBW.decodeRecordBatchWire bs of
     Left err -> annotate err >> failure
     Right b' -> b' === b
 

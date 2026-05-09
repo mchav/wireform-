@@ -122,6 +122,14 @@ consumerBench = bgroup "Consumer"
       , bench "decodeRecordBatch (100 records)" $
           nf decodeOrDie encoded100
       ]
+  , bgroup "RecordBatch decode: Wire vs legacy (head-to-head)"
+      [ bench "legacy (1   record)"  $ nf decodeLegacy encoded1
+      , bench "wire   (1   record)"  $ nf decodeWire   encoded1
+      , bench "legacy (10  records)" $ nf decodeLegacy encoded10
+      , bench "wire   (10  records)" $ nf decodeWire   encoded10
+      , bench "legacy (100 records)" $ nf decodeLegacy encoded100
+      , bench "wire   (100 records)" $ nf decodeWire   encoded100
+      ]
   ]
 
 ----------------------------------------------------------------------
@@ -235,6 +243,16 @@ decodeOrDie bs = case RB.decodeRecordBatch bs of
   Right rb -> length (RB.batchRecords rb)
                    -- forces every record (Vector elements are
                    -- already strict by construction).
+
+decodeLegacy :: BS.ByteString -> Int
+decodeLegacy bs = case RB.decodeRecordBatch bs of
+  Left e   -> error e
+  Right rb -> length (RB.batchRecords rb)
+
+decodeWire :: BS.ByteString -> Int
+decodeWire bs = case RBW.decodeRecordBatchWire bs of
+  Left e   -> error e
+  Right rb -> length (RB.batchRecords rb)
 
 ----------------------------------------------------------------------
 -- Loops

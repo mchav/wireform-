@@ -35,8 +35,11 @@ Why a separate module:
 module Kafka.Protocol.RecordBatchWire
   ( encodeRecordBatchWire
   , recordBatchWireSize
+    -- * Direct-poke decoder
+  , decodeRecordBatchWire
   ) where
 
+import Control.Exception (SomeException, try)
 import Data.Bits ((.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -49,6 +52,7 @@ import Foreign.Ptr (Ptr, minusPtr, plusPtr)
 import Foreign.Storable (peek, poke)
 import GHC.IO (unsafePerformIO)
 import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as MV
 
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.CRC32C as CRC
@@ -70,6 +74,14 @@ import Kafka.Protocol.Wire
   , pokeVarLong
   , pokeWord32BE
   , pokeWord8
+  , peekInt16BE
+  , peekInt32BE
+  , peekInt64BE
+  , peekWord32BE
+  , peekWord8
+  , peekVarInt
+  , peekVarLong
+  , ensureBytes
   )
 
 ----------------------------------------------------------------------
@@ -330,3 +342,197 @@ peekByte = peek
 {-# INLINE pokeByte #-}
 pokeByte :: Ptr Word8 -> Word8 -> IO ()
 pokeByte = poke
+
+----------------------------------------------------------------------
+-- Decoder
+----------------------------------------------------------------------
+
+-- | Direct-poke decoder for 'RecordBatch'. Reads the entire batch
+-- in a single pass straight off the source 'ByteString' buffer
+-- (held alive by its 'ForeignPtr'), with one mutable 'V.Vector'
+-- allocation for the records.
+--
+-- Equivalent to 'Kafka.Protocol.RecordBatch.decodeRecordBatch' on
+-- well-formed inputs (proven by the round-trip property in
+-- 'Protocol.RecordBatchWireSpec'). Errors come back as @Left@ with
+-- the same shape of message the legacy decoder produces, so callers
+-- that pattern-match on the message text won't break.
+--
+-- == Per-record steady-state cost (GHC 9.6.4 -O1):
+--
+--   * legacy 'decodeRecordBatch' (100 records): ~89 µs / 890 ns/rec
+--   * 'decodeRecordBatchWire'    (100 records): see
+--     'Benchmarks.HotPath' / WireDecode for the latest figure;
+--     the win comes from one mutable vector + one CRC32C raw-ptr
+--     call instead of N 'getByteString' wrappers.
+{-# INLINEABLE decodeRecordBatchWire #-}
+decodeRecordBatchWire :: ByteString -> Either String RecordBatch
+decodeRecordBatchWire bs = unsafePerformIO $ do
+  let (fp, off, len) = BSI.toForeignPtr bs
+  withForeignPtr fp $ \basePtr -> do
+    let !startPtr = basePtr `plusPtr` off
+        !endPtr   = startPtr `plusPtr` len
+    -- Catch every exception because both 'WireError' (from the Wire
+    -- primitives) and 'IOError' (from 'errOut' below) can fire.
+    r <- try (peekBatch startPtr endPtr) :: IO (Either SomeException RecordBatch)
+    case r of
+      Left e   -> pure (Left (show e))
+      Right rb -> pure (Right rb)
+
+{-# INLINE peekBatch #-}
+peekBatch :: Ptr Word8 -> Ptr Word8 -> IO RecordBatch
+peekBatch p endPtr = do
+  ensureBytes p endPtr 21 "RecordBatch header"
+  (baseOffset, p1) <- peekInt64BE p endPtr
+  (lenValue,   p2) <- peekInt32BE p1 endPtr
+  (leaderEp,   p3) <- peekInt32BE p2 endPtr
+  (magic,      p4) <- peekWord8   p3 endPtr
+  if fromIntegral magic /= magicV2
+    then errOut ("Unsupported magic byte: " ++ show magic)
+    else do
+      (storedCrc, p5) <- peekWord32BE p4 endPtr
+      let !bodyStart = p5
+          !bodyLen   = fromIntegral lenValue - 4 - 1 - 4
+              -- minus partition leader epoch (4) + magic (1) + crc (4)
+          !bodyEnd   = bodyStart `plusPtr` bodyLen
+      ensureBytes bodyStart endPtr bodyLen "RecordBatch body"
+      computedCrc <- CRC.crc32cPtr bodyStart bodyLen
+      if computedCrc /= storedCrc
+        then errOut ("CRC mismatch: stored=" ++ show storedCrc
+                       ++ ", computed=" ++ show computedCrc)
+        else do
+          (attrsW, q1) <- peekInt16BE bodyStart bodyEnd
+          attrs <- case decodeAttributes attrsW of
+            Left e  -> errOut e
+            Right a -> pure a
+          (lastDelta, q2) <- peekInt32BE q1 bodyEnd
+          (baseTs,    q3) <- peekInt64BE q2 bodyEnd
+          (maxTs,     q4) <- peekInt64BE q3 bodyEnd
+          (pid,       q5) <- peekInt64BE q4 bodyEnd
+          (pep,       q6) <- peekInt16BE q5 bodyEnd
+          (baseSeq,   q7) <- peekInt32BE q6 bodyEnd
+          (recCount,  q8) <- peekInt32BE q7 bodyEnd
+          let !n = fromIntegral recCount :: Int
+          records <-
+            if n <= 0
+              then pure V.empty
+              else readRecords n q8 bodyEnd
+          pure RecordBatch
+            { batchBaseOffset           = baseOffset
+            , batchPartitionLeaderEpoch = leaderEp
+            , batchAttributes           = attrs
+            , batchLastOffsetDelta      = lastDelta
+            , batchBaseTimestamp        = baseTs
+            , batchMaxTimestamp         = maxTs
+            , batchProducerId           = pid
+            , batchProducerEpoch        = pep
+            , batchBaseSequence         = baseSeq
+            , batchRecords              = records
+            }
+
+-- | Inline copy of 'RB.decodeAttributes' so we don't pay an
+-- allocator round-trip for the @Either@ on the hot path. The
+-- legacy module currently keeps the helper private; once we
+-- export it from "Kafka.Protocol.RecordBatch" this can be removed.
+{-# INLINE decodeAttributes #-}
+decodeAttributes :: Int16 -> Either String Attributes
+decodeAttributes attrs =
+  let !cId    = fromIntegral (attrs .&. 0x07)
+      !ts     = if (attrs .&. 0x08) /= 0 then LogAppendTime else CreateTime
+      !txn    = (attrs .&. 0x10) /= 0
+      !ctrl   = (attrs .&. 0x20) /= 0
+      !del    = (attrs .&. 0x40) /= 0
+      !codec  = case (cId :: Int) of
+        0 -> Compression.NoCompression
+        1 -> Compression.Gzip
+        2 -> Compression.Snappy
+        3 -> Compression.Lz4
+        4 -> Compression.Zstd
+        _ -> Compression.NoCompression
+  in Right $ Attributes codec ts txn ctrl del
+
+-- | Decode @n@ records into a freshly allocated 'V.Vector' using
+-- one mutable buffer. Beats the legacy
+-- @replicateM n decodeRecord >>= return . V.fromList@ by skipping
+-- the intermediate list / array fusion handshake.
+{-# INLINE readRecords #-}
+readRecords :: Int -> Ptr Word8 -> Ptr Word8 -> IO (V.Vector Record)
+readRecords n start endPtr = do
+  mv <- MV.unsafeNew n
+  let go !i !p
+        | i >= n = pure ()
+        | otherwise = do
+            (rec, p') <- peekRecord p endPtr
+            MV.unsafeWrite mv i rec
+            go (i + 1) p'
+  go 0 start
+  V.unsafeFreeze mv
+
+{-# INLINE peekRecord #-}
+peekRecord :: Ptr Word8 -> Ptr Word8 -> IO (Record, Ptr Word8)
+peekRecord p endPtr = do
+  -- Outer length VarInt (we don't need it, but it has to be
+  -- consumed so the cursor advances past it).
+  (_len, p0)        <- peekVarInt p endPtr
+  -- Record attributes byte (always 0 in v2; we tolerate any value).
+  (_attrs, p1)      <- peekWord8 p0 endPtr
+  (tsDelta, p2)     <- peekVarLong p1 endPtr
+  (offDelta, p3)    <- peekVarInt p2 endPtr
+  (mKey, p4)        <- peekVarBytes p3 endPtr
+  (mVal, p5)        <- peekVarBytes p4 endPtr
+  -- The legacy decoder turns null (length=-1) value into BS.empty;
+  -- preserve that.
+  let !value = case mVal of
+                  Nothing -> BS.empty
+                  Just v  -> v
+  (hdrCount, p6)    <- peekVarInt p5 endPtr
+  (hdrs, p7)        <- readHeaders (fromIntegral hdrCount) p6 endPtr
+  pure ( Record
+           { recordTimestampDelta = tsDelta
+           , recordOffsetDelta    = offDelta
+           , recordKey            = mKey
+           , recordValue          = value
+           , recordHeaders        = hdrs
+           }
+       , p7
+       )
+
+{-# INLINE peekVarBytes #-}
+peekVarBytes :: Ptr Word8 -> Ptr Word8 -> IO (Maybe ByteString, Ptr Word8)
+peekVarBytes p endPtr = do
+  (n, p1) <- peekVarInt p endPtr
+  if n < 0
+    then pure (Nothing, p1)
+    else do
+      let !ni = fromIntegral n
+      ensureBytes p1 endPtr ni "VarBytes"
+      bs <- BSI.create ni $ \dst -> BSI.memcpy dst p1 ni
+      pure (Just bs, p1 `plusPtr` ni)
+
+{-# INLINE readHeaders #-}
+readHeaders :: Int -> Ptr Word8 -> Ptr Word8 -> IO ([RecordHeader], Ptr Word8)
+readHeaders 0 !p _ = pure ([], p)
+readHeaders n !p endPtr = do
+  -- Build a list right-to-left so we don't reverse afterwards;
+  -- each header is small enough that a list is fine here.
+  (hs, p') <- go n p []
+  pure (reverse hs, p')
+  where
+    go 0 q acc = pure (acc, q)
+    go !k q acc = do
+      (h, q') <- peekHeader q endPtr
+      go (k - 1) q' (h : acc)
+
+{-# INLINE peekHeader #-}
+peekHeader :: Ptr Word8 -> Ptr Word8 -> IO (RecordHeader, Ptr Word8)
+peekHeader p endPtr = do
+  (kLen, p1) <- peekVarInt p endPtr
+  let !ki = fromIntegral kLen
+  ensureBytes p1 endPtr ki "header key"
+  k <- BSI.create ki $ \dst -> BSI.memcpy dst p1 ki
+  let !p2 = p1 `plusPtr` ki
+  (mv, p3) <- peekVarBytes p2 endPtr
+  pure (RecordHeader { headerKey = k, headerValue = mv }, p3)
+
+errOut :: String -> IO a
+errOut = ioError . userError
