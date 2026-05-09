@@ -1,14 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- | Cross-codec equivalence tests for the new direct-poke
--- 'Kafka.Protocol.RecordBatchWire.encodeRecordBatchWire' against
--- the legacy 'Kafka.Protocol.RecordBatch.encodeRecordBatch'.
+-- | Round-trip tests for the direct-poke
+-- 'Kafka.Protocol.RecordBatchWire' codec — the production path for
+-- record batches in both produce and consume after the no-Serial
+-- migration.
 --
--- Both must produce byte-identical output for any record batch.
--- Plus the round-trip @decodeRecordBatch . encodeRecordBatchWire
--- == Right@ has to hold so the new encoder is consumable by the
--- existing decoder (and, by extension, by every Kafka broker).
+-- Before the migration these tests doubled as cross-codec parity
+-- (Wire output == legacy Serial output). Now that Serial is gone
+-- from the production path, the suite reduces to what actually
+-- matters at the runtime layer: every encode round-trips through
+-- the matching Wire decoder, with and without compression.
 module Protocol.RecordBatchWireSpec (tests) where
 
 import qualified Data.ByteString as BS
@@ -18,70 +20,48 @@ import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Tasty.HUnit (testCase)
 
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.RecordBatch as RB
 import qualified Kafka.Protocol.RecordBatchWire as RBW
 
--- 'BS' kept as a placeholder import for future compressed-bytes
--- assertions; remove the qualifier alias if unused.
-_keepBS :: BS.ByteString
-_keepBS = BS.empty
-
 tests :: TestTree
-tests = testGroup "RecordBatchWire vs RecordBatch (legacy)"
-  [ testCase "empty batch: bytes match"
-      empty_match
-  , testCase "1 record: bytes match"
-      single_match
-  , testProperty "any batch: bytes match (cross-codec equivalence)"
-      prop_cross_codec_eq
-  , testProperty "any batch: round-trip via legacy decoder"
-      prop_round_trip_via_legacy_decoder
-  , testProperty "any batch: round-trip via wire decoder"
-      prop_round_trip_via_wire_decoder
-  , testProperty "wire decoder accepts legacy-encoded bytes"
-      prop_wire_decoder_accepts_legacy
+tests = testGroup "RecordBatchWire round-trips"
+  [ testCase "empty batch round-trips"
+      empty_round_trip
+  , testCase "single-record batch round-trips"
+      single_round_trip
+  , testProperty "any uncompressed batch round-trips"
+      prop_round_trip_uncompressed
   , testGroup "compressed encoder"
-      [ testProperty "gzip: wire bytes == legacy bytes"
-          (prop_compressed_match Compression.Gzip)
-      , testProperty "lz4: wire bytes == legacy bytes"
-          (prop_compressed_match Compression.Lz4)
-      , testProperty "zstd: wire bytes == legacy bytes"
-          (prop_compressed_match Compression.Zstd)
-      , testProperty "gzip: round-trip via decompressing decoder"
-          (prop_compressed_round_trip Compression.Gzip)
+      [ testProperty "gzip: encode . decode == id"
+          (prop_round_trip_compressed Compression.Gzip)
+      , testProperty "lz4: encode . decode == id"
+          (prop_round_trip_compressed Compression.Lz4)
+      , testProperty "zstd: encode . decode == id"
+          (prop_round_trip_compressed Compression.Zstd)
       ]
   ]
 
-empty_match :: IO ()
-empty_match = do
-  let !b = mkBatch []
-  RBW.encodeRecordBatchWire b @?= RB.encodeRecordBatch b
-
-single_match :: IO ()
-single_match = do
-  let !b = mkBatch [mkRecord 0 (Just "k") "v"]
-  RBW.encodeRecordBatchWire b @?= RB.encodeRecordBatch b
-
-prop_cross_codec_eq :: Property
-prop_cross_codec_eq = property $ do
-  records <- forAll (Gen.list (Range.linear 0 16) genRecord)
-  let !b = mkBatch records
-  RBW.encodeRecordBatchWire b === RB.encodeRecordBatch b
-
-prop_round_trip_via_legacy_decoder :: Property
-prop_round_trip_via_legacy_decoder = property $ do
-  records <- forAll (Gen.list (Range.linear 0 16) genRecord)
-  let !b   = mkBatch records
+empty_round_trip :: IO ()
+empty_round_trip = do
+  let !b   = mkBatch []
       !bs  = RBW.encodeRecordBatchWire b
-  case RB.decodeRecordBatch bs of
-    Left err -> annotate err >> failure
-    Right b' -> b' === b
+  case RBW.decodeRecordBatchWire bs of
+    Left err -> error err
+    Right b' -> if b == b' then pure () else error "mismatch"
 
-prop_round_trip_via_wire_decoder :: Property
-prop_round_trip_via_wire_decoder = property $ do
+single_round_trip :: IO ()
+single_round_trip = do
+  let !b   = mkBatch [mkRecord 0 (Just "k") "v"]
+      !bs  = RBW.encodeRecordBatchWire b
+  case RBW.decodeRecordBatchWire bs of
+    Left err -> error err
+    Right b' -> if b == b' then pure () else error "mismatch"
+
+prop_round_trip_uncompressed :: Property
+prop_round_trip_uncompressed = property $ do
   records <- forAll (Gen.list (Range.linear 0 16) genRecord)
   let !b  = mkBatch records
       !bs = RBW.encodeRecordBatchWire b
@@ -89,44 +69,17 @@ prop_round_trip_via_wire_decoder = property $ do
     Left err -> annotate err >> failure
     Right b' -> b' === b
 
-prop_wire_decoder_accepts_legacy :: Property
-prop_wire_decoder_accepts_legacy = property $ do
-  records <- forAll (Gen.list (Range.linear 0 16) genRecord)
-  let !b  = mkBatch records
-      !bs = RB.encodeRecordBatch b
-  case RBW.decodeRecordBatchWire bs of
-    Left err -> annotate err >> failure
-    Right b' -> b' === b
-
--- | The Wire compressed encoder must be byte-identical with the
--- legacy 'encodeRecordBatchWithCompression' for every codec we
--- ship. Using the same inputs through both encoders should yield
--- the same wire bytes (the codec-side compression is
--- deterministic for our chosen levels).
-prop_compressed_match :: Compression.CompressionCodec -> Property
-prop_compressed_match codec = property $ do
+-- | Compressed encode + decompress + decode round-trips through the
+-- Wire codec end-to-end.
+prop_round_trip_compressed :: Compression.CompressionCodec -> Property
+prop_round_trip_compressed codec = property $ do
   records <- forAll (Gen.list (Range.linear 1 16) genRecord)
-  let !b = mkCompressedBatch codec records
-  legacy <- evalIO (RB.encodeRecordBatchWithCompression b)
-  wire   <- evalIO (RBW.encodeRecordBatchWireCompressed   b)
-  case (legacy, wire) of
-    (Right lbs, Right wbs) -> lbs === wbs
-    _ -> do
-      annotate ("legacy=" <> show legacy <> " wire=" <> show wire)
-      failure
-
--- | The Wire compressed encoder's output must round-trip
--- through the existing decompressing decoder back to the
--- original batch.
-prop_compressed_round_trip :: Compression.CompressionCodec -> Property
-prop_compressed_round_trip codec = property $ do
-  records <- forAll (Gen.list (Range.linear 1 16) genRecord)
-  let !b = mkCompressedBatch codec records
+  let !b  = mkCompressedBatch codec records
   wire <- evalIO (RBW.encodeRecordBatchWireCompressed b)
   case wire of
-    Left err -> annotate err >> failure
+    Left err  -> annotate err >> failure
     Right wbs -> do
-      back <- evalIO (RB.decodeRecordBatchWithDecompression wbs)
+      back <- evalIO (RBW.decodeRecordBatchWireWithDecompression wbs)
       case back of
         Left err -> annotate err >> failure
         Right b' -> b' === b

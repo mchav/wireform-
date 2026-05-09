@@ -34,6 +34,7 @@ Why a separate module:
 -}
 module Kafka.Protocol.RecordBatchWire
   ( encodeRecordBatchWire
+  , decodeRecordBatchWireWithDecompression
   , recordBatchWireSize
     -- * Records-only encoder (used by the compressed path)
   , encodeRecordsWire
@@ -698,3 +699,110 @@ peekHeader fp basePtr p endPtr = do
 
 errOut :: String -> IO a
 errOut = ioError . userError
+
+----------------------------------------------------------------------
+-- Decoder with decompression
+----------------------------------------------------------------------
+
+-- | Decode a 'RecordBatch' with automatic decompression. Mirrors
+-- 'Kafka.Protocol.RecordBatch.decodeRecordBatchWithDecompression'
+-- but stays entirely in the Wire shape — no 'Data.Bytes.Serial'
+-- detour. The hot path:
+--
+--   1. Parse the batch header + everything before the records via
+--      Wire pokes.
+--   2. If the batch is uncompressed, hand off to the per-record
+--      Wire decoder ('readRecords').
+--   3. Otherwise slice the compressed records section, run it
+--      through 'Compression.decompress', then parse the
+--      decompressed bytes via the per-record Wire decoder against
+--      the freshly-allocated 'ForeignPtr'.
+--
+-- Returns the decoded 'RecordBatch' or a 'Left' with the same
+-- shape of error message the legacy
+-- 'decodeRecordBatchWithDecompression' produces, so callers that
+-- pattern-match on the error text don't break.
+decodeRecordBatchWireWithDecompression
+  :: ByteString
+  -> IO (Either String RecordBatch)
+decodeRecordBatchWireWithDecompression bs = do
+  let (fp, off, len) = BSI.toForeignPtr bs
+  withForeignPtr fp $ \basePtr -> do
+    let !startPtr = basePtr `plusPtr` off
+        !endPtr   = startPtr `plusPtr` len
+    r <- try (peekBatchWithDecompression fp basePtr startPtr endPtr)
+           :: IO (Either SomeException RecordBatch)
+    case r of
+      Left e   -> pure (Left (show e))
+      Right rb -> pure (Right rb)
+
+peekBatchWithDecompression
+  :: ForeignPtr Word8
+  -> Ptr Word8
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO RecordBatch
+peekBatchWithDecompression fp basePtr p endPtr = do
+  ensureBytes p endPtr 21 "RecordBatch header"
+  (baseOffset, p1) <- peekInt64BE p endPtr
+  (lenValue,   p2) <- peekInt32BE p1 endPtr
+  (leaderEp,   p3) <- peekInt32BE p2 endPtr
+  (magic,      p4) <- peekWord8   p3 endPtr
+  if fromIntegral magic /= magicV2
+    then errOut ("Unsupported magic byte: " ++ show magic)
+    else do
+      (storedCrc, p5) <- peekWord32BE p4 endPtr
+      let !bodyStart = p5
+          !bodyLen   = fromIntegral lenValue - 4 - 1 - 4
+          !bodyEnd   = bodyStart `plusPtr` bodyLen
+      ensureBytes bodyStart endPtr bodyLen "RecordBatch body"
+      computedCrc <- CRC.crc32cPtr bodyStart bodyLen
+      if computedCrc /= storedCrc
+        then errOut ("CRC mismatch: stored=" ++ show storedCrc
+                       ++ ", computed=" ++ show computedCrc)
+        else do
+          (attrsW, q1) <- peekInt16BE bodyStart bodyEnd
+          attrs <- case decodeAttributes attrsW of
+            Left e  -> errOut e
+            Right a -> pure a
+          (lastDelta, q2) <- peekInt32BE q1 bodyEnd
+          (baseTs,    q3) <- peekInt64BE q2 bodyEnd
+          (maxTs,     q4) <- peekInt64BE q3 bodyEnd
+          (pid,       q5) <- peekInt64BE q4 bodyEnd
+          (pep,       q6) <- peekInt16BE q5 bodyEnd
+          (baseSeq,   q7) <- peekInt32BE q6 bodyEnd
+          (recCount,  q8) <- peekInt32BE q7 bodyEnd
+          let !n     = fromIntegral recCount :: Int
+              !codec = attrCompressionType attrs
+          records <- case codec of
+            Compression.NoCompression ->
+              if n <= 0
+                then pure V.empty
+                else readRecords fp basePtr n q8 bodyEnd
+            _ -> do
+              let !rawLen = bodyEnd `minusPtr` q8
+                  !rawOff = q8 `minusPtr` basePtr
+                  !rawBs  = BSI.fromForeignPtr fp rawOff rawLen
+              decompressedR <- Compression.decompress codec rawBs
+              case decompressedR of
+                Left err -> errOut ("Decompression failed: " ++ err)
+                Right decompressed
+                  | n <= 0    -> pure V.empty
+                  | otherwise -> do
+                      let (dfp, doff, dlen) = BSI.toForeignPtr decompressed
+                      withForeignPtr dfp $ \dbase -> do
+                        let !ds = dbase `plusPtr` doff
+                            !de = ds    `plusPtr` dlen
+                        readRecords dfp dbase n ds de
+          pure RecordBatch
+            { batchBaseOffset           = baseOffset
+            , batchPartitionLeaderEpoch = leaderEp
+            , batchAttributes           = attrs
+            , batchLastOffsetDelta      = lastDelta
+            , batchBaseTimestamp        = baseTs
+            , batchMaxTimestamp         = maxTs
+            , batchProducerId           = pid
+            , batchProducerEpoch        = pep
+            , batchBaseSequence         = baseSeq
+            , batchRecords              = records
+            }

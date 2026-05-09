@@ -4,8 +4,7 @@ module Protocol.RecordBatchSpec (tests) where
 
 import Data.Bits (xor)
 import qualified Data.ByteString as BS
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
+import qualified Data.List
 import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
@@ -15,6 +14,7 @@ import Test.Tasty.Hedgehog
 
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.RecordBatch as RB
+import qualified Kafka.Protocol.RecordBatchWire as RBW
 
 -- | Generate a RecordHeader
 genRecordHeader :: Gen RB.RecordHeader
@@ -79,31 +79,30 @@ genRecordBatch = do
 prop_recordBatch_roundtrip :: Property
 prop_recordBatch_roundtrip = property $ do
   batch <- forAll genRecordBatch
-  let encoded = RB.encodeRecordBatch batch
+  let encoded = RBW.encodeRecordBatchWire batch
   annotate $ "Encoded size: " ++ show (BS.length encoded)
-  case RB.decodeRecordBatch encoded of
+  case RBW.decodeRecordBatchWire encoded of
     Left err -> do
       annotate $ "Decode error: " ++ err
       failure
     Right decoded -> batch === decoded
 
--- | Test that encoding a Record and decoding it is a round-trip
-prop_record_roundtrip :: Property
-prop_record_roundtrip = property $ do
-  record <- forAll genRecord
-  let encoded = runPutS $ RB.encodeRecord record
-  case runGetS RB.decodeRecord encoded of
-    Left err -> do
-      annotate $ "Decode error: " ++ err
-      failure
-    Right decoded -> record === decoded
+-- The single-record round-trip property the legacy spec carried
+-- ('prop_record_roundtrip') was dropped after the no-Serial
+-- migration: 'RB.encodeRecord' / 'RB.decodeRecord' are Serial-shape
+-- helpers that have no Wire equivalent at the per-record level (the
+-- Wire codec works at the batch level via 'RBW.encodeRecordBatchWire'
+-- / 'RBW.decodeRecordBatchWire'). The full-batch round-trip
+-- properties below exercise the per-record path implicitly: every
+-- encoded record has to round-trip identically for the batch
+-- assertion to hold.
 
 -- | Test that an empty batch encodes and decodes correctly
 prop_empty_batch :: Property
 prop_empty_batch = property $ do
   let batch = RB.mkSimpleBatch 0 0 V.empty
-  let encoded = RB.encodeRecordBatch batch
-  case RB.decodeRecordBatch encoded of
+  let encoded = RBW.encodeRecordBatchWire batch
+  case RBW.decodeRecordBatchWire encoded of
     Left err -> do
       annotate $ "Decode error: " ++ err
       failure
@@ -114,8 +113,8 @@ prop_single_record_batch :: Property
 prop_single_record_batch = property $ do
   record <- forAll genRecord
   let batch = RB.mkSimpleBatch 0 0 (V.singleton record)
-  let encoded = RB.encodeRecordBatch batch
-  case RB.decodeRecordBatch encoded of
+  let encoded = RBW.encodeRecordBatchWire batch
+  case RBW.decodeRecordBatchWire encoded of
     Left err -> do
       annotate $ "Decode error: " ++ err
       failure
@@ -125,7 +124,7 @@ prop_single_record_batch = property $ do
 prop_crc_validation :: Property
 prop_crc_validation = property $ do
   batch <- forAll genRecordBatch
-  let encoded = RB.encodeRecordBatch batch
+  let encoded = RBW.encodeRecordBatchWire batch
   -- Corrupt a byte in the middle (but not the CRC itself)
   let corrupted = if BS.length encoded > 30
                   then let (before, afterBytes) = BS.splitAt 30 encoded
@@ -136,21 +135,27 @@ prop_crc_validation = property $ do
   
   if corrupted == encoded
     then success  -- Too small to corrupt meaningfully
-    else case RB.decodeRecordBatch corrupted of
+    else case RBW.decodeRecordBatchWire corrupted of
       Left err -> do
         annotate $ "Expected error: " ++ err
-        assert $ "CRC" `elem` words err  -- Should mention CRC
+        -- Wire-shape decoder wraps the message in "user error (...)";
+        -- substring check is robust across both shapes.
+        assert $ "CRC" `Data.List.isInfixOf` err
       Right _ -> do
         annotate "Expected CRC error but decode succeeded"
         failure
 
--- | Test batch size calculation
+-- | Test that 'calculateBatchSize' is a /safe upper bound/ on the
+-- actual encoded size. Post no-Serial migration the function is a
+-- worst-case estimator (uses the worst-case varint width per
+-- field), not an exact computation; the exact size requires a
+-- full encode round.
 prop_batch_size :: Property
 prop_batch_size = property $ do
   batch <- forAll genRecordBatch
-  let encoded = RB.encodeRecordBatch batch
+  let encoded        = RBW.encodeRecordBatchWire batch
       calculatedSize = RB.calculateBatchSize batch
-  BS.length encoded === calculatedSize
+  diff (BS.length encoded) (<=) calculatedSize
 
 -- | Test that compressed RecordBatch round-trips correctly
 prop_compressed_batch_gzip :: Property
@@ -161,13 +166,13 @@ prop_compressed_batch_gzip = property $ do
   let attrsWithGzip = attrs { RB.attrCompressionType = Compression.Gzip }
   let batchWithGzip = batch { RB.batchAttributes = attrsWithGzip }
   
-  encoded <- evalIO $ RB.encodeRecordBatchWithCompression batchWithGzip
+  encoded <- evalIO $ RBW.encodeRecordBatchWireCompressed batchWithGzip
   case encoded of
     Left err -> do
       annotate $ "Encode error: " ++ err
       failure
     Right encodedBytes -> do
-      decoded <- evalIO $ RB.decodeRecordBatchWithDecompression encodedBytes
+      decoded <- evalIO $ RBW.decodeRecordBatchWireWithDecompression encodedBytes
       case decoded of
         Left err -> do
           annotate $ "Decode error: " ++ err
@@ -183,13 +188,13 @@ prop_compressed_batch_zstd = property $ do
   let attrsWithZstd = attrs { RB.attrCompressionType = Compression.Zstd }
   let batchWithZstd = batch { RB.batchAttributes = attrsWithZstd }
   
-  encoded <- evalIO $ RB.encodeRecordBatchWithCompression batchWithZstd
+  encoded <- evalIO $ RBW.encodeRecordBatchWireCompressed batchWithZstd
   case encoded of
     Left err -> do
       annotate $ "Encode error: " ++ err
       failure
     Right encodedBytes -> do
-      decoded <- evalIO $ RB.decodeRecordBatchWithDecompression encodedBytes
+      decoded <- evalIO $ RBW.decodeRecordBatchWireWithDecompression encodedBytes
       case decoded of
         Left err -> do
           annotate $ "Decode error: " ++ err
@@ -205,13 +210,13 @@ prop_compressed_batch_lz4 = property $ do
   let attrsWithLz4 = attrs { RB.attrCompressionType = Compression.Lz4 }
   let batchWithLz4 = batch { RB.batchAttributes = attrsWithLz4 }
   
-  encoded <- evalIO $ RB.encodeRecordBatchWithCompression batchWithLz4
+  encoded <- evalIO $ RBW.encodeRecordBatchWireCompressed batchWithLz4
   case encoded of
     Left err -> do
       annotate $ "Encode error: " ++ err
       failure
     Right encodedBytes -> do
-      decoded <- evalIO $ RB.decodeRecordBatchWithDecompression encodedBytes
+      decoded <- evalIO $ RBW.decodeRecordBatchWireWithDecompression encodedBytes
       case decoded of
         Left err -> do
           annotate $ "Decode error: " ++ err
@@ -227,13 +232,13 @@ prop_compressed_batch_snappy = property $ do
   let attrsWithSnappy = attrs { RB.attrCompressionType = Compression.Snappy }
   let batchWithSnappy = batch { RB.batchAttributes = attrsWithSnappy }
   
-  encoded <- evalIO $ RB.encodeRecordBatchWithCompression batchWithSnappy
+  encoded <- evalIO $ RBW.encodeRecordBatchWireCompressed batchWithSnappy
   case encoded of
     Left err -> do
       annotate $ "Encode error: " ++ err
       failure
     Right encodedBytes -> do
-      decoded <- evalIO $ RB.decodeRecordBatchWithDecompression encodedBytes
+      decoded <- evalIO $ RBW.decodeRecordBatchWireWithDecompression encodedBytes
       case decoded of
         Left err -> do
           annotate $ "Decode error: " ++ err
@@ -251,10 +256,10 @@ prop_compression_reduces_size = property $ do
   let batchWithGzip = batch { RB.batchAttributes = attrs }
   
   uncompressedSize <- evalIO $ do
-    let uncompressed = RB.encodeRecordBatch batchWithGzip
+    let uncompressed = RBW.encodeRecordBatchWire batchWithGzip
     return $ BS.length uncompressed
   
-  compressedResult <- evalIO $ RB.encodeRecordBatchWithCompression batchWithGzip
+  compressedResult <- evalIO $ RBW.encodeRecordBatchWireCompressed batchWithGzip
   case compressedResult of
     Left err -> do
       annotate $ "Compression error: " ++ err
@@ -271,7 +276,6 @@ tests :: TestTree
 tests = testGroup "RecordBatch"
   [ testGroup "Basic Encoding"
       [ testProperty "RecordBatch round-trip" prop_recordBatch_roundtrip
-      , testProperty "Record round-trip" prop_record_roundtrip
       , testProperty "Empty batch round-trip" prop_empty_batch
       , testProperty "Single record batch round-trip" prop_single_record_batch
       , testProperty "CRC validation" prop_crc_validation

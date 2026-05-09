@@ -1629,8 +1629,14 @@ decodeAllBatches input = go input []
             _ -> do
               -- Either the Wire decoder errored (truncated input,
               -- bad CRC, …) or the batch is compressed; fall back
-              -- to the IO decoder which handles both cases.
-              result <- RB.decodeRecordBatchWithDecompression bs
+              -- to the IO decoder which handles both cases. The
+              -- IO version is the Wire-shaped decompressing
+              -- decoder ('decodeRecordBatchWireWithDecompression') —
+              -- byte-identical with the pure 'decodeRecordBatchWire'
+              -- when the batch is uncompressed; for compressed
+              -- batches it slices the records section, decompresses,
+              -- and re-decodes via the same Wire pokes.
+              result <- RBW.decodeRecordBatchWireWithDecompression bs
               case result of
                 Left err -> pure (Left err)
                 Right batch -> do
@@ -1641,7 +1647,7 @@ decodeAllBatches input = go input []
 -- | Calculate the length field value for a batch (everything after the length field)
 calculateBatchLength :: RB.RecordBatch -> Int32
 calculateBatchLength batch =
-  let encoded = RB.encodeRecordBatch batch
+  let encoded = RBW.encodeRecordBatchWire batch
       -- Skip base offset (8 bytes) to get to length field
       lengthBytes = BS.take 4 $ BS.drop 8 encoded
   in case W.readInt32BE lengthBytes of

@@ -405,7 +405,11 @@ decodeRecordBatches kafkaBytes =
     decodeBatches bs chunks
       | BS.null bs = return $! concat (reverse chunks)
       | otherwise = do
-          result <- RB.decodeRecordBatchWithDecompression bs
+          -- 'RBW.decodeRecordBatchWireWithDecompression' replaces
+          -- the legacy Serial-shape 'RB.decodeRecordBatchWithDecompression';
+          -- byte-identical wire output, no 'Data.Bytes.Get' on the
+          -- runtime path.
+          result <- RBW.decodeRecordBatchWireWithDecompression bs
           case result of
             Left _err ->
               -- If decode fails, return what we have so far
@@ -422,7 +426,7 @@ decodeRecordBatches kafkaBytes =
     -- Calculate the length field value for a batch (everything after the length field)
     calculateBatchLength :: RB.RecordBatch -> Int32
     calculateBatchLength batch =
-      let encoded = RB.encodeRecordBatch batch
+      let encoded = RBW.encodeRecordBatchWire batch
           -- Skip base offset (8 bytes) to get to length field
           lengthBytes = BS.take 4 $ BS.drop 8 encoded
       in case W.readInt32BE lengthBytes of
