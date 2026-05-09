@@ -38,6 +38,7 @@ module Kafka.Client.Transaction
   , transitionState
   ) where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import Control.Exception (Exception, try, SomeException)
 import Control.Monad (unless)
@@ -233,19 +234,28 @@ initTransactions txn = do
         Right coordinator -> do
           -- Cache the coordinator
           atomically $ writeTVar (txnCoordinator txn) (Just coordinator)
-          
-          -- Initialize producer ID
-          pidResult <- TC.initProducerId
-            (txnConnectionManager txn)
-            (txnVersionCache txn)
-            (txnCorrelationId txn)
-            (txnClientId txn)
-            coordinator
-            (Just transactionalId)
-            (txnTimeoutMs txn)
-            Nothing  -- No existing producer ID for first init
-            Nothing  -- No existing epoch for first init
-          
+
+          -- Initialize producer ID, with retry for the broker's
+          -- mid-transition error codes:
+          --
+          --   * @CONCURRENT_TRANSACTIONS@ (96) — the broker is
+          --     in the middle of completing a previous
+          --     transaction for this id; retry once the abort
+          --     marker has landed.
+          --   * @INVALID_PRODUCER_EPOCH@ (51) — when InitProducerId
+          --     arrives against an @Ongoing@ transaction the
+          --     broker has to drive the previous epoch through
+          --     @PrepareEpochFence -> CompleteAbort@ before
+          --     bumping; some Kafka 3.7 paths surface this as
+          --     INVALID_PRODUCER_EPOCH instead of
+          --     CONCURRENT_TRANSACTIONS while the transit is in
+          --     flight. The JVM client retries on both.
+          --
+          -- Bounded retry: 5 attempts with 100ms exponential
+          -- backoff (max ~1.6s total). Beyond that we surface
+          -- the last error.
+          pidResult <- initProducerIdWithRetry txn coordinator transactionalId 5
+
           case pidResult of
             Left err -> return $ Left $ CoordinatorNotAvailable $ T.pack $ show err
             Right (pid, epoch) -> do
@@ -254,7 +264,7 @@ initTransactions txn = do
                 writeTVar (txnProducerId txn) (Just $ ProducerId pid)
                 writeTVar (txnProducerEpoch txn) (Just $ ProducerEpoch epoch)
                 writeTVar (txnState txn) Ready
-              
+
               return $ Right ()
     
     Ready -> return $ Right ()  -- Already initialized, idempotent
@@ -264,6 +274,54 @@ initTransactions txn = do
     Fenced -> return $ Left $ ProducerFenced "Producer has been fenced"
     
     _ -> return $ Left $ InvalidStateTransition state Ready
+
+-- | InitProducerId with bounded retry for the broker's
+-- mid-transition error codes. Mirrors the JVM client's
+-- @TransactionManager.initializeTransactions@ loop: retry on
+-- @CONCURRENT_TRANSACTIONS@ / @INVALID_PRODUCER_EPOCH@ /
+-- @COORDINATOR_LOAD_IN_PROGRESS@ with exponential backoff, surface
+-- everything else immediately.
+--
+-- The retry is bounded so a genuine producer-fenced situation
+-- (e.g. a different client really did bump our epoch and we're
+-- not allowed in) eventually surfaces as a hard error rather
+-- than spinning forever.
+initProducerIdWithRetry
+  :: Transaction
+  -> TC.TransactionCoordinator
+  -> Text                              -- ^ transactional id
+  -> Int                               -- ^ remaining attempts
+  -> IO (Either TC.TransactionCoordinatorError (Int64, Int16))
+initProducerIdWithRetry txn coordinator transactionalId attemptsLeft = do
+  pidResult <- TC.initProducerId
+    (txnConnectionManager txn)
+    (txnVersionCache txn)
+    (txnCorrelationId txn)
+    (txnClientId txn)
+    coordinator
+    (Just transactionalId)
+    (txnTimeoutMs txn)
+    Nothing  -- No existing producer ID for first init
+    Nothing  -- No existing epoch for first init
+  case pidResult of
+    Right ok -> pure (Right ok)
+    Left err
+      | attemptsLeft <= 1 -> pure (Left err)
+      | retriable err     -> do
+          -- 5 attempts: 100ms, 200ms, 400ms, 800ms, give up.
+          let !attempt   = 5 - attemptsLeft
+              !delayUs   = 100_000 * (2 ^ max 0 attempt)
+          threadDelay delayUs
+          initProducerIdWithRetry txn coordinator transactionalId (attemptsLeft - 1)
+      | otherwise         -> pure (Left err)
+  where
+    retriable :: TC.TransactionCoordinatorError -> Bool
+    retriable e = case e of
+      TC.ConcurrentTransactions _      -> True
+      TC.InvalidProducerEpoch _        -> True
+      TC.CoordinatorLoadInProgress _   -> True
+      TC.CoordinatorNotAvailable _     -> True
+      _                                -> False
 
 -- | Begin a new transaction (KIP-98)
 beginTransaction :: Transaction -> IO (Either TransactionError ())

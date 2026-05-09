@@ -682,6 +682,15 @@ flushProducer Producer{..} = do
 bindTransaction :: Producer -> Txn.Transaction -> IO ()
 bindTransaction Producer{..} txn = atomically $ do
   writeTVar producerTransaction (Just txn)
+  -- The sender thread reads 'senderTransactionalId' on every
+  -- ProduceRequest build. Mirroring the bound transaction's id
+  -- here is what makes the broker accept transactional sends
+  -- (otherwise the request envelope's @transactionalId@ stays
+  -- @Null@ and the broker returns
+  -- @TRANSACTIONAL_ID_AUTHORIZATION_FAILED@ — code 53 — even
+  -- though we have a perfectly valid producer-id / epoch).
+  let txnIdText = Txn.unTransactionalId (Txn.txnTransactionalId txn)
+  writeTVar (Sender.senderTransactionalId producerSenderState) (Just txnIdText)
   -- Reset the per-transaction registered-partition memo. The
   -- 'beginTransaction' lifecycle should also clear this, but we
   -- do it on bind so a freshly bound transaction starts clean.

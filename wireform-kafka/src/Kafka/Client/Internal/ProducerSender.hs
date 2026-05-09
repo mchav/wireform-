@@ -206,6 +206,25 @@ data SenderState = SenderState
     --   selection ('VN.pickApiVersion') matches what the broker
     --   actually accepts (rather than the hardcoded v3 the
     --   sender used to emit unconditionally).
+  , senderTransactionalId :: !(TVar (Maybe Text))
+    -- ^ Transactional id the producer is bound to.
+    --
+    -- For transactional sends ('attrIsTransactional == True' on
+    -- the batch) the broker requires the @transactionalId@
+    -- field on the ProduceRequest envelope to match the txn id
+    -- the producer's records claim. Sending @Null@ here makes
+    -- the broker reject the produce with
+    -- @TRANSACTIONAL_ID_AUTHORIZATION_FAILED@ (53) — the
+    -- broker's authorization gate runs before the no-auth
+    -- shortcut, and a null transactionalId on a transactional
+    -- ProduceRequest is, definitionally, unauthorised.
+    --
+    -- 'Nothing' for non-transactional / idempotent-only
+    -- producers; written by 'Producer.bindTransaction' when a
+    -- 'Transaction' is bound. The sender reads this TVar each
+    -- send and folds it into the request, so a producer that
+    -- /unbinds/ a transaction mid-flight stops attaching the
+    -- id from the next send onwards.
   }
 
 -- | Create a new sender state
@@ -225,6 +244,7 @@ createSenderState
 createSenderState accumulator metadata connManager retryConfig acks deliveryTimeoutMs compression clientId versionCache = do
   running <- newTVarIO True
   correlationId <- newTVarIO 0
+  txnIdVar <- newTVarIO Nothing
   -- Use the smaller of delivery timeout and 30 seconds for individual request timeout
   -- The delivery timeout covers all retries, while request timeout is per-request
   let requestTimeoutMs = min 30000 (fromIntegral deliveryTimeoutMs)
@@ -242,6 +262,7 @@ createSenderState accumulator metadata connManager retryConfig acks deliveryTime
     , senderCorrelationId = correlationId
     , senderLogger = defaultLogger
     , senderVersionCache = versionCache
+    , senderTransactionalId = txnIdVar
     }
 
 -- | Start the sender background thread
@@ -394,7 +415,18 @@ sendToBroker state@SenderState{..} broker batches = do
         -- can populate the KIP-516 TopicId on each
         -- TopicProduceData entry; the cache maintains
         -- 'topicMetaTopicId' from the v10+ MetadataResponse.
-        request <- buildProduceRequest senderMetadata senderAcks senderTimeoutMs validBatches
+        --
+        -- Reads 'senderTransactionalId' so transactional
+        -- batches ship with the configured txn id on the
+        -- request envelope (otherwise the broker rejects with
+        -- @TRANSACTIONAL_ID_AUTHORIZATION_FAILED@).
+        txnIdM <- readTVarIO senderTransactionalId
+        request <- buildProduceRequest
+                     senderMetadata
+                     txnIdM
+                     senderAcks
+                     senderTimeoutMs
+                     validBatches
         -- ProduceRequest: codegen handles up to v13. The request
         -- shape is stable from v3 onwards (v3 added the
         -- transactional id, which we send as Null on the
@@ -469,13 +501,21 @@ sendToBroker state@SenderState{..} broker batches = do
 -- in the cache) the field stays 'P.nullUuid' which is fine for
 -- v0-v12 (where the encoder ignores it). v13+ requires a real
 -- topic id.
+--
+-- The @transactionalId@ is plumbed in from the caller (read off
+-- the 'SenderState' TVar populated by @bindTransaction@). When
+-- 'Just' it goes onto the request envelope verbatim; @Nothing@
+-- sends @KafkaString Null@. The broker requires this to match
+-- the txn id any transactional records in the request claim or
+-- it rejects with @TRANSACTIONAL_ID_AUTHORIZATION_FAILED@ (53).
 buildProduceRequest
   :: Meta.MetadataCache
+  -> Maybe Text
   -> Int16
   -> Int32
   -> [BA.ProducerBatch]
   -> IO PR.ProduceRequest
-buildProduceRequest metaCache acks timeoutMs batches = do
+buildProduceRequest metaCache transactionalIdM acks timeoutMs batches = do
   -- Group batches by topic
   let batchesByTopic = groupBy (\b1 b2 -> BA.tpTopic (BA.batchTopicPartition b1) == BA.tpTopic (BA.batchTopicPartition b2))
                      $ sortBy (comparing (BA.tpTopic . BA.batchTopicPartition)) batches
@@ -484,7 +524,9 @@ buildProduceRequest metaCache acks timeoutMs batches = do
   topicData <- mapM (buildTopicProduceData metaCache) batchesByTopic
 
   return $ PR.ProduceRequest
-    { PR.produceRequestTransactionalId = P.KafkaString P.Null
+    { PR.produceRequestTransactionalId = case transactionalIdM of
+        Nothing  -> P.KafkaString P.Null
+        Just tid -> P.mkKafkaString tid
     , PR.produceRequestAcks = acks
     , PR.produceRequestTimeoutMs = timeoutMs
     , PR.produceRequestTopicData = P.mkKafkaArray (V.fromList topicData)

@@ -87,19 +87,48 @@ data TransactionCoordinatorError
 
 instance Exception TransactionCoordinatorError
 
--- | Interpret Kafka error codes into TransactionCoordinatorError
+-- | Interpret Kafka error codes into TransactionCoordinatorError.
+--
+-- Mapping cross-checked against
+-- @clients/src/main/java/org/apache/kafka/common/protocol/Errors.java@
+-- (Kafka 3.7.0). The codes the wire actually uses for the
+-- transactional path:
+--
+--   * 14 COORDINATOR_LOAD_IN_PROGRESS
+--   * 15 COORDINATOR_NOT_AVAILABLE
+--   * 16 NOT_COORDINATOR
+--   * 47 INVALID_PRODUCER_EPOCH
+--   * 48 INVALID_TXN_STATE
+--   * 49 INVALID_PRODUCER_ID_MAPPING
+--   * 50 INVALID_TRANSACTION_TIMEOUT
+--   * 51 CONCURRENT_TRANSACTIONS
+--   * 52 TRANSACTION_COORDINATOR_FENCED
+--   * 53 TRANSACTIONAL_ID_AUTHORIZATION_FAILED (no dedicated
+--        constructor — surfaced through 'UnknownCoordinatorError'
+--        with the code so callers can react)
+--   * 59 UNKNOWN_PRODUCER_ID
+--   * 90 PRODUCER_FENCED
+--
+-- The previous mapping used codes from a much older protocol
+-- spec (51 -> INVALID_PRODUCER_EPOCH, 96 -> CONCURRENT_TRANSACTIONS,
+-- etc.) which no Kafka 0.11+ broker ever sends. That meant /every/
+-- transactional error was opaque ('UnknownCoordinatorError') and
+-- the retry-on-mid-transition logic in 'Transaction.initTransactions'
+-- silently never fired. Fixing the mapping is what makes
+-- @TRANSACTION_COORDINATOR_FENCED@ / @CONCURRENT_TRANSACTIONS@
+-- actually take their retry / fence paths.
 interpretCoordinatorError :: Int16 -> TransactionCoordinatorError
 interpretCoordinatorError code = case code of
-  15 -> CoordinatorNotAvailable "Coordinator not available"
   14 -> CoordinatorLoadInProgress "Coordinator load in progress"
+  15 -> CoordinatorNotAvailable "Coordinator not available"
   16 -> NotCoordinator "Not coordinator for this resource"
-  47 -> InvalidProducerIdMapping "Invalid producer ID mapping"
-  51 -> InvalidProducerEpoch "Invalid producer epoch"
-  24 -> InvalidTxnState "Invalid transaction state"
-  48 -> InvalidPartitionsInTxn "Invalid partitions in transaction"
-  32 -> TransactionCoordinatorFenced "Transaction coordinator fenced"
+  47 -> InvalidProducerEpoch "Invalid producer epoch"
+  48 -> InvalidTxnState "Invalid transaction state"
+  49 -> InvalidProducerIdMapping "Invalid producer ID mapping"
+  50 -> InvalidPartitionsInTxn "Invalid transaction timeout"
+  51 -> ConcurrentTransactions "Concurrent transactions"
+  52 -> TransactionCoordinatorFenced "Transaction coordinator fenced"
   90 -> ProducerFenced "Producer fenced by another instance"
-  96 -> ConcurrentTransactions "Concurrent transactions"
   _  -> UnknownCoordinatorError code $ "Unknown error code: " <> T.pack (show code)
 
 -- | Find the transaction coordinator for a given transactional ID

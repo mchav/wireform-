@@ -1224,9 +1224,23 @@ fetchRecords consumer@Consumer{..} partitions timeoutMs = do
                         , (broker, (partId, offset)) <- leaders
                         ]
                   
-                  -- Fetch from each broker (KIP-392: pass rack ID)
+                  -- Fetch from each broker (KIP-392: pass rack ID).
+                  -- Threads the configured isolation level through so
+                  -- read-committed consumers actually filter aborted
+                  -- transactions; the previous code hardcoded
+                  -- READ_UNCOMMITTED (0) which made
+                  -- 'consumerIsolationLevel' a no-op.
                   results <- forM (Map.toList byBroker) $ \(broker, reqs) ->
-                    fetchFromBroker consumerConnManager consumerVersionCache broker reqs timeoutMs consumerCorrelationId (consumerRackId consumerConfig) (consumerConnConfig consumer)
+                    fetchFromBroker
+                      consumerConnManager
+                      consumerVersionCache
+                      broker
+                      reqs
+                      timeoutMs
+                      consumerCorrelationId
+                      (consumerRackId consumerConfig)
+                      (consumerConnConfig consumer)
+                      (consumerIsolationLevel consumerConfig)
                   
                   -- Combine results
                   case sequence results of
@@ -1243,8 +1257,9 @@ fetchFromBroker
   -> TVar Int32              -- ^ Correlation ID source
   -> Maybe Text              -- ^ Rack ID for rack-aware fetching (KIP-392)
   -> Conn.ConnectionConfig   -- ^ Connection / SASL config (re-used cached conns when matching)
+  -> IsolationLevel          -- ^ KIP-98 isolation level (ReadUncommitted / ReadCommitted)
   -> IO (Either String [ConsumerRecord])
-fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM connConfig = do
+fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM connConfig isolationLevel = do
   let brokerAddr = Meta.brokerMetaAddress broker
       nextCid = atomically $ do
         cid <- readTVar corrIdVar
@@ -1334,7 +1349,9 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
             , FR.fetchRequestMaxWaitMs = fromIntegral timeoutMs
             , FR.fetchRequestMinBytes = 1
             , FR.fetchRequestMaxBytes = 52428800  -- 50MB total
-            , FR.fetchRequestIsolationLevel = 0  -- READ_UNCOMMITTED
+            , FR.fetchRequestIsolationLevel = case isolationLevel of
+                ReadUncommitted -> 0
+                ReadCommitted   -> 1
             , FR.fetchRequestSessionId = 0
             , FR.fetchRequestSessionEpoch = -1
             , FR.fetchRequestTopics = P.mkKafkaArray fetchTopics
@@ -1358,18 +1375,46 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
         Right (_, responseBody) -> do
           case WC.runDecodeVer FResp.decodeFetchResponse apiVersion responseBody of
             Left err -> return $ Left $ "Failed to parse FetchResponse: " ++ err
-            Right response -> extractRecordsFromFetchResponse response
+            Right response ->
+              extractRecordsFromFetchResponse isolationLevel response
 
 -- | Extract records from a FetchResponse.
 --
--- Avoids the previous 'concatMap (convertBatchToRecords _) bs' +
--- 'concat' + 'concat' shape (which built three layers of nested
--- '[[ConsumerRecord]]' on the consumer poll path). Each batch
--- pushes its records into a single growing 'V.Vector' built once
--- via 'V.concat', and each '(topic, partition)' result is
--- materialised as one vector that we then 'V.concat' across.
-extractRecordsFromFetchResponse :: FResp.FetchResponse -> IO (Either String [ConsumerRecord])
-extractRecordsFromFetchResponse response = do
+-- Filters batches the consumer should never surface to user code:
+--
+--   * /Control batches/ ('attrIsControl' = True) carry transaction
+--     commit / abort markers. They live in the log alongside data
+--     records but are bookkeeping for the read-committed reader,
+--     not application data.
+--
+--   * /Aborted transactional batches/ when 'IsolationLevel' is
+--     'ReadCommitted'. The broker tells us which transactions on
+--     this partition aborted via @PartitionData.abortedTransactions@
+--     (a list of @(producerId, firstOffset)@ pairs); we walk the
+--     decoded batches and skip any transactional batch whose
+--     producer id matches an entry whose 'firstOffset' is at or
+--     before the batch's 'baseOffset'. A producer id can have
+--     several aborted transactions in flight, so we use the
+--     /smallest/ first-offset per producer id and skip everything
+--     past that until we hit a control batch (which the broker
+--     wrote at commit/abort time and we then drop too). This
+--     mirrors what the JVM client does inside
+--     @Fetcher.completedFetch.nextFetchedRecord@.
+--
+--   * /Aborted transactional batches/ on 'ReadUncommitted' are
+--     /not/ filtered — the whole point of 'ReadUncommitted' is to
+--     see records as soon as they're written, regardless of
+--     whether the txn ultimately commits.
+--
+-- The previous code surfaced commit/abort markers (raw
+-- @\\NUL\\NUL\\NUL\\NUL\\NUL\\NUL@-shaped values) as user records,
+-- which broke 'ReadCommitted' end-to-end and surprised
+-- 'ReadUncommitted' callers with garbage payloads.
+extractRecordsFromFetchResponse
+  :: IsolationLevel
+  -> FResp.FetchResponse
+  -> IO (Either String [ConsumerRecord])
+extractRecordsFromFetchResponse isolationLevel response = do
   let topicsVec = case P.unKafkaArray (FResp.fetchResponseResponses response) of
         P.Null -> V.empty
         P.NotNull v -> v
@@ -1416,6 +1461,25 @@ extractRecordsFromFetchResponse response = do
               case P.unKafkaBytes (FResp.partitionDataRecords partResp) of
                 P.Null -> BS.empty
                 P.NotNull bs -> bs
+            -- Pre-build a HashMap (producerId -> minimum firstOffset)
+            -- of aborted transactions on this partition. Skipped
+            -- entirely on ReadUncommitted (the map is only ever
+            -- consulted in the ReadCommitted branch of
+            -- 'keepBatch').
+            abortedByProducer = case isolationLevel of
+              ReadUncommitted -> HashMap.empty
+              ReadCommitted   ->
+                let abortsVec =
+                      case P.unKafkaArray
+                             (FResp.partitionDataAbortedTransactions partResp) of
+                        P.Null      -> V.empty
+                        P.NotNull v -> v
+                in V.foldl'
+                     (\m at ->
+                        let pid = FResp.abortedTransactionProducerId at
+                            off = FResp.abortedTransactionFirstOffset at
+                        in HashMap.insertWith min pid off m)
+                     HashMap.empty abortsVec
         if errorCode /= 0
           then pure (Left ("Fetch error for " ++ T.unpack topicName
                             ++ ":" ++ show partId ++ " code=" ++ show errorCode))
@@ -1426,9 +1490,33 @@ extractRecordsFromFetchResponse response = do
                    case batches of
                      Left err -> pure (Left ("Failed to decode batches: " ++ err))
                      Right bs ->
-                       let !v = V.concat
-                                  (map (convertBatchToRecordsV topicName partId) bs)
+                       let !kept = filter (keepBatch abortedByProducer) bs
+                           !v = V.concat
+                                  (map (convertBatchToRecordsV topicName partId) kept)
                        in pure (Right (partial V.++ v))
+
+    -- Decide whether to surface a batch's records to the user.
+    -- See the haddock at the top of the function for the full
+    -- rule set.
+    keepBatch :: HashMap.HashMap Int64 Int64 -> RB.RecordBatch -> Bool
+    keepBatch abortedByProducer batch =
+      let attrs = RB.batchAttributes batch
+      in not (RB.attrIsControl attrs)
+         && (case isolationLevel of
+               ReadUncommitted -> True
+               ReadCommitted   ->
+                 -- A transactional batch is aborted when its
+                 -- producer id appears in 'abortedByProducer' and
+                 -- the batch's baseOffset is at or after the
+                 -- aborted-transaction's first offset. Non-
+                 -- transactional batches (attrIsTransactional ==
+                 -- False) are always kept.
+                 not (RB.attrIsTransactional attrs)
+                 || case HashMap.lookup
+                          (RB.batchProducerId batch) abortedByProducer of
+                      Nothing            -> True
+                      Just firstOffset ->
+                        RB.batchBaseOffset batch < firstOffset)
 
 -- | 'Vector'-returning sibling of 'convertBatchToRecords'. The
 -- batch's records are already a 'V.Vector', so we 'V.map' instead

@@ -35,6 +35,7 @@ import Control.Concurrent (threadDelay)
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.HashMap.Strict as Map
 import qualified Data.Text as T
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, assertBool, assertFailure)
 
@@ -67,6 +68,17 @@ tests = testGroup "Transactional producer (live broker)"
 ----------------------------------------------------------------------
 -- Helpers
 ----------------------------------------------------------------------
+
+-- | Mint a fresh transactional id by suffixing the supplied
+-- prefix with the current epoch-millis. Each test run gets its
+-- own ids so any prior-run state on the broker (a partial
+-- transaction, a higher epoch from a 'fence' scenario, …) can't
+-- fence us with @InvalidProducerEpoch@ on the next
+-- 'initTransactions' call.
+freshTxnId :: T.Text -> IO T.Text
+freshTxnId prefix = do
+  now <- (round . (* 1000)) <$> getPOSIXTime :: IO Integer
+  pure (prefix <> "-" <> T.pack (show now))
 
 -- | Build a transactional producer + initialise its 'Transaction'.
 withTxnProducer
@@ -136,8 +148,8 @@ drainValues c maxAttempts = go [] maxAttempts
 
 txn_commit_visible :: IO ()
 txn_commit_visible = do
-  let txId  = "wfkafka-txn-commit-visible"
-      value = BSC.pack "wfkafka-commit"
+  txId <- freshTxnId "wfkafka-txn-commit-visible"
+  let value = BSC.pack "wfkafka-commit"
   withTxnProducer txId $ \p txn -> do
     beginR <- Txn.beginTransaction txn
     case beginR of
@@ -161,8 +173,8 @@ txn_commit_visible = do
 
 txn_abort_invisible :: IO ()
 txn_abort_invisible = do
-  let txId  = "wfkafka-txn-abort-invisible"
-      value = BSC.pack "wfkafka-abort"
+  txId <- freshTxnId "wfkafka-txn-abort-invisible"
+  let value = BSC.pack "wfkafka-abort"
   withTxnProducer txId $ \p txn -> do
     _ <- Txn.beginTransaction txn
     _ <- Producer.sendMessage p sinkTopic Nothing value
@@ -177,7 +189,7 @@ txn_abort_invisible = do
 
 txn_fences_old_producer :: IO ()
 txn_fences_old_producer = do
-  let txId = "wfkafka-txn-fence"
+  txId <- freshTxnId "wfkafka-txn-fence"
   -- First producer: open a transaction, leave it open.
   withTxnProducer txId $ \p1 txn1 -> do
     _ <- Txn.beginTransaction txn1
@@ -198,9 +210,9 @@ txn_fences_old_producer = do
 
 txn_send_offsets_atomically :: IO ()
 txn_send_offsets_atomically = do
-  let txId = "wfkafka-txn-send-offsets"
-      groupId = "wfkafka-txn-send-offsets-source-cg"
-      payload = BSC.pack "consume-process-produce"
+  txId    <- freshTxnId "wfkafka-txn-send-offsets"
+  groupId <- freshTxnId "wfkafka-txn-send-offsets-source-cg"
+  let payload = BSC.pack "consume-process-produce"
   -- Seed an input message.
   pSeed <- Producer.createProducer brokers Producer.defaultProducerConfig
   case pSeed of
@@ -225,9 +237,7 @@ txn_send_offsets_atomically = do
         _ <- Producer.sendMessage p sinkTopic Nothing payload
         let offs = Map.fromList
               [ (Consumer.TopicPartition sourceTopic 0, 1) ]
-        _ <- Txn.commitOffsetsInTransaction txn (T.pack groupId') offs
+        _ <- Txn.commitOffsetsInTransaction txn groupId offs
         _ <- Txn.commitTransaction txn
         pure ()
       Consumer.closeConsumer src
-  where
-    groupId' = "wfkafka-txn-send-offsets-source-cg"
