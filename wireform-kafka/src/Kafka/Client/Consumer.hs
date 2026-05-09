@@ -113,6 +113,7 @@ import qualified Kafka.Client.Metadata as Meta
 import qualified Kafka.Network.Connection as Conn
 import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.ApiVersions as AV
+import qualified Kafka.Protocol.VersionNegotiation as VN
 import qualified Kafka.Protocol.Generated.FetchRequest as FR
 import qualified Kafka.Protocol.Generated.FetchResponse as FResp
 import qualified Kafka.Protocol.Generated.OffsetCommitRequest as OCReq
@@ -341,6 +342,32 @@ consumerConnConfig c =
   let base = consumerConnectionConfig (consumerConfig c)
   in base { Conn.connClientId = consumerClientId (consumerConfig c) }
 
+-- | 'Conn.getOrCreateConnection' + ensure ApiVersions has been
+-- negotiated for the broker. Idempotent: subsequent calls to
+-- the same broker only do the cache hit, no extra round-trip.
+--
+-- Use this everywhere we obtain a connection to a /new/ broker
+-- (i.e. anywhere that wasn't the bootstrap broker, since the
+-- bootstrap broker's handshake already ran in 'createConsumer')
+-- so subsequent 'pickApiVersion' / 'queryApiVersion' lookups
+-- have data to consult instead of always falling back.
+consumerConnect
+  :: Consumer
+  -> Conn.BrokerAddress
+  -> IO (Either String Connection)
+consumerConnect c@Consumer{..} addr = do
+  cr <- Conn.getOrCreateConnection consumerConnManager addr (consumerConnConfig c)
+  case cr of
+    Left e     -> pure (Left e)
+    Right conn -> do
+      _ <- VN.ensureVersionsNegotiated
+             conn addr consumerVersionCache
+             (atomically $ do
+                cid <- readTVar consumerCorrelationId
+                writeTVar consumerCorrelationId (cid + 1)
+                pure cid)
+      pure (Right conn)
+
 -- | Create a new Kafka consumer.
 --
 -- Initializes the consumer with connection management, metadata caching,
@@ -372,23 +399,41 @@ createConsumer brokers groupId config = do
       case connResult of
         Left err -> return $ Left $ "Failed to connect to bootstrap broker: " ++ err
         Right conn -> do
-          -- Fetch metadata (correlation ID 0 for initial fetch)
+          -- Initialize version cache
+          versionCache <- AV.createVersionCache
+
+          -- Initialize correlation ID; the ApiVersions handshake
+          -- and the metadata refresh share the same source so
+          -- their correlation ids stay distinct from later
+          -- consumer requests.
+          corrId <- newTVarIO 0
+          let nextCid = atomically $ do
+                cid <- readTVar corrId
+                writeTVar corrId (cid + 1)
+                pure cid
+
+          -- Run the ApiVersions handshake against the bootstrap
+          -- broker so subsequent calls' 'queryApiVersion' /
+          -- 'pickApiVersion' lookups find data instead of
+          -- always falling back. We deliberately swallow
+          -- failure: an older broker (< 0.10) doesn't recognise
+          -- ApiVersions, in which case the cache stays empty
+          -- and downstream calls hit their compiled-in
+          -- fallbacks.
+          _ <- VN.ensureVersionsNegotiated
+                 conn firstBroker versionCache nextCid
+
           fetchResult <- Meta.refreshMetadata conn metadataCache 0
           case fetchResult of
             Left err -> return $ Left $ "Failed to fetch initial metadata: " ++ err
             Right _ -> do
-              -- Initialize version cache
-              versionCache <- AV.createVersionCache
-              
+
               -- Initialize assignment and paused maps
               assignment <- StmMap.newIO
               paused <- StmMap.newIO
 
               -- No active subscription yet.
               subscription <- newTVarIO Nothing
-
-              -- Initialize correlation ID
-              corrId <- newTVarIO 0
               
               -- Initialize heartbeat if in a consumer group
               heartbeatM <- if T.null groupId
@@ -466,24 +511,27 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
     Nothing -> return $ Left "No brokers available in metadata cache"
     Just [] -> return $ Left "No brokers available in metadata cache"
     Just (broker:_) -> do
-      -- Connect to the broker (re-uses any cached / authenticated
-      -- connection in the manager).
       let brokerAddr = Meta.brokerMetaAddress broker
-          connConfig = consumerConnConfig consumer
-      connResult <- Conn.getOrCreateConnection consumerConnManager brokerAddr connConfig
+      -- Use the negotiation-aware connect so the broker's
+      -- ApiVersions cache entry is populated before we read
+      -- it back via 'pickApiVersion' below.
+      connResult <- consumerConnect consumer brokerAddr
       case connResult of
         Left err -> return $ Left $ "Failed to connect to broker: " ++ err
         Right conn -> do
-          -- Get correlation ID
           corrId <- atomically $ do
             cid <- readTVar consumerCorrelationId
             writeTVar consumerCorrelationId (cid + 1)
             return cid
-          
-          -- Build ListOffsetsRequest
-          let apiKey = 2  -- ListOffsets API
-              apiVersion = 1  -- Use version 1 (minimum supported)
-              
+          let apiKey = 2  -- ListOffsets
+          -- Cap at v1 for now (matches the legacy behaviour);
+          -- v2+ adds the IsolationLevel field which we always
+          -- send as 0 anyway, but bumping the cap requires
+          -- exercising the v2+ response shape.
+          verR <- VN.pickApiVersion consumerVersionCache brokerAddr apiKey 0 1 1
+          let apiVersion = case verR of
+                Right v -> v
+                Left  _ -> 1   -- preserve legacy fallback
               topics = V.fromList $ map buildTopicRequest $ Map.toList byTopic
               
               buildTopicRequest :: (Text, [Int32]) -> LOReq.ListOffsetsTopic
@@ -633,10 +681,7 @@ sendLeaveGroup c@Consumer{..} hbState = do
     Nothing -> pure ()    -- never joined; nothing to leave
     _ | T.null memberId -> pure ()
     Just coordAddr -> do
-      connResult <- Conn.getOrCreateConnection
-                      consumerConnManager
-                      coordAddr
-                      (consumerConnConfig c)
+      connResult <- consumerConnect c coordAddr
       case connResult of
         Left _err -> pure ()
         Right conn -> do
@@ -1075,8 +1120,7 @@ fetchRecords consumer@Consumer{..} partitions timeoutMs = do
     Just [] -> return $ Left "No brokers available in metadata cache"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-          connConfig = consumerConnConfig consumer
-      connResult <- Conn.getOrCreateConnection consumerConnManager brokerAddr connConfig
+      connResult <- consumerConnect consumer brokerAddr
       case connResult of
         Left err -> return $ Left $ "Failed to connect to broker: " ++ err
         Right conn -> do
@@ -1136,30 +1180,27 @@ fetchFromBroker
   -> IO (Either String [ConsumerRecord])
 fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM connConfig = do
   let brokerAddr = Meta.brokerMetaAddress broker
-  
-  -- Get connection
+      nextCid = atomically $ do
+        cid <- readTVar corrIdVar
+        writeTVar corrIdVar (cid + 1)
+        pure cid
   connResult <- Conn.getOrCreateConnection connMgr brokerAddr connConfig
-  
   case connResult of
     Left err -> return $ Left $ "Failed to connect: " ++ err
     Right conn -> do
-      -- Get correlation ID
-      corrId <- atomically $ do
-        cid <- readTVar corrIdVar
-        writeTVar corrIdVar (cid + 1)
-        return cid
-      
+      -- Negotiate ApiVersions if we haven't already; idempotent.
+      _ <- VN.ensureVersionsNegotiated conn brokerAddr versionCache nextCid
+      corrId <- nextCid
       let apiKey = 1  -- Fetch API
-          clientMaxVersion = 11
-          minSupportedVersion = 4  -- FetchRequest supports versions 4-18
-      
-      -- Version negotiation
-      brokerVersionM <- atomically $ AV.queryApiVersion versionCache brokerAddr apiKey
-      let apiVersion = case brokerVersionM of
-            Nothing -> minSupportedVersion  -- Default to minimum supported version
-            Just range -> case AV.selectVersion clientMaxVersion range of
-              Nothing -> minSupportedVersion
-              Just v -> max minSupportedVersion v  -- Ensure we use at least the minimum
+      -- FetchRequest is the trickiest negotiation surface:
+      -- v4 added KIP-98 IsolationLevel, v7 the SessionId/Epoch
+      -- (KIP-227), v11 the RackId / ClusterId (KIP-392 / KIP-573),
+      -- v12 went flexible. We cap at v11 because our v12+
+      -- decoder hasn't been exercised against a live broker.
+      verR <- VN.pickApiVersion versionCache brokerAddr apiKey 4 11 4
+      let apiVersion = case verR of
+            Right v -> v
+            Left  _ -> 4   -- min supported (matches legacy fallback)
       
       -- Group by topic
       let byTopic = Map.fromListWith (++)
@@ -1418,27 +1459,24 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
       case coordAddrM of
         Nothing -> return $ Left "No group coordinator known"
         Just coordAddr -> do
-          -- Get connection to coordinator
-          connResult <- Conn.getOrCreateConnection consumerConnManager coordAddr (consumerConnConfig consumer)
+          connResult <- consumerConnect consumer coordAddr
           case connResult of
             Left err -> return $ Left $ "Failed to connect to coordinator: " ++ err
             Right conn -> do
-              -- Get correlation ID
               corrId <- atomically $ do
                 cid <- readTVar consumerCorrelationId
                 writeTVar consumerCorrelationId (cid + 1)
                 return cid
-              
-              let apiKey = 8  -- OffsetCommit API
-                  clientMaxVersion = 8  -- Max version we support
-              
-              -- Version negotiation
-              brokerVersionM <- atomically $ AV.queryApiVersion consumerVersionCache coordAddr apiKey
-              let apiVersion = case brokerVersionM of
-                    Nothing -> 0
-                    Just range -> case AV.selectVersion clientMaxVersion range of
-                      Nothing -> 0
-                      Just v -> v
+              let apiKey = 8  -- OffsetCommit
+              -- Cap at v5 — v6+ adds member-epoch semantics for
+              -- the new consumer-group protocol; our request
+              -- shape is the v5 (legacy generation+memberId)
+              -- one. Bumping requires moving to the v8/v9
+              -- record shape.
+              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 5 5
+              let apiVersion = case verR of
+                    Right v -> v
+                    Left  _ -> 5
               
               -- Group offsets by topic
               let byTopic = Map.fromListWith (++)
@@ -1534,27 +1572,23 @@ fetchCommittedOffsets consumer@Consumer{..} groupId tps = do
       case coordAddrM of
         Nothing -> return $ Left "No group coordinator known"
         Just coordAddr -> do
-          -- Get connection to coordinator
-          connResult <- Conn.getOrCreateConnection consumerConnManager coordAddr (consumerConnConfig consumer)
+          connResult <- consumerConnect consumer coordAddr
           case connResult of
             Left err -> return $ Left $ "Failed to connect to coordinator: " ++ err
             Right conn -> do
-              -- Get correlation ID
               corrId <- atomically $ do
                 cid <- readTVar consumerCorrelationId
                 writeTVar consumerCorrelationId (cid + 1)
                 return cid
-              
-              let apiKey = 9  -- OffsetFetch API
-                  clientMaxVersion = 8  -- Max version we support
-              
-              -- Version negotiation
-              brokerVersionM <- atomically $ AV.queryApiVersion consumerVersionCache coordAddr apiKey
-              let apiVersion = case brokerVersionM of
-                    Nothing -> 0
-                    Just range -> case AV.selectVersion clientMaxVersion range of
-                      Nothing -> 0
-                      Just v -> v
+              let apiKey = 9  -- OffsetFetch
+              -- Cap at v5; v6+ adds the per-group request shape
+              -- used by KIP-211 batched lookups (the
+              -- 'offsetFetchRequestGroups' field). Single-group
+              -- semantics unchanged.
+              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 5 5
+              let apiVersion = case verR of
+                    Right v -> v
+                    Left  _ -> 5
               
               -- Group by topic
               let byTopic = Map.fromListWith (++)
@@ -1632,7 +1666,7 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
       case coordAddrM of
         Nothing -> pure (Left "No group coordinator known")
         Just coordAddr -> do
-          connResult <- Conn.getOrCreateConnection consumerConnManager coordAddr (consumerConnConfig consumer)
+          connResult <- consumerConnect consumer coordAddr
           case connResult of
             Left err -> pure (Left ("Failed to connect to coordinator: " ++ err))
             Right conn -> do
@@ -1640,14 +1674,11 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
                 cid <- readTVar consumerCorrelationId
                 writeTVar consumerCorrelationId (cid + 1)
                 pure cid
-              let apiKey = 9                  -- OffsetFetch API
-                  clientMaxVersion = 8
-              brokerVersionM <- atomically $ AV.queryApiVersion consumerVersionCache coordAddr apiKey
-              let apiVersion = case brokerVersionM of
-                    Nothing -> 0
-                    Just range -> case AV.selectVersion clientMaxVersion range of
-                      Nothing -> 0
-                      Just v  -> v
+              let apiKey = 9  -- OffsetFetch
+              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 5 5
+              let apiVersion = case verR of
+                    Right v -> v
+                    Left  _ -> 5
               let byTopic = Map.fromListWith (++)
                     [ (tpTopic tp, [tpPartition tp]) | tp <- tps ]
                   topics = V.fromList
@@ -1714,8 +1745,7 @@ queryPartitionOffsetsByTimestamp consumer@Consumer{..} pts = do
     Just []      -> pure (Left "No brokers available in metadata cache")
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-          connConfig = consumerConnConfig consumer
-      connResult <- Conn.getOrCreateConnection consumerConnManager brokerAddr connConfig
+      connResult <- consumerConnect consumer brokerAddr
       case connResult of
         Left err -> pure (Left ("Failed to connect to broker: " ++ err))
         Right conn -> do
@@ -1723,8 +1753,11 @@ queryPartitionOffsetsByTimestamp consumer@Consumer{..} pts = do
             cid <- readTVar consumerCorrelationId
             writeTVar consumerCorrelationId (cid + 1)
             pure cid
-          let apiKey = 2
-              apiVersion = 1
+          let apiKey = 2  -- ListOffsets
+          verR <- VN.pickApiVersion consumerVersionCache brokerAddr apiKey 0 1 1
+          let apiVersion = case verR of
+                Right v -> v
+                Left  _ -> 1
               topics = V.fromList $ map buildTopicReq (Map.toList byTopic)
               buildTopicReq (topic, parts) =
                 LOReq.ListOffsetsTopic
