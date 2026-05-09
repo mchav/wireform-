@@ -60,6 +60,9 @@ import qualified Client.SubscribeSpec
 import qualified Network.ConnectionLivenessSpec
 import qualified Network.AuthSpec
 import qualified Network.ConnectionRetrySpec
+import qualified Network.TlsHandshakeSpec
+import qualified Network.TransportSpec
+import qualified Network.SaslReauthSpec
 
 main :: IO ()
 main = do
@@ -135,4 +138,7 @@ networkTests :: TestTree
 networkTests = testGroup "Network"
   [ Network.ConnectionRetrySpec.tests
   , Network.AuthSpec.authSpec
+  , Network.TlsHandshakeSpec.tests
+  , Network.TransportSpec.tests
+  , Network.SaslReauthSpec.tests
   ]

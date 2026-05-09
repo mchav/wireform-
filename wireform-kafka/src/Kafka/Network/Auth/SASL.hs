@@ -57,6 +57,9 @@ module Kafka.Network.Auth.SASL
     -- * High-level entry point
   , authenticate
   , AuthError(..)
+    -- * KIP-368 session re-authentication
+  , effectiveReauthDeadlineMs
+  , reauthRequiredAtMs
     -- * Built-in mechanism implementations (advanced)
   , SaslMechanismImpl(..)
   , StepResult(..)
@@ -415,8 +418,56 @@ kafkaStrToText ks = case P.unKafkaString ks of
   P.NotNull t -> t
   P.Null      -> T.empty
 
--- Suppress unused-import warning until KIP-368 session re-auth wiring
--- consumes encodeUtf8.
+------------------------------------------------------------------------
+-- KIP-368 session re-authentication
+------------------------------------------------------------------------
+
+-- | Compute the effective re-authentication deadline (epoch
+-- milliseconds) from the broker-advertised lifetime and the
+-- client's @connections.max.reauth.ms@ knob.
+--
+-- KIP-368 lets the broker tell us how long the credentials we
+-- presented are valid via 'SaslAuthenticateResponse.lifetime_ms'.
+-- The client should run a fresh @SaslHandshake@ + @SaslAuthenticate@
+-- cycle /before/ the smaller of the two deadlines elapses,
+-- otherwise the broker silently closes the connection.
+--
+-- Returns @Nothing@ when neither side has set a deadline (i.e. both
+-- the broker lifetime and the client config are 0): the connection
+-- is open-ended, no re-auth is required. Otherwise returns the
+-- absolute epoch-ms at which re-auth must complete by.
+effectiveReauthDeadlineMs
+  :: Int          -- ^ wall-clock when authentication completed (epoch ms)
+  -> Int          -- ^ broker-advertised lifetime (ms; 0 = no expiry)
+  -> Int          -- ^ client @connections.max.reauth.ms@ (0 = disabled)
+  -> Maybe Int
+effectiveReauthDeadlineMs nowMs brokerLifetimeMs clientMaxMs =
+  case (brokerLifetimeMs > 0, clientMaxMs > 0) of
+    (False, False) -> Nothing
+    (True,  False) -> Just (nowMs + brokerLifetimeMs)
+    (False, True)  -> Just (nowMs + clientMaxMs)
+    (True,  True)  -> Just (nowMs + min brokerLifetimeMs clientMaxMs)
+
+-- | Decide whether the next request should run through a fresh
+-- handshake first. Compares the current time to the previously
+-- computed deadline (from 'effectiveReauthDeadlineMs') and applies
+-- a small safety margin so we don't race the broker's enforcement.
+--
+-- The safety margin is taken as @max 1000 (deadline\/10)@ — i.e.
+-- one second or 10% of the remaining window, whichever is greater.
+-- Mirrors the JVM client's behaviour.
+reauthRequiredAtMs
+  :: Int          -- ^ now (epoch ms)
+  -> Maybe Int    -- ^ deadline returned by 'effectiveReauthDeadlineMs'
+  -> Bool
+reauthRequiredAtMs _   Nothing  = False
+reauthRequiredAtMs now (Just d) =
+  let !remaining = d - now
+      !margin    = max 1000 (max 0 d `div` 10)
+  in remaining <= margin
+
+-- Suppress unused-import warnings on building blocks that the
+-- mechanism implementations above use indirectly.
 _dummyEncode :: Text -> ByteString
 _dummyEncode = TE.encodeUtf8
 

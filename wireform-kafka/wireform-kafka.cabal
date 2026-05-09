@@ -34,6 +34,11 @@ extra-source-files:
     cbits/lz4_ffi.h
     data/message-inventory.json
     test-data/test-vectors.json
+    test/Network/TLS/server.crt
+    test/Network/TLS/server.key
+    test/Network/TLS/client.crt
+    test/Network/TLS/client.key
+    test/Network/TLS/README.md
 
 flag rocksdb
     description:
@@ -122,6 +127,7 @@ library
         Kafka.Network.Auth.SASL
         Kafka.Network.Auth.Scram
         Kafka.Network.Connection
+        Kafka.Network.Transport
         Kafka.Protocol.ApiVersions
         Kafka.Protocol.CRC32C
         Kafka.Protocol.Encoding
@@ -617,6 +623,9 @@ test-suite wireform-kafka-test
         Network.ConnectionLivenessSpec
         Network.AuthSpec
         Network.ConnectionRetrySpec
+        Network.TlsHandshakeSpec
+        Network.TransportSpec
+        Network.SaslReauthSpec
         Protocol.ApiVersionsSpec
         Protocol.CompressionSpec
         Protocol.CRC32CSpec
@@ -645,8 +654,12 @@ test-suite wireform-kafka-test
         hedgehog                  >= 1.2   && < 2,
         binary,
         crypton-connection,
+        crypton-x509,
+        crypton-x509-store,
+        data-default-class,
         hashable,
-        network,
+        network                   >= 3.1   && < 3.3,
+        tls,
         random,
         stm,
         tasty                     >= 1.4   && < 1.6,
