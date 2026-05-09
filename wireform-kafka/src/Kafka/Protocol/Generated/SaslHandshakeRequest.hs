@@ -44,6 +44,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 
@@ -62,6 +63,13 @@ data SaslHandshakeRequest = SaslHandshakeRequest
 -- | Maximum supported version for SaslHandshakeRequest.
 maxSaslHandshakeRequestVersion :: Int16
 maxSaslHandshakeRequestVersion = 1
+
+-- | KafkaMessage instance for SaslHandshakeRequest.
+instance KafkaMessage SaslHandshakeRequest where
+  messageApiKey = 17
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Nothing
 
 -- | Encode SaslHandshakeRequest with the given API version.
 encodeSaslHandshakeRequest :: MonadPut m => E.ApiVersion -> SaslHandshakeRequest -> m ()

@@ -46,6 +46,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 -- | Each partition to delete offsets for.
@@ -141,6 +142,13 @@ data OffsetDeleteRequest = OffsetDeleteRequest
 -- | Maximum supported version for OffsetDeleteRequest.
 maxOffsetDeleteRequestVersion :: Int16
 maxOffsetDeleteRequestVersion = 0
+
+-- | KafkaMessage instance for OffsetDeleteRequest.
+instance KafkaMessage OffsetDeleteRequest where
+  messageApiKey = 47
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Nothing
 
 -- | Encode OffsetDeleteRequest with the given API version.
 encodeOffsetDeleteRequest :: MonadPut m => E.ApiVersion -> OffsetDeleteRequest -> m ()

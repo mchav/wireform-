@@ -46,6 +46,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 -- | The responses for each partition in the topic.
@@ -157,6 +158,13 @@ data OffsetDeleteResponse = OffsetDeleteResponse
 -- | Maximum supported version for OffsetDeleteResponse.
 maxOffsetDeleteResponseVersion :: Int16
 maxOffsetDeleteResponseVersion = 0
+
+-- | KafkaMessage instance for OffsetDeleteResponse.
+instance KafkaMessage OffsetDeleteResponse where
+  messageApiKey = 47
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Nothing
 
 -- | Encode OffsetDeleteResponse with the given API version.
 encodeOffsetDeleteResponse :: MonadPut m => E.ApiVersion -> OffsetDeleteResponse -> m ()

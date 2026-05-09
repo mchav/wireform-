@@ -74,6 +74,21 @@ data FieldSpec = FieldSpec
     -- ^ Version range where this field is tagged (for flexible messages)
   , fieldNullableVersions :: !(Maybe Text)
     -- ^ Version range where this field can be null
+  , fieldFlexibleVersions :: !(Maybe Text)
+    -- ^ Per-field flexible-version override. The Kafka spec lets
+    -- a field set its own @flexibleVersions@ that supersedes the
+    -- message-level value: most commonly @"none"@, used to keep
+    -- a specific field non-flexible (i.e. encoded as the
+    -- old-style INT16-prefixed string / array) even when the
+    -- message body itself is flexible.
+    --
+    -- The canonical example is the request header's @ClientId@
+    -- field: the Kafka spec marks it
+    -- @\"flexibleVersions\": \"none\"@ so the broker can parse the
+    -- header before knowing which message-body version the
+    -- client is using. Without this override the codegen would
+    -- emit @toCompactString@ for v2 (the flexible request
+    -- header) and brokers would mis-read the header.
   , fieldDefault         :: !(Maybe Value)
     -- ^ Default value for this field (JSON value)
   , fieldIgnorable       :: !Bool
@@ -101,6 +116,7 @@ instance FromJSON FieldSpec where
       <*> v .:? "tag"
       <*> v .:? "taggedVersions"
       <*> v .:? "nullableVersions"
+      <*> v .:? "flexibleVersions"
       <*> v .:? "default"
       <*> v .:? "ignorable" .!= False
       <*> v .:? "entityType"

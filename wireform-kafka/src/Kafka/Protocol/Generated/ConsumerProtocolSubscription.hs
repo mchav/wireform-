@@ -45,6 +45,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 -- | The partitions that the member owns.
@@ -133,6 +134,8 @@ data ConsumerProtocolSubscription = ConsumerProtocolSubscription
 -- | Maximum supported version for ConsumerProtocolSubscription.
 maxConsumerProtocolSubscriptionVersion :: Int16
 maxConsumerProtocolSubscriptionVersion = 3
+
+
 
 -- | Encode ConsumerProtocolSubscription with the given API version.
 encodeConsumerProtocolSubscription :: MonadPut m => E.ApiVersion -> ConsumerProtocolSubscription -> m ()

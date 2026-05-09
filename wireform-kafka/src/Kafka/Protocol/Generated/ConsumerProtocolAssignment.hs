@@ -45,6 +45,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 -- | The list of topics and partitions assigned to this consumer.
@@ -109,6 +110,8 @@ data ConsumerProtocolAssignment = ConsumerProtocolAssignment
 -- | Maximum supported version for ConsumerProtocolAssignment.
 maxConsumerProtocolAssignmentVersion :: Int16
 maxConsumerProtocolAssignmentVersion = 3
+
+
 
 -- | Encode ConsumerProtocolAssignment with the given API version.
 encodeConsumerProtocolAssignment :: MonadPut m => E.ApiVersion -> ConsumerProtocolAssignment -> m ()

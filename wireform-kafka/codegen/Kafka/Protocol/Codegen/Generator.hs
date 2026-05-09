@@ -785,10 +785,34 @@ fieldInVersionRange minV maxV field =
     Left _ -> False
 
 -- | Generate decoding expression for a field, with version-aware handling for complex types.
+-- | Whether a field opts /out/ of flexible (compact-string /
+-- compact-bytes / compact-array) encoding via a per-field
+-- @flexibleVersions@ override. The Kafka spec lets each field
+-- carry its own @flexibleVersions@ that supersedes the
+-- message-level value; the canonical example is the request
+-- header's @ClientId@ field, which is marked
+-- @"flexibleVersions": "none"@ so it stays as the old-style
+-- INT16-prefixed string even when the request header itself is
+-- v2 (flexible).
+--
+-- Only @"none"@ is honoured here. The (rarely used) variant of
+-- a field setting its own @"X+"@ threshold isn't seen in the
+-- 3.7 protocol surface and would require a runtime check rather
+-- than a compile-time decision; if it ever shows up we can
+-- thread @msgVersion@ in the same way 'generateTypeEncodeVersionAware'
+-- already does.
+fieldOptsOutOfFlexible :: FieldSpec -> Bool
+fieldOptsOutOfFlexible f = fieldFlexibleVersions f == Just "none"
+
 -- | Generate version-aware decode expression for a field in a flexible context.
 -- This generates conditional code that checks at runtime if version >= flexibleVer.
 -- Note: Only strings and bytes need version-aware decoding, not arrays or other primitives.
 generateFieldDecodeExprVersionAware :: Int16 -> FieldSpec -> Maybe Int16 -> Doc ann
+generateFieldDecodeExprVersionAware flexibleVer field flexibleVersion
+  -- Per-field override: this field stays non-compact even on
+  -- flexible message versions, so just use the regular decoder.
+  | fieldOptsOutOfFlexible field =
+      generateFieldDecodeExpr field flexibleVersion
 generateFieldDecodeExprVersionAware flexibleVer field flexibleVersion =
   case fieldType field of
     PrimitiveType "string" ->
@@ -864,6 +888,11 @@ generateFieldEncode typeName isFlexible field flexibleVersion =
 -- Note: Only strings and bytes need version-aware encoding at the primitive level.
 -- Arrays are handled by encodeVersionedArray/decodeVersionedArray.
 generateTypeEncodeVersionAware :: Int16 -> FieldSpec -> Doc ann -> Bool -> Maybe Int16 -> Doc ann
+generateTypeEncodeVersionAware flexibleVer field accessor isNullable flexibleVersion
+  -- Per-field override: emit the non-compact serializer regardless
+  -- of the message-level flexibility flag.
+  | fieldOptsOutOfFlexible field =
+      generateTypeEncode False field accessor isNullable flexibleVersion
 generateTypeEncodeVersionAware flexibleVer field accessor isNullable flexibleVersion =
   case fieldType field of
     PrimitiveType "string" ->
@@ -880,8 +909,12 @@ generateTypeEncodeVersionAware flexibleVer field accessor isNullable flexibleVer
 
 -- | Generate encoding code based on type (non-version-aware, used when flexibility is static).
 generateTypeEncode :: Bool -> FieldSpec -> Doc ann -> Bool -> Maybe Int16 -> Doc ann
-generateTypeEncode isFlexible field accessor isNullable flexibleVersion =
-  case fieldType field of
+generateTypeEncode isFlexibleArg field accessor isNullable flexibleVersion =
+  -- Honour the per-field flexibility opt-out: if the field has
+  -- @flexibleVersions: none@ in the spec, never use the compact
+  -- variant even on flexible message versions.
+  let isFlexible = isFlexibleArg && not (fieldOptsOutOfFlexible field)
+  in case fieldType field of
     PrimitiveType "string" ->
       if isFlexible
         then "serialize (toCompactString" <+> accessor <> ")"

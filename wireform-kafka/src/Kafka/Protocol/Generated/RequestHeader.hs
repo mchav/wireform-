@@ -44,6 +44,7 @@ import Kafka.Protocol.Primitives
   , toCompactString, toCompactBytes, toCompactArray
   )
 import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
 
 
 
@@ -81,6 +82,8 @@ data RequestHeader = RequestHeader
 maxRequestHeaderVersion :: Int16
 maxRequestHeaderVersion = 2
 
+
+
 -- | Encode RequestHeader with the given API version.
 encodeRequestHeader :: MonadPut m => E.ApiVersion -> RequestHeader -> m ()
 encodeRequestHeader version msg
@@ -97,7 +100,7 @@ encodeRequestHeader version msg
       serialize (requestHeaderRequestApiKey msg)
       serialize (requestHeaderRequestApiVersion msg)
       serialize (requestHeaderCorrelationId msg)
-      serialize (toCompactString (requestHeaderClientId msg))
+      serialize (requestHeaderClientId msg)
       serialize (emptyTaggedFields :: TaggedFields)
   | otherwise = error $ "Unsupported version: " ++ show version
 
@@ -126,7 +129,7 @@ decodeRequestHeader version
       fieldrequestapikey <- deserialize
       fieldrequestapiversion <- deserialize
       fieldcorrelationid <- deserialize
-      fieldclientid <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
+      fieldclientid <- deserialize
       _ <- (deserialize :: MonadGet m => m TaggedFields)
       pure RequestHeader
         {
