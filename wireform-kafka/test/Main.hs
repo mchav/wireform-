@@ -52,6 +52,10 @@ import qualified Client.FilterSpec
 import qualified Client.FutureSpec
 import qualified Client.TopicIdSpec
 import qualified Client.RebalanceListenerSpec
+import qualified Client.AdminTimeoutsSpec
+import qualified Client.RetryClassifierSpec
+import qualified Client.BatchSplittingSpec
+import qualified Network.OAuthOidcSpec
 import qualified Client.AdminClientSpec
 import qualified Client.MockBrokerSpec
 import qualified Client.MockBrokerFailureModesSpec
@@ -135,6 +139,9 @@ clientTests = testGroup "Client"
   , Client.FutureSpec.tests
   , Client.TopicIdSpec.tests
   , Client.RebalanceListenerSpec.tests
+  , Client.AdminTimeoutsSpec.tests
+  , Client.RetryClassifierSpec.tests
+  , Client.BatchSplittingSpec.tests
   , Client.AdminClientSpec.tests
   , Client.GroupSpec.groupSpec
   , Client.MockBrokerSpec.tests
@@ -161,4 +168,5 @@ networkTests = testGroup "Network"
   , Network.TlsHandshakeSpec.tests
   , Network.TransportSpec.tests
   , Network.SaslReauthSpec.tests
+  , Network.OAuthOidcSpec.tests
   ]

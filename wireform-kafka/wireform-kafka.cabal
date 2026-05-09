@@ -94,16 +94,20 @@ library
     exposed-modules:
         Kafka
         Kafka.Client.AdminClient
+        Kafka.Client.AdminTimeouts
         Kafka.Client.Consumer
+        Kafka.Client.DeleteRecords
         Kafka.Client.ConsumerGroupV2
         Kafka.Client.Filter
         Kafka.Client.Future
         Kafka.Client.Group
         Kafka.Client.RebalanceListener
         Kafka.Client.RecordMetadata
+        Kafka.Client.RetryClassifier
         Kafka.Client.ShareConsumer
         Kafka.Client.StatsEmitter
         Kafka.Client.TopicId
+        Kafka.Client.Internal.BatchSplitting
         Kafka.Client.Internal.BatchAccumulator
         Kafka.Client.Internal.ConsumerGroup
         Kafka.Client.Internal.Heartbeat
@@ -131,6 +135,7 @@ library
         Kafka.Compression.Zstd
         Kafka.Network.Auth.AwsMskIam
         Kafka.Network.Auth.OAuthBearer
+        Kafka.Network.Auth.OAuthOidc
         Kafka.Network.Auth.Plain
         Kafka.Network.Auth.SASL
         Kafka.Network.Auth.Scram
@@ -647,6 +652,10 @@ test-suite wireform-kafka-test
         Client.FutureSpec
         Client.TopicIdSpec
         Client.RebalanceListenerSpec
+        Client.AdminTimeoutsSpec
+        Client.RetryClassifierSpec
+        Client.BatchSplittingSpec
+        Network.OAuthOidcSpec
         Client.MockBrokerSpec
         Client.MockBrokerFailureModesSpec
         Client.MockBrokerAdvancedSpec
