@@ -74,13 +74,24 @@ with the implementation.
 
 - `Producer`:
   - Idempotent producer (KIP-98) with per-partition sequence numbers.
-  - Transactions (KIP-98 + KIP-447): `initTransactions`,
-    `beginTransaction`, `sendOffsetsToTransaction`, `commitTransaction`,
-    `abortTransaction`. Per-stamp `(TxnId, Epoch)` visibility tracking
-    in the mock means aborted records *stay* aborted across epoch reuse.
   - `BatchAccumulator` with linger.ms, batch.size, sticky-partitioning
     (KIP-480 inspired), per-batch retry counter + exponential backoff
     with jitter, structured `Logger` callback for sender errors.
+  - Transaction *coordination protocol* (`Kafka.Client.Transaction`):
+    `initTransactions`, `beginTransaction`, `sendOffsetsToTransaction`,
+    `commitTransaction`, `abortTransaction`. State machine, coordinator
+    discovery, `InitProducerId`, `AddPartitionsToTxn`,
+    `AddOffsetsToTxn`, `TxnOffsetCommit`, `EndTxn` are wired against
+    the `TransactionCoordinator`. Per-stamp `(TxnId, Epoch)`
+    visibility tracking in the mock means aborted records *stay*
+    aborted across epoch reuse.
+  - **Important caveat**: the `Transaction` value and the `Producer`
+    value are still separate. The send path doesn't yet automatically
+    `addPartitionsToTxn` for partitions touched inside an open
+    transaction, doesn't stamp the transactional producer-id/epoch
+    onto outgoing batches (it uses the idempotent producer-id), and
+    doesn't fence sends after commit/abort. End-to-end transactional
+    use therefore still requires manual orchestration. See §3.1.
 - `Consumer`:
   - `subscribeFlow` with FindCoordinator → JoinGroup → SyncGroup →
     OffsetFetch.
@@ -178,8 +189,12 @@ with the implementation.
     quiescence via STM.
   - `Engine` integrates with mock or real client; `MockStreamsDriver`
     hooks the engine to the in-process broker.
-- Exactly-once V2: idempotent + transactional producer wired to the
-  engine's commit boundaries.
+- Exactly-once V2 *scaffolding*: idempotent producer wired to the
+  engine's commit boundaries, plus a pluggable `EOSCoordinator`
+  recording-stub the runtime tests assert against. The actual
+  transactional producer integration (records bracketed by
+  `BeginTxn` / `EndTxn` markers; `sendOffsetsToTransaction` for
+  consumer offsets) is still pending — tracked in §3.1 below.
 - Standby task scaffolding (the `MockCluster` already understands
   changelog topics and warmup reads).
 - `StreamsConfig` covering processing.guarantee, num.stream.threads,
@@ -210,6 +225,62 @@ production use, S2 = nice-to-have), rough invasiveness, and the test
 surface that must land.
 
 ### 3.1 Core client gaps
+
+#### S0 — Wire `Transaction` into `Producer` (end-to-end transactional support)
+
+- **What's missing.** The transaction coordinator protocol
+  (`Kafka.Client.Transaction`) and the producer (`Kafka.Client.Producer`)
+  are independent values today. Concretely the producer's send path:
+  - does **not** stamp the transactional producer-id / epoch onto
+    outgoing record batches — it uses `producerIdempotentId` /
+    `producerIdempotentEpoch` regardless of whether a transaction is
+    open;
+  - does **not** call `AddPartitionsToTxn` the first time a transaction
+    touches a new (topic, partition); the broker therefore rejects the
+    eventual `EndTxn` with `INVALID_TXN_STATE`;
+  - does **not** block sends issued outside `InTransaction` state once a
+    `Transaction` has been initialised, so callers can accidentally
+    produce non-transactional records on a transactional producer;
+  - does **not** stamp the `isTransactional` bit on the record-batch
+    header even when one is open.
+  Net effect: the API surface (`initTransactions` / `beginTransaction`
+  / `commitTransaction` / `abortTransaction` /
+  `sendOffsetsToTransaction`) exists, but a user calling them and
+  `produce` cannot get exactly-once semantics — the records simply
+  aren't part of the transaction the broker sees.
+- **Why this matters.** This is the entire reason
+  exactly-once (KIP-98 / KIP-447) exists. Until this lands, every
+  Streams EOS-V2 path is also blocked (§3.2), and KIP-892 (S0,
+  EOS-V3 store transactions) cannot be implemented at all.
+- **Invasiveness.** Medium. The cleanest model is to bind a
+  `Transaction` to the `Producer` at creation (so
+  `Producer.producerTransactional` carries an `Maybe Transaction`
+  alongside its config), then thread that `TVar TransactionState`
+  through:
+  - the send path: stamp `(producerId, epoch)` from the txn state
+    into the batch header instead of from `producerIdempotentId`;
+  - `BatchAccumulator.addRecord`: enqueue an
+    `AddPartitionsToTxn` request via the transaction coordinator
+    when a (topic, partition) is first observed in this txn;
+  - send-time checks: refuse to enqueue when state is not
+    `InTransaction` (or `Ready` for non-transactional producers);
+  - `closeProducer`: if state is `InTransaction`, abort.
+- **Tests.**
+  - End-to-end against the mock broker: `initTransactions →
+    beginTransaction → produce → commitTransaction` results in the
+    records being visible to a read-committed consumer; the same
+    sequence with `abortTransaction` results in records *not* being
+    visible (we already have per-stamp visibility in the mock; it
+    just isn't being driven from the producer).
+  - Producer-fence test: a second producer with the same
+    `transactional.id` fences the first; the first's next produce
+    fails with `ProducerFenced` instead of writing.
+  - `sendOffsetsToTransaction` round-trip: a producer-consumer
+    consume-process-produce loop commits in one atomic step.
+  - Producer with `transactional.id` set but no `beginTransaction`
+    rejects `produce`.
+- **Dependencies.** None new. All the protocol pieces are already
+  implemented; this is integration / wiring work.
 
 #### S0 — TLS/SSL
 
@@ -324,6 +395,11 @@ surface that must land.
     `auto.offset.reset` on the underlying consumer.
   - Producer-per-task vs producer-per-thread vs producer-per-instance
     selection (KIP-447 vs KIP-892 in EOS-V2 vs EOS-V3).
+  - **Genuine EOS commit boundaries:** the engine's commit ticks must
+    drive the producer's `beginTransaction` / `produce` /
+    `sendOffsetsToTransaction` / `commitTransaction` cycle. Today the
+    EOSCoordinator is recording-only. Blocked by §3.1 "Wire
+    `Transaction` into `Producer`".
 - **Invasiveness.** High. The engine's `IO` interface needs an
   abstraction over the producer/consumer (either a class-based one or a
   driver record). The mock-driver path stays as-is; a new
@@ -440,14 +516,19 @@ surface that must land.
 
 In approximate order:
 
-1. **`KafkaStreams` runtime against the real client** (S0). Unblocks
+1. **Wire `Transaction` into `Producer`** (S0). Strict prerequisite
+   for everything EOS-related: Streams EOS-V2, KIP-892 EOS-V3,
+   `sendOffsetsToTransaction` consume-process-produce loops. This is
+   wiring, not new protocol work.
+2. **`KafkaStreams` runtime against the real client** (S0). Unblocks
    end-to-end tests and is a prerequisite for KIP-892 store
-   transactions.
-2. **TLS handshake test fixture + reauth** (S0). Needed for any
+   transactions; also depends on (1) for genuine EOS commit boundaries.
+3. **TLS handshake test fixture + reauth** (S0). Needed for any
    production deploy.
-3. **KIP-892 store transactions** (S0). Brings EOS into Kafka 4.0
-   parity; without it, exactly-once is only "exactly-once-V2".
-4. **Schema-Registry serdes interface** (S0). Most enterprise users
+4. **KIP-892 store transactions** (S0). Brings EOS into Kafka 4.0
+   parity; without it, exactly-once is only "exactly-once-V2". Depends
+   on (1) and (2).
+5. **Schema-Registry serdes interface** (S0). Most enterprise users
    won't adopt the lib without it.
 5. **Probing rebalance + KIP-869 revocation** (S1). Needed for smooth
    rolling restarts at scale.
@@ -459,14 +540,19 @@ In approximate order:
 
 Difficulty notes (no calendar estimates):
 
-- 1, 3 are deep refactors of internal abstractions (engine driver,
+- 1 (Producer ↔ Transaction wiring) is integration work. The
+  protocol pieces all exist and are unit-tested; the change is
+  threading the `Transaction` state through the producer's send
+  path and `BatchAccumulator`. Expect to touch `Producer`, the
+  send loop in `Internal.ProducerSender`, the batch header
+  stamping in `Internal.BatchAccumulator`, and add new
+  end-to-end specs against the mock.
+- 2, 4 are deep refactors of internal abstractions (engine driver,
   store transactional buffer). They cascade into existing tests; expect
   to update most of `Streams/MockDriverModesSpec` and
   `Streams/EngineSpec`.
-- 2 (TLS) is largely fixture work + new test files.
-- 4 is additive — new module hierarchy, no existing code changes.
-- 5 needs assignor-level surgery; the cooperative-sticky path already
-  has the structure to extend.
+- 3 (TLS) is largely fixture work + new test files.
+- 5 is additive — new module hierarchy, no existing code changes.
 
 ---
 
@@ -520,7 +606,15 @@ commit message.
 
 The current snapshot of in-progress / pending work is:
 
-- (none — all in-flight items from prior chats are landed; this branch
+- **Top of the queue:** wire `Kafka.Client.Transaction` into
+  `Kafka.Client.Producer` so that `produce` calls inside an
+  `InTransaction` window actually become part of the broker-side
+  transaction (§3.1). The protocol coordinator already exists and
+  is unit-tested; this is integration work in the producer's send
+  path. Until it lands, exactly-once is API-shaped only — not
+  semantically real — and every Streams EOS-V2 / KIP-892 EOS-V3
+  step is blocked.
+- All other in-flight items from prior chats are landed; this branch
   brings the Pipeline implementation, AdminClient/TC/Subscribe codec
-  exposure, and the alive-idle Connection probe in line with the spec
-  above.)
+  exposure, the consumer-protocol-v0→v1 sticky-assignor fix, and the
+  alive-idle Connection probe in line with the spec above.
