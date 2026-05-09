@@ -1196,24 +1196,27 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
       _ <- VN.ensureVersionsNegotiated conn brokerAddr versionCache nextCid
       corrId <- nextCid
       let apiKey = 1  -- Fetch
-      -- FetchRequest is the trickiest negotiation surface.
-      -- Body-level changes by version:
+      -- FetchRequest body-level changes by version:
       --   v4  KIP-98  IsolationLevel
       --   v7  KIP-227 SessionId / SessionEpoch
       --   v11 KIP-392 RackId; KIP-573 ClusterId
-      --   v12 went flexible (compact strings + tagged fields)
-      --   v13 moved to TopicId-based identification
+      --   v12 went flexible (compact strings + tagged fields).
+      --       The ClusterId field at v12 is a /tagged/
+      --       compact-string with a null default; the codegen
+      --       was emitting it with the non-compact serializer
+      --       inside the tagged-fields envelope which the
+      --       broker rejected with an EOF — fixed in this
+      --       commit's codegen tagged-field-encoder change
+      --       (Generator.generateTaggedFieldEncoder now uses
+      --       toCompactString for tagged-string payloads).
+      --   v13 moved to TopicId-based identification — needs
+      --       the topic-id metadata cache plumbing that's
+      --       still TODO; cap at v12 until then.
       --   v15 ReplicaState moved into a tagged field
       --   v17 ReplicaDirectoryId added (tagged)
-      -- Codegen handles up to v18.
-      --
-      -- Cap at v11. v12 still EOFs against Kafka 3.7 — the
-      -- flexible-version Fetch envelope has more nuance
-      -- around session shape that needs investigation. v11 is
-      -- the highest non-flexible Fetch and works against every
-      -- Kafka 2.4+ broker; v11+'s RackId field is now wired
-      -- through 'consumerRackId' (KIP-392).
-      verR <- VN.pickApiVersion versionCache brokerAddr apiKey 4 11 4
+      -- Codegen handles up to v17 against the upstream 4.0.0
+      -- schemas.
+      verR <- VN.pickApiVersion versionCache brokerAddr apiKey 4 12 4
       let apiVersion = case verR of
             Right v -> v
             Left  _ -> 4   -- min supported (matches legacy fallback)

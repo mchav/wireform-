@@ -11,6 +11,7 @@ import Test.Tasty.HUnit (testCase, (@?=))
 
 import qualified Kafka.Client.Metadata as Meta
 import Kafka.Network.Connection (BrokerAddress (..))
+import qualified Kafka.Protocol.Primitives as P
 
 tests :: TestTree
 tests = testGroup "Metadata: KIP-466 leader cache patch"
@@ -50,7 +51,8 @@ baseMetadata = Meta.ClusterMetadata
                , (1, Meta.PartitionMetadata 1 2 [1, 2] [1, 2])
                ])
             0
-            False)
+            False
+            P.nullUuid)
       ]
   , Meta.clusterControllerId = 1
   , Meta.clusterClusterId    = Nothing

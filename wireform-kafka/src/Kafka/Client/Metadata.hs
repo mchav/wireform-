@@ -37,6 +37,7 @@ module Kafka.Client.Metadata
   , getAllBrokers
   , getClusterId
   , getTopicIsInternal
+  , getTopicId
     -- * Metadata Refresh
   , refreshMetadata
   , refreshTopicMetadata
@@ -99,6 +100,13 @@ data TopicMetadata = TopicMetadata
     -- ^ KIP-444: whether this topic is a Kafka-internal topic
     -- (e.g. @__consumer_offsets@, @__transaction_state@). Allows
     -- callers to filter internals out of @listTopics@.
+  , topicMetaTopicId :: !P.KafkaUuid
+    -- ^ KIP-516: the broker-assigned UUID identifying this topic.
+    -- Populated from @MetadataResponse@ v10+ (Kafka 2.8+); on
+    -- older brokers (or older request versions) this is
+    -- 'P.nullUuid'. Required for ProduceRequest v13+ /
+    -- FetchRequest v13+ which dropped the topic-name field
+    -- from the wire shape.
   } deriving (Eq, Show, Generic)
 
 -- | Complete cluster metadata
@@ -245,6 +253,20 @@ getTopicIsInternal (MetadataCache metaVar) topic = do
     tm <- HashMap.lookup topic clusterTopics
     pure (topicMetaIsInternal tm)
 
+-- | KIP-516: read the topic id (UUID) for a topic from the cache.
+-- Returns 'Nothing' when the cache hasn't been populated, or the
+-- topic isn't known. Returns @Just nullUuid@ when the broker
+-- responded but didn't supply an id (very old brokers, or v0-v9
+-- of @MetadataResponse@). Callers that need a real id should
+-- check with @P.nullUuid /=@.
+getTopicId :: MetadataCache -> Text -> STM (Maybe P.KafkaUuid)
+getTopicId (MetadataCache metaVar) topic = do
+  metaM <- readTVar metaVar
+  pure $ do
+    ClusterMetadata{..} <- metaM
+    tm <- HashMap.lookup topic clusterTopics
+    pure (topicMetaTopicId tm)
+
 -- | Refresh metadata for all topics
 refreshMetadata
   :: Connection
@@ -274,14 +296,18 @@ refreshTopicMetadata conn (MetadataCache metaVar) topicsM correlationId = do
           , MR.metadataRequestTopicName = P.mkKafkaString t
           }) ts
       
-      -- v8 is the highest non-flexible Metadata version. Using
-      -- it here (instead of v0) buys us the ClusterId field
-      -- (KIP-78, v2+) and the IsInternal flag (KIP-444, v1+)
-      -- on the populated 'ClusterMetadata' without having to
-      -- thread the v9+ flexible-versions request header through
-      -- this code path. Brokers from Kafka 0.11 onward all
-      -- support v8.
-      apiVersion = 8
+      -- v12 is the highest stable MetadataRequest version. We
+      -- need v10+ to get TopicId in the response (KIP-516,
+      -- required for ProduceRequest v13+ / FetchRequest v13+).
+      -- v9 went flexible; the codegen's flexible-tagged-fields
+      -- support handles that correctly now. Brokers from Kafka
+      -- 2.8 onward all support v12; older brokers will reject
+      -- the request and the caller should fall back via the
+      -- ApiVersionCache. (For now we hard-code v12 and rely on
+      -- the ApiVersions handshake done by the AdminClient /
+      -- Producer / Consumer layers above to surface the broker's
+      -- max if it ever differs.)
+      apiVersion = 12
       request = MR.MetadataRequest
         { MR.metadataRequestTopics = topics
         , MR.metadataRequestAllowAutoTopicCreation = False
@@ -364,7 +390,8 @@ parseTopics response =
           errorCode = MResp.metadataResponseTopicErrorCode topic
           partitions = parsePartitions topic
           isInternal = MResp.metadataResponseTopicIsInternal topic
-      in (name, TopicMetadata name partitions errorCode isInternal)
+          topicId = MResp.metadataResponseTopicTopicId topic
+      in (name, TopicMetadata name partitions errorCode isInternal topicId)
 
 -- | Parse partition information from a topic
 parsePartitions :: MResp.MetadataResponseTopic -> HashMap Int32 PartitionMetadata

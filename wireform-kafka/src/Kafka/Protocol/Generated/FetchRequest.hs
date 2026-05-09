@@ -462,7 +462,7 @@ encodeFetchRequest version msg
       E.encodeVersionedArray version 12 encodeForgottenTopic (case P.unKafkaArray (fetchRequestForgottenTopicsData msg) of { P.NotNull v -> v; P.Null -> V.empty })
       serialize (toCompactString (fetchRequestRackId msg))
       do
-        let _entries = (if version >= 12 then [(0, Data.Bytes.Put.runPutS (serialize (fetchRequestClusterId msg)))] else []) ++ (if version >= 15 then [(1, Data.Bytes.Put.runPutS (encodeReplicaState version (fetchRequestReplicaState msg)))] else [])
+        let _entries = (if version >= 12 then [(0, Data.Bytes.Put.runPutS (serialize (toCompactString (fetchRequestClusterId msg))))] else []) ++ (if version >= 15 then [(1, Data.Bytes.Put.runPutS (encodeReplicaState version (fetchRequestReplicaState msg)))] else [])
         P.serializeTaggedFieldEntries _entries
 
   | version >= 15 && version <= 17 =
@@ -477,7 +477,7 @@ encodeFetchRequest version msg
       E.encodeVersionedArray version 12 encodeForgottenTopic (case P.unKafkaArray (fetchRequestForgottenTopicsData msg) of { P.NotNull v -> v; P.Null -> V.empty })
       serialize (toCompactString (fetchRequestRackId msg))
       do
-        let _entries = (if version >= 12 then [(0, Data.Bytes.Put.runPutS (serialize (fetchRequestClusterId msg)))] else []) ++ (if version >= 15 then [(1, Data.Bytes.Put.runPutS (encodeReplicaState version (fetchRequestReplicaState msg)))] else [])
+        let _entries = (if version >= 12 then [(0, Data.Bytes.Put.runPutS (serialize (toCompactString (fetchRequestClusterId msg))))] else []) ++ (if version >= 15 then [(1, Data.Bytes.Put.runPutS (encodeReplicaState version (fetchRequestReplicaState msg)))] else [])
         P.serializeTaggedFieldEntries _entries
 
   | version >= 7 && version <= 10 =
@@ -587,7 +587,7 @@ decodeFetchRequest version
       let fieldclusterid =
             if version >= 12
               then case P.lookupTaggedField 0 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
+                Just _bs -> case Data.Bytes.Get.runGetS (P.fromCompactString <$> deserialize) _bs of
                     Right _v -> _v
                     Left  _  -> (P.KafkaString Null)
                 Nothing  -> (P.KafkaString Null)
@@ -642,7 +642,7 @@ decodeFetchRequest version
       let fieldclusterid =
             if version >= 12
               then case P.lookupTaggedField 0 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
+                Just _bs -> case Data.Bytes.Get.runGetS (P.fromCompactString <$> deserialize) _bs of
                     Right _v -> _v
                     Left  _  -> (P.KafkaString Null)
                 Nothing  -> (P.KafkaString Null)

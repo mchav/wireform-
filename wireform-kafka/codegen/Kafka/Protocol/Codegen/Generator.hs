@@ -542,6 +542,17 @@ generateTaggedFieldsEncode typeName varName taggedFields =
        ]
 
 -- | Return the bytes encoding for a single tagged field's value.
+--
+-- Tagged fields inside a flexible-version message use the
+-- /flexible/ representation for their payload (compact strings,
+-- compact bytes, compact arrays). The non-flexible 'serialize'
+-- shape would emit @Int16 length + bytes@ where the broker
+-- expects @UVarInt length+1 + bytes@; that mismatch shows up
+-- as an EOF during request parsing on the broker side. Use
+-- the compact variants for string / bytes payloads when the
+-- enclosing message is flexible (which all currently-observed
+-- tagged fields are; tagged fields only appear inside
+-- flexible-version messages).
 generateTaggedFieldEncoder :: FieldSpec -> Doc ann -> Doc ann
 generateTaggedFieldEncoder field accessor = case fieldType field of
   StructType structName ->
@@ -552,10 +563,13 @@ generateTaggedFieldEncoder field accessor = case fieldType field of
       <+> parens ("case P.unKafkaArray" <+> accessor
                     <+> "of { P.NotNull v -> v; P.Null -> V.empty }")
       <> ")"
+  PrimitiveType "string" ->
+    "Data.Bytes.Put.runPutS (serialize (toCompactString" <+> accessor <> "))"
+  PrimitiveType "bytes" ->
+    "Data.Bytes.Put.runPutS (serialize (toCompactBytes" <+> accessor <> "))"
   _ ->
-    -- Other tagged-field shapes (primitives, arrays of primitives, …)
-    -- aren't observed in the upstream 3.7 schemas; fall back to
-    -- 'serialize' which does the right thing for primitives.
+    -- Fixed-width primitives (int8/16/32/64, uuid, bool) have
+    -- the same encoding in both shapes; 'serialize' is correct.
     "Data.Bytes.Put.runPutS (serialize" <+> accessor <> ")"
 
 -- | Generate a version-aware decode function for a nested struct with version-dependent fields.
@@ -698,6 +712,11 @@ generateTaggedFieldDecode _typeName field =
        ]
 
 -- | Return the per-field decoder expression for a tagged field.
+--
+-- Mirror of 'generateTaggedFieldEncoder': string / bytes
+-- tagged-field payloads in flexible messages use the compact
+-- representation, so the decoder pulls the compact form and
+-- converts back.
 generateTaggedFieldDecoder :: FieldSpec -> Doc ann
 generateTaggedFieldDecoder field = case fieldType field of
   StructType structName ->
@@ -705,8 +724,12 @@ generateTaggedFieldDecoder field = case fieldType field of
   ArrayType (StructType structName) ->
     "P.mkKafkaArray <$> E.decodeVersionedArray version 999 decode"
       <> pretty structName
+  PrimitiveType "string" ->
+    "P.fromCompactString <$> deserialize"
+  PrimitiveType "bytes" ->
+    "P.fromCompactBytes <$> deserialize"
   _ ->
-    -- Primitives: the bytes are just the serialized value.
+    -- Fixed-width primitives: bytes are just the serialized value.
     "deserialize"
 
 -- | Convert a field spec to a Haskell type, considering nullable versions.

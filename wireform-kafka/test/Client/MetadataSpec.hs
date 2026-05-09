@@ -16,6 +16,7 @@ import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
 
 import Kafka.Client.Metadata
 import Kafka.Network.Connection (BrokerAddress(..))
+import qualified Kafka.Protocol.Primitives as P
 
 -- | Generate a broker metadata
 genBrokerMetadata :: Gen BrokerMetadata
@@ -45,7 +46,7 @@ genTopicMetadata = do
   let partMap = Map.fromList $ map (\p -> (partitionMetaId p, p)) partitions
   errorCode <- Gen.int16 (Range.linear 0 10)
   isInternal <- Gen.bool
-  return $ TopicMetadata name partMap errorCode isInternal
+  return $ TopicMetadata name partMap errorCode isInternal P.nullUuid
 
 -- | Generate cluster metadata
 genClusterMetadata :: Gen ClusterMetadata
