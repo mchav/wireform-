@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RecordWildCards #-}
 
 {-|
@@ -26,11 +27,16 @@ import Data.Bytes.Put (runPutS)
 import Data.Bytes.Serial (serialize, deserialize)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int16, Int32)
+import Foreign.ForeignPtr (mallocForeignPtrBytes, withForeignPtr)
+import Foreign.Ptr (plusPtr)
+import GHC.IO (unsafePerformIO)
 import Network.Connection (Connection, connectionGet, connectionPut)
 
 import qualified Kafka.Protocol.Primitives as P
 import qualified Kafka.Protocol.Generated.RequestHeader as RH
+import qualified Kafka.Protocol.Wire as W
 
 -- | Frame a request with its length prefix and header.
 -- 
@@ -47,14 +53,12 @@ frameRequest
   -> ByteString
 frameRequest apiKey apiVersion correlationId clientId requestBody =
   let
-    -- Create the request header
-    header = RH.RequestHeader
+    !header = RH.RequestHeader
       { RH.requestHeaderRequestApiKey = apiKey
       , RH.requestHeaderRequestApiVersion = apiVersion
       , RH.requestHeaderCorrelationId = correlationId
       , RH.requestHeaderClientId = clientId
       }
-
     -- The Kafka request header has its own version: v0 (for the
     -- ApiVersions request, which deliberately stays at v0 so the
     -- broker can negotiate from any client); v1 (no tagged fields,
@@ -64,18 +68,30 @@ frameRequest apiKey apiVersion correlationId clientId requestBody =
     -- support; sending a v1 header for a flexible body makes the
     -- broker read garbage off the wire and close the connection
     -- with @InvalidRequestException@ + BufferUnderflow.
-    headerVersion = requestHeaderVersionFor apiKey apiVersion
-
-    headerBytes = runPutS $ RH.encodeRequestHeader headerVersion header
-
-    -- Combine header and body
-    messageBytes = headerBytes <> requestBody
-    messageSize = BS.length messageBytes
-
-    -- Serialize the size prefix (4 bytes, big-endian Int32)
-    sizeBytes = runPutS $ serialize (fromIntegral messageSize :: Int32)
+    !headerVersion = requestHeaderVersionFor apiKey apiVersion
+    !headerBytes   = runPutS $ RH.encodeRequestHeader headerVersion header
+    !headerLen     = BS.length headerBytes
+    !bodyLen       = BS.length requestBody
+    !messageSize   = headerLen + bodyLen
+    !totalLen      = 4 + messageSize
   in
-    sizeBytes <> messageBytes
+    -- Single-allocation framing: malloc one buffer of the exact
+    -- final size, write the 4-byte size prefix + header + body
+    -- directly into it. The previous shape did
+    -- 'sizeBytes <> headerBytes <> requestBody', which is two
+    -- ByteString '<>' calls = two full memcpies of the (possibly
+    -- ~1 MiB) request body. For a high-throughput producer that
+    -- doubled the per-request memory bandwidth.
+    unsafePerformIO $ do
+      fp <- mallocForeignPtrBytes totalLen
+      withForeignPtr fp $ \basePtr -> do
+        _ <- W.pokeInt32BE basePtr (fromIntegral messageSize :: Int32)
+        let !hdrPtr  = basePtr `plusPtr` 4
+        _ <- W.pokeByteString hdrPtr headerBytes
+        let !bodyPtr = hdrPtr `plusPtr` headerLen
+        _ <- W.pokeByteString bodyPtr requestBody
+        pure ()
+      pure (BSI.fromForeignPtr fp 0 totalLen)
 
 -- | Pick the right Kafka request-header version for a given API
 -- key + body version. Encodes the per-API flexible-version
@@ -199,40 +215,74 @@ sendRawRequest :: Connection -> ByteString -> IO ()
 sendRawRequest conn framedRequest = do
   connectionPut conn framedRequest
 
--- | Read exactly N bytes from the connection.
--- Keep reading until we have all the bytes or the connection closes.
+-- | Read exactly @n@ bytes from the connection into a single
+-- pre-allocated buffer.
+--
+-- The previous shape did @acc <> chunk@ on every iteration of
+-- the read loop: for an N-chunk read of an M-byte response that
+-- was O(N*M) bytes copied (each '<>' on a strict ByteString is
+-- a full memcpy). Allocate one buffer up front, then memcpy
+-- each chunk straight into it at the correct offset — total
+-- copy cost is just the one pass over the response.
 readExactly :: Connection -> Int -> IO ByteString
-readExactly conn n = go BS.empty n 0
-  where
-    go acc remaining emptyReads
-      | remaining <= 0 = return acc
-      | emptyReads >= 3 = fail $ "Connection appears closed: received " ++ show emptyReads ++ " consecutive empty reads"
-      | otherwise = do
-          chunk <- connectionGet conn remaining
-          if BS.null chunk
-            then go acc remaining (emptyReads + 1)  -- Retry on empty read, but count it
-            else do
-              let newAcc = acc <> chunk
-                  newRemaining = remaining - BS.length chunk
-              go newAcc newRemaining 0  -- Reset empty read counter on successful read
+readExactly _ n | n <= 0 = pure BS.empty
+readExactly conn !n = do
+  fp <- mallocForeignPtrBytes n
+  withForeignPtr fp $ \basePtr -> do
+    let go !off !emptyReads
+          | off >= n = pure ()
+          | emptyReads >= 3 =
+              fail ("Connection appears closed: received "
+                      ++ show emptyReads ++ " consecutive empty reads")
+          | otherwise = do
+              let !want = n - off
+              chunk <- connectionGet conn want
+              let !got = BS.length chunk
+              if got == 0
+                then go off (emptyReads + 1)
+                else do
+                  -- Copy the chunk directly into our buffer at
+                  -- the right offset; chunk's source storage
+                  -- can be GC'd as soon as we return.
+                  _ <- W.pokeByteString (basePtr `plusPtr` off) chunk
+                  go (off + got) 0
+    go 0 0
+  pure (BSI.fromForeignPtr fp 0 n)
 
 -- | Receive a raw framed response from the connection.
--- This reads the size prefix first, then reads exactly that many bytes.
+-- Reads the 4-byte size prefix first, then reads exactly that
+-- many bytes into a /single/ buffer big enough to hold both the
+-- size prefix and the body; saves the previous shape's final
+-- 'sizeBytes <> messageBytes' concat.
 receiveRawResponse :: Connection -> IO ByteString
 receiveRawResponse conn = do
   -- Read the 4-byte size prefix
   sizeBytes <- readExactly conn 4
-  
   let sizeResult = runGetS deserialize sizeBytes
   messageSize <- case sizeResult of
     Left err -> fail $ "Failed to parse response size: " ++ err
     Right size -> return (size :: Int32)
-  
-  -- Read the message body
-  messageBytes <- readExactly conn (fromIntegral messageSize)
-  
-  -- Return the complete framed response (size + message)
-  return $ sizeBytes <> messageBytes
+  let !msgLen = fromIntegral messageSize :: Int
+  -- Allocate a single buffer holding [size prefix | message body],
+  -- then read the body straight into it at offset 4.
+  fp <- mallocForeignPtrBytes (4 + msgLen)
+  withForeignPtr fp $ \basePtr -> do
+    _ <- W.pokeByteString basePtr sizeBytes
+    let !bodyPtr = basePtr `plusPtr` 4
+        readBody !off !emptyReads
+          | off >= msgLen = pure ()
+          | emptyReads >= 3 =
+              fail ("Connection appears closed during response read")
+          | otherwise = do
+              chunk <- connectionGet conn (msgLen - off)
+              let !got = BS.length chunk
+              if got == 0
+                then readBody off (emptyReads + 1)
+                else do
+                  _ <- W.pokeByteString (bodyPtr `plusPtr` off) chunk
+                  readBody (off + got) 0
+    readBody 0 0
+  pure (BSI.fromForeignPtr fp 0 (4 + msgLen))
 
 -- | Send a request and receive the corresponding response.
 --
