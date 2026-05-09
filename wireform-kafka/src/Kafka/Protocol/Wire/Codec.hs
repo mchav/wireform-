@@ -20,22 +20,24 @@ what the broker expects) but it always pays the 'runPutS' /
 'runGetS' cost: a 'Builder' build + materialise on the encode side,
 a 'Get'-monad walk on the decode side.
 
-This module provides Wire-style runners ('runEncodeVer' /
-'runDecodeVer') that the rest of the client uses uniformly. The
-runners check whether the message type @a@ has a native 'Wire'
-codec available via the 'WireCodec' typeclass:
+Every Kafka message ships a 'WireCodec' instance whose 'wireCodec'
+field is a 'Just'-valued 'WireCodecImpl'. The instance is one of:
 
-  * If 'wireCodec' returns @Just impl@ the runner dispatches into
-    the direct-poke path — one 'mallocForeignPtrBytes', a single
-    'wirePokeFor', and a slice. This is what the codegen-emitted
-    'wirePokeFoo' / 'wirePeekFoo' from
-    "Kafka.Protocol.Codegen.WireGenerator" populate.
-  * If 'wireCodec' returns 'Nothing' the runner falls back to the
-    'runPutS' / 'runGetS' shape.
+  * the /native/ codec, populated by codegen-emitted
+    'wirePokeFoo' / 'wirePeekFoo' / 'wireMaxSizeFoo' functions from
+    "Kafka.Protocol.Codegen.WireGenerator". This is the direct-poke
+    path: one 'mallocForeignPtrBytes', a single 'wirePokeFor', and a
+    slice — no 'Builder', no parser monad, no per-record allocations.
+  * the /Serial shim/ ('serialShimCodec'), used by the codegen for
+    schemas it can't yet emit native code for (typically those with
+    arrays of nested structs). Behaves byte-identically to the
+    legacy 'runPutS' / 'runGetS' shape — wraps them inside a
+    'WireCodecImpl' so the dispatch surface stays uniform.
 
-The default 'WireCodec' instance every generated module emits is
-@wireCodec = Nothing@; modules that have been migrated to native
-'Wire' override it with @wireCodec = Just WireCodecImpl{...}@.
+The runners ('runEncodeVer' / 'runDecodeVer') case on the resulting
+'Maybe'; the @Nothing@ branch is dead code in the generated output
+and is kept only as a safety net for hand-written callers that
+forget to provide a codec.
 
 == Why a typeclass instead of changing the runner signature
 
@@ -54,13 +56,15 @@ ships with the message type).
 
 Migration shape:
 
-  * /Today/. Most generated modules emit @wireCodec = Nothing@; the
-    runners go through 'runPutS' / 'runGetS' under the hood. Same
-    wire bytes, no perf change vs. inline 'runPutS' call sites.
-  * /Per-module migration/. As the WireGenerator emits native
-    'wirePokeFoo' / 'wirePeekFoo', the generated module overrides
-    'wireCodec' to dispatch into the native pokes — same public
-    surface, no caller changes.
+  * /Today/. Every generated module emits a 'Just'-valued
+    'WireCodec' instance — most pointing at the Serial shim, three
+    (RequestHeader, ResponseHeader, ApiVersionsRequest) at native
+    pokes. Wire-bytes are byte-identical for both shapes.
+  * /Per-message migration/. As the WireGenerator learns to emit
+    native code for new schema shapes (arrays, nested structs, ...),
+    the generated module's 'WireCodec' instance flips from the shim
+    constructor to the native pokes. Same public surface, no caller
+    changes.
 -}
 module Kafka.Protocol.Wire.Codec
   ( -- * Versioned encode / decode
@@ -74,13 +78,20 @@ module Kafka.Protocol.Wire.Codec
     -- * Wire-codec typeclass + dispatch record
   , WireCodec (..)
   , WireCodecImpl (..)
+    -- * Serial shim — lifts a 'SerialEncoder' / 'SerialDecoder' pair
+    -- into a 'WireCodecImpl' so messages whose codegen still emits
+    -- the legacy 'Data.Bytes.Serial' shape ship through the same
+    -- dispatch surface as the natively-generated ones. No
+    -- @wireCodec = Nothing@ fallback survives in the generated
+    -- output: every message has a 'Just'-valued codec.
+  , serialShimCodec
     -- * Internal: Serial-fallback runners (exposed for testing /
     -- benchmarking — bypasses the WireCodec dispatch).
   , runEncodeVerSerial
   , runDecodeVerSerial
   ) where
 
-import Control.Exception (SomeException)
+import Control.Exception (SomeException, throwIO)
 import qualified Control.Exception as Exc
 import Data.Bytes.Get (MonadGet, runGetS)
 import Data.Bytes.Put (MonadPut, runPutS)
@@ -94,6 +105,8 @@ import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (Ptr, minusPtr, plusPtr)
 import GHC.IO (unsafePerformIO)
 import Data.Word (Word8)
+
+import Kafka.Protocol.Wire (WireError (WireInvalid))
 
 ----------------------------------------------------------------------
 -- Aliases
@@ -147,19 +160,22 @@ data WireCodecImpl a = WireCodecImpl
     --   byte consumed.
   }
 
--- | A message type with an /optional/ native 'Wire' codec.
+-- | A message type with a 'Wire' codec.
 --
--- Default @wireCodec = Nothing@ — falls back to the Serial
--- runner. Generated modules that have been migrated to a native
--- 'Wire' codec override this with @wireCodec = Just impl@.
+-- Every generated module emits an instance whose 'wireCodec' field
+-- is 'Just' — either pointing at codegen-emitted native pokes or at
+-- the 'serialShimCodec' wrapper around the legacy 'Serial'-shape
+-- encoder + decoder. The 'Maybe' wrapper is kept on the method's
+-- return type so the runners can keep their original case-on-Maybe
+-- shape without a churn-y caller migration; the @Nothing@ branch
+-- is dead in any non-pathological generated module.
 --
--- The instance is always defined (even when 'Nothing') so the
--- 'WireCodec' constraint on 'runEncodeVer' is transparently
--- satisfied at every call site. Adding the constraint required
--- no caller changes — the instance ships with the message type.
+-- The class deliberately /does not/ provide a default
+-- implementation. An empty @instance WireCodec MyType where {}@
+-- is a compile error (and a hint to use 'serialShimCodec' if a
+-- native codec isn't yet available).
 class WireCodec a where
   wireCodec :: Maybe (WireCodecImpl a)
-  wireCodec = Nothing
 
 ----------------------------------------------------------------------
 -- Runners
@@ -237,6 +253,55 @@ runEncodeVerInto encoder version msg dst =
 runEncodeVerSerial :: SerialEncoder a -> Int16 -> a -> ByteString
 runEncodeVerSerial encoder version msg =
   runPutS (encoder version msg)
+
+----------------------------------------------------------------------
+-- Serial shim
+----------------------------------------------------------------------
+
+-- | Build a 'WireCodecImpl' from a legacy 'Serial' encoder + decoder
+-- pair. The resulting @impl@ behaves as if the message type had no
+-- native 'Wire' codec — encode goes through 'runPutS' + a single
+-- @memcpy@ into the destination buffer, decode goes through
+-- 'runGetS' against a slice that's still backed by the source
+-- 'ForeignPtr' (no extra copy on the decode hot path).
+--
+-- Used by the codegen so every generated module ships
+-- @wireCodec = Just (serialShimCodec encodeFoo decodeFoo)@ even when
+-- the WireGenerator can't yet emit a native codec for the schema.
+-- Keeps the dispatch shape uniform — no 'Nothing' branch in any
+-- 'WireCodec' instance — so callers stay on a single code path and
+-- migrating a message to a native codec is a self-contained,
+-- per-message diff.
+--
+-- The shim's 'wireMaxSizeFor' returns the actual byte count via a
+-- one-shot 'runPutS'; it's exact (not a worst-case estimate) so the
+-- buffer the runner allocates is sized correctly the first time.
+{-# INLINEABLE serialShimCodec #-}
+serialShimCodec
+  :: SerialEncoder a
+  -> SerialDecoder a
+  -> WireCodecImpl a
+serialShimCodec encoder decoder = WireCodecImpl
+  { wireMaxSizeFor = \v msg ->
+      -- Exact size: encode once, take the length. Cheaper than a
+      -- worst-case-padding estimator for messages with variable
+      -- payloads (records, large arrays) since the runner won't
+      -- over-allocate.
+      BS.length (runPutS (encoder v msg))
+  , wirePokeFor = \v dst msg -> do
+      let !bs            = runPutS (encoder v msg)
+          !(fp, off, n)  = BSI.toForeignPtr bs
+      withForeignPtr fp $ \src ->
+        copyBytes dst (src `plusPtr` off) n
+      pure (dst `plusPtr` n)
+  , wirePeekFor = \v fp basePtr cur endPtr -> do
+      let !off = cur `minusPtr` basePtr
+          !len = endPtr `minusPtr` cur
+          !bs  = BSI.fromForeignPtr fp off len
+      case runGetS (decoder v) bs of
+        Right val -> pure (val, endPtr)
+        Left  err -> throwIO (WireInvalid err)
+  }
 
 -- | Force the Serial-runner path on the decode side. Mirror of
 -- 'runEncodeVerSerial'.

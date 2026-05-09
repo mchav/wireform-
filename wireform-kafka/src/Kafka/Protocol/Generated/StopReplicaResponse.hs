@@ -70,11 +70,16 @@ decodeStopReplicaResponse :: MonadGet m => E.ApiVersion -> m StopReplicaResponse
 decodeStopReplicaResponse version
   = fail "No valid versions"
 
--- | Default 'WC.WireCodec' instance: 'wireCodec = Nothing' makes
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' fall through to the
--- 'Data.Bytes.Serial' encoders / decoders defined above. Modules
--- migrated to a native 'Wire' codec override this with a
--- 'Just'-valued 'WireCodecImpl'.
+-- | 'WC.WireCodec' instance via the Serial shim. The
+-- WireGenerator can't yet emit a native codec for this
+-- schema (it carries arrays or nested struct fields the
+-- generator hasn't been taught yet), so we lift the legacy
+-- 'encodeStopReplicaResponse' / 'decodeStopReplicaResponse' pair into a
+-- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
+-- shape is identical to the native case — every
+-- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
+-- 'Just'-valued codec, no 'Nothing' fallback survives in
+-- the generated output.
 instance WC.WireCodec StopReplicaResponse where
-  wireCodec = Nothing
+  wireCodec = Just (WC.serialShimCodec encodeStopReplicaResponse decodeStopReplicaResponse)
   {-# INLINE wireCodec #-}

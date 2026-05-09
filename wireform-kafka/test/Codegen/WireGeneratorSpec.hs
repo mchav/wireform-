@@ -120,11 +120,12 @@ assertRenderedContains sch needles = case generateWireFunctions sch of
     mapM_ (assertSubstring sch rendered) needles
 
 assertOverrideContains :: ProtocolSchema -> [Text] -> Assertion
-assertOverrideContains sch needles = case generateWireCodecOverride sch of
-  Nothing -> assertBool "expected Just from generateWireCodecOverride" False
-  Just doc -> do
-    let !rendered = render doc
-    mapM_ (assertSubstring sch rendered) needles
+assertOverrideContains sch needles = do
+  -- 'generateWireCodecOverride' now /always/ returns a Doc (no
+  -- Nothing fallback after the no-fallback migration). The branch
+  -- below assumes this and just renders + searches the output.
+  let !rendered = render (generateWireCodecOverride sch)
+  mapM_ (assertSubstring sch rendered) needles
 
 assertSubstring :: ProtocolSchema -> Text -> Text -> Assertion
 assertSubstring sch hay needle = assertBool

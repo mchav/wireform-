@@ -204,15 +204,16 @@ generateMessage schema =
     , ""
     , generateDecodeFunction schema flexibleVersion validVersions
     , ""
-    , -- Native 'Wire' codec block. Either three top-level functions
-      -- + an override @WireCodec@ instance (when the schema falls
-      -- inside the supported subset), or just the default
-      -- @wireCodec = Nothing@ instance that routes through the
-      -- 'Serial' fallback.
-      case (WG.generateWireFunctions schema, WG.generateWireCodecOverride schema) of
-        (Just fns, Just override) -> vsep (fns ++ ["", override])
-        _                         ->
-          generateWireCodecInstance (schemaName schema)
+    , -- Wire-codec block. Every schema gets a 'Just'-valued
+      -- 'WireCodec' instance — there is no 'wireCodec = Nothing'
+      -- fallback in the generated output. Schemas the WireGenerator
+      -- can natively emit a poke / peek / size for ship those
+      -- functions plus an instance pointing at them; the rest get a
+      -- shim instance that lifts the legacy 'Serial' encoder /
+      -- decoder into the same 'WireCodecImpl' shape.
+      case WG.generateWireFunctions schema of
+        Just fns -> vsep (fns ++ ["", WG.generateWireCodecOverride schema])
+        Nothing  -> WG.generateWireCodecOverride schema
     ]
 
 -- | Check if a structure has version-dependent fields (fields not present in all versions).

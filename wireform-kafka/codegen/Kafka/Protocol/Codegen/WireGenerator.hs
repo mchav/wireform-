@@ -153,34 +153,62 @@ generateWireFunctions schema
       Right spec -> expandVersionSpec spec
       Left  _    -> []
 
--- | Emit the @WireCodec@ instance override for a wire-supported
--- schema. The surrounding generator decides which of this and the
--- default @wireCodec = Nothing@ instance to emit.
-generateWireCodecOverride :: ProtocolSchema -> Maybe (Doc ann)
+-- | Emit a @WireCodec@ instance for /every/ schema. Always Just —
+-- there is no @wireCodec = Nothing@ fallback any more. If the
+-- WireGenerator can't yet emit a native codec for the schema (it has
+-- arrays / nested struct fields), the instance points at
+-- 'WC.serialShimCodec', which lifts the legacy 'Serial' encoder /
+-- decoder into a 'WireCodecImpl'. This keeps the dispatch shape
+-- uniform across the whole protocol surface; expanding the
+-- WireGenerator's coverage migrates a message from the shim to the
+-- native pokes via a self-contained per-message diff.
+generateWireCodecOverride :: ProtocolSchema -> Doc ann
 generateWireCodecOverride schema
-  | not (isWireSupported schema) = Nothing
-  | otherwise = Just $ vsep
-    [ "-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /"
-    , "-- 'WC.runDecodeVer' dispatch into the direct-poke functions"
-    , "-- generated below, skipping the 'Data.Bytes.Serial' runner."
-    , "instance WC.WireCodec" <+> pretty typeName <+> "where"
-    , indent 2 $ vsep
-        [ "wireCodec = Just WC.WireCodecImpl"
-        , indent 2 $ vsep
-            [ "{ WC.wireMaxSizeFor = \\v msg -> wireMaxSize" <> pretty typeName
-                <+> "(fromIntegral v) msg"
-            , ", WC.wirePokeFor    = \\v p msg -> wirePoke" <> pretty typeName
-                <+> "(fromIntegral v) p msg"
-            , ", WC.wirePeekFor    = \\v fp basePtr p endPtr ->"
-            , indent 4 ("wirePeek" <> pretty typeName
-                <+> "(fromIntegral v) fp basePtr p endPtr")
-            , "}"
-            ]
-        , "{-# INLINE wireCodec #-}"
-        ]
-    ]
+  | isWireSupported schema = nativeInstance
+  | otherwise              = shimInstance
   where
     typeName = toHaskellTypeName (schemaName schema)
+
+    nativeInstance = vsep
+      [ "-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /"
+      , "-- 'WC.runDecodeVer' dispatch into the direct-poke functions"
+      , "-- generated below, skipping the 'Data.Bytes.Serial' runner."
+      , "instance WC.WireCodec" <+> pretty typeName <+> "where"
+      , indent 2 $ vsep
+          [ "wireCodec = Just WC.WireCodecImpl"
+          , indent 2 $ vsep
+              [ "{ WC.wireMaxSizeFor = \\v msg -> wireMaxSize" <> pretty typeName
+                  <+> "(fromIntegral v) msg"
+              , ", WC.wirePokeFor    = \\v p msg -> wirePoke" <> pretty typeName
+                  <+> "(fromIntegral v) p msg"
+              , ", WC.wirePeekFor    = \\v fp basePtr p endPtr ->"
+              , indent 4 ("wirePeek" <> pretty typeName
+                  <+> "(fromIntegral v) fp basePtr p endPtr")
+              , "}"
+              ]
+          , "{-# INLINE wireCodec #-}"
+          ]
+      ]
+
+    shimInstance = vsep
+      [ "-- | 'WC.WireCodec' instance via the Serial shim. The"
+      , "-- WireGenerator can't yet emit a native codec for this"
+      , "-- schema (it carries arrays or nested struct fields the"
+      , "-- generator hasn't been taught yet), so we lift the legacy"
+      , "-- 'encode" <> pretty typeName <> "' / 'decode" <> pretty typeName
+          <> "' pair into a"
+      , "-- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch"
+      , "-- shape is identical to the native case — every"
+      , "-- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a"
+      , "-- 'Just'-valued codec, no 'Nothing' fallback survives in"
+      , "-- the generated output."
+      , "instance WC.WireCodec" <+> pretty typeName <+> "where"
+      , indent 2 $ vsep
+          [ "wireCodec = Just (WC.serialShimCodec encode" <> pretty typeName
+              <+> "decode" <> pretty typeName <> ")"
+          , "{-# INLINE wireCodec #-}"
+          ]
+      ]
 
 ----------------------------------------------------------------------
 -- wireMaxSize

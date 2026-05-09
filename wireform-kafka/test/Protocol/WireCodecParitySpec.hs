@@ -15,6 +15,7 @@ module Protocol.WireCodecParitySpec (tests) where
 
 import qualified Data.ByteString as BS
 import Data.Int (Int16, Int32)
+import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -23,6 +24,7 @@ import Test.Tasty.Hedgehog (testProperty)
 import Test.Tasty.HUnit (testCase, (@?=))
 
 import qualified Kafka.Protocol.Generated.ApiVersionsRequest as AVR
+import qualified Kafka.Protocol.Generated.MetadataRequest as MR
 import qualified Kafka.Protocol.Generated.RequestHeader as RH
 import qualified Kafka.Protocol.Generated.ResponseHeader as RsH
 import qualified Kafka.Protocol.Primitives as P
@@ -53,6 +55,18 @@ tests = testGroup "Wire vs Serial codec parity (native WireCodec dispatch)"
           prop_apiVersionsRequest_encodeEq
       , testProperty "decode . encode == id (native path)"
           prop_apiVersionsRequest_roundTripNative
+      ]
+  , testGroup "MetadataRequest (Serial-shim sanity check)"
+      -- 'MetadataRequest' carries a nested-struct array, so the
+      -- WireGenerator can't (yet) emit a native codec for it. The
+      -- generated module wires it up via 'WC.serialShimCodec' —
+      -- this test checks that a shim-routed message round-trips
+      -- byte-identically with the legacy Serial path. If anything
+      -- about 'serialShimCodec' drifts (buffer sizing, slice
+      -- arithmetic, error wrapping), this will catch it without
+      -- needing to touch every shim-using module.
+      [ testCase "v9 round-trips through the shim"
+          unit_metadataRequest_shimRoundTrip
       ]
   ]
 
@@ -201,3 +215,26 @@ prop_apiVersionsRequest_roundTripNative = property $ do
 -- gets aggressive about unused imports.
 _keepInt32 :: Int32
 _keepInt32 = 0
+
+------------------------------------------------------------------
+-- Serial-shim sanity check
+------------------------------------------------------------------
+
+unit_metadataRequest_shimRoundTrip :: IO ()
+unit_metadataRequest_shimRoundTrip = do
+  -- Empty topic list — decodes the same shape via either path,
+  -- exercises the array length-prefix + the four trailing booleans.
+  let msg = MR.MetadataRequest
+        { MR.metadataRequestTopics =
+            P.mkKafkaArray (mempty :: V.Vector MR.MetadataRequestTopic)
+        , MR.metadataRequestAllowAutoTopicCreation             = True
+        , MR.metadataRequestIncludeClusterAuthorizedOperations = False
+        , MR.metadataRequestIncludeTopicAuthorizedOperations   = True
+        }
+      v = 9
+      !shim   = WC.runEncodeVer       MR.encodeMetadataRequest v msg
+      !serial = WC.runEncodeVerSerial MR.encodeMetadataRequest v msg
+  shim @?= serial
+  case WC.runDecodeVer MR.decodeMetadataRequest v shim of
+    Left err -> error ("decodeMetadataRequest failed: " <> err)
+    Right rt -> rt @?= msg

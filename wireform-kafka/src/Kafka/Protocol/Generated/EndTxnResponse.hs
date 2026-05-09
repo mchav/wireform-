@@ -159,11 +159,16 @@ decodeEndTxnResponse version
         }
   | otherwise = fail $ "Unsupported version: " ++ show version
 
--- | Default 'WC.WireCodec' instance: 'wireCodec = Nothing' makes
--- 'WC.runEncodeVer' / 'WC.runDecodeVer' fall through to the
--- 'Data.Bytes.Serial' encoders / decoders defined above. Modules
--- migrated to a native 'Wire' codec override this with a
--- 'Just'-valued 'WireCodecImpl'.
+-- | 'WC.WireCodec' instance via the Serial shim. The
+-- WireGenerator can't yet emit a native codec for this
+-- schema (it carries arrays or nested struct fields the
+-- generator hasn't been taught yet), so we lift the legacy
+-- 'encodeEndTxnResponse' / 'decodeEndTxnResponse' pair into a
+-- 'WireCodecImpl' via 'WC.serialShimCodec'. The dispatch
+-- shape is identical to the native case — every
+-- 'WC.runEncodeVer' / 'WC.runDecodeVer' goes through a
+-- 'Just'-valued codec, no 'Nothing' fallback survives in
+-- the generated output.
 instance WC.WireCodec EndTxnResponse where
-  wireCodec = Nothing
+  wireCodec = Just (WC.serialShimCodec encodeEndTxnResponse decodeEndTxnResponse)
   {-# INLINE wireCodec #-}
