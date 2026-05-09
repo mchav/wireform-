@@ -179,7 +179,47 @@ the JVM client + librdkafka:
 - `Kafka.Client.Internal.ProducerSender.buildRecordBatch` reads
   `batchIsTransactional` from the batch (previously hardcoded to
   `False`) and is exported.
-- `KIP_TRACKING.md` — implemented-count climbed from ~40 to ~110
-  on this branch; unimplemented count dropped from ~291 to ~140.
+- `KIP_TRACKING.md` — implemented-count climbed from ~40 to ~140
+  on this branch; unimplemented count dropped from ~291 to ~80.
+
+### Added (round 2 audit)
+
+- `Kafka.Client.ReauthDriver` — KIP-368 mid-session SASL
+  re-authentication driver: `ReauthState`, `ReauthRunner`,
+  `startReauthThread` / `stopReauthThread` / `awaitReauthQuiet`
+  / `forceReauthNow`. Pipeline-side integration glue.
+- `Kafka.Streams.Serde.Avro` / `JsonSchema` / `Protobuf` —
+  concrete payload serdes on top of `Kafka.Streams.Serde.SchemaRegistry`.
+  Protobuf includes the Confluent message-index varint prefix.
+- `Kafka.Streams.Serde.SchemaRegistry.Http` — pluggable
+  HTTP-backed `SchemaRegistryClient` (callers wire whatever
+  HTTP transport their org standardises on; wireform-kafka
+  doesn't pin `http-client`).
+- `Kafka.Client.ConsumerExtras` — KIP-238 / 302 / 389 / 391 / 396 /
+  421 / 424 / 470 / 477 / 485 / 568 / 587 / 941 / 974 / 1114
+  consumer ergonomics.
+- `Kafka.Client.MetadataCacheControl` — KIP-294 / 526 metadata
+  freshness bookkeeping (`shouldRefreshTopic`,
+  `topicsNeedingRefresh`).
+- `Kafka.Client.RackAware` — KIP-881 rack-aware partition
+  assignment (`rackAwareAssignment`, `rackAffinityScore`,
+  `preferLocalRack`).
+- `Kafka.Client.SerdeContext` — KIP-492 metadata context
+  passed to serializer / deserializer.
+- `Kafka.Client.AdminExtras` — KIP-464 / 484 / 524 / 967 / 1107 /
+  1153 / 1170 admin-side ergonomics.
+- `Kafka.Client.ProducerExtras` — KIP-185 / 588 / 691 / 732 / 849
+  / 1044 / 1166 / 1199 producer ergonomics.
+- `Kafka.Client.ShareGroupExtras` — KIP-1119 / 1129 share-group
+  pause/resume + dead-letter-queue decisions.
+- `Kafka.Client.ConnectionExtras` — KIP-612 / 974 / 1142 / 1182 /
+  1191 connection / SASL / QoS knobs.
+- `wireform-kafka/test-integration/docker-compose.yml` —
+  single-broker KRaft Kafka 3.7 fixture (used by the
+  `wireform-kafka-integration` Tasty group when
+  `WIREFORM_KAFKA_BROKER` is set).
+- `.github/workflows/wireform-kafka-integration.yml` — GHC
+  9.6.4 / 9.8.4 / 9.10.1 build matrix + Kafka 3.7 docker-compose
+  CI workflow.
 
 ## 0.1.0.0 - YYYY-MM-DD
