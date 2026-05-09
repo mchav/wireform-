@@ -42,6 +42,13 @@ import qualified Streams.MockClusterSpec
 import qualified Streams.MockFailureModesSpec
 import qualified Streams.MockAdvancedSpec
 import qualified Streams.MockDriverModesSpec
+import qualified Streams.ProbingRebalanceSpec
+import qualified Streams.RevocationGraceSpec
+import qualified Streams.StableNamesSpec
+import qualified Streams.TopologyOptimizationSpec
+import qualified Streams.SchemaRegistrySerdeSpec
+import qualified Streams.TransactionalStoreSpec
+import qualified Streams.StreamsConfigSurfaceSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -85,4 +92,11 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.MockFailureModesSpec.tests
   , Streams.MockAdvancedSpec.tests
   , Streams.MockDriverModesSpec.tests
+  , Streams.ProbingRebalanceSpec.tests
+  , Streams.RevocationGraceSpec.tests
+  , Streams.StableNamesSpec.tests
+  , Streams.TopologyOptimizationSpec.tests
+  , Streams.SchemaRegistrySerdeSpec.tests
+  , Streams.TransactionalStoreSpec.tests
+  , Streams.StreamsConfigSurfaceSpec.tests
   ]

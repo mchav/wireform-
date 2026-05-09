@@ -428,6 +428,13 @@ library wireform-kafka-streams
         Kafka.Streams.Runtime.Standby
         Kafka.Streams.Runtime.Assignor
         Kafka.Streams.Runtime.WorkerPool
+        Kafka.Streams.Runtime.ProbingRebalance
+        Kafka.Streams.Runtime.RevocationGrace
+        Kafka.Streams.Runtime.NativeDriver
+        Kafka.Streams.State.Transactional
+        Kafka.Streams.Topology.Optimization
+        Kafka.Streams.Topology.StableNames
+        Kafka.Streams.Serde.SchemaRegistry
         Kafka.Streams.InteractiveQueries
     build-depends:
         base                      >= 4.16  && < 5,
@@ -439,7 +446,9 @@ library wireform-kafka-streams
         directory                 >= 1.3   && < 1.4,
         filepath                  >= 1.4   && < 1.6,
         hashable                  >= 1.3   && < 1.6,
+        list-t                    >= 1.0   && < 1.1,
         stm                       >= 2.5   && < 2.6,
+        stm-containers            >= 1.2   && < 1.3,
         text                      >= 2.0   && < 2.2,
         time                      >= 1.11  && < 1.13,
         unordered-containers      >= 0.2   && < 0.3,
@@ -501,6 +510,13 @@ test-suite wireform-kafka-streams-test
         Streams.MockFailureModesSpec
         Streams.MockAdvancedSpec
         Streams.MockDriverModesSpec
+        Streams.ProbingRebalanceSpec
+        Streams.RevocationGraceSpec
+        Streams.StableNamesSpec
+        Streams.TopologyOptimizationSpec
+        Streams.SchemaRegistrySerdeSpec
+        Streams.TransactionalStoreSpec
+        Streams.StreamsConfigSurfaceSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
