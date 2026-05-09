@@ -51,6 +51,8 @@ import qualified Streams.TransactionalStoreSpec
 import qualified Streams.StreamsConfigSurfaceSpec
 import qualified Streams.ForeignKeyJoinV2Spec
 import qualified Streams.MultiInstanceHarnessSpec
+import qualified Streams.SchemaRegistryHttpSpec
+import qualified Streams.SchemaRegistryFormatsSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -103,4 +105,6 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.StreamsConfigSurfaceSpec.tests
   , Streams.ForeignKeyJoinV2Spec.tests
   , Streams.MultiInstanceHarnessSpec.tests
+  , Streams.SchemaRegistryHttpSpec.tests
+  , Streams.SchemaRegistryFormatsSpec.tests
   ]

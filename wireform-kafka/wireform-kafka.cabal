@@ -126,6 +126,7 @@ library
         Kafka.Client.Mock.Telemetry
         Kafka.Client.Pipeline
         Kafka.Client.Producer
+        Kafka.Client.ReauthDriver
         Kafka.Client.Simple
         Kafka.Client.Transaction
         Kafka.Compression.Gzip
@@ -453,7 +454,11 @@ library wireform-kafka-streams
         Kafka.Streams.State.Transactional
         Kafka.Streams.Topology.Optimization
         Kafka.Streams.Topology.StableNames
+        Kafka.Streams.Serde.Avro
+        Kafka.Streams.Serde.JsonSchema
+        Kafka.Streams.Serde.Protobuf
         Kafka.Streams.Serde.SchemaRegistry
+        Kafka.Streams.Serde.SchemaRegistry.Http
         Kafka.Streams.InteractiveQueries
     build-depends:
         base                      >= 4.16  && < 5,
@@ -538,6 +543,8 @@ test-suite wireform-kafka-streams-test
         Streams.StreamsConfigSurfaceSpec
         Streams.ForeignKeyJoinV2Spec
         Streams.MultiInstanceHarnessSpec
+        Streams.SchemaRegistryHttpSpec
+        Streams.SchemaRegistryFormatsSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
@@ -678,6 +685,7 @@ test-suite wireform-kafka-test
         Network.TlsHandshakeSpec
         Network.TransportSpec
         Network.SaslReauthSpec
+        Network.ReauthDriverSpec
         Protocol.ApiVersionsSpec
         Protocol.CompressionSpec
         Protocol.CRC32CSpec

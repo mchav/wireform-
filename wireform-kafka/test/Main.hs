@@ -57,6 +57,7 @@ import qualified Client.RetryClassifierSpec
 import qualified Client.BatchSplittingSpec
 import qualified Network.OAuthOidcSpec
 import qualified Network.BootstrapSpec
+import qualified Network.ReauthDriverSpec
 import qualified Client.AdminClientSpec
 import qualified Client.MockBrokerSpec
 import qualified Client.MockBrokerFailureModesSpec
@@ -171,4 +172,5 @@ networkTests = testGroup "Network"
   , Network.SaslReauthSpec.tests
   , Network.OAuthOidcSpec.tests
   , Network.BootstrapSpec.tests
+  , Network.ReauthDriverSpec.tests
   ]
