@@ -24,17 +24,9 @@ module Kafka.Protocol.Generated.VoteResponse
     TopicData(..),
     PartitionData(..),
     NodeEndpoint(..),
-    encodeVoteResponse,
-    decodeVoteResponse,
     maxVoteResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -42,13 +34,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -98,43 +86,6 @@ data PartitionData = PartitionData
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode PartitionData with version-aware field handling.
-encodePartitionData :: MonadPut m => E.ApiVersion -> PartitionData -> m ()
-encodePartitionData version pmsg =
-  do
-    serialize (partitionDataPartitionIndex pmsg)
-    serialize (partitionDataErrorCode pmsg)
-    serialize (partitionDataLeaderId pmsg)
-    serialize (partitionDataLeaderEpoch pmsg)
-    serialize (partitionDataVoteGranted pmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode PartitionData with version-aware field handling.
-decodePartitionData :: MonadGet m => E.ApiVersion -> m PartitionData
-decodePartitionData version =
-  do
-    fieldpartitionindex <- deserialize
-    fielderrorcode <- deserialize
-    fieldleaderid <- deserialize
-    fieldleaderepoch <- deserialize
-    fieldvotegranted <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure PartitionData
-      {
-      partitionDataPartitionIndex = fieldpartitionindex
-      ,
-      partitionDataErrorCode = fielderrorcode
-      ,
-      partitionDataLeaderId = fieldleaderid
-      ,
-      partitionDataLeaderEpoch = fieldleaderepoch
-      ,
-      partitionDataVoteGranted = fieldvotegranted
-      }
-
-
 -- | The results for each topic.
 data TopicData = TopicData
   {
@@ -152,31 +103,6 @@ data TopicData = TopicData
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicData with version-aware field handling.
-encodeTopicData :: MonadPut m => E.ApiVersion -> TopicData -> m ()
-encodeTopicData version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (topicDataTopicName tmsg)) else serialize (topicDataTopicName tmsg)
-    E.encodeVersionedArray version 0 encodePartitionData (case P.unKafkaArray (topicDataPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicData with version-aware field handling.
-decodeTopicData :: MonadGet m => E.ApiVersion -> m TopicData
-decodeTopicData version =
-  do
-    fieldtopicname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodePartitionData
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicData
-      {
-      topicDataTopicName = fieldtopicname
-      ,
-      topicDataPartitions = fieldpartitions
-      }
-
 
 -- | Endpoints for all current-leaders enumerated in PartitionData.
 data NodeEndpoint = NodeEndpoint
@@ -201,44 +127,6 @@ data NodeEndpoint = NodeEndpoint
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode NodeEndpoint with version-aware field handling.
-encodeNodeEndpoint :: MonadPut m => E.ApiVersion -> NodeEndpoint -> m ()
-encodeNodeEndpoint version nmsg =
-  do
-    when (version >= 1) $
-      serialize (nodeEndpointNodeId nmsg)
-    when (version >= 1) $
-      if version >= 0 then serialize (toCompactString (nodeEndpointHost nmsg)) else serialize (nodeEndpointHost nmsg)
-    when (version >= 1) $
-      serialize (nodeEndpointPort nmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode NodeEndpoint with version-aware field handling.
-decodeNodeEndpoint :: MonadGet m => E.ApiVersion -> m NodeEndpoint
-decodeNodeEndpoint version =
-  do
-    fieldnodeid <- if version >= 1
-      then deserialize
-      else pure (0)
-    fieldhost <- if version >= 1
-      then if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldport <- if version >= 1
-      then deserialize
-      else pure (0)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure NodeEndpoint
-      {
-      nodeEndpointNodeId = fieldnodeid
-      ,
-      nodeEndpointHost = fieldhost
-      ,
-      nodeEndpointPort = fieldport
-      }
-
 
 
 data VoteResponse = VoteResponse
@@ -274,74 +162,6 @@ instance KafkaMessage VoteResponse where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 0
-
--- | Encode VoteResponse with the given API version.
-encodeVoteResponse :: MonadPut m => E.ApiVersion -> VoteResponse -> m ()
-encodeVoteResponse version msg
-  | version == 0 =
-    do
-      serialize (voteResponseErrorCode msg)
-      E.encodeVersionedArray version 0 encodeTopicData (case P.unKafkaArray (voteResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      do
-        let _entries = (if version >= 1 then [(0, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeNodeEndpoint (case P.unKafkaArray (voteResponseNodeEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else [])
-        P.serializeTaggedFieldEntries _entries
-
-  | version >= 1 && version <= 2 =
-    do
-      serialize (voteResponseErrorCode msg)
-      E.encodeVersionedArray version 0 encodeTopicData (case P.unKafkaArray (voteResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      do
-        let _entries = (if version >= 1 then [(0, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeNodeEndpoint (case P.unKafkaArray (voteResponseNodeEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else [])
-        P.serializeTaggedFieldEntries _entries
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode VoteResponse with the given API version.
-decodeVoteResponse :: MonadGet m => E.ApiVersion -> m VoteResponse
-decodeVoteResponse version
-  | version == 0 =
-    do
-      fielderrorcode <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicData
-      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
-      let fieldnodeendpoints =
-            if version >= 1
-              then case P.lookupTaggedField 0 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeNodeEndpoint) _bs of
-                    Right _v -> _v
-                    Left  _  -> (P.mkKafkaArray V.empty)
-                Nothing  -> (P.mkKafkaArray V.empty)
-              else (P.mkKafkaArray V.empty)
-      pure VoteResponse
-        {
-        voteResponseErrorCode = fielderrorcode
-        ,
-        voteResponseTopics = fieldtopics
-        ,
-        voteResponseNodeEndpoints = fieldnodeendpoints
-        }
-
-  | version >= 1 && version <= 2 =
-    do
-      fielderrorcode <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicData
-      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
-      let fieldnodeendpoints =
-            if version >= 1
-              then case P.lookupTaggedField 0 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeNodeEndpoint) _bs of
-                    Right _v -> _v
-                    Left  _  -> (P.mkKafkaArray V.empty)
-                Nothing  -> (P.mkKafkaArray V.empty)
-              else (P.mkKafkaArray V.empty)
-      pure VoteResponse
-        {
-        voteResponseErrorCode = fielderrorcode
-        ,
-        voteResponseTopics = fieldtopics
-        ,
-        voteResponseNodeEndpoints = fieldnodeendpoints
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a PartitionData.
 wireMaxSizePartitionData :: Int -> PartitionData -> Int

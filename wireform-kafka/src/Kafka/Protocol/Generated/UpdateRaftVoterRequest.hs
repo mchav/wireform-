@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.UpdateRaftVoterRequest
     UpdateRaftVoterRequest(..),
     Listener(..),
     KRaftVersionFeature(..),
-    encodeUpdateRaftVoterRequest,
-    decodeUpdateRaftVoterRequest,
     maxUpdateRaftVoterRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -85,35 +73,6 @@ data Listener = Listener
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode Listener with version-aware field handling.
-encodeListener :: MonadPut m => E.ApiVersion -> Listener -> m ()
-encodeListener version lmsg =
-  do
-    if version >= 0 then serialize (toCompactString (listenerName lmsg)) else serialize (listenerName lmsg)
-    if version >= 0 then serialize (toCompactString (listenerHost lmsg)) else serialize (listenerHost lmsg)
-    serialize (listenerPort lmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Listener with version-aware field handling.
-decodeListener :: MonadGet m => E.ApiVersion -> m Listener
-decodeListener version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldhost <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldport <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Listener
-      {
-      listenerName = fieldname
-      ,
-      listenerHost = fieldhost
-      ,
-      listenerPort = fieldport
-      }
-
-
 -- | The range of versions of the protocol that the replica supports.
 data KRaftVersionFeature = KRaftVersionFeature
   {
@@ -131,31 +90,6 @@ data KRaftVersionFeature = KRaftVersionFeature
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode KRaftVersionFeature with version-aware field handling.
-encodeKRaftVersionFeature :: MonadPut m => E.ApiVersion -> KRaftVersionFeature -> m ()
-encodeKRaftVersionFeature version kmsg =
-  do
-    serialize (kRaftVersionFeatureMinSupportedVersion kmsg)
-    serialize (kRaftVersionFeatureMaxSupportedVersion kmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode KRaftVersionFeature with version-aware field handling.
-decodeKRaftVersionFeature :: MonadGet m => E.ApiVersion -> m KRaftVersionFeature
-decodeKRaftVersionFeature version =
-  do
-    fieldminsupportedversion <- deserialize
-    fieldmaxsupportedversion <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure KRaftVersionFeature
-      {
-      kRaftVersionFeatureMinSupportedVersion = fieldminsupportedversion
-      ,
-      kRaftVersionFeatureMaxSupportedVersion = fieldmaxsupportedversion
-      }
-
 
 
 data UpdateRaftVoterRequest = UpdateRaftVoterRequest
@@ -209,48 +143,6 @@ instance KafkaMessage UpdateRaftVoterRequest where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Just 0
-
--- | Encode UpdateRaftVoterRequest with the given API version.
-encodeUpdateRaftVoterRequest :: MonadPut m => E.ApiVersion -> UpdateRaftVoterRequest -> m ()
-encodeUpdateRaftVoterRequest version msg
-  | version == 0 =
-    do
-      serialize (toCompactString (updateRaftVoterRequestClusterId msg))
-      serialize (updateRaftVoterRequestCurrentLeaderEpoch msg)
-      serialize (updateRaftVoterRequestVoterId msg)
-      serialize (updateRaftVoterRequestVoterDirectoryId msg)
-      E.encodeVersionedArray version 0 encodeListener (case P.unKafkaArray (updateRaftVoterRequestListeners msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      encodeKRaftVersionFeature version (updateRaftVoterRequestKRaftVersionFeature msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode UpdateRaftVoterRequest with the given API version.
-decodeUpdateRaftVoterRequest :: MonadGet m => E.ApiVersion -> m UpdateRaftVoterRequest
-decodeUpdateRaftVoterRequest version
-  | version == 0 =
-    do
-      fieldclusterid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldcurrentleaderepoch <- deserialize
-      fieldvoterid <- deserialize
-      fieldvoterdirectoryid <- deserialize
-      fieldlisteners <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeListener
-      fieldkraftversionfeature <- decodeKRaftVersionFeature version
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure UpdateRaftVoterRequest
-        {
-        updateRaftVoterRequestClusterId = fieldclusterid
-        ,
-        updateRaftVoterRequestCurrentLeaderEpoch = fieldcurrentleaderepoch
-        ,
-        updateRaftVoterRequestVoterId = fieldvoterid
-        ,
-        updateRaftVoterRequestVoterDirectoryId = fieldvoterdirectoryid
-        ,
-        updateRaftVoterRequestListeners = fieldlisteners
-        ,
-        updateRaftVoterRequestKRaftVersionFeature = fieldkraftversionfeature
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a Listener.
 wireMaxSizeListener :: Int -> Listener -> Int

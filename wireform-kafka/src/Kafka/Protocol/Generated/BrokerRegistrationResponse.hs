@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.BrokerRegistrationResponse
   (
     BrokerRegistrationResponse(..),
-    encodeBrokerRegistrationResponse,
-    decodeBrokerRegistrationResponse,
     maxBrokerRegistrationResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -94,36 +82,6 @@ instance KafkaMessage BrokerRegistrationResponse where
   messageMinVersion = 0
   messageMaxVersion = 4
   messageFlexibleVersion = Just 0
-
--- | Encode BrokerRegistrationResponse with the given API version.
-encodeBrokerRegistrationResponse :: MonadPut m => E.ApiVersion -> BrokerRegistrationResponse -> m ()
-encodeBrokerRegistrationResponse version msg
-  | version >= 0 && version <= 4 =
-    do
-      serialize (brokerRegistrationResponseThrottleTimeMs msg)
-      serialize (brokerRegistrationResponseErrorCode msg)
-      serialize (brokerRegistrationResponseBrokerEpoch msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode BrokerRegistrationResponse with the given API version.
-decodeBrokerRegistrationResponse :: MonadGet m => E.ApiVersion -> m BrokerRegistrationResponse
-decodeBrokerRegistrationResponse version
-  | version >= 0 && version <= 4 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldbrokerepoch <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure BrokerRegistrationResponse
-        {
-        brokerRegistrationResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        brokerRegistrationResponseErrorCode = fielderrorcode
-        ,
-        brokerRegistrationResponseBrokerEpoch = fieldbrokerepoch
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a BrokerRegistrationResponse.

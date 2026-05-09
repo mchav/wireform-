@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Protocol.ApiVersions
@@ -44,7 +45,6 @@ import qualified StmContainers.Map as StmMap
 
 import Kafka.Client.Internal.Request
 import Kafka.Network.Connection (BrokerAddress)
-import qualified Kafka.Protocol.Encoding as E
 import qualified Kafka.Protocol.Generated.ApiVersionsRequest as AVReq
 import qualified Kafka.Protocol.Generated.ApiVersionsResponse as AVResp
 import qualified Kafka.Protocol.Primitives as P
@@ -103,7 +103,7 @@ negotiateVersions conn brokerAddr (ApiVersionCache cache) correlationId = do
           AVReq.apiVersionsRequestClusterId = P.KafkaString P.Null
         , AVReq.apiVersionsRequestNodeId    = -1
         }
-      requestBody = WC.runEncodeVer AVReq.encodeApiVersionsRequest apiVersion request
+      requestBody = WC.runEncodeVer @AVReq.ApiVersionsRequest apiVersion request
       clientId = P.mkKafkaString "kafka-native"
   
   result <- sendRequestReceiveResponse
@@ -119,7 +119,7 @@ negotiateVersions conn brokerAddr (ApiVersionCache cache) correlationId = do
     Right (respCorrelationId, respBody) ->
       if respCorrelationId /= correlationId
         then return $ Left $ "Correlation ID mismatch: expected " ++ show correlationId ++ ", got " ++ show respCorrelationId
-        else case WC.runDecodeVer AVResp.decodeApiVersionsResponse apiVersion respBody of
+        else case WC.runDecodeVer @AVResp.ApiVersionsResponse apiVersion respBody of
           Left err -> return $ Left $ "Failed to decode ApiVersions response: " ++ err
           Right response -> do
             -- Extract version ranges from response

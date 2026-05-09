@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.SaslHandshakeRequest
   (
     SaslHandshakeRequest(..),
-    encodeSaslHandshakeRequest,
-    decodeSaslHandshakeRequest,
     maxSaslHandshakeRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -82,27 +70,6 @@ instance KafkaMessage SaslHandshakeRequest where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Nothing
-
--- | Encode SaslHandshakeRequest with the given API version.
-encodeSaslHandshakeRequest :: MonadPut m => E.ApiVersion -> SaslHandshakeRequest -> m ()
-encodeSaslHandshakeRequest version msg
-  | version >= 0 && version <= 1 =
-    do
-      serialize (saslHandshakeRequestMechanism msg)
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode SaslHandshakeRequest with the given API version.
-decodeSaslHandshakeRequest :: MonadGet m => E.ApiVersion -> m SaslHandshakeRequest
-decodeSaslHandshakeRequest version
-  | version >= 0 && version <= 1 =
-    do
-      fieldmechanism <- deserialize
-      pure SaslHandshakeRequest
-        {
-        saslHandshakeRequestMechanism = fieldmechanism
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a SaslHandshakeRequest.

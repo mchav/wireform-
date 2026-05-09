@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Main
@@ -43,8 +44,8 @@ import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.ByteArray.Encoding as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Bytes.Put (runPutS)
 import Data.Int (Int16)
+import qualified Kafka.Protocol.Wire.Codec as WC
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -280,58 +281,58 @@ vectors :: [Vector]
 vectors =
   [ vector (Just 18) "ApiVersionsRequest" 3 "default"
       "ApiVersionsRequest v3 (default client name + version)"
-      (runPutS (AVReq.encodeApiVersionsRequest 3 apiVersionsReqV3))
+      (WC.runEncodeVer @AVReq.ApiVersionsRequest 3 apiVersionsReqV3)
   , vector (Just 18) "ApiVersionsResponse" 3 "ok"
       "ApiVersionsResponse v3 (no error, no API entries)"
-      (runPutS (AVResp.encodeApiVersionsResponse 3 apiVersionsRespV3))
+      (WC.runEncodeVer @AVResp.ApiVersionsResponse 3 apiVersionsRespV3)
   , vector (Just 12) "HeartbeatRequest" 4 "ok"
       "HeartbeatRequest v4 (group=wf-test-group, member=consumer-1, gen=7)"
-      (runPutS (HBReq.encodeHeartbeatRequest 4 heartbeatReqV4))
+      (WC.runEncodeVer @HBReq.HeartbeatRequest 4 heartbeatReqV4)
   , vector (Just 12) "HeartbeatResponse" 4 "ok"
       "HeartbeatResponse v4 (success)"
-      (runPutS (HBResp.encodeHeartbeatResponse 4 heartbeatRespV4))
+      (WC.runEncodeVer @HBResp.HeartbeatResponse 4 heartbeatRespV4)
   , vector (Just 13) "LeaveGroupRequest" 4 "single-member"
       "LeaveGroupRequest v4 (single member, reason=shutdown)"
-      (runPutS (LGReq.encodeLeaveGroupRequest 4 leaveGroupReqV4))
+      (WC.runEncodeVer @LGReq.LeaveGroupRequest 4 leaveGroupReqV4)
   , vector (Just 13) "LeaveGroupResponse" 4 "ok"
       "LeaveGroupResponse v4 (no error)"
-      (runPutS (LGResp.encodeLeaveGroupResponse 4 leaveGroupRespV4))
+      (WC.runEncodeVer @LGResp.LeaveGroupResponse 4 leaveGroupRespV4)
   , vector (Just 3) "MetadataRequest" 9 "single-topic"
       "MetadataRequest v9 (single topic 'events', auto-create on)"
-      (runPutS (MReq.encodeMetadataRequest 9 metadataReqV9))
+      (WC.runEncodeVer @MReq.MetadataRequest 9 metadataReqV9)
   , vector (Just 3) "MetadataResponse" 9 "empty-cluster"
       "MetadataResponse v9 (no brokers, no topics)"
-      (runPutS (MResp.encodeMetadataResponse 9 metadataRespV9))
+      (WC.runEncodeVer @MResp.MetadataResponse 9 metadataRespV9)
   , vector (Just 17) "SaslHandshakeRequest" 1 "scram-sha-512"
       "SaslHandshakeRequest v1 (mechanism=SCRAM-SHA-512)"
-      (runPutS (SHReq.encodeSaslHandshakeRequest 1 saslHandshakeReqV1))
+      (WC.runEncodeVer @SHReq.SaslHandshakeRequest 1 saslHandshakeReqV1)
   , vector (Just 17) "SaslHandshakeResponse" 1 "five-mechanisms"
       "SaslHandshakeResponse v1 (PLAIN/SCRAM-256/SCRAM-512/OAUTHBEARER/AWS_MSK_IAM)"
-      (runPutS (SHResp.encodeSaslHandshakeResponse 1 saslHandshakeRespV1))
+      (WC.runEncodeVer @SHResp.SaslHandshakeResponse 1 saslHandshakeRespV1)
   , vector (Just 36) "SaslAuthenticateRequest" 1 "plain"
       "SaslAuthenticateRequest v1 (PLAIN: \\0alice\\0pw)"
-      (runPutS (SAReq.encodeSaslAuthenticateRequest 1 saslAuthReqV1))
+      (WC.runEncodeVer @SAReq.SaslAuthenticateRequest 1 saslAuthReqV1)
   , vector (Just 36) "SaslAuthenticateResponse" 1 "ok"
       "SaslAuthenticateResponse v1 (success, no payload)"
-      (runPutS (SAResp.encodeSaslAuthenticateResponse 1 saslAuthRespV1))
+      (WC.runEncodeVer @SAResp.SaslAuthenticateResponse 1 saslAuthRespV1)
   , vector (Just 10) "FindCoordinatorRequest" 3 "consumer-group"
       "FindCoordinatorRequest v3 (group=wf-test-group, type=group)"
-      (runPutS (FCReq.encodeFindCoordinatorRequest 3 findCoordReqV3))
+      (WC.runEncodeVer @FCReq.FindCoordinatorRequest 3 findCoordReqV3)
   , vector (Just 10) "FindCoordinatorResponse" 3 "ok"
       "FindCoordinatorResponse v3 (broker-1:9092, node 1)"
-      (runPutS (FCResp.encodeFindCoordinatorResponse 3 findCoordRespV3))
+      (WC.runEncodeVer @FCResp.FindCoordinatorResponse 3 findCoordRespV3)
   , vector (Just 8) "OffsetCommitRequest" 2 "no-topics"
       "OffsetCommitRequest v2 (group=wf-test-group, no topics)"
-      (runPutS (OCReq.encodeOffsetCommitRequest 2 offsetCommitReqV2))
+      (WC.runEncodeVer @OCReq.OffsetCommitRequest 2 offsetCommitReqV2)
   , vector (Just 8) "OffsetCommitResponse" 2 "ok"
       "OffsetCommitResponse v2 (no per-topic responses)"
-      (runPutS (OCResp.encodeOffsetCommitResponse 2 offsetCommitRespV2))
+      (WC.runEncodeVer @OCResp.OffsetCommitResponse 2 offsetCommitRespV2)
   , vector (Just 9) "OffsetFetchRequest" 5 "no-topics"
       "OffsetFetchRequest v5 (no topics, require_stable=false)"
-      (runPutS (OFReq.encodeOffsetFetchRequest 5 offsetFetchReqV5))
+      (WC.runEncodeVer @OFReq.OffsetFetchRequest 5 offsetFetchReqV5)
   , vector (Just 9) "OffsetFetchResponse" 5 "ok"
       "OffsetFetchResponse v5 (no topics, no error)"
-      (runPutS (OFResp.encodeOffsetFetchResponse 5 offsetFetchRespV5))
+      (WC.runEncodeVer @OFResp.OffsetFetchResponse 5 offsetFetchRespV5)
   ]
 
 main :: IO ()

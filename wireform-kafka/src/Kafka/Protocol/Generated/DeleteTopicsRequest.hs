@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.DeleteTopicsRequest
   (
     DeleteTopicsRequest(..),
     DeleteTopicState(..),
-    encodeDeleteTopicsRequest,
-    decodeDeleteTopicsRequest,
     maxDeleteTopicsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -77,37 +65,6 @@ data DeleteTopicState = DeleteTopicState
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode DeleteTopicState with version-aware field handling.
-encodeDeleteTopicState :: MonadPut m => E.ApiVersion -> DeleteTopicState -> m ()
-encodeDeleteTopicState version dmsg =
-  do
-    when (version >= 6) $
-      if version >= 4 then serialize (toCompactString (deleteTopicStateName dmsg)) else serialize (deleteTopicStateName dmsg)
-    when (version >= 6) $
-      serialize (deleteTopicStateTopicId dmsg)
-    when (version >= 4) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DeleteTopicState with version-aware field handling.
-decodeDeleteTopicState :: MonadGet m => E.ApiVersion -> m DeleteTopicState
-decodeDeleteTopicState version =
-  do
-    fieldname <- if version >= 6
-      then if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldtopicid <- if version >= 6
-      then deserialize
-      else pure (P.nullUuid)
-    _ <- if version >= 4 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DeleteTopicState
-      {
-      deleteTopicStateName = fieldname
-      ,
-      deleteTopicStateTopicId = fieldtopicid
-      }
-
 
 
 data DeleteTopicsRequest = DeleteTopicsRequest
@@ -143,73 +100,6 @@ instance KafkaMessage DeleteTopicsRequest where
   messageMinVersion = 1
   messageMaxVersion = 6
   messageFlexibleVersion = Just 4
-
--- | Encode DeleteTopicsRequest with the given API version.
-encodeDeleteTopicsRequest :: MonadPut m => E.ApiVersion -> DeleteTopicsRequest -> m ()
-encodeDeleteTopicsRequest version msg
-  | version == 6 =
-    do
-      E.encodeVersionedArray version 4 encodeDeleteTopicState (case P.unKafkaArray (deleteTopicsRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (deleteTopicsRequestTimeoutMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 4 && version <= 5 =
-    do
-      E.encodeVersionedArray version 4 (\v s -> if v >= 4 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (deleteTopicsRequestTopicNames msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (deleteTopicsRequestTimeoutMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 1 && version <= 3 =
-    do
-      E.encodeVersionedArray version 4 (\v s -> if v >= 4 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (deleteTopicsRequestTopicNames msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (deleteTopicsRequestTimeoutMs msg)
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DeleteTopicsRequest with the given API version.
-decodeDeleteTopicsRequest :: MonadGet m => E.ApiVersion -> m DeleteTopicsRequest
-decodeDeleteTopicsRequest version
-  | version == 6 =
-    do
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 decodeDeleteTopicState
-      fieldtimeoutms <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DeleteTopicsRequest
-        {
-        deleteTopicsRequestTopics = fieldtopics
-        ,
-        deleteTopicsRequestTopicNames = P.mkKafkaArray V.empty
-        ,
-        deleteTopicsRequestTimeoutMs = fieldtimeoutms
-        }
-
-  | version >= 4 && version <= 5 =
-    do
-      fieldtopicnames <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 (\v -> if v >= 4 then P.fromCompactString <$> deserialize else deserialize)
-      fieldtimeoutms <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DeleteTopicsRequest
-        {
-        deleteTopicsRequestTopics = P.mkKafkaArray V.empty
-        ,
-        deleteTopicsRequestTopicNames = fieldtopicnames
-        ,
-        deleteTopicsRequestTimeoutMs = fieldtimeoutms
-        }
-
-  | version >= 1 && version <= 3 =
-    do
-      fieldtopicnames <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 (\v -> if v >= 4 then P.fromCompactString <$> deserialize else deserialize)
-      fieldtimeoutms <- deserialize
-      pure DeleteTopicsRequest
-        {
-        deleteTopicsRequestTopics = P.mkKafkaArray V.empty
-        ,
-        deleteTopicsRequestTopicNames = fieldtopicnames
-        ,
-        deleteTopicsRequestTimeoutMs = fieldtimeoutms
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a DeleteTopicState.
 wireMaxSizeDeleteTopicState :: Int -> DeleteTopicState -> Int

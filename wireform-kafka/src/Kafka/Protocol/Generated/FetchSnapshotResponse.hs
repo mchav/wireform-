@@ -26,17 +26,9 @@ module Kafka.Protocol.Generated.FetchSnapshotResponse
     SnapshotId(..),
     LeaderIdAndEpoch(..),
     NodeEndpoint(..),
-    encodeFetchSnapshotResponse,
-    decodeFetchSnapshotResponse,
     maxFetchSnapshotResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -44,13 +36,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -82,31 +70,6 @@ data SnapshotId = SnapshotId
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode SnapshotId with version-aware field handling.
-encodeSnapshotId :: MonadPut m => E.ApiVersion -> SnapshotId -> m ()
-encodeSnapshotId version smsg =
-  do
-    serialize (snapshotIdEndOffset smsg)
-    serialize (snapshotIdEpoch smsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode SnapshotId with version-aware field handling.
-decodeSnapshotId :: MonadGet m => E.ApiVersion -> m SnapshotId
-decodeSnapshotId version =
-  do
-    fieldendoffset <- deserialize
-    fieldepoch <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure SnapshotId
-      {
-      snapshotIdEndOffset = fieldendoffset
-      ,
-      snapshotIdEpoch = fieldepoch
-      }
-
-
 -- | The leader of the partition at the time of the snapshot.
 data LeaderIdAndEpoch = LeaderIdAndEpoch
   {
@@ -124,31 +87,6 @@ data LeaderIdAndEpoch = LeaderIdAndEpoch
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode LeaderIdAndEpoch with version-aware field handling.
-encodeLeaderIdAndEpoch :: MonadPut m => E.ApiVersion -> LeaderIdAndEpoch -> m ()
-encodeLeaderIdAndEpoch version lmsg =
-  do
-    serialize (leaderIdAndEpochLeaderId lmsg)
-    serialize (leaderIdAndEpochLeaderEpoch lmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode LeaderIdAndEpoch with version-aware field handling.
-decodeLeaderIdAndEpoch :: MonadGet m => E.ApiVersion -> m LeaderIdAndEpoch
-decodeLeaderIdAndEpoch version =
-  do
-    fieldleaderid <- deserialize
-    fieldleaderepoch <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure LeaderIdAndEpoch
-      {
-      leaderIdAndEpochLeaderId = fieldleaderid
-      ,
-      leaderIdAndEpochLeaderEpoch = fieldleaderepoch
-      }
-
 
 -- | The partitions to fetch.
 data PartitionSnapshot = PartitionSnapshot
@@ -198,59 +136,6 @@ data PartitionSnapshot = PartitionSnapshot
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode PartitionSnapshot with version-aware field handling.
-encodePartitionSnapshot :: MonadPut m => E.ApiVersion -> PartitionSnapshot -> m ()
-encodePartitionSnapshot version pmsg =
-  do
-    serialize (partitionSnapshotIndex pmsg)
-    serialize (partitionSnapshotErrorCode pmsg)
-    encodeSnapshotId version (partitionSnapshotSnapshotId pmsg)
-    serialize (partitionSnapshotSize pmsg)
-    serialize (partitionSnapshotPosition pmsg)
-    if version >= 0 then serialize (toCompactBytes (partitionSnapshotUnalignedRecords pmsg)) else serialize (partitionSnapshotUnalignedRecords pmsg)
-    when (version >= 0) $ do
-      let _entries = (if version >= 0 then [(0, Data.Bytes.Put.runPutS (encodeLeaderIdAndEpoch version (partitionSnapshotCurrentLeader pmsg)))] else [])
-      P.serializeTaggedFieldEntries _entries
-
-
--- | Decode PartitionSnapshot with version-aware field handling.
-decodePartitionSnapshot :: MonadGet m => E.ApiVersion -> m PartitionSnapshot
-decodePartitionSnapshot version =
-  do
-    fieldindex <- deserialize
-    fielderrorcode <- deserialize
-    fieldsnapshotid <- decodeSnapshotId version
-    fieldsize <- deserialize
-    fieldposition <- deserialize
-    fieldunalignedrecords <- if version >= 0 then P.fromCompactBytes <$> deserialize else deserialize
-    _taggedFields <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    let fieldcurrentleader =
-          if version >= 0
-            then case P.lookupTaggedField 0 _taggedFields of
-              Just _bs -> case Data.Bytes.Get.runGetS (decodeLeaderIdAndEpoch version) _bs of
-                  Right _v -> _v
-                  Left  _  -> (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = 0, leaderIdAndEpochLeaderEpoch = 0 })
-              Nothing  -> (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = 0, leaderIdAndEpochLeaderEpoch = 0 })
-            else (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = 0, leaderIdAndEpochLeaderEpoch = 0 })
-    pure PartitionSnapshot
-      {
-      partitionSnapshotIndex = fieldindex
-      ,
-      partitionSnapshotErrorCode = fielderrorcode
-      ,
-      partitionSnapshotSnapshotId = fieldsnapshotid
-      ,
-      partitionSnapshotCurrentLeader = fieldcurrentleader
-      ,
-      partitionSnapshotSize = fieldsize
-      ,
-      partitionSnapshotPosition = fieldposition
-      ,
-      partitionSnapshotUnalignedRecords = fieldunalignedrecords
-      }
-
-
 -- | The topics to fetch.
 data TopicSnapshot = TopicSnapshot
   {
@@ -268,31 +153,6 @@ data TopicSnapshot = TopicSnapshot
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicSnapshot with version-aware field handling.
-encodeTopicSnapshot :: MonadPut m => E.ApiVersion -> TopicSnapshot -> m ()
-encodeTopicSnapshot version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (topicSnapshotName tmsg)) else serialize (topicSnapshotName tmsg)
-    E.encodeVersionedArray version 0 encodePartitionSnapshot (case P.unKafkaArray (topicSnapshotPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicSnapshot with version-aware field handling.
-decodeTopicSnapshot :: MonadGet m => E.ApiVersion -> m TopicSnapshot
-decodeTopicSnapshot version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodePartitionSnapshot
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicSnapshot
-      {
-      topicSnapshotName = fieldname
-      ,
-      topicSnapshotPartitions = fieldpartitions
-      }
-
 
 -- | Endpoints for all current-leaders enumerated in PartitionSnapshot.
 data NodeEndpoint = NodeEndpoint
@@ -317,44 +177,6 @@ data NodeEndpoint = NodeEndpoint
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode NodeEndpoint with version-aware field handling.
-encodeNodeEndpoint :: MonadPut m => E.ApiVersion -> NodeEndpoint -> m ()
-encodeNodeEndpoint version nmsg =
-  do
-    when (version >= 1) $
-      serialize (nodeEndpointNodeId nmsg)
-    when (version >= 1) $
-      if version >= 0 then serialize (toCompactString (nodeEndpointHost nmsg)) else serialize (nodeEndpointHost nmsg)
-    when (version >= 1) $
-      serialize (nodeEndpointPort nmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode NodeEndpoint with version-aware field handling.
-decodeNodeEndpoint :: MonadGet m => E.ApiVersion -> m NodeEndpoint
-decodeNodeEndpoint version =
-  do
-    fieldnodeid <- if version >= 1
-      then deserialize
-      else pure (0)
-    fieldhost <- if version >= 1
-      then if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldport <- if version >= 1
-      then deserialize
-      else pure (0)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure NodeEndpoint
-      {
-      nodeEndpointNodeId = fieldnodeid
-      ,
-      nodeEndpointHost = fieldhost
-      ,
-      nodeEndpointPort = fieldport
-      }
-
 
 
 data FetchSnapshotResponse = FetchSnapshotResponse
@@ -396,82 +218,6 @@ instance KafkaMessage FetchSnapshotResponse where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 0
-
--- | Encode FetchSnapshotResponse with the given API version.
-encodeFetchSnapshotResponse :: MonadPut m => E.ApiVersion -> FetchSnapshotResponse -> m ()
-encodeFetchSnapshotResponse version msg
-  | version == 0 =
-    do
-      serialize (fetchSnapshotResponseThrottleTimeMs msg)
-      serialize (fetchSnapshotResponseErrorCode msg)
-      E.encodeVersionedArray version 0 encodeTopicSnapshot (case P.unKafkaArray (fetchSnapshotResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      do
-        let _entries = (if version >= 1 then [(0, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeNodeEndpoint (case P.unKafkaArray (fetchSnapshotResponseNodeEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else [])
-        P.serializeTaggedFieldEntries _entries
-
-  | version == 1 =
-    do
-      serialize (fetchSnapshotResponseThrottleTimeMs msg)
-      serialize (fetchSnapshotResponseErrorCode msg)
-      E.encodeVersionedArray version 0 encodeTopicSnapshot (case P.unKafkaArray (fetchSnapshotResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      do
-        let _entries = (if version >= 1 then [(0, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeNodeEndpoint (case P.unKafkaArray (fetchSnapshotResponseNodeEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else [])
-        P.serializeTaggedFieldEntries _entries
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode FetchSnapshotResponse with the given API version.
-decodeFetchSnapshotResponse :: MonadGet m => E.ApiVersion -> m FetchSnapshotResponse
-decodeFetchSnapshotResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicSnapshot
-      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
-      let fieldnodeendpoints =
-            if version >= 1
-              then case P.lookupTaggedField 0 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeNodeEndpoint) _bs of
-                    Right _v -> _v
-                    Left  _  -> (P.mkKafkaArray V.empty)
-                Nothing  -> (P.mkKafkaArray V.empty)
-              else (P.mkKafkaArray V.empty)
-      pure FetchSnapshotResponse
-        {
-        fetchSnapshotResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        fetchSnapshotResponseErrorCode = fielderrorcode
-        ,
-        fetchSnapshotResponseTopics = fieldtopics
-        ,
-        fetchSnapshotResponseNodeEndpoints = fieldnodeendpoints
-        }
-
-  | version == 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicSnapshot
-      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
-      let fieldnodeendpoints =
-            if version >= 1
-              then case P.lookupTaggedField 0 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeNodeEndpoint) _bs of
-                    Right _v -> _v
-                    Left  _  -> (P.mkKafkaArray V.empty)
-                Nothing  -> (P.mkKafkaArray V.empty)
-              else (P.mkKafkaArray V.empty)
-      pure FetchSnapshotResponse
-        {
-        fetchSnapshotResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        fetchSnapshotResponseErrorCode = fielderrorcode
-        ,
-        fetchSnapshotResponseTopics = fieldtopics
-        ,
-        fetchSnapshotResponseNodeEndpoints = fieldnodeendpoints
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a SnapshotId.
 wireMaxSizeSnapshotId :: Int -> SnapshotId -> Int

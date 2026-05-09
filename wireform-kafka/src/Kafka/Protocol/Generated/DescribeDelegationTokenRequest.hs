@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.DescribeDelegationTokenRequest
   (
     DescribeDelegationTokenRequest(..),
     DescribeDelegationTokenOwner(..),
-    encodeDescribeDelegationTokenRequest,
-    decodeDescribeDelegationTokenRequest,
     maxDescribeDelegationTokenRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -79,31 +67,6 @@ data DescribeDelegationTokenOwner = DescribeDelegationTokenOwner
   deriving (Eq, Show, Generic)
 
 
--- | Encode DescribeDelegationTokenOwner with version-aware field handling.
-encodeDescribeDelegationTokenOwner :: MonadPut m => E.ApiVersion -> DescribeDelegationTokenOwner -> m ()
-encodeDescribeDelegationTokenOwner version dmsg =
-  do
-    if version >= 2 then serialize (toCompactString (describeDelegationTokenOwnerPrincipalType dmsg)) else serialize (describeDelegationTokenOwnerPrincipalType dmsg)
-    if version >= 2 then serialize (toCompactString (describeDelegationTokenOwnerPrincipalName dmsg)) else serialize (describeDelegationTokenOwnerPrincipalName dmsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribeDelegationTokenOwner with version-aware field handling.
-decodeDescribeDelegationTokenOwner :: MonadGet m => E.ApiVersion -> m DescribeDelegationTokenOwner
-decodeDescribeDelegationTokenOwner version =
-  do
-    fieldprincipaltype <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldprincipalname <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribeDelegationTokenOwner
-      {
-      describeDelegationTokenOwnerPrincipalType = fieldprincipaltype
-      ,
-      describeDelegationTokenOwnerPrincipalName = fieldprincipalname
-      }
-
-
-
 data DescribeDelegationTokenRequest = DescribeDelegationTokenRequest
   {
 
@@ -125,41 +88,6 @@ instance KafkaMessage DescribeDelegationTokenRequest where
   messageMinVersion = 1
   messageMaxVersion = 3
   messageFlexibleVersion = Just 2
-
--- | Encode DescribeDelegationTokenRequest with the given API version.
-encodeDescribeDelegationTokenRequest :: MonadPut m => E.ApiVersion -> DescribeDelegationTokenRequest -> m ()
-encodeDescribeDelegationTokenRequest version msg
-  | version == 1 =
-    do
-      E.encodeVersionedNullableArray version 2 encodeDescribeDelegationTokenOwner (describeDelegationTokenRequestOwners msg)
-
-
-  | version >= 2 && version <= 3 =
-    do
-      E.encodeVersionedNullableArray version 2 encodeDescribeDelegationTokenOwner (describeDelegationTokenRequestOwners msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeDelegationTokenRequest with the given API version.
-decodeDescribeDelegationTokenRequest :: MonadGet m => E.ApiVersion -> m DescribeDelegationTokenRequest
-decodeDescribeDelegationTokenRequest version
-  | version == 1 =
-    do
-      fieldowners <- E.decodeVersionedNullableArray version 2 decodeDescribeDelegationTokenOwner
-      pure DescribeDelegationTokenRequest
-        {
-        describeDelegationTokenRequestOwners = fieldowners
-        }
-
-  | version >= 2 && version <= 3 =
-    do
-      fieldowners <- E.decodeVersionedNullableArray version 2 decodeDescribeDelegationTokenOwner
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeDelegationTokenRequest
-        {
-        describeDelegationTokenRequestOwners = fieldowners
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a DescribeDelegationTokenOwner.
 wireMaxSizeDescribeDelegationTokenOwner :: Int -> DescribeDelegationTokenOwner -> Int

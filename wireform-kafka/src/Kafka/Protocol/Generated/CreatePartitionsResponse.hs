@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.CreatePartitionsResponse
   (
     CreatePartitionsResponse(..),
     CreatePartitionsTopicResult(..),
-    encodeCreatePartitionsResponse,
-    decodeCreatePartitionsResponse,
     maxCreatePartitionsResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -85,35 +73,6 @@ data CreatePartitionsTopicResult = CreatePartitionsTopicResult
   deriving (Eq, Show, Generic)
 
 
--- | Encode CreatePartitionsTopicResult with version-aware field handling.
-encodeCreatePartitionsTopicResult :: MonadPut m => E.ApiVersion -> CreatePartitionsTopicResult -> m ()
-encodeCreatePartitionsTopicResult version cmsg =
-  do
-    if version >= 2 then serialize (toCompactString (createPartitionsTopicResultName cmsg)) else serialize (createPartitionsTopicResultName cmsg)
-    serialize (createPartitionsTopicResultErrorCode cmsg)
-    if version >= 2 then serialize (toCompactString (createPartitionsTopicResultErrorMessage cmsg)) else serialize (createPartitionsTopicResultErrorMessage cmsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode CreatePartitionsTopicResult with version-aware field handling.
-decodeCreatePartitionsTopicResult :: MonadGet m => E.ApiVersion -> m CreatePartitionsTopicResult
-decodeCreatePartitionsTopicResult version =
-  do
-    fieldname <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure CreatePartitionsTopicResult
-      {
-      createPartitionsTopicResultName = fieldname
-      ,
-      createPartitionsTopicResultErrorCode = fielderrorcode
-      ,
-      createPartitionsTopicResultErrorMessage = fielderrormessage
-      }
-
-
-
 data CreatePartitionsResponse = CreatePartitionsResponse
   {
 
@@ -141,49 +100,6 @@ instance KafkaMessage CreatePartitionsResponse where
   messageMinVersion = 0
   messageMaxVersion = 3
   messageFlexibleVersion = Just 2
-
--- | Encode CreatePartitionsResponse with the given API version.
-encodeCreatePartitionsResponse :: MonadPut m => E.ApiVersion -> CreatePartitionsResponse -> m ()
-encodeCreatePartitionsResponse version msg
-  | version >= 0 && version <= 1 =
-    do
-      serialize (createPartitionsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 2 encodeCreatePartitionsTopicResult (case P.unKafkaArray (createPartitionsResponseResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version >= 2 && version <= 3 =
-    do
-      serialize (createPartitionsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 2 encodeCreatePartitionsTopicResult (case P.unKafkaArray (createPartitionsResponseResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode CreatePartitionsResponse with the given API version.
-decodeCreatePartitionsResponse :: MonadGet m => E.ApiVersion -> m CreatePartitionsResponse
-decodeCreatePartitionsResponse version
-  | version >= 0 && version <= 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeCreatePartitionsTopicResult
-      pure CreatePartitionsResponse
-        {
-        createPartitionsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        createPartitionsResponseResults = fieldresults
-        }
-
-  | version >= 2 && version <= 3 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeCreatePartitionsTopicResult
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure CreatePartitionsResponse
-        {
-        createPartitionsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        createPartitionsResponseResults = fieldresults
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a CreatePartitionsTopicResult.
 wireMaxSizeCreatePartitionsTopicResult :: Int -> CreatePartitionsTopicResult -> Int

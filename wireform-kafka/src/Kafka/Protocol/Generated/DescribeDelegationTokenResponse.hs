@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.DescribeDelegationTokenResponse
     DescribeDelegationTokenResponse(..),
     DescribedDelegationToken(..),
     DescribedDelegationTokenRenewer(..),
-    encodeDescribeDelegationTokenResponse,
-    decodeDescribeDelegationTokenResponse,
     maxDescribeDelegationTokenResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -78,31 +66,6 @@ data DescribedDelegationTokenRenewer = DescribedDelegationTokenRenewer
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode DescribedDelegationTokenRenewer with version-aware field handling.
-encodeDescribedDelegationTokenRenewer :: MonadPut m => E.ApiVersion -> DescribedDelegationTokenRenewer -> m ()
-encodeDescribedDelegationTokenRenewer version dmsg =
-  do
-    if version >= 2 then serialize (toCompactString (describedDelegationTokenRenewerPrincipalType dmsg)) else serialize (describedDelegationTokenRenewerPrincipalType dmsg)
-    if version >= 2 then serialize (toCompactString (describedDelegationTokenRenewerPrincipalName dmsg)) else serialize (describedDelegationTokenRenewerPrincipalName dmsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribedDelegationTokenRenewer with version-aware field handling.
-decodeDescribedDelegationTokenRenewer :: MonadGet m => E.ApiVersion -> m DescribedDelegationTokenRenewer
-decodeDescribedDelegationTokenRenewer version =
-  do
-    fieldprincipaltype <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldprincipalname <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribedDelegationTokenRenewer
-      {
-      describedDelegationTokenRenewerPrincipalType = fieldprincipaltype
-      ,
-      describedDelegationTokenRenewerPrincipalName = fieldprincipalname
-      }
-
 
 -- | The tokens.
 data DescribedDelegationToken = DescribedDelegationToken
@@ -171,69 +134,6 @@ data DescribedDelegationToken = DescribedDelegationToken
   deriving (Eq, Show, Generic)
 
 
--- | Encode DescribedDelegationToken with version-aware field handling.
-encodeDescribedDelegationToken :: MonadPut m => E.ApiVersion -> DescribedDelegationToken -> m ()
-encodeDescribedDelegationToken version dmsg =
-  do
-    if version >= 2 then serialize (toCompactString (describedDelegationTokenPrincipalType dmsg)) else serialize (describedDelegationTokenPrincipalType dmsg)
-    if version >= 2 then serialize (toCompactString (describedDelegationTokenPrincipalName dmsg)) else serialize (describedDelegationTokenPrincipalName dmsg)
-    when (version >= 3) $
-      if version >= 2 then serialize (toCompactString (describedDelegationTokenTokenRequesterPrincipalType dmsg)) else serialize (describedDelegationTokenTokenRequesterPrincipalType dmsg)
-    when (version >= 3) $
-      if version >= 2 then serialize (toCompactString (describedDelegationTokenTokenRequesterPrincipalName dmsg)) else serialize (describedDelegationTokenTokenRequesterPrincipalName dmsg)
-    serialize (describedDelegationTokenIssueTimestamp dmsg)
-    serialize (describedDelegationTokenExpiryTimestamp dmsg)
-    serialize (describedDelegationTokenMaxTimestamp dmsg)
-    if version >= 2 then serialize (toCompactString (describedDelegationTokenTokenId dmsg)) else serialize (describedDelegationTokenTokenId dmsg)
-    if version >= 2 then serialize (toCompactBytes (describedDelegationTokenHmac dmsg)) else serialize (describedDelegationTokenHmac dmsg)
-    E.encodeVersionedArray version 2 encodeDescribedDelegationTokenRenewer (case P.unKafkaArray (describedDelegationTokenRenewers dmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribedDelegationToken with version-aware field handling.
-decodeDescribedDelegationToken :: MonadGet m => E.ApiVersion -> m DescribedDelegationToken
-decodeDescribedDelegationToken version =
-  do
-    fieldprincipaltype <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldprincipalname <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldtokenrequesterprincipaltype <- if version >= 3
-      then if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldtokenrequesterprincipalname <- if version >= 3
-      then if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldissuetimestamp <- deserialize
-    fieldexpirytimestamp <- deserialize
-    fieldmaxtimestamp <- deserialize
-    fieldtokenid <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldhmac <- if version >= 2 then P.fromCompactBytes <$> deserialize else deserialize
-    fieldrenewers <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDescribedDelegationTokenRenewer
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribedDelegationToken
-      {
-      describedDelegationTokenPrincipalType = fieldprincipaltype
-      ,
-      describedDelegationTokenPrincipalName = fieldprincipalname
-      ,
-      describedDelegationTokenTokenRequesterPrincipalType = fieldtokenrequesterprincipaltype
-      ,
-      describedDelegationTokenTokenRequesterPrincipalName = fieldtokenrequesterprincipalname
-      ,
-      describedDelegationTokenIssueTimestamp = fieldissuetimestamp
-      ,
-      describedDelegationTokenExpiryTimestamp = fieldexpirytimestamp
-      ,
-      describedDelegationTokenMaxTimestamp = fieldmaxtimestamp
-      ,
-      describedDelegationTokenTokenId = fieldtokenid
-      ,
-      describedDelegationTokenHmac = fieldhmac
-      ,
-      describedDelegationTokenRenewers = fieldrenewers
-      }
-
-
-
 data DescribeDelegationTokenResponse = DescribeDelegationTokenResponse
   {
 
@@ -267,57 +167,6 @@ instance KafkaMessage DescribeDelegationTokenResponse where
   messageMinVersion = 1
   messageMaxVersion = 3
   messageFlexibleVersion = Just 2
-
--- | Encode DescribeDelegationTokenResponse with the given API version.
-encodeDescribeDelegationTokenResponse :: MonadPut m => E.ApiVersion -> DescribeDelegationTokenResponse -> m ()
-encodeDescribeDelegationTokenResponse version msg
-  | version == 1 =
-    do
-      serialize (describeDelegationTokenResponseErrorCode msg)
-      E.encodeVersionedArray version 2 encodeDescribedDelegationToken (case P.unKafkaArray (describeDelegationTokenResponseTokens msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (describeDelegationTokenResponseThrottleTimeMs msg)
-
-
-  | version >= 2 && version <= 3 =
-    do
-      serialize (describeDelegationTokenResponseErrorCode msg)
-      E.encodeVersionedArray version 2 encodeDescribedDelegationToken (case P.unKafkaArray (describeDelegationTokenResponseTokens msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (describeDelegationTokenResponseThrottleTimeMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeDelegationTokenResponse with the given API version.
-decodeDescribeDelegationTokenResponse :: MonadGet m => E.ApiVersion -> m DescribeDelegationTokenResponse
-decodeDescribeDelegationTokenResponse version
-  | version == 1 =
-    do
-      fielderrorcode <- deserialize
-      fieldtokens <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDescribedDelegationToken
-      fieldthrottletimems <- deserialize
-      pure DescribeDelegationTokenResponse
-        {
-        describeDelegationTokenResponseErrorCode = fielderrorcode
-        ,
-        describeDelegationTokenResponseTokens = fieldtokens
-        ,
-        describeDelegationTokenResponseThrottleTimeMs = fieldthrottletimems
-        }
-
-  | version >= 2 && version <= 3 =
-    do
-      fielderrorcode <- deserialize
-      fieldtokens <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDescribedDelegationToken
-      fieldthrottletimems <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeDelegationTokenResponse
-        {
-        describeDelegationTokenResponseErrorCode = fielderrorcode
-        ,
-        describeDelegationTokenResponseTokens = fieldtokens
-        ,
-        describeDelegationTokenResponseThrottleTimeMs = fieldthrottletimems
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a DescribedDelegationTokenRenewer.
 wireMaxSizeDescribedDelegationTokenRenewer :: Int -> DescribedDelegationTokenRenewer -> Int

@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.DescribeProducersRequest
   (
     DescribeProducersRequest(..),
     TopicRequest(..),
-    encodeDescribeProducersRequest,
-    decodeDescribeProducersRequest,
     maxDescribeProducersRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -79,31 +67,6 @@ data TopicRequest = TopicRequest
   deriving (Eq, Show, Generic)
 
 
--- | Encode TopicRequest with version-aware field handling.
-encodeTopicRequest :: MonadPut m => E.ApiVersion -> TopicRequest -> m ()
-encodeTopicRequest version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (topicRequestName tmsg)) else serialize (topicRequestName tmsg)
-    E.encodeVersionedArray version 0 (\_ x -> serialize x) (case P.unKafkaArray (topicRequestPartitionIndexes tmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicRequest with version-aware field handling.
-decodeTopicRequest :: MonadGet m => E.ApiVersion -> m TopicRequest
-decodeTopicRequest version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitionindexes <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\_ -> deserialize)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicRequest
-      {
-      topicRequestName = fieldname
-      ,
-      topicRequestPartitionIndexes = fieldpartitionindexes
-      }
-
-
-
 data DescribeProducersRequest = DescribeProducersRequest
   {
 
@@ -125,28 +88,6 @@ instance KafkaMessage DescribeProducersRequest where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Just 0
-
--- | Encode DescribeProducersRequest with the given API version.
-encodeDescribeProducersRequest :: MonadPut m => E.ApiVersion -> DescribeProducersRequest -> m ()
-encodeDescribeProducersRequest version msg
-  | version == 0 =
-    do
-      E.encodeVersionedArray version 0 encodeTopicRequest (case P.unKafkaArray (describeProducersRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeProducersRequest with the given API version.
-decodeDescribeProducersRequest :: MonadGet m => E.ApiVersion -> m DescribeProducersRequest
-decodeDescribeProducersRequest version
-  | version == 0 =
-    do
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicRequest
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeProducersRequest
-        {
-        describeProducersRequestTopics = fieldtopics
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a TopicRequest.
 wireMaxSizeTopicRequest :: Int -> TopicRequest -> Int

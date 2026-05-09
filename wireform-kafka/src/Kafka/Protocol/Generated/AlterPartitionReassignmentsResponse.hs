@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.AlterPartitionReassignmentsResponse
     AlterPartitionReassignmentsResponse(..),
     ReassignableTopicResponse(..),
     ReassignablePartitionResponse(..),
-    encodeAlterPartitionReassignmentsResponse,
-    decodeAlterPartitionReassignmentsResponse,
     maxAlterPartitionReassignmentsResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -85,35 +73,6 @@ data ReassignablePartitionResponse = ReassignablePartitionResponse
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode ReassignablePartitionResponse with version-aware field handling.
-encodeReassignablePartitionResponse :: MonadPut m => E.ApiVersion -> ReassignablePartitionResponse -> m ()
-encodeReassignablePartitionResponse version rmsg =
-  do
-    serialize (reassignablePartitionResponsePartitionIndex rmsg)
-    serialize (reassignablePartitionResponseErrorCode rmsg)
-    if version >= 0 then serialize (toCompactString (reassignablePartitionResponseErrorMessage rmsg)) else serialize (reassignablePartitionResponseErrorMessage rmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ReassignablePartitionResponse with version-aware field handling.
-decodeReassignablePartitionResponse :: MonadGet m => E.ApiVersion -> m ReassignablePartitionResponse
-decodeReassignablePartitionResponse version =
-  do
-    fieldpartitionindex <- deserialize
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ReassignablePartitionResponse
-      {
-      reassignablePartitionResponsePartitionIndex = fieldpartitionindex
-      ,
-      reassignablePartitionResponseErrorCode = fielderrorcode
-      ,
-      reassignablePartitionResponseErrorMessage = fielderrormessage
-      }
-
-
 -- | The responses to topics to reassign.
 data ReassignableTopicResponse = ReassignableTopicResponse
   {
@@ -131,31 +90,6 @@ data ReassignableTopicResponse = ReassignableTopicResponse
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode ReassignableTopicResponse with version-aware field handling.
-encodeReassignableTopicResponse :: MonadPut m => E.ApiVersion -> ReassignableTopicResponse -> m ()
-encodeReassignableTopicResponse version rmsg =
-  do
-    if version >= 0 then serialize (toCompactString (reassignableTopicResponseName rmsg)) else serialize (reassignableTopicResponseName rmsg)
-    E.encodeVersionedArray version 0 encodeReassignablePartitionResponse (case P.unKafkaArray (reassignableTopicResponsePartitions rmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ReassignableTopicResponse with version-aware field handling.
-decodeReassignableTopicResponse :: MonadGet m => E.ApiVersion -> m ReassignableTopicResponse
-decodeReassignableTopicResponse version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeReassignablePartitionResponse
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ReassignableTopicResponse
-      {
-      reassignableTopicResponseName = fieldname
-      ,
-      reassignableTopicResponsePartitions = fieldpartitions
-      }
-
 
 
 data AlterPartitionReassignmentsResponse = AlterPartitionReassignmentsResponse
@@ -203,72 +137,6 @@ instance KafkaMessage AlterPartitionReassignmentsResponse where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 0
-
--- | Encode AlterPartitionReassignmentsResponse with the given API version.
-encodeAlterPartitionReassignmentsResponse :: MonadPut m => E.ApiVersion -> AlterPartitionReassignmentsResponse -> m ()
-encodeAlterPartitionReassignmentsResponse version msg
-  | version == 0 =
-    do
-      serialize (alterPartitionReassignmentsResponseThrottleTimeMs msg)
-      serialize (alterPartitionReassignmentsResponseErrorCode msg)
-      serialize (toCompactString (alterPartitionReassignmentsResponseErrorMessage msg))
-      E.encodeVersionedArray version 0 encodeReassignableTopicResponse (case P.unKafkaArray (alterPartitionReassignmentsResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 1 =
-    do
-      serialize (alterPartitionReassignmentsResponseThrottleTimeMs msg)
-      serialize (alterPartitionReassignmentsResponseAllowReplicationFactorChange msg)
-      serialize (alterPartitionReassignmentsResponseErrorCode msg)
-      serialize (toCompactString (alterPartitionReassignmentsResponseErrorMessage msg))
-      E.encodeVersionedArray version 0 encodeReassignableTopicResponse (case P.unKafkaArray (alterPartitionReassignmentsResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode AlterPartitionReassignmentsResponse with the given API version.
-decodeAlterPartitionReassignmentsResponse :: MonadGet m => E.ApiVersion -> m AlterPartitionReassignmentsResponse
-decodeAlterPartitionReassignmentsResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeReassignableTopicResponse
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure AlterPartitionReassignmentsResponse
-        {
-        alterPartitionReassignmentsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        alterPartitionReassignmentsResponseAllowReplicationFactorChange = True
-        ,
-        alterPartitionReassignmentsResponseErrorCode = fielderrorcode
-        ,
-        alterPartitionReassignmentsResponseErrorMessage = fielderrormessage
-        ,
-        alterPartitionReassignmentsResponseResponses = fieldresponses
-        }
-
-  | version == 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldallowreplicationfactorchange <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeReassignableTopicResponse
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure AlterPartitionReassignmentsResponse
-        {
-        alterPartitionReassignmentsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        alterPartitionReassignmentsResponseAllowReplicationFactorChange = fieldallowreplicationfactorchange
-        ,
-        alterPartitionReassignmentsResponseErrorCode = fielderrorcode
-        ,
-        alterPartitionReassignmentsResponseErrorMessage = fielderrormessage
-        ,
-        alterPartitionReassignmentsResponseResponses = fieldresponses
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a ReassignablePartitionResponse.
 wireMaxSizeReassignablePartitionResponse :: Int -> ReassignablePartitionResponse -> Int

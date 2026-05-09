@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.AddOffsetsToTxnResponse
   (
     AddOffsetsToTxnResponse(..),
-    encodeAddOffsetsToTxnResponse,
-    decodeAddOffsetsToTxnResponse,
     maxAddOffsetsToTxnResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -88,49 +76,6 @@ instance KafkaMessage AddOffsetsToTxnResponse where
   messageMinVersion = 0
   messageMaxVersion = 4
   messageFlexibleVersion = Just 3
-
--- | Encode AddOffsetsToTxnResponse with the given API version.
-encodeAddOffsetsToTxnResponse :: MonadPut m => E.ApiVersion -> AddOffsetsToTxnResponse -> m ()
-encodeAddOffsetsToTxnResponse version msg
-  | version >= 3 && version <= 4 =
-    do
-      serialize (addOffsetsToTxnResponseThrottleTimeMs msg)
-      serialize (addOffsetsToTxnResponseErrorCode msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 2 =
-    do
-      serialize (addOffsetsToTxnResponseThrottleTimeMs msg)
-      serialize (addOffsetsToTxnResponseErrorCode msg)
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode AddOffsetsToTxnResponse with the given API version.
-decodeAddOffsetsToTxnResponse :: MonadGet m => E.ApiVersion -> m AddOffsetsToTxnResponse
-decodeAddOffsetsToTxnResponse version
-  | version >= 3 && version <= 4 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure AddOffsetsToTxnResponse
-        {
-        addOffsetsToTxnResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        addOffsetsToTxnResponseErrorCode = fielderrorcode
-        }
-
-  | version >= 0 && version <= 2 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      pure AddOffsetsToTxnResponse
-        {
-        addOffsetsToTxnResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        addOffsetsToTxnResponseErrorCode = fielderrorcode
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a AddOffsetsToTxnResponse.

@@ -15,7 +15,7 @@ The package is layered:
 * "Kafka.Protocol.RecordBatch" — RecordBatch v2 framing (CRC, header, key /
   value framing, transaction markers).
 * "Kafka.Protocol.CRC32C" — Castagnoli CRC32C with hardware acceleration.
-* "Kafka.Protocol.Encoding" — typeclasses and helpers shared by both
+* "Kafka.Protocol.Wire" / "Kafka.Protocol.Wire.Codec" — direct-poke wire codec used by both
   hand-written and code-generated message modules.
 * "Kafka.Protocol.ApiVersions" — version negotiation against the broker's
   @ApiVersionsResponse@.

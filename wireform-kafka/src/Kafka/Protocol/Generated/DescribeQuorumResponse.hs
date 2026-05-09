@@ -26,17 +26,9 @@ module Kafka.Protocol.Generated.DescribeQuorumResponse
     ReplicaState(..),
     Node(..),
     Listener(..),
-    encodeDescribeQuorumResponse,
-    decodeDescribeQuorumResponse,
     maxDescribeQuorumResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -44,13 +36,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -98,52 +86,6 @@ data ReplicaState = ReplicaState
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode ReplicaState with version-aware field handling.
-encodeReplicaState :: MonadPut m => E.ApiVersion -> ReplicaState -> m ()
-encodeReplicaState version rmsg =
-  do
-    serialize (replicaStateReplicaId rmsg)
-    when (version >= 2) $
-      serialize (replicaStateReplicaDirectoryId rmsg)
-    serialize (replicaStateLogEndOffset rmsg)
-    when (version >= 1) $
-      serialize (replicaStateLastFetchTimestamp rmsg)
-    when (version >= 1) $
-      serialize (replicaStateLastCaughtUpTimestamp rmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ReplicaState with version-aware field handling.
-decodeReplicaState :: MonadGet m => E.ApiVersion -> m ReplicaState
-decodeReplicaState version =
-  do
-    fieldreplicaid <- deserialize
-    fieldreplicadirectoryid <- if version >= 2
-      then deserialize
-      else pure (P.nullUuid)
-    fieldlogendoffset <- deserialize
-    fieldlastfetchtimestamp <- if version >= 1
-      then deserialize
-      else pure ((-1))
-    fieldlastcaughtuptimestamp <- if version >= 1
-      then deserialize
-      else pure ((-1))
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ReplicaState
-      {
-      replicaStateReplicaId = fieldreplicaid
-      ,
-      replicaStateReplicaDirectoryId = fieldreplicadirectoryid
-      ,
-      replicaStateLogEndOffset = fieldlogendoffset
-      ,
-      replicaStateLastFetchTimestamp = fieldlastfetchtimestamp
-      ,
-      replicaStateLastCaughtUpTimestamp = fieldlastcaughtuptimestamp
-      }
-
 
 -- | The partition data.
 data PartitionData = PartitionData
@@ -199,58 +141,6 @@ data PartitionData = PartitionData
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode PartitionData with version-aware field handling.
-encodePartitionData :: MonadPut m => E.ApiVersion -> PartitionData -> m ()
-encodePartitionData version pmsg =
-  do
-    serialize (partitionDataPartitionIndex pmsg)
-    serialize (partitionDataErrorCode pmsg)
-    when (version >= 2) $
-      if version >= 0 then serialize (toCompactString (partitionDataErrorMessage pmsg)) else serialize (partitionDataErrorMessage pmsg)
-    serialize (partitionDataLeaderId pmsg)
-    serialize (partitionDataLeaderEpoch pmsg)
-    serialize (partitionDataHighWatermark pmsg)
-    E.encodeVersionedArray version 0 encodeReplicaState (case P.unKafkaArray (partitionDataCurrentVoters pmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    E.encodeVersionedArray version 0 encodeReplicaState (case P.unKafkaArray (partitionDataObservers pmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode PartitionData with version-aware field handling.
-decodePartitionData :: MonadGet m => E.ApiVersion -> m PartitionData
-decodePartitionData version =
-  do
-    fieldpartitionindex <- deserialize
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 2
-      then if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldleaderid <- deserialize
-    fieldleaderepoch <- deserialize
-    fieldhighwatermark <- deserialize
-    fieldcurrentvoters <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeReplicaState
-    fieldobservers <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeReplicaState
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure PartitionData
-      {
-      partitionDataPartitionIndex = fieldpartitionindex
-      ,
-      partitionDataErrorCode = fielderrorcode
-      ,
-      partitionDataErrorMessage = fielderrormessage
-      ,
-      partitionDataLeaderId = fieldleaderid
-      ,
-      partitionDataLeaderEpoch = fieldleaderepoch
-      ,
-      partitionDataHighWatermark = fieldhighwatermark
-      ,
-      partitionDataCurrentVoters = fieldcurrentvoters
-      ,
-      partitionDataObservers = fieldobservers
-      }
-
-
 -- | The response from the describe quorum API.
 data TopicData = TopicData
   {
@@ -268,31 +158,6 @@ data TopicData = TopicData
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicData with version-aware field handling.
-encodeTopicData :: MonadPut m => E.ApiVersion -> TopicData -> m ()
-encodeTopicData version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (topicDataTopicName tmsg)) else serialize (topicDataTopicName tmsg)
-    E.encodeVersionedArray version 0 encodePartitionData (case P.unKafkaArray (topicDataPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicData with version-aware field handling.
-decodeTopicData :: MonadGet m => E.ApiVersion -> m TopicData
-decodeTopicData version =
-  do
-    fieldtopicname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodePartitionData
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicData
-      {
-      topicDataTopicName = fieldtopicname
-      ,
-      topicDataPartitions = fieldpartitions
-      }
-
 
 -- | The listeners of this controller.
 data Listener = Listener
@@ -318,44 +183,6 @@ data Listener = Listener
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode Listener with version-aware field handling.
-encodeListener :: MonadPut m => E.ApiVersion -> Listener -> m ()
-encodeListener version lmsg =
-  do
-    when (version >= 2) $
-      if version >= 0 then serialize (toCompactString (listenerName lmsg)) else serialize (listenerName lmsg)
-    when (version >= 2) $
-      if version >= 0 then serialize (toCompactString (listenerHost lmsg)) else serialize (listenerHost lmsg)
-    when (version >= 2) $
-      serialize (listenerPort lmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Listener with version-aware field handling.
-decodeListener :: MonadGet m => E.ApiVersion -> m Listener
-decodeListener version =
-  do
-    fieldname <- if version >= 2
-      then if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldhost <- if version >= 2
-      then if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldport <- if version >= 2
-      then deserialize
-      else pure (0)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Listener
-      {
-      listenerName = fieldname
-      ,
-      listenerHost = fieldhost
-      ,
-      listenerPort = fieldport
-      }
-
-
 -- | The nodes in the quorum.
 data Node = Node
   {
@@ -373,37 +200,6 @@ data Node = Node
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode Node with version-aware field handling.
-encodeNode :: MonadPut m => E.ApiVersion -> Node -> m ()
-encodeNode version nmsg =
-  do
-    when (version >= 2) $
-      serialize (nodeNodeId nmsg)
-    when (version >= 2) $
-      E.encodeVersionedArray version 0 encodeListener (case P.unKafkaArray (nodeListeners nmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Node with version-aware field handling.
-decodeNode :: MonadGet m => E.ApiVersion -> m Node
-decodeNode version =
-  do
-    fieldnodeid <- if version >= 2
-      then deserialize
-      else pure (0)
-    fieldlisteners <- if version >= 2
-      then P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeListener
-      else pure (P.mkKafkaArray V.empty)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Node
-      {
-      nodeNodeId = fieldnodeid
-      ,
-      nodeListeners = fieldlisteners
-      }
-
 
 
 data DescribeQuorumResponse = DescribeQuorumResponse
@@ -445,62 +241,6 @@ instance KafkaMessage DescribeQuorumResponse where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 0
-
--- | Encode DescribeQuorumResponse with the given API version.
-encodeDescribeQuorumResponse :: MonadPut m => E.ApiVersion -> DescribeQuorumResponse -> m ()
-encodeDescribeQuorumResponse version msg
-  | version == 2 =
-    do
-      serialize (describeQuorumResponseErrorCode msg)
-      serialize (toCompactString (describeQuorumResponseErrorMessage msg))
-      E.encodeVersionedArray version 0 encodeTopicData (case P.unKafkaArray (describeQuorumResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 0 encodeNode (case P.unKafkaArray (describeQuorumResponseNodes msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 1 =
-    do
-      serialize (describeQuorumResponseErrorCode msg)
-      E.encodeVersionedArray version 0 encodeTopicData (case P.unKafkaArray (describeQuorumResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeQuorumResponse with the given API version.
-decodeDescribeQuorumResponse :: MonadGet m => E.ApiVersion -> m DescribeQuorumResponse
-decodeDescribeQuorumResponse version
-  | version == 2 =
-    do
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicData
-      fieldnodes <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeNode
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeQuorumResponse
-        {
-        describeQuorumResponseErrorCode = fielderrorcode
-        ,
-        describeQuorumResponseErrorMessage = fielderrormessage
-        ,
-        describeQuorumResponseTopics = fieldtopics
-        ,
-        describeQuorumResponseNodes = fieldnodes
-        }
-
-  | version >= 0 && version <= 1 =
-    do
-      fielderrorcode <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicData
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeQuorumResponse
-        {
-        describeQuorumResponseErrorCode = fielderrorcode
-        ,
-        describeQuorumResponseErrorMessage = P.KafkaString Null
-        ,
-        describeQuorumResponseTopics = fieldtopics
-        ,
-        describeQuorumResponseNodes = P.mkKafkaArray V.empty
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a ReplicaState.
 wireMaxSizeReplicaState :: Int -> ReplicaState -> Int

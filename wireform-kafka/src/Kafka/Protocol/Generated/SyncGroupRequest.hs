@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.SyncGroupRequest
   (
     SyncGroupRequest(..),
     SyncGroupRequestAssignment(..),
-    encodeSyncGroupRequest,
-    decodeSyncGroupRequest,
     maxSyncGroupRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -77,31 +65,6 @@ data SyncGroupRequestAssignment = SyncGroupRequestAssignment
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode SyncGroupRequestAssignment with version-aware field handling.
-encodeSyncGroupRequestAssignment :: MonadPut m => E.ApiVersion -> SyncGroupRequestAssignment -> m ()
-encodeSyncGroupRequestAssignment version smsg =
-  do
-    if version >= 4 then serialize (toCompactString (syncGroupRequestAssignmentMemberId smsg)) else serialize (syncGroupRequestAssignmentMemberId smsg)
-    if version >= 4 then serialize (toCompactBytes (syncGroupRequestAssignmentAssignment smsg)) else serialize (syncGroupRequestAssignmentAssignment smsg)
-    when (version >= 4) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode SyncGroupRequestAssignment with version-aware field handling.
-decodeSyncGroupRequestAssignment :: MonadGet m => E.ApiVersion -> m SyncGroupRequestAssignment
-decodeSyncGroupRequestAssignment version =
-  do
-    fieldmemberid <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-    fieldassignment <- if version >= 4 then P.fromCompactBytes <$> deserialize else deserialize
-    _ <- if version >= 4 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure SyncGroupRequestAssignment
-      {
-      syncGroupRequestAssignmentMemberId = fieldmemberid
-      ,
-      syncGroupRequestAssignmentAssignment = fieldassignment
-      }
-
 
 
 data SyncGroupRequest = SyncGroupRequest
@@ -161,150 +124,6 @@ instance KafkaMessage SyncGroupRequest where
   messageMinVersion = 0
   messageMaxVersion = 5
   messageFlexibleVersion = Just 4
-
--- | Encode SyncGroupRequest with the given API version.
-encodeSyncGroupRequest :: MonadPut m => E.ApiVersion -> SyncGroupRequest -> m ()
-encodeSyncGroupRequest version msg
-  | version == 3 =
-    do
-      serialize (syncGroupRequestGroupId msg)
-      serialize (syncGroupRequestGenerationId msg)
-      serialize (syncGroupRequestMemberId msg)
-      serialize (syncGroupRequestGroupInstanceId msg)
-      E.encodeVersionedArray version 4 encodeSyncGroupRequestAssignment (case P.unKafkaArray (syncGroupRequestAssignments msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version == 4 =
-    do
-      serialize (toCompactString (syncGroupRequestGroupId msg))
-      serialize (syncGroupRequestGenerationId msg)
-      serialize (toCompactString (syncGroupRequestMemberId msg))
-      serialize (toCompactString (syncGroupRequestGroupInstanceId msg))
-      E.encodeVersionedArray version 4 encodeSyncGroupRequestAssignment (case P.unKafkaArray (syncGroupRequestAssignments msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 5 =
-    do
-      serialize (toCompactString (syncGroupRequestGroupId msg))
-      serialize (syncGroupRequestGenerationId msg)
-      serialize (toCompactString (syncGroupRequestMemberId msg))
-      serialize (toCompactString (syncGroupRequestGroupInstanceId msg))
-      serialize (toCompactString (syncGroupRequestProtocolType msg))
-      serialize (toCompactString (syncGroupRequestProtocolName msg))
-      E.encodeVersionedArray version 4 encodeSyncGroupRequestAssignment (case P.unKafkaArray (syncGroupRequestAssignments msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 2 =
-    do
-      serialize (syncGroupRequestGroupId msg)
-      serialize (syncGroupRequestGenerationId msg)
-      serialize (syncGroupRequestMemberId msg)
-      E.encodeVersionedArray version 4 encodeSyncGroupRequestAssignment (case P.unKafkaArray (syncGroupRequestAssignments msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode SyncGroupRequest with the given API version.
-decodeSyncGroupRequest :: MonadGet m => E.ApiVersion -> m SyncGroupRequest
-decodeSyncGroupRequest version
-  | version == 3 =
-    do
-      fieldgroupid <- deserialize
-      fieldgenerationid <- deserialize
-      fieldmemberid <- deserialize
-      fieldgroupinstanceid <- deserialize
-      fieldassignments <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 decodeSyncGroupRequestAssignment
-      pure SyncGroupRequest
-        {
-        syncGroupRequestGroupId = fieldgroupid
-        ,
-        syncGroupRequestGenerationId = fieldgenerationid
-        ,
-        syncGroupRequestMemberId = fieldmemberid
-        ,
-        syncGroupRequestGroupInstanceId = fieldgroupinstanceid
-        ,
-        syncGroupRequestProtocolType = P.KafkaString Null
-        ,
-        syncGroupRequestProtocolName = P.KafkaString Null
-        ,
-        syncGroupRequestAssignments = fieldassignments
-        }
-
-  | version == 4 =
-    do
-      fieldgroupid <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-      fieldgenerationid <- deserialize
-      fieldmemberid <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-      fieldgroupinstanceid <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-      fieldassignments <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 decodeSyncGroupRequestAssignment
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure SyncGroupRequest
-        {
-        syncGroupRequestGroupId = fieldgroupid
-        ,
-        syncGroupRequestGenerationId = fieldgenerationid
-        ,
-        syncGroupRequestMemberId = fieldmemberid
-        ,
-        syncGroupRequestGroupInstanceId = fieldgroupinstanceid
-        ,
-        syncGroupRequestProtocolType = P.KafkaString Null
-        ,
-        syncGroupRequestProtocolName = P.KafkaString Null
-        ,
-        syncGroupRequestAssignments = fieldassignments
-        }
-
-  | version == 5 =
-    do
-      fieldgroupid <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-      fieldgenerationid <- deserialize
-      fieldmemberid <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-      fieldgroupinstanceid <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-      fieldprotocoltype <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-      fieldprotocolname <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-      fieldassignments <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 decodeSyncGroupRequestAssignment
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure SyncGroupRequest
-        {
-        syncGroupRequestGroupId = fieldgroupid
-        ,
-        syncGroupRequestGenerationId = fieldgenerationid
-        ,
-        syncGroupRequestMemberId = fieldmemberid
-        ,
-        syncGroupRequestGroupInstanceId = fieldgroupinstanceid
-        ,
-        syncGroupRequestProtocolType = fieldprotocoltype
-        ,
-        syncGroupRequestProtocolName = fieldprotocolname
-        ,
-        syncGroupRequestAssignments = fieldassignments
-        }
-
-  | version >= 0 && version <= 2 =
-    do
-      fieldgroupid <- deserialize
-      fieldgenerationid <- deserialize
-      fieldmemberid <- deserialize
-      fieldassignments <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 decodeSyncGroupRequestAssignment
-      pure SyncGroupRequest
-        {
-        syncGroupRequestGroupId = fieldgroupid
-        ,
-        syncGroupRequestGenerationId = fieldgenerationid
-        ,
-        syncGroupRequestMemberId = fieldmemberid
-        ,
-        syncGroupRequestGroupInstanceId = P.KafkaString Null
-        ,
-        syncGroupRequestProtocolType = P.KafkaString Null
-        ,
-        syncGroupRequestProtocolName = P.KafkaString Null
-        ,
-        syncGroupRequestAssignments = fieldassignments
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a SyncGroupRequestAssignment.
 wireMaxSizeSyncGroupRequestAssignment :: Int -> SyncGroupRequestAssignment -> Int

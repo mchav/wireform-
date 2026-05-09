@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.ConsumerGroupHeartbeatResponse
     ConsumerGroupHeartbeatResponse(..),
     Assignment(..),
     TopicPartitions(..),
-    encodeConsumerGroupHeartbeatResponse,
-    decodeConsumerGroupHeartbeatResponse,
     maxConsumerGroupHeartbeatResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -78,31 +66,6 @@ data TopicPartitions = TopicPartitions
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode TopicPartitions with version-aware field handling.
-encodeTopicPartitions :: MonadPut m => E.ApiVersion -> TopicPartitions -> m ()
-encodeTopicPartitions version tmsg =
-  do
-    serialize (topicPartitionsTopicId tmsg)
-    E.encodeVersionedArray version 0 (\_ x -> serialize x) (case P.unKafkaArray (topicPartitionsPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicPartitions with version-aware field handling.
-decodeTopicPartitions :: MonadGet m => E.ApiVersion -> m TopicPartitions
-decodeTopicPartitions version =
-  do
-    fieldtopicid <- deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\_ -> deserialize)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicPartitions
-      {
-      topicPartitionsTopicId = fieldtopicid
-      ,
-      topicPartitionsPartitions = fieldpartitions
-      }
-
-
 -- | null if not provided; the assignment otherwise.
 data Assignment = Assignment
   {
@@ -114,27 +77,6 @@ data Assignment = Assignment
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode Assignment with version-aware field handling.
-encodeAssignment :: MonadPut m => E.ApiVersion -> Assignment -> m ()
-encodeAssignment version amsg =
-  do
-    E.encodeVersionedArray version 0 encodeTopicPartitions (case P.unKafkaArray (assignmentTopicPartitions amsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Assignment with version-aware field handling.
-decodeAssignment :: MonadGet m => E.ApiVersion -> m Assignment
-decodeAssignment version =
-  do
-    fieldtopicpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicPartitions
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Assignment
-      {
-      assignmentTopicPartitions = fieldtopicpartitions
-      }
-
 
 
 data ConsumerGroupHeartbeatResponse = ConsumerGroupHeartbeatResponse
@@ -194,52 +136,6 @@ instance KafkaMessage ConsumerGroupHeartbeatResponse where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 0
-
--- | Encode ConsumerGroupHeartbeatResponse with the given API version.
-encodeConsumerGroupHeartbeatResponse :: MonadPut m => E.ApiVersion -> ConsumerGroupHeartbeatResponse -> m ()
-encodeConsumerGroupHeartbeatResponse version msg
-  | version >= 0 && version <= 1 =
-    do
-      serialize (consumerGroupHeartbeatResponseThrottleTimeMs msg)
-      serialize (consumerGroupHeartbeatResponseErrorCode msg)
-      serialize (toCompactString (consumerGroupHeartbeatResponseErrorMessage msg))
-      serialize (toCompactString (consumerGroupHeartbeatResponseMemberId msg))
-      serialize (consumerGroupHeartbeatResponseMemberEpoch msg)
-      serialize (consumerGroupHeartbeatResponseHeartbeatIntervalMs msg)
-      case (consumerGroupHeartbeatResponseAssignment msg) of { P.Null -> serialize (0 :: Int8); P.NotNull val -> do { serialize (1 :: Int8); encodeAssignment version val } }
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ConsumerGroupHeartbeatResponse with the given API version.
-decodeConsumerGroupHeartbeatResponse :: MonadGet m => E.ApiVersion -> m ConsumerGroupHeartbeatResponse
-decodeConsumerGroupHeartbeatResponse version
-  | version >= 0 && version <= 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberepoch <- deserialize
-      fieldheartbeatintervalms <- deserialize
-      fieldassignment <- do { flag <- deserialize :: (MonadGet m) => m Int8; case flag of { 0 -> pure P.Null; 1 -> P.NotNull <$> decodeAssignment version; _ -> fail "Invalid nullable flag" } }
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ConsumerGroupHeartbeatResponse
-        {
-        consumerGroupHeartbeatResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        consumerGroupHeartbeatResponseErrorCode = fielderrorcode
-        ,
-        consumerGroupHeartbeatResponseErrorMessage = fielderrormessage
-        ,
-        consumerGroupHeartbeatResponseMemberId = fieldmemberid
-        ,
-        consumerGroupHeartbeatResponseMemberEpoch = fieldmemberepoch
-        ,
-        consumerGroupHeartbeatResponseHeartbeatIntervalMs = fieldheartbeatintervalms
-        ,
-        consumerGroupHeartbeatResponseAssignment = fieldassignment
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a TopicPartitions.
 wireMaxSizeTopicPartitions :: Int -> TopicPartitions -> Int

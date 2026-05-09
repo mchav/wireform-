@@ -25,17 +25,9 @@ module Kafka.Protocol.Generated.ConsumerGroupDescribeResponse
     Member(..),
     Assignment(..),
     TopicPartitions(..),
-    encodeConsumerGroupDescribeResponse,
-    decodeConsumerGroupDescribeResponse,
     maxConsumerGroupDescribeResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -43,13 +35,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -87,35 +75,6 @@ data TopicPartitions = TopicPartitions
   deriving (Eq, Show, Generic)
 
 
--- | Encode TopicPartitions with version-aware field handling.
-encodeTopicPartitions :: MonadPut m => E.ApiVersion -> TopicPartitions -> m ()
-encodeTopicPartitions version tmsg =
-  do
-    serialize (topicPartitionsTopicId tmsg)
-    if version >= 0 then serialize (toCompactString (topicPartitionsTopicName tmsg)) else serialize (topicPartitionsTopicName tmsg)
-    E.encodeVersionedArray version 0 (\_ x -> serialize x) (case P.unKafkaArray (topicPartitionsPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicPartitions with version-aware field handling.
-decodeTopicPartitions :: MonadGet m => E.ApiVersion -> m TopicPartitions
-decodeTopicPartitions version =
-  do
-    fieldtopicid <- deserialize
-    fieldtopicname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\_ -> deserialize)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicPartitions
-      {
-      topicPartitionsTopicId = fieldtopicid
-      ,
-      topicPartitionsTopicName = fieldtopicname
-      ,
-      topicPartitionsPartitions = fieldpartitions
-      }
-
-
-
 data Assignment = Assignment
   {
 
@@ -126,27 +85,6 @@ data Assignment = Assignment
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode Assignment with version-aware field handling.
-encodeAssignment :: MonadPut m => E.ApiVersion -> Assignment -> m ()
-encodeAssignment version amsg =
-  do
-    E.encodeVersionedArray version 0 encodeTopicPartitions (case P.unKafkaArray (assignmentTopicPartitions amsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Assignment with version-aware field handling.
-decodeAssignment :: MonadGet m => E.ApiVersion -> m Assignment
-decodeAssignment version =
-  do
-    fieldtopicpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicPartitions
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Assignment
-      {
-      assignmentTopicPartitions = fieldtopicpartitions
-      }
-
 
 -- | The members.
 data Member = Member
@@ -220,70 +158,6 @@ data Member = Member
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode Member with version-aware field handling.
-encodeMember :: MonadPut m => E.ApiVersion -> Member -> m ()
-encodeMember version mmsg =
-  do
-    if version >= 0 then serialize (toCompactString (memberMemberId mmsg)) else serialize (memberMemberId mmsg)
-    if version >= 0 then serialize (toCompactString (memberInstanceId mmsg)) else serialize (memberInstanceId mmsg)
-    if version >= 0 then serialize (toCompactString (memberRackId mmsg)) else serialize (memberRackId mmsg)
-    serialize (memberMemberEpoch mmsg)
-    if version >= 0 then serialize (toCompactString (memberClientId mmsg)) else serialize (memberClientId mmsg)
-    if version >= 0 then serialize (toCompactString (memberClientHost mmsg)) else serialize (memberClientHost mmsg)
-    E.encodeVersionedArray version 0 (\v s -> if v >= 0 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (memberSubscribedTopicNames mmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    if version >= 0 then serialize (toCompactString (memberSubscribedTopicRegex mmsg)) else serialize (memberSubscribedTopicRegex mmsg)
-    encodeAssignment version (memberAssignment mmsg)
-    encodeAssignment version (memberTargetAssignment mmsg)
-    when (version >= 1) $
-      serialize (memberMemberType mmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Member with version-aware field handling.
-decodeMember :: MonadGet m => E.ApiVersion -> m Member
-decodeMember version =
-  do
-    fieldmemberid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldinstanceid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldrackid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldmemberepoch <- deserialize
-    fieldclientid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldclienthost <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldsubscribedtopicnames <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\v -> if v >= 0 then P.fromCompactString <$> deserialize else deserialize)
-    fieldsubscribedtopicregex <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldassignment <- decodeAssignment version
-    fieldtargetassignment <- decodeAssignment version
-    fieldmembertype <- if version >= 1
-      then deserialize
-      else pure ((-1))
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Member
-      {
-      memberMemberId = fieldmemberid
-      ,
-      memberInstanceId = fieldinstanceid
-      ,
-      memberRackId = fieldrackid
-      ,
-      memberMemberEpoch = fieldmemberepoch
-      ,
-      memberClientId = fieldclientid
-      ,
-      memberClientHost = fieldclienthost
-      ,
-      memberSubscribedTopicNames = fieldsubscribedtopicnames
-      ,
-      memberSubscribedTopicRegex = fieldsubscribedtopicregex
-      ,
-      memberAssignment = fieldassignment
-      ,
-      memberTargetAssignment = fieldtargetassignment
-      ,
-      memberMemberType = fieldmembertype
-      }
-
-
 -- | Each described group.
 data DescribedGroup = DescribedGroup
   {
@@ -345,59 +219,6 @@ data DescribedGroup = DescribedGroup
   deriving (Eq, Show, Generic)
 
 
--- | Encode DescribedGroup with version-aware field handling.
-encodeDescribedGroup :: MonadPut m => E.ApiVersion -> DescribedGroup -> m ()
-encodeDescribedGroup version dmsg =
-  do
-    serialize (describedGroupErrorCode dmsg)
-    if version >= 0 then serialize (toCompactString (describedGroupErrorMessage dmsg)) else serialize (describedGroupErrorMessage dmsg)
-    if version >= 0 then serialize (toCompactString (describedGroupGroupId dmsg)) else serialize (describedGroupGroupId dmsg)
-    if version >= 0 then serialize (toCompactString (describedGroupGroupState dmsg)) else serialize (describedGroupGroupState dmsg)
-    serialize (describedGroupGroupEpoch dmsg)
-    serialize (describedGroupAssignmentEpoch dmsg)
-    if version >= 0 then serialize (toCompactString (describedGroupAssignorName dmsg)) else serialize (describedGroupAssignorName dmsg)
-    E.encodeVersionedArray version 0 encodeMember (case P.unKafkaArray (describedGroupMembers dmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    serialize (describedGroupAuthorizedOperations dmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribedGroup with version-aware field handling.
-decodeDescribedGroup :: MonadGet m => E.ApiVersion -> m DescribedGroup
-decodeDescribedGroup version =
-  do
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldgroupid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldgroupstate <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldgroupepoch <- deserialize
-    fieldassignmentepoch <- deserialize
-    fieldassignorname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldmembers <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeMember
-    fieldauthorizedoperations <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribedGroup
-      {
-      describedGroupErrorCode = fielderrorcode
-      ,
-      describedGroupErrorMessage = fielderrormessage
-      ,
-      describedGroupGroupId = fieldgroupid
-      ,
-      describedGroupGroupState = fieldgroupstate
-      ,
-      describedGroupGroupEpoch = fieldgroupepoch
-      ,
-      describedGroupAssignmentEpoch = fieldassignmentepoch
-      ,
-      describedGroupAssignorName = fieldassignorname
-      ,
-      describedGroupMembers = fieldmembers
-      ,
-      describedGroupAuthorizedOperations = fieldauthorizedoperations
-      }
-
-
-
 data ConsumerGroupDescribeResponse = ConsumerGroupDescribeResponse
   {
 
@@ -425,32 +246,6 @@ instance KafkaMessage ConsumerGroupDescribeResponse where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 0
-
--- | Encode ConsumerGroupDescribeResponse with the given API version.
-encodeConsumerGroupDescribeResponse :: MonadPut m => E.ApiVersion -> ConsumerGroupDescribeResponse -> m ()
-encodeConsumerGroupDescribeResponse version msg
-  | version >= 0 && version <= 1 =
-    do
-      serialize (consumerGroupDescribeResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 0 encodeDescribedGroup (case P.unKafkaArray (consumerGroupDescribeResponseGroups msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ConsumerGroupDescribeResponse with the given API version.
-decodeConsumerGroupDescribeResponse :: MonadGet m => E.ApiVersion -> m ConsumerGroupDescribeResponse
-decodeConsumerGroupDescribeResponse version
-  | version >= 0 && version <= 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldgroups <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeDescribedGroup
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ConsumerGroupDescribeResponse
-        {
-        consumerGroupDescribeResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        consumerGroupDescribeResponseGroups = fieldgroups
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a TopicPartitions.
 wireMaxSizeTopicPartitions :: Int -> TopicPartitions -> Int

@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.CreateDelegationTokenResponse
   (
     CreateDelegationTokenResponse(..),
-    encodeCreateDelegationTokenResponse,
-    decodeCreateDelegationTokenResponse,
     maxCreateDelegationTokenResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -142,167 +130,6 @@ instance KafkaMessage CreateDelegationTokenResponse where
   messageMinVersion = 1
   messageMaxVersion = 3
   messageFlexibleVersion = Just 2
-
--- | Encode CreateDelegationTokenResponse with the given API version.
-encodeCreateDelegationTokenResponse :: MonadPut m => E.ApiVersion -> CreateDelegationTokenResponse -> m ()
-encodeCreateDelegationTokenResponse version msg
-  | version == 1 =
-    do
-      serialize (createDelegationTokenResponseErrorCode msg)
-      serialize (createDelegationTokenResponsePrincipalType msg)
-      serialize (createDelegationTokenResponsePrincipalName msg)
-      serialize (createDelegationTokenResponseIssueTimestampMs msg)
-      serialize (createDelegationTokenResponseExpiryTimestampMs msg)
-      serialize (createDelegationTokenResponseMaxTimestampMs msg)
-      serialize (createDelegationTokenResponseTokenId msg)
-      serialize (createDelegationTokenResponseHmac msg)
-      serialize (createDelegationTokenResponseThrottleTimeMs msg)
-
-
-  | version == 2 =
-    do
-      serialize (createDelegationTokenResponseErrorCode msg)
-      serialize (toCompactString (createDelegationTokenResponsePrincipalType msg))
-      serialize (toCompactString (createDelegationTokenResponsePrincipalName msg))
-      serialize (createDelegationTokenResponseIssueTimestampMs msg)
-      serialize (createDelegationTokenResponseExpiryTimestampMs msg)
-      serialize (createDelegationTokenResponseMaxTimestampMs msg)
-      serialize (toCompactString (createDelegationTokenResponseTokenId msg))
-      serialize (toCompactBytes (createDelegationTokenResponseHmac msg))
-      serialize (createDelegationTokenResponseThrottleTimeMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 3 =
-    do
-      serialize (createDelegationTokenResponseErrorCode msg)
-      serialize (toCompactString (createDelegationTokenResponsePrincipalType msg))
-      serialize (toCompactString (createDelegationTokenResponsePrincipalName msg))
-      serialize (toCompactString (createDelegationTokenResponseTokenRequesterPrincipalType msg))
-      serialize (toCompactString (createDelegationTokenResponseTokenRequesterPrincipalName msg))
-      serialize (createDelegationTokenResponseIssueTimestampMs msg)
-      serialize (createDelegationTokenResponseExpiryTimestampMs msg)
-      serialize (createDelegationTokenResponseMaxTimestampMs msg)
-      serialize (toCompactString (createDelegationTokenResponseTokenId msg))
-      serialize (toCompactBytes (createDelegationTokenResponseHmac msg))
-      serialize (createDelegationTokenResponseThrottleTimeMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode CreateDelegationTokenResponse with the given API version.
-decodeCreateDelegationTokenResponse :: MonadGet m => E.ApiVersion -> m CreateDelegationTokenResponse
-decodeCreateDelegationTokenResponse version
-  | version == 1 =
-    do
-      fielderrorcode <- deserialize
-      fieldprincipaltype <- deserialize
-      fieldprincipalname <- deserialize
-      fieldissuetimestampms <- deserialize
-      fieldexpirytimestampms <- deserialize
-      fieldmaxtimestampms <- deserialize
-      fieldtokenid <- deserialize
-      fieldhmac <- deserialize
-      fieldthrottletimems <- deserialize
-      pure CreateDelegationTokenResponse
-        {
-        createDelegationTokenResponseErrorCode = fielderrorcode
-        ,
-        createDelegationTokenResponsePrincipalType = fieldprincipaltype
-        ,
-        createDelegationTokenResponsePrincipalName = fieldprincipalname
-        ,
-        createDelegationTokenResponseTokenRequesterPrincipalType = P.KafkaString Null
-        ,
-        createDelegationTokenResponseTokenRequesterPrincipalName = P.KafkaString Null
-        ,
-        createDelegationTokenResponseIssueTimestampMs = fieldissuetimestampms
-        ,
-        createDelegationTokenResponseExpiryTimestampMs = fieldexpirytimestampms
-        ,
-        createDelegationTokenResponseMaxTimestampMs = fieldmaxtimestampms
-        ,
-        createDelegationTokenResponseTokenId = fieldtokenid
-        ,
-        createDelegationTokenResponseHmac = fieldhmac
-        ,
-        createDelegationTokenResponseThrottleTimeMs = fieldthrottletimems
-        }
-
-  | version == 2 =
-    do
-      fielderrorcode <- deserialize
-      fieldprincipaltype <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldprincipalname <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldissuetimestampms <- deserialize
-      fieldexpirytimestampms <- deserialize
-      fieldmaxtimestampms <- deserialize
-      fieldtokenid <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldhmac <- if version >= 2 then P.fromCompactBytes <$> deserialize else deserialize
-      fieldthrottletimems <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure CreateDelegationTokenResponse
-        {
-        createDelegationTokenResponseErrorCode = fielderrorcode
-        ,
-        createDelegationTokenResponsePrincipalType = fieldprincipaltype
-        ,
-        createDelegationTokenResponsePrincipalName = fieldprincipalname
-        ,
-        createDelegationTokenResponseTokenRequesterPrincipalType = P.KafkaString Null
-        ,
-        createDelegationTokenResponseTokenRequesterPrincipalName = P.KafkaString Null
-        ,
-        createDelegationTokenResponseIssueTimestampMs = fieldissuetimestampms
-        ,
-        createDelegationTokenResponseExpiryTimestampMs = fieldexpirytimestampms
-        ,
-        createDelegationTokenResponseMaxTimestampMs = fieldmaxtimestampms
-        ,
-        createDelegationTokenResponseTokenId = fieldtokenid
-        ,
-        createDelegationTokenResponseHmac = fieldhmac
-        ,
-        createDelegationTokenResponseThrottleTimeMs = fieldthrottletimems
-        }
-
-  | version == 3 =
-    do
-      fielderrorcode <- deserialize
-      fieldprincipaltype <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldprincipalname <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldtokenrequesterprincipaltype <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldtokenrequesterprincipalname <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldissuetimestampms <- deserialize
-      fieldexpirytimestampms <- deserialize
-      fieldmaxtimestampms <- deserialize
-      fieldtokenid <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldhmac <- if version >= 2 then P.fromCompactBytes <$> deserialize else deserialize
-      fieldthrottletimems <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure CreateDelegationTokenResponse
-        {
-        createDelegationTokenResponseErrorCode = fielderrorcode
-        ,
-        createDelegationTokenResponsePrincipalType = fieldprincipaltype
-        ,
-        createDelegationTokenResponsePrincipalName = fieldprincipalname
-        ,
-        createDelegationTokenResponseTokenRequesterPrincipalType = fieldtokenrequesterprincipaltype
-        ,
-        createDelegationTokenResponseTokenRequesterPrincipalName = fieldtokenrequesterprincipalname
-        ,
-        createDelegationTokenResponseIssueTimestampMs = fieldissuetimestampms
-        ,
-        createDelegationTokenResponseExpiryTimestampMs = fieldexpirytimestampms
-        ,
-        createDelegationTokenResponseMaxTimestampMs = fieldmaxtimestampms
-        ,
-        createDelegationTokenResponseTokenId = fieldtokenid
-        ,
-        createDelegationTokenResponseHmac = fieldhmac
-        ,
-        createDelegationTokenResponseThrottleTimeMs = fieldthrottletimems
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a CreateDelegationTokenResponse.

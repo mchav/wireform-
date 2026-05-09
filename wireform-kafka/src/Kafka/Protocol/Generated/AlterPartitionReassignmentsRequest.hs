@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.AlterPartitionReassignmentsRequest
     AlterPartitionReassignmentsRequest(..),
     ReassignableTopic(..),
     ReassignablePartition(..),
-    encodeAlterPartitionReassignmentsRequest,
-    decodeAlterPartitionReassignmentsRequest,
     maxAlterPartitionReassignmentsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -79,31 +67,6 @@ data ReassignablePartition = ReassignablePartition
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode ReassignablePartition with version-aware field handling.
-encodeReassignablePartition :: MonadPut m => E.ApiVersion -> ReassignablePartition -> m ()
-encodeReassignablePartition version rmsg =
-  do
-    serialize (reassignablePartitionPartitionIndex rmsg)
-    E.encodeVersionedNullableArray version 0 (\_ x -> serialize x) (reassignablePartitionReplicas rmsg) -- ArrayType: PrimitiveType "int32"
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ReassignablePartition with version-aware field handling.
-decodeReassignablePartition :: MonadGet m => E.ApiVersion -> m ReassignablePartition
-decodeReassignablePartition version =
-  do
-    fieldpartitionindex <- deserialize
-    fieldreplicas <- E.decodeVersionedNullableArray version 0 (\_ -> deserialize)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ReassignablePartition
-      {
-      reassignablePartitionPartitionIndex = fieldpartitionindex
-      ,
-      reassignablePartitionReplicas = fieldreplicas
-      }
-
-
 -- | The topics to reassign.
 data ReassignableTopic = ReassignableTopic
   {
@@ -121,31 +84,6 @@ data ReassignableTopic = ReassignableTopic
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode ReassignableTopic with version-aware field handling.
-encodeReassignableTopic :: MonadPut m => E.ApiVersion -> ReassignableTopic -> m ()
-encodeReassignableTopic version rmsg =
-  do
-    if version >= 0 then serialize (toCompactString (reassignableTopicName rmsg)) else serialize (reassignableTopicName rmsg)
-    E.encodeVersionedArray version 0 encodeReassignablePartition (case P.unKafkaArray (reassignableTopicPartitions rmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ReassignableTopic with version-aware field handling.
-decodeReassignableTopic :: MonadGet m => E.ApiVersion -> m ReassignableTopic
-decodeReassignableTopic version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeReassignablePartition
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ReassignableTopic
-      {
-      reassignableTopicName = fieldname
-      ,
-      reassignableTopicPartitions = fieldpartitions
-      }
-
 
 
 data AlterPartitionReassignmentsRequest = AlterPartitionReassignmentsRequest
@@ -181,56 +119,6 @@ instance KafkaMessage AlterPartitionReassignmentsRequest where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 0
-
--- | Encode AlterPartitionReassignmentsRequest with the given API version.
-encodeAlterPartitionReassignmentsRequest :: MonadPut m => E.ApiVersion -> AlterPartitionReassignmentsRequest -> m ()
-encodeAlterPartitionReassignmentsRequest version msg
-  | version == 0 =
-    do
-      serialize (alterPartitionReassignmentsRequestTimeoutMs msg)
-      E.encodeVersionedArray version 0 encodeReassignableTopic (case P.unKafkaArray (alterPartitionReassignmentsRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 1 =
-    do
-      serialize (alterPartitionReassignmentsRequestTimeoutMs msg)
-      serialize (alterPartitionReassignmentsRequestAllowReplicationFactorChange msg)
-      E.encodeVersionedArray version 0 encodeReassignableTopic (case P.unKafkaArray (alterPartitionReassignmentsRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode AlterPartitionReassignmentsRequest with the given API version.
-decodeAlterPartitionReassignmentsRequest :: MonadGet m => E.ApiVersion -> m AlterPartitionReassignmentsRequest
-decodeAlterPartitionReassignmentsRequest version
-  | version == 0 =
-    do
-      fieldtimeoutms <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeReassignableTopic
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure AlterPartitionReassignmentsRequest
-        {
-        alterPartitionReassignmentsRequestTimeoutMs = fieldtimeoutms
-        ,
-        alterPartitionReassignmentsRequestAllowReplicationFactorChange = True
-        ,
-        alterPartitionReassignmentsRequestTopics = fieldtopics
-        }
-
-  | version == 1 =
-    do
-      fieldtimeoutms <- deserialize
-      fieldallowreplicationfactorchange <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeReassignableTopic
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure AlterPartitionReassignmentsRequest
-        {
-        alterPartitionReassignmentsRequestTimeoutMs = fieldtimeoutms
-        ,
-        alterPartitionReassignmentsRequestAllowReplicationFactorChange = fieldallowreplicationfactorchange
-        ,
-        alterPartitionReassignmentsRequestTopics = fieldtopics
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a ReassignablePartition.
 wireMaxSizeReassignablePartition :: Int -> ReassignablePartition -> Int

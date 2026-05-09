@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.DescribeUserScramCredentialsResponse
     DescribeUserScramCredentialsResponse(..),
     DescribeUserScramCredentialsResult(..),
     CredentialInfo(..),
-    encodeDescribeUserScramCredentialsResponse,
-    decodeDescribeUserScramCredentialsResponse,
     maxDescribeUserScramCredentialsResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -79,31 +67,6 @@ data CredentialInfo = CredentialInfo
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode CredentialInfo with version-aware field handling.
-encodeCredentialInfo :: MonadPut m => E.ApiVersion -> CredentialInfo -> m ()
-encodeCredentialInfo version cmsg =
-  do
-    serialize (credentialInfoMechanism cmsg)
-    serialize (credentialInfoIterations cmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode CredentialInfo with version-aware field handling.
-decodeCredentialInfo :: MonadGet m => E.ApiVersion -> m CredentialInfo
-decodeCredentialInfo version =
-  do
-    fieldmechanism <- deserialize
-    fielditerations <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure CredentialInfo
-      {
-      credentialInfoMechanism = fieldmechanism
-      ,
-      credentialInfoIterations = fielditerations
-      }
-
-
 -- | The results for descriptions, one per user.
 data DescribeUserScramCredentialsResult = DescribeUserScramCredentialsResult
   {
@@ -133,39 +96,6 @@ data DescribeUserScramCredentialsResult = DescribeUserScramCredentialsResult
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode DescribeUserScramCredentialsResult with version-aware field handling.
-encodeDescribeUserScramCredentialsResult :: MonadPut m => E.ApiVersion -> DescribeUserScramCredentialsResult -> m ()
-encodeDescribeUserScramCredentialsResult version dmsg =
-  do
-    if version >= 0 then serialize (toCompactString (describeUserScramCredentialsResultUser dmsg)) else serialize (describeUserScramCredentialsResultUser dmsg)
-    serialize (describeUserScramCredentialsResultErrorCode dmsg)
-    if version >= 0 then serialize (toCompactString (describeUserScramCredentialsResultErrorMessage dmsg)) else serialize (describeUserScramCredentialsResultErrorMessage dmsg)
-    E.encodeVersionedArray version 0 encodeCredentialInfo (case P.unKafkaArray (describeUserScramCredentialsResultCredentialInfos dmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribeUserScramCredentialsResult with version-aware field handling.
-decodeDescribeUserScramCredentialsResult :: MonadGet m => E.ApiVersion -> m DescribeUserScramCredentialsResult
-decodeDescribeUserScramCredentialsResult version =
-  do
-    fielduser <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldcredentialinfos <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeCredentialInfo
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribeUserScramCredentialsResult
-      {
-      describeUserScramCredentialsResultUser = fielduser
-      ,
-      describeUserScramCredentialsResultErrorCode = fielderrorcode
-      ,
-      describeUserScramCredentialsResultErrorMessage = fielderrormessage
-      ,
-      describeUserScramCredentialsResultCredentialInfos = fieldcredentialinfos
-      }
-
 
 
 data DescribeUserScramCredentialsResponse = DescribeUserScramCredentialsResponse
@@ -207,40 +137,6 @@ instance KafkaMessage DescribeUserScramCredentialsResponse where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Just 0
-
--- | Encode DescribeUserScramCredentialsResponse with the given API version.
-encodeDescribeUserScramCredentialsResponse :: MonadPut m => E.ApiVersion -> DescribeUserScramCredentialsResponse -> m ()
-encodeDescribeUserScramCredentialsResponse version msg
-  | version == 0 =
-    do
-      serialize (describeUserScramCredentialsResponseThrottleTimeMs msg)
-      serialize (describeUserScramCredentialsResponseErrorCode msg)
-      serialize (toCompactString (describeUserScramCredentialsResponseErrorMessage msg))
-      E.encodeVersionedArray version 0 encodeDescribeUserScramCredentialsResult (case P.unKafkaArray (describeUserScramCredentialsResponseResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeUserScramCredentialsResponse with the given API version.
-decodeDescribeUserScramCredentialsResponse :: MonadGet m => E.ApiVersion -> m DescribeUserScramCredentialsResponse
-decodeDescribeUserScramCredentialsResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeDescribeUserScramCredentialsResult
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeUserScramCredentialsResponse
-        {
-        describeUserScramCredentialsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        describeUserScramCredentialsResponseErrorCode = fielderrorcode
-        ,
-        describeUserScramCredentialsResponseErrorMessage = fielderrormessage
-        ,
-        describeUserScramCredentialsResponseResults = fieldresults
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a CredentialInfo.
 wireMaxSizeCredentialInfo :: Int -> CredentialInfo -> Int

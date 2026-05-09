@@ -164,7 +164,6 @@ library
         Kafka.Protocol.ApiVersions
         Kafka.Protocol.VersionNegotiation
         Kafka.Protocol.CRC32C
-        Kafka.Protocol.Encoding
         Kafka.Protocol.Generated.AddOffsetsToTxnRequest
         Kafka.Protocol.Generated.AddOffsetsToTxnResponse
         Kafka.Protocol.Generated.AddPartitionsToTxnRequest

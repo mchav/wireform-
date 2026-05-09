@@ -24,17 +24,9 @@ module Kafka.Protocol.Generated.VotersRecord
     Voter(..),
     Endpoint(..),
     KRaftVersionFeature(..),
-    encodeVotersRecord,
-    decodeVotersRecord,
     maxVotersRecordVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -42,13 +34,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -86,35 +74,6 @@ data Endpoint = Endpoint
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode Endpoint with version-aware field handling.
-encodeEndpoint :: MonadPut m => E.ApiVersion -> Endpoint -> m ()
-encodeEndpoint version emsg =
-  do
-    if version >= 0 then serialize (toCompactString (endpointName emsg)) else serialize (endpointName emsg)
-    if version >= 0 then serialize (toCompactString (endpointHost emsg)) else serialize (endpointHost emsg)
-    serialize (endpointPort emsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Endpoint with version-aware field handling.
-decodeEndpoint :: MonadGet m => E.ApiVersion -> m Endpoint
-decodeEndpoint version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldhost <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldport <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Endpoint
-      {
-      endpointName = fieldname
-      ,
-      endpointHost = fieldhost
-      ,
-      endpointPort = fieldport
-      }
-
-
 -- | The range of versions of the protocol that the replica supports.
 data KRaftVersionFeature = KRaftVersionFeature
   {
@@ -132,31 +91,6 @@ data KRaftVersionFeature = KRaftVersionFeature
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode KRaftVersionFeature with version-aware field handling.
-encodeKRaftVersionFeature :: MonadPut m => E.ApiVersion -> KRaftVersionFeature -> m ()
-encodeKRaftVersionFeature version kmsg =
-  do
-    serialize (kRaftVersionFeatureMinSupportedVersion kmsg)
-    serialize (kRaftVersionFeatureMaxSupportedVersion kmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode KRaftVersionFeature with version-aware field handling.
-decodeKRaftVersionFeature :: MonadGet m => E.ApiVersion -> m KRaftVersionFeature
-decodeKRaftVersionFeature version =
-  do
-    fieldminsupportedversion <- deserialize
-    fieldmaxsupportedversion <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure KRaftVersionFeature
-      {
-      kRaftVersionFeatureMinSupportedVersion = fieldminsupportedversion
-      ,
-      kRaftVersionFeatureMaxSupportedVersion = fieldmaxsupportedversion
-      }
-
 
 -- | The set of voters in the quorum for this epoch.
 data Voter = Voter
@@ -189,39 +123,6 @@ data Voter = Voter
   deriving (Eq, Show, Generic)
 
 
--- | Encode Voter with version-aware field handling.
-encodeVoter :: MonadPut m => E.ApiVersion -> Voter -> m ()
-encodeVoter version vmsg =
-  do
-    serialize (voterVoterId vmsg)
-    serialize (voterVoterDirectoryId vmsg)
-    E.encodeVersionedArray version 0 encodeEndpoint (case P.unKafkaArray (voterEndpoints vmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    encodeKRaftVersionFeature version (voterKRaftVersionFeature vmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Voter with version-aware field handling.
-decodeVoter :: MonadGet m => E.ApiVersion -> m Voter
-decodeVoter version =
-  do
-    fieldvoterid <- deserialize
-    fieldvoterdirectoryid <- deserialize
-    fieldendpoints <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeEndpoint
-    fieldkraftversionfeature <- decodeKRaftVersionFeature version
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Voter
-      {
-      voterVoterId = fieldvoterid
-      ,
-      voterVoterDirectoryId = fieldvoterdirectoryid
-      ,
-      voterEndpoints = fieldendpoints
-      ,
-      voterKRaftVersionFeature = fieldkraftversionfeature
-      }
-
-
-
 data VotersRecord = VotersRecord
   {
 
@@ -244,32 +145,6 @@ maxVotersRecordVersion :: Int16
 maxVotersRecordVersion = 0
 
 
-
--- | Encode VotersRecord with the given API version.
-encodeVotersRecord :: MonadPut m => E.ApiVersion -> VotersRecord -> m ()
-encodeVotersRecord version msg
-  | version == 0 =
-    do
-      serialize (votersRecordVersion msg)
-      E.encodeVersionedArray version 0 encodeVoter (case P.unKafkaArray (votersRecordVoters msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode VotersRecord with the given API version.
-decodeVotersRecord :: MonadGet m => E.ApiVersion -> m VotersRecord
-decodeVotersRecord version
-  | version == 0 =
-    do
-      fieldversion <- deserialize
-      fieldvoters <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeVoter
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure VotersRecord
-        {
-        votersRecordVersion = fieldversion
-        ,
-        votersRecordVoters = fieldvoters
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a Endpoint.
 wireMaxSizeEndpoint :: Int -> Endpoint -> Int

@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.ControllerRegistrationRequest
     ControllerRegistrationRequest(..),
     Listener(..),
     Feature(..),
-    encodeControllerRegistrationRequest,
-    decodeControllerRegistrationRequest,
     maxControllerRegistrationRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -91,39 +79,6 @@ data Listener = Listener
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode Listener with version-aware field handling.
-encodeListener :: MonadPut m => E.ApiVersion -> Listener -> m ()
-encodeListener version lmsg =
-  do
-    if version >= 0 then serialize (toCompactString (listenerName lmsg)) else serialize (listenerName lmsg)
-    if version >= 0 then serialize (toCompactString (listenerHost lmsg)) else serialize (listenerHost lmsg)
-    serialize (listenerPort lmsg)
-    serialize (listenerSecurityProtocol lmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Listener with version-aware field handling.
-decodeListener :: MonadGet m => E.ApiVersion -> m Listener
-decodeListener version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldhost <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldport <- deserialize
-    fieldsecurityprotocol <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Listener
-      {
-      listenerName = fieldname
-      ,
-      listenerHost = fieldhost
-      ,
-      listenerPort = fieldport
-      ,
-      listenerSecurityProtocol = fieldsecurityprotocol
-      }
-
-
 -- | The features on this controller.
 data Feature = Feature
   {
@@ -147,35 +102,6 @@ data Feature = Feature
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode Feature with version-aware field handling.
-encodeFeature :: MonadPut m => E.ApiVersion -> Feature -> m ()
-encodeFeature version fmsg =
-  do
-    if version >= 0 then serialize (toCompactString (featureName fmsg)) else serialize (featureName fmsg)
-    serialize (featureMinSupportedVersion fmsg)
-    serialize (featureMaxSupportedVersion fmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Feature with version-aware field handling.
-decodeFeature :: MonadGet m => E.ApiVersion -> m Feature
-decodeFeature version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldminsupportedversion <- deserialize
-    fieldmaxsupportedversion <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Feature
-      {
-      featureName = fieldname
-      ,
-      featureMinSupportedVersion = fieldminsupportedversion
-      ,
-      featureMaxSupportedVersion = fieldmaxsupportedversion
-      }
-
 
 
 data ControllerRegistrationRequest = ControllerRegistrationRequest
@@ -223,44 +149,6 @@ instance KafkaMessage ControllerRegistrationRequest where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Just 0
-
--- | Encode ControllerRegistrationRequest with the given API version.
-encodeControllerRegistrationRequest :: MonadPut m => E.ApiVersion -> ControllerRegistrationRequest -> m ()
-encodeControllerRegistrationRequest version msg
-  | version == 0 =
-    do
-      serialize (controllerRegistrationRequestControllerId msg)
-      serialize (controllerRegistrationRequestIncarnationId msg)
-      serialize (controllerRegistrationRequestZkMigrationReady msg)
-      E.encodeVersionedArray version 0 encodeListener (case P.unKafkaArray (controllerRegistrationRequestListeners msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 0 encodeFeature (case P.unKafkaArray (controllerRegistrationRequestFeatures msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ControllerRegistrationRequest with the given API version.
-decodeControllerRegistrationRequest :: MonadGet m => E.ApiVersion -> m ControllerRegistrationRequest
-decodeControllerRegistrationRequest version
-  | version == 0 =
-    do
-      fieldcontrollerid <- deserialize
-      fieldincarnationid <- deserialize
-      fieldzkmigrationready <- deserialize
-      fieldlisteners <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeListener
-      fieldfeatures <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeFeature
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ControllerRegistrationRequest
-        {
-        controllerRegistrationRequestControllerId = fieldcontrollerid
-        ,
-        controllerRegistrationRequestIncarnationId = fieldincarnationid
-        ,
-        controllerRegistrationRequestZkMigrationReady = fieldzkmigrationready
-        ,
-        controllerRegistrationRequestListeners = fieldlisteners
-        ,
-        controllerRegistrationRequestFeatures = fieldfeatures
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a Listener.
 wireMaxSizeListener :: Int -> Listener -> Int

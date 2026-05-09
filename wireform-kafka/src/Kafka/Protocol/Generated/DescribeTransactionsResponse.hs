@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.DescribeTransactionsResponse
     DescribeTransactionsResponse(..),
     TransactionState(..),
     TopicData(..),
-    encodeDescribeTransactionsResponse,
-    decodeDescribeTransactionsResponse,
     maxDescribeTransactionsResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -78,31 +66,6 @@ data TopicData = TopicData
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicData with version-aware field handling.
-encodeTopicData :: MonadPut m => E.ApiVersion -> TopicData -> m ()
-encodeTopicData version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (topicDataTopic tmsg)) else serialize (topicDataTopic tmsg)
-    E.encodeVersionedArray version 0 (\_ x -> serialize x) (case P.unKafkaArray (topicDataPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicData with version-aware field handling.
-decodeTopicData :: MonadGet m => E.ApiVersion -> m TopicData
-decodeTopicData version =
-  do
-    fieldtopic <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\_ -> deserialize)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicData
-      {
-      topicDataTopic = fieldtopic
-      ,
-      topicDataPartitions = fieldpartitions
-      }
-
 
 -- | The current state of the transaction.
 data TransactionState = TransactionState
@@ -159,55 +122,6 @@ data TransactionState = TransactionState
   deriving (Eq, Show, Generic)
 
 
--- | Encode TransactionState with version-aware field handling.
-encodeTransactionState :: MonadPut m => E.ApiVersion -> TransactionState -> m ()
-encodeTransactionState version tmsg =
-  do
-    serialize (transactionStateErrorCode tmsg)
-    if version >= 0 then serialize (toCompactString (transactionStateTransactionalId tmsg)) else serialize (transactionStateTransactionalId tmsg)
-    if version >= 0 then serialize (toCompactString (transactionStateTransactionState tmsg)) else serialize (transactionStateTransactionState tmsg)
-    serialize (transactionStateTransactionTimeoutMs tmsg)
-    serialize (transactionStateTransactionStartTimeMs tmsg)
-    serialize (transactionStateProducerId tmsg)
-    serialize (transactionStateProducerEpoch tmsg)
-    E.encodeVersionedArray version 0 encodeTopicData (case P.unKafkaArray (transactionStateTopics tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TransactionState with version-aware field handling.
-decodeTransactionState :: MonadGet m => E.ApiVersion -> m TransactionState
-decodeTransactionState version =
-  do
-    fielderrorcode <- deserialize
-    fieldtransactionalid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldtransactionstate <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldtransactiontimeoutms <- deserialize
-    fieldtransactionstarttimems <- deserialize
-    fieldproducerid <- deserialize
-    fieldproducerepoch <- deserialize
-    fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicData
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TransactionState
-      {
-      transactionStateErrorCode = fielderrorcode
-      ,
-      transactionStateTransactionalId = fieldtransactionalid
-      ,
-      transactionStateTransactionState = fieldtransactionstate
-      ,
-      transactionStateTransactionTimeoutMs = fieldtransactiontimeoutms
-      ,
-      transactionStateTransactionStartTimeMs = fieldtransactionstarttimems
-      ,
-      transactionStateProducerId = fieldproducerid
-      ,
-      transactionStateProducerEpoch = fieldproducerepoch
-      ,
-      transactionStateTopics = fieldtopics
-      }
-
-
-
 data DescribeTransactionsResponse = DescribeTransactionsResponse
   {
 
@@ -235,32 +149,6 @@ instance KafkaMessage DescribeTransactionsResponse where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Just 0
-
--- | Encode DescribeTransactionsResponse with the given API version.
-encodeDescribeTransactionsResponse :: MonadPut m => E.ApiVersion -> DescribeTransactionsResponse -> m ()
-encodeDescribeTransactionsResponse version msg
-  | version == 0 =
-    do
-      serialize (describeTransactionsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 0 encodeTransactionState (case P.unKafkaArray (describeTransactionsResponseTransactionStates msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeTransactionsResponse with the given API version.
-decodeDescribeTransactionsResponse :: MonadGet m => E.ApiVersion -> m DescribeTransactionsResponse
-decodeDescribeTransactionsResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldtransactionstates <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTransactionState
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeTransactionsResponse
-        {
-        describeTransactionsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        describeTransactionsResponseTransactionStates = fieldtransactionstates
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a TopicData.
 wireMaxSizeTopicData :: Int -> TopicData -> Int

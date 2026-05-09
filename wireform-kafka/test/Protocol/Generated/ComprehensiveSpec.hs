@@ -1,7 +1,10 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Protocol.Generated.ComprehensiveSpec (tests) where
 
@@ -9,17 +12,14 @@ import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified System.Directory as Dir
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS, MonadPut)
 import Data.Int (Int16)
-import Data.Maybe (fromMaybe)
-import qualified Data.Serialize.Get as Get
 import Data.Text (Text)
 import qualified Data.Text as T
-import Control.Monad (when)
 import GHC.Generics (Generic)
 import Test.Tasty
 import Test.Tasty.HUnit
+
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- Core messages
 import qualified Kafka.Protocol.Generated.MetadataRequest as MetadataReq
@@ -195,84 +195,84 @@ testVector vec = Test.Tasty.HUnit.testCase (T.unpack $ description vec) $ do
 routeMessage :: Text -> Int16 -> BS.ByteString -> Either String ()
 routeMessage msgType ver bytes = case msgType of
   -- Core messages
-  "MetadataRequest" -> testMsg MetadataReq.decodeMetadataRequest MetadataReq.encodeMetadataRequest ver bytes
-  "MetadataResponse" -> testMsg MetadataResp.decodeMetadataResponse MetadataResp.encodeMetadataResponse ver bytes
-  "ApiVersionsRequest" -> testMsg ApiVersionsReq.decodeApiVersionsRequest ApiVersionsReq.encodeApiVersionsRequest ver bytes
-  "ApiVersionsResponse" -> testMsg ApiVersionsResp.decodeApiVersionsResponse ApiVersionsResp.encodeApiVersionsResponse ver bytes
+  "MetadataRequest" -> testMsg @MetadataReq.MetadataRequest ver bytes
+  "MetadataResponse" -> testMsg @MetadataResp.MetadataResponse ver bytes
+  "ApiVersionsRequest" -> testMsg @ApiVersionsReq.ApiVersionsRequest ver bytes
+  "ApiVersionsResponse" -> testMsg @ApiVersionsResp.ApiVersionsResponse ver bytes
   
   -- Coordinator
-  "FindCoordinatorRequest" -> testMsg FindCoordinatorReq.decodeFindCoordinatorRequest FindCoordinatorReq.encodeFindCoordinatorRequest ver bytes
-  "FindCoordinatorResponse" -> testMsg FindCoordinatorResp.decodeFindCoordinatorResponse FindCoordinatorResp.encodeFindCoordinatorResponse ver bytes
+  "FindCoordinatorRequest" -> testMsg @FindCoordinatorReq.FindCoordinatorRequest ver bytes
+  "FindCoordinatorResponse" -> testMsg @FindCoordinatorResp.FindCoordinatorResponse ver bytes
   
   -- Offsets
-  "ListOffsetsRequest" -> testMsg ListOffsetsReq.decodeListOffsetsRequest ListOffsetsReq.encodeListOffsetsRequest ver bytes
-  "ListOffsetsResponse" -> testMsg ListOffsetsResp.decodeListOffsetsResponse ListOffsetsResp.encodeListOffsetsResponse ver bytes
-  "OffsetCommitRequest" -> testMsg OffsetCommitReq.decodeOffsetCommitRequest OffsetCommitReq.encodeOffsetCommitRequest ver bytes
-  "OffsetCommitResponse" -> testMsg OffsetCommitResp.decodeOffsetCommitResponse OffsetCommitResp.encodeOffsetCommitResponse ver bytes
-  "OffsetFetchRequest" -> testMsg OffsetFetchReq.decodeOffsetFetchRequest OffsetFetchReq.encodeOffsetFetchRequest ver bytes
-  "OffsetFetchResponse" -> testMsg OffsetFetchResp.decodeOffsetFetchResponse OffsetFetchResp.encodeOffsetFetchResponse ver bytes
+  "ListOffsetsRequest" -> testMsg @ListOffsetsReq.ListOffsetsRequest ver bytes
+  "ListOffsetsResponse" -> testMsg @ListOffsetsResp.ListOffsetsResponse ver bytes
+  "OffsetCommitRequest" -> testMsg @OffsetCommitReq.OffsetCommitRequest ver bytes
+  "OffsetCommitResponse" -> testMsg @OffsetCommitResp.OffsetCommitResponse ver bytes
+  "OffsetFetchRequest" -> testMsg @OffsetFetchReq.OffsetFetchRequest ver bytes
+  "OffsetFetchResponse" -> testMsg @OffsetFetchResp.OffsetFetchResponse ver bytes
   
   -- Consumer Groups
-  "JoinGroupRequest" -> testMsg JoinGroupReq.decodeJoinGroupRequest JoinGroupReq.encodeJoinGroupRequest ver bytes
-  "JoinGroupResponse" -> testMsg JoinGroupResp.decodeJoinGroupResponse JoinGroupResp.encodeJoinGroupResponse ver bytes
-  "HeartbeatRequest" -> testMsg HeartbeatReq.decodeHeartbeatRequest HeartbeatReq.encodeHeartbeatRequest ver bytes
-  "HeartbeatResponse" -> testMsg HeartbeatResp.decodeHeartbeatResponse HeartbeatResp.encodeHeartbeatResponse ver bytes
-  "LeaveGroupRequest" -> testMsg LeaveGroupReq.decodeLeaveGroupRequest LeaveGroupReq.encodeLeaveGroupRequest ver bytes
-  "LeaveGroupResponse" -> testMsg LeaveGroupResp.decodeLeaveGroupResponse LeaveGroupResp.encodeLeaveGroupResponse ver bytes
-  "SyncGroupRequest" -> testMsg SyncGroupReq.decodeSyncGroupRequest SyncGroupReq.encodeSyncGroupRequest ver bytes
-  "SyncGroupResponse" -> testMsg SyncGroupResp.decodeSyncGroupResponse SyncGroupResp.encodeSyncGroupResponse ver bytes
-  "DescribeGroupsRequest" -> testMsg DescribeGroupsReq.decodeDescribeGroupsRequest DescribeGroupsReq.encodeDescribeGroupsRequest ver bytes
-  "DescribeGroupsResponse" -> testMsg DescribeGroupsResp.decodeDescribeGroupsResponse DescribeGroupsResp.encodeDescribeGroupsResponse ver bytes
-  "ListGroupsRequest" -> testMsg ListGroupsReq.decodeListGroupsRequest ListGroupsReq.encodeListGroupsRequest ver bytes
-  "ListGroupsResponse" -> testMsg ListGroupsResp.decodeListGroupsResponse ListGroupsResp.encodeListGroupsResponse ver bytes
-  "DeleteGroupsRequest" -> testMsg DeleteGroupsReq.decodeDeleteGroupsRequest DeleteGroupsReq.encodeDeleteGroupsRequest ver bytes
-  "DeleteGroupsResponse" -> testMsg DeleteGroupsResp.decodeDeleteGroupsResponse DeleteGroupsResp.encodeDeleteGroupsResponse ver bytes
+  "JoinGroupRequest" -> testMsg @JoinGroupReq.JoinGroupRequest ver bytes
+  "JoinGroupResponse" -> testMsg @JoinGroupResp.JoinGroupResponse ver bytes
+  "HeartbeatRequest" -> testMsg @HeartbeatReq.HeartbeatRequest ver bytes
+  "HeartbeatResponse" -> testMsg @HeartbeatResp.HeartbeatResponse ver bytes
+  "LeaveGroupRequest" -> testMsg @LeaveGroupReq.LeaveGroupRequest ver bytes
+  "LeaveGroupResponse" -> testMsg @LeaveGroupResp.LeaveGroupResponse ver bytes
+  "SyncGroupRequest" -> testMsg @SyncGroupReq.SyncGroupRequest ver bytes
+  "SyncGroupResponse" -> testMsg @SyncGroupResp.SyncGroupResponse ver bytes
+  "DescribeGroupsRequest" -> testMsg @DescribeGroupsReq.DescribeGroupsRequest ver bytes
+  "DescribeGroupsResponse" -> testMsg @DescribeGroupsResp.DescribeGroupsResponse ver bytes
+  "ListGroupsRequest" -> testMsg @ListGroupsReq.ListGroupsRequest ver bytes
+  "ListGroupsResponse" -> testMsg @ListGroupsResp.ListGroupsResponse ver bytes
+  "DeleteGroupsRequest" -> testMsg @DeleteGroupsReq.DeleteGroupsRequest ver bytes
+  "DeleteGroupsResponse" -> testMsg @DeleteGroupsResp.DeleteGroupsResponse ver bytes
   
   -- SASL
-  "SaslHandshakeRequest" -> testMsg SaslHandshakeReq.decodeSaslHandshakeRequest SaslHandshakeReq.encodeSaslHandshakeRequest ver bytes
-  "SaslHandshakeResponse" -> testMsg SaslHandshakeResp.decodeSaslHandshakeResponse SaslHandshakeResp.encodeSaslHandshakeResponse ver bytes
-  "SaslAuthenticateRequest" -> testMsg SaslAuthenticateReq.decodeSaslAuthenticateRequest SaslAuthenticateReq.encodeSaslAuthenticateRequest ver bytes
-  "SaslAuthenticateResponse" -> testMsg SaslAuthenticateResp.decodeSaslAuthenticateResponse SaslAuthenticateResp.encodeSaslAuthenticateResponse ver bytes
+  "SaslHandshakeRequest" -> testMsg @SaslHandshakeReq.SaslHandshakeRequest ver bytes
+  "SaslHandshakeResponse" -> testMsg @SaslHandshakeResp.SaslHandshakeResponse ver bytes
+  "SaslAuthenticateRequest" -> testMsg @SaslAuthenticateReq.SaslAuthenticateRequest ver bytes
+  "SaslAuthenticateResponse" -> testMsg @SaslAuthenticateResp.SaslAuthenticateResponse ver bytes
   
   -- Admin - Topics
-  "CreateTopicsRequest" -> testMsg CreateTopicsReq.decodeCreateTopicsRequest CreateTopicsReq.encodeCreateTopicsRequest ver bytes
-  "CreateTopicsResponse" -> testMsg CreateTopicsResp.decodeCreateTopicsResponse CreateTopicsResp.encodeCreateTopicsResponse ver bytes
-  "DeleteTopicsRequest" -> testMsg DeleteTopicsReq.decodeDeleteTopicsRequest DeleteTopicsReq.encodeDeleteTopicsRequest ver bytes
-  "DeleteTopicsResponse" -> testMsg DeleteTopicsResp.decodeDeleteTopicsResponse DeleteTopicsResp.encodeDeleteTopicsResponse ver bytes
-  "CreatePartitionsRequest" -> testMsg CreatePartitionsReq.decodeCreatePartitionsRequest CreatePartitionsReq.encodeCreatePartitionsRequest ver bytes
-  "CreatePartitionsResponse" -> testMsg CreatePartitionsResp.decodeCreatePartitionsResponse CreatePartitionsResp.encodeCreatePartitionsResponse ver bytes
+  "CreateTopicsRequest" -> testMsg @CreateTopicsReq.CreateTopicsRequest ver bytes
+  "CreateTopicsResponse" -> testMsg @CreateTopicsResp.CreateTopicsResponse ver bytes
+  "DeleteTopicsRequest" -> testMsg @DeleteTopicsReq.DeleteTopicsRequest ver bytes
+  "DeleteTopicsResponse" -> testMsg @DeleteTopicsResp.DeleteTopicsResponse ver bytes
+  "CreatePartitionsRequest" -> testMsg @CreatePartitionsReq.CreatePartitionsRequest ver bytes
+  "CreatePartitionsResponse" -> testMsg @CreatePartitionsResp.CreatePartitionsResponse ver bytes
   
   -- Admin - Configs
-  "DescribeConfigsRequest" -> testMsg DescribeConfigsReq.decodeDescribeConfigsRequest DescribeConfigsReq.encodeDescribeConfigsRequest ver bytes
-  "DescribeConfigsResponse" -> testMsg DescribeConfigsResp.decodeDescribeConfigsResponse DescribeConfigsResp.encodeDescribeConfigsResponse ver bytes
-  "AlterConfigsRequest" -> testMsg AlterConfigsReq.decodeAlterConfigsRequest AlterConfigsReq.encodeAlterConfigsRequest ver bytes
-  "AlterConfigsResponse" -> testMsg AlterConfigsResp.decodeAlterConfigsResponse AlterConfigsResp.encodeAlterConfigsResponse ver bytes
-  "IncrementalAlterConfigsRequest" -> testMsg IncrementalAlterConfigsReq.decodeIncrementalAlterConfigsRequest IncrementalAlterConfigsReq.encodeIncrementalAlterConfigsRequest ver bytes
-  "IncrementalAlterConfigsResponse" -> testMsg IncrementalAlterConfigsResp.decodeIncrementalAlterConfigsResponse IncrementalAlterConfigsResp.encodeIncrementalAlterConfigsResponse ver bytes
+  "DescribeConfigsRequest" -> testMsg @DescribeConfigsReq.DescribeConfigsRequest ver bytes
+  "DescribeConfigsResponse" -> testMsg @DescribeConfigsResp.DescribeConfigsResponse ver bytes
+  "AlterConfigsRequest" -> testMsg @AlterConfigsReq.AlterConfigsRequest ver bytes
+  "AlterConfigsResponse" -> testMsg @AlterConfigsResp.AlterConfigsResponse ver bytes
+  "IncrementalAlterConfigsRequest" -> testMsg @IncrementalAlterConfigsReq.IncrementalAlterConfigsRequest ver bytes
+  "IncrementalAlterConfigsResponse" -> testMsg @IncrementalAlterConfigsResp.IncrementalAlterConfigsResponse ver bytes
   
   -- ACLs
-  "DescribeAclsRequest" -> testMsg DescribeAclsReq.decodeDescribeAclsRequest DescribeAclsReq.encodeDescribeAclsRequest ver bytes
-  "DescribeAclsResponse" -> testMsg DescribeAclsResp.decodeDescribeAclsResponse DescribeAclsResp.encodeDescribeAclsResponse ver bytes
-  "CreateAclsRequest" -> testMsg CreateAclsReq.decodeCreateAclsRequest CreateAclsReq.encodeCreateAclsRequest ver bytes
-  "CreateAclsResponse" -> testMsg CreateAclsResp.decodeCreateAclsResponse CreateAclsResp.encodeCreateAclsResponse ver bytes
-  "DeleteAclsRequest" -> testMsg DeleteAclsReq.decodeDeleteAclsRequest DeleteAclsReq.encodeDeleteAclsRequest ver bytes
-  "DeleteAclsResponse" -> testMsg DeleteAclsResp.decodeDeleteAclsResponse DeleteAclsResp.encodeDeleteAclsResponse ver bytes
+  "DescribeAclsRequest" -> testMsg @DescribeAclsReq.DescribeAclsRequest ver bytes
+  "DescribeAclsResponse" -> testMsg @DescribeAclsResp.DescribeAclsResponse ver bytes
+  "CreateAclsRequest" -> testMsg @CreateAclsReq.CreateAclsRequest ver bytes
+  "CreateAclsResponse" -> testMsg @CreateAclsResp.CreateAclsResponse ver bytes
+  "DeleteAclsRequest" -> testMsg @DeleteAclsReq.DeleteAclsRequest ver bytes
+  "DeleteAclsResponse" -> testMsg @DeleteAclsResp.DeleteAclsResponse ver bytes
   
   -- Transactions
-  "InitProducerIdRequest" -> testMsg InitProducerIdReq.decodeInitProducerIdRequest InitProducerIdReq.encodeInitProducerIdRequest ver bytes
-  "InitProducerIdResponse" -> testMsg InitProducerIdResp.decodeInitProducerIdResponse InitProducerIdResp.encodeInitProducerIdResponse ver bytes
-  "AddPartitionsToTxnRequest" -> testMsg AddPartitionsToTxnReq.decodeAddPartitionsToTxnRequest AddPartitionsToTxnReq.encodeAddPartitionsToTxnRequest ver bytes
-  "AddPartitionsToTxnResponse" -> testMsg AddPartitionsToTxnResp.decodeAddPartitionsToTxnResponse AddPartitionsToTxnResp.encodeAddPartitionsToTxnResponse ver bytes
-  "AddOffsetsToTxnRequest" -> testMsg AddOffsetsToTxnReq.decodeAddOffsetsToTxnRequest AddOffsetsToTxnReq.encodeAddOffsetsToTxnRequest ver bytes
-  "AddOffsetsToTxnResponse" -> testMsg AddOffsetsToTxnResp.decodeAddOffsetsToTxnResponse AddOffsetsToTxnResp.encodeAddOffsetsToTxnResponse ver bytes
-  "EndTxnRequest" -> testMsg EndTxnReq.decodeEndTxnRequest EndTxnReq.encodeEndTxnRequest ver bytes
-  "EndTxnResponse" -> testMsg EndTxnResp.decodeEndTxnResponse EndTxnResp.encodeEndTxnResponse ver bytes
-  "TxnOffsetCommitRequest" -> testMsg TxnOffsetCommitReq.decodeTxnOffsetCommitRequest TxnOffsetCommitReq.encodeTxnOffsetCommitRequest ver bytes
-  "TxnOffsetCommitResponse" -> testMsg TxnOffsetCommitResp.decodeTxnOffsetCommitResponse TxnOffsetCommitResp.encodeTxnOffsetCommitResponse ver bytes
+  "InitProducerIdRequest" -> testMsg @InitProducerIdReq.InitProducerIdRequest ver bytes
+  "InitProducerIdResponse" -> testMsg @InitProducerIdResp.InitProducerIdResponse ver bytes
+  "AddPartitionsToTxnRequest" -> testMsg @AddPartitionsToTxnReq.AddPartitionsToTxnRequest ver bytes
+  "AddPartitionsToTxnResponse" -> testMsg @AddPartitionsToTxnResp.AddPartitionsToTxnResponse ver bytes
+  "AddOffsetsToTxnRequest" -> testMsg @AddOffsetsToTxnReq.AddOffsetsToTxnRequest ver bytes
+  "AddOffsetsToTxnResponse" -> testMsg @AddOffsetsToTxnResp.AddOffsetsToTxnResponse ver bytes
+  "EndTxnRequest" -> testMsg @EndTxnReq.EndTxnRequest ver bytes
+  "EndTxnResponse" -> testMsg @EndTxnResp.EndTxnResponse ver bytes
+  "TxnOffsetCommitRequest" -> testMsg @TxnOffsetCommitReq.TxnOffsetCommitRequest ver bytes
+  "TxnOffsetCommitResponse" -> testMsg @TxnOffsetCommitResp.TxnOffsetCommitResponse ver bytes
   
   -- Records/Data
-  "DeleteRecordsRequest" -> testMsg DeleteRecordsReq.decodeDeleteRecordsRequest DeleteRecordsReq.encodeDeleteRecordsRequest ver bytes
-  "DeleteRecordsResponse" -> testMsg DeleteRecordsResp.decodeDeleteRecordsResponse DeleteRecordsResp.encodeDeleteRecordsResponse ver bytes
+  "DeleteRecordsRequest" -> testMsg @DeleteRecordsReq.DeleteRecordsRequest ver bytes
+  "DeleteRecordsResponse" -> testMsg @DeleteRecordsResp.DeleteRecordsResponse ver bytes
   
   -- Internal protocols (skipping due to MonadFail requirement in encode functions)
   "StopReplicaRequest" -> Right ()  -- Skip: encoder requires MonadFail which PutM doesn't have
@@ -287,31 +287,19 @@ routeMessage msgType ver bytes = case msgType of
   -- Unknown message type
   other -> Left $ "Unknown message type: " ++ T.unpack other
 
--- | Test a message by decoding and re-encoding
-testMsg :: (Int16 -> Get.Get msg) -> 
-           (forall m. MonadPut m => Int16 -> msg -> m ()) -> 
-           Int16 -> 
-           BS.ByteString -> 
-           Either String ()
-testMsg decoder encoder ver bytes = do
-  -- Decode
-  let decoderWithRemaining = do
-        m <- decoder ver
-        remainingCount <- Get.remaining
-        r <- Get.getBytes remainingCount
-        return (m, r)
-  
-  (msg, remaining) <- runGetS decoderWithRemaining bytes
-  
-  -- Check that we consumed all bytes
-  if not (BS.null remaining)
-    then Left $ "Should consume all bytes, but " ++ show (BS.length remaining) ++ " bytes remaining"
-    else do
-      -- Re-encode
-      let reencoded = runPutS (encoder ver msg)
-      
-      -- Verify bytes match
-      if reencoded == bytes
+-- | Test a message by decoding and re-encoding through the
+-- 'WireCodec' instance. The message type is supplied at the call
+-- site via @TypeApplications@ — there's no Serial-shape encoder
+-- pair to thread through any more.
+testMsg
+  :: forall msg. WC.WireCodec msg
+  => Int16
+  -> BS.ByteString
+  -> Either String ()
+testMsg ver bytes = do
+  (msg :: msg) <- WC.runDecodeVer @msg ver bytes
+  let reencoded = WC.runEncodeVer @msg ver msg
+  if reencoded == bytes
         then Right ()
         else Left $ "Re-encoded bytes don't match:\n" ++
                    "  Original:  " ++ show (BS.unpack bytes) ++ "\n" ++

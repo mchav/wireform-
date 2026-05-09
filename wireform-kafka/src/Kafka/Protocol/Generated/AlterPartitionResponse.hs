@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.AlterPartitionResponse
     AlterPartitionResponse(..),
     TopicData(..),
     PartitionData(..),
-    encodeAlterPartitionResponse,
-    decodeAlterPartitionResponse,
     maxAlterPartitionResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -109,54 +97,6 @@ data PartitionData = PartitionData
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode PartitionData with version-aware field handling.
-encodePartitionData :: MonadPut m => E.ApiVersion -> PartitionData -> m ()
-encodePartitionData version pmsg =
-  do
-    serialize (partitionDataPartitionIndex pmsg)
-    serialize (partitionDataErrorCode pmsg)
-    serialize (partitionDataLeaderId pmsg)
-    serialize (partitionDataLeaderEpoch pmsg)
-    E.encodeVersionedArray version 0 (\_ x -> serialize x) (case P.unKafkaArray (partitionDataIsr pmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 1) $
-      serialize (partitionDataLeaderRecoveryState pmsg)
-    serialize (partitionDataPartitionEpoch pmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode PartitionData with version-aware field handling.
-decodePartitionData :: MonadGet m => E.ApiVersion -> m PartitionData
-decodePartitionData version =
-  do
-    fieldpartitionindex <- deserialize
-    fielderrorcode <- deserialize
-    fieldleaderid <- deserialize
-    fieldleaderepoch <- deserialize
-    fieldisr <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\_ -> deserialize)
-    fieldleaderrecoverystate <- if version >= 1
-      then deserialize
-      else pure (0)
-    fieldpartitionepoch <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure PartitionData
-      {
-      partitionDataPartitionIndex = fieldpartitionindex
-      ,
-      partitionDataErrorCode = fielderrorcode
-      ,
-      partitionDataLeaderId = fieldleaderid
-      ,
-      partitionDataLeaderEpoch = fieldleaderepoch
-      ,
-      partitionDataIsr = fieldisr
-      ,
-      partitionDataLeaderRecoveryState = fieldleaderrecoverystate
-      ,
-      partitionDataPartitionEpoch = fieldpartitionepoch
-      }
-
-
 -- | The responses for each topic.
 data TopicData = TopicData
   {
@@ -174,34 +114,6 @@ data TopicData = TopicData
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicData with version-aware field handling.
-encodeTopicData :: MonadPut m => E.ApiVersion -> TopicData -> m ()
-encodeTopicData version tmsg =
-  do
-    when (version >= 2) $
-      serialize (topicDataTopicId tmsg)
-    E.encodeVersionedArray version 0 encodePartitionData (case P.unKafkaArray (topicDataPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicData with version-aware field handling.
-decodeTopicData :: MonadGet m => E.ApiVersion -> m TopicData
-decodeTopicData version =
-  do
-    fieldtopicid <- if version >= 2
-      then deserialize
-      else pure (P.nullUuid)
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodePartitionData
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicData
-      {
-      topicDataTopicId = fieldtopicid
-      ,
-      topicDataPartitions = fieldpartitions
-      }
-
 
 
 data AlterPartitionResponse = AlterPartitionResponse
@@ -237,36 +149,6 @@ instance KafkaMessage AlterPartitionResponse where
   messageMinVersion = 2
   messageMaxVersion = 3
   messageFlexibleVersion = Just 0
-
--- | Encode AlterPartitionResponse with the given API version.
-encodeAlterPartitionResponse :: MonadPut m => E.ApiVersion -> AlterPartitionResponse -> m ()
-encodeAlterPartitionResponse version msg
-  | version >= 2 && version <= 3 =
-    do
-      serialize (alterPartitionResponseThrottleTimeMs msg)
-      serialize (alterPartitionResponseErrorCode msg)
-      E.encodeVersionedArray version 0 encodeTopicData (case P.unKafkaArray (alterPartitionResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode AlterPartitionResponse with the given API version.
-decodeAlterPartitionResponse :: MonadGet m => E.ApiVersion -> m AlterPartitionResponse
-decodeAlterPartitionResponse version
-  | version >= 2 && version <= 3 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicData
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure AlterPartitionResponse
-        {
-        alterPartitionResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        alterPartitionResponseErrorCode = fielderrorcode
-        ,
-        alterPartitionResponseTopics = fieldtopics
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a PartitionData.
 wireMaxSizePartitionData :: Int -> PartitionData -> Int

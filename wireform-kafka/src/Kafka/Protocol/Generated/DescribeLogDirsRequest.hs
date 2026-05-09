@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.DescribeLogDirsRequest
   (
     DescribeLogDirsRequest(..),
     DescribableLogDirTopic(..),
-    encodeDescribeLogDirsRequest,
-    decodeDescribeLogDirsRequest,
     maxDescribeLogDirsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -79,31 +67,6 @@ data DescribableLogDirTopic = DescribableLogDirTopic
   deriving (Eq, Show, Generic)
 
 
--- | Encode DescribableLogDirTopic with version-aware field handling.
-encodeDescribableLogDirTopic :: MonadPut m => E.ApiVersion -> DescribableLogDirTopic -> m ()
-encodeDescribableLogDirTopic version dmsg =
-  do
-    if version >= 2 then serialize (toCompactString (describableLogDirTopicTopic dmsg)) else serialize (describableLogDirTopicTopic dmsg)
-    E.encodeVersionedArray version 2 (\_ x -> serialize x) (case P.unKafkaArray (describableLogDirTopicPartitions dmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribableLogDirTopic with version-aware field handling.
-decodeDescribableLogDirTopic :: MonadGet m => E.ApiVersion -> m DescribableLogDirTopic
-decodeDescribableLogDirTopic version =
-  do
-    fieldtopic <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 (\_ -> deserialize)
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribableLogDirTopic
-      {
-      describableLogDirTopicTopic = fieldtopic
-      ,
-      describableLogDirTopicPartitions = fieldpartitions
-      }
-
-
-
 data DescribeLogDirsRequest = DescribeLogDirsRequest
   {
 
@@ -125,41 +88,6 @@ instance KafkaMessage DescribeLogDirsRequest where
   messageMinVersion = 1
   messageMaxVersion = 5
   messageFlexibleVersion = Just 2
-
--- | Encode DescribeLogDirsRequest with the given API version.
-encodeDescribeLogDirsRequest :: MonadPut m => E.ApiVersion -> DescribeLogDirsRequest -> m ()
-encodeDescribeLogDirsRequest version msg
-  | version == 1 =
-    do
-      E.encodeVersionedNullableArray version 2 encodeDescribableLogDirTopic (describeLogDirsRequestTopics msg)
-
-
-  | version >= 2 && version <= 5 =
-    do
-      E.encodeVersionedNullableArray version 2 encodeDescribableLogDirTopic (describeLogDirsRequestTopics msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeLogDirsRequest with the given API version.
-decodeDescribeLogDirsRequest :: MonadGet m => E.ApiVersion -> m DescribeLogDirsRequest
-decodeDescribeLogDirsRequest version
-  | version == 1 =
-    do
-      fieldtopics <- E.decodeVersionedNullableArray version 2 decodeDescribableLogDirTopic
-      pure DescribeLogDirsRequest
-        {
-        describeLogDirsRequestTopics = fieldtopics
-        }
-
-  | version >= 2 && version <= 5 =
-    do
-      fieldtopics <- E.decodeVersionedNullableArray version 2 decodeDescribableLogDirTopic
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeLogDirsRequest
-        {
-        describeLogDirsRequestTopics = fieldtopics
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a DescribableLogDirTopic.
 wireMaxSizeDescribableLogDirTopic :: Int -> DescribableLogDirTopic -> Int

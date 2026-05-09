@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.ConsumerProtocolAssignment
   (
     ConsumerProtocolAssignment(..),
     TopicPartition(..),
-    encodeConsumerProtocolAssignment,
-    decodeConsumerProtocolAssignment,
     maxConsumerProtocolAssignmentVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -79,29 +67,6 @@ data TopicPartition = TopicPartition
   deriving (Eq, Show, Generic)
 
 
--- | Encode TopicPartition with version-aware field handling.
-encodeTopicPartition :: MonadPut m => E.ApiVersion -> TopicPartition -> m ()
-encodeTopicPartition _version tmsg =
-  do
-    serialize (topicPartitionTopic tmsg)
-    serialize (topicPartitionPartitions tmsg) -- ArrayType: PrimitiveType "int32"
-
-
--- | Decode TopicPartition with version-aware field handling.
-decodeTopicPartition :: MonadGet m => E.ApiVersion -> m TopicPartition
-decodeTopicPartition _version =
-  do
-    fieldtopic <- deserialize
-    fieldpartitions <- deserialize
-    pure TopicPartition
-      {
-      topicPartitionTopic = fieldtopic
-      ,
-      topicPartitionPartitions = fieldpartitions
-      }
-
-
-
 data ConsumerProtocolAssignment = ConsumerProtocolAssignment
   {
 
@@ -124,31 +89,6 @@ maxConsumerProtocolAssignmentVersion :: Int16
 maxConsumerProtocolAssignmentVersion = 3
 
 
-
--- | Encode ConsumerProtocolAssignment with the given API version.
-encodeConsumerProtocolAssignment :: MonadPut m => E.ApiVersion -> ConsumerProtocolAssignment -> m ()
-encodeConsumerProtocolAssignment version msg
-  | version >= 0 && version <= 3 =
-    do
-      E.encodeVersionedArray version 999 encodeTopicPartition (case P.unKafkaArray (consumerProtocolAssignmentAssignedPartitions msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (consumerProtocolAssignmentUserData msg)
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ConsumerProtocolAssignment with the given API version.
-decodeConsumerProtocolAssignment :: MonadGet m => E.ApiVersion -> m ConsumerProtocolAssignment
-decodeConsumerProtocolAssignment version
-  | version >= 0 && version <= 3 =
-    do
-      fieldassignedpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeTopicPartition
-      fielduserdata <- deserialize
-      pure ConsumerProtocolAssignment
-        {
-        consumerProtocolAssignmentAssignedPartitions = fieldassignedpartitions
-        ,
-        consumerProtocolAssignmentUserData = fielduserdata
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a TopicPartition.
 wireMaxSizeTopicPartition :: Int -> TopicPartition -> Int

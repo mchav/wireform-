@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.AddRaftVoterResponse
   (
     AddRaftVoterResponse(..),
-    encodeAddRaftVoterResponse,
-    decodeAddRaftVoterResponse,
     maxAddRaftVoterResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -94,36 +82,6 @@ instance KafkaMessage AddRaftVoterResponse where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 0
-
--- | Encode AddRaftVoterResponse with the given API version.
-encodeAddRaftVoterResponse :: MonadPut m => E.ApiVersion -> AddRaftVoterResponse -> m ()
-encodeAddRaftVoterResponse version msg
-  | version >= 0 && version <= 1 =
-    do
-      serialize (addRaftVoterResponseThrottleTimeMs msg)
-      serialize (addRaftVoterResponseErrorCode msg)
-      serialize (toCompactString (addRaftVoterResponseErrorMessage msg))
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode AddRaftVoterResponse with the given API version.
-decodeAddRaftVoterResponse :: MonadGet m => E.ApiVersion -> m AddRaftVoterResponse
-decodeAddRaftVoterResponse version
-  | version >= 0 && version <= 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure AddRaftVoterResponse
-        {
-        addRaftVoterResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        addRaftVoterResponseErrorCode = fielderrorcode
-        ,
-        addRaftVoterResponseErrorMessage = fielderrormessage
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a AddRaftVoterResponse.

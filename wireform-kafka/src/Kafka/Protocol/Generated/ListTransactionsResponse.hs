@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.ListTransactionsResponse
   (
     ListTransactionsResponse(..),
     TransactionState(..),
-    encodeListTransactionsResponse,
-    decodeListTransactionsResponse,
     maxListTransactionsResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -83,35 +71,6 @@ data TransactionState = TransactionState
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TransactionState with version-aware field handling.
-encodeTransactionState :: MonadPut m => E.ApiVersion -> TransactionState -> m ()
-encodeTransactionState version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (transactionStateTransactionalId tmsg)) else serialize (transactionStateTransactionalId tmsg)
-    serialize (transactionStateProducerId tmsg)
-    if version >= 0 then serialize (toCompactString (transactionStateTransactionState tmsg)) else serialize (transactionStateTransactionState tmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TransactionState with version-aware field handling.
-decodeTransactionState :: MonadGet m => E.ApiVersion -> m TransactionState
-decodeTransactionState version =
-  do
-    fieldtransactionalid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldproducerid <- deserialize
-    fieldtransactionstate <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TransactionState
-      {
-      transactionStateTransactionalId = fieldtransactionalid
-      ,
-      transactionStateProducerId = fieldproducerid
-      ,
-      transactionStateTransactionState = fieldtransactionstate
-      }
-
 
 
 data ListTransactionsResponse = ListTransactionsResponse
@@ -153,40 +112,6 @@ instance KafkaMessage ListTransactionsResponse where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 0
-
--- | Encode ListTransactionsResponse with the given API version.
-encodeListTransactionsResponse :: MonadPut m => E.ApiVersion -> ListTransactionsResponse -> m ()
-encodeListTransactionsResponse version msg
-  | version >= 0 && version <= 2 =
-    do
-      serialize (listTransactionsResponseThrottleTimeMs msg)
-      serialize (listTransactionsResponseErrorCode msg)
-      E.encodeVersionedArray version 0 (\v s -> if v >= 0 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (listTransactionsResponseUnknownStateFilters msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 0 encodeTransactionState (case P.unKafkaArray (listTransactionsResponseTransactionStates msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ListTransactionsResponse with the given API version.
-decodeListTransactionsResponse :: MonadGet m => E.ApiVersion -> m ListTransactionsResponse
-decodeListTransactionsResponse version
-  | version >= 0 && version <= 2 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldunknownstatefilters <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\v -> if v >= 0 then P.fromCompactString <$> deserialize else deserialize)
-      fieldtransactionstates <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTransactionState
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ListTransactionsResponse
-        {
-        listTransactionsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        listTransactionsResponseErrorCode = fielderrorcode
-        ,
-        listTransactionsResponseUnknownStateFilters = fieldunknownstatefilters
-        ,
-        listTransactionsResponseTransactionStates = fieldtransactionstates
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a TransactionState.
 wireMaxSizeTransactionState :: Int -> TransactionState -> Int

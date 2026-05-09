@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.ExpireDelegationTokenResponse
   (
     ExpireDelegationTokenResponse(..),
-    encodeExpireDelegationTokenResponse,
-    decodeExpireDelegationTokenResponse,
     maxExpireDelegationTokenResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -94,57 +82,6 @@ instance KafkaMessage ExpireDelegationTokenResponse where
   messageMinVersion = 1
   messageMaxVersion = 2
   messageFlexibleVersion = Just 2
-
--- | Encode ExpireDelegationTokenResponse with the given API version.
-encodeExpireDelegationTokenResponse :: MonadPut m => E.ApiVersion -> ExpireDelegationTokenResponse -> m ()
-encodeExpireDelegationTokenResponse version msg
-  | version == 1 =
-    do
-      serialize (expireDelegationTokenResponseErrorCode msg)
-      serialize (expireDelegationTokenResponseExpiryTimestampMs msg)
-      serialize (expireDelegationTokenResponseThrottleTimeMs msg)
-
-
-  | version == 2 =
-    do
-      serialize (expireDelegationTokenResponseErrorCode msg)
-      serialize (expireDelegationTokenResponseExpiryTimestampMs msg)
-      serialize (expireDelegationTokenResponseThrottleTimeMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ExpireDelegationTokenResponse with the given API version.
-decodeExpireDelegationTokenResponse :: MonadGet m => E.ApiVersion -> m ExpireDelegationTokenResponse
-decodeExpireDelegationTokenResponse version
-  | version == 1 =
-    do
-      fielderrorcode <- deserialize
-      fieldexpirytimestampms <- deserialize
-      fieldthrottletimems <- deserialize
-      pure ExpireDelegationTokenResponse
-        {
-        expireDelegationTokenResponseErrorCode = fielderrorcode
-        ,
-        expireDelegationTokenResponseExpiryTimestampMs = fieldexpirytimestampms
-        ,
-        expireDelegationTokenResponseThrottleTimeMs = fieldthrottletimems
-        }
-
-  | version == 2 =
-    do
-      fielderrorcode <- deserialize
-      fieldexpirytimestampms <- deserialize
-      fieldthrottletimems <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ExpireDelegationTokenResponse
-        {
-        expireDelegationTokenResponseErrorCode = fielderrorcode
-        ,
-        expireDelegationTokenResponseExpiryTimestampMs = fieldexpirytimestampms
-        ,
-        expireDelegationTokenResponseThrottleTimeMs = fieldthrottletimems
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a ExpireDelegationTokenResponse.

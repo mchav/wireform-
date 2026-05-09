@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.DescribeTransactionsRequest
   (
     DescribeTransactionsRequest(..),
-    encodeDescribeTransactionsRequest,
-    decodeDescribeTransactionsRequest,
     maxDescribeTransactionsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -82,28 +70,6 @@ instance KafkaMessage DescribeTransactionsRequest where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Just 0
-
--- | Encode DescribeTransactionsRequest with the given API version.
-encodeDescribeTransactionsRequest :: MonadPut m => E.ApiVersion -> DescribeTransactionsRequest -> m ()
-encodeDescribeTransactionsRequest version msg
-  | version == 0 =
-    do
-      E.encodeVersionedArray version 0 (\v s -> if v >= 0 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (describeTransactionsRequestTransactionalIds msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeTransactionsRequest with the given API version.
-decodeDescribeTransactionsRequest :: MonadGet m => E.ApiVersion -> m DescribeTransactionsRequest
-decodeDescribeTransactionsRequest version
-  | version == 0 =
-    do
-      fieldtransactionalids <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\v -> if v >= 0 then P.fromCompactString <$> deserialize else deserialize)
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeTransactionsRequest
-        {
-        describeTransactionsRequestTransactionalIds = fieldtransactionalids
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a DescribeTransactionsRequest.

@@ -24,17 +24,9 @@ module Kafka.Protocol.Generated.DescribeClientQuotasResponse
     EntryData(..),
     EntityData(..),
     ValueData(..),
-    encodeDescribeClientQuotasResponse,
-    decodeDescribeClientQuotasResponse,
     maxDescribeClientQuotasResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -42,13 +34,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -80,31 +68,6 @@ data EntityData = EntityData
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode EntityData with version-aware field handling.
-encodeEntityData :: MonadPut m => E.ApiVersion -> EntityData -> m ()
-encodeEntityData version emsg =
-  do
-    if version >= 1 then serialize (toCompactString (entityDataEntityType emsg)) else serialize (entityDataEntityType emsg)
-    if version >= 1 then serialize (toCompactString (entityDataEntityName emsg)) else serialize (entityDataEntityName emsg)
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode EntityData with version-aware field handling.
-decodeEntityData :: MonadGet m => E.ApiVersion -> m EntityData
-decodeEntityData version =
-  do
-    fieldentitytype <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    fieldentityname <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure EntityData
-      {
-      entityDataEntityType = fieldentitytype
-      ,
-      entityDataEntityName = fieldentityname
-      }
-
-
 -- | The quota values for the entity.
 data ValueData = ValueData
   {
@@ -123,31 +86,6 @@ data ValueData = ValueData
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode ValueData with version-aware field handling.
-encodeValueData :: MonadPut m => E.ApiVersion -> ValueData -> m ()
-encodeValueData version vmsg =
-  do
-    if version >= 1 then serialize (toCompactString (valueDataKey vmsg)) else serialize (valueDataKey vmsg)
-    serialize (valueDataValue vmsg)
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ValueData with version-aware field handling.
-decodeValueData :: MonadGet m => E.ApiVersion -> m ValueData
-decodeValueData version =
-  do
-    fieldkey <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    fieldvalue <- deserialize
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ValueData
-      {
-      valueDataKey = fieldkey
-      ,
-      valueDataValue = fieldvalue
-      }
-
-
 -- | A result entry.
 data EntryData = EntryData
   {
@@ -165,31 +103,6 @@ data EntryData = EntryData
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode EntryData with version-aware field handling.
-encodeEntryData :: MonadPut m => E.ApiVersion -> EntryData -> m ()
-encodeEntryData version emsg =
-  do
-    E.encodeVersionedArray version 1 encodeEntityData (case P.unKafkaArray (entryDataEntity emsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    E.encodeVersionedArray version 1 encodeValueData (case P.unKafkaArray (entryDataValues emsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode EntryData with version-aware field handling.
-decodeEntryData :: MonadGet m => E.ApiVersion -> m EntryData
-decodeEntryData version =
-  do
-    fieldentity <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeEntityData
-    fieldvalues <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeValueData
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure EntryData
-      {
-      entryDataEntity = fieldentity
-      ,
-      entryDataValues = fieldvalues
-      }
-
 
 
 data DescribeClientQuotasResponse = DescribeClientQuotasResponse
@@ -231,65 +144,6 @@ instance KafkaMessage DescribeClientQuotasResponse where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 1
-
--- | Encode DescribeClientQuotasResponse with the given API version.
-encodeDescribeClientQuotasResponse :: MonadPut m => E.ApiVersion -> DescribeClientQuotasResponse -> m ()
-encodeDescribeClientQuotasResponse version msg
-  | version == 0 =
-    do
-      serialize (describeClientQuotasResponseThrottleTimeMs msg)
-      serialize (describeClientQuotasResponseErrorCode msg)
-      serialize (describeClientQuotasResponseErrorMessage msg)
-      E.encodeVersionedNullableArray version 1 encodeEntryData (describeClientQuotasResponseEntries msg)
-
-
-  | version == 1 =
-    do
-      serialize (describeClientQuotasResponseThrottleTimeMs msg)
-      serialize (describeClientQuotasResponseErrorCode msg)
-      serialize (toCompactString (describeClientQuotasResponseErrorMessage msg))
-      E.encodeVersionedNullableArray version 1 encodeEntryData (describeClientQuotasResponseEntries msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeClientQuotasResponse with the given API version.
-decodeDescribeClientQuotasResponse :: MonadGet m => E.ApiVersion -> m DescribeClientQuotasResponse
-decodeDescribeClientQuotasResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- deserialize
-      fieldentries <- E.decodeVersionedNullableArray version 1 decodeEntryData
-      pure DescribeClientQuotasResponse
-        {
-        describeClientQuotasResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        describeClientQuotasResponseErrorCode = fielderrorcode
-        ,
-        describeClientQuotasResponseErrorMessage = fielderrormessage
-        ,
-        describeClientQuotasResponseEntries = fieldentries
-        }
-
-  | version == 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-      fieldentries <- E.decodeVersionedNullableArray version 1 decodeEntryData
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeClientQuotasResponse
-        {
-        describeClientQuotasResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        describeClientQuotasResponseErrorCode = fielderrorcode
-        ,
-        describeClientQuotasResponseErrorMessage = fielderrormessage
-        ,
-        describeClientQuotasResponseEntries = fieldentries
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a EntityData.
 wireMaxSizeEntityData :: Int -> EntityData -> Int

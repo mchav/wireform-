@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.DeleteAclsResponse
     DeleteAclsResponse(..),
     DeleteAclsFilterResult(..),
     DeleteAclsMatchingAcl(..),
-    encodeDeleteAclsResponse,
-    decodeDeleteAclsResponse,
     maxDeleteAclsResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -121,62 +109,6 @@ data DeleteAclsMatchingAcl = DeleteAclsMatchingAcl
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode DeleteAclsMatchingAcl with version-aware field handling.
-encodeDeleteAclsMatchingAcl :: MonadPut m => E.ApiVersion -> DeleteAclsMatchingAcl -> m ()
-encodeDeleteAclsMatchingAcl version dmsg =
-  do
-    serialize (deleteAclsMatchingAclErrorCode dmsg)
-    if version >= 2 then serialize (toCompactString (deleteAclsMatchingAclErrorMessage dmsg)) else serialize (deleteAclsMatchingAclErrorMessage dmsg)
-    serialize (deleteAclsMatchingAclResourceType dmsg)
-    if version >= 2 then serialize (toCompactString (deleteAclsMatchingAclResourceName dmsg)) else serialize (deleteAclsMatchingAclResourceName dmsg)
-    when (version >= 1) $
-      serialize (deleteAclsMatchingAclPatternType dmsg)
-    if version >= 2 then serialize (toCompactString (deleteAclsMatchingAclPrincipal dmsg)) else serialize (deleteAclsMatchingAclPrincipal dmsg)
-    if version >= 2 then serialize (toCompactString (deleteAclsMatchingAclHost dmsg)) else serialize (deleteAclsMatchingAclHost dmsg)
-    serialize (deleteAclsMatchingAclOperation dmsg)
-    serialize (deleteAclsMatchingAclPermissionType dmsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DeleteAclsMatchingAcl with version-aware field handling.
-decodeDeleteAclsMatchingAcl :: MonadGet m => E.ApiVersion -> m DeleteAclsMatchingAcl
-decodeDeleteAclsMatchingAcl version =
-  do
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldresourcetype <- deserialize
-    fieldresourcename <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldpatterntype <- if version >= 1
-      then deserialize
-      else pure (3)
-    fieldprincipal <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldhost <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldoperation <- deserialize
-    fieldpermissiontype <- deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DeleteAclsMatchingAcl
-      {
-      deleteAclsMatchingAclErrorCode = fielderrorcode
-      ,
-      deleteAclsMatchingAclErrorMessage = fielderrormessage
-      ,
-      deleteAclsMatchingAclResourceType = fieldresourcetype
-      ,
-      deleteAclsMatchingAclResourceName = fieldresourcename
-      ,
-      deleteAclsMatchingAclPatternType = fieldpatterntype
-      ,
-      deleteAclsMatchingAclPrincipal = fieldprincipal
-      ,
-      deleteAclsMatchingAclHost = fieldhost
-      ,
-      deleteAclsMatchingAclOperation = fieldoperation
-      ,
-      deleteAclsMatchingAclPermissionType = fieldpermissiontype
-      }
-
-
 -- | The results for each filter.
 data DeleteAclsFilterResult = DeleteAclsFilterResult
   {
@@ -200,35 +132,6 @@ data DeleteAclsFilterResult = DeleteAclsFilterResult
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode DeleteAclsFilterResult with version-aware field handling.
-encodeDeleteAclsFilterResult :: MonadPut m => E.ApiVersion -> DeleteAclsFilterResult -> m ()
-encodeDeleteAclsFilterResult version dmsg =
-  do
-    serialize (deleteAclsFilterResultErrorCode dmsg)
-    if version >= 2 then serialize (toCompactString (deleteAclsFilterResultErrorMessage dmsg)) else serialize (deleteAclsFilterResultErrorMessage dmsg)
-    E.encodeVersionedArray version 2 encodeDeleteAclsMatchingAcl (case P.unKafkaArray (deleteAclsFilterResultMatchingAcls dmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DeleteAclsFilterResult with version-aware field handling.
-decodeDeleteAclsFilterResult :: MonadGet m => E.ApiVersion -> m DeleteAclsFilterResult
-decodeDeleteAclsFilterResult version =
-  do
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldmatchingacls <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDeleteAclsMatchingAcl
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DeleteAclsFilterResult
-      {
-      deleteAclsFilterResultErrorCode = fielderrorcode
-      ,
-      deleteAclsFilterResultErrorMessage = fielderrormessage
-      ,
-      deleteAclsFilterResultMatchingAcls = fieldmatchingacls
-      }
-
 
 
 data DeleteAclsResponse = DeleteAclsResponse
@@ -258,49 +161,6 @@ instance KafkaMessage DeleteAclsResponse where
   messageMinVersion = 1
   messageMaxVersion = 3
   messageFlexibleVersion = Just 2
-
--- | Encode DeleteAclsResponse with the given API version.
-encodeDeleteAclsResponse :: MonadPut m => E.ApiVersion -> DeleteAclsResponse -> m ()
-encodeDeleteAclsResponse version msg
-  | version == 1 =
-    do
-      serialize (deleteAclsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 2 encodeDeleteAclsFilterResult (case P.unKafkaArray (deleteAclsResponseFilterResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version >= 2 && version <= 3 =
-    do
-      serialize (deleteAclsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 2 encodeDeleteAclsFilterResult (case P.unKafkaArray (deleteAclsResponseFilterResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DeleteAclsResponse with the given API version.
-decodeDeleteAclsResponse :: MonadGet m => E.ApiVersion -> m DeleteAclsResponse
-decodeDeleteAclsResponse version
-  | version == 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldfilterresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDeleteAclsFilterResult
-      pure DeleteAclsResponse
-        {
-        deleteAclsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        deleteAclsResponseFilterResults = fieldfilterresults
-        }
-
-  | version >= 2 && version <= 3 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldfilterresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDeleteAclsFilterResult
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DeleteAclsResponse
-        {
-        deleteAclsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        deleteAclsResponseFilterResults = fieldfilterresults
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a DeleteAclsMatchingAcl.
 wireMaxSizeDeleteAclsMatchingAcl :: Int -> DeleteAclsMatchingAcl -> Int

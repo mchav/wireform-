@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.ControlledShutdownRequest
   (
     ControlledShutdownRequest(..),
-    encodeControlledShutdownRequest,
-    decodeControlledShutdownRequest,
     maxControlledShutdownRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -77,18 +65,6 @@ instance KafkaMessage ControlledShutdownRequest where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Nothing
-
--- | Encode ControlledShutdownRequest with the given API version.
-encodeControlledShutdownRequest :: MonadPut m => E.ApiVersion -> ControlledShutdownRequest -> m ()
-encodeControlledShutdownRequest version msg
-  = error "No valid versions"
-
-
--- | Decode ControlledShutdownRequest with the given API version.
-decodeControlledShutdownRequest :: MonadGet m => E.ApiVersion -> m ControlledShutdownRequest
-decodeControlledShutdownRequest version
-  = fail "No valid versions"
-
 
 
 -- | Worst-case wire size of a ControlledShutdownRequest.

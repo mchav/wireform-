@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Client.Internal.Request
@@ -72,7 +73,7 @@ frameRequest apiKey apiVersion correlationId clientId requestBody =
     -- broker read garbage off the wire and close the connection
     -- with @InvalidRequestException@ + BufferUnderflow.
     !headerVersion = requestHeaderVersionFor apiKey apiVersion
-    !headerBytes   = WC.runEncodeVer RH.encodeRequestHeader headerVersion header
+    !headerBytes   = WC.runEncodeVer @RH.RequestHeader headerVersion header
     !headerLen     = BS.length headerBytes
     !bodyLen       = BS.length requestBody
     !messageSize   = headerLen + bodyLen

@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.ElectLeadersResponse
     ElectLeadersResponse(..),
     ReplicaElectionResult(..),
     PartitionResult(..),
-    encodeElectLeadersResponse,
-    decodeElectLeadersResponse,
     maxElectLeadersResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -85,35 +73,6 @@ data PartitionResult = PartitionResult
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode PartitionResult with version-aware field handling.
-encodePartitionResult :: MonadPut m => E.ApiVersion -> PartitionResult -> m ()
-encodePartitionResult version pmsg =
-  do
-    serialize (partitionResultPartitionId pmsg)
-    serialize (partitionResultErrorCode pmsg)
-    if version >= 2 then serialize (toCompactString (partitionResultErrorMessage pmsg)) else serialize (partitionResultErrorMessage pmsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode PartitionResult with version-aware field handling.
-decodePartitionResult :: MonadGet m => E.ApiVersion -> m PartitionResult
-decodePartitionResult version =
-  do
-    fieldpartitionid <- deserialize
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure PartitionResult
-      {
-      partitionResultPartitionId = fieldpartitionid
-      ,
-      partitionResultErrorCode = fielderrorcode
-      ,
-      partitionResultErrorMessage = fielderrormessage
-      }
-
-
 -- | The election results, or an empty array if the requester did not have permission and the request asks for all partitions.
 data ReplicaElectionResult = ReplicaElectionResult
   {
@@ -131,31 +90,6 @@ data ReplicaElectionResult = ReplicaElectionResult
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode ReplicaElectionResult with version-aware field handling.
-encodeReplicaElectionResult :: MonadPut m => E.ApiVersion -> ReplicaElectionResult -> m ()
-encodeReplicaElectionResult version rmsg =
-  do
-    if version >= 2 then serialize (toCompactString (replicaElectionResultTopic rmsg)) else serialize (replicaElectionResultTopic rmsg)
-    E.encodeVersionedArray version 2 encodePartitionResult (case P.unKafkaArray (replicaElectionResultPartitionResult rmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ReplicaElectionResult with version-aware field handling.
-decodeReplicaElectionResult :: MonadGet m => E.ApiVersion -> m ReplicaElectionResult
-decodeReplicaElectionResult version =
-  do
-    fieldtopic <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitionresult <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodePartitionResult
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ReplicaElectionResult
-      {
-      replicaElectionResultTopic = fieldtopic
-      ,
-      replicaElectionResultPartitionResult = fieldpartitionresult
-      }
-
 
 
 data ElectLeadersResponse = ElectLeadersResponse
@@ -191,76 +125,6 @@ instance KafkaMessage ElectLeadersResponse where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 2
-
--- | Encode ElectLeadersResponse with the given API version.
-encodeElectLeadersResponse :: MonadPut m => E.ApiVersion -> ElectLeadersResponse -> m ()
-encodeElectLeadersResponse version msg
-  | version == 0 =
-    do
-      serialize (electLeadersResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 2 encodeReplicaElectionResult (case P.unKafkaArray (electLeadersResponseReplicaElectionResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version == 1 =
-    do
-      serialize (electLeadersResponseThrottleTimeMs msg)
-      serialize (electLeadersResponseErrorCode msg)
-      E.encodeVersionedArray version 2 encodeReplicaElectionResult (case P.unKafkaArray (electLeadersResponseReplicaElectionResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version == 2 =
-    do
-      serialize (electLeadersResponseThrottleTimeMs msg)
-      serialize (electLeadersResponseErrorCode msg)
-      E.encodeVersionedArray version 2 encodeReplicaElectionResult (case P.unKafkaArray (electLeadersResponseReplicaElectionResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ElectLeadersResponse with the given API version.
-decodeElectLeadersResponse :: MonadGet m => E.ApiVersion -> m ElectLeadersResponse
-decodeElectLeadersResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldreplicaelectionresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeReplicaElectionResult
-      pure ElectLeadersResponse
-        {
-        electLeadersResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        electLeadersResponseErrorCode = 0
-        ,
-        electLeadersResponseReplicaElectionResults = fieldreplicaelectionresults
-        }
-
-  | version == 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldreplicaelectionresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeReplicaElectionResult
-      pure ElectLeadersResponse
-        {
-        electLeadersResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        electLeadersResponseErrorCode = fielderrorcode
-        ,
-        electLeadersResponseReplicaElectionResults = fieldreplicaelectionresults
-        }
-
-  | version == 2 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldreplicaelectionresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeReplicaElectionResult
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ElectLeadersResponse
-        {
-        electLeadersResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        electLeadersResponseErrorCode = fielderrorcode
-        ,
-        electLeadersResponseReplicaElectionResults = fieldreplicaelectionresults
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a PartitionResult.
 wireMaxSizePartitionResult :: Int -> PartitionResult -> Int

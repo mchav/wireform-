@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Protocol.Generated.KnownGoodSpec (tests) where
 
@@ -7,15 +8,11 @@ import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified System.Directory as Dir
-import Data.Bytes.Get (MonadGet, runGetS)
-import qualified Data.Bytes.Get
-import Data.Bytes.Put (runPutS)
 import Data.Int (Int16)
-import qualified Data.Serialize.Get as Get
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Kafka.Protocol.Generated.MetadataRequest
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Generated.MetadataRequest (MetadataRequest)
+import qualified Kafka.Protocol.Wire.Codec as WC
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -82,34 +79,18 @@ hexToBS hexText =
         | otherwise = Left $ "Invalid hex digit: " ++ [c]
   in BS.pack <$> mapM parseHex pairs
 
--- | Test a single MetadataRequest vector
+-- | Test a single MetadataRequest vector through the WireCodec
+-- instance: decode the bytes, re-encode, and assert they match.
 testMetadataRequest :: TestVector -> TestTree
 testMetadataRequest vec = testCase (show (description vec)) $ do
-  -- Parse hex to bytes
   bytes <- case hexToBS (hex vec) of
     Left err -> assertFailure $ "Failed to parse hex: " ++ err
     Right bs -> return bs
-  
-  -- Decode using our decoder
-  -- Wrap the decoder to also return remaining bytes
-  let decoderWithRemaining :: Get.Get (MetadataRequest, BS.ByteString)
-      decoderWithRemaining = do
-        msg <- decodeMetadataRequest (version vec)
-        remainingCount <- Get.remaining
-        remainingBytes <- Get.getBytes remainingCount
-        return (msg, remainingBytes)
-      
-      decoded :: Either String (MetadataRequest, BS.ByteString)
-      decoded = runGetS decoderWithRemaining bytes
-  
-  case decoded of
-    Left err -> assertFailure $ "Decode failed: " ++ err
-    Right (msg, remaining) -> do
-      -- Check that we consumed all bytes
-      BS.null remaining @? "Should consume all bytes, but " ++ show (BS.length remaining) ++ " bytes remaining"
-      
-      -- Re-encode and verify bytes match
-      let reencoded = runPutS $ encodeMetadataRequest (version vec) msg
+
+  case WC.runDecodeVer @MetadataRequest (version vec) bytes of
+    Left err  -> assertFailure $ "Decode failed: " ++ err
+    Right msg -> do
+      let reencoded = WC.runEncodeVer @MetadataRequest (version vec) msg
       reencoded @?= bytes
 
 -- | Create test tree from vectors

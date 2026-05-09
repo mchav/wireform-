@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.InitProducerIdRequest
   (
     InitProducerIdRequest(..),
-    encodeInitProducerIdRequest,
-    decodeInitProducerIdRequest,
     maxInitProducerIdRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -112,129 +100,6 @@ instance KafkaMessage InitProducerIdRequest where
   messageMinVersion = 0
   messageMaxVersion = 6
   messageFlexibleVersion = Just 2
-
--- | Encode InitProducerIdRequest with the given API version.
-encodeInitProducerIdRequest :: MonadPut m => E.ApiVersion -> InitProducerIdRequest -> m ()
-encodeInitProducerIdRequest version msg
-  | version == 2 =
-    do
-      serialize (toCompactString (initProducerIdRequestTransactionalId msg))
-      serialize (initProducerIdRequestTransactionTimeoutMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 6 =
-    do
-      serialize (toCompactString (initProducerIdRequestTransactionalId msg))
-      serialize (initProducerIdRequestTransactionTimeoutMs msg)
-      serialize (initProducerIdRequestProducerId msg)
-      serialize (initProducerIdRequestProducerEpoch msg)
-      serialize (initProducerIdRequestEnable2Pc msg)
-      serialize (initProducerIdRequestKeepPreparedTxn msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 1 =
-    do
-      serialize (initProducerIdRequestTransactionalId msg)
-      serialize (initProducerIdRequestTransactionTimeoutMs msg)
-
-
-  | version >= 3 && version <= 5 =
-    do
-      serialize (toCompactString (initProducerIdRequestTransactionalId msg))
-      serialize (initProducerIdRequestTransactionTimeoutMs msg)
-      serialize (initProducerIdRequestProducerId msg)
-      serialize (initProducerIdRequestProducerEpoch msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode InitProducerIdRequest with the given API version.
-decodeInitProducerIdRequest :: MonadGet m => E.ApiVersion -> m InitProducerIdRequest
-decodeInitProducerIdRequest version
-  | version == 2 =
-    do
-      fieldtransactionalid <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldtransactiontimeoutms <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure InitProducerIdRequest
-        {
-        initProducerIdRequestTransactionalId = fieldtransactionalid
-        ,
-        initProducerIdRequestTransactionTimeoutMs = fieldtransactiontimeoutms
-        ,
-        initProducerIdRequestProducerId = (-1)
-        ,
-        initProducerIdRequestProducerEpoch = (-1)
-        ,
-        initProducerIdRequestEnable2Pc = False
-        ,
-        initProducerIdRequestKeepPreparedTxn = False
-        }
-
-  | version == 6 =
-    do
-      fieldtransactionalid <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldtransactiontimeoutms <- deserialize
-      fieldproducerid <- deserialize
-      fieldproducerepoch <- deserialize
-      fieldenable2pc <- deserialize
-      fieldkeeppreparedtxn <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure InitProducerIdRequest
-        {
-        initProducerIdRequestTransactionalId = fieldtransactionalid
-        ,
-        initProducerIdRequestTransactionTimeoutMs = fieldtransactiontimeoutms
-        ,
-        initProducerIdRequestProducerId = fieldproducerid
-        ,
-        initProducerIdRequestProducerEpoch = fieldproducerepoch
-        ,
-        initProducerIdRequestEnable2Pc = fieldenable2pc
-        ,
-        initProducerIdRequestKeepPreparedTxn = fieldkeeppreparedtxn
-        }
-
-  | version >= 0 && version <= 1 =
-    do
-      fieldtransactionalid <- deserialize
-      fieldtransactiontimeoutms <- deserialize
-      pure InitProducerIdRequest
-        {
-        initProducerIdRequestTransactionalId = fieldtransactionalid
-        ,
-        initProducerIdRequestTransactionTimeoutMs = fieldtransactiontimeoutms
-        ,
-        initProducerIdRequestProducerId = (-1)
-        ,
-        initProducerIdRequestProducerEpoch = (-1)
-        ,
-        initProducerIdRequestEnable2Pc = False
-        ,
-        initProducerIdRequestKeepPreparedTxn = False
-        }
-
-  | version >= 3 && version <= 5 =
-    do
-      fieldtransactionalid <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldtransactiontimeoutms <- deserialize
-      fieldproducerid <- deserialize
-      fieldproducerepoch <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure InitProducerIdRequest
-        {
-        initProducerIdRequestTransactionalId = fieldtransactionalid
-        ,
-        initProducerIdRequestTransactionTimeoutMs = fieldtransactiontimeoutms
-        ,
-        initProducerIdRequestProducerId = fieldproducerid
-        ,
-        initProducerIdRequestProducerEpoch = fieldproducerepoch
-        ,
-        initProducerIdRequestEnable2Pc = False
-        ,
-        initProducerIdRequestKeepPreparedTxn = False
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a InitProducerIdRequest.

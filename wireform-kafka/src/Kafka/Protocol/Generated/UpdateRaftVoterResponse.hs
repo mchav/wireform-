@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.UpdateRaftVoterResponse
   (
     UpdateRaftVoterResponse(..),
     CurrentLeader(..),
-    encodeUpdateRaftVoterResponse,
-    decodeUpdateRaftVoterResponse,
     maxUpdateRaftVoterResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -91,39 +79,6 @@ data CurrentLeader = CurrentLeader
   deriving (Eq, Show, Generic)
 
 
--- | Encode CurrentLeader with version-aware field handling.
-encodeCurrentLeader :: MonadPut m => E.ApiVersion -> CurrentLeader -> m ()
-encodeCurrentLeader version cmsg =
-  do
-    serialize (currentLeaderLeaderId cmsg)
-    serialize (currentLeaderLeaderEpoch cmsg)
-    if version >= 0 then serialize (toCompactString (currentLeaderHost cmsg)) else serialize (currentLeaderHost cmsg)
-    serialize (currentLeaderPort cmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode CurrentLeader with version-aware field handling.
-decodeCurrentLeader :: MonadGet m => E.ApiVersion -> m CurrentLeader
-decodeCurrentLeader version =
-  do
-    fieldleaderid <- deserialize
-    fieldleaderepoch <- deserialize
-    fieldhost <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldport <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure CurrentLeader
-      {
-      currentLeaderLeaderId = fieldleaderid
-      ,
-      currentLeaderLeaderEpoch = fieldleaderepoch
-      ,
-      currentLeaderHost = fieldhost
-      ,
-      currentLeaderPort = fieldport
-      }
-
-
-
 data UpdateRaftVoterResponse = UpdateRaftVoterResponse
   {
 
@@ -157,44 +112,6 @@ instance KafkaMessage UpdateRaftVoterResponse where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Just 0
-
--- | Encode UpdateRaftVoterResponse with the given API version.
-encodeUpdateRaftVoterResponse :: MonadPut m => E.ApiVersion -> UpdateRaftVoterResponse -> m ()
-encodeUpdateRaftVoterResponse version msg
-  | version == 0 =
-    do
-      serialize (updateRaftVoterResponseThrottleTimeMs msg)
-      serialize (updateRaftVoterResponseErrorCode msg)
-      do
-        let _entries = (if version >= 0 then [(0, Data.Bytes.Put.runPutS (encodeCurrentLeader version (updateRaftVoterResponseCurrentLeader msg)))] else [])
-        P.serializeTaggedFieldEntries _entries
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode UpdateRaftVoterResponse with the given API version.
-decodeUpdateRaftVoterResponse :: MonadGet m => E.ApiVersion -> m UpdateRaftVoterResponse
-decodeUpdateRaftVoterResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
-      let fieldcurrentleader =
-            if version >= 0
-              then case P.lookupTaggedField 0 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (decodeCurrentLeader version) _bs of
-                    Right _v -> _v
-                    Left  _  -> (CurrentLeader { currentLeaderLeaderId = (-1), currentLeaderLeaderEpoch = (-1), currentLeaderHost = P.KafkaString Null, currentLeaderPort = 0 })
-                Nothing  -> (CurrentLeader { currentLeaderLeaderId = (-1), currentLeaderLeaderEpoch = (-1), currentLeaderHost = P.KafkaString Null, currentLeaderPort = 0 })
-              else (CurrentLeader { currentLeaderLeaderId = (-1), currentLeaderLeaderEpoch = (-1), currentLeaderHost = P.KafkaString Null, currentLeaderPort = 0 })
-      pure UpdateRaftVoterResponse
-        {
-        updateRaftVoterResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        updateRaftVoterResponseErrorCode = fielderrorcode
-        ,
-        updateRaftVoterResponseCurrentLeader = fieldcurrentleader
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a CurrentLeader.
 wireMaxSizeCurrentLeader :: Int -> CurrentLeader -> Int

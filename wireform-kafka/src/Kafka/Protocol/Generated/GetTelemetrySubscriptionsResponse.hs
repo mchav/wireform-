@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.GetTelemetrySubscriptionsResponse
   (
     GetTelemetrySubscriptionsResponse(..),
-    encodeGetTelemetrySubscriptionsResponse,
-    decodeGetTelemetrySubscriptionsResponse,
     maxGetTelemetrySubscriptionsResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -130,60 +118,6 @@ instance KafkaMessage GetTelemetrySubscriptionsResponse where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Just 0
-
--- | Encode GetTelemetrySubscriptionsResponse with the given API version.
-encodeGetTelemetrySubscriptionsResponse :: MonadPut m => E.ApiVersion -> GetTelemetrySubscriptionsResponse -> m ()
-encodeGetTelemetrySubscriptionsResponse version msg
-  | version == 0 =
-    do
-      serialize (getTelemetrySubscriptionsResponseThrottleTimeMs msg)
-      serialize (getTelemetrySubscriptionsResponseErrorCode msg)
-      serialize (getTelemetrySubscriptionsResponseClientInstanceId msg)
-      serialize (getTelemetrySubscriptionsResponseSubscriptionId msg)
-      E.encodeVersionedArray version 0 (\_ x -> serialize x) (case P.unKafkaArray (getTelemetrySubscriptionsResponseAcceptedCompressionTypes msg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int8"
-      serialize (getTelemetrySubscriptionsResponsePushIntervalMs msg)
-      serialize (getTelemetrySubscriptionsResponseTelemetryMaxBytes msg)
-      serialize (getTelemetrySubscriptionsResponseDeltaTemporality msg)
-      E.encodeVersionedArray version 0 (\v s -> if v >= 0 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (getTelemetrySubscriptionsResponseRequestedMetrics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode GetTelemetrySubscriptionsResponse with the given API version.
-decodeGetTelemetrySubscriptionsResponse :: MonadGet m => E.ApiVersion -> m GetTelemetrySubscriptionsResponse
-decodeGetTelemetrySubscriptionsResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldclientinstanceid <- deserialize
-      fieldsubscriptionid <- deserialize
-      fieldacceptedcompressiontypes <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\_ -> deserialize)
-      fieldpushintervalms <- deserialize
-      fieldtelemetrymaxbytes <- deserialize
-      fielddeltatemporality <- deserialize
-      fieldrequestedmetrics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\v -> if v >= 0 then P.fromCompactString <$> deserialize else deserialize)
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure GetTelemetrySubscriptionsResponse
-        {
-        getTelemetrySubscriptionsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        getTelemetrySubscriptionsResponseErrorCode = fielderrorcode
-        ,
-        getTelemetrySubscriptionsResponseClientInstanceId = fieldclientinstanceid
-        ,
-        getTelemetrySubscriptionsResponseSubscriptionId = fieldsubscriptionid
-        ,
-        getTelemetrySubscriptionsResponseAcceptedCompressionTypes = fieldacceptedcompressiontypes
-        ,
-        getTelemetrySubscriptionsResponsePushIntervalMs = fieldpushintervalms
-        ,
-        getTelemetrySubscriptionsResponseTelemetryMaxBytes = fieldtelemetrymaxbytes
-        ,
-        getTelemetrySubscriptionsResponseDeltaTemporality = fielddeltatemporality
-        ,
-        getTelemetrySubscriptionsResponseRequestedMetrics = fieldrequestedmetrics
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a GetTelemetrySubscriptionsResponse.

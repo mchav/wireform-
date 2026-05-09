@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.ListGroupsRequest
   (
     ListGroupsRequest(..),
-    encodeListGroupsRequest,
-    decodeListGroupsRequest,
     maxListGroupsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -88,76 +76,6 @@ instance KafkaMessage ListGroupsRequest where
   messageMinVersion = 0
   messageMaxVersion = 5
   messageFlexibleVersion = Just 3
-
--- | Encode ListGroupsRequest with the given API version.
-encodeListGroupsRequest :: MonadPut m => E.ApiVersion -> ListGroupsRequest -> m ()
-encodeListGroupsRequest version msg
-  | version == 3 =
-    do
-      
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 4 =
-    do
-      E.encodeVersionedArray version 3 (\v s -> if v >= 3 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (listGroupsRequestStatesFilter msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 5 =
-    do
-      E.encodeVersionedArray version 3 (\v s -> if v >= 3 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (listGroupsRequestStatesFilter msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 3 (\v s -> if v >= 3 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (listGroupsRequestTypesFilter msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 2 =
-    pure ()
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ListGroupsRequest with the given API version.
-decodeListGroupsRequest :: MonadGet m => E.ApiVersion -> m ListGroupsRequest
-decodeListGroupsRequest version
-  | version == 3 =
-    do
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ListGroupsRequest
-        {
-        listGroupsRequestStatesFilter = P.mkKafkaArray V.empty
-        ,
-        listGroupsRequestTypesFilter = P.mkKafkaArray V.empty
-        }
-
-  | version == 4 =
-    do
-      fieldstatesfilter <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 (\v -> if v >= 3 then P.fromCompactString <$> deserialize else deserialize)
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ListGroupsRequest
-        {
-        listGroupsRequestStatesFilter = fieldstatesfilter
-        ,
-        listGroupsRequestTypesFilter = P.mkKafkaArray V.empty
-        }
-
-  | version == 5 =
-    do
-      fieldstatesfilter <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 (\v -> if v >= 3 then P.fromCompactString <$> deserialize else deserialize)
-      fieldtypesfilter <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 (\v -> if v >= 3 then P.fromCompactString <$> deserialize else deserialize)
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ListGroupsRequest
-        {
-        listGroupsRequestStatesFilter = fieldstatesfilter
-        ,
-        listGroupsRequestTypesFilter = fieldtypesfilter
-        }
-
-  | version >= 0 && version <= 2 =
-    do
-
-      pure ListGroupsRequest
-        {
-        listGroupsRequestStatesFilter = P.mkKafkaArray V.empty
-        ,
-        listGroupsRequestTypesFilter = P.mkKafkaArray V.empty
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a ListGroupsRequest.

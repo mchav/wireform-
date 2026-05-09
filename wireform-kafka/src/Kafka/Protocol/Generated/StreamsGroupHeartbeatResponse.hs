@@ -26,17 +26,9 @@ module Kafka.Protocol.Generated.StreamsGroupHeartbeatResponse
     EndpointToPartitions(..),
     Endpoint(..),
     TopicPartition(..),
-    encodeStreamsGroupHeartbeatResponse,
-    decodeStreamsGroupHeartbeatResponse,
     maxStreamsGroupHeartbeatResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -44,13 +36,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -82,31 +70,6 @@ data Status = Status
   deriving (Eq, Show, Generic)
 
 
--- | Encode Status with version-aware field handling.
-encodeStatus :: MonadPut m => E.ApiVersion -> Status -> m ()
-encodeStatus version smsg =
-  do
-    serialize (statusStatusCode smsg)
-    if version >= 0 then serialize (toCompactString (statusStatusDetail smsg)) else serialize (statusStatusDetail smsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Status with version-aware field handling.
-decodeStatus :: MonadGet m => E.ApiVersion -> m Status
-decodeStatus version =
-  do
-    fieldstatuscode <- deserialize
-    fieldstatusdetail <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Status
-      {
-      statusStatusCode = fieldstatuscode
-      ,
-      statusStatusDetail = fieldstatusdetail
-      }
-
-
-
 data TopicPartition = TopicPartition
   {
 
@@ -123,31 +86,6 @@ data TopicPartition = TopicPartition
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicPartition with version-aware field handling.
-encodeTopicPartition :: MonadPut m => E.ApiVersion -> TopicPartition -> m ()
-encodeTopicPartition version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (topicPartitionTopic tmsg)) else serialize (topicPartitionTopic tmsg)
-    E.encodeVersionedArray version 0 (\_ x -> serialize x) (case P.unKafkaArray (topicPartitionPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicPartition with version-aware field handling.
-decodeTopicPartition :: MonadGet m => E.ApiVersion -> m TopicPartition
-decodeTopicPartition version =
-  do
-    fieldtopic <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\_ -> deserialize)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicPartition
-      {
-      topicPartitionTopic = fieldtopic
-      ,
-      topicPartitionPartitions = fieldpartitions
-      }
-
 
 
 data TaskIds = TaskIds
@@ -168,31 +106,6 @@ data TaskIds = TaskIds
   deriving (Eq, Show, Generic)
 
 
--- | Encode TaskIds with version-aware field handling.
-encodeTaskIds :: MonadPut m => E.ApiVersion -> TaskIds -> m ()
-encodeTaskIds version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (taskIdsSubtopologyId tmsg)) else serialize (taskIdsSubtopologyId tmsg)
-    E.encodeVersionedArray version 0 (\_ x -> serialize x) (case P.unKafkaArray (taskIdsPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TaskIds with version-aware field handling.
-decodeTaskIds :: MonadGet m => E.ApiVersion -> m TaskIds
-decodeTaskIds version =
-  do
-    fieldsubtopologyid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\_ -> deserialize)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TaskIds
-      {
-      taskIdsSubtopologyId = fieldsubtopologyid
-      ,
-      taskIdsPartitions = fieldpartitions
-      }
-
-
-
 data Endpoint = Endpoint
   {
 
@@ -209,31 +122,6 @@ data Endpoint = Endpoint
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode Endpoint with version-aware field handling.
-encodeEndpoint :: MonadPut m => E.ApiVersion -> Endpoint -> m ()
-encodeEndpoint version emsg =
-  do
-    if version >= 0 then serialize (toCompactString (endpointHost emsg)) else serialize (endpointHost emsg)
-    serialize (endpointPort emsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Endpoint with version-aware field handling.
-decodeEndpoint :: MonadGet m => E.ApiVersion -> m Endpoint
-decodeEndpoint version =
-  do
-    fieldhost <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldport <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Endpoint
-      {
-      endpointHost = fieldhost
-      ,
-      endpointPort = fieldport
-      }
-
 
 -- | Global assignment information used for IQ. Null if unchanged since last heartbeat.
 data EndpointToPartitions = EndpointToPartitions
@@ -258,35 +146,6 @@ data EndpointToPartitions = EndpointToPartitions
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode EndpointToPartitions with version-aware field handling.
-encodeEndpointToPartitions :: MonadPut m => E.ApiVersion -> EndpointToPartitions -> m ()
-encodeEndpointToPartitions version emsg =
-  do
-    encodeEndpoint version (endpointToPartitionsUserEndpoint emsg)
-    E.encodeVersionedArray version 0 encodeTopicPartition (case P.unKafkaArray (endpointToPartitionsActivePartitions emsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    E.encodeVersionedArray version 0 encodeTopicPartition (case P.unKafkaArray (endpointToPartitionsStandbyPartitions emsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode EndpointToPartitions with version-aware field handling.
-decodeEndpointToPartitions :: MonadGet m => E.ApiVersion -> m EndpointToPartitions
-decodeEndpointToPartitions version =
-  do
-    fielduserendpoint <- decodeEndpoint version
-    fieldactivepartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicPartition
-    fieldstandbypartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicPartition
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure EndpointToPartitions
-      {
-      endpointToPartitionsUserEndpoint = fielduserendpoint
-      ,
-      endpointToPartitionsActivePartitions = fieldactivepartitions
-      ,
-      endpointToPartitionsStandbyPartitions = fieldstandbypartitions
-      }
-
 
 
 data StreamsGroupHeartbeatResponse = StreamsGroupHeartbeatResponse
@@ -388,80 +247,6 @@ instance KafkaMessage StreamsGroupHeartbeatResponse where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Just 0
-
--- | Encode StreamsGroupHeartbeatResponse with the given API version.
-encodeStreamsGroupHeartbeatResponse :: MonadPut m => E.ApiVersion -> StreamsGroupHeartbeatResponse -> m ()
-encodeStreamsGroupHeartbeatResponse version msg
-  | version == 0 =
-    do
-      serialize (streamsGroupHeartbeatResponseThrottleTimeMs msg)
-      serialize (streamsGroupHeartbeatResponseErrorCode msg)
-      serialize (toCompactString (streamsGroupHeartbeatResponseErrorMessage msg))
-      serialize (toCompactString (streamsGroupHeartbeatResponseMemberId msg))
-      serialize (streamsGroupHeartbeatResponseMemberEpoch msg)
-      serialize (streamsGroupHeartbeatResponseHeartbeatIntervalMs msg)
-      serialize (streamsGroupHeartbeatResponseAcceptableRecoveryLag msg)
-      serialize (streamsGroupHeartbeatResponseTaskOffsetIntervalMs msg)
-      E.encodeVersionedNullableArray version 0 encodeStatus (streamsGroupHeartbeatResponseStatus msg)
-      E.encodeVersionedNullableArray version 0 encodeTaskIds (streamsGroupHeartbeatResponseActiveTasks msg)
-      E.encodeVersionedNullableArray version 0 encodeTaskIds (streamsGroupHeartbeatResponseStandbyTasks msg)
-      E.encodeVersionedNullableArray version 0 encodeTaskIds (streamsGroupHeartbeatResponseWarmupTasks msg)
-      serialize (streamsGroupHeartbeatResponseEndpointInformationEpoch msg)
-      E.encodeVersionedNullableArray version 0 encodeEndpointToPartitions (streamsGroupHeartbeatResponsePartitionsByUserEndpoint msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode StreamsGroupHeartbeatResponse with the given API version.
-decodeStreamsGroupHeartbeatResponse :: MonadGet m => E.ApiVersion -> m StreamsGroupHeartbeatResponse
-decodeStreamsGroupHeartbeatResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberepoch <- deserialize
-      fieldheartbeatintervalms <- deserialize
-      fieldacceptablerecoverylag <- deserialize
-      fieldtaskoffsetintervalms <- deserialize
-      fieldstatus <- E.decodeVersionedNullableArray version 0 decodeStatus
-      fieldactivetasks <- E.decodeVersionedNullableArray version 0 decodeTaskIds
-      fieldstandbytasks <- E.decodeVersionedNullableArray version 0 decodeTaskIds
-      fieldwarmuptasks <- E.decodeVersionedNullableArray version 0 decodeTaskIds
-      fieldendpointinformationepoch <- deserialize
-      fieldpartitionsbyuserendpoint <- E.decodeVersionedNullableArray version 0 decodeEndpointToPartitions
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure StreamsGroupHeartbeatResponse
-        {
-        streamsGroupHeartbeatResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        streamsGroupHeartbeatResponseErrorCode = fielderrorcode
-        ,
-        streamsGroupHeartbeatResponseErrorMessage = fielderrormessage
-        ,
-        streamsGroupHeartbeatResponseMemberId = fieldmemberid
-        ,
-        streamsGroupHeartbeatResponseMemberEpoch = fieldmemberepoch
-        ,
-        streamsGroupHeartbeatResponseHeartbeatIntervalMs = fieldheartbeatintervalms
-        ,
-        streamsGroupHeartbeatResponseAcceptableRecoveryLag = fieldacceptablerecoverylag
-        ,
-        streamsGroupHeartbeatResponseTaskOffsetIntervalMs = fieldtaskoffsetintervalms
-        ,
-        streamsGroupHeartbeatResponseStatus = fieldstatus
-        ,
-        streamsGroupHeartbeatResponseActiveTasks = fieldactivetasks
-        ,
-        streamsGroupHeartbeatResponseStandbyTasks = fieldstandbytasks
-        ,
-        streamsGroupHeartbeatResponseWarmupTasks = fieldwarmuptasks
-        ,
-        streamsGroupHeartbeatResponseEndpointInformationEpoch = fieldendpointinformationepoch
-        ,
-        streamsGroupHeartbeatResponsePartitionsByUserEndpoint = fieldpartitionsbyuserendpoint
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a Status.
 wireMaxSizeStatus :: Int -> Status -> Int

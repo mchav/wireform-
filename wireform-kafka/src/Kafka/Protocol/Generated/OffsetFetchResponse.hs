@@ -26,17 +26,9 @@ module Kafka.Protocol.Generated.OffsetFetchResponse
     OffsetFetchResponseGroup(..),
     OffsetFetchResponseTopics(..),
     OffsetFetchResponsePartitions(..),
-    encodeOffsetFetchResponse,
-    decodeOffsetFetchResponse,
     maxOffsetFetchResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -44,13 +36,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -100,58 +88,6 @@ data OffsetFetchResponsePartition = OffsetFetchResponsePartition
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode OffsetFetchResponsePartition with version-aware field handling.
-encodeOffsetFetchResponsePartition :: MonadPut m => E.ApiVersion -> OffsetFetchResponsePartition -> m ()
-encodeOffsetFetchResponsePartition version omsg =
-  do
-    when (version >= 0 && version <= 7) $
-      serialize (offsetFetchResponsePartitionPartitionIndex omsg)
-    when (version >= 0 && version <= 7) $
-      serialize (offsetFetchResponsePartitionCommittedOffset omsg)
-    when (version >= 5 && version <= 7) $
-      serialize (offsetFetchResponsePartitionCommittedLeaderEpoch omsg)
-    when (version >= 0 && version <= 7) $
-      if version >= 6 then serialize (toCompactString (offsetFetchResponsePartitionMetadata omsg)) else serialize (offsetFetchResponsePartitionMetadata omsg)
-    when (version >= 0 && version <= 7) $
-      serialize (offsetFetchResponsePartitionErrorCode omsg)
-    when (version >= 6) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode OffsetFetchResponsePartition with version-aware field handling.
-decodeOffsetFetchResponsePartition :: MonadGet m => E.ApiVersion -> m OffsetFetchResponsePartition
-decodeOffsetFetchResponsePartition version =
-  do
-    fieldpartitionindex <- if version >= 0 && version <= 7
-      then deserialize
-      else pure (0)
-    fieldcommittedoffset <- if version >= 0 && version <= 7
-      then deserialize
-      else pure (0)
-    fieldcommittedleaderepoch <- if version >= 5 && version <= 7
-      then deserialize
-      else pure ((-1))
-    fieldmetadata <- if version >= 0 && version <= 7
-      then if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fielderrorcode <- if version >= 0 && version <= 7
-      then deserialize
-      else pure (0)
-    _ <- if version >= 6 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure OffsetFetchResponsePartition
-      {
-      offsetFetchResponsePartitionPartitionIndex = fieldpartitionindex
-      ,
-      offsetFetchResponsePartitionCommittedOffset = fieldcommittedoffset
-      ,
-      offsetFetchResponsePartitionCommittedLeaderEpoch = fieldcommittedleaderepoch
-      ,
-      offsetFetchResponsePartitionMetadata = fieldmetadata
-      ,
-      offsetFetchResponsePartitionErrorCode = fielderrorcode
-      }
-
-
 -- | The responses per topic.
 data OffsetFetchResponseTopic = OffsetFetchResponseTopic
   {
@@ -169,37 +105,6 @@ data OffsetFetchResponseTopic = OffsetFetchResponseTopic
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode OffsetFetchResponseTopic with version-aware field handling.
-encodeOffsetFetchResponseTopic :: MonadPut m => E.ApiVersion -> OffsetFetchResponseTopic -> m ()
-encodeOffsetFetchResponseTopic version omsg =
-  do
-    when (version >= 0 && version <= 7) $
-      if version >= 6 then serialize (toCompactString (offsetFetchResponseTopicName omsg)) else serialize (offsetFetchResponseTopicName omsg)
-    when (version >= 0 && version <= 7) $
-      E.encodeVersionedArray version 6 encodeOffsetFetchResponsePartition (case P.unKafkaArray (offsetFetchResponseTopicPartitions omsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 6) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode OffsetFetchResponseTopic with version-aware field handling.
-decodeOffsetFetchResponseTopic :: MonadGet m => E.ApiVersion -> m OffsetFetchResponseTopic
-decodeOffsetFetchResponseTopic version =
-  do
-    fieldname <- if version >= 0 && version <= 7
-      then if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldpartitions <- if version >= 0 && version <= 7
-      then P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeOffsetFetchResponsePartition
-      else pure (P.mkKafkaArray V.empty)
-    _ <- if version >= 6 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure OffsetFetchResponseTopic
-      {
-      offsetFetchResponseTopicName = fieldname
-      ,
-      offsetFetchResponseTopicPartitions = fieldpartitions
-      }
-
 
 -- | The responses per partition.
 data OffsetFetchResponsePartitions = OffsetFetchResponsePartitions
@@ -237,58 +142,6 @@ data OffsetFetchResponsePartitions = OffsetFetchResponsePartitions
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode OffsetFetchResponsePartitions with version-aware field handling.
-encodeOffsetFetchResponsePartitions :: MonadPut m => E.ApiVersion -> OffsetFetchResponsePartitions -> m ()
-encodeOffsetFetchResponsePartitions version omsg =
-  do
-    when (version >= 8) $
-      serialize (offsetFetchResponsePartitionsPartitionIndex omsg)
-    when (version >= 8) $
-      serialize (offsetFetchResponsePartitionsCommittedOffset omsg)
-    when (version >= 8) $
-      serialize (offsetFetchResponsePartitionsCommittedLeaderEpoch omsg)
-    when (version >= 8) $
-      if version >= 6 then serialize (toCompactString (offsetFetchResponsePartitionsMetadata omsg)) else serialize (offsetFetchResponsePartitionsMetadata omsg)
-    when (version >= 8) $
-      serialize (offsetFetchResponsePartitionsErrorCode omsg)
-    when (version >= 6) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode OffsetFetchResponsePartitions with version-aware field handling.
-decodeOffsetFetchResponsePartitions :: MonadGet m => E.ApiVersion -> m OffsetFetchResponsePartitions
-decodeOffsetFetchResponsePartitions version =
-  do
-    fieldpartitionindex <- if version >= 8
-      then deserialize
-      else pure (0)
-    fieldcommittedoffset <- if version >= 8
-      then deserialize
-      else pure (0)
-    fieldcommittedleaderepoch <- if version >= 8
-      then deserialize
-      else pure ((-1))
-    fieldmetadata <- if version >= 8
-      then if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fielderrorcode <- if version >= 8
-      then deserialize
-      else pure (0)
-    _ <- if version >= 6 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure OffsetFetchResponsePartitions
-      {
-      offsetFetchResponsePartitionsPartitionIndex = fieldpartitionindex
-      ,
-      offsetFetchResponsePartitionsCommittedOffset = fieldcommittedoffset
-      ,
-      offsetFetchResponsePartitionsCommittedLeaderEpoch = fieldcommittedleaderepoch
-      ,
-      offsetFetchResponsePartitionsMetadata = fieldmetadata
-      ,
-      offsetFetchResponsePartitionsErrorCode = fielderrorcode
-      }
-
-
 -- | The responses per topic.
 data OffsetFetchResponseTopics = OffsetFetchResponseTopics
   {
@@ -313,44 +166,6 @@ data OffsetFetchResponseTopics = OffsetFetchResponseTopics
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode OffsetFetchResponseTopics with version-aware field handling.
-encodeOffsetFetchResponseTopics :: MonadPut m => E.ApiVersion -> OffsetFetchResponseTopics -> m ()
-encodeOffsetFetchResponseTopics version omsg =
-  do
-    when (version >= 8 && version <= 9) $
-      if version >= 6 then serialize (toCompactString (offsetFetchResponseTopicsName omsg)) else serialize (offsetFetchResponseTopicsName omsg)
-    when (version >= 10) $
-      serialize (offsetFetchResponseTopicsTopicId omsg)
-    when (version >= 8) $
-      E.encodeVersionedArray version 6 encodeOffsetFetchResponsePartitions (case P.unKafkaArray (offsetFetchResponseTopicsPartitions omsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 6) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode OffsetFetchResponseTopics with version-aware field handling.
-decodeOffsetFetchResponseTopics :: MonadGet m => E.ApiVersion -> m OffsetFetchResponseTopics
-decodeOffsetFetchResponseTopics version =
-  do
-    fieldname <- if version >= 8 && version <= 9
-      then if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldtopicid <- if version >= 10
-      then deserialize
-      else pure (P.nullUuid)
-    fieldpartitions <- if version >= 8
-      then P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeOffsetFetchResponsePartitions
-      else pure (P.mkKafkaArray V.empty)
-    _ <- if version >= 6 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure OffsetFetchResponseTopics
-      {
-      offsetFetchResponseTopicsName = fieldname
-      ,
-      offsetFetchResponseTopicsTopicId = fieldtopicid
-      ,
-      offsetFetchResponseTopicsPartitions = fieldpartitions
-      }
-
-
 -- | The responses per group id.
 data OffsetFetchResponseGroup = OffsetFetchResponseGroup
   {
@@ -374,44 +189,6 @@ data OffsetFetchResponseGroup = OffsetFetchResponseGroup
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode OffsetFetchResponseGroup with version-aware field handling.
-encodeOffsetFetchResponseGroup :: MonadPut m => E.ApiVersion -> OffsetFetchResponseGroup -> m ()
-encodeOffsetFetchResponseGroup version omsg =
-  do
-    when (version >= 8) $
-      if version >= 6 then serialize (toCompactString (offsetFetchResponseGroupGroupId omsg)) else serialize (offsetFetchResponseGroupGroupId omsg)
-    when (version >= 8) $
-      E.encodeVersionedArray version 6 encodeOffsetFetchResponseTopics (case P.unKafkaArray (offsetFetchResponseGroupTopics omsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 8) $
-      serialize (offsetFetchResponseGroupErrorCode omsg)
-    when (version >= 6) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode OffsetFetchResponseGroup with version-aware field handling.
-decodeOffsetFetchResponseGroup :: MonadGet m => E.ApiVersion -> m OffsetFetchResponseGroup
-decodeOffsetFetchResponseGroup version =
-  do
-    fieldgroupid <- if version >= 8
-      then if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldtopics <- if version >= 8
-      then P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeOffsetFetchResponseTopics
-      else pure (P.mkKafkaArray V.empty)
-    fielderrorcode <- if version >= 8
-      then deserialize
-      else pure (0)
-    _ <- if version >= 6 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure OffsetFetchResponseGroup
-      {
-      offsetFetchResponseGroupGroupId = fieldgroupid
-      ,
-      offsetFetchResponseGroupTopics = fieldtopics
-      ,
-      offsetFetchResponseGroupErrorCode = fielderrorcode
-      }
-
 
 
 data OffsetFetchResponse = OffsetFetchResponse
@@ -453,123 +230,6 @@ instance KafkaMessage OffsetFetchResponse where
   messageMinVersion = 1
   messageMaxVersion = 10
   messageFlexibleVersion = Just 6
-
--- | Encode OffsetFetchResponse with the given API version.
-encodeOffsetFetchResponse :: MonadPut m => E.ApiVersion -> OffsetFetchResponse -> m ()
-encodeOffsetFetchResponse version msg
-  | version == 1 =
-    do
-      E.encodeVersionedArray version 6 encodeOffsetFetchResponseTopic (case P.unKafkaArray (offsetFetchResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version == 2 =
-    do
-      E.encodeVersionedArray version 6 encodeOffsetFetchResponseTopic (case P.unKafkaArray (offsetFetchResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (offsetFetchResponseErrorCode msg)
-
-
-  | version >= 6 && version <= 7 =
-    do
-      serialize (offsetFetchResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 6 encodeOffsetFetchResponseTopic (case P.unKafkaArray (offsetFetchResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (offsetFetchResponseErrorCode msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 3 && version <= 5 =
-    do
-      serialize (offsetFetchResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 6 encodeOffsetFetchResponseTopic (case P.unKafkaArray (offsetFetchResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (offsetFetchResponseErrorCode msg)
-
-
-  | version >= 8 && version <= 10 =
-    do
-      serialize (offsetFetchResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 6 encodeOffsetFetchResponseGroup (case P.unKafkaArray (offsetFetchResponseGroups msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode OffsetFetchResponse with the given API version.
-decodeOffsetFetchResponse :: MonadGet m => E.ApiVersion -> m OffsetFetchResponse
-decodeOffsetFetchResponse version
-  | version == 1 =
-    do
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeOffsetFetchResponseTopic
-      pure OffsetFetchResponse
-        {
-        offsetFetchResponseThrottleTimeMs = 0
-        ,
-        offsetFetchResponseTopics = fieldtopics
-        ,
-        offsetFetchResponseErrorCode = 0
-        ,
-        offsetFetchResponseGroups = P.mkKafkaArray V.empty
-        }
-
-  | version == 2 =
-    do
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeOffsetFetchResponseTopic
-      fielderrorcode <- deserialize
-      pure OffsetFetchResponse
-        {
-        offsetFetchResponseThrottleTimeMs = 0
-        ,
-        offsetFetchResponseTopics = fieldtopics
-        ,
-        offsetFetchResponseErrorCode = fielderrorcode
-        ,
-        offsetFetchResponseGroups = P.mkKafkaArray V.empty
-        }
-
-  | version >= 6 && version <= 7 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeOffsetFetchResponseTopic
-      fielderrorcode <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure OffsetFetchResponse
-        {
-        offsetFetchResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        offsetFetchResponseTopics = fieldtopics
-        ,
-        offsetFetchResponseErrorCode = fielderrorcode
-        ,
-        offsetFetchResponseGroups = P.mkKafkaArray V.empty
-        }
-
-  | version >= 3 && version <= 5 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeOffsetFetchResponseTopic
-      fielderrorcode <- deserialize
-      pure OffsetFetchResponse
-        {
-        offsetFetchResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        offsetFetchResponseTopics = fieldtopics
-        ,
-        offsetFetchResponseErrorCode = fielderrorcode
-        ,
-        offsetFetchResponseGroups = P.mkKafkaArray V.empty
-        }
-
-  | version >= 8 && version <= 10 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldgroups <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeOffsetFetchResponseGroup
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure OffsetFetchResponse
-        {
-        offsetFetchResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        offsetFetchResponseTopics = P.mkKafkaArray V.empty
-        ,
-        offsetFetchResponseErrorCode = 0
-        ,
-        offsetFetchResponseGroups = fieldgroups
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a OffsetFetchResponsePartition.
 wireMaxSizeOffsetFetchResponsePartition :: Int -> OffsetFetchResponsePartition -> Int

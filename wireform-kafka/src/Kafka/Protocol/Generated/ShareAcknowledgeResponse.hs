@@ -25,17 +25,9 @@ module Kafka.Protocol.Generated.ShareAcknowledgeResponse
     PartitionData(..),
     LeaderIdAndEpoch(..),
     NodeEndpoint(..),
-    encodeShareAcknowledgeResponse,
-    decodeShareAcknowledgeResponse,
     maxShareAcknowledgeResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -43,13 +35,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -81,31 +69,6 @@ data LeaderIdAndEpoch = LeaderIdAndEpoch
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode LeaderIdAndEpoch with version-aware field handling.
-encodeLeaderIdAndEpoch :: MonadPut m => E.ApiVersion -> LeaderIdAndEpoch -> m ()
-encodeLeaderIdAndEpoch version lmsg =
-  do
-    serialize (leaderIdAndEpochLeaderId lmsg)
-    serialize (leaderIdAndEpochLeaderEpoch lmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode LeaderIdAndEpoch with version-aware field handling.
-decodeLeaderIdAndEpoch :: MonadGet m => E.ApiVersion -> m LeaderIdAndEpoch
-decodeLeaderIdAndEpoch version =
-  do
-    fieldleaderid <- deserialize
-    fieldleaderepoch <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure LeaderIdAndEpoch
-      {
-      leaderIdAndEpochLeaderId = fieldleaderid
-      ,
-      leaderIdAndEpochLeaderEpoch = fieldleaderepoch
-      }
-
-
 -- | The topic partitions.
 data PartitionData = PartitionData
   {
@@ -136,39 +99,6 @@ data PartitionData = PartitionData
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode PartitionData with version-aware field handling.
-encodePartitionData :: MonadPut m => E.ApiVersion -> PartitionData -> m ()
-encodePartitionData version pmsg =
-  do
-    serialize (partitionDataPartitionIndex pmsg)
-    serialize (partitionDataErrorCode pmsg)
-    if version >= 0 then serialize (toCompactString (partitionDataErrorMessage pmsg)) else serialize (partitionDataErrorMessage pmsg)
-    encodeLeaderIdAndEpoch version (partitionDataCurrentLeader pmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode PartitionData with version-aware field handling.
-decodePartitionData :: MonadGet m => E.ApiVersion -> m PartitionData
-decodePartitionData version =
-  do
-    fieldpartitionindex <- deserialize
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldcurrentleader <- decodeLeaderIdAndEpoch version
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure PartitionData
-      {
-      partitionDataPartitionIndex = fieldpartitionindex
-      ,
-      partitionDataErrorCode = fielderrorcode
-      ,
-      partitionDataErrorMessage = fielderrormessage
-      ,
-      partitionDataCurrentLeader = fieldcurrentleader
-      }
-
-
 -- | The response topics.
 data ShareAcknowledgeTopicResponse = ShareAcknowledgeTopicResponse
   {
@@ -186,31 +116,6 @@ data ShareAcknowledgeTopicResponse = ShareAcknowledgeTopicResponse
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode ShareAcknowledgeTopicResponse with version-aware field handling.
-encodeShareAcknowledgeTopicResponse :: MonadPut m => E.ApiVersion -> ShareAcknowledgeTopicResponse -> m ()
-encodeShareAcknowledgeTopicResponse version smsg =
-  do
-    serialize (shareAcknowledgeTopicResponseTopicId smsg)
-    E.encodeVersionedArray version 0 encodePartitionData (case P.unKafkaArray (shareAcknowledgeTopicResponsePartitions smsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ShareAcknowledgeTopicResponse with version-aware field handling.
-decodeShareAcknowledgeTopicResponse :: MonadGet m => E.ApiVersion -> m ShareAcknowledgeTopicResponse
-decodeShareAcknowledgeTopicResponse version =
-  do
-    fieldtopicid <- deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodePartitionData
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ShareAcknowledgeTopicResponse
-      {
-      shareAcknowledgeTopicResponseTopicId = fieldtopicid
-      ,
-      shareAcknowledgeTopicResponsePartitions = fieldpartitions
-      }
-
 
 -- | Endpoints for all current leaders enumerated in PartitionData with error NOT_LEADER_OR_FOLLOWER.
 data NodeEndpoint = NodeEndpoint
@@ -241,39 +146,6 @@ data NodeEndpoint = NodeEndpoint
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode NodeEndpoint with version-aware field handling.
-encodeNodeEndpoint :: MonadPut m => E.ApiVersion -> NodeEndpoint -> m ()
-encodeNodeEndpoint version nmsg =
-  do
-    serialize (nodeEndpointNodeId nmsg)
-    if version >= 0 then serialize (toCompactString (nodeEndpointHost nmsg)) else serialize (nodeEndpointHost nmsg)
-    serialize (nodeEndpointPort nmsg)
-    if version >= 0 then serialize (toCompactString (nodeEndpointRack nmsg)) else serialize (nodeEndpointRack nmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode NodeEndpoint with version-aware field handling.
-decodeNodeEndpoint :: MonadGet m => E.ApiVersion -> m NodeEndpoint
-decodeNodeEndpoint version =
-  do
-    fieldnodeid <- deserialize
-    fieldhost <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldport <- deserialize
-    fieldrack <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure NodeEndpoint
-      {
-      nodeEndpointNodeId = fieldnodeid
-      ,
-      nodeEndpointHost = fieldhost
-      ,
-      nodeEndpointPort = fieldport
-      ,
-      nodeEndpointRack = fieldrack
-      }
-
 
 
 data ShareAcknowledgeResponse = ShareAcknowledgeResponse
@@ -327,80 +199,6 @@ instance KafkaMessage ShareAcknowledgeResponse where
   messageMinVersion = 1
   messageMaxVersion = 2
   messageFlexibleVersion = Just 0
-
--- | Encode ShareAcknowledgeResponse with the given API version.
-encodeShareAcknowledgeResponse :: MonadPut m => E.ApiVersion -> ShareAcknowledgeResponse -> m ()
-encodeShareAcknowledgeResponse version msg
-  | version == 1 =
-    do
-      serialize (shareAcknowledgeResponseThrottleTimeMs msg)
-      serialize (shareAcknowledgeResponseErrorCode msg)
-      serialize (toCompactString (shareAcknowledgeResponseErrorMessage msg))
-      E.encodeVersionedArray version 0 encodeShareAcknowledgeTopicResponse (case P.unKafkaArray (shareAcknowledgeResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 0 encodeNodeEndpoint (case P.unKafkaArray (shareAcknowledgeResponseNodeEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 2 =
-    do
-      serialize (shareAcknowledgeResponseThrottleTimeMs msg)
-      serialize (shareAcknowledgeResponseErrorCode msg)
-      serialize (toCompactString (shareAcknowledgeResponseErrorMessage msg))
-      serialize (shareAcknowledgeResponseAcquisitionLockTimeoutMs msg)
-      E.encodeVersionedArray version 0 encodeShareAcknowledgeTopicResponse (case P.unKafkaArray (shareAcknowledgeResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 0 encodeNodeEndpoint (case P.unKafkaArray (shareAcknowledgeResponseNodeEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ShareAcknowledgeResponse with the given API version.
-decodeShareAcknowledgeResponse :: MonadGet m => E.ApiVersion -> m ShareAcknowledgeResponse
-decodeShareAcknowledgeResponse version
-  | version == 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeShareAcknowledgeTopicResponse
-      fieldnodeendpoints <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeNodeEndpoint
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ShareAcknowledgeResponse
-        {
-        shareAcknowledgeResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        shareAcknowledgeResponseErrorCode = fielderrorcode
-        ,
-        shareAcknowledgeResponseErrorMessage = fielderrormessage
-        ,
-        shareAcknowledgeResponseAcquisitionLockTimeoutMs = 0
-        ,
-        shareAcknowledgeResponseResponses = fieldresponses
-        ,
-        shareAcknowledgeResponseNodeEndpoints = fieldnodeendpoints
-        }
-
-  | version == 2 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldacquisitionlocktimeoutms <- deserialize
-      fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeShareAcknowledgeTopicResponse
-      fieldnodeendpoints <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeNodeEndpoint
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ShareAcknowledgeResponse
-        {
-        shareAcknowledgeResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        shareAcknowledgeResponseErrorCode = fielderrorcode
-        ,
-        shareAcknowledgeResponseErrorMessage = fielderrormessage
-        ,
-        shareAcknowledgeResponseAcquisitionLockTimeoutMs = fieldacquisitionlocktimeoutms
-        ,
-        shareAcknowledgeResponseResponses = fieldresponses
-        ,
-        shareAcknowledgeResponseNodeEndpoints = fieldnodeendpoints
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a LeaderIdAndEpoch.
 wireMaxSizeLeaderIdAndEpoch :: Int -> LeaderIdAndEpoch -> Int

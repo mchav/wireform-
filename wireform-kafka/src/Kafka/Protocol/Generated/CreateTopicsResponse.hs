@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.CreateTopicsResponse
     CreateTopicsResponse(..),
     CreatableTopicResult(..),
     CreatableTopicConfigs(..),
-    encodeCreateTopicsResponse,
-    decodeCreateTopicsResponse,
     maxCreateTopicsResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -96,58 +84,6 @@ data CreatableTopicConfigs = CreatableTopicConfigs
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode CreatableTopicConfigs with version-aware field handling.
-encodeCreatableTopicConfigs :: MonadPut m => E.ApiVersion -> CreatableTopicConfigs -> m ()
-encodeCreatableTopicConfigs version cmsg =
-  do
-    when (version >= 5) $
-      if version >= 5 then serialize (toCompactString (creatableTopicConfigsName cmsg)) else serialize (creatableTopicConfigsName cmsg)
-    when (version >= 5) $
-      if version >= 5 then serialize (toCompactString (creatableTopicConfigsValue cmsg)) else serialize (creatableTopicConfigsValue cmsg)
-    when (version >= 5) $
-      serialize (creatableTopicConfigsReadOnly cmsg)
-    when (version >= 5) $
-      serialize (creatableTopicConfigsConfigSource cmsg)
-    when (version >= 5) $
-      serialize (creatableTopicConfigsIsSensitive cmsg)
-    when (version >= 5) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode CreatableTopicConfigs with version-aware field handling.
-decodeCreatableTopicConfigs :: MonadGet m => E.ApiVersion -> m CreatableTopicConfigs
-decodeCreatableTopicConfigs version =
-  do
-    fieldname <- if version >= 5
-      then if version >= 5 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldvalue <- if version >= 5
-      then if version >= 5 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldreadonly <- if version >= 5
-      then deserialize
-      else pure (False)
-    fieldconfigsource <- if version >= 5
-      then deserialize
-      else pure ((-1))
-    fieldissensitive <- if version >= 5
-      then deserialize
-      else pure (False)
-    _ <- if version >= 5 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure CreatableTopicConfigs
-      {
-      creatableTopicConfigsName = fieldname
-      ,
-      creatableTopicConfigsValue = fieldvalue
-      ,
-      creatableTopicConfigsReadOnly = fieldreadonly
-      ,
-      creatableTopicConfigsConfigSource = fieldconfigsource
-      ,
-      creatableTopicConfigsIsSensitive = fieldissensitive
-      }
-
 
 -- | Results for each topic we tried to create.
 data CreatableTopicResult = CreatableTopicResult
@@ -204,78 +140,6 @@ data CreatableTopicResult = CreatableTopicResult
   deriving (Eq, Show, Generic)
 
 
--- | Encode CreatableTopicResult with version-aware field handling.
-encodeCreatableTopicResult :: MonadPut m => E.ApiVersion -> CreatableTopicResult -> m ()
-encodeCreatableTopicResult version cmsg =
-  do
-    if version >= 5 then serialize (toCompactString (creatableTopicResultName cmsg)) else serialize (creatableTopicResultName cmsg)
-    when (version >= 7) $
-      serialize (creatableTopicResultTopicId cmsg)
-    serialize (creatableTopicResultErrorCode cmsg)
-    when (version >= 1) $
-      if version >= 5 then serialize (toCompactString (creatableTopicResultErrorMessage cmsg)) else serialize (creatableTopicResultErrorMessage cmsg)
-    when (version >= 5) $
-      serialize (creatableTopicResultNumPartitions cmsg)
-    when (version >= 5) $
-      serialize (creatableTopicResultReplicationFactor cmsg)
-    when (version >= 5) $
-      E.encodeVersionedNullableArray version 5 encodeCreatableTopicConfigs (creatableTopicResultConfigs cmsg)
-    when (version >= 5) $ do
-      let _entries = (if version >= 5 then [(0, Data.Bytes.Put.runPutS (serialize (creatableTopicResultTopicConfigErrorCode cmsg)))] else [])
-      P.serializeTaggedFieldEntries _entries
-
-
--- | Decode CreatableTopicResult with version-aware field handling.
-decodeCreatableTopicResult :: MonadGet m => E.ApiVersion -> m CreatableTopicResult
-decodeCreatableTopicResult version =
-  do
-    fieldname <- if version >= 5 then P.fromCompactString <$> deserialize else deserialize
-    fieldtopicid <- if version >= 7
-      then deserialize
-      else pure (P.nullUuid)
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 1
-      then if version >= 5 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldnumpartitions <- if version >= 5
-      then deserialize
-      else pure ((-1))
-    fieldreplicationfactor <- if version >= 5
-      then deserialize
-      else pure ((-1))
-    fieldconfigs <- if version >= 5
-      then E.decodeVersionedNullableArray version 5 decodeCreatableTopicConfigs
-      else pure (P.KafkaArray P.Null)
-    _taggedFields <- if version >= 5 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    let fieldtopicconfigerrorcode =
-          if version >= 5
-            then case P.lookupTaggedField 0 _taggedFields of
-              Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
-                  Right _v -> _v
-                  Left  _  -> (0)
-              Nothing  -> (0)
-            else (0)
-    pure CreatableTopicResult
-      {
-      creatableTopicResultName = fieldname
-      ,
-      creatableTopicResultTopicId = fieldtopicid
-      ,
-      creatableTopicResultErrorCode = fielderrorcode
-      ,
-      creatableTopicResultErrorMessage = fielderrormessage
-      ,
-      creatableTopicResultTopicConfigErrorCode = fieldtopicconfigerrorcode
-      ,
-      creatableTopicResultNumPartitions = fieldnumpartitions
-      ,
-      creatableTopicResultReplicationFactor = fieldreplicationfactor
-      ,
-      creatableTopicResultConfigs = fieldconfigs
-      }
-
-
-
 data CreateTopicsResponse = CreateTopicsResponse
   {
 
@@ -303,49 +167,6 @@ instance KafkaMessage CreateTopicsResponse where
   messageMinVersion = 2
   messageMaxVersion = 7
   messageFlexibleVersion = Just 5
-
--- | Encode CreateTopicsResponse with the given API version.
-encodeCreateTopicsResponse :: MonadPut m => E.ApiVersion -> CreateTopicsResponse -> m ()
-encodeCreateTopicsResponse version msg
-  | version >= 2 && version <= 4 =
-    do
-      serialize (createTopicsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 5 encodeCreatableTopicResult (case P.unKafkaArray (createTopicsResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version >= 5 && version <= 7 =
-    do
-      serialize (createTopicsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 5 encodeCreatableTopicResult (case P.unKafkaArray (createTopicsResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode CreateTopicsResponse with the given API version.
-decodeCreateTopicsResponse :: MonadGet m => E.ApiVersion -> m CreateTopicsResponse
-decodeCreateTopicsResponse version
-  | version >= 2 && version <= 4 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 5 decodeCreatableTopicResult
-      pure CreateTopicsResponse
-        {
-        createTopicsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        createTopicsResponseTopics = fieldtopics
-        }
-
-  | version >= 5 && version <= 7 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 5 decodeCreatableTopicResult
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure CreateTopicsResponse
-        {
-        createTopicsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        createTopicsResponseTopics = fieldtopics
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a CreatableTopicConfigs.
 wireMaxSizeCreatableTopicConfigs :: Int -> CreatableTopicConfigs -> Int

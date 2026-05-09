@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.JoinGroupRequest
   (
     JoinGroupRequest(..),
     JoinGroupRequestProtocol(..),
-    encodeJoinGroupRequest,
-    decodeJoinGroupRequest,
     maxJoinGroupRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -77,31 +65,6 @@ data JoinGroupRequestProtocol = JoinGroupRequestProtocol
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode JoinGroupRequestProtocol with version-aware field handling.
-encodeJoinGroupRequestProtocol :: MonadPut m => E.ApiVersion -> JoinGroupRequestProtocol -> m ()
-encodeJoinGroupRequestProtocol version jmsg =
-  do
-    if version >= 6 then serialize (toCompactString (joinGroupRequestProtocolName jmsg)) else serialize (joinGroupRequestProtocolName jmsg)
-    if version >= 6 then serialize (toCompactBytes (joinGroupRequestProtocolMetadata jmsg)) else serialize (joinGroupRequestProtocolMetadata jmsg)
-    when (version >= 6) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode JoinGroupRequestProtocol with version-aware field handling.
-decodeJoinGroupRequestProtocol :: MonadGet m => E.ApiVersion -> m JoinGroupRequestProtocol
-decodeJoinGroupRequestProtocol version =
-  do
-    fieldname <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-    fieldmetadata <- if version >= 6 then P.fromCompactBytes <$> deserialize else deserialize
-    _ <- if version >= 6 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure JoinGroupRequestProtocol
-      {
-      joinGroupRequestProtocolName = fieldname
-      ,
-      joinGroupRequestProtocolMetadata = fieldmetadata
-      }
-
 
 
 data JoinGroupRequest = JoinGroupRequest
@@ -167,207 +130,6 @@ instance KafkaMessage JoinGroupRequest where
   messageMinVersion = 0
   messageMaxVersion = 9
   messageFlexibleVersion = Just 6
-
--- | Encode JoinGroupRequest with the given API version.
-encodeJoinGroupRequest :: MonadPut m => E.ApiVersion -> JoinGroupRequest -> m ()
-encodeJoinGroupRequest version msg
-  | version == 0 =
-    do
-      serialize (joinGroupRequestGroupId msg)
-      serialize (joinGroupRequestSessionTimeoutMs msg)
-      serialize (joinGroupRequestMemberId msg)
-      serialize (joinGroupRequestProtocolType msg)
-      E.encodeVersionedArray version 6 encodeJoinGroupRequestProtocol (case P.unKafkaArray (joinGroupRequestProtocols msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version == 5 =
-    do
-      serialize (joinGroupRequestGroupId msg)
-      serialize (joinGroupRequestSessionTimeoutMs msg)
-      serialize (joinGroupRequestRebalanceTimeoutMs msg)
-      serialize (joinGroupRequestMemberId msg)
-      serialize (joinGroupRequestGroupInstanceId msg)
-      serialize (joinGroupRequestProtocolType msg)
-      E.encodeVersionedArray version 6 encodeJoinGroupRequestProtocol (case P.unKafkaArray (joinGroupRequestProtocols msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version >= 6 && version <= 7 =
-    do
-      serialize (toCompactString (joinGroupRequestGroupId msg))
-      serialize (joinGroupRequestSessionTimeoutMs msg)
-      serialize (joinGroupRequestRebalanceTimeoutMs msg)
-      serialize (toCompactString (joinGroupRequestMemberId msg))
-      serialize (toCompactString (joinGroupRequestGroupInstanceId msg))
-      serialize (toCompactString (joinGroupRequestProtocolType msg))
-      E.encodeVersionedArray version 6 encodeJoinGroupRequestProtocol (case P.unKafkaArray (joinGroupRequestProtocols msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 8 && version <= 9 =
-    do
-      serialize (toCompactString (joinGroupRequestGroupId msg))
-      serialize (joinGroupRequestSessionTimeoutMs msg)
-      serialize (joinGroupRequestRebalanceTimeoutMs msg)
-      serialize (toCompactString (joinGroupRequestMemberId msg))
-      serialize (toCompactString (joinGroupRequestGroupInstanceId msg))
-      serialize (toCompactString (joinGroupRequestProtocolType msg))
-      E.encodeVersionedArray version 6 encodeJoinGroupRequestProtocol (case P.unKafkaArray (joinGroupRequestProtocols msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (toCompactString (joinGroupRequestReason msg))
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 1 && version <= 4 =
-    do
-      serialize (joinGroupRequestGroupId msg)
-      serialize (joinGroupRequestSessionTimeoutMs msg)
-      serialize (joinGroupRequestRebalanceTimeoutMs msg)
-      serialize (joinGroupRequestMemberId msg)
-      serialize (joinGroupRequestProtocolType msg)
-      E.encodeVersionedArray version 6 encodeJoinGroupRequestProtocol (case P.unKafkaArray (joinGroupRequestProtocols msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode JoinGroupRequest with the given API version.
-decodeJoinGroupRequest :: MonadGet m => E.ApiVersion -> m JoinGroupRequest
-decodeJoinGroupRequest version
-  | version == 0 =
-    do
-      fieldgroupid <- deserialize
-      fieldsessiontimeoutms <- deserialize
-      fieldmemberid <- deserialize
-      fieldprotocoltype <- deserialize
-      fieldprotocols <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeJoinGroupRequestProtocol
-      pure JoinGroupRequest
-        {
-        joinGroupRequestGroupId = fieldgroupid
-        ,
-        joinGroupRequestSessionTimeoutMs = fieldsessiontimeoutms
-        ,
-        joinGroupRequestRebalanceTimeoutMs = (-1)
-        ,
-        joinGroupRequestMemberId = fieldmemberid
-        ,
-        joinGroupRequestGroupInstanceId = P.KafkaString Null
-        ,
-        joinGroupRequestProtocolType = fieldprotocoltype
-        ,
-        joinGroupRequestProtocols = fieldprotocols
-        ,
-        joinGroupRequestReason = P.KafkaString Null
-        }
-
-  | version == 5 =
-    do
-      fieldgroupid <- deserialize
-      fieldsessiontimeoutms <- deserialize
-      fieldrebalancetimeoutms <- deserialize
-      fieldmemberid <- deserialize
-      fieldgroupinstanceid <- deserialize
-      fieldprotocoltype <- deserialize
-      fieldprotocols <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeJoinGroupRequestProtocol
-      pure JoinGroupRequest
-        {
-        joinGroupRequestGroupId = fieldgroupid
-        ,
-        joinGroupRequestSessionTimeoutMs = fieldsessiontimeoutms
-        ,
-        joinGroupRequestRebalanceTimeoutMs = fieldrebalancetimeoutms
-        ,
-        joinGroupRequestMemberId = fieldmemberid
-        ,
-        joinGroupRequestGroupInstanceId = fieldgroupinstanceid
-        ,
-        joinGroupRequestProtocolType = fieldprotocoltype
-        ,
-        joinGroupRequestProtocols = fieldprotocols
-        ,
-        joinGroupRequestReason = P.KafkaString Null
-        }
-
-  | version >= 6 && version <= 7 =
-    do
-      fieldgroupid <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldsessiontimeoutms <- deserialize
-      fieldrebalancetimeoutms <- deserialize
-      fieldmemberid <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldgroupinstanceid <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldprotocoltype <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldprotocols <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeJoinGroupRequestProtocol
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure JoinGroupRequest
-        {
-        joinGroupRequestGroupId = fieldgroupid
-        ,
-        joinGroupRequestSessionTimeoutMs = fieldsessiontimeoutms
-        ,
-        joinGroupRequestRebalanceTimeoutMs = fieldrebalancetimeoutms
-        ,
-        joinGroupRequestMemberId = fieldmemberid
-        ,
-        joinGroupRequestGroupInstanceId = fieldgroupinstanceid
-        ,
-        joinGroupRequestProtocolType = fieldprotocoltype
-        ,
-        joinGroupRequestProtocols = fieldprotocols
-        ,
-        joinGroupRequestReason = P.KafkaString Null
-        }
-
-  | version >= 8 && version <= 9 =
-    do
-      fieldgroupid <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldsessiontimeoutms <- deserialize
-      fieldrebalancetimeoutms <- deserialize
-      fieldmemberid <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldgroupinstanceid <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldprotocoltype <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldprotocols <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeJoinGroupRequestProtocol
-      fieldreason <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure JoinGroupRequest
-        {
-        joinGroupRequestGroupId = fieldgroupid
-        ,
-        joinGroupRequestSessionTimeoutMs = fieldsessiontimeoutms
-        ,
-        joinGroupRequestRebalanceTimeoutMs = fieldrebalancetimeoutms
-        ,
-        joinGroupRequestMemberId = fieldmemberid
-        ,
-        joinGroupRequestGroupInstanceId = fieldgroupinstanceid
-        ,
-        joinGroupRequestProtocolType = fieldprotocoltype
-        ,
-        joinGroupRequestProtocols = fieldprotocols
-        ,
-        joinGroupRequestReason = fieldreason
-        }
-
-  | version >= 1 && version <= 4 =
-    do
-      fieldgroupid <- deserialize
-      fieldsessiontimeoutms <- deserialize
-      fieldrebalancetimeoutms <- deserialize
-      fieldmemberid <- deserialize
-      fieldprotocoltype <- deserialize
-      fieldprotocols <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeJoinGroupRequestProtocol
-      pure JoinGroupRequest
-        {
-        joinGroupRequestGroupId = fieldgroupid
-        ,
-        joinGroupRequestSessionTimeoutMs = fieldsessiontimeoutms
-        ,
-        joinGroupRequestRebalanceTimeoutMs = fieldrebalancetimeoutms
-        ,
-        joinGroupRequestMemberId = fieldmemberid
-        ,
-        joinGroupRequestGroupInstanceId = P.KafkaString Null
-        ,
-        joinGroupRequestProtocolType = fieldprotocoltype
-        ,
-        joinGroupRequestProtocols = fieldprotocols
-        ,
-        joinGroupRequestReason = P.KafkaString Null
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a JoinGroupRequestProtocol.
 wireMaxSizeJoinGroupRequestProtocol :: Int -> JoinGroupRequestProtocol -> Int

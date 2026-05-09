@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.BrokerHeartbeatResponse
   (
     BrokerHeartbeatResponse(..),
-    encodeBrokerHeartbeatResponse,
-    decodeBrokerHeartbeatResponse,
     maxBrokerHeartbeatResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -106,44 +94,6 @@ instance KafkaMessage BrokerHeartbeatResponse where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 0
-
--- | Encode BrokerHeartbeatResponse with the given API version.
-encodeBrokerHeartbeatResponse :: MonadPut m => E.ApiVersion -> BrokerHeartbeatResponse -> m ()
-encodeBrokerHeartbeatResponse version msg
-  | version >= 0 && version <= 2 =
-    do
-      serialize (brokerHeartbeatResponseThrottleTimeMs msg)
-      serialize (brokerHeartbeatResponseErrorCode msg)
-      serialize (brokerHeartbeatResponseIsCaughtUp msg)
-      serialize (brokerHeartbeatResponseIsFenced msg)
-      serialize (brokerHeartbeatResponseShouldShutDown msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode BrokerHeartbeatResponse with the given API version.
-decodeBrokerHeartbeatResponse :: MonadGet m => E.ApiVersion -> m BrokerHeartbeatResponse
-decodeBrokerHeartbeatResponse version
-  | version >= 0 && version <= 2 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldiscaughtup <- deserialize
-      fieldisfenced <- deserialize
-      fieldshouldshutdown <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure BrokerHeartbeatResponse
-        {
-        brokerHeartbeatResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        brokerHeartbeatResponseErrorCode = fielderrorcode
-        ,
-        brokerHeartbeatResponseIsCaughtUp = fieldiscaughtup
-        ,
-        brokerHeartbeatResponseIsFenced = fieldisfenced
-        ,
-        brokerHeartbeatResponseShouldShutDown = fieldshouldshutdown
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a BrokerHeartbeatResponse.

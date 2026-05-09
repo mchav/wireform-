@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.DefaultPrincipalData
   (
     DefaultPrincipalData(..),
-    encodeDefaultPrincipalData,
-    decodeDefaultPrincipalData,
     maxDefaultPrincipalDataVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -89,36 +77,6 @@ maxDefaultPrincipalDataVersion :: Int16
 maxDefaultPrincipalDataVersion = 0
 
 
-
--- | Encode DefaultPrincipalData with the given API version.
-encodeDefaultPrincipalData :: MonadPut m => E.ApiVersion -> DefaultPrincipalData -> m ()
-encodeDefaultPrincipalData version msg
-  | version == 0 =
-    do
-      serialize (toCompactString (defaultPrincipalDataType msg))
-      serialize (toCompactString (defaultPrincipalDataName msg))
-      serialize (defaultPrincipalDataTokenAuthenticated msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DefaultPrincipalData with the given API version.
-decodeDefaultPrincipalData :: MonadGet m => E.ApiVersion -> m DefaultPrincipalData
-decodeDefaultPrincipalData version
-  | version == 0 =
-    do
-      fieldtype <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldtokenauthenticated <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DefaultPrincipalData
-        {
-        defaultPrincipalDataType = fieldtype
-        ,
-        defaultPrincipalDataName = fieldname
-        ,
-        defaultPrincipalDataTokenAuthenticated = fieldtokenauthenticated
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a DefaultPrincipalData.

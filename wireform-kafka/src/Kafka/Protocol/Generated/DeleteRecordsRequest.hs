@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.DeleteRecordsRequest
     DeleteRecordsRequest(..),
     DeleteRecordsTopic(..),
     DeleteRecordsPartition(..),
-    encodeDeleteRecordsRequest,
-    decodeDeleteRecordsRequest,
     maxDeleteRecordsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -79,31 +67,6 @@ data DeleteRecordsPartition = DeleteRecordsPartition
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode DeleteRecordsPartition with version-aware field handling.
-encodeDeleteRecordsPartition :: MonadPut m => E.ApiVersion -> DeleteRecordsPartition -> m ()
-encodeDeleteRecordsPartition version dmsg =
-  do
-    serialize (deleteRecordsPartitionPartitionIndex dmsg)
-    serialize (deleteRecordsPartitionOffset dmsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DeleteRecordsPartition with version-aware field handling.
-decodeDeleteRecordsPartition :: MonadGet m => E.ApiVersion -> m DeleteRecordsPartition
-decodeDeleteRecordsPartition version =
-  do
-    fieldpartitionindex <- deserialize
-    fieldoffset <- deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DeleteRecordsPartition
-      {
-      deleteRecordsPartitionPartitionIndex = fieldpartitionindex
-      ,
-      deleteRecordsPartitionOffset = fieldoffset
-      }
-
-
 -- | Each topic that we want to delete records from.
 data DeleteRecordsTopic = DeleteRecordsTopic
   {
@@ -121,31 +84,6 @@ data DeleteRecordsTopic = DeleteRecordsTopic
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode DeleteRecordsTopic with version-aware field handling.
-encodeDeleteRecordsTopic :: MonadPut m => E.ApiVersion -> DeleteRecordsTopic -> m ()
-encodeDeleteRecordsTopic version dmsg =
-  do
-    if version >= 2 then serialize (toCompactString (deleteRecordsTopicName dmsg)) else serialize (deleteRecordsTopicName dmsg)
-    E.encodeVersionedArray version 2 encodeDeleteRecordsPartition (case P.unKafkaArray (deleteRecordsTopicPartitions dmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DeleteRecordsTopic with version-aware field handling.
-decodeDeleteRecordsTopic :: MonadGet m => E.ApiVersion -> m DeleteRecordsTopic
-decodeDeleteRecordsTopic version =
-  do
-    fieldname <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDeleteRecordsPartition
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DeleteRecordsTopic
-      {
-      deleteRecordsTopicName = fieldname
-      ,
-      deleteRecordsTopicPartitions = fieldpartitions
-      }
-
 
 
 data DeleteRecordsRequest = DeleteRecordsRequest
@@ -175,49 +113,6 @@ instance KafkaMessage DeleteRecordsRequest where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 2
-
--- | Encode DeleteRecordsRequest with the given API version.
-encodeDeleteRecordsRequest :: MonadPut m => E.ApiVersion -> DeleteRecordsRequest -> m ()
-encodeDeleteRecordsRequest version msg
-  | version == 2 =
-    do
-      E.encodeVersionedArray version 2 encodeDeleteRecordsTopic (case P.unKafkaArray (deleteRecordsRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (deleteRecordsRequestTimeoutMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 1 =
-    do
-      E.encodeVersionedArray version 2 encodeDeleteRecordsTopic (case P.unKafkaArray (deleteRecordsRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (deleteRecordsRequestTimeoutMs msg)
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DeleteRecordsRequest with the given API version.
-decodeDeleteRecordsRequest :: MonadGet m => E.ApiVersion -> m DeleteRecordsRequest
-decodeDeleteRecordsRequest version
-  | version == 2 =
-    do
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDeleteRecordsTopic
-      fieldtimeoutms <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DeleteRecordsRequest
-        {
-        deleteRecordsRequestTopics = fieldtopics
-        ,
-        deleteRecordsRequestTimeoutMs = fieldtimeoutms
-        }
-
-  | version >= 0 && version <= 1 =
-    do
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDeleteRecordsTopic
-      fieldtimeoutms <- deserialize
-      pure DeleteRecordsRequest
-        {
-        deleteRecordsRequestTopics = fieldtopics
-        ,
-        deleteRecordsRequestTimeoutMs = fieldtimeoutms
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a DeleteRecordsPartition.
 wireMaxSizeDeleteRecordsPartition :: Int -> DeleteRecordsPartition -> Int

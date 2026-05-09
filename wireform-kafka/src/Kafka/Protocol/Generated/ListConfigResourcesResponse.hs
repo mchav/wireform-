@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.ListConfigResourcesResponse
   (
     ListConfigResourcesResponse(..),
     ConfigResource(..),
-    encodeListConfigResourcesResponse,
-    decodeListConfigResourcesResponse,
     maxListConfigResourcesResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -77,34 +65,6 @@ data ConfigResource = ConfigResource
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode ConfigResource with version-aware field handling.
-encodeConfigResource :: MonadPut m => E.ApiVersion -> ConfigResource -> m ()
-encodeConfigResource version cmsg =
-  do
-    if version >= 0 then serialize (toCompactString (configResourceResourceName cmsg)) else serialize (configResourceResourceName cmsg)
-    when (version >= 1) $
-      serialize (configResourceResourceType cmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ConfigResource with version-aware field handling.
-decodeConfigResource :: MonadGet m => E.ApiVersion -> m ConfigResource
-decodeConfigResource version =
-  do
-    fieldresourcename <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldresourcetype <- if version >= 1
-      then deserialize
-      else pure (16)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ConfigResource
-      {
-      configResourceResourceName = fieldresourcename
-      ,
-      configResourceResourceType = fieldresourcetype
-      }
-
 
 
 data ListConfigResourcesResponse = ListConfigResourcesResponse
@@ -140,36 +100,6 @@ instance KafkaMessage ListConfigResourcesResponse where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 0
-
--- | Encode ListConfigResourcesResponse with the given API version.
-encodeListConfigResourcesResponse :: MonadPut m => E.ApiVersion -> ListConfigResourcesResponse -> m ()
-encodeListConfigResourcesResponse version msg
-  | version >= 0 && version <= 1 =
-    do
-      serialize (listConfigResourcesResponseThrottleTimeMs msg)
-      serialize (listConfigResourcesResponseErrorCode msg)
-      E.encodeVersionedArray version 0 encodeConfigResource (case P.unKafkaArray (listConfigResourcesResponseConfigResources msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ListConfigResourcesResponse with the given API version.
-decodeListConfigResourcesResponse :: MonadGet m => E.ApiVersion -> m ListConfigResourcesResponse
-decodeListConfigResourcesResponse version
-  | version >= 0 && version <= 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldconfigresources <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeConfigResource
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ListConfigResourcesResponse
-        {
-        listConfigResourcesResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        listConfigResourcesResponseErrorCode = fielderrorcode
-        ,
-        listConfigResourcesResponseConfigResources = fieldconfigresources
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a ConfigResource.
 wireMaxSizeConfigResource :: Int -> ConfigResource -> Int

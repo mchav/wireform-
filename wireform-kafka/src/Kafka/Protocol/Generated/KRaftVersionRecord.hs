@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.KRaftVersionRecord
   (
     KRaftVersionRecord(..),
-    encodeKRaftVersionRecord,
-    decodeKRaftVersionRecord,
     maxKRaftVersionRecordVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -83,32 +71,6 @@ maxKRaftVersionRecordVersion :: Int16
 maxKRaftVersionRecordVersion = 0
 
 
-
--- | Encode KRaftVersionRecord with the given API version.
-encodeKRaftVersionRecord :: MonadPut m => E.ApiVersion -> KRaftVersionRecord -> m ()
-encodeKRaftVersionRecord version msg
-  | version == 0 =
-    do
-      serialize (kRaftVersionRecordVersion msg)
-      serialize (kRaftVersionRecordKRaftVersion msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode KRaftVersionRecord with the given API version.
-decodeKRaftVersionRecord :: MonadGet m => E.ApiVersion -> m KRaftVersionRecord
-decodeKRaftVersionRecord version
-  | version == 0 =
-    do
-      fieldversion <- deserialize
-      fieldkraftversion <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure KRaftVersionRecord
-        {
-        kRaftVersionRecordVersion = fieldversion
-        ,
-        kRaftVersionRecordKRaftVersion = fieldkraftversion
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a KRaftVersionRecord.

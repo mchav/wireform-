@@ -37,7 +37,6 @@ import Data.Word
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Client.Simple as Simple
 import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Encoding as E
 import qualified Kafka.Protocol.Generated.RequestHeader as RH
 import qualified Kafka.Protocol.Generated.MetadataRequest as MR
 import qualified Kafka.Protocol.Generated.MetadataResponse as MResp

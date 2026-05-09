@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.UpdateFeaturesRequest
   (
     UpdateFeaturesRequest(..),
     FeatureUpdateKey(..),
-    encodeUpdateFeaturesRequest,
-    decodeUpdateFeaturesRequest,
     maxUpdateFeaturesRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -91,45 +79,6 @@ data FeatureUpdateKey = FeatureUpdateKey
   deriving (Eq, Show, Generic)
 
 
--- | Encode FeatureUpdateKey with version-aware field handling.
-encodeFeatureUpdateKey :: MonadPut m => E.ApiVersion -> FeatureUpdateKey -> m ()
-encodeFeatureUpdateKey version fmsg =
-  do
-    if version >= 0 then serialize (toCompactString (featureUpdateKeyFeature fmsg)) else serialize (featureUpdateKeyFeature fmsg)
-    serialize (featureUpdateKeyMaxVersionLevel fmsg)
-    when (version == 0) $
-      serialize (featureUpdateKeyAllowDowngrade fmsg)
-    when (version >= 1) $
-      serialize (featureUpdateKeyUpgradeType fmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode FeatureUpdateKey with version-aware field handling.
-decodeFeatureUpdateKey :: MonadGet m => E.ApiVersion -> m FeatureUpdateKey
-decodeFeatureUpdateKey version =
-  do
-    fieldfeature <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldmaxversionlevel <- deserialize
-    fieldallowdowngrade <- if version == 0
-      then deserialize
-      else pure (False)
-    fieldupgradetype <- if version >= 1
-      then deserialize
-      else pure (1)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure FeatureUpdateKey
-      {
-      featureUpdateKeyFeature = fieldfeature
-      ,
-      featureUpdateKeyMaxVersionLevel = fieldmaxversionlevel
-      ,
-      featureUpdateKeyAllowDowngrade = fieldallowdowngrade
-      ,
-      featureUpdateKeyUpgradeType = fieldupgradetype
-      }
-
-
-
 data UpdateFeaturesRequest = UpdateFeaturesRequest
   {
 
@@ -163,56 +112,6 @@ instance KafkaMessage UpdateFeaturesRequest where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 0
-
--- | Encode UpdateFeaturesRequest with the given API version.
-encodeUpdateFeaturesRequest :: MonadPut m => E.ApiVersion -> UpdateFeaturesRequest -> m ()
-encodeUpdateFeaturesRequest version msg
-  | version == 0 =
-    do
-      serialize (updateFeaturesRequesttimeoutMs msg)
-      E.encodeVersionedArray version 0 encodeFeatureUpdateKey (case P.unKafkaArray (updateFeaturesRequestFeatureUpdates msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 1 && version <= 2 =
-    do
-      serialize (updateFeaturesRequesttimeoutMs msg)
-      E.encodeVersionedArray version 0 encodeFeatureUpdateKey (case P.unKafkaArray (updateFeaturesRequestFeatureUpdates msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (updateFeaturesRequestValidateOnly msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode UpdateFeaturesRequest with the given API version.
-decodeUpdateFeaturesRequest :: MonadGet m => E.ApiVersion -> m UpdateFeaturesRequest
-decodeUpdateFeaturesRequest version
-  | version == 0 =
-    do
-      fieldtimeoutms <- deserialize
-      fieldfeatureupdates <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeFeatureUpdateKey
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure UpdateFeaturesRequest
-        {
-        updateFeaturesRequesttimeoutMs = fieldtimeoutms
-        ,
-        updateFeaturesRequestFeatureUpdates = fieldfeatureupdates
-        ,
-        updateFeaturesRequestValidateOnly = False
-        }
-
-  | version >= 1 && version <= 2 =
-    do
-      fieldtimeoutms <- deserialize
-      fieldfeatureupdates <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeFeatureUpdateKey
-      fieldvalidateonly <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure UpdateFeaturesRequest
-        {
-        updateFeaturesRequesttimeoutMs = fieldtimeoutms
-        ,
-        updateFeaturesRequestFeatureUpdates = fieldfeatureupdates
-        ,
-        updateFeaturesRequestValidateOnly = fieldvalidateonly
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a FeatureUpdateKey.
 wireMaxSizeFeatureUpdateKey :: Int -> FeatureUpdateKey -> Int

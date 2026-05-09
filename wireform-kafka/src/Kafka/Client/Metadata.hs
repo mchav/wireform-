@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Client.Metadata
@@ -313,7 +314,7 @@ refreshTopicMetadata conn (MetadataCache metaVar) topicsM correlationId = do
         , MR.metadataRequestIncludeTopicAuthorizedOperations = False
         }
       
-      requestBody = WC.runEncodeVer MR.encodeMetadataRequest apiVersion request
+      requestBody = WC.runEncodeVer @MR.MetadataRequest apiVersion request
       clientId = P.mkKafkaString "kafka-native"
   
   -- Send request
@@ -330,7 +331,7 @@ refreshTopicMetadata conn (MetadataCache metaVar) topicsM correlationId = do
     Right (respCorrId, respBody) ->
       if respCorrId /= correlationId
         then return $ Left $ "Correlation ID mismatch"
-        else case WC.runDecodeVer MResp.decodeMetadataResponse apiVersion respBody of
+        else case WC.runDecodeVer @MResp.MetadataResponse apiVersion respBody of
           Left err -> return $ Left $ "Failed to decode metadata response: " ++ err
           Right response -> do
             -- Parse metadata from response

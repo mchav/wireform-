@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.ElectLeadersRequest
   (
     ElectLeadersRequest(..),
     TopicPartitions(..),
-    encodeElectLeadersRequest,
-    decodeElectLeadersRequest,
     maxElectLeadersRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -77,31 +65,6 @@ data TopicPartitions = TopicPartitions
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicPartitions with version-aware field handling.
-encodeTopicPartitions :: MonadPut m => E.ApiVersion -> TopicPartitions -> m ()
-encodeTopicPartitions version tmsg =
-  do
-    if version >= 2 then serialize (toCompactString (topicPartitionsTopic tmsg)) else serialize (topicPartitionsTopic tmsg)
-    E.encodeVersionedArray version 2 (\_ x -> serialize x) (case P.unKafkaArray (topicPartitionsPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicPartitions with version-aware field handling.
-decodeTopicPartitions :: MonadGet m => E.ApiVersion -> m TopicPartitions
-decodeTopicPartitions version =
-  do
-    fieldtopic <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 (\_ -> deserialize)
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicPartitions
-      {
-      topicPartitionsTopic = fieldtopic
-      ,
-      topicPartitionsPartitions = fieldpartitions
-      }
-
 
 
 data ElectLeadersRequest = ElectLeadersRequest
@@ -137,76 +100,6 @@ instance KafkaMessage ElectLeadersRequest where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 2
-
--- | Encode ElectLeadersRequest with the given API version.
-encodeElectLeadersRequest :: MonadPut m => E.ApiVersion -> ElectLeadersRequest -> m ()
-encodeElectLeadersRequest version msg
-  | version == 0 =
-    do
-      E.encodeVersionedNullableArray version 2 encodeTopicPartitions (electLeadersRequestTopicPartitions msg)
-      serialize (electLeadersRequestTimeoutMs msg)
-
-
-  | version == 1 =
-    do
-      serialize (electLeadersRequestElectionType msg)
-      E.encodeVersionedNullableArray version 2 encodeTopicPartitions (electLeadersRequestTopicPartitions msg)
-      serialize (electLeadersRequestTimeoutMs msg)
-
-
-  | version == 2 =
-    do
-      serialize (electLeadersRequestElectionType msg)
-      E.encodeVersionedNullableArray version 2 encodeTopicPartitions (electLeadersRequestTopicPartitions msg)
-      serialize (electLeadersRequestTimeoutMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ElectLeadersRequest with the given API version.
-decodeElectLeadersRequest :: MonadGet m => E.ApiVersion -> m ElectLeadersRequest
-decodeElectLeadersRequest version
-  | version == 0 =
-    do
-      fieldtopicpartitions <- E.decodeVersionedNullableArray version 2 decodeTopicPartitions
-      fieldtimeoutms <- deserialize
-      pure ElectLeadersRequest
-        {
-        electLeadersRequestElectionType = 0
-        ,
-        electLeadersRequestTopicPartitions = fieldtopicpartitions
-        ,
-        electLeadersRequestTimeoutMs = fieldtimeoutms
-        }
-
-  | version == 1 =
-    do
-      fieldelectiontype <- deserialize
-      fieldtopicpartitions <- E.decodeVersionedNullableArray version 2 decodeTopicPartitions
-      fieldtimeoutms <- deserialize
-      pure ElectLeadersRequest
-        {
-        electLeadersRequestElectionType = fieldelectiontype
-        ,
-        electLeadersRequestTopicPartitions = fieldtopicpartitions
-        ,
-        electLeadersRequestTimeoutMs = fieldtimeoutms
-        }
-
-  | version == 2 =
-    do
-      fieldelectiontype <- deserialize
-      fieldtopicpartitions <- E.decodeVersionedNullableArray version 2 decodeTopicPartitions
-      fieldtimeoutms <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ElectLeadersRequest
-        {
-        electLeadersRequestElectionType = fieldelectiontype
-        ,
-        electLeadersRequestTopicPartitions = fieldtopicpartitions
-        ,
-        electLeadersRequestTimeoutMs = fieldtimeoutms
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a TopicPartitions.
 wireMaxSizeTopicPartitions :: Int -> TopicPartitions -> Int

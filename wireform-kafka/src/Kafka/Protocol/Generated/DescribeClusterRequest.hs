@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.DescribeClusterRequest
   (
     DescribeClusterRequest(..),
-    encodeDescribeClusterRequest,
-    decodeDescribeClusterRequest,
     maxDescribeClusterRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -94,74 +82,6 @@ instance KafkaMessage DescribeClusterRequest where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 0
-
--- | Encode DescribeClusterRequest with the given API version.
-encodeDescribeClusterRequest :: MonadPut m => E.ApiVersion -> DescribeClusterRequest -> m ()
-encodeDescribeClusterRequest version msg
-  | version == 0 =
-    do
-      serialize (describeClusterRequestIncludeClusterAuthorizedOperations msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 1 =
-    do
-      serialize (describeClusterRequestIncludeClusterAuthorizedOperations msg)
-      serialize (describeClusterRequestEndpointType msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 2 =
-    do
-      serialize (describeClusterRequestIncludeClusterAuthorizedOperations msg)
-      serialize (describeClusterRequestEndpointType msg)
-      serialize (describeClusterRequestIncludeFencedBrokers msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeClusterRequest with the given API version.
-decodeDescribeClusterRequest :: MonadGet m => E.ApiVersion -> m DescribeClusterRequest
-decodeDescribeClusterRequest version
-  | version == 0 =
-    do
-      fieldincludeclusterauthorizedoperations <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeClusterRequest
-        {
-        describeClusterRequestIncludeClusterAuthorizedOperations = fieldincludeclusterauthorizedoperations
-        ,
-        describeClusterRequestEndpointType = 1
-        ,
-        describeClusterRequestIncludeFencedBrokers = False
-        }
-
-  | version == 1 =
-    do
-      fieldincludeclusterauthorizedoperations <- deserialize
-      fieldendpointtype <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeClusterRequest
-        {
-        describeClusterRequestIncludeClusterAuthorizedOperations = fieldincludeclusterauthorizedoperations
-        ,
-        describeClusterRequestEndpointType = fieldendpointtype
-        ,
-        describeClusterRequestIncludeFencedBrokers = False
-        }
-
-  | version == 2 =
-    do
-      fieldincludeclusterauthorizedoperations <- deserialize
-      fieldendpointtype <- deserialize
-      fieldincludefencedbrokers <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeClusterRequest
-        {
-        describeClusterRequestIncludeClusterAuthorizedOperations = fieldincludeclusterauthorizedoperations
-        ,
-        describeClusterRequestEndpointType = fieldendpointtype
-        ,
-        describeClusterRequestIncludeFencedBrokers = fieldincludefencedbrokers
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a DescribeClusterRequest.

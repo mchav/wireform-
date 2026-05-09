@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.DeleteShareGroupStateResponse
     DeleteShareGroupStateResponse(..),
     DeleteStateResult(..),
     PartitionResult(..),
-    encodeDeleteShareGroupStateResponse,
-    decodeDeleteShareGroupStateResponse,
     maxDeleteShareGroupStateResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -85,35 +73,6 @@ data PartitionResult = PartitionResult
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode PartitionResult with version-aware field handling.
-encodePartitionResult :: MonadPut m => E.ApiVersion -> PartitionResult -> m ()
-encodePartitionResult version pmsg =
-  do
-    serialize (partitionResultPartition pmsg)
-    serialize (partitionResultErrorCode pmsg)
-    if version >= 0 then serialize (toCompactString (partitionResultErrorMessage pmsg)) else serialize (partitionResultErrorMessage pmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode PartitionResult with version-aware field handling.
-decodePartitionResult :: MonadGet m => E.ApiVersion -> m PartitionResult
-decodePartitionResult version =
-  do
-    fieldpartition <- deserialize
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure PartitionResult
-      {
-      partitionResultPartition = fieldpartition
-      ,
-      partitionResultErrorCode = fielderrorcode
-      ,
-      partitionResultErrorMessage = fielderrormessage
-      }
-
-
 -- | The delete results.
 data DeleteStateResult = DeleteStateResult
   {
@@ -131,31 +90,6 @@ data DeleteStateResult = DeleteStateResult
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode DeleteStateResult with version-aware field handling.
-encodeDeleteStateResult :: MonadPut m => E.ApiVersion -> DeleteStateResult -> m ()
-encodeDeleteStateResult version dmsg =
-  do
-    serialize (deleteStateResultTopicId dmsg)
-    E.encodeVersionedArray version 0 encodePartitionResult (case P.unKafkaArray (deleteStateResultPartitions dmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DeleteStateResult with version-aware field handling.
-decodeDeleteStateResult :: MonadGet m => E.ApiVersion -> m DeleteStateResult
-decodeDeleteStateResult version =
-  do
-    fieldtopicid <- deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodePartitionResult
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DeleteStateResult
-      {
-      deleteStateResultTopicId = fieldtopicid
-      ,
-      deleteStateResultPartitions = fieldpartitions
-      }
-
 
 
 data DeleteShareGroupStateResponse = DeleteShareGroupStateResponse
@@ -179,28 +113,6 @@ instance KafkaMessage DeleteShareGroupStateResponse where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Just 0
-
--- | Encode DeleteShareGroupStateResponse with the given API version.
-encodeDeleteShareGroupStateResponse :: MonadPut m => E.ApiVersion -> DeleteShareGroupStateResponse -> m ()
-encodeDeleteShareGroupStateResponse version msg
-  | version == 0 =
-    do
-      E.encodeVersionedArray version 0 encodeDeleteStateResult (case P.unKafkaArray (deleteShareGroupStateResponseResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DeleteShareGroupStateResponse with the given API version.
-decodeDeleteShareGroupStateResponse :: MonadGet m => E.ApiVersion -> m DeleteShareGroupStateResponse
-decodeDeleteShareGroupStateResponse version
-  | version == 0 =
-    do
-      fieldresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeDeleteStateResult
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DeleteShareGroupStateResponse
-        {
-        deleteShareGroupStateResponseResults = fieldresults
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a PartitionResult.
 wireMaxSizePartitionResult :: Int -> PartitionResult -> Int

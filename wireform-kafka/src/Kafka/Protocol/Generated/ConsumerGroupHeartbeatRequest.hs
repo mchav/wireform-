@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.ConsumerGroupHeartbeatRequest
   (
     ConsumerGroupHeartbeatRequest(..),
     TopicPartitions(..),
-    encodeConsumerGroupHeartbeatRequest,
-    decodeConsumerGroupHeartbeatRequest,
     maxConsumerGroupHeartbeatRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -77,31 +65,6 @@ data TopicPartitions = TopicPartitions
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicPartitions with version-aware field handling.
-encodeTopicPartitions :: MonadPut m => E.ApiVersion -> TopicPartitions -> m ()
-encodeTopicPartitions version tmsg =
-  do
-    serialize (topicPartitionsTopicId tmsg)
-    E.encodeVersionedArray version 0 (\_ x -> serialize x) (case P.unKafkaArray (topicPartitionsPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicPartitions with version-aware field handling.
-decodeTopicPartitions :: MonadGet m => E.ApiVersion -> m TopicPartitions
-decodeTopicPartitions version =
-  do
-    fieldtopicid <- deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\_ -> deserialize)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicPartitions
-      {
-      topicPartitionsTopicId = fieldtopicid
-      ,
-      topicPartitionsPartitions = fieldpartitions
-      }
-
 
 
 data ConsumerGroupHeartbeatRequest = ConsumerGroupHeartbeatRequest
@@ -179,112 +142,6 @@ instance KafkaMessage ConsumerGroupHeartbeatRequest where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 0
-
--- | Encode ConsumerGroupHeartbeatRequest with the given API version.
-encodeConsumerGroupHeartbeatRequest :: MonadPut m => E.ApiVersion -> ConsumerGroupHeartbeatRequest -> m ()
-encodeConsumerGroupHeartbeatRequest version msg
-  | version == 0 =
-    do
-      serialize (toCompactString (consumerGroupHeartbeatRequestGroupId msg))
-      serialize (toCompactString (consumerGroupHeartbeatRequestMemberId msg))
-      serialize (consumerGroupHeartbeatRequestMemberEpoch msg)
-      serialize (toCompactString (consumerGroupHeartbeatRequestInstanceId msg))
-      serialize (toCompactString (consumerGroupHeartbeatRequestRackId msg))
-      serialize (consumerGroupHeartbeatRequestRebalanceTimeoutMs msg)
-      E.encodeVersionedNullableArray version 0 (\v s -> if v >= 0 then serialize (toCompactString s) else serialize s) (consumerGroupHeartbeatRequestSubscribedTopicNames msg)
-      serialize (toCompactString (consumerGroupHeartbeatRequestServerAssignor msg))
-      E.encodeVersionedNullableArray version 0 encodeTopicPartitions (consumerGroupHeartbeatRequestTopicPartitions msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 1 =
-    do
-      serialize (toCompactString (consumerGroupHeartbeatRequestGroupId msg))
-      serialize (toCompactString (consumerGroupHeartbeatRequestMemberId msg))
-      serialize (consumerGroupHeartbeatRequestMemberEpoch msg)
-      serialize (toCompactString (consumerGroupHeartbeatRequestInstanceId msg))
-      serialize (toCompactString (consumerGroupHeartbeatRequestRackId msg))
-      serialize (consumerGroupHeartbeatRequestRebalanceTimeoutMs msg)
-      E.encodeVersionedNullableArray version 0 (\v s -> if v >= 0 then serialize (toCompactString s) else serialize s) (consumerGroupHeartbeatRequestSubscribedTopicNames msg)
-      serialize (toCompactString (consumerGroupHeartbeatRequestSubscribedTopicRegex msg))
-      serialize (toCompactString (consumerGroupHeartbeatRequestServerAssignor msg))
-      E.encodeVersionedNullableArray version 0 encodeTopicPartitions (consumerGroupHeartbeatRequestTopicPartitions msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ConsumerGroupHeartbeatRequest with the given API version.
-decodeConsumerGroupHeartbeatRequest :: MonadGet m => E.ApiVersion -> m ConsumerGroupHeartbeatRequest
-decodeConsumerGroupHeartbeatRequest version
-  | version == 0 =
-    do
-      fieldgroupid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberepoch <- deserialize
-      fieldinstanceid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldrackid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldrebalancetimeoutms <- deserialize
-      fieldsubscribedtopicnames <- E.decodeVersionedNullableArray version 0 (\v -> if v >= 0 then P.fromCompactString <$> deserialize else deserialize)
-      fieldserverassignor <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldtopicpartitions <- E.decodeVersionedNullableArray version 0 decodeTopicPartitions
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ConsumerGroupHeartbeatRequest
-        {
-        consumerGroupHeartbeatRequestGroupId = fieldgroupid
-        ,
-        consumerGroupHeartbeatRequestMemberId = fieldmemberid
-        ,
-        consumerGroupHeartbeatRequestMemberEpoch = fieldmemberepoch
-        ,
-        consumerGroupHeartbeatRequestInstanceId = fieldinstanceid
-        ,
-        consumerGroupHeartbeatRequestRackId = fieldrackid
-        ,
-        consumerGroupHeartbeatRequestRebalanceTimeoutMs = fieldrebalancetimeoutms
-        ,
-        consumerGroupHeartbeatRequestSubscribedTopicNames = fieldsubscribedtopicnames
-        ,
-        consumerGroupHeartbeatRequestSubscribedTopicRegex = P.KafkaString Null
-        ,
-        consumerGroupHeartbeatRequestServerAssignor = fieldserverassignor
-        ,
-        consumerGroupHeartbeatRequestTopicPartitions = fieldtopicpartitions
-        }
-
-  | version == 1 =
-    do
-      fieldgroupid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberepoch <- deserialize
-      fieldinstanceid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldrackid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldrebalancetimeoutms <- deserialize
-      fieldsubscribedtopicnames <- E.decodeVersionedNullableArray version 0 (\v -> if v >= 0 then P.fromCompactString <$> deserialize else deserialize)
-      fieldsubscribedtopicregex <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldserverassignor <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldtopicpartitions <- E.decodeVersionedNullableArray version 0 decodeTopicPartitions
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ConsumerGroupHeartbeatRequest
-        {
-        consumerGroupHeartbeatRequestGroupId = fieldgroupid
-        ,
-        consumerGroupHeartbeatRequestMemberId = fieldmemberid
-        ,
-        consumerGroupHeartbeatRequestMemberEpoch = fieldmemberepoch
-        ,
-        consumerGroupHeartbeatRequestInstanceId = fieldinstanceid
-        ,
-        consumerGroupHeartbeatRequestRackId = fieldrackid
-        ,
-        consumerGroupHeartbeatRequestRebalanceTimeoutMs = fieldrebalancetimeoutms
-        ,
-        consumerGroupHeartbeatRequestSubscribedTopicNames = fieldsubscribedtopicnames
-        ,
-        consumerGroupHeartbeatRequestSubscribedTopicRegex = fieldsubscribedtopicregex
-        ,
-        consumerGroupHeartbeatRequestServerAssignor = fieldserverassignor
-        ,
-        consumerGroupHeartbeatRequestTopicPartitions = fieldtopicpartitions
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a TopicPartitions.
 wireMaxSizeTopicPartitions :: Int -> TopicPartitions -> Int

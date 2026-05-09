@@ -70,7 +70,10 @@ generateMessageModule schema =
         _ -> []) (schemaCommonStructs schema)
     allTypes = nub $ filter (not . T.null) $ [schemaName schema] ++ nestedTypeNames ++ commonTypeNames
     typeExports = map (\t -> pretty t <> "(..)") allTypes
-    funcExports = ["encode" <> pretty (schemaName schema), "decode" <> pretty (schemaName schema)]
+    -- Wire codec is exposed via the 'WireCodec' instance only;
+    -- the legacy Serial-shape @encode<Foo>@ / @decode<Foo>@ pair is
+    -- no longer emitted, so it doesn't appear in the export list.
+    funcExports = []
     -- Add max version export
     maxVersionExport = "max" <> pretty (schemaName schema) <> "Version"
     allExports = typeExports ++ funcExports ++ [maxVersionExport]
@@ -139,26 +142,16 @@ generateModuleHeader schema =
 generateImports :: Doc ann
 generateImports =
   vsep
-    [ "import Control.Monad (when)"
-    , "import qualified Data.Bytes.Get"
-    , "import Data.Bytes.Get (MonadGet)"
-    , "import qualified Data.Bytes.Put"
-    , "import Data.Bytes.Put (MonadPut)"
-    , "import Data.Bytes.Serial (Serial(..), serialize, deserialize)"
-    , "import Data.Int (Int8, Int16, Int32, Int64)"
+    [ "import Data.Int (Int8, Int16, Int32, Int64)"
     , "import Data.Word (Word16, Word32)"
     , "import GHC.Generics (Generic)"
     , "import qualified Data.Vector as V"
     , "import qualified Data.ByteString as BS"
     , "import qualified Kafka.Protocol.Primitives as P"
     , "import Kafka.Protocol.Primitives"
-    , "  ( VarInt(..), VarLong(..), UVarInt(..)"
-    , "  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid"
-    , "  , CompactString, CompactBytes, CompactArray"
-    , "  , TaggedFields, emptyTaggedFields, Nullable(..)"
-    , "  , toCompactString, toCompactBytes, toCompactArray"
+    , "  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid"
+    , "  , Nullable(..)"
     , "  )"
-    , "import qualified Kafka.Protocol.Encoding as E"
     , "import Kafka.Protocol.Message (KafkaMessage(..))"
     , "import qualified Kafka.Protocol.Wire.Codec as WC"
     , WG.generateWireImports
@@ -203,19 +196,17 @@ generateMessage schema =
                          flexibleVersion structName structFields]
         ]
   in vsep
-    [ -- Generate common struct types
+    [ -- Generate common struct types (data declarations only — no
+      -- Serial-shape encode / decode functions; the per-struct
+      -- Wire pokes/peeks below subsume them).
       vsep (map (<> line) commonTypes)
-    , -- Generate nested structure types
+    , -- Generate nested structure types (same: data only).
       vsep (map (<> line) nestedTypes)
     , generateDataType (schemaName schema) (schemaFields schema) (schemaAbout schema)
     , ""
     , generateMaxVersionConstant (schemaName schema) maxVersion
     , ""
     , generateKafkaMessageInstance schema
-    , ""
-    , generateEncodeFunction schema flexibleVersion validVersions
-    , ""
-    , generateDecodeFunction schema flexibleVersion validVersions
     , ""
     , -- Per-struct Wire pokes / peeks (children first so the
       -- message-level codec can call them transparently).
@@ -286,46 +277,39 @@ isPotentiallyTaggedField f = isJust (fieldTag f)
 nestedTaggedFields :: [FieldSpec] -> [FieldSpec]
 nestedTaggedFields = filter isPotentiallyTaggedField
 
--- | Generate a common struct type definition.
--- Common structs are top-level struct definitions in the schema.
+-- | Generate a common struct type definition. Just the @data@
+-- declaration; the per-struct Wire pokes / peeks are emitted
+-- separately by 'WG.generateNestedWireFunctions' over the same
+-- struct list (see 'collectStructs'). No Serial-shape encode /
+-- decode functions are emitted any more.
 generateCommonStruct :: Maybe Int16 -> FieldSpec -> [Doc ann]
 generateCommonStruct flexibleVersion field =
   case (fieldType field, fieldFields field) of
     (StructType structName, Just nestedFields) ->
-      let structDoc = generateDataType structName nestedFields (fieldAbout field)
-          -- Never generate Serial instances for nested structures - they're always version-aware
-          -- Generate version-aware encode/decode functions instead
-          encodeFn = generateNestedEncodeFunction structName nestedFields flexibleVersion
-          decodeFn = generateNestedDecodeFunction structName nestedFields flexibleVersion
-          -- Recursively generate nested types within this struct
+      let structDoc    = generateDataType structName nestedFields (fieldAbout field)
           deeperNested = concatMap (generateNestedTypes structName flexibleVersion) nestedFields
-      in deeperNested ++ [structDoc, encodeFn, decodeFn]
+      in deeperNested ++ [structDoc]
     _ -> []
 
--- | Generate nested structure types from inline field definitions
+-- | Generate nested struct @data@ declarations (only). The Wire
+-- pokes / peeks for each struct are emitted separately by the
+-- per-struct loop in 'generateMessage'.
 generateNestedTypes :: Text -> Maybe Int16 -> FieldSpec -> [Doc ann]
-generateNestedTypes parentName flexibleVersion field = 
+generateNestedTypes _parentName flexibleVersion field =
   case fieldType field of
     ArrayType (StructType structName) ->
       case fieldFields field of
         Just nestedFields ->
-          let structDoc = generateDataType structName nestedFields (fieldAbout field)
-              -- Never generate Serial instances for nested structures - always use version-aware functions
-              encodeFn = generateNestedEncodeFunction structName nestedFields flexibleVersion
-              decodeFn = generateNestedDecodeFunction structName nestedFields flexibleVersion
-              -- Recursively generate nested types within this struct
+          let structDoc    = generateDataType structName nestedFields (fieldAbout field)
               deeperNested = concatMap (generateNestedTypes structName flexibleVersion) nestedFields
-          in deeperNested ++ [structDoc, encodeFn, decodeFn]
+          in deeperNested ++ [structDoc]
         Nothing -> []
     StructType structName ->
       case fieldFields field of
         Just nestedFields ->
-          let structDoc = generateDataType structName nestedFields (fieldAbout field)
-              -- Never generate Serial instances for nested structures - always use version-aware functions
-              encodeFn = generateNestedEncodeFunction structName nestedFields flexibleVersion
-              decodeFn = generateNestedDecodeFunction structName nestedFields flexibleVersion
+          let structDoc    = generateDataType structName nestedFields (fieldAbout field)
               deeperNested = concatMap (generateNestedTypes structName flexibleVersion) nestedFields
-          in deeperNested ++ [structDoc, encodeFn, decodeFn]
+          in deeperNested ++ [structDoc]
         Nothing -> []
     _ -> []
 

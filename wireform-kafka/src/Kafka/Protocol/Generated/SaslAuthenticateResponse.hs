@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.SaslAuthenticateResponse
   (
     SaslAuthenticateResponse(..),
-    encodeSaslAuthenticateResponse,
-    decodeSaslAuthenticateResponse,
     maxSaslAuthenticateResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -100,88 +88,6 @@ instance KafkaMessage SaslAuthenticateResponse where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 2
-
--- | Encode SaslAuthenticateResponse with the given API version.
-encodeSaslAuthenticateResponse :: MonadPut m => E.ApiVersion -> SaslAuthenticateResponse -> m ()
-encodeSaslAuthenticateResponse version msg
-  | version == 0 =
-    do
-      serialize (saslAuthenticateResponseErrorCode msg)
-      serialize (saslAuthenticateResponseErrorMessage msg)
-      serialize (saslAuthenticateResponseAuthBytes msg)
-
-
-  | version == 1 =
-    do
-      serialize (saslAuthenticateResponseErrorCode msg)
-      serialize (saslAuthenticateResponseErrorMessage msg)
-      serialize (saslAuthenticateResponseAuthBytes msg)
-      serialize (saslAuthenticateResponseSessionLifetimeMs msg)
-
-
-  | version == 2 =
-    do
-      serialize (saslAuthenticateResponseErrorCode msg)
-      serialize (toCompactString (saslAuthenticateResponseErrorMessage msg))
-      serialize (toCompactBytes (saslAuthenticateResponseAuthBytes msg))
-      serialize (saslAuthenticateResponseSessionLifetimeMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode SaslAuthenticateResponse with the given API version.
-decodeSaslAuthenticateResponse :: MonadGet m => E.ApiVersion -> m SaslAuthenticateResponse
-decodeSaslAuthenticateResponse version
-  | version == 0 =
-    do
-      fielderrorcode <- deserialize
-      fielderrormessage <- deserialize
-      fieldauthbytes <- deserialize
-      pure SaslAuthenticateResponse
-        {
-        saslAuthenticateResponseErrorCode = fielderrorcode
-        ,
-        saslAuthenticateResponseErrorMessage = fielderrormessage
-        ,
-        saslAuthenticateResponseAuthBytes = fieldauthbytes
-        ,
-        saslAuthenticateResponseSessionLifetimeMs = 0
-        }
-
-  | version == 1 =
-    do
-      fielderrorcode <- deserialize
-      fielderrormessage <- deserialize
-      fieldauthbytes <- deserialize
-      fieldsessionlifetimems <- deserialize
-      pure SaslAuthenticateResponse
-        {
-        saslAuthenticateResponseErrorCode = fielderrorcode
-        ,
-        saslAuthenticateResponseErrorMessage = fielderrormessage
-        ,
-        saslAuthenticateResponseAuthBytes = fieldauthbytes
-        ,
-        saslAuthenticateResponseSessionLifetimeMs = fieldsessionlifetimems
-        }
-
-  | version == 2 =
-    do
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldauthbytes <- if version >= 2 then P.fromCompactBytes <$> deserialize else deserialize
-      fieldsessionlifetimems <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure SaslAuthenticateResponse
-        {
-        saslAuthenticateResponseErrorCode = fielderrorcode
-        ,
-        saslAuthenticateResponseErrorMessage = fielderrormessage
-        ,
-        saslAuthenticateResponseAuthBytes = fieldauthbytes
-        ,
-        saslAuthenticateResponseSessionLifetimeMs = fieldsessionlifetimems
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a SaslAuthenticateResponse.

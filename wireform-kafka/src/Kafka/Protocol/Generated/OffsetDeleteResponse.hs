@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.OffsetDeleteResponse
     OffsetDeleteResponse(..),
     OffsetDeleteResponseTopic(..),
     OffsetDeleteResponsePartition(..),
-    encodeOffsetDeleteResponse,
-    decodeOffsetDeleteResponse,
     maxOffsetDeleteResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -79,29 +67,6 @@ data OffsetDeleteResponsePartition = OffsetDeleteResponsePartition
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode OffsetDeleteResponsePartition with version-aware field handling.
-encodeOffsetDeleteResponsePartition :: MonadPut m => E.ApiVersion -> OffsetDeleteResponsePartition -> m ()
-encodeOffsetDeleteResponsePartition _version omsg =
-  do
-    serialize (offsetDeleteResponsePartitionPartitionIndex omsg)
-    serialize (offsetDeleteResponsePartitionErrorCode omsg)
-
-
--- | Decode OffsetDeleteResponsePartition with version-aware field handling.
-decodeOffsetDeleteResponsePartition :: MonadGet m => E.ApiVersion -> m OffsetDeleteResponsePartition
-decodeOffsetDeleteResponsePartition _version =
-  do
-    fieldpartitionindex <- deserialize
-    fielderrorcode <- deserialize
-    pure OffsetDeleteResponsePartition
-      {
-      offsetDeleteResponsePartitionPartitionIndex = fieldpartitionindex
-      ,
-      offsetDeleteResponsePartitionErrorCode = fielderrorcode
-      }
-
-
 -- | The responses for each topic.
 data OffsetDeleteResponseTopic = OffsetDeleteResponseTopic
   {
@@ -119,29 +84,6 @@ data OffsetDeleteResponseTopic = OffsetDeleteResponseTopic
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode OffsetDeleteResponseTopic with version-aware field handling.
-encodeOffsetDeleteResponseTopic :: MonadPut m => E.ApiVersion -> OffsetDeleteResponseTopic -> m ()
-encodeOffsetDeleteResponseTopic version omsg =
-  do
-    serialize (offsetDeleteResponseTopicName omsg)
-    E.encodeVersionedArray version 999 encodeOffsetDeleteResponsePartition (case P.unKafkaArray (offsetDeleteResponseTopicPartitions omsg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
--- | Decode OffsetDeleteResponseTopic with version-aware field handling.
-decodeOffsetDeleteResponseTopic :: MonadGet m => E.ApiVersion -> m OffsetDeleteResponseTopic
-decodeOffsetDeleteResponseTopic version =
-  do
-    fieldname <- deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeOffsetDeleteResponsePartition
-    pure OffsetDeleteResponseTopic
-      {
-      offsetDeleteResponseTopicName = fieldname
-      ,
-      offsetDeleteResponseTopicPartitions = fieldpartitions
-      }
-
 
 
 data OffsetDeleteResponse = OffsetDeleteResponse
@@ -177,35 +119,6 @@ instance KafkaMessage OffsetDeleteResponse where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Nothing
-
--- | Encode OffsetDeleteResponse with the given API version.
-encodeOffsetDeleteResponse :: MonadPut m => E.ApiVersion -> OffsetDeleteResponse -> m ()
-encodeOffsetDeleteResponse version msg
-  | version == 0 =
-    do
-      serialize (offsetDeleteResponseErrorCode msg)
-      serialize (offsetDeleteResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 999 encodeOffsetDeleteResponseTopic (case P.unKafkaArray (offsetDeleteResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode OffsetDeleteResponse with the given API version.
-decodeOffsetDeleteResponse :: MonadGet m => E.ApiVersion -> m OffsetDeleteResponse
-decodeOffsetDeleteResponse version
-  | version == 0 =
-    do
-      fielderrorcode <- deserialize
-      fieldthrottletimems <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeOffsetDeleteResponseTopic
-      pure OffsetDeleteResponse
-        {
-        offsetDeleteResponseErrorCode = fielderrorcode
-        ,
-        offsetDeleteResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        offsetDeleteResponseTopics = fieldtopics
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a OffsetDeleteResponsePartition.
 wireMaxSizeOffsetDeleteResponsePartition :: Int -> OffsetDeleteResponsePartition -> Int

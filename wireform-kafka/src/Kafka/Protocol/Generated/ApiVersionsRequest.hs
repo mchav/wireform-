@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.ApiVersionsRequest
   (
     ApiVersionsRequest(..),
-    encodeApiVersionsRequest,
-    decodeApiVersionsRequest,
     maxApiVersionsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -100,79 +88,6 @@ instance KafkaMessage ApiVersionsRequest where
   messageMinVersion = 0
   messageMaxVersion = 5
   messageFlexibleVersion = Just 3
-
--- | Encode ApiVersionsRequest with the given API version.
-encodeApiVersionsRequest :: MonadPut m => E.ApiVersion -> ApiVersionsRequest -> m ()
-encodeApiVersionsRequest version msg
-  | version == 5 =
-    do
-      serialize (toCompactString (apiVersionsRequestClientSoftwareName msg))
-      serialize (toCompactString (apiVersionsRequestClientSoftwareVersion msg))
-      serialize (toCompactString (apiVersionsRequestClusterId msg))
-      serialize (apiVersionsRequestNodeId msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 3 && version <= 4 =
-    do
-      serialize (toCompactString (apiVersionsRequestClientSoftwareName msg))
-      serialize (toCompactString (apiVersionsRequestClientSoftwareVersion msg))
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 2 =
-    pure ()
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ApiVersionsRequest with the given API version.
-decodeApiVersionsRequest :: MonadGet m => E.ApiVersion -> m ApiVersionsRequest
-decodeApiVersionsRequest version
-  | version == 5 =
-    do
-      fieldclientsoftwarename <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      fieldclientsoftwareversion <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      fieldclusterid <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      fieldnodeid <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ApiVersionsRequest
-        {
-        apiVersionsRequestClientSoftwareName = fieldclientsoftwarename
-        ,
-        apiVersionsRequestClientSoftwareVersion = fieldclientsoftwareversion
-        ,
-        apiVersionsRequestClusterId = fieldclusterid
-        ,
-        apiVersionsRequestNodeId = fieldnodeid
-        }
-
-  | version >= 3 && version <= 4 =
-    do
-      fieldclientsoftwarename <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      fieldclientsoftwareversion <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ApiVersionsRequest
-        {
-        apiVersionsRequestClientSoftwareName = fieldclientsoftwarename
-        ,
-        apiVersionsRequestClientSoftwareVersion = fieldclientsoftwareversion
-        ,
-        apiVersionsRequestClusterId = P.KafkaString Null
-        ,
-        apiVersionsRequestNodeId = (-1)
-        }
-
-  | version >= 0 && version <= 2 =
-    do
-
-      pure ApiVersionsRequest
-        {
-        apiVersionsRequestClientSoftwareName = P.KafkaString Null
-        ,
-        apiVersionsRequestClientSoftwareVersion = P.KafkaString Null
-        ,
-        apiVersionsRequestClusterId = P.KafkaString Null
-        ,
-        apiVersionsRequestNodeId = (-1)
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a ApiVersionsRequest.

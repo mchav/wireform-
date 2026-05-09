@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.CreateAclsRequest
   (
     CreateAclsRequest(..),
     AclCreation(..),
-    encodeCreateAclsRequest,
-    decodeCreateAclsRequest,
     maxCreateAclsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -109,54 +97,6 @@ data AclCreation = AclCreation
   deriving (Eq, Show, Generic)
 
 
--- | Encode AclCreation with version-aware field handling.
-encodeAclCreation :: MonadPut m => E.ApiVersion -> AclCreation -> m ()
-encodeAclCreation version amsg =
-  do
-    serialize (aclCreationResourceType amsg)
-    if version >= 2 then serialize (toCompactString (aclCreationResourceName amsg)) else serialize (aclCreationResourceName amsg)
-    when (version >= 1) $
-      serialize (aclCreationResourcePatternType amsg)
-    if version >= 2 then serialize (toCompactString (aclCreationPrincipal amsg)) else serialize (aclCreationPrincipal amsg)
-    if version >= 2 then serialize (toCompactString (aclCreationHost amsg)) else serialize (aclCreationHost amsg)
-    serialize (aclCreationOperation amsg)
-    serialize (aclCreationPermissionType amsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode AclCreation with version-aware field handling.
-decodeAclCreation :: MonadGet m => E.ApiVersion -> m AclCreation
-decodeAclCreation version =
-  do
-    fieldresourcetype <- deserialize
-    fieldresourcename <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldresourcepatterntype <- if version >= 1
-      then deserialize
-      else pure (3)
-    fieldprincipal <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldhost <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldoperation <- deserialize
-    fieldpermissiontype <- deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure AclCreation
-      {
-      aclCreationResourceType = fieldresourcetype
-      ,
-      aclCreationResourceName = fieldresourcename
-      ,
-      aclCreationResourcePatternType = fieldresourcepatterntype
-      ,
-      aclCreationPrincipal = fieldprincipal
-      ,
-      aclCreationHost = fieldhost
-      ,
-      aclCreationOperation = fieldoperation
-      ,
-      aclCreationPermissionType = fieldpermissiontype
-      }
-
-
-
 data CreateAclsRequest = CreateAclsRequest
   {
 
@@ -178,41 +118,6 @@ instance KafkaMessage CreateAclsRequest where
   messageMinVersion = 1
   messageMaxVersion = 3
   messageFlexibleVersion = Just 2
-
--- | Encode CreateAclsRequest with the given API version.
-encodeCreateAclsRequest :: MonadPut m => E.ApiVersion -> CreateAclsRequest -> m ()
-encodeCreateAclsRequest version msg
-  | version == 1 =
-    do
-      E.encodeVersionedArray version 2 encodeAclCreation (case P.unKafkaArray (createAclsRequestCreations msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version >= 2 && version <= 3 =
-    do
-      E.encodeVersionedArray version 2 encodeAclCreation (case P.unKafkaArray (createAclsRequestCreations msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode CreateAclsRequest with the given API version.
-decodeCreateAclsRequest :: MonadGet m => E.ApiVersion -> m CreateAclsRequest
-decodeCreateAclsRequest version
-  | version == 1 =
-    do
-      fieldcreations <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeAclCreation
-      pure CreateAclsRequest
-        {
-        createAclsRequestCreations = fieldcreations
-        }
-
-  | version >= 2 && version <= 3 =
-    do
-      fieldcreations <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeAclCreation
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure CreateAclsRequest
-        {
-        createAclsRequestCreations = fieldcreations
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a AclCreation.
 wireMaxSizeAclCreation :: Int -> AclCreation -> Int

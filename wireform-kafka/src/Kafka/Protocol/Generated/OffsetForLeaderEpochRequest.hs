@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.OffsetForLeaderEpochRequest
     OffsetForLeaderEpochRequest(..),
     OffsetForLeaderTopic(..),
     OffsetForLeaderPartition(..),
-    encodeOffsetForLeaderEpochRequest,
-    decodeOffsetForLeaderEpochRequest,
     maxOffsetForLeaderEpochRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -85,38 +73,6 @@ data OffsetForLeaderPartition = OffsetForLeaderPartition
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode OffsetForLeaderPartition with version-aware field handling.
-encodeOffsetForLeaderPartition :: MonadPut m => E.ApiVersion -> OffsetForLeaderPartition -> m ()
-encodeOffsetForLeaderPartition version omsg =
-  do
-    serialize (offsetForLeaderPartitionPartition omsg)
-    when (version >= 2) $
-      serialize (offsetForLeaderPartitionCurrentLeaderEpoch omsg)
-    serialize (offsetForLeaderPartitionLeaderEpoch omsg)
-    when (version >= 4) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode OffsetForLeaderPartition with version-aware field handling.
-decodeOffsetForLeaderPartition :: MonadGet m => E.ApiVersion -> m OffsetForLeaderPartition
-decodeOffsetForLeaderPartition version =
-  do
-    fieldpartition <- deserialize
-    fieldcurrentleaderepoch <- if version >= 2
-      then deserialize
-      else pure ((-1))
-    fieldleaderepoch <- deserialize
-    _ <- if version >= 4 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure OffsetForLeaderPartition
-      {
-      offsetForLeaderPartitionPartition = fieldpartition
-      ,
-      offsetForLeaderPartitionCurrentLeaderEpoch = fieldcurrentleaderepoch
-      ,
-      offsetForLeaderPartitionLeaderEpoch = fieldleaderepoch
-      }
-
-
 -- | Each topic to get offsets for.
 data OffsetForLeaderTopic = OffsetForLeaderTopic
   {
@@ -134,31 +90,6 @@ data OffsetForLeaderTopic = OffsetForLeaderTopic
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode OffsetForLeaderTopic with version-aware field handling.
-encodeOffsetForLeaderTopic :: MonadPut m => E.ApiVersion -> OffsetForLeaderTopic -> m ()
-encodeOffsetForLeaderTopic version omsg =
-  do
-    if version >= 4 then serialize (toCompactString (offsetForLeaderTopicTopic omsg)) else serialize (offsetForLeaderTopicTopic omsg)
-    E.encodeVersionedArray version 4 encodeOffsetForLeaderPartition (case P.unKafkaArray (offsetForLeaderTopicPartitions omsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 4) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode OffsetForLeaderTopic with version-aware field handling.
-decodeOffsetForLeaderTopic :: MonadGet m => E.ApiVersion -> m OffsetForLeaderTopic
-decodeOffsetForLeaderTopic version =
-  do
-    fieldtopic <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 decodeOffsetForLeaderPartition
-    _ <- if version >= 4 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure OffsetForLeaderTopic
-      {
-      offsetForLeaderTopicTopic = fieldtopic
-      ,
-      offsetForLeaderTopicPartitions = fieldpartitions
-      }
-
 
 
 data OffsetForLeaderEpochRequest = OffsetForLeaderEpochRequest
@@ -188,64 +119,6 @@ instance KafkaMessage OffsetForLeaderEpochRequest where
   messageMinVersion = 2
   messageMaxVersion = 4
   messageFlexibleVersion = Just 4
-
--- | Encode OffsetForLeaderEpochRequest with the given API version.
-encodeOffsetForLeaderEpochRequest :: MonadPut m => E.ApiVersion -> OffsetForLeaderEpochRequest -> m ()
-encodeOffsetForLeaderEpochRequest version msg
-  | version == 2 =
-    do
-      E.encodeVersionedArray version 4 encodeOffsetForLeaderTopic (case P.unKafkaArray (offsetForLeaderEpochRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version == 3 =
-    do
-      serialize (offsetForLeaderEpochRequestReplicaId msg)
-      E.encodeVersionedArray version 4 encodeOffsetForLeaderTopic (case P.unKafkaArray (offsetForLeaderEpochRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version == 4 =
-    do
-      serialize (offsetForLeaderEpochRequestReplicaId msg)
-      E.encodeVersionedArray version 4 encodeOffsetForLeaderTopic (case P.unKafkaArray (offsetForLeaderEpochRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode OffsetForLeaderEpochRequest with the given API version.
-decodeOffsetForLeaderEpochRequest :: MonadGet m => E.ApiVersion -> m OffsetForLeaderEpochRequest
-decodeOffsetForLeaderEpochRequest version
-  | version == 2 =
-    do
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 decodeOffsetForLeaderTopic
-      pure OffsetForLeaderEpochRequest
-        {
-        offsetForLeaderEpochRequestReplicaId = (-2)
-        ,
-        offsetForLeaderEpochRequestTopics = fieldtopics
-        }
-
-  | version == 3 =
-    do
-      fieldreplicaid <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 decodeOffsetForLeaderTopic
-      pure OffsetForLeaderEpochRequest
-        {
-        offsetForLeaderEpochRequestReplicaId = fieldreplicaid
-        ,
-        offsetForLeaderEpochRequestTopics = fieldtopics
-        }
-
-  | version == 4 =
-    do
-      fieldreplicaid <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 decodeOffsetForLeaderTopic
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure OffsetForLeaderEpochRequest
-        {
-        offsetForLeaderEpochRequestReplicaId = fieldreplicaid
-        ,
-        offsetForLeaderEpochRequestTopics = fieldtopics
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a OffsetForLeaderPartition.
 wireMaxSizeOffsetForLeaderPartition :: Int -> OffsetForLeaderPartition -> Int

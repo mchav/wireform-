@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.DeleteAclsRequest
   (
     DeleteAclsRequest(..),
     DeleteAclsFilter(..),
-    encodeDeleteAclsRequest,
-    decodeDeleteAclsRequest,
     maxDeleteAclsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -109,54 +97,6 @@ data DeleteAclsFilter = DeleteAclsFilter
   deriving (Eq, Show, Generic)
 
 
--- | Encode DeleteAclsFilter with version-aware field handling.
-encodeDeleteAclsFilter :: MonadPut m => E.ApiVersion -> DeleteAclsFilter -> m ()
-encodeDeleteAclsFilter version dmsg =
-  do
-    serialize (deleteAclsFilterResourceTypeFilter dmsg)
-    if version >= 2 then serialize (toCompactString (deleteAclsFilterResourceNameFilter dmsg)) else serialize (deleteAclsFilterResourceNameFilter dmsg)
-    when (version >= 1) $
-      serialize (deleteAclsFilterPatternTypeFilter dmsg)
-    if version >= 2 then serialize (toCompactString (deleteAclsFilterPrincipalFilter dmsg)) else serialize (deleteAclsFilterPrincipalFilter dmsg)
-    if version >= 2 then serialize (toCompactString (deleteAclsFilterHostFilter dmsg)) else serialize (deleteAclsFilterHostFilter dmsg)
-    serialize (deleteAclsFilterOperation dmsg)
-    serialize (deleteAclsFilterPermissionType dmsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DeleteAclsFilter with version-aware field handling.
-decodeDeleteAclsFilter :: MonadGet m => E.ApiVersion -> m DeleteAclsFilter
-decodeDeleteAclsFilter version =
-  do
-    fieldresourcetypefilter <- deserialize
-    fieldresourcenamefilter <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldpatterntypefilter <- if version >= 1
-      then deserialize
-      else pure (3)
-    fieldprincipalfilter <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldhostfilter <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldoperation <- deserialize
-    fieldpermissiontype <- deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DeleteAclsFilter
-      {
-      deleteAclsFilterResourceTypeFilter = fieldresourcetypefilter
-      ,
-      deleteAclsFilterResourceNameFilter = fieldresourcenamefilter
-      ,
-      deleteAclsFilterPatternTypeFilter = fieldpatterntypefilter
-      ,
-      deleteAclsFilterPrincipalFilter = fieldprincipalfilter
-      ,
-      deleteAclsFilterHostFilter = fieldhostfilter
-      ,
-      deleteAclsFilterOperation = fieldoperation
-      ,
-      deleteAclsFilterPermissionType = fieldpermissiontype
-      }
-
-
-
 data DeleteAclsRequest = DeleteAclsRequest
   {
 
@@ -178,41 +118,6 @@ instance KafkaMessage DeleteAclsRequest where
   messageMinVersion = 1
   messageMaxVersion = 3
   messageFlexibleVersion = Just 2
-
--- | Encode DeleteAclsRequest with the given API version.
-encodeDeleteAclsRequest :: MonadPut m => E.ApiVersion -> DeleteAclsRequest -> m ()
-encodeDeleteAclsRequest version msg
-  | version == 1 =
-    do
-      E.encodeVersionedArray version 2 encodeDeleteAclsFilter (case P.unKafkaArray (deleteAclsRequestFilters msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version >= 2 && version <= 3 =
-    do
-      E.encodeVersionedArray version 2 encodeDeleteAclsFilter (case P.unKafkaArray (deleteAclsRequestFilters msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DeleteAclsRequest with the given API version.
-decodeDeleteAclsRequest :: MonadGet m => E.ApiVersion -> m DeleteAclsRequest
-decodeDeleteAclsRequest version
-  | version == 1 =
-    do
-      fieldfilters <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDeleteAclsFilter
-      pure DeleteAclsRequest
-        {
-        deleteAclsRequestFilters = fieldfilters
-        }
-
-  | version >= 2 && version <= 3 =
-    do
-      fieldfilters <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDeleteAclsFilter
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DeleteAclsRequest
-        {
-        deleteAclsRequestFilters = fieldfilters
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a DeleteAclsFilter.
 wireMaxSizeDeleteAclsFilter :: Int -> DeleteAclsFilter -> Int

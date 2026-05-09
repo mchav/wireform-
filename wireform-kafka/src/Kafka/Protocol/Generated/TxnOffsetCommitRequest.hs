@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.TxnOffsetCommitRequest
     TxnOffsetCommitRequest(..),
     TxnOffsetCommitRequestTopic(..),
     TxnOffsetCommitRequestPartition(..),
-    encodeTxnOffsetCommitRequest,
-    decodeTxnOffsetCommitRequest,
     maxTxnOffsetCommitRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -91,42 +79,6 @@ data TxnOffsetCommitRequestPartition = TxnOffsetCommitRequestPartition
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode TxnOffsetCommitRequestPartition with version-aware field handling.
-encodeTxnOffsetCommitRequestPartition :: MonadPut m => E.ApiVersion -> TxnOffsetCommitRequestPartition -> m ()
-encodeTxnOffsetCommitRequestPartition version tmsg =
-  do
-    serialize (txnOffsetCommitRequestPartitionPartitionIndex tmsg)
-    serialize (txnOffsetCommitRequestPartitionCommittedOffset tmsg)
-    when (version >= 2) $
-      serialize (txnOffsetCommitRequestPartitionCommittedLeaderEpoch tmsg)
-    if version >= 3 then serialize (toCompactString (txnOffsetCommitRequestPartitionCommittedMetadata tmsg)) else serialize (txnOffsetCommitRequestPartitionCommittedMetadata tmsg)
-    when (version >= 3) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TxnOffsetCommitRequestPartition with version-aware field handling.
-decodeTxnOffsetCommitRequestPartition :: MonadGet m => E.ApiVersion -> m TxnOffsetCommitRequestPartition
-decodeTxnOffsetCommitRequestPartition version =
-  do
-    fieldpartitionindex <- deserialize
-    fieldcommittedoffset <- deserialize
-    fieldcommittedleaderepoch <- if version >= 2
-      then deserialize
-      else pure ((-1))
-    fieldcommittedmetadata <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 3 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TxnOffsetCommitRequestPartition
-      {
-      txnOffsetCommitRequestPartitionPartitionIndex = fieldpartitionindex
-      ,
-      txnOffsetCommitRequestPartitionCommittedOffset = fieldcommittedoffset
-      ,
-      txnOffsetCommitRequestPartitionCommittedLeaderEpoch = fieldcommittedleaderepoch
-      ,
-      txnOffsetCommitRequestPartitionCommittedMetadata = fieldcommittedmetadata
-      }
-
-
 -- | Each topic that we want to commit offsets for.
 data TxnOffsetCommitRequestTopic = TxnOffsetCommitRequestTopic
   {
@@ -150,41 +102,6 @@ data TxnOffsetCommitRequestTopic = TxnOffsetCommitRequestTopic
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TxnOffsetCommitRequestTopic with version-aware field handling.
-encodeTxnOffsetCommitRequestTopic :: MonadPut m => E.ApiVersion -> TxnOffsetCommitRequestTopic -> m ()
-encodeTxnOffsetCommitRequestTopic version tmsg =
-  do
-    when (version >= 0 && version <= 5) $
-      if version >= 3 then serialize (toCompactString (txnOffsetCommitRequestTopicName tmsg)) else serialize (txnOffsetCommitRequestTopicName tmsg)
-    when (version >= 6) $
-      serialize (txnOffsetCommitRequestTopicTopicId tmsg)
-    E.encodeVersionedArray version 3 encodeTxnOffsetCommitRequestPartition (case P.unKafkaArray (txnOffsetCommitRequestTopicPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 3) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TxnOffsetCommitRequestTopic with version-aware field handling.
-decodeTxnOffsetCommitRequestTopic :: MonadGet m => E.ApiVersion -> m TxnOffsetCommitRequestTopic
-decodeTxnOffsetCommitRequestTopic version =
-  do
-    fieldname <- if version >= 0 && version <= 5
-      then if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldtopicid <- if version >= 6
-      then deserialize
-      else pure (P.nullUuid)
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 decodeTxnOffsetCommitRequestPartition
-    _ <- if version >= 3 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TxnOffsetCommitRequestTopic
-      {
-      txnOffsetCommitRequestTopicName = fieldname
-      ,
-      txnOffsetCommitRequestTopicTopicId = fieldtopicid
-      ,
-      txnOffsetCommitRequestTopicPartitions = fieldpartitions
-      }
-
 
 
 data TxnOffsetCommitRequest = TxnOffsetCommitRequest
@@ -250,91 +167,6 @@ instance KafkaMessage TxnOffsetCommitRequest where
   messageMinVersion = 0
   messageMaxVersion = 6
   messageFlexibleVersion = Just 3
-
--- | Encode TxnOffsetCommitRequest with the given API version.
-encodeTxnOffsetCommitRequest :: MonadPut m => E.ApiVersion -> TxnOffsetCommitRequest -> m ()
-encodeTxnOffsetCommitRequest version msg
-  | version >= 0 && version <= 2 =
-    do
-      serialize (txnOffsetCommitRequestTransactionalId msg)
-      serialize (txnOffsetCommitRequestGroupId msg)
-      serialize (txnOffsetCommitRequestProducerId msg)
-      serialize (txnOffsetCommitRequestProducerEpoch msg)
-      E.encodeVersionedArray version 3 encodeTxnOffsetCommitRequestTopic (case P.unKafkaArray (txnOffsetCommitRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version >= 3 && version <= 6 =
-    do
-      serialize (toCompactString (txnOffsetCommitRequestTransactionalId msg))
-      serialize (toCompactString (txnOffsetCommitRequestGroupId msg))
-      serialize (txnOffsetCommitRequestProducerId msg)
-      serialize (txnOffsetCommitRequestProducerEpoch msg)
-      serialize (txnOffsetCommitRequestGenerationIdOrMemberEpoch msg)
-      serialize (toCompactString (txnOffsetCommitRequestMemberId msg))
-      serialize (toCompactString (txnOffsetCommitRequestGroupInstanceId msg))
-      E.encodeVersionedArray version 3 encodeTxnOffsetCommitRequestTopic (case P.unKafkaArray (txnOffsetCommitRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode TxnOffsetCommitRequest with the given API version.
-decodeTxnOffsetCommitRequest :: MonadGet m => E.ApiVersion -> m TxnOffsetCommitRequest
-decodeTxnOffsetCommitRequest version
-  | version >= 0 && version <= 2 =
-    do
-      fieldtransactionalid <- deserialize
-      fieldgroupid <- deserialize
-      fieldproducerid <- deserialize
-      fieldproducerepoch <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 decodeTxnOffsetCommitRequestTopic
-      pure TxnOffsetCommitRequest
-        {
-        txnOffsetCommitRequestTransactionalId = fieldtransactionalid
-        ,
-        txnOffsetCommitRequestGroupId = fieldgroupid
-        ,
-        txnOffsetCommitRequestProducerId = fieldproducerid
-        ,
-        txnOffsetCommitRequestProducerEpoch = fieldproducerepoch
-        ,
-        txnOffsetCommitRequestGenerationIdOrMemberEpoch = (-1)
-        ,
-        txnOffsetCommitRequestMemberId = P.KafkaString Null
-        ,
-        txnOffsetCommitRequestGroupInstanceId = P.KafkaString Null
-        ,
-        txnOffsetCommitRequestTopics = fieldtopics
-        }
-
-  | version >= 3 && version <= 6 =
-    do
-      fieldtransactionalid <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      fieldgroupid <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      fieldproducerid <- deserialize
-      fieldproducerepoch <- deserialize
-      fieldgenerationidormemberepoch <- deserialize
-      fieldmemberid <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      fieldgroupinstanceid <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 decodeTxnOffsetCommitRequestTopic
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure TxnOffsetCommitRequest
-        {
-        txnOffsetCommitRequestTransactionalId = fieldtransactionalid
-        ,
-        txnOffsetCommitRequestGroupId = fieldgroupid
-        ,
-        txnOffsetCommitRequestProducerId = fieldproducerid
-        ,
-        txnOffsetCommitRequestProducerEpoch = fieldproducerepoch
-        ,
-        txnOffsetCommitRequestGenerationIdOrMemberEpoch = fieldgenerationidormemberepoch
-        ,
-        txnOffsetCommitRequestMemberId = fieldmemberid
-        ,
-        txnOffsetCommitRequestGroupInstanceId = fieldgroupinstanceid
-        ,
-        txnOffsetCommitRequestTopics = fieldtopics
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a TxnOffsetCommitRequestPartition.
 wireMaxSizeTxnOffsetCommitRequestPartition :: Int -> TxnOffsetCommitRequestPartition -> Int

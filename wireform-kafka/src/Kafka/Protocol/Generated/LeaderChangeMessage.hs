@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.LeaderChangeMessage
   (
     LeaderChangeMessage(..),
     Voter(..),
-    encodeLeaderChangeMessage,
-    decodeLeaderChangeMessage,
     maxLeaderChangeMessageVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -76,34 +64,6 @@ data Voter = Voter
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode Voter with version-aware field handling.
-encodeVoter :: MonadPut m => E.ApiVersion -> Voter -> m ()
-encodeVoter version vmsg =
-  do
-    serialize (voterVoterId vmsg)
-    when (version >= 1) $
-      serialize (voterVoterDirectoryId vmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Voter with version-aware field handling.
-decodeVoter :: MonadGet m => E.ApiVersion -> m Voter
-decodeVoter version =
-  do
-    fieldvoterid <- deserialize
-    fieldvoterdirectoryid <- if version >= 1
-      then deserialize
-      else pure (P.nullUuid)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Voter
-      {
-      voterVoterId = fieldvoterid
-      ,
-      voterVoterDirectoryId = fieldvoterdirectoryid
-      }
-
 
 
 
@@ -141,40 +101,6 @@ maxLeaderChangeMessageVersion :: Int16
 maxLeaderChangeMessageVersion = 1
 
 
-
--- | Encode LeaderChangeMessage with the given API version.
-encodeLeaderChangeMessage :: MonadPut m => E.ApiVersion -> LeaderChangeMessage -> m ()
-encodeLeaderChangeMessage version msg
-  | version >= 0 && version <= 1 =
-    do
-      serialize (leaderChangeMessageVersion msg)
-      serialize (leaderChangeMessageLeaderId msg)
-      E.encodeVersionedArray version 0 encodeVoter (case P.unKafkaArray (leaderChangeMessageVoters msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 0 encodeVoter (case P.unKafkaArray (leaderChangeMessageGrantingVoters msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode LeaderChangeMessage with the given API version.
-decodeLeaderChangeMessage :: MonadGet m => E.ApiVersion -> m LeaderChangeMessage
-decodeLeaderChangeMessage version
-  | version >= 0 && version <= 1 =
-    do
-      fieldversion <- deserialize
-      fieldleaderid <- deserialize
-      fieldvoters <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeVoter
-      fieldgrantingvoters <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeVoter
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure LeaderChangeMessage
-        {
-        leaderChangeMessageVersion = fieldversion
-        ,
-        leaderChangeMessageLeaderId = fieldleaderid
-        ,
-        leaderChangeMessageVoters = fieldvoters
-        ,
-        leaderChangeMessageGrantingVoters = fieldgrantingvoters
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a Voter.
 wireMaxSizeVoter :: Int -> Voter -> Int

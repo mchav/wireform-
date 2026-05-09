@@ -635,7 +635,7 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
                 , LOReq.listOffsetsRequestTimeoutMs = 30000  -- v10+; ignored otherwise
                 }
               
-              requestBody = WC.runEncodeVer LOReq.encodeListOffsetsRequest apiVersion request
+              requestBody = WC.runEncodeVer @LOReq.ListOffsetsRequest apiVersion request
               clientId = P.mkKafkaString (consumerClientId consumerConfig)
           
           -- Send request
@@ -645,7 +645,7 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
             Right (respCorrId, respBody) ->
               if respCorrId /= corrId
                 then return $ Left "Correlation ID mismatch"
-                else case WC.runDecodeVer LOResp.decodeListOffsetsResponse apiVersion respBody of
+                else case WC.runDecodeVer @LOResp.ListOffsetsResponse apiVersion respBody of
                   Left err -> return $ Left $ "Failed to decode ListOffsets response: " ++ err
                   Right response -> do
                     -- Extract offsets from response
@@ -1419,7 +1419,7 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
                 }
             }
           
-          requestBody = WC.runEncodeVer FR.encodeFetchRequest apiVersion request
+          requestBody = WC.runEncodeVer @FR.FetchRequest apiVersion request
           clientId = P.mkKafkaString "kafka-native-consumer"
       
       -- Send request
@@ -1428,7 +1428,7 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
       case result of
         Left err -> return $ Left $ "Fetch failed: " ++ err
         Right (_, responseBody) -> do
-          case WC.runDecodeVer FResp.decodeFetchResponse apiVersion responseBody of
+          case WC.runDecodeVer @FResp.FetchResponse apiVersion responseBody of
             Left err -> return $ Left $ "Failed to parse FetchResponse: " ++ err
             Right response ->
               extractRecordsFromFetchResponse isolationLevel response
@@ -1764,7 +1764,7 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
                     , OCReq.offsetCommitRequestTopics = P.mkKafkaArray topics
                     }
                   
-                  requestBody = WC.runEncodeVer OCReq.encodeOffsetCommitRequest apiVersion request
+                  requestBody = WC.runEncodeVer @OCReq.OffsetCommitRequest apiVersion request
                   clientId = P.mkKafkaString (consumerClientId consumerConfig)
               
               -- Send request
@@ -1773,7 +1773,7 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
               case result of
                 Left err -> return $ Left $ "OffsetCommit failed: " ++ err
                 Right (_, responseBody) -> do
-                  case WC.runDecodeVer OCResp.decodeOffsetCommitResponse apiVersion responseBody of
+                  case WC.runDecodeVer @OCResp.OffsetCommitResponse apiVersion responseBody of
                     Left err -> return $ Left $ "Failed to parse OffsetCommitResponse: " ++ err
                     Right response -> do
                       -- Check for errors in response
@@ -1844,14 +1844,14 @@ fetchCommittedOffsets consumer@Consumer{..} groupId tps = do
                   request
                     | apiVersion >= 8 = buildOffsetFetchRequestV8 groupId byTopic
                     | otherwise       = buildOffsetFetchRequestLegacy groupId byTopic
-                  requestBody = WC.runEncodeVer OFReq.encodeOffsetFetchRequest apiVersion request
+                  requestBody = WC.runEncodeVer @OFReq.OffsetFetchRequest apiVersion request
                   clientId = P.mkKafkaString (consumerClientId consumerConfig)
 
               result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
               case result of
                 Left err -> return $ Left $ "OffsetFetch failed: " ++ err
                 Right (_, responseBody) -> do
-                  case WC.runDecodeVer OFResp.decodeOffsetFetchResponse apiVersion responseBody of
+                  case WC.runDecodeVer @OFResp.OffsetFetchResponse apiVersion responseBody of
                     Left err -> return $ Left $ "Failed to parse OffsetFetchResponse: " ++ err
                     Right response -> do
                       let parsed
@@ -1912,13 +1912,13 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
                   request
                     | apiVersion >= 8 = buildOffsetFetchRequestV8 groupId byTopic
                     | otherwise       = buildOffsetFetchRequestLegacy groupId byTopic
-                  requestBody = WC.runEncodeVer OFReq.encodeOffsetFetchRequest apiVersion request
+                  requestBody = WC.runEncodeVer @OFReq.OffsetFetchRequest apiVersion request
                   clientId = P.mkKafkaString (consumerClientId consumerConfig)
               result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
               case result of
                 Left err -> pure (Left ("OffsetFetch failed: " ++ err))
                 Right (_, responseBody) ->
-                  case WC.runDecodeVer OFResp.decodeOffsetFetchResponse apiVersion responseBody of
+                  case WC.runDecodeVer @OFResp.OffsetFetchResponse apiVersion responseBody of
                     Left err -> pure (Left ("Failed to parse OffsetFetchResponse: " ++ err))
                     Right response
                       | apiVersion >= 8 -> pure $ Right $! parseOffsetFetchResponseV8 response
@@ -2132,14 +2132,14 @@ queryPartitionOffsetsByTimestampFull consumer@Consumer{..} pts = do
                 , LOReq.listOffsetsRequestTopics = P.mkKafkaArray topics
                 , LOReq.listOffsetsRequestTimeoutMs = 30000  -- v10+; ignored otherwise
                 }
-              requestBody = WC.runEncodeVer LOReq.encodeListOffsetsRequest apiVersion request
+              requestBody = WC.runEncodeVer @LOReq.ListOffsetsRequest apiVersion request
               clientId    = P.mkKafkaString (consumerClientId consumerConfig)
           result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
           case result of
             Left err -> pure (Left err)
             Right (rcid, body)
               | rcid /= corrId -> pure (Left "Correlation ID mismatch")
-              | otherwise -> case WC.runDecodeVer LOResp.decodeListOffsetsResponse apiVersion body of
+              | otherwise -> case WC.runDecodeVer @LOResp.ListOffsetsResponse apiVersion body of
                   Left err  -> pure (Left ("Failed to decode ListOffsets response: " ++ err))
                   Right resp -> pure (Right (extract resp))
   where

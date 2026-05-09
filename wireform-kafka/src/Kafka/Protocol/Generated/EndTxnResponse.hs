@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.EndTxnResponse
   (
     EndTxnResponse(..),
-    encodeEndTxnResponse,
-    decodeEndTxnResponse,
     maxEndTxnResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -100,83 +88,6 @@ instance KafkaMessage EndTxnResponse where
   messageMinVersion = 0
   messageMaxVersion = 5
   messageFlexibleVersion = Just 3
-
--- | Encode EndTxnResponse with the given API version.
-encodeEndTxnResponse :: MonadPut m => E.ApiVersion -> EndTxnResponse -> m ()
-encodeEndTxnResponse version msg
-  | version == 5 =
-    do
-      serialize (endTxnResponseThrottleTimeMs msg)
-      serialize (endTxnResponseErrorCode msg)
-      serialize (endTxnResponseProducerId msg)
-      serialize (endTxnResponseProducerEpoch msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 3 && version <= 4 =
-    do
-      serialize (endTxnResponseThrottleTimeMs msg)
-      serialize (endTxnResponseErrorCode msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 2 =
-    do
-      serialize (endTxnResponseThrottleTimeMs msg)
-      serialize (endTxnResponseErrorCode msg)
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode EndTxnResponse with the given API version.
-decodeEndTxnResponse :: MonadGet m => E.ApiVersion -> m EndTxnResponse
-decodeEndTxnResponse version
-  | version == 5 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldproducerid <- deserialize
-      fieldproducerepoch <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure EndTxnResponse
-        {
-        endTxnResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        endTxnResponseErrorCode = fielderrorcode
-        ,
-        endTxnResponseProducerId = fieldproducerid
-        ,
-        endTxnResponseProducerEpoch = fieldproducerepoch
-        }
-
-  | version >= 3 && version <= 4 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure EndTxnResponse
-        {
-        endTxnResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        endTxnResponseErrorCode = fielderrorcode
-        ,
-        endTxnResponseProducerId = (-1)
-        ,
-        endTxnResponseProducerEpoch = (-1)
-        }
-
-  | version >= 0 && version <= 2 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      pure EndTxnResponse
-        {
-        endTxnResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        endTxnResponseErrorCode = fielderrorcode
-        ,
-        endTxnResponseProducerId = (-1)
-        ,
-        endTxnResponseProducerEpoch = (-1)
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a EndTxnResponse.

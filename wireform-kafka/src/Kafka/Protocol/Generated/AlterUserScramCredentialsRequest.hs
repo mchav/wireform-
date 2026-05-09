@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.AlterUserScramCredentialsRequest
     AlterUserScramCredentialsRequest(..),
     ScramCredentialDeletion(..),
     ScramCredentialUpsertion(..),
-    encodeAlterUserScramCredentialsRequest,
-    decodeAlterUserScramCredentialsRequest,
     maxAlterUserScramCredentialsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -78,31 +66,6 @@ data ScramCredentialDeletion = ScramCredentialDeletion
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode ScramCredentialDeletion with version-aware field handling.
-encodeScramCredentialDeletion :: MonadPut m => E.ApiVersion -> ScramCredentialDeletion -> m ()
-encodeScramCredentialDeletion version smsg =
-  do
-    if version >= 0 then serialize (toCompactString (scramCredentialDeletionName smsg)) else serialize (scramCredentialDeletionName smsg)
-    serialize (scramCredentialDeletionMechanism smsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ScramCredentialDeletion with version-aware field handling.
-decodeScramCredentialDeletion :: MonadGet m => E.ApiVersion -> m ScramCredentialDeletion
-decodeScramCredentialDeletion version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldmechanism <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ScramCredentialDeletion
-      {
-      scramCredentialDeletionName = fieldname
-      ,
-      scramCredentialDeletionMechanism = fieldmechanism
-      }
-
 
 -- | The SCRAM credentials to update/insert.
 data ScramCredentialUpsertion = ScramCredentialUpsertion
@@ -141,43 +104,6 @@ data ScramCredentialUpsertion = ScramCredentialUpsertion
   deriving (Eq, Show, Generic)
 
 
--- | Encode ScramCredentialUpsertion with version-aware field handling.
-encodeScramCredentialUpsertion :: MonadPut m => E.ApiVersion -> ScramCredentialUpsertion -> m ()
-encodeScramCredentialUpsertion version smsg =
-  do
-    if version >= 0 then serialize (toCompactString (scramCredentialUpsertionName smsg)) else serialize (scramCredentialUpsertionName smsg)
-    serialize (scramCredentialUpsertionMechanism smsg)
-    serialize (scramCredentialUpsertionIterations smsg)
-    if version >= 0 then serialize (toCompactBytes (scramCredentialUpsertionSalt smsg)) else serialize (scramCredentialUpsertionSalt smsg)
-    if version >= 0 then serialize (toCompactBytes (scramCredentialUpsertionSaltedPassword smsg)) else serialize (scramCredentialUpsertionSaltedPassword smsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ScramCredentialUpsertion with version-aware field handling.
-decodeScramCredentialUpsertion :: MonadGet m => E.ApiVersion -> m ScramCredentialUpsertion
-decodeScramCredentialUpsertion version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldmechanism <- deserialize
-    fielditerations <- deserialize
-    fieldsalt <- if version >= 0 then P.fromCompactBytes <$> deserialize else deserialize
-    fieldsaltedpassword <- if version >= 0 then P.fromCompactBytes <$> deserialize else deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ScramCredentialUpsertion
-      {
-      scramCredentialUpsertionName = fieldname
-      ,
-      scramCredentialUpsertionMechanism = fieldmechanism
-      ,
-      scramCredentialUpsertionIterations = fielditerations
-      ,
-      scramCredentialUpsertionSalt = fieldsalt
-      ,
-      scramCredentialUpsertionSaltedPassword = fieldsaltedpassword
-      }
-
-
-
 data AlterUserScramCredentialsRequest = AlterUserScramCredentialsRequest
   {
 
@@ -205,32 +131,6 @@ instance KafkaMessage AlterUserScramCredentialsRequest where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Just 0
-
--- | Encode AlterUserScramCredentialsRequest with the given API version.
-encodeAlterUserScramCredentialsRequest :: MonadPut m => E.ApiVersion -> AlterUserScramCredentialsRequest -> m ()
-encodeAlterUserScramCredentialsRequest version msg
-  | version == 0 =
-    do
-      E.encodeVersionedArray version 0 encodeScramCredentialDeletion (case P.unKafkaArray (alterUserScramCredentialsRequestDeletions msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 0 encodeScramCredentialUpsertion (case P.unKafkaArray (alterUserScramCredentialsRequestUpsertions msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode AlterUserScramCredentialsRequest with the given API version.
-decodeAlterUserScramCredentialsRequest :: MonadGet m => E.ApiVersion -> m AlterUserScramCredentialsRequest
-decodeAlterUserScramCredentialsRequest version
-  | version == 0 =
-    do
-      fielddeletions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeScramCredentialDeletion
-      fieldupsertions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeScramCredentialUpsertion
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure AlterUserScramCredentialsRequest
-        {
-        alterUserScramCredentialsRequestDeletions = fielddeletions
-        ,
-        alterUserScramCredentialsRequestUpsertions = fieldupsertions
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a ScramCredentialDeletion.
 wireMaxSizeScramCredentialDeletion :: Int -> ScramCredentialDeletion -> Int

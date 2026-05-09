@@ -24,17 +24,9 @@ module Kafka.Protocol.Generated.ApiVersionsResponse
     ApiVersion(..),
     SupportedFeatureKey(..),
     FinalizedFeatureKey(..),
-    encodeApiVersionsResponse,
-    decodeApiVersionsResponse,
     maxApiVersionsResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -42,13 +34,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -86,35 +74,6 @@ data ApiVersion = ApiVersion
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode ApiVersion with version-aware field handling.
-encodeApiVersion :: MonadPut m => E.ApiVersion -> ApiVersion -> m ()
-encodeApiVersion version amsg =
-  do
-    serialize (apiVersionApiKey amsg)
-    serialize (apiVersionMinVersion amsg)
-    serialize (apiVersionMaxVersion amsg)
-    when (version >= 3) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ApiVersion with version-aware field handling.
-decodeApiVersion :: MonadGet m => E.ApiVersion -> m ApiVersion
-decodeApiVersion version =
-  do
-    fieldapikey <- deserialize
-    fieldminversion <- deserialize
-    fieldmaxversion <- deserialize
-    _ <- if version >= 3 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ApiVersion
-      {
-      apiVersionApiKey = fieldapikey
-      ,
-      apiVersionMinVersion = fieldminversion
-      ,
-      apiVersionMaxVersion = fieldmaxversion
-      }
-
-
 -- | Features supported by the broker. Note: in v0-v3, features with MinSupportedVersion = 0 are omitted.
 data SupportedFeatureKey = SupportedFeatureKey
   {
@@ -139,44 +98,6 @@ data SupportedFeatureKey = SupportedFeatureKey
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode SupportedFeatureKey with version-aware field handling.
-encodeSupportedFeatureKey :: MonadPut m => E.ApiVersion -> SupportedFeatureKey -> m ()
-encodeSupportedFeatureKey version smsg =
-  do
-    when (version >= 3) $
-      if version >= 3 then serialize (toCompactString (supportedFeatureKeyName smsg)) else serialize (supportedFeatureKeyName smsg)
-    when (version >= 3) $
-      serialize (supportedFeatureKeyMinVersion smsg)
-    when (version >= 3) $
-      serialize (supportedFeatureKeyMaxVersion smsg)
-    when (version >= 3) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode SupportedFeatureKey with version-aware field handling.
-decodeSupportedFeatureKey :: MonadGet m => E.ApiVersion -> m SupportedFeatureKey
-decodeSupportedFeatureKey version =
-  do
-    fieldname <- if version >= 3
-      then if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldminversion <- if version >= 3
-      then deserialize
-      else pure (0)
-    fieldmaxversion <- if version >= 3
-      then deserialize
-      else pure (0)
-    _ <- if version >= 3 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure SupportedFeatureKey
-      {
-      supportedFeatureKeyName = fieldname
-      ,
-      supportedFeatureKeyMinVersion = fieldminversion
-      ,
-      supportedFeatureKeyMaxVersion = fieldmaxversion
-      }
-
-
 -- | List of cluster-wide finalized features. The information is valid only if FinalizedFeaturesEpoch >= 0.
 data FinalizedFeatureKey = FinalizedFeatureKey
   {
@@ -200,44 +121,6 @@ data FinalizedFeatureKey = FinalizedFeatureKey
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode FinalizedFeatureKey with version-aware field handling.
-encodeFinalizedFeatureKey :: MonadPut m => E.ApiVersion -> FinalizedFeatureKey -> m ()
-encodeFinalizedFeatureKey version fmsg =
-  do
-    when (version >= 3) $
-      if version >= 3 then serialize (toCompactString (finalizedFeatureKeyName fmsg)) else serialize (finalizedFeatureKeyName fmsg)
-    when (version >= 3) $
-      serialize (finalizedFeatureKeyMaxVersionLevel fmsg)
-    when (version >= 3) $
-      serialize (finalizedFeatureKeyMinVersionLevel fmsg)
-    when (version >= 3) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode FinalizedFeatureKey with version-aware field handling.
-decodeFinalizedFeatureKey :: MonadGet m => E.ApiVersion -> m FinalizedFeatureKey
-decodeFinalizedFeatureKey version =
-  do
-    fieldname <- if version >= 3
-      then if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldmaxversionlevel <- if version >= 3
-      then deserialize
-      else pure (0)
-    fieldminversionlevel <- if version >= 3
-      then deserialize
-      else pure (0)
-    _ <- if version >= 3 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure FinalizedFeatureKey
-      {
-      finalizedFeatureKeyName = fieldname
-      ,
-      finalizedFeatureKeyMaxVersionLevel = fieldmaxversionlevel
-      ,
-      finalizedFeatureKeyMinVersionLevel = fieldminversionlevel
-      }
-
 
 
 data ApiVersionsResponse = ApiVersionsResponse
@@ -297,134 +180,6 @@ instance KafkaMessage ApiVersionsResponse where
   messageMinVersion = 0
   messageMaxVersion = 5
   messageFlexibleVersion = Just 3
-
--- | Encode ApiVersionsResponse with the given API version.
-encodeApiVersionsResponse :: MonadPut m => E.ApiVersion -> ApiVersionsResponse -> m ()
-encodeApiVersionsResponse version msg
-  | version == 0 =
-    do
-      serialize (apiVersionsResponseErrorCode msg)
-      E.encodeVersionedArray version 3 encodeApiVersion (case P.unKafkaArray (apiVersionsResponseApiKeys msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version >= 1 && version <= 2 =
-    do
-      serialize (apiVersionsResponseErrorCode msg)
-      E.encodeVersionedArray version 3 encodeApiVersion (case P.unKafkaArray (apiVersionsResponseApiKeys msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (apiVersionsResponseThrottleTimeMs msg)
-
-
-  | version >= 3 && version <= 5 =
-    do
-      serialize (apiVersionsResponseErrorCode msg)
-      E.encodeVersionedArray version 3 encodeApiVersion (case P.unKafkaArray (apiVersionsResponseApiKeys msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (apiVersionsResponseThrottleTimeMs msg)
-      do
-        let _entries = (if version >= 3 then [(0, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeSupportedFeatureKey (case P.unKafkaArray (apiVersionsResponseSupportedFeatures msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else []) ++ (if version >= 3 then [(1, Data.Bytes.Put.runPutS (serialize (apiVersionsResponseFinalizedFeaturesEpoch msg)))] else []) ++ (if version >= 3 then [(2, Data.Bytes.Put.runPutS (E.encodeVersionedArray version 999 encodeFinalizedFeatureKey (case P.unKafkaArray (apiVersionsResponseFinalizedFeatures msg) of { P.NotNull v -> v; P.Null -> V.empty })))] else []) ++ (if version >= 3 then [(3, Data.Bytes.Put.runPutS (serialize (apiVersionsResponseZkMigrationReady msg)))] else [])
-        P.serializeTaggedFieldEntries _entries
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ApiVersionsResponse with the given API version.
-decodeApiVersionsResponse :: MonadGet m => E.ApiVersion -> m ApiVersionsResponse
-decodeApiVersionsResponse version
-  | version == 0 =
-    do
-      fielderrorcode <- deserialize
-      fieldapikeys <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 decodeApiVersion
-      pure ApiVersionsResponse
-        {
-        apiVersionsResponseErrorCode = fielderrorcode
-        ,
-        apiVersionsResponseApiKeys = fieldapikeys
-        ,
-        apiVersionsResponseThrottleTimeMs = 0
-        ,
-        apiVersionsResponseSupportedFeatures = P.mkKafkaArray V.empty
-        ,
-        apiVersionsResponseFinalizedFeaturesEpoch = (-1)
-        ,
-        apiVersionsResponseFinalizedFeatures = P.mkKafkaArray V.empty
-        ,
-        apiVersionsResponseZkMigrationReady = False
-        }
-
-  | version >= 1 && version <= 2 =
-    do
-      fielderrorcode <- deserialize
-      fieldapikeys <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 decodeApiVersion
-      fieldthrottletimems <- deserialize
-      pure ApiVersionsResponse
-        {
-        apiVersionsResponseErrorCode = fielderrorcode
-        ,
-        apiVersionsResponseApiKeys = fieldapikeys
-        ,
-        apiVersionsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        apiVersionsResponseSupportedFeatures = P.mkKafkaArray V.empty
-        ,
-        apiVersionsResponseFinalizedFeaturesEpoch = (-1)
-        ,
-        apiVersionsResponseFinalizedFeatures = P.mkKafkaArray V.empty
-        ,
-        apiVersionsResponseZkMigrationReady = False
-        }
-
-  | version >= 3 && version <= 5 =
-    do
-      fielderrorcode <- deserialize
-      fieldapikeys <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 decodeApiVersion
-      fieldthrottletimems <- deserialize
-      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
-      let fieldsupportedfeatures =
-            if version >= 3
-              then case P.lookupTaggedField 0 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeSupportedFeatureKey) _bs of
-                    Right _v -> _v
-                    Left  _  -> (P.mkKafkaArray V.empty)
-                Nothing  -> (P.mkKafkaArray V.empty)
-              else (P.mkKafkaArray V.empty)
-      let fieldfinalizedfeaturesepoch =
-            if version >= 3
-              then case P.lookupTaggedField 1 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
-                    Right _v -> _v
-                    Left  _  -> ((-1))
-                Nothing  -> ((-1))
-              else ((-1))
-      let fieldfinalizedfeatures =
-            if version >= 3
-              then case P.lookupTaggedField 2 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (P.mkKafkaArray <$> E.decodeVersionedArray version 999 decodeFinalizedFeatureKey) _bs of
-                    Right _v -> _v
-                    Left  _  -> (P.mkKafkaArray V.empty)
-                Nothing  -> (P.mkKafkaArray V.empty)
-              else (P.mkKafkaArray V.empty)
-      let fieldzkmigrationready =
-            if version >= 3
-              then case P.lookupTaggedField 3 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
-                    Right _v -> _v
-                    Left  _  -> (False)
-                Nothing  -> (False)
-              else (False)
-      pure ApiVersionsResponse
-        {
-        apiVersionsResponseErrorCode = fielderrorcode
-        ,
-        apiVersionsResponseApiKeys = fieldapikeys
-        ,
-        apiVersionsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        apiVersionsResponseSupportedFeatures = fieldsupportedfeatures
-        ,
-        apiVersionsResponseFinalizedFeaturesEpoch = fieldfinalizedfeaturesepoch
-        ,
-        apiVersionsResponseFinalizedFeatures = fieldfinalizedfeatures
-        ,
-        apiVersionsResponseZkMigrationReady = fieldzkmigrationready
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a ApiVersion.
 wireMaxSizeApiVersion :: Int -> ApiVersion -> Int

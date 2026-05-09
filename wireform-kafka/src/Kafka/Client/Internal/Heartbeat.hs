@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Client.Internal.Heartbeat
@@ -264,7 +265,7 @@ sendHeartbeat HeartbeatState{..} coordAddr memberId genId = do
             , HBReq.heartbeatRequestGroupInstanceId = P.KafkaString P.Null
             }
           
-          requestBody = WC.runEncodeVer HBReq.encodeHeartbeatRequest apiVersion request
+          requestBody = WC.runEncodeVer @HBReq.HeartbeatRequest apiVersion request
           clientIdKafka = P.mkKafkaString hbClientId
       
       -- Send request and receive response
@@ -275,7 +276,7 @@ sendHeartbeat HeartbeatState{..} coordAddr memberId genId = do
           "Heartbeat request failed: " ++ err
         
         Right (_, responseBody) -> do
-          case WC.runDecodeVer HBResp.decodeHeartbeatResponse apiVersion responseBody of
+          case WC.runDecodeVer @HBResp.HeartbeatResponse apiVersion responseBody of
             Left err -> return $ Left $ HeartbeatTransport $
               "Failed to parse HeartbeatResponse: " ++ err
             

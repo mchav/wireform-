@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.IncrementalAlterConfigsRequest
     IncrementalAlterConfigsRequest(..),
     AlterConfigsResource(..),
     AlterableConfig(..),
-    encodeIncrementalAlterConfigsRequest,
-    decodeIncrementalAlterConfigsRequest,
     maxIncrementalAlterConfigsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -85,35 +73,6 @@ data AlterableConfig = AlterableConfig
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode AlterableConfig with version-aware field handling.
-encodeAlterableConfig :: MonadPut m => E.ApiVersion -> AlterableConfig -> m ()
-encodeAlterableConfig version amsg =
-  do
-    if version >= 1 then serialize (toCompactString (alterableConfigName amsg)) else serialize (alterableConfigName amsg)
-    serialize (alterableConfigConfigOperation amsg)
-    if version >= 1 then serialize (toCompactString (alterableConfigValue amsg)) else serialize (alterableConfigValue amsg)
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode AlterableConfig with version-aware field handling.
-decodeAlterableConfig :: MonadGet m => E.ApiVersion -> m AlterableConfig
-decodeAlterableConfig version =
-  do
-    fieldname <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    fieldconfigoperation <- deserialize
-    fieldvalue <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure AlterableConfig
-      {
-      alterableConfigName = fieldname
-      ,
-      alterableConfigConfigOperation = fieldconfigoperation
-      ,
-      alterableConfigValue = fieldvalue
-      }
-
-
 -- | The incremental updates for each resource.
 data AlterConfigsResource = AlterConfigsResource
   {
@@ -137,35 +96,6 @@ data AlterConfigsResource = AlterConfigsResource
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode AlterConfigsResource with version-aware field handling.
-encodeAlterConfigsResource :: MonadPut m => E.ApiVersion -> AlterConfigsResource -> m ()
-encodeAlterConfigsResource version amsg =
-  do
-    serialize (alterConfigsResourceResourceType amsg)
-    if version >= 1 then serialize (toCompactString (alterConfigsResourceResourceName amsg)) else serialize (alterConfigsResourceResourceName amsg)
-    E.encodeVersionedArray version 1 encodeAlterableConfig (case P.unKafkaArray (alterConfigsResourceConfigs amsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode AlterConfigsResource with version-aware field handling.
-decodeAlterConfigsResource :: MonadGet m => E.ApiVersion -> m AlterConfigsResource
-decodeAlterConfigsResource version =
-  do
-    fieldresourcetype <- deserialize
-    fieldresourcename <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    fieldconfigs <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeAlterableConfig
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure AlterConfigsResource
-      {
-      alterConfigsResourceResourceType = fieldresourcetype
-      ,
-      alterConfigsResourceResourceName = fieldresourcename
-      ,
-      alterConfigsResourceConfigs = fieldconfigs
-      }
-
 
 
 data IncrementalAlterConfigsRequest = IncrementalAlterConfigsRequest
@@ -195,49 +125,6 @@ instance KafkaMessage IncrementalAlterConfigsRequest where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 1
-
--- | Encode IncrementalAlterConfigsRequest with the given API version.
-encodeIncrementalAlterConfigsRequest :: MonadPut m => E.ApiVersion -> IncrementalAlterConfigsRequest -> m ()
-encodeIncrementalAlterConfigsRequest version msg
-  | version == 0 =
-    do
-      E.encodeVersionedArray version 1 encodeAlterConfigsResource (case P.unKafkaArray (incrementalAlterConfigsRequestResources msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (incrementalAlterConfigsRequestValidateOnly msg)
-
-
-  | version == 1 =
-    do
-      E.encodeVersionedArray version 1 encodeAlterConfigsResource (case P.unKafkaArray (incrementalAlterConfigsRequestResources msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (incrementalAlterConfigsRequestValidateOnly msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode IncrementalAlterConfigsRequest with the given API version.
-decodeIncrementalAlterConfigsRequest :: MonadGet m => E.ApiVersion -> m IncrementalAlterConfigsRequest
-decodeIncrementalAlterConfigsRequest version
-  | version == 0 =
-    do
-      fieldresources <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeAlterConfigsResource
-      fieldvalidateonly <- deserialize
-      pure IncrementalAlterConfigsRequest
-        {
-        incrementalAlterConfigsRequestResources = fieldresources
-        ,
-        incrementalAlterConfigsRequestValidateOnly = fieldvalidateonly
-        }
-
-  | version == 1 =
-    do
-      fieldresources <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeAlterConfigsResource
-      fieldvalidateonly <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure IncrementalAlterConfigsRequest
-        {
-        incrementalAlterConfigsRequestResources = fieldresources
-        ,
-        incrementalAlterConfigsRequestValidateOnly = fieldvalidateonly
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a AlterableConfig.
 wireMaxSizeAlterableConfig :: Int -> AlterableConfig -> Int

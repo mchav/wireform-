@@ -23,17 +23,9 @@ module Kafka.Protocol.Generated.DescribeTopicPartitionsRequest
     DescribeTopicPartitionsRequest(..),
     TopicRequest(..),
     Cursor(..),
-    encodeDescribeTopicPartitionsRequest,
-    decodeDescribeTopicPartitionsRequest,
     maxDescribeTopicPartitionsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -41,13 +33,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -73,27 +61,6 @@ data TopicRequest = TopicRequest
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode TopicRequest with version-aware field handling.
-encodeTopicRequest :: MonadPut m => E.ApiVersion -> TopicRequest -> m ()
-encodeTopicRequest version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (topicRequestName tmsg)) else serialize (topicRequestName tmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicRequest with version-aware field handling.
-decodeTopicRequest :: MonadGet m => E.ApiVersion -> m TopicRequest
-decodeTopicRequest version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicRequest
-      {
-      topicRequestName = fieldname
-      }
-
-
 -- | The first topic and partition index to fetch details for.
 data Cursor = Cursor
   {
@@ -111,31 +78,6 @@ data Cursor = Cursor
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode Cursor with version-aware field handling.
-encodeCursor :: MonadPut m => E.ApiVersion -> Cursor -> m ()
-encodeCursor version cmsg =
-  do
-    if version >= 0 then serialize (toCompactString (cursorTopicName cmsg)) else serialize (cursorTopicName cmsg)
-    serialize (cursorPartitionIndex cmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Cursor with version-aware field handling.
-decodeCursor :: MonadGet m => E.ApiVersion -> m Cursor
-decodeCursor version =
-  do
-    fieldtopicname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitionindex <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Cursor
-      {
-      cursorTopicName = fieldtopicname
-      ,
-      cursorPartitionIndex = fieldpartitionindex
-      }
-
 
 
 data DescribeTopicPartitionsRequest = DescribeTopicPartitionsRequest
@@ -171,36 +113,6 @@ instance KafkaMessage DescribeTopicPartitionsRequest where
   messageMinVersion = 0
   messageMaxVersion = 0
   messageFlexibleVersion = Just 0
-
--- | Encode DescribeTopicPartitionsRequest with the given API version.
-encodeDescribeTopicPartitionsRequest :: MonadPut m => E.ApiVersion -> DescribeTopicPartitionsRequest -> m ()
-encodeDescribeTopicPartitionsRequest version msg
-  | version == 0 =
-    do
-      E.encodeVersionedArray version 0 encodeTopicRequest (case P.unKafkaArray (describeTopicPartitionsRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (describeTopicPartitionsRequestResponsePartitionLimit msg)
-      case (describeTopicPartitionsRequestCursor msg) of { P.Null -> serialize (0 :: Int8); P.NotNull val -> do { serialize (1 :: Int8); encodeCursor version val } }
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeTopicPartitionsRequest with the given API version.
-decodeDescribeTopicPartitionsRequest :: MonadGet m => E.ApiVersion -> m DescribeTopicPartitionsRequest
-decodeDescribeTopicPartitionsRequest version
-  | version == 0 =
-    do
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicRequest
-      fieldresponsepartitionlimit <- deserialize
-      fieldcursor <- do { flag <- deserialize :: (MonadGet m) => m Int8; case flag of { 0 -> pure P.Null; 1 -> P.NotNull <$> decodeCursor version; _ -> fail "Invalid nullable flag" } }
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeTopicPartitionsRequest
-        {
-        describeTopicPartitionsRequestTopics = fieldtopics
-        ,
-        describeTopicPartitionsRequestResponsePartitionLimit = fieldresponsepartitionlimit
-        ,
-        describeTopicPartitionsRequestCursor = fieldcursor
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a TopicRequest.
 wireMaxSizeTopicRequest :: Int -> TopicRequest -> Int

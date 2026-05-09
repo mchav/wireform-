@@ -16,28 +16,18 @@ field is a native 'WireCodecImpl' populated by codegen-emitted
 path: one 'mallocForeignPtrBytes', a single 'wirePokeFor', and a
 slice — no 'Builder', no parser monad, no per-record allocations.
 
-There is no Serial fallback. The 'Data.Bytes.Serial'-shaped
-@encodeFoo@ / @decodeFoo@ functions the codegen still emits are
-kept only because ~95 existing call sites take them as parameters
-to 'runEncodeVer' / 'runDecodeVer'; those parameters are unused
-in the runner body now (the dispatch is purely through 'WireCodec')
-and will be deleted in a follow-up that migrates the call sites
-to @runEncodeVer \@MyType ...@.
-
-== Why a typeclass instead of changing the runner signature
-
-Every existing call site looks like
+There is no Serial fallback in the runtime path: the runners
+('runEncodeVer' / 'runDecodeVer' / 'runEncodeVerInto') dispatch
+unconditionally through the 'WireCodec' instance. Call sites pick
+the message type via 'TypeApplications':
 
 @
-WC.runEncodeVer Module.encodeFoo apiVersion msg
+WC.runEncodeVer \@Module.Foo apiVersion msg
 @
 
-— it passes a top-level @encodeFoo@ function. We don't want to
-churn ~95 call sites just to switch the underlying codec. The
-'WireCodec a' constraint on 'runEncodeVer' is satisfied
-transparently by the instance the generated module exports, so
-adding the constraint is invisible at the call site (the instance
-ships with the message type).
+The codegen no longer emits 'Data.Bytes.Serial'-shaped
+@encodeFoo@ / @decodeFoo@ functions; that machinery is deprecated
+and gone from every Generated/*.hs module.
 -}
 module Kafka.Protocol.Wire.Codec
   ( -- * Versioned encode / decode
@@ -45,50 +35,22 @@ module Kafka.Protocol.Wire.Codec
   , runDecodeVer
     -- * Versioned encode straight into a caller-supplied buffer
   , runEncodeVerInto
-    -- * Aliases the codegen will use
-  , SerialEncoder
-  , SerialDecoder
     -- * Wire-codec typeclass + dispatch record
   , WireCodec (..)
   , WireCodecImpl (..)
-    -- * Internal: Serial-runner helpers (exposed for testing /
-    -- benchmarking — bypasses the WireCodec dispatch and goes
-    -- through the legacy 'Data.Bytes.Serial' encoder / decoder
-    -- supplied by the caller). Used by the parity property tests
-    -- in @Protocol.WireCodecParitySpec@.
-  , runEncodeVerSerial
-  , runDecodeVerSerial
   ) where
 
 import Control.Exception (SomeException)
 import qualified Control.Exception as Exc
-import Data.Bytes.Get (MonadGet, runGetS)
-import Data.Bytes.Put (MonadPut, runPutS)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int16)
 import Foreign.ForeignPtr
   ( ForeignPtr, mallocForeignPtrBytes, withForeignPtr )
-import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (Ptr, minusPtr, plusPtr)
 import GHC.IO (unsafePerformIO)
 import Data.Word (Word8)
-
-----------------------------------------------------------------------
--- Aliases
-----------------------------------------------------------------------
-
--- | The shape every generated @encodeFoo@ has: takes an api
--- version + the message + builds in an unspecified
--- 'MonadPut'. Use as the parameter type for 'runEncodeVer'.
-type SerialEncoder a =
-  forall m. MonadPut m => Int16 -> a -> m ()
-
--- | The shape every generated @decodeFoo@ has: takes an api
--- version + reads in an unspecified 'MonadGet'.
-type SerialDecoder a =
-  forall m. (MonadGet m, MonadFail m) => Int16 -> m a
 
 ----------------------------------------------------------------------
 -- Wire-codec typeclass + dispatch record
@@ -146,35 +108,36 @@ class WireCodec a where
 -- Runners
 ----------------------------------------------------------------------
 
--- | Encode a versioned message to a fresh 'ByteString'.
+-- | Encode a versioned message to a fresh 'ByteString'. Pick the
+-- message type at the call site via @TypeApplications@:
+--
+-- @
+-- bs = WC.runEncodeVer \@Module.Foo apiVersion msg
+-- @
 --
 -- Single-allocation, single-pass write into a freshly-malloced
--- buffer via the message type's 'WireCodec' instance. The first
--- argument (a legacy 'SerialEncoder') is unused; it's kept on the
--- signature so the ~95 existing call sites of the form
--- @runEncodeVer Module.encodeFoo apiVersion msg@ continue to type-check.
--- A follow-up will migrate those to @runEncodeVer \@Foo apiVersion msg@
--- and drop the parameter.
+-- buffer via the message type's 'WireCodec' instance.
 {-# INLINEABLE runEncodeVer #-}
 runEncodeVer
   :: forall a. WireCodec a
-  => SerialEncoder a -> Int16 -> a -> ByteString
-runEncodeVer _encoder version msg =
-  runWireEncode (wireCodec @a) version msg
+  => Int16 -> a -> ByteString
+runEncodeVer version msg = runWireEncode (wireCodec @a) version msg
 
--- | Decode a versioned message from a 'ByteString'.
+-- | Decode a versioned message from a 'ByteString'. Pick the
+-- expected type at the call site via @TypeApplications@:
 --
--- Single-pass decode through the 'WireCodec' instance. The first
--- argument is unused for the same reason as 'runEncodeVer'.
+-- @
+-- WC.runDecodeVer \@Module.Foo apiVersion bs
+-- @
+--
 -- Trailing bytes past the value are silently ignored — Kafka's
 -- framing layer (the 4-byte length prefix on every request) makes
 -- that the right call.
 {-# INLINEABLE runDecodeVer #-}
 runDecodeVer
   :: forall a. WireCodec a
-  => SerialDecoder a -> Int16 -> ByteString -> Either String a
-runDecodeVer _decoder version bs =
-  runWireDecode (wireCodec @a) version bs
+  => Int16 -> ByteString -> Either String a
+runDecodeVer version bs = runWireDecode (wireCodec @a) version bs
 
 -- | Encode a versioned message directly into a caller-supplied
 -- 'Ptr Word8', returning the pointer just past the last byte
@@ -189,31 +152,9 @@ runDecodeVer _decoder version bs =
 {-# INLINEABLE runEncodeVerInto #-}
 runEncodeVerInto
   :: forall a. WireCodec a
-  => SerialEncoder a -> Int16 -> a -> Ptr Word8 -> IO (Ptr Word8)
-runEncodeVerInto _encoder version msg dst =
+  => Int16 -> a -> Ptr Word8 -> IO (Ptr Word8)
+runEncodeVerInto version msg dst =
   wirePokeFor (wireCodec @a) version dst msg
-
-----------------------------------------------------------------------
--- Internal: Serial fallback (exposed for tests / benchmarks that
--- want to compare native-Wire output against the Serial baseline)
-----------------------------------------------------------------------
-
--- | Force the Serial-runner path even when the message type has a
--- native Wire codec available. Useful for the cross-codec
--- equivalence property tests in @Protocol.WireCodecSpec@.
-{-# INLINE runEncodeVerSerial #-}
-runEncodeVerSerial :: SerialEncoder a -> Int16 -> a -> ByteString
-runEncodeVerSerial encoder version msg =
-  runPutS (encoder version msg)
-
-
--- | Force the Serial-runner path on the decode side. Mirror of
--- 'runEncodeVerSerial'.
-{-# INLINE runDecodeVerSerial #-}
-runDecodeVerSerial
-  :: SerialDecoder a -> Int16 -> ByteString -> Either String a
-runDecodeVerSerial decoder version bs =
-  runGetS (decoder version) bs
 
 ----------------------------------------------------------------------
 -- Wire-impl runners

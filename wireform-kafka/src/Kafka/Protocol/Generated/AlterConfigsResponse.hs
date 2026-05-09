@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.AlterConfigsResponse
   (
     AlterConfigsResponse(..),
     AlterConfigsResourceResponse(..),
-    encodeAlterConfigsResponse,
-    decodeAlterConfigsResponse,
     maxAlterConfigsResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -91,39 +79,6 @@ data AlterConfigsResourceResponse = AlterConfigsResourceResponse
   deriving (Eq, Show, Generic)
 
 
--- | Encode AlterConfigsResourceResponse with version-aware field handling.
-encodeAlterConfigsResourceResponse :: MonadPut m => E.ApiVersion -> AlterConfigsResourceResponse -> m ()
-encodeAlterConfigsResourceResponse version amsg =
-  do
-    serialize (alterConfigsResourceResponseErrorCode amsg)
-    if version >= 2 then serialize (toCompactString (alterConfigsResourceResponseErrorMessage amsg)) else serialize (alterConfigsResourceResponseErrorMessage amsg)
-    serialize (alterConfigsResourceResponseResourceType amsg)
-    if version >= 2 then serialize (toCompactString (alterConfigsResourceResponseResourceName amsg)) else serialize (alterConfigsResourceResponseResourceName amsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode AlterConfigsResourceResponse with version-aware field handling.
-decodeAlterConfigsResourceResponse :: MonadGet m => E.ApiVersion -> m AlterConfigsResourceResponse
-decodeAlterConfigsResourceResponse version =
-  do
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldresourcetype <- deserialize
-    fieldresourcename <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure AlterConfigsResourceResponse
-      {
-      alterConfigsResourceResponseErrorCode = fielderrorcode
-      ,
-      alterConfigsResourceResponseErrorMessage = fielderrormessage
-      ,
-      alterConfigsResourceResponseResourceType = fieldresourcetype
-      ,
-      alterConfigsResourceResponseResourceName = fieldresourcename
-      }
-
-
-
 data AlterConfigsResponse = AlterConfigsResponse
   {
 
@@ -151,49 +106,6 @@ instance KafkaMessage AlterConfigsResponse where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 2
-
--- | Encode AlterConfigsResponse with the given API version.
-encodeAlterConfigsResponse :: MonadPut m => E.ApiVersion -> AlterConfigsResponse -> m ()
-encodeAlterConfigsResponse version msg
-  | version == 2 =
-    do
-      serialize (alterConfigsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 2 encodeAlterConfigsResourceResponse (case P.unKafkaArray (alterConfigsResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 1 =
-    do
-      serialize (alterConfigsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 2 encodeAlterConfigsResourceResponse (case P.unKafkaArray (alterConfigsResponseResponses msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode AlterConfigsResponse with the given API version.
-decodeAlterConfigsResponse :: MonadGet m => E.ApiVersion -> m AlterConfigsResponse
-decodeAlterConfigsResponse version
-  | version == 2 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeAlterConfigsResourceResponse
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure AlterConfigsResponse
-        {
-        alterConfigsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        alterConfigsResponseResponses = fieldresponses
-        }
-
-  | version >= 0 && version <= 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldresponses <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeAlterConfigsResourceResponse
-      pure AlterConfigsResponse
-        {
-        alterConfigsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        alterConfigsResponseResponses = fieldresponses
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a AlterConfigsResourceResponse.
 wireMaxSizeAlterConfigsResourceResponse :: Int -> AlterConfigsResourceResponse -> Int

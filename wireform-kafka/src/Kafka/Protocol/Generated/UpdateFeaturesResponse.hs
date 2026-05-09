@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.UpdateFeaturesResponse
   (
     UpdateFeaturesResponse(..),
     UpdatableFeatureResult(..),
-    encodeUpdateFeaturesResponse,
-    decodeUpdateFeaturesResponse,
     maxUpdateFeaturesResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -83,35 +71,6 @@ data UpdatableFeatureResult = UpdatableFeatureResult
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode UpdatableFeatureResult with version-aware field handling.
-encodeUpdatableFeatureResult :: MonadPut m => E.ApiVersion -> UpdatableFeatureResult -> m ()
-encodeUpdatableFeatureResult version umsg =
-  do
-    if version >= 0 then serialize (toCompactString (updatableFeatureResultFeature umsg)) else serialize (updatableFeatureResultFeature umsg)
-    serialize (updatableFeatureResultErrorCode umsg)
-    if version >= 0 then serialize (toCompactString (updatableFeatureResultErrorMessage umsg)) else serialize (updatableFeatureResultErrorMessage umsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode UpdatableFeatureResult with version-aware field handling.
-decodeUpdatableFeatureResult :: MonadGet m => E.ApiVersion -> m UpdatableFeatureResult
-decodeUpdatableFeatureResult version =
-  do
-    fieldfeature <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure UpdatableFeatureResult
-      {
-      updatableFeatureResultFeature = fieldfeature
-      ,
-      updatableFeatureResultErrorCode = fielderrorcode
-      ,
-      updatableFeatureResultErrorMessage = fielderrormessage
-      }
-
 
 
 data UpdateFeaturesResponse = UpdateFeaturesResponse
@@ -153,64 +112,6 @@ instance KafkaMessage UpdateFeaturesResponse where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 0
-
--- | Encode UpdateFeaturesResponse with the given API version.
-encodeUpdateFeaturesResponse :: MonadPut m => E.ApiVersion -> UpdateFeaturesResponse -> m ()
-encodeUpdateFeaturesResponse version msg
-  | version == 2 =
-    do
-      serialize (updateFeaturesResponseThrottleTimeMs msg)
-      serialize (updateFeaturesResponseErrorCode msg)
-      serialize (toCompactString (updateFeaturesResponseErrorMessage msg))
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 1 =
-    do
-      serialize (updateFeaturesResponseThrottleTimeMs msg)
-      serialize (updateFeaturesResponseErrorCode msg)
-      serialize (toCompactString (updateFeaturesResponseErrorMessage msg))
-      E.encodeVersionedArray version 0 encodeUpdatableFeatureResult (case P.unKafkaArray (updateFeaturesResponseResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode UpdateFeaturesResponse with the given API version.
-decodeUpdateFeaturesResponse :: MonadGet m => E.ApiVersion -> m UpdateFeaturesResponse
-decodeUpdateFeaturesResponse version
-  | version == 2 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure UpdateFeaturesResponse
-        {
-        updateFeaturesResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        updateFeaturesResponseErrorCode = fielderrorcode
-        ,
-        updateFeaturesResponseErrorMessage = fielderrormessage
-        ,
-        updateFeaturesResponseResults = P.mkKafkaArray V.empty
-        }
-
-  | version >= 0 && version <= 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeUpdatableFeatureResult
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure UpdateFeaturesResponse
-        {
-        updateFeaturesResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        updateFeaturesResponseErrorCode = fielderrorcode
-        ,
-        updateFeaturesResponseErrorMessage = fielderrormessage
-        ,
-        updateFeaturesResponseResults = fieldresults
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a UpdatableFeatureResult.
 wireMaxSizeUpdatableFeatureResult :: Int -> UpdatableFeatureResult -> Int

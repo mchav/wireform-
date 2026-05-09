@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Client.Internal.Subscribe
@@ -294,7 +295,7 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
             mPrev
 
       pure
-        [ (mid, WC.runEncodeVer CPA.encodeConsumerProtocolAssignment 0 $
+        [ (mid, WC.runEncodeVer @CPA.ConsumerProtocolAssignment 0 $
                   CPA.ConsumerProtocolAssignment
                     { CPA.consumerProtocolAssignmentAssignedPartitions =
                         P.mkKafkaArray $ V.fromList
@@ -632,7 +633,7 @@ encodeSubscriptionWithOwned
   -> [(Text, [Int32])]      -- ^ owned partitions: @(topic, [pid])@
   -> BS.ByteString
 encodeSubscriptionWithOwned topics userData owned =
-  WC.runEncodeVer CPS.encodeConsumerProtocolSubscription consumerProtocolVersion $
+  WC.runEncodeVer @CPS.ConsumerProtocolSubscription consumerProtocolVersion $
     CPS.ConsumerProtocolSubscription
       { CPS.consumerProtocolSubscriptionTopics =
           P.mkKafkaArray $ V.fromList (map P.mkKafkaString topics)
@@ -672,7 +673,7 @@ decodeSubscriptionFull
   :: BS.ByteString
   -> Either String ([Text], BS.ByteString, [(Text, [Int32])])
 decodeSubscriptionFull bs =
-  case WC.runDecodeVer CPS.decodeConsumerProtocolSubscription consumerProtocolVersion bs of
+  case WC.runDecodeVer @CPS.ConsumerProtocolSubscription consumerProtocolVersion bs of
     Left err -> Left err
     Right s ->
       let topicsArr = case P.unKafkaArray (CPS.consumerProtocolSubscriptionTopics s) of
@@ -697,7 +698,7 @@ decodeSubscriptionFull bs =
 -- | Decode the per-member SyncGroup assignment payload.
 decodeAssignment :: BS.ByteString -> Either String [(Text, [Int32])]
 decodeAssignment bs =
-  case WC.runDecodeVer CPA.decodeConsumerProtocolAssignment 0 bs of
+  case WC.runDecodeVer @CPA.ConsumerProtocolAssignment 0 bs of
     Left err -> Left err
     Right a ->
       let parts = case P.unKafkaArray (CPA.consumerProtocolAssignmentAssignedPartitions a) of
@@ -749,13 +750,13 @@ offsetFetchAll versionCache coordAddr conn clientId groupId tps corrId = do
         , OFReq.offsetFetchRequestGroups  = P.mkKafkaArray V.empty
         , OFReq.offsetFetchRequestRequireStable = False
         }
-      requestBody = WC.runEncodeVer OFReq.encodeOffsetFetchRequest apiVersion request
+      requestBody = WC.runEncodeVer @OFReq.OffsetFetchRequest apiVersion request
       clientIdK   = P.mkKafkaString clientId
   result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdK requestBody
   case result of
     Left err -> pure (Left err)
     Right (_, body) ->
-      case WC.runDecodeVer OFResp.decodeOffsetFetchResponse apiVersion body of
+      case WC.runDecodeVer @OFResp.OffsetFetchResponse apiVersion body of
         Left err -> pure (Left ("decode OffsetFetch: " <> err))
         Right resp ->
           let topicsList = case P.unKafkaArray (OFResp.offsetFetchResponseTopics resp) of

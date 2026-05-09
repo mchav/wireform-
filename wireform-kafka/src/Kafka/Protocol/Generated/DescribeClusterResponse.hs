@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.DescribeClusterResponse
   (
     DescribeClusterResponse(..),
     DescribeClusterBroker(..),
-    encodeDescribeClusterResponse,
-    decodeDescribeClusterResponse,
     maxDescribeClusterResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -95,46 +83,6 @@ data DescribeClusterBroker = DescribeClusterBroker
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode DescribeClusterBroker with version-aware field handling.
-encodeDescribeClusterBroker :: MonadPut m => E.ApiVersion -> DescribeClusterBroker -> m ()
-encodeDescribeClusterBroker version dmsg =
-  do
-    serialize (describeClusterBrokerBrokerId dmsg)
-    if version >= 0 then serialize (toCompactString (describeClusterBrokerHost dmsg)) else serialize (describeClusterBrokerHost dmsg)
-    serialize (describeClusterBrokerPort dmsg)
-    if version >= 0 then serialize (toCompactString (describeClusterBrokerRack dmsg)) else serialize (describeClusterBrokerRack dmsg)
-    when (version >= 2) $
-      serialize (describeClusterBrokerIsFenced dmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribeClusterBroker with version-aware field handling.
-decodeDescribeClusterBroker :: MonadGet m => E.ApiVersion -> m DescribeClusterBroker
-decodeDescribeClusterBroker version =
-  do
-    fieldbrokerid <- deserialize
-    fieldhost <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldport <- deserialize
-    fieldrack <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldisfenced <- if version >= 2
-      then deserialize
-      else pure (False)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribeClusterBroker
-      {
-      describeClusterBrokerBrokerId = fieldbrokerid
-      ,
-      describeClusterBrokerHost = fieldhost
-      ,
-      describeClusterBrokerPort = fieldport
-      ,
-      describeClusterBrokerRack = fieldrack
-      ,
-      describeClusterBrokerIsFenced = fieldisfenced
-      }
-
 
 
 data DescribeClusterResponse = DescribeClusterResponse
@@ -200,96 +148,6 @@ instance KafkaMessage DescribeClusterResponse where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 0
-
--- | Encode DescribeClusterResponse with the given API version.
-encodeDescribeClusterResponse :: MonadPut m => E.ApiVersion -> DescribeClusterResponse -> m ()
-encodeDescribeClusterResponse version msg
-  | version == 0 =
-    do
-      serialize (describeClusterResponseThrottleTimeMs msg)
-      serialize (describeClusterResponseErrorCode msg)
-      serialize (toCompactString (describeClusterResponseErrorMessage msg))
-      serialize (toCompactString (describeClusterResponseClusterId msg))
-      serialize (describeClusterResponseControllerId msg)
-      E.encodeVersionedArray version 0 encodeDescribeClusterBroker (case P.unKafkaArray (describeClusterResponseBrokers msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (describeClusterResponseClusterAuthorizedOperations msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 1 && version <= 2 =
-    do
-      serialize (describeClusterResponseThrottleTimeMs msg)
-      serialize (describeClusterResponseErrorCode msg)
-      serialize (toCompactString (describeClusterResponseErrorMessage msg))
-      serialize (describeClusterResponseEndpointType msg)
-      serialize (toCompactString (describeClusterResponseClusterId msg))
-      serialize (describeClusterResponseControllerId msg)
-      E.encodeVersionedArray version 0 encodeDescribeClusterBroker (case P.unKafkaArray (describeClusterResponseBrokers msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (describeClusterResponseClusterAuthorizedOperations msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeClusterResponse with the given API version.
-decodeDescribeClusterResponse :: MonadGet m => E.ApiVersion -> m DescribeClusterResponse
-decodeDescribeClusterResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldclusterid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldcontrollerid <- deserialize
-      fieldbrokers <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeDescribeClusterBroker
-      fieldclusterauthorizedoperations <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeClusterResponse
-        {
-        describeClusterResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        describeClusterResponseErrorCode = fielderrorcode
-        ,
-        describeClusterResponseErrorMessage = fielderrormessage
-        ,
-        describeClusterResponseEndpointType = 1
-        ,
-        describeClusterResponseClusterId = fieldclusterid
-        ,
-        describeClusterResponseControllerId = fieldcontrollerid
-        ,
-        describeClusterResponseBrokers = fieldbrokers
-        ,
-        describeClusterResponseClusterAuthorizedOperations = fieldclusterauthorizedoperations
-        }
-
-  | version >= 1 && version <= 2 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldendpointtype <- deserialize
-      fieldclusterid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldcontrollerid <- deserialize
-      fieldbrokers <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeDescribeClusterBroker
-      fieldclusterauthorizedoperations <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeClusterResponse
-        {
-        describeClusterResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        describeClusterResponseErrorCode = fielderrorcode
-        ,
-        describeClusterResponseErrorMessage = fielderrormessage
-        ,
-        describeClusterResponseEndpointType = fieldendpointtype
-        ,
-        describeClusterResponseClusterId = fieldclusterid
-        ,
-        describeClusterResponseControllerId = fieldcontrollerid
-        ,
-        describeClusterResponseBrokers = fieldbrokers
-        ,
-        describeClusterResponseClusterAuthorizedOperations = fieldclusterauthorizedoperations
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a DescribeClusterBroker.
 wireMaxSizeDescribeClusterBroker :: Int -> DescribeClusterBroker -> Int

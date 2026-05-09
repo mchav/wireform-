@@ -24,17 +24,9 @@ module Kafka.Protocol.Generated.DescribeLogDirsResponse
     DescribeLogDirsResult(..),
     DescribeLogDirsTopic(..),
     DescribeLogDirsPartition(..),
-    encodeDescribeLogDirsResponse,
-    decodeDescribeLogDirsResponse,
     maxDescribeLogDirsResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -42,13 +34,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -92,39 +80,6 @@ data DescribeLogDirsPartition = DescribeLogDirsPartition
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode DescribeLogDirsPartition with version-aware field handling.
-encodeDescribeLogDirsPartition :: MonadPut m => E.ApiVersion -> DescribeLogDirsPartition -> m ()
-encodeDescribeLogDirsPartition version dmsg =
-  do
-    serialize (describeLogDirsPartitionPartitionIndex dmsg)
-    serialize (describeLogDirsPartitionPartitionSize dmsg)
-    serialize (describeLogDirsPartitionOffsetLag dmsg)
-    serialize (describeLogDirsPartitionIsFutureKey dmsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribeLogDirsPartition with version-aware field handling.
-decodeDescribeLogDirsPartition :: MonadGet m => E.ApiVersion -> m DescribeLogDirsPartition
-decodeDescribeLogDirsPartition version =
-  do
-    fieldpartitionindex <- deserialize
-    fieldpartitionsize <- deserialize
-    fieldoffsetlag <- deserialize
-    fieldisfuturekey <- deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribeLogDirsPartition
-      {
-      describeLogDirsPartitionPartitionIndex = fieldpartitionindex
-      ,
-      describeLogDirsPartitionPartitionSize = fieldpartitionsize
-      ,
-      describeLogDirsPartitionOffsetLag = fieldoffsetlag
-      ,
-      describeLogDirsPartitionIsFutureKey = fieldisfuturekey
-      }
-
-
 -- | The topics.
 data DescribeLogDirsTopic = DescribeLogDirsTopic
   {
@@ -142,31 +97,6 @@ data DescribeLogDirsTopic = DescribeLogDirsTopic
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode DescribeLogDirsTopic with version-aware field handling.
-encodeDescribeLogDirsTopic :: MonadPut m => E.ApiVersion -> DescribeLogDirsTopic -> m ()
-encodeDescribeLogDirsTopic version dmsg =
-  do
-    if version >= 2 then serialize (toCompactString (describeLogDirsTopicName dmsg)) else serialize (describeLogDirsTopicName dmsg)
-    E.encodeVersionedArray version 2 encodeDescribeLogDirsPartition (case P.unKafkaArray (describeLogDirsTopicPartitions dmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribeLogDirsTopic with version-aware field handling.
-decodeDescribeLogDirsTopic :: MonadGet m => E.ApiVersion -> m DescribeLogDirsTopic
-decodeDescribeLogDirsTopic version =
-  do
-    fieldname <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDescribeLogDirsPartition
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribeLogDirsTopic
-      {
-      describeLogDirsTopicName = fieldname
-      ,
-      describeLogDirsTopicPartitions = fieldpartitions
-      }
-
 
 -- | The log directories.
 data DescribeLogDirsResult = DescribeLogDirsResult
@@ -211,56 +141,6 @@ data DescribeLogDirsResult = DescribeLogDirsResult
   deriving (Eq, Show, Generic)
 
 
--- | Encode DescribeLogDirsResult with version-aware field handling.
-encodeDescribeLogDirsResult :: MonadPut m => E.ApiVersion -> DescribeLogDirsResult -> m ()
-encodeDescribeLogDirsResult version dmsg =
-  do
-    serialize (describeLogDirsResultErrorCode dmsg)
-    if version >= 2 then serialize (toCompactString (describeLogDirsResultLogDir dmsg)) else serialize (describeLogDirsResultLogDir dmsg)
-    E.encodeVersionedArray version 2 encodeDescribeLogDirsTopic (case P.unKafkaArray (describeLogDirsResultTopics dmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 4) $
-      serialize (describeLogDirsResultTotalBytes dmsg)
-    when (version >= 4) $
-      serialize (describeLogDirsResultUsableBytes dmsg)
-    when (version >= 5) $
-      serialize (describeLogDirsResultIsCordoned dmsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribeLogDirsResult with version-aware field handling.
-decodeDescribeLogDirsResult :: MonadGet m => E.ApiVersion -> m DescribeLogDirsResult
-decodeDescribeLogDirsResult version =
-  do
-    fielderrorcode <- deserialize
-    fieldlogdir <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDescribeLogDirsTopic
-    fieldtotalbytes <- if version >= 4
-      then deserialize
-      else pure ((-1))
-    fieldusablebytes <- if version >= 4
-      then deserialize
-      else pure ((-1))
-    fieldiscordoned <- if version >= 5
-      then deserialize
-      else pure (False)
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribeLogDirsResult
-      {
-      describeLogDirsResultErrorCode = fielderrorcode
-      ,
-      describeLogDirsResultLogDir = fieldlogdir
-      ,
-      describeLogDirsResultTopics = fieldtopics
-      ,
-      describeLogDirsResultTotalBytes = fieldtotalbytes
-      ,
-      describeLogDirsResultUsableBytes = fieldusablebytes
-      ,
-      describeLogDirsResultIsCordoned = fieldiscordoned
-      }
-
-
-
 data DescribeLogDirsResponse = DescribeLogDirsResponse
   {
 
@@ -294,75 +174,6 @@ instance KafkaMessage DescribeLogDirsResponse where
   messageMinVersion = 1
   messageMaxVersion = 5
   messageFlexibleVersion = Just 2
-
--- | Encode DescribeLogDirsResponse with the given API version.
-encodeDescribeLogDirsResponse :: MonadPut m => E.ApiVersion -> DescribeLogDirsResponse -> m ()
-encodeDescribeLogDirsResponse version msg
-  | version == 1 =
-    do
-      serialize (describeLogDirsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 2 encodeDescribeLogDirsResult (case P.unKafkaArray (describeLogDirsResponseResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version == 2 =
-    do
-      serialize (describeLogDirsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 2 encodeDescribeLogDirsResult (case P.unKafkaArray (describeLogDirsResponseResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 3 && version <= 5 =
-    do
-      serialize (describeLogDirsResponseThrottleTimeMs msg)
-      serialize (describeLogDirsResponseErrorCode msg)
-      E.encodeVersionedArray version 2 encodeDescribeLogDirsResult (case P.unKafkaArray (describeLogDirsResponseResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeLogDirsResponse with the given API version.
-decodeDescribeLogDirsResponse :: MonadGet m => E.ApiVersion -> m DescribeLogDirsResponse
-decodeDescribeLogDirsResponse version
-  | version == 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDescribeLogDirsResult
-      pure DescribeLogDirsResponse
-        {
-        describeLogDirsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        describeLogDirsResponseErrorCode = 0
-        ,
-        describeLogDirsResponseResults = fieldresults
-        }
-
-  | version == 2 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDescribeLogDirsResult
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeLogDirsResponse
-        {
-        describeLogDirsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        describeLogDirsResponseErrorCode = 0
-        ,
-        describeLogDirsResponseResults = fieldresults
-        }
-
-  | version >= 3 && version <= 5 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDescribeLogDirsResult
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeLogDirsResponse
-        {
-        describeLogDirsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        describeLogDirsResponseErrorCode = fielderrorcode
-        ,
-        describeLogDirsResponseResults = fieldresults
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a DescribeLogDirsPartition.
 wireMaxSizeDescribeLogDirsPartition :: Int -> DescribeLogDirsPartition -> Int

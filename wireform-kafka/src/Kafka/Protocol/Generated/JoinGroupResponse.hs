@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.JoinGroupResponse
   (
     JoinGroupResponse(..),
     JoinGroupResponseMember(..),
-    encodeJoinGroupResponse,
-    decodeJoinGroupResponse,
     maxJoinGroupResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -83,38 +71,6 @@ data JoinGroupResponseMember = JoinGroupResponseMember
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode JoinGroupResponseMember with version-aware field handling.
-encodeJoinGroupResponseMember :: MonadPut m => E.ApiVersion -> JoinGroupResponseMember -> m ()
-encodeJoinGroupResponseMember version jmsg =
-  do
-    if version >= 6 then serialize (toCompactString (joinGroupResponseMemberMemberId jmsg)) else serialize (joinGroupResponseMemberMemberId jmsg)
-    when (version >= 5) $
-      if version >= 6 then serialize (toCompactString (joinGroupResponseMemberGroupInstanceId jmsg)) else serialize (joinGroupResponseMemberGroupInstanceId jmsg)
-    if version >= 6 then serialize (toCompactBytes (joinGroupResponseMemberMetadata jmsg)) else serialize (joinGroupResponseMemberMetadata jmsg)
-    when (version >= 6) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode JoinGroupResponseMember with version-aware field handling.
-decodeJoinGroupResponseMember :: MonadGet m => E.ApiVersion -> m JoinGroupResponseMember
-decodeJoinGroupResponseMember version =
-  do
-    fieldmemberid <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-    fieldgroupinstanceid <- if version >= 5
-      then if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldmetadata <- if version >= 6 then P.fromCompactBytes <$> deserialize else deserialize
-    _ <- if version >= 6 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure JoinGroupResponseMember
-      {
-      joinGroupResponseMemberMemberId = fieldmemberid
-      ,
-      joinGroupResponseMemberGroupInstanceId = fieldgroupinstanceid
-      ,
-      joinGroupResponseMemberMetadata = fieldmetadata
-      }
-
 
 
 data JoinGroupResponse = JoinGroupResponse
@@ -186,226 +142,6 @@ instance KafkaMessage JoinGroupResponse where
   messageMinVersion = 0
   messageMaxVersion = 9
   messageFlexibleVersion = Just 6
-
--- | Encode JoinGroupResponse with the given API version.
-encodeJoinGroupResponse :: MonadPut m => E.ApiVersion -> JoinGroupResponse -> m ()
-encodeJoinGroupResponse version msg
-  | version == 6 =
-    do
-      serialize (joinGroupResponseThrottleTimeMs msg)
-      serialize (joinGroupResponseErrorCode msg)
-      serialize (joinGroupResponseGenerationId msg)
-      serialize (toCompactString (joinGroupResponseProtocolName msg))
-      serialize (toCompactString (joinGroupResponseLeader msg))
-      serialize (toCompactString (joinGroupResponseMemberId msg))
-      E.encodeVersionedArray version 6 encodeJoinGroupResponseMember (case P.unKafkaArray (joinGroupResponseMembers msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 9 =
-    do
-      serialize (joinGroupResponseThrottleTimeMs msg)
-      serialize (joinGroupResponseErrorCode msg)
-      serialize (joinGroupResponseGenerationId msg)
-      serialize (toCompactString (joinGroupResponseProtocolType msg))
-      serialize (toCompactString (joinGroupResponseProtocolName msg))
-      serialize (toCompactString (joinGroupResponseLeader msg))
-      serialize (joinGroupResponseSkipAssignment msg)
-      serialize (toCompactString (joinGroupResponseMemberId msg))
-      E.encodeVersionedArray version 6 encodeJoinGroupResponseMember (case P.unKafkaArray (joinGroupResponseMembers msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 1 =
-    do
-      serialize (joinGroupResponseErrorCode msg)
-      serialize (joinGroupResponseGenerationId msg)
-      serialize (joinGroupResponseProtocolName msg)
-      serialize (joinGroupResponseLeader msg)
-      serialize (joinGroupResponseMemberId msg)
-      E.encodeVersionedArray version 6 encodeJoinGroupResponseMember (case P.unKafkaArray (joinGroupResponseMembers msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version >= 7 && version <= 8 =
-    do
-      serialize (joinGroupResponseThrottleTimeMs msg)
-      serialize (joinGroupResponseErrorCode msg)
-      serialize (joinGroupResponseGenerationId msg)
-      serialize (toCompactString (joinGroupResponseProtocolType msg))
-      serialize (toCompactString (joinGroupResponseProtocolName msg))
-      serialize (toCompactString (joinGroupResponseLeader msg))
-      serialize (toCompactString (joinGroupResponseMemberId msg))
-      E.encodeVersionedArray version 6 encodeJoinGroupResponseMember (case P.unKafkaArray (joinGroupResponseMembers msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 2 && version <= 5 =
-    do
-      serialize (joinGroupResponseThrottleTimeMs msg)
-      serialize (joinGroupResponseErrorCode msg)
-      serialize (joinGroupResponseGenerationId msg)
-      serialize (joinGroupResponseProtocolName msg)
-      serialize (joinGroupResponseLeader msg)
-      serialize (joinGroupResponseMemberId msg)
-      E.encodeVersionedArray version 6 encodeJoinGroupResponseMember (case P.unKafkaArray (joinGroupResponseMembers msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode JoinGroupResponse with the given API version.
-decodeJoinGroupResponse :: MonadGet m => E.ApiVersion -> m JoinGroupResponse
-decodeJoinGroupResponse version
-  | version == 6 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldgenerationid <- deserialize
-      fieldprotocolname <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldleader <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberid <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldmembers <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeJoinGroupResponseMember
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure JoinGroupResponse
-        {
-        joinGroupResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        joinGroupResponseErrorCode = fielderrorcode
-        ,
-        joinGroupResponseGenerationId = fieldgenerationid
-        ,
-        joinGroupResponseProtocolType = P.KafkaString Null
-        ,
-        joinGroupResponseProtocolName = fieldprotocolname
-        ,
-        joinGroupResponseLeader = fieldleader
-        ,
-        joinGroupResponseSkipAssignment = False
-        ,
-        joinGroupResponseMemberId = fieldmemberid
-        ,
-        joinGroupResponseMembers = fieldmembers
-        }
-
-  | version == 9 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldgenerationid <- deserialize
-      fieldprotocoltype <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldprotocolname <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldleader <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldskipassignment <- deserialize
-      fieldmemberid <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldmembers <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeJoinGroupResponseMember
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure JoinGroupResponse
-        {
-        joinGroupResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        joinGroupResponseErrorCode = fielderrorcode
-        ,
-        joinGroupResponseGenerationId = fieldgenerationid
-        ,
-        joinGroupResponseProtocolType = fieldprotocoltype
-        ,
-        joinGroupResponseProtocolName = fieldprotocolname
-        ,
-        joinGroupResponseLeader = fieldleader
-        ,
-        joinGroupResponseSkipAssignment = fieldskipassignment
-        ,
-        joinGroupResponseMemberId = fieldmemberid
-        ,
-        joinGroupResponseMembers = fieldmembers
-        }
-
-  | version >= 0 && version <= 1 =
-    do
-      fielderrorcode <- deserialize
-      fieldgenerationid <- deserialize
-      fieldprotocolname <- deserialize
-      fieldleader <- deserialize
-      fieldmemberid <- deserialize
-      fieldmembers <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeJoinGroupResponseMember
-      pure JoinGroupResponse
-        {
-        joinGroupResponseThrottleTimeMs = 0
-        ,
-        joinGroupResponseErrorCode = fielderrorcode
-        ,
-        joinGroupResponseGenerationId = fieldgenerationid
-        ,
-        joinGroupResponseProtocolType = P.KafkaString Null
-        ,
-        joinGroupResponseProtocolName = fieldprotocolname
-        ,
-        joinGroupResponseLeader = fieldleader
-        ,
-        joinGroupResponseSkipAssignment = False
-        ,
-        joinGroupResponseMemberId = fieldmemberid
-        ,
-        joinGroupResponseMembers = fieldmembers
-        }
-
-  | version >= 7 && version <= 8 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldgenerationid <- deserialize
-      fieldprotocoltype <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldprotocolname <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldleader <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberid <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-      fieldmembers <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeJoinGroupResponseMember
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure JoinGroupResponse
-        {
-        joinGroupResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        joinGroupResponseErrorCode = fielderrorcode
-        ,
-        joinGroupResponseGenerationId = fieldgenerationid
-        ,
-        joinGroupResponseProtocolType = fieldprotocoltype
-        ,
-        joinGroupResponseProtocolName = fieldprotocolname
-        ,
-        joinGroupResponseLeader = fieldleader
-        ,
-        joinGroupResponseSkipAssignment = False
-        ,
-        joinGroupResponseMemberId = fieldmemberid
-        ,
-        joinGroupResponseMembers = fieldmembers
-        }
-
-  | version >= 2 && version <= 5 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldgenerationid <- deserialize
-      fieldprotocolname <- deserialize
-      fieldleader <- deserialize
-      fieldmemberid <- deserialize
-      fieldmembers <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeJoinGroupResponseMember
-      pure JoinGroupResponse
-        {
-        joinGroupResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        joinGroupResponseErrorCode = fielderrorcode
-        ,
-        joinGroupResponseGenerationId = fieldgenerationid
-        ,
-        joinGroupResponseProtocolType = P.KafkaString Null
-        ,
-        joinGroupResponseProtocolName = fieldprotocolname
-        ,
-        joinGroupResponseLeader = fieldleader
-        ,
-        joinGroupResponseSkipAssignment = False
-        ,
-        joinGroupResponseMemberId = fieldmemberid
-        ,
-        joinGroupResponseMembers = fieldmembers
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a JoinGroupResponseMember.
 wireMaxSizeJoinGroupResponseMember :: Int -> JoinGroupResponseMember -> Int

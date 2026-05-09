@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.BrokerHeartbeatRequest
   (
     BrokerHeartbeatRequest(..),
-    encodeBrokerHeartbeatRequest,
-    decodeBrokerHeartbeatRequest,
     maxBrokerHeartbeatRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -118,170 +106,6 @@ instance KafkaMessage BrokerHeartbeatRequest where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 0
-
--- | Encode BrokerHeartbeatRequest with the given API version.
-encodeBrokerHeartbeatRequest :: MonadPut m => E.ApiVersion -> BrokerHeartbeatRequest -> m ()
-encodeBrokerHeartbeatRequest version msg
-  | version == 0 =
-    do
-      serialize (brokerHeartbeatRequestBrokerId msg)
-      serialize (brokerHeartbeatRequestBrokerEpoch msg)
-      serialize (brokerHeartbeatRequestCurrentMetadataOffset msg)
-      serialize (brokerHeartbeatRequestWantFence msg)
-      serialize (brokerHeartbeatRequestWantShutDown msg)
-      do
-        let _entries = (if version >= 1 then [(0, Data.Bytes.Put.runPutS (serialize (brokerHeartbeatRequestOfflineLogDirs msg)))] else []) ++ (if version >= 2 then [(1, Data.Bytes.Put.runPutS (serialize (brokerHeartbeatRequestCordonedLogDirs msg)))] else [])
-        P.serializeTaggedFieldEntries _entries
-
-  | version == 1 =
-    do
-      serialize (brokerHeartbeatRequestBrokerId msg)
-      serialize (brokerHeartbeatRequestBrokerEpoch msg)
-      serialize (brokerHeartbeatRequestCurrentMetadataOffset msg)
-      serialize (brokerHeartbeatRequestWantFence msg)
-      serialize (brokerHeartbeatRequestWantShutDown msg)
-      do
-        let _entries = (if version >= 1 then [(0, Data.Bytes.Put.runPutS (serialize (brokerHeartbeatRequestOfflineLogDirs msg)))] else []) ++ (if version >= 2 then [(1, Data.Bytes.Put.runPutS (serialize (brokerHeartbeatRequestCordonedLogDirs msg)))] else [])
-        P.serializeTaggedFieldEntries _entries
-
-  | version == 2 =
-    do
-      serialize (brokerHeartbeatRequestBrokerId msg)
-      serialize (brokerHeartbeatRequestBrokerEpoch msg)
-      serialize (brokerHeartbeatRequestCurrentMetadataOffset msg)
-      serialize (brokerHeartbeatRequestWantFence msg)
-      serialize (brokerHeartbeatRequestWantShutDown msg)
-      do
-        let _entries = (if version >= 1 then [(0, Data.Bytes.Put.runPutS (serialize (brokerHeartbeatRequestOfflineLogDirs msg)))] else []) ++ (if version >= 2 then [(1, Data.Bytes.Put.runPutS (serialize (brokerHeartbeatRequestCordonedLogDirs msg)))] else [])
-        P.serializeTaggedFieldEntries _entries
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode BrokerHeartbeatRequest with the given API version.
-decodeBrokerHeartbeatRequest :: MonadGet m => E.ApiVersion -> m BrokerHeartbeatRequest
-decodeBrokerHeartbeatRequest version
-  | version == 0 =
-    do
-      fieldbrokerid <- deserialize
-      fieldbrokerepoch <- deserialize
-      fieldcurrentmetadataoffset <- deserialize
-      fieldwantfence <- deserialize
-      fieldwantshutdown <- deserialize
-      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
-      let fieldofflinelogdirs =
-            if version >= 1
-              then case P.lookupTaggedField 0 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
-                    Right _v -> _v
-                    Left  _  -> (P.mkKafkaArray V.empty)
-                Nothing  -> (P.mkKafkaArray V.empty)
-              else (P.mkKafkaArray V.empty)
-      let fieldcordonedlogdirs =
-            if version >= 2
-              then case P.lookupTaggedField 1 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
-                    Right _v -> _v
-                    Left  _  -> (P.KafkaArray P.Null)
-                Nothing  -> (P.KafkaArray P.Null)
-              else (P.KafkaArray P.Null)
-      pure BrokerHeartbeatRequest
-        {
-        brokerHeartbeatRequestBrokerId = fieldbrokerid
-        ,
-        brokerHeartbeatRequestBrokerEpoch = fieldbrokerepoch
-        ,
-        brokerHeartbeatRequestCurrentMetadataOffset = fieldcurrentmetadataoffset
-        ,
-        brokerHeartbeatRequestWantFence = fieldwantfence
-        ,
-        brokerHeartbeatRequestWantShutDown = fieldwantshutdown
-        ,
-        brokerHeartbeatRequestOfflineLogDirs = fieldofflinelogdirs
-        ,
-        brokerHeartbeatRequestCordonedLogDirs = fieldcordonedlogdirs
-        }
-
-  | version == 1 =
-    do
-      fieldbrokerid <- deserialize
-      fieldbrokerepoch <- deserialize
-      fieldcurrentmetadataoffset <- deserialize
-      fieldwantfence <- deserialize
-      fieldwantshutdown <- deserialize
-      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
-      let fieldofflinelogdirs =
-            if version >= 1
-              then case P.lookupTaggedField 0 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
-                    Right _v -> _v
-                    Left  _  -> (P.mkKafkaArray V.empty)
-                Nothing  -> (P.mkKafkaArray V.empty)
-              else (P.mkKafkaArray V.empty)
-      let fieldcordonedlogdirs =
-            if version >= 2
-              then case P.lookupTaggedField 1 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
-                    Right _v -> _v
-                    Left  _  -> (P.KafkaArray P.Null)
-                Nothing  -> (P.KafkaArray P.Null)
-              else (P.KafkaArray P.Null)
-      pure BrokerHeartbeatRequest
-        {
-        brokerHeartbeatRequestBrokerId = fieldbrokerid
-        ,
-        brokerHeartbeatRequestBrokerEpoch = fieldbrokerepoch
-        ,
-        brokerHeartbeatRequestCurrentMetadataOffset = fieldcurrentmetadataoffset
-        ,
-        brokerHeartbeatRequestWantFence = fieldwantfence
-        ,
-        brokerHeartbeatRequestWantShutDown = fieldwantshutdown
-        ,
-        brokerHeartbeatRequestOfflineLogDirs = fieldofflinelogdirs
-        ,
-        brokerHeartbeatRequestCordonedLogDirs = fieldcordonedlogdirs
-        }
-
-  | version == 2 =
-    do
-      fieldbrokerid <- deserialize
-      fieldbrokerepoch <- deserialize
-      fieldcurrentmetadataoffset <- deserialize
-      fieldwantfence <- deserialize
-      fieldwantshutdown <- deserialize
-      _taggedFields <- (deserialize :: MonadGet m => m TaggedFields)
-      let fieldofflinelogdirs =
-            if version >= 1
-              then case P.lookupTaggedField 0 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
-                    Right _v -> _v
-                    Left  _  -> (P.mkKafkaArray V.empty)
-                Nothing  -> (P.mkKafkaArray V.empty)
-              else (P.mkKafkaArray V.empty)
-      let fieldcordonedlogdirs =
-            if version >= 2
-              then case P.lookupTaggedField 1 _taggedFields of
-                Just _bs -> case Data.Bytes.Get.runGetS (deserialize) _bs of
-                    Right _v -> _v
-                    Left  _  -> (P.KafkaArray P.Null)
-                Nothing  -> (P.KafkaArray P.Null)
-              else (P.KafkaArray P.Null)
-      pure BrokerHeartbeatRequest
-        {
-        brokerHeartbeatRequestBrokerId = fieldbrokerid
-        ,
-        brokerHeartbeatRequestBrokerEpoch = fieldbrokerepoch
-        ,
-        brokerHeartbeatRequestCurrentMetadataOffset = fieldcurrentmetadataoffset
-        ,
-        brokerHeartbeatRequestWantFence = fieldwantfence
-        ,
-        brokerHeartbeatRequestWantShutDown = fieldwantshutdown
-        ,
-        brokerHeartbeatRequestOfflineLogDirs = fieldofflinelogdirs
-        ,
-        brokerHeartbeatRequestCordonedLogDirs = fieldcordonedlogdirs
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a BrokerHeartbeatRequest.

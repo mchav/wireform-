@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.ShareGroupHeartbeatRequest
   (
     ShareGroupHeartbeatRequest(..),
-    encodeShareGroupHeartbeatRequest,
-    decodeShareGroupHeartbeatRequest,
     maxShareGroupHeartbeatRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -106,44 +94,6 @@ instance KafkaMessage ShareGroupHeartbeatRequest where
   messageMinVersion = 1
   messageMaxVersion = 1
   messageFlexibleVersion = Just 0
-
--- | Encode ShareGroupHeartbeatRequest with the given API version.
-encodeShareGroupHeartbeatRequest :: MonadPut m => E.ApiVersion -> ShareGroupHeartbeatRequest -> m ()
-encodeShareGroupHeartbeatRequest version msg
-  | version == 1 =
-    do
-      serialize (toCompactString (shareGroupHeartbeatRequestGroupId msg))
-      serialize (toCompactString (shareGroupHeartbeatRequestMemberId msg))
-      serialize (shareGroupHeartbeatRequestMemberEpoch msg)
-      serialize (toCompactString (shareGroupHeartbeatRequestRackId msg))
-      E.encodeVersionedNullableArray version 0 (\v s -> if v >= 0 then serialize (toCompactString s) else serialize s) (shareGroupHeartbeatRequestSubscribedTopicNames msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ShareGroupHeartbeatRequest with the given API version.
-decodeShareGroupHeartbeatRequest :: MonadGet m => E.ApiVersion -> m ShareGroupHeartbeatRequest
-decodeShareGroupHeartbeatRequest version
-  | version == 1 =
-    do
-      fieldgroupid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberepoch <- deserialize
-      fieldrackid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldsubscribedtopicnames <- E.decodeVersionedNullableArray version 0 (\v -> if v >= 0 then P.fromCompactString <$> deserialize else deserialize)
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ShareGroupHeartbeatRequest
-        {
-        shareGroupHeartbeatRequestGroupId = fieldgroupid
-        ,
-        shareGroupHeartbeatRequestMemberId = fieldmemberid
-        ,
-        shareGroupHeartbeatRequestMemberEpoch = fieldmemberepoch
-        ,
-        shareGroupHeartbeatRequestRackId = fieldrackid
-        ,
-        shareGroupHeartbeatRequestSubscribedTopicNames = fieldsubscribedtopicnames
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a ShareGroupHeartbeatRequest.

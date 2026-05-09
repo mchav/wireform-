@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.SaslHandshakeResponse
   (
     SaslHandshakeResponse(..),
-    encodeSaslHandshakeResponse,
-    decodeSaslHandshakeResponse,
     maxSaslHandshakeResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -88,31 +76,6 @@ instance KafkaMessage SaslHandshakeResponse where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Nothing
-
--- | Encode SaslHandshakeResponse with the given API version.
-encodeSaslHandshakeResponse :: MonadPut m => E.ApiVersion -> SaslHandshakeResponse -> m ()
-encodeSaslHandshakeResponse version msg
-  | version >= 0 && version <= 1 =
-    do
-      serialize (saslHandshakeResponseErrorCode msg)
-      E.encodeVersionedArray version 999 (\v s -> if v >= 999 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (saslHandshakeResponseMechanisms msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode SaslHandshakeResponse with the given API version.
-decodeSaslHandshakeResponse :: MonadGet m => E.ApiVersion -> m SaslHandshakeResponse
-decodeSaslHandshakeResponse version
-  | version >= 0 && version <= 1 =
-    do
-      fielderrorcode <- deserialize
-      fieldmechanisms <- P.mkKafkaArray <$> E.decodeVersionedArray version 999 (\v -> if v >= 999 then P.fromCompactString <$> deserialize else deserialize)
-      pure SaslHandshakeResponse
-        {
-        saslHandshakeResponseErrorCode = fielderrorcode
-        ,
-        saslHandshakeResponseMechanisms = fieldmechanisms
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a SaslHandshakeResponse.

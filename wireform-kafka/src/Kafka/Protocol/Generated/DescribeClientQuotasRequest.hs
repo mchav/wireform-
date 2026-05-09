@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.DescribeClientQuotasRequest
   (
     DescribeClientQuotasRequest(..),
     ComponentData(..),
-    encodeDescribeClientQuotasRequest,
-    decodeDescribeClientQuotasRequest,
     maxDescribeClientQuotasRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -85,35 +73,6 @@ data ComponentData = ComponentData
   deriving (Eq, Show, Generic)
 
 
--- | Encode ComponentData with version-aware field handling.
-encodeComponentData :: MonadPut m => E.ApiVersion -> ComponentData -> m ()
-encodeComponentData version cmsg =
-  do
-    if version >= 1 then serialize (toCompactString (componentDataEntityType cmsg)) else serialize (componentDataEntityType cmsg)
-    serialize (componentDataMatchType cmsg)
-    if version >= 1 then serialize (toCompactString (componentDataMatch cmsg)) else serialize (componentDataMatch cmsg)
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ComponentData with version-aware field handling.
-decodeComponentData :: MonadGet m => E.ApiVersion -> m ComponentData
-decodeComponentData version =
-  do
-    fieldentitytype <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    fieldmatchtype <- deserialize
-    fieldmatch <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ComponentData
-      {
-      componentDataEntityType = fieldentitytype
-      ,
-      componentDataMatchType = fieldmatchtype
-      ,
-      componentDataMatch = fieldmatch
-      }
-
-
-
 data DescribeClientQuotasRequest = DescribeClientQuotasRequest
   {
 
@@ -141,49 +100,6 @@ instance KafkaMessage DescribeClientQuotasRequest where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 1
-
--- | Encode DescribeClientQuotasRequest with the given API version.
-encodeDescribeClientQuotasRequest :: MonadPut m => E.ApiVersion -> DescribeClientQuotasRequest -> m ()
-encodeDescribeClientQuotasRequest version msg
-  | version == 0 =
-    do
-      E.encodeVersionedArray version 1 encodeComponentData (case P.unKafkaArray (describeClientQuotasRequestComponents msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (describeClientQuotasRequestStrict msg)
-
-
-  | version == 1 =
-    do
-      E.encodeVersionedArray version 1 encodeComponentData (case P.unKafkaArray (describeClientQuotasRequestComponents msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (describeClientQuotasRequestStrict msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeClientQuotasRequest with the given API version.
-decodeDescribeClientQuotasRequest :: MonadGet m => E.ApiVersion -> m DescribeClientQuotasRequest
-decodeDescribeClientQuotasRequest version
-  | version == 0 =
-    do
-      fieldcomponents <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeComponentData
-      fieldstrict <- deserialize
-      pure DescribeClientQuotasRequest
-        {
-        describeClientQuotasRequestComponents = fieldcomponents
-        ,
-        describeClientQuotasRequestStrict = fieldstrict
-        }
-
-  | version == 1 =
-    do
-      fieldcomponents <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeComponentData
-      fieldstrict <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeClientQuotasRequest
-        {
-        describeClientQuotasRequestComponents = fieldcomponents
-        ,
-        describeClientQuotasRequestStrict = fieldstrict
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a ComponentData.
 wireMaxSizeComponentData :: Int -> ComponentData -> Int

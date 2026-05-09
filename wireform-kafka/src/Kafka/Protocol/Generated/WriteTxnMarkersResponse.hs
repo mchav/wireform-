@@ -24,17 +24,9 @@ module Kafka.Protocol.Generated.WriteTxnMarkersResponse
     WritableTxnMarkerResult(..),
     WritableTxnMarkerTopicResult(..),
     WritableTxnMarkerPartitionResult(..),
-    encodeWriteTxnMarkersResponse,
-    decodeWriteTxnMarkersResponse,
     maxWriteTxnMarkersResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -42,13 +34,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -80,31 +68,6 @@ data WritableTxnMarkerPartitionResult = WritableTxnMarkerPartitionResult
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode WritableTxnMarkerPartitionResult with version-aware field handling.
-encodeWritableTxnMarkerPartitionResult :: MonadPut m => E.ApiVersion -> WritableTxnMarkerPartitionResult -> m ()
-encodeWritableTxnMarkerPartitionResult version wmsg =
-  do
-    serialize (writableTxnMarkerPartitionResultPartitionIndex wmsg)
-    serialize (writableTxnMarkerPartitionResultErrorCode wmsg)
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode WritableTxnMarkerPartitionResult with version-aware field handling.
-decodeWritableTxnMarkerPartitionResult :: MonadGet m => E.ApiVersion -> m WritableTxnMarkerPartitionResult
-decodeWritableTxnMarkerPartitionResult version =
-  do
-    fieldpartitionindex <- deserialize
-    fielderrorcode <- deserialize
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure WritableTxnMarkerPartitionResult
-      {
-      writableTxnMarkerPartitionResultPartitionIndex = fieldpartitionindex
-      ,
-      writableTxnMarkerPartitionResultErrorCode = fielderrorcode
-      }
-
-
 -- | The results by topic.
 data WritableTxnMarkerTopicResult = WritableTxnMarkerTopicResult
   {
@@ -123,31 +86,6 @@ data WritableTxnMarkerTopicResult = WritableTxnMarkerTopicResult
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode WritableTxnMarkerTopicResult with version-aware field handling.
-encodeWritableTxnMarkerTopicResult :: MonadPut m => E.ApiVersion -> WritableTxnMarkerTopicResult -> m ()
-encodeWritableTxnMarkerTopicResult version wmsg =
-  do
-    if version >= 1 then serialize (toCompactString (writableTxnMarkerTopicResultName wmsg)) else serialize (writableTxnMarkerTopicResultName wmsg)
-    E.encodeVersionedArray version 1 encodeWritableTxnMarkerPartitionResult (case P.unKafkaArray (writableTxnMarkerTopicResultPartitions wmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode WritableTxnMarkerTopicResult with version-aware field handling.
-decodeWritableTxnMarkerTopicResult :: MonadGet m => E.ApiVersion -> m WritableTxnMarkerTopicResult
-decodeWritableTxnMarkerTopicResult version =
-  do
-    fieldname <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeWritableTxnMarkerPartitionResult
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure WritableTxnMarkerTopicResult
-      {
-      writableTxnMarkerTopicResultName = fieldname
-      ,
-      writableTxnMarkerTopicResultPartitions = fieldpartitions
-      }
-
-
 -- | The results for writing makers.
 data WritableTxnMarkerResult = WritableTxnMarkerResult
   {
@@ -165,31 +103,6 @@ data WritableTxnMarkerResult = WritableTxnMarkerResult
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode WritableTxnMarkerResult with version-aware field handling.
-encodeWritableTxnMarkerResult :: MonadPut m => E.ApiVersion -> WritableTxnMarkerResult -> m ()
-encodeWritableTxnMarkerResult version wmsg =
-  do
-    serialize (writableTxnMarkerResultProducerId wmsg)
-    E.encodeVersionedArray version 1 encodeWritableTxnMarkerTopicResult (case P.unKafkaArray (writableTxnMarkerResultTopics wmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode WritableTxnMarkerResult with version-aware field handling.
-decodeWritableTxnMarkerResult :: MonadGet m => E.ApiVersion -> m WritableTxnMarkerResult
-decodeWritableTxnMarkerResult version =
-  do
-    fieldproducerid <- deserialize
-    fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeWritableTxnMarkerTopicResult
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure WritableTxnMarkerResult
-      {
-      writableTxnMarkerResultProducerId = fieldproducerid
-      ,
-      writableTxnMarkerResultTopics = fieldtopics
-      }
-
 
 
 data WriteTxnMarkersResponse = WriteTxnMarkersResponse
@@ -213,28 +126,6 @@ instance KafkaMessage WriteTxnMarkersResponse where
   messageMinVersion = 1
   messageMaxVersion = 2
   messageFlexibleVersion = Just 1
-
--- | Encode WriteTxnMarkersResponse with the given API version.
-encodeWriteTxnMarkersResponse :: MonadPut m => E.ApiVersion -> WriteTxnMarkersResponse -> m ()
-encodeWriteTxnMarkersResponse version msg
-  | version >= 1 && version <= 2 =
-    do
-      E.encodeVersionedArray version 1 encodeWritableTxnMarkerResult (case P.unKafkaArray (writeTxnMarkersResponseMarkers msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode WriteTxnMarkersResponse with the given API version.
-decodeWriteTxnMarkersResponse :: MonadGet m => E.ApiVersion -> m WriteTxnMarkersResponse
-decodeWriteTxnMarkersResponse version
-  | version >= 1 && version <= 2 =
-    do
-      fieldmarkers <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeWritableTxnMarkerResult
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure WriteTxnMarkersResponse
-        {
-        writeTxnMarkersResponseMarkers = fieldmarkers
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a WritableTxnMarkerPartitionResult.
 wireMaxSizeWritableTxnMarkerPartitionResult :: Int -> WritableTxnMarkerPartitionResult -> Int

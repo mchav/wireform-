@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.HeartbeatRequest
   (
     HeartbeatRequest(..),
-    encodeHeartbeatRequest,
-    decodeHeartbeatRequest,
     maxHeartbeatRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -100,88 +88,6 @@ instance KafkaMessage HeartbeatRequest where
   messageMinVersion = 0
   messageMaxVersion = 4
   messageFlexibleVersion = Just 4
-
--- | Encode HeartbeatRequest with the given API version.
-encodeHeartbeatRequest :: MonadPut m => E.ApiVersion -> HeartbeatRequest -> m ()
-encodeHeartbeatRequest version msg
-  | version == 3 =
-    do
-      serialize (heartbeatRequestGroupId msg)
-      serialize (heartbeatRequestGenerationId msg)
-      serialize (heartbeatRequestMemberId msg)
-      serialize (heartbeatRequestGroupInstanceId msg)
-
-
-  | version == 4 =
-    do
-      serialize (toCompactString (heartbeatRequestGroupId msg))
-      serialize (heartbeatRequestGenerationId msg)
-      serialize (toCompactString (heartbeatRequestMemberId msg))
-      serialize (toCompactString (heartbeatRequestGroupInstanceId msg))
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 2 =
-    do
-      serialize (heartbeatRequestGroupId msg)
-      serialize (heartbeatRequestGenerationId msg)
-      serialize (heartbeatRequestMemberId msg)
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode HeartbeatRequest with the given API version.
-decodeHeartbeatRequest :: MonadGet m => E.ApiVersion -> m HeartbeatRequest
-decodeHeartbeatRequest version
-  | version == 3 =
-    do
-      fieldgroupid <- deserialize
-      fieldgenerationid <- deserialize
-      fieldmemberid <- deserialize
-      fieldgroupinstanceid <- deserialize
-      pure HeartbeatRequest
-        {
-        heartbeatRequestGroupId = fieldgroupid
-        ,
-        heartbeatRequestGenerationId = fieldgenerationid
-        ,
-        heartbeatRequestMemberId = fieldmemberid
-        ,
-        heartbeatRequestGroupInstanceId = fieldgroupinstanceid
-        }
-
-  | version == 4 =
-    do
-      fieldgroupid <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-      fieldgenerationid <- deserialize
-      fieldmemberid <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-      fieldgroupinstanceid <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure HeartbeatRequest
-        {
-        heartbeatRequestGroupId = fieldgroupid
-        ,
-        heartbeatRequestGenerationId = fieldgenerationid
-        ,
-        heartbeatRequestMemberId = fieldmemberid
-        ,
-        heartbeatRequestGroupInstanceId = fieldgroupinstanceid
-        }
-
-  | version >= 0 && version <= 2 =
-    do
-      fieldgroupid <- deserialize
-      fieldgenerationid <- deserialize
-      fieldmemberid <- deserialize
-      pure HeartbeatRequest
-        {
-        heartbeatRequestGroupId = fieldgroupid
-        ,
-        heartbeatRequestGenerationId = fieldgenerationid
-        ,
-        heartbeatRequestMemberId = fieldmemberid
-        ,
-        heartbeatRequestGroupInstanceId = P.KafkaString Null
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a HeartbeatRequest.

@@ -84,7 +84,6 @@ import qualified Kafka.Network.Connection as Conn
 import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Protocol.VersionNegotiation as VN
-import qualified Kafka.Protocol.Encoding as E
 import qualified Kafka.Protocol.Generated.ProduceRequest as PR
 import qualified Kafka.Protocol.Generated.ProduceResponse as PResp
 import qualified Kafka.Protocol.Primitives as P
@@ -456,7 +455,7 @@ sendToBroker state@SenderState{..} broker batches = do
               Left  _ -> 3
             apiKey = 0
             clientId = P.mkKafkaString senderClientId
-            requestBody = WC.runEncodeVer PR.encodeProduceRequest apiVersion request
+            requestBody = WC.runEncodeVer @PR.ProduceRequest apiVersion request
         
         -- Send the request and receive response
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
@@ -480,7 +479,7 @@ sendToBroker state@SenderState{..} broker batches = do
                   forM_ callbacks $ \callback -> callback (Left errorMsg)
               else do
                 -- Parse the response
-                case WC.runDecodeVer PResp.decodeProduceResponse apiVersion responseBody of
+                case WC.runDecodeVer @PResp.ProduceResponse apiVersion responseBody of
                   Left err -> do
                     -- Invoke error callbacks
                     forM_ validBatches $ \batch -> do

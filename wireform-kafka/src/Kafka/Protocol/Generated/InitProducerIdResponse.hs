@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.InitProducerIdResponse
   (
     InitProducerIdResponse(..),
-    encodeInitProducerIdResponse,
-    decodeInitProducerIdResponse,
     maxInitProducerIdResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -112,107 +100,6 @@ instance KafkaMessage InitProducerIdResponse where
   messageMinVersion = 0
   messageMaxVersion = 6
   messageFlexibleVersion = Just 2
-
--- | Encode InitProducerIdResponse with the given API version.
-encodeInitProducerIdResponse :: MonadPut m => E.ApiVersion -> InitProducerIdResponse -> m ()
-encodeInitProducerIdResponse version msg
-  | version == 6 =
-    do
-      serialize (initProducerIdResponseThrottleTimeMs msg)
-      serialize (initProducerIdResponseErrorCode msg)
-      serialize (initProducerIdResponseProducerId msg)
-      serialize (initProducerIdResponseProducerEpoch msg)
-      serialize (initProducerIdResponseOngoingTxnProducerId msg)
-      serialize (initProducerIdResponseOngoingTxnProducerEpoch msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 1 =
-    do
-      serialize (initProducerIdResponseThrottleTimeMs msg)
-      serialize (initProducerIdResponseErrorCode msg)
-      serialize (initProducerIdResponseProducerId msg)
-      serialize (initProducerIdResponseProducerEpoch msg)
-
-
-  | version >= 2 && version <= 5 =
-    do
-      serialize (initProducerIdResponseThrottleTimeMs msg)
-      serialize (initProducerIdResponseErrorCode msg)
-      serialize (initProducerIdResponseProducerId msg)
-      serialize (initProducerIdResponseProducerEpoch msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode InitProducerIdResponse with the given API version.
-decodeInitProducerIdResponse :: MonadGet m => E.ApiVersion -> m InitProducerIdResponse
-decodeInitProducerIdResponse version
-  | version == 6 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldproducerid <- deserialize
-      fieldproducerepoch <- deserialize
-      fieldongoingtxnproducerid <- deserialize
-      fieldongoingtxnproducerepoch <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure InitProducerIdResponse
-        {
-        initProducerIdResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        initProducerIdResponseErrorCode = fielderrorcode
-        ,
-        initProducerIdResponseProducerId = fieldproducerid
-        ,
-        initProducerIdResponseProducerEpoch = fieldproducerepoch
-        ,
-        initProducerIdResponseOngoingTxnProducerId = fieldongoingtxnproducerid
-        ,
-        initProducerIdResponseOngoingTxnProducerEpoch = fieldongoingtxnproducerepoch
-        }
-
-  | version >= 0 && version <= 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldproducerid <- deserialize
-      fieldproducerepoch <- deserialize
-      pure InitProducerIdResponse
-        {
-        initProducerIdResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        initProducerIdResponseErrorCode = fielderrorcode
-        ,
-        initProducerIdResponseProducerId = fieldproducerid
-        ,
-        initProducerIdResponseProducerEpoch = fieldproducerepoch
-        ,
-        initProducerIdResponseOngoingTxnProducerId = (-1)
-        ,
-        initProducerIdResponseOngoingTxnProducerEpoch = (-1)
-        }
-
-  | version >= 2 && version <= 5 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldproducerid <- deserialize
-      fieldproducerepoch <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure InitProducerIdResponse
-        {
-        initProducerIdResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        initProducerIdResponseErrorCode = fielderrorcode
-        ,
-        initProducerIdResponseProducerId = fieldproducerid
-        ,
-        initProducerIdResponseProducerEpoch = fieldproducerepoch
-        ,
-        initProducerIdResponseOngoingTxnProducerId = (-1)
-        ,
-        initProducerIdResponseOngoingTxnProducerEpoch = (-1)
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a InitProducerIdResponse.

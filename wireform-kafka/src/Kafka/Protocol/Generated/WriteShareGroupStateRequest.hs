@@ -24,17 +24,9 @@ module Kafka.Protocol.Generated.WriteShareGroupStateRequest
     WriteStateData(..),
     PartitionData(..),
     StateBatch(..),
-    encodeWriteShareGroupStateRequest,
-    decodeWriteShareGroupStateRequest,
     maxWriteShareGroupStateRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -42,13 +34,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -92,39 +80,6 @@ data StateBatch = StateBatch
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode StateBatch with version-aware field handling.
-encodeStateBatch :: MonadPut m => E.ApiVersion -> StateBatch -> m ()
-encodeStateBatch version smsg =
-  do
-    serialize (stateBatchFirstOffset smsg)
-    serialize (stateBatchLastOffset smsg)
-    serialize (stateBatchDeliveryState smsg)
-    serialize (stateBatchDeliveryCount smsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode StateBatch with version-aware field handling.
-decodeStateBatch :: MonadGet m => E.ApiVersion -> m StateBatch
-decodeStateBatch version =
-  do
-    fieldfirstoffset <- deserialize
-    fieldlastoffset <- deserialize
-    fielddeliverystate <- deserialize
-    fielddeliverycount <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure StateBatch
-      {
-      stateBatchFirstOffset = fieldfirstoffset
-      ,
-      stateBatchLastOffset = fieldlastoffset
-      ,
-      stateBatchDeliveryState = fielddeliverystate
-      ,
-      stateBatchDeliveryCount = fielddeliverycount
-      }
-
-
 -- | The data for the partitions.
 data PartitionData = PartitionData
   {
@@ -167,50 +122,6 @@ data PartitionData = PartitionData
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode PartitionData with version-aware field handling.
-encodePartitionData :: MonadPut m => E.ApiVersion -> PartitionData -> m ()
-encodePartitionData version pmsg =
-  do
-    serialize (partitionDataPartition pmsg)
-    serialize (partitionDataStateEpoch pmsg)
-    serialize (partitionDataLeaderEpoch pmsg)
-    serialize (partitionDataStartOffset pmsg)
-    when (version >= 1) $
-      serialize (partitionDataDeliveryCompleteCount pmsg)
-    E.encodeVersionedArray version 0 encodeStateBatch (case P.unKafkaArray (partitionDataStateBatches pmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode PartitionData with version-aware field handling.
-decodePartitionData :: MonadGet m => E.ApiVersion -> m PartitionData
-decodePartitionData version =
-  do
-    fieldpartition <- deserialize
-    fieldstateepoch <- deserialize
-    fieldleaderepoch <- deserialize
-    fieldstartoffset <- deserialize
-    fielddeliverycompletecount <- if version >= 1
-      then deserialize
-      else pure ((-1))
-    fieldstatebatches <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeStateBatch
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure PartitionData
-      {
-      partitionDataPartition = fieldpartition
-      ,
-      partitionDataStateEpoch = fieldstateepoch
-      ,
-      partitionDataLeaderEpoch = fieldleaderepoch
-      ,
-      partitionDataStartOffset = fieldstartoffset
-      ,
-      partitionDataDeliveryCompleteCount = fielddeliverycompletecount
-      ,
-      partitionDataStateBatches = fieldstatebatches
-      }
-
-
 -- | The data for the topics.
 data WriteStateData = WriteStateData
   {
@@ -228,31 +139,6 @@ data WriteStateData = WriteStateData
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode WriteStateData with version-aware field handling.
-encodeWriteStateData :: MonadPut m => E.ApiVersion -> WriteStateData -> m ()
-encodeWriteStateData version wmsg =
-  do
-    serialize (writeStateDataTopicId wmsg)
-    E.encodeVersionedArray version 0 encodePartitionData (case P.unKafkaArray (writeStateDataPartitions wmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode WriteStateData with version-aware field handling.
-decodeWriteStateData :: MonadGet m => E.ApiVersion -> m WriteStateData
-decodeWriteStateData version =
-  do
-    fieldtopicid <- deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodePartitionData
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure WriteStateData
-      {
-      writeStateDataTopicId = fieldtopicid
-      ,
-      writeStateDataPartitions = fieldpartitions
-      }
-
 
 
 data WriteShareGroupStateRequest = WriteShareGroupStateRequest
@@ -282,32 +168,6 @@ instance KafkaMessage WriteShareGroupStateRequest where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 0
-
--- | Encode WriteShareGroupStateRequest with the given API version.
-encodeWriteShareGroupStateRequest :: MonadPut m => E.ApiVersion -> WriteShareGroupStateRequest -> m ()
-encodeWriteShareGroupStateRequest version msg
-  | version >= 0 && version <= 1 =
-    do
-      serialize (toCompactString (writeShareGroupStateRequestGroupId msg))
-      E.encodeVersionedArray version 0 encodeWriteStateData (case P.unKafkaArray (writeShareGroupStateRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode WriteShareGroupStateRequest with the given API version.
-decodeWriteShareGroupStateRequest :: MonadGet m => E.ApiVersion -> m WriteShareGroupStateRequest
-decodeWriteShareGroupStateRequest version
-  | version >= 0 && version <= 1 =
-    do
-      fieldgroupid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeWriteStateData
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure WriteShareGroupStateRequest
-        {
-        writeShareGroupStateRequestGroupId = fieldgroupid
-        ,
-        writeShareGroupStateRequestTopics = fieldtopics
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a StateBatch.
 wireMaxSizeStateBatch :: Int -> StateBatch -> Int

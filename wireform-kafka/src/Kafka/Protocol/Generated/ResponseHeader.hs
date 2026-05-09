@@ -21,17 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.ResponseHeader
   (
     ResponseHeader(..),
-    encodeResponseHeader,
-    decodeResponseHeader,
     maxResponseHeaderVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +31,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -77,41 +65,6 @@ maxResponseHeaderVersion :: Int16
 maxResponseHeaderVersion = 1
 
 
-
--- | Encode ResponseHeader with the given API version.
-encodeResponseHeader :: MonadPut m => E.ApiVersion -> ResponseHeader -> m ()
-encodeResponseHeader version msg
-  | version == 0 =
-    do
-      serialize (responseHeaderCorrelationId msg)
-
-
-  | version == 1 =
-    do
-      serialize (responseHeaderCorrelationId msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ResponseHeader with the given API version.
-decodeResponseHeader :: MonadGet m => E.ApiVersion -> m ResponseHeader
-decodeResponseHeader version
-  | version == 0 =
-    do
-      fieldcorrelationid <- deserialize
-      pure ResponseHeader
-        {
-        responseHeaderCorrelationId = fieldcorrelationid
-        }
-
-  | version == 1 =
-    do
-      fieldcorrelationid <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ResponseHeader
-        {
-        responseHeaderCorrelationId = fieldcorrelationid
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 
 -- | Worst-case wire size of a ResponseHeader.

@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.DescribeConfigsRequest
   (
     DescribeConfigsRequest(..),
     DescribeConfigsResource(..),
-    encodeDescribeConfigsRequest,
-    decodeDescribeConfigsRequest,
     maxDescribeConfigsRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -85,35 +73,6 @@ data DescribeConfigsResource = DescribeConfigsResource
   deriving (Eq, Show, Generic)
 
 
--- | Encode DescribeConfigsResource with version-aware field handling.
-encodeDescribeConfigsResource :: MonadPut m => E.ApiVersion -> DescribeConfigsResource -> m ()
-encodeDescribeConfigsResource version dmsg =
-  do
-    serialize (describeConfigsResourceResourceType dmsg)
-    if version >= 4 then serialize (toCompactString (describeConfigsResourceResourceName dmsg)) else serialize (describeConfigsResourceResourceName dmsg)
-    E.encodeVersionedNullableArray version 4 (\v s -> if v >= 4 then serialize (toCompactString s) else serialize s) (describeConfigsResourceConfigurationKeys dmsg)
-    when (version >= 4) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribeConfigsResource with version-aware field handling.
-decodeDescribeConfigsResource :: MonadGet m => E.ApiVersion -> m DescribeConfigsResource
-decodeDescribeConfigsResource version =
-  do
-    fieldresourcetype <- deserialize
-    fieldresourcename <- if version >= 4 then P.fromCompactString <$> deserialize else deserialize
-    fieldconfigurationkeys <- E.decodeVersionedNullableArray version 4 (\v -> if v >= 4 then P.fromCompactString <$> deserialize else deserialize)
-    _ <- if version >= 4 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribeConfigsResource
-      {
-      describeConfigsResourceResourceType = fieldresourcetype
-      ,
-      describeConfigsResourceResourceName = fieldresourcename
-      ,
-      describeConfigsResourceConfigurationKeys = fieldconfigurationkeys
-      }
-
-
-
 data DescribeConfigsRequest = DescribeConfigsRequest
   {
 
@@ -147,76 +106,6 @@ instance KafkaMessage DescribeConfigsRequest where
   messageMinVersion = 1
   messageMaxVersion = 4
   messageFlexibleVersion = Just 4
-
--- | Encode DescribeConfigsRequest with the given API version.
-encodeDescribeConfigsRequest :: MonadPut m => E.ApiVersion -> DescribeConfigsRequest -> m ()
-encodeDescribeConfigsRequest version msg
-  | version == 3 =
-    do
-      E.encodeVersionedArray version 4 encodeDescribeConfigsResource (case P.unKafkaArray (describeConfigsRequestResources msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (describeConfigsRequestIncludeSynonyms msg)
-      serialize (describeConfigsRequestIncludeDocumentation msg)
-
-
-  | version == 4 =
-    do
-      E.encodeVersionedArray version 4 encodeDescribeConfigsResource (case P.unKafkaArray (describeConfigsRequestResources msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (describeConfigsRequestIncludeSynonyms msg)
-      serialize (describeConfigsRequestIncludeDocumentation msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 1 && version <= 2 =
-    do
-      E.encodeVersionedArray version 4 encodeDescribeConfigsResource (case P.unKafkaArray (describeConfigsRequestResources msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (describeConfigsRequestIncludeSynonyms msg)
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeConfigsRequest with the given API version.
-decodeDescribeConfigsRequest :: MonadGet m => E.ApiVersion -> m DescribeConfigsRequest
-decodeDescribeConfigsRequest version
-  | version == 3 =
-    do
-      fieldresources <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 decodeDescribeConfigsResource
-      fieldincludesynonyms <- deserialize
-      fieldincludedocumentation <- deserialize
-      pure DescribeConfigsRequest
-        {
-        describeConfigsRequestResources = fieldresources
-        ,
-        describeConfigsRequestIncludeSynonyms = fieldincludesynonyms
-        ,
-        describeConfigsRequestIncludeDocumentation = fieldincludedocumentation
-        }
-
-  | version == 4 =
-    do
-      fieldresources <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 decodeDescribeConfigsResource
-      fieldincludesynonyms <- deserialize
-      fieldincludedocumentation <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeConfigsRequest
-        {
-        describeConfigsRequestResources = fieldresources
-        ,
-        describeConfigsRequestIncludeSynonyms = fieldincludesynonyms
-        ,
-        describeConfigsRequestIncludeDocumentation = fieldincludedocumentation
-        }
-
-  | version >= 1 && version <= 2 =
-    do
-      fieldresources <- P.mkKafkaArray <$> E.decodeVersionedArray version 4 decodeDescribeConfigsResource
-      fieldincludesynonyms <- deserialize
-      pure DescribeConfigsRequest
-        {
-        describeConfigsRequestResources = fieldresources
-        ,
-        describeConfigsRequestIncludeSynonyms = fieldincludesynonyms
-        ,
-        describeConfigsRequestIncludeDocumentation = False
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a DescribeConfigsResource.
 wireMaxSizeDescribeConfigsResource :: Int -> DescribeConfigsResource -> Int

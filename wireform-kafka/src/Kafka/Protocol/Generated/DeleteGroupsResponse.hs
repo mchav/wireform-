@@ -22,17 +22,9 @@ module Kafka.Protocol.Generated.DeleteGroupsResponse
   (
     DeleteGroupsResponse(..),
     DeletableGroupResult(..),
-    encodeDeleteGroupsResponse,
-    decodeDeleteGroupsResponse,
     maxDeleteGroupsResponseVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +32,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -79,31 +67,6 @@ data DeletableGroupResult = DeletableGroupResult
   deriving (Eq, Show, Generic)
 
 
--- | Encode DeletableGroupResult with version-aware field handling.
-encodeDeletableGroupResult :: MonadPut m => E.ApiVersion -> DeletableGroupResult -> m ()
-encodeDeletableGroupResult version dmsg =
-  do
-    if version >= 2 then serialize (toCompactString (deletableGroupResultGroupId dmsg)) else serialize (deletableGroupResultGroupId dmsg)
-    serialize (deletableGroupResultErrorCode dmsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DeletableGroupResult with version-aware field handling.
-decodeDeletableGroupResult :: MonadGet m => E.ApiVersion -> m DeletableGroupResult
-decodeDeletableGroupResult version =
-  do
-    fieldgroupid <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fielderrorcode <- deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DeletableGroupResult
-      {
-      deletableGroupResultGroupId = fieldgroupid
-      ,
-      deletableGroupResultErrorCode = fielderrorcode
-      }
-
-
-
 data DeleteGroupsResponse = DeleteGroupsResponse
   {
 
@@ -131,49 +94,6 @@ instance KafkaMessage DeleteGroupsResponse where
   messageMinVersion = 0
   messageMaxVersion = 2
   messageFlexibleVersion = Just 2
-
--- | Encode DeleteGroupsResponse with the given API version.
-encodeDeleteGroupsResponse :: MonadPut m => E.ApiVersion -> DeleteGroupsResponse -> m ()
-encodeDeleteGroupsResponse version msg
-  | version == 2 =
-    do
-      serialize (deleteGroupsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 2 encodeDeletableGroupResult (case P.unKafkaArray (deleteGroupsResponseResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 1 =
-    do
-      serialize (deleteGroupsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 2 encodeDeletableGroupResult (case P.unKafkaArray (deleteGroupsResponseResults msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DeleteGroupsResponse with the given API version.
-decodeDeleteGroupsResponse :: MonadGet m => E.ApiVersion -> m DeleteGroupsResponse
-decodeDeleteGroupsResponse version
-  | version == 2 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDeletableGroupResult
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DeleteGroupsResponse
-        {
-        deleteGroupsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        deleteGroupsResponseResults = fieldresults
-        }
-
-  | version >= 0 && version <= 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldresults <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDeletableGroupResult
-      pure DeleteGroupsResponse
-        {
-        deleteGroupsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        deleteGroupsResponseResults = fieldresults
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a DeletableGroupResult.
 wireMaxSizeDeletableGroupResult :: Int -> DeletableGroupResult -> Int

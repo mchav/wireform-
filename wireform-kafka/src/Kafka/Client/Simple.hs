@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Client.Simple
@@ -55,7 +56,6 @@ import Network.Connection (connectionPut)
 
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Encoding as E
 import qualified Kafka.Protocol.Generated.MetadataRequest as MR
 import qualified Kafka.Protocol.Generated.MetadataResponse as MResp
 import qualified Kafka.Protocol.Generated.ProduceRequest as PReq
@@ -180,7 +180,7 @@ getMetadata client topicsM = do
         }
       
       apiVersion = 0  -- Use version 0 for maximum compatibility
-      reqBody = WC.runEncodeVer MR.encodeMetadataRequest apiVersion req
+      reqBody = WC.runEncodeVer @MR.MetadataRequest apiVersion req
       clientIdStr = P.mkKafkaString $ clientId $ clientConfig client
   
   result <- sendRequestReceiveResponse 
@@ -196,7 +196,7 @@ getMetadata client topicsM = do
     Right (respCorrId, respBody) ->
       if respCorrId /= corrId
         then return $ Left $ "Correlation ID mismatch: expected " ++ show corrId ++ ", got " ++ show respCorrId
-        else case WC.runDecodeVer MResp.decodeMetadataResponse apiVersion respBody of
+        else case WC.runDecodeVer @MResp.MetadataResponse apiVersion respBody of
           Left err -> return $ Left $ "Failed to decode metadata response: " ++ err
           Right resp -> do
             let brokers = extractBrokers resp
@@ -309,7 +309,7 @@ produceSimple client topic partition keyM value = do
         }
   
   -- Encode the request body
-  let requestBody = WC.runEncodeVer PReq.encodeProduceRequest apiVersion request
+  let requestBody = WC.runEncodeVer @PReq.ProduceRequest apiVersion request
       correlationId = clientCorrelationId client
       clientIdStr = P.mkKafkaString (clientId $ clientConfig client)
   
@@ -328,7 +328,7 @@ produceSimple client topic partition keyM value = do
       if respCorrelationId /= correlationId
         then return $ Left $ "Correlation ID mismatch: expected " ++ 
                              show correlationId ++ ", got " ++ show respCorrelationId
-        else case WC.runDecodeVer PResp.decodeProduceResponse apiVersion responseBody of
+        else case WC.runDecodeVer @PResp.ProduceResponse apiVersion responseBody of
           Left err -> return $ Left $ "Failed to decode produce response: " ++ err
           Right response -> do
             -- Extract the result from the response
@@ -502,7 +502,7 @@ fetchSimple client topic partition offset maxBytes = do
         , FR.fetchRequestRackId = P.KafkaString P.Null
         }
       
-      requestBody = WC.runEncodeVer FR.encodeFetchRequest apiVersion request
+      requestBody = WC.runEncodeVer @FR.FetchRequest apiVersion request
       clientIdStr = P.mkKafkaString (clientId $ clientConfig client)
   
   result <- sendRequestReceiveResponse
@@ -518,7 +518,7 @@ fetchSimple client topic partition offset maxBytes = do
     Right (respCorrId, respBody) ->
       if respCorrId /= corrId
         then return $ Left $ "Correlation ID mismatch: expected " ++ show corrId ++ ", got " ++ show respCorrId
-        else case WC.runDecodeVer FResp.decodeFetchResponse apiVersion respBody of
+        else case WC.runDecodeVer @FResp.FetchResponse apiVersion respBody of
           Left err -> return $ Left $ "Failed to decode fetch response: " ++ err
           Right response -> do
             -- Extract the records from the response (this performs IO for decompression)

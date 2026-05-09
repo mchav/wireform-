@@ -24,17 +24,9 @@ module Kafka.Protocol.Generated.BeginQuorumEpochRequest
     TopicData(..),
     PartitionData(..),
     LeaderEndpoint(..),
-    encodeBeginQuorumEpochRequest,
-    decodeBeginQuorumEpochRequest,
     maxBeginQuorumEpochRequestVersion
   ) where
 
-import Control.Monad (when)
-import qualified Data.Bytes.Get
-import Data.Bytes.Get (MonadGet)
-import qualified Data.Bytes.Put
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -42,13 +34,9 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
 import Kafka.Protocol.Message (KafkaMessage(..))
 import qualified Kafka.Protocol.Wire.Codec as WC
 import Foreign.ForeignPtr (ForeignPtr)
@@ -92,42 +80,6 @@ data PartitionData = PartitionData
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode PartitionData with version-aware field handling.
-encodePartitionData :: MonadPut m => E.ApiVersion -> PartitionData -> m ()
-encodePartitionData version pmsg =
-  do
-    serialize (partitionDataPartitionIndex pmsg)
-    when (version >= 1) $
-      serialize (partitionDataVoterDirectoryId pmsg)
-    serialize (partitionDataLeaderId pmsg)
-    serialize (partitionDataLeaderEpoch pmsg)
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode PartitionData with version-aware field handling.
-decodePartitionData :: MonadGet m => E.ApiVersion -> m PartitionData
-decodePartitionData version =
-  do
-    fieldpartitionindex <- deserialize
-    fieldvoterdirectoryid <- if version >= 1
-      then deserialize
-      else pure (P.nullUuid)
-    fieldleaderid <- deserialize
-    fieldleaderepoch <- deserialize
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure PartitionData
-      {
-      partitionDataPartitionIndex = fieldpartitionindex
-      ,
-      partitionDataVoterDirectoryId = fieldvoterdirectoryid
-      ,
-      partitionDataLeaderId = fieldleaderid
-      ,
-      partitionDataLeaderEpoch = fieldleaderepoch
-      }
-
-
 -- | The topics.
 data TopicData = TopicData
   {
@@ -145,31 +97,6 @@ data TopicData = TopicData
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicData with version-aware field handling.
-encodeTopicData :: MonadPut m => E.ApiVersion -> TopicData -> m ()
-encodeTopicData version tmsg =
-  do
-    if version >= 1 then serialize (toCompactString (topicDataTopicName tmsg)) else serialize (topicDataTopicName tmsg)
-    E.encodeVersionedArray version 1 encodePartitionData (case P.unKafkaArray (topicDataPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicData with version-aware field handling.
-decodeTopicData :: MonadGet m => E.ApiVersion -> m TopicData
-decodeTopicData version =
-  do
-    fieldtopicname <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodePartitionData
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicData
-      {
-      topicDataTopicName = fieldtopicname
-      ,
-      topicDataPartitions = fieldpartitions
-      }
-
 
 -- | Endpoints for the leader.
 data LeaderEndpoint = LeaderEndpoint
@@ -194,44 +121,6 @@ data LeaderEndpoint = LeaderEndpoint
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode LeaderEndpoint with version-aware field handling.
-encodeLeaderEndpoint :: MonadPut m => E.ApiVersion -> LeaderEndpoint -> m ()
-encodeLeaderEndpoint version lmsg =
-  do
-    when (version >= 1) $
-      if version >= 1 then serialize (toCompactString (leaderEndpointName lmsg)) else serialize (leaderEndpointName lmsg)
-    when (version >= 1) $
-      if version >= 1 then serialize (toCompactString (leaderEndpointHost lmsg)) else serialize (leaderEndpointHost lmsg)
-    when (version >= 1) $
-      serialize (leaderEndpointPort lmsg)
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode LeaderEndpoint with version-aware field handling.
-decodeLeaderEndpoint :: MonadGet m => E.ApiVersion -> m LeaderEndpoint
-decodeLeaderEndpoint version =
-  do
-    fieldname <- if version >= 1
-      then if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldhost <- if version >= 1
-      then if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldport <- if version >= 1
-      then deserialize
-      else pure (0)
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure LeaderEndpoint
-      {
-      leaderEndpointName = fieldname
-      ,
-      leaderEndpointHost = fieldhost
-      ,
-      leaderEndpointPort = fieldport
-      }
-
 
 
 data BeginQuorumEpochRequest = BeginQuorumEpochRequest
@@ -273,61 +162,6 @@ instance KafkaMessage BeginQuorumEpochRequest where
   messageMinVersion = 0
   messageMaxVersion = 1
   messageFlexibleVersion = Just 1
-
--- | Encode BeginQuorumEpochRequest with the given API version.
-encodeBeginQuorumEpochRequest :: MonadPut m => E.ApiVersion -> BeginQuorumEpochRequest -> m ()
-encodeBeginQuorumEpochRequest version msg
-  | version == 0 =
-    do
-      serialize (beginQuorumEpochRequestClusterId msg)
-      E.encodeVersionedArray version 1 encodeTopicData (case P.unKafkaArray (beginQuorumEpochRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version == 1 =
-    do
-      serialize (toCompactString (beginQuorumEpochRequestClusterId msg))
-      serialize (beginQuorumEpochRequestVoterId msg)
-      E.encodeVersionedArray version 1 encodeTopicData (case P.unKafkaArray (beginQuorumEpochRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 1 encodeLeaderEndpoint (case P.unKafkaArray (beginQuorumEpochRequestLeaderEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode BeginQuorumEpochRequest with the given API version.
-decodeBeginQuorumEpochRequest :: MonadGet m => E.ApiVersion -> m BeginQuorumEpochRequest
-decodeBeginQuorumEpochRequest version
-  | version == 0 =
-    do
-      fieldclusterid <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeTopicData
-      pure BeginQuorumEpochRequest
-        {
-        beginQuorumEpochRequestClusterId = fieldclusterid
-        ,
-        beginQuorumEpochRequestVoterId = (-1)
-        ,
-        beginQuorumEpochRequestTopics = fieldtopics
-        ,
-        beginQuorumEpochRequestLeaderEndpoints = P.mkKafkaArray V.empty
-        }
-
-  | version == 1 =
-    do
-      fieldclusterid <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-      fieldvoterid <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeTopicData
-      fieldleaderendpoints <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeLeaderEndpoint
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure BeginQuorumEpochRequest
-        {
-        beginQuorumEpochRequestClusterId = fieldclusterid
-        ,
-        beginQuorumEpochRequestVoterId = fieldvoterid
-        ,
-        beginQuorumEpochRequestTopics = fieldtopics
-        ,
-        beginQuorumEpochRequestLeaderEndpoints = fieldleaderendpoints
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
 
 -- | Worst-case wire size of a PartitionData.
 wireMaxSizePartitionData :: Int -> PartitionData -> Int
