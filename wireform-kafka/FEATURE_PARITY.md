@@ -225,7 +225,7 @@ with the implementation.
 
 | Suite                              | Count |
 |------------------------------------|-------|
-| `wireform-kafka:wireform-kafka-test`         | 464 |
+| `wireform-kafka:wireform-kafka-test`         | 539 |
 | `wireform-kafka:wireform-kafka-streams-test` | 304 |
 
 Both green on every commit on this branch.
