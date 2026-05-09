@@ -60,6 +60,8 @@ module Kafka.Client.Consumer
   , beginningOffsets
   , endOffsets
   , offsetsForTimes
+  , offsetsForTimesFull
+  , OffsetAndTimestamp(..)
     -- * Partition Control
   , pause
   , resume
@@ -525,14 +527,28 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
             writeTVar consumerCorrelationId (cid + 1)
             return cid
           let apiKey = 2  -- ListOffsets
-          -- ListOffsets: codegen handles up to v11. v2 added the
-          -- IsolationLevel field (we send 0 = ReadUncommitted
-          -- everywhere; the consumer's own isolation-level config
-          -- is honoured in fetchFromBroker, not here). v6 went
-          -- flexible. Subsequent versions only added response
-          -- fields the high-level (TopicPartition, Int64) result
-          -- map ignores.
-          verR <- VN.pickApiVersion consumerVersionCache brokerAddr apiKey 0 7 1
+          -- ListOffsets: codegen handles up to v10. Schema
+          -- changes by version:
+          --   v2  KIP-98  IsolationLevel (we always send 0 here;
+          --               'fetchFromBroker' honours the consumer's
+          --               own isolation-level config)
+          --   v4  KIP-320 LeaderEpoch in request + response
+          --   v6  flexible (compact + tagged fields)
+          --   v7  KIP-734 LeaderEpoch becomes mandatory in
+          --               response; no request-shape change
+          --   v8  KIP-1146 EarliestLocalTimestamp (-4) sentinel
+          --               accepted in the timestamp field; no
+          --               schema change
+          --   v9  KIP-1133 Tiered storage sentinel (-5); no
+          --               schema change
+          --   v10 KIP-994 TimeoutMs added to the request
+          -- We cap at v8 (the highest the broker accepts on
+          -- non-tiered-storage clusters; v9+ rely on the broker
+          -- having KIP-405 enabled which Kafka 3.7's default
+          -- builds do not). 'offsetsForTimesFull' exposes the
+          -- timestamp + leader-epoch fields v4+ adds to the
+          -- per-partition response.
+          verR <- VN.pickApiVersion consumerVersionCache brokerAddr apiKey 0 8 1
           let apiVersion = case verR of
                 Right v -> v
                 Left  _ -> 1   -- preserve legacy fallback
@@ -1067,11 +1083,52 @@ offsetsForTimes
   -> [(TopicPartition, Int64)]      -- ^ (partition, target timestamp ms)
   -> IO (Either String (HashMap.HashMap TopicPartition Int64))
 offsetsForTimes _ [] = pure (Right HashMap.empty)
-offsetsForTimes consumer@Consumer{..} pts = do
-  -- Each timestamp is per-partition, so we fan one
-  -- ListOffsetsRequest per distinct timestamp; the wire batches
-  -- them inside 'queryPartitionOffsetsByTimestamp'.
-  r <- queryPartitionOffsetsByTimestamp consumer pts
+offsetsForTimes consumer pts = do
+  r <- offsetsForTimesFull consumer pts
+  pure (fmap (HashMap.map oatOffset) r)
+
+-- | The richer return type from 'offsetsForTimesFull'. Mirrors
+-- the JVM client's @OffsetAndTimestamp@: on top of the offset,
+-- the broker also returns the actual timestamp of the first
+-- record at-or-after the requested timestamp (which can be
+-- /later/ than the requested one if no record landed exactly on
+-- it) and — from ListOffsets v4+ — the partition leader epoch
+-- at the time, which callers should pass back into 'seek' /
+-- 'commitSync' when they want fencing.
+data OffsetAndTimestamp = OffsetAndTimestamp
+  { oatOffset      :: !Int64
+    -- ^ The offset of the first record at-or-after the
+    --   requested timestamp. @-1@ means the broker had no record
+    --   at-or-after the timestamp.
+  , oatTimestamp   :: !Int64
+    -- ^ The actual record timestamp (ms since epoch). May be
+    --   greater than the requested timestamp. @-1@ on brokers
+    --   that don't report it (very old / pre-v1) or when
+    --   @oatOffset == -1@.
+  , oatLeaderEpoch :: !Int32
+    -- ^ The leader epoch at the time of the record. @-1@ on
+    --   pre-v4 brokers that don't include the field. Useful for
+    --   fencing on subsequent commit/seek.
+  }
+  deriving (Eq, Show, Generic)
+
+-- | Like 'offsetsForTimes', but also returns the broker-reported
+-- timestamp + leader epoch for each partition. Mirrors
+-- @KafkaConsumer.offsetsForTimes@ in the JVM client which
+-- returns @Map\<TopicPartition, OffsetAndTimestamp\>@.
+--
+-- Use this when the caller needs the leader-epoch fencing
+-- semantics from KIP-320 (passing the returned epoch back into
+-- @commitSync@ rejects commits across leadership changes); for
+-- the simple offset-only case, 'offsetsForTimes' is the existing
+-- (Int64-only) façade.
+offsetsForTimesFull
+  :: Consumer
+  -> [(TopicPartition, Int64)]
+  -> IO (Either String (HashMap.HashMap TopicPartition OffsetAndTimestamp))
+offsetsForTimesFull _ [] = pure (Right HashMap.empty)
+offsetsForTimesFull consumer pts = do
+  r <- queryPartitionOffsetsByTimestampFull consumer pts
   pure (fmap HashMap.fromList r)
 
 -- | Pause consumption from partitions.
@@ -1612,74 +1669,38 @@ fetchCommittedOffsets consumer@Consumer{..} groupId tps = do
                 writeTVar consumerCorrelationId (cid + 1)
                 return cid
               let apiKey = 9  -- OffsetFetch
-              -- OffsetFetch: codegen handles up to v10. v6+
-              -- went flexible. v7 added 'requireStable' (we
-              -- always pass False). v8+'s per-group batched
-              -- shape is also wired in the codegen; we send
-              -- 'groups = []' so the broker uses the legacy
-              -- single-group + topics-array shape at every
-              -- version through v7. Cap at v7 to stay on the
-              -- single-group code path.
-              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 7 5
+              -- See 'fetchCommittedOffsetsBatch' below for the
+              -- v8 dispatch rationale. We share the same builder
+              -- + parser helpers so single-offset reads also
+              -- benefit from the per-group batched shape on v8+.
+              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 8 5
               let apiVersion = case verR of
                     Right v -> v
                     Left  _ -> 5
-              
-              -- Group by topic
+
               let byTopic = Map.fromListWith (++)
                     [ (tpTopic tp, [tpPartition tp])
                     | tp <- tps
                     ]
-                  
-                  topics = V.fromList
-                    [ OFReq.OffsetFetchRequestTopic
-                        { OFReq.offsetFetchRequestTopicName = P.mkKafkaString topic
-                        , OFReq.offsetFetchRequestTopicPartitionIndexes = P.mkKafkaArray $ V.fromList parts
-                        }
-                    | (topic, parts) <- Map.toList byTopic
-                    ]
-                  
-                  request = OFReq.OffsetFetchRequest
-                    { OFReq.offsetFetchRequestGroupId = P.mkKafkaString groupId
-                    , OFReq.offsetFetchRequestTopics = P.mkKafkaArray topics
-                    , OFReq.offsetFetchRequestGroups = P.mkKafkaArray V.empty
-                    , OFReq.offsetFetchRequestRequireStable = False
-                    }
-                  
+                  request
+                    | apiVersion >= 8 = buildOffsetFetchRequestV8 groupId byTopic
+                    | otherwise       = buildOffsetFetchRequestLegacy groupId byTopic
                   requestBody = WC.runEncodeVer OFReq.encodeOffsetFetchRequest apiVersion request
                   clientId = P.mkKafkaString (consumerClientId consumerConfig)
-              
-              -- Send request
+
               result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
-              
               case result of
                 Left err -> return $ Left $ "OffsetFetch failed: " ++ err
                 Right (_, responseBody) -> do
                   case WC.runDecodeVer OFResp.decodeOffsetFetchResponse apiVersion responseBody of
                     Left err -> return $ Left $ "Failed to parse OffsetFetchResponse: " ++ err
                     Right response -> do
-                      -- Extract offset from response
-                      let topicsNullable = P.unKafkaArray $ OFResp.offsetFetchResponseTopics response
-                          topics = case topicsNullable of
-                            P.Null -> []
-                            P.NotNull v -> V.toList v
-                          
-                          -- Find the first partition in response
-                          offsets = [ (topic, partId, committedOffset)
-                                    | topicResp <- topics
-                                    , let topic = extractKafkaString $ OFResp.offsetFetchResponseTopicName topicResp
-                                          partsNullable = P.unKafkaArray $ OFResp.offsetFetchResponseTopicPartitions topicResp
-                                          parts = case partsNullable of
-                                            P.Null -> []
-                                            P.NotNull v -> V.toList v
-                                    , partResp <- parts
-                                    , let partId = OFResp.offsetFetchResponsePartitionPartitionIndex partResp
-                                          committedOffset = OFResp.offsetFetchResponsePartitionCommittedOffset partResp
-                                    ]
-                      
-                      case offsets of
-                        [] -> return $ Left "No offset found in response"
-                        ((_, _, offset):_) -> return $ Right offset
+                      let parsed
+                            | apiVersion >= 8 = parseOffsetFetchResponseV8 response
+                            | otherwise       = parseOffsetFetchResponseLegacy response
+                      case HashMap.toList parsed of
+                        []           -> return $ Left "No offset found in response"
+                        ((_, off):_) -> return $ Right off
 
 ----------------------------------------------------------------------
 -- Multi-partition committed offsets (KIP-211)
@@ -1710,26 +1731,27 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
                 writeTVar consumerCorrelationId (cid + 1)
                 pure cid
               let apiKey = 9  -- OffsetFetch
-              -- See 'fetchCommittedOffsets' for the v7 cap rationale.
-              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 7 5
+              -- OffsetFetch: v8 introduced the per-group batched
+              -- shape (KIP-709). The wire is incompatible: v0-v7
+              -- carry a single (group_id, topics[]) pair at the
+              -- top level; v8+ carries an array of
+              -- (group_id, topics[]) and the legacy field is
+              -- removed. We dispatch on the negotiated version
+              -- below. v9 (KIP-848 member-epoch) is also accepted
+              -- here — sending memberId="" + memberEpoch=-1
+              -- selects the legacy classic-protocol shape on the
+              -- broker side, which mirrors what the JVM client
+              -- does when it isn't using the KIP-848 consumer
+              -- protocol.
+              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 8 5
               let apiVersion = case verR of
                     Right v -> v
                     Left  _ -> 5
               let byTopic = Map.fromListWith (++)
                     [ (tpTopic tp, [tpPartition tp]) | tp <- tps ]
-                  topics = V.fromList
-                    [ OFReq.OffsetFetchRequestTopic
-                        { OFReq.offsetFetchRequestTopicName = P.mkKafkaString topic
-                        , OFReq.offsetFetchRequestTopicPartitionIndexes = P.mkKafkaArray (V.fromList parts)
-                        }
-                    | (topic, parts) <- Map.toList byTopic
-                    ]
-                  request = OFReq.OffsetFetchRequest
-                    { OFReq.offsetFetchRequestGroupId = P.mkKafkaString groupId
-                    , OFReq.offsetFetchRequestTopics = P.mkKafkaArray topics
-                    , OFReq.offsetFetchRequestGroups = P.mkKafkaArray V.empty
-                    , OFReq.offsetFetchRequestRequireStable = False
-                    }
+                  request
+                    | apiVersion >= 8 = buildOffsetFetchRequestV8 groupId byTopic
+                    | otherwise       = buildOffsetFetchRequestLegacy groupId byTopic
                   requestBody = WC.runEncodeVer OFReq.encodeOffsetFetchRequest apiVersion request
                   clientId = P.mkKafkaString (consumerClientId consumerConfig)
               result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
@@ -1738,26 +1760,146 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
                 Right (_, responseBody) ->
                   case WC.runDecodeVer OFResp.decodeOffsetFetchResponse apiVersion responseBody of
                     Left err -> pure (Left ("Failed to parse OffsetFetchResponse: " ++ err))
-                    Right response ->
-                      let topicsVec =
-                            case P.unKafkaArray (OFResp.offsetFetchResponseTopics response) of
-                              P.Null      -> V.empty
-                              P.NotNull v -> v
-                          go !acc tr =
-                            let topic = extractKafkaString (OFResp.offsetFetchResponseTopicName tr)
-                                partsVec = case P.unKafkaArray (OFResp.offsetFetchResponseTopicPartitions tr) of
-                                  P.Null      -> V.empty
-                                  P.NotNull v -> v
-                            in V.foldl'
-                                 (\m p ->
-                                    let pid = OFResp.offsetFetchResponsePartitionPartitionIndex p
-                                        ec  = OFResp.offsetFetchResponsePartitionErrorCode p
-                                        off = OFResp.offsetFetchResponsePartitionCommittedOffset p
-                                    in if ec == 0 && off >= 0
-                                         then HashMap.insert (TopicPartition topic pid) off m
-                                         else m)
-                                 acc partsVec
-                      in pure $ Right $! V.foldl' go HashMap.empty topicsVec
+                    Right response
+                      | apiVersion >= 8 -> pure $ Right $! parseOffsetFetchResponseV8 response
+                      | otherwise       -> pure $ Right $! parseOffsetFetchResponseLegacy response
+
+-- | Build an OffsetFetchRequest in the legacy single-group shape
+-- (v0-v7). The (group_id, topics[]) pair lives at the top level
+-- and the v8+ groups[] array is left empty.
+buildOffsetFetchRequestLegacy
+  :: Text
+  -> Map.Map Text [Int32]   -- ^ partitions grouped by topic
+  -> OFReq.OffsetFetchRequest
+buildOffsetFetchRequestLegacy groupId byTopic =
+  let topicsVec = V.fromList
+        [ OFReq.OffsetFetchRequestTopic
+            { OFReq.offsetFetchRequestTopicName = P.mkKafkaString topic
+            , OFReq.offsetFetchRequestTopicPartitionIndexes =
+                P.mkKafkaArray (V.fromList parts)
+            }
+        | (topic, parts) <- Map.toList byTopic
+        ]
+   in OFReq.OffsetFetchRequest
+        { OFReq.offsetFetchRequestGroupId = P.mkKafkaString groupId
+        , OFReq.offsetFetchRequestTopics  = P.mkKafkaArray topicsVec
+        , OFReq.offsetFetchRequestGroups  = P.mkKafkaArray V.empty
+        , OFReq.offsetFetchRequestRequireStable = False
+        }
+
+-- | Build an OffsetFetchRequest in the v8+ per-group batched
+-- shape (KIP-709). The legacy top-level (group_id, topics[])
+-- pair is left empty (the codegen drops it on v8+ anyway) and
+-- everything goes into the groups[] array.
+--
+-- We always send a single group (the consumer's own group) so
+-- the array has one element. The batched shape lets one client
+-- fetch offsets for many groups in a single round-trip; we don't
+-- expose that publicly yet, but the wire format is what the
+-- broker expects on v8+ regardless.
+--
+-- For v9 (KIP-848) we leave memberId="" and memberEpoch=-1 which
+-- the broker treats as the legacy classic-protocol shape — i.e.
+-- mirrors the JVM client when it isn't using the new
+-- consumer-group protocol.
+buildOffsetFetchRequestV8
+  :: Text
+  -> Map.Map Text [Int32]
+  -> OFReq.OffsetFetchRequest
+buildOffsetFetchRequestV8 groupId byTopic =
+  let topicsVec = V.fromList
+        [ OFReq.OffsetFetchRequestTopics
+            { OFReq.offsetFetchRequestTopicsName = P.mkKafkaString topic
+            , OFReq.offsetFetchRequestTopicsPartitionIndexes =
+                P.mkKafkaArray (V.fromList parts)
+            }
+        | (topic, parts) <- Map.toList byTopic
+        ]
+      groupEntry = OFReq.OffsetFetchRequestGroup
+        { OFReq.offsetFetchRequestGroupGroupId     = P.mkKafkaString groupId
+        , OFReq.offsetFetchRequestGroupMemberId    = P.mkKafkaString ""
+        , OFReq.offsetFetchRequestGroupMemberEpoch = -1
+        , OFReq.offsetFetchRequestGroupTopics      = P.mkKafkaArray topicsVec
+        }
+   in OFReq.OffsetFetchRequest
+        { OFReq.offsetFetchRequestGroupId =
+            -- Legacy field: drop on v8+ (the encoder ignores it
+            -- anyway). 'KafkaString Null' avoids accidentally
+            -- shipping any bytes if the encoder ever changes.
+            P.KafkaString P.Null
+        , OFReq.offsetFetchRequestTopics  = P.KafkaArray P.Null
+        , OFReq.offsetFetchRequestGroups  = P.mkKafkaArray (V.singleton groupEntry)
+        , OFReq.offsetFetchRequestRequireStable = False
+        }
+
+-- | Parse a legacy (v0-v7) OffsetFetchResponse into a
+-- @TopicPartition -> committed offset@ map. Drops partitions
+-- that errored or had no committed offset (offset == -1), which
+-- mirrors the JVM client's @committed()@ semantics.
+parseOffsetFetchResponseLegacy
+  :: OFResp.OffsetFetchResponse
+  -> HashMap.HashMap TopicPartition Int64
+parseOffsetFetchResponseLegacy resp =
+  let topicsVec =
+        case P.unKafkaArray (OFResp.offsetFetchResponseTopics resp) of
+          P.Null      -> V.empty
+          P.NotNull v -> v
+      addTopic !acc tr =
+        let topic = extractKafkaString (OFResp.offsetFetchResponseTopicName tr)
+            partsVec =
+              case P.unKafkaArray (OFResp.offsetFetchResponseTopicPartitions tr) of
+                P.Null      -> V.empty
+                P.NotNull v -> v
+         in V.foldl'
+              (\m p ->
+                 let pid = OFResp.offsetFetchResponsePartitionPartitionIndex p
+                     ec  = OFResp.offsetFetchResponsePartitionErrorCode p
+                     off = OFResp.offsetFetchResponsePartitionCommittedOffset p
+                  in if ec == 0 && off >= 0
+                       then HashMap.insert (TopicPartition topic pid) off m
+                       else m)
+              acc partsVec
+   in V.foldl' addTopic HashMap.empty topicsVec
+
+-- | Parse a v8+ OffsetFetchResponse (the per-group batched
+-- shape). We only ever request a single group so we walk the
+-- groups[] array and merge any successful entries; in practice
+-- the array is always length 1.
+parseOffsetFetchResponseV8
+  :: OFResp.OffsetFetchResponse
+  -> HashMap.HashMap TopicPartition Int64
+parseOffsetFetchResponseV8 resp =
+  let groupsVec =
+        case P.unKafkaArray (OFResp.offsetFetchResponseGroups resp) of
+          P.Null      -> V.empty
+          P.NotNull v -> v
+      addGroup !acc gr =
+        -- A non-zero group-level error means /none/ of the
+        -- group's offsets are valid; drop them.
+        if OFResp.offsetFetchResponseGroupErrorCode gr /= 0
+          then acc
+          else
+            let topicsVec =
+                  case P.unKafkaArray (OFResp.offsetFetchResponseGroupTopics gr) of
+                    P.Null      -> V.empty
+                    P.NotNull v -> v
+             in V.foldl' addTopic acc topicsVec
+      addTopic !acc tr =
+        let topic = extractKafkaString (OFResp.offsetFetchResponseTopicsName tr)
+            partsVec =
+              case P.unKafkaArray (OFResp.offsetFetchResponseTopicsPartitions tr) of
+                P.Null      -> V.empty
+                P.NotNull v -> v
+         in V.foldl'
+              (\m p ->
+                 let pid = OFResp.offsetFetchResponsePartitionsPartitionIndex p
+                     ec  = OFResp.offsetFetchResponsePartitionsErrorCode p
+                     off = OFResp.offsetFetchResponsePartitionsCommittedOffset p
+                  in if ec == 0 && off >= 0
+                       then HashMap.insert (TopicPartition topic pid) off m
+                       else m)
+              acc partsVec
+   in V.foldl' addGroup HashMap.empty groupsVec
 
 ----------------------------------------------------------------------
 -- Per-partition timestamp -> offset (KIP-79)
@@ -1769,7 +1911,20 @@ queryPartitionOffsetsByTimestamp
   :: Consumer
   -> [(TopicPartition, Int64)]
   -> IO (Either String [(TopicPartition, Int64)])
-queryPartitionOffsetsByTimestamp consumer@Consumer{..} pts = do
+queryPartitionOffsetsByTimestamp consumer pts = do
+  r <- queryPartitionOffsetsByTimestampFull consumer pts
+  pure (fmap (map (\(tp, oat) -> (tp, oatOffset oat))) r)
+
+-- | Sibling of 'queryPartitionOffsetsByTimestamp' that returns
+-- the full @OffsetAndTimestamp@ tuple (offset + timestamp +
+-- leader epoch). Both the legacy offset-only helper and
+-- 'offsetsForTimesFull' delegate here so the wire round-trip
+-- only happens once per call.
+queryPartitionOffsetsByTimestampFull
+  :: Consumer
+  -> [(TopicPartition, Int64)]
+  -> IO (Either String [(TopicPartition, OffsetAndTimestamp)])
+queryPartitionOffsetsByTimestampFull consumer@Consumer{..} pts = do
   -- Group partitions by topic, carrying per-partition timestamp.
   let byTopic = Map.fromListWith (++)
         [ (tpTopic tp, [(tpPartition tp, ts)])
@@ -1790,8 +1945,8 @@ queryPartitionOffsetsByTimestamp consumer@Consumer{..} pts = do
             writeTVar consumerCorrelationId (cid + 1)
             pure cid
           let apiKey = 2  -- ListOffsets
-          -- See 'queryPartitionOffsets' for the v7 cap rationale.
-          verR <- VN.pickApiVersion consumerVersionCache brokerAddr apiKey 0 7 1
+          -- See 'queryPartitionOffsets' for the v8 cap rationale.
+          verR <- VN.pickApiVersion consumerVersionCache brokerAddr apiKey 0 8 1
           let apiVersion = case verR of
                 Right v -> v
                 Left  _ -> 1
@@ -1840,8 +1995,15 @@ queryPartitionOffsetsByTimestamp consumer@Consumer{..} pts = do
                      let pid = LOResp.listOffsetsPartitionResponsePartitionIndex pr
                          ec  = LOResp.listOffsetsPartitionResponseErrorCode pr
                          off = LOResp.listOffsetsPartitionResponseOffset pr
+                         ts  = LOResp.listOffsetsPartitionResponseTimestamp pr
+                         lep = LOResp.listOffsetsPartitionResponseLeaderEpoch pr
                      in if ec == 0
-                          then Just (TopicPartition topic pid, off)
+                          then Just ( TopicPartition topic pid
+                                    , OffsetAndTimestamp
+                                        { oatOffset      = off
+                                        , oatTimestamp   = ts
+                                        , oatLeaderEpoch = lep
+                                        })
                           else Nothing)
                   (V.toList partsVec))
           (V.toList tvec)

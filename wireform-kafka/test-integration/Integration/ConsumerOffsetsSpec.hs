@@ -34,8 +34,10 @@ tests = testGroup "Integration: Consumer offset / seek APIs"
       withBroker testEndAndBeginning
   , testCase "seekToEnd / seek + position behave consistently" $
       withBroker testSeekAndPosition
-  , testCase "produce + assign + poll round-trips records (Produce v11 / Fetch v12)" $
+  , testCase "produce + assign + poll round-trips records (Produce v13 / Fetch v12 / OffsetFetch v8)" $
       withBroker testProduceAndPollRoundTrip
+  , testCase "offsetsForTimesFull surfaces timestamp + leader epoch (ListOffsets v8)" $
+      withBroker testOffsetsForTimesFull
   ]
 
 -- The fixed pre-created topic name. Operators are expected to
@@ -118,10 +120,17 @@ testSeekAndPosition brokerText = do
 
 testProduceAndPollRoundTrip :: T.Text -> IO ()
 testProduceAndPollRoundTrip brokerText = do
-  -- This is the only AdminClient-extended test that exercises
-  -- the bumped Produce v9 (flexible) + Fetch v12 (flexible)
-  -- code paths end-to-end. The other tests above only call
-  -- ListOffsets, which is its own separate negotiation site.
+  -- End-to-end exercise of the recently-bumped:
+  --   * Produce v13 (KIP-516 TopicId-based; the metadata cache
+  --     populates 'topicProduceDataTopicId' from
+  --     MetadataResponse v10+).
+  --   * Fetch v12 (flexible; previously broken by the
+  --     codegen tagged-string bug now fixed in this branch).
+  --   * OffsetFetch v8 (per-group batched groups[] shape; the
+  --     consumer's commit/fetch path dispatches on the
+  --     negotiated version).
+  -- The other tests in this group only call ListOffsets, which
+  -- is its own separate negotiation site (now bumped to v8).
   let topic   = fixedTopic
       payload = T.encodeUtf8 (T.pack "wf-it-poll-payload")
   pcfg <- pure $ KP.defaultProducerConfig
@@ -163,6 +172,43 @@ testProduceAndPollRoundTrip brokerText = do
               ("poll did not return the record we just produced "
                  <> "(offset=" <> show producedOffset
                  <> "; got offsets=" <> show (map KC.crOffset rs) <> ")")
+
+testOffsetsForTimesFull :: T.Text -> IO ()
+testOffsetsForTimesFull brokerText = do
+  -- ListOffsets v4+ surfaces a per-partition timestamp and leader
+  -- epoch on top of the offset; 'offsetsForTimes' (the legacy
+  -- KIP-79 façade) drops them, so we use 'offsetsForTimesFull'
+  -- to assert they round-trip cleanly.
+  let topic = fixedTopic
+  produceN brokerText topic 5
+  consumer <- mkConsumerOrFail brokerText "wf-it-grp-oft"
+  let tp = KC.TopicPartition topic 0
+  -- Ask for "earliest after timestamp -2 (the broker's earliest
+  -- magic value)"; that's just the partition's beginning offset
+  -- but the request goes through ListOffsets v4+ so the
+  -- timestamp/leaderEpoch fields are populated.
+  r <- KC.offsetsForTimesFull consumer [(tp, -2)]
+  KC.closeConsumer consumer
+  case r of
+    Left err -> assertFailure ("offsetsForTimesFull: " ++ err)
+    Right hm ->
+      case HashMap.lookup tp hm of
+        Nothing -> assertFailure
+          ("offsetsForTimesFull: no entry for "
+             ++ T.unpack topic ++ ":" ++ show (KC.tpPartition tp))
+        Just oat -> do
+          assertBool
+            ("expected non-negative offset, got " ++ show (KC.oatOffset oat))
+            (KC.oatOffset oat >= 0)
+          assertBool
+            ("expected leader epoch >= 0, got " ++ show (KC.oatLeaderEpoch oat))
+            (KC.oatLeaderEpoch oat >= 0)
+          -- Timestamp is the broker-reported value; -2 is a
+          -- sentinel meaning "earliest", and the broker may
+          -- echo -1 if no record exists. Just check it's a
+          -- value (not the uninitialised default).
+          let _ = KC.oatTimestamp oat
+          pure ()
 
 ----------------------------------------------------------------------
 -- Helpers

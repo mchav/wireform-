@@ -388,25 +388,33 @@ sendToBroker state@SenderState{..} broker batches = do
         _ <- VN.ensureVersionsNegotiated conn brokerAddr senderVersionCache nextCid
         corrId <- nextCid
 
-        -- Build and encode the request (compression is IO)
-        request <- buildProduceRequest senderAcks senderTimeoutMs validBatches
+        -- Build and encode the request (compression is IO).
+        -- Threads the metadata cache through so v13+ requests
+        -- can populate the KIP-516 TopicId on each
+        -- TopicProduceData entry; the cache maintains
+        -- 'topicMetaTopicId' from the v10+ MetadataResponse.
+        request <- buildProduceRequest senderMetadata senderAcks senderTimeoutMs validBatches
         -- ProduceRequest: codegen handles up to v13. The request
         -- shape is stable from v3 onwards (v3 added the
         -- transactional id, which we send as Null on the
         -- non-transactional path). v9 went flexible (the broker
-        -- expects compact strings + tagged-fields trailer).
+        -- expects compact strings + tagged-fields trailer); v10+
+        -- added per-partition response fields (KIP-467
+        -- 'RecordErrors' + 'ErrorMessage') that our decoder
+        -- handles via the codegen, and the codegen-flexible-
+        -- tagged-string fix in this branch unblocks v12 against
+        -- Kafka 3.7.
         --
-        -- Cap at v9 — the live-broker test against Kafka 3.7
-        -- shows v9 round-trips cleanly but v10+ add response
-        -- fields (KIP-467 'RecordErrors' + 'ErrorMessage' on
-        -- the per-partition response from v10; KIP-848 record
-        -- errors at v11) that our /per-partition-response/
-        -- decoder doesn't handle yet. Bumping further requires
-        -- checking each response shape against a live broker
-        -- and adding round-trip coverage for the new fields.
+        -- v13 swapped the per-topic name field for a KIP-516
+        -- TopicId; we plumb the id through the metadata cache
+        -- ('Meta.getTopicId') and 'buildTopicProduceData' fills
+        -- in 'topicProduceDataTopicId' for v13+, or leaves it
+        -- nullUuid for v0-v12 (which expect the name).
+        --
+        -- Cap at v13.
         verR <- VN.pickApiVersion senderVersionCache brokerAddr
                   0  {- API key 0 = Produce -}
-                  3 12 3
+                  3 13 3
         let apiVersion = case verR of
               Right v -> v
               Left  _ -> 3
@@ -448,17 +456,27 @@ sendToBroker state@SenderState{..} broker batches = do
                     -- Process the response and update batch states
                     processProduceResponse (Just senderMetadata) validBatches response
 
--- | Build a ProduceRequest from a list of batches
--- Compression happens here, so this is an IO operation
-buildProduceRequest :: Int16 -> Int32 -> [BA.ProducerBatch] -> IO PR.ProduceRequest
-buildProduceRequest acks timeoutMs batches = do
+-- | Build a ProduceRequest from a list of batches.
+-- Compression happens here, so this is an IO operation.
+-- The metadata cache is consulted per-topic to populate the
+-- KIP-516 TopicId field; on pre-v10 brokers (or topics not yet
+-- in the cache) the field stays 'P.nullUuid' which is fine for
+-- v0-v12 (where the encoder ignores it). v13+ requires a real
+-- topic id.
+buildProduceRequest
+  :: Meta.MetadataCache
+  -> Int16
+  -> Int32
+  -> [BA.ProducerBatch]
+  -> IO PR.ProduceRequest
+buildProduceRequest metaCache acks timeoutMs batches = do
   -- Group batches by topic
   let batchesByTopic = groupBy (\b1 b2 -> BA.tpTopic (BA.batchTopicPartition b1) == BA.tpTopic (BA.batchTopicPartition b2))
                      $ sortBy (comparing (BA.tpTopic . BA.batchTopicPartition)) batches
-  
+
   -- Build TopicProduceData for each topic (with compression, so IO)
-  topicData <- mapM buildTopicProduceData batchesByTopic
-  
+  topicData <- mapM (buildTopicProduceData metaCache) batchesByTopic
+
   return $ PR.ProduceRequest
     { PR.produceRequestTransactionalId = P.KafkaString P.Null
     , PR.produceRequestAcks = acks
@@ -466,15 +484,26 @@ buildProduceRequest acks timeoutMs batches = do
     , PR.produceRequestTopicData = P.mkKafkaArray (V.fromList topicData)
     }
 
--- | Build TopicProduceData for a group of batches from the same topic
--- Compression happens here, so this is an IO operation
-buildTopicProduceData :: [BA.ProducerBatch] -> IO PR.TopicProduceData
-buildTopicProduceData batches = do
+-- | Build TopicProduceData for a group of batches from the same topic.
+-- Compression happens here, so this is an IO operation. Populates
+-- the KIP-516 'topicProduceDataTopicId' from the metadata cache
+-- when known; falls back to 'P.nullUuid' otherwise (which is
+-- what every Produce version through v12 expects in the field).
+buildTopicProduceData
+  :: Meta.MetadataCache -> [BA.ProducerBatch] -> IO PR.TopicProduceData
+buildTopicProduceData metaCache batches = do
   let topic = BA.tpTopic $ BA.batchTopicPartition $ head batches
+  topicIdM <- atomically (Meta.getTopicId metaCache topic)
   partitionData <- mapM buildPartitionProduceData batches
   return $ PR.TopicProduceData
     { PR.topicProduceDataName = P.mkKafkaString topic
-    , PR.topicProduceDataTopicId = P.nullUuid
+    , PR.topicProduceDataTopicId =
+        -- 'getTopicId' returns 'Nothing' before the cache is
+        -- populated; that path keeps the field at nullUuid
+        -- which is what v0-v12 expect anyway.
+        case topicIdM of
+          Just tid -> tid
+          Nothing  -> P.nullUuid
     , PR.topicProduceDataPartitionData = P.mkKafkaArray (V.fromList partitionData)
     }
 
