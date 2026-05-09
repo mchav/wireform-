@@ -97,19 +97,31 @@ frameRequest apiKey apiVersion correlationId clientId requestBody =
 -- key + body version. Encodes the per-API flexible-version
 -- thresholds upstream sets in the JSON message defs.
 --
--- Header v0 is special-cased for 'ApiVersions' (api key 18) so a
--- broker that doesn't yet know which body versions we support can
--- still parse the request.
---
 -- Anything in the table at body version >= the flexible-from
 -- threshold uses header v2 (which adds an empty 'TaggedFields'
 -- trailer); everything else uses header v1.
+--
+-- == ApiVersions special case
+--
+-- 'ApiVersions' itself (api key 18) is /also/ in
+-- 'flexibleVersionTable' (it goes flexible at body v3); we
+-- intentionally treat it like every other API. The Kafka
+-- broker's parsing has a small concession in the other
+-- direction — when the broker can't decode an ApiVersions
+-- request body it falls back to assuming v0 of the body
+-- /with header v1/ — but the request header version we /send/
+-- still tracks the flexible-versions table.
+--
+-- (Earlier we returned v0 here, on the theory that older
+-- brokers might want a v0 header; but our codegen doesn't
+-- emit a v0 header encoder — the spec says header v0 is for
+-- pre-Kafka-0.10 ControlledShutdown only — so v0 was never
+-- a viable choice for any client request.)
 requestHeaderVersionFor :: Int16 -> Int16 -> Int16
-requestHeaderVersionFor apiKey apiVersion = case apiKey of
-  18 -> 0  -- ApiVersions: header v0 regardless of body version
-  _  -> case lookup apiKey flexibleVersionTable of
-          Nothing  -> 1                       -- non-flexible API
-          Just t   -> if apiVersion >= t then 2 else 1
+requestHeaderVersionFor apiKey apiVersion =
+  case lookup apiKey flexibleVersionTable of
+    Nothing  -> 1                       -- non-flexible API
+    Just t   -> if apiVersion >= t then 2 else 1
 
 -- | Per-API flexible-from version (i.e. the lowest body version
 -- that uses the v2 request header). Sourced from the upstream
@@ -137,6 +149,7 @@ flexibleVersionTable =
   , (17, 2)  -- SaslHandshake (still header v1; SaslHandshake stays non-flexible)
     -- Note: SaslHandshake actually never goes flexible. The
     -- entry is here to document the choice.
+  , (18, 3)  -- ApiVersions (flexible at body v3+)
   , (19, 5)  -- CreateTopics
   , (20, 4)  -- DeleteTopics
   , (21, 2)  -- DeleteRecords

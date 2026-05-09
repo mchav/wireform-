@@ -103,6 +103,7 @@ import qualified Kafka.Client.Metadata as Meta
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.ApiVersions as AV
+import qualified Kafka.Protocol.VersionNegotiation as VN
 import qualified Kafka.Protocol.Generated.CreateTopicsRequest as CTReq
 import qualified Kafka.Protocol.Generated.CreateTopicsResponse as CTResp
 import qualified Kafka.Protocol.Generated.DescribeConfigsRequest as DCReq
@@ -189,14 +190,28 @@ createAdminClient brokerAddrs config = do
       case connResult of
         Left err -> return $ Left $ "Failed to connect to bootstrap broker: " ++ err
         Right conn -> do
-          -- Fetch metadata (correlation ID 0 for initial fetch)
+          -- Initialize correlation ID first so the ApiVersions
+          -- handshake and the metadata refresh share the same
+          -- correlation-id source.
+          corrId <- newTVarIO 1
+          let nextCid = atomically $ do
+                cid <- readTVar corrId
+                writeTVar corrId (cid + 1)
+                pure cid
+
+          -- Run the ApiVersions handshake against the bootstrap
+          -- broker before any other RPC. We swallow failure: an
+          -- older broker (< 0.10) doesn't recognise
+          -- ApiVersions and will tear down the connection with
+          -- a protocol error; in that case downstream calls
+          -- fall back to their compiled-in defaults.
+          _ <- VN.ensureVersionsNegotiated
+                 conn firstBroker versionCache nextCid
+
           fetchResult <- Meta.refreshMetadata conn metadataCache 0
           case fetchResult of
             Left err -> return $ Left $ "Failed to fetch initial metadata: " ++ err
-            Right _ -> do
-              -- Initialize correlation ID
-              corrId <- newTVarIO 1
-              
+            Right _ ->
               return $ Right AdminClient
                 { adminConnManager = connManager
                 , adminMetadata = metadataCache
@@ -226,6 +241,100 @@ getNextCorrelationId AdminClient{..} = atomically $ do
   cid <- readTVar adminCorrelationId
   writeTVar adminCorrelationId (cid + 1)
   return cid
+
+----------------------------------------------------------------------
+-- Connection + version-negotiation glue
+----------------------------------------------------------------------
+
+-- | Obtain a connection to @addr@ from the admin client's
+-- connection pool /and/ make sure @ApiVersions@ has been
+-- negotiated for it. Idempotent: if the cache already has an
+-- entry for @addr@, the negotiation step is a no-op.
+--
+-- All admin RPCs that subsequently consult
+-- 'pickAdminApiVersion' for this broker can rely on the cache
+-- being populated with the broker's actual supported ranges
+-- (rather than the empty fallback path).
+getNegotiatedConn :: AdminClient -> Conn.BrokerAddress -> IO (Either String Connection)
+getNegotiatedConn client@AdminClient{..} addr = do
+  connResult <- Conn.getOrCreateConnection adminConnManager addr Conn.defaultConnectionConfig
+  case connResult of
+    Left err  -> pure (Left err)
+    Right conn -> do
+      -- Brokers older than 0.10 don't speak ApiVersions; we
+      -- treat that as "no information, use the caller-supplied
+      -- fallback version" rather than a hard failure.
+      _ <- VN.ensureVersionsNegotiated
+             conn addr adminVersionCache (getNextCorrelationId client)
+      pure (Right conn)
+
+-- | Pick the right API version for an outbound admin RPC.
+--
+-- Wraps 'VN.pickApiVersion' so a 'VersionMismatch' becomes a
+-- string error the caller can return up the stack. Compared to
+-- the boilerplate that used to live at every call site, this
+-- has two important behaviour differences:
+--
+--   1. It runs the negotiation handshake on demand if the
+--      cache is still empty (via 'getNegotiatedConn'), so the
+--      'fallback' path only fires when the broker doesn't
+--      speak @ApiVersions@ at all.
+--   2. It returns @Left@ for an actual mismatch instead of
+--      silently falling back to v0 — a v0 send to a broker
+--      that only knows v9+ closes the connection with
+--      @InvalidRequestException@.
+pickAdminApiVersion
+  :: AdminClient
+  -> Conn.BrokerAddress
+  -> Int16             -- ^ API key
+  -> Int16             -- ^ client min version
+  -> Int16             -- ^ client max version
+  -> Int16             -- ^ fallback when broker doesn't speak ApiVersions
+  -> IO (Either String Int16)
+pickAdminApiVersion AdminClient{..} addr apiKey clientMin clientMax fallback = do
+  r <- VN.pickApiVersion adminVersionCache addr apiKey clientMin clientMax fallback
+  pure $ case r of
+    Right v -> Right v
+    Left mm -> Left $ formatMismatch mm
+
+formatMismatch :: VN.VersionMismatch -> String
+formatMismatch (VN.VersionMismatch k cmin cmax bmin bmax) =
+  "Broker does not support a compatible version of API "
+    <> show k <> ": client supports [" <> show cmin <> ".."
+    <> show cmax <> "], broker supports [" <> show bmin
+    <> ".." <> show bmax <> "]"
+
+-- | Top-level wrapper used by every admin RPC call site:
+-- get a (negotiated) connection to @addr@, pick a version
+-- the broker accepts, allocate a correlation id, then run the
+-- caller-supplied action with all three. Collapses the
+-- 5-line connection / version / correlation-id boilerplate
+-- the call sites used to repeat.
+--
+-- Both connection and version-selection failures collapse into
+-- @Left@ before the caller's action runs; the action itself
+-- only sees a successful @(conn, corrId, apiVersion)@ triple
+-- and returns the usual @Either String result@.
+withNegotiatedVersion
+  :: AdminClient
+  -> Conn.BrokerAddress
+  -> Int16             -- ^ API key
+  -> Int16             -- ^ client min version
+  -> Int16             -- ^ client max version
+  -> Int16             -- ^ fallback when broker doesn't speak ApiVersions
+  -> (Connection -> Int32 -> Int16 -> IO (Either String a))
+  -> IO (Either String a)
+withNegotiatedVersion client addr apiKey clientMin clientMax fallback k = do
+  connR <- getNegotiatedConn client addr
+  case connR of
+    Left e     -> pure (Left ("Failed to connect to broker: " <> e))
+    Right conn -> do
+      verR <- pickAdminApiVersion client addr apiKey clientMin clientMax fallback
+      case verR of
+        Left e          -> pure (Left e)
+        Right apiVersion -> do
+          corrId <- getNextCorrelationId client
+          k conn corrId apiVersion
 
 -- * Topic Operations
 
@@ -277,55 +386,28 @@ createTopics client@AdminClient{..} topics = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          -- Get correlation ID
-          corrId <- getNextCorrelationId client
-          
-          -- Build CreateTopicsRequest
-          let apiKey = 19  -- CreateTopics API key
-              clientMaxVersion = 7  -- Max version we support
-          
-          -- Query broker's supported version
-          brokerVersionM <- atomically $ AV.queryApiVersion adminVersionCache brokerAddr apiKey
-          let apiVersion = case brokerVersionM of
-                Nothing -> 0  -- Fall back to v0 if unknown
-                Just range -> case AV.selectVersion clientMaxVersion range of
-                  Nothing -> 0  -- Fall back if incompatible
-                  Just v -> v
-          
-          -- Build topic creations
-          let creatableTopics = V.fromList $ map buildCreatableTopic topics
-              request = CTReq.CreateTopicsRequest
-                { CTReq.createTopicsRequestTopics = P.mkKafkaArray creatableTopics
-                , CTReq.createTopicsRequesttimeoutMs = fromIntegral (adminRequestTimeoutMs adminConfig)
-                , CTReq.createTopicsRequestvalidateOnly = False
-                }
-              
-              requestBody = runPutS $ CTReq.encodeCreateTopicsRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          
-          -- Send request and receive response
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          
-          case result of
-            Left err -> return $ Left $ "CreateTopics request failed: " ++ err
-            Right (_, responseBody) -> do
-              -- Parse response
-              case runGetS (CTResp.decodeCreateTopicsResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse CreateTopicsResponse: " ++ err
-                Right response -> do
-                  -- Extract results
-                  let topicResults = case P.unKafkaArray (CTResp.createTopicsResponseTopics response) of
-                        P.Null -> V.empty
-                        P.NotNull vec -> vec
-                      
-                      results = V.toList $ V.map processTopicResult topicResults
-                  
-                  return $ Right results
+          apiKey = 19  -- CreateTopics
+      withNegotiatedVersion client brokerAddr apiKey 0 7 0 $ \conn corrId apiVersion -> do
+        let creatableTopics = V.fromList $ map buildCreatableTopic topics
+            request = CTReq.CreateTopicsRequest
+              { CTReq.createTopicsRequestTopics = P.mkKafkaArray creatableTopics
+              , CTReq.createTopicsRequesttimeoutMs = fromIntegral (adminRequestTimeoutMs adminConfig)
+              , CTReq.createTopicsRequestvalidateOnly = False
+              }
+            requestBody = runPutS $ CTReq.encodeCreateTopicsRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "CreateTopics request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (CTResp.decodeCreateTopicsResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse CreateTopicsResponse: " ++ err
+              Right response -> do
+                let topicResults = case P.unKafkaArray (CTResp.createTopicsResponseTopics response) of
+                      P.Null -> V.empty
+                      P.NotNull vec -> vec
+                    results = V.toList $ V.map processTopicResult topicResults
+                return $ Right results
   where
     buildCreatableTopic :: NewTopic -> CTReq.CreatableTopic
     buildCreatableTopic NewTopic{..} =
@@ -364,60 +446,39 @@ deleteTopics client@AdminClient{..} topicNames = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          
-          let apiKey = 20  -- DeleteTopics API key
-              clientMaxVersion = 6
-          
-          brokerVersionM <- atomically $ AV.queryApiVersion adminVersionCache brokerAddr apiKey
-          let apiVersion = case brokerVersionM of
-                Nothing -> 0
-                Just range -> case AV.selectVersion clientMaxVersion range of
-                  Nothing -> 0
-                  Just v -> v
-          
-          -- Build topic names (for versions 0-5) and topic states (for version 6+)
-          let topicNamesVec = V.fromList $ map P.mkKafkaString topicNames
-              topicStatesVec = V.fromList $ map (\name -> DTReq.DeleteTopicState
-                { DTReq.deleteTopicStateName = P.mkKafkaString name
-                , DTReq.deleteTopicStateTopicId = P.nullUuid
-                }) topicNames
-              request = DTReq.DeleteTopicsRequest
-                { DTReq.deleteTopicsRequestTopics = P.mkKafkaArray topicStatesVec
-                , DTReq.deleteTopicsRequestTopicNames = P.mkKafkaArray topicNamesVec
-                , DTReq.deleteTopicsRequestTimeoutMs = fromIntegral (adminRequestTimeoutMs adminConfig)
-                }
-              
-              requestBody = runPutS $ DTReq.encodeDeleteTopicsRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          
-          case result of
-            Left err -> return $ Left $ "DeleteTopics request failed: " ++ err
-            Right (_, responseBody) -> do
-              case runGetS (DTResp.decodeDeleteTopicsResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse DeleteTopicsResponse: " ++ err
-                Right response -> do
-                  let topicResults = case P.unKafkaArray (DTResp.deleteTopicsResponseResponses response) of
-                        P.Null -> V.empty
-                        P.NotNull vec -> vec
-                      
-                      results = V.toList $ V.map (\r ->
-                        let name = extractText $ DTResp.deletableTopicResultName r
-                            code = DTResp.deletableTopicResultErrorCode r
-                            msg = extractText $ DTResp.deletableTopicResultErrorMessage r
-                        in if code == 0
-                             then (name, Right ())
-                             else (name, Left $ "Error " ++ show code ++ ": " ++ T.unpack msg)
-                        ) topicResults
-                  
-                  return $ Right results
+          apiKey = 20  -- DeleteTopics
+      withNegotiatedVersion client brokerAddr apiKey 0 6 0 $ \conn corrId apiVersion -> do
+        let topicNamesVec = V.fromList $ map P.mkKafkaString topicNames
+            topicStatesVec = V.fromList $ map (\name -> DTReq.DeleteTopicState
+              { DTReq.deleteTopicStateName = P.mkKafkaString name
+              , DTReq.deleteTopicStateTopicId = P.nullUuid
+              }) topicNames
+            request = DTReq.DeleteTopicsRequest
+              { DTReq.deleteTopicsRequestTopics = P.mkKafkaArray topicStatesVec
+              , DTReq.deleteTopicsRequestTopicNames = P.mkKafkaArray topicNamesVec
+              , DTReq.deleteTopicsRequestTimeoutMs = fromIntegral (adminRequestTimeoutMs adminConfig)
+              }
+            requestBody = runPutS $ DTReq.encodeDeleteTopicsRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "DeleteTopics request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (DTResp.decodeDeleteTopicsResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse DeleteTopicsResponse: " ++ err
+              Right response -> do
+                let topicResults = case P.unKafkaArray (DTResp.deleteTopicsResponseResponses response) of
+                      P.Null -> V.empty
+                      P.NotNull vec -> vec
+                    results = V.toList $ V.map (\r ->
+                      let name = extractText $ DTResp.deletableTopicResultName r
+                          code = DTResp.deletableTopicResultErrorCode r
+                          msg = extractText $ DTResp.deletableTopicResultErrorMessage r
+                      in if code == 0
+                           then (name, Right ())
+                           else (name, Left $ "Error " ++ show code ++ ": " ++ T.unpack msg)
+                      ) topicResults
+                return $ Right results
 
 -- | List all topics in the cluster
 listTopics
@@ -425,49 +486,36 @@ listTopics
   -> IO (Either String [Text])
 listTopics client@AdminClient{..} = do
   -- Use Metadata API to list topics
-  -- Get any broker connection
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
   case brokersM of
     Nothing -> return $ Left "No brokers available"
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          
-          let apiKey = 3  -- Metadata API key
-              apiVersion = 8   -- highest non-flexible Metadata version
-              
-              -- Request metadata for all topics (empty list = all topics)
-              request = MReq.MetadataRequest
-                { MReq.metadataRequestTopics = P.mkKafkaArray V.empty
-                , MReq.metadataRequestAllowAutoTopicCreation = False
-                , MReq.metadataRequestIncludeClusterAuthorizedOperations = False
-                , MReq.metadataRequestIncludeTopicAuthorizedOperations = False
-                }
-              
-              requestBody = runPutS $ MReq.encodeMetadataRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          
-          case result of
-            Left err -> return $ Left $ "Metadata request failed: " ++ err
-            Right (_, responseBody) -> do
-              case runGetS (MResp.decodeMetadataResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse MetadataResponse: " ++ err
-                Right response -> do
-                  let topics = case P.unKafkaArray (MResp.metadataResponseTopics response) of
-                        P.Null -> V.empty
-                        P.NotNull vec -> vec
-                      
-                      topicNames = V.toList $ V.map (extractText . MResp.metadataResponseTopicName) topics
-                  
-                  return $ Right topicNames
+          apiKey = 3  -- Metadata
+      -- client supports v0..v8 (last non-flexible Metadata); fall
+      -- back to v8 when the broker doesn't speak ApiVersions.
+      withNegotiatedVersion client brokerAddr apiKey 0 8 8 $ \conn corrId apiVersion -> do
+        let request = MReq.MetadataRequest
+              { MReq.metadataRequestTopics = P.mkKafkaArray V.empty
+              , MReq.metadataRequestAllowAutoTopicCreation = False
+              , MReq.metadataRequestIncludeClusterAuthorizedOperations = False
+              , MReq.metadataRequestIncludeTopicAuthorizedOperations = False
+              }
+            requestBody = runPutS $ MReq.encodeMetadataRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "Metadata request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (MResp.decodeMetadataResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse MetadataResponse: " ++ err
+              Right response -> do
+                let topics = case P.unKafkaArray (MResp.metadataResponseTopics response) of
+                      P.Null -> V.empty
+                      P.NotNull vec -> vec
+                    topicNames = V.toList $ V.map (extractText . MResp.metadataResponseTopicName) topics
+                return $ Right topicNames
 
 -- | Describe one or more topics
 describeTopics
@@ -482,46 +530,32 @@ describeTopics client@AdminClient{..} topicNames = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          
-          let apiKey = 3  -- Metadata API key
-              apiVersion = 8
-              
-              topicReqs = V.fromList $ map (\name -> MReq.MetadataRequestTopic
-                { MReq.metadataRequestTopicTopicId = P.nullUuid
-                , MReq.metadataRequestTopicName = P.mkKafkaString name
-                }) topicNames
-              
-              request = MReq.MetadataRequest
-                { MReq.metadataRequestTopics = P.mkKafkaArray topicReqs
-                , MReq.metadataRequestAllowAutoTopicCreation = False
-                , MReq.metadataRequestIncludeClusterAuthorizedOperations = False
-                , MReq.metadataRequestIncludeTopicAuthorizedOperations = False
-                }
-              
-              requestBody = runPutS $ MReq.encodeMetadataRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          
-          case result of
-            Left err -> return $ Left $ "Metadata request failed: " ++ err
-            Right (_, responseBody) -> do
-              case runGetS (MResp.decodeMetadataResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse MetadataResponse: " ++ err
-                Right response -> do
-                  let topics = case P.unKafkaArray (MResp.metadataResponseTopics response) of
-                        P.Null -> V.empty
-                        P.NotNull vec -> vec
-                      
-                      descriptions = V.toList $ V.mapMaybe buildTopicDescription topics
-                  
-                  return $ Right descriptions
+          apiKey = 3  -- Metadata
+      withNegotiatedVersion client brokerAddr apiKey 0 8 8 $ \conn corrId apiVersion -> do
+        let topicReqs = V.fromList $ map (\name -> MReq.MetadataRequestTopic
+              { MReq.metadataRequestTopicTopicId = P.nullUuid
+              , MReq.metadataRequestTopicName = P.mkKafkaString name
+              }) topicNames
+            request = MReq.MetadataRequest
+              { MReq.metadataRequestTopics = P.mkKafkaArray topicReqs
+              , MReq.metadataRequestAllowAutoTopicCreation = False
+              , MReq.metadataRequestIncludeClusterAuthorizedOperations = False
+              , MReq.metadataRequestIncludeTopicAuthorizedOperations = False
+              }
+            requestBody = runPutS $ MReq.encodeMetadataRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "Metadata request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (MResp.decodeMetadataResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse MetadataResponse: " ++ err
+              Right response -> do
+                let topics = case P.unKafkaArray (MResp.metadataResponseTopics response) of
+                      P.Null -> V.empty
+                      P.NotNull vec -> vec
+                    descriptions = V.toList $ V.mapMaybe buildTopicDescription topics
+                return $ Right descriptions
   where
     buildTopicDescription :: MResp.MetadataResponseTopic -> Maybe TopicDescription
     buildTopicDescription topic =
@@ -593,43 +627,30 @@ listConsumerGroups client@AdminClient{..} = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          
-          let apiKey = 16  -- ListGroups API key
-              apiVersion = 4
-              
-              request = LGReq.ListGroupsRequest
-                { LGReq.listGroupsRequestStatesFilter = P.mkKafkaArray V.empty
-                , LGReq.listGroupsRequestTypesFilter = P.mkKafkaArray V.empty
-                }
-              
-              requestBody = runPutS $ LGReq.encodeListGroupsRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          
-          case result of
-            Left err -> return $ Left $ "ListGroups request failed: " ++ err
-            Right (_, responseBody) -> do
-              case runGetS (LGResp.decodeListGroupsResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse ListGroupsResponse: " ++ err
-                Right response -> do
-                  let groups = case P.unKafkaArray (LGResp.listGroupsResponseGroups response) of
-                        P.Null -> V.empty
-                        P.NotNull vec -> vec
-                      
-                      listings = V.toList $ V.map (\g ->
-                        ConsumerGroupListing
-                          { cglGroupId = extractText $ LGResp.listedGroupGroupId g
-                          , cglIsSimpleGroup = LGResp.listedGroupGroupType g == P.mkKafkaString "consumer"
-                          }) groups
-                  
-                  return $ Right listings
+          apiKey = 16  -- ListGroups
+      withNegotiatedVersion client brokerAddr apiKey 0 4 0 $ \conn corrId apiVersion -> do
+        let request = LGReq.ListGroupsRequest
+              { LGReq.listGroupsRequestStatesFilter = P.mkKafkaArray V.empty
+              , LGReq.listGroupsRequestTypesFilter = P.mkKafkaArray V.empty
+              }
+            requestBody = runPutS $ LGReq.encodeListGroupsRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "ListGroups request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (LGResp.decodeListGroupsResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse ListGroupsResponse: " ++ err
+              Right response -> do
+                let groups = case P.unKafkaArray (LGResp.listGroupsResponseGroups response) of
+                      P.Null -> V.empty
+                      P.NotNull vec -> vec
+                    listings = V.toList $ V.map (\g ->
+                      ConsumerGroupListing
+                        { cglGroupId = extractText $ LGResp.listedGroupGroupId g
+                        , cglIsSimpleGroup = LGResp.listedGroupGroupType g == P.mkKafkaString "consumer"
+                        }) groups
+                return $ Right listings
 
 -- | Describe one or more consumer groups
 describeConsumerGroups
@@ -644,40 +665,27 @@ describeConsumerGroups client@AdminClient{..} groupIds = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          
-          let apiKey = 15  -- DescribeGroups API key
-              apiVersion = 5
-              
-              groupVec = V.fromList $ map P.mkKafkaString groupIds
-              request = DGReq.DescribeGroupsRequest
-                { DGReq.describeGroupsRequestGroups = P.mkKafkaArray groupVec
-                , DGReq.describeGroupsRequestIncludeAuthorizedOperations = False
-                }
-              
-              requestBody = runPutS $ DGReq.encodeDescribeGroupsRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          
-          case result of
-            Left err -> return $ Left $ "DescribeGroups request failed: " ++ err
-            Right (_, responseBody) -> do
-              case runGetS (DGResp.decodeDescribeGroupsResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse DescribeGroupsResponse: " ++ err
-                Right response -> do
-                  let groups = case P.unKafkaArray (DGResp.describeGroupsResponseGroups response) of
-                        P.Null -> V.empty
-                        P.NotNull vec -> vec
-                      
-                      descriptions = V.toList $ V.map buildGroupDescription groups
-                  
-                  return $ Right descriptions
+          apiKey = 15  -- DescribeGroups
+      withNegotiatedVersion client brokerAddr apiKey 0 5 0 $ \conn corrId apiVersion -> do
+        let groupVec = V.fromList $ map P.mkKafkaString groupIds
+            request = DGReq.DescribeGroupsRequest
+              { DGReq.describeGroupsRequestGroups = P.mkKafkaArray groupVec
+              , DGReq.describeGroupsRequestIncludeAuthorizedOperations = False
+              }
+            requestBody = runPutS $ DGReq.encodeDescribeGroupsRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "DescribeGroups request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (DGResp.decodeDescribeGroupsResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse DescribeGroupsResponse: " ++ err
+              Right response -> do
+                let groups = case P.unKafkaArray (DGResp.describeGroupsResponseGroups response) of
+                      P.Null -> V.empty
+                      P.NotNull vec -> vec
+                    descriptions = V.toList $ V.map buildGroupDescription groups
+                return $ Right descriptions
   where
     buildGroupDescription :: DGResp.DescribedGroup -> ConsumerGroupDescription
     buildGroupDescription group =
@@ -711,45 +719,32 @@ deleteConsumerGroups client@AdminClient{..} groupIds = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          
-          let apiKey = 42  -- DeleteGroups API key
-              apiVersion = 2
-              
-              groupVec = V.fromList $ map P.mkKafkaString groupIds
-              request = DelGReq.DeleteGroupsRequest
-                { DelGReq.deleteGroupsRequestGroupsNames = P.mkKafkaArray groupVec
-                }
-              
-              requestBody = runPutS $ DelGReq.encodeDeleteGroupsRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          
-          case result of
-            Left err -> return $ Left $ "DeleteGroups request failed: " ++ err
-            Right (_, responseBody) -> do
-              case runGetS (DelGResp.decodeDeleteGroupsResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse DeleteGroupsResponse: " ++ err
-                Right response -> do
-                  let groupResults = case P.unKafkaArray (DelGResp.deleteGroupsResponseResults response) of
-                        P.Null -> V.empty
-                        P.NotNull vec -> vec
-                      
-                      results = V.toList $ V.map (\r ->
-                        let gid = extractText $ DelGResp.deletableGroupResultGroupId r
-                            code = DelGResp.deletableGroupResultErrorCode r
-                        in if code == 0
-                             then (gid, Right ())
-                             else (gid, Left $ "Error code: " ++ show code)
-                        ) groupResults
-                  
-                  return $ Right results
+          apiKey = 42  -- DeleteGroups
+      withNegotiatedVersion client brokerAddr apiKey 0 2 0 $ \conn corrId apiVersion -> do
+        let groupVec = V.fromList $ map P.mkKafkaString groupIds
+            request = DelGReq.DeleteGroupsRequest
+              { DelGReq.deleteGroupsRequestGroupsNames = P.mkKafkaArray groupVec
+              }
+            requestBody = runPutS $ DelGReq.encodeDeleteGroupsRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "DeleteGroups request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (DelGResp.decodeDeleteGroupsResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse DeleteGroupsResponse: " ++ err
+              Right response -> do
+                let groupResults = case P.unKafkaArray (DelGResp.deleteGroupsResponseResults response) of
+                      P.Null -> V.empty
+                      P.NotNull vec -> vec
+                    results = V.toList $ V.map (\r ->
+                      let gid = extractText $ DelGResp.deletableGroupResultGroupId r
+                          code = DelGResp.deletableGroupResultErrorCode r
+                      in if code == 0
+                           then (gid, Right ())
+                           else (gid, Left $ "Error code: " ++ show code)
+                      ) groupResults
+                return $ Right results
 
 -- * Configuration Operations
 
@@ -810,49 +805,35 @@ describeConfigs client@AdminClient{..} resources = do
     Just []       -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection
-                      adminConnManager brokerAddr Conn.defaultConnectionConfig
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          let apiKey = 32  -- DescribeConfigs API key
-              clientMaxVersion = 4
-              -- The encoder doesn't support v0; it only handles
-              -- 1, 2, 3, 4. If we don't know the broker's range
-              -- yet, default to v1 (DescribeConfigs has been v1+
-              -- since Kafka 0.11.0).
-              minSupported = 1
-          brokerVersionM <- atomically $
-            AV.queryApiVersion adminVersionCache brokerAddr apiKey
-          let apiVersion = case brokerVersionM of
-                Nothing    -> minSupported
-                Just range -> case AV.selectVersion clientMaxVersion range of
-                  Nothing -> minSupported
-                  Just v  -> max minSupported v
-
-          let resourcesV = V.fromList (map buildResource resources)
-              request = DCReq.DescribeConfigsRequest
-                { DCReq.describeConfigsRequestResources = P.mkKafkaArray resourcesV
-                , DCReq.describeConfigsRequestIncludeSynonyms = False
-                , DCReq.describeConfigsRequestIncludeDocumentation = False
-                }
-              requestBody  = runPutS $ DCReq.encodeDescribeConfigsRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-
-          result <- Req.sendRequestReceiveResponse
-                      conn apiKey apiVersion corrId clientIdKafka requestBody
-          case result of
-            Left err -> return $ Left $ "DescribeConfigs request failed: " ++ err
-            Right (_, responseBody) ->
-              case runGetS (DCResp.decodeDescribeConfigsResponse apiVersion) responseBody of
-                Left err -> return $ Left $
-                  "Failed to parse DescribeConfigsResponse: " ++ err
-                Right response -> do
-                  let results = case P.unKafkaArray (DCResp.describeConfigsResponseResults response) of
-                        P.Null      -> V.empty
-                        P.NotNull v -> v
-                  return $ Right $ V.toList $ V.map processResourceResult results
+          apiKey = 32  -- DescribeConfigs
+      -- DescribeConfigs has been v1+ since Kafka 0.11; the encoder
+      -- doesn't handle v0. We cap the client max at v1 for now —
+      -- our codegen handles v2+ in principle (DescribeConfigs goes
+      -- flexible at v4), but the v4 response shape isn't covered
+      -- by our decoder tests yet. Bumping the cap is safe once
+      -- we've added round-trip coverage for the v4 wire format.
+      withNegotiatedVersion client brokerAddr apiKey 1 1 1 $ \conn corrId apiVersion -> do
+        let resourcesV = V.fromList (map buildResource resources)
+            request = DCReq.DescribeConfigsRequest
+              { DCReq.describeConfigsRequestResources = P.mkKafkaArray resourcesV
+              , DCReq.describeConfigsRequestIncludeSynonyms = False
+              , DCReq.describeConfigsRequestIncludeDocumentation = False
+              }
+            requestBody  = runPutS $ DCReq.encodeDescribeConfigsRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse
+                    conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "DescribeConfigs request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (DCResp.decodeDescribeConfigsResponse apiVersion) responseBody of
+              Left err -> return $ Left $
+                "Failed to parse DescribeConfigsResponse: " ++ err
+              Right response -> do
+                let results = case P.unKafkaArray (DCResp.describeConfigsResponseResults response) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                return $ Right $ V.toList $ V.map processResourceResult results
   where
     encodeResourceType :: ConfigResourceType -> Int8
     encodeResourceType = \case
@@ -962,35 +943,30 @@ listTopicsExcludeInternal client@AdminClient{..} = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          let apiKey = 3
-              apiVersion = 8
-              request = MReq.MetadataRequest
-                { MReq.metadataRequestTopics = P.mkKafkaArray V.empty
-                , MReq.metadataRequestAllowAutoTopicCreation = False
-                , MReq.metadataRequestIncludeClusterAuthorizedOperations = False
-                , MReq.metadataRequestIncludeTopicAuthorizedOperations = False
-                }
-              requestBody  = runPutS $ MReq.encodeMetadataRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          case result of
-            Left err -> return $ Left $ "Metadata request failed: " ++ err
-            Right (_, responseBody) ->
-              case runGetS (MResp.decodeMetadataResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse MetadataResponse: " ++ err
-                Right response -> do
-                  let topicsVec = case P.unKafkaArray (MResp.metadataResponseTopics response) of
-                        P.Null      -> V.empty
-                        P.NotNull v -> v
-                      keep t = not (MResp.metadataResponseTopicIsInternal t)
-                  pure $ Right $ V.toList $
-                    V.map (extractText . MResp.metadataResponseTopicName) $
-                    V.filter keep topicsVec
+          apiKey = 3  -- Metadata
+      withNegotiatedVersion client brokerAddr apiKey 0 8 8 $ \conn corrId apiVersion -> do
+        let request = MReq.MetadataRequest
+              { MReq.metadataRequestTopics = P.mkKafkaArray V.empty
+              , MReq.metadataRequestAllowAutoTopicCreation = False
+              , MReq.metadataRequestIncludeClusterAuthorizedOperations = False
+              , MReq.metadataRequestIncludeTopicAuthorizedOperations = False
+              }
+            requestBody  = runPutS $ MReq.encodeMetadataRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "Metadata request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (MResp.decodeMetadataResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse MetadataResponse: " ++ err
+              Right response -> do
+                let topicsVec = case P.unKafkaArray (MResp.metadataResponseTopics response) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                    keep t = not (MResp.metadataResponseTopicIsInternal t)
+                pure $ Right $ V.toList $
+                  V.map (extractText . MResp.metadataResponseTopicName) $
+                  V.filter keep topicsVec
 
 -- * KIP-133 alterConfigs
 
@@ -1013,38 +989,27 @@ alterConfigs client@AdminClient{..} resources = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          let apiKey = 33  -- AlterConfigs
-              clientMaxVersion = 2
-          brokerVersionM <- atomically $ AV.queryApiVersion adminVersionCache brokerAddr apiKey
-          let apiVersion = case brokerVersionM of
-                Nothing    -> 0
-                Just range -> case AV.selectVersion clientMaxVersion range of
-                  Nothing -> 0
-                  Just v  -> v
-          let resourcesV = V.fromList (map buildResource resources)
-              request = ACReq.AlterConfigsRequest
-                { ACReq.alterConfigsRequestResources = P.mkKafkaArray resourcesV
-                , ACReq.alterConfigsRequestValidateOnly = False
-                }
-              requestBody = runPutS $ ACReq.encodeAlterConfigsRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          case result of
-            Left err -> return $ Left $ "AlterConfigs request failed: " ++ err
-            Right (_, responseBody) ->
-              case runGetS (ACResp.decodeAlterConfigsResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse AlterConfigsResponse: " ++ err
-                Right response -> do
-                  let respVec = case P.unKafkaArray (ACResp.alterConfigsResponseResponses response) of
-                        P.Null -> V.empty
-                        P.NotNull v -> v
-                      out = V.toList $ V.map unpackACResp respVec
-                  return $ Right out
+          apiKey = 33  -- AlterConfigs
+      withNegotiatedVersion client brokerAddr apiKey 0 2 0 $ \conn corrId apiVersion -> do
+        let resourcesV = V.fromList (map buildResource resources)
+            request = ACReq.AlterConfigsRequest
+              { ACReq.alterConfigsRequestResources = P.mkKafkaArray resourcesV
+              , ACReq.alterConfigsRequestValidateOnly = False
+              }
+            requestBody = runPutS $ ACReq.encodeAlterConfigsRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "AlterConfigs request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (ACResp.decodeAlterConfigsResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse AlterConfigsResponse: " ++ err
+              Right response -> do
+                let respVec = case P.unKafkaArray (ACResp.alterConfigsResponseResponses response) of
+                      P.Null -> V.empty
+                      P.NotNull v -> v
+                    out = V.toList $ V.map unpackACResp respVec
+                return $ Right out
   where
     buildResource :: (ConfigResource, [(Text, Text)]) -> ACReq.AlterConfigsResource
     buildResource (cr, kvs) =
@@ -1104,38 +1069,27 @@ incrementalAlterConfigs client@AdminClient{..} resources = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          let apiKey = 44  -- IncrementalAlterConfigs
-              clientMaxVersion = 1
-          brokerVersionM <- atomically $ AV.queryApiVersion adminVersionCache brokerAddr apiKey
-          let apiVersion = case brokerVersionM of
-                Nothing    -> 0
-                Just range -> case AV.selectVersion clientMaxVersion range of
-                  Nothing -> 0
-                  Just v  -> v
-          let resourcesV = V.fromList (map buildResource resources)
-              request = IACReq.IncrementalAlterConfigsRequest
-                { IACReq.incrementalAlterConfigsRequestResources = P.mkKafkaArray resourcesV
-                , IACReq.incrementalAlterConfigsRequestValidateOnly = False
-                }
-              requestBody = runPutS $ IACReq.encodeIncrementalAlterConfigsRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          case result of
-            Left err -> return $ Left $ "IncrementalAlterConfigs request failed: " ++ err
-            Right (_, responseBody) ->
-              case runGetS (IACResp.decodeIncrementalAlterConfigsResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse IncrementalAlterConfigsResponse: " ++ err
-                Right response -> do
-                  let respVec = case P.unKafkaArray (IACResp.incrementalAlterConfigsResponseResponses response) of
-                        P.Null -> V.empty
-                        P.NotNull v -> v
-                      out = V.toList $ V.map unpackResp respVec
-                  return $ Right out
+          apiKey = 44  -- IncrementalAlterConfigs
+      withNegotiatedVersion client brokerAddr apiKey 0 1 0 $ \conn corrId apiVersion -> do
+        let resourcesV = V.fromList (map buildResource resources)
+            request = IACReq.IncrementalAlterConfigsRequest
+              { IACReq.incrementalAlterConfigsRequestResources = P.mkKafkaArray resourcesV
+              , IACReq.incrementalAlterConfigsRequestValidateOnly = False
+              }
+            requestBody = runPutS $ IACReq.encodeIncrementalAlterConfigsRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "IncrementalAlterConfigs request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (IACResp.decodeIncrementalAlterConfigsResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse IncrementalAlterConfigsResponse: " ++ err
+              Right response -> do
+                let respVec = case P.unKafkaArray (IACResp.incrementalAlterConfigsResponseResponses response) of
+                      P.Null -> V.empty
+                      P.NotNull v -> v
+                    out = V.toList $ V.map unpackResp respVec
+                return $ Right out
   where
     encodeOp :: AlterConfigOp -> Int8
     encodeOp = \case
@@ -1211,47 +1165,42 @@ deleteRecords client@AdminClient{..} entries = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          let apiKey = 21  -- DeleteRecords
-              apiVersion = 1
-              -- Group partitions under their topic so we send one
-              -- DeleteRecordsTopic per topic.
-              byTopic = Map.fromListWith (++)
-                [ (topic, [(part, off)]) | (topic, part, off) <- entries ]
-              topicsV = V.fromList $
-                map (\(topic, parts) ->
-                       DRReq.DeleteRecordsTopic
-                         { DRReq.deleteRecordsTopicName = P.mkKafkaString topic
-                         , DRReq.deleteRecordsTopicPartitions = P.mkKafkaArray $ V.fromList $
-                             map (\(p, o) ->
-                                    DRReq.DeleteRecordsPartition
-                                      { DRReq.deleteRecordsPartitionPartitionIndex = p
-                                      , DRReq.deleteRecordsPartitionOffset         = o
-                                      }) parts
-                         })
-                    (Map.toList byTopic)
-              request = DRReq.DeleteRecordsRequest
-                { DRReq.deleteRecordsRequestTopics    = P.mkKafkaArray topicsV
-                , DRReq.deleteRecordsRequestTimeoutMs = fromIntegral (adminRequestTimeoutMs adminConfig)
-                }
-              requestBody  = runPutS $ DRReq.encodeDeleteRecordsRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          case result of
-            Left err -> return $ Left $ "DeleteRecords request failed: " ++ err
-            Right (_, responseBody) ->
-              case runGetS (DRResp.decodeDeleteRecordsResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse DeleteRecordsResponse: " ++ err
-                Right response -> do
-                  let topicsVec = case P.unKafkaArray (DRResp.deleteRecordsResponseTopics response) of
-                        P.Null      -> V.empty
-                        P.NotNull v -> v
-                      out = concatMap unpackTopic (V.toList topicsVec)
-                  return $ Right out
+          apiKey = 21  -- DeleteRecords
+      withNegotiatedVersion client brokerAddr apiKey 0 1 1 $ \conn corrId apiVersion -> do
+        -- Group partitions under their topic so we send one
+        -- DeleteRecordsTopic per topic.
+        let byTopic = Map.fromListWith (++)
+              [ (topic, [(part, off)]) | (topic, part, off) <- entries ]
+            topicsV = V.fromList $
+              map (\(topic, parts) ->
+                     DRReq.DeleteRecordsTopic
+                       { DRReq.deleteRecordsTopicName = P.mkKafkaString topic
+                       , DRReq.deleteRecordsTopicPartitions = P.mkKafkaArray $ V.fromList $
+                           map (\(p, o) ->
+                                  DRReq.DeleteRecordsPartition
+                                    { DRReq.deleteRecordsPartitionPartitionIndex = p
+                                    , DRReq.deleteRecordsPartitionOffset         = o
+                                    }) parts
+                       })
+                  (Map.toList byTopic)
+            request = DRReq.DeleteRecordsRequest
+              { DRReq.deleteRecordsRequestTopics    = P.mkKafkaArray topicsV
+              , DRReq.deleteRecordsRequestTimeoutMs = fromIntegral (adminRequestTimeoutMs adminConfig)
+              }
+            requestBody  = runPutS $ DRReq.encodeDeleteRecordsRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "DeleteRecords request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (DRResp.decodeDeleteRecordsResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse DeleteRecordsResponse: " ++ err
+              Right response -> do
+                let topicsVec = case P.unKafkaArray (DRResp.deleteRecordsResponseTopics response) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                    out = concatMap unpackTopic (V.toList topicsVec)
+                return $ Right out
   where
     unpackTopic :: DRResp.DeleteRecordsTopicResult -> [DeleteRecordsResultEntry]
     unpackTopic t =
@@ -1294,43 +1243,38 @@ electLeaders client@AdminClient{..} etype tps = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          let apiKey = 43  -- ElectLeaders
-              apiVersion = 2
-              byTopic = Map.fromListWith (++)
-                [ (topic, [part]) | (topic, part) <- tps ]
-              topicsV = V.fromList $
-                map (\(topic, parts) ->
-                       ELReq.TopicPartitions
-                         { ELReq.topicPartitionsTopic      = P.mkKafkaString topic
-                         , ELReq.topicPartitionsPartitions = P.mkKafkaArray (V.fromList parts)
-                         })
-                    (Map.toList byTopic)
-              request = ELReq.ElectLeadersRequest
-                { ELReq.electLeadersRequestElectionType    = case etype of
-                    PreferredElection -> 0
-                    UncleanElection   -> 1
-                , ELReq.electLeadersRequestTopicPartitions = P.mkKafkaArray topicsV
-                , ELReq.electLeadersRequestTimeoutMs       = fromIntegral (adminRequestTimeoutMs adminConfig)
-                }
-              requestBody  = runPutS $ ELReq.encodeElectLeadersRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          case result of
-            Left err -> return $ Left $ "ElectLeaders request failed: " ++ err
-            Right (_, responseBody) ->
-              case runGetS (ELResp.decodeElectLeadersResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse ElectLeadersResponse: " ++ err
-                Right response -> do
-                  let resV = case P.unKafkaArray (ELResp.electLeadersResponseReplicaElectionResults response) of
-                        P.Null      -> V.empty
-                        P.NotNull v -> v
-                      out = concatMap unpackTopic (V.toList resV)
-                  return $ Right out
+          apiKey = 43  -- ElectLeaders
+      withNegotiatedVersion client brokerAddr apiKey 0 2 2 $ \conn corrId apiVersion -> do
+        let byTopic = Map.fromListWith (++)
+              [ (topic, [part]) | (topic, part) <- tps ]
+            topicsV = V.fromList $
+              map (\(topic, parts) ->
+                     ELReq.TopicPartitions
+                       { ELReq.topicPartitionsTopic      = P.mkKafkaString topic
+                       , ELReq.topicPartitionsPartitions = P.mkKafkaArray (V.fromList parts)
+                       })
+                  (Map.toList byTopic)
+            request = ELReq.ElectLeadersRequest
+              { ELReq.electLeadersRequestElectionType    = case etype of
+                  PreferredElection -> 0
+                  UncleanElection   -> 1
+              , ELReq.electLeadersRequestTopicPartitions = P.mkKafkaArray topicsV
+              , ELReq.electLeadersRequestTimeoutMs       = fromIntegral (adminRequestTimeoutMs adminConfig)
+              }
+            requestBody  = runPutS $ ELReq.encodeElectLeadersRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "ElectLeaders request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (ELResp.decodeElectLeadersResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse ElectLeadersResponse: " ++ err
+              Right response -> do
+                let resV = case P.unKafkaArray (ELResp.electLeadersResponseReplicaElectionResults response) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                    out = concatMap unpackTopic (V.toList resV)
+                return $ Right out
   where
     unpackTopic :: ELResp.ReplicaElectionResult -> [(Text, Int32, Int16)]
     unpackTopic t =
@@ -1362,52 +1306,50 @@ listConsumerGroupOffsets client@AdminClient{..} groupId = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          let apiKey = 9  -- OffsetFetch
-              apiVersion = 5
-              -- KIP-211 / KIP-465: a /null/ topics array (not an
-              -- empty one) is the broker's "fetch every committed
-              -- offset for this group" sentinel. 'mkKafkaArray
-              -- V.empty' produces an empty-but-non-null array,
-              -- which the broker interprets as "no topics, no
-              -- offsets". Build the Null variant explicitly.
-              request = OFReq.OffsetFetchRequest
-                { OFReq.offsetFetchRequestGroupId = P.mkKafkaString groupId
-                , OFReq.offsetFetchRequestTopics  = P.KafkaArray P.Null
-                , OFReq.offsetFetchRequestGroups  = P.mkKafkaArray V.empty
-                , OFReq.offsetFetchRequestRequireStable = False
-                }
-              requestBody  = runPutS $ OFReq.encodeOffsetFetchRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          case result of
-            Left err -> return $ Left $ "OffsetFetch request failed: " ++ err
-            Right (_, responseBody) ->
-              case runGetS (OFResp.decodeOffsetFetchResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse OffsetFetchResponse: " ++ err
-                Right response -> do
-                  let topicsVec = case P.unKafkaArray (OFResp.offsetFetchResponseTopics response) of
-                        P.Null      -> V.empty
-                        P.NotNull v -> v
-                      go !acc tr =
-                        let topic = extractText (OFResp.offsetFetchResponseTopicName tr)
-                            partsVec = case P.unKafkaArray (OFResp.offsetFetchResponseTopicPartitions tr) of
-                              P.Null -> V.empty
-                              P.NotNull v -> v
-                        in V.foldl'
-                             (\m p ->
-                                let pid = OFResp.offsetFetchResponsePartitionPartitionIndex p
-                                    ec  = OFResp.offsetFetchResponsePartitionErrorCode p
-                                    off = OFResp.offsetFetchResponsePartitionCommittedOffset p
-                                in if ec == 0 && off >= 0
-                                     then HashMap.insert (topic, pid) off m
-                                     else m)
-                             acc partsVec
-                  return $ Right $! V.foldl' go HashMap.empty topicsVec
+          apiKey = 9  -- OffsetFetch
+      -- Cap at v5 for now: v6+ adds the OffsetFetchRequestGroup
+      -- "groups" array which we don't populate from this code
+      -- path. v5 is widely supported (Kafka 2.4+).
+      withNegotiatedVersion client brokerAddr apiKey 0 5 5 $ \conn corrId apiVersion -> do
+        -- KIP-211 / KIP-465: a /null/ topics array (not an empty
+        -- one) is the broker's "fetch every committed offset for
+        -- this group" sentinel. 'mkKafkaArray V.empty' produces an
+        -- empty-but-non-null array, which the broker interprets
+        -- as "no topics, no offsets". Build the Null variant
+        -- explicitly.
+        let request = OFReq.OffsetFetchRequest
+              { OFReq.offsetFetchRequestGroupId = P.mkKafkaString groupId
+              , OFReq.offsetFetchRequestTopics  = P.KafkaArray P.Null
+              , OFReq.offsetFetchRequestGroups  = P.mkKafkaArray V.empty
+              , OFReq.offsetFetchRequestRequireStable = False
+              }
+            requestBody  = runPutS $ OFReq.encodeOffsetFetchRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "OffsetFetch request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (OFResp.decodeOffsetFetchResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse OffsetFetchResponse: " ++ err
+              Right response -> do
+                let topicsVec = case P.unKafkaArray (OFResp.offsetFetchResponseTopics response) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                    go !acc tr =
+                      let topic = extractText (OFResp.offsetFetchResponseTopicName tr)
+                          partsVec = case P.unKafkaArray (OFResp.offsetFetchResponseTopicPartitions tr) of
+                            P.Null -> V.empty
+                            P.NotNull v -> v
+                      in V.foldl'
+                           (\m p ->
+                              let pid = OFResp.offsetFetchResponsePartitionPartitionIndex p
+                                  ec  = OFResp.offsetFetchResponsePartitionErrorCode p
+                                  off = OFResp.offsetFetchResponsePartitionCommittedOffset p
+                              in if ec == 0 && off >= 0
+                                   then HashMap.insert (topic, pid) off m
+                                   else m)
+                           acc partsVec
+                return $ Right $! V.foldl' go HashMap.empty topicsVec
 
 -- | KIP-503: write committed offsets for a group from /outside/
 -- the consumer (e.g. a tool resetting a group). The group must
@@ -1429,58 +1371,55 @@ alterConsumerGroupOffsets client@AdminClient{..} groupId entries = do
     Just [] -> return $ Left "No brokers available"
     Just (broker:_) -> do
       let brokerAddr = Meta.brokerMetaAddress broker
-      connResult <- Conn.getOrCreateConnection adminConnManager brokerAddr Conn.defaultConnectionConfig
-      case connResult of
-        Left err -> return $ Left $ "Failed to connect to broker: " ++ err
-        Right conn -> do
-          corrId <- getNextCorrelationId client
-          let apiKey = 8  -- OffsetCommit
-              apiVersion = 5
-              byTopic = Map.fromListWith (++)
-                [ (topic, [(part, off)]) | (topic, part, off) <- entries ]
-              topicsV = V.fromList $
-                map (\(topic, parts) ->
-                       OCReq.OffsetCommitRequestTopic
-                         { OCReq.offsetCommitRequestTopicName       = P.mkKafkaString topic
-                         , OCReq.offsetCommitRequestTopicTopicId    = P.nullUuid
-                         , OCReq.offsetCommitRequestTopicPartitions = P.mkKafkaArray $ V.fromList $
-                             map (\(p, o) -> OCReq.OffsetCommitRequestPartition
-                                    { OCReq.offsetCommitRequestPartitionPartitionIndex = p
-                                    , OCReq.offsetCommitRequestPartitionCommittedOffset = o
-                                    , OCReq.offsetCommitRequestPartitionCommittedLeaderEpoch = -1
-                                    , OCReq.offsetCommitRequestPartitionCommittedMetadata = P.KafkaString P.Null
-                                    }) parts
-                         })
-                    (Map.toList byTopic)
-              -- KIP-503 / external offset commit: a memberId of
-              -- the empty string is the broker's "no live group
-              -- member" sentinel. The field is marked
-              -- non-nullable in the spec, so we MUST send an
-              -- empty string rather than a null. groupInstanceId
-              -- stays null (we're not impersonating a static
-              -- member) and the generation id is -1.
-              request = OCReq.OffsetCommitRequest
-                { OCReq.offsetCommitRequestGroupId = P.mkKafkaString groupId
-                , OCReq.offsetCommitRequestGenerationIdOrMemberEpoch = -1
-                , OCReq.offsetCommitRequestMemberId = P.mkKafkaString ""
-                , OCReq.offsetCommitRequestGroupInstanceId = P.KafkaString P.Null
-                , OCReq.offsetCommitRequestRetentionTimeMs = -1
-                , OCReq.offsetCommitRequestTopics = P.mkKafkaArray topicsV
-                }
-              requestBody  = runPutS $ OCReq.encodeOffsetCommitRequest apiVersion request
-              clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-          case result of
-            Left err -> return $ Left $ "OffsetCommit request failed: " ++ err
-            Right (_, responseBody) ->
-              case runGetS (OCResp.decodeOffsetCommitResponse apiVersion) responseBody of
-                Left err -> return $ Left $ "Failed to parse OffsetCommitResponse: " ++ err
-                Right response -> do
-                  let topicsVec = case P.unKafkaArray (OCResp.offsetCommitResponseTopics response) of
-                        P.Null      -> V.empty
-                        P.NotNull v -> v
-                      out = concatMap unpackTopic (V.toList topicsVec)
-                  return $ Right out
+          apiKey = 8  -- OffsetCommit
+      -- Cap at v5: v6+ adds member-epoch semantics not supported
+      -- by the external-commit path.
+      withNegotiatedVersion client brokerAddr apiKey 0 5 5 $ \conn corrId apiVersion -> do
+        let byTopic = Map.fromListWith (++)
+              [ (topic, [(part, off)]) | (topic, part, off) <- entries ]
+            topicsV = V.fromList $
+              map (\(topic, parts) ->
+                     OCReq.OffsetCommitRequestTopic
+                       { OCReq.offsetCommitRequestTopicName       = P.mkKafkaString topic
+                       , OCReq.offsetCommitRequestTopicTopicId    = P.nullUuid
+                       , OCReq.offsetCommitRequestTopicPartitions = P.mkKafkaArray $ V.fromList $
+                           map (\(p, o) -> OCReq.OffsetCommitRequestPartition
+                                  { OCReq.offsetCommitRequestPartitionPartitionIndex = p
+                                  , OCReq.offsetCommitRequestPartitionCommittedOffset = o
+                                  , OCReq.offsetCommitRequestPartitionCommittedLeaderEpoch = -1
+                                  , OCReq.offsetCommitRequestPartitionCommittedMetadata = P.KafkaString P.Null
+                                  }) parts
+                       })
+                  (Map.toList byTopic)
+            -- KIP-503 / external offset commit: a memberId of
+            -- the empty string is the broker's "no live group
+            -- member" sentinel. The field is marked non-nullable
+            -- in the spec, so we MUST send an empty string
+            -- rather than a null. groupInstanceId stays null
+            -- (we're not impersonating a static member) and the
+            -- generation id is -1.
+            request = OCReq.OffsetCommitRequest
+              { OCReq.offsetCommitRequestGroupId = P.mkKafkaString groupId
+              , OCReq.offsetCommitRequestGenerationIdOrMemberEpoch = -1
+              , OCReq.offsetCommitRequestMemberId = P.mkKafkaString ""
+              , OCReq.offsetCommitRequestGroupInstanceId = P.KafkaString P.Null
+              , OCReq.offsetCommitRequestRetentionTimeMs = -1
+              , OCReq.offsetCommitRequestTopics = P.mkKafkaArray topicsV
+              }
+            requestBody  = runPutS $ OCReq.encodeOffsetCommitRequest apiVersion request
+            clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
+        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
+        case result of
+          Left err -> return $ Left $ "OffsetCommit request failed: " ++ err
+          Right (_, responseBody) ->
+            case runGetS (OCResp.decodeOffsetCommitResponse apiVersion) responseBody of
+              Left err -> return $ Left $ "Failed to parse OffsetCommitResponse: " ++ err
+              Right response -> do
+                let topicsVec = case P.unKafkaArray (OCResp.offsetCommitResponseTopics response) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                    out = concatMap unpackTopic (V.toList topicsVec)
+                return $ Right out
   where
     unpackTopic :: OCResp.OffsetCommitResponseTopic
                 -> [((Text, Int32), Either Int16 ())]

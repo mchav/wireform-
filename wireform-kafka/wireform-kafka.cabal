@@ -153,6 +153,7 @@ library
         Kafka.Network.Connection
         Kafka.Network.Transport
         Kafka.Protocol.ApiVersions
+        Kafka.Protocol.VersionNegotiation
         Kafka.Protocol.CRC32C
         Kafka.Protocol.Encoding
         Kafka.Protocol.Generated.AddOffsetsToTxnRequest
