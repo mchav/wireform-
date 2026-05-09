@@ -366,6 +366,7 @@ library
         Kafka.Protocol.RecordBatch
         Kafka.Protocol.RecordBatchWire
         Kafka.Protocol.Wire
+        Kafka.Protocol.Wire.Codec
         Kafka.Protocol.Wire.Primitives
         Kafka.Protocol.Wire.SliceVector
         Kafka.Telemetry.Metrics

@@ -66,6 +66,7 @@ import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.Generated.MetadataRequest as MR
 import qualified Kafka.Protocol.Generated.MetadataResponse as MResp
 import qualified Kafka.Protocol.Primitives as P
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Information about a broker in the cluster
 data BrokerMetadata = BrokerMetadata
@@ -288,7 +289,7 @@ refreshTopicMetadata conn (MetadataCache metaVar) topicsM correlationId = do
         , MR.metadataRequestIncludeTopicAuthorizedOperations = False
         }
       
-      requestBody = runPutS $ MR.encodeMetadataRequest apiVersion request
+      requestBody = WC.runEncodeVer MR.encodeMetadataRequest apiVersion request
       clientId = P.mkKafkaString "kafka-native"
   
   -- Send request
@@ -305,7 +306,7 @@ refreshTopicMetadata conn (MetadataCache metaVar) topicsM correlationId = do
     Right (respCorrId, respBody) ->
       if respCorrId /= correlationId
         then return $ Left $ "Correlation ID mismatch"
-        else case runGetS (MResp.decodeMetadataResponse apiVersion) respBody of
+        else case WC.runDecodeVer MResp.decodeMetadataResponse apiVersion respBody of
           Left err -> return $ Left $ "Failed to decode metadata response: " ++ err
           Right response -> do
             -- Parse metadata from response

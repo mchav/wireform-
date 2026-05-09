@@ -61,6 +61,7 @@ import qualified Kafka.Protocol.Generated.AddOffsetsToTxnRequest as AOTReq
 import qualified Kafka.Protocol.Generated.AddOffsetsToTxnResponse as AOTResp
 import qualified Kafka.Protocol.Generated.TxnOffsetCommitRequest as TOCReq
 import qualified Kafka.Protocol.Generated.TxnOffsetCommitResponse as TOCResp
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Transaction coordinator information
 data TransactionCoordinator = TransactionCoordinator
@@ -143,7 +144,7 @@ findTransactionCoordinator connMgr versionCache corrIdVar bootstrapBroker client
             , FCReq.findCoordinatorRequestCoordinatorKeys = P.KafkaArray (P.NotNull V.empty)
             }
           
-          requestBody = runPutS $ FCReq.encodeFindCoordinatorRequest apiVersion request
+          requestBody = WC.runEncodeVer FCReq.encodeFindCoordinatorRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
       
       -- Send request and receive response
@@ -155,7 +156,7 @@ findTransactionCoordinator connMgr versionCache corrIdVar bootstrapBroker client
         
         Right (_corrId, responseBody) -> do
           -- Parse response
-          case runGetS (FCResp.decodeFindCoordinatorResponse apiVersion) responseBody of
+          case WC.runDecodeVer FCResp.decodeFindCoordinatorResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse FindCoordinatorResponse: " <> T.pack err
             
@@ -231,7 +232,7 @@ initProducerId connMgr versionCache corrIdVar clientId coordinator transactional
             , IPReq.initProducerIdRequestKeepPreparedTxn = False  -- v6+ only
             }
           
-          requestBody = runPutS $ IPReq.encodeInitProducerIdRequest apiVersion request
+          requestBody = WC.runEncodeVer IPReq.encodeInitProducerIdRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
       
       -- Send request and receive response
@@ -243,7 +244,7 @@ initProducerId connMgr versionCache corrIdVar clientId coordinator transactional
         
         Right (_corrId, responseBody) -> do
           -- Parse response
-          case runGetS (IPResp.decodeInitProducerIdResponse apiVersion) responseBody of
+          case WC.runDecodeVer IPResp.decodeInitProducerIdResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse InitProducerIdResponse: " <> T.pack err
             
@@ -316,7 +317,7 @@ addPartitionsToTxn connMgr versionCache corrIdVar clientId coordinator transacti
             , APTReq.addPartitionsToTxnRequestV3AndBelowTopics = P.mkKafkaArray topics
             }
           
-          requestBody = runPutS $ APTReq.encodeAddPartitionsToTxnRequest apiVersion request
+          requestBody = WC.runEncodeVer APTReq.encodeAddPartitionsToTxnRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
       
       result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
@@ -326,7 +327,7 @@ addPartitionsToTxn connMgr versionCache corrIdVar clientId coordinator transacti
           "AddPartitionsToTxn request failed: " <> T.pack err
         
         Right (_corrId, responseBody) -> do
-          case runGetS (APTResp.decodeAddPartitionsToTxnResponse apiVersion) responseBody of
+          case WC.runDecodeVer APTResp.decodeAddPartitionsToTxnResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse AddPartitionsToTxnResponse: " <> T.pack err
             
@@ -400,7 +401,7 @@ endTransaction connMgr versionCache corrIdVar clientId coordinator transactional
             , ETReq.endTxnRequestCommitted = committed
             }
           
-          requestBody = runPutS $ ETReq.encodeEndTxnRequest apiVersion request
+          requestBody = WC.runEncodeVer ETReq.encodeEndTxnRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
       
       result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
@@ -410,7 +411,7 @@ endTransaction connMgr versionCache corrIdVar clientId coordinator transactional
           "EndTxn request failed: " <> T.pack err
         
         Right (_corrId, responseBody) -> do
-          case runGetS (ETResp.decodeEndTxnResponse apiVersion) responseBody of
+          case WC.runDecodeVer ETResp.decodeEndTxnResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse EndTxnResponse: " <> T.pack err
             
@@ -461,7 +462,7 @@ addOffsetsToTxn connMgr versionCache corrIdVar clientId coordinator transactiona
               Just v  -> v
 
           request = buildAddOffsetsToTxnRequest transactionalId producerId epoch groupId
-          requestBody  = runPutS $ AOTReq.encodeAddOffsetsToTxnRequest apiVersion request
+          requestBody  = WC.runEncodeVer AOTReq.encodeAddOffsetsToTxnRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
 
       result <- Req.sendRequestReceiveResponse
@@ -470,7 +471,7 @@ addOffsetsToTxn connMgr versionCache corrIdVar clientId coordinator transactiona
         Left err -> return $ Left $ CoordinatorNotAvailable $
           "AddOffsetsToTxn request failed: " <> T.pack err
         Right (_, responseBody) ->
-          case runGetS (AOTResp.decodeAddOffsetsToTxnResponse apiVersion) responseBody of
+          case WC.runDecodeVer AOTResp.decodeAddOffsetsToTxnResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse AddOffsetsToTxnResponse: " <> T.pack err
             Right response -> do
@@ -550,7 +551,7 @@ txnOffsetCommitWith connMgr versionCache corrIdVar clientId groupCoordinator gro
               Just v  -> v
 
       let request = buildTxnOffsetCommitRequest groupId producerId epoch offsets
-          requestBody  = runPutS $ TOCReq.encodeTxnOffsetCommitRequest apiVersion request
+          requestBody  = WC.runEncodeVer TOCReq.encodeTxnOffsetCommitRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
       result <- Req.sendRequestReceiveResponse
                   conn apiKey apiVersion corrId clientIdKafka requestBody
@@ -558,7 +559,7 @@ txnOffsetCommitWith connMgr versionCache corrIdVar clientId groupCoordinator gro
         Left err -> return $ Left $ CoordinatorNotAvailable $
           "TxnOffsetCommit request failed: " <> T.pack err
         Right (_, responseBody) ->
-          case runGetS (TOCResp.decodeTxnOffsetCommitResponse apiVersion) responseBody of
+          case WC.runDecodeVer TOCResp.decodeTxnOffsetCommitResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse TxnOffsetCommitResponse: " <> T.pack err
             Right response -> do

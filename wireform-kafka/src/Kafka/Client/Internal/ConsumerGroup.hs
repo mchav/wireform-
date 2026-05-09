@@ -62,6 +62,7 @@ import qualified Kafka.Protocol.Generated.SyncGroupResponse as SGResp
 import qualified Kafka.Protocol.Generated.LeaveGroupRequest as LGReq
 import qualified Kafka.Protocol.Generated.LeaveGroupResponse as LGResp
 import qualified Kafka.Protocol.Primitives as P
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Information about the group coordinator broker
 data GroupCoordinator = GroupCoordinator
@@ -134,7 +135,7 @@ findGroupCoordinator versionCache brokerAddr conn groupId correlationId clientId
         , FCReq.findCoordinatorRequestCoordinatorKeys = P.mkKafkaArray V.empty
         }
       
-      requestBody = runPutS $ FCReq.encodeFindCoordinatorRequest apiVersion request
+      requestBody = WC.runEncodeVer FCReq.encodeFindCoordinatorRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
   
   -- Send request and receive response
@@ -143,7 +144,7 @@ findGroupCoordinator versionCache brokerAddr conn groupId correlationId clientId
   case result of
     Left err -> return $ Left $ "FindCoordinator request failed: " ++ err
     Right (_, responseBody) -> do
-      case runGetS (FCResp.decodeFindCoordinatorResponse apiVersion) responseBody of
+      case WC.runDecodeVer FCResp.decodeFindCoordinatorResponse apiVersion responseBody of
         Left err -> return $ Left $ "Failed to parse FindCoordinatorResponse: " ++ err
         Right response -> do
           let errorCode = FCResp.findCoordinatorResponseErrorCode response
@@ -208,7 +209,7 @@ joinGroup versionCache brokerAddr conn groupId memberId clientId sessionTimeout 
         , JGReq.joinGroupRequestReason = P.KafkaString P.Null
         }
       
-      requestBody = runPutS $ JGReq.encodeJoinGroupRequest apiVersion request
+      requestBody = WC.runEncodeVer JGReq.encodeJoinGroupRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
   
   result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
@@ -216,7 +217,7 @@ joinGroup versionCache brokerAddr conn groupId memberId clientId sessionTimeout 
   case result of
     Left err -> return $ Left $ "JoinGroup request failed: " ++ err
     Right (_, responseBody) -> do
-      case runGetS (JGResp.decodeJoinGroupResponse apiVersion) responseBody of
+      case WC.runDecodeVer JGResp.decodeJoinGroupResponse apiVersion responseBody of
         Left err -> return $ Left $ "Failed to parse JoinGroupResponse: " ++ err
         Right response -> do
           let errorCode = JGResp.joinGroupResponseErrorCode response
@@ -290,7 +291,7 @@ syncGroup versionCache brokerAddr conn groupId generationId memberId clientId as
         , SGReq.syncGroupRequestAssignments = P.mkKafkaArray assignmentVec
         }
       
-      requestBody = runPutS $ SGReq.encodeSyncGroupRequest apiVersion request
+      requestBody = WC.runEncodeVer SGReq.encodeSyncGroupRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
   
   result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
@@ -298,7 +299,7 @@ syncGroup versionCache brokerAddr conn groupId generationId memberId clientId as
   case result of
     Left err -> return $ Left $ "SyncGroup request failed: " ++ err
     Right (_, responseBody) -> do
-      case runGetS (SGResp.decodeSyncGroupResponse apiVersion) responseBody of
+      case WC.runDecodeVer SGResp.decodeSyncGroupResponse apiVersion responseBody of
         Left err -> return $ Left $ "Failed to parse SyncGroupResponse: " ++ err
         Right response -> do
           let errorCode = SGResp.syncGroupResponseErrorCode response
@@ -345,7 +346,7 @@ leaveGroup versionCache brokerAddr conn groupId memberId clientId correlationId 
         , LGReq.leaveGroupRequestMembers = P.mkKafkaArray memberVec
         }
       
-      requestBody = runPutS $ LGReq.encodeLeaveGroupRequest apiVersion request
+      requestBody = WC.runEncodeVer LGReq.encodeLeaveGroupRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
   
   result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
@@ -353,7 +354,7 @@ leaveGroup versionCache brokerAddr conn groupId memberId clientId correlationId 
   case result of
     Left err -> return $ Left $ "LeaveGroup request failed: " ++ err
     Right (_, responseBody) -> do
-      case runGetS (LGResp.decodeLeaveGroupResponse apiVersion) responseBody of
+      case WC.runDecodeVer LGResp.decodeLeaveGroupResponse apiVersion responseBody of
         Left err -> return $ Left $ "Failed to parse LeaveGroupResponse: " ++ err
         Right response -> do
           let errorCode = LGResp.leaveGroupResponseErrorCode response

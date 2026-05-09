@@ -91,6 +91,7 @@ import qualified Kafka.Protocol.Generated.ProduceResponse as PResp
 import qualified Kafka.Protocol.Primitives as P
 import qualified Kafka.Protocol.RecordBatch as RB
 import qualified Kafka.Protocol.RecordBatchWire as RBW
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Retry configuration for failed sends. Mirrors librdkafka's
 -- @retries@ + @retry.backoff.ms@ + @retry.backoff.max.ms@ +
@@ -411,7 +412,7 @@ sendToBroker state@SenderState{..} broker batches = do
               Left  _ -> 3
             apiKey = 0
             clientId = P.mkKafkaString senderClientId
-            requestBody = runPutS $ PR.encodeProduceRequest apiVersion request
+            requestBody = WC.runEncodeVer PR.encodeProduceRequest apiVersion request
         
         -- Send the request and receive response
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
@@ -435,7 +436,7 @@ sendToBroker state@SenderState{..} broker batches = do
                   forM_ callbacks $ \callback -> callback (Left errorMsg)
               else do
                 -- Parse the response
-                case runGetS (PResp.decodeProduceResponse apiVersion) responseBody of
+                case WC.runDecodeVer PResp.decodeProduceResponse apiVersion responseBody of
                   Left err -> do
                     -- Invoke error callbacks
                     forM_ validBatches $ \batch -> do

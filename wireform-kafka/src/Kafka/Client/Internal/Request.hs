@@ -42,6 +42,7 @@ import Network.Connection (Connection, connectionGet, connectionPut)
 import qualified Kafka.Protocol.Primitives as P
 import qualified Kafka.Protocol.Generated.RequestHeader as RH
 import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Frame a request with its length prefix and header.
 -- 
@@ -74,7 +75,7 @@ frameRequest apiKey apiVersion correlationId clientId requestBody =
     -- broker read garbage off the wire and close the connection
     -- with @InvalidRequestException@ + BufferUnderflow.
     !headerVersion = requestHeaderVersionFor apiKey apiVersion
-    !headerBytes   = runPutS $ RH.encodeRequestHeader headerVersion header
+    !headerBytes   = WC.runEncodeVer RH.encodeRequestHeader headerVersion header
     !headerLen     = BS.length headerBytes
     !bodyLen       = BS.length requestBody
     !messageSize   = headerLen + bodyLen

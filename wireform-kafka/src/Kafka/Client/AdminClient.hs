@@ -131,6 +131,7 @@ import qualified Kafka.Protocol.Generated.OffsetFetchResponse as OFResp
 import qualified Kafka.Protocol.Generated.OffsetCommitRequest as OCReq
 import qualified Kafka.Protocol.Generated.OffsetCommitResponse as OCResp
 import qualified Kafka.Protocol.Primitives as P
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | AdminClient configuration
 data AdminClientConfig = AdminClientConfig
@@ -394,13 +395,13 @@ createTopics client@AdminClient{..} topics = do
               , CTReq.createTopicsRequesttimeoutMs = fromIntegral (adminRequestTimeoutMs adminConfig)
               , CTReq.createTopicsRequestvalidateOnly = False
               }
-            requestBody = runPutS $ CTReq.encodeCreateTopicsRequest apiVersion request
+            requestBody = WC.runEncodeVer CTReq.encodeCreateTopicsRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "CreateTopics request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (CTResp.decodeCreateTopicsResponse apiVersion) responseBody of
+            case WC.runDecodeVer CTResp.decodeCreateTopicsResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse CreateTopicsResponse: " ++ err
               Right response -> do
                 let topicResults = case P.unKafkaArray (CTResp.createTopicsResponseTopics response) of
@@ -458,13 +459,13 @@ deleteTopics client@AdminClient{..} topicNames = do
               , DTReq.deleteTopicsRequestTopicNames = P.mkKafkaArray topicNamesVec
               , DTReq.deleteTopicsRequestTimeoutMs = fromIntegral (adminRequestTimeoutMs adminConfig)
               }
-            requestBody = runPutS $ DTReq.encodeDeleteTopicsRequest apiVersion request
+            requestBody = WC.runEncodeVer DTReq.encodeDeleteTopicsRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "DeleteTopics request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (DTResp.decodeDeleteTopicsResponse apiVersion) responseBody of
+            case WC.runDecodeVer DTResp.decodeDeleteTopicsResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse DeleteTopicsResponse: " ++ err
               Right response -> do
                 let topicResults = case P.unKafkaArray (DTResp.deleteTopicsResponseResponses response) of
@@ -511,13 +512,13 @@ listTopics client@AdminClient{..} = do
               , MReq.metadataRequestIncludeClusterAuthorizedOperations = False
               , MReq.metadataRequestIncludeTopicAuthorizedOperations = False
               }
-            requestBody = runPutS $ MReq.encodeMetadataRequest apiVersion request
+            requestBody = WC.runEncodeVer MReq.encodeMetadataRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "Metadata request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (MResp.decodeMetadataResponse apiVersion) responseBody of
+            case WC.runDecodeVer MResp.decodeMetadataResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse MetadataResponse: " ++ err
               Right response -> do
                 let topics = case P.unKafkaArray (MResp.metadataResponseTopics response) of
@@ -552,13 +553,13 @@ describeTopics client@AdminClient{..} topicNames = do
               , MReq.metadataRequestIncludeClusterAuthorizedOperations = False
               , MReq.metadataRequestIncludeTopicAuthorizedOperations = False
               }
-            requestBody = runPutS $ MReq.encodeMetadataRequest apiVersion request
+            requestBody = WC.runEncodeVer MReq.encodeMetadataRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "Metadata request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (MResp.decodeMetadataResponse apiVersion) responseBody of
+            case WC.runDecodeVer MResp.decodeMetadataResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse MetadataResponse: " ++ err
               Right response -> do
                 let topics = case P.unKafkaArray (MResp.metadataResponseTopics response) of
@@ -645,13 +646,13 @@ listConsumerGroups client@AdminClient{..} = do
               { LGReq.listGroupsRequestStatesFilter = P.mkKafkaArray V.empty
               , LGReq.listGroupsRequestTypesFilter = P.mkKafkaArray V.empty
               }
-            requestBody = runPutS $ LGReq.encodeListGroupsRequest apiVersion request
+            requestBody = WC.runEncodeVer LGReq.encodeListGroupsRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "ListGroups request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (LGResp.decodeListGroupsResponse apiVersion) responseBody of
+            case WC.runDecodeVer LGResp.decodeListGroupsResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse ListGroupsResponse: " ++ err
               Right response -> do
                 let groups = case P.unKafkaArray (LGResp.listGroupsResponseGroups response) of
@@ -688,13 +689,13 @@ describeConsumerGroups client@AdminClient{..} groupIds = do
               { DGReq.describeGroupsRequestGroups = P.mkKafkaArray groupVec
               , DGReq.describeGroupsRequestIncludeAuthorizedOperations = False
               }
-            requestBody = runPutS $ DGReq.encodeDescribeGroupsRequest apiVersion request
+            requestBody = WC.runEncodeVer DGReq.encodeDescribeGroupsRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "DescribeGroups request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (DGResp.decodeDescribeGroupsResponse apiVersion) responseBody of
+            case WC.runDecodeVer DGResp.decodeDescribeGroupsResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse DescribeGroupsResponse: " ++ err
               Right response -> do
                 let groups = case P.unKafkaArray (DGResp.describeGroupsResponseGroups response) of
@@ -741,13 +742,13 @@ deleteConsumerGroups client@AdminClient{..} groupIds = do
             request = DelGReq.DeleteGroupsRequest
               { DelGReq.deleteGroupsRequestGroupsNames = P.mkKafkaArray groupVec
               }
-            requestBody = runPutS $ DelGReq.encodeDeleteGroupsRequest apiVersion request
+            requestBody = WC.runEncodeVer DelGReq.encodeDeleteGroupsRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "DeleteGroups request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (DelGResp.decodeDeleteGroupsResponse apiVersion) responseBody of
+            case WC.runDecodeVer DelGResp.decodeDeleteGroupsResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse DeleteGroupsResponse: " ++ err
               Right response -> do
                 let groupResults = case P.unKafkaArray (DelGResp.deleteGroupsResponseResults response) of
@@ -835,14 +836,14 @@ describeConfigs client@AdminClient{..} resources = do
               , DCReq.describeConfigsRequestIncludeSynonyms = False
               , DCReq.describeConfigsRequestIncludeDocumentation = False
               }
-            requestBody  = runPutS $ DCReq.encodeDescribeConfigsRequest apiVersion request
+            requestBody  = WC.runEncodeVer DCReq.encodeDescribeConfigsRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse
                     conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "DescribeConfigs request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (DCResp.decodeDescribeConfigsResponse apiVersion) responseBody of
+            case WC.runDecodeVer DCResp.decodeDescribeConfigsResponse apiVersion responseBody of
               Left err -> return $ Left $
                 "Failed to parse DescribeConfigsResponse: " ++ err
               Right response -> do
@@ -968,13 +969,13 @@ listTopicsExcludeInternal client@AdminClient{..} = do
               , MReq.metadataRequestIncludeClusterAuthorizedOperations = False
               , MReq.metadataRequestIncludeTopicAuthorizedOperations = False
               }
-            requestBody  = runPutS $ MReq.encodeMetadataRequest apiVersion request
+            requestBody  = WC.runEncodeVer MReq.encodeMetadataRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "Metadata request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (MResp.decodeMetadataResponse apiVersion) responseBody of
+            case WC.runDecodeVer MResp.decodeMetadataResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse MetadataResponse: " ++ err
               Right response -> do
                 let topicsVec = case P.unKafkaArray (MResp.metadataResponseTopics response) of
@@ -1013,13 +1014,13 @@ alterConfigs client@AdminClient{..} resources = do
               { ACReq.alterConfigsRequestResources = P.mkKafkaArray resourcesV
               , ACReq.alterConfigsRequestValidateOnly = False
               }
-            requestBody = runPutS $ ACReq.encodeAlterConfigsRequest apiVersion request
+            requestBody = WC.runEncodeVer ACReq.encodeAlterConfigsRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "AlterConfigs request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (ACResp.decodeAlterConfigsResponse apiVersion) responseBody of
+            case WC.runDecodeVer ACResp.decodeAlterConfigsResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse AlterConfigsResponse: " ++ err
               Right response -> do
                 let respVec = case P.unKafkaArray (ACResp.alterConfigsResponseResponses response) of
@@ -1093,13 +1094,13 @@ incrementalAlterConfigs client@AdminClient{..} resources = do
               { IACReq.incrementalAlterConfigsRequestResources = P.mkKafkaArray resourcesV
               , IACReq.incrementalAlterConfigsRequestValidateOnly = False
               }
-            requestBody = runPutS $ IACReq.encodeIncrementalAlterConfigsRequest apiVersion request
+            requestBody = WC.runEncodeVer IACReq.encodeIncrementalAlterConfigsRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "IncrementalAlterConfigs request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (IACResp.decodeIncrementalAlterConfigsResponse apiVersion) responseBody of
+            case WC.runDecodeVer IACResp.decodeIncrementalAlterConfigsResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse IncrementalAlterConfigsResponse: " ++ err
               Right response -> do
                 let respVec = case P.unKafkaArray (IACResp.incrementalAlterConfigsResponseResponses response) of
@@ -1207,13 +1208,13 @@ deleteRecords client@AdminClient{..} entries = do
               { DRReq.deleteRecordsRequestTopics    = P.mkKafkaArray topicsV
               , DRReq.deleteRecordsRequestTimeoutMs = fromIntegral (adminRequestTimeoutMs adminConfig)
               }
-            requestBody  = runPutS $ DRReq.encodeDeleteRecordsRequest apiVersion request
+            requestBody  = WC.runEncodeVer DRReq.encodeDeleteRecordsRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "DeleteRecords request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (DRResp.decodeDeleteRecordsResponse apiVersion) responseBody of
+            case WC.runDecodeVer DRResp.decodeDeleteRecordsResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse DeleteRecordsResponse: " ++ err
               Right response -> do
                 let topicsVec = case P.unKafkaArray (DRResp.deleteRecordsResponseTopics response) of
@@ -1281,13 +1282,13 @@ electLeaders client@AdminClient{..} etype tps = do
               , ELReq.electLeadersRequestTopicPartitions = P.mkKafkaArray topicsV
               , ELReq.electLeadersRequestTimeoutMs       = fromIntegral (adminRequestTimeoutMs adminConfig)
               }
-            requestBody  = runPutS $ ELReq.encodeElectLeadersRequest apiVersion request
+            requestBody  = WC.runEncodeVer ELReq.encodeElectLeadersRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "ElectLeaders request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (ELResp.decodeElectLeadersResponse apiVersion) responseBody of
+            case WC.runDecodeVer ELResp.decodeElectLeadersResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse ElectLeadersResponse: " ++ err
               Right response -> do
                 let resV = case P.unKafkaArray (ELResp.electLeadersResponseReplicaElectionResults response) of
@@ -1352,13 +1353,13 @@ listConsumerGroupOffsets client@AdminClient{..} groupId = do
               , OFReq.offsetFetchRequestGroups  = P.mkKafkaArray V.empty
               , OFReq.offsetFetchRequestRequireStable = False
               }
-            requestBody  = runPutS $ OFReq.encodeOffsetFetchRequest apiVersion request
+            requestBody  = WC.runEncodeVer OFReq.encodeOffsetFetchRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "OffsetFetch request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (OFResp.decodeOffsetFetchResponse apiVersion) responseBody of
+            case WC.runDecodeVer OFResp.decodeOffsetFetchResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse OffsetFetchResponse: " ++ err
               Right response -> do
                 let topicsVec = case P.unKafkaArray (OFResp.offsetFetchResponseTopics response) of
@@ -1440,13 +1441,13 @@ alterConsumerGroupOffsets client@AdminClient{..} groupId entries = do
               , OCReq.offsetCommitRequestRetentionTimeMs = -1
               , OCReq.offsetCommitRequestTopics = P.mkKafkaArray topicsV
               }
-            requestBody  = runPutS $ OCReq.encodeOffsetCommitRequest apiVersion request
+            requestBody  = WC.runEncodeVer OCReq.encodeOffsetCommitRequest apiVersion request
             clientIdKafka = P.mkKafkaString (adminClientId adminConfig)
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
         case result of
           Left err -> return $ Left $ "OffsetCommit request failed: " ++ err
           Right (_, responseBody) ->
-            case runGetS (OCResp.decodeOffsetCommitResponse apiVersion) responseBody of
+            case WC.runDecodeVer OCResp.decodeOffsetCommitResponse apiVersion responseBody of
               Left err -> return $ Left $ "Failed to parse OffsetCommitResponse: " ++ err
               Right response -> do
                 let topicsVec = case P.unKafkaArray (OCResp.offsetCommitResponseTopics response) of

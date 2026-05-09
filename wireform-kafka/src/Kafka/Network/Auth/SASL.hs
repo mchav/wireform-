@@ -73,8 +73,6 @@ module Kafka.Network.Auth.SASL
 
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.IORef
@@ -95,6 +93,7 @@ import qualified Kafka.Protocol.Generated.SaslAuthenticateResponse as SAResp
 import qualified Kafka.Protocol.Generated.SaslHandshakeRequest as SHReq
 import qualified Kafka.Protocol.Generated.SaslHandshakeResponse as SHResp
 import qualified Kafka.Protocol.Primitives as P
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 ------------------------------------------------------------------------
 -- User-facing config
@@ -233,7 +232,7 @@ runHandshake conn clientId nextCorrId mechName = do
   let req = SHReq.SaslHandshakeRequest
         { SHReq.saslHandshakeRequestMechanism = P.mkKafkaString mechName }
       apiVersion = 1 :: Int16
-      reqBytes   = runPutS (SHReq.encodeSaslHandshakeRequest apiVersion req)
+      reqBytes   = WC.runEncodeVer SHReq.encodeSaslHandshakeRequest apiVersion req
   cid <- nextCorrId
   txn <- try $ Req.sendRequestReceiveResponse conn 17 apiVersion cid clientId reqBytes
   case txn of
@@ -242,7 +241,7 @@ runHandshake conn clientId nextCorrId mechName = do
     Right (Left err) ->
       pure (Left (AuthHandshake ("SaslHandshake transport: " <> err)))
     Right (Right (_, body)) ->
-      case runGetS (SHResp.decodeSaslHandshakeResponse apiVersion) body of
+      case WC.runDecodeVer SHResp.decodeSaslHandshakeResponse apiVersion body of
         Left err -> pure (Left (AuthHandshake ("SaslHandshakeResponse decode: " <> err)))
         Right resp ->
           let ec  = SHResp.saslHandshakeResponseErrorCode resp
@@ -296,7 +295,7 @@ saslAuthenticate conn clientId nextCorrId bytes = do
   let req = SAReq.SaslAuthenticateRequest
         { SAReq.saslAuthenticateRequestAuthBytes = P.mkKafkaBytes bytes }
       apiVersion = 1 :: Int16
-      reqBytes   = runPutS (SAReq.encodeSaslAuthenticateRequest apiVersion req)
+      reqBytes   = WC.runEncodeVer SAReq.encodeSaslAuthenticateRequest apiVersion req
   cid <- nextCorrId
   txn <- try $ Req.sendRequestReceiveResponse conn 36 apiVersion cid clientId reqBytes
   case txn of
@@ -305,7 +304,7 @@ saslAuthenticate conn clientId nextCorrId bytes = do
     Right (Left err) ->
       pure (Left (AuthTransport ("SaslAuthenticate transport: " <> err)))
     Right (Right (_, body)) ->
-      case runGetS (SAResp.decodeSaslAuthenticateResponse apiVersion) body of
+      case WC.runDecodeVer SAResp.decodeSaslAuthenticateResponse apiVersion body of
         Left err -> pure (Left (AuthTransport ("SaslAuthenticateResponse decode: " <> err)))
         Right resp ->
           let ec   = SAResp.saslAuthenticateResponseErrorCode resp

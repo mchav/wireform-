@@ -48,6 +48,7 @@ import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Protocol.Generated.HeartbeatRequest as HBReq
 import qualified Kafka.Protocol.Generated.HeartbeatResponse as HBResp
 import qualified Kafka.Protocol.Primitives as P
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | State for the heartbeat thread
 data HeartbeatState = HeartbeatState
@@ -212,7 +213,7 @@ sendHeartbeat HeartbeatState{..} coordAddr memberId genId = do
             , HBReq.heartbeatRequestGroupInstanceId = P.KafkaString P.Null
             }
           
-          requestBody = runPutS $ HBReq.encodeHeartbeatRequest apiVersion request
+          requestBody = WC.runEncodeVer HBReq.encodeHeartbeatRequest apiVersion request
           clientIdKafka = P.mkKafkaString hbClientId
       
       -- Send request and receive response
@@ -222,7 +223,7 @@ sendHeartbeat HeartbeatState{..} coordAddr memberId genId = do
         Left err -> return $ Left $ "Heartbeat request failed: " ++ err
         
         Right (_, responseBody) -> do
-          case runGetS (HBResp.decodeHeartbeatResponse apiVersion) responseBody of
+          case WC.runDecodeVer HBResp.decodeHeartbeatResponse apiVersion responseBody of
             Left err -> return $ Left $ "Failed to parse HeartbeatResponse: " ++ err
             
             Right response -> do
