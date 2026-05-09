@@ -367,6 +367,7 @@ library
         Kafka.Protocol.RecordBatchWire
         Kafka.Protocol.Wire
         Kafka.Protocol.Wire.Primitives
+        Kafka.Protocol.Wire.SliceVector
         Kafka.Telemetry.Metrics
         Kafka.Telemetry.OpenTelemetry
         Kafka.Telemetry.Push
@@ -732,6 +733,7 @@ test-suite wireform-kafka-test
         Protocol.VersionHandlingSpec
         Protocol.WireSpec
         Protocol.RecordBatchWireSpec
+        Protocol.SliceVectorSpec
         Protocol.VersionNegotiationSpec
         TestUtil.BrokerGate
     build-depends:
