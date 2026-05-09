@@ -1,23 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- | Tests for the new direct-poke Wire codec
+-- | Round-trip tests for the direct-poke Wire codec
 -- (`Kafka.Protocol.Wire` + `Kafka.Protocol.Wire.Primitives`).
 --
--- Two layers of confidence:
---
---   1. Pure round-trip: encode @x@ via 'runWirePut', decode the
---      bytes via 'runWireGet', assert @decoded == x@.
---
---   2. Cross-codec equivalence: encode @x@ via the legacy
---      `Data.Bytes.Serial`-based path and via 'runWirePut'; the
---      bytes must be identical (the wire format is fixed by the
---      Kafka spec, so two correct encoders cannot diverge).
+-- Pre no-Serial migration this spec also held cross-codec
+-- equivalence properties (Wire == Serial). The Serial codec is
+-- gone now; the equivalent guarantee on the runtime path is the
+-- per-message Wire codec round-trip in 'Protocol.WireCodecParitySpec'
+-- and the per-vector exact-byte tests in 'Protocol.Generated.*Spec'.
 module Protocol.WireSpec (tests) where
 
 import qualified Data.ByteString as BS
-import Data.Bytes.Put (runPutS)
-import Data.Bytes.Serial (serialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import Hedgehog
@@ -42,35 +36,16 @@ tests = testGroup "Wire codec"
       , testProperty "Word32" prop_word32
       , testProperty "Bool"   prop_bool
       ]
-  , testGroup "fixed-width — cross-codec equivalence"
-      [ testProperty "Int16 == Serial Int16"
-          prop_int16_eq_serial
-      , testProperty "Int32 == Serial Int32"
-          prop_int32_eq_serial
-      , testProperty "Int64 == Serial Int64"
-          prop_int64_eq_serial
-      ]
   , testGroup "variable-length integers — round trip"
       [ testProperty "VarInt"  prop_varint
       , testProperty "VarLong" prop_varlong
       , testProperty "UVarInt" prop_uvarint
-      ]
-  , testGroup "variable-length — cross-codec equivalence"
-      [ testProperty "VarInt  == Serial VarInt"  prop_varint_eq_serial
-      , testProperty "VarLong == Serial VarLong" prop_varlong_eq_serial
-      , testProperty "UVarInt == Serial UVarInt" prop_uvarint_eq_serial
       ]
   , testGroup "Kafka strings / bytes / arrays — round trip"
       [ testProperty "KafkaString"   prop_kafka_string
       , testProperty "CompactString" prop_compact_string
       , testProperty "KafkaBytes"    prop_kafka_bytes
       , testProperty "CompactBytes"  prop_compact_bytes
-      ]
-  , testGroup "Kafka strings / bytes — cross-codec equivalence"
-      [ testProperty "KafkaString  == Serial" prop_kafka_string_eq
-      , testProperty "CompactString == Serial" prop_compact_string_eq
-      , testProperty "KafkaBytes   == Serial" prop_kafka_bytes_eq
-      , testProperty "CompactBytes  == Serial" prop_compact_bytes_eq
       ]
   , testGroup "edge cases"
       [ testCase "runWireGet on truncated input returns Left"
@@ -180,63 +155,6 @@ prop_compact_bytes :: Property
 prop_compact_bytes = property $ do
   x <- forAll genCompactBytes
   W.runWireGet (W.runWirePut x) === Right x
-
-----------------------------------------------------------------------
--- Cross-codec equivalence
-----------------------------------------------------------------------
-
-prop_int16_eq_serial :: Property
-prop_int16_eq_serial = property $ do
-  x <- forAll (Gen.int16 Range.linearBounded)
-  W.runWirePut x === runPutS (serialize x)
-
-prop_int32_eq_serial :: Property
-prop_int32_eq_serial = property $ do
-  x <- forAll (Gen.int32 Range.linearBounded)
-  W.runWirePut x === runPutS (serialize x)
-
-prop_int64_eq_serial :: Property
-prop_int64_eq_serial = property $ do
-  x <- forAll (Gen.int64 Range.linearBounded)
-  W.runWirePut x === runPutS (serialize x)
-
-prop_varint_eq_serial :: Property
-prop_varint_eq_serial = property $ do
-  x <- forAll (Gen.int32 Range.linearBounded)
-  let v = P.VarInt x
-  W.runWirePut v === runPutS (serialize v)
-
-prop_varlong_eq_serial :: Property
-prop_varlong_eq_serial = property $ do
-  x <- forAll (Gen.int64 Range.linearBounded)
-  let v = P.VarLong x
-  W.runWirePut v === runPutS (serialize v)
-
-prop_uvarint_eq_serial :: Property
-prop_uvarint_eq_serial = property $ do
-  x <- forAll (Gen.word32 Range.linearBounded)
-  let v = P.UVarInt x
-  W.runWirePut v === runPutS (serialize v)
-
-prop_kafka_string_eq :: Property
-prop_kafka_string_eq = property $ do
-  x <- forAll genText
-  W.runWirePut x === runPutS (serialize x)
-
-prop_compact_string_eq :: Property
-prop_compact_string_eq = property $ do
-  x <- forAll genCompactText
-  W.runWirePut x === runPutS (serialize x)
-
-prop_kafka_bytes_eq :: Property
-prop_kafka_bytes_eq = property $ do
-  x <- forAll genBytes
-  W.runWirePut x === runPutS (serialize x)
-
-prop_compact_bytes_eq :: Property
-prop_compact_bytes_eq = property $ do
-  x <- forAll genCompactBytes
-  W.runWirePut x === runPutS (serialize x)
 
 ----------------------------------------------------------------------
 -- Edge cases
