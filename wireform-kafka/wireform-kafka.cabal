@@ -136,6 +136,7 @@ library
         Kafka.Network.Auth.AwsMskIam
         Kafka.Network.Auth.OAuthBearer
         Kafka.Network.Auth.OAuthOidc
+        Kafka.Network.Bootstrap
         Kafka.Network.Auth.Plain
         Kafka.Network.Auth.SASL
         Kafka.Network.Auth.Scram
@@ -656,6 +657,7 @@ test-suite wireform-kafka-test
         Client.RetryClassifierSpec
         Client.BatchSplittingSpec
         Network.OAuthOidcSpec
+        Network.BootstrapSpec
         Client.MockBrokerSpec
         Client.MockBrokerFailureModesSpec
         Client.MockBrokerAdvancedSpec

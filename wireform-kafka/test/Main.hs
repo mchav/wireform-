@@ -56,6 +56,7 @@ import qualified Client.AdminTimeoutsSpec
 import qualified Client.RetryClassifierSpec
 import qualified Client.BatchSplittingSpec
 import qualified Network.OAuthOidcSpec
+import qualified Network.BootstrapSpec
 import qualified Client.AdminClientSpec
 import qualified Client.MockBrokerSpec
 import qualified Client.MockBrokerFailureModesSpec
@@ -169,4 +170,5 @@ networkTests = testGroup "Network"
   , Network.TransportSpec.tests
   , Network.SaslReauthSpec.tests
   , Network.OAuthOidcSpec.tests
+  , Network.BootstrapSpec.tests
   ]
