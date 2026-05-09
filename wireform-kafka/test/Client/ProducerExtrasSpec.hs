@@ -35,10 +35,12 @@ classify_retry :: IO ()
 classify_retry = PE.classifyTxnError 7 @?= PE.TxnRecoverByRetry  -- REQUEST_TIMED_OUT
 
 classify_abort :: IO ()
-classify_abort = PE.classifyTxnError 51 @?= PE.TxnRecoverByAbort -- INVALID_TXN_STATE
+classify_abort = PE.classifyTxnError 51 @?= PE.TxnRecoverByAbort -- CONCURRENT_TRANSACTIONS
 
 classify_fatal :: IO ()
-classify_fatal = PE.classifyTxnError 37 @?= PE.TxnRecoverFatal   -- TRANSACTIONAL_ID_AUTHORIZATION_FAILED
+classify_fatal = PE.classifyTxnError 53 @?= PE.TxnRecoverFatal
+  -- TRANSACTIONAL_ID_AUTHORIZATION_FAILED. Apache Kafka 3.7+ moved
+  -- this code from 37 (where INVALID_PARTITIONS now lives) to 53.
 
 explicit_deadline :: IO ()
 explicit_deadline = PE.effectiveTxnDeadlineMs 1000 60_000 (PE.TxnDeadlineMs 5000) @?= 6000

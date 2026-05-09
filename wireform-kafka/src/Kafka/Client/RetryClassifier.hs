@@ -53,10 +53,17 @@ data ErrorClass
   deriving stock (Eq, Show, Generic)
 
 -- | Classify a Kafka error code per KIP-487.
+--
+-- Error codes + class assignments are sourced from the canonical
+-- Apache Kafka 3.7+ @org.apache.kafka.common.protocol.Errors@ enum
+-- (see @clients/src/main/java/org/apache/kafka/common/protocol/Errors.java@).
+-- The JVM client uses @RetriableException@ as a marker interface;
+-- everything else is fatal unless the producer specifically knows
+-- how to recover from it (the abortable bucket below).
 classify :: Int16 -> ErrorClass
 classify = \case
   0   -> ECNoError
-  -- Retriable
+  -- Retriable: transient broker / network / coordinator state.
   1   -> ECRetriable  -- OFFSET_OUT_OF_RANGE
   3   -> ECRetriable  -- UNKNOWN_TOPIC_OR_PARTITION
   5   -> ECRetriable  -- LEADER_NOT_AVAILABLE
@@ -70,48 +77,63 @@ classify = \case
   16  -> ECRetriable  -- NOT_COORDINATOR
   19  -> ECRetriable  -- NOT_ENOUGH_REPLICAS
   20  -> ECRetriable  -- NOT_ENOUGH_REPLICAS_AFTER_APPEND
+  22  -> ECRetriable  -- ILLEGAL_GENERATION (rejoin to refresh)
   41  -> ECRetriable  -- NOT_CONTROLLER
-  42  -> ECRetriable  -- INVALID_REQUEST
-  46  -> ECRetriable  -- KAFKA_STORAGE_ERROR
-  56  -> ECRetriable  -- LISTENER_NOT_FOUND
-  62  -> ECRetriable  -- ELECTION_NOT_NEEDED
-  63  -> ECRetriable  -- NO_REASSIGNMENT_IN_PROGRESS
-  68  -> ECRetriable  -- REASSIGNMENT_IN_PROGRESS
-  74  -> ECRetriable  -- THROTTLING_QUOTA_EXCEEDED
-  75  -> ECRetriable  -- PRODUCER_FENCED -- abortable in JVM, retriable on session reset
-  76  -> ECRetriable  -- RESOURCE_NOT_FOUND
-  78  -> ECRetriable  -- BROKER_ID_NOT_REGISTERED
-  79  -> ECRetriable  -- INCONSISTENT_TOPIC_ID
-  82  -> ECRetriable  -- FETCH_SESSION_TOPIC_ID_ERROR
-  91  -> ECRetriable  -- INELIGIBLE_REPLICA
-  104 -> ECRetriable  -- TRANSACTION_ABORTABLE (KIP-1044 mirror)
-  -- Abortable
+  42  -> ECRetriable  -- INVALID_REQUEST (broker bug or schema drift)
+  56  -> ECRetriable  -- KAFKA_STORAGE_ERROR
+  60  -> ECRetriable  -- REASSIGNMENT_IN_PROGRESS
+  72  -> ECRetriable  -- LISTENER_NOT_FOUND
+  74  -> ECRetriable  -- FENCED_LEADER_EPOCH (refresh metadata + retry)
+  75  -> ECRetriable  -- UNKNOWN_LEADER_EPOCH (retry; broker hasn't caught up)
+  78  -> ECRetriable  -- OFFSET_NOT_AVAILABLE (during leader transition)
+  79  -> ECRetriable  -- MEMBER_ID_REQUIRED (rejoin with empty id then retry)
+  84  -> ECRetriable  -- ELECTION_NOT_NEEDED
+  85  -> ECRetriable  -- NO_REASSIGNMENT_IN_PROGRESS
+  88  -> ECRetriable  -- UNSTABLE_OFFSET_COMMIT (KIP-447, retry the fetch)
+  89  -> ECRetriable  -- THROTTLING_QUOTA_EXCEEDED (KIP-599)
+  91  -> ECRetriable  -- RESOURCE_NOT_FOUND
+  102 -> ECRetriable  -- BROKER_ID_NOT_REGISTERED
+  103 -> ECRetriable  -- INCONSISTENT_TOPIC_ID (refresh metadata + retry)
+  106 -> ECRetriable  -- FETCH_SESSION_TOPIC_ID_ERROR
+  107 -> ECRetriable  -- INELIGIBLE_REPLICA
+  -- Abortable: transactional state is poisoned for the current
+  -- txn but the producer can recover by aborting + restarting it.
   10  -> ECAbortable  -- MESSAGE_TOO_LARGE (split + retry; abort if single)
-  18  -> ECAbortable  -- MESSAGE_TOO_LARGE_OR_OFFSET_MISMATCH
-  47  -> ECAbortable  -- INVALID_PRODUCER_ID_MAPPING
-  48  -> ECAbortable  -- INVALID_PARTITIONS_IN_TXN_REQUEST
-  49  -> ECAbortable  -- INVALID_TXN_TIMEOUT
-  50  -> ECAbortable  -- CONCURRENT_TRANSACTIONS
-  51  -> ECAbortable  -- INVALID_TXN_STATE
-  -- Fatal
+  18  -> ECAbortable  -- RECORD_LIST_TOO_LARGE
+  47  -> ECAbortable  -- INVALID_PRODUCER_EPOCH
+  48  -> ECAbortable  -- INVALID_TXN_STATE
+  49  -> ECAbortable  -- INVALID_PRODUCER_ID_MAPPING
+  50  -> ECAbortable  -- INVALID_TRANSACTION_TIMEOUT
+  51  -> ECAbortable  -- CONCURRENT_TRANSACTIONS
+  52  -> ECAbortable  -- TRANSACTION_COORDINATOR_FENCED
+  -- TRANSACTION_ABORTABLE was 119 in 3.7-trunk but reserved
+  -- under different numbers in earlier branches; treat the
+  -- canonical 3.7 code 104 (INCONSISTENT_CLUSTER_ID) as fatal
+  -- per Errors.java.
+  -- Fatal: producer must close. Names match the upstream enum.
   4   -> ECFatal      -- INVALID_FETCH_SIZE
-  8   -> ECFatal      -- BROKER_NOT_AVAILABLE (the broker is gone permanently)
+  8   -> ECFatal      -- BROKER_NOT_AVAILABLE
   17  -> ECFatal      -- INVALID_TOPIC_EXCEPTION
-  25  -> ECFatal      -- ILLEGAL_GENERATION
   29  -> ECFatal      -- TOPIC_AUTHORIZATION_FAILED
   30  -> ECFatal      -- GROUP_AUTHORIZATION_FAILED
   31  -> ECFatal      -- CLUSTER_AUTHORIZATION_FAILED
-  37  -> ECFatal      -- TRANSACTIONAL_ID_AUTHORIZATION_FAILED
-  38  -> ECFatal      -- SECURITY_DISABLED
-  44  -> ECFatal      -- INVALID_REPLICATION_FACTOR
-  53  -> ECFatal      -- INVALID_REPLICA_ASSIGNMENT
-  58  -> ECFatal      -- TOPIC_DELETION_DISABLED
-  85  -> ECFatal      -- INVALID_RECORD
-  86  -> ECFatal      -- UNSUPPORTED_COMPRESSION_TYPE
-  87  -> ECFatal      -- PREFERRED_LEADER_NOT_AVAILABLE
-  88  -> ECFatal      -- GROUP_MAX_SIZE_REACHED
-  89  -> ECFatal      -- FENCED_INSTANCE_ID
-  90  -> ECFatal      -- ELIGIBLE_LEADERS_NOT_AVAILABLE
+  38  -> ECFatal      -- INVALID_REPLICATION_FACTOR
+  39  -> ECFatal      -- INVALID_REPLICA_ASSIGNMENT
+  40  -> ECFatal      -- INVALID_CONFIG
+  43  -> ECFatal      -- UNSUPPORTED_FOR_MESSAGE_FORMAT
+  44  -> ECFatal      -- POLICY_VIOLATION
+  45  -> ECFatal      -- OUT_OF_ORDER_SEQUENCE_NUMBER
+  46  -> ECFatal      -- DUPLICATE_SEQUENCE_NUMBER
+  53  -> ECFatal      -- TRANSACTIONAL_ID_AUTHORIZATION_FAILED
+  54  -> ECFatal      -- SECURITY_DISABLED
+  73  -> ECFatal      -- TOPIC_DELETION_DISABLED
+  76  -> ECFatal      -- UNSUPPORTED_COMPRESSION_TYPE
+  80  -> ECFatal      -- PREFERRED_LEADER_NOT_AVAILABLE
+  81  -> ECFatal      -- GROUP_MAX_SIZE_REACHED
+  82  -> ECFatal      -- FENCED_INSTANCE_ID (KIP-345)
+  83  -> ECFatal      -- ELIGIBLE_LEADERS_NOT_AVAILABLE
+  87  -> ECFatal      -- INVALID_RECORD
+  90  -> ECFatal      -- PRODUCER_FENCED (KIP-360)
   -- Default: retriable. The JVM client treats unknown error
   -- codes as retriable so a future broker upgrade doesn't
   -- crash old clients.
@@ -153,21 +175,65 @@ errorMessage = \case
   23  -> "INCONSISTENT_GROUP_PROTOCOL"
   24  -> "INVALID_GROUP_ID"
   25  -> "UNKNOWN_MEMBER_ID"
+  26  -> "INVALID_SESSION_TIMEOUT"
+  27  -> "REBALANCE_IN_PROGRESS"
+  28  -> "INVALID_COMMIT_OFFSET_SIZE"
   29  -> "TOPIC_AUTHORIZATION_FAILED"
   30  -> "GROUP_AUTHORIZATION_FAILED"
   31  -> "CLUSTER_AUTHORIZATION_FAILED"
-  37  -> "TRANSACTIONAL_ID_AUTHORIZATION_FAILED"
-  38  -> "SECURITY_DISABLED"
+  32  -> "INVALID_TIMESTAMP"
+  33  -> "UNSUPPORTED_SASL_MECHANISM"
+  34  -> "ILLEGAL_SASL_STATE"
+  35  -> "UNSUPPORTED_VERSION"
+  36  -> "TOPIC_ALREADY_EXISTS"
+  37  -> "INVALID_PARTITIONS"
+  38  -> "INVALID_REPLICATION_FACTOR"
+  39  -> "INVALID_REPLICA_ASSIGNMENT"
+  40  -> "INVALID_CONFIG"
   41  -> "NOT_CONTROLLER"
-  47  -> "INVALID_PRODUCER_ID_MAPPING"
-  48  -> "INVALID_PARTITIONS_IN_TXN_REQUEST"
-  49  -> "INVALID_TXN_TIMEOUT"
-  50  -> "CONCURRENT_TRANSACTIONS"
-  51  -> "INVALID_TXN_STATE"
-  74  -> "THROTTLING_QUOTA_EXCEEDED"
-  75  -> "PRODUCER_FENCED"
-  85  -> "INVALID_RECORD"
-  104 -> "TRANSACTION_ABORTABLE"
+  42  -> "INVALID_REQUEST"
+  43  -> "UNSUPPORTED_FOR_MESSAGE_FORMAT"
+  44  -> "POLICY_VIOLATION"
+  45  -> "OUT_OF_ORDER_SEQUENCE_NUMBER"
+  46  -> "DUPLICATE_SEQUENCE_NUMBER"
+  47  -> "INVALID_PRODUCER_EPOCH"
+  48  -> "INVALID_TXN_STATE"
+  49  -> "INVALID_PRODUCER_ID_MAPPING"
+  50  -> "INVALID_TRANSACTION_TIMEOUT"
+  51  -> "CONCURRENT_TRANSACTIONS"
+  52  -> "TRANSACTION_COORDINATOR_FENCED"
+  53  -> "TRANSACTIONAL_ID_AUTHORIZATION_FAILED"
+  54  -> "SECURITY_DISABLED"
+  55  -> "OPERATION_NOT_ATTEMPTED"
+  56  -> "KAFKA_STORAGE_ERROR"
+  57  -> "LOG_DIR_NOT_FOUND"
+  58  -> "SASL_AUTHENTICATION_FAILED"
+  59  -> "UNKNOWN_PRODUCER_ID"
+  60  -> "REASSIGNMENT_IN_PROGRESS"
+  72  -> "LISTENER_NOT_FOUND"
+  73  -> "TOPIC_DELETION_DISABLED"
+  74  -> "FENCED_LEADER_EPOCH"
+  75  -> "UNKNOWN_LEADER_EPOCH"
+  76  -> "UNSUPPORTED_COMPRESSION_TYPE"
+  78  -> "OFFSET_NOT_AVAILABLE"
+  79  -> "MEMBER_ID_REQUIRED"
+  80  -> "PREFERRED_LEADER_NOT_AVAILABLE"
+  81  -> "GROUP_MAX_SIZE_REACHED"
+  82  -> "FENCED_INSTANCE_ID"
+  83  -> "ELIGIBLE_LEADERS_NOT_AVAILABLE"
+  84  -> "ELECTION_NOT_NEEDED"
+  85  -> "NO_REASSIGNMENT_IN_PROGRESS"
+  86  -> "GROUP_SUBSCRIBED_TO_TOPIC"
+  87  -> "INVALID_RECORD"
+  88  -> "UNSTABLE_OFFSET_COMMIT"
+  89  -> "THROTTLING_QUOTA_EXCEEDED"
+  90  -> "PRODUCER_FENCED"
+  91  -> "RESOURCE_NOT_FOUND"
+  102 -> "BROKER_ID_NOT_REGISTERED"
+  103 -> "INCONSISTENT_TOPIC_ID"
+  105 -> "TRANSACTIONAL_ID_NOT_FOUND"
+  106 -> "FETCH_SESSION_TOPIC_ID_ERROR"
+  107 -> "INELIGIBLE_REPLICA"
   c   -> "UNKNOWN_KAFKA_ERROR_" <> tshow c
   where
     tshow :: Int16 -> Text
