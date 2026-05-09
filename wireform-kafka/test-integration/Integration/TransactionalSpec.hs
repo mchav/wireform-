@@ -33,7 +33,7 @@ module Integration.TransactionalSpec (tests) where
 
 import Control.Concurrent (threadDelay)
 import qualified Data.ByteString.Char8 as BSC
-import qualified Data.Map.Strict as Map
+import qualified Data.HashMap.Strict as Map
 import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, assertBool, assertFailure)

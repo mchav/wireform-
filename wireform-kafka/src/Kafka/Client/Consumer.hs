@@ -54,10 +54,17 @@ module Kafka.Client.Consumer
   , commitSync
   , commitAsync
   , committed
+  , committedAll
+  , position
+    -- * Partition / time queries (KIP-41 / KIP-79)
+  , beginningOffsets
+  , endOffsets
+  , offsetsForTimes
     -- * Partition Control
   , pause
   , resume
   , assignment
+  , paused
     -- * Configuration
   , defaultConsumerConfig
   , AssignmentStrategy(..)
@@ -83,6 +90,7 @@ import Data.Hashable (Hashable)
 import Data.Int
 import Data.List (nub)
 import Control.Monad (forM, forM_, when)
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
@@ -827,20 +835,46 @@ poll consumer@Consumer{..} timeoutMs = do
 
             return $ Right iceptedRecords
 
--- | Seek to a specific offset.
+-- | Seek to a specific offset on an /assigned/ partition. The
+-- next 'poll' will re-fetch starting at @offset@. Mirrors
+-- @KafkaConsumer.seek(tp, offset)@.
+--
+-- Returns 'Left' if the partition isn't currently assigned to
+-- this consumer (the JVM client throws 'IllegalStateException'
+-- in that case).
 seek :: Consumer -> TopicPartition -> Int64 -> IO (Either String ())
-seek consumer tp offset =
-  return $ Left "seek not yet implemented"
+seek Consumer{..} tp offset = atomically $ do
+  m <- StmMap.lookup tp consumerAssignment
+  case m of
+    Nothing -> pure (Left ("seek: partition not assigned: "
+                             ++ T.unpack (tpTopic tp)
+                             ++ ":" ++ show (tpPartition tp)))
+    Just _  -> do
+      StmMap.insert offset tp consumerAssignment
+      pure (Right ())
 
--- | Seek to the beginning of partitions.
+-- | Seek to the earliest available offset for each partition.
+-- Mirrors @KafkaConsumer.seekToBeginning(partitions)@.
 seekToBeginning :: Consumer -> [TopicPartition] -> IO (Either String ())
-seekToBeginning consumer tps =
-  return $ Left "seekToBeginning not yet implemented"
+seekToBeginning consumer tps = seekToTimestamp consumer tps (-2)
 
--- | Seek to the end of partitions.
+-- | Seek to the latest available offset (i.e. the high water
+-- mark). Mirrors @KafkaConsumer.seekToEnd(partitions)@.
 seekToEnd :: Consumer -> [TopicPartition] -> IO (Either String ())
-seekToEnd consumer tps =
-  return $ Left "seekToEnd not yet implemented"
+seekToEnd consumer tps = seekToTimestamp consumer tps (-1)
+
+-- | Helper: query the broker for the offset at the supplied
+-- timestamp (-1 = latest, -2 = earliest, otherwise milliseconds
+-- since epoch) and seek every partition to it.
+seekToTimestamp :: Consumer -> [TopicPartition] -> Int64 -> IO (Either String ())
+seekToTimestamp _ [] _ = pure (Right ())
+seekToTimestamp consumer@Consumer{..} tps timestamp = do
+  r <- queryPartitionOffsets consumer tps timestamp
+  case r of
+    Left err -> pure (Left err)
+    Right offsets -> atomically $ do
+      mapM_ (\(tp, off) -> StmMap.insert off tp consumerAssignment) offsets
+      pure (Right ())
 
 -- | Commit offsets synchronously.
 --
@@ -893,12 +927,87 @@ dispatchOnCommit Consumer{..} offsets = do
     Right () -> pure ()
     Left  _  -> pure ()
 
--- | Get committed offset for a partition.
---
--- Fetches the last committed offset for the given partition from the broker.
+-- | Get the committed offset for a single partition. Mirrors
+-- @KafkaConsumer.committed(tp)@. Convenience wrapper around
+-- 'committedAll'.
 committed :: Consumer -> TopicPartition -> IO (Either String Int64)
-committed consumer@Consumer{..} tp = do
-  fetchCommittedOffsets consumer (consumerGroupId consumerConfig) [tp]
+committed consumer tp = do
+  r <- committedAll consumer [tp]
+  case r of
+    Left err -> pure (Left err)
+    Right hm -> case HashMap.lookup tp hm of
+      Nothing  -> pure (Left ("committed: no offset returned for "
+                                ++ T.unpack (tpTopic tp)
+                                ++ ":" ++ show (tpPartition tp)))
+      Just off -> pure (Right off)
+
+-- | KIP-211: Fetch committed offsets for many partitions in one
+-- broker round-trip. The Java client's
+-- @KafkaConsumer.committed(Set\<TopicPartition\>)@ analogue.
+--
+-- Returns 'HashMap' keyed by 'TopicPartition' with the broker's
+-- last committed offset; partitions with no committed offset are
+-- absent from the result map (rather than aliased to 0 — that's
+-- consistent with the JVM client semantics).
+committedAll
+  :: Consumer
+  -> [TopicPartition]
+  -> IO (Either String (HashMap.HashMap TopicPartition Int64))
+committedAll _ [] = pure (Right HashMap.empty)
+committedAll consumer@Consumer{..} tps =
+  fetchCommittedOffsetsBatch consumer
+    (consumerGroupId consumerConfig)
+    tps
+
+-- | KIP-41: current consumer position (the offset of the next
+-- record that will be returned by 'poll'). Read from the local
+-- assignment map, /not/ the broker; this is what the JVM client's
+-- @position(tp)@ returns.
+position :: Consumer -> TopicPartition -> IO (Either String Int64)
+position Consumer{..} tp = atomically $ do
+  m <- StmMap.lookup tp consumerAssignment
+  case m of
+    Nothing  -> pure (Left ("position: partition not assigned: "
+                              ++ T.unpack (tpTopic tp)
+                              ++ ":" ++ show (tpPartition tp)))
+    Just off -> pure (Right off)
+
+-- | KIP-79: query the earliest offset available for each
+-- partition. Mirrors @KafkaConsumer.beginningOffsets(partitions)@.
+beginningOffsets
+  :: Consumer
+  -> [TopicPartition]
+  -> IO (Either String (HashMap.HashMap TopicPartition Int64))
+beginningOffsets consumer tps = do
+  r <- queryPartitionOffsets consumer tps (-2)  -- earliest
+  pure (fmap HashMap.fromList r)
+
+-- | KIP-79: query the high-water-mark offset (i.e. one past the
+-- last produced record) for each partition. Mirrors
+-- @KafkaConsumer.endOffsets(partitions)@.
+endOffsets
+  :: Consumer
+  -> [TopicPartition]
+  -> IO (Either String (HashMap.HashMap TopicPartition Int64))
+endOffsets consumer tps = do
+  r <- queryPartitionOffsets consumer tps (-1)  -- latest
+  pure (fmap HashMap.fromList r)
+
+-- | KIP-79: for each partition, return the earliest offset whose
+-- timestamp is greater than or equal to the supplied timestamp.
+-- Partitions whose timestamp is past the broker's high water mark
+-- are returned with an offset of @-1@.
+offsetsForTimes
+  :: Consumer
+  -> [(TopicPartition, Int64)]      -- ^ (partition, target timestamp ms)
+  -> IO (Either String (HashMap.HashMap TopicPartition Int64))
+offsetsForTimes _ [] = pure (Right HashMap.empty)
+offsetsForTimes consumer@Consumer{..} pts = do
+  -- Each timestamp is per-partition, so we fan one
+  -- ListOffsetsRequest per distinct timestamp; the wire batches
+  -- them inside 'queryPartitionOffsetsByTimestamp'.
+  r <- queryPartitionOffsetsByTimestamp consumer pts
+  pure (fmap HashMap.fromList r)
 
 -- | Pause consumption from partitions.
 pause :: Consumer -> [TopicPartition] -> IO ()
@@ -915,6 +1024,13 @@ assignment :: Consumer -> IO [TopicPartition]
 assignment Consumer{..} = atomically $ do
   pairs <- ListT.toList $ StmMap.listT consumerAssignment
   return $ map fst pairs
+
+-- | List the partitions currently paused via 'pause'. Mirrors
+-- @KafkaConsumer.paused()@.
+paused :: Consumer -> IO [TopicPartition]
+paused Consumer{..} = atomically $ do
+  pairs <- ListT.toList $ StmMap.listT consumerPaused
+  pure (map fst pairs)
 
 -- | Internal: Fetch records from a list of topic-partitions
 --
@@ -1479,3 +1595,167 @@ fetchCommittedOffsets consumer@Consumer{..} groupId tps = do
                       case offsets of
                         [] -> return $ Left "No offset found in response"
                         ((_, _, offset):_) -> return $ Right offset
+
+----------------------------------------------------------------------
+-- Multi-partition committed offsets (KIP-211)
+----------------------------------------------------------------------
+
+-- | Batch sibling of 'fetchCommittedOffsets' that returns every
+-- partition's committed offset (rather than only the first one).
+-- Used by the public 'committedAll' helper.
+fetchCommittedOffsetsBatch
+  :: Consumer
+  -> Text                                -- ^ Group ID
+  -> [TopicPartition]
+  -> IO (Either String (HashMap.HashMap TopicPartition Int64))
+fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
+  case consumerHeartbeat of
+    Nothing -> pure (Left "Not in a consumer group, cannot fetch committed offsets")
+    Just (hbState, _) -> do
+      coordAddrM <- atomically $ readTVar (HB.hbCoordinatorAddr hbState)
+      case coordAddrM of
+        Nothing -> pure (Left "No group coordinator known")
+        Just coordAddr -> do
+          connResult <- Conn.getOrCreateConnection consumerConnManager coordAddr (consumerConnConfig consumer)
+          case connResult of
+            Left err -> pure (Left ("Failed to connect to coordinator: " ++ err))
+            Right conn -> do
+              corrId <- atomically $ do
+                cid <- readTVar consumerCorrelationId
+                writeTVar consumerCorrelationId (cid + 1)
+                pure cid
+              let apiKey = 9                  -- OffsetFetch API
+                  clientMaxVersion = 8
+              brokerVersionM <- atomically $ AV.queryApiVersion consumerVersionCache coordAddr apiKey
+              let apiVersion = case brokerVersionM of
+                    Nothing -> 0
+                    Just range -> case AV.selectVersion clientMaxVersion range of
+                      Nothing -> 0
+                      Just v  -> v
+              let byTopic = Map.fromListWith (++)
+                    [ (tpTopic tp, [tpPartition tp]) | tp <- tps ]
+                  topics = V.fromList
+                    [ OFReq.OffsetFetchRequestTopic
+                        { OFReq.offsetFetchRequestTopicName = P.mkKafkaString topic
+                        , OFReq.offsetFetchRequestTopicPartitionIndexes = P.mkKafkaArray (V.fromList parts)
+                        }
+                    | (topic, parts) <- Map.toList byTopic
+                    ]
+                  request = OFReq.OffsetFetchRequest
+                    { OFReq.offsetFetchRequestGroupId = P.mkKafkaString groupId
+                    , OFReq.offsetFetchRequestTopics = P.mkKafkaArray topics
+                    , OFReq.offsetFetchRequestGroups = P.mkKafkaArray V.empty
+                    , OFReq.offsetFetchRequestRequireStable = False
+                    }
+                  requestBody = runPutS $ OFReq.encodeOffsetFetchRequest apiVersion request
+                  clientId = P.mkKafkaString (consumerClientId consumerConfig)
+              result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
+              case result of
+                Left err -> pure (Left ("OffsetFetch failed: " ++ err))
+                Right (_, responseBody) ->
+                  case runGetS (OFResp.decodeOffsetFetchResponse apiVersion) responseBody of
+                    Left err -> pure (Left ("Failed to parse OffsetFetchResponse: " ++ err))
+                    Right response ->
+                      let topicsVec =
+                            case P.unKafkaArray (OFResp.offsetFetchResponseTopics response) of
+                              P.Null      -> V.empty
+                              P.NotNull v -> v
+                          go !acc tr =
+                            let topic = extractKafkaString (OFResp.offsetFetchResponseTopicName tr)
+                                partsVec = case P.unKafkaArray (OFResp.offsetFetchResponseTopicPartitions tr) of
+                                  P.Null      -> V.empty
+                                  P.NotNull v -> v
+                            in V.foldl'
+                                 (\m p ->
+                                    let pid = OFResp.offsetFetchResponsePartitionPartitionIndex p
+                                        ec  = OFResp.offsetFetchResponsePartitionErrorCode p
+                                        off = OFResp.offsetFetchResponsePartitionCommittedOffset p
+                                    in if ec == 0 && off >= 0
+                                         then HashMap.insert (TopicPartition topic pid) off m
+                                         else m)
+                                 acc partsVec
+                      in pure $ Right $! V.foldl' go HashMap.empty topicsVec
+
+----------------------------------------------------------------------
+-- Per-partition timestamp -> offset (KIP-79)
+----------------------------------------------------------------------
+
+-- | Variant of 'queryPartitionOffsets' that lets each partition
+-- carry its own target timestamp. Used by 'offsetsForTimes'.
+queryPartitionOffsetsByTimestamp
+  :: Consumer
+  -> [(TopicPartition, Int64)]
+  -> IO (Either String [(TopicPartition, Int64)])
+queryPartitionOffsetsByTimestamp consumer@Consumer{..} pts = do
+  -- Group partitions by topic, carrying per-partition timestamp.
+  let byTopic = Map.fromListWith (++)
+        [ (tpTopic tp, [(tpPartition tp, ts)])
+        | (tp, ts) <- pts
+        ]
+  brokersM <- atomically $ Meta.getAllBrokers consumerMetadata
+  case brokersM of
+    Nothing      -> pure (Left "No brokers available in metadata cache")
+    Just []      -> pure (Left "No brokers available in metadata cache")
+    Just (broker:_) -> do
+      let brokerAddr = Meta.brokerMetaAddress broker
+          connConfig = consumerConnConfig consumer
+      connResult <- Conn.getOrCreateConnection consumerConnManager brokerAddr connConfig
+      case connResult of
+        Left err -> pure (Left ("Failed to connect to broker: " ++ err))
+        Right conn -> do
+          corrId <- atomically $ do
+            cid <- readTVar consumerCorrelationId
+            writeTVar consumerCorrelationId (cid + 1)
+            pure cid
+          let apiKey = 2
+              apiVersion = 1
+              topics = V.fromList $ map buildTopicReq (Map.toList byTopic)
+              buildTopicReq (topic, parts) =
+                LOReq.ListOffsetsTopic
+                  { LOReq.listOffsetsTopicName = P.mkKafkaString topic
+                  , LOReq.listOffsetsTopicPartitions = P.mkKafkaArray $ V.fromList $
+                      map (\(pid, ts) ->
+                            LOReq.ListOffsetsPartition
+                              { LOReq.listOffsetsPartitionPartitionIndex = pid
+                              , LOReq.listOffsetsPartitionCurrentLeaderEpoch = -1
+                              , LOReq.listOffsetsPartitionTimestamp = ts
+                              }) parts
+                  }
+              request = LOReq.ListOffsetsRequest
+                { LOReq.listOffsetsRequestReplicaId = -1
+                , LOReq.listOffsetsRequestIsolationLevel = 0
+                , LOReq.listOffsetsRequestTopics = P.mkKafkaArray topics
+                , LOReq.listOffsetsRequestTimeoutMs = 30000
+                }
+              requestBody = runPutS $ LOReq.encodeListOffsetsRequest apiVersion request
+              clientId    = P.mkKafkaString (consumerClientId consumerConfig)
+          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
+          case result of
+            Left err -> pure (Left err)
+            Right (rcid, body)
+              | rcid /= corrId -> pure (Left "Correlation ID mismatch")
+              | otherwise -> case runGetS (LOResp.decodeListOffsetsResponse apiVersion) body of
+                  Left err  -> pure (Left ("Failed to decode ListOffsets response: " ++ err))
+                  Right resp -> pure (Right (extract resp))
+  where
+    extract resp = case P.unKafkaArray (LOResp.listOffsetsResponseTopics resp) of
+      P.Null         -> []
+      P.NotNull tvec ->
+        concatMap
+          (\tr ->
+             let topic = case P.unKafkaString (LOResp.listOffsetsTopicResponseName tr) of
+                   P.Null      -> ""
+                   P.NotNull t -> t
+                 partsVec = case P.unKafkaArray (LOResp.listOffsetsTopicResponsePartitions tr) of
+                   P.Null      -> V.empty
+                   P.NotNull v -> v
+             in mapMaybe
+                  (\pr ->
+                     let pid = LOResp.listOffsetsPartitionResponsePartitionIndex pr
+                         ec  = LOResp.listOffsetsPartitionResponseErrorCode pr
+                         off = LOResp.listOffsetsPartitionResponseOffset pr
+                     in if ec == 0
+                          then Just (TopicPartition topic pid, off)
+                          else Nothing)
+                  (V.toList partsVec))
+          (V.toList tvec)
