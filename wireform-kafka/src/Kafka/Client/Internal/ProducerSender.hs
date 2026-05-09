@@ -83,6 +83,8 @@ import qualified Kafka.Client.Metadata as Meta
 import Kafka.Compression.Types (CompressionCodec (NoCompression))
 import qualified Kafka.Network.Connection as Conn
 import Kafka.Network.Connection (BrokerAddress(..))
+import qualified Kafka.Protocol.ApiVersions as AV
+import qualified Kafka.Protocol.VersionNegotiation as VN
 import qualified Kafka.Protocol.Encoding as E
 import qualified Kafka.Protocol.Generated.ProduceRequest as PR
 import qualified Kafka.Protocol.Generated.ProduceResponse as PResp
@@ -195,6 +197,13 @@ data SenderState = SenderState
   , senderLogger :: !Logger
     -- ^ Structured logger callback; invoked on retriable / fatal
     --   produce errors. Defaults to 'defaultLogger'.
+  , senderVersionCache :: !AV.ApiVersionCache
+    -- ^ Per-broker negotiated API version cache. Populated on
+    --   first contact with each leader broker via
+    --   'VN.ensureVersionsNegotiated' so the Produce-version
+    --   selection ('VN.pickApiVersion') matches what the broker
+    --   actually accepts (rather than the hardcoded v3 the
+    --   sender used to emit unconditionally).
   }
 
 -- | Create a new sender state
@@ -207,8 +216,11 @@ createSenderState
   -> Int           -- ^ Delivery timeout (ms) - KIP-91
   -> CompressionCodec
   -> Text         -- ^ Client ID
+  -> AV.ApiVersionCache
+                 -- ^ Per-broker negotiated API-version cache (shared
+                 --   with the producer's bootstrap handshake)
   -> IO SenderState
-createSenderState accumulator metadata connManager retryConfig acks deliveryTimeoutMs compression clientId = do
+createSenderState accumulator metadata connManager retryConfig acks deliveryTimeoutMs compression clientId versionCache = do
   running <- newTVarIO True
   correlationId <- newTVarIO 0
   -- Use the smaller of delivery timeout and 30 seconds for individual request timeout
@@ -227,6 +239,7 @@ createSenderState accumulator metadata connManager retryConfig acks deliveryTime
     , senderClientId = clientId
     , senderCorrelationId = correlationId
     , senderLogger = defaultLogger
+    , senderVersionCache = versionCache
     }
 
 -- | Start the sender background thread
@@ -352,8 +365,11 @@ sendToBroker state@SenderState{..} broker batches = do
   when (not $ null validBatches) $ do
     -- Get or create connection to the broker
     let brokerAddr = Meta.brokerMetaAddress broker
+        nextCid = atomically $ do
+          cid <- readTVar senderCorrelationId
+          writeTVar senderCorrelationId (cid + 1)
+          pure cid
     connResult <- Conn.getOrCreateConnection senderConnManager brokerAddr Conn.defaultConnectionConfig
-    
     case connResult of
       Left err -> do
         senderLogger LogError
@@ -364,16 +380,26 @@ sendToBroker state@SenderState{..} broker batches = do
           forM_ callbacks $ \callback -> callback (Left errorMsg)
     
       Right conn -> do
-        -- Get next correlation ID
-        corrId <- atomically $ do
-          cid <- readTVar senderCorrelationId
-          writeTVar senderCorrelationId (cid + 1)
-          return cid
-        
+        -- Negotiate ApiVersions for this broker if we haven't yet;
+        -- idempotent, single round-trip per (sender, broker) pair.
+        _ <- VN.ensureVersionsNegotiated conn brokerAddr senderVersionCache nextCid
+        corrId <- nextCid
+
         -- Build and encode the request (compression is IO)
         request <- buildProduceRequest senderAcks senderTimeoutMs validBatches
-        let apiVersion = 3  -- Use version 3 for compatibility
-            apiKey = 0       -- ProduceRequest API key
+        -- ProduceRequest version selection. We cap at v3 (the
+        -- shape we've actively tested end-to-end) but accept
+        -- whatever the broker advertises down to v3. Bumping
+        -- the cap requires exercising the v4+ response shape
+        -- (KIP-219 throttle is already in v3) and v9+'s
+        -- flexible encoding.
+        verR <- VN.pickApiVersion senderVersionCache brokerAddr
+                  0  {- API key 0 = Produce -}
+                  3 3 3
+        let apiVersion = case verR of
+              Right v -> v
+              Left  _ -> 3
+            apiKey = 0
             clientId = P.mkKafkaString senderClientId
             requestBody = runPutS $ PR.encodeProduceRequest apiVersion request
         

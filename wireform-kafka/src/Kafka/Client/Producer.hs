@@ -113,7 +113,9 @@ import qualified Kafka.Client.Internal.TransactionCoordinator as TC
 import qualified Kafka.Client.Metadata as Meta
 import qualified Kafka.Client.Transaction as Txn
 import qualified Kafka.Network.Connection as Conn
+import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Protocol.RecordBatch as RB
+import qualified Kafka.Protocol.VersionNegotiation as VN
 
 -- | Delivery guarantee level.
 data DeliveryGuarantee
@@ -408,15 +410,29 @@ createProducer brokerAddrs config = do
       case connResult of
         Left err -> return $ Left $ "Failed to connect to bootstrap broker: " ++ err
         Right conn -> do
-          -- Fetch metadata (correlation ID 0 for initial fetch)
+          -- Per-producer API version cache (shared with the
+          -- Sender below). We negotiate against the bootstrap
+          -- broker right after connect so the sender's first
+          -- request finds a populated cache; brokers that
+          -- don't speak ApiVersions silently leave the cache
+          -- empty and the sender falls back to its compiled-in
+          -- defaults.
+          versionCache <- AV.createVersionCache
+          handshakeCorrId <- newTVarIO 0
+          let nextHandshakeCid = atomically $ do
+                cid <- readTVar handshakeCorrId
+                writeTVar handshakeCorrId (cid + 1)
+                pure cid
+          _ <- VN.ensureVersionsNegotiated
+                 conn firstBroker versionCache nextHandshakeCid
+
           fetchResult <- Meta.refreshMetadata conn metadataCache 0
           case fetchResult of
             Left err -> return $ Left $ "Failed to fetch initial metadata: " ++ err
-            Right _ -> do
-              -- Continue with producer setup
-              setupProducer config metadataCache connManager
+            Right _ ->
+              setupProducer config metadataCache connManager versionCache
   where
-    setupProducer config metadataCache connManager = do
+    setupProducer config metadataCache connManager versionCache = do
       
       -- Create batch accumulator
       -- Determine compression level to use
@@ -454,6 +470,7 @@ createProducer brokerAddrs config = do
         (producerDeliveryTimeoutMs config)  -- KIP-91: delivery timeout
         (producerCompression config)
         (producerClientId config)
+        versionCache
       
       -- Start sender thread
       senderThread <- Sender.startSenderThread senderState
