@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Client.Internal.ProducerSender
@@ -411,10 +412,15 @@ sendToBroker state@SenderState{..} broker batches = do
         -- in 'topicProduceDataTopicId' for v13+, or leaves it
         -- nullUuid for v0-v12 (which expect the name).
         --
-        -- Cap at v13.
-        verR <- VN.pickApiVersion senderVersionCache brokerAddr
-                  0  {- API key 0 = Produce -}
-                  3 13 3
+        -- Cap at v13. The api key + cache lookup come from the
+        -- 'KafkaMessage PR.ProduceRequest' instance via
+        -- 'pickApiVersionForRange'; the (3, 13) range overrides
+        -- the codegen's full schema range to keep us off versions
+        -- we haven't validated end-to-end yet (v0-v2 don't carry
+        -- a transactional id, v14+ doesn't exist in the schema
+        -- we ship).
+        verR <- VN.pickApiVersionForRange @PR.ProduceRequest
+                  3 13 senderVersionCache brokerAddr 3
         let apiVersion = case verR of
               Right v -> v
               Left  _ -> 3

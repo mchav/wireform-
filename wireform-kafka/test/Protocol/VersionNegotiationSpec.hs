@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Unit tests for the 'pickApiVersion' selector that's wired
 -- through the Producer / Consumer / AdminClient / Transaction
@@ -16,6 +17,9 @@ import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.ApiVersions as AV
+import qualified Kafka.Protocol.Generated.FetchRequest as FR
+import qualified Kafka.Protocol.Generated.ProduceRequest as PR
+import qualified Kafka.Protocol.Message as Msg
 import qualified Kafka.Protocol.VersionNegotiation as VN
 
 ----------------------------------------------------------------------
@@ -129,13 +133,75 @@ tests = testGroup "Kafka.Protocol.VersionNegotiation"
           -- 'ensureVersionsNegotiated' returns Right () without
           -- touching the supplied (no-op) Connection.
           cache <- mkPopulatedCache [(18, 0, 3)]
-          -- An undefined Connection: if 'ensureVersionsNegotiated'
-          -- ever evaluates it we'd crash, which is the test
-          -- (fast-path = no Connection access).
           let bogusConn = error "bogus connection: should not be touched"
           let bogusNextCid = error "bogus corr id: should not be touched"
           r <- VN.ensureVersionsNegotiated bogusConn addr cache bogusNextCid
           assertBool "fast-path should succeed without touching the connection"
                      (case r of Right () -> True; _ -> False)
+      ]
+  , testGroup "pickApiVersionFor / pickApiVersionForRange (type-driven)"
+      [ testCase "pickApiVersionFor uses the message's full codegen range" $ do
+          -- ProduceRequest's codegen range is (3, 13) per its
+          -- 'KafkaMessage' instance. Broker advertises Produce
+          -- [3..12]. Result: 12 (broker max, since it's < client max).
+          --
+          -- This is the headline ergonomic win: no need to spell
+          -- out apiKey + min + max at every call site.
+          Msg.messageApiKey @PR.ProduceRequest @?= 0
+          cache <- mkPopulatedCache [(0, 3, 12)]
+          r <- VN.pickApiVersionFor @PR.ProduceRequest cache addr 3
+          r @?= Right 12
+      , testCase "pickApiVersionFor falls back when broker hasn't responded" $ do
+          cache <- AV.createVersionCache
+          r <- VN.pickApiVersionFor @PR.ProduceRequest cache addr 7
+          r @?= Right 7
+      , testCase "pickApiVersionForRange overrides the message's range" $ do
+          -- FetchRequest codegen range is (4, 17). The client
+          -- caps at 12 because v13+ uses TopicId. Use the
+          -- override; broker advertises Fetch [4..15] -> result
+          -- is 12 (the override max, since it's < broker max).
+          cache <- mkPopulatedCache [(1, 4, 15)]
+          r <- VN.pickApiVersionForRange @FR.FetchRequest 4 12 cache addr 4
+          r @?= Right 12
+      , testCase "pickApiVersionForRange override below broker max takes precedence" $ do
+          -- Broker would be happy to do Fetch v17, but the
+          -- client only trusts v12 — the override caps below.
+          cache <- mkPopulatedCache [(1, 4, 17)]
+          r <- VN.pickApiVersionForRange @FR.FetchRequest 4 12 cache addr 4
+          r @?= Right 12
+      , testCase "pickApiVersionForRange override above broker max -> broker max" $ do
+          -- Override pushes higher than the broker actually
+          -- supports; the negotiation still respects the
+          -- broker's max (so we don't ship a request the broker
+          -- can't decode).
+          cache <- mkPopulatedCache [(1, 4, 8)]
+          r <- VN.pickApiVersionForRange @FR.FetchRequest 4 12 cache addr 4
+          r @?= Right 8
+      , testCase "pickApiVersionForRange empty cache -> falls back" $ do
+          cache <- AV.createVersionCache
+          r <- VN.pickApiVersionForRange @FR.FetchRequest 4 12 cache addr 7
+          r @?= Right 7
+      , testCase "pickApiVersionForRange pinned to a single version (test exercise)" $ do
+          -- Tests can pin a specific version by setting min=max,
+          -- which is the canonical way to drive a request at a
+          -- known version regardless of what the broker
+          -- advertises.
+          cache <- mkPopulatedCache [(1, 4, 17)]
+          r <- VN.pickApiVersionForRange @FR.FetchRequest 7 7 cache addr 7
+          r @?= Right 7
+      , testCase "pickApiVersionForRange pinned single version, broker doesn't support it -> mismatch" $ do
+          -- If the broker is too old for the pinned version,
+          -- the negotiator returns a mismatch rather than
+          -- silently picking something the broker rejects.
+          cache <- mkPopulatedCache [(1, 4, 6)]
+          r <- VN.pickApiVersionForRange @FR.FetchRequest 7 7 cache addr 7
+          case r of
+            Left mm -> do
+              VN.mismatchApiKey   mm @?= 1
+              VN.mismatchClientMin mm @?= 7
+              VN.mismatchClientMax mm @?= 7
+              VN.mismatchBrokerMin mm @?= 4
+              VN.mismatchBrokerMax mm @?= 6
+            Right v -> error ("expected mismatch, got " <> show v)
       ]
   ]

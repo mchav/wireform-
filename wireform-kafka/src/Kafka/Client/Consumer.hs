@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Client.Consumer
@@ -545,10 +546,14 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
           -- We cap at v8 (the highest the broker accepts on
           -- non-tiered-storage clusters; v9+ rely on the broker
           -- having KIP-405 enabled which Kafka 3.7's default
-          -- builds do not). 'offsetsForTimesFull' exposes the
+          -- builds do not). The api key + cache lookup come from
+          -- the 'KafkaMessage LOReq.ListOffsetsRequest' instance
+          -- via 'pickApiVersionForRange'; the (0, 8) override
+          -- enforces the cap. 'offsetsForTimesFull' exposes the
           -- timestamp + leader-epoch fields v4+ adds to the
           -- per-partition response.
-          verR <- VN.pickApiVersion consumerVersionCache brokerAddr apiKey 0 8 1
+          verR <- VN.pickApiVersionForRange @LOReq.ListOffsetsRequest
+                    0 8 consumerVersionCache brokerAddr 1
           let apiVersion = case verR of
                 Right v -> v
                 Left  _ -> 1   -- preserve legacy fallback
@@ -1272,8 +1277,12 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
       --   v15 ReplicaState moved into a tagged field
       --   v17 ReplicaDirectoryId added (tagged)
       -- Codegen handles up to v17 against the upstream 4.0.0
-      -- schemas.
-      verR <- VN.pickApiVersion versionCache brokerAddr apiKey 4 12 4
+      -- schemas. The api key + cache lookup come from the
+      -- 'KafkaMessage FR.FetchRequest' instance via
+      -- 'pickApiVersionForRange'; the (4, 12) override caps
+      -- below the codegen max.
+      verR <- VN.pickApiVersionForRange @FR.FetchRequest
+                4 12 versionCache brokerAddr 4
       let apiVersion = case verR of
             Right v -> v
             Left  _ -> 4   -- min supported (matches legacy fallback)
@@ -1562,7 +1571,8 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
               -- per-topic 'topicId' (we send nullUuid =
               -- name-based lookup). v8 added 'topicId' which we
               -- already supply as nullUuid.
-              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 9 5
+              verR <- VN.pickApiVersionForRange @OCReq.OffsetCommitRequest
+                        0 9 consumerVersionCache coordAddr 5
               let apiVersion = case verR of
                     Right v -> v
                     Left  _ -> 5
@@ -1673,7 +1683,8 @@ fetchCommittedOffsets consumer@Consumer{..} groupId tps = do
               -- v8 dispatch rationale. We share the same builder
               -- + parser helpers so single-offset reads also
               -- benefit from the per-group batched shape on v8+.
-              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 8 5
+              verR <- VN.pickApiVersionForRange @OFReq.OffsetFetchRequest
+                        0 8 consumerVersionCache coordAddr 5
               let apiVersion = case verR of
                     Right v -> v
                     Left  _ -> 5
@@ -1743,7 +1754,8 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
               -- broker side, which mirrors what the JVM client
               -- does when it isn't using the KIP-848 consumer
               -- protocol.
-              verR <- VN.pickApiVersion consumerVersionCache coordAddr apiKey 0 8 5
+              verR <- VN.pickApiVersionForRange @OFReq.OffsetFetchRequest
+                        0 8 consumerVersionCache coordAddr 5
               let apiVersion = case verR of
                     Right v -> v
                     Left  _ -> 5
@@ -1946,7 +1958,8 @@ queryPartitionOffsetsByTimestampFull consumer@Consumer{..} pts = do
             pure cid
           let apiKey = 2  -- ListOffsets
           -- See 'queryPartitionOffsets' for the v8 cap rationale.
-          verR <- VN.pickApiVersion consumerVersionCache brokerAddr apiKey 0 8 1
+          verR <- VN.pickApiVersionForRange @LOReq.ListOffsetsRequest
+                    0 8 consumerVersionCache brokerAddr 1
           let apiVersion = case verR of
                 Right v -> v
                 Left  _ -> 1

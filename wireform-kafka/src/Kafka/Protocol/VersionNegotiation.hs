@@ -57,6 +57,7 @@ module Kafka.Protocol.VersionNegotiation
     -- * Version selection
   , pickApiVersion
   , pickApiVersionFor
+  , pickApiVersionForRange
   , VersionMismatch (..)
   ) where
 
@@ -236,7 +237,22 @@ pickApiVersion cache addr apiKey clientMin clientMax fallback = do
 -- @
 --
 -- and stay in lock-step with the codegen-emitted version
--- bounds when the protocol surface evolves.
+-- bounds when the protocol surface evolves. The
+-- @messageMinVersion@ / @messageMaxVersion@ values come from
+-- the upstream Kafka schemas and are baked in by the codegen,
+-- so this is the right entry point whenever the client trusts
+-- the codegen's full range against every broker it might
+-- contact.
+--
+-- For call sites that need to cap below the codegen's full
+-- range — e.g. the consumer's Fetch path caps at v12 even
+-- though the codegen handles v17, because v13+ moved to
+-- TopicId-based identification and the client hasn't end-to-end
+-- tested that path against a live broker yet — use
+-- 'pickApiVersionForRange', which keeps the type-driven api-key
+-- lookup but lets the call site override the @(min, max)@ pair.
+-- That same override entry is what tests use to drive a specific
+-- version (or a different range than the production cap).
 pickApiVersionFor
   :: forall msg. Msg.KafkaMessage msg
   => ApiVersionCache
@@ -248,4 +264,61 @@ pickApiVersionFor cache addr fallback =
     (Msg.messageApiKey      @msg)
     (Msg.messageMinVersion  @msg)
     (Msg.messageMaxVersion  @msg)
+    fallback
+
+-- | Type-driven version of 'pickApiVersion' with explicit
+-- @(clientMin, clientMax)@ override.
+--
+-- The @apiKey@ still comes from the 'KafkaMessage' instance
+-- (so the cache lookup stays in sync with the codegen-emitted
+-- key), but the version range is supplied by the caller.
+-- Two intended uses:
+--
+--   * /Production cap below the codegen max/. Some APIs have
+--     newer wire shapes the codegen knows how to emit but the
+--     client hasn't validated against a live broker yet
+--     (e.g. FetchRequest v13+'s TopicId-based shape, or
+--     OffsetFetch v9's KIP-848 member-epoch flow). Capping at
+--     the call site prevents the client from accidentally
+--     negotiating up to a wire format we haven't tested
+--     end-to-end.
+--
+--     @
+--     verR <- pickApiVersionForRange \@FR.FetchRequest 4 12 cache addr 4
+--     @
+--
+--   * /Tests that need to drive a specific version/. Tests
+--     that want to assert behaviour at v0 / v6 / a specific
+--     intermediate version pin the range tight:
+--
+--     @
+--     -- exercise FetchRequest v6 specifically
+--     verR <- pickApiVersionForRange \@FR.FetchRequest 6 6 cache addr 6
+--     @
+--
+--     or open it back up to the codegen's full range to verify
+--     the client survives whatever the broker advertises:
+--
+--     @
+--     verR <- pickApiVersionForRange \@FR.FetchRequest
+--               (messageMinVersion \@FR.FetchRequest)
+--               (messageMaxVersion \@FR.FetchRequest)
+--               cache addr (messageMaxVersion \@FR.FetchRequest)
+--     @
+--
+--     ('pickApiVersionFor' is the shorthand for the second
+--     pattern.)
+pickApiVersionForRange
+  :: forall msg. Msg.KafkaMessage msg
+  => Int16            -- ^ override min
+  -> Int16            -- ^ override max
+  -> ApiVersionCache
+  -> BrokerAddress
+  -> Int16            -- ^ fallback when cache is empty
+  -> IO (Either VersionMismatch Int16)
+pickApiVersionForRange clientMin clientMax cache addr fallback =
+  pickApiVersion cache addr
+    (Msg.messageApiKey @msg)
+    clientMin
+    clientMax
     fallback
