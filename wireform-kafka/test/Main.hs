@@ -29,6 +29,7 @@ import qualified Protocol.Generated.SimpleRoundTripSpec
 import qualified Protocol.Generated.KnownGoodSpec
 import qualified Protocol.Generated.ComprehensiveSpec
 import qualified Protocol.VersionHandlingSpec
+import qualified Protocol.WireSpec
 import qualified Protocol.ApiVersionsSpec
 import qualified Client.BatchAccumulatorSpec
 import qualified Client.ConsumerConfigSpec
@@ -110,6 +111,7 @@ protocolTests = testGroup "Protocol"
   , Protocol.PrimitivesSpec.tests
   , Protocol.RoundTripSpec.tests
   , Protocol.RecordBatchSpec.tests
+  , Protocol.WireSpec.tests
   ]
 
 generatedTests :: TestTree -> TestTree -> TestTree

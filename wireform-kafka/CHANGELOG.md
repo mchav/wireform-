@@ -182,6 +182,55 @@ the JVM client + librdkafka:
 - `KIP_TRACKING.md` — implemented-count climbed from ~40 to ~140
   on this branch; unimplemented count dropped from ~291 to ~80.
 
+### Added — Direct-poke `Wire` codec
+
+A new typeclass + code-generator targeting raw `Ptr Word8` writes
+instead of `Data.Bytes.Serial` (which goes through `cereal`'s
+`Builder`). Designed to be the new default emit shape for the
+`wireform-kafka-codegen` plugin while leaving the existing
+`Serial` instances around for backwards compat.
+
+- `Kafka.Protocol.Wire`: `Wire` typeclass (`wireMaxSize`,
+  `wirePoke`, `wirePeek`), `runWirePut` / `runWireGet` runners,
+  fixed-width primitive helpers (`pokeInt32BE` / `peekInt64BE` /
+  …), variable-length integer helpers (`pokeUVarInt` /
+  `pokeVarInt` / `pokeVarLong` + the matching peeks),
+  `pokeByteString` / `peekByteString`, `WireError` typed
+  exceptions for truncated / malformed input.
+- `Kafka.Protocol.Wire.Primitives`: `Wire` instances + named
+  helpers for every Kafka primitive — `KafkaString`,
+  `CompactString`, `KafkaBytes`, `CompactBytes`, `KafkaUuid`,
+  `VarInt`, `VarLong`, `UVarInt`. Length-prefix-only helpers
+  (`pokeKafkaArrayLen`, `pokeNullableCompactArrayLen`, …) so
+  the code generator can poke the prefix and then loop the
+  element pokes manually for tight inner loops.
+- `Kafka.Protocol.Codegen.WireGenerator`: emits a
+  `wireMaxSize{Msg}` / `wirePoke{Msg}` / `wirePeek{Msg}` triple
+  per message that lives next to the existing `encode{Msg}` /
+  `decode{Msg}` `Serial`-based functions. Both surfaces stay
+  available so callers can flip to the direct-poke path one
+  call site at a time.
+- `Protocol.WireSpec`: 26 tests covering round-trip + byte-
+  identical cross-codec equivalence with `Serial` for every
+  primitive. All pass.
+- `Benchmarks.WireVsSerial`: per-primitive Criterion comparison.
+  Headline numbers (GHC 9.6.4, this VM):
+
+  | Codec         | Serial   | Wire     | Wire / Serial |
+  |---------------|----------|----------|---------------|
+  | `Int32`       | 134 ns   | 96 ns    | **0.72×**     |
+  | `Int64`       | 137 ns   | 93 ns    | **0.68×**     |
+  | `VarInt` small| 142 ns   | 95 ns    | **0.67×**     |
+  | `VarInt` max  | 561 ns   | 100 ns   | **0.18×** (5.6× faster) |
+  | `KafkaString` 'hello' | 161 ns | 149 ns | 0.93×    |
+  | `KafkaBytes` 1 KiB | 647 ns | 303 ns | **0.47×** (2.1× faster) |
+  | `KafkaBytes` 16 KiB | 1.04 μs | 0.79 μs | **0.76×** |
+  | `CompactString` 'hello' | 165 ns | 148 ns | 0.90× |
+
+  The largest wins are big payloads (one `copyBytes` instead of
+  `Builder` chunked accumulation) and large-magnitude varints
+  (`Wire`'s tail-recursive poke vs `Serial`'s monadic builder).
+
 ### Added (round 2 audit)
 
 - `Kafka.Client.ReauthDriver` — KIP-368 mid-session SASL

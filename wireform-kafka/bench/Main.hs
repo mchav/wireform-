@@ -34,6 +34,7 @@ import qualified Benchmarks.SerLib as SerLib
 import qualified Benchmarks.Serialization as Serialization
 import qualified Benchmarks.ClientOps as ClientOps
 import qualified Benchmarks.StatsAndStamping as StatsAndStamping
+import qualified Benchmarks.WireVsSerial as WireVsSerial
 
 -- -----------------------------------------------------------------------------
 -- Main Entry Point
@@ -71,6 +72,7 @@ main = do
     , SerLib.benchmarks
     , ClientOps.benchmarks
     , StatsAndStamping.benchmarks
+    , WireVsSerial.benchmarks
     ]
 
 -- -----------------------------------------------------------------------------
