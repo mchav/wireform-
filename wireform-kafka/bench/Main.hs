@@ -36,6 +36,7 @@ import qualified Benchmarks.ClientOps as ClientOps
 import qualified Benchmarks.StatsAndStamping as StatsAndStamping
 import qualified Benchmarks.WireVsSerial as WireVsSerial
 import qualified Benchmarks.HotPath as HotPath
+import qualified Benchmarks.HwKafkaComparison as HwKafkaComparison
 
 -- -----------------------------------------------------------------------------
 -- Main Entry Point
@@ -75,6 +76,7 @@ main = do
     , StatsAndStamping.benchmarks
     , WireVsSerial.benchmarks
     , HotPath.benchmarks
+    , HwKafkaComparison.benchmarks
     ]
 
 -- -----------------------------------------------------------------------------

@@ -816,6 +816,7 @@ benchmark wireform-kafka-bench
         Benchmarks.StatsAndStamping
         Benchmarks.WireVsSerial
         Benchmarks.HotPath
+        Benchmarks.HwKafkaComparison
         Benchmarks.Util
     build-depends:
         base,
