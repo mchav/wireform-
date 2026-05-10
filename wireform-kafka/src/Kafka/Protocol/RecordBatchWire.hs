@@ -44,6 +44,14 @@ module Kafka.Protocol.RecordBatchWire
   , encodeRecordBatchWireCompressedWithLevel
     -- * Direct-poke decoder
   , decodeRecordBatchWire
+    -- * Sliced (memory-efficient) decoder
+  , SlicedRecordBatch(..)
+  , decodeRecordBatchWireSliced
+  , slicedRecordKey
+  , slicedRecordValue
+  , slicedRecordCount
+  , slicedRecordOffset
+  , slicedRecordTimestamp
   ) where
 
 import Control.Exception (SomeException, try)
@@ -61,9 +69,12 @@ import Foreign.Ptr (Ptr, minusPtr, plusPtr)
 import GHC.IO (unsafePerformIO)
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
+import qualified Data.Vector.Unboxed as VU
+import qualified Data.Vector.Unboxed.Mutable as VUM
 
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.CRC32C as CRC
+import qualified Kafka.Protocol.Wire.SliceVector as SV
 import Kafka.Protocol.RecordBatch
   ( Attributes (..)
   , Record (..)
@@ -806,3 +817,291 @@ peekBatchWithDecompression fp basePtr p endPtr = do
             , batchBaseSequence         = baseSeq
             , batchRecords              = records
             }
+
+----------------------------------------------------------------------
+-- Sliced (memory-efficient) decoder
+--
+-- The standard 'decodeRecordBatchWire' returns a 'V.Vector
+-- Record', where every record carries:
+--
+--   * one 'BS.ByteString' header for the key (24 bytes + a
+--     'ForeignPtr' GC-root, ~32 bytes of GC bookkeeping);
+--   * another for the value (same overhead);
+--   * a list of 'RecordHeader' records, each with two more
+--     'ByteString' headers.
+--
+-- For a 50 MiB fetch response with 100 K records that's roughly
+-- 5.6 MiB of /header/ overhead alone, before any payload bytes
+-- get touched. Each 'ByteString' also carries an independent
+-- 'ForeignPtr' reference to the source buffer, so the GC has
+-- 100 K + roots to walk every minor collection.
+--
+-- 'SlicedRecordBatch' collapses all of that into:
+--
+--   * one 'ForeignPtr Word8' for the source buffer (one GC
+--     root for the whole batch);
+--   * three unboxed parallel vectors with the per-record
+--     metadata ('Int64' offset deltas, 'Int64' timestamp
+--     deltas, header counts);
+--   * two 'SV.SliceVector's, one for keys and one for values,
+--     keyed on the same buffer (16 bytes per slice — an
+--     @(Int32 offset, Int32 length)@ pair — vs ~56 bytes per
+--     'ByteString' header).
+--
+-- For a 100 K-record batch the slice vectors are about 1.6 MiB
+-- + 1.6 MiB instead of the ~5.6 MiB of headers; per-record
+-- access is one 'IntMap'-free, branch-free pointer arithmetic
+-- step.
+--
+-- The downside: this view drops headers (the v2 record-format
+-- 'headers' list). Callers that need headers should fall back
+-- to 'decodeRecordBatchWire'. A future iteration can add
+-- 'sbHeaders :: SliceVector' if there's demand.
+
+-- | Memory-efficient view of a Kafka 'RecordBatch'. See the
+-- module-level commentary above for the trade-offs vs
+-- 'RecordBatch'.
+data SlicedRecordBatch = SlicedRecordBatch
+  { sbBaseOffset           :: !Int64
+  , sbPartitionLeaderEpoch :: !Int32
+  , sbAttributes           :: !Attributes
+  , sbLastOffsetDelta      :: !Int32
+  , sbBaseTimestamp        :: !Int64
+  , sbMaxTimestamp         :: !Int64
+  , sbProducerId           :: !Int64
+  , sbProducerEpoch        :: !Int16
+  , sbBaseSequence         :: !Int32
+  , sbCount                :: !Int
+    -- ^ Number of records in the batch.
+  , sbOffsetDeltas         :: !(VU.Vector Int32)
+    -- ^ Per-record offset delta. Index by record position
+    --   @[0 .. sbCount - 1]@.
+  , sbTimestampDeltas      :: !(VU.Vector Int64)
+    -- ^ Per-record timestamp delta.
+  , sbKeySlices            :: !SV.SliceVector
+    -- ^ Per-record keys. A length of @-1@ on the underlying
+    --   slice means the key was null (use 'slicedRecordKey'
+    --   to do the right thing).
+  , sbValueSlices          :: !SV.SliceVector
+    -- ^ Per-record values. A length of @-1@ means the value
+    --   was null; the v2 record format permits this.
+  , sbHeaderCounts         :: !(VU.Vector Int32)
+    -- ^ Number of headers each record has. Records with a
+    --   non-zero count need 'decodeRecordBatchWire' to access
+    --   header bytes.
+  }
+
+-- | Number of records in the batch.
+{-# INLINE slicedRecordCount #-}
+slicedRecordCount :: SlicedRecordBatch -> Int
+slicedRecordCount = sbCount
+
+-- | Compute the absolute Kafka offset of the i-th record in
+-- the batch.
+{-# INLINE slicedRecordOffset #-}
+slicedRecordOffset :: SlicedRecordBatch -> Int -> Int64
+slicedRecordOffset SlicedRecordBatch{..} i =
+  sbBaseOffset + fromIntegral (sbOffsetDeltas VU.! i)
+
+-- | Compute the absolute Kafka timestamp of the i-th record.
+{-# INLINE slicedRecordTimestamp #-}
+slicedRecordTimestamp :: SlicedRecordBatch -> Int -> Int64
+slicedRecordTimestamp SlicedRecordBatch{..} i =
+  sbBaseTimestamp + sbTimestampDeltas VU.! i
+
+-- | Read the i-th record's key as a zero-copy 'ByteString'
+-- slice over the batch's backing buffer. Returns 'Nothing' if
+-- the on-the-wire key was null (length -1).
+{-# INLINE slicedRecordKey #-}
+slicedRecordKey :: SlicedRecordBatch -> Int -> Maybe ByteString
+slicedRecordKey SlicedRecordBatch{..} i =
+  let !(off, len) = VU.unsafeIndex (SV.sliceVectorOffsets sbKeySlices) i
+  in if len < 0
+       then Nothing
+       else Just (BSI.fromForeignPtr (SV.sliceVectorBuffer sbKeySlices)
+                    (fromIntegral off) (fromIntegral len))
+
+-- | Read the i-th record's value. The v2 record format allows
+-- null values; we return 'BS.empty' in that case to match the
+-- legacy 'decodeRecordBatchWire' behaviour.
+{-# INLINE slicedRecordValue #-}
+slicedRecordValue :: SlicedRecordBatch -> Int -> ByteString
+slicedRecordValue SlicedRecordBatch{..} i =
+  let !(off, len) = VU.unsafeIndex (SV.sliceVectorOffsets sbValueSlices) i
+  in if len < 0
+       then BS.empty
+       else BSI.fromForeignPtr (SV.sliceVectorBuffer sbValueSlices)
+              (fromIntegral off) (fromIntegral len)
+
+-- | Decode a record batch into the memory-efficient sliced
+-- view. The bytes are interpreted exactly the same way as
+-- 'decodeRecordBatchWire'; the only differences are how the
+-- result is arranged in memory and that headers are not
+-- materialised.
+{-# INLINEABLE decodeRecordBatchWireSliced #-}
+decodeRecordBatchWireSliced
+  :: ByteString -> Either String SlicedRecordBatch
+decodeRecordBatchWireSliced bs = unsafePerformIO $ do
+  let (fp, off, len) = BSI.toForeignPtr bs
+  withForeignPtr fp $ \basePtr -> do
+    let !startPtr = basePtr `plusPtr` off
+        !endPtr   = startPtr `plusPtr` len
+    r <- try (peekSlicedBatch fp basePtr startPtr endPtr)
+           :: IO (Either SomeException SlicedRecordBatch)
+    case r of
+      Left e   -> pure (Left (show e))
+      Right rb -> pure (Right rb)
+
+{-# INLINE peekSlicedBatch #-}
+peekSlicedBatch
+  :: ForeignPtr Word8
+  -> Ptr Word8
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO SlicedRecordBatch
+peekSlicedBatch fp basePtr p endPtr = do
+  ensureBytes p endPtr 21 "RecordBatch header"
+  (baseOffset, p1) <- peekInt64BE p endPtr
+  (lenValue,   p2) <- peekInt32BE p1 endPtr
+  (leaderEp,   p3) <- peekInt32BE p2 endPtr
+  (magic,      p4) <- peekWord8   p3 endPtr
+  if fromIntegral magic /= magicV2
+    then errOut ("Unsupported magic byte: " ++ show magic)
+    else do
+      (storedCrc, p5) <- peekWord32BE p4 endPtr
+      let !bodyStart = p5
+          !bodyLen   = fromIntegral lenValue - 4 - 1 - 4
+          !bodyEnd   = bodyStart `plusPtr` bodyLen
+      ensureBytes bodyStart endPtr bodyLen "RecordBatch body"
+      computedCrc <- CRC.crc32cPtr bodyStart bodyLen
+      if computedCrc /= storedCrc
+        then errOut ("CRC mismatch: stored=" ++ show storedCrc
+                       ++ ", computed=" ++ show computedCrc)
+        else do
+          (attrsW, q1) <- peekInt16BE bodyStart bodyEnd
+          attrs <- case decodeAttributes attrsW of
+            Left e  -> errOut e
+            Right a -> pure a
+          (lastDelta, q2) <- peekInt32BE q1 bodyEnd
+          (baseTs,    q3) <- peekInt64BE q2 bodyEnd
+          (maxTs,     q4) <- peekInt64BE q3 bodyEnd
+          (pid,       q5) <- peekInt64BE q4 bodyEnd
+          (pep,       q6) <- peekInt16BE q5 bodyEnd
+          (baseSeq,   q7) <- peekInt32BE q6 bodyEnd
+          (recCount,  q8) <- peekInt32BE q7 bodyEnd
+          let !n = fromIntegral recCount :: Int
+          if n <= 0
+            then pure SlicedRecordBatch
+              { sbBaseOffset           = baseOffset
+              , sbPartitionLeaderEpoch = leaderEp
+              , sbAttributes           = attrs
+              , sbLastOffsetDelta      = lastDelta
+              , sbBaseTimestamp        = baseTs
+              , sbMaxTimestamp         = maxTs
+              , sbProducerId           = pid
+              , sbProducerEpoch        = pep
+              , sbBaseSequence         = baseSeq
+              , sbCount                = 0
+              , sbOffsetDeltas         = VU.empty
+              , sbTimestampDeltas      = VU.empty
+              , sbKeySlices            = SV.empty
+              , sbValueSlices          = SV.empty
+              , sbHeaderCounts         = VU.empty
+              }
+            else do
+              (offDeltas, tsDeltas, keyOffs, valOffs, hdrCounts)
+                <- readSlicedRecords basePtr n q8 bodyEnd
+              pure SlicedRecordBatch
+                { sbBaseOffset           = baseOffset
+                , sbPartitionLeaderEpoch = leaderEp
+                , sbAttributes           = attrs
+                , sbLastOffsetDelta      = lastDelta
+                , sbBaseTimestamp        = baseTs
+                , sbMaxTimestamp         = maxTs
+                , sbProducerId           = pid
+                , sbProducerEpoch        = pep
+                , sbBaseSequence         = baseSeq
+                , sbCount                = n
+                , sbOffsetDeltas         = offDeltas
+                , sbTimestampDeltas      = tsDeltas
+                , sbKeySlices            = SV.fromForeignPtrSlices fp keyOffs
+                , sbValueSlices          = SV.fromForeignPtrSlices fp valOffs
+                , sbHeaderCounts         = hdrCounts
+                }
+
+-- | Walk the @n@ records once, populating five parallel
+-- vectors. The two 'SliceVector' offset arrays use the source
+-- buffer's 'ForeignPtr' as the shared backing store so the
+-- per-record cost is just two @(Int32, Int32)@ writes — no
+-- 'ByteString' header allocation.
+{-# INLINE readSlicedRecords #-}
+readSlicedRecords
+  :: Ptr Word8                       -- ^ basePtr (start of source buffer)
+  -> Int                             -- ^ record count
+  -> Ptr Word8                       -- ^ start of first record
+  -> Ptr Word8                       -- ^ end of body
+  -> IO ( VU.Vector Int32            -- offset deltas
+        , VU.Vector Int64            -- timestamp deltas
+        , VU.Vector (Int32, Int32)   -- key (offset, length) pairs
+        , VU.Vector (Int32, Int32)   -- value (offset, length) pairs
+        , VU.Vector Int32            -- header counts (mostly 0)
+        )
+readSlicedRecords basePtr n start endPtr = do
+  mvOff   <- VUM.unsafeNew n
+  mvTs    <- VUM.unsafeNew n
+  mvKey   <- VUM.unsafeNew n
+  mvVal   <- VUM.unsafeNew n
+  mvHdr   <- VUM.unsafeNew n
+  let go !i !p
+        | i >= n    = pure ()
+        | otherwise = do
+            -- Outer length VarInt (consumed but unused).
+            (_len,    p0) <- peekVarInt p endPtr
+            -- Per-record attributes byte (always 0 in v2).
+            (_attrs,  p1) <- peekWord8  p0 endPtr
+            (tsDelta, p2) <- peekVarLong p1 endPtr
+            (offDelta,p3) <- peekVarInt  p2 endPtr
+            -- key: VarInt length + bytes; -1 means null
+            (keyLen,  p4) <- peekVarInt p3 endPtr
+            let !keyOffset = fromIntegral (p4 `minusPtr` basePtr) :: Int32
+                !keyLenInt = fromIntegral keyLen :: Int
+                !p5 = if keyLen < 0
+                         then p4
+                         else p4 `plusPtr` keyLenInt
+            -- value: same shape
+            (valLen,  p6) <- peekVarInt p5 endPtr
+            let !valOffset = fromIntegral (p6 `minusPtr` basePtr) :: Int32
+                !valLenInt = fromIntegral valLen :: Int
+                !p7 = if valLen < 0
+                         then p6
+                         else p6 `plusPtr` valLenInt
+            -- header count: skip the headers' bytes without
+            -- materialising them; sliced view doesn't expose
+            -- headers (yet).
+            (hdrCount, p8) <- peekVarInt p7 endPtr
+            p9 <- skipHeaders (fromIntegral hdrCount) p8 endPtr
+            VUM.unsafeWrite mvOff i offDelta
+            VUM.unsafeWrite mvTs  i tsDelta
+            VUM.unsafeWrite mvKey i (keyOffset, fromIntegral keyLen)
+            VUM.unsafeWrite mvVal i (valOffset, fromIntegral valLen)
+            VUM.unsafeWrite mvHdr i hdrCount
+            go (i + 1) p9
+  go 0 start
+  (,,,,) <$> VU.unsafeFreeze mvOff
+         <*> VU.unsafeFreeze mvTs
+         <*> VU.unsafeFreeze mvKey
+         <*> VU.unsafeFreeze mvVal
+         <*> VU.unsafeFreeze mvHdr
+
+-- | Walk past @n@ records' worth of headers without
+-- materialising them. Each header is @VarInt key-length + key
+-- bytes + VarInt value-length + value bytes (or none on -1)@.
+{-# INLINE skipHeaders #-}
+skipHeaders :: Int -> Ptr Word8 -> Ptr Word8 -> IO (Ptr Word8)
+skipHeaders 0  !p _ = pure p
+skipHeaders !k !p endPtr = do
+  (kLen, p1) <- peekVarInt p endPtr
+  let !p2 = p1 `plusPtr` fromIntegral kLen
+  (vLen, p3) <- peekVarInt p2 endPtr
+  let !p4 = if vLen < 0 then p3 else p3 `plusPtr` fromIntegral vLen
+  skipHeaders (k - 1) p4 endPtr

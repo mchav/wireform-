@@ -42,6 +42,14 @@ tests = testGroup "RecordBatchWire round-trips"
       , testProperty "zstd: encode . decode == id"
           (prop_round_trip_compressed Compression.Zstd)
       ]
+  , testGroup "sliced decoder"
+      [ testProperty
+          "agrees with V.Vector Record decoder on key + value + offsets"
+          prop_sliced_matches_record
+      , testCase
+          "empty batch returns sbCount=0 + empty slice vectors"
+          sliced_empty_batch
+      ]
   ]
 
 empty_round_trip :: IO ()
@@ -141,3 +149,63 @@ genHeader = do
   k <- Gen.bytes (Range.linear 0 16)
   v <- Gen.maybe (Gen.bytes (Range.linear 0 64))
   pure RB.RecordHeader { RB.headerKey = k, RB.headerValue = v }
+
+----------------------------------------------------------------------
+-- Sliced decoder
+----------------------------------------------------------------------
+
+-- | The sliced decoder shares the per-record bytes with the
+-- record-shape decoder (modulo headers, which the sliced view
+-- doesn't expose). For every record the test asserts: same
+-- absolute offset, same absolute timestamp, same key bytes,
+-- same value bytes (with the v2 null-value-as-empty
+-- normalisation matching).
+--
+-- We deliberately generate records /without/ headers here so
+-- 'sbHeaderCounts' is uniformly zero; the sliced decoder is
+-- documented to skip over header bytes without exposing them.
+prop_sliced_matches_record :: Property
+prop_sliced_matches_record = property $ do
+  records <- forAll (Gen.list (Range.linear 0 16) genRecordNoHeaders)
+  let !b   = mkBatch records
+      !bs  = RBW.encodeRecordBatchWire b
+  case (RBW.decodeRecordBatchWire bs, RBW.decodeRecordBatchWireSliced bs) of
+    (Left e, _)  -> annotate ("record decode: " <> e)  >> failure
+    (_, Left e)  -> annotate ("sliced decode: " <> e)  >> failure
+    (Right rb, Right sb) -> do
+      let recs = V.toList (RB.batchRecords rb)
+      RBW.slicedRecordCount sb === length recs
+      RBW.sbBaseOffset       sb === RB.batchBaseOffset    rb
+      RBW.sbBaseTimestamp    sb === RB.batchBaseTimestamp rb
+      mapM_ (\(i, rec) -> do
+        RBW.slicedRecordOffset    sb i === RB.batchBaseOffset rb
+                                          + fromIntegral (RB.recordOffsetDelta rec)
+        RBW.slicedRecordTimestamp sb i === RB.batchBaseTimestamp rb
+                                          + RB.recordTimestampDelta rec
+        RBW.slicedRecordKey       sb i === RB.recordKey   rec
+        RBW.slicedRecordValue     sb i === RB.recordValue rec)
+        (zip [0..] recs)
+
+genRecordNoHeaders :: Gen RB.Record
+genRecordNoHeaders = do
+  ofs <- Gen.int32 (Range.linear (-1000) 1000)
+  ts  <- Gen.int64 (Range.linear (-1000) 1000)
+  k   <- Gen.maybe (Gen.bytes (Range.linear 0 32))
+  v   <- Gen.bytes (Range.linear 0 256)
+  pure RB.Record
+    { RB.recordTimestampDelta = ts
+    , RB.recordOffsetDelta    = ofs
+    , RB.recordKey            = k
+    , RB.recordValue          = v
+    , RB.recordHeaders        = []
+    }
+
+sliced_empty_batch :: IO ()
+sliced_empty_batch =
+  let !b  = mkBatch []
+      !bs = RBW.encodeRecordBatchWire b
+  in case RBW.decodeRecordBatchWireSliced bs of
+       Left err -> error err
+       Right sb -> do
+         if RBW.slicedRecordCount sb == 0 then pure () else
+           error ("expected sbCount=0, got " ++ show (RBW.slicedRecordCount sb))

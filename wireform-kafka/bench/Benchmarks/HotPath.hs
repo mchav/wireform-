@@ -114,6 +114,14 @@ consumerBench = bgroup "Consumer"
       , bench "decodeRecordBatchWire (100 records)" $
           nf decodeWire encoded100
       ]
+  , bgroup "RecordBatch decode: sliced vs record (head-to-head)"
+      [ bench "record  (10 records)"  $ nf decodeWire   encoded10
+      , bench "sliced  (10 records)"  $ nf decodeSliced encoded10
+      , bench "record  (100 records)" $ nf decodeWire   encoded100
+      , bench "sliced  (100 records)" $ nf decodeSliced encoded100
+      , bench "record  (1000 records)" $ nf decodeWire   encoded1000
+      , bench "sliced  (1000 records)" $ nf decodeSliced encoded1000
+      ]
   ]
 
 ----------------------------------------------------------------------
@@ -237,16 +245,25 @@ sizeOfRight :: Either e BS.ByteString -> IO Int
 sizeOfRight (Left  _) = pure 0
 sizeOfRight (Right b) = pure $! BS.length b
 
-encoded1, encoded10, encoded100 :: BS.ByteString
-encoded1   = RBW.encodeRecordBatchWire builtBatch1
-encoded10  = RBW.encodeRecordBatchWire builtBatch10
-encoded100 = RBW.encodeRecordBatchWire builtBatch100
+encoded1, encoded10, encoded100, encoded1000 :: BS.ByteString
+encoded1    = RBW.encodeRecordBatchWire builtBatch1
+encoded10   = RBW.encodeRecordBatchWire builtBatch10
+encoded100  = RBW.encodeRecordBatchWire builtBatch100
+encoded1000 = RBW.encodeRecordBatchWire builtBatch1000
+
+builtBatch1000 :: RB.RecordBatch
+builtBatch1000 = Sender.buildRecordBatch (sampleBatch 1000)
 
 decodeWire :: BS.ByteString -> Int
 decodeWire bs = case RBW.decodeRecordBatchWire bs of
   Left e   -> error e
   Right rb -> length (RB.batchRecords rb)
               -- forces every record; Vector elements are strict.
+
+decodeSliced :: BS.ByteString -> Int
+decodeSliced bs = case RBW.decodeRecordBatchWireSliced bs of
+  Left e   -> error e
+  Right sb -> RBW.slicedRecordCount sb
 
 ----------------------------------------------------------------------
 -- Loops
