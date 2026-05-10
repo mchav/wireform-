@@ -40,6 +40,7 @@ import qualified Kafka.Streams.Examples.OrdersEnrichment  as OrdersEnrichment
 import qualified Kafka.Streams.Examples.PageViewRegion    as PageViewRegion
 import qualified Kafka.Streams.Examples.Pipe              as Pipe
 import qualified Kafka.Streams.Examples.ProcessorAPI      as ProcessorAPI
+import qualified Kafka.Streams.Examples.SideEffects       as SideEffects
 import qualified Kafka.Streams.Examples.Temperature       as Temperature
 import qualified Kafka.Streams.Examples.TopArticles       as TopArticles
 import qualified Kafka.Streams.Examples.WordCount         as WordCount
@@ -57,6 +58,7 @@ demos =
   , ("fk-join",     InventoryFKJoin.runDemo)
   , ("iq",          InteractiveQueries.runDemo)
   , ("processor",   ProcessorAPI.runDemo)
+  , ("side-effects",SideEffects.runDemo)
   , ("branching",   Branching.runDemo)
   , ("global",      GlobalTable.runDemo)
   , ("cogroup",     Cogroup.runDemo)

@@ -33,6 +33,7 @@ With no arguments the executable prints the index.
 | `fk-join`      | `Kafka.Streams.Examples.InventoryFKJoin`        | KIP-213 demo                         | KTable-KTable foreign-key join (token verification)   |
 | `iq`           | `Kafka.Streams.Examples.InteractiveQueries`     | KIP-67 / KIP-796                     | reading state stores from outside the topology        |
 | `processor`    | `Kafka.Streams.Examples.ProcessorAPI`           | low-level Processor API guide        | custom `Processor`, `ProcessorContext`, `Punctuator`  |
+| `side-effects` | `Kafka.Streams.Examples.SideEffects`            | Confluent "side effects" docs        | `peek` + `mapValuesM` + `foreach` + Punctuator        |
 | `branching`    | `Kafka.Streams.Examples.Branching`              | KIP-418 `split`                      | predicate-based stream branching                      |
 | `global`       | `Kafka.Streams.Examples.GlobalTable`            | GlobalKTable docs                    | cluster-replicated lookup table join                  |
 | `cogroup`      | `Kafka.Streams.Examples.Cogroup`                | KIP-150                              | cogroup of streams with distinct value types          |

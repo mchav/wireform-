@@ -625,6 +625,7 @@ executable wireform-kafka-streams-examples
         Kafka.Streams.Examples.PageViewRegion
         Kafka.Streams.Examples.Pipe
         Kafka.Streams.Examples.ProcessorAPI
+        Kafka.Streams.Examples.SideEffects
         Kafka.Streams.Examples.Temperature
         Kafka.Streams.Examples.TopArticles
         Kafka.Streams.Examples.WordCount
