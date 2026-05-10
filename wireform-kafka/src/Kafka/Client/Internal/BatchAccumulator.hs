@@ -47,9 +47,17 @@ module Kafka.Client.Internal.BatchAccumulator
   ) where
 
 import Control.Concurrent.STM
-import Control.Monad (when)
+import Control.Monad (forM, forM_, when)
 import qualified Data.ByteString as BS
 import Data.Foldable (toList)
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
+import Data.IORef
+  ( IORef
+  , atomicModifyIORef'
+  , newIORef
+  , readIORef
+  )
 import Data.Int
 import Data.Sequence (Seq, (|>))
 import qualified Data.Sequence as Seq
@@ -57,8 +65,6 @@ import Data.Hashable (Hashable)
 import Data.Text (Text)
 import qualified Kafka.Time as KafkaTime
 import GHC.Generics (Generic)
-import qualified ListT
-import qualified StmContainers.Map as StmMap
 
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.RecordBatch as RB
@@ -138,12 +144,31 @@ data ProducerBatch = ProducerBatch
     --   non-transactional / idempotent-only producers.
   }
 
--- | Per-partition batch queue
+-- | Per-partition batch queue.
+--
+-- Per-partition usage is single-producer (the user thread that
+-- calls 'sendMessage' for this partition; partition assignment is
+-- deterministic per record so concurrent producer threads land in
+-- different 'PartitionQueue' instances) and single-consumer (the
+-- sender thread that calls 'drainReadyBatches'). The two refs were
+-- 'TVar' pre-Tier-2 of the STM-replacement work; the 'atomically'
+-- block on every 'appendRecordStamped' was paying STM commit
+-- overhead (~150–200 ns/record at the bench) for an SPSC swap.
+-- 'IORef' + 'atomicModifyIORef\'' provides the same single-ref
+-- visibility guarantees, with the multi-thread-on-one-partition
+-- safety 'atomicModifyIORef\'' still gives us. See
+-- @docs/STM_REPLACEMENT_SPEC.md@ Tier 2 for the full analysis.
 data PartitionQueue = PartitionQueue
-  { queueBatches :: !(TVar (Seq ProducerBatch))
-    -- ^ Queue of batches for this partition (oldest first)
-  , queueCurrentBatch :: !(TVar (Maybe ProducerBatch))
-    -- ^ Batch currently being filled
+  { queueBatches :: !(IORef (Seq ProducerBatch))
+    -- ^ Queue of batches for this partition (oldest first).
+    --   Producer thread appends ready batches via
+    --   'atomicModifyIORef\''; sender thread drains via
+    --   'atomicModifyIORef\'' with @Seq.spanl isReady@.
+  , queueCurrentBatch :: !(IORef (Maybe ProducerBatch))
+    -- ^ Batch currently being filled. Producer thread mutates
+    --   via 'atomicModifyIORef\''; sender thread peeks during
+    --   linger-time check (also via 'atomicModifyIORef\'' so the
+    --   peek-then-promote operation stays atomic).
   }
 
 -- | Batch accumulator configuration
@@ -158,14 +183,36 @@ data BatchAccumulatorConfig = BatchAccumulatorConfig
     -- ^ Compression level (KIP-353/776/909)
   }
 
--- | Batch accumulator that manages batches for all partitions
+-- | Batch accumulator that manages batches for all partitions.
+--
+-- Pre-Tier-2 the partition map was an 'StmMap.Map' so insertion of
+-- a new partition could compose with the per-partition queue swap
+-- inside one STM transaction. Tier 2 replaced both the per-partition
+-- queue refs and the partition map with 'IORef'-backed equivalents;
+-- new-partition insertion is now an 'atomicModifyIORef\'' CAS that
+-- preserves the "first inserter wins, the loser walks away" race
+-- semantics @StmMap.insert@ already gave us.
+--
+-- 'accumulatorClosed' stays a 'TVar' (Tier 1's recommendation:
+-- "leave the booleans alone in Tier 1, revisit if profiling
+-- indicates it"). The producer / sender / close paths only read it
+-- once per call so the per-tick STM cost is negligible compared to
+-- the per-record win in Tier 2.
 data BatchAccumulator = BatchAccumulator
   { accumulatorConfig :: !BatchAccumulatorConfig
     -- ^ Configuration
-  , accumulatorPartitions :: !(StmMap.Map TopicPartition PartitionQueue)
-    -- ^ Per-partition queues
+  , accumulatorPartitions :: !(IORef (HashMap TopicPartition PartitionQueue))
+    -- ^ Per-partition queues. New partitions are inserted via
+    --   'atomicModifyIORef\'' CAS with a re-check inside the
+    --   modify so concurrent inserters of the same partition see
+    --   the same 'PartitionQueue'.
   , accumulatorClosed :: !(TVar Bool)
-    -- ^ Whether accumulator is closed
+    -- ^ Whether accumulator is closed. Kept as a 'TVar' to keep
+    --   'closeBatchAccumulator's flip-then-drain semantics
+    --   visible to the rest of the producer (notably the sender
+    --   thread's shutdown signal); the cost is one 'readTVarIO'
+    --   per 'appendRecord' which is dominated by the IORef work
+    --   below.
   }
 
 -- | Create a new batch accumulator
@@ -182,7 +229,7 @@ createBatchAccumulator batchSize lingerMs compression compressionLevel = do
         , accumulatorCompression = compression
         , accumulatorCompressionLevel = compressionLevel
         }
-  partitions <- StmMap.newIO
+  partitions <- newIORef HashMap.empty
   closed <- newTVarIO False
   return BatchAccumulator
     { accumulatorConfig = config
@@ -190,35 +237,61 @@ createBatchAccumulator batchSize lingerMs compression compressionLevel = do
     , accumulatorClosed = closed
     }
 
--- | Close the batch accumulator
--- Marks all pending batches as ready for draining
+-- | Close the batch accumulator. Marks all pending batches as
+-- ready for draining.
+--
+-- Pre-Tier-2 the close-flag flip and the per-partition drain ran
+-- inside a single STM transaction, so a producer thread that had
+-- already entered 'appendRecordStamped's STM block before the
+-- close committed would either see closed=True (and bail out) or
+-- complete its append before close ran. Tier 2 splits these into
+-- two operations: the 'TVar' flip happens first under STM, then
+-- the partition snapshot drain happens via 'atomicModifyIORef\''
+-- per partition. The race window for "producer appends after
+-- closed flag is True but its append still lands" widens
+-- slightly, but the late-append outcome is identical to the
+-- pre-Tier-2 behaviour: the record sits in a partition's ready
+-- queue that nobody is draining, exactly as a stray late append
+-- under STM would (the sender thread has been told to stop). See
+-- @docs/STM_REPLACEMENT_SPEC.md@ Tier 2 "closed-flag race" note.
 closeBatchAccumulator :: BatchAccumulator -> IO ()
-closeBatchAccumulator BatchAccumulator{..} = atomically $ do
-  writeTVar accumulatorClosed True
-  -- Mark all current batches as ready
-  partitionList <- ListT.toList $ StmMap.listT accumulatorPartitions
-  mapM_ markCurrentBatchReady partitionList
+closeBatchAccumulator BatchAccumulator{..} = do
+  atomically $ writeTVar accumulatorClosed True
+  parts <- readIORef accumulatorPartitions
+  forM_ (HashMap.elems parts) markCurrentBatchReadyIO
 
 -- | Mark every partition's filling batch as 'Ready' /without/
 -- closing the accumulator.  Used by 'Kafka.Client.Producer.
 -- flushProducer' so subsequent sends keep working — the JVM
 -- client + librdkafka behave the same way: 'flush()' is a
 -- drain-checkpoint, not a destructor.
+--
+-- Tier 2: was an STM transaction over every partition; now folds
+-- 'atomicModifyIORef\'' over a snapshot of the partition map.
+-- Loses cross-partition atomicity which is fine — flush is a
+-- drain-checkpoint, not a barrier (mid-flush appends to other
+-- partitions were always allowed; the JVM client's @flush()@
+-- behaves the same way).
 flushPendingBatches :: BatchAccumulator -> IO ()
-flushPendingBatches BatchAccumulator{..} = atomically $ do
-  partitionList <- ListT.toList $ StmMap.listT accumulatorPartitions
-  mapM_ markCurrentBatchReady partitionList
+flushPendingBatches BatchAccumulator{..} = do
+  parts <- readIORef accumulatorPartitions
+  forM_ (HashMap.elems parts) markCurrentBatchReadyIO
 
-markCurrentBatchReady :: (TopicPartition, PartitionQueue) -> STM ()
-markCurrentBatchReady (_, PartitionQueue{..}) = do
-  currentM <- readTVar queueCurrentBatch
-  case currentM of
-    Nothing -> return ()
-    Just batch -> do
-      -- Move current batch to ready queue
-      let readyBatch = batch { batchState = Ready }
-      modifyTVar' queueBatches (|> readyBatch)
-      writeTVar queueCurrentBatch Nothing
+-- | Promote a partition's in-flight 'queueCurrentBatch' onto the
+-- ready 'queueBatches', if any. Atomic per-partition; the two
+-- 'atomicModifyIORef\'' calls together do not need to be atomic
+-- across both refs because a sender that drains 'queueBatches'
+-- between the two only loses visibility of one ready batch for
+-- one drain tick.
+markCurrentBatchReadyIO :: PartitionQueue -> IO ()
+markCurrentBatchReadyIO PartitionQueue{..} = do
+  promoted <- atomicModifyIORef' queueCurrentBatch $ \mb -> case mb of
+    Nothing    -> (Nothing, Nothing)
+    Just batch -> (Nothing, Just (batch { batchState = Ready }))
+  case promoted of
+    Nothing         -> pure ()
+    Just readyBatch ->
+      atomicModifyIORef' queueBatches $ \s -> (s |> readyBatch, ())
 
 -- | Append a record to the accumulator
 -- Returns True if the record was added, False if accumulator is closed
@@ -280,115 +353,108 @@ appendRecordStamped
   -> BatchStamp
   -> IO Bool
 appendRecordStamped acc@BatchAccumulator{..} tp record callback stamp = do
-  -- Fast path: try to append to an existing /filling/ batch
-  -- without paying for getCurrentTime + new-batch construction.
-  -- This is the common case once a partition's batch has been
-  -- created; for steady-state high-throughput producers it skips
-  -- the syscall on every record except the first per batch.
-  r <- atomically (tryFastAppend tp record callback acc)
-  case r of
-    FastAppendDone done -> pure done
-    FastAppendNeedsNewBatch -> do
-      currentTime <- getCurrentTimeMillis
-      atomically (slowAppend tp record callback stamp currentTime acc)
-
--- | Result of an optimistic append into an already-filling batch.
-data FastAppendResult
-  = FastAppendDone !Bool
-    -- ^ The append landed (or the accumulator is closed). The
-    -- 'Bool' mirrors 'appendRecordStamped's return value.
-  | FastAppendNeedsNewBatch
-    -- ^ No existing /filling/ batch for this partition; the
-    -- caller must take the slow path (which fetches a timestamp
-    -- before creating a fresh batch).
-  deriving (Eq, Show)
-
--- | STM-only fast path. Re-uses the existing 'PartitionQueue'
--- for this 'TopicPartition' and the existing /filling/
--- 'ProducerBatch' on it. Falls through to 'FastAppendNeedsNewBatch'
--- when either is missing so the caller can do the IO bits
--- (clock + new batch construction) outside the transaction.
-{-# INLINE tryFastAppend #-}
-tryFastAppend
-  :: TopicPartition
-  -> RB.Record
-  -> RecordCallback
-  -> BatchAccumulator
-  -> STM FastAppendResult
-tryFastAppend tp record callback BatchAccumulator{..} = do
-  isClosed <- readTVar accumulatorClosed
+  -- The closed-flag check moved out of the per-record STM
+  -- transaction; see the data-decl note above. We accept the
+  -- widened race because 'closeBatchAccumulator' drains every
+  -- partition after flipping the flag, so a stray late append
+  -- ends up in a partition's ready queue that the sender thread
+  -- is no longer servicing — same outcome the STM version
+  -- produced for an interleaved late append.
+  isClosed <- readTVarIO accumulatorClosed
   if isClosed
-    then pure (FastAppendDone False)
+    then pure False
     else do
-      mq <- StmMap.lookup tp accumulatorPartitions
+      -- Fast path: try to append to an existing /filling/ batch
+      -- without paying for getCurrentTime + new-batch construction.
+      -- This is the common case once a partition's batch has been
+      -- created; for steady-state high-throughput producers it
+      -- skips the syscall on every record except the first per
+      -- batch.
+      mq <- HashMap.lookup tp <$> readIORef accumulatorPartitions
       case mq of
-        Nothing    -> pure FastAppendNeedsNewBatch
+        Nothing -> slowAppendIO tp record callback stamp acc
         Just queue -> do
-          mc <- readTVar (queueCurrentBatch queue)
-          case mc of
-            Nothing    -> pure FastAppendNeedsNewBatch
-            Just batch -> do
-              let !recordSize = approximateRecordSize record
-                  !newSize    = batchSizeBytes batch + recordSize
-                  !newBatch   = batch
-                    { batchRecords   = batchRecords batch |> record
-                    , batchSizeBytes = newSize
-                    , batchCallbacks = batchCallbacks batch |> callback
-                    }
-              if newSize >= accumulatorBatchSize accumulatorConfig
-                then do
-                  let !readyBatch = newBatch { batchState = Ready }
-                  modifyTVar' (queueBatches queue) (|> readyBatch)
-                  writeTVar (queueCurrentBatch queue) Nothing
-                  pure (FastAppendDone True)
-                else do
-                  writeTVar (queueCurrentBatch queue) (Just newBatch)
-                  pure (FastAppendDone True)
+          fast <- atomicModifyIORef' (queueCurrentBatch queue) $ \mc ->
+            case mc of
+              Nothing -> (Nothing, FastAppendNeedsNewBatch)
+              Just batch ->
+                let !recordSize = approximateRecordSize record
+                    !newSize    = batchSizeBytes batch + recordSize
+                    !newBatch   = batch
+                      { batchRecords   = batchRecords batch |> record
+                      , batchSizeBytes = newSize
+                      , batchCallbacks = batchCallbacks batch |> callback
+                      }
+                in if newSize >= accumulatorBatchSize accumulatorConfig
+                     then ( Nothing
+                          , FastAppendReady (newBatch { batchState = Ready })
+                          )
+                     else (Just newBatch, FastAppendKept)
+          case fast of
+            FastAppendKept -> pure True
+            FastAppendReady readyBatch -> do
+              atomicModifyIORef' (queueBatches queue) $ \s ->
+                (s |> readyBatch, ())
+              pure True
+            FastAppendNeedsNewBatch ->
+              slowAppendIO tp record callback stamp acc
 
--- | Slow path: clock has been read, we may need to create a new
--- partition queue + new batch. If between the fast-path peek and
--- this call another thread already filled in a batch, we still
--- append to it (so we don't lose the timestamp work, but also
--- don't double-create the batch).
-{-# INLINE slowAppend #-}
-slowAppend
+-- | Outcome of the optimistic 'atomicModifyIORef\'' on
+-- 'queueCurrentBatch' inside 'appendRecordStamped'.
+data FastAppendResult
+  = FastAppendKept
+    -- ^ Record landed in the existing /filling/ batch and the
+    --   batch isn't full yet; no further work required.
+  | FastAppendReady !ProducerBatch
+    -- ^ Record landed in the existing /filling/ batch and the
+    --   batch is now at-or-over the configured size limit; the
+    --   caller must push @batch@ onto 'queueBatches' (we left
+    --   'queueCurrentBatch' empty inside the modify).
+  | FastAppendNeedsNewBatch
+    -- ^ There is no /filling/ batch (either the partition is
+    --   freshly seen or the previous batch was just promoted to
+    --   ready). The caller must take the slow path which reads
+    --   the clock and constructs a fresh batch.
+
+-- | Slow path: read the clock, ensure a 'PartitionQueue' exists
+-- for this partition, and append the record to either the
+-- existing /filling/ batch (if a concurrent thread filled one in
+-- between the fast-path peek and our 'atomicModifyIORef\'' here)
+-- or a freshly constructed batch.
+{-# INLINE slowAppendIO #-}
+slowAppendIO
   :: TopicPartition
   -> RB.Record
   -> RecordCallback
   -> BatchStamp
-  -> Int64           -- ^ current time, fetched in IO
   -> BatchAccumulator
-  -> STM Bool
-slowAppend tp record callback stamp currentTime BatchAccumulator{..} = do
-  isClosed <- readTVar accumulatorClosed
-  if isClosed
-    then pure False
-    else do
-      queue <- getOrCreatePartitionQueue accumulatorPartitions tp
-      current <- readTVar (queueCurrentBatch queue)
-      batch <- case current of
-        Just b  -> pure b
-        Nothing -> do
-          let !newBatch = applyStamp stamp $
-                createBatch accumulatorConfig tp currentTime
-          writeTVar (queueCurrentBatch queue) (Just newBatch)
-          pure newBatch
-      let !recordSize = approximateRecordSize record
-          !newSize    = batchSizeBytes batch + recordSize
-          !newBatch   = batch
-            { batchRecords   = batchRecords batch |> record
-            , batchSizeBytes = newSize
-            , batchCallbacks = batchCallbacks batch |> callback
-            }
-      if newSize >= accumulatorBatchSize accumulatorConfig
-        then do
-          let !readyBatch = newBatch { batchState = Ready }
-          modifyTVar' (queueBatches queue) (|> readyBatch)
-          writeTVar (queueCurrentBatch queue) Nothing
-          pure True
-        else do
-          writeTVar (queueCurrentBatch queue) (Just newBatch)
-          pure True
+  -> IO Bool
+slowAppendIO tp record callback stamp acc@BatchAccumulator{..} = do
+  currentTime <- getCurrentTimeMillis
+  queue       <- getOrCreatePartitionQueue acc tp
+  outcome <- atomicModifyIORef' (queueCurrentBatch queue) $ \mc ->
+    let !batch = case mc of
+          Just b  -> b
+          Nothing -> applyStamp stamp $
+            createBatch accumulatorConfig tp currentTime
+        !recordSize = approximateRecordSize record
+        !newSize    = batchSizeBytes batch + recordSize
+        !newBatch   = batch
+          { batchRecords   = batchRecords batch |> record
+          , batchSizeBytes = newSize
+          , batchCallbacks = batchCallbacks batch |> callback
+          }
+    in if newSize >= accumulatorBatchSize accumulatorConfig
+         then ( Nothing
+              , Just (newBatch { batchState = Ready })
+              )
+         else (Just newBatch, Nothing)
+  case outcome of
+    Nothing -> pure True
+    Just readyBatch -> do
+      atomicModifyIORef' (queueBatches queue) $ \s ->
+        (s |> readyBatch, ())
+      pure True
   where
     applyStamp BatchStamp{..} b = b
       { batchProducerId      = stampProducerId
@@ -406,131 +472,105 @@ appendRecordWithCallback
   -> RB.Record
   -> RecordCallback  -- ^ Callback invoked on completion
   -> IO Bool
-appendRecordWithCallback BatchAccumulator{..} tp record callback = do
-  currentTime <- getCurrentTimeMillis
-  atomically $ do
-    isClosed <- readTVar accumulatorClosed
-    if isClosed
-      then return False
-      else do
-        -- Get or create partition queue
-        queue <- getOrCreatePartitionQueue accumulatorPartitions tp
-        
-        -- Get or create current batch
-        current <- readTVar (queueCurrentBatch queue)
-        batch <- case current of
-          Just b -> return b
-          Nothing -> do
-            let newBatch = createBatch accumulatorConfig tp currentTime
-            writeTVar (queueCurrentBatch queue) (Just newBatch)
-            return newBatch
-        
-        -- Calculate size of this record (approximate)
-        let recordSize = approximateRecordSize record
-            newSize = batchSizeBytes batch + recordSize
-            newBatch = batch
-              { batchRecords = batchRecords batch |> record
-              , batchSizeBytes = newSize
-              , batchCallbacks = batchCallbacks batch |> callback
-              }
-        
-        -- Check if batch is now full
-        if newSize >= accumulatorBatchSize accumulatorConfig
-          then do
-            -- Batch is full, mark as ready and create new current batch
-            let readyBatch = newBatch { batchState = Ready }
-            modifyTVar' (queueBatches queue) (|> readyBatch)
-            writeTVar (queueCurrentBatch queue) Nothing
-            return True
-          else do
-            -- Batch not full yet, update current batch
-            writeTVar (queueCurrentBatch queue) (Just newBatch)
-            return True
+appendRecordWithCallback acc tp record callback =
+  appendRecordStamped acc tp record callback noStamp
 
--- | Drain all ready batches from the accumulator
--- This includes batches that are full or have exceeded linger time
+-- | Drain all ready batches from the accumulator. This includes
+-- batches that are full or have exceeded linger time.
+--
+-- Tier 2 rewrites this from one big STM transaction over every
+-- partition into a fold of per-partition 'atomicModifyIORef\''
+-- calls. Cross-partition atomicity is lost, which matches the
+-- pre-Tier-2 producer's expectations: the sender's drain
+-- iteration was already a snapshot in time, and a partition that
+-- becomes ready /during/ the drain just gets picked up on the
+-- sender's next iteration.
 drainReadyBatches :: BatchAccumulator -> IO [ProducerBatch]
 drainReadyBatches BatchAccumulator{..} = do
   currentTime <- getCurrentTimeMillis
-  atomically $ do
-    -- Get all partitions
-    partitionList <- ListT.toList $ StmMap.listT accumulatorPartitions
-    
-    -- For each partition, check if current batch is ready due to linger time
-    mapM_ (checkLingerTime currentTime) partitionList
-    
-    -- Collect all ready batches from all partitions
-    batches <- mapM drainPartitionBatches partitionList
-    return $ concat batches
+  parts <- readIORef accumulatorPartitions
+  fmap concat $ forM (HashMap.elems parts) $ \PartitionQueue{..} -> do
+    -- Linger check: if the current /filling/ batch has been open
+    -- longer than 'lingerMs', promote it to the ready queue
+    -- before draining. The atomic-modify keeps the
+    -- check-and-promote race-free against a concurrent producer
+    -- thread that's also updating 'queueCurrentBatch'.
+    promoted <- atomicModifyIORef' queueCurrentBatch $ \mc ->
+      case mc of
+        Just batch | currentTime - batchCreateTime batch >= lingerMs ->
+          (Nothing, Just (batch { batchState = Ready }))
+        _ -> (mc, Nothing)
+    case promoted of
+      Nothing -> pure ()
+      Just b  -> atomicModifyIORef' queueBatches $ \s -> (s |> b, ())
+    atomicModifyIORef' queueBatches $ \s ->
+      let (ready, remaining) = Seq.spanl isReadyBatch s
+      in (remaining, toList ready)
   where
     lingerMs = fromIntegral $ accumulatorLingerMs accumulatorConfig
-    
-    checkLingerTime :: Int64 -> (TopicPartition, PartitionQueue) -> STM ()
-    checkLingerTime now (_, PartitionQueue{..}) = do
-      currentM <- readTVar queueCurrentBatch
-      case currentM of
-        Nothing -> return ()
-        Just batch -> do
-          let age = now - batchCreateTime batch
-          when (age >= lingerMs) $ do
-            -- Linger time expired, mark as ready
-            let readyBatch = batch { batchState = Ready }
-            modifyTVar' queueBatches (|> readyBatch)
-            writeTVar queueCurrentBatch Nothing
-    
-    drainPartitionBatches :: (TopicPartition, PartitionQueue) -> STM [ProducerBatch]
-    drainPartitionBatches (_, PartitionQueue{..}) = do
-      batches <- readTVar queueBatches
-      let (ready, remaining) = Seq.spanl isReadyBatch batches
-      writeTVar queueBatches remaining
-      return $ toList ready
-    
+
     isReadyBatch :: ProducerBatch -> Bool
     isReadyBatch batch = batchState batch == Ready
 
--- | Check if there are any ready batches
+-- | Check if there are any ready batches.
+--
+-- Tier 2: walks the IORef-backed partition snapshot and reads
+-- each partition's queue + current batch with plain
+-- 'readIORef'. Both reads acquire their own visibility window;
+-- since the only state transition we care about is "is there a
+-- ready batch?" and a producer that promotes a batch to ready
+-- between the queue read and the current-batch read just gets
+-- noticed on the next call, the racy view is fine.
 hasReadyBatches :: BatchAccumulator -> IO Bool
 hasReadyBatches BatchAccumulator{..} = do
   currentTime <- getCurrentTimeMillis
-  atomically $ do
-    partitionList <- ListT.toList $ StmMap.listT accumulatorPartitions
-    anyReady <- mapM (checkPartitionReady currentTime) partitionList
-    return $ or anyReady
+  parts <- readIORef accumulatorPartitions
+  go currentTime (HashMap.elems parts)
   where
     lingerMs = fromIntegral $ accumulatorLingerMs accumulatorConfig
-    
-    checkPartitionReady :: Int64 -> (TopicPartition, PartitionQueue) -> STM Bool
-    checkPartitionReady now (_, PartitionQueue{..}) = do
-      -- Check if there are ready batches in queue
-      batches <- readTVar queueBatches
-      let hasReady = any (\b -> batchState b == Ready) batches
-      
-      if hasReady
-        then return True
-        else do
-          -- Check if current batch is ready due to linger time
-          currentM <- readTVar queueCurrentBatch
-          case currentM of
-            Nothing -> return False
-            Just batch -> do
-              let age = now - batchCreateTime batch
-              return (age >= lingerMs)
 
--- | Get or create a partition queue
+    go _   []                       = pure False
+    go now (PartitionQueue{..} : rest) = do
+      batches <- readIORef queueBatches
+      if any (\b -> batchState b == Ready) batches
+        then pure True
+        else do
+          currentM <- readIORef queueCurrentBatch
+          case currentM of
+            Just batch | now - batchCreateTime batch >= lingerMs ->
+              pure True
+            _ -> go now rest
+
+-- | Get or create a partition queue.
+--
+-- Tier 2: was an STM 'StmMap.lookup' / 'StmMap.insert' pair;
+-- now an 'atomicModifyIORef\'' CAS over the partition map. The
+-- CAS is in three steps:
+--
+-- 1. Cheap fast path: 'readIORef' the map and look up the
+--    partition. If present, we're done — no allocation, no CAS.
+-- 2. Otherwise allocate fresh 'IORef's for the partition queue.
+-- 3. CAS the partition map: if some other inserter beat us to
+--    the same 'TopicPartition' we throw our candidate away and
+--    return theirs (matches @StmMap.insert@'s "first writer
+--    wins" semantics so all subsequent producers on this
+--    partition see the same 'PartitionQueue').
 getOrCreatePartitionQueue
-  :: StmMap.Map TopicPartition PartitionQueue
+  :: BatchAccumulator
   -> TopicPartition
-  -> STM PartitionQueue
-getOrCreatePartitionQueue partitions tp = do
-  queueM <- StmMap.lookup tp partitions
-  case queueM of
-    Just queue -> return queue
+  -> IO PartitionQueue
+getOrCreatePartitionQueue BatchAccumulator{..} tp = do
+  existing <- HashMap.lookup tp <$> readIORef accumulatorPartitions
+  case existing of
+    Just q  -> pure q
     Nothing -> do
-      batches <- newTVar Seq.empty
-      current <- newTVar Nothing
-      let queue = PartitionQueue batches current
-      StmMap.insert queue tp partitions
-      return queue
+      newBatchesRef <- newIORef Seq.empty
+      newCurrentRef <- newIORef Nothing
+      let !candidate = PartitionQueue newBatchesRef newCurrentRef
+      atomicModifyIORef' accumulatorPartitions $ \m ->
+        case HashMap.lookup tp m of
+          Just q' -> (m, q')
+          Nothing -> (HashMap.insert tp candidate m, candidate)
 
 -- | Create a new empty batch
 createBatch
