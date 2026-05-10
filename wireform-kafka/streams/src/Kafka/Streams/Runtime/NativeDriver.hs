@@ -131,6 +131,15 @@ newNativeDriver
   -> IO StreamDriver
 newNativeDriver producer consumer mTxn = do
   rebalanceQ <- newTQueueIO
+  -- Wire the consumer's rebalance callbacks straight into the
+  -- driver's event channel. The streams runtime then drains
+  -- these events on every loop tick (see
+  -- 'Kafka.Streams.Runtime.drainRebalances').
+  let pushReb ev = atomically (writeTQueue rebalanceQ ev)
+  KC.setRebalanceListener consumer
+    (\tps -> pushReb (RebalanceAssigned tps))
+    (\tps -> pushReb (RebalanceRevoked  tps))
+    (\tps -> pushReb (RebalanceLost     tps))
   pure StreamDriver
     { sdConsumerSubscribe = KC.subscribe consumer
     , sdConsumerPoll      = \timeoutMs -> KC.poll consumer timeoutMs

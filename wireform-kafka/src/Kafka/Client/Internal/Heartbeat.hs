@@ -87,6 +87,15 @@ data HeartbeatState = HeartbeatState
     -- ^ Whether the heartbeat thread should keep running
   , hbNeedsRebalance :: !(TVar Bool)
     -- ^ Whether a rebalance is needed
+  , hbLost :: !(TVar Bool)
+    -- ^ Whether the next rejoin should be treated as a
+    --   /lost/ assignment (KIP-415): the broker fenced us
+    --   (UNKNOWN_MEMBER_ID / FENCED_INSTANCE_ID), so any state
+    --   we held for the previously-assigned partitions is
+    --   considered junk and the consumer's
+    --   'RebalanceListener.rlOnLost' fires instead of
+    --   'rlOnRevoked'. Cleared by 'subscribe' once the lost
+    --   signal has been observed.
   }
 
 -- | Create a new heartbeat state
@@ -105,6 +114,7 @@ createHeartbeatState groupId intervalMs connMgr versionCache clientId = do
   corrId <- newTVarIO 0
   running <- newTVarIO True
   needsRebal <- newTVarIO False
+  lost <- newTVarIO False
 
   return HeartbeatState
     { hbGroupId = groupId
@@ -119,6 +129,7 @@ createHeartbeatState groupId intervalMs connMgr versionCache clientId = do
     , hbCorrelationId = corrId
     , hbRunning = running
     , hbNeedsRebalance = needsRebal
+    , hbLost = lost
     }
 
 -- | Start the heartbeat background thread
@@ -237,9 +248,11 @@ applyHeartbeatOutcome HeartbeatState{..} outcome = case outcome of
   HeartbeatTransport _ -> pure ()
   HeartbeatUnknownMember -> do
     writeTVar hbNeedsRebalance True
+    writeTVar hbLost          True
     writeTVar hbMemberId ""
   HeartbeatFencedInstance -> do
     writeTVar hbNeedsRebalance True
+    writeTVar hbLost          True
     writeTVar hbMemberId ""
   HeartbeatIllegalGeneration ->
     writeTVar hbNeedsRebalance True

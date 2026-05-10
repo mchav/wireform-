@@ -46,6 +46,10 @@ module Kafka.Client.Consumer
   , subscribe
   , unsubscribe
   , assign
+    -- * Rebalance listener (KIP-415 / 429)
+  , setRebalanceListener
+  , currentAssignment
+  , computeAssignmentDelta
     -- * Polling and Consumption
   , poll
   , seek
@@ -84,14 +88,16 @@ module Kafka.Client.Consumer
 
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Exception
-import Control.Exception (try)
+import Control.Exception (SomeException, try)
+import qualified Data.List as List
+import qualified Data.Set as Set
 import qualified System.Timeout
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable (Hashable)
 import Data.Int
-import Control.Monad (forM, forM_, when)
+import Control.Monad (forM, forM_, unless, when)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
@@ -337,6 +343,15 @@ data Consumer = Consumer
     --   thread tells us the group is rebalancing). 'Nothing' means
     --   either we are using manual 'assign' instead of group
     --   subscription, or 'subscribe' has not been called yet.
+  , consumerOnAssigned :: !(TVar ([TopicPartition] -> IO ()))
+  , consumerOnRevoked  :: !(TVar ([TopicPartition] -> IO ()))
+  , consumerOnLost     :: !(TVar ([TopicPartition] -> IO ()))
+    -- ^ Per-event callbacks fired on assigned / revoked / lost
+    --   transitions. Default is the no-op; replace via
+    --   'setRebalanceListener'.
+  , consumerLastAssignment :: !(TVar [TopicPartition])
+    -- ^ The assignment as of the last fired callback. Used to
+    --   compute revoked / assigned deltas on the next rebalance.
   }
 
 -- | Effective 'Conn.ConnectionConfig' for this consumer: takes the
@@ -519,6 +534,11 @@ createConsumer brokers groupId config = do
 
                   return $ Just (hbState, hbThread)
               
+              onA <- newTVarIO (\_ -> pure () :: IO ())
+              onR <- newTVarIO (\_ -> pure () :: IO ())
+              onL <- newTVarIO (\_ -> pure () :: IO ())
+              lastAsgn <- newTVarIO []
+
               let consumer = Consumer
                     { consumerConfig = config { consumerGroupId = groupId }
                     , consumerConnManager = connManager
@@ -529,6 +549,10 @@ createConsumer brokers groupId config = do
                     , consumerCorrelationId = corrId
                     , consumerPaused = paused
                     , consumerSubscription = subscription
+                    , consumerOnAssigned = onA
+                    , consumerOnRevoked  = onR
+                    , consumerOnLost     = onL
+                    , consumerLastAssignment = lastAsgn
                     }
 
               return $ Right consumer
@@ -689,6 +713,10 @@ closeConsumer consumer = closeConsumerWithTimeout consumer 30000
 -- @since KIP-102
 closeConsumerWithTimeout :: Consumer -> Int -> IO ()
 closeConsumerWithTimeout c@Consumer{..} timeoutMs = do
+  -- Fire onRevoked for any partitions we still own — graceful
+  -- close path so listeners can flush in-flight work and
+  -- commit final offsets.
+  dispatchAssignmentDelta c [] False
   case consumerHeartbeat of
     Nothing -> return ()
     Just (hbState, hbThread) -> do
@@ -832,6 +860,22 @@ subscribe Consumer{..} topics = do
       case result of
         Left err -> return $ Left ("subscribe: " ++ show err)
         Right tps -> do
+          let !newAssignment =
+                [ TopicPartition (Sub.tpTopic stp) (Sub.tpPartition stp)
+                | (stp, _) <- tps
+                ]
+              !newAssignmentSorted =
+                List.sortOn (\tp -> (tpTopic tp, tpPartition tp))
+                            newAssignment
+          -- Decide assigned-vs-revoked-vs-lost BEFORE we replace
+          -- the assignment: 'hbLost' tells us if the previous
+          -- assignment was fenced by the broker, in which case
+          -- the removed half routes to 'rlOnLost' rather than
+          -- 'rlOnRevoked'.
+          asLost <- atomically $ do
+            lost <- readTVar (HB.hbLost hbState)
+            writeTVar (HB.hbLost hbState) False
+            pure lost
           -- Replace the assignment with the new one, seed offsets,
           -- remember the subscription so 'poll' can transparently
           -- re-run the JoinGroup flow on rebalance.
@@ -846,16 +890,120 @@ subscribe Consumer{..} topics = do
             -- contained REBALANCE_IN_PROGRESS; clear it now that we
             -- have re-joined.
             writeTVar (HB.hbNeedsRebalance hbState) False
+          -- Fire the user listener with the new assignment.
+          dispatchAssignmentDelta Consumer{..} newAssignmentSorted asLost
           return $ Right ()
+
+-- | Install user callbacks fired on assigned / revoked / lost
+-- transitions. Mirrors Java's @ConsumerRebalanceListener@. The
+-- listener record comes from
+-- "Kafka.Client.RebalanceListener" — we accept three
+-- callbacks directly to avoid a module-import cycle between
+-- "Kafka.Client.Consumer" and "Kafka.Client.RebalanceListener"
+-- (the latter already imports 'TopicPartition' from here).
+--
+-- Callback semantics:
+--
+--   * @onAssigned@ fires for every partition newly added to
+--     this consumer's assignment.
+--   * @onRevoked@ fires for partitions removed via a normal
+--     (cooperative) rebalance — i.e. the broker accepted the
+--     handoff and we should flush in-flight work, commit
+--     offsets, etc.
+--   * @onLost@ fires when the broker fenced us
+--     (@UNKNOWN_MEMBER_ID@ / @FENCED_INSTANCE_ID@): any
+--     in-flight state is junk because we may not commit
+--     offsets to the broker any more.
+setRebalanceListener
+  :: Consumer
+  -> ([TopicPartition] -> IO ())     -- ^ onAssigned
+  -> ([TopicPartition] -> IO ())     -- ^ onRevoked
+  -> ([TopicPartition] -> IO ())     -- ^ onLost
+  -> IO ()
+setRebalanceListener Consumer{..} onA onR onL = atomically $ do
+  writeTVar consumerOnAssigned onA
+  writeTVar consumerOnRevoked  onR
+  writeTVar consumerOnLost     onL
+
+-- | Current partition assignment, in deterministic order
+-- (sorted by topic then partition).
+currentAssignment :: Consumer -> IO [TopicPartition]
+currentAssignment Consumer{..} = do
+  pairs <- atomically $ ListT.toList (StmMap.listT consumerAssignment)
+  pure (List.sortOn (\tp -> (tpTopic tp, tpPartition tp))
+                    (map fst pairs))
+
+-- | Pure delta computation between two partition assignments.
+-- Returns @(revoked, added)@: revoked partitions are present
+-- in @prev@ but absent from @now@; added partitions are in
+-- @now@ but were not in @prev@. Both result lists are in
+-- ascending @(topic, partition)@ order so consumers can rely
+-- on deterministic ordering for log lines / metric labels.
+computeAssignmentDelta
+  :: [TopicPartition]        -- ^ previous assignment
+  -> [TopicPartition]        -- ^ new assignment
+  -> ([TopicPartition], [TopicPartition])
+computeAssignmentDelta prev now =
+  let !prevSet = Set.fromList prev
+      !nowSet  = Set.fromList now
+      !revoked = Set.toAscList (prevSet `Set.difference` nowSet)
+      !added   = Set.toAscList (nowSet  `Set.difference` prevSet)
+   in (revoked, added)
+
+-- | Compute the assigned / revoked deltas between @prev@ and
+-- @now@ and fire the appropriate user callbacks. Records the
+-- new assignment as 'consumerLastAssignment' for the next
+-- diff.
+--
+-- @asLost@ routes the "removed" side through 'consumerOnLost'
+-- instead of 'consumerOnRevoked'. The runtime determines that
+-- via the heartbeat's 'hbLost' flag, which is set by
+-- 'Kafka.Client.Internal.Heartbeat.applyHeartbeatOutcome' on
+-- @UNKNOWN_MEMBER_ID@ / @FENCED_INSTANCE_ID@.
+dispatchAssignmentDelta
+  :: Consumer
+  -> [TopicPartition]                 -- ^ new assignment
+  -> Bool                             -- ^ asLost
+  -> IO ()
+dispatchAssignmentDelta c@Consumer{..} now asLost = do
+  prev <- atomically (readTVar consumerLastAssignment)
+  let !(revoked, added) = computeAssignmentDelta prev now
+  -- Persist before firing callbacks so that a callback that
+  -- queries 'currentAssignment' sees the post-transition state.
+  atomically $ writeTVar consumerLastAssignment now
+  unless (null revoked) $ do
+    if asLost
+      then do
+        onL <- atomically (readTVar consumerOnLost)
+        catchIgnore (onL revoked)
+      else do
+        onR <- atomically (readTVar consumerOnRevoked)
+        catchIgnore (onR revoked)
+  unless (null added) $ do
+    onA <- atomically (readTVar consumerOnAssigned)
+    catchIgnore (onA added)
+  where
+    -- 'c' is only here to defeat the otherwise-unused warning
+    -- for the record-wildcard binding above; the actual access
+    -- happens through the TVars.
+    _ = c
+    catchIgnore m = do
+      r <- try m :: IO (Either SomeException ())
+      case r of
+        Right () -> pure ()
+        Left _   -> pure ()
 
 -- | Unsubscribe from all topics.
 --
--- Clears the subscription and partition assignment.
+-- Clears the subscription and partition assignment. Fires the
+-- rebalance listener's @onRevoked@ callback for every
+-- currently-assigned partition before clearing the assignment.
 unsubscribe :: Consumer -> IO ()
-unsubscribe Consumer{..} = atomically $ do
-  -- Clear all assignments
-  pairs <- ListT.toList $ StmMap.listT consumerAssignment
-  forM_ pairs $ \(tp, _) -> StmMap.delete tp consumerAssignment
+unsubscribe c@Consumer{..} = do
+  dispatchAssignmentDelta c [] False
+  atomically $ do
+    pairs <- ListT.toList $ StmMap.listT consumerAssignment
+    forM_ pairs $ \(tp, _) -> StmMap.delete tp consumerAssignment
 
 -- | Manually assign partitions (disables group management).
 --

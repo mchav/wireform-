@@ -35,7 +35,7 @@ whether the library fits your use case before writing code.
 | Standby tasks                 | **Scaffolding only.** Mock cluster understands changelog topics; no live runtime support yet.               |
 | KIP-441 probing rebalance     | **Pure decision layer in place.** Not yet wired into the live consumer-group protocol.                      |
 | Multi-thread runtime          | **Yes.** `numStreamThreads > 1` spins up an N-worker pool; one consumer dispatches by `hash (topic, partition) mod N` so per-partition state stays coherent. |
-| Multi-instance rebalance      | **Runtime-side done.** `setRebalanceListener` + `ownedPartitions` + `standbyTasks` track assignments via the driver's `RebalanceEvent` channel. KIP-869 standby grace + listener dispatch fire on every event. Live wiring of the consumer-group coordinator's callbacks into the driver is the remaining piece (the `Kafka.Client.Consumer` side). |
+| Multi-instance rebalance      | **Yes.** `setRebalanceListener` + `ownedPartitions` + `standbyTasks` on `KafkaStreams` track partition transitions via the driver's `RebalanceEvent` channel. The native driver wires those events from `Kafka.Client.Consumer.setRebalanceListener`, which fires on every `subscribe` / re-subscribe / fenced-heartbeat (UNKNOWN_MEMBER_ID, FENCED_INSTANCE_ID = lost; everything else graceful = revoked). KIP-869 standby-grace state machine runs end-to-end. |
 | Live-broker integration tests | Behind a `WIREFORM_KAFKA_BROKER` env var. Docker fixture for CI is pending.                                 |
 | GHC                           | **9.6.4 and 9.8.4** (matrix in CI). 9.10 / 9.12 not yet tested.                                             |
 
@@ -352,20 +352,18 @@ Honest list. Items here aren't unsupported in principle —
 they just haven't landed yet. Each line points at the relevant
 tracker entry.
 
-- **Live consumer-group rebalance callbacks.** The streams
-  runtime now reacts to `RebalanceEvent`s on the
-  `StreamDriver` channel:
-  `setRebalanceListener` + `ownedPartitions` + `standbyTasks`
-  mirror Java's `ConsumerRebalanceListener` and KIP-869
-  grace-period standby semantics. The `Kafka.Client.Consumer`
-  side still has to *publish* those events from its
-  `JoinGroup`/`Heartbeat`/`SyncGroup` machinery into the
-  driver's queue (the listener abstraction is already there
-  in `Kafka.Client.RebalanceListener`, but the live consumer
-  doesn't dispatch it yet). Until that lands the streams
-  runtime's rebalance hooks are exercised only via the
-  mock-driver tests and any custom driver that wires its own
-  consumer-group code.
+- **Cross-process rebalance verification under a live broker.**
+  The runtime + consumer + native driver now wire rebalance
+  events end-to-end (`Kafka.Client.Consumer.setRebalanceListener`
+  feeds the `StreamDriver`'s `RebalanceEvent` channel, which
+  `Kafka.Streams.Runtime` drains and routes through KIP-869
+  grace and the user listener). What's left is a multi-process
+  integration test that joins two instances to the same
+  consumer group and observes the assignment migration as
+  members come and go. The mock-driver tests in
+  `Streams.RuntimeDriverSpec` already exercise every code
+  path; the live-broker Docker fixture (`FEATURE_PARITY.md`
+  §3.3) is what would prove it against a real coordinator.
 - **Standby tasks, live.** The mock cluster understands
   changelog topics and warmup reads (`Kafka.Streams.Mock.Cluster`);
   the live runtime doesn't yet recover state from changelogs
