@@ -109,11 +109,11 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int8, Int16, Int32, Int64)
-import Data.Word (Word8, Word16, Word32, Word64)
+import Data.Word (Word8, Word16, Word32, Word64, byteSwap16, byteSwap32, byteSwap64)
 import Foreign.ForeignPtr
   ( ForeignPtr, mallocForeignPtrBytes, withForeignPtr )
 import Foreign.Marshal.Utils (copyBytes)
-import Foreign.Ptr (Ptr, minusPtr, plusPtr)
+import Foreign.Ptr (Ptr, castPtr, minusPtr, plusPtr)
 import Foreign.Storable (peek, peekByteOff, poke, pokeByteOff)
 import GHC.Float (castDoubleToWord64, castWord64ToDouble)
 import GHC.Generics (Generic)
@@ -293,121 +293,86 @@ peekWord8 p endPtr = do
 -- Big-endian Int16 / Int32 / Int64 / Word16 / Word32
 ----------------------------------------------------------------------
 
+-- All the BE poke / peek helpers share the same trick: load
+-- or store one (potentially unaligned) native-width word and
+-- 'byteSwap' it on a little-endian host (which is every
+-- target we care about — x86-64, ARM64, RISC-V are all LE in
+-- practice). One MOV + one BSWAP instead of N byte stores
+-- saves 6-7 instructions per Int64/Int32 field, which the
+-- @-ddump-simpl@ inspection on @encodeRecordBatchWire@
+-- showed as 8 distinct @writeWord8OffAddr#@ primops per
+-- @pokeInt64BE@ before this rewrite.
+--
+-- Unaligned word stores are full-speed on x86-64 and a small
+-- fixed cost on ARM64 (vs. an aligned access). The
+-- alternative — gating the fast path on @ptr `mod` 8 == 0@ —
+-- isn't worth it for our usage pattern (Kafka wire format
+-- has BE fields at every offset).
+
 {-# INLINE pokeInt16BE #-}
 pokeInt16BE :: Ptr Word8 -> Int16 -> IO (Ptr Word8)
 pokeInt16BE p i = do
-  let !w = fromIntegral i :: Word16
-  pokeByteOff p 0 (fromIntegral (w `shiftR` 8) :: Word8)
-  pokeByteOff p 1 (fromIntegral (w .&. 0xFF)   :: Word8)
+  poke (castPtr p :: Ptr Word16) (byteSwap16 (fromIntegral i))
   pure (p `plusPtr` 2)
 
 {-# INLINE peekInt16BE #-}
 peekInt16BE :: Ptr Word8 -> Ptr Word8 -> IO (Int16, Ptr Word8)
 peekInt16BE p endPtr = do
   ensureBytes p endPtr 2 "Int16"
-  b0 <- peekByteOff p 0 :: IO Word8
-  b1 <- peekByteOff p 1 :: IO Word8
-  let !w = (fromIntegral b0 `shiftL` 8) .|. fromIntegral b1 :: Word16
-  pure (fromIntegral w :: Int16, p `plusPtr` 2)
+  w <- peek (castPtr p :: Ptr Word16)
+  pure (fromIntegral (byteSwap16 w) :: Int16, p `plusPtr` 2)
 
 {-# INLINE pokeWord16BE #-}
 pokeWord16BE :: Ptr Word8 -> Word16 -> IO (Ptr Word8)
 pokeWord16BE p w = do
-  pokeByteOff p 0 (fromIntegral (w `shiftR` 8) :: Word8)
-  pokeByteOff p 1 (fromIntegral (w .&. 0xFF)   :: Word8)
+  poke (castPtr p :: Ptr Word16) (byteSwap16 w)
   pure (p `plusPtr` 2)
 
 {-# INLINE peekWord16BE #-}
 peekWord16BE :: Ptr Word8 -> Ptr Word8 -> IO (Word16, Ptr Word8)
 peekWord16BE p endPtr = do
   ensureBytes p endPtr 2 "Word16"
-  b0 <- peekByteOff p 0 :: IO Word8
-  b1 <- peekByteOff p 1 :: IO Word8
-  let !w = (fromIntegral b0 `shiftL` 8) .|. fromIntegral b1 :: Word16
-  pure (w, p `plusPtr` 2)
+  w <- peek (castPtr p :: Ptr Word16)
+  pure (byteSwap16 w, p `plusPtr` 2)
 
 {-# INLINE pokeInt32BE #-}
 pokeInt32BE :: Ptr Word8 -> Int32 -> IO (Ptr Word8)
 pokeInt32BE p i = do
-  let !w = fromIntegral i :: Word32
-  pokeByteOff p 0 (fromIntegral (w `shiftR` 24) :: Word8)
-  pokeByteOff p 1 (fromIntegral (w `shiftR` 16) :: Word8)
-  pokeByteOff p 2 (fromIntegral (w `shiftR`  8) :: Word8)
-  pokeByteOff p 3 (fromIntegral (w .&. 0xFF)    :: Word8)
+  poke (castPtr p :: Ptr Word32) (byteSwap32 (fromIntegral i))
   pure (p `plusPtr` 4)
 
 {-# INLINE peekInt32BE #-}
 peekInt32BE :: Ptr Word8 -> Ptr Word8 -> IO (Int32, Ptr Word8)
 peekInt32BE p endPtr = do
   ensureBytes p endPtr 4 "Int32"
-  b0 <- peekByteOff p 0 :: IO Word8
-  b1 <- peekByteOff p 1 :: IO Word8
-  b2 <- peekByteOff p 2 :: IO Word8
-  b3 <- peekByteOff p 3 :: IO Word8
-  let !w = (fromIntegral b0 `shiftL` 24)
-        .|. (fromIntegral b1 `shiftL` 16)
-        .|. (fromIntegral b2 `shiftL`  8)
-        .|. fromIntegral b3            :: Word32
-  pure (fromIntegral w :: Int32, p `plusPtr` 4)
+  w <- peek (castPtr p :: Ptr Word32)
+  pure (fromIntegral (byteSwap32 w) :: Int32, p `plusPtr` 4)
 
 {-# INLINE pokeWord32BE #-}
 pokeWord32BE :: Ptr Word8 -> Word32 -> IO (Ptr Word8)
 pokeWord32BE p w = do
-  pokeByteOff p 0 (fromIntegral (w `shiftR` 24) :: Word8)
-  pokeByteOff p 1 (fromIntegral (w `shiftR` 16) :: Word8)
-  pokeByteOff p 2 (fromIntegral (w `shiftR`  8) :: Word8)
-  pokeByteOff p 3 (fromIntegral (w .&. 0xFF)    :: Word8)
+  poke (castPtr p :: Ptr Word32) (byteSwap32 w)
   pure (p `plusPtr` 4)
 
 {-# INLINE peekWord32BE #-}
 peekWord32BE :: Ptr Word8 -> Ptr Word8 -> IO (Word32, Ptr Word8)
 peekWord32BE p endPtr = do
   ensureBytes p endPtr 4 "Word32"
-  b0 <- peekByteOff p 0 :: IO Word8
-  b1 <- peekByteOff p 1 :: IO Word8
-  b2 <- peekByteOff p 2 :: IO Word8
-  b3 <- peekByteOff p 3 :: IO Word8
-  let !w = (fromIntegral b0 `shiftL` 24)
-        .|. (fromIntegral b1 `shiftL` 16)
-        .|. (fromIntegral b2 `shiftL`  8)
-        .|. fromIntegral b3            :: Word32
-  pure (w, p `plusPtr` 4)
+  w <- peek (castPtr p :: Ptr Word32)
+  pure (byteSwap32 w, p `plusPtr` 4)
 
 {-# INLINE pokeInt64BE #-}
 pokeInt64BE :: Ptr Word8 -> Int64 -> IO (Ptr Word8)
 pokeInt64BE p i = do
-  let !w = fromIntegral i :: Word64
-  pokeByteOff p 0 (fromIntegral (w `shiftR` 56) :: Word8)
-  pokeByteOff p 1 (fromIntegral (w `shiftR` 48) :: Word8)
-  pokeByteOff p 2 (fromIntegral (w `shiftR` 40) :: Word8)
-  pokeByteOff p 3 (fromIntegral (w `shiftR` 32) :: Word8)
-  pokeByteOff p 4 (fromIntegral (w `shiftR` 24) :: Word8)
-  pokeByteOff p 5 (fromIntegral (w `shiftR` 16) :: Word8)
-  pokeByteOff p 6 (fromIntegral (w `shiftR`  8) :: Word8)
-  pokeByteOff p 7 (fromIntegral (w .&. 0xFF)    :: Word8)
+  poke (castPtr p :: Ptr Word64) (byteSwap64 (fromIntegral i))
   pure (p `plusPtr` 8)
 
 {-# INLINE peekInt64BE #-}
 peekInt64BE :: Ptr Word8 -> Ptr Word8 -> IO (Int64, Ptr Word8)
 peekInt64BE p endPtr = do
   ensureBytes p endPtr 8 "Int64"
-  b0 <- peekByteOff p 0 :: IO Word8
-  b1 <- peekByteOff p 1 :: IO Word8
-  b2 <- peekByteOff p 2 :: IO Word8
-  b3 <- peekByteOff p 3 :: IO Word8
-  b4 <- peekByteOff p 4 :: IO Word8
-  b5 <- peekByteOff p 5 :: IO Word8
-  b6 <- peekByteOff p 6 :: IO Word8
-  b7 <- peekByteOff p 7 :: IO Word8
-  let !w = (fromIntegral b0 `shiftL` 56)
-        .|. (fromIntegral b1 `shiftL` 48)
-        .|. (fromIntegral b2 `shiftL` 40)
-        .|. (fromIntegral b3 `shiftL` 32)
-        .|. (fromIntegral b4 `shiftL` 24)
-        .|. (fromIntegral b5 `shiftL` 16)
-        .|. (fromIntegral b6 `shiftL`  8)
-        .|. fromIntegral b7            :: Word64
-  pure (fromIntegral w :: Int64, p `plusPtr` 8)
+  w <- peek (castPtr p :: Ptr Word64)
+  pure (fromIntegral (byteSwap64 w) :: Int64, p `plusPtr` 8)
 
 -- | Encode a 64-bit IEEE-754 'Double' big-endian. The Kafka protocol
 -- transmits @float64@ fields as their raw IEEE-754 bit pattern in
@@ -416,38 +381,15 @@ peekInt64BE p endPtr = do
 {-# INLINE pokeFloat64BE #-}
 pokeFloat64BE :: Ptr Word8 -> Double -> IO (Ptr Word8)
 pokeFloat64BE p d = do
-  let !w = castDoubleToWord64 d
-  pokeByteOff p 0 (fromIntegral (w `shiftR` 56) :: Word8)
-  pokeByteOff p 1 (fromIntegral (w `shiftR` 48) :: Word8)
-  pokeByteOff p 2 (fromIntegral (w `shiftR` 40) :: Word8)
-  pokeByteOff p 3 (fromIntegral (w `shiftR` 32) :: Word8)
-  pokeByteOff p 4 (fromIntegral (w `shiftR` 24) :: Word8)
-  pokeByteOff p 5 (fromIntegral (w `shiftR` 16) :: Word8)
-  pokeByteOff p 6 (fromIntegral (w `shiftR`  8) :: Word8)
-  pokeByteOff p 7 (fromIntegral (w .&. 0xFF)    :: Word8)
+  poke (castPtr p :: Ptr Word64) (byteSwap64 (castDoubleToWord64 d))
   pure (p `plusPtr` 8)
 
 {-# INLINE peekFloat64BE #-}
 peekFloat64BE :: Ptr Word8 -> Ptr Word8 -> IO (Double, Ptr Word8)
 peekFloat64BE p endPtr = do
   ensureBytes p endPtr 8 "Float64"
-  b0 <- peekByteOff p 0 :: IO Word8
-  b1 <- peekByteOff p 1 :: IO Word8
-  b2 <- peekByteOff p 2 :: IO Word8
-  b3 <- peekByteOff p 3 :: IO Word8
-  b4 <- peekByteOff p 4 :: IO Word8
-  b5 <- peekByteOff p 5 :: IO Word8
-  b6 <- peekByteOff p 6 :: IO Word8
-  b7 <- peekByteOff p 7 :: IO Word8
-  let !w = (fromIntegral b0 `shiftL` 56)
-        .|. (fromIntegral b1 `shiftL` 48)
-        .|. (fromIntegral b2 `shiftL` 40)
-        .|. (fromIntegral b3 `shiftL` 32)
-        .|. (fromIntegral b4 `shiftL` 24)
-        .|. (fromIntegral b5 `shiftL` 16)
-        .|. (fromIntegral b6 `shiftL`  8)
-        .|. fromIntegral b7            :: Word64
-  pure (castWord64ToDouble w, p `plusPtr` 8)
+  w <- peek (castPtr p :: Ptr Word64)
+  pure (castWord64ToDouble (byteSwap64 w), p `plusPtr` 8)
 
 ----------------------------------------------------------------------
 -- Variable-length integers (UVarInt + ZigZag VarInt / VarLong)
@@ -754,13 +696,6 @@ readInt32BE bs
       let (fp, off, _) = BSI.toForeignPtr bs
       withForeignPtr fp $ \basePtr -> do
         let !p = basePtr `plusPtr` off
-        b0 <- peekByteOff p 0 :: IO Word8
-        b1 <- peekByteOff p 1 :: IO Word8
-        b2 <- peekByteOff p 2 :: IO Word8
-        b3 <- peekByteOff p 3 :: IO Word8
-        let !w = (fromIntegral b0 `shiftL` 24)
-              .|. (fromIntegral b1 `shiftL` 16)
-              .|. (fromIntegral b2 `shiftL`  8)
-              .|. fromIntegral b3            :: Word32
-        pure (Right (fromIntegral w :: Int32))
+        w <- peek (castPtr p :: Ptr Word32)
+        pure (Right (fromIntegral (byteSwap32 w) :: Int32))
 

@@ -65,7 +65,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import Data.Foldable (foldl')
 import Data.Int (Int16, Int32, Int64)
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Control.Monad (when)
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Word (Word8)
 import Foreign.ForeignPtr
   ( ForeignPtr, mallocForeignPtrBytes, withForeignPtr )
@@ -1137,17 +1138,35 @@ readSlicedRecords basePtr n start endPtr = do
   mvVal      <- VUM.unsafeNew n
   mvHdrCount <- VUM.unsafeNew n
   mvHdrStart <- VUM.unsafeNew (n + 1)
-  -- Headers are unbounded per record so we accumulate them
-  -- into reverse-order lists during the walk + reverse +
-  -- materialise into a 'VU.Vector' at the end. Lists are fine
-  -- here: the per-header overhead (cons cell + tuple) is
-  -- amortised against the per-record work, and the typical
-  -- header count is 0-4.
-  hdrKeyAccRef <- newIORef ([] :: [(Int32, Int32)])
-  hdrValAccRef <- newIORef ([] :: [(Int32, Int32)])
-  hdrTotalRef  <- newIORef (0 :: Int)
-  let go !i !p
-        | i >= n    = pure ()
+  -- Headers go into a /doubling-grow/ unboxed mutable vector
+  -- (one for keys, one for values). Why not 'IORef [(Int32,
+  -- Int32)]' as before:
+  --
+  --   * The list-based version paid a 'readMutVar#' +
+  --     'writeMutVar#' per header (two of each, one per side)
+  --     plus a fresh boxed @(Int32, Int32)@ tuple + cons cell
+  --     per header — all visible in the @-ddump-simpl@ Core
+  --     for the inner record loop.
+  --   * The growable 'IOVector (Int32, Int32)' stores the
+  --     primitives unboxed in-line, so every header is two
+  --     'writeInt32Array#' primops — no allocation, no
+  --     'modifyIORef''.
+  --   * Growth is amortised O(1) (the buffer doubles when
+  --     full); for the typical case (most batches have 0-4
+  --     headers per record) the initial capacity below covers
+  --     the whole batch in one shot.
+  --
+  -- The 'IORef Int' counter the previous version kept for
+  -- 'hdrTotal' is also gone — we thread the running total
+  -- through 'go' as a strict 'Int' parameter, so there's no
+  -- per-record IORef R-M-W pair on the no-header path either.
+  let !initialHdrCap = max 16 (n * 2)
+  hdrKeysRef <- newIORef =<< (VUM.unsafeNew initialHdrCap
+                                :: IO (VUM.IOVector (Int32, Int32)))
+  hdrValsRef <- newIORef =<< (VUM.unsafeNew initialHdrCap
+                                :: IO (VUM.IOVector (Int32, Int32)))
+  let go !i !p !runningHdrTotal
+        | i >= n    = pure runningHdrTotal
         | otherwise = do
             -- Outer length VarInt (consumed but unused).
             (_len,    p0) <- peekVarInt p endPtr
@@ -1168,63 +1187,99 @@ readSlicedRecords basePtr n start endPtr = do
                          then p6
                          else p6 `plusPtr` valLenInt
             (hdrCount, p8) <- peekVarInt p7 endPtr
-            -- Stamp this record's start-index BEFORE walking
-            -- the headers so the prefix-sum is correct.
-            currentStart <- readIORef hdrTotalRef
-            VUM.unsafeWrite mvHdrStart i (fromIntegral currentStart)
-            p9 <- captureHeaders basePtr (fromIntegral hdrCount) p8 endPtr
-                    hdrKeyAccRef hdrValAccRef
-            modifyIORef' hdrTotalRef (+ fromIntegral hdrCount)
+            -- Stamp the prefix-sum index for this record.
+            VUM.unsafeWrite mvHdrStart i (fromIntegral runningHdrTotal)
+            -- All the per-record vector writes happen here so
+            -- they can't get reordered around the header walk
+            -- (which may grow the header IOVectors and thus
+            -- allocate). They're also unconditional, no
+            -- branching dance — Core for this section is just
+            -- a flat sequence of 'writeInt32Array#' /
+            -- 'writeInt64Array#' primops.
             VUM.unsafeWrite mvOff      i offDelta
             VUM.unsafeWrite mvTs       i tsDelta
             VUM.unsafeWrite mvKey      i (keyOffset, fromIntegral keyLen)
             VUM.unsafeWrite mvVal      i (valOffset, fromIntegral valLen)
             VUM.unsafeWrite mvHdrCount i hdrCount
-            go (i + 1) p9
-  go 0 start
+            -- For the (overwhelmingly common) zero-header case
+            -- recurse directly with the same running total —
+            -- skipping the IORef reads + tuple allocation that
+            -- the 'else' arm would have done.
+            if hdrCount == 0
+              then go (i + 1) p8 runningHdrTotal
+              else do
+                let !hcInt = fromIntegral hdrCount
+                p9 <- captureHeadersInto basePtr hcInt p8 endPtr
+                        runningHdrTotal hdrKeysRef hdrValsRef
+                go (i + 1) p9 (runningHdrTotal + hcInt)
+  totalHdrs <- go 0 start 0
   -- Trailing entry of 'mvHdrStart' is the total header count;
-  -- 'slicedRecordHeader' uses this for an O(1) per-record
-  -- range check.
-  totalHdrs <- readIORef hdrTotalRef
+  -- 'slicedRecordHeader' uses this for the O(1) per-record
+  -- length-derivation @count = start[i+1] - start[i]@ idiom.
   VUM.unsafeWrite mvHdrStart n (fromIntegral totalHdrs)
-  -- Materialise the header slice arrays. Lists were built
-  -- right-to-left so we reverse on conversion; 'fromListN' is
-  -- a single pass with the size hint.
-  hdrKeysRev <- readIORef hdrKeyAccRef
-  hdrValsRev <- readIORef hdrValAccRef
-  let !hdrKeysVec = VU.fromListN totalHdrs (reverse hdrKeysRev)
-      !hdrValsVec = VU.fromListN totalHdrs (reverse hdrValsRev)
+  -- Snap the header buffers to their used prefix and freeze
+  -- in place — no copy.
+  hdrKeysBuf <- readIORef hdrKeysRef
+  hdrValsBuf <- readIORef hdrValsRef
+  let !hdrKeysVec = VUM.unsafeTake totalHdrs hdrKeysBuf
+      !hdrValsVec = VUM.unsafeTake totalHdrs hdrValsBuf
+  hdrKeysFrozen <- VU.unsafeFreeze hdrKeysVec
+  hdrValsFrozen <- VU.unsafeFreeze hdrValsVec
   (,,,,,,,) <$> VU.unsafeFreeze mvOff
             <*> VU.unsafeFreeze mvTs
             <*> VU.unsafeFreeze mvKey
             <*> VU.unsafeFreeze mvVal
             <*> VU.unsafeFreeze mvHdrCount
             <*> VU.unsafeFreeze mvHdrStart
-            <*> pure hdrKeysVec
-            <*> pure hdrValsVec
+            <*> pure hdrKeysFrozen
+            <*> pure hdrValsFrozen
 
 -- | Walk @k@ headers, recording each header's key and value
--- @(offset, length)@ pair into the supplied accumulator
--- 'IORef's. Returns the cursor positioned past the last
--- header. Header keys are non-nullable per KIP-82; header
+-- @(offset, length)@ pair into the supplied doubling-grow
+-- 'IOVector' buffers. Returns the cursor positioned past the
+-- last header. Header keys are non-nullable per KIP-82; header
 -- values may be null (encoded as VarInt length -1).
-{-# INLINE captureHeaders #-}
-captureHeaders
+--
+-- 'startIx' is the index of the first header in the buffer
+-- (== running total of all headers seen so far in the batch);
+-- callers maintain it themselves so we don't need to read it
+-- back out of an 'IORef Int' here.
+{-# INLINE captureHeadersInto #-}
+captureHeadersInto
   :: Ptr Word8
   -> Int
   -> Ptr Word8
   -> Ptr Word8
-  -> IORef [(Int32, Int32)]
-  -> IORef [(Int32, Int32)]
+  -> Int                                  -- ^ start index in buffer
+  -> IORef (VUM.IOVector (Int32, Int32))  -- key buffer (mutable)
+  -> IORef (VUM.IOVector (Int32, Int32))  -- value buffer (mutable)
   -> IO (Ptr Word8)
-captureHeaders _ 0 !p _ _ _ = pure p
-captureHeaders basePtr !k !p endPtr keyAccRef valAccRef = do
-  (kLen, p1) <- peekVarInt p endPtr
-  let !kOff = fromIntegral (p1 `minusPtr` basePtr) :: Int32
-      !p2 = p1 `plusPtr` fromIntegral kLen
-  (vLen, p3) <- peekVarInt p2 endPtr
-  let !vOff = fromIntegral (p3 `minusPtr` basePtr) :: Int32
-      !p4 = if vLen < 0 then p3 else p3 `plusPtr` fromIntegral vLen
-  modifyIORef' keyAccRef ((kOff, fromIntegral kLen) :)
-  modifyIORef' valAccRef ((vOff, fromIntegral vLen) :)
-  captureHeaders basePtr (k - 1) p4 endPtr keyAccRef valAccRef
+captureHeadersInto basePtr !k !p endPtr !startIx keyBufRef valBufRef = go k p startIx
+  where
+    go 0 !pt _ = pure pt
+    go !kRem !pt !ix = do
+      keyBuf <- readIORef keyBufRef
+      valBuf <- readIORef valBufRef
+      let !cap = VUM.length keyBuf
+      keyBuf' <- if ix < cap then pure keyBuf else growBuf keyBuf cap
+      valBuf' <- if ix < cap then pure valBuf else growBuf valBuf cap
+      when (ix >= cap) $ do
+        writeIORef keyBufRef keyBuf'
+        writeIORef valBufRef valBuf'
+      (kLen, p1) <- peekVarInt pt endPtr
+      let !kOff = fromIntegral (p1 `minusPtr` basePtr) :: Int32
+          !p2 = p1 `plusPtr` fromIntegral kLen
+      (vLen, p3) <- peekVarInt p2 endPtr
+      let !vOff = fromIntegral (p3 `minusPtr` basePtr) :: Int32
+          !p4 = if vLen < 0 then p3 else p3 `plusPtr` fromIntegral vLen
+      VUM.unsafeWrite keyBuf' ix (kOff, fromIntegral kLen)
+      VUM.unsafeWrite valBuf' ix (vOff, fromIntegral vLen)
+      go (kRem - 1) p4 (ix + 1)
+
+    -- Doubling growth. 'VUM.unsafeGrow' allocates a fresh
+    -- buffer, copies the live prefix, and returns the new
+    -- buffer; the old one is GC'd.
+    {-# INLINE growBuf #-}
+    growBuf :: VUM.IOVector (Int32, Int32) -> Int
+            -> IO (VUM.IOVector (Int32, Int32))
+    growBuf old cap = VUM.unsafeGrow old cap
