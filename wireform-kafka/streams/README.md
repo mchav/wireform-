@@ -34,7 +34,8 @@ whether the library fits your use case before writing code.
 | Schema Registry serdes        | **In place.** Avro / JSON-Schema / Protobuf payload serdes + Confluent envelope + transport-agnostic HTTP.  |
 | Standby tasks                 | **Scaffolding only.** Mock cluster understands changelog topics; no live runtime support yet.               |
 | KIP-441 probing rebalance     | **Pure decision layer in place.** Not yet wired into the live consumer-group protocol.                      |
-| Multi-thread runtime          | **Yes.** `numStreamThreads > 1` spins up an N-worker pool; one consumer dispatches by `hash (topic, partition) mod N` so per-partition state stays coherent. Multi-instance (multiple processes joining the same group) is the next milestone. |
+| Multi-thread runtime          | **Yes.** `numStreamThreads > 1` spins up an N-worker pool; one consumer dispatches by `hash (topic, partition) mod N` so per-partition state stays coherent. |
+| Multi-instance rebalance      | **Runtime-side done.** `setRebalanceListener` + `ownedPartitions` + `standbyTasks` track assignments via the driver's `RebalanceEvent` channel. KIP-869 standby grace + listener dispatch fire on every event. Live wiring of the consumer-group coordinator's callbacks into the driver is the remaining piece (the `Kafka.Client.Consumer` side). |
 | Live-broker integration tests | Behind a `WIREFORM_KAFKA_BROKER` env var. Docker fixture for CI is pending.                                 |
 | GHC                           | **9.6.4 and 9.8.4** (matrix in CI). 9.10 / 9.12 not yet tested.                                             |
 
@@ -351,15 +352,20 @@ Honest list. Items here aren't unsupported in principle —
 they just haven't landed yet. Each line points at the relevant
 tracker entry.
 
-- **Multi-instance runtime.** `numStreamThreads > 1` works
-  within a process (worker pool with per-partition stickiness
-  and federated IQ). Multiple OS processes joining the same
-  consumer group and rebalancing partitions across instances
-  is the next milestone — the pure decision layers
-  (probing rebalance, revocation grace) are in place
-  (`Kafka.Streams.Runtime.{ProbingRebalance,RevocationGrace}`),
-  the live consumer-group rebalance hooks are pending.
-  `FEATURE_PARITY.md` §3.2.
+- **Live consumer-group rebalance callbacks.** The streams
+  runtime now reacts to `RebalanceEvent`s on the
+  `StreamDriver` channel:
+  `setRebalanceListener` + `ownedPartitions` + `standbyTasks`
+  mirror Java's `ConsumerRebalanceListener` and KIP-869
+  grace-period standby semantics. The `Kafka.Client.Consumer`
+  side still has to *publish* those events from its
+  `JoinGroup`/`Heartbeat`/`SyncGroup` machinery into the
+  driver's queue (the listener abstraction is already there
+  in `Kafka.Client.RebalanceListener`, but the live consumer
+  doesn't dispatch it yet). Until that lands the streams
+  runtime's rebalance hooks are exercised only via the
+  mock-driver tests and any custom driver that wires its own
+  consumer-group code.
 - **Standby tasks, live.** The mock cluster understands
   changelog topics and warmup reads (`Kafka.Streams.Mock.Cluster`);
   the live runtime doesn't yet recover state from changelogs
@@ -391,7 +397,7 @@ tracker entry.
 The streams runtime and DSL are otherwise considered
 **feature-complete relative to Kafka 4.0 Streams** for the
 single-thread / multi-thread / in-process happy path, and
-tests cover every shipped operator end-to-end (320 tests in
+tests cover every shipped operator end-to-end (324 tests in
 `wireform-kafka-streams-test`).
 
 ---

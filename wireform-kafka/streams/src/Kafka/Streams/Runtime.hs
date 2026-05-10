@@ -59,6 +59,10 @@ module Kafka.Streams.Runtime
   , LagListener
   , setLagListener
   , publishLag
+    -- * Multi-instance rebalance (KIP-415/429/441/869)
+  , setRebalanceListener
+  , ownedPartitions
+  , standbyTasks
     -- * Internal access (used by Kafka.Streams.InteractiveQueries)
   , ksEngine
   , ksPool
@@ -90,9 +94,19 @@ import Kafka.Streams.Runtime.EOS
   , noopEOSCoordinator
   , runCommitCycle
   )
+import qualified Kafka.Client.RebalanceListener as RBL
+import Kafka.Client.RebalanceListener
+  ( RebalanceListener
+  , noopRebalanceListener
+  )
 import Kafka.Streams.Runtime.NativeDriver
-  ( StreamDriver (..)
+  ( RebalanceEvent (..)
+  , StreamDriver (..)
   , newNativeDriver
+  )
+import Kafka.Streams.Runtime.RevocationGrace
+  ( RevocationOutcome (..)
+  , classifyRevocation
   )
 import Kafka.Streams.Runtime.WorkerPool
   ( WorkerPool
@@ -121,8 +135,10 @@ import qualified Data.Vector as V
 import Data.Int (Int64)
 import Kafka.Streams.Processor (TaskId (..))
 import qualified Kafka.Streams.Topology as Topo
-import Kafka.Streams.Time (Timestamp (..))
+import Kafka.Streams.Time (Timestamp (..), nowMillis)
 import Kafka.Streams.Types (TopicName, topicName, unTopicName)
+import qualified Data.HashSet as HashSet
+import Data.HashSet (HashSet)
 
 -- | Lifecycle of the runtime.
 data StreamsStatus
@@ -159,6 +175,18 @@ data KafkaStreams = KafkaStreams
   , ksListener  :: !(IORef StateListener)
   , ksPaused    :: !(TVar Bool)
   , ksLagLis    :: !(IORef LagListener)
+    -- * Multi-instance rebalance state -------------------------------
+  , ksOwned     :: !(TVar (HashSet KC.TopicPartition))
+    -- ^ Partitions this instance is currently actively
+    -- processing. Updated by 'RebalanceAssigned' /
+    -- 'RebalanceRevoked' / 'RebalanceLost' events drained from
+    -- the driver.
+  , ksStandbys  :: !(TVar (Map.Map KC.TopicPartition Int64))
+    -- ^ KIP-869 standby grace: partitions we revoked but whose
+    -- task state we keep around (for IQ continuity / fast
+    -- re-promotion) until the deadline.
+  , ksRebLis    :: !(IORef RebalanceListener)
+    -- ^ User callback fired on every rebalance event.
   }
 
 newKafkaStreams
@@ -175,6 +203,9 @@ newKafkaStreams cfg topo = do
   lis <- newIORef (\_ _ -> pure ())
   pa  <- newTVarIO False
   lagL <- newIORef (\_ -> pure ())
+  owned <- newTVarIO HashSet.empty
+  stand <- newTVarIO Map.empty
+  reb  <- newIORef noopRebalanceListener
   pure KafkaStreams
     { ksConfig    = cfg
     , ksTopology  = topo
@@ -187,6 +218,9 @@ newKafkaStreams cfg topo = do
     , ksListener  = lis
     , ksPaused    = pa
     , ksLagLis    = lagL
+    , ksOwned     = owned
+    , ksStandbys  = stand
+    , ksRebLis    = reb
     }
 
 -- | Start the runtime against a real broker. Constructs a
@@ -327,6 +361,8 @@ eventLoop ks driver engine = go
     go = do
       status <- readTVarIO (ksStatus ks)
       unless (status == StreamsClosing || status == StreamsClosed) $ do
+        drainRebalances ks driver
+        expireStandbys ks
         eRecs <- sdConsumerPoll driver (pollMs (ksConfig ks))
         case eRecs of
           Left err ->
@@ -416,6 +452,8 @@ multiEventLoop ks driver pool = go
     go = do
       status <- readTVarIO (ksStatus ks)
       unless (status == StreamsClosing || status == StreamsClosed) $ do
+        drainRebalances ks driver
+        expireStandbys ks
         eRecs <- sdConsumerPoll driver (pollMs (ksConfig ks))
         case eRecs of
           Left err ->
@@ -581,6 +619,95 @@ publishLag ks lags = do
 applyEOSCoordinator :: KafkaStreams -> EOSCoordinator -> IO ()
 applyEOSCoordinator ks coord =
   writeIORef (ksEosCoord ks) coord
+
+----------------------------------------------------------------------
+-- Multi-instance rebalance (KIP-415/429/441/869)
+----------------------------------------------------------------------
+
+-- | Install a 'Kafka.Client.RebalanceListener.RebalanceListener'
+-- that the runtime fires on every assign / revoke / lost event
+-- it drains from the driver. Mirrors Java's
+-- @KafkaStreams.setStateListener(...).onPartitionsAssigned(...)@
+-- contract.
+--
+-- The runtime always updates its internal 'ksOwned' /
+-- 'ksStandbys' bookkeeping before calling the listener, so
+-- 'ownedPartitions' / 'standbyTasks' inside the callback see
+-- the post-event state.
+setRebalanceListener :: KafkaStreams -> RebalanceListener -> IO ()
+setRebalanceListener ks l = writeIORef (ksRebLis ks) l
+
+-- | The partitions this instance is currently actively
+-- processing (assigned and not revoked). Standby tasks in their
+-- KIP-869 grace window are not included; see 'standbyTasks' for
+-- that.
+ownedPartitions :: KafkaStreams -> IO [KC.TopicPartition]
+ownedPartitions ks = HashSet.toList <$> readTVarIO (ksOwned ks)
+
+-- | Snapshot of partitions held in KIP-869 standby grace. Each
+-- entry maps the (topic, partition) to its grace-expiry
+-- deadline in epoch milliseconds. After the deadline the
+-- partition is dropped from this map on the next event-loop
+-- tick.
+standbyTasks :: KafkaStreams -> IO (Map.Map KC.TopicPartition Int64)
+standbyTasks = readTVarIO . ksStandbys
+
+-- | Drain every 'RebalanceEvent' the driver has queued, update
+-- 'ksOwned' / 'ksStandbys' atomically, and fire the user
+-- listener.
+drainRebalances :: KafkaStreams -> StreamDriver -> IO ()
+drainRebalances ks driver = loop
+  where
+    loop = do
+      mEv <- sdRebalanceEvent driver
+      case mEv of
+        Nothing                       -> pure ()
+        Just (RebalanceAssigned tps)  -> do
+          atomically $ do
+            modifyTVar' (ksOwned ks)
+              (\s -> foldr HashSet.insert s tps)
+            -- A re-assignment of a partition we're holding in
+            -- standby promotes it back to active.
+            modifyTVar' (ksStandbys ks)
+              (\m -> foldr Map.delete m tps)
+          lis <- readIORef (ksRebLis ks)
+          RBL.dispatchAssigned lis tps
+          loop
+        Just (RebalanceRevoked tps)   -> do
+          now <- nowMillis
+          let !graceMs = max 0 (taskTimeoutMs (ksConfig ks))
+          atomically $ do
+            modifyTVar' (ksOwned ks)
+              (\s -> foldr HashSet.delete s tps)
+            modifyTVar' (ksStandbys ks) $ \m ->
+              foldr
+                (\tp acc -> case classifyRevocation now graceMs of
+                   RevokeImmediate    -> acc
+                   KeepAsStandby dead -> Map.insert tp dead acc)
+                m
+                tps
+          lis <- readIORef (ksRebLis ks)
+          RBL.dispatchRevoked lis tps
+          loop
+        Just (RebalanceLost tps)      -> do
+          atomically $ do
+            modifyTVar' (ksOwned ks)
+              (\s -> foldr HashSet.delete s tps)
+            -- Lost partitions skip the grace window entirely
+            -- (the broker fenced us; serving stale reads from
+            -- the prior state would be wrong).
+            modifyTVar' (ksStandbys ks)
+              (\m -> foldr Map.delete m tps)
+          lis <- readIORef (ksRebLis ks)
+          RBL.dispatchLost lis tps
+          loop
+
+-- | Drop any standby tasks whose grace deadline has elapsed.
+expireStandbys :: KafkaStreams -> IO ()
+expireStandbys ks = do
+  now <- nowMillis
+  atomically $
+    modifyTVar' (ksStandbys ks) (Map.filter (> now))
 
 ----------------------------------------------------------------------
 -- Helpers

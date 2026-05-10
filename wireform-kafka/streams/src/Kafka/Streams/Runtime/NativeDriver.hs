@@ -39,6 +39,7 @@ module Kafka.Streams.Runtime.NativeDriver
   , MockDriverHandle
   , newMockDriver
   , mockDriverInjectPoll
+  , mockDriverInjectRebalance
   , mockDriverDrainSends
   , mockDriverTxnLog
   , mockDriverCommittedOffsets
@@ -220,6 +221,7 @@ data MockDriverHandle = MockDriverHandle
   , mdhCommits    :: !(TVar Int)
   , mdhTxn        :: !(TVar (Seq MockTxnEvent))
   , mdhSentOffs   :: !(IORef (Seq (Text, HashMap KC.TopicPartition Int64)))
+  , mdhRebalances :: !(TQueue RebalanceEvent)
   }
 
 -- | Build a fresh mock driver. The driver starts out idle: every
@@ -234,7 +236,8 @@ newMockDriver = do
   cmts   <- newTVarIO 0
   txn    <- newTVarIO Seq.empty
   offs   <- newIORef Seq.empty
-  let h = MockDriverHandle pollQ sends flushd closed subs cmts txn offs
+  reb    <- newTQueueIO
+  let h = MockDriverHandle pollQ sends flushd closed subs cmts txn offs reb
       drv = StreamDriver
         { sdConsumerSubscribe = \topics -> do
             atomically (writeTVar subs topics)
@@ -278,9 +281,17 @@ newMockDriver = do
             atomically $ modifyTVar' txn (\s -> s |> MockTxnSendOffsets gid o)
             modifyIORef' offs (\s -> s |> (gid, o))
             pure (Right ())
-        , sdRebalanceEvent = pure Nothing
+        , sdRebalanceEvent = atomically (tryReadTQueue reb)
         }
   pure (drv, h)
+
+-- | Push a 'RebalanceEvent' that the runtime will pick up on its
+-- next loop tick. Used by tests to simulate the consumer-group
+-- coordinator's assign / revoke / lost decisions without
+-- spinning up a real broker.
+mockDriverInjectRebalance :: MockDriverHandle -> RebalanceEvent -> IO ()
+mockDriverInjectRebalance h ev =
+  atomically $ writeTQueue (mdhRebalances h) ev
 
 -- | Push a batch of consumer records the runtime will receive on
 -- the next 'sdConsumerPoll'.

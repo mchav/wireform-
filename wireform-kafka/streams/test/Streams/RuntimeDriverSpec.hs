@@ -29,17 +29,21 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import qualified Kafka.Client.Consumer as KC
+import qualified Kafka.Client.RebalanceListener as RBL
 
 import Kafka.Streams
 import Kafka.Streams.Runtime.EOS
   ( EOSCoordinator (..)
   )
+import qualified Data.Map.Strict as Map
 import Kafka.Streams.Runtime.NativeDriver
   ( MockSend (..)
   , MockTxnEvent (..)
+  , RebalanceEvent (..)
   , mockDriverCommitCount
   , mockDriverDrainSends
   , mockDriverInjectPoll
+  , mockDriverInjectRebalance
   , mockDriverTxnLog
   , newMockDriver
   )
@@ -51,6 +55,10 @@ tests = testGroup "Runtime <-> StreamDriver"
   , commit_cycle_invokes_eos_coordinator
   , multi_thread_runtime_dispatches_by_partition
   , multi_thread_runtime_drains_collectors_at_commit
+  , rebalance_assigned_updates_owned_partitions
+  , rebalance_revoked_moves_to_standby_grace
+  , rebalance_lost_drops_without_grace
+  , rebalance_reassignment_promotes_standby
   ]
 
 bytes :: Text -> BSC.ByteString
@@ -371,6 +379,155 @@ consumerRecordPart topic part k v off ts = KC.ConsumerRecord
   , KC.crValue     = bytes v
   , KC.crHeaders   = []
   }
+
+----------------------------------------------------------------------
+-- 6. Multi-instance rebalance handling (KIP-415/429/441/869)
+----------------------------------------------------------------------
+
+-- | Build a 'KafkaStreams' running the upcase topology with the
+-- supplied 'taskTimeoutMs' (which the runtime uses as the
+-- standby grace window).
+buildRebalanceFixture
+  :: Int                                     -- ^ task.timeout.ms
+  -> IO (KafkaStreams, IORef [(Text, [KC.TopicPartition])])
+buildRebalanceFixture graceMs = do
+  topo <- buildUpcaseTopo
+  let cfg = defaultStreamsConfig
+        { applicationId    = "rt-rebal"
+        , bootstrapServers = ["mock:0"]
+        , numStreamThreads = 1
+        , pollMs           = 0
+        , taskTimeoutMs    = graceMs
+        }
+  ks <- newKafkaStreams cfg topo
+  log_ <- newIORef ([] :: [(Text, [KC.TopicPartition])])
+  let rec_ tag tps = modifyIORef' log_ ((tag, tps) :)
+  setRebalanceListener ks RBL.RebalanceListener
+    { RBL.rlOnAssigned = rec_ "assigned"
+    , RBL.rlOnRevoked  = rec_ "revoked"
+    , RBL.rlOnLost     = rec_ "lost"
+    }
+  pure (ks, log_)
+
+rebalance_assigned_updates_owned_partitions :: TestTree
+rebalance_assigned_updates_owned_partitions =
+  testCase "RebalanceAssigned: ksOwned gains the new tps; listener fires" $ do
+    (ks, log_) <- buildRebalanceFixture 0
+    (drv, h) <- newMockDriver
+    let tp0 = KC.TopicPartition "in" 0
+        tp1 = KC.TopicPartition "in" 1
+    mockDriverInjectRebalance h (RebalanceAssigned [tp0, tp1])
+    startKafkaStreamsWith ks drv
+    awaitState ks StreamsRunning
+
+    waitFor 1000 $ do
+      owned <- ownedPartitions ks
+      pure (length owned == 2)
+
+    owned <- ownedPartitions ks
+    -- Order is not deterministic across HashSet; compare as sets.
+    map (\(KC.TopicPartition t p) -> (t, p)) (sortBy_ owned)
+      @?= [("in", 0), ("in", 1)]
+
+    entries <- reverse <$> readIORef log_
+    map fst entries @?= ["assigned"]
+    map snd entries @?= [[tp0, tp1]]
+
+    closeKafkaStreams ks
+    awaitState ks StreamsClosed
+
+rebalance_revoked_moves_to_standby_grace :: TestTree
+rebalance_revoked_moves_to_standby_grace =
+  testCase "RebalanceRevoked with non-zero grace: tp moves to ksStandbys" $ do
+    (ks, _log) <- buildRebalanceFixture 60_000
+    (drv, h) <- newMockDriver
+    let tp = KC.TopicPartition "in" 0
+    mockDriverInjectRebalance h (RebalanceAssigned [tp])
+    mockDriverInjectRebalance h (RebalanceRevoked  [tp])
+    startKafkaStreamsWith ks drv
+    awaitState ks StreamsRunning
+
+    -- After draining both events: owned must be empty AND
+    -- the revoked tp must appear in the standby map with a
+    -- deadline a non-trivial time in the future.
+    waitFor 1000 $ do
+      owned <- ownedPartitions ks
+      stby  <- standbyTasks ks
+      pure (null owned && Map.member tp stby)
+
+    owned <- ownedPartitions ks
+    owned @?= []
+    stby  <- standbyTasks ks
+    -- The deadline should be a real timestamp, > 0.
+    case Map.lookup tp stby of
+      Just dl -> assertBool ("standby deadline > 0; got " <> show dl) (dl > 0)
+      Nothing -> error "expected standby entry"
+
+    closeKafkaStreams ks
+    awaitState ks StreamsClosed
+
+rebalance_lost_drops_without_grace :: TestTree
+rebalance_lost_drops_without_grace =
+  testCase "RebalanceLost: tp drops immediately; no standby entry; listener fires" $ do
+    (ks, log_) <- buildRebalanceFixture 60_000
+    (drv, h) <- newMockDriver
+    let tp = KC.TopicPartition "in" 0
+    mockDriverInjectRebalance h (RebalanceAssigned [tp])
+    mockDriverInjectRebalance h (RebalanceLost     [tp])
+    startKafkaStreamsWith ks drv
+    awaitState ks StreamsRunning
+
+    waitFor 1000 $ do
+      owned <- ownedPartitions ks
+      stby  <- standbyTasks ks
+      tags  <- map fst <$> readIORef log_
+      pure (null owned && Map.null stby
+             && "lost" `elem` tags)
+
+    -- The listener saw both assigned then lost, in order.
+    entries <- reverse <$> readIORef log_
+    map fst entries @?= ["assigned", "lost"]
+
+    closeKafkaStreams ks
+    awaitState ks StreamsClosed
+
+rebalance_reassignment_promotes_standby :: TestTree
+rebalance_reassignment_promotes_standby =
+  testCase "Re-assignment of a standby tp clears the standby and re-adds to owned" $ do
+    (ks, _log) <- buildRebalanceFixture 60_000
+    (drv, h) <- newMockDriver
+    let tp = KC.TopicPartition "in" 0
+    -- assign -> revoke (standby) -> re-assign (promote back to active)
+    mockDriverInjectRebalance h (RebalanceAssigned [tp])
+    mockDriverInjectRebalance h (RebalanceRevoked  [tp])
+    mockDriverInjectRebalance h (RebalanceAssigned [tp])
+    startKafkaStreamsWith ks drv
+    awaitState ks StreamsRunning
+
+    waitFor 1000 $ do
+      owned <- ownedPartitions ks
+      stby  <- standbyTasks ks
+      pure (tp `elem` owned && Map.null stby)
+
+    owned <- ownedPartitions ks
+    owned @?= [tp]
+    stby  <- standbyTasks ks
+    Map.null stby @?= True
+
+    closeKafkaStreams ks
+    awaitState ks StreamsClosed
+
+-- | Stable sort over TopicPartition for the assigned-tps test.
+sortBy_ :: [KC.TopicPartition] -> [KC.TopicPartition]
+sortBy_ = sortOn (\(KC.TopicPartition t p) -> (t, p))
+  where
+    sortOn f = sortBy (\a b -> compare (f a) (f b))
+    sortBy cmp = foldr insert' []
+      where
+        insert' x [] = [x]
+        insert' x (y : ys)
+          | cmp x y == GT = y : insert' x ys
+          | otherwise     = x : y : ys
 
 ----------------------------------------------------------------------
 -- Wait helper (no threadDelay)
