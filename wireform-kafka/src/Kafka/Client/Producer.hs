@@ -944,6 +944,33 @@ producerPreSendCheck
   -> IO (Either String (Int32, BA.BatchStamp))
 producerPreSendCheck p@Producer{..} topic key = do
   mTxn <- readTVarIO producerTransaction
+  -- Fast path for the common-case non-transactional /
+  -- non-idempotent producer: skip the entire STM transaction
+  -- below for sequence tracking and just call the partitioner +
+  -- return the no-stamp sentinel. This is what 'sendMessageDrop'
+  -- does inline and what 'sendMessageAsync' should do too —
+  -- pre-fix the per-record STM commit was the dominant
+  -- 'sendMessageAsync' cost (~150 ns / record on the bench).
+  case mTxn of
+    Nothing -> do
+      pid   <- readTVarIO producerIdempotentId
+      epoch <- readTVarIO producerIdempotentEpoch
+      if pid == RB.noProducerId && epoch == RB.noProducerEpoch
+        then do
+          partition <- selectPartition p topic key
+          pure (Right (partition, BA.noStamp))
+        else fullPath mTxn
+    _ -> fullPath mTxn
+  where
+    fullPath mTxn = fullPreSendCheck p topic key mTxn
+
+fullPreSendCheck
+  :: Producer
+  -> Text
+  -> Maybe ByteString
+  -> Maybe Txn.Transaction
+  -> IO (Either String (Int32, BA.BatchStamp))
+fullPreSendCheck p@Producer{..} topic key mTxn = do
   -- 1. Transactional state guard.
   txnGate <- case mTxn of
     Nothing  -> return (Right Nothing)
