@@ -636,8 +636,7 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
               requestBody = WC.runEncodeVer @LOReq.ListOffsetsRequest apiVersion request
               clientId = P.mkKafkaString (consumerClientId consumerConfig)
           
-          -- Send request
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
+          result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock consumerConnManager brokerAddr) conn apiKey apiVersion corrId clientId requestBody
           case result of
             Left err -> return $ Left err
             Right (respCorrId, respBody) ->
@@ -766,15 +765,15 @@ sendLeaveGroup c@Consumer{..} hbState = do
             cid <- readTVar consumerCorrelationId
             writeTVar consumerCorrelationId (cid + 1)
             pure cid
-          _ <- Conn.withBrokerLock consumerConnManager coordAddr $
-                 CG.leaveGroup
-                   consumerVersionCache
-                   coordAddr
-                   conn
-                   (HB.hbGroupId hbState)
-                   memberId
-                   (consumerClientId consumerConfig)
-                   corrId
+          _ <- CG.leaveGroup
+                 consumerVersionCache
+                 consumerConnManager
+                 coordAddr
+                 conn
+                 (HB.hbGroupId hbState)
+                 memberId
+                 (consumerClientId consumerConfig)
+                 corrId
           pure ()
 
 -- | Subscribe to topics with broker-side group coordination.
@@ -1421,9 +1420,8 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
           requestBody = WC.runEncodeVer @FR.FetchRequest apiVersion request
           clientId = P.mkKafkaString "kafka-native-consumer"
       
-      -- Send request
-      result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
-      
+      result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock connMgr brokerAddr) conn apiKey apiVersion corrId clientId requestBody
+
       case result of
         Left err -> return $ Left $ "Fetch failed: " ++ err
         Right (_, responseBody) -> do
@@ -1817,8 +1815,7 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
                   requestBody = WC.runEncodeVer @OCReq.OffsetCommitRequest apiVersion request
                   clientId = P.mkKafkaString (consumerClientId consumerConfig)
 
-              result <- Conn.withBrokerLock consumerConnManager coordAddr $
-                Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
+              result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock consumerConnManager coordAddr) conn apiKey apiVersion corrId clientId requestBody
 
               case result of
                 Left err -> return $ Left $ "OffsetCommit failed: " ++ err
@@ -1902,8 +1899,7 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
                     | otherwise       = buildOffsetFetchRequestLegacy groupId byTopic
                   requestBody = WC.runEncodeVer @OFReq.OffsetFetchRequest apiVersion request
                   clientId = P.mkKafkaString (consumerClientId consumerConfig)
-              result <- Conn.withBrokerLock consumerConnManager coordAddr $
-                Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
+              result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock consumerConnManager coordAddr) conn apiKey apiVersion corrId clientId requestBody
               case result of
                 Left err -> pure (Left ("OffsetFetch failed: " ++ err))
                 Right (_, responseBody) ->
@@ -2113,7 +2109,7 @@ queryPartitionOffsetsByTimestampFull consumer@Consumer{..} pts = do
                 }
               requestBody = WC.runEncodeVer @LOReq.ListOffsetsRequest apiVersion request
               clientId    = P.mkKafkaString (consumerClientId consumerConfig)
-          result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
+          result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock consumerConnManager brokerAddr) conn apiKey apiVersion corrId clientId requestBody
           case result of
             Left err -> pure (Left err)
             Right (rcid, body)

@@ -50,6 +50,7 @@ import qualified Data.Vector as V
 import Network.Connection (Connection)
 
 import qualified Kafka.Client.Internal.Request as Req
+import qualified Kafka.Network.Connection as Conn
 import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Protocol.Generated.FindCoordinatorRequest as FCReq
@@ -109,13 +110,14 @@ data MemberAssignment = MemberAssignment
 -- and partition assignments for this group.
 findGroupCoordinator
   :: AV.ApiVersionCache  -- ^ Version cache for version negotiation
+  -> Conn.ConnectionManager  -- ^ Connection manager (for per-broker lock)
   -> BrokerAddress       -- ^ Broker address for version lookup
   -> Connection
   -> Text                -- ^ Group ID
   -> Int32               -- ^ Correlation ID
   -> Text                -- ^ Client ID
   -> IO (Either String GroupCoordinator)
-findGroupCoordinator versionCache brokerAddr conn groupId correlationId clientId = do
+findGroupCoordinator versionCache connMgr brokerAddr conn groupId correlationId clientId = do
   let apiKey = 10  -- FindCoordinator API key
       -- v6 = trunk; we now handle both legacy v0-v3 (top-level
       -- Host/Port) and v4+ (KIP-699 Coordinators[]) shapes
@@ -152,7 +154,7 @@ findGroupCoordinator versionCache brokerAddr conn groupId correlationId clientId
       clientIdKafka = P.mkKafkaString clientId
 
   -- Send request and receive response
-  result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
+  result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock connMgr brokerAddr) conn apiKey apiVersion correlationId clientIdKafka requestBody
 
   case result of
     Left err -> return $ Left $ "FindCoordinator request failed: " ++ err
@@ -206,19 +208,20 @@ findGroupCoordinator versionCache brokerAddr conn groupId correlationId clientId
 -- member or if rebalance is needed, one member will be elected as leader.
 joinGroup
   :: AV.ApiVersionCache  -- ^ Version cache for version negotiation
+  -> Conn.ConnectionManager  -- ^ Connection manager (for per-broker lock)
   -> BrokerAddress       -- ^ Broker address for version lookup
   -> Connection
   -> Text                -- ^ Group ID
   -> Text                -- ^ Member ID (empty for first join)
-  -> Text                -- ^ Client ID  
+  -> Text                -- ^ Client ID
   -> Int32               -- ^ Session timeout (ms)
   -> Int32               -- ^ Rebalance timeout (ms)
   -> Text                -- ^ Protocol type (e.g., "consumer")
   -> [(Text, ByteString)]  -- ^ Supported protocols with metadata
   -> Int32               -- ^ Correlation ID
   -> IO (Either String JoinGroupResult)
-joinGroup vc ba conn gid mid cid st rt pt protos corrId =
-  joinGroupGo vc ba conn gid mid cid st rt pt protos corrId 0
+joinGroup vc cm ba conn gid mid cid st rt pt protos corrId =
+  joinGroupGo vc cm ba conn gid mid cid st rt pt protos corrId 0
 
 -- | Internal joinGroup loop with a retry counter.  Handles
 -- 'MEMBER_ID_REQUIRED' (error 79, KIP-394): the broker, on the
@@ -226,14 +229,14 @@ joinGroup vc ba conn gid mid cid st rt pt protos corrId =
 -- minted member id and requires the client to re-issue the
 -- JoinGroup with that id.  We retry once.
 joinGroupGo
-  :: AV.ApiVersionCache -> BrokerAddress -> Connection
+  :: AV.ApiVersionCache -> Conn.ConnectionManager -> BrokerAddress -> Connection
   -> Text -> Text -> Text
   -> Int32 -> Int32
   -> Text -> [(Text, ByteString)]
   -> Int32
   -> Int       -- ^ retry attempt (0 = first call)
   -> IO (Either String JoinGroupResult)
-joinGroupGo versionCache brokerAddr conn groupId memberId clientId sessionTimeout rebalanceTimeout protocolType protocols correlationId attempt = do
+joinGroupGo versionCache connMgr brokerAddr conn groupId memberId clientId sessionTimeout rebalanceTimeout protocolType protocols correlationId attempt = do
   let apiKey = 11  -- JoinGroup API key
       -- Bump back to v9 (= schema trunk). Versions added since
       -- v5: v6 made the protocol flexible (the codegen handles
@@ -286,7 +289,7 @@ joinGroupGo versionCache brokerAddr conn groupId memberId clientId sessionTimeou
       requestBody = WC.runEncodeVer @JGReq.JoinGroupRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
   
-  result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
+  result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock connMgr brokerAddr) conn apiKey apiVersion correlationId clientIdKafka requestBody
 
   case result of
     Left err -> return $ Left $ "JoinGroup request failed: " ++ err
@@ -303,7 +306,7 @@ joinGroupGo versionCache brokerAddr conn groupId memberId clientId sessionTimeou
             -- member id on the first JoinGroup; retry once with it.
             -- Any other non-zero code is fatal at this layer.
             79 | attempt == 0 && not (T.null assignedMember) ->
-              joinGroupGo versionCache brokerAddr conn groupId
+              joinGroupGo versionCache connMgr brokerAddr conn groupId
                 assignedMember clientId sessionTimeout rebalanceTimeout
                 protocolType protocols (correlationId + 1) (attempt + 1)
             c | c /= 0 ->
@@ -337,6 +340,7 @@ joinGroupGo versionCache brokerAddr conn groupId memberId clientId sessionTimeou
 -- Followers send empty assignments and receive their own assignment.
 syncGroup
   :: AV.ApiVersionCache    -- ^ Version cache for version negotiation
+  -> Conn.ConnectionManager  -- ^ Connection manager (for per-broker lock)
   -> BrokerAddress         -- ^ Broker address for version lookup
   -> Connection
   -> Text                  -- ^ Group ID
@@ -352,7 +356,7 @@ syncGroup
   -> [(Text, ByteString)]  -- ^ Assignments (memberId -> assignment bytes)
   -> Int32                 -- ^ Correlation ID
   -> IO (Either String ByteString)
-syncGroup versionCache brokerAddr conn groupId generationId memberId clientId protocolType protocolName assignments correlationId = do
+syncGroup versionCache connMgr brokerAddr conn groupId generationId memberId clientId protocolType protocolName assignments correlationId = do
   let apiKey = 14  -- SyncGroup API key
       clientMaxVersion = 5  -- Max version we support
 
@@ -382,9 +386,9 @@ syncGroup versionCache brokerAddr conn groupId generationId memberId clientId pr
       
       requestBody = WC.runEncodeVer @SGReq.SyncGroupRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
-  
-  result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
-  
+
+  result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock connMgr brokerAddr) conn apiKey apiVersion correlationId clientIdKafka requestBody
+
   case result of
     Left err -> return $ Left $ "SyncGroup request failed: " ++ err
     Right (_, responseBody) -> do
@@ -402,6 +406,7 @@ syncGroup versionCache brokerAddr conn groupId generationId memberId clientId pr
 -- | Leave a consumer group
 leaveGroup
   :: AV.ApiVersionCache  -- ^ Version cache for version negotiation
+  -> Conn.ConnectionManager  -- ^ Connection manager (for per-broker lock)
   -> BrokerAddress       -- ^ Broker address for version lookup
   -> Connection
   -> Text                -- ^ Group ID
@@ -409,7 +414,7 @@ leaveGroup
   -> Text                -- ^ Client ID
   -> Int32               -- ^ Correlation ID
   -> IO (Either String ())
-leaveGroup versionCache brokerAddr conn groupId memberId clientId correlationId = do
+leaveGroup versionCache connMgr brokerAddr conn groupId memberId clientId correlationId = do
   let apiKey = 13  -- LeaveGroup API key
       clientMaxVersion = 5  -- Max version we support
   
@@ -437,8 +442,8 @@ leaveGroup versionCache brokerAddr conn groupId memberId clientId correlationId 
       
       requestBody = WC.runEncodeVer @LGReq.LeaveGroupRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
-  
-  result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
+
+  result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock connMgr brokerAddr) conn apiKey apiVersion correlationId clientIdKafka requestBody
   
   case result of
     Left err -> return $ Left $ "LeaveGroup request failed: " ++ err

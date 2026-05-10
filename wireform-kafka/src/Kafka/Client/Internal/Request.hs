@@ -15,6 +15,7 @@ This module provides low-level primitives for the higher-level client APIs.
 module Kafka.Client.Internal.Request
   ( -- * Request/Response Operations
     sendRequestReceiveResponse
+  , sendRequestReceiveResponseLocked
   , sendRawRequest
   , receiveRawResponse
     -- * Frame Construction
@@ -440,8 +441,13 @@ receiveRawResponse conn = do
 
 -- | Send a request and receive the corresponding response.
 --
--- This is a synchronous request/response operation. For pipelined requests,
--- use the Pipeline module instead.
+-- /Not thread-safe/. 'Network.Connection.Connection' has no
+-- internal synchronization; if multiple threads can target the
+-- same broker (the consumer's heartbeat thread + its poll /
+-- commit path is the canonical case) call
+-- 'sendRequestReceiveResponseLocked' instead. Single-threaded
+-- callers (admin client, producer pipeline, SASL handshake at
+-- connection setup, ...) can keep using this entry point.
 sendRequestReceiveResponse
   :: Connection
   -> Int16          -- ^ API key
@@ -454,8 +460,33 @@ sendRequestReceiveResponse conn apiKey apiVersion correlationId clientId request
   let framedRequest = frameRequest apiKey apiVersion correlationId clientId requestBody
   sendRawRequest conn framedRequest
   response <- receiveRawResponse conn
-  -- Pass the api key + version through so the response-header
-  -- parser knows whether to skip a v1 'TaggedFields' trailer
-  -- before returning the body. See 'parseResponseFrame'.
   return $ parseResponseFrame apiKey apiVersion response
+
+-- | Locked sibling of 'sendRequestReceiveResponse'.  The first
+-- argument is a "run under the per-broker connection lock"
+-- combinator (typically @Kafka.Network.Connection.withBrokerLock
+-- cm addr@); it serializes the send + receive pair against any
+-- other locked caller targeting the same broker.  Callers that
+-- may race against each other on the /same broker/ (the
+-- consumer's heartbeat thread vs. the foreground subscribe /
+-- commit / poll path is the canonical case on a single-broker
+-- cluster, where the coordinator and the data leader live on
+-- the same socket) must use this variant.
+--
+-- The lock combinator is passed in (rather than imported) so
+-- this module does not depend on the connection-manager module,
+-- which would create an import cycle through SASL.
+sendRequestReceiveResponseLocked
+  :: (IO (Either String (Int32, ByteString))
+        -> IO (Either String (Int32, ByteString)))
+        -- ^ @withBrokerLock cm addr@
+  -> Connection
+  -> Int16          -- ^ API key
+  -> Int16          -- ^ API version
+  -> Int32          -- ^ Correlation ID
+  -> P.KafkaString  -- ^ Client ID
+  -> ByteString     -- ^ Serialized request body
+  -> IO (Either String (Int32, ByteString))
+sendRequestReceiveResponseLocked withLock conn apiKey apiVersion correlationId clientId requestBody =
+  withLock (sendRequestReceiveResponse conn apiKey apiVersion correlationId clientId requestBody)
 
