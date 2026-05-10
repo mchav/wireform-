@@ -184,8 +184,9 @@ with the implementation.
   feeding one aggregate.
 - Windowed processing: tumbling, hopping, sliding (KIP-450), session
   windows. `TimeWindowedKStream`, `SessionWindowedKStream`.
-- Joins: stream-stream, stream-table, table-table, foreign-key
-  (rudimentary), windowed stream-stream.
+- Joins: stream-stream, stream-table, table-table, KIP-213
+  foreign-key (with subscription-token verification), windowed
+  stream-stream.
 - State stores:
   - `KeyValueStore` (in-memory + RocksDB-backed via
     `rocksdb-haskell-kadena`).
@@ -226,7 +227,7 @@ with the implementation.
 | Suite                              | Count |
 |------------------------------------|-------|
 | `wireform-kafka:wireform-kafka-test`         | 588 |
-| `wireform-kafka:wireform-kafka-streams-test` | 316 |
+| `wireform-kafka:wireform-kafka-streams-test` | 319 |
 
 Both green on every commit on this branch.
 
@@ -296,15 +297,22 @@ surface that must land.
   (separate from the core lib so the http-client dep stays
   optional). Compatibility-mode tests against a real registry.
 
-#### S1 — KIP-213 foreign-key join: DSL combinator wiring
+#### KIP-213 foreign-key join: DSL combinator wiring [DONE]
 
-- **What's done.** `Kafka.Streams.DSL.ForeignKeyJoinV2` ships the
-  pure data-layer state machine (`SubscriptionMessage`,
-  `Responder`, `stepLeft`, `stepRight`, `runEvents`).
-- **What's left.** Replace the existing `foreignKeyJoin`
-  combinator's naive re-key implementation with a topology that
-  pipes left updates through the V2 subscription store + responder
-  topic + token verification.
+- `Kafka.Streams.DSL.ForeignKeyJoin.foreignKeyJoinKTable` now bakes
+  in the KIP-213 subscription-token semantics: every left record
+  carries a token derived from the value's hash; the subscription
+  store is keyed by foreign key with a `Map k SubscriptionToken`
+  payload; the right-side processor verifies the live token
+  matches the subscription token before emitting. This is
+  redundant in a single-task synchronous topology (the right-side
+  processor sees live left state) but is the correctness invariant
+  for future multi-task wiring.
+- `Kafka.Streams.DSL.ForeignKeyJoinV2` retains the pure data layer
+  (`SubscriptionMessage`, `Responder`, `FkJoinState`,
+  `stepLeft`/`stepRight`/`runEvents`) used by the property tests.
+  There is now a single user-facing `foreignKeyJoinKTable`
+  combinator; consumers don't have to choose between V1 and V2.
 
 ### 3.3 Cross-cutting / infrastructure
 
@@ -337,9 +345,10 @@ In approximate order:
    JSON-Schema / Protobuf serdes on top of the existing
    `SchemaRegistryClient` + envelope helpers. HTTP-backed client
    in a separate sub-library so http-client stays optional.
-4. **KIP-213 FK-join DSL wiring** (S1). Pure data layer is in
-   place; the DSL combinator that uses it is the missing
-   integration.
+4. ~~**KIP-213 FK-join DSL wiring** (S1).~~ **DONE** — the single
+   `foreignKeyJoinKTable` combinator bakes in the KIP-213
+   subscription-token semantics; the V2 module is now the pure
+   data layer used by tests.
 5. **librdkafka stats interval emitter + OTLP exporter** (S1).
    `StatsJson` ships the snapshot shape; the producer / consumer
    need a scheduled emitter that polls existing counters every
@@ -407,6 +416,5 @@ The current snapshot of in-progress / pending work is:
   buffer drains on each commit (§3.2). All the building blocks
   this refactor needs landed in this branch.
 - After that, the open items are the SASL re-auth pipeline driver
-  (KIP-368), the concrete Schema Registry payload serdes (Avro /
-  JSON-Schema / Protobuf), the FK-join DSL wiring (KIP-213), and
-  the live-broker Docker fixture for CI. None block the others.
+  (KIP-368) and the live-broker Docker fixture for CI. None block
+  the others.
