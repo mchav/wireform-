@@ -12,7 +12,7 @@ Kafka request for API key 78.
 
 
 
-Valid versions: 1-2
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -67,7 +67,7 @@ data AcknowledgementBatch = AcknowledgementBatch
   acknowledgementBatchLastOffset :: !(Int64)
 ,
 
-  -- | Array of acknowledge types - 0:Gap,1:Accept,2:Release,3:Reject,4:Renew.
+  -- | Array of acknowledge types - 0:Gap,1:Accept,2:Release,3:Reject.
 
   -- Versions: 0+
   acknowledgementBatchAcknowledgeTypes :: !(KafkaArray (Int8))
@@ -87,7 +87,7 @@ data FetchPartition = FetchPartition
 
   -- | The maximum bytes to fetch from this partition. 0 when only acknowledgement with no fetching is requ
 
-  -- Versions: 0
+  -- Versions: 0+
   fetchPartitionPartitionMaxBytes :: !(Int32)
 ,
 
@@ -169,34 +169,10 @@ data ShareFetchRequest = ShareFetchRequest
   shareFetchRequestMinBytes :: !(Int32)
 ,
 
-  -- | The maximum bytes to fetch. See KIP-74 for cases where this limit may not be honored.
+  -- | The maximum bytes to fetch.  See KIP-74 for cases where this limit may not be honored.
 
   -- Versions: 0+
   shareFetchRequestMaxBytes :: !(Int32)
-,
-
-  -- | The maximum number of records to fetch. This limit can be exceeded for alignment of batch boundaries
-
-  -- Versions: 1+
-  shareFetchRequestMaxRecords :: !(Int32)
-,
-
-  -- | The optimal number of records for batches of acquired records and acknowledgements.
-
-  -- Versions: 1+
-  shareFetchRequestBatchSize :: !(Int32)
-,
-
-  -- | The acquire mode to control the fetch behavior - 0:batch-optimized,1:record-limit.
-
-  -- Versions: 2+
-  shareFetchRequestShareAcquireMode :: !(Int8)
-,
-
-  -- | Whether Renew type acknowledgements present in AcknowledgementBatches.
-
-  -- Versions: 2+
-  shareFetchRequestIsRenewAck :: !(Bool)
 ,
 
   -- | The topics to fetch.
@@ -215,13 +191,13 @@ data ShareFetchRequest = ShareFetchRequest
 
 -- | Maximum supported version for ShareFetchRequest.
 maxShareFetchRequestVersion :: Int16
-maxShareFetchRequestVersion = 2
+maxShareFetchRequestVersion = 0
 
 -- | KafkaMessage instance for ShareFetchRequest.
 instance KafkaMessage ShareFetchRequest where
   messageApiKey = 78
-  messageMinVersion = 1
-  messageMaxVersion = 2
+  messageMinVersion = 0
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a AcknowledgementBatch.
@@ -270,7 +246,7 @@ wirePokeFetchPartition :: Int -> Ptr Word8 -> FetchPartition -> IO (Ptr Word8)
 wirePokeFetchPartition version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (fetchPartitionPartitionIndex msg)
-  p2 <- (if version == 0 then W.pokeInt32BE p1 (fetchPartitionPartitionMaxBytes msg) else pure p1)
+  p2 <- W.pokeInt32BE p1 (fetchPartitionPartitionMaxBytes msg)
   p3 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeAcknowledgementBatch version p x) p2 (fetchPartitionAcknowledgementBatches msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
 
@@ -278,7 +254,7 @@ wirePokeFetchPartition version basePtr msg = do
 wirePeekFetchPartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (FetchPartition, Ptr Word8)
 wirePeekFetchPartition version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
-  (f1_partitionmaxbytes, p2) <- (if version == 0 then W.peekInt32BE p1 endPtr else pure (0, p1))
+  (f1_partitionmaxbytes, p2) <- W.peekInt32BE p1 endPtr
   (f2_acknowledgementbatches, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekAcknowledgementBatch version _fp _basePtr p e) p2 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (FetchPartition { fetchPartitionPartitionIndex = f0_partitionindex, fetchPartitionPartitionMaxBytes = f1_partitionmaxbytes, fetchPartitionAcknowledgementBatches = f2_acknowledgementbatches }, pTagsEnd)
@@ -356,10 +332,6 @@ wireMaxSizeShareFetchRequest _version msg =
   + 4
   + 4
   + 4
-  + 4
-  + 4
-  + 1
-  + 1
   + (5 + (case P.unKafkaArray (shareFetchRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeFetchTopic _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (shareFetchRequestForgottenTopicsData msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeForgottenTopic _version x ) v); P.Null -> 0 }))
   + 1
@@ -367,7 +339,7 @@ wireMaxSizeShareFetchRequest _version msg =
 -- | Direct-poke encoder for ShareFetchRequest.
 wirePokeShareFetchRequest :: Int -> Ptr Word8 -> ShareFetchRequest -> IO (Ptr Word8)
 wirePokeShareFetchRequest version basePtr msg
-  | version == 1 = do
+  | version == 0 = do
     p0 <- pure basePtr
     p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (shareFetchRequestGroupId msg)) else WP.pokeKafkaString p0 (shareFetchRequestGroupId msg))
     p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (shareFetchRequestMemberId msg)) else WP.pokeKafkaString p1 (shareFetchRequestMemberId msg))
@@ -375,65 +347,31 @@ wirePokeShareFetchRequest version basePtr msg
     p4 <- W.pokeInt32BE p3 (shareFetchRequestMaxWaitMs msg)
     p5 <- W.pokeInt32BE p4 (shareFetchRequestMinBytes msg)
     p6 <- W.pokeInt32BE p5 (shareFetchRequestMaxBytes msg)
-    p7 <- (if version >= 1 then W.pokeInt32BE p6 (shareFetchRequestMaxRecords msg) else pure p6)
-    p8 <- (if version >= 1 then W.pokeInt32BE p7 (shareFetchRequestBatchSize msg) else pure p7)
-    p9 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeFetchTopic version p x) p8 (shareFetchRequestTopics msg)
-    p10 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeForgottenTopic version p x) p9 (shareFetchRequestForgottenTopicsData msg)
-    WP.pokeEmptyTaggedFields p10
-  | version == 2 = do
-    p0 <- pure basePtr
-    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (shareFetchRequestGroupId msg)) else WP.pokeKafkaString p0 (shareFetchRequestGroupId msg))
-    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (shareFetchRequestMemberId msg)) else WP.pokeKafkaString p1 (shareFetchRequestMemberId msg))
-    p3 <- W.pokeInt32BE p2 (shareFetchRequestShareSessionEpoch msg)
-    p4 <- W.pokeInt32BE p3 (shareFetchRequestMaxWaitMs msg)
-    p5 <- W.pokeInt32BE p4 (shareFetchRequestMinBytes msg)
-    p6 <- W.pokeInt32BE p5 (shareFetchRequestMaxBytes msg)
-    p7 <- (if version >= 1 then W.pokeInt32BE p6 (shareFetchRequestMaxRecords msg) else pure p6)
-    p8 <- (if version >= 1 then W.pokeInt32BE p7 (shareFetchRequestBatchSize msg) else pure p7)
-    p9 <- (if version >= 2 then W.pokeWord8 p8 (fromIntegral (shareFetchRequestShareAcquireMode msg)) else pure p8)
-    p10 <- (if version >= 2 then W.pokeWord8 p9 (if (shareFetchRequestIsRenewAck msg) then 1 else 0) else pure p9)
-    p11 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeFetchTopic version p x) p10 (shareFetchRequestTopics msg)
-    p12 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeForgottenTopic version p x) p11 (shareFetchRequestForgottenTopicsData msg)
-    WP.pokeEmptyTaggedFields p12
+    p7 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeFetchTopic version p x) p6 (shareFetchRequestTopics msg)
+    p8 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeForgottenTopic version p x) p7 (shareFetchRequestForgottenTopicsData msg)
+    WP.pokeEmptyTaggedFields p8
   | otherwise = error $ "wirePoke ShareFetchRequest : unsupported version: " ++ show version
 
 -- | Direct-poke decoder for ShareFetchRequest.
 wirePeekShareFetchRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ShareFetchRequest, Ptr Word8)
 wirePeekShareFetchRequest version _fp _basePtr p0 endPtr
-  | version == 1 = do
+  | version == 0 = do
     (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_sharesessionepoch, p3) <- W.peekInt32BE p2 endPtr
     (f3_maxwaitms, p4) <- W.peekInt32BE p3 endPtr
     (f4_minbytes, p5) <- W.peekInt32BE p4 endPtr
     (f5_maxbytes, p6) <- W.peekInt32BE p5 endPtr
-    (f6_maxrecords, p7) <- (if version >= 1 then W.peekInt32BE p6 endPtr else pure (0, p6))
-    (f7_batchsize, p8) <- (if version >= 1 then W.peekInt32BE p7 endPtr else pure (0, p7))
-    (f8_topics, p9) <- WP.peekVersionedArray version 0 (\p e -> wirePeekFetchTopic version _fp _basePtr p e) p8 endPtr
-    (f9_forgottentopicsdata, p10) <- WP.peekVersionedArray version 0 (\p e -> wirePeekForgottenTopic version _fp _basePtr p e) p9 endPtr
-    pTagsEnd <- WP.peekAndSkipTaggedFields p10 endPtr
-    pure (ShareFetchRequest { shareFetchRequestGroupId = f0_groupid, shareFetchRequestMemberId = f1_memberid, shareFetchRequestShareSessionEpoch = f2_sharesessionepoch, shareFetchRequestMaxWaitMs = f3_maxwaitms, shareFetchRequestMinBytes = f4_minbytes, shareFetchRequestMaxBytes = f5_maxbytes, shareFetchRequestMaxRecords = f6_maxrecords, shareFetchRequestBatchSize = f7_batchsize, shareFetchRequestShareAcquireMode = 0, shareFetchRequestIsRenewAck = False, shareFetchRequestTopics = f8_topics, shareFetchRequestForgottenTopicsData = f9_forgottentopicsdata }, pTagsEnd)
-  | version == 2 = do
-    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
-    (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
-    (f2_sharesessionepoch, p3) <- W.peekInt32BE p2 endPtr
-    (f3_maxwaitms, p4) <- W.peekInt32BE p3 endPtr
-    (f4_minbytes, p5) <- W.peekInt32BE p4 endPtr
-    (f5_maxbytes, p6) <- W.peekInt32BE p5 endPtr
-    (f6_maxrecords, p7) <- (if version >= 1 then W.peekInt32BE p6 endPtr else pure (0, p6))
-    (f7_batchsize, p8) <- (if version >= 1 then W.peekInt32BE p7 endPtr else pure (0, p7))
-    (f8_shareacquiremode, p9) <- (if version >= 2 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p8 endPtr else pure (0, p8))
-    (f9_isrenewack, p10) <- (if version >= 2 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p9 endPtr else pure (False, p9))
-    (f10_topics, p11) <- WP.peekVersionedArray version 0 (\p e -> wirePeekFetchTopic version _fp _basePtr p e) p10 endPtr
-    (f11_forgottentopicsdata, p12) <- WP.peekVersionedArray version 0 (\p e -> wirePeekForgottenTopic version _fp _basePtr p e) p11 endPtr
-    pTagsEnd <- WP.peekAndSkipTaggedFields p12 endPtr
-    pure (ShareFetchRequest { shareFetchRequestGroupId = f0_groupid, shareFetchRequestMemberId = f1_memberid, shareFetchRequestShareSessionEpoch = f2_sharesessionepoch, shareFetchRequestMaxWaitMs = f3_maxwaitms, shareFetchRequestMinBytes = f4_minbytes, shareFetchRequestMaxBytes = f5_maxbytes, shareFetchRequestMaxRecords = f6_maxrecords, shareFetchRequestBatchSize = f7_batchsize, shareFetchRequestShareAcquireMode = f8_shareacquiremode, shareFetchRequestIsRenewAck = f9_isrenewack, shareFetchRequestTopics = f10_topics, shareFetchRequestForgottenTopicsData = f11_forgottentopicsdata }, pTagsEnd)
+    (f6_topics, p7) <- WP.peekVersionedArray version 0 (\p e -> wirePeekFetchTopic version _fp _basePtr p e) p6 endPtr
+    (f7_forgottentopicsdata, p8) <- WP.peekVersionedArray version 0 (\p e -> wirePeekForgottenTopic version _fp _basePtr p e) p7 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p8 endPtr
+    pure (ShareFetchRequest { shareFetchRequestGroupId = f0_groupid, shareFetchRequestMemberId = f1_memberid, shareFetchRequestShareSessionEpoch = f2_sharesessionepoch, shareFetchRequestMaxWaitMs = f3_maxwaitms, shareFetchRequestMinBytes = f4_minbytes, shareFetchRequestMaxBytes = f5_maxbytes, shareFetchRequestTopics = f6_topics, shareFetchRequestForgottenTopicsData = f7_forgottentopicsdata }, pTagsEnd)
   | otherwise = error $ "wirePeek ShareFetchRequest : unsupported version: " ++ show version
 
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ShareFetchRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeShareFetchRequest (fromIntegral v) msg

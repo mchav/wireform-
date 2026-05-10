@@ -182,8 +182,6 @@ library
         Kafka.Protocol.Generated.AlterPartitionResponse
         Kafka.Protocol.Generated.AlterReplicaLogDirsRequest
         Kafka.Protocol.Generated.AlterReplicaLogDirsResponse
-        Kafka.Protocol.Generated.AlterShareGroupOffsetsRequest
-        Kafka.Protocol.Generated.AlterShareGroupOffsetsResponse
         Kafka.Protocol.Generated.AlterUserScramCredentialsRequest
         Kafka.Protocol.Generated.AlterUserScramCredentialsResponse
         Kafka.Protocol.Generated.ApiVersionsRequest
@@ -221,8 +219,6 @@ library
         Kafka.Protocol.Generated.DeleteGroupsResponse
         Kafka.Protocol.Generated.DeleteRecordsRequest
         Kafka.Protocol.Generated.DeleteRecordsResponse
-        Kafka.Protocol.Generated.DeleteShareGroupOffsetsRequest
-        Kafka.Protocol.Generated.DeleteShareGroupOffsetsResponse
         Kafka.Protocol.Generated.DeleteShareGroupStateRequest
         Kafka.Protocol.Generated.DeleteShareGroupStateResponse
         Kafka.Protocol.Generated.DeleteTopicsRequest
@@ -245,8 +241,6 @@ library
         Kafka.Protocol.Generated.DescribeProducersResponse
         Kafka.Protocol.Generated.DescribeQuorumRequest
         Kafka.Protocol.Generated.DescribeQuorumResponse
-        Kafka.Protocol.Generated.DescribeShareGroupOffsetsRequest
-        Kafka.Protocol.Generated.DescribeShareGroupOffsetsResponse
         Kafka.Protocol.Generated.DescribeTopicPartitionsRequest
         Kafka.Protocol.Generated.DescribeTopicPartitionsResponse
         Kafka.Protocol.Generated.DescribeTransactionsRequest
@@ -288,8 +282,8 @@ library
         Kafka.Protocol.Generated.LeaderChangeMessage
         Kafka.Protocol.Generated.LeaveGroupRequest
         Kafka.Protocol.Generated.LeaveGroupResponse
-        Kafka.Protocol.Generated.ListConfigResourcesRequest
-        Kafka.Protocol.Generated.ListConfigResourcesResponse
+        Kafka.Protocol.Generated.ListClientMetricsResourcesRequest
+        Kafka.Protocol.Generated.ListClientMetricsResourcesResponse
         Kafka.Protocol.Generated.ListGroupsRequest
         Kafka.Protocol.Generated.ListGroupsResponse
         Kafka.Protocol.Generated.ListOffsetsRequest
@@ -338,10 +332,6 @@ library
         Kafka.Protocol.Generated.SnapshotHeaderRecord
         Kafka.Protocol.Generated.StopReplicaRequest
         Kafka.Protocol.Generated.StopReplicaResponse
-        Kafka.Protocol.Generated.StreamsGroupDescribeRequest
-        Kafka.Protocol.Generated.StreamsGroupDescribeResponse
-        Kafka.Protocol.Generated.StreamsGroupHeartbeatRequest
-        Kafka.Protocol.Generated.StreamsGroupHeartbeatResponse
         Kafka.Protocol.Generated.SyncGroupRequest
         Kafka.Protocol.Generated.SyncGroupResponse
         Kafka.Protocol.Generated.TxnOffsetCommitRequest

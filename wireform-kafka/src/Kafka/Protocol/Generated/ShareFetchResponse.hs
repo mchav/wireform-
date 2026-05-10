@@ -12,7 +12,7 @@ Kafka response for API key 78.
 
 
 
-Valid versions: 1-2
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -218,12 +218,6 @@ data ShareFetchResponse = ShareFetchResponse
   shareFetchResponseErrorMessage :: !(KafkaString)
 ,
 
-  -- | The time in milliseconds for which the acquired records are locked.
-
-  -- Versions: 1+
-  shareFetchResponseAcquisitionLockTimeoutMs :: !(Int32)
-,
-
   -- | The response topics.
 
   -- Versions: 0+
@@ -240,13 +234,13 @@ data ShareFetchResponse = ShareFetchResponse
 
 -- | Maximum supported version for ShareFetchResponse.
 maxShareFetchResponseVersion :: Int16
-maxShareFetchResponseVersion = 2
+maxShareFetchResponseVersion = 0
 
 -- | KafkaMessage instance for ShareFetchResponse.
 instance KafkaMessage ShareFetchResponse where
   messageApiKey = 78
-  messageMinVersion = 1
-  messageMaxVersion = 2
+  messageMinVersion = 0
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a LeaderIdAndEpoch.
@@ -428,7 +422,6 @@ wireMaxSizeShareFetchResponse _version msg =
   + 4
   + 2
   + WP.dualStringMaxSize (shareFetchResponseErrorMessage msg)
-  + 4
   + (5 + (case P.unKafkaArray (shareFetchResponseResponses msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeShareFetchableTopicResponse _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (shareFetchResponseNodeEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNodeEndpoint _version x ) v); P.Null -> 0 }))
   + 1
@@ -436,35 +429,33 @@ wireMaxSizeShareFetchResponse _version msg =
 -- | Direct-poke encoder for ShareFetchResponse.
 wirePokeShareFetchResponse :: Int -> Ptr Word8 -> ShareFetchResponse -> IO (Ptr Word8)
 wirePokeShareFetchResponse version basePtr msg
-  | version >= 1 && version <= 2 = do
+  | version == 0 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (shareFetchResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (shareFetchResponseErrorCode msg)
     p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (shareFetchResponseErrorMessage msg)) else WP.pokeKafkaString p2 (shareFetchResponseErrorMessage msg))
-    p4 <- (if version >= 1 then W.pokeInt32BE p3 (shareFetchResponseAcquisitionLockTimeoutMs msg) else pure p3)
-    p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeShareFetchableTopicResponse version p x) p4 (shareFetchResponseResponses msg)
-    p6 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeNodeEndpoint version p x) p5 (shareFetchResponseNodeEndpoints msg)
-    WP.pokeEmptyTaggedFields p6
+    p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeShareFetchableTopicResponse version p x) p3 (shareFetchResponseResponses msg)
+    p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeNodeEndpoint version p x) p4 (shareFetchResponseNodeEndpoints msg)
+    WP.pokeEmptyTaggedFields p5
   | otherwise = error $ "wirePoke ShareFetchResponse : unsupported version: " ++ show version
 
 -- | Direct-poke decoder for ShareFetchResponse.
 wirePeekShareFetchResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ShareFetchResponse, Ptr Word8)
 wirePeekShareFetchResponse version _fp _basePtr p0 endPtr
-  | version >= 1 && version <= 2 = do
+  | version == 0 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
-    (f3_acquisitionlocktimeoutms, p4) <- (if version >= 1 then W.peekInt32BE p3 endPtr else pure (0, p3))
-    (f4_responses, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekShareFetchableTopicResponse version _fp _basePtr p e) p4 endPtr
-    (f5_nodeendpoints, p6) <- WP.peekVersionedArray version 0 (\p e -> wirePeekNodeEndpoint version _fp _basePtr p e) p5 endPtr
-    pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
-    pure (ShareFetchResponse { shareFetchResponseThrottleTimeMs = f0_throttletimems, shareFetchResponseErrorCode = f1_errorcode, shareFetchResponseErrorMessage = f2_errormessage, shareFetchResponseAcquisitionLockTimeoutMs = f3_acquisitionlocktimeoutms, shareFetchResponseResponses = f4_responses, shareFetchResponseNodeEndpoints = f5_nodeendpoints }, pTagsEnd)
+    (f3_responses, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekShareFetchableTopicResponse version _fp _basePtr p e) p3 endPtr
+    (f4_nodeendpoints, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekNodeEndpoint version _fp _basePtr p e) p4 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
+    pure (ShareFetchResponse { shareFetchResponseThrottleTimeMs = f0_throttletimems, shareFetchResponseErrorCode = f1_errorcode, shareFetchResponseErrorMessage = f2_errormessage, shareFetchResponseResponses = f3_responses, shareFetchResponseNodeEndpoints = f4_nodeendpoints }, pTagsEnd)
   | otherwise = error $ "wirePeek ShareFetchResponse : unsupported version: " ++ show version
 
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ShareFetchResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeShareFetchResponse (fromIntegral v) msg

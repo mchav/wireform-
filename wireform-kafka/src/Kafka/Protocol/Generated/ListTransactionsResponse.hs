@@ -12,7 +12,7 @@ Kafka response for API key 66.
 
 
 
-Valid versions: 0-2
+Valid versions: 0-1
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -104,13 +104,13 @@ data ListTransactionsResponse = ListTransactionsResponse
 
 -- | Maximum supported version for ListTransactionsResponse.
 maxListTransactionsResponseVersion :: Int16
-maxListTransactionsResponseVersion = 2
+maxListTransactionsResponseVersion = 1
 
 -- | KafkaMessage instance for ListTransactionsResponse.
 instance KafkaMessage ListTransactionsResponse where
   messageApiKey = 66
   messageMinVersion = 0
-  messageMaxVersion = 2
+  messageMaxVersion = 1
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a TransactionState.
@@ -158,7 +158,7 @@ wireMaxSizeListTransactionsResponse _version msg =
 -- | Direct-poke encoder for ListTransactionsResponse.
 wirePokeListTransactionsResponse :: Int -> Ptr Word8 -> ListTransactionsResponse -> IO (Ptr Word8)
 wirePokeListTransactionsResponse version basePtr msg
-  | version >= 0 && version <= 2 = do
+  | version >= 0 && version <= 1 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (listTransactionsResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (listTransactionsResponseErrorCode msg)
@@ -170,7 +170,7 @@ wirePokeListTransactionsResponse version basePtr msg
 -- | Direct-poke decoder for ListTransactionsResponse.
 wirePeekListTransactionsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListTransactionsResponse, Ptr Word8)
 wirePeekListTransactionsResponse version _fp _basePtr p0 endPtr
-  | version >= 0 && version <= 2 = do
+  | version >= 0 && version <= 1 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_unknownstatefilters, p3) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p2 endPtr
@@ -182,7 +182,7 @@ wirePeekListTransactionsResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ListTransactionsResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeListTransactionsResponse (fromIntegral v) msg

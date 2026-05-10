@@ -12,7 +12,7 @@ Kafka request for API key 85.
 
 
 
-Valid versions: 0-1
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -54,7 +54,7 @@ import qualified Kafka.Protocol.Wire.Primitives as WP
 data StateBatch = StateBatch
   {
 
-  -- | The first offset of this state batch.
+  -- | The base offset of this state batch.
 
   -- Versions: 0+
   stateBatchFirstOffset :: !(Int64)
@@ -66,7 +66,7 @@ data StateBatch = StateBatch
   stateBatchLastOffset :: !(Int64)
 ,
 
-  -- | The delivery state - 0:Available,2:Acked,4:Archived.
+  -- | The state - 0:Available,2:Acked,4:Archived.
 
   -- Versions: 0+
   stateBatchDeliveryState :: !(Int8)
@@ -90,7 +90,7 @@ data PartitionData = PartitionData
   partitionDataPartition :: !(Int32)
 ,
 
-  -- | The state epoch of the share-partition.
+  -- | The state epoch for this share-partition.
 
   -- Versions: 0+
   partitionDataStateEpoch :: !(Int32)
@@ -106,12 +106,6 @@ data PartitionData = PartitionData
 
   -- Versions: 0+
   partitionDataStartOffset :: !(Int64)
-,
-
-  -- | The number of offsets greater than or equal to share-partition start offset for which delivery has b
-
-  -- Versions: 1+
-  partitionDataDeliveryCompleteCount :: !(Int32)
 ,
 
   -- | The state batches for the share-partition.
@@ -160,13 +154,13 @@ data WriteShareGroupStateRequest = WriteShareGroupStateRequest
 
 -- | Maximum supported version for WriteShareGroupStateRequest.
 maxWriteShareGroupStateRequestVersion :: Int16
-maxWriteShareGroupStateRequestVersion = 1
+maxWriteShareGroupStateRequestVersion = 0
 
 -- | KafkaMessage instance for WriteShareGroupStateRequest.
 instance KafkaMessage WriteShareGroupStateRequest where
   messageApiKey = 85
   messageMinVersion = 0
-  messageMaxVersion = 1
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a StateBatch.
@@ -212,7 +206,6 @@ wireMaxSizePartitionData _version msg =
   + 4
   + 4
   + 8
-  + 4
   + (5 + (case P.unKafkaArray (partitionDataStateBatches msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeStateBatch _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -224,9 +217,8 @@ wirePokePartitionData version basePtr msg = do
   p2 <- W.pokeInt32BE p1 (partitionDataStateEpoch msg)
   p3 <- W.pokeInt32BE p2 (partitionDataLeaderEpoch msg)
   p4 <- W.pokeInt64BE p3 (partitionDataStartOffset msg)
-  p5 <- (if version >= 1 then W.pokeInt32BE p4 (partitionDataDeliveryCompleteCount msg) else pure p4)
-  p6 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeStateBatch version p x) p5 (partitionDataStateBatches msg)
-  if version >= 0 then WP.pokeEmptyTaggedFields p6 else pure p6
+  p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeStateBatch version p x) p4 (partitionDataStateBatches msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p5 else pure p5
 
 -- | Direct-poke decoder for PartitionData.
 wirePeekPartitionData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (PartitionData, Ptr Word8)
@@ -235,15 +227,14 @@ wirePeekPartitionData version _fp _basePtr p0 endPtr = do
   (f1_stateepoch, p2) <- W.peekInt32BE p1 endPtr
   (f2_leaderepoch, p3) <- W.peekInt32BE p2 endPtr
   (f3_startoffset, p4) <- W.peekInt64BE p3 endPtr
-  (f4_deliverycompletecount, p5) <- (if version >= 1 then W.peekInt32BE p4 endPtr else pure (-1, p4))
-  (f5_statebatches, p6) <- WP.peekVersionedArray version 0 (\p e -> wirePeekStateBatch version _fp _basePtr p e) p5 endPtr
-  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
-  pure (PartitionData { partitionDataPartition = f0_partition, partitionDataStateEpoch = f1_stateepoch, partitionDataLeaderEpoch = f2_leaderepoch, partitionDataStartOffset = f3_startoffset, partitionDataDeliveryCompleteCount = f4_deliverycompletecount, partitionDataStateBatches = f5_statebatches }, pTagsEnd)
+  (f4_statebatches, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekStateBatch version _fp _basePtr p e) p4 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (PartitionData { partitionDataPartition = f0_partition, partitionDataStateEpoch = f1_stateepoch, partitionDataLeaderEpoch = f2_leaderepoch, partitionDataStartOffset = f3_startoffset, partitionDataStateBatches = f4_statebatches }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultPartitionData :: PartitionData
-defaultPartitionData = PartitionData { partitionDataPartition = 0, partitionDataStateEpoch = 0, partitionDataLeaderEpoch = 0, partitionDataStartOffset = 0, partitionDataDeliveryCompleteCount = -1, partitionDataStateBatches = P.mkKafkaArray V.empty }
+defaultPartitionData = PartitionData { partitionDataPartition = 0, partitionDataStateEpoch = 0, partitionDataLeaderEpoch = 0, partitionDataStartOffset = 0, partitionDataStateBatches = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a WriteStateData.
 wireMaxSizeWriteStateData :: Int -> WriteStateData -> Int
@@ -285,7 +276,7 @@ wireMaxSizeWriteShareGroupStateRequest _version msg =
 -- | Direct-poke encoder for WriteShareGroupStateRequest.
 wirePokeWriteShareGroupStateRequest :: Int -> Ptr Word8 -> WriteShareGroupStateRequest -> IO (Ptr Word8)
 wirePokeWriteShareGroupStateRequest version basePtr msg
-  | version >= 0 && version <= 1 = do
+  | version == 0 = do
     p0 <- pure basePtr
     p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (writeShareGroupStateRequestGroupId msg)) else WP.pokeKafkaString p0 (writeShareGroupStateRequestGroupId msg))
     p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeWriteStateData version p x) p1 (writeShareGroupStateRequestTopics msg)
@@ -295,7 +286,7 @@ wirePokeWriteShareGroupStateRequest version basePtr msg
 -- | Direct-poke decoder for WriteShareGroupStateRequest.
 wirePeekWriteShareGroupStateRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (WriteShareGroupStateRequest, Ptr Word8)
 wirePeekWriteShareGroupStateRequest version _fp _basePtr p0 endPtr
-  | version >= 0 && version <= 1 = do
+  | version == 0 = do
     (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekWriteStateData version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
@@ -305,7 +296,7 @@ wirePeekWriteShareGroupStateRequest version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec WriteShareGroupStateRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeWriteShareGroupStateRequest (fromIntegral v) msg

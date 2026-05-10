@@ -12,7 +12,7 @@ Kafka request for API key 66.
 
 
 
-Valid versions: 0-2
+Valid versions: 0-1
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -68,25 +68,19 @@ data ListTransactionsRequest = ListTransactionsRequest
 
   -- Versions: 1+
   listTransactionsRequestDurationFilter :: !(Int64)
-,
-
-  -- | The transactional ID regular expression pattern to filter by: if it is empty or null, all transactio
-
-  -- Versions: 2+
-  listTransactionsRequestTransactionalIdPattern :: !(KafkaString)
 
   }
   deriving (Eq, Show, Generic)
 
 -- | Maximum supported version for ListTransactionsRequest.
 maxListTransactionsRequestVersion :: Int16
-maxListTransactionsRequestVersion = 2
+maxListTransactionsRequestVersion = 1
 
 -- | KafkaMessage instance for ListTransactionsRequest.
 instance KafkaMessage ListTransactionsRequest where
   messageApiKey = 66
   messageMinVersion = 0
-  messageMaxVersion = 2
+  messageMaxVersion = 1
   messageFlexibleVersion = Just 0
 
 
@@ -97,7 +91,6 @@ wireMaxSizeListTransactionsRequest _version msg =
   + (5 + (case P.unKafkaArray (listTransactionsRequestStateFilters msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (listTransactionsRequestProducerIdFilters msg) of { P.NotNull v -> sum (fmap (\x -> 8 ) v); P.Null -> 0 }))
   + 8
-  + WP.dualStringMaxSize (listTransactionsRequestTransactionalIdPattern msg)
   + 1
 
 -- | Direct-poke encoder for ListTransactionsRequest.
@@ -114,13 +107,6 @@ wirePokeListTransactionsRequest version basePtr msg
     p2 <- WP.pokeVersionedArray version 0 W.pokeInt64BE p1 (listTransactionsRequestProducerIdFilters msg)
     p3 <- (if version >= 1 then W.pokeInt64BE p2 (listTransactionsRequestDurationFilter msg) else pure p2)
     WP.pokeEmptyTaggedFields p3
-  | version == 2 = do
-    p0 <- pure basePtr
-    p1 <- WP.pokeVersionedArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (listTransactionsRequestStateFilters msg)
-    p2 <- WP.pokeVersionedArray version 0 W.pokeInt64BE p1 (listTransactionsRequestProducerIdFilters msg)
-    p3 <- (if version >= 1 then W.pokeInt64BE p2 (listTransactionsRequestDurationFilter msg) else pure p2)
-    p4 <- (if version >= 2 then (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (listTransactionsRequestTransactionalIdPattern msg)) else WP.pokeKafkaString p3 (listTransactionsRequestTransactionalIdPattern msg)) else pure p3)
-    WP.pokeEmptyTaggedFields p4
   | otherwise = error $ "wirePoke ListTransactionsRequest : unsupported version: " ++ show version
 
 -- | Direct-poke decoder for ListTransactionsRequest.
@@ -130,26 +116,19 @@ wirePeekListTransactionsRequest version _fp _basePtr p0 endPtr
     (f0_statefilters, p1) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
     (f1_produceridfilters, p2) <- WP.peekVersionedArray version 0 W.peekInt64BE p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
-    pure (ListTransactionsRequest { listTransactionsRequestStateFilters = f0_statefilters, listTransactionsRequestProducerIdFilters = f1_produceridfilters, listTransactionsRequestDurationFilter = -1, listTransactionsRequestTransactionalIdPattern = P.KafkaString Null }, pTagsEnd)
+    pure (ListTransactionsRequest { listTransactionsRequestStateFilters = f0_statefilters, listTransactionsRequestProducerIdFilters = f1_produceridfilters, listTransactionsRequestDurationFilter = -1 }, pTagsEnd)
   | version == 1 = do
     (f0_statefilters, p1) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
     (f1_produceridfilters, p2) <- WP.peekVersionedArray version 0 W.peekInt64BE p1 endPtr
     (f2_durationfilter, p3) <- (if version >= 1 then W.peekInt64BE p2 endPtr else pure (-1, p2))
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
-    pure (ListTransactionsRequest { listTransactionsRequestStateFilters = f0_statefilters, listTransactionsRequestProducerIdFilters = f1_produceridfilters, listTransactionsRequestDurationFilter = f2_durationfilter, listTransactionsRequestTransactionalIdPattern = P.KafkaString Null }, pTagsEnd)
-  | version == 2 = do
-    (f0_statefilters, p1) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
-    (f1_produceridfilters, p2) <- WP.peekVersionedArray version 0 W.peekInt64BE p1 endPtr
-    (f2_durationfilter, p3) <- (if version >= 1 then W.peekInt64BE p2 endPtr else pure (-1, p2))
-    (f3_transactionalidpattern, p4) <- (if version >= 2 then (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
-    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
-    pure (ListTransactionsRequest { listTransactionsRequestStateFilters = f0_statefilters, listTransactionsRequestProducerIdFilters = f1_produceridfilters, listTransactionsRequestDurationFilter = f2_durationfilter, listTransactionsRequestTransactionalIdPattern = f3_transactionalidpattern }, pTagsEnd)
+    pure (ListTransactionsRequest { listTransactionsRequestStateFilters = f0_statefilters, listTransactionsRequestProducerIdFilters = f1_produceridfilters, listTransactionsRequestDurationFilter = f2_durationfilter }, pTagsEnd)
   | otherwise = error $ "wirePeek ListTransactionsRequest : unsupported version: " ++ show version
 
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ListTransactionsRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeListTransactionsRequest (fromIntegral v) msg

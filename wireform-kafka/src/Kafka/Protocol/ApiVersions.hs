@@ -97,11 +97,6 @@ negotiateVersions conn brokerAddr (ApiVersionCache cache) correlationId = do
       request = AVReq.ApiVersionsRequest
         { AVReq.apiVersionsRequestClientSoftwareName = P.mkKafkaString "kafka-native"
         , AVReq.apiVersionsRequestClientSoftwareVersion = P.mkKafkaString "0.1.0"
-        , -- KIP-1242 (v5+): nullable string + node id. We have
-          -- nothing to contribute here; the broker is fine with the
-          -- sentinels.
-          AVReq.apiVersionsRequestClusterId = P.KafkaString P.Null
-        , AVReq.apiVersionsRequestNodeId    = -1
         }
       requestBody = WC.runEncodeVer @AVReq.ApiVersionsRequest apiVersion request
       clientId = P.mkKafkaString "kafka-native"

@@ -12,7 +12,7 @@ Kafka request for API key 8.
 
 
 
-Valid versions: 2-10
+Valid versions: 2-9
 Flexible versions: 8+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -85,14 +85,8 @@ data OffsetCommitRequestTopic = OffsetCommitRequestTopic
 
   -- | The topic name.
 
-  -- Versions: 0-9
+  -- Versions: 0+
   offsetCommitRequestTopicName :: !(KafkaString)
-,
-
-  -- | The topic ID.
-
-  -- Versions: 10+
-  offsetCommitRequestTopicTopicId :: !(KafkaUuid)
 ,
 
   -- | Each partition to commit offsets for.
@@ -147,13 +141,13 @@ data OffsetCommitRequest = OffsetCommitRequest
 
 -- | Maximum supported version for OffsetCommitRequest.
 maxOffsetCommitRequestVersion :: Int16
-maxOffsetCommitRequestVersion = 10
+maxOffsetCommitRequestVersion = 9
 
 -- | KafkaMessage instance for OffsetCommitRequest.
 instance KafkaMessage OffsetCommitRequest where
   messageApiKey = 8
   messageMinVersion = 2
-  messageMaxVersion = 10
+  messageMaxVersion = 9
   messageFlexibleVersion = Just 8
 
 -- | Worst-case wire size of a OffsetCommitRequestPartition.
@@ -196,7 +190,6 @@ wireMaxSizeOffsetCommitRequestTopic :: Int -> OffsetCommitRequestTopic -> Int
 wireMaxSizeOffsetCommitRequestTopic _version msg =
   0
   + WP.dualStringMaxSize (offsetCommitRequestTopicName msg)
-  + 16
   + (5 + (case P.unKafkaArray (offsetCommitRequestTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOffsetCommitRequestPartition _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -204,24 +197,22 @@ wireMaxSizeOffsetCommitRequestTopic _version msg =
 wirePokeOffsetCommitRequestTopic :: Int -> Ptr Word8 -> OffsetCommitRequestTopic -> IO (Ptr Word8)
 wirePokeOffsetCommitRequestTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- (if version <= 9 then (if version >= 8 then WP.pokeCompactString p0 (P.toCompactString (offsetCommitRequestTopicName msg)) else WP.pokeKafkaString p0 (offsetCommitRequestTopicName msg)) else pure p0)
-  p2 <- (if version >= 10 then WP.pokeKafkaUuid p1 (offsetCommitRequestTopicTopicId msg) else pure p1)
-  p3 <- WP.pokeVersionedArray version 8 (\p x -> wirePokeOffsetCommitRequestPartition version p x) p2 (offsetCommitRequestTopicPartitions msg)
-  if version >= 8 then WP.pokeEmptyTaggedFields p3 else pure p3
+  p1 <- (if version >= 8 then WP.pokeCompactString p0 (P.toCompactString (offsetCommitRequestTopicName msg)) else WP.pokeKafkaString p0 (offsetCommitRequestTopicName msg))
+  p2 <- WP.pokeVersionedArray version 8 (\p x -> wirePokeOffsetCommitRequestPartition version p x) p1 (offsetCommitRequestTopicPartitions msg)
+  if version >= 8 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for OffsetCommitRequestTopic.
 wirePeekOffsetCommitRequestTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OffsetCommitRequestTopic, Ptr Word8)
 wirePeekOffsetCommitRequestTopic version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (if version <= 9 then (if version >= 8 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
-  (f1_topicid, p2) <- (if version >= 10 then WP.peekKafkaUuid p1 endPtr else pure (P.nullUuid, p1))
-  (f2_partitions, p3) <- WP.peekVersionedArray version 8 (\p e -> wirePeekOffsetCommitRequestPartition version _fp _basePtr p e) p2 endPtr
-  pTagsEnd <- if version >= 8 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
-  pure (OffsetCommitRequestTopic { offsetCommitRequestTopicName = f0_name, offsetCommitRequestTopicTopicId = f1_topicid, offsetCommitRequestTopicPartitions = f2_partitions }, pTagsEnd)
+  (f0_name, p1) <- (if version >= 8 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_partitions, p2) <- WP.peekVersionedArray version 8 (\p e -> wirePeekOffsetCommitRequestPartition version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 8 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (OffsetCommitRequestTopic { offsetCommitRequestTopicName = f0_name, offsetCommitRequestTopicPartitions = f1_partitions }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultOffsetCommitRequestTopic :: OffsetCommitRequestTopic
-defaultOffsetCommitRequestTopic = OffsetCommitRequestTopic { offsetCommitRequestTopicName = P.KafkaString Null, offsetCommitRequestTopicTopicId = P.nullUuid, offsetCommitRequestTopicPartitions = P.mkKafkaArray V.empty }
+defaultOffsetCommitRequestTopic = OffsetCommitRequestTopic { offsetCommitRequestTopicName = P.KafkaString Null, offsetCommitRequestTopicPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a OffsetCommitRequest.
 wireMaxSizeOffsetCommitRequest :: Int -> OffsetCommitRequest -> Int
@@ -253,6 +244,14 @@ wirePokeOffsetCommitRequest version basePtr msg
     p3 <- (if version >= 1 then (if version >= 8 then WP.pokeCompactString p2 (P.toCompactString (offsetCommitRequestMemberId msg)) else WP.pokeKafkaString p2 (offsetCommitRequestMemberId msg)) else pure p2)
     p4 <- WP.pokeVersionedArray version 8 (\p x -> wirePokeOffsetCommitRequestTopic version p x) p3 (offsetCommitRequestTopics msg)
     pure p4
+  | version >= 8 && version <= 9 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 8 then WP.pokeCompactString p0 (P.toCompactString (offsetCommitRequestGroupId msg)) else WP.pokeKafkaString p0 (offsetCommitRequestGroupId msg))
+    p2 <- (if version >= 1 then W.pokeInt32BE p1 (offsetCommitRequestGenerationIdOrMemberEpoch msg) else pure p1)
+    p3 <- (if version >= 1 then (if version >= 8 then WP.pokeCompactString p2 (P.toCompactString (offsetCommitRequestMemberId msg)) else WP.pokeKafkaString p2 (offsetCommitRequestMemberId msg)) else pure p2)
+    p4 <- (if version >= 7 then (if version >= 8 then WP.pokeCompactString p3 (P.toCompactString (offsetCommitRequestGroupInstanceId msg)) else WP.pokeKafkaString p3 (offsetCommitRequestGroupInstanceId msg)) else pure p3)
+    p5 <- WP.pokeVersionedArray version 8 (\p x -> wirePokeOffsetCommitRequestTopic version p x) p4 (offsetCommitRequestTopics msg)
+    WP.pokeEmptyTaggedFields p5
   | version >= 2 && version <= 4 = do
     p0 <- pure basePtr
     p1 <- (if version >= 8 then WP.pokeCompactString p0 (P.toCompactString (offsetCommitRequestGroupId msg)) else WP.pokeKafkaString p0 (offsetCommitRequestGroupId msg))
@@ -261,14 +260,6 @@ wirePokeOffsetCommitRequest version basePtr msg
     p4 <- (if version >= 2 && version <= 4 then W.pokeInt64BE p3 (offsetCommitRequestRetentionTimeMs msg) else pure p3)
     p5 <- WP.pokeVersionedArray version 8 (\p x -> wirePokeOffsetCommitRequestTopic version p x) p4 (offsetCommitRequestTopics msg)
     pure p5
-  | version >= 8 && version <= 10 = do
-    p0 <- pure basePtr
-    p1 <- (if version >= 8 then WP.pokeCompactString p0 (P.toCompactString (offsetCommitRequestGroupId msg)) else WP.pokeKafkaString p0 (offsetCommitRequestGroupId msg))
-    p2 <- (if version >= 1 then W.pokeInt32BE p1 (offsetCommitRequestGenerationIdOrMemberEpoch msg) else pure p1)
-    p3 <- (if version >= 1 then (if version >= 8 then WP.pokeCompactString p2 (P.toCompactString (offsetCommitRequestMemberId msg)) else WP.pokeKafkaString p2 (offsetCommitRequestMemberId msg)) else pure p2)
-    p4 <- (if version >= 7 then (if version >= 8 then WP.pokeCompactString p3 (P.toCompactString (offsetCommitRequestGroupInstanceId msg)) else WP.pokeKafkaString p3 (offsetCommitRequestGroupInstanceId msg)) else pure p3)
-    p5 <- WP.pokeVersionedArray version 8 (\p x -> wirePokeOffsetCommitRequestTopic version p x) p4 (offsetCommitRequestTopics msg)
-    WP.pokeEmptyTaggedFields p5
   | otherwise = error $ "wirePoke OffsetCommitRequest : unsupported version: " ++ show version
 
 -- | Direct-poke decoder for OffsetCommitRequest.
@@ -287,14 +278,7 @@ wirePeekOffsetCommitRequest version _fp _basePtr p0 endPtr
     (f2_memberid, p3) <- (if version >= 1 then (if version >= 8 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
     (f3_topics, p4) <- WP.peekVersionedArray version 8 (\p e -> wirePeekOffsetCommitRequestTopic version _fp _basePtr p e) p3 endPtr
     pure (OffsetCommitRequest { offsetCommitRequestGroupId = f0_groupid, offsetCommitRequestGenerationIdOrMemberEpoch = f1_generationidormemberepoch, offsetCommitRequestMemberId = f2_memberid, offsetCommitRequestGroupInstanceId = P.KafkaString Null, offsetCommitRequestRetentionTimeMs = -1, offsetCommitRequestTopics = f3_topics }, p4)
-  | version >= 2 && version <= 4 = do
-    (f0_groupid, p1) <- (if version >= 8 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
-    (f1_generationidormemberepoch, p2) <- (if version >= 1 then W.peekInt32BE p1 endPtr else pure (-1, p1))
-    (f2_memberid, p3) <- (if version >= 1 then (if version >= 8 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
-    (f3_retentiontimems, p4) <- (if version >= 2 && version <= 4 then W.peekInt64BE p3 endPtr else pure (-1, p3))
-    (f4_topics, p5) <- WP.peekVersionedArray version 8 (\p e -> wirePeekOffsetCommitRequestTopic version _fp _basePtr p e) p4 endPtr
-    pure (OffsetCommitRequest { offsetCommitRequestGroupId = f0_groupid, offsetCommitRequestGenerationIdOrMemberEpoch = f1_generationidormemberepoch, offsetCommitRequestMemberId = f2_memberid, offsetCommitRequestGroupInstanceId = P.KafkaString Null, offsetCommitRequestRetentionTimeMs = f3_retentiontimems, offsetCommitRequestTopics = f4_topics }, p5)
-  | version >= 8 && version <= 10 = do
+  | version >= 8 && version <= 9 = do
     (f0_groupid, p1) <- (if version >= 8 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_generationidormemberepoch, p2) <- (if version >= 1 then W.peekInt32BE p1 endPtr else pure (-1, p1))
     (f2_memberid, p3) <- (if version >= 1 then (if version >= 8 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
@@ -302,12 +286,19 @@ wirePeekOffsetCommitRequest version _fp _basePtr p0 endPtr
     (f4_topics, p5) <- WP.peekVersionedArray version 8 (\p e -> wirePeekOffsetCommitRequestTopic version _fp _basePtr p e) p4 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
     pure (OffsetCommitRequest { offsetCommitRequestGroupId = f0_groupid, offsetCommitRequestGenerationIdOrMemberEpoch = f1_generationidormemberepoch, offsetCommitRequestMemberId = f2_memberid, offsetCommitRequestGroupInstanceId = f3_groupinstanceid, offsetCommitRequestRetentionTimeMs = -1, offsetCommitRequestTopics = f4_topics }, pTagsEnd)
+  | version >= 2 && version <= 4 = do
+    (f0_groupid, p1) <- (if version >= 8 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_generationidormemberepoch, p2) <- (if version >= 1 then W.peekInt32BE p1 endPtr else pure (-1, p1))
+    (f2_memberid, p3) <- (if version >= 1 then (if version >= 8 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
+    (f3_retentiontimems, p4) <- (if version >= 2 && version <= 4 then W.peekInt64BE p3 endPtr else pure (-1, p3))
+    (f4_topics, p5) <- WP.peekVersionedArray version 8 (\p e -> wirePeekOffsetCommitRequestTopic version _fp _basePtr p e) p4 endPtr
+    pure (OffsetCommitRequest { offsetCommitRequestGroupId = f0_groupid, offsetCommitRequestGenerationIdOrMemberEpoch = f1_generationidormemberepoch, offsetCommitRequestMemberId = f2_memberid, offsetCommitRequestGroupInstanceId = P.KafkaString Null, offsetCommitRequestRetentionTimeMs = f3_retentiontimems, offsetCommitRequestTopics = f4_topics }, p5)
   | otherwise = error $ "wirePeek OffsetCommitRequest : unsupported version: " ++ show version
 
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec OffsetCommitRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeOffsetCommitRequest (fromIntegral v) msg

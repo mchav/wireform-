@@ -289,7 +289,6 @@ produceSimple client topic partition keyM value = do
   -- Create topic data
   let topicData = PReq.TopicProduceData
         { PReq.topicProduceDataName = P.mkKafkaString topic
-        , PReq.topicProduceDataTopicId = P.nullUuid
         , PReq.topicProduceDataPartitionData = P.mkKafkaArray (V.singleton partitionData)
         }
   
@@ -463,11 +462,10 @@ fetchSimple client topic partition offset maxBytes = do
         , FR.fetchPartitionLastFetchedEpoch = -1
         , FR.fetchPartitionLogStartOffset = -1
         , FR.fetchPartitionPartitionMaxBytes = maxBytes
-        , -- New v17+ fields (KIP-853 / KIP-405). We don't track
-          -- replica directory IDs or high watermarks in the simple
-          -- client; the broker accepts the sentinels.
+        , -- v17+ field (KIP-853). We don't track replica directory
+          -- IDs in the simple client; the broker accepts the
+          -- sentinel.
           FR.fetchPartitionReplicaDirectoryId = P.nullUuid
-        , FR.fetchPartitionHighWatermark = -1
         }
       
       -- Create topic fetch request
