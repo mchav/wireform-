@@ -179,8 +179,14 @@ buildFKJoin _prefix extractor mode m kl kr = do
                         :: StoreBuilderKV k SubscriptionToken
       lastFKBuilder = inMemoryKeyValueStoreBuilder lastFKNm
                         :: StoreBuilderKV k fk
-  leftProcNm  <- freshNodeName b "KTABLE-FK-LEFT-PROC"
-  rightProcNm <- freshNodeName b "KTABLE-FK-RIGHT-PROC"
+  leftProcNm   <- freshNodeName b "KTABLE-FK-LEFT-PROC"
+  rightProcNm  <- freshNodeName b "KTABLE-FK-RIGHT-PROC"
+  -- Unifier passthrough: the left and right side processors both
+  -- emit to it; downstream nodes (and 'toKStreamFromKTable')
+  -- treat THIS node as the FK-join's output anchor. Without it
+  -- downstream sinks would only see records from one of the two
+  -- side processors.
+  emitNm       <- freshNodeName b "KTABLE-FK-EMIT"
 
   withTopology_ b $ \t ->
     let !t1 = Topo.addProcessorWith
@@ -208,18 +214,42 @@ buildFKJoin _prefix extractor mode m kl kr = do
                   , Topo.processorSpecStores   =
                       [outNm, subsNm, leftNm, tokenNm, ktableStore kr]
                   } t1
-        !t3 = Topo.addStateStoreKV outBuilder    [leftProcNm, rightProcNm] t2
-        !t4 = Topo.addStateStoreKV subsBuilder   [leftProcNm, rightProcNm] t3
-        !t5 = Topo.addStateStoreKV leftBuilder   [leftProcNm, rightProcNm] t4
-        !t6 = Topo.addStateStoreKV tokenBuilder  [leftProcNm, rightProcNm] t5
-        !t7 = Topo.addStateStoreKV lastFKBuilder [leftProcNm]              t6
-     in t7
+        !t3 = Topo.addProcessorWith
+                Topo.ProcessorSpec
+                  { Topo.processorSpecName     = emitNm
+                  , Topo.processorSpecParents  = [leftProcNm, rightProcNm]
+                  , Topo.processorSpecSupplier =
+                      Topo.AnyProcessor (mkFKJoinEmit @k @v')
+                  , Topo.processorSpecStores   = []
+                  } t2
+        !t4 = Topo.addStateStoreKV outBuilder    [leftProcNm, rightProcNm] t3
+        !t5 = Topo.addStateStoreKV subsBuilder   [leftProcNm, rightProcNm] t4
+        !t6 = Topo.addStateStoreKV leftBuilder   [leftProcNm, rightProcNm] t5
+        !t7 = Topo.addStateStoreKV tokenBuilder  [leftProcNm, rightProcNm] t6
+        !t8 = Topo.addStateStoreKV lastFKBuilder [leftProcNm]              t7
+     in t8
   pure KTable
-    { ktableNode       = leftProcNm
+    { ktableNode       = emitNm
     , ktableStore      = outNm
     , ktableBuilder    = b
     , ktableKeySerde   = ktableKeySerde kl
     , ktableValueSerde = error "FK join: pass Materialized with serde to set output"
+    }
+
+-- | Trivial passthrough used as the FK-join's output anchor so
+-- downstream consumers see emits from BOTH side processors.
+mkFKJoinEmit :: forall k v . IO (Processor k v)
+mkFKJoinEmit = do
+  ctxRef <- newIORef Nothing
+  pure Processor
+    { procName    = processorName "KTABLE-FK-EMIT"
+    , procInit    = \ctx -> writeIORef ctxRef (Just ctx)
+    , procClose   = pure ()
+    , procProcess = \r -> do
+        mctx <- readIORef ctxRef
+        case mctx of
+          Nothing  -> pure ()
+          Just ctx -> forwardRecord ctx r
     }
 
 ----------------------------------------------------------------------

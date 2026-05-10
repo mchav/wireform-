@@ -608,6 +608,34 @@ test-suite wireform-kafka-streams-integration
         tasty-hunit               >= 0.10  && < 0.11,
         text
 
+executable wireform-kafka-streams-examples
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: streams/examples
+    ghc-options: -threaded -rtsopts
+    other-modules:
+        Kafka.Streams.Examples.Branching
+        Kafka.Streams.Examples.Cogroup
+        Kafka.Streams.Examples.FraudDetection
+        Kafka.Streams.Examples.GlobalTable
+        Kafka.Streams.Examples.InteractiveQueries
+        Kafka.Streams.Examples.InventoryFKJoin
+        Kafka.Streams.Examples.LineSplit
+        Kafka.Streams.Examples.OrdersEnrichment
+        Kafka.Streams.Examples.PageViewRegion
+        Kafka.Streams.Examples.Pipe
+        Kafka.Streams.Examples.ProcessorAPI
+        Kafka.Streams.Examples.Temperature
+        Kafka.Streams.Examples.TopArticles
+        Kafka.Streams.Examples.WordCount
+    build-depends:
+        base,
+        wireform-kafka:wireform-kafka-streams,
+        wireform-kafka,
+        bytestring,
+        containers,
+        text
+
 library wireform-kafka-codegen
     import: defaults
     visibility: public

@@ -86,10 +86,89 @@ reduceWindowed
   -> Materialized k v
   -> TimeWindowedKStream k v
   -> IO (WindowedTableHandle k v)
-reduceWindowed combine =
-  aggregateWindowed @k @v @v
-    (pure (error "reduceWindowed: cannot reduce empty"))
-    (\_ v acc -> combine acc v)
+reduceWindowed combine m twks = do
+  let b = twksBuilder twks
+      ws = twksWindows twks
+  storeNm <- maybe (freshStoreName b "WINDOWED-REDUCE-STORE")
+                   pure
+                   (matName m)
+  let supplier = inMemoryWindowStoreBuilder
+                   storeNm
+                   (windowsSize ws)
+                   (windowsRetention ws) :: StoreBuilderW k v
+  procNm <- freshNodeName b "WINDOWED-REDUCE"
+  withTopology_ b $ \t ->
+    let !t1 = Topo.addProcessorWith
+                Topo.ProcessorSpec
+                  { Topo.processorSpecName     = procNm
+                  , Topo.processorSpecParents  = [twksParent twks]
+                  , Topo.processorSpecSupplier =
+                      Topo.AnyProcessor
+                        (windowedReduceProc @k @v storeNm ws combine)
+                  , Topo.processorSpecStores   = [storeNm]
+                  } t
+        !t2 = Topo.addStateStoreW supplier [procNm] t1
+     in t2
+  pure WindowedTableHandle
+    { wthNode    = procNm
+    , wthStore   = storeNm
+    , wthBuilder = b
+    , wthWindows = ws
+    }
+
+-- | Per-window reduce processor. Mirrors the JVM
+-- @TimeWindowedKStream.reduce(adder)@ semantics: the first
+-- record assigned to a window stores its value verbatim;
+-- subsequent records combine via @adder(existing, new)@. We
+-- can't model this through 'aggregateWindowed' without a
+-- 'Maybe v' wrapper because the JVM contract has no
+-- "initialiser" — the first value /is/ the seed.
+windowedReduceProc
+  :: forall k v
+   . Ord k
+  => StoreName
+  -> Windows
+  -> (v -> v -> v)
+  -> IO (Processor k v)
+windowedReduceProc sn ws combine = do
+  ctxRef   <- newIORef Nothing
+  storeRef <- newIORef (Nothing :: Maybe (WindowStore k v))
+  pure Processor
+    { procName = processorName "WINDOWED-REDUCE"
+    , procInit = \ctx -> do
+        writeIORef ctxRef (Just ctx)
+        st <- getStateStore ctx sn
+        case st of
+          Just (AnyWindowStore wstore) ->
+            writeIORef storeRef (Just (unsafeCastWS wstore))
+          _ -> error $ "windowedReduceProc: store not found: " <> show sn
+    , procClose = pure ()
+    , procProcess = \r -> do
+        mctx <- readIORef ctxRef
+        mst  <- readIORef storeRef
+        case (mctx, mst, recordKey r) of
+          (Just ctx, Just store_, Just k) -> do
+            Timestamp now <- ctxStreamTime ctx
+            let !grace      = windowsGracePeriod ws
+                !winSize    = windowsSize ws
+                Timestamp rt = recordTimestamp r
+                !rightEdge   = rt + winSize
+                isExpired    = rightEdge + grace < now
+            if isExpired
+              then pure ()
+              else do
+                let !windows = windowsAssign ws (recordTimestamp r)
+                mapM_
+                  (\(Window startT _) -> do
+                     mPrev <- wsFetch store_ k startT
+                     let !next = case mPrev of
+                           Just acc -> combine acc (recordValue r)
+                           Nothing  -> recordValue r
+                     wsPut store_ k next startT
+                     forwardRecord ctx r { recordValue = next })
+                  windows
+          _ -> pure ()
+    }
 
 aggregateWindowed
   :: forall k v a
