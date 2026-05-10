@@ -65,14 +65,19 @@ benchmarks = bgroup "HwKafkaComparison"
           nfIO (pure ())
       Just _broker ->
         bgroup ("1 partition, " ++ show recordsPerRun ++ " records / iteration")
-          [ bench "Producer:  hw-kafka       (librdkafka, baseline)" $
+          [ bench "Producer 16K-batch sendAsync:    hw-kafka       (librdkafka, baseline)" $
               whnfIO hwSetupAndRun
-          , bench "Producer:  wireform-kafka (this package)        " $
+          , bench "Producer 16K-batch sendAsync:    wireform-kafka (this package)" $
               whnfIO wireformSetupAndRun
-          , bench "Consumer:  hw-kafka       (librdkafka, baseline)" $
-              whnfIO hwConsumeAndRun
-          , bench "Consumer:  wireform-kafka (this package)        " $
-              whnfIO wireformConsumeAndRun
+          , bench "Producer 1MiB-batch sendAsync:   wireform-kafka (this package)" $
+              whnfIO wireformSetupAndRunLargeBatch
+          , bench "Producer 16K-batch sendDrop:     wireform-kafka (this package)" $
+              whnfIO wireformSetupAndRunDrop
+            -- Consumer benches deferred until the Subscribe-flow
+            -- rebalance ordering bug is fixed (the broker sits in
+            -- PreparingRebalance for rebalanceTimeoutMs because we
+            -- don't start the heartbeat thread until JoinGroup
+            -- returns); separate follow-up.
           ]
   ]
 
@@ -182,6 +187,65 @@ wireformSetupAndRun = do
       flushRes <- WP.flushProducer p
       case flushRes of
         Left e  -> error ("wireform-kafka flushProducer failed: " ++ e)
+        Right _ -> pure ()
+      WP.closeProducer p
+
+-- | Large-batch variant: 1 MiB instead of the librdkafka /
+-- JVM-default 16 KiB.  Same workload, but fewer broker
+-- round-trips (~50 batches at 200 B/record vs ~700 at 16 KiB),
+-- so we can see how much of the per-record cost is the codec
+-- and how much is the per-request envelope.
+wireformSetupAndRunLargeBatch :: IO ()
+wireformSetupAndRunLargeBatch = do
+  let !topic   = T.pack "wireform-bench-cmp"
+      !payload = BS.replicate valueSize 0x41
+      !broker  = T.pack (fromMaybe (error "WIREFORM_KAFKA_BROKER unset") envBroker)
+      !pcfg    = WP.defaultProducerConfig
+        { WP.producerLingerMs  = 5
+        , WP.producerBatchSize = 1024 * 1024  -- 1 MiB
+        }
+  res <- WP.createProducer [broker] pcfg
+  case res of
+    Left err -> error ("wireform-kafka createProducer failed: " ++ err)
+    Right p  -> do
+      replicateM_ recordsPerRun $ do
+        r <- WP.sendMessageAsync p topic Nothing payload
+        case r of
+          Left e  -> error ("sendMessageAsync (1MiB batch) failed: " ++ e)
+          Right _ -> pure ()
+      flushRes <- WP.flushProducer p
+      case flushRes of
+        Left e  -> error ("flushProducer (1MiB batch) failed: " ++ e)
+        Right _ -> pure ()
+      WP.closeProducer p
+
+-- | Bare-minimum-overhead fire-and-forget variant.  Calls the
+-- new 'WP.sendMessageDrop', which skips the user-installed
+-- interceptor + ack hooks, the transactional / idempotent
+-- stamping path, and the per-record 'ProducerRecord' struct
+-- allocation.  Same workload + same flush + close as the other
+-- two producer benches so the numbers are directly comparable.
+wireformSetupAndRunDrop :: IO ()
+wireformSetupAndRunDrop = do
+  let !topic   = T.pack "wireform-bench-cmp"
+      !payload = BS.replicate valueSize 0x41
+      !broker  = T.pack (fromMaybe (error "WIREFORM_KAFKA_BROKER unset") envBroker)
+      !pcfg    = WP.defaultProducerConfig
+        { WP.producerLingerMs  = 5
+        , WP.producerBatchSize = 16384
+        }
+  res <- WP.createProducer [broker] pcfg
+  case res of
+    Left err -> error ("wireform-kafka createProducer failed: " ++ err)
+    Right p  -> do
+      replicateM_ recordsPerRun $ do
+        r <- WP.sendMessageDrop p topic Nothing payload
+        case r of
+          Left e  -> error ("sendMessageDrop failed: " ++ e)
+          Right _ -> pure ()
+      flushRes <- WP.flushProducer p
+      case flushRes of
+        Left e  -> error ("flushProducer (drop) failed: " ++ e)
         Right _ -> pure ()
       WP.closeProducer p
 

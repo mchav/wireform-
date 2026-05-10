@@ -47,6 +47,7 @@ module Kafka.Client.Producer
     -- * Sending Messages
   , sendMessage
   , sendMessageAsync
+  , sendMessageDrop
   , sendBatch
     -- * Transactions
     --
@@ -1129,6 +1130,58 @@ sendMessageAsync p@Producer{..} topic key value = do
           let err = "Failed to append record (accumulator closed or full)"
           runAckInterceptor producerConfig iceptedRecord (Left err)
           return (Left err)
+
+-- | Bare-minimum-overhead async send: skips the user-installed
+-- 'producerInterceptor' / 'producerOnAcknowledgement' hooks, the
+-- transactional / idempotent stamping path
+-- ('producerPreSendCheck'), and the per-record 'ProducerRecord'
+-- struct allocation.
+--
+-- Suitable for high-throughput non-transactional producers that
+-- don't need per-record ack callbacks (logs / telemetry / fire-
+-- and-forget event streams).  Per-record CPU work is roughly:
+--
+--   * 'selectPartition' (one TVar read for sticky / no work for
+--     hash partitioner);
+--   * one 'RB.Record' allocation;
+--   * one 'BA.appendRecordStamped' call (the STM hot path inside
+--     'BatchAccumulator', ~250 ns).
+--
+-- Returns 'Left' only when the accumulator rejects the record
+-- (closed / over-capacity); the caller is expected to back off
+-- + retry.  Per-record broker errors are /silently dropped/ —
+-- the user signed up for fire-and-forget by calling this.
+--
+-- For at-most-one-loss semantics, pair with 'flushProducer'
+-- before 'closeProducer' so the in-memory queue drains.
+--
+-- This is the path the producer benchmark uses for the head-to-
+-- head against librdkafka's @rd_kafka_produce@ + flush combo.
+sendMessageDrop
+  :: Producer
+  -> Text             -- ^ Topic
+  -> Maybe ByteString -- ^ Optional key (used by hash partitioner)
+  -> ByteString       -- ^ Value
+  -> IO (Either String ())
+sendMessageDrop p@Producer{..} topic key value = do
+  partition <- selectPartition p topic key
+  let !record = RB.Record
+        { RB.recordTimestampDelta = 0
+        , RB.recordOffsetDelta    = 0
+        , RB.recordKey            = key
+        , RB.recordValue          = value
+        , RB.recordHeaders        = []
+        }
+      !tp = BA.TopicPartition topic partition
+  success <- BA.appendRecordStamped
+               producerAccumulator
+               tp
+               record
+               (\_ -> pure ())
+               BA.noStamp
+  if success
+    then return (Right ())
+    else return (Left "Failed to append record (accumulator closed or full)")
 
 -- | Select partition for a message based on configured partitioner (KIP-480).
 selectPartition
