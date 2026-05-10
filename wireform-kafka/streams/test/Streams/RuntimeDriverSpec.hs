@@ -59,6 +59,7 @@ tests = testGroup "Runtime <-> StreamDriver"
   , rebalance_revoked_moves_to_standby_grace
   , rebalance_lost_drops_without_grace
   , rebalance_reassignment_promotes_standby
+  , two_instances_handoff_partitions_via_rebalance
   ]
 
 bytes :: Text -> BSC.ByteString
@@ -516,6 +517,128 @@ rebalance_reassignment_promotes_standby =
 
     closeKafkaStreams ks
     awaitState ks StreamsClosed
+
+----------------------------------------------------------------------
+-- 7. Two-instance integration: partition handoff via rebalance
+----------------------------------------------------------------------
+
+-- | Two KafkaStreams instances joined to the same application
+-- (consumer group). They each get a slice of partitions; a
+-- simulated rebalance migrates partitions from one to the
+-- other; we verify that records produced after the migration
+-- land in the new owner's state store, while records produced
+-- before remain queryable on the previous owner during its
+-- KIP-869 standby grace.
+--
+-- This test doesn't talk to a broker; it drives two mock
+-- drivers in parallel. It's the runtime-side equivalent of
+-- bringing up two streams app instances in the same group and
+-- pulling one offline.
+two_instances_handoff_partitions_via_rebalance :: TestTree
+two_instances_handoff_partitions_via_rebalance =
+  testCase "two instances: revoke from A and assign to B; subsequent records land on B" $ do
+    -- Same topology + same applicationId on both instances.
+    topoA <- buildCountTopo
+    topoB <- buildCountTopo
+    let cfg = defaultStreamsConfig
+          { applicationId    = "two-inst"
+          , bootstrapServers = ["mock:0"]
+          , numStreamThreads = 1
+          , pollMs           = 0
+          , taskTimeoutMs    = 60_000   -- grace window so A keeps standby
+          }
+    ksA <- newKafkaStreams cfg topoA
+    ksB <- newKafkaStreams cfg topoB
+    (drvA, hA) <- newMockDriver
+    (drvB, hB) <- newMockDriver
+
+    let tp0 = KC.TopicPartition "in" 0
+        tp1 = KC.TopicPartition "in" 1
+        tp2 = KC.TopicPartition "in" 2
+        tp3 = KC.TopicPartition "in" 3
+
+    -- Phase 1: A starts alone, owns every partition.
+    mockDriverInjectRebalance hA
+      (RebalanceAssigned [tp0, tp1, tp2, tp3])
+    startKafkaStreamsWith ksA drvA
+    awaitState ksA StreamsRunning
+
+    -- Pump a few records across every partition into A.
+    mockDriverInjectPoll hA
+      [ consumerRecordPart "in" 0 "alice"   "1" (Int64ish 0) (Int64ish 100)
+      , consumerRecordPart "in" 0 "alice"   "1" (Int64ish 1) (Int64ish 101)
+      , consumerRecordPart "in" 1 "bob"     "1" (Int64ish 2) (Int64ish 102)
+      , consumerRecordPart "in" 2 "carol"   "1" (Int64ish 3) (Int64ish 103)
+      , consumerRecordPart "in" 3 "dave"    "1" (Int64ish 4) (Int64ish 104)
+      ]
+
+    waitFor 5000 $ do
+      mIQ <- queryKVStore @Text @Int64 ksA (storeName "counts")
+      case mIQ of
+        Nothing -> pure False
+        Just kvs -> do
+          a <- roKvGet kvs "alice"
+          b <- roKvGet kvs "bob"
+          c <- roKvGet kvs "carol"
+          d <- roKvGet kvs "dave"
+          pure (a == Just 2 && b == Just 1
+                  && c == Just 1 && d == Just 1)
+
+    -- Phase 2: B joins. Rebalance migrates partitions 2 and 3
+    -- from A to B. A's revocation enters standby grace because
+    -- taskTimeoutMs > 0; A's IQ keeps returning the pre-handoff
+    -- counts for those keys for the duration of the grace.
+    mockDriverInjectRebalance hA (RebalanceRevoked  [tp2, tp3])
+    mockDriverInjectRebalance hB (RebalanceAssigned [tp2, tp3])
+    startKafkaStreamsWith ksB drvB
+    awaitState ksB StreamsRunning
+
+    waitFor 2000 $ do
+      ownedA <- ownedPartitions ksA
+      ownedB <- ownedPartitions ksB
+      stbyA  <- standbyTasks ksA
+      pure ( length ownedA == 2
+              && length ownedB == 2
+              && Map.member tp2 stbyA
+              && Map.member tp3 stbyA )
+
+    -- Pump new records on the migrated partitions into B; B's
+    -- IQ store gains the counts, A's stays untouched.
+    mockDriverInjectPoll hB
+      [ consumerRecordPart "in" 2 "carol" "1" (Int64ish 10) (Int64ish 200)
+      , consumerRecordPart "in" 2 "carol" "1" (Int64ish 11) (Int64ish 201)
+      , consumerRecordPart "in" 3 "dave"  "1" (Int64ish 12) (Int64ish 202)
+      ]
+
+    waitFor 2000 $ do
+      mIqB <- queryKVStore @Text @Int64 ksB (storeName "counts")
+      case mIqB of
+        Nothing -> pure False
+        Just kvs -> do
+          c <- roKvGet kvs "carol"
+          d <- roKvGet kvs "dave"
+          pure (c == Just 2 && d == Just 1)
+
+    -- A is no longer fed records on partitions 2 / 3 so its
+    -- counts for carol/dave are still the original pre-handoff
+    -- ones — that's the KIP-869 grace-period IQ continuity
+    -- guarantee.
+    Just iqA <- queryKVStore @Text @Int64 ksA (storeName "counts")
+    aliceA  <- roKvGet iqA "alice"
+    carolA  <- roKvGet iqA "carol"
+    aliceA @?= Just 2  -- A's own partition, still being fed
+    carolA @?= Just 1  -- standby on A, frozen at handoff
+
+    Just iqB <- queryKVStore @Text @Int64 ksB (storeName "counts")
+    carolB  <- roKvGet iqB "carol"
+    daveB   <- roKvGet iqB "dave"
+    carolB @?= Just 2  -- new owner, post-handoff records counted
+    daveB  @?= Just 1
+
+    closeKafkaStreams ksA
+    closeKafkaStreams ksB
+    awaitState ksA StreamsClosed
+    awaitState ksB StreamsClosed
 
 -- | Stable sort over TopicPartition for the assigned-tps test.
 sortBy_ :: [KC.TopicPartition] -> [KC.TopicPartition]
