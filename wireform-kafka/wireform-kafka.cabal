@@ -869,6 +869,7 @@ benchmark wireform-kafka-bench
         deepseq,
         directory,
         filepath,
+        process,
         random,
         stm,
         text,

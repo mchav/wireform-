@@ -44,8 +44,10 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.Maybe (fromMaybe)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
+import qualified Data.IORef as IORef
 import qualified Data.Time.Clock.POSIX as Time
 import GHC.IO (unsafePerformIO)
+import qualified System.Process
 import qualified Kafka.Client.Consumer as WC
 import qualified Kafka.Client.Producer as WP
 import qualified Kafka.Consumer as HWC
@@ -260,12 +262,16 @@ wireformSetupAndRunDrop = do
 -- producers above.
 ----------------------------------------------------------------------
 
--- | Topic the consumer reads from.  Pre-populated lazily by the
--- first 'ensureSeeded' call on either side; subsequent runs reuse
--- the existing data because the topic is created with
--- 'cleanup.policy=delete' and a long retention window.
+-- | Topic the consumer reads from.  A unique per-process suffix
+-- (the process start time) keeps every bench invocation on a
+-- freshly-created log so 'auto.offset.reset=earliest' resolves to
+-- offset 0 and the consumer drain finishes deterministically.
+{-# NOINLINE consumerTopic #-}
 consumerTopic :: T.Text
-consumerTopic = T.pack "wireform-bench-cmp"
+consumerTopic = unsafePerformIO $ do
+  t <- Time.getPOSIXTime
+  pure (T.pack ("wireform-bench-cmp-"
+                  ++ show (truncate (t * 1000) :: Integer)))
 
 ----------------------------------------------------------------------
 -- hw-kafka consumer
@@ -343,12 +349,26 @@ wireformConsumeAndRun = do
 -- the first consumer benchmark sample runs.  Subsequent samples
 -- reuse the same data — both consumers use a fresh group id per
 -- run so they each start at offset 0.
-{-# NOINLINE ensureSeeded #-}
+-- | Run-once gate so the consumer-bench seed is paid exactly once
+-- per process, regardless of how many criterion samples or
+-- producer/consumer benchmark variants share the same topic.
+{-# NOINLINE seededGate #-}
+seededGate :: IORef.IORef Bool
+seededGate = unsafePerformIO (IORef.newIORef False)
+
+-- | Pre-populate 'consumerTopic' with 'recordsPerRun' records.
+-- The topic is deleted + recreated via the bundled @kafka-topics.sh@
+-- once on the first call, so the consumer's
+-- @auto.offset.reset=earliest@ resolves to a non-deleted offset
+-- and the consumer drain finishes deterministically.
 ensureSeeded :: IO ()
 ensureSeeded = do
-  -- One-shot seeding via the wireform producer: it's faster than
-  -- hw-kafka here (see the producer bench above) so the bench
-  -- harness setup is as quick as possible.
+  alreadySeeded <- IORef.atomicModifyIORef' seededGate (\b -> (True, b))
+  when (not alreadySeeded) doSeed
+
+doSeed :: IO ()
+doSeed = do
+  recreateTopic
   let !payload = BS.replicate valueSize 0x42
       !broker  = T.pack (fromMaybe (error "WIREFORM_KAFKA_BROKER unset") envBroker)
       !pcfg    = WP.defaultProducerConfig
@@ -369,6 +389,28 @@ ensureSeeded = do
         Left e  -> error ("ensureSeeded flushProducer failed: " ++ e)
         Right _ -> pure ()
       WP.closeProducer p
+
+-- | Drop and recreate 'consumerTopic' via the bundled @kafka-topics.sh@
+-- so the consumer benchmark starts each iteration with a fresh log
+-- whose first record is at offset 0.
+recreateTopic :: IO ()
+recreateTopic = do
+  let !broker = fromMaybe (error "WIREFORM_KAFKA_BROKER unset") envBroker
+      !topic  = T.unpack consumerTopic
+      !ktopics =
+        "/tmp/kafka_2.13-3.7.0/bin/kafka-topics.sh"
+  -- The delete + create are best-effort; the create races the
+  -- async delete completion on the broker side, but since the
+  -- producer below uses @auto.create.topics.enable=true@ the
+  -- topic is reborn on first publish anyway.
+  _ <- System.Process.system $
+    ktopics ++ " --bootstrap-server " ++ broker
+            ++ " --delete --topic " ++ topic ++ " 2>/dev/null"
+  _ <- System.Process.system $
+    ktopics ++ " --bootstrap-server " ++ broker
+            ++ " --create --if-not-exists --topic " ++ topic
+            ++ " --partitions 1 --replication-factor 1 2>/dev/null"
+  pure ()
 
 freshGroupId :: String -> IO String
 freshGroupId tag = do
