@@ -103,16 +103,11 @@ module Kafka.Protocol.Primitives
   , fromCompactArray
   ) where
 
-import Data.Bits
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BL
 import Data.Int
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import qualified Data.Text.Encoding as T
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Data.Vector (Vector)

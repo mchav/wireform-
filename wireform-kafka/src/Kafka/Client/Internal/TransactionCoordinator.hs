@@ -31,19 +31,16 @@ module Kafka.Client.Internal.TransactionCoordinator
 
 import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
 import Control.Exception (Exception)
-import Data.ByteString (ByteString)
-import Data.Int (Int8, Int16, Int32, Int64)
-import Data.Map.Strict (Map)
+import Data.Int (Int16, Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
-import Kafka.Protocol.ApiVersions (ApiVersionCache)
 import qualified Kafka.Protocol.ApiVersions as AV
 import Kafka.Client.Consumer (TopicPartition(..))
 import qualified Kafka.Client.Internal.Request as Req
-import Kafka.Network.Connection (BrokerAddress(..), Connection)
+import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.Primitives as P
 

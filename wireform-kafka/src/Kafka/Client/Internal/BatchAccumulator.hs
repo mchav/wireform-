@@ -45,21 +45,16 @@ module Kafka.Client.Internal.BatchAccumulator
   , RecordCallback
   ) where
 
-import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import Control.Monad (when)
-import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Foldable (toList)
 import Data.Int
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq, (|>))
 import qualified Data.Sequence as Seq
 import Data.Hashable (Hashable)
 import Data.Text (Text)
 import qualified Kafka.Time as KafkaTime
-import qualified Data.Vector as V
 import GHC.Generics (Generic)
 import qualified ListT
 import qualified StmContainers.Map as StmMap

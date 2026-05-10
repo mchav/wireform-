@@ -84,12 +84,10 @@ module Kafka.Protocol.Wire.Primitives
   ) where
 
 import Control.Exception (throwIO)
-import Data.Bits ((.&.))
-import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Lazy as LBS
-import Data.Int (Int16, Int32)
+import Data.Int (Int32)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE

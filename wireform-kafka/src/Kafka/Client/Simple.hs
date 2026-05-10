@@ -40,8 +40,6 @@ module Kafka.Client.Simple
   , Record(..)
   ) where
 
-import Control.Exception (bracket)
-import Control.Monad (forM)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int
@@ -52,7 +50,6 @@ import qualified Kafka.Time as KafkaTime
 import qualified Data.Vector as V
 import Data.Word
 import GHC.Generics (Generic)
-import Network.Connection (connectionPut)
 
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.Primitives as P

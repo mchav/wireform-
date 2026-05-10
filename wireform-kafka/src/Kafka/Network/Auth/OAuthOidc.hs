@@ -53,13 +53,11 @@ import Control.Concurrent.STM
 import qualified Crypto.Hash as Hash
 import qualified Data.ByteArray as BA
 import qualified Data.ByteArray.Encoding as BAE
-import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import Data.Int (Int64)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import GHC.Generics (Generic)
 

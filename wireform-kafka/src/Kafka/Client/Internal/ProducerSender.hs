@@ -52,27 +52,22 @@ module Kafka.Client.Internal.ProducerSender
   , silentLogger
   ) where
 
-import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
-import Control.Concurrent.Async (Async, async, wait, cancel)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
-import Control.Exception (SomeException, try, bracket)
-import Control.Monad (forever, when, unless, forM, forM_)
-import qualified Data.ByteString as BS
-import Data.Foldable (toList)
+import Control.Exception (SomeException, try)
+import Control.Monad (when, forM, forM_)
 import Data.Int
-import qualified Data.Sequence as Seq
 import Data.List (groupBy, sortBy, partition)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Ord (comparing)
-import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Network.Connection (Connection)
 import System.IO (hPutStrLn, stderr)
 import qualified Kafka.Time as KafkaTime
 
@@ -81,7 +76,6 @@ import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Client.Metadata as Meta
 import Kafka.Compression.Types (CompressionCodec (NoCompression))
 import qualified Kafka.Network.Connection as Conn
-import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Protocol.VersionNegotiation as VN
 import qualified Kafka.Protocol.Generated.ProduceRequest as PR

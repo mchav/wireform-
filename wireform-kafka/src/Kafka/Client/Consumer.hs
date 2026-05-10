@@ -82,7 +82,6 @@ module Kafka.Client.Consumer
   , consumerClusterId
   ) where
 
-import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Exception
 import Control.Exception (try)
@@ -92,7 +91,6 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable (Hashable)
 import Data.Int
-import Data.List (nub)
 import Control.Monad (forM, forM_, when)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
