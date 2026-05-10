@@ -253,7 +253,7 @@ wirePeekDescribeTopicPartitionsResponsePartition version _fp _basePtr p0 endPtr 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultDescribeTopicPartitionsResponsePartition :: DescribeTopicPartitionsResponsePartition
-defaultDescribeTopicPartitionsResponsePartition = DescribeTopicPartitionsResponsePartition { describeTopicPartitionsResponsePartitionErrorCode = 0, describeTopicPartitionsResponsePartitionPartitionIndex = 0, describeTopicPartitionsResponsePartitionLeaderId = 0, describeTopicPartitionsResponsePartitionLeaderEpoch = 0, describeTopicPartitionsResponsePartitionReplicaNodes = P.mkKafkaArray V.empty, describeTopicPartitionsResponsePartitionIsrNodes = P.mkKafkaArray V.empty, describeTopicPartitionsResponsePartitionEligibleLeaderReplicas = P.KafkaArray P.Null, describeTopicPartitionsResponsePartitionLastKnownElr = P.KafkaArray P.Null, describeTopicPartitionsResponsePartitionOfflineReplicas = P.mkKafkaArray V.empty }
+defaultDescribeTopicPartitionsResponsePartition = DescribeTopicPartitionsResponsePartition { describeTopicPartitionsResponsePartitionErrorCode = 0, describeTopicPartitionsResponsePartitionPartitionIndex = 0, describeTopicPartitionsResponsePartitionLeaderId = 0, describeTopicPartitionsResponsePartitionLeaderEpoch = -1, describeTopicPartitionsResponsePartitionReplicaNodes = P.mkKafkaArray V.empty, describeTopicPartitionsResponsePartitionIsrNodes = P.mkKafkaArray V.empty, describeTopicPartitionsResponsePartitionEligibleLeaderReplicas = P.KafkaArray P.Null, describeTopicPartitionsResponsePartitionLastKnownElr = P.KafkaArray P.Null, describeTopicPartitionsResponsePartitionOfflineReplicas = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a DescribeTopicPartitionsResponseTopic.
 wireMaxSizeDescribeTopicPartitionsResponseTopic :: Int -> DescribeTopicPartitionsResponseTopic -> Int
@@ -294,7 +294,7 @@ wirePeekDescribeTopicPartitionsResponseTopic version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultDescribeTopicPartitionsResponseTopic :: DescribeTopicPartitionsResponseTopic
-defaultDescribeTopicPartitionsResponseTopic = DescribeTopicPartitionsResponseTopic { describeTopicPartitionsResponseTopicErrorCode = 0, describeTopicPartitionsResponseTopicName = P.KafkaString Null, describeTopicPartitionsResponseTopicTopicId = P.nullUuid, describeTopicPartitionsResponseTopicIsInternal = False, describeTopicPartitionsResponseTopicPartitions = P.mkKafkaArray V.empty, describeTopicPartitionsResponseTopicTopicAuthorizedOperations = 0 }
+defaultDescribeTopicPartitionsResponseTopic = DescribeTopicPartitionsResponseTopic { describeTopicPartitionsResponseTopicErrorCode = 0, describeTopicPartitionsResponseTopicName = P.KafkaString Null, describeTopicPartitionsResponseTopicTopicId = P.nullUuid, describeTopicPartitionsResponseTopicIsInternal = False, describeTopicPartitionsResponseTopicPartitions = P.mkKafkaArray V.empty, describeTopicPartitionsResponseTopicTopicAuthorizedOperations = -2147483648 }
 
 -- | Worst-case wire size of a Cursor.
 wireMaxSizeCursor :: Int -> Cursor -> Int

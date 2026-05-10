@@ -196,7 +196,7 @@ wirePeekCreatableTopicConfigs version _fp _basePtr p0 endPtr = do
   (f0_name, p1) <- (if version >= 5 then (if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
   (f1_value, p2) <- (if version >= 5 then (if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
   (f2_readonly, p3) <- (if version >= 5 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr else pure (False, p2))
-  (f3_configsource, p4) <- (if version >= 5 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr else pure (0, p3))
+  (f3_configsource, p4) <- (if version >= 5 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr else pure (-1, p3))
   (f4_issensitive, p5) <- (if version >= 5 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr else pure (False, p4))
   pTagsEnd <- if version >= 5 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
   pure (CreatableTopicConfigs { creatableTopicConfigsName = f0_name, creatableTopicConfigsValue = f1_value, creatableTopicConfigsReadOnly = f2_readonly, creatableTopicConfigsConfigSource = f3_configsource, creatableTopicConfigsIsSensitive = f4_issensitive }, pTagsEnd)
@@ -204,7 +204,7 @@ wirePeekCreatableTopicConfigs version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultCreatableTopicConfigs :: CreatableTopicConfigs
-defaultCreatableTopicConfigs = CreatableTopicConfigs { creatableTopicConfigsName = P.KafkaString Null, creatableTopicConfigsValue = P.KafkaString Null, creatableTopicConfigsReadOnly = False, creatableTopicConfigsConfigSource = 0, creatableTopicConfigsIsSensitive = False }
+defaultCreatableTopicConfigs = CreatableTopicConfigs { creatableTopicConfigsName = P.KafkaString Null, creatableTopicConfigsValue = P.KafkaString Null, creatableTopicConfigsReadOnly = False, creatableTopicConfigsConfigSource = -1, creatableTopicConfigsIsSensitive = False }
 
 -- | Worst-case wire size of a CreatableTopicResult.
 wireMaxSizeCreatableTopicResult :: Int -> CreatableTopicResult -> Int
@@ -243,8 +243,8 @@ wirePeekCreatableTopicResult version _fp _basePtr p0 endPtr = do
   (f1_topicid, p2) <- (if version >= 7 then WP.peekKafkaUuid p1 endPtr else pure (P.nullUuid, p1))
   (f2_errorcode, p3) <- W.peekInt16BE p2 endPtr
   (f3_errormessage, p4) <- (if version >= 1 then (if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
-  (f4_numpartitions, p5) <- (if version >= 5 then W.peekInt32BE p4 endPtr else pure (0, p4))
-  (f5_replicationfactor, p6) <- (if version >= 5 then W.peekInt16BE p5 endPtr else pure (0, p5))
+  (f4_numpartitions, p5) <- (if version >= 5 then W.peekInt32BE p4 endPtr else pure (-1, p4))
+  (f5_replicationfactor, p6) <- (if version >= 5 then W.peekInt16BE p5 endPtr else pure (-1, p5))
   (f6_configs, p7) <- (if version >= 5 then WP.peekVersionedNullableArray version 5 (\p e -> wirePeekCreatableTopicConfigs version _fp _basePtr p e) p6 endPtr else pure (P.KafkaArray P.Null, p6))
   (_taggedMap, pTagsEnd) <- if version >= 5 then WP.peekTaggedFieldsMap p7 endPtr else pure (Data.Map.Strict.empty, p7)
   let !_tag_topicconfigerrorcode = if version >= 5 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGet :: Data.ByteString.ByteString -> Either String Data.Int.Int16) _bs of { Right _v -> _v ; Left _ -> 0}; Nothing -> 0} else 0
@@ -253,7 +253,7 @@ wirePeekCreatableTopicResult version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultCreatableTopicResult :: CreatableTopicResult
-defaultCreatableTopicResult = CreatableTopicResult { creatableTopicResultName = P.KafkaString Null, creatableTopicResultTopicId = P.nullUuid, creatableTopicResultErrorCode = 0, creatableTopicResultErrorMessage = P.KafkaString Null, creatableTopicResultTopicConfigErrorCode = 0, creatableTopicResultNumPartitions = 0, creatableTopicResultReplicationFactor = 0, creatableTopicResultConfigs = P.KafkaArray P.Null }
+defaultCreatableTopicResult = CreatableTopicResult { creatableTopicResultName = P.KafkaString Null, creatableTopicResultTopicId = P.nullUuid, creatableTopicResultErrorCode = 0, creatableTopicResultErrorMessage = P.KafkaString Null, creatableTopicResultTopicConfigErrorCode = 0, creatableTopicResultNumPartitions = -1, creatableTopicResultReplicationFactor = -1, creatableTopicResultConfigs = P.KafkaArray P.Null }
 
 -- | Worst-case wire size of a CreateTopicsResponse.
 wireMaxSizeCreateTopicsResponse :: Int -> CreateTopicsResponse -> Int

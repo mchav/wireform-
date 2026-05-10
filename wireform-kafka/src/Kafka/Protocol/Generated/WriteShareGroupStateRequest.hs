@@ -235,7 +235,7 @@ wirePeekPartitionData version _fp _basePtr p0 endPtr = do
   (f1_stateepoch, p2) <- W.peekInt32BE p1 endPtr
   (f2_leaderepoch, p3) <- W.peekInt32BE p2 endPtr
   (f3_startoffset, p4) <- W.peekInt64BE p3 endPtr
-  (f4_deliverycompletecount, p5) <- (if version >= 1 then W.peekInt32BE p4 endPtr else pure (0, p4))
+  (f4_deliverycompletecount, p5) <- (if version >= 1 then W.peekInt32BE p4 endPtr else pure (-1, p4))
   (f5_statebatches, p6) <- WP.peekVersionedArray version 0 (\p e -> wirePeekStateBatch version _fp _basePtr p e) p5 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
   pure (PartitionData { partitionDataPartition = f0_partition, partitionDataStateEpoch = f1_stateepoch, partitionDataLeaderEpoch = f2_leaderepoch, partitionDataStartOffset = f3_startoffset, partitionDataDeliveryCompleteCount = f4_deliverycompletecount, partitionDataStateBatches = f5_statebatches }, pTagsEnd)
@@ -243,7 +243,7 @@ wirePeekPartitionData version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultPartitionData :: PartitionData
-defaultPartitionData = PartitionData { partitionDataPartition = 0, partitionDataStateEpoch = 0, partitionDataLeaderEpoch = 0, partitionDataStartOffset = 0, partitionDataDeliveryCompleteCount = 0, partitionDataStateBatches = P.mkKafkaArray V.empty }
+defaultPartitionData = PartitionData { partitionDataPartition = 0, partitionDataStateEpoch = 0, partitionDataLeaderEpoch = 0, partitionDataStartOffset = 0, partitionDataDeliveryCompleteCount = -1, partitionDataStateBatches = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a WriteStateData.
 wireMaxSizeWriteStateData :: Int -> WriteStateData -> Int

@@ -152,12 +152,12 @@ wirePeekInitProducerIdRequest version _fp _basePtr p0 endPtr
     (f0_transactionalid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_transactiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
-    pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = 0, initProducerIdRequestProducerEpoch = 0, initProducerIdRequestEnable2Pc = False, initProducerIdRequestKeepPreparedTxn = False }, pTagsEnd)
+    pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = -1, initProducerIdRequestProducerEpoch = -1, initProducerIdRequestEnable2Pc = False, initProducerIdRequestKeepPreparedTxn = False }, pTagsEnd)
   | version == 6 = do
     (f0_transactionalid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_transactiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
-    (f2_producerid, p3) <- (if version >= 3 then W.peekInt64BE p2 endPtr else pure (0, p2))
-    (f3_producerepoch, p4) <- (if version >= 3 then W.peekInt16BE p3 endPtr else pure (0, p3))
+    (f2_producerid, p3) <- (if version >= 3 then W.peekInt64BE p2 endPtr else pure (-1, p2))
+    (f3_producerepoch, p4) <- (if version >= 3 then W.peekInt16BE p3 endPtr else pure (-1, p3))
     (f4_enable2pc, p5) <- (if version >= 6 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr else pure (False, p4))
     (f5_keeppreparedtxn, p6) <- (if version >= 6 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p5 endPtr else pure (False, p5))
     pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
@@ -165,12 +165,12 @@ wirePeekInitProducerIdRequest version _fp _basePtr p0 endPtr
   | version >= 0 && version <= 1 = do
     (f0_transactionalid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_transactiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
-    pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = 0, initProducerIdRequestProducerEpoch = 0, initProducerIdRequestEnable2Pc = False, initProducerIdRequestKeepPreparedTxn = False }, p2)
+    pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = -1, initProducerIdRequestProducerEpoch = -1, initProducerIdRequestEnable2Pc = False, initProducerIdRequestKeepPreparedTxn = False }, p2)
   | version >= 3 && version <= 5 = do
     (f0_transactionalid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_transactiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
-    (f2_producerid, p3) <- (if version >= 3 then W.peekInt64BE p2 endPtr else pure (0, p2))
-    (f3_producerepoch, p4) <- (if version >= 3 then W.peekInt16BE p3 endPtr else pure (0, p3))
+    (f2_producerid, p3) <- (if version >= 3 then W.peekInt64BE p2 endPtr else pure (-1, p2))
+    (f3_producerepoch, p4) <- (if version >= 3 then W.peekInt16BE p3 endPtr else pure (-1, p3))
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = f2_producerid, initProducerIdRequestProducerEpoch = f3_producerepoch, initProducerIdRequestEnable2Pc = False, initProducerIdRequestKeepPreparedTxn = False }, pTagsEnd)
   | otherwise = error $ "wirePeek InitProducerIdRequest : unsupported version: " ++ show version

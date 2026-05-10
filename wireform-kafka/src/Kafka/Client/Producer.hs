@@ -1190,15 +1190,45 @@ selectPartition
   -> Maybe ByteString  -- ^ Key (optional)
   -> IO Int32
 selectPartition producer@Producer{..} topic keyM = do
-  -- Get partition count for topic from metadata
   partCountM <- atomically $ Meta.getPartitionCount producerMetadata topic
-  
-  case partCountM of
-    Nothing -> return 0  -- Fallback if metadata not available
+  partCount  <- case partCountM of
+    Just n  -> pure (Just n)
+    Nothing -> do
+      refreshTopicOnDemand producer topic
+      atomically $ Meta.getPartitionCount producerMetadata topic
+  case partCount of
+    Nothing -> return 0  -- Refresh didn't help; sender will error.
     Just partitionCount -> do
-      -- Call the configured partitioner function
       let partitioner = producerPartitioner producerConfig
       partitioner producer topic keyM partitionCount
+
+-- | Synchronous metadata refresh for a single topic. Picks any
+-- broker the producer already knows about (from the
+-- bootstrap-time refresh in 'createProducer') and issues a
+-- targeted MetadataRequest. Best-effort: errors are swallowed
+-- because the caller falls back to partition 0 + sender-side
+-- retry on failure.
+refreshTopicOnDemand :: Producer -> Text -> IO ()
+refreshTopicOnDemand Producer{..} topic = do
+  brokersM <- atomically (Meta.getAllBrokers producerMetadata)
+  case brokersM of
+    Just (b : _) -> do
+      let addr = Meta.brokerMetaAddress b
+      connRes <- Conn.getOrCreateConnection
+                   producerConnManager addr Conn.defaultConnectionConfig
+      case connRes of
+        Right conn -> do
+          -- Reuse the sender's correlation-id source so we
+          -- don't tread on its in-flight numbering.
+          cid <- atomically $ do
+            n <- readTVar (Sender.senderCorrelationId producerSenderState)
+            writeTVar (Sender.senderCorrelationId producerSenderState) (n + 1)
+            pure n
+          _ <- Meta.refreshTopicMetadata conn producerMetadata
+                 (Just [topic]) cid
+          pure ()
+        Left _ -> pure ()
+    _ -> pure ()
 
 -- | Hash-based partitioning using Kafka's murmur2 variant.
 --

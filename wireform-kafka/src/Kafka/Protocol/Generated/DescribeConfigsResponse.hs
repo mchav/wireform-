@@ -259,7 +259,7 @@ wirePeekDescribeConfigsResourceResult version _fp _basePtr p0 endPtr = do
   (f0_name, p1) <- (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_value, p2) <- (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_readonly, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
-  (f3_configsource, p4) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr else pure (0, p3))
+  (f3_configsource, p4) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr else pure (-1, p3))
   (f4_issensitive, p5) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr
   (f5_synonyms, p6) <- (if version >= 1 then WP.peekVersionedArray version 4 (\p e -> wirePeekDescribeConfigsSynonym version _fp _basePtr p e) p5 endPtr else pure (P.mkKafkaArray V.empty, p5))
   (f6_configtype, p7) <- (if version >= 3 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p6 endPtr else pure (0, p6))
@@ -270,7 +270,7 @@ wirePeekDescribeConfigsResourceResult version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultDescribeConfigsResourceResult :: DescribeConfigsResourceResult
-defaultDescribeConfigsResourceResult = DescribeConfigsResourceResult { describeConfigsResourceResultName = P.KafkaString Null, describeConfigsResourceResultValue = P.KafkaString Null, describeConfigsResourceResultReadOnly = False, describeConfigsResourceResultConfigSource = 0, describeConfigsResourceResultIsSensitive = False, describeConfigsResourceResultSynonyms = P.mkKafkaArray V.empty, describeConfigsResourceResultConfigType = 0, describeConfigsResourceResultDocumentation = P.KafkaString Null }
+defaultDescribeConfigsResourceResult = DescribeConfigsResourceResult { describeConfigsResourceResultName = P.KafkaString Null, describeConfigsResourceResultValue = P.KafkaString Null, describeConfigsResourceResultReadOnly = False, describeConfigsResourceResultConfigSource = -1, describeConfigsResourceResultIsSensitive = False, describeConfigsResourceResultSynonyms = P.mkKafkaArray V.empty, describeConfigsResourceResultConfigType = 0, describeConfigsResourceResultDocumentation = P.KafkaString Null }
 
 -- | Worst-case wire size of a DescribeConfigsResult.
 wireMaxSizeDescribeConfigsResult :: Int -> DescribeConfigsResult -> Int

@@ -184,23 +184,23 @@ wirePeekConsumerProtocolSubscription version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_topics, p1) <- WP.peekKafkaArray WP.peekKafkaString p0 endPtr
     (f1_userdata, p2) <- WP.peekKafkaBytes p1 endPtr
-    pure (ConsumerProtocolSubscription { consumerProtocolSubscriptionTopics = f0_topics, consumerProtocolSubscriptionUserData = f1_userdata, consumerProtocolSubscriptionOwnedPartitions = P.mkKafkaArray V.empty, consumerProtocolSubscriptionGenerationId = 0, consumerProtocolSubscriptionRackId = P.KafkaString Null }, p2)
+    pure (ConsumerProtocolSubscription { consumerProtocolSubscriptionTopics = f0_topics, consumerProtocolSubscriptionUserData = f1_userdata, consumerProtocolSubscriptionOwnedPartitions = P.mkKafkaArray V.empty, consumerProtocolSubscriptionGenerationId = -1, consumerProtocolSubscriptionRackId = P.KafkaString Null }, p2)
   | version == 1 = do
     (f0_topics, p1) <- WP.peekKafkaArray WP.peekKafkaString p0 endPtr
     (f1_userdata, p2) <- WP.peekKafkaBytes p1 endPtr
     (f2_ownedpartitions, p3) <- (if version >= 1 then WP.peekKafkaArray (\p e -> wirePeekTopicPartition version _fp _basePtr p e) p2 endPtr else pure (P.mkKafkaArray V.empty, p2))
-    pure (ConsumerProtocolSubscription { consumerProtocolSubscriptionTopics = f0_topics, consumerProtocolSubscriptionUserData = f1_userdata, consumerProtocolSubscriptionOwnedPartitions = f2_ownedpartitions, consumerProtocolSubscriptionGenerationId = 0, consumerProtocolSubscriptionRackId = P.KafkaString Null }, p3)
+    pure (ConsumerProtocolSubscription { consumerProtocolSubscriptionTopics = f0_topics, consumerProtocolSubscriptionUserData = f1_userdata, consumerProtocolSubscriptionOwnedPartitions = f2_ownedpartitions, consumerProtocolSubscriptionGenerationId = -1, consumerProtocolSubscriptionRackId = P.KafkaString Null }, p3)
   | version == 2 = do
     (f0_topics, p1) <- WP.peekKafkaArray WP.peekKafkaString p0 endPtr
     (f1_userdata, p2) <- WP.peekKafkaBytes p1 endPtr
     (f2_ownedpartitions, p3) <- (if version >= 1 then WP.peekKafkaArray (\p e -> wirePeekTopicPartition version _fp _basePtr p e) p2 endPtr else pure (P.mkKafkaArray V.empty, p2))
-    (f3_generationid, p4) <- (if version >= 2 then W.peekInt32BE p3 endPtr else pure (0, p3))
+    (f3_generationid, p4) <- (if version >= 2 then W.peekInt32BE p3 endPtr else pure (-1, p3))
     pure (ConsumerProtocolSubscription { consumerProtocolSubscriptionTopics = f0_topics, consumerProtocolSubscriptionUserData = f1_userdata, consumerProtocolSubscriptionOwnedPartitions = f2_ownedpartitions, consumerProtocolSubscriptionGenerationId = f3_generationid, consumerProtocolSubscriptionRackId = P.KafkaString Null }, p4)
   | version == 3 = do
     (f0_topics, p1) <- WP.peekKafkaArray WP.peekKafkaString p0 endPtr
     (f1_userdata, p2) <- WP.peekKafkaBytes p1 endPtr
     (f2_ownedpartitions, p3) <- (if version >= 1 then WP.peekKafkaArray (\p e -> wirePeekTopicPartition version _fp _basePtr p e) p2 endPtr else pure (P.mkKafkaArray V.empty, p2))
-    (f3_generationid, p4) <- (if version >= 2 then W.peekInt32BE p3 endPtr else pure (0, p3))
+    (f3_generationid, p4) <- (if version >= 2 then W.peekInt32BE p3 endPtr else pure (-1, p3))
     (f4_rackid, p5) <- (if version >= 3 then WP.peekKafkaString p4 endPtr else pure (P.KafkaString Null, p4))
     pure (ConsumerProtocolSubscription { consumerProtocolSubscriptionTopics = f0_topics, consumerProtocolSubscriptionUserData = f1_userdata, consumerProtocolSubscriptionOwnedPartitions = f2_ownedpartitions, consumerProtocolSubscriptionGenerationId = f3_generationid, consumerProtocolSubscriptionRackId = f4_rackid }, p5)
   | otherwise = error $ "wirePeek ConsumerProtocolSubscription : unsupported version: " ++ show version

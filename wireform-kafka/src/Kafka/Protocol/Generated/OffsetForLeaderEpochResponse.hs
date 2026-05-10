@@ -151,7 +151,7 @@ wirePeekEpochEndOffset :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> P
 wirePeekEpochEndOffset version _fp _basePtr p0 endPtr = do
   (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
   (f1_partition, p2) <- W.peekInt32BE p1 endPtr
-  (f2_leaderepoch, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (0, p2))
+  (f2_leaderepoch, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (-1, p2))
   (f3_endoffset, p4) <- W.peekInt64BE p3 endPtr
   pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (EpochEndOffset { epochEndOffsetErrorCode = f0_errorcode, epochEndOffsetPartition = f1_partition, epochEndOffsetLeaderEpoch = f2_leaderepoch, epochEndOffsetEndOffset = f3_endoffset }, pTagsEnd)
@@ -159,7 +159,7 @@ wirePeekEpochEndOffset version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultEpochEndOffset :: EpochEndOffset
-defaultEpochEndOffset = EpochEndOffset { epochEndOffsetErrorCode = 0, epochEndOffsetPartition = 0, epochEndOffsetLeaderEpoch = 0, epochEndOffsetEndOffset = 0 }
+defaultEpochEndOffset = EpochEndOffset { epochEndOffsetErrorCode = 0, epochEndOffsetPartition = 0, epochEndOffsetLeaderEpoch = -1, epochEndOffsetEndOffset = -1 }
 
 -- | Worst-case wire size of a OffsetForLeaderTopicResult.
 wireMaxSizeOffsetForLeaderTopicResult :: Int -> OffsetForLeaderTopicResult -> Int

@@ -314,7 +314,7 @@ wirePeekBrokerRegistrationRequest version _fp _basePtr p0 endPtr
     (f4_features, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekFeature version _fp _basePtr p e) p4 endPtr
     (f5_rack, p6) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
     pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
-    pure (BrokerRegistrationRequest { brokerRegistrationRequestBrokerId = f0_brokerid, brokerRegistrationRequestClusterId = f1_clusterid, brokerRegistrationRequestIncarnationId = f2_incarnationid, brokerRegistrationRequestListeners = f3_listeners, brokerRegistrationRequestFeatures = f4_features, brokerRegistrationRequestRack = f5_rack, brokerRegistrationRequestIsMigratingZkBroker = False, brokerRegistrationRequestLogDirs = P.mkKafkaArray V.empty, brokerRegistrationRequestPreviousBrokerEpoch = 0 }, pTagsEnd)
+    pure (BrokerRegistrationRequest { brokerRegistrationRequestBrokerId = f0_brokerid, brokerRegistrationRequestClusterId = f1_clusterid, brokerRegistrationRequestIncarnationId = f2_incarnationid, brokerRegistrationRequestListeners = f3_listeners, brokerRegistrationRequestFeatures = f4_features, brokerRegistrationRequestRack = f5_rack, brokerRegistrationRequestIsMigratingZkBroker = False, brokerRegistrationRequestLogDirs = P.mkKafkaArray V.empty, brokerRegistrationRequestPreviousBrokerEpoch = -1 }, pTagsEnd)
   | version == 1 = do
     (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
     (f1_clusterid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
@@ -324,7 +324,7 @@ wirePeekBrokerRegistrationRequest version _fp _basePtr p0 endPtr
     (f5_rack, p6) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
     (f6_ismigratingzkbroker, p7) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p6 endPtr else pure (False, p6))
     pTagsEnd <- WP.peekAndSkipTaggedFields p7 endPtr
-    pure (BrokerRegistrationRequest { brokerRegistrationRequestBrokerId = f0_brokerid, brokerRegistrationRequestClusterId = f1_clusterid, brokerRegistrationRequestIncarnationId = f2_incarnationid, brokerRegistrationRequestListeners = f3_listeners, brokerRegistrationRequestFeatures = f4_features, brokerRegistrationRequestRack = f5_rack, brokerRegistrationRequestIsMigratingZkBroker = f6_ismigratingzkbroker, brokerRegistrationRequestLogDirs = P.mkKafkaArray V.empty, brokerRegistrationRequestPreviousBrokerEpoch = 0 }, pTagsEnd)
+    pure (BrokerRegistrationRequest { brokerRegistrationRequestBrokerId = f0_brokerid, brokerRegistrationRequestClusterId = f1_clusterid, brokerRegistrationRequestIncarnationId = f2_incarnationid, brokerRegistrationRequestListeners = f3_listeners, brokerRegistrationRequestFeatures = f4_features, brokerRegistrationRequestRack = f5_rack, brokerRegistrationRequestIsMigratingZkBroker = f6_ismigratingzkbroker, brokerRegistrationRequestLogDirs = P.mkKafkaArray V.empty, brokerRegistrationRequestPreviousBrokerEpoch = -1 }, pTagsEnd)
   | version == 2 = do
     (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
     (f1_clusterid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
@@ -335,7 +335,7 @@ wirePeekBrokerRegistrationRequest version _fp _basePtr p0 endPtr
     (f6_ismigratingzkbroker, p7) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p6 endPtr else pure (False, p6))
     (f7_logdirs, p8) <- (if version >= 2 then WP.peekVersionedArray version 0 WP.peekKafkaUuid p7 endPtr else pure (P.mkKafkaArray V.empty, p7))
     pTagsEnd <- WP.peekAndSkipTaggedFields p8 endPtr
-    pure (BrokerRegistrationRequest { brokerRegistrationRequestBrokerId = f0_brokerid, brokerRegistrationRequestClusterId = f1_clusterid, brokerRegistrationRequestIncarnationId = f2_incarnationid, brokerRegistrationRequestListeners = f3_listeners, brokerRegistrationRequestFeatures = f4_features, brokerRegistrationRequestRack = f5_rack, brokerRegistrationRequestIsMigratingZkBroker = f6_ismigratingzkbroker, brokerRegistrationRequestLogDirs = f7_logdirs, brokerRegistrationRequestPreviousBrokerEpoch = 0 }, pTagsEnd)
+    pure (BrokerRegistrationRequest { brokerRegistrationRequestBrokerId = f0_brokerid, brokerRegistrationRequestClusterId = f1_clusterid, brokerRegistrationRequestIncarnationId = f2_incarnationid, brokerRegistrationRequestListeners = f3_listeners, brokerRegistrationRequestFeatures = f4_features, brokerRegistrationRequestRack = f5_rack, brokerRegistrationRequestIsMigratingZkBroker = f6_ismigratingzkbroker, brokerRegistrationRequestLogDirs = f7_logdirs, brokerRegistrationRequestPreviousBrokerEpoch = -1 }, pTagsEnd)
   | version >= 3 && version <= 4 = do
     (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
     (f1_clusterid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
@@ -345,7 +345,7 @@ wirePeekBrokerRegistrationRequest version _fp _basePtr p0 endPtr
     (f5_rack, p6) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
     (f6_ismigratingzkbroker, p7) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p6 endPtr else pure (False, p6))
     (f7_logdirs, p8) <- (if version >= 2 then WP.peekVersionedArray version 0 WP.peekKafkaUuid p7 endPtr else pure (P.mkKafkaArray V.empty, p7))
-    (f8_previousbrokerepoch, p9) <- (if version >= 3 then W.peekInt64BE p8 endPtr else pure (0, p8))
+    (f8_previousbrokerepoch, p9) <- (if version >= 3 then W.peekInt64BE p8 endPtr else pure (-1, p8))
     pTagsEnd <- WP.peekAndSkipTaggedFields p9 endPtr
     pure (BrokerRegistrationRequest { brokerRegistrationRequestBrokerId = f0_brokerid, brokerRegistrationRequestClusterId = f1_clusterid, brokerRegistrationRequestIncarnationId = f2_incarnationid, brokerRegistrationRequestListeners = f3_listeners, brokerRegistrationRequestFeatures = f4_features, brokerRegistrationRequestRack = f5_rack, brokerRegistrationRequestIsMigratingZkBroker = f6_ismigratingzkbroker, brokerRegistrationRequestLogDirs = f7_logdirs, brokerRegistrationRequestPreviousBrokerEpoch = f8_previousbrokerepoch }, pTagsEnd)
   | otherwise = error $ "wirePeek BrokerRegistrationRequest : unsupported version: " ++ show version

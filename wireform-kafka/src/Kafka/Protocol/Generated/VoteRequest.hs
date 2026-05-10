@@ -264,10 +264,10 @@ wirePeekVoteRequest version _fp _basePtr p0 endPtr
     (f0_clusterid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
-    pure (VoteRequest { voteRequestClusterId = f0_clusterid, voteRequestVoterId = 0, voteRequestTopics = f1_topics }, pTagsEnd)
+    pure (VoteRequest { voteRequestClusterId = f0_clusterid, voteRequestVoterId = -1, voteRequestTopics = f1_topics }, pTagsEnd)
   | version >= 1 && version <= 2 = do
     (f0_clusterid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
-    (f1_voterid, p2) <- (if version >= 1 then W.peekInt32BE p1 endPtr else pure (0, p1))
+    (f1_voterid, p2) <- (if version >= 1 then W.peekInt32BE p1 endPtr else pure (-1, p1))
     (f2_topics, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicData version _fp _basePtr p e) p2 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (VoteRequest { voteRequestClusterId = f0_clusterid, voteRequestVoterId = f1_voterid, voteRequestTopics = f2_topics }, pTagsEnd)

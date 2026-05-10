@@ -64,6 +64,7 @@ import Data.Int (Int16)
 import Data.List (groupBy, sortBy)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Ord (comparing)
+import qualified Data.Aeson as Aeson
 import Data.Text (Text)
 import qualified Data.Text as T
 import Kafka.Protocol.Codegen.Types
@@ -1213,14 +1214,24 @@ groupVersionsByFieldSet versions fields flexibleVer =
 
 generateFieldDefaultDoc :: FieldSpec -> Doc ann
 generateFieldDefaultDoc field = case fieldType field of
-  PrimitiveType "bool"    -> "False"
-  PrimitiveType "int8"    -> "0"
-  PrimitiveType "int16"   -> "0"
-  PrimitiveType "int32"   -> "0"
-  PrimitiveType "int64"   -> "0"
-  PrimitiveType "uint16"  -> "0"
-  PrimitiveType "uint32"  -> "0"
-  PrimitiveType "float64" -> "0.0"
+  -- Honour the schema-supplied @"default": "..."@ attribute when
+  -- present. This matters for tagged fields (whose decoder
+  -- substitutes the default when the broker omits the entry) and
+  -- for absent-version fields (whose decoder always uses the
+  -- default). The most consequential case is
+  -- @CurrentLeader.LeaderId :: int32@ (KIP-951) which has
+  -- @"default": "-1"@ — without honouring it, we'd silently
+  -- patch the metadata cache's leader to broker 0 every time
+  -- the broker omitted the tagged field, breaking subsequent
+  -- produces.
+  PrimitiveType "bool"    -> boolDefault   "False"
+  PrimitiveType "int8"    -> intDefault    "0"
+  PrimitiveType "int16"   -> intDefault    "0"
+  PrimitiveType "int32"   -> intDefault    "0"
+  PrimitiveType "int64"   -> intDefault    "0"
+  PrimitiveType "uint16"  -> intDefault    "0"
+  PrimitiveType "uint32"  -> intDefault    "0"
+  PrimitiveType "float64" -> doubleDefault "0.0"
   PrimitiveType "string"  -> "P.KafkaString Null"
   PrimitiveType "bytes"   -> "P.KafkaBytes Null"
   PrimitiveType "uuid"    -> "P.nullUuid"
@@ -1235,6 +1246,50 @@ generateFieldDefaultDoc field = case fieldType field of
   ArrayType _ | isFieldNullable field -> "P.KafkaArray P.Null"
   ArrayType _ -> "P.mkKafkaArray V.empty"
   PrimitiveType _ -> "undefined"
+  where
+    -- Read the schema's "default" field and emit it as a
+    -- Haskell literal, falling back to the type's natural
+    -- zero-equivalent when the field is missing or the value
+    -- isn't shaped like the type expects. The schema files use
+    -- string-encoded numbers ("-1", "0", "1.0") so we parse +
+    -- normalise here rather than emit the raw JSON string.
+
+    -- Lowercase 'true' / 'false' (JSON convention in the
+    -- schemas) -> capitalised Haskell.
+    boolDefault :: Text -> Doc ann
+    boolDefault zero =
+      case fieldDefault field of
+        Just (Aeson.Bool True)  -> "True"
+        Just (Aeson.Bool False) -> "False"
+        Just (Aeson.String "true")  -> "True"
+        Just (Aeson.String "false") -> "False"
+        _ -> pretty zero
+
+    -- Integer literal: parse the schema string as an Int64; if
+    -- it doesn't parse cleanly, emit the type's zero default.
+    intDefault :: Text -> Doc ann
+    intDefault zero =
+      case fieldDefault field of
+        Just (Aeson.Number n) -> pretty (show (truncate n :: Integer))
+        Just (Aeson.String t) ->
+          case readsPrec 0 (T.unpack t) :: [(Integer, String)] of
+            [(i, "")] -> pretty (show i)
+            _         -> pretty zero
+        _ -> pretty zero
+
+    -- Float literal: must include a decimal point so Haskell
+    -- types it as Double, not Integer.
+    doubleDefault :: Text -> Doc ann
+    doubleDefault zero =
+      case fieldDefault field of
+        Just (Aeson.Number n)
+          | let d = realToFrac n :: Double
+          -> pretty (show d)
+        Just (Aeson.String t) ->
+          case readsPrec 0 (T.unpack t) :: [(Double, String)] of
+            [(d, "")] -> pretty (show d)
+            _         -> pretty zero
+        _ -> pretty zero
 
 -- | Emit a default value for a struct: a record literal whose
 -- fields are themselves recursively defaulted.  Lives at module

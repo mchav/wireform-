@@ -208,7 +208,7 @@ wirePeekProducerState version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultProducerState :: ProducerState
-defaultProducerState = ProducerState { producerStateProducerId = 0, producerStateProducerEpoch = 0, producerStateLastSequence = 0, producerStateLastTimestamp = 0, producerStateCoordinatorEpoch = 0, producerStateCurrentTxnStartOffset = 0 }
+defaultProducerState = ProducerState { producerStateProducerId = 0, producerStateProducerEpoch = 0, producerStateLastSequence = -1, producerStateLastTimestamp = -1, producerStateCoordinatorEpoch = 0, producerStateCurrentTxnStartOffset = -1 }
 
 -- | Worst-case wire size of a PartitionResponse.
 wireMaxSizePartitionResponse :: Int -> PartitionResponse -> Int

@@ -352,14 +352,14 @@ wirePeekMember version _fp _basePtr p0 endPtr = do
   (f7_subscribedtopicregex, p8) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr else WP.peekKafkaString p7 endPtr)
   (f8_assignment, p9) <- wirePeekAssignment version _fp _basePtr p8 endPtr
   (f9_targetassignment, p10) <- wirePeekAssignment version _fp _basePtr p9 endPtr
-  (f10_membertype, p11) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p10 endPtr else pure (0, p10))
+  (f10_membertype, p11) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p10 endPtr else pure (-1, p10))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p11 endPtr else pure p11
   pure (Member { memberMemberId = f0_memberid, memberInstanceId = f1_instanceid, memberRackId = f2_rackid, memberMemberEpoch = f3_memberepoch, memberClientId = f4_clientid, memberClientHost = f5_clienthost, memberSubscribedTopicNames = f6_subscribedtopicnames, memberSubscribedTopicRegex = f7_subscribedtopicregex, memberAssignment = f8_assignment, memberTargetAssignment = f9_targetassignment, memberMemberType = f10_membertype }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultMember :: Member
-defaultMember = Member { memberMemberId = P.KafkaString Null, memberInstanceId = P.KafkaString Null, memberRackId = P.KafkaString Null, memberMemberEpoch = 0, memberClientId = P.KafkaString Null, memberClientHost = P.KafkaString Null, memberSubscribedTopicNames = P.mkKafkaArray V.empty, memberSubscribedTopicRegex = P.KafkaString Null, memberAssignment = defaultAssignment, memberTargetAssignment = defaultAssignment, memberMemberType = 0 }
+defaultMember = Member { memberMemberId = P.KafkaString Null, memberInstanceId = P.KafkaString Null, memberRackId = P.KafkaString Null, memberMemberEpoch = 0, memberClientId = P.KafkaString Null, memberClientHost = P.KafkaString Null, memberSubscribedTopicNames = P.mkKafkaArray V.empty, memberSubscribedTopicRegex = P.KafkaString Null, memberAssignment = defaultAssignment, memberTargetAssignment = defaultAssignment, memberMemberType = -1 }
 
 -- | Worst-case wire size of a DescribedGroup.
 wireMaxSizeDescribedGroup :: Int -> DescribedGroup -> Int
@@ -409,7 +409,7 @@ wirePeekDescribedGroup version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultDescribedGroup :: DescribedGroup
-defaultDescribedGroup = DescribedGroup { describedGroupErrorCode = 0, describedGroupErrorMessage = P.KafkaString Null, describedGroupGroupId = P.KafkaString Null, describedGroupGroupState = P.KafkaString Null, describedGroupGroupEpoch = 0, describedGroupAssignmentEpoch = 0, describedGroupAssignorName = P.KafkaString Null, describedGroupMembers = P.mkKafkaArray V.empty, describedGroupAuthorizedOperations = 0 }
+defaultDescribedGroup = DescribedGroup { describedGroupErrorCode = 0, describedGroupErrorMessage = P.KafkaString Null, describedGroupGroupId = P.KafkaString Null, describedGroupGroupState = P.KafkaString Null, describedGroupGroupEpoch = 0, describedGroupAssignmentEpoch = 0, describedGroupAssignorName = P.KafkaString Null, describedGroupMembers = P.mkKafkaArray V.empty, describedGroupAuthorizedOperations = -2147483648 }
 
 -- | Worst-case wire size of a ConsumerGroupDescribeResponse.
 wireMaxSizeConsumerGroupDescribeResponse :: Int -> ConsumerGroupDescribeResponse -> Int

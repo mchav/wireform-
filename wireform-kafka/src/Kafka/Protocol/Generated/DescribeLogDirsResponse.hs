@@ -269,8 +269,8 @@ wirePeekDescribeLogDirsResult version _fp _basePtr p0 endPtr = do
   (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
   (f1_logdir, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_topics, p3) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeLogDirsTopic version _fp _basePtr p e) p2 endPtr
-  (f3_totalbytes, p4) <- (if version >= 4 then W.peekInt64BE p3 endPtr else pure (0, p3))
-  (f4_usablebytes, p5) <- (if version >= 4 then W.peekInt64BE p4 endPtr else pure (0, p4))
+  (f3_totalbytes, p4) <- (if version >= 4 then W.peekInt64BE p3 endPtr else pure (-1, p3))
+  (f4_usablebytes, p5) <- (if version >= 4 then W.peekInt64BE p4 endPtr else pure (-1, p4))
   (f5_iscordoned, p6) <- (if version >= 5 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p5 endPtr else pure (False, p5))
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
   pure (DescribeLogDirsResult { describeLogDirsResultErrorCode = f0_errorcode, describeLogDirsResultLogDir = f1_logdir, describeLogDirsResultTopics = f2_topics, describeLogDirsResultTotalBytes = f3_totalbytes, describeLogDirsResultUsableBytes = f4_usablebytes, describeLogDirsResultIsCordoned = f5_iscordoned }, pTagsEnd)
@@ -278,7 +278,7 @@ wirePeekDescribeLogDirsResult version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultDescribeLogDirsResult :: DescribeLogDirsResult
-defaultDescribeLogDirsResult = DescribeLogDirsResult { describeLogDirsResultErrorCode = 0, describeLogDirsResultLogDir = P.KafkaString Null, describeLogDirsResultTopics = P.mkKafkaArray V.empty, describeLogDirsResultTotalBytes = 0, describeLogDirsResultUsableBytes = 0, describeLogDirsResultIsCordoned = False }
+defaultDescribeLogDirsResult = DescribeLogDirsResult { describeLogDirsResultErrorCode = 0, describeLogDirsResultLogDir = P.KafkaString Null, describeLogDirsResultTopics = P.mkKafkaArray V.empty, describeLogDirsResultTotalBytes = -1, describeLogDirsResultUsableBytes = -1, describeLogDirsResultIsCordoned = False }
 
 -- | Worst-case wire size of a DescribeLogDirsResponse.
 wireMaxSizeDescribeLogDirsResponse :: Int -> DescribeLogDirsResponse -> Int

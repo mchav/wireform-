@@ -119,15 +119,15 @@ wirePeekDescribeClusterRequest version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_includeclusterauthorizedoperations, p1) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p0 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
-    pure (DescribeClusterRequest { describeClusterRequestIncludeClusterAuthorizedOperations = f0_includeclusterauthorizedoperations, describeClusterRequestEndpointType = 0, describeClusterRequestIncludeFencedBrokers = False }, pTagsEnd)
+    pure (DescribeClusterRequest { describeClusterRequestIncludeClusterAuthorizedOperations = f0_includeclusterauthorizedoperations, describeClusterRequestEndpointType = 1, describeClusterRequestIncludeFencedBrokers = False }, pTagsEnd)
   | version == 1 = do
     (f0_includeclusterauthorizedoperations, p1) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p0 endPtr
-    (f1_endpointtype, p2) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (0, p1))
+    (f1_endpointtype, p2) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (1, p1))
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (DescribeClusterRequest { describeClusterRequestIncludeClusterAuthorizedOperations = f0_includeclusterauthorizedoperations, describeClusterRequestEndpointType = f1_endpointtype, describeClusterRequestIncludeFencedBrokers = False }, pTagsEnd)
   | version == 2 = do
     (f0_includeclusterauthorizedoperations, p1) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p0 endPtr
-    (f1_endpointtype, p2) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (0, p1))
+    (f1_endpointtype, p2) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (1, p1))
     (f2_includefencedbrokers, p3) <- (if version >= 2 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr else pure (False, p2))
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (DescribeClusterRequest { describeClusterRequestIncludeClusterAuthorizedOperations = f0_includeclusterauthorizedoperations, describeClusterRequestEndpointType = f1_endpointtype, describeClusterRequestIncludeFencedBrokers = f2_includefencedbrokers }, pTagsEnd)

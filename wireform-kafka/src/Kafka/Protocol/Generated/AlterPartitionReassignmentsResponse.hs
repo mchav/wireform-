@@ -239,10 +239,10 @@ wirePeekAlterPartitionReassignmentsResponse version _fp _basePtr p0 endPtr
     (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     (f3_responses, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReassignableTopicResponse version _fp _basePtr p e) p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
-    pure (AlterPartitionReassignmentsResponse { alterPartitionReassignmentsResponseThrottleTimeMs = f0_throttletimems, alterPartitionReassignmentsResponseAllowReplicationFactorChange = False, alterPartitionReassignmentsResponseErrorCode = f1_errorcode, alterPartitionReassignmentsResponseErrorMessage = f2_errormessage, alterPartitionReassignmentsResponseResponses = f3_responses }, pTagsEnd)
+    pure (AlterPartitionReassignmentsResponse { alterPartitionReassignmentsResponseThrottleTimeMs = f0_throttletimems, alterPartitionReassignmentsResponseAllowReplicationFactorChange = True, alterPartitionReassignmentsResponseErrorCode = f1_errorcode, alterPartitionReassignmentsResponseErrorMessage = f2_errormessage, alterPartitionReassignmentsResponseResponses = f3_responses }, pTagsEnd)
   | version == 1 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
-    (f1_allowreplicationfactorchange, p2) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr else pure (False, p1))
+    (f1_allowreplicationfactorchange, p2) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr else pure (True, p1))
     (f2_errorcode, p3) <- W.peekInt16BE p2 endPtr
     (f3_errormessage, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
     (f4_responses, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReassignableTopicResponse version _fp _basePtr p e) p4 endPtr

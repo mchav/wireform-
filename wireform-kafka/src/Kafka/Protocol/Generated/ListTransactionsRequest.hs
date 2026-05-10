@@ -130,17 +130,17 @@ wirePeekListTransactionsRequest version _fp _basePtr p0 endPtr
     (f0_statefilters, p1) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
     (f1_produceridfilters, p2) <- WP.peekVersionedArray version 0 W.peekInt64BE p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
-    pure (ListTransactionsRequest { listTransactionsRequestStateFilters = f0_statefilters, listTransactionsRequestProducerIdFilters = f1_produceridfilters, listTransactionsRequestDurationFilter = 0, listTransactionsRequestTransactionalIdPattern = P.KafkaString Null }, pTagsEnd)
+    pure (ListTransactionsRequest { listTransactionsRequestStateFilters = f0_statefilters, listTransactionsRequestProducerIdFilters = f1_produceridfilters, listTransactionsRequestDurationFilter = -1, listTransactionsRequestTransactionalIdPattern = P.KafkaString Null }, pTagsEnd)
   | version == 1 = do
     (f0_statefilters, p1) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
     (f1_produceridfilters, p2) <- WP.peekVersionedArray version 0 W.peekInt64BE p1 endPtr
-    (f2_durationfilter, p3) <- (if version >= 1 then W.peekInt64BE p2 endPtr else pure (0, p2))
+    (f2_durationfilter, p3) <- (if version >= 1 then W.peekInt64BE p2 endPtr else pure (-1, p2))
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (ListTransactionsRequest { listTransactionsRequestStateFilters = f0_statefilters, listTransactionsRequestProducerIdFilters = f1_produceridfilters, listTransactionsRequestDurationFilter = f2_durationfilter, listTransactionsRequestTransactionalIdPattern = P.KafkaString Null }, pTagsEnd)
   | version == 2 = do
     (f0_statefilters, p1) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
     (f1_produceridfilters, p2) <- WP.peekVersionedArray version 0 W.peekInt64BE p1 endPtr
-    (f2_durationfilter, p3) <- (if version >= 1 then W.peekInt64BE p2 endPtr else pure (0, p2))
+    (f2_durationfilter, p3) <- (if version >= 1 then W.peekInt64BE p2 endPtr else pure (-1, p2))
     (f3_transactionalidpattern, p4) <- (if version >= 2 then (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (ListTransactionsRequest { listTransactionsRequestStateFilters = f0_statefilters, listTransactionsRequestProducerIdFilters = f1_produceridfilters, listTransactionsRequestDurationFilter = f2_durationfilter, listTransactionsRequestTransactionalIdPattern = f3_transactionalidpattern }, pTagsEnd)

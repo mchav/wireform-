@@ -146,7 +146,7 @@ wirePeekCurrentLeader version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultCurrentLeader :: CurrentLeader
-defaultCurrentLeader = CurrentLeader { currentLeaderLeaderId = 0, currentLeaderLeaderEpoch = 0, currentLeaderHost = P.KafkaString Null, currentLeaderPort = 0 }
+defaultCurrentLeader = CurrentLeader { currentLeaderLeaderId = -1, currentLeaderLeaderEpoch = -1, currentLeaderHost = P.KafkaString Null, currentLeaderPort = 0 }
 
 -- | Worst-case wire size of a UpdateRaftVoterResponse.
 wireMaxSizeUpdateRaftVoterResponse :: Int -> UpdateRaftVoterResponse -> Int

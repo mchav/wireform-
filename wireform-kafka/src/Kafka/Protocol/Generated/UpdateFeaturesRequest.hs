@@ -139,14 +139,14 @@ wirePeekFeatureUpdateKey version _fp _basePtr p0 endPtr = do
   (f0_feature, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_maxversionlevel, p2) <- W.peekInt16BE p1 endPtr
   (f2_allowdowngrade, p3) <- (if version == 0 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr else pure (False, p2))
-  (f3_upgradetype, p4) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr else pure (0, p3))
+  (f3_upgradetype, p4) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr else pure (1, p3))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (FeatureUpdateKey { featureUpdateKeyFeature = f0_feature, featureUpdateKeyMaxVersionLevel = f1_maxversionlevel, featureUpdateKeyAllowDowngrade = f2_allowdowngrade, featureUpdateKeyUpgradeType = f3_upgradetype }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultFeatureUpdateKey :: FeatureUpdateKey
-defaultFeatureUpdateKey = FeatureUpdateKey { featureUpdateKeyFeature = P.KafkaString Null, featureUpdateKeyMaxVersionLevel = 0, featureUpdateKeyAllowDowngrade = False, featureUpdateKeyUpgradeType = 0 }
+defaultFeatureUpdateKey = FeatureUpdateKey { featureUpdateKeyFeature = P.KafkaString Null, featureUpdateKeyMaxVersionLevel = 0, featureUpdateKeyAllowDowngrade = False, featureUpdateKeyUpgradeType = 1 }
 
 -- | Worst-case wire size of a UpdateFeaturesRequest.
 wireMaxSizeUpdateFeaturesRequest :: Int -> UpdateFeaturesRequest -> Int

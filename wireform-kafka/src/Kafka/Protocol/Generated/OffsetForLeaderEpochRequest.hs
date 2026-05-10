@@ -142,7 +142,7 @@ wirePokeOffsetForLeaderPartition version basePtr msg = do
 wirePeekOffsetForLeaderPartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OffsetForLeaderPartition, Ptr Word8)
 wirePeekOffsetForLeaderPartition version _fp _basePtr p0 endPtr = do
   (f0_partition, p1) <- W.peekInt32BE p0 endPtr
-  (f1_currentleaderepoch, p2) <- (if version >= 2 then W.peekInt32BE p1 endPtr else pure (0, p1))
+  (f1_currentleaderepoch, p2) <- (if version >= 2 then W.peekInt32BE p1 endPtr else pure (-1, p1))
   (f2_leaderepoch, p3) <- W.peekInt32BE p2 endPtr
   pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (OffsetForLeaderPartition { offsetForLeaderPartitionPartition = f0_partition, offsetForLeaderPartitionCurrentLeaderEpoch = f1_currentleaderepoch, offsetForLeaderPartitionLeaderEpoch = f2_leaderepoch }, pTagsEnd)
@@ -150,7 +150,7 @@ wirePeekOffsetForLeaderPartition version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultOffsetForLeaderPartition :: OffsetForLeaderPartition
-defaultOffsetForLeaderPartition = OffsetForLeaderPartition { offsetForLeaderPartitionPartition = 0, offsetForLeaderPartitionCurrentLeaderEpoch = 0, offsetForLeaderPartitionLeaderEpoch = 0 }
+defaultOffsetForLeaderPartition = OffsetForLeaderPartition { offsetForLeaderPartitionPartition = 0, offsetForLeaderPartitionCurrentLeaderEpoch = -1, offsetForLeaderPartitionLeaderEpoch = 0 }
 
 -- | Worst-case wire size of a OffsetForLeaderTopic.
 wireMaxSizeOffsetForLeaderTopic :: Int -> OffsetForLeaderTopic -> Int
@@ -213,13 +213,13 @@ wirePeekOffsetForLeaderEpochRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> P
 wirePeekOffsetForLeaderEpochRequest version _fp _basePtr p0 endPtr
   | version == 2 = do
     (f0_topics, p1) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderTopic version _fp _basePtr p e) p0 endPtr
-    pure (OffsetForLeaderEpochRequest { offsetForLeaderEpochRequestReplicaId = 0, offsetForLeaderEpochRequestTopics = f0_topics }, p1)
+    pure (OffsetForLeaderEpochRequest { offsetForLeaderEpochRequestReplicaId = -2, offsetForLeaderEpochRequestTopics = f0_topics }, p1)
   | version == 3 = do
-    (f0_replicaid, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
+    (f0_replicaid, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (-2, p0))
     (f1_topics, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderTopic version _fp _basePtr p e) p1 endPtr
     pure (OffsetForLeaderEpochRequest { offsetForLeaderEpochRequestReplicaId = f0_replicaid, offsetForLeaderEpochRequestTopics = f1_topics }, p2)
   | version == 4 = do
-    (f0_replicaid, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
+    (f0_replicaid, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (-2, p0))
     (f1_topics, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderTopic version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (OffsetForLeaderEpochRequest { offsetForLeaderEpochRequestReplicaId = f0_replicaid, offsetForLeaderEpochRequestTopics = f1_topics }, pTagsEnd)

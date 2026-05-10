@@ -159,16 +159,16 @@ wirePeekListOffsetsPartitionResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> 
 wirePeekListOffsetsPartitionResponse version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-  (f2_timestamp, p3) <- (if version >= 1 then W.peekInt64BE p2 endPtr else pure (0, p2))
-  (f3_offset, p4) <- (if version >= 1 then W.peekInt64BE p3 endPtr else pure (0, p3))
-  (f4_leaderepoch, p5) <- (if version >= 4 then W.peekInt32BE p4 endPtr else pure (0, p4))
+  (f2_timestamp, p3) <- (if version >= 1 then W.peekInt64BE p2 endPtr else pure (-1, p2))
+  (f3_offset, p4) <- (if version >= 1 then W.peekInt64BE p3 endPtr else pure (-1, p3))
+  (f4_leaderepoch, p5) <- (if version >= 4 then W.peekInt32BE p4 endPtr else pure (-1, p4))
   pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
   pure (ListOffsetsPartitionResponse { listOffsetsPartitionResponsePartitionIndex = f0_partitionindex, listOffsetsPartitionResponseErrorCode = f1_errorcode, listOffsetsPartitionResponseTimestamp = f2_timestamp, listOffsetsPartitionResponseOffset = f3_offset, listOffsetsPartitionResponseLeaderEpoch = f4_leaderepoch }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultListOffsetsPartitionResponse :: ListOffsetsPartitionResponse
-defaultListOffsetsPartitionResponse = ListOffsetsPartitionResponse { listOffsetsPartitionResponsePartitionIndex = 0, listOffsetsPartitionResponseErrorCode = 0, listOffsetsPartitionResponseTimestamp = 0, listOffsetsPartitionResponseOffset = 0, listOffsetsPartitionResponseLeaderEpoch = 0 }
+defaultListOffsetsPartitionResponse = ListOffsetsPartitionResponse { listOffsetsPartitionResponsePartitionIndex = 0, listOffsetsPartitionResponseErrorCode = 0, listOffsetsPartitionResponseTimestamp = -1, listOffsetsPartitionResponseOffset = -1, listOffsetsPartitionResponseLeaderEpoch = -1 }
 
 -- | Worst-case wire size of a ListOffsetsTopicResponse.
 wireMaxSizeListOffsetsTopicResponse :: Int -> ListOffsetsTopicResponse -> Int

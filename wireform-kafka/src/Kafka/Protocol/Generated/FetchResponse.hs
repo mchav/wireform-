@@ -318,15 +318,15 @@ wirePokeEpochEndOffset version basePtr msg = do
 -- | Direct-poke decoder for EpochEndOffset.
 wirePeekEpochEndOffset :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EpochEndOffset, Ptr Word8)
 wirePeekEpochEndOffset version _fp _basePtr p0 endPtr = do
-  (f0_epoch, p1) <- (if version >= 12 then W.peekInt32BE p0 endPtr else pure (0, p0))
-  (f1_endoffset, p2) <- (if version >= 12 then W.peekInt64BE p1 endPtr else pure (0, p1))
+  (f0_epoch, p1) <- (if version >= 12 then W.peekInt32BE p0 endPtr else pure (-1, p0))
+  (f1_endoffset, p2) <- (if version >= 12 then W.peekInt64BE p1 endPtr else pure (-1, p1))
   pTagsEnd <- if version >= 12 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (EpochEndOffset { epochEndOffsetEpoch = f0_epoch, epochEndOffsetEndOffset = f1_endoffset }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultEpochEndOffset :: EpochEndOffset
-defaultEpochEndOffset = EpochEndOffset { epochEndOffsetEpoch = 0, epochEndOffsetEndOffset = 0 }
+defaultEpochEndOffset = EpochEndOffset { epochEndOffsetEpoch = -1, epochEndOffsetEndOffset = -1 }
 
 -- | Worst-case wire size of a LeaderIdAndEpoch.
 wireMaxSizeLeaderIdAndEpoch :: Int -> LeaderIdAndEpoch -> Int
@@ -347,15 +347,15 @@ wirePokeLeaderIdAndEpoch version basePtr msg = do
 -- | Direct-poke decoder for LeaderIdAndEpoch.
 wirePeekLeaderIdAndEpoch :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (LeaderIdAndEpoch, Ptr Word8)
 wirePeekLeaderIdAndEpoch version _fp _basePtr p0 endPtr = do
-  (f0_leaderid, p1) <- (if version >= 12 then W.peekInt32BE p0 endPtr else pure (0, p0))
-  (f1_leaderepoch, p2) <- (if version >= 12 then W.peekInt32BE p1 endPtr else pure (0, p1))
+  (f0_leaderid, p1) <- (if version >= 12 then W.peekInt32BE p0 endPtr else pure (-1, p0))
+  (f1_leaderepoch, p2) <- (if version >= 12 then W.peekInt32BE p1 endPtr else pure (-1, p1))
   pTagsEnd <- if version >= 12 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = f0_leaderid, leaderIdAndEpochLeaderEpoch = f1_leaderepoch }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultLeaderIdAndEpoch :: LeaderIdAndEpoch
-defaultLeaderIdAndEpoch = LeaderIdAndEpoch { leaderIdAndEpochLeaderId = 0, leaderIdAndEpochLeaderEpoch = 0 }
+defaultLeaderIdAndEpoch = LeaderIdAndEpoch { leaderIdAndEpochLeaderId = -1, leaderIdAndEpochLeaderEpoch = -1 }
 
 -- | Worst-case wire size of a SnapshotId.
 wireMaxSizeSnapshotId :: Int -> SnapshotId -> Int
@@ -384,7 +384,7 @@ wirePeekSnapshotId version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultSnapshotId :: SnapshotId
-defaultSnapshotId = SnapshotId { snapshotIdEndOffset = 0, snapshotIdEpoch = 0 }
+defaultSnapshotId = SnapshotId { snapshotIdEndOffset = -1, snapshotIdEpoch = -1 }
 
 -- | Worst-case wire size of a AbortedTransaction.
 wireMaxSizeAbortedTransaction :: Int -> AbortedTransaction -> Int
@@ -455,10 +455,10 @@ wirePeekPartitionData version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
   (f2_highwatermark, p3) <- W.peekInt64BE p2 endPtr
-  (f3_laststableoffset, p4) <- (if version >= 4 then W.peekInt64BE p3 endPtr else pure (0, p3))
-  (f4_logstartoffset, p5) <- (if version >= 5 then W.peekInt64BE p4 endPtr else pure (0, p4))
+  (f3_laststableoffset, p4) <- (if version >= 4 then W.peekInt64BE p3 endPtr else pure (-1, p3))
+  (f4_logstartoffset, p5) <- (if version >= 5 then W.peekInt64BE p4 endPtr else pure (-1, p4))
   (f5_abortedtransactions, p6) <- (if version >= 4 then WP.peekVersionedNullableArray version 12 (\p e -> wirePeekAbortedTransaction version _fp _basePtr p e) p5 endPtr else pure (P.KafkaArray P.Null, p5))
-  (f6_preferredreadreplica, p7) <- (if version >= 11 then W.peekInt32BE p6 endPtr else pure (0, p6))
+  (f6_preferredreadreplica, p7) <- (if version >= 11 then W.peekInt32BE p6 endPtr else pure (-1, p6))
   (f7_records, p8) <- (if version >= 12 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p7 endPtr else WP.peekKafkaBytes p7 endPtr)
   (_taggedMap, pTagsEnd) <- if version >= 12 then WP.peekTaggedFieldsMap p8 endPtr else pure (Data.Map.Strict.empty, p8)
   let !_tag_divergingepoch = if version >= 12 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> wirePeekEpochEndOffset version _fp _bp p e)) _bs of { Right _v -> _v ; Left _ -> defaultEpochEndOffset}; Nothing -> defaultEpochEndOffset} else defaultEpochEndOffset
@@ -469,7 +469,7 @@ wirePeekPartitionData version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultPartitionData :: PartitionData
-defaultPartitionData = PartitionData { partitionDataPartitionIndex = 0, partitionDataErrorCode = 0, partitionDataHighWatermark = 0, partitionDataLastStableOffset = 0, partitionDataLogStartOffset = 0, partitionDataDivergingEpoch = defaultEpochEndOffset, partitionDataCurrentLeader = defaultLeaderIdAndEpoch, partitionDataSnapshotId = defaultSnapshotId, partitionDataAbortedTransactions = P.KafkaArray P.Null, partitionDataPreferredReadReplica = 0, partitionDataRecords = P.KafkaBytes Null }
+defaultPartitionData = PartitionData { partitionDataPartitionIndex = 0, partitionDataErrorCode = 0, partitionDataHighWatermark = 0, partitionDataLastStableOffset = -1, partitionDataLogStartOffset = -1, partitionDataDivergingEpoch = defaultEpochEndOffset, partitionDataCurrentLeader = defaultLeaderIdAndEpoch, partitionDataSnapshotId = defaultSnapshotId, partitionDataAbortedTransactions = P.KafkaArray P.Null, partitionDataPreferredReadReplica = -1, partitionDataRecords = P.KafkaBytes Null }
 
 -- | Worst-case wire size of a FetchableTopicResponse.
 wireMaxSizeFetchableTopicResponse :: Int -> FetchableTopicResponse -> Int

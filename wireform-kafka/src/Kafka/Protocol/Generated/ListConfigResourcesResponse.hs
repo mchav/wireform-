@@ -121,14 +121,14 @@ wirePokeConfigResource version basePtr msg = do
 wirePeekConfigResource :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ConfigResource, Ptr Word8)
 wirePeekConfigResource version _fp _basePtr p0 endPtr = do
   (f0_resourcename, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
-  (f1_resourcetype, p2) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (0, p1))
+  (f1_resourcetype, p2) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (16, p1))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ConfigResource { configResourceResourceName = f0_resourcename, configResourceResourceType = f1_resourcetype }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultConfigResource :: ConfigResource
-defaultConfigResource = ConfigResource { configResourceResourceName = P.KafkaString Null, configResourceResourceType = 0 }
+defaultConfigResource = ConfigResource { configResourceResourceName = P.KafkaString Null, configResourceResourceType = 16 }
 
 -- | Worst-case wire size of a ListConfigResourcesResponse.
 wireMaxSizeListConfigResourcesResponse :: Int -> ListConfigResourcesResponse -> Int

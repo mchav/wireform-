@@ -239,12 +239,12 @@ wirePeekDescribeClusterResponse version _fp _basePtr p0 endPtr
     (f5_brokers, p6) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDescribeClusterBroker version _fp _basePtr p e) p5 endPtr
     (f6_clusterauthorizedoperations, p7) <- W.peekInt32BE p6 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p7 endPtr
-    pure (DescribeClusterResponse { describeClusterResponseThrottleTimeMs = f0_throttletimems, describeClusterResponseErrorCode = f1_errorcode, describeClusterResponseErrorMessage = f2_errormessage, describeClusterResponseEndpointType = 0, describeClusterResponseClusterId = f3_clusterid, describeClusterResponseControllerId = f4_controllerid, describeClusterResponseBrokers = f5_brokers, describeClusterResponseClusterAuthorizedOperations = f6_clusterauthorizedoperations }, pTagsEnd)
+    pure (DescribeClusterResponse { describeClusterResponseThrottleTimeMs = f0_throttletimems, describeClusterResponseErrorCode = f1_errorcode, describeClusterResponseErrorMessage = f2_errormessage, describeClusterResponseEndpointType = 1, describeClusterResponseClusterId = f3_clusterid, describeClusterResponseControllerId = f4_controllerid, describeClusterResponseBrokers = f5_brokers, describeClusterResponseClusterAuthorizedOperations = f6_clusterauthorizedoperations }, pTagsEnd)
   | version >= 1 && version <= 2 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
-    (f3_endpointtype, p4) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr else pure (0, p3))
+    (f3_endpointtype, p4) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr else pure (1, p3))
     (f4_clusterid, p5) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
     (f5_controllerid, p6) <- W.peekInt32BE p5 endPtr
     (f6_brokers, p7) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDescribeClusterBroker version _fp _basePtr p e) p6 endPtr

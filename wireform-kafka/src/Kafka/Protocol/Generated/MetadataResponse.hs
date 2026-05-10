@@ -296,7 +296,7 @@ wirePeekMetadataResponsePartition version _fp _basePtr p0 endPtr = do
   (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
   (f1_partitionindex, p2) <- W.peekInt32BE p1 endPtr
   (f2_leaderid, p3) <- W.peekInt32BE p2 endPtr
-  (f3_leaderepoch, p4) <- (if version >= 7 then W.peekInt32BE p3 endPtr else pure (0, p3))
+  (f3_leaderepoch, p4) <- (if version >= 7 then W.peekInt32BE p3 endPtr else pure (-1, p3))
   (f4_replicanodes, p5) <- WP.peekVersionedArray version 9 W.peekInt32BE p4 endPtr
   (f5_isrnodes, p6) <- WP.peekVersionedArray version 9 W.peekInt32BE p5 endPtr
   (f6_offlinereplicas, p7) <- (if version >= 5 then WP.peekVersionedArray version 9 W.peekInt32BE p6 endPtr else pure (P.mkKafkaArray V.empty, p6))
@@ -306,7 +306,7 @@ wirePeekMetadataResponsePartition version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultMetadataResponsePartition :: MetadataResponsePartition
-defaultMetadataResponsePartition = MetadataResponsePartition { metadataResponsePartitionErrorCode = 0, metadataResponsePartitionPartitionIndex = 0, metadataResponsePartitionLeaderId = 0, metadataResponsePartitionLeaderEpoch = 0, metadataResponsePartitionReplicaNodes = P.mkKafkaArray V.empty, metadataResponsePartitionIsrNodes = P.mkKafkaArray V.empty, metadataResponsePartitionOfflineReplicas = P.mkKafkaArray V.empty }
+defaultMetadataResponsePartition = MetadataResponsePartition { metadataResponsePartitionErrorCode = 0, metadataResponsePartitionPartitionIndex = 0, metadataResponsePartitionLeaderId = 0, metadataResponsePartitionLeaderEpoch = -1, metadataResponsePartitionReplicaNodes = P.mkKafkaArray V.empty, metadataResponsePartitionIsrNodes = P.mkKafkaArray V.empty, metadataResponsePartitionOfflineReplicas = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a MetadataResponseTopic.
 wireMaxSizeMetadataResponseTopic :: Int -> MetadataResponseTopic -> Int
@@ -340,14 +340,14 @@ wirePeekMetadataResponseTopic version _fp _basePtr p0 endPtr = do
   (f2_topicid, p3) <- (if version >= 10 then WP.peekKafkaUuid p2 endPtr else pure (P.nullUuid, p2))
   (f3_isinternal, p4) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr else pure (False, p3))
   (f4_partitions, p5) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponsePartition version _fp _basePtr p e) p4 endPtr
-  (f5_topicauthorizedoperations, p6) <- (if version >= 8 then W.peekInt32BE p5 endPtr else pure (0, p5))
+  (f5_topicauthorizedoperations, p6) <- (if version >= 8 then W.peekInt32BE p5 endPtr else pure (-2147483648, p5))
   pTagsEnd <- if version >= 9 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
   pure (MetadataResponseTopic { metadataResponseTopicErrorCode = f0_errorcode, metadataResponseTopicName = f1_name, metadataResponseTopicTopicId = f2_topicid, metadataResponseTopicIsInternal = f3_isinternal, metadataResponseTopicPartitions = f4_partitions, metadataResponseTopicTopicAuthorizedOperations = f5_topicauthorizedoperations }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultMetadataResponseTopic :: MetadataResponseTopic
-defaultMetadataResponseTopic = MetadataResponseTopic { metadataResponseTopicErrorCode = 0, metadataResponseTopicName = P.KafkaString Null, metadataResponseTopicTopicId = P.nullUuid, metadataResponseTopicIsInternal = False, metadataResponseTopicPartitions = P.mkKafkaArray V.empty, metadataResponseTopicTopicAuthorizedOperations = 0 }
+defaultMetadataResponseTopic = MetadataResponseTopic { metadataResponseTopicErrorCode = 0, metadataResponseTopicName = P.KafkaString Null, metadataResponseTopicTopicId = P.nullUuid, metadataResponseTopicIsInternal = False, metadataResponseTopicPartitions = P.mkKafkaArray V.empty, metadataResponseTopicTopicAuthorizedOperations = -2147483648 }
 
 -- | Worst-case wire size of a MetadataResponse.
 wireMaxSizeMetadataResponse :: Int -> MetadataResponse -> Int
@@ -434,59 +434,59 @@ wirePeekMetadataResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_brokers, p1) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p0 endPtr
     (f1_topics, p2) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p1 endPtr
-    pure (MetadataResponse { metadataResponseThrottleTimeMs = 0, metadataResponseBrokers = f0_brokers, metadataResponseClusterId = P.KafkaString Null, metadataResponseControllerId = 0, metadataResponseTopics = f1_topics, metadataResponseClusterAuthorizedOperations = 0, metadataResponseErrorCode = 0 }, p2)
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = 0, metadataResponseBrokers = f0_brokers, metadataResponseClusterId = P.KafkaString Null, metadataResponseControllerId = -1, metadataResponseTopics = f1_topics, metadataResponseClusterAuthorizedOperations = -2147483648, metadataResponseErrorCode = 0 }, p2)
   | version == 1 = do
     (f0_brokers, p1) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p0 endPtr
-    (f1_controllerid, p2) <- (if version >= 1 then W.peekInt32BE p1 endPtr else pure (0, p1))
+    (f1_controllerid, p2) <- (if version >= 1 then W.peekInt32BE p1 endPtr else pure (-1, p1))
     (f2_topics, p3) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p2 endPtr
-    pure (MetadataResponse { metadataResponseThrottleTimeMs = 0, metadataResponseBrokers = f0_brokers, metadataResponseClusterId = P.KafkaString Null, metadataResponseControllerId = f1_controllerid, metadataResponseTopics = f2_topics, metadataResponseClusterAuthorizedOperations = 0, metadataResponseErrorCode = 0 }, p3)
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = 0, metadataResponseBrokers = f0_brokers, metadataResponseClusterId = P.KafkaString Null, metadataResponseControllerId = f1_controllerid, metadataResponseTopics = f2_topics, metadataResponseClusterAuthorizedOperations = -2147483648, metadataResponseErrorCode = 0 }, p3)
   | version == 2 = do
     (f0_brokers, p1) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p0 endPtr
     (f1_clusterid, p2) <- (if version >= 2 then (if version >= 9 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
-    (f2_controllerid, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (0, p2))
+    (f2_controllerid, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (-1, p2))
     (f3_topics, p4) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p3 endPtr
-    pure (MetadataResponse { metadataResponseThrottleTimeMs = 0, metadataResponseBrokers = f0_brokers, metadataResponseClusterId = f1_clusterid, metadataResponseControllerId = f2_controllerid, metadataResponseTopics = f3_topics, metadataResponseClusterAuthorizedOperations = 0, metadataResponseErrorCode = 0 }, p4)
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = 0, metadataResponseBrokers = f0_brokers, metadataResponseClusterId = f1_clusterid, metadataResponseControllerId = f2_controllerid, metadataResponseTopics = f3_topics, metadataResponseClusterAuthorizedOperations = -2147483648, metadataResponseErrorCode = 0 }, p4)
   | version == 8 = do
     (f0_throttletimems, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_brokers, p2) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p1 endPtr
     (f2_clusterid, p3) <- (if version >= 2 then (if version >= 9 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
-    (f3_controllerid, p4) <- (if version >= 1 then W.peekInt32BE p3 endPtr else pure (0, p3))
+    (f3_controllerid, p4) <- (if version >= 1 then W.peekInt32BE p3 endPtr else pure (-1, p3))
     (f4_topics, p5) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p4 endPtr
-    (f5_clusterauthorizedoperations, p6) <- (if version >= 8 && version <= 10 then W.peekInt32BE p5 endPtr else pure (0, p5))
+    (f5_clusterauthorizedoperations, p6) <- (if version >= 8 && version <= 10 then W.peekInt32BE p5 endPtr else pure (-2147483648, p5))
     pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = f5_clusterauthorizedoperations, metadataResponseErrorCode = 0 }, p6)
   | version == 13 = do
     (f0_throttletimems, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_brokers, p2) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p1 endPtr
     (f2_clusterid, p3) <- (if version >= 2 then (if version >= 9 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
-    (f3_controllerid, p4) <- (if version >= 1 then W.peekInt32BE p3 endPtr else pure (0, p3))
+    (f3_controllerid, p4) <- (if version >= 1 then W.peekInt32BE p3 endPtr else pure (-1, p3))
     (f4_topics, p5) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p4 endPtr
     (f5_errorcode, p6) <- (if version >= 13 then W.peekInt16BE p5 endPtr else pure (0, p5))
     pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
-    pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = 0, metadataResponseErrorCode = f5_errorcode }, pTagsEnd)
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = -2147483648, metadataResponseErrorCode = f5_errorcode }, pTagsEnd)
   | version >= 9 && version <= 10 = do
     (f0_throttletimems, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_brokers, p2) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p1 endPtr
     (f2_clusterid, p3) <- (if version >= 2 then (if version >= 9 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
-    (f3_controllerid, p4) <- (if version >= 1 then W.peekInt32BE p3 endPtr else pure (0, p3))
+    (f3_controllerid, p4) <- (if version >= 1 then W.peekInt32BE p3 endPtr else pure (-1, p3))
     (f4_topics, p5) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p4 endPtr
-    (f5_clusterauthorizedoperations, p6) <- (if version >= 8 && version <= 10 then W.peekInt32BE p5 endPtr else pure (0, p5))
+    (f5_clusterauthorizedoperations, p6) <- (if version >= 8 && version <= 10 then W.peekInt32BE p5 endPtr else pure (-2147483648, p5))
     pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
     pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = f5_clusterauthorizedoperations, metadataResponseErrorCode = 0 }, pTagsEnd)
   | version >= 11 && version <= 12 = do
     (f0_throttletimems, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_brokers, p2) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p1 endPtr
     (f2_clusterid, p3) <- (if version >= 2 then (if version >= 9 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
-    (f3_controllerid, p4) <- (if version >= 1 then W.peekInt32BE p3 endPtr else pure (0, p3))
+    (f3_controllerid, p4) <- (if version >= 1 then W.peekInt32BE p3 endPtr else pure (-1, p3))
     (f4_topics, p5) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p4 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
-    pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = 0, metadataResponseErrorCode = 0 }, pTagsEnd)
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = -2147483648, metadataResponseErrorCode = 0 }, pTagsEnd)
   | version >= 3 && version <= 7 = do
     (f0_throttletimems, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_brokers, p2) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseBroker version _fp _basePtr p e) p1 endPtr
     (f2_clusterid, p3) <- (if version >= 2 then (if version >= 9 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
-    (f3_controllerid, p4) <- (if version >= 1 then W.peekInt32BE p3 endPtr else pure (0, p3))
+    (f3_controllerid, p4) <- (if version >= 1 then W.peekInt32BE p3 endPtr else pure (-1, p3))
     (f4_topics, p5) <- WP.peekVersionedArray version 9 (\p e -> wirePeekMetadataResponseTopic version _fp _basePtr p e) p4 endPtr
-    pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = 0, metadataResponseErrorCode = 0 }, p5)
+    pure (MetadataResponse { metadataResponseThrottleTimeMs = f0_throttletimems, metadataResponseBrokers = f1_brokers, metadataResponseClusterId = f2_clusterid, metadataResponseControllerId = f3_controllerid, metadataResponseTopics = f4_topics, metadataResponseClusterAuthorizedOperations = -2147483648, metadataResponseErrorCode = 0 }, p5)
   | otherwise = error $ "wirePeek MetadataResponse : unsupported version: " ++ show version
 
 

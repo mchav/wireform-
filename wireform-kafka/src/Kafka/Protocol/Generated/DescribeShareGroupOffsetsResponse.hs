@@ -204,7 +204,7 @@ wirePeekDescribeShareGroupOffsetsResponsePartition version _fp _basePtr p0 endPt
   (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
   (f1_startoffset, p2) <- W.peekInt64BE p1 endPtr
   (f2_leaderepoch, p3) <- W.peekInt32BE p2 endPtr
-  (f3_lag, p4) <- (if version >= 1 then W.peekInt64BE p3 endPtr else pure (0, p3))
+  (f3_lag, p4) <- (if version >= 1 then W.peekInt64BE p3 endPtr else pure (-1, p3))
   (f4_errorcode, p5) <- W.peekInt16BE p4 endPtr
   (f5_errormessage, p6) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
@@ -213,7 +213,7 @@ wirePeekDescribeShareGroupOffsetsResponsePartition version _fp _basePtr p0 endPt
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultDescribeShareGroupOffsetsResponsePartition :: DescribeShareGroupOffsetsResponsePartition
-defaultDescribeShareGroupOffsetsResponsePartition = DescribeShareGroupOffsetsResponsePartition { describeShareGroupOffsetsResponsePartitionPartitionIndex = 0, describeShareGroupOffsetsResponsePartitionStartOffset = 0, describeShareGroupOffsetsResponsePartitionLeaderEpoch = 0, describeShareGroupOffsetsResponsePartitionLag = 0, describeShareGroupOffsetsResponsePartitionErrorCode = 0, describeShareGroupOffsetsResponsePartitionErrorMessage = P.KafkaString Null }
+defaultDescribeShareGroupOffsetsResponsePartition = DescribeShareGroupOffsetsResponsePartition { describeShareGroupOffsetsResponsePartitionPartitionIndex = 0, describeShareGroupOffsetsResponsePartitionStartOffset = 0, describeShareGroupOffsetsResponsePartitionLeaderEpoch = 0, describeShareGroupOffsetsResponsePartitionLag = -1, describeShareGroupOffsetsResponsePartitionErrorCode = 0, describeShareGroupOffsetsResponsePartitionErrorMessage = P.KafkaString Null }
 
 -- | Worst-case wire size of a DescribeShareGroupOffsetsResponseTopic.
 wireMaxSizeDescribeShareGroupOffsetsResponseTopic :: Int -> DescribeShareGroupOffsetsResponseTopic -> Int

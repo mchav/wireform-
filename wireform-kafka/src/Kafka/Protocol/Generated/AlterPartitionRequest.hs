@@ -183,14 +183,14 @@ wirePokeBrokerState version basePtr msg = do
 wirePeekBrokerState :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (BrokerState, Ptr Word8)
 wirePeekBrokerState version _fp _basePtr p0 endPtr = do
   (f0_brokerid, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
-  (f1_brokerepoch, p2) <- (if version >= 3 then W.peekInt64BE p1 endPtr else pure (0, p1))
+  (f1_brokerepoch, p2) <- (if version >= 3 then W.peekInt64BE p1 endPtr else pure (-1, p1))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (BrokerState { brokerStateBrokerId = f0_brokerid, brokerStateBrokerEpoch = f1_brokerepoch }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultBrokerState :: BrokerState
-defaultBrokerState = BrokerState { brokerStateBrokerId = 0, brokerStateBrokerEpoch = 0 }
+defaultBrokerState = BrokerState { brokerStateBrokerId = 0, brokerStateBrokerEpoch = -1 }
 
 -- | Worst-case wire size of a PartitionData.
 wireMaxSizePartitionData :: Int -> PartitionData -> Int

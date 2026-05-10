@@ -253,14 +253,14 @@ wirePeekDescribedGroup version _fp _basePtr p0 endPtr = do
   (f4_protocoltype, p5) <- (if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
   (f5_protocoldata, p6) <- (if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
   (f6_members, p7) <- WP.peekVersionedArray version 5 (\p e -> wirePeekDescribedGroupMember version _fp _basePtr p e) p6 endPtr
-  (f7_authorizedoperations, p8) <- (if version >= 3 then W.peekInt32BE p7 endPtr else pure (0, p7))
+  (f7_authorizedoperations, p8) <- (if version >= 3 then W.peekInt32BE p7 endPtr else pure (-2147483648, p7))
   pTagsEnd <- if version >= 5 then WP.peekAndSkipTaggedFields p8 endPtr else pure p8
   pure (DescribedGroup { describedGroupErrorCode = f0_errorcode, describedGroupErrorMessage = f1_errormessage, describedGroupGroupId = f2_groupid, describedGroupGroupState = f3_groupstate, describedGroupProtocolType = f4_protocoltype, describedGroupProtocolData = f5_protocoldata, describedGroupMembers = f6_members, describedGroupAuthorizedOperations = f7_authorizedoperations }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultDescribedGroup :: DescribedGroup
-defaultDescribedGroup = DescribedGroup { describedGroupErrorCode = 0, describedGroupErrorMessage = P.KafkaString Null, describedGroupGroupId = P.KafkaString Null, describedGroupGroupState = P.KafkaString Null, describedGroupProtocolType = P.KafkaString Null, describedGroupProtocolData = P.KafkaString Null, describedGroupMembers = P.mkKafkaArray V.empty, describedGroupAuthorizedOperations = 0 }
+defaultDescribedGroup = DescribedGroup { describedGroupErrorCode = 0, describedGroupErrorMessage = P.KafkaString Null, describedGroupGroupId = P.KafkaString Null, describedGroupGroupState = P.KafkaString Null, describedGroupProtocolType = P.KafkaString Null, describedGroupProtocolData = P.KafkaString Null, describedGroupMembers = P.mkKafkaArray V.empty, describedGroupAuthorizedOperations = -2147483648 }
 
 -- | Worst-case wire size of a DescribeGroupsResponse.
 wireMaxSizeDescribeGroupsResponse :: Int -> DescribeGroupsResponse -> Int

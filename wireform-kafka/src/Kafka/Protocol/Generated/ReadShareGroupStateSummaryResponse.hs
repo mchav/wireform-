@@ -173,14 +173,14 @@ wirePeekPartitionResult version _fp _basePtr p0 endPtr = do
   (f3_stateepoch, p4) <- W.peekInt32BE p3 endPtr
   (f4_leaderepoch, p5) <- W.peekInt32BE p4 endPtr
   (f5_startoffset, p6) <- W.peekInt64BE p5 endPtr
-  (f6_deliverycompletecount, p7) <- (if version >= 1 then W.peekInt32BE p6 endPtr else pure (0, p6))
+  (f6_deliverycompletecount, p7) <- (if version >= 1 then W.peekInt32BE p6 endPtr else pure (-1, p6))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p7 endPtr else pure p7
   pure (PartitionResult { partitionResultPartition = f0_partition, partitionResultErrorCode = f1_errorcode, partitionResultErrorMessage = f2_errormessage, partitionResultStateEpoch = f3_stateepoch, partitionResultLeaderEpoch = f4_leaderepoch, partitionResultStartOffset = f5_startoffset, partitionResultDeliveryCompleteCount = f6_deliverycompletecount }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultPartitionResult :: PartitionResult
-defaultPartitionResult = PartitionResult { partitionResultPartition = 0, partitionResultErrorCode = 0, partitionResultErrorMessage = P.KafkaString Null, partitionResultStateEpoch = 0, partitionResultLeaderEpoch = 0, partitionResultStartOffset = 0, partitionResultDeliveryCompleteCount = 0 }
+defaultPartitionResult = PartitionResult { partitionResultPartition = 0, partitionResultErrorCode = 0, partitionResultErrorMessage = P.KafkaString Null, partitionResultStateEpoch = 0, partitionResultLeaderEpoch = 0, partitionResultStartOffset = 0, partitionResultDeliveryCompleteCount = -1 }
 
 -- | Worst-case wire size of a ReadStateSummaryResult.
 wireMaxSizeReadStateSummaryResult :: Int -> ReadStateSummaryResult -> Int

@@ -210,7 +210,7 @@ wirePeekDescribeAclsResource :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word
 wirePeekDescribeAclsResource version _fp _basePtr p0 endPtr = do
   (f0_resourcetype, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
   (f1_resourcename, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
-  (f2_patterntype, p3) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr else pure (0, p2))
+  (f2_patterntype, p3) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr else pure (3, p2))
   (f3_acls, p4) <- WP.peekVersionedArray version 2 (\p e -> wirePeekAclDescription version _fp _basePtr p e) p3 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (DescribeAclsResource { describeAclsResourceResourceType = f0_resourcetype, describeAclsResourceResourceName = f1_resourcename, describeAclsResourcePatternType = f2_patterntype, describeAclsResourceAcls = f3_acls }, pTagsEnd)
@@ -218,7 +218,7 @@ wirePeekDescribeAclsResource version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultDescribeAclsResource :: DescribeAclsResource
-defaultDescribeAclsResource = DescribeAclsResource { describeAclsResourceResourceType = 0, describeAclsResourceResourceName = P.KafkaString Null, describeAclsResourcePatternType = 0, describeAclsResourceAcls = P.mkKafkaArray V.empty }
+defaultDescribeAclsResource = DescribeAclsResource { describeAclsResourceResourceType = 0, describeAclsResourceResourceName = P.KafkaString Null, describeAclsResourcePatternType = 3, describeAclsResourceAcls = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a DescribeAclsResponse.
 wireMaxSizeDescribeAclsResponse :: Int -> DescribeAclsResponse -> Int

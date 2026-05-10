@@ -128,19 +128,19 @@ wirePeekEndTxnResponse version _fp _basePtr p0 endPtr
   | version == 5 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_producerid, p3) <- (if version >= 5 then W.peekInt64BE p2 endPtr else pure (0, p2))
-    (f3_producerepoch, p4) <- (if version >= 5 then W.peekInt16BE p3 endPtr else pure (0, p3))
+    (f2_producerid, p3) <- (if version >= 5 then W.peekInt64BE p2 endPtr else pure (-1, p2))
+    (f3_producerepoch, p4) <- (if version >= 5 then W.peekInt16BE p3 endPtr else pure (-1, p3))
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (EndTxnResponse { endTxnResponseThrottleTimeMs = f0_throttletimems, endTxnResponseErrorCode = f1_errorcode, endTxnResponseProducerId = f2_producerid, endTxnResponseProducerEpoch = f3_producerepoch }, pTagsEnd)
   | version >= 3 && version <= 4 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
-    pure (EndTxnResponse { endTxnResponseThrottleTimeMs = f0_throttletimems, endTxnResponseErrorCode = f1_errorcode, endTxnResponseProducerId = 0, endTxnResponseProducerEpoch = 0 }, pTagsEnd)
+    pure (EndTxnResponse { endTxnResponseThrottleTimeMs = f0_throttletimems, endTxnResponseErrorCode = f1_errorcode, endTxnResponseProducerId = -1, endTxnResponseProducerEpoch = -1 }, pTagsEnd)
   | version >= 0 && version <= 2 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    pure (EndTxnResponse { endTxnResponseThrottleTimeMs = f0_throttletimems, endTxnResponseErrorCode = f1_errorcode, endTxnResponseProducerId = 0, endTxnResponseProducerEpoch = 0 }, p2)
+    pure (EndTxnResponse { endTxnResponseThrottleTimeMs = f0_throttletimems, endTxnResponseErrorCode = f1_errorcode, endTxnResponseProducerId = -1, endTxnResponseProducerEpoch = -1 }, p2)
   | otherwise = error $ "wirePeek EndTxnResponse : unsupported version: " ++ show version
 
 

@@ -270,15 +270,15 @@ wirePeekReplicaState version _fp _basePtr p0 endPtr = do
   (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
   (f1_replicadirectoryid, p2) <- (if version >= 2 then WP.peekKafkaUuid p1 endPtr else pure (P.nullUuid, p1))
   (f2_logendoffset, p3) <- W.peekInt64BE p2 endPtr
-  (f3_lastfetchtimestamp, p4) <- (if version >= 1 then W.peekInt64BE p3 endPtr else pure (0, p3))
-  (f4_lastcaughtuptimestamp, p5) <- (if version >= 1 then W.peekInt64BE p4 endPtr else pure (0, p4))
+  (f3_lastfetchtimestamp, p4) <- (if version >= 1 then W.peekInt64BE p3 endPtr else pure (-1, p3))
+  (f4_lastcaughtuptimestamp, p5) <- (if version >= 1 then W.peekInt64BE p4 endPtr else pure (-1, p4))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
   pure (ReplicaState { replicaStateReplicaId = f0_replicaid, replicaStateReplicaDirectoryId = f1_replicadirectoryid, replicaStateLogEndOffset = f2_logendoffset, replicaStateLastFetchTimestamp = f3_lastfetchtimestamp, replicaStateLastCaughtUpTimestamp = f4_lastcaughtuptimestamp }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultReplicaState :: ReplicaState
-defaultReplicaState = ReplicaState { replicaStateReplicaId = 0, replicaStateReplicaDirectoryId = P.nullUuid, replicaStateLogEndOffset = 0, replicaStateLastFetchTimestamp = 0, replicaStateLastCaughtUpTimestamp = 0 }
+defaultReplicaState = ReplicaState { replicaStateReplicaId = 0, replicaStateReplicaDirectoryId = P.nullUuid, replicaStateLogEndOffset = 0, replicaStateLastFetchTimestamp = -1, replicaStateLastCaughtUpTimestamp = -1 }
 
 -- | Worst-case wire size of a PartitionData.
 wireMaxSizePartitionData :: Int -> PartitionData -> Int

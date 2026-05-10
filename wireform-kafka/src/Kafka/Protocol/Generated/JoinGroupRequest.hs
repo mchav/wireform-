@@ -236,11 +236,11 @@ wirePeekJoinGroupRequest version _fp _basePtr p0 endPtr
     (f2_memberid, p3) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     (f3_protocoltype, p4) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
     (f4_protocols, p5) <- WP.peekVersionedArray version 6 (\p e -> wirePeekJoinGroupRequestProtocol version _fp _basePtr p e) p4 endPtr
-    pure (JoinGroupRequest { joinGroupRequestGroupId = f0_groupid, joinGroupRequestSessionTimeoutMs = f1_sessiontimeoutms, joinGroupRequestRebalanceTimeoutMs = 0, joinGroupRequestMemberId = f2_memberid, joinGroupRequestGroupInstanceId = P.KafkaString Null, joinGroupRequestProtocolType = f3_protocoltype, joinGroupRequestProtocols = f4_protocols, joinGroupRequestReason = P.KafkaString Null }, p5)
+    pure (JoinGroupRequest { joinGroupRequestGroupId = f0_groupid, joinGroupRequestSessionTimeoutMs = f1_sessiontimeoutms, joinGroupRequestRebalanceTimeoutMs = -1, joinGroupRequestMemberId = f2_memberid, joinGroupRequestGroupInstanceId = P.KafkaString Null, joinGroupRequestProtocolType = f3_protocoltype, joinGroupRequestProtocols = f4_protocols, joinGroupRequestReason = P.KafkaString Null }, p5)
   | version == 5 = do
     (f0_groupid, p1) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_sessiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
-    (f2_rebalancetimeoutms, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (0, p2))
+    (f2_rebalancetimeoutms, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (-1, p2))
     (f3_memberid, p4) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
     (f4_groupinstanceid, p5) <- (if version >= 5 then (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr) else pure (P.KafkaString Null, p4))
     (f5_protocoltype, p6) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
@@ -249,7 +249,7 @@ wirePeekJoinGroupRequest version _fp _basePtr p0 endPtr
   | version >= 6 && version <= 7 = do
     (f0_groupid, p1) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_sessiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
-    (f2_rebalancetimeoutms, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (0, p2))
+    (f2_rebalancetimeoutms, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (-1, p2))
     (f3_memberid, p4) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
     (f4_groupinstanceid, p5) <- (if version >= 5 then (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr) else pure (P.KafkaString Null, p4))
     (f5_protocoltype, p6) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
@@ -259,7 +259,7 @@ wirePeekJoinGroupRequest version _fp _basePtr p0 endPtr
   | version >= 8 && version <= 9 = do
     (f0_groupid, p1) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_sessiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
-    (f2_rebalancetimeoutms, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (0, p2))
+    (f2_rebalancetimeoutms, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (-1, p2))
     (f3_memberid, p4) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
     (f4_groupinstanceid, p5) <- (if version >= 5 then (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr) else pure (P.KafkaString Null, p4))
     (f5_protocoltype, p6) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
@@ -270,7 +270,7 @@ wirePeekJoinGroupRequest version _fp _basePtr p0 endPtr
   | version >= 1 && version <= 4 = do
     (f0_groupid, p1) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_sessiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
-    (f2_rebalancetimeoutms, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (0, p2))
+    (f2_rebalancetimeoutms, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (-1, p2))
     (f3_memberid, p4) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
     (f4_protocoltype, p5) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
     (f5_protocols, p6) <- WP.peekVersionedArray version 6 (\p e -> wirePeekJoinGroupRequestProtocol version _fp _basePtr p e) p5 endPtr

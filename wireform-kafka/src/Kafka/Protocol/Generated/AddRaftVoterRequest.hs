@@ -201,14 +201,14 @@ wirePeekAddRaftVoterRequest version _fp _basePtr p0 endPtr
     (f3_voterdirectoryid, p4) <- WP.peekKafkaUuid p3 endPtr
     (f4_listeners, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekListener version _fp _basePtr p e) p4 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
-    pure (AddRaftVoterRequest { addRaftVoterRequestClusterId = f0_clusterid, addRaftVoterRequestTimeoutMs = f1_timeoutms, addRaftVoterRequestVoterId = f2_voterid, addRaftVoterRequestVoterDirectoryId = f3_voterdirectoryid, addRaftVoterRequestListeners = f4_listeners, addRaftVoterRequestAckWhenCommitted = False }, pTagsEnd)
+    pure (AddRaftVoterRequest { addRaftVoterRequestClusterId = f0_clusterid, addRaftVoterRequestTimeoutMs = f1_timeoutms, addRaftVoterRequestVoterId = f2_voterid, addRaftVoterRequestVoterDirectoryId = f3_voterdirectoryid, addRaftVoterRequestListeners = f4_listeners, addRaftVoterRequestAckWhenCommitted = True }, pTagsEnd)
   | version == 1 = do
     (f0_clusterid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
     (f2_voterid, p3) <- W.peekInt32BE p2 endPtr
     (f3_voterdirectoryid, p4) <- WP.peekKafkaUuid p3 endPtr
     (f4_listeners, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekListener version _fp _basePtr p e) p4 endPtr
-    (f5_ackwhencommitted, p6) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p5 endPtr else pure (False, p5))
+    (f5_ackwhencommitted, p6) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p5 endPtr else pure (True, p5))
     pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
     pure (AddRaftVoterRequest { addRaftVoterRequestClusterId = f0_clusterid, addRaftVoterRequestTimeoutMs = f1_timeoutms, addRaftVoterRequestVoterId = f2_voterid, addRaftVoterRequestVoterDirectoryId = f3_voterdirectoryid, addRaftVoterRequestListeners = f4_listeners, addRaftVoterRequestAckWhenCommitted = f5_ackwhencommitted }, pTagsEnd)
   | otherwise = error $ "wirePeek AddRaftVoterRequest : unsupported version: " ++ show version

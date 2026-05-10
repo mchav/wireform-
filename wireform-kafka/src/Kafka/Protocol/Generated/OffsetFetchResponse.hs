@@ -258,7 +258,7 @@ wirePeekOffsetFetchResponsePartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> 
 wirePeekOffsetFetchResponsePartition version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- (if version <= 7 then W.peekInt32BE p0 endPtr else pure (0, p0))
   (f1_committedoffset, p2) <- (if version <= 7 then W.peekInt64BE p1 endPtr else pure (0, p1))
-  (f2_committedleaderepoch, p3) <- (if version >= 5 && version <= 7 then W.peekInt32BE p2 endPtr else pure (0, p2))
+  (f2_committedleaderepoch, p3) <- (if version >= 5 && version <= 7 then W.peekInt32BE p2 endPtr else pure (-1, p2))
   (f3_metadata, p4) <- (if version <= 7 then (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
   (f4_errorcode, p5) <- (if version <= 7 then W.peekInt16BE p4 endPtr else pure (0, p4))
   pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
@@ -267,7 +267,7 @@ wirePeekOffsetFetchResponsePartition version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultOffsetFetchResponsePartition :: OffsetFetchResponsePartition
-defaultOffsetFetchResponsePartition = OffsetFetchResponsePartition { offsetFetchResponsePartitionPartitionIndex = 0, offsetFetchResponsePartitionCommittedOffset = 0, offsetFetchResponsePartitionCommittedLeaderEpoch = 0, offsetFetchResponsePartitionMetadata = P.KafkaString Null, offsetFetchResponsePartitionErrorCode = 0 }
+defaultOffsetFetchResponsePartition = OffsetFetchResponsePartition { offsetFetchResponsePartitionPartitionIndex = 0, offsetFetchResponsePartitionCommittedOffset = 0, offsetFetchResponsePartitionCommittedLeaderEpoch = -1, offsetFetchResponsePartitionMetadata = P.KafkaString Null, offsetFetchResponsePartitionErrorCode = 0 }
 
 -- | Worst-case wire size of a OffsetFetchResponseTopic.
 wireMaxSizeOffsetFetchResponseTopic :: Int -> OffsetFetchResponseTopic -> Int
@@ -325,7 +325,7 @@ wirePeekOffsetFetchResponsePartitions :: Int -> ForeignPtr Word8 -> Ptr Word8 ->
 wirePeekOffsetFetchResponsePartitions version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- (if version >= 8 then W.peekInt32BE p0 endPtr else pure (0, p0))
   (f1_committedoffset, p2) <- (if version >= 8 then W.peekInt64BE p1 endPtr else pure (0, p1))
-  (f2_committedleaderepoch, p3) <- (if version >= 8 then W.peekInt32BE p2 endPtr else pure (0, p2))
+  (f2_committedleaderepoch, p3) <- (if version >= 8 then W.peekInt32BE p2 endPtr else pure (-1, p2))
   (f3_metadata, p4) <- (if version >= 8 then (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
   (f4_errorcode, p5) <- (if version >= 8 then W.peekInt16BE p4 endPtr else pure (0, p4))
   pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
@@ -334,7 +334,7 @@ wirePeekOffsetFetchResponsePartitions version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultOffsetFetchResponsePartitions :: OffsetFetchResponsePartitions
-defaultOffsetFetchResponsePartitions = OffsetFetchResponsePartitions { offsetFetchResponsePartitionsPartitionIndex = 0, offsetFetchResponsePartitionsCommittedOffset = 0, offsetFetchResponsePartitionsCommittedLeaderEpoch = 0, offsetFetchResponsePartitionsMetadata = P.KafkaString Null, offsetFetchResponsePartitionsErrorCode = 0 }
+defaultOffsetFetchResponsePartitions = OffsetFetchResponsePartitions { offsetFetchResponsePartitionsPartitionIndex = 0, offsetFetchResponsePartitionsCommittedOffset = 0, offsetFetchResponsePartitionsCommittedLeaderEpoch = -1, offsetFetchResponsePartitionsMetadata = P.KafkaString Null, offsetFetchResponsePartitionsErrorCode = 0 }
 
 -- | Worst-case wire size of a OffsetFetchResponseTopics.
 wireMaxSizeOffsetFetchResponseTopics :: Int -> OffsetFetchResponseTopics -> Int

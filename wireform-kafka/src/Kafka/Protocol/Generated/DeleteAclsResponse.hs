@@ -199,7 +199,7 @@ wirePeekDeleteAclsMatchingAcl version _fp _basePtr p0 endPtr = do
   (f1_errormessage, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_resourcetype, p3) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr
   (f3_resourcename, p4) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
-  (f4_patterntype, p5) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p4 endPtr else pure (0, p4))
+  (f4_patterntype, p5) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p4 endPtr else pure (3, p4))
   (f5_principal, p6) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
   (f6_host, p7) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p6 endPtr else WP.peekKafkaString p6 endPtr)
   (f7_operation, p8) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p7 endPtr
@@ -210,7 +210,7 @@ wirePeekDeleteAclsMatchingAcl version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultDeleteAclsMatchingAcl :: DeleteAclsMatchingAcl
-defaultDeleteAclsMatchingAcl = DeleteAclsMatchingAcl { deleteAclsMatchingAclErrorCode = 0, deleteAclsMatchingAclErrorMessage = P.KafkaString Null, deleteAclsMatchingAclResourceType = 0, deleteAclsMatchingAclResourceName = P.KafkaString Null, deleteAclsMatchingAclPatternType = 0, deleteAclsMatchingAclPrincipal = P.KafkaString Null, deleteAclsMatchingAclHost = P.KafkaString Null, deleteAclsMatchingAclOperation = 0, deleteAclsMatchingAclPermissionType = 0 }
+defaultDeleteAclsMatchingAcl = DeleteAclsMatchingAcl { deleteAclsMatchingAclErrorCode = 0, deleteAclsMatchingAclErrorMessage = P.KafkaString Null, deleteAclsMatchingAclResourceType = 0, deleteAclsMatchingAclResourceName = P.KafkaString Null, deleteAclsMatchingAclPatternType = 3, deleteAclsMatchingAclPrincipal = P.KafkaString Null, deleteAclsMatchingAclHost = P.KafkaString Null, deleteAclsMatchingAclOperation = 0, deleteAclsMatchingAclPermissionType = 0 }
 
 -- | Worst-case wire size of a DeleteAclsFilterResult.
 wireMaxSizeDeleteAclsFilterResult :: Int -> DeleteAclsFilterResult -> Int

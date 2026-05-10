@@ -138,10 +138,12 @@ genApiVersionsRequest = do
     { AVR.apiVersionsRequestClientSoftwareName    = P.mkKafkaString name
     , AVR.apiVersionsRequestClientSoftwareVersion = P.mkKafkaString ver
     -- KIP-1242 tagged fields (v5+); not on the wire at v3-4, so the
-    -- decoder fills them with the field's Haskell defaults. Match
-    -- those here so the round-trip @rt === msg@ assertion holds.
+    -- decoder fills them with the field's schema-supplied
+    -- defaults (NodeId default = -1, ClusterId default = null
+    -- per the Apache Kafka schema). Match those here so the
+    -- round-trip @rt === msg@ assertion holds.
     , AVR.apiVersionsRequestClusterId             = P.KafkaString P.Null
-    , AVR.apiVersionsRequestNodeId                = 0
+    , AVR.apiVersionsRequestNodeId                = -1
     }
 
 prop_apiVersionsRequest_roundTrip :: Property

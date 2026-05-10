@@ -150,7 +150,7 @@ wirePeekDeleteAclsFilter :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 ->
 wirePeekDeleteAclsFilter version _fp _basePtr p0 endPtr = do
   (f0_resourcetypefilter, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
   (f1_resourcenamefilter, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
-  (f2_patterntypefilter, p3) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr else pure (0, p2))
+  (f2_patterntypefilter, p3) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr else pure (3, p2))
   (f3_principalfilter, p4) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
   (f4_hostfilter, p5) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
   (f5_operation, p6) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p5 endPtr
@@ -161,7 +161,7 @@ wirePeekDeleteAclsFilter version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultDeleteAclsFilter :: DeleteAclsFilter
-defaultDeleteAclsFilter = DeleteAclsFilter { deleteAclsFilterResourceTypeFilter = 0, deleteAclsFilterResourceNameFilter = P.KafkaString Null, deleteAclsFilterPatternTypeFilter = 0, deleteAclsFilterPrincipalFilter = P.KafkaString Null, deleteAclsFilterHostFilter = P.KafkaString Null, deleteAclsFilterOperation = 0, deleteAclsFilterPermissionType = 0 }
+defaultDeleteAclsFilter = DeleteAclsFilter { deleteAclsFilterResourceTypeFilter = 0, deleteAclsFilterResourceNameFilter = P.KafkaString Null, deleteAclsFilterPatternTypeFilter = 3, deleteAclsFilterPrincipalFilter = P.KafkaString Null, deleteAclsFilterHostFilter = P.KafkaString Null, deleteAclsFilterOperation = 0, deleteAclsFilterPermissionType = 0 }
 
 -- | Worst-case wire size of a DeleteAclsRequest.
 wireMaxSizeDeleteAclsRequest :: Int -> DeleteAclsRequest -> Int

@@ -150,8 +150,8 @@ wirePeekInitProducerIdResponse version _fp _basePtr p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_producerid, p3) <- W.peekInt64BE p2 endPtr
     (f3_producerepoch, p4) <- W.peekInt16BE p3 endPtr
-    (f4_ongoingtxnproducerid, p5) <- (if version >= 6 then W.peekInt64BE p4 endPtr else pure (0, p4))
-    (f5_ongoingtxnproducerepoch, p6) <- (if version >= 6 then W.peekInt16BE p5 endPtr else pure (0, p5))
+    (f4_ongoingtxnproducerid, p5) <- (if version >= 6 then W.peekInt64BE p4 endPtr else pure (-1, p4))
+    (f5_ongoingtxnproducerepoch, p6) <- (if version >= 6 then W.peekInt16BE p5 endPtr else pure (-1, p5))
     pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
     pure (InitProducerIdResponse { initProducerIdResponseThrottleTimeMs = f0_throttletimems, initProducerIdResponseErrorCode = f1_errorcode, initProducerIdResponseProducerId = f2_producerid, initProducerIdResponseProducerEpoch = f3_producerepoch, initProducerIdResponseOngoingTxnProducerId = f4_ongoingtxnproducerid, initProducerIdResponseOngoingTxnProducerEpoch = f5_ongoingtxnproducerepoch }, pTagsEnd)
   | version >= 0 && version <= 1 = do
@@ -159,14 +159,14 @@ wirePeekInitProducerIdResponse version _fp _basePtr p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_producerid, p3) <- W.peekInt64BE p2 endPtr
     (f3_producerepoch, p4) <- W.peekInt16BE p3 endPtr
-    pure (InitProducerIdResponse { initProducerIdResponseThrottleTimeMs = f0_throttletimems, initProducerIdResponseErrorCode = f1_errorcode, initProducerIdResponseProducerId = f2_producerid, initProducerIdResponseProducerEpoch = f3_producerepoch, initProducerIdResponseOngoingTxnProducerId = 0, initProducerIdResponseOngoingTxnProducerEpoch = 0 }, p4)
+    pure (InitProducerIdResponse { initProducerIdResponseThrottleTimeMs = f0_throttletimems, initProducerIdResponseErrorCode = f1_errorcode, initProducerIdResponseProducerId = f2_producerid, initProducerIdResponseProducerEpoch = f3_producerepoch, initProducerIdResponseOngoingTxnProducerId = -1, initProducerIdResponseOngoingTxnProducerEpoch = -1 }, p4)
   | version >= 2 && version <= 5 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_producerid, p3) <- W.peekInt64BE p2 endPtr
     (f3_producerepoch, p4) <- W.peekInt16BE p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
-    pure (InitProducerIdResponse { initProducerIdResponseThrottleTimeMs = f0_throttletimems, initProducerIdResponseErrorCode = f1_errorcode, initProducerIdResponseProducerId = f2_producerid, initProducerIdResponseProducerEpoch = f3_producerepoch, initProducerIdResponseOngoingTxnProducerId = 0, initProducerIdResponseOngoingTxnProducerEpoch = 0 }, pTagsEnd)
+    pure (InitProducerIdResponse { initProducerIdResponseThrottleTimeMs = f0_throttletimems, initProducerIdResponseErrorCode = f1_errorcode, initProducerIdResponseProducerId = f2_producerid, initProducerIdResponseProducerEpoch = f3_producerepoch, initProducerIdResponseOngoingTxnProducerId = -1, initProducerIdResponseOngoingTxnProducerEpoch = -1 }, pTagsEnd)
   | otherwise = error $ "wirePeek InitProducerIdResponse : unsupported version: " ++ show version
 
 

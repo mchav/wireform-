@@ -210,10 +210,10 @@ wirePeekAlterPartitionReassignmentsRequest version _fp _basePtr p0 endPtr
     (f0_timeoutms, p1) <- W.peekInt32BE p0 endPtr
     (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReassignableTopic version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
-    pure (AlterPartitionReassignmentsRequest { alterPartitionReassignmentsRequestTimeoutMs = f0_timeoutms, alterPartitionReassignmentsRequestAllowReplicationFactorChange = False, alterPartitionReassignmentsRequestTopics = f1_topics }, pTagsEnd)
+    pure (AlterPartitionReassignmentsRequest { alterPartitionReassignmentsRequestTimeoutMs = f0_timeoutms, alterPartitionReassignmentsRequestAllowReplicationFactorChange = True, alterPartitionReassignmentsRequestTopics = f1_topics }, pTagsEnd)
   | version == 1 = do
     (f0_timeoutms, p1) <- W.peekInt32BE p0 endPtr
-    (f1_allowreplicationfactorchange, p2) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr else pure (False, p1))
+    (f1_allowreplicationfactorchange, p2) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr else pure (True, p1))
     (f2_topics, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReassignableTopic version _fp _basePtr p e) p2 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (AlterPartitionReassignmentsRequest { alterPartitionReassignmentsRequestTimeoutMs = f0_timeoutms, alterPartitionReassignmentsRequestAllowReplicationFactorChange = f1_allowreplicationfactorchange, alterPartitionReassignmentsRequestTopics = f2_topics }, pTagsEnd)

@@ -154,7 +154,7 @@ wirePokeListOffsetsPartition version basePtr msg = do
 wirePeekListOffsetsPartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListOffsetsPartition, Ptr Word8)
 wirePeekListOffsetsPartition version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
-  (f1_currentleaderepoch, p2) <- (if version >= 4 then W.peekInt32BE p1 endPtr else pure (0, p1))
+  (f1_currentleaderepoch, p2) <- (if version >= 4 then W.peekInt32BE p1 endPtr else pure (-1, p1))
   (f2_timestamp, p3) <- W.peekInt64BE p2 endPtr
   pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (ListOffsetsPartition { listOffsetsPartitionPartitionIndex = f0_partitionindex, listOffsetsPartitionCurrentLeaderEpoch = f1_currentleaderepoch, listOffsetsPartitionTimestamp = f2_timestamp }, pTagsEnd)
@@ -162,7 +162,7 @@ wirePeekListOffsetsPartition version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultListOffsetsPartition :: ListOffsetsPartition
-defaultListOffsetsPartition = ListOffsetsPartition { listOffsetsPartitionPartitionIndex = 0, listOffsetsPartitionCurrentLeaderEpoch = 0, listOffsetsPartitionTimestamp = 0 }
+defaultListOffsetsPartition = ListOffsetsPartition { listOffsetsPartitionPartitionIndex = 0, listOffsetsPartitionCurrentLeaderEpoch = -1, listOffsetsPartitionTimestamp = 0 }
 
 -- | Worst-case wire size of a ListOffsetsTopic.
 wireMaxSizeListOffsetsTopic :: Int -> ListOffsetsTopic -> Int

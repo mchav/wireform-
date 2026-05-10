@@ -292,10 +292,10 @@ wirePeekBeginQuorumEpochRequest version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_clusterid, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_topics, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
-    pure (BeginQuorumEpochRequest { beginQuorumEpochRequestClusterId = f0_clusterid, beginQuorumEpochRequestVoterId = 0, beginQuorumEpochRequestTopics = f1_topics, beginQuorumEpochRequestLeaderEndpoints = P.mkKafkaArray V.empty }, p2)
+    pure (BeginQuorumEpochRequest { beginQuorumEpochRequestClusterId = f0_clusterid, beginQuorumEpochRequestVoterId = -1, beginQuorumEpochRequestTopics = f1_topics, beginQuorumEpochRequestLeaderEndpoints = P.mkKafkaArray V.empty }, p2)
   | version == 1 = do
     (f0_clusterid, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
-    (f1_voterid, p2) <- (if version >= 1 then W.peekInt32BE p1 endPtr else pure (0, p1))
+    (f1_voterid, p2) <- (if version >= 1 then W.peekInt32BE p1 endPtr else pure (-1, p1))
     (f2_topics, p3) <- WP.peekVersionedArray version 1 (\p e -> wirePeekTopicData version _fp _basePtr p e) p2 endPtr
     (f3_leaderendpoints, p4) <- (if version >= 1 then WP.peekVersionedArray version 1 (\p e -> wirePeekLeaderEndpoint version _fp _basePtr p e) p3 endPtr else pure (P.mkKafkaArray V.empty, p3))
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr

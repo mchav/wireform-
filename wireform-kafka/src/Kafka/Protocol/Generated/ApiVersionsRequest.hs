@@ -127,16 +127,16 @@ wirePeekApiVersionsRequest version _fp _basePtr p0 endPtr
     (f0_clientsoftwarename, p1) <- (if version >= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
     (f1_clientsoftwareversion, p2) <- (if version >= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
     (f2_clusterid, p3) <- (if version >= 5 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
-    (f3_nodeid, p4) <- (if version >= 5 then W.peekInt32BE p3 endPtr else pure (0, p3))
+    (f3_nodeid, p4) <- (if version >= 5 then W.peekInt32BE p3 endPtr else pure (-1, p3))
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (ApiVersionsRequest { apiVersionsRequestClientSoftwareName = f0_clientsoftwarename, apiVersionsRequestClientSoftwareVersion = f1_clientsoftwareversion, apiVersionsRequestClusterId = f2_clusterid, apiVersionsRequestNodeId = f3_nodeid }, pTagsEnd)
   | version >= 3 && version <= 4 = do
     (f0_clientsoftwarename, p1) <- (if version >= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
     (f1_clientsoftwareversion, p2) <- (if version >= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
-    pure (ApiVersionsRequest { apiVersionsRequestClientSoftwareName = f0_clientsoftwarename, apiVersionsRequestClientSoftwareVersion = f1_clientsoftwareversion, apiVersionsRequestClusterId = P.KafkaString Null, apiVersionsRequestNodeId = 0 }, pTagsEnd)
+    pure (ApiVersionsRequest { apiVersionsRequestClientSoftwareName = f0_clientsoftwarename, apiVersionsRequestClientSoftwareVersion = f1_clientsoftwareversion, apiVersionsRequestClusterId = P.KafkaString Null, apiVersionsRequestNodeId = -1 }, pTagsEnd)
   | version >= 0 && version <= 2 = do
-    pure (ApiVersionsRequest { apiVersionsRequestClientSoftwareName = P.KafkaString Null, apiVersionsRequestClientSoftwareVersion = P.KafkaString Null, apiVersionsRequestClusterId = P.KafkaString Null, apiVersionsRequestNodeId = 0 }, p0)
+    pure (ApiVersionsRequest { apiVersionsRequestClientSoftwareName = P.KafkaString Null, apiVersionsRequestClientSoftwareVersion = P.KafkaString Null, apiVersionsRequestClusterId = P.KafkaString Null, apiVersionsRequestNodeId = -1 }, p0)
   | otherwise = error $ "wirePeek ApiVersionsRequest : unsupported version: " ++ show version
 
 

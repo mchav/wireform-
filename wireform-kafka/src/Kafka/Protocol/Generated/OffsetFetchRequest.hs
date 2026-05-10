@@ -249,7 +249,7 @@ wirePeekOffsetFetchRequestGroup :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr W
 wirePeekOffsetFetchRequestGroup version _fp _basePtr p0 endPtr = do
   (f0_groupid, p1) <- (if version >= 8 then (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
   (f1_memberid, p2) <- (if version >= 9 then (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
-  (f2_memberepoch, p3) <- (if version >= 9 then W.peekInt32BE p2 endPtr else pure (0, p2))
+  (f2_memberepoch, p3) <- (if version >= 9 then W.peekInt32BE p2 endPtr else pure (-1, p2))
   (f3_topics, p4) <- (if version >= 8 then WP.peekVersionedNullableArray version 6 (\p e -> wirePeekOffsetFetchRequestTopics version _fp _basePtr p e) p3 endPtr else pure (P.KafkaArray P.Null, p3))
   pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (OffsetFetchRequestGroup { offsetFetchRequestGroupGroupId = f0_groupid, offsetFetchRequestGroupMemberId = f1_memberid, offsetFetchRequestGroupMemberEpoch = f2_memberepoch, offsetFetchRequestGroupTopics = f3_topics }, pTagsEnd)
@@ -257,7 +257,7 @@ wirePeekOffsetFetchRequestGroup version _fp _basePtr p0 endPtr = do
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultOffsetFetchRequestGroup :: OffsetFetchRequestGroup
-defaultOffsetFetchRequestGroup = OffsetFetchRequestGroup { offsetFetchRequestGroupGroupId = P.KafkaString Null, offsetFetchRequestGroupMemberId = P.KafkaString Null, offsetFetchRequestGroupMemberEpoch = 0, offsetFetchRequestGroupTopics = P.KafkaArray P.Null }
+defaultOffsetFetchRequestGroup = OffsetFetchRequestGroup { offsetFetchRequestGroupGroupId = P.KafkaString Null, offsetFetchRequestGroupMemberId = P.KafkaString Null, offsetFetchRequestGroupMemberEpoch = -1, offsetFetchRequestGroupTopics = P.KafkaArray P.Null }
 
 -- | Worst-case wire size of a OffsetFetchRequest.
 wireMaxSizeOffsetFetchRequest :: Int -> OffsetFetchRequest -> Int
