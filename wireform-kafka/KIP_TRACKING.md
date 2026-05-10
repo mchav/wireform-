@@ -153,7 +153,7 @@ Broker-side log file optimization, not client-relevant.
 Broker dynamic configuration, not directly client-relevant.
 
 ### KIP-22: Expose a Partitioner interface in the new producer
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer needs pluggable partitioner interface for custom partition assignment strategies.
 
 ### KIP-23: Add JSON/CSV output and looping options to ConsumerGroupCommand
@@ -173,7 +173,7 @@ Kafka testing framework improvements, not client-relevant.
 Kafka Connect is a separate framework, not part of core client.
 
 ### KIP-27: Conditional Publish
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Would allow conditional message publishing based on record key existence; requires ProduceRequest enhancements.
 
 ### KIP-29: Add IsrPropagateIntervalMs configuration
@@ -213,11 +213,11 @@ Broker-side controller management, not client-relevant.
 Protocol messages (ListGroupsRequest/Response, DescribeGroupsRequest/Response) generated but AdminClient API not yet implemented.
 
 ### KIP-41: KafkaConsumer Max Records
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer needs max.poll.records configuration to limit records returned per poll.
 
 ### KIP-42: Add Producer and Consumer Interceptors
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Interceptor framework for modifying/monitoring records before send/after receive.
 
 ### KIP-43: Kafka SASL enhancements
@@ -241,7 +241,7 @@ Broker log retention policy, not client-relevant.
 Protocol messages (CreateDelegationToken, RenewDelegationToken, ExpireDelegationToken) generated but delegation token authentication flow not implemented.
 
 ### KIP-49: Fair Partition Assignment Strategy
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer group partition assignment strategy for fairness across consumers.
 
 ### KIP-50: Move Authorizer to o.a.k.common package
@@ -257,7 +257,7 @@ Kafka Connect REST API enhancement, not client-relevant.
 Kafka Connect API enhancement, not client-relevant.
 
 ### KIP-53: Add custom policies for reconnect attempts
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 NetworkClient needs pluggable reconnect backoff policies for custom retry behavior.
 
 ### KIP-54: Sticky Partition Assignment Strategy
@@ -317,7 +317,7 @@ Broker log retention enhancement, not client-relevant.
 External schema registry service, not part of core client.
 
 ### KIP-70: Revise Partition Assignment Semantics
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer rebalance behavior when subscription changes; needs careful handling in consumer group coordinator.
 
 ### KIP-71: Enable log compaction and deletion to co-exist
@@ -345,11 +345,11 @@ Kafka Connect configuration, not client-relevant.
 Configuration file password handling; Haskell clients typically use environment variables or config values directly.
 
 ### KIP-78: Cluster Id
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 The cluster id (KIP-78) is now parsed off the v2+ MetadataResponse and surfaced via three matching APIs: `Kafka.Client.Producer.producerClusterId`, `Kafka.Client.Consumer.consumerClusterId`, and `Kafka.Client.AdminClient.adminClusterId`. Each reads from the `MetadataCache` populated on connect; exercised by `Integration.AdminClientExtendedSpec` against a live broker.
 
 ### KIP-79: ListOffsetRequest v1 with timestamp search
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer surface added in `Kafka.Client.Consumer`: `beginningOffsets`, `endOffsets`, `offsetsForTimes`. Each returns a `HashMap TopicPartition Int64` keyed on the input partition. Wired through `queryPartitionOffsetsByTimestamp` for the per-partition timestamp variant. Live-broker coverage in `Integration.ConsumerOffsetsSpec`.
 
 ### KIP-80: Kafka Rest Server
@@ -397,7 +397,7 @@ Kafka Connect internal behavior, not client-relevant.
 Producer has `producerDeliveryTimeoutMs` configuration (default: 120000ms/2 minutes) that encompasses all retries and network time. Batch timestamps tracked and enforced in sender thread with proper timeout error messages.
 
 ### KIP-92: Add per partition lag metrics
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should expose per-partition lag metrics (high watermark - committed offset).
 
 ### KIP-96: Add per partition in-sync and assigned replica metrics
@@ -429,7 +429,7 @@ Broker-side listener configuration, clients connect regardless of internal/exter
 Broker configuration default change, not client-relevant.
 
 ### KIP-107: Add deleteRecordsBefore() API in AdminClient
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 `Kafka.Client.AdminClient.deleteRecords` wraps `DeleteRecordsRequest` v1; takes `[(Text, Int32, Int64)]` and returns one `DeleteRecordsResultEntry` per partition with the new low-watermark + error code.
 
 ### KIP-109: Old Consumer Deprecation
@@ -465,7 +465,7 @@ Admin tooling, not client library responsibility.
 Broker-side quota enforcement; clients handle throttle responses.
 
 ### KIP-126: Allow KafkaProducer to split oversized batches
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer should split large batches automatically when max.request.size exceeded.
 
 ### KIP-127: Pluggable JAAS LoginModule for SSL
@@ -481,15 +481,15 @@ Kafka Connect converter, not client-relevant.
 Kafka Connect API, not client-relevant.
 
 ### KIP-133: Describe and Alter Configs Admin APIs
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 `Kafka.Client.AdminClient.describeConfigs` (KIP-133 read side, has been here) + `Kafka.Client.AdminClient.alterConfigs` (KIP-133 write side, replacing-style). For incremental updates use `incrementalAlterConfigs` (KIP-339 below).
 
 ### KIP-134: Delay initial consumer group rebalance
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer group coordinator should support group.initial.rebalance.delay.ms for waiting for more members.
 
 ### KIP-135: Send null key to compacted topic returns error
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer should detect and error on null-key records sent to compacted topics.
 
 ### KIP-136: Add Listener name to SelectorMetrics tags
@@ -509,7 +509,7 @@ Testing infrastructure, separate from production client.
 CreateAcls, DeleteAcls, DescribeAcls protocol messages generated; AdminClient API not exposed.
 
 ### KIP-141: Add timestamp constructors to ProducerRecord
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer record creation should accept explicit timestamp parameter.
 
 ### KIP-142: Add ListTopicsRequest
@@ -521,7 +521,7 @@ MetadataRequest can list all topics; dedicated efficient list operation not expo
 Broker controller metrics, not client-relevant.
 
 ### KIP-144: Exponential backoff for broker reconnect
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Network client needs exponential backoff for connection retry instead of fixed delay.
 
 ### KIP-145: Expose Record Headers in Connect
@@ -533,7 +533,7 @@ Kafka Connect header support, not client-relevant.
 Kafka Connect plugin isolation, not client-relevant.
 
 ### KIP-148: Add connect timeout for client
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Connection establishment needs configurable timeout (connections.max.idle.ms exists but not connection timeout).
 
 ### KIP-151: Expose Connector type in REST API
@@ -541,7 +541,7 @@ Connection establishment needs configurable timeout (connections.max.idle.ms exi
 Kafka Connect REST API, not client-relevant.
 
 ### KIP-152: Improve diagnostics for SASL failures
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Better error messages and diagnostics needed for SASL authentication failures.
 
 ### KIP-153: Include only client traffic in BytesOutPerSec
@@ -585,7 +585,7 @@ Admin rebalancing tool, not client-relevant.
 Broker cluster metrics, not client-relevant.
 
 ### KIP-169: Lag-Aware Partition Assignment Strategy
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer partition assignment strategy that considers lag for balancing processing load.
 
 ### KIP-170: Enhanced TopicCreatePolicy with DeletePolicy
@@ -629,7 +629,7 @@ Broker cluster topology, not directly client-relevant.
 Admin tool change, not client-relevant.
 
 ### KIP-184: Support SASL/OAUTHBEARER
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 OAuth 2.0 Bearer token authentication mechanism for SASL.
 
 ### KIP-185: Make exactly-once transactional.id change optional
@@ -669,7 +669,7 @@ Kafka Connect TLS configuration, not relevant (main client already supports TLS)
 Kafka Connect metrics, not client-relevant.
 
 ### KIP-197: Close pending transactional requests on shutdown
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Transactional producer shutdown should properly abort in-flight transactions.
 
 ### KIP-200: Add new OffsetsForLeaderEpoch error
@@ -677,7 +677,7 @@ Transactional producer shutdown should properly abort in-flight transactions.
 Broker error code addition, handled by protocol version.
 
 ### KIP-201: Richer In-flight Produce Request tracking
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer should track in-flight requests with more detail for better retry and timeout handling.
 
 ### KIP-205: Add DescribeLogDirs API
@@ -697,7 +697,7 @@ Broker internal offsets topic configuration, not client-relevant.
 Internal Streams rebalance optimization, not core client-relevant.
 
 ### KIP-212: Add connect timeout option to NetworkClient
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Explicit connection timeout configuration needed separate from socket timeout.
 
 ### KIP-214: Add Quorum state into protocol
@@ -713,7 +713,7 @@ Admin tool API exposure, not client library concern.
 Broker quota response enhancement; clients receive throttle information transparently.
 
 ### KIP-220: Extend FetchRequest to support limit bytes
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 FetchRequest should support max.bytes parameter for limiting total fetch size.
 
 ### KIP-222: Add Consumer Group operations to AdminClient
@@ -757,11 +757,11 @@ Broker metadata versioning, not directly client-relevant.
 Protocol supports additional error information; needs parsing and exposure in producer callbacks.
 
 ### KIP-235: Add DNS alias support for secured connection
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 TLS connection should support DNS aliases for broker hostname verification.
 
 ### KIP-238: Exposing Consumer Metadata
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer API should expose group member metadata (client.id, host, etc.).
 
 ### KIP-239: Add checksum for broker configuration file
@@ -789,7 +789,7 @@ Kafka Connect internal usage, not client-relevant.
 Broker log level management, not client-relevant.
 
 ### KIP-247: Enabling producers to wait for delivery without blocking
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer needs async API with proper futures/callbacks for non-blocking sends.
 
 ### KIP-248: Option for JSON-structured Logging
@@ -797,7 +797,7 @@ Producer needs async API with proper futures/callbacks for non-blocking sends.
 Broker logging format, not client-relevant.
 
 ### KIP-249: Add total_request_bytes metric
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer should expose metric for total bytes sent before compression.
 
 ### KIP-250: New log4j appender for Connect
@@ -817,7 +817,7 @@ Java testing utilities, not applicable to Haskell testing approach.
 Broker internal serialization, not client-relevant.
 
 ### KIP-255: OAuth Authentication via SASL/OAUTHBEARER
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 OAuth 2.0 authentication requires OAUTHBEARER SASL mechanism implementation.
 
 ### KIP-256: Configurable Consumer Rebalance Timeout
@@ -853,7 +853,7 @@ DescribeConfigsRequest supports broker configs; AdminClient wrapper not exposed.
 Kafka Connect configuration provider, not client-relevant.
 
 ### KIP-266: Fix consumer indefinite blocking on coordinator failures
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer coordinator client needs proper timeout handling for indefinite blocks.
 
 ### KIP-267: Add OfflineReplicaCount and LastStableOffsetLag metrics
@@ -873,7 +873,7 @@ Broker configuration validation, not client-relevant.
 Kafka Connect worker configuration, not client-relevant.
 
 ### KIP-273: Kafka to support PKCS12 keystores
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 TLS configuration should support PKCS12 keystore format in addition to JKS.
 
 ### KIP-274: Kafka Connect Headers
@@ -917,15 +917,15 @@ Kafka Connect REST configuration, not client-relevant.
 Broker listener separation, not directly client-relevant.
 
 ### KIP-293: Have AdminClient use Cluster ID
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 AdminClient should expose and validate cluster ID from metadata.
 
 ### KIP-294: Reduce Consumer Metadata Lookups
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should cache topic metadata and reduce unnecessary metadata refreshes.
 
 ### KIP-295: Add TRACE-level end-to-end latency metrics
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Client should expose detailed latency metrics for request processing stages.
 
 ### KIP-296: Add timestamp field to OffsetCommitRequest
@@ -945,7 +945,7 @@ Client metrics should use proper windowed averaging for latency.
 Kafka Connect exactly-once semantics, not client-relevant.
 
 ### KIP-302: Improve records returned from Consumer.poll() 
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer poll should return ConsumerRecords with better iteration and access patterns.
 
 ### KIP-305: Add ConfigCommand to modify topics
@@ -957,7 +957,7 @@ Admin tool enhancement, not client library concern.
 Kafka Connect configuration provider, not client-relevant.
 
 ### KIP-308: Support time/timeout-based close in Consumer
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer close needs proper timeout support to wait for pending operations.
 
 ### KIP-311: Collect and Expose Client's Name and Version
@@ -977,11 +977,11 @@ AlterPartitionReassignments, ListPartitionReassignments protocol generated; Admi
 DeleteRecords, DeleteGroups protocol generated; AdminClient wrappers not fully exposed.
 
 ### KIP-317: Add consumer sync offset commit API
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer needs explicit synchronous commitSync() API separate from async.
 
 ### KIP-318: Add consumer offset fetch API
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer needs API to fetch committed offsets without subscribing.
 
 ### KIP-320: Enhanced log compaction
@@ -993,7 +993,7 @@ Broker log compaction improvement, not client-relevant.
 Broker authorization code, not client-relevant.
 
 ### KIP-324: Allow users to choose partitioner
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer should expose configuration for custom partitioner selection.
 
 ### KIP-326: Change default max.connections.per.ip config
@@ -1009,7 +1009,7 @@ Kafka Connect plugin system, not client-relevant.
 ListOffsets API exists; AdminClient wrapper not exposed.
 
 ### KIP-331: Add default.api.timeout.ms to consumer config
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer needs default.api.timeout.ms for unified API call timeout.
 
 ### KIP-332: Add reporter for config changes
@@ -1017,7 +1017,7 @@ Consumer needs default.api.timeout.ms for unified API call timeout.
 Broker configuration monitoring, not client-relevant.
 
 ### KIP-333: Improve SSL Configuration
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Better SSL configuration validation and error messages needed.
 
 ### KIP-335: Extend metadata request to fetch timestamps
@@ -1029,7 +1029,7 @@ Metadata protocol extension; if adopted, handled by protocol generation.
 AdminClient protocol messages support authentication just like producer/consumer.
 
 ### KIP-339: Create a new IncrementalAlterConfigs API
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 `Kafka.Client.AdminClient.incrementalAlterConfigs` exposes Set / Delete / Append / Subtract per key via `AlterableConfigEntry`. Live-broker round-trip exercised in `Integration.AdminClientExtendedSpec`.
 
 ### KIP-340: Remove ZOOKEEPER config from MirrorMaker2
@@ -1037,11 +1037,11 @@ AdminClient protocol messages support authentication just like producer/consumer
 MirrorMaker 2 configuration, not client-relevant.
 
 ### KIP-341: Update Sticky Partition Design
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer sticky partitioning optimization for records without keys.
 
 ### KIP-342: Add Customizable SASL extensions
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 SASL authentication should support custom extensions in handshake.
 
 ### KIP-343: Remove deprecated Admin APIs
@@ -1049,7 +1049,7 @@ SASL authentication should support custom extensions in handshake.
 AdminClient API cleanup, handled organically in new implementation.
 
 ### KIP-345: Reduce multiple consumer rebalances
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer static membership support to avoid rebalances on restart.
 
 ### KIP-347: Improve Connect error policy
@@ -1089,11 +1089,11 @@ Kafka Connect internal behavior, not client-relevant.
 MirrorMaker 2 implementation, not client library concern.
 
 ### KIP-359: Add Serializer and Deserializer Methods for Headers
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Serialization framework should support header serialization/deserialization.
 
 ### KIP-360: Improve configuration validation
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 `Kafka.Client.ConfigValidation` exposes a typed `ConfigError` plus
 per-side `validateProducerConfig` / `validateConsumerConfig` rules that
 mirror the JVM `ProducerConfig` / `ConsumerConfig` checks (KIP-91 invariant,
@@ -1104,7 +1104,7 @@ error message before opening any socket so a broken config surfaces at
 construction time instead of as an opaque broker error later.
 
 ### KIP-361: Add Consumer Fetch Lag Metrics
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should expose fetch lag metrics (time between record production and consumption).
 
 ### KIP-362: Name optional in Connect worker configs
@@ -1112,15 +1112,15 @@ Consumer should expose fetch lag metrics (time between record production and con
 Kafka Connect configuration, not client-relevant.
 
 ### KIP-363: Latency Metrics in Producer
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer should expose detailed latency breakdown metrics for send operations.
 
 ### KIP-364: Propagate Record Level Errors
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer callback should receive per-record error information, not just batch errors.
 
 ### KIP-366: Add a configuration to disable idle connections
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Client should support disabling idle connection cleanup for persistent connections.
 
 ### KIP-368: Allow SASL without TLS
@@ -1140,7 +1140,7 @@ Broker partition limit configuration, not client-relevant.
 Internal consumer optimization detail, not exposed API.
 
 ### KIP-374: Support Configurable Timeout in Fetcher
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer fetch operation needs configurable timeout parameter.
 
 ### KIP-375: Remove enableIdempotence from ProducerConfig
@@ -1148,7 +1148,7 @@ Consumer fetch operation needs configurable timeout parameter.
 Configuration cleanup; idempotence is default in modern implementations.
 
 ### KIP-377: Add New Metrics for Better Producer Throttling
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer should expose metrics for broker throttling (throttle-time-avg, throttle-time-max).
 
 ### KIP-379: Remove Kafka Controller Failover Logs
@@ -1160,7 +1160,7 @@ Broker logging cleanup, not client-relevant.
 MirrorMaker 2 metrics, not client library concern.
 
 ### KIP-384: Additional error information to Kafka Consumer
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should expose more detailed error context (broker, partition, offset info).
 
 ### KIP-385: Support for Zstd Compression
@@ -1168,7 +1168,7 @@ Consumer should expose more detailed error context (broker, partition, offset in
 Zstandard compression fully supported.
 
 ### KIP-386: Kafka Consumer Metrics
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer needs comprehensive metrics for poll latency, fetch throughput, etc.
 
 ### KIP-387: Add Async Producer to Connect
@@ -1176,7 +1176,7 @@ Consumer needs comprehensive metrics for poll latency, fetch throughput, etc.
 Kafka Connect producer configuration, not client-relevant.
 
 ### KIP-389: Unknown Members Should Leave Group
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 The heartbeat loop now classifies broker error codes into a typed
 `HeartbeatOutcome`. On `UNKNOWN_MEMBER_ID` (25) or `FENCED_INSTANCE_ID`
 (82) we wipe the cached `memberId` so the next JoinGroup goes out with
@@ -1187,7 +1187,7 @@ up the new generation). The reaction is implemented in pure
 `applyHeartbeatOutcome` and unit-tested in `Client.HeartbeatRejoinSpec`.
 
 ### KIP-391: Allow consumers to wait for committed offset sync
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer offset commit should support waiting for replication to all replicas.
 
 ### KIP-392: Allow consumers to fetch from closest replica
@@ -1203,7 +1203,7 @@ ACL resource type cleanup; protocol handles transparently.
 Client-side logging control; implementation-specific concern.
 
 ### KIP-396: Send commit offset in background thread
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer auto-commit should happen in background thread to avoid blocking poll.
 
 ### KIP-398: Remove RebalanceTimeout from Consumer
@@ -1239,7 +1239,7 @@ OffsetCommitRequest protocol exists; AdminClient wrapper not exposed for externa
 AlterPartitionReassignments protocol generated; AdminClient API not exposed.
 
 ### KIP-410: Track Producer application ID
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer should send application identifier for better tracking and monitoring.
 
 ### KIP-411: Expose Loggers via AdminClient
@@ -1259,7 +1259,7 @@ MirrorMaker 2 optimization, not client library concern.
 LZ4 compression supports both older and newer LZ4 formats.
 
 ### KIP-415: Incremental Cooperative Rebalancing
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer group rebalance protocol that avoids stop-the-world; critical for zero-downtime upgrades.
 
 ### KIP-416: Notify SourceConnector of removed tasks
@@ -1267,7 +1267,7 @@ Consumer group rebalance protocol that avoids stop-the-world; critical for zero-
 Kafka Connect lifecycle, not client-relevant.
 
 ### KIP-417: Adaptive Records Per Partition
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should dynamically adjust fetch sizes based on processing latency.
 
 ### KIP-418: Simplify Connect Converter API
@@ -1275,7 +1275,7 @@ Consumer should dynamically adjust fetch sizes based on processing latency.
 Kafka Connect API simplification, not client-relevant.
 
 ### KIP-419: Longest Member ID in Consumer Rebalance
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer group member ID generation should be deterministic based on client info.
 
 ### KIP-420: Add Delete Functionality in Sink Connector
@@ -1283,15 +1283,15 @@ Consumer group member ID generation should be deterministic based on client info
 Kafka Connect sink functionality, not client-relevant.
 
 ### KIP-421: Automatically set committed offset to end if OutOfRange
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer auto.offset.reset behavior when committed offset is out of range.
 
 ### KIP-422: Add client.dns.lookup configuration
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Client DNS resolution strategy (use_all_dns_ips vs default) for broker hostname resolution.
 
 ### KIP-424: Expose Client Configs in Consumer and Producer
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer/Producer should expose effective configuration via API.
 
 ### KIP-425: Add Describe Consumer/Producer Configs to AdminClient
@@ -1307,7 +1307,7 @@ Java testing utilities, not directly applicable to Haskell testing patterns.
 Metrics reporter format, implementation-specific concern.
 
 ### KIP-429: Kafka Consumer Incremental Rebalance Protocol
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Incremental cooperative rebalance protocol for consumer groups (related to KIP-415).
 
 ### KIP-430: Return authorized operations in Describe Responses
@@ -1351,15 +1351,15 @@ Kafka Connect exactly-once, not client-relevant.
 Zstandard compression fully supported (duplicate of KIP-110/KIP-385).
 
 ### KIP-444: Augment MetadataResponse to include topic internal flag
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 `TopicMetadata` now carries `topicMetaIsInternal`; `Kafka.Client.Metadata.getTopicIsInternal` queries it and `Kafka.Client.AdminClient.listTopicsExcludeInternal` filters Kafka-internal topics out of the listing.
 
 ### KIP-445: Add Earliest and Latest flags to KafkaConsumer::OffsetsForTimes
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer offsetsForTimes API should support special values for earliest/latest.
 
 ### KIP-447: Producer scalability for exactly once semantics
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Transactional producer should support scaling without coordinator bottlenecks.
 
 ### KIP-449: Add connector contexts to Connect worker logs
@@ -1395,7 +1395,7 @@ Error message standardization across Kafka; implementation concern.
 Configuration deprecation policy, handled per-config.
 
 ### KIP-460: Admin Leader Election RPC
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 `Kafka.Client.AdminClient.electLeaders` exposes the request with both election types (`PreferredElection` / `UncleanElection`) and decodes the per-partition error code map.
 
 ### KIP-461: Improve Replica Fetcher behavior at handling partition failure
@@ -1411,11 +1411,11 @@ DescribeLogDirsRequest/Response protocol generated; AdminClient API not exposed.
 Broker ACL authorization, clients handle 401/403 responses.
 
 ### KIP-464: Defaults for AdminClient
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 AdminClient should have sensible default configurations separate from producer/consumer.
 
 ### KIP-465: Make consumer offsets available through Admin API
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 `Kafka.Client.AdminClient.listConsumerGroupOffsets` issues an OffsetFetch with a /null/ topics array (the broker's "all offsets for this group" sentinel) and returns a `HashMap (Text, Int32) Int64` keyed on each (topic, partition).
 
 ### KIP-467: Add subscription() method to Share Consumer
@@ -1427,7 +1427,7 @@ Share groups not yet designed (future feature).
 Kafka Connect error handling, not client-relevant.
 
 ### KIP-470: Add TopicDescription to GetCommittedOffsets
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer API should include topic metadata when fetching committed offsets.
 
 ### KIP-473: Add missing RPC metrics
@@ -1443,7 +1443,7 @@ Kafka Connect REST API semantics, not client-relevant.
 Java interface extraction for testing; not applicable to Haskell.
 
 ### KIP-477: Add separate config for consumer session timeout
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer needs separate heartbeat.interval.ms and session.timeout.ms handling.
 
 ### KIP-478: Rename connectConfigs topic
@@ -1463,11 +1463,11 @@ Tagged fields (flexible versions) fully supported in protocol encoding/decoding.
 Metrics reporter API, implementation-specific.
 
 ### KIP-484: Allow AdminClient to use a supplied SSLEngineFactory
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 TLS configuration should support custom SSL engine factory.
 
 ### KIP-485: Expose committed offsets in RebalanceListener
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer rebalance listener should receive committed offsets for assigned partitions.
 
 ### KIP-486: Support custom Kafka ProtocolVersion
@@ -1475,7 +1475,7 @@ Consumer rebalance listener should receive committed offsets for assigned partit
 Protocol versioning extensibility for custom protocols; niche use case.
 
 ### KIP-487: Automatic Retry of Producer Failures
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer should automatically retry on recoverable errors according to configuration.
 
 ### KIP-488: Remove enableIdempotence config
@@ -1487,11 +1487,11 @@ Configuration cleanup; idempotence should be default.
 Producer interceptor interface change; interceptors not yet implemented.
 
 ### KIP-491: Preferred Replica Fetching
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should support fetching from preferred replicas based on rack/region (related to KIP-392).
 
 ### KIP-492: Add metadata context to Serializer/Deserializer
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Serialization framework should receive topic/partition context for schema registry integration.
 
 ### KIP-493: Add errors field to FindCoordinator Response
@@ -1519,7 +1519,7 @@ Broker metadata management; transparent to clients connecting to KRaft or ZK clu
 API cleanup; only new consumer APIs should be implemented.
 
 ### KIP-503: Add API for managing consumer group offsets
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 `Kafka.Client.AdminClient.alterConsumerGroupOffsets` writes externally-supplied offsets to a consumer group via OffsetCommit v5 (memberId="" sentinel + generationId=-1, matching the JVM client's external-commit shape).
 
 ### KIP-504: Add new Java Authorizer interface
@@ -1555,7 +1555,7 @@ Broker logging enhancement, not client-relevant.
 ZooKeeper TLS; KRaft doesn't use ZooKeeper.
 
 ### KIP-516: Add Topic Identifiers to Producer/Consumer
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer/Consumer should use topic UUIDs for robustness against topic deletion/recreation.
 
 ### KIP-518: Allow listing consumer groups per state
@@ -1563,7 +1563,7 @@ Producer/Consumer should use topic UUIDs for robustness against topic deletion/r
 ListGroupsRequest supports filtering by state; AdminClient API needs exposure.
 
 ### KIP-519: Make SSL Engine configurable
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 TLS configuration should support custom SSL engine implementation.
 
 ### KIP-520: Add replica leadership info to DescribeLogDirsResponse  
@@ -1575,11 +1575,11 @@ DescribeLogDirsResponse includes leadership info; AdminClient API not fully expo
 Broker delegation token management, client already has protocol support.
 
 ### KIP-522: Add Consumer Lag metric
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should expose lag metric (high watermark - current offset) per partition.
 
 ### KIP-524: Allow AdminClient to use a supplied HostResolver
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Client hostname resolution should support custom resolver for advanced networking.
 
 ### KIP-525: Return topic IDs in DescribeTopics
@@ -1587,7 +1587,7 @@ Client hostname resolution should support custom resolver for advanced networkin
 MetadataResponse includes topic IDs in newer versions; AdminClient DescribeTopics needs to expose them.
 
 ### KIP-526: Reduce Producer Metadata Lookups
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer should cache metadata longer and reduce unnecessary refreshes (similar to KIP-294 for consumer).
 
 ### KIP-528: Add LastStableOffsetLag Metric
@@ -1599,7 +1599,7 @@ Broker transaction metrics, not client-relevant.
 ListOffsets API supports timestamp-based offset lookup.
 
 ### KIP-530: Add ClosedChannelException to retriable exceptions
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Network client should retry on ClosedChannelException as it's recoverable.
 
 ### KIP-531: Allow Describe ProducerState to return ERROR
@@ -1615,7 +1615,7 @@ Configuration default change; clients use configured value.
 Broker throttling of admin operations, handled transparently.
 
 ### KIP-540: Create new APIs for handling timeouts in AdminClient
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 AdminClient operations need consistent timeout handling with proper exceptions.
 
 ### KIP-541: Enable FIPS as default for Connect and MM2
@@ -1639,7 +1639,7 @@ Metrics reporter extensibility, implementation-specific.
 AlterClientQuotas, DescribeClientQuotas protocol generated; AdminClient API not fully exposed.
 
 ### KIP-548: Rebalance Protocol Versioning
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer group rebalance protocol should support explicit versioning for compatibility.
 
 ### KIP-549: Add Admin API for retrieving topic metadata
@@ -1683,7 +1683,7 @@ Kafka Connect logging, not client-relevant.
 Broker consumer group configuration, not directly client-relevant.
 
 ### KIP-565: Expose BytesRead metrics
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer/Producer should expose bytes-read/written metrics separate from request size.
 
 ### KIP-566: Consistent Metadata Management
@@ -1691,11 +1691,11 @@ Consumer/Producer should expose bytes-read/written metrics separate from request
 Broker internal metadata handling; KRaft architecture.
 
 ### KIP-567: Allow SASL mechanisms to make decisions based on channel metadata
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 SASL mechanism interface should receive connection metadata for advanced authentication.
 
 ### KIP-568: Explicit Rebalance Triggers
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer API to explicitly trigger rebalance for testing or controlled scenarios.
 
 ### KIP-569: Return Additional Metadata in DescribeCluster  
@@ -1723,7 +1723,7 @@ Command-line tool enhancement, not client library concern.
 MirrorMaker 2 configuration, not client library concern.
 
 ### KIP-577: Allow Consumer to skip unknown custom extensions
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should handle unknown protocol extensions gracefully for forward compatibility.
 
 ### KIP-578: Add configuration to control MirrorMaker partition count
@@ -1743,7 +1743,7 @@ Java logging framework, not applicable to Haskell.
 Broker ACL authorization; clients handle 401/403 responses.
 
 ### KIP-583: Non-blocking consumer coordinator pending async calls
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer coordinator should support non-blocking async operations for better concurrency.
 
 ### KIP-584: Versioning scheme for features
@@ -1759,11 +1759,11 @@ Broker network thread management, not client-relevant.
 Broker dynamic configuration, not client-relevant.
 
 ### KIP-587: Suppress auto-commit of offsets for read only operations
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should support read-only mode that doesn't auto-commit offsets.
 
 ### KIP-588: Allow producers to recover gracefully from errors
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer should expose error recovery hooks for custom error handling logic.
 
 ### KIP-589: Add API for SCRAM SASL mechanisms
@@ -1783,7 +1783,7 @@ Broker JMX metrics, not client-relevant.
 Scala version requirement, not applicable to Haskell.
 
 ### KIP-593: Multiple Listeners for Kafka Consumers
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should support multiple rebalance listeners for modular callback handling.
 
 ### KIP-594: Add TLS 1.3 support
@@ -1795,7 +1795,7 @@ TLS 1.3 supported by underlying network libraries.
 Kafka Connect validation, not client-relevant.
 
 ### KIP-597: Add metadata to ConsumerRecords
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 ConsumerRecords container should include fetch metadata (latency, broker, etc.).
 
 ### KIP-599: Throttle Create Topic and Partitions with Quota
@@ -1813,7 +1813,7 @@ Broker certificate management monitoring, not directly client-relevant.
 Due to the large number of KIPs in this range, many are broker-internal, Kafka Streams, or Kafka Connect specific. Key client-relevant KIPs include:
 
 ### KIP-601: Configurable Socket Connection Timeout
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Client socket connection timeout needs to be configurable separately from request timeout.
 
 ### KIP-602: Change default value for client.dns.lookup  
@@ -1825,11 +1825,11 @@ Configuration default change; implementation supports configuration value.
 Metrics context enhancement, implementation-specific.
 
 ### KIP-612: Ability to Limit Connection Creation Rate
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Client should support rate-limiting connection creation to avoid overwhelming brokers.
 
 ### KIP-613: Add end-to-end latency metrics
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer/Consumer should track complete end-to-end latency including broker processing time.
 
 ### KIP-618: Exactly Once Support for Source Connectors
@@ -1873,11 +1873,11 @@ TLS certificate expiry handled by underlying network library.
 IncrementalAlterConfigs provides atomic updates; AdminClient API needs exposure.
 
 ### KIP-664: Add Additional Metrics Selectors
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Client metrics should support fine-grained metric selection for reduced overhead.
 
 ### KIP-679: Producer will enable the strongest compression level
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer default compression level should be optimized for best compression (related to KIP-353).
 
 ### KIP-684: Fetch Metadata from Admin API
@@ -1885,7 +1885,7 @@ Producer default compression level should be optimized for best compression (rel
 Admin API should expose fetch metadata; related to existing metadata APIs.
 
 ### KIP-691: Enhanced Configurable Callbacks
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer/Consumer should support richer callback interfaces with metadata.
 
 ### KIP-694: Support Multivalued Configs  
@@ -1901,7 +1901,7 @@ Broker-assisted partition assignment; future enhancement to consumer protocol.
 Metrics naming consistency, implementation detail.
 
 ### KIP-700: Enhanced Producer Metrics  
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer needs enhanced metrics for better observability.
 
 ### KIP-704: Send CreateTime timestamp in Produce Requests
@@ -1917,7 +1917,7 @@ OffsetFetchRequest enhanced for multiple groups; consumer/AdminClient need updat
 MirrorMaker 2 deployment mode, not client library concern.
 
 ### KIP-714: Client Metrics and Observability
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Comprehensive client metrics push to brokers for centralized monitoring.
 
 ### KIP-715: Expose Task Configurations
@@ -1933,7 +1933,7 @@ Metrics API, implementation detail.
 Broker configuration cleanup; clients support RecordBatch v2.
 
 ### KIP-732: Deprecate eos-alpha and replace eos-beta with eos-v2
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Transactional producer exactly-once semantics versioning.
 
 ### KIP-734: Improve AdminClient AlterPartitionReassignments API
@@ -1969,7 +1969,7 @@ Kafka Connect error handling, not client-relevant.
 KRaft internal state machine, not client-relevant.
 
 ### KIP-751: Expose Rebalance Metadata
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer rebalance listener should expose detailed rebalance metadata (reason, coordinator, etc.).
 
 ### KIP-752: Request and Response Header V2 for Kafka
@@ -1977,7 +1977,7 @@ Consumer rebalance listener should expose detailed rebalance metadata (reason, c
 Protocol header v2 support; handled by protocol generation for newer versions.
 
 ### KIP-768: Extend SASL/OAUTHBEARER with Support for OIDC
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 OAuth authentication with OpenID Connect support.
 
 ### KIP-774: Unify task management in Kafka Connect
@@ -2017,7 +2017,7 @@ MirrorMaker 2 configuration management, not client library concern.
 OffsetCommitRequest enhanced with generation ID; consumer needs to track and send generation.
 
 ### KIP-794: Strictly Uniform Sticky Partitioner
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer sticky partitioner should distribute records uniformly across partitions.
 
 ### KIP-797: Accept duplicate listener on ipv4/ipv6
@@ -2029,7 +2029,7 @@ Broker listener configuration, not client-relevant.
 Tiered storage configuration, not client-relevant.
 
 ### KIP-800: Add reason to JoinGroupRequest
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer JoinGroup should include reason for joining (initial join vs rebalance).
 
 ---
@@ -2039,7 +2039,7 @@ Consumer JoinGroup should include reason for joining (initial join vs rebalance)
 Many KIPs in this range focus on KRaft maturation, enhanced consumer protocol (KIP-848), and modern Kafka features. Key client-relevant KIPs:
 
 ### KIP-814: Static Membership for Consumers
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer static membership (group.instance.id) to avoid rebalances on restarts (related to KIP-345).
 
 ### KIP-821: Connect APIs to list available plugins  
@@ -2059,7 +2059,7 @@ Broker recovery metrics, not client-relevant.
 Feature maturity announcement; clients work with both ZK and KRaft.
 
 ### KIP-834: Pause/Resume Rebalancing  
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer API to temporarily pause rebalancing for maintenance windows.
 
 ### KIP-835: Monitor Ghost Replicas
@@ -2083,11 +2083,11 @@ Broker log retention policy, not client-relevant.
 Consumer group protocol enhancement for member fencing; related to new consumer group protocol (KIP-848).
 
 ### KIP-842: Add a configurable client-side max timeout for network requests
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Client request timeout should have configurable maximum to prevent indefinite waits.
 
 ### KIP-843: Adding committed record metadata to Consumer
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should expose metadata about last committed offsets (timestamp, leader epoch).
 
 ### KIP-844: Easing Consumer Migration into KRaft
@@ -2107,16 +2107,16 @@ ListTransactionsRequest/Response enhanced; AdminClient API needs full exposure.
 MirrorMaker 2 compression configuration, not client library concern.
 
 ### KIP-848: The Next Generation of the Consumer Rebalance Protocol
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 **Note**: Implementation deemphasized due to complexity concerns observed in the franz Go library implementation. Focus on completing other features (transactions, compression levels, static membership) before tackling this major protocol rewrite.  
 Major consumer group protocol rewrite with server-side assignors, simplified client state machine. Critical for modern Kafka usage.
 
 ### KIP-849: Allow MaxTimeMs for CommitTransaction/AbortTransaction
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Transactional producer commit/abort operations need timeout configuration.
 
 ### KIP-850: Allow pausing/resuming consumers in protocol
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer protocol enhancement for selective partition pausing at group level.
 
 ### KIP-851: Add requireStable flag in ListConsumerGroupOffsets API
@@ -2132,7 +2132,7 @@ KRaft controller management, not client-relevant.
 Broker producer ID management configuration, handled transparently.
 
 ### KIP-858: Add max.poll.interval.ms enforcement to Consumer Protocol
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer group coordinator enforcement of max poll interval for member liveness.
 
 ### KIP-859: Allow graceful initialization of Source Connectors
@@ -2140,7 +2140,7 @@ Consumer group coordinator enforcement of max poll interval for member liveness.
 Kafka Connect initialization, not client-relevant.
 
 ### KIP-860: Add a configurable amount of time to wait for consumers to rejoin the group
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer group coordinator delay configuration for graceful member rejoins.
 
 ### KIP-862: Tiered Storage ACLs
@@ -2164,7 +2164,7 @@ Broker migration process, transparent to clients.
 DescribeLogDirsResponse includes replica UUID; AdminClient API needs exposure.
 
 ### KIP-868: Metadata and APIs to support group.version upgrade
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer group protocol versioning for controlled upgrades (related to KIP-848).
 
 ### KIP-869: Add support for TelemetryRequest
@@ -2176,7 +2176,7 @@ GetTelemetrySubscriptionsRequest/Response, PushTelemetryRequest/Response generat
 Broker shutdown behavior, not client-relevant.
 
 ### KIP-872: Automatic client property for Consumer Protocol
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer group protocol auto-detection (classic vs new protocol based on config).
 
 ### KIP-874: Expose Connector ClientConfigOverridePolicy
@@ -2196,7 +2196,7 @@ KRaft snapshot management, not client-relevant.
 Kafka Connect internal storage, not client-relevant.
 
 ### KIP-881: Rack-aware Partition Assignment for Kafka Consumers
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer partition assignment strategy that considers rack placement for improved latency/fault tolerance.
 
 ### KIP-882: Kafka Protocol Flexibility
@@ -2204,7 +2204,7 @@ Consumer partition assignment strategy that considers rack placement for improve
 Protocol enhancement for better extensibility; handled by flexible versions (tagged fields).
 
 ### KIP-883: A new NetworkClient that provides asynchronous operations
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Redesigned network client with native async operations for better concurrency.
 
 ### KIP-884: Extending DescribeConfigRequest to support querying topic configurations
@@ -2244,7 +2244,7 @@ Protocol version cleanup; clients should support negotiated modern versions.
 Kafka Connect plugin system, not client-relevant.
 
 ### KIP-899: Allow clients to locate cluster metadata in a pluggable manner
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Pluggable cluster discovery (DNS, service discovery) for dynamic broker locations.
 
 ### KIP-900: SCRAM over KRaft
@@ -2264,7 +2264,7 @@ Broker leader election policy, not client-relevant.
 OffsetForLeaderEpochRequest enhanced with transactional ID; transactional consumer needs updates.
 
 ### KIP-906: Add filter capability to KafkaConsumer
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer filter records on client side before returning from poll() for efficiency.
 
 ### KIP-909: Allow producers to choose the compression level
@@ -2296,11 +2296,11 @@ MirrorMaker 2 topic creation, not client library concern.
 Tiered storage metadata, not client-relevant.
 
 ### KIP-918: Allow AdminClient to talk to the controller
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 AdminClient should support direct controller connections for admin operations.
 
 ### KIP-919: Allow AdminClient to talk to the KRaft Controller Quorum
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 AdminClient should support connections to KRaft controller quorum for metadata operations.
 
 ### KIP-920: Get cluster configuration information in DescribeCluster API  
@@ -2370,11 +2370,11 @@ External two-phase commit integration, advanced transactional feature.
 Kafka Connect schema handling, not client-relevant.
 
 ### KIP-941: Allow adding members to the group that own partitions
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer group protocol enhancement for adding members without full rebalance.
 
 ### KIP-944: Support async consumer APIs
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer async API for non-blocking operations (related to new consumer protocol KIP-848).
 
 ### KIP-946: Isolate Connect plugin classloaders
@@ -2398,7 +2398,7 @@ Future consumer protocol enhancement for broker-managed offsets; part of KIP-848
 DeleteRecordsRequest enhancement; AdminClient needs full API exposure.
 
 ### KIP-959: Add generation ID into consumer metrics
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer metrics should include generation ID for better monitoring.
 
 ### KIP-960: Support for MessagePack in Kafka Connect
@@ -2414,7 +2414,7 @@ Java version requirement, not applicable to Haskell.
 Broker message format defaults; clients use RecordBatch v2.
 
 ### KIP-964: Simpler AdminClient interface with a unified Result object
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 AdminClient API redesign for cleaner async result handling.
 
 ### KIP-965: Allow multi-version in Connect Converter  
@@ -2426,11 +2426,11 @@ Kafka Connect converter versioning, not client-relevant.
 Broker replica management for leader election, not client-relevant.
 
 ### KIP-967: Extend FetchRequest to allow specifying minBytes per partition
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 FetchRequest enhancement for per-partition fetch size control.
 
 ### KIP-968: Support minimum timestamp in Offset Fetch  
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer offset fetch should support filtering by minimum commit timestamp.
 
 ### KIP-970: Deprecate and Remove Support for Java 11
@@ -2446,7 +2446,7 @@ Tiered storage metadata management, not client-relevant.
 Admin tool cleanup, not client-relevant.
 
 ### KIP-974: Fix idle expiry logic
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Network client idle connection cleanup logic fixes.
 
 ### KIP-975: Support changing replica factor using Alter APIs
@@ -2458,11 +2458,11 @@ CreatePartitions/AlterConfigs can change replication; AdminClient API needs full
 KRaft principal mapping, not client-relevant.
 
 ### KIP-978: Use serialized size for record size metrics
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer/Consumer metrics should report serialized size not object size.
 
 ### KIP-979: Improve AsyncKafkaConsumer integration with callbacks
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer async callback interface improvements.
 
 ### KIP-980: Allow LogAppendTime timestamp for transactional messages
@@ -2482,7 +2482,7 @@ Kafka Connect REST API timeout, not client-relevant.
 Java version requirement, not applicable to Haskell.
 
 ### KIP-987: Fetch Offset By MaxTimestamp
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should support fetching offsets by maximum timestamp in range.
 
 ### KIP-988: Support SCRAM over SSL with peer-to-peer authentication  
@@ -2540,11 +2540,11 @@ Docker image distribution, not client-relevant.
 Configuration provider enhancement; Haskell can use direct config sources.
 
 ### KIP-1044: Allow producers to recover gracefully from transactional errors
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Transactional producer error recovery improvements for better resilience.
 
 ### KIP-1054: Add Human Readable Error Messages
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Protocol error responses should include human-readable error messages for better debugging.
 
 ### KIP-1056: Tiered Storage: Follower fetch from local tiered storage
@@ -2596,7 +2596,7 @@ Broker metrics, not client-relevant.
 Share group protocol messages; share consumer implementation needed.
 
 ### KIP-1107: Enhanced AdminClient metrics
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 AdminClient should expose comprehensive metrics for operations.
 
 ### KIP-1108: Allow Admin API to manage topic metadata
@@ -2604,7 +2604,7 @@ AdminClient should expose comprehensive metrics for operations.
 Admin APIs for topic metadata management; AdminClient wrappers need implementation.
 
 ### KIP-1109: Group Protocols Versioning
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer/Share group protocol versioning for graceful upgrades (related to KIP-868).
 
 ### KIP-1110: Delete Records with DeleteRecordsPolicy
@@ -2620,7 +2620,7 @@ AlterPartitionReassignments enhanced; AdminClient API needs full exposure.
 Broker shutdown behavior, not client-relevant.
 
 ### KIP-1114: Client shutdown protocol extension
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Client graceful shutdown protocol for coordinated connection closure.
 
 ### KIP-1115: JBOD Recovery Improvements
@@ -2636,7 +2636,7 @@ Enhanced partition management APIs; AdminClient implementation needed.
 Broker replica selection, metadata indicates preferred replicas for rack-aware fetching.
 
 ### KIP-1119: Allow pausing/resuming of topic partitions in share groups
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Share consumer should support pausing/resuming partitions (related to KIP-912).
 
 ### KIP-1120: CLI updates for KRaft
@@ -2656,11 +2656,11 @@ ApiVersionsResponse includes metadata version; needs API exposure for version ch
 Broker ACL resource types; clients handle authorization.
 
 ### KIP-1124: Consumer Partition Distributor
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer partition assignment distribution strategy for better balance.
 
 ### KIP-1129: DeadLetterQueue for deserialization errors in Share Groups
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Share consumer dead letter queue support for failed record processing.
 
 ### KIP-1130: Add read only partition in cluster
@@ -2684,11 +2684,11 @@ Broker leader election configuration, not client-relevant.
 KRaft metrics, not client-relevant.
 
 ### KIP-1142: Support configuration for SASL connect timeout
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 SASL authentication should support configurable connection timeout.
 
 ### KIP-1143: Expose replica selection as fetch strategy to clients
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should expose rack-aware/replica selection strategy configuration.
 
 ### KIP-1145: Share group offset management APIs
@@ -2700,15 +2700,15 @@ Share group offset APIs (AlterShareGroupOffsets, DeleteShareGroupOffsets, Descri
 Broker shutdown behavior, not client-relevant.
 
 ### KIP-1152: Advertise for deduplication before message sending
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer should advertise deduplication capability to allow broker-side dedup.
 
 ### KIP-1153: Allow AdminClient to override topic creation defaults
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 AdminClient CreateTopics should support overriding default configurations.
 
 ### KIP-1155: Add last heartbeat time in ConsumerGroupDescription
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer group describe should include last heartbeat time for member liveness monitoring.
 
 ### KIP-1156: Define an official backward compatibility contract
@@ -2724,7 +2724,7 @@ ApiVersionsResponse includes error codes; needs proper error handling.
 Kafka Connect REST API, not client-relevant.
 
 ### KIP-1160: Add group.version to describe groups API
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 DescribeGroups should include consumer group protocol version for upgrade management.
 
 ### KIP-1161: Add read-replica field to partition state
@@ -2732,7 +2732,7 @@ DescribeGroups should include consumer group protocol version for upgrade manage
 Broker partition state, metadata may indicate read replicas.
 
 ### KIP-1162: Consumer replica assignment strategies
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer configuration for replica preference (leader, rack-aware, closest, etc.).
 
 ### KIP-1163: Adjust default value for compression.type configuration
@@ -2740,7 +2740,7 @@ Consumer configuration for replica preference (leader, rack-aware, closest, etc.
 Configuration default change; implementation uses configured compression.
 
 ### KIP-1164: Additional error handling at deserialization time  
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer/Producer serialization should support error handlers for failed records.
 
 ### KIP-1165: Add AddRaftVoter and RemoveRaftVoter APIs
@@ -2748,7 +2748,7 @@ Consumer/Producer serialization should support error handlers for failed records
 KRaft quorum management; AddRaftVoterRequest/Response, RemoveRaftVoterRequest/Response generated but not controller operations.
 
 ### KIP-1166: Consistent error handling in producer callbacks
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer callback interface should have consistent error handling patterns.
 
 ### KIP-1167: Share Groups Introductory PR Review  
@@ -2756,15 +2756,15 @@ Producer callback interface should have consistent error handling patterns.
 Share groups PR management (process KIP, not feature); share group protocol generated.
 
 ### KIP-1169: Add support for PKCE in OAuth2
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 OAuth authentication PKCE (Proof Key for Code Exchange) support for enhanced security.
 
 ### KIP-1170: Configuration for handling null keys in compacted topics
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer configuration for null key handling in log-compacted topics (error, allow, etc.).
 
 ### KIP-1171: Add new consumer metrics for partition.assignment.strategy
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer metrics should expose current partition assignment strategy.
 
 ### KIP-1172: Listener Protocol Extension
@@ -2792,7 +2792,7 @@ Broker topic creation rack assignment, not directly client-relevant.
 Transaction protocol cleanup; clients use appropriate protocol version.
 
 ### KIP-1178: Add consumer metrics for partition lag
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer per-partition lag metrics (high watermark - current offset).
 
 ### KIP-1179: Allow  clients to specify compression level for Snappy
@@ -2808,11 +2808,11 @@ Broker producer ID allocation optimization, transparent to clients.
 FindCoordinatorRequest batch enhancement (duplicate of KIP-1121); needs consumer/producer updates.
 
 ### KIP-1182: Quality of Service Framework
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 QoS negotiation framework for client-broker SLA agreements.
 
 ### KIP-1183: Consumer Partition Selector
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer pluggable partition selection for targeted partition consumption.
 
 ### KIP-1184: Add support for throttling of delete requests
@@ -2828,7 +2828,7 @@ Kafka Connect metrics, not client-relevant.
 ShareGroupHeartbeatRequest versioning; share consumer needs proper version handling.
 
 ### KIP-1188: Enhanced consumer rebalance callback
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer rebalance listener should receive richer context information.
 
 ### KIP-1189: Return topic leader information in the metadata response
@@ -2836,11 +2836,11 @@ Consumer rebalance listener should receive richer context information.
 MetadataResponse includes leader information; already supported, ensure API exposure.
 
 ### KIP-1190: Server support for Client Tagging
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Client tagging for server-side routing and metrics segmentation.
 
 ### KIP-1191: Add configurable max idle time for SASL authentication
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 SASL authentication idle timeout configuration.
 
 ### KIP-1192: Configurable upper bound on transaction duration
@@ -2864,7 +2864,7 @@ Broker transaction enforcement, handled transparently by clients.
 MirrorMaker 2 multi-cluster, not client library concern.
 
 ### KIP-1199: Enhanced producer callback
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Producer callback should receive detailed metadata (broker, network latency, etc.).
 
 ### KIP-1200: Add leader epoch to sharegroup fetched messages
@@ -2884,11 +2884,11 @@ AdminClient topic config operations (AlterConfigs, IncrementalAlterConfigs); nee
 MetadataResponse enhanced for share groups; share consumer needs updates.
 
 ### KIP-1204: Additional error responses for authentication
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 SASL authentication should return detailed error codes for better diagnostics.
 
 ### KIP-1205: Configurable behavior for old consumer group protocol
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Configuration for handling mixed classic/new consumer group protocol versions.
 
 ### KIP-1206: Strict max records in Share Fetch
@@ -2924,7 +2924,7 @@ Configuration cleanup across Kafka; use canonical configs.
 Broker configuration type change, not client-relevant.
 
 ### KIP-1218: Expose consumer Corrupt Record Exception  
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Consumer should expose CorruptRecordException for client-side handling.
 
 ### KIP-1223: Add user tag to DeprecatedRequestsMetric
@@ -2948,7 +2948,7 @@ Tool option deprecation, not client library concern.
 Broker configuration naming, not client-relevant.
 
 ### KIP-1233: Maximum lengths for resource names
-**Status**: ✅ Implemented (this branch)  
+**Status**: ✅ Implemented  
 Protocol validation for resource name lengths; client should validate.
 
 ### KIP-1234: Move arguments to version-mapping commands
