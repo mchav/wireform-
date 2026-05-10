@@ -204,6 +204,16 @@ nextRetryBackoffMs RetryConfig{..} attempt =
 -- ProduceRequest; with pipelining it pays one round-trip per
 -- 'senderMaxInFlight' requests, which is what librdkafka and
 -- the JVM client do via @max.in.flight.requests.per.connection@.
+-- | Pool of 'BrokerPipe's targeting one broker. The sender
+-- round-robins outbound work across the pipes; each pipe owns
+-- its own TCP socket + writer + reader so multiple
+-- ProduceRequests can be in flight on different sockets in
+-- parallel. This breaks the single-writer bottleneck a single
+-- per-broker pipe imposes, which is the main thing keeping us
+-- below librdkafka's per-broker throughput on small-record
+-- workloads.
+newtype BrokerPool = BrokerPool { bpPipes :: V.Vector BrokerPipe }
+
 data BrokerPipe = BrokerPipe
   { bpAddr     :: !Conn.BrokerAddress
   , bpConn     :: !Conn.Connection
@@ -277,12 +287,24 @@ data SenderState = SenderState
   , senderMaxInFlight :: !Int
     -- ^ Maximum concurrent ProduceRequests in flight per broker
     --   pipe. Mirrors @max.in.flight.requests.per.connection@.
-  , senderBrokerPipes :: !(IORef (HashMap Conn.BrokerAddress BrokerPipe))
-    -- ^ Per-broker pipelined-send state. Lazily populated on
-    --   first send to a broker. Each pipe owns its own
-    --   'Connection' (so the writer / reader threads don't race
-    --   against the on-demand metadata refresh path that uses
-    --   the shared 'producerConnManager').
+  , senderConnsPerBroker :: !Int
+    -- ^ Number of parallel TCP connections per broker. Each
+    --   connection has its own writer + reader thread, so
+    --   throughput scales roughly linearly with this for
+    --   broker-bound workloads. librdkafka uses 1 by default but
+    --   benchmarks frequently bump it; the JVM client does not
+    --   expose this knob (always 1).
+  , senderBrokerPipes :: !(IORef (HashMap Conn.BrokerAddress BrokerPool))
+    -- ^ Per-broker pool of pipelined-send pipes. Lazily
+    --   populated on first send to a broker. Each pipe in the
+    --   pool owns its own 'Connection' (so the writer / reader
+    --   threads don't race against each other or against the
+    --   on-demand metadata refresh path that uses the shared
+    --   'producerConnManager').
+  , senderRoundRobin :: !(IORef Int)
+    -- ^ Counter the sender uses to round-robin enqueueing
+    --   across the per-broker pipes. Single 'IORef' is fine —
+    --   the only writer is the sender main thread.
   , senderAcks :: !Int16
     -- ^ Required acks: 0 = none, 1 = leader, -1 = all ISRs
   , senderTimeoutMs :: !Int32
@@ -358,6 +380,7 @@ createSenderState accumulator metadata connManager retryConfig acks deliveryTime
   correlationId <- newIORef 0
   txnIdVar <- newIORef Nothing
   brokerPipes <- newIORef HashMap.empty
+  rrCounter <- newIORef 0
   -- Use the smaller of delivery timeout and 30 seconds for individual request timeout
   -- The delivery timeout covers all retries, while request timeout is per-request
   let requestTimeoutMs = min 30000 (fromIntegral deliveryTimeoutMs)
@@ -369,7 +392,9 @@ createSenderState accumulator metadata connManager retryConfig acks deliveryTime
     , senderRunning = running
     , senderBusy = busy
     , senderMaxInFlight = max 1 maxInFlight
+    , senderConnsPerBroker = 8
     , senderBrokerPipes = brokerPipes
+    , senderRoundRobin = rrCounter
     , senderAcks = acks
     , senderTimeoutMs = requestTimeoutMs
     , senderDeliveryTimeoutMs = fromIntegral deliveryTimeoutMs
@@ -392,11 +417,12 @@ stopSenderThread :: SenderState -> Async () -> IO ()
 stopSenderThread state thread = do
   atomically $ writeTVar (senderRunning state) False
   cancel thread
-  pipes <- readIORef (senderBrokerPipes state)
-  forM_ (HashMap.elems pipes) $ \BrokerPipe{..} -> do
-    cancel bpWriter
-    cancel bpReader
-    void (try (Conn.disconnect bpConn) :: IO (Either SomeException ()))
+  pools <- readIORef (senderBrokerPipes state)
+  forM_ (HashMap.elems pools) $ \BrokerPool{..} ->
+    forM_ (V.toList bpPipes) $ \BrokerPipe{..} -> do
+      cancel bpWriter
+      cancel bpReader
+      void (try (Conn.disconnect bpConn) :: IO (Either SomeException ()))
   atomicModifyIORef' (senderBrokerPipes state) $ \_ -> (HashMap.empty, ())
 
 -- | Main sender loop
@@ -459,14 +485,21 @@ sendBatches :: SenderState -> [BA.ProducerBatch] -> IO ()
 sendBatches state@SenderState{..} batches = do
   batchesByBroker <- groupBatchesByBroker senderMetadata batches
   forM_ (Map.toList batchesByBroker) $ \(broker, brokerBatches) -> do
-    pipeR <- ensureBrokerPipe state broker
-    case pipeR of
+    poolR <- ensureBrokerPool state broker
+    case poolR of
       Left err ->
         forM_ brokerBatches $ \batch ->
           forM_ (BA.batchCallbacks batch) $ \cb ->
             cb (Left (T.pack ("Failed to open broker pipe: " <> err)))
-      Right pipe -> do
+      Right pool -> do
         forM_ (roundsPerPartition brokerBatches) $ \roundBatches -> do
+          -- Round-robin across the pool's pipes so the writer
+          -- threads run in parallel on different sockets.
+          rr <- atomicModifyIORef' senderRoundRobin $
+                  \k -> (k + 1, k)
+          let !pipes  = bpPipes pool
+              !nPipes = V.length pipes
+              !pipe   = pipes V.! (rr `mod` nPipes)
           result <- try $ enqueueRound state pipe broker roundBatches
           case result of
             Left (e :: SomeException) ->
@@ -504,7 +537,7 @@ enqueueRound
   -> Meta.BrokerMetadata
   -> [BA.ProducerBatch]
   -> IO ()
-enqueueRound state@SenderState{..} pipe _broker batches = do
+enqueueRound state@SenderState{..} pipe (_broker :: Meta.BrokerMetadata) batches = do
   -- Drop any batches that have exceeded the per-batch delivery
   -- timeout (KIP-91) before we hit the wire.
   currentTime <- KafkaTime.currentTimeMillis
@@ -557,66 +590,79 @@ enqueueRound state@SenderState{..} pipe _broker batches = do
       modifyTVar' (bpInFlightCount pipe) (+ 1)
       writeTBQueue (bpOutbox pipe) out
 
--- | Look up (or lazily open) the pipelined-send pipe for a
--- broker. Pipe construction opens its own dedicated TCP
--- connection and starts the writer + reader async threads.
-ensureBrokerPipe
+-- | Look up (or lazily open) the pool of pipelined-send pipes
+-- for a broker. The pool size is 'senderConnsPerBroker'; each
+-- pipe opens its own dedicated TCP connection and starts a
+-- writer + reader async pair.
+ensureBrokerPool
   :: SenderState
   -> Meta.BrokerMetadata
-  -> IO (Either String BrokerPipe)
-ensureBrokerPipe state@SenderState{..} brokerMeta = do
+  -> IO (Either String BrokerPool)
+ensureBrokerPool state@SenderState{..} brokerMeta = do
   let !addr = Meta.brokerMetaAddress brokerMeta
   existing <- HashMap.lookup addr <$> readIORef senderBrokerPipes
   case existing of
-    Just pipe -> pure (Right pipe)
+    Just pool -> pure (Right pool)
     Nothing -> do
-      connR <- Conn.connect addr Conn.defaultConnectionConfig
-      case connR of
-        Left err -> pure (Left err)
-        Right conn -> do
-          -- Run the ApiVersions handshake on this dedicated
-          -- connection /before/ the writer + reader threads
-          -- start. Doing it here keeps the in-flight FIFO empty
-          -- when the handshake's send + receive run, so we
-          -- don't race against the pipelined produces.
-          let nextCid = atomicModifyIORef' senderCorrelationId $ \cid -> (cid + 1, cid)
-          _ <- VN.ensureVersionsNegotiated conn addr senderVersionCache nextCid
-          outbox    <- newTBQueueIO (fromIntegral senderMaxInFlight)
-          inflight  <- newTBQueueIO 65536  -- effectively unbounded
-          counter   <- newTVarIO 0
-          let !pipeStub = PipeBootstrap
-                { pbsAddr     = addr
-                , pbsConn     = conn
-                , pbsOutbox   = outbox
-                , pbsInFlight = inflight
-                , pbsCount    = counter
-                , pbsState    = state
-                }
-          writerA <- async (brokerWriterLoop pipeStub)
-          readerA <- async (brokerReaderLoop pipeStub)
-          let !pipe = BrokerPipe
-                { bpAddr          = addr
-                , bpConn          = conn
-                , bpOutbox        = outbox
-                , bpInFlight      = inflight
-                , bpWriter        = writerA
-                , bpReader        = readerA
-                , bpInFlightCount = counter
-                }
-          -- CAS into the map; if a racing inserter beat us we
-          -- discard our pipe (close its threads + connection)
-          -- and use theirs.
+      let !n = max 1 senderConnsPerBroker
+      pipesE <- mapM (const (openOnePipe state addr))
+                     [1 .. n]
+      case sequence pipesE of
+        Left err -> do
+          -- Tear down the pipes that did open before failing.
+          forM_ pipesE $ \case
+            Right p -> do
+              cancel (bpWriter p); cancel (bpReader p)
+              void (try (Conn.disconnect (bpConn p)) :: IO (Either SomeException ()))
+            Left _ -> pure ()
+          pure (Left err)
+        Right pipes -> do
+          let !pool = BrokerPool { bpPipes = V.fromList pipes }
           inserted <- atomicModifyIORef' senderBrokerPipes $ \m ->
             case HashMap.lookup addr m of
-              Just existingPipe -> (m, Right existingPipe)
-              Nothing -> (HashMap.insert addr pipe m, Left pipe)
+              Just existingPool -> (m, Right existingPool)
+              Nothing -> (HashMap.insert addr pool m, Left pool)
           case inserted of
             Right p -> do
-              cancel writerA
-              cancel readerA
-              _ <- try (Conn.disconnect conn) :: IO (Either SomeException ())
+              -- A racing caller already populated the entry;
+              -- tear down our just-built pool and use theirs.
+              forM_ pipes $ \pp -> do
+                cancel (bpWriter pp); cancel (bpReader pp)
+                void (try (Conn.disconnect (bpConn pp)) :: IO (Either SomeException ()))
               pure (Right p)
             Left p -> pure (Right p)
+
+-- | Open + start one 'BrokerPipe'.
+openOnePipe :: SenderState -> Conn.BrokerAddress -> IO (Either String BrokerPipe)
+openOnePipe state@SenderState{..} addr = do
+  connR <- Conn.connect addr Conn.defaultConnectionConfig
+  case connR of
+    Left err -> pure (Left err)
+    Right conn -> do
+      let nextCid = atomicModifyIORef' senderCorrelationId $ \cid -> (cid + 1, cid)
+      _ <- VN.ensureVersionsNegotiated conn addr senderVersionCache nextCid
+      outbox    <- newTBQueueIO (fromIntegral senderMaxInFlight)
+      inflight  <- newTBQueueIO 65536
+      counter   <- newTVarIO 0
+      let !pipeStub = PipeBootstrap
+            { pbsAddr     = addr
+            , pbsConn     = conn
+            , pbsOutbox   = outbox
+            , pbsInFlight = inflight
+            , pbsCount    = counter
+            , pbsState    = state
+            }
+      writerA <- async (brokerWriterLoop pipeStub)
+      readerA <- async (brokerReaderLoop pipeStub)
+      pure $ Right BrokerPipe
+        { bpAddr          = addr
+        , bpConn          = conn
+        , bpOutbox        = outbox
+        , bpInFlight      = inflight
+        , bpWriter        = writerA
+        , bpReader        = readerA
+        , bpInFlightCount = counter
+        }
 
 -- | Bootstrap helper for the writer / reader threads.
 data PipeBootstrap = PipeBootstrap
@@ -735,11 +781,10 @@ flushTBQueueAll q = do
 -- replying for them).
 senderTotalInFlight :: SenderState -> IO Int
 senderTotalInFlight SenderState{..} = do
-  pipes <- readIORef senderBrokerPipes
-  -- One STM transaction per pipe: cheap; the producer's drain
-  -- loop polls this every 100ms.
-  fmap sum $ forM (HashMap.elems pipes) $ \BrokerPipe{..} ->
-    atomically (readTVar bpInFlightCount)
+  pools <- readIORef senderBrokerPipes
+  fmap sum $ forM (HashMap.elems pools) $ \BrokerPool{..} ->
+    fmap sum $ forM (V.toList bpPipes) $ \BrokerPipe{..} ->
+      atomically (readTVar bpInFlightCount)
 
 -- | Group batches by their target broker
 groupBatchesByBroker
