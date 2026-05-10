@@ -29,8 +29,9 @@ module Kafka.Client.Internal.TransactionCoordinator
   , buildTxnOffsetCommitRequest
   ) where
 
-import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
+import Control.Concurrent.STM (atomically)
 import Control.Exception (Exception)
+import Data.IORef (IORef, atomicModifyIORef')
 import Data.Int (Int16, Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -131,7 +132,7 @@ interpretCoordinatorError code = case code of
 -- Uses FindCoordinatorRequest (API key 10) with coordinator type TRANSACTION (1)
 findTransactionCoordinator :: Conn.ConnectionManager
                            -> AV.ApiVersionCache
-                           -> TVar Int32          -- ^ Correlation ID source
+                           -> IORef Int32         -- ^ Correlation ID source
                            -> BrokerAddress      -- ^ Bootstrap broker
                            -> Text               -- ^ Client ID
                            -> Text               -- ^ Transactional ID
@@ -146,10 +147,7 @@ findTransactionCoordinator connMgr versionCache corrIdVar bootstrapBroker client
     
     Right conn -> do
       -- Get correlation ID
-      corrId <- atomically $ do
-        cid <- readTVar corrIdVar
-        writeTVar corrIdVar (cid + 1)
-        return cid
+      corrId <- atomicModifyIORef' corrIdVar (\cid -> (cid + 1, cid))
       
       let apiKey = 10  -- FindCoordinator API key
           -- v6 = trunk; we handle both legacy v0-v3 and v4+
@@ -233,7 +231,7 @@ findTransactionCoordinator connMgr versionCache corrIdVar bootstrapBroker client
 -- Uses InitProducerIdRequest (API key 22)
 initProducerId :: Conn.ConnectionManager
                -> AV.ApiVersionCache
-               -> TVar Int32              -- ^ Correlation ID source
+               -> IORef Int32             -- ^ Correlation ID source
                -> Text                    -- ^ Client ID
                -> TransactionCoordinator  -- ^ Transaction coordinator
                -> Maybe Text              -- ^ Transactional ID (Nothing for idempotent-only)
@@ -254,10 +252,7 @@ initProducerId connMgr versionCache corrIdVar clientId coordinator transactional
     
     Right conn -> do
       -- Get correlation ID
-      corrId <- atomically $ do
-        cid <- readTVar corrIdVar
-        writeTVar corrIdVar (cid + 1)
-        return cid
+      corrId <- atomicModifyIORef' corrIdVar (\cid -> (cid + 1, cid))
       
       let apiKey = 22  -- InitProducerId API key
           -- v6 = trunk; we set Enable2Pc=False / KeepPreparedTxn=False
@@ -317,7 +312,7 @@ initProducerId connMgr versionCache corrIdVar clientId coordinator transactional
 -- Uses AddPartitionsToTxnRequest (API key 24)
 addPartitionsToTxn :: Conn.ConnectionManager
                    -> AV.ApiVersionCache
-                   -> TVar Int32              -- ^ Correlation ID source
+                   -> IORef Int32             -- ^ Correlation ID source
                    -> Text                    -- ^ Client ID
                    -> TransactionCoordinator  -- ^ Transaction coordinator
                    -> Text                    -- ^ Transactional ID
@@ -348,10 +343,7 @@ addPartitionsToTxn connMgr versionCache corrIdVar clientId coordinator transacti
       "Failed to connect to coordinator: " <> T.pack err
     
     Right conn -> do
-      corrId <- atomically $ do
-        cid <- readTVar corrIdVar
-        writeTVar corrIdVar (cid + 1)
-        return cid
+      corrId <- atomicModifyIORef' corrIdVar (\cid -> (cid + 1, cid))
       
       let apiKey = 24
           -- Hold at v3. The schema's own header note —
@@ -420,7 +412,7 @@ addPartitionsToTxn connMgr versionCache corrIdVar clientId coordinator transacti
 -- Uses EndTxnRequest (API key 26)
 endTransaction :: Conn.ConnectionManager
                -> AV.ApiVersionCache
-               -> TVar Int32              -- ^ Correlation ID source
+               -> IORef Int32             -- ^ Correlation ID source
                -> Text                    -- ^ Client ID
                -> TransactionCoordinator  -- ^ Transaction coordinator
                -> Text                    -- ^ Transactional ID
@@ -439,10 +431,7 @@ endTransaction connMgr versionCache corrIdVar clientId coordinator transactional
       "Failed to connect to coordinator: " <> T.pack err
     
     Right conn -> do
-      corrId <- atomically $ do
-        cid <- readTVar corrIdVar
-        writeTVar corrIdVar (cid + 1)
-        return cid
+      corrId <- atomicModifyIORef' corrIdVar (\cid -> (cid + 1, cid))
       
       let apiKey = 26  -- EndTxn API key
           -- v5 = trunk; the request fields are unchanged from
@@ -493,7 +482,7 @@ endTransaction connMgr versionCache corrIdVar clientId coordinator transactional
 -- envelope.
 addOffsetsToTxn :: Conn.ConnectionManager
                 -> AV.ApiVersionCache
-                -> TVar Int32              -- ^ Correlation ID source
+                -> IORef Int32             -- ^ Correlation ID source
                 -> Text                    -- ^ Client ID
                 -> TransactionCoordinator  -- ^ Transaction coordinator
                 -> Text                    -- ^ Transactional ID
@@ -511,10 +500,7 @@ addOffsetsToTxn connMgr versionCache corrIdVar clientId coordinator transactiona
     Left err -> return $ Left $ CoordinatorNotAvailable $
       "Failed to connect to coordinator: " <> T.pack err
     Right conn -> do
-      corrId <- atomically $ do
-        cid <- readTVar corrIdVar
-        writeTVar corrIdVar (cid + 1)
-        return cid
+      corrId <- atomicModifyIORef' corrIdVar (\cid -> (cid + 1, cid))
       let apiKey = 25  -- AddOffsetsToTxn API key
           clientMaxVersion = 4
       brokerVersionM <- atomically $
@@ -585,7 +571,7 @@ txnOffsetCommitImpl _coord _txnId _groupId _pid _epoch _offsets =
 txnOffsetCommitWith
   :: Conn.ConnectionManager
   -> AV.ApiVersionCache
-  -> TVar Int32
+  -> IORef Int32
   -> Text                           -- client id
   -> BrokerAddress                  -- consumer group coordinator
   -> Text                           -- consumer group id
@@ -600,10 +586,7 @@ txnOffsetCommitWith connMgr versionCache corrIdVar clientId groupCoordinator gro
     Left err -> return $ Left $ CoordinatorNotAvailable $
       "Failed to connect to group coordinator: " <> T.pack err
     Right conn -> do
-      corrId <- atomically $ do
-        cid <- readTVar corrIdVar
-        writeTVar corrIdVar (cid + 1)
-        return cid
+      corrId <- atomicModifyIORef' corrIdVar (\cid -> (cid + 1, cid))
       let apiKey = 28  -- TxnOffsetCommit API key
           -- v5 = highest version that still uses topic /names/.
           -- v6 (KIP-1319) drops the name field in favour of

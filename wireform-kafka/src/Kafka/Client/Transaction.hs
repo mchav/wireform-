@@ -42,6 +42,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import Control.Exception (Exception, try, SomeException)
 import Control.Monad (unless)
+import Data.IORef (IORef, newIORef)
 import Data.Int (Int16, Int32, Int64)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
@@ -106,8 +107,11 @@ data Transaction = Transaction
   -- ^ Connection manager for network operations
   , txnVersionCache :: !ApiVersionCache
   -- ^ API version cache for version negotiation
-  , txnCorrelationId :: !(TVar Int32)
-  -- ^ Correlation ID generator
+  , txnCorrelationId :: !(IORef Int32)
+  -- ^ Correlation ID generator. Single source of monotonically
+  --   increasing correlation IDs handed to TransactionCoordinator
+  --   requests; never composed transactionally with anything else,
+  --   so 'IORef' + 'atomicModifyIORef\'' suffices.
   , txnClientId :: !Text
   -- ^ Client ID for requests
   , txnBootstrapBroker :: !BrokerAddress
@@ -146,7 +150,7 @@ createTransaction transactionalId connMgr versionCache clientId bootstrapBroker 
   partitions <- newTVarIO HashSet.empty
   sequences <- newTVarIO HashMap.empty
   coordinator <- newTVarIO Nothing
-  correlationId <- newTVarIO 0
+  correlationId <- newIORef 0
   return Transaction
     { txnTransactionalId = transactionalId
     , txnProducerId = producerId

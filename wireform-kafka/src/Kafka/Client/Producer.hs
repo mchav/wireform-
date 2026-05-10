@@ -92,6 +92,7 @@ import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
+import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable (hash)
@@ -491,11 +492,8 @@ createProducer brokerAddrs config = do
           -- empty and the sender falls back to its compiled-in
           -- defaults.
           versionCache <- AV.createVersionCache
-          handshakeCorrId <- newTVarIO 0
-          let nextHandshakeCid = atomically $ do
-                cid <- readTVar handshakeCorrId
-                writeTVar handshakeCorrId (cid + 1)
-                pure cid
+          handshakeCorrId <- newIORef 0
+          let nextHandshakeCid = atomicModifyIORef' handshakeCorrId $ \cid -> (cid + 1, cid)
           _ <- VN.ensureVersionsNegotiated
                  conn firstBroker versionCache nextHandshakeCid
 
@@ -1220,10 +1218,7 @@ refreshTopicOnDemand Producer{..} topic = do
         Right conn -> do
           -- Reuse the sender's correlation-id source so we
           -- don't tread on its in-flight numbering.
-          cid <- atomically $ do
-            n <- readTVar (Sender.senderCorrelationId producerSenderState)
-            writeTVar (Sender.senderCorrelationId producerSenderState) (n + 1)
-            pure n
+          cid <- atomicModifyIORef' (Sender.senderCorrelationId producerSenderState) $ \n -> (n + 1, n)
           _ <- Meta.refreshTopicMetadata conn producerMetadata
                  (Just [topic]) cid
           pure ()

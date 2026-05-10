@@ -37,6 +37,7 @@ import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Control.Monad (void, when)
+import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import System.IO (hPutStrLn, stderr)
 import Data.Int (Int16, Int32)
 import Data.Text (Text)
@@ -81,8 +82,10 @@ data HeartbeatState = HeartbeatState
     -- ^ Version cache for API negotiation
   , hbClientId :: !Text
     -- ^ Client ID
-  , hbCorrelationId :: !(TVar Int32)
-    -- ^ Next correlation ID
+  , hbCorrelationId :: !(IORef Int32)
+    -- ^ Next correlation ID. SPSC counter (heartbeat thread is
+    --   sole reader/writer); 'IORef' + 'atomicModifyIORef\'' is
+    --   sufficient and avoids the per-tick STM commit overhead.
   , hbRunning :: !(TVar Bool)
     -- ^ Whether the heartbeat thread should keep running
   , hbNeedsRebalance :: !(TVar Bool)
@@ -102,7 +105,7 @@ createHeartbeatState groupId intervalMs connMgr versionCache clientId = do
   genId <- newTVarIO (-1)
   coordAddr <- newTVarIO Nothing
   dedicatedConn <- newTVarIO Nothing
-  corrId <- newTVarIO 0
+  corrId <- newIORef 0
   running <- newTVarIO True
   needsRebal <- newTVarIO False
 
@@ -266,11 +269,7 @@ sendHeartbeat hb@HeartbeatState{..} coordAddr memberId genId = do
     Left err -> return $ Left $ HeartbeatTransport $
       "Failed to open heartbeat conn: " ++ err
     Right conn -> do
-      -- Get correlation ID
-      corrId <- atomically $ do
-        cid <- readTVar hbCorrelationId
-        writeTVar hbCorrelationId (cid + 1)
-        return cid
+      corrId <- atomicModifyIORef' hbCorrelationId $ \cid -> (cid + 1, cid)
       
       let apiKey = 12  -- Heartbeat API key
           clientMaxVersion = 4  -- Max version we support

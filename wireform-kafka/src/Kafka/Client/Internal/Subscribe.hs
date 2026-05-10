@@ -48,6 +48,7 @@ module Kafka.Client.Internal.Subscribe
 
 import Control.Concurrent.STM
 import Control.Monad (forM)
+import Data.IORef (IORef, atomicModifyIORef')
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import qualified Data.ByteString as BS
 import Data.Int (Int16, Int32, Int64)
@@ -157,7 +158,7 @@ subscribeFlow
   -> Int32                      -- ^ rebalance / max-poll-interval (ms)
   -> ResetPolicy                -- ^ what to do when no committed offset exists
   -> Assignor                   -- ^ partition assignor to advertise + run if elected leader
-  -> TVar Int32                 -- ^ correlation id source
+  -> IORef Int32                -- ^ correlation id source
   -> IO (Either SubscribeError [(TopicPartition, Int64)])
 subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId topics
               sessionTimeoutMs rebalanceTimeoutMs resetPolicy assignor corrIdVar = do
@@ -177,10 +178,7 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
           Left err -> pure (Left (SubscribeCoordinator err))
           Right coord -> joinAndSync coord
   where
-    nextCorrId = atomically $ do
-      v <- readTVar corrIdVar
-      writeTVar corrIdVar (v + 1)
-      pure v
+    nextCorrId = atomicModifyIORef' corrIdVar (\v -> (v + 1, v))
 
     ensureMetadata = do
       brokersM <- atomically $ Meta.getAllBrokers metaCache

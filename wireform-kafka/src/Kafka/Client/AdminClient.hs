@@ -88,6 +88,7 @@ module Kafka.Client.AdminClient
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Control.Monad (forM, forM_)
+import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 import Data.Int
@@ -155,8 +156,11 @@ data AdminClient = AdminClient
     -- ^ Metadata cache
   , adminVersionCache :: !AV.ApiVersionCache
     -- ^ API version cache
-  , adminCorrelationId :: !(TVar Int32)
-    -- ^ Next correlation ID
+  , adminCorrelationId :: !(IORef Int32)
+    -- ^ Next correlation ID. Pre-Tier-1 lived in STM; the admin
+    --   client never composes the increment with anything else
+    --   transactionally, so 'IORef' + 'atomicModifyIORef\'' is
+    --   sufficient and skips the per-RPC STM commit.
   , adminConfig :: !AdminClientConfig
     -- ^ Configuration
   }
@@ -193,11 +197,8 @@ createAdminClient brokerAddrs config = do
           -- Initialize correlation ID first so the ApiVersions
           -- handshake and the metadata refresh share the same
           -- correlation-id source.
-          corrId <- newTVarIO 1
-          let nextCid = atomically $ do
-                cid <- readTVar corrId
-                writeTVar corrId (cid + 1)
-                pure cid
+          corrId <- newIORef 1
+          let nextCid = atomicModifyIORef' corrId $ \cid -> (cid + 1, cid)
 
           -- Run the ApiVersions handshake against the bootstrap
           -- broker before any other RPC. We swallow failure: an
@@ -237,10 +238,8 @@ closeAdminClient AdminClient{..} = do
 
 -- | Get next correlation ID
 getNextCorrelationId :: AdminClient -> IO Int32
-getNextCorrelationId AdminClient{..} = atomically $ do
-  cid <- readTVar adminCorrelationId
-  writeTVar adminCorrelationId (cid + 1)
-  return cid
+getNextCorrelationId AdminClient{..} =
+  atomicModifyIORef' adminCorrelationId $ \cid -> (cid + 1, cid)
 
 ----------------------------------------------------------------------
 -- Connection + version-negotiation glue

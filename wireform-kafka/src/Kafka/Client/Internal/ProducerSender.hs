@@ -57,6 +57,7 @@ import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Control.Monad (when, forM, forM_)
+import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.Int
 import Data.List (groupBy, sortBy, partition)
 import qualified Data.HashMap.Strict as HashMap
@@ -185,8 +186,11 @@ data SenderState = SenderState
     -- ^ Compression codec to use
   , senderClientId :: !Text
     -- ^ Client ID for requests
-  , senderCorrelationId :: !(TVar Int32)
-    -- ^ Next correlation ID to use
+  , senderCorrelationId :: !(IORef Int32)
+    -- ^ Next correlation ID to use. Single sender thread per
+    --   producer is the sole writer; SPSC counter served by
+    --   'IORef' + 'atomicModifyIORef\'' instead of an STM
+    --   transaction on every Produce request.
   , senderLogger :: !Logger
     -- ^ Structured logger callback; invoked on retriable / fatal
     --   produce errors. Defaults to 'defaultLogger'.
@@ -234,7 +238,7 @@ createSenderState
   -> IO SenderState
 createSenderState accumulator metadata connManager retryConfig acks deliveryTimeoutMs compression clientId versionCache = do
   running <- newTVarIO True
-  correlationId <- newTVarIO 0
+  correlationId <- newIORef 0
   txnIdVar <- newTVarIO Nothing
   -- Use the smaller of delivery timeout and 30 seconds for individual request timeout
   -- The delivery timeout covers all retries, while request timeout is per-request
@@ -381,10 +385,7 @@ sendToBroker state@SenderState{..} broker batches = do
   when (not $ null validBatches) $ do
     -- Get or create connection to the broker
     let brokerAddr = Meta.brokerMetaAddress broker
-        nextCid = atomically $ do
-          cid <- readTVar senderCorrelationId
-          writeTVar senderCorrelationId (cid + 1)
-          pure cid
+        nextCid = atomicModifyIORef' senderCorrelationId $ \cid -> (cid + 1, cid)
     connResult <- Conn.getOrCreateConnection senderConnManager brokerAddr Conn.defaultConnectionConfig
     case connResult of
       Left err -> do

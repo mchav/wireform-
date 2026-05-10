@@ -87,6 +87,7 @@ import qualified Control.Exception
 import Control.Exception (try)
 import qualified System.Timeout
 import Control.Concurrent.STM
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable (Hashable)
@@ -328,15 +329,23 @@ data Consumer = Consumer
     -- ^ Current partition assignment with fetch positions (uses stm-containers)
   , consumerHeartbeat :: !(Maybe (HB.HeartbeatState, Async ()))
     -- ^ Heartbeat state and thread (if in a group)
-  , consumerCorrelationId :: !(TVar Int32)
+  , consumerCorrelationId :: !(IORef Int32)
+    -- ^ Monotonic correlation-id source. Consumer threads call this
+    --   per request; never composes with anything in STM, so an
+    --   'IORef' + 'atomicModifyIORef\'' avoids the per-call STM
+    --   commit overhead we used to pay on every 'poll' / commit.
   , consumerPaused :: !(StmMap.Map TopicPartition ())
     -- ^ Paused partitions (uses stm-containers)
-  , consumerSubscription :: !(TVar (Maybe [Text]))
+  , consumerSubscription :: !(IORef (Maybe [Text]))
     -- ^ Last topics subscribed via 'subscribe' (so 'poll' can
     --   transparently re-run the JoinGroup flow when the heartbeat
     --   thread tells us the group is rebalancing). 'Nothing' means
     --   either we are using manual 'assign' instead of group
     --   subscription, or 'subscribe' has not been called yet.
+    --
+    --   Single-writer (the 'subscribe' / 'unsubscribe' caller) /
+    --   multi-reader ('poll' rebalance check) pattern; 'IORef'
+    --   suffices.
   }
 
 -- | Effective 'Conn.ConnectionConfig' for this consumer: takes the
@@ -367,10 +376,7 @@ consumerConnect c@Consumer{..} addr = do
     Right conn -> do
       _ <- VN.ensureVersionsNegotiated
              conn addr consumerVersionCache
-             (atomically $ do
-                cid <- readTVar consumerCorrelationId
-                writeTVar consumerCorrelationId (cid + 1)
-                pure cid)
+             (atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid))
       pure (Right conn)
 
 -- | Create a new Kafka consumer.
@@ -462,11 +468,8 @@ createConsumer brokers groupId config = do
           -- and the metadata refresh share the same source so
           -- their correlation ids stay distinct from later
           -- consumer requests.
-          corrId <- newTVarIO 0
-          let nextCid = atomically $ do
-                cid <- readTVar corrId
-                writeTVar corrId (cid + 1)
-                pure cid
+          corrId <- newIORef 0
+          let nextCid = atomicModifyIORef' corrId $ \cid -> (cid + 1, cid)
 
           -- Run the ApiVersions handshake against the bootstrap
           -- broker so subsequent calls' 'queryApiVersion' /
@@ -489,7 +492,7 @@ createConsumer brokers groupId config = do
               paused <- StmMap.newIO
 
               -- No active subscription yet.
-              subscription <- newTVarIO Nothing
+              subscription <- newIORef Nothing
               
               -- Initialize heartbeat if in a consumer group
               heartbeatM <- if T.null groupId
@@ -575,10 +578,7 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
       case connResult of
         Left err -> return $ Left $ "Failed to connect to broker: " ++ err
         Right conn -> do
-          corrId <- atomically $ do
-            cid <- readTVar consumerCorrelationId
-            writeTVar consumerCorrelationId (cid + 1)
-            return cid
+          corrId <- atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid)
           let apiKey = 2  -- ListOffsets
           -- ListOffsets: codegen handles up to v10. Schema
           -- changes by version:
@@ -761,10 +761,7 @@ sendLeaveGroup c@Consumer{..} hbState = do
       case connResult of
         Left _err -> pure ()
         Right conn -> do
-          corrId <- atomically $ do
-            cid <- readTVar consumerCorrelationId
-            writeTVar consumerCorrelationId (cid + 1)
-            pure cid
+          corrId <- atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid)
           _ <- CG.leaveGroup
                  consumerVersionCache
                  consumerConnManager
@@ -841,11 +838,15 @@ subscribe Consumer{..} topics = do
             forM_ tps $ \(stp, off) ->
               let tp = TopicPartition (Sub.tpTopic stp) (Sub.tpPartition stp)
               in StmMap.insert off tp consumerAssignment
-            writeTVar consumerSubscription (Just topics)
             -- Heartbeat thread set this when a previous reply
             -- contained REBALANCE_IN_PROGRESS; clear it now that we
             -- have re-joined.
             writeTVar (HB.hbNeedsRebalance hbState) False
+          -- The subscription list lives outside STM (Tier 1 of
+          -- the STM-replacement work): the heartbeat-rebalance
+          -- check below reads it via 'readIORef' independently
+          -- of the assignment-table swap above.
+          writeIORef consumerSubscription (Just topics)
           return $ Right ()
 
 -- | Unsubscribe from all topics.
@@ -916,16 +917,22 @@ poll
 poll consumer@Consumer{..} timeoutMs = do
   -- Auto-rebalance: if the heartbeat thread saw REBALANCE_IN_PROGRESS
   -- and we know what topics we're subscribed to, re-join now.
-  needsRejoin <- atomically $ do
-    case consumerHeartbeat of
-      Nothing -> pure False
-      Just (hbSt, _) -> do
-        flag <- readTVar (HB.hbNeedsRebalance hbSt)
-        topicsM <- readTVar consumerSubscription
-        pure (flag && case topicsM of Just _ -> True; Nothing -> False)
+  -- 'consumerSubscription' was a TVar pre-Tier-1; the rebalance
+  -- check is now two independent reads (rebalance flag from STM,
+  -- subscription list from an IORef). The race is harmless: if a
+  -- subscribe(' ) lands between the two reads we'll either trigger
+  -- rejoin once unnecessarily or miss this tick and catch it on
+  -- the next poll, both of which match the pre-Tier-1 STM
+  -- semantics for an interleaving against 'subscribe'.
+  needsRejoin <- case consumerHeartbeat of
+    Nothing -> pure False
+    Just (hbSt, _) -> do
+      flag <- readTVarIO (HB.hbNeedsRebalance hbSt)
+      topicsM <- readIORef consumerSubscription
+      pure (flag && case topicsM of Just _ -> True; Nothing -> False)
   rejoinR <- if needsRejoin
     then do
-      topicsM <- readTVarIO consumerSubscription
+      topicsM <- readIORef consumerSubscription
       case topicsM of
         Just ts -> subscribe consumer ts
         Nothing -> pure (Right ())
@@ -1243,10 +1250,7 @@ fetchRecords consumer@Consumer{..} partitions timeoutMs = do
         Left err -> return $ Left $ "Failed to connect to broker: " ++ err
         Right conn -> do
           -- Get current correlation ID and increment
-          corrId <- atomically $ do
-            cid <- readTVar consumerCorrelationId
-            writeTVar consumerCorrelationId (cid + 1)
-            return cid
+          corrId <- atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid)
           
           -- Refresh metadata for these topics
           refreshResult <- Meta.refreshTopicMetadata conn consumerMetadata (Just topics) corrId
@@ -1306,17 +1310,14 @@ fetchFromBroker
   -> Meta.BrokerMetadata
   -> [(Text, Int32, Int64)]  -- ^ (topic, partition, offset)
   -> Int                     -- ^ Timeout (ms)
-  -> TVar Int32              -- ^ Correlation ID source
+  -> IORef Int32             -- ^ Correlation ID source
   -> Maybe Text              -- ^ Rack ID for rack-aware fetching (KIP-392)
   -> Conn.ConnectionConfig   -- ^ Connection / SASL config (re-used cached conns when matching)
   -> IsolationLevel          -- ^ KIP-98 isolation level (ReadUncommitted / ReadCommitted)
   -> IO (Either String [ConsumerRecord])
 fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM connConfig isolationLevel = do
   let brokerAddr = Meta.brokerMetaAddress broker
-      nextCid = atomically $ do
-        cid <- readTVar corrIdVar
-        writeTVar corrIdVar (cid + 1)
-        pure cid
+      nextCid = atomicModifyIORef' corrIdVar $ \cid -> (cid + 1, cid)
   connResult <- Conn.getOrCreateConnection connMgr brokerAddr connConfig
   case connResult of
     Left err -> return $ Left $ "Failed to connect: " ++ err
@@ -1748,10 +1749,7 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
           case connResult of
             Left err -> return $ Left $ "Failed to connect to coordinator: " ++ err
             Right conn -> do
-              corrId <- atomically $ do
-                cid <- readTVar consumerCorrelationId
-                writeTVar consumerCorrelationId (cid + 1)
-                return cid
+              corrId <- atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid)
               let apiKey = 8  -- OffsetCommit
               -- OffsetCommit: codegen handles up to v10. The
               -- consumer's commitSync path is identical in
@@ -1870,10 +1868,7 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
           case connResult of
             Left err -> pure (Left ("Failed to connect to coordinator: " ++ err))
             Right conn -> do
-              corrId <- atomically $ do
-                cid <- readTVar consumerCorrelationId
-                writeTVar consumerCorrelationId (cid + 1)
-                pure cid
+              corrId <- atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid)
               let apiKey = 9  -- OffsetFetch
               -- OffsetFetch: v8 introduced the per-group batched
               -- shape (KIP-709). The wire is incompatible: v0-v7
@@ -2078,10 +2073,7 @@ queryPartitionOffsetsByTimestampFull consumer@Consumer{..} pts = do
       case connResult of
         Left err -> pure (Left ("Failed to connect to broker: " ++ err))
         Right conn -> do
-          corrId <- atomically $ do
-            cid <- readTVar consumerCorrelationId
-            writeTVar consumerCorrelationId (cid + 1)
-            pure cid
+          corrId <- atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid)
           let apiKey = 2  -- ListOffsets
           -- See 'queryPartitionOffsets' for the v8 cap rationale.
           verR <- VN.pickApiVersionForRange @LOReq.ListOffsetsRequest
