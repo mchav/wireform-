@@ -234,12 +234,12 @@ sendHeartbeat
 sendHeartbeat HeartbeatState{..} coordAddr memberId genId = do
   -- Get or create connection to coordinator
   connResult <- Conn.getOrCreateConnection hbConnManager coordAddr Conn.defaultConnectionConfig
-  
+
   case connResult of
     Left err -> return $ Left $ HeartbeatTransport $
       "Failed to connect to coordinator: " ++ err
-    
-    Right conn -> do
+
+    Right conn -> Conn.withBrokerLock hbConnManager coordAddr $ do
       -- Get correlation ID
       corrId <- atomically $ do
         cid <- readTVar hbCorrelationId

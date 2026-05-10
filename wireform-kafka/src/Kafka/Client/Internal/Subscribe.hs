@@ -212,6 +212,12 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
         Right coordConn -> do
           atomically $ writeTVar (HB.hbCoordinatorAddr hbState) (Just coordAddr)
 
+          -- The coordinator socket is shared with the heartbeat
+          -- thread; every send + receive pair we issue against it
+          -- must hold the per-broker lock so the framing stays
+          -- intact.
+          let withLock = Conn.withBrokerLock connMgr coordAddr
+
           -- 3. JoinGroup. Advertise the chosen assignor by name; the
           --    coordinator picks one assignor that every member of the
           --    group has in common.
@@ -219,7 +225,8 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
               protocols = [(assignorName assignor, subMeta)]
           cid1 <- nextCorrId
           existingMember <- atomically $ readTVar (HB.hbMemberId hbState)
-          joinR <- CG.joinGroup versionCache coordAddr coordConn groupId
+          joinR <- withLock $
+            CG.joinGroup versionCache coordAddr coordConn groupId
                      existingMember clientId
                      sessionTimeoutMs rebalanceTimeoutMs
                      "consumer" protocols cid1
@@ -245,7 +252,8 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
               -- 'protocolType' is fixed by the caller ("consumer"); the
               -- 'protocolName' is whatever the broker picked from our
               -- 'protocols' list (KIP-559 SyncGroup v5 demands both).
-              syncR <- CG.syncGroup versionCache coordAddr coordConn groupId
+              syncR <- withLock $
+                CG.syncGroup versionCache coordAddr coordConn groupId
                          (CG.jgrGenerationId join) (CG.jgrMemberId join)
                          clientId "consumer" (CG.jgrProtocolName join)
                          assignments cid2
@@ -340,7 +348,8 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
         [] -> pure (Right [])
         _  -> do
           cid <- nextCorrId
-          fetchR <- offsetFetchAll versionCache coordAddr coordConn
+          fetchR <- Conn.withBrokerLock connMgr coordAddr $
+            offsetFetchAll versionCache coordAddr coordConn
                        clientId groupId tps cid
           case fetchR of
             Left err -> pure (Left (SubscribeOffsetFetch err))

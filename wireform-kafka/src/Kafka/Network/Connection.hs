@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 
 {-|
@@ -41,6 +42,7 @@ module Kafka.Network.Connection
   , createConnectionManager
   , getOrCreateConnection
   , closeAllConnections
+  , withBrokerLock
     -- * Connection State
   , isConnected
     -- * Default Configuration
@@ -51,6 +53,7 @@ module Kafka.Network.Connection
   ) where
 
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, bracketOnError, try)
 import Control.Monad (when)
@@ -265,13 +268,42 @@ defaultTlsSettings hostname = (TLS.defaultParamsClient hostname "")
 
 -- | Connection manager that maintains one persistent connection per broker.
 -- This follows the pattern used by production Kafka clients (Java, librdkafka, Rust).
-newtype ConnectionManager = ConnectionManager
-  { connectionMap :: StmMap.Map BrokerAddress Connection
+data ConnectionManager = ConnectionManager
+  { connectionMap :: !(StmMap.Map BrokerAddress Connection)
+  , connectionLocks :: !(StmMap.Map BrokerAddress (MVar ()))
+    -- ^ Per-broker mutex that callers can take around a
+    -- send + receive pair. The blocking 'Network.Connection'
+    -- API is not safe to share between threads — two
+    -- concurrent 'sendRequestReceiveResponse' calls on the
+    -- same socket interleave their writes and read each
+    -- other's response bodies.  The consumer's heartbeat
+    -- thread + poll loop both target the coordinator broker,
+    -- so the lock here is what stops them from corrupting
+    -- the framing.
   }
 
 -- | Create a new connection manager.
 createConnectionManager :: IO ConnectionManager
-createConnectionManager = ConnectionManager <$> StmMap.newIO
+createConnectionManager = ConnectionManager <$> StmMap.newIO <*> StmMap.newIO
+
+-- | Run @action@ with the per-broker connection lock held.  See
+-- 'connectionLocks' for the rationale.  Safe to nest the same
+-- broker on the same thread (uses 'withMVar' which is not
+-- recursive — callers must avoid that).
+withBrokerLock :: ConnectionManager -> BrokerAddress -> IO a -> IO a
+withBrokerLock (ConnectionManager _ lockMap) addr action = do
+  lock <- atomically (StmMap.lookup addr lockMap) >>= \case
+    Just l  -> pure l
+    Nothing -> do
+      fresh <- newMVar ()
+      atomically $ do
+        m <- StmMap.lookup addr lockMap
+        case m of
+          Just existing -> pure existing
+          Nothing       -> do
+            StmMap.insert fresh addr lockMap
+            pure fresh
+  withMVar lock (\_ -> action)
 
 -- | Get an existing connection or create a new one for the given broker.
 -- Reuses the connection if one already exists.
@@ -285,7 +317,7 @@ getOrCreateConnection
   -> BrokerAddress
   -> ConnectionConfig
   -> IO (Either String Connection)
-getOrCreateConnection (ConnectionManager connMap) addr config = do
+getOrCreateConnection cm@(ConnectionManager connMap _) addr config = do
   -- Try to get existing connection
   existingConnM <- atomically $ StmMap.lookup addr connMap
   case existingConnM of
@@ -301,7 +333,7 @@ getOrCreateConnection (ConnectionManager connMap) addr config = do
           (do
              -- recurse via 'getOrCreateConnection' so we don't
              -- duplicate the SASL bootstrap logic.
-             getOrCreateConnection (ConnectionManager connMap) addr config)
+             getOrCreateConnection cm addr config)
     Nothing -> do
       -- No existing connection, create a new one
       connResult <- if connUseTls config
@@ -333,15 +365,14 @@ getOrCreateConnection (ConnectionManager connMap) addr config = do
 -- | Close all connections managed by this connection manager.
 -- This should be called when shutting down the client.
 closeAllConnections :: ConnectionManager -> IO ()
-closeAllConnections (ConnectionManager connMap) = do
-  -- Get all connections from the map
+closeAllConnections (ConnectionManager connMap lockMap) = do
   connections <- atomically $ do
     pairs <- ListT.toList $ StmMap.listT connMap
     return $ map snd pairs
-  -- Close each connection
   mapM_ disconnect connections
-  -- Clear the map
-  atomically $ StmMap.reset connMap
+  atomically $ do
+    StmMap.reset connMap
+    StmMap.reset lockMap
 
 -- | Calculate exponential backoff delay with jitter.
 -- Returns delay in microseconds for threadDelay.

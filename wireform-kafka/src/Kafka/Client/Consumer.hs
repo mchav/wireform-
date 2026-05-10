@@ -766,14 +766,15 @@ sendLeaveGroup c@Consumer{..} hbState = do
             cid <- readTVar consumerCorrelationId
             writeTVar consumerCorrelationId (cid + 1)
             pure cid
-          _ <- CG.leaveGroup
-                 consumerVersionCache
-                 coordAddr
-                 conn
-                 (HB.hbGroupId hbState)
-                 memberId
-                 (consumerClientId consumerConfig)
-                 corrId
+          _ <- Conn.withBrokerLock consumerConnManager coordAddr $
+                 CG.leaveGroup
+                   consumerVersionCache
+                   coordAddr
+                   conn
+                   (HB.hbGroupId hbState)
+                   memberId
+                   (consumerClientId consumerConfig)
+                   corrId
           pure ()
 
 -- | Subscribe to topics with broker-side group coordination.
@@ -1815,10 +1816,10 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
                   
                   requestBody = WC.runEncodeVer @OCReq.OffsetCommitRequest apiVersion request
                   clientId = P.mkKafkaString (consumerClientId consumerConfig)
-              
-              -- Send request
-              result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
-              
+
+              result <- Conn.withBrokerLock consumerConnManager coordAddr $
+                Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
+
               case result of
                 Left err -> return $ Left $ "OffsetCommit failed: " ++ err
                 Right (_, responseBody) -> do
@@ -1901,7 +1902,8 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
                     | otherwise       = buildOffsetFetchRequestLegacy groupId byTopic
                   requestBody = WC.runEncodeVer @OFReq.OffsetFetchRequest apiVersion request
                   clientId = P.mkKafkaString (consumerClientId consumerConfig)
-              result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
+              result <- Conn.withBrokerLock consumerConnManager coordAddr $
+                Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
               case result of
                 Left err -> pure (Left ("OffsetFetch failed: " ++ err))
                 Right (_, responseBody) ->
