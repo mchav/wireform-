@@ -63,6 +63,9 @@ module Kafka.Streams.Runtime
   , setRebalanceListener
   , ownedPartitions
   , standbyTasks
+    -- * Progress signal (used by tests to coordinate without threadDelay)
+  , ksTickCount
+  , awaitTicks
     -- * Internal access (used by Kafka.Streams.InteractiveQueries)
   , ksEngine
   , ksPool
@@ -187,6 +190,11 @@ data KafkaStreams = KafkaStreams
     -- re-promotion) until the deadline.
   , ksRebLis    :: !(IORef RebalanceListener)
     -- ^ User callback fired on every rebalance event.
+  , ksTicks     :: !(TVar Int)
+    -- ^ Monotonic counter bumped at the bottom of every
+    -- event-loop iteration. Tests block on this via
+    -- 'awaitTicks' to coordinate with engine progress
+    -- without using 'threadDelay'.
   }
 
 newKafkaStreams
@@ -206,6 +214,7 @@ newKafkaStreams cfg topo = do
   owned <- newTVarIO HashSet.empty
   stand <- newTVarIO Map.empty
   reb  <- newIORef noopRebalanceListener
+  ticks <- newTVarIO 0
   pure KafkaStreams
     { ksConfig    = cfg
     , ksTopology  = topo
@@ -221,6 +230,7 @@ newKafkaStreams cfg topo = do
     , ksOwned     = owned
     , ksStandbys  = stand
     , ksRebLis    = reb
+    , ksTicks     = ticks
     }
 
 -- | Start the runtime against a real broker. Constructs a
@@ -415,6 +425,7 @@ eventLoop ks driver engine = go
             case outcome of
               CommitSucceeded -> do
                 _ <- sdConsumerCommit driver
+                bumpTick ks
                 go
               CommitAborted reason -> do
                 -- Aborted: the txn was rolled back; we keep running
@@ -422,6 +433,7 @@ eventLoop ks driver engine = go
                 -- poll re-reads them.
                 putStrLn ("[streams] commit aborted: "
                   <> Text.unpack reason)
+                bumpTick ks
                 go
               CommitFatal reason ->
                 transitionTo ks (StreamsError reason)
@@ -492,10 +504,12 @@ multiEventLoop ks driver pool = go
             case outcome of
               CommitSucceeded -> do
                 _ <- sdConsumerCommit driver
+                bumpTick ks
                 go
               CommitAborted reason -> do
                 putStrLn ("[streams] commit aborted: "
                   <> Text.unpack reason)
+                bumpTick ks
                 go
               CommitFatal reason ->
                 transitionTo ks (StreamsError reason)
@@ -708,6 +722,35 @@ expireStandbys ks = do
   now <- nowMillis
   atomically $
     modifyTVar' (ksStandbys ks) (Map.filter (> now))
+
+----------------------------------------------------------------------
+-- Progress signal (for tests)
+----------------------------------------------------------------------
+
+-- | Read the runtime's tick counter. Bumped at the bottom of
+-- every event-loop iteration (single-thread and multi-thread).
+-- Tests block on this via 'awaitTicks' to coordinate with
+-- engine progress deterministically — no 'threadDelay'
+-- involved.
+ksTickCount :: KafkaStreams -> IO Int
+ksTickCount ks = readTVarIO (ksTicks ks)
+
+-- | Block until 'ksTicks' has advanced by at least @n@ since
+-- the call. Returns the new tick count. Used by tests to
+-- wait for "the engine ran at least @n@ more times".
+awaitTicks :: KafkaStreams -> Int -> IO Int
+awaitTicks ks n = do
+  start <- readTVarIO (ksTicks ks)
+  atomically $ do
+    cur <- readTVar (ksTicks ks)
+    if cur >= start + n
+      then pure cur
+      else retry
+
+-- | Increment the tick counter. Called once per event-loop
+-- iteration; internal.
+bumpTick :: KafkaStreams -> IO ()
+bumpTick ks = atomically (modifyTVar' (ksTicks ks) (+ 1))
 
 ----------------------------------------------------------------------
 -- Helpers

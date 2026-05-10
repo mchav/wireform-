@@ -129,7 +129,7 @@ records_pumped_through_topology =
     -- up. Once we've seen at least one commit AND the captured
     -- sends contain both records we know the batch was processed.
     sentRef <- newIORef []
-    waitFor 1000 $ do
+    waitForKs ks 5000 $ do
       sends <- mockDriverDrainSends h
       modifyIORef' sentRef (++ sends)
       acc <- readIORef sentRef
@@ -185,7 +185,7 @@ pause_stops_engine_but_not_polling =
     mockDriverInjectPoll h
       [ consumerRecord "in" "k2" "after-resume" (Int64ish 1) (Int64ish 101)
       ]
-    waitFor 1000 $ do
+    waitForKs ks 5000 $ do
       ss <- mockDriverDrainSends h
       pure (any (\s -> mockSendValue s == bytes "AFTER-RESUME") ss)
 
@@ -231,7 +231,7 @@ commit_cycle_invokes_eos_coordinator =
 
     -- Wait for at least one full begin/commitOffsets/commit
     -- cycle to fire by observing the coordinator log.
-    waitFor 1000 $ do
+    waitForKs ks 5000 $ do
       cs <- reverse <$> readIORef callsRef
       pure (cs == ["begin", "commitOffsets", "commit"]
              || take 3 cs == ["begin", "commitOffsets", "commit"])
@@ -286,7 +286,7 @@ multi_thread_runtime_dispatches_by_partition =
     awaitState ks StreamsRunning
 
     sentRef <- newIORef []
-    waitFor 2000 $ do
+    waitForKs ks 5000 $ do
       sends <- mockDriverDrainSends h
       modifyIORef' sentRef (++ sends)
       acc <- readIORef sentRef
@@ -335,7 +335,7 @@ multi_thread_runtime_drains_collectors_at_commit =
     awaitState ks StreamsRunning
 
     -- Wait until the federated count shows the expected totals.
-    waitFor 2000 $ do
+    waitForKs ks 5000 $ do
       mIQ <- queryKVStore @Text @Int64 ks (storeName "counts")
       case mIQ of
         Nothing -> pure False
@@ -421,7 +421,7 @@ rebalance_assigned_updates_owned_partitions =
     startKafkaStreamsWith ks drv
     awaitState ks StreamsRunning
 
-    waitFor 1000 $ do
+    waitForKs ks 5000 $ do
       owned <- ownedPartitions ks
       pure (length owned == 2)
 
@@ -451,7 +451,7 @@ rebalance_revoked_moves_to_standby_grace =
     -- After draining both events: owned must be empty AND
     -- the revoked tp must appear in the standby map with a
     -- deadline a non-trivial time in the future.
-    waitFor 1000 $ do
+    waitForKs ks 5000 $ do
       owned <- ownedPartitions ks
       stby  <- standbyTasks ks
       pure (null owned && Map.member tp stby)
@@ -478,7 +478,7 @@ rebalance_lost_drops_without_grace =
     startKafkaStreamsWith ks drv
     awaitState ks StreamsRunning
 
-    waitFor 1000 $ do
+    waitForKs ks 5000 $ do
       owned <- ownedPartitions ks
       stby  <- standbyTasks ks
       tags  <- map fst <$> readIORef log_
@@ -505,7 +505,7 @@ rebalance_reassignment_promotes_standby =
     startKafkaStreamsWith ks drv
     awaitState ks StreamsRunning
 
-    waitFor 1000 $ do
+    waitForKs ks 5000 $ do
       owned <- ownedPartitions ks
       stby  <- standbyTasks ks
       pure (tp `elem` owned && Map.null stby)
@@ -572,7 +572,7 @@ two_instances_handoff_partitions_via_rebalance =
       , consumerRecordPart "in" 3 "dave"    "1" (Int64ish 4) (Int64ish 104)
       ]
 
-    waitFor 5000 $ do
+    waitForKs ksA 5000 $ do
       mIQ <- queryKVStore @Text @Int64 ksA (storeName "counts")
       case mIQ of
         Nothing -> pure False
@@ -593,7 +593,7 @@ two_instances_handoff_partitions_via_rebalance =
     startKafkaStreamsWith ksB drvB
     awaitState ksB StreamsRunning
 
-    waitFor 2000 $ do
+    waitForKs ksA 5000 $ do
       ownedA <- ownedPartitions ksA
       ownedB <- ownedPartitions ksB
       stbyA  <- standbyTasks ksA
@@ -610,7 +610,7 @@ two_instances_handoff_partitions_via_rebalance =
       , consumerRecordPart "in" 3 "dave"  "1" (Int64ish 12) (Int64ish 202)
       ]
 
-    waitFor 2000 $ do
+    waitForKs ksB 5000 $ do
       mIqB <- queryKVStore @Text @Int64 ksB (storeName "counts")
       case mIqB of
         Nothing -> pure False
@@ -653,14 +653,35 @@ sortBy_ = sortOn (\(KC.TopicPartition t p) -> (t, p))
           | otherwise     = x : y : ys
 
 ----------------------------------------------------------------------
--- Wait helper (no threadDelay)
+-- Wait helper
 ----------------------------------------------------------------------
 
--- | Spin on the IO predicate up to N tries with @yieldM@-style
--- short waits between checks. We use 'Control.Concurrent.yield'
--- to nudge the scheduler instead of sleeping for a fixed
--- duration. If we exceed the cap, fail loudly so the test isn't
--- silently flaky.
+-- | Block on an IO predicate, coordinating with the runtime's
+-- own progress signal ('awaitTicks') so we don't busy-spin or
+-- guess at delays. Strategy: re-check the predicate, and if it
+-- isn't true yet, block via STM until the runtime has run at
+-- least one more event-loop iteration, then re-check. Bounded
+-- by @maxIters@ ticks total so a stuck test fails loudly
+-- instead of hanging.
+--
+-- The @maxIters@ budget here is generous (a few thousand
+-- ticks) because the predicate only re-runs after an actual
+-- engine iteration completed.
+waitForKs :: KafkaStreams -> Int -> IO Bool -> IO ()
+waitForKs _  0 _   = error "waitForKs: timed out"
+waitForKs ks n act = do
+  ok <- act
+  if ok
+    then pure ()
+    else do
+      _ <- awaitTicks ks 1
+      waitForKs ks (n - 1) act
+
+-- | Legacy yield-based wait kept for tests that don't have a
+-- 'KafkaStreams' handle to block on (e.g. the foreign-key DSL
+-- tests). The bound @n@ is interpreted as a soft cap; on a
+-- quiet machine each iteration is essentially free, on a busy
+-- one each yield hands off so the engine thread can run.
 waitFor :: Int -> IO Bool -> IO ()
 waitFor 0 _ = error "waitFor: timed out"
 waitFor n act = do
@@ -668,8 +689,5 @@ waitFor n act = do
   if ok
     then pure ()
     else do
-      -- Yielding rather than sleeping keeps the test fast on
-      -- a quiet machine; on a busy one it just lets the worker
-      -- thread run.
       Control.Concurrent.yield
       waitFor (n - 1) act

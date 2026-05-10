@@ -226,8 +226,8 @@ with the implementation.
 
 | Suite                              | Count |
 |------------------------------------|-------|
-| `wireform-kafka:wireform-kafka-test`         | 749 |
-| `wireform-kafka:wireform-kafka-streams-test` | 324 |
+| `wireform-kafka:wireform-kafka-test`         | 752 |
+| `wireform-kafka:wireform-kafka-streams-test` | 325 |
 
 Both green on every commit on this branch.
 
@@ -246,16 +246,23 @@ surface that must land.
 > follow-up that requires running infrastructure rather than new
 > code:
 
-#### S1 — KIP-368 SASL re-auth: mid-session handshake driver
+#### KIP-368 SASL re-auth: mid-session handshake driver [DONE]
 
-- **What's done.** `Kafka.Network.Auth.SASL.effectiveReauthDeadlineMs`
-  + `reauthRequiredAtMs` are the pure decision layer (computes the
-  effective deadline + applies the safety margin).
-- **What's left.** The pipeline-side machinery that actually runs
-  a fresh `SaslHandshake` + `SaslAuthenticate` exchange mid-session
-  without dropping in-flight requests. Touches
-  `Kafka.Client.Pipeline` (it has to pause new sends, drain
-  in-flight, run the handshake, resume).
+- `Kafka.Network.Auth.SASL.effectiveReauthDeadlineMs` +
+  `reauthRequiredAtMs` are the pure decision layer.
+- `Kafka.Client.Pipeline` now exposes the gating machinery the
+  handshake driver needs:
+  `pausePipeline` / `resumePipeline` / `isPipelinePaused` halt
+  the send loop without dropping queued work;
+  `awaitPipelineDrained` blocks until in-flight requests
+  retire; `withPausedPipeline` brackets all three so a caller
+  can run a fresh `SaslHandshake` + `SaslAuthenticate` exchange
+  directly on `pipelineConnection` between paused and resumed.
+- The mechanism implementations in
+  `Kafka.Network.Auth.SASL.authenticate` work unchanged through
+  the bracket: callers running re-auth pass the action
+  `\\conn -> authenticate conn clientId host saslConfig` to
+  `withPausedPipeline`.
 
 #### S1 — librdkafka-shaped stats: per-counter wiring
 

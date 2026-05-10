@@ -395,7 +395,7 @@ tracker entry.
 The streams runtime and DSL are otherwise considered
 **feature-complete relative to Kafka 4.0 Streams** for the
 single-thread / multi-thread / in-process happy path, and
-tests cover every shipped operator end-to-end (324 tests in
+tests cover every shipped operator end-to-end (325 tests in
 `wireform-kafka-streams-test`).
 
 ---
