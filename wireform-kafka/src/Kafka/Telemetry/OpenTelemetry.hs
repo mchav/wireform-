@@ -60,6 +60,8 @@ module Kafka.Telemetry.OpenTelemetry
     -- * Context Propagation
   , injectContextHeaders
   , extractContextHeaders
+  , injectSpanContextHeaders
+  , extractSpanContextHeaders
     -- * Telemetry Configuration
   , TelemetryConfig(..)
   , defaultTelemetryConfig
@@ -67,12 +69,14 @@ module Kafka.Telemetry.OpenTelemetry
 
 import Data.Int
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
+import qualified Kafka.Telemetry.TraceContext as TC
 
--- Note: hs-opentelemetry-api integration would go here
--- For now, we define the interface and TODOs for implementation
+-- Note: hs-opentelemetry-api integration would go here for the
+-- /span/ + /metric/ side; the W3C-Trace-Context propagation
+-- below is fully implemented locally (see
+-- "Kafka.Telemetry.TraceContext") and works without a tracing
+-- SDK.
 
 -- | Telemetry configuration.
 data TelemetryConfig = TelemetryConfig
@@ -207,34 +211,58 @@ recordBatchSize size = do
   -- messaging.kafka.batch.size
   return ()
 
--- | Inject OpenTelemetry context into Kafka message headers.
--- This enables distributed tracing across producers and consumers.
+-- | Inject the W3C Trace Context @traceparent@ + @tracestate@
+-- headers (per
+-- <https://www.w3.org/TR/trace-context/>) into a Kafka message
+-- header map. The result includes (or replaces) the
+-- @traceparent@ and @tracestate@ entries so consumers can
+-- continue the trace.
 --
--- The context is injected as headers following the W3C Trace Context format:
--- * traceparent header
--- * tracestate header (optional)
---
--- TODO: Implement context injection
-injectContextHeaders
-  :: Map Text Text  -- ^ Existing headers
-  -> IO (Map Text Text)  -- ^ Headers with injected context
-injectContextHeaders headers = do
-  -- TODO: Get current span context
-  -- TODO: Serialize to W3C Trace Context format
-  -- TODO: Add traceparent and tracestate headers
-  return headers
+-- This is the SDK-free path: pass in a 'TC.SpanContext' you've
+-- assembled yourself (or that was extracted from an upstream
+-- message). For the in-process / current-span case, plug your
+-- tracing SDK in at the call site and translate its span context
+-- to 'TC.SpanContext' before calling.
+injectSpanContextHeaders
+  :: TC.SpanContext
+  -> Map Text Text
+  -> Map Text Text
+injectSpanContextHeaders = TC.injectIntoHeaders
 
--- | Extract OpenTelemetry context from Kafka message headers.
--- This enables distributed tracing across producers and consumers.
+-- | Extract a W3C Trace Context 'TC.SpanContext' from a Kafka
+-- message header map, returning:
 --
--- TODO: Implement context extraction
+--   * 'Nothing' when the @traceparent@ header is absent (untraced
+--     message);
+--   * @'Just' ('Left' err)@ when the header is present but
+--     malformed (caller decides whether to drop or warn);
+--   * @'Just' ('Right' ctx)@ when the message carries a valid
+--     trace context to continue.
+--
+-- The companion @tracestate@ header is parsed automatically.
+extractSpanContextHeaders
+  :: Map Text Text
+  -> Maybe (Either TC.TraceContextError TC.SpanContext)
+extractSpanContextHeaders = TC.extractFromHeaders
+
+-- | Backwards-compatible @IO@-flavoured shim over
+-- 'injectSpanContextHeaders'. Returns the input headers
+-- unchanged when no current-span integration is wired up.
+--
+-- TODO: when an OTel SDK is integrated, this should pull the
+-- /current/ span context off the local thread-state and inject
+-- it. For now it's a no-op so existing call sites compile.
+injectContextHeaders
+  :: Map Text Text
+  -> IO (Map Text Text)
+injectContextHeaders = pure
+
+-- | Backwards-compatible @IO@-flavoured shim over
+-- 'extractSpanContextHeaders'. Currently a no-op for symmetry
+-- with 'injectContextHeaders'; once an OTel SDK is wired up this
+-- should /set/ the current-span context to the extracted value.
 extractContextHeaders
-  :: Map Text Text  -- ^ Message headers
-  -> IO ()  -- ^ Extracted context (TODO: proper type)
-extractContextHeaders headers = do
-  -- TODO: Extract traceparent header
-  -- TODO: Extract tracestate header
-  -- TODO: Parse W3C Trace Context format
-  -- TODO: Create span context
-  return ()
+  :: Map Text Text
+  -> IO ()
+extractContextHeaders _ = pure ()
 

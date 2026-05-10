@@ -34,11 +34,11 @@ import Foreign.Storable
 defaultLz4Level :: Int
 defaultLz4Level = 0  -- Fast mode for better throughput
 
--- | FFI binding to lz4_compress_wrapper (default level)
-foreign import ccall unsafe "lz4_ffi.h lz4_compress_wrapper"
-  c_lz4_compress :: Ptr CChar -> CSize -> Ptr (Ptr CChar) -> Ptr CSize -> IO CSize
-
--- | FFI binding to lz4_compress_wrapper_level (with compression level)
+-- | FFI binding to lz4_compress_wrapper_level (with compression level).
+-- The previous default-level @c_lz4_compress@ binding is gone since
+-- 'c_lz4_compress_level' subsumes it: callers pass
+-- 'defaultLz4Level' (0) to get the default-level fast path without
+-- the broker noticing.
 foreign import ccall unsafe "lz4_ffi.h lz4_compress_wrapper_level"
   c_lz4_compress_level :: Ptr CChar -> CSize -> Ptr (Ptr CChar) -> Ptr CSize -> CInt -> IO CSize
 

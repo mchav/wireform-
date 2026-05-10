@@ -373,6 +373,7 @@ library
         Kafka.Telemetry.OpenTelemetry
         Kafka.Telemetry.Push
         Kafka.Telemetry.StatsJson
+        Kafka.Telemetry.TraceContext
         Kafka.Time
     build-depends:
         base                      >= 4.16  && < 5,
@@ -697,6 +698,7 @@ test-suite wireform-kafka-test
         Client.ConsumerGroupV2Spec
         Client.ShareConsumerSpec
         Client.TelemetryPushSpec
+        Client.TraceContextSpec
         Client.RecordMetadataSpec
         Client.FilterSpec
         Client.FutureSpec

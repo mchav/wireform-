@@ -1654,22 +1654,6 @@ calculateBatchLength batch =
       Left _ -> 0
       Right len -> len
 
--- | Convert a RecordBatch to ConsumerRecords
-convertBatchToRecords :: Text -> Int32 -> RB.RecordBatch -> [ConsumerRecord]
-convertBatchToRecords topic partId batch =
-  let baseOffset = RB.batchBaseOffset batch
-      baseTimestamp = RB.batchBaseTimestamp batch
-      records = RB.batchRecords batch
-  in V.toList $ V.map (\rec -> ConsumerRecord
-        { crTopic = topic
-        , crPartition = partId
-        , crOffset = baseOffset + fromIntegral (RB.recordOffsetDelta rec)
-        , crTimestamp = baseTimestamp + RB.recordTimestampDelta rec
-        , crKey = RB.recordKey rec
-        , crValue = RB.recordValue rec
-        , crHeaders = convertHeaders (RB.recordHeaders rec)
-        }) records
-
 -- | Convert RecordHeaders to (Text, ByteString) tuples
 -- Only includes headers with non-null values
 convertHeaders :: [RB.RecordHeader] -> [(Text, ByteString)]
@@ -1804,68 +1788,6 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
                       if null errors
                         then return $ Right ()
                         else return $ Left $ "Offset commit errors: " ++ show errors
-
--- | Internal: Fetch committed offsets from the broker
-fetchCommittedOffsets
-  :: Consumer
-  -> Text                      -- ^ Group ID
-  -> [TopicPartition]          -- ^ Partitions to fetch offsets for
-  -> IO (Either String Int64)
-fetchCommittedOffsets consumer@Consumer{..} groupId tps = do
-  -- The heartbeat thread already discovered the group coordinator
-  -- via FindCoordinator and parked the address in
-  -- 'hbCoordinatorAddr'; we read it off there. If the consumer
-  -- isn't in a group, OffsetFetch isn't sensible — the JVM
-  -- client behaves the same.
-  case consumerHeartbeat of
-    Nothing -> return $ Left "Not in a consumer group, cannot fetch committed offsets"
-    Just (hbState, _) -> do
-      coordAddrM <- atomically $ readTVar (HB.hbCoordinatorAddr hbState)
-      case coordAddrM of
-        Nothing -> return $ Left "No group coordinator known"
-        Just coordAddr -> do
-          connResult <- consumerConnect consumer coordAddr
-          case connResult of
-            Left err -> return $ Left $ "Failed to connect to coordinator: " ++ err
-            Right conn -> do
-              corrId <- atomically $ do
-                cid <- readTVar consumerCorrelationId
-                writeTVar consumerCorrelationId (cid + 1)
-                return cid
-              let apiKey = 9  -- OffsetFetch
-              -- See 'fetchCommittedOffsetsBatch' below for the
-              -- v8 dispatch rationale. We share the same builder
-              -- + parser helpers so single-offset reads also
-              -- benefit from the per-group batched shape on v8+.
-              verR <- VN.pickApiVersionForRange @OFReq.OffsetFetchRequest
-                        0 8 consumerVersionCache coordAddr 5
-              let apiVersion = case verR of
-                    Right v -> v
-                    Left  _ -> 5
-
-              let byTopic = Map.fromListWith (++)
-                    [ (tpTopic tp, [tpPartition tp])
-                    | tp <- tps
-                    ]
-                  request
-                    | apiVersion >= 8 = buildOffsetFetchRequestV8 groupId byTopic
-                    | otherwise       = buildOffsetFetchRequestLegacy groupId byTopic
-                  requestBody = WC.runEncodeVer @OFReq.OffsetFetchRequest apiVersion request
-                  clientId = P.mkKafkaString (consumerClientId consumerConfig)
-
-              result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
-              case result of
-                Left err -> return $ Left $ "OffsetFetch failed: " ++ err
-                Right (_, responseBody) -> do
-                  case WC.runDecodeVer @OFResp.OffsetFetchResponse apiVersion responseBody of
-                    Left err -> return $ Left $ "Failed to parse OffsetFetchResponse: " ++ err
-                    Right response -> do
-                      let parsed
-                            | apiVersion >= 8 = parseOffsetFetchResponseV8 response
-                            | otherwise       = parseOffsetFetchResponseLegacy response
-                      case HashMap.toList parsed of
-                        []           -> return $ Left "No offset found in response"
-                        ((_, off):_) -> return $ Right off
 
 ----------------------------------------------------------------------
 -- Multi-partition committed offsets (KIP-211)
@@ -2074,17 +1996,7 @@ parseOffsetFetchResponseV8 resp =
 -- Per-partition timestamp -> offset (KIP-79)
 ----------------------------------------------------------------------
 
--- | Variant of 'queryPartitionOffsets' that lets each partition
--- carry its own target timestamp. Used by 'offsetsForTimes'.
-queryPartitionOffsetsByTimestamp
-  :: Consumer
-  -> [(TopicPartition, Int64)]
-  -> IO (Either String [(TopicPartition, Int64)])
-queryPartitionOffsetsByTimestamp consumer pts = do
-  r <- queryPartitionOffsetsByTimestampFull consumer pts
-  pure (fmap (map (\(tp, oat) -> (tp, oatOffset oat))) r)
-
--- | Sibling of 'queryPartitionOffsetsByTimestamp' that returns
+-- | Variant of 'queryPartitionOffsets' that returns
 -- the full @OffsetAndTimestamp@ tuple (offset + timestamp +
 -- leader epoch). Both the legacy offset-only helper and
 -- 'offsetsForTimesFull' delegate here so the wire round-trip

@@ -53,6 +53,7 @@ import qualified Client.StatsJsonSpec
 import qualified Client.ConsumerGroupV2Spec
 import qualified Client.ShareConsumerSpec
 import qualified Client.TelemetryPushSpec
+import qualified Client.TraceContextSpec
 import qualified Client.RecordMetadataSpec
 import qualified Client.FilterSpec
 import qualified Client.FutureSpec
@@ -161,6 +162,7 @@ clientTests = testGroup "Client"
   , Client.ConsumerGroupV2Spec.tests
   , Client.ShareConsumerSpec.tests
   , Client.TelemetryPushSpec.tests
+  , Client.TraceContextSpec.tests
   , Client.RecordMetadataSpec.tests
   , Client.FilterSpec.tests
   , Client.FutureSpec.tests

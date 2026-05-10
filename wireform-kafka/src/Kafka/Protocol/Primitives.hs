@@ -157,24 +157,9 @@ newtype VarLong = VarLong { unVarLong :: Int64 }
 newtype UVarInt = UVarInt { unUVarInt :: Word32 }
   deriving (Eq, Show, Ord, Num, Generic)
 
--- | Encode a signed 32-bit integer as ZigZag encoded VarInt.
-zigZagEncode32 :: Int32 -> Word32
-zigZagEncode32 n = fromIntegral $ (n `shiftL` 1) `xor` (n `shiftR` 31)
-
--- | Decode a ZigZag encoded value to a signed 32-bit integer.
-zigZagDecode32 :: Word32 -> Int32
-zigZagDecode32 n = fromIntegral $ (n `shiftR` 1) `xor` (-(n .&. 1))
-
--- | Encode a signed 64-bit integer as ZigZag encoded VarLong.
-zigZagEncode64 :: Int64 -> Word64
-zigZagEncode64 n = fromIntegral $ (n `shiftL` 1) `xor` (n `shiftR` 63)
-
--- | Decode a ZigZag encoded value to a signed 64-bit integer.
-zigZagDecode64 :: Word64 -> Int64
-zigZagDecode64 n = fromIntegral $ (n `shiftR` 1) `xor` (-(n .&. 1))
--- (Serial-shape varint encode / decode helpers removed by the
--- no-Serial migration; the equivalent direct-poke / direct-peek
--- primitives live in "Kafka.Protocol.Wire".)
+-- (Serial-shape varint encode / decode helpers + zig-zag primitives
+-- removed by the no-Serial migration; the equivalent direct-poke /
+-- direct-peek primitives live in "Kafka.Protocol.Wire".)
 -- -----------------------------------------------------------------------------
 -- String Types
 -- -----------------------------------------------------------------------------

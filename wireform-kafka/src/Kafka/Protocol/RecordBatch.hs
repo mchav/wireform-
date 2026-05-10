@@ -101,8 +101,6 @@ import GHC.Generics (Generic)
 import qualified Data.Vector as V
 
 import qualified Kafka.Compression.Types as Compression
-import qualified Kafka.Protocol.CRC32C as CRC
-
 -- | Magic byte value for RecordBatch v2 format.
 magicV2 :: Int8
 magicV2 = 2
@@ -332,13 +330,9 @@ mkSimpleBatch baseOffset baseTimestamp records =
 
 -- | Calculate CRC32C checksum using Castagnoli polynomial.
 -- 
--- This uses a fast C implementation with hardware acceleration (SSE4.2/AVX512)
--- when available, falling back to a software lookup table on unsupported
--- architectures.
---
--- The CRC32C polynomial is 0x1EDC6F41 (Castagnoli).
-crc32c :: ByteString -> Word32
-crc32c = CRC.crc32c
+-- (The 'crc32c' re-export that used to sit here is gone; callers
+-- import @Kafka.Protocol.CRC32C@ directly, which is also where the
+-- streaming + raw-pointer variants live.)
 
 
 -- -----------------------------------------------------------------------------
