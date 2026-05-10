@@ -57,7 +57,7 @@ import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Control.Monad (when, forM, forM_)
-import Data.IORef (IORef, atomicModifyIORef', newIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int
 import Data.List (groupBy, sortBy, partition)
 import qualified Data.HashMap.Strict as HashMap
@@ -201,8 +201,12 @@ data SenderState = SenderState
     --   selection ('VN.pickApiVersion') matches what the broker
     --   actually accepts (rather than the hardcoded v3 the
     --   sender used to emit unconditionally).
-  , senderTransactionalId :: !(TVar (Maybe Text))
+  , senderTransactionalId :: !(IORef (Maybe Text))
     -- ^ Transactional id the producer is bound to.
+    --
+    --   Tier 3 of the STM-replacement work: single-writer (the
+    --   producer's @bindTransaction@ path) / single-reader (the
+    --   sender thread on every produce); 'IORef' is sufficient.
     --
     -- For transactional sends ('attrIsTransactional == True' on
     -- the batch) the broker requires the @transactionalId@
@@ -239,7 +243,7 @@ createSenderState
 createSenderState accumulator metadata connManager retryConfig acks deliveryTimeoutMs compression clientId versionCache = do
   running <- newTVarIO True
   correlationId <- newIORef 0
-  txnIdVar <- newTVarIO Nothing
+  txnIdVar <- newIORef Nothing
   -- Use the smaller of delivery timeout and 30 seconds for individual request timeout
   -- The delivery timeout covers all retries, while request timeout is per-request
   let requestTimeoutMs = min 30000 (fromIntegral deliveryTimeoutMs)
@@ -412,7 +416,7 @@ sendToBroker state@SenderState{..} broker batches = do
         -- batches ship with the configured txn id on the
         -- request envelope (otherwise the broker rejects with
         -- @TRANSACTIONAL_ID_AUTHORIZATION_FAILED@).
-        txnIdM <- readTVarIO senderTransactionalId
+        txnIdM <- readIORef senderTransactionalId
         request <- buildProduceRequest
                      senderMetadata
                      txnIdM

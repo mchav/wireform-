@@ -92,7 +92,7 @@ import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
-import Data.IORef (IORef, atomicModifyIORef', newIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable (hash)
@@ -757,21 +757,25 @@ flushProducer Producer{..} = do
 -- 'Txn.initTransactions': sends will simply be rejected (the
 -- transaction's state is 'Txn.Uninitialized' until init runs).
 bindTransaction :: Producer -> Txn.Transaction -> IO ()
-bindTransaction Producer{..} txn = atomically $ do
-  writeTVar producerTransaction (Just txn)
-  -- The sender thread reads 'senderTransactionalId' on every
-  -- ProduceRequest build. Mirroring the bound transaction's id
-  -- here is what makes the broker accept transactional sends
-  -- (otherwise the request envelope's @transactionalId@ stays
-  -- @Null@ and the broker returns
-  -- @TRANSACTIONAL_ID_AUTHORIZATION_FAILED@ — code 53 — even
-  -- though we have a perfectly valid producer-id / epoch).
+bindTransaction Producer{..} txn = do
+  -- 'senderTransactionalId' moved to IORef in Tier 3 of the
+  -- STM-replacement work; the previous shape did the txn id
+  -- mirror, the producerTransaction swap, and the
+  -- registered-partitions reset under one STM transaction. Split
+  -- into two: the producerTransaction TVar still composes with the
+  -- registered-partitions StmMap reset (those remain STM), and
+  -- the senderTransactionalId mirror is a separate IORef write.
+  -- A producer that races bindTransaction against a sender's
+  -- read of the txn id sees one of the two consistent states
+  -- (old or new) — same as before.
   let txnIdText = Txn.unTransactionalId (Txn.txnTransactionalId txn)
-  writeTVar (Sender.senderTransactionalId producerSenderState) (Just txnIdText)
-  -- Reset the per-transaction registered-partition memo. The
-  -- 'beginTransaction' lifecycle should also clear this, but we
-  -- do it on bind so a freshly bound transaction starts clean.
-  resetStmMap producerRegisteredPartitions
+  writeIORef (Sender.senderTransactionalId producerSenderState) (Just txnIdText)
+  atomically $ do
+    writeTVar producerTransaction (Just txn)
+    -- Reset the per-transaction registered-partition memo. The
+    -- 'beginTransaction' lifecycle should also clear this, but we
+    -- do it on bind so a freshly bound transaction starts clean.
+    resetStmMap producerRegisteredPartitions
 
 -- | The currently bound transaction, if any. Mostly useful for
 -- test scaffolding and observability; production code should hold
@@ -918,8 +922,8 @@ producerPreSendCheck p@Producer{..} topic key = do
     Nothing  -> return (Right Nothing)
     Just txn -> do
       st <- Txn.getTransactionState txn
-      mPid   <- readTVarIO (Txn.txnProducerId    txn)
-      mEpoch <- readTVarIO (Txn.txnProducerEpoch txn)
+      mPid   <- readIORef (Txn.txnProducerId    txn)
+      mEpoch <- readIORef (Txn.txnProducerEpoch txn)
       case producerTxnGate st mPid mEpoch of
         Left err           -> return (Left err)
         Right (pid, epoch) -> return (Right (Just (txn, pid, epoch)))
@@ -952,7 +956,7 @@ producerPreSendCheck p@Producer{..} topic key = do
               _ <- Txn.sendInTransaction txn (KCC.TopicPartition topic realPartition)
               -- Best-effort coordinator round-trip; on failure
               -- back the memo out so a future send retries.
-              mCoord <- readTVarIO (Txn.txnCoordinator txn)
+              mCoord <- readIORef (Txn.txnCoordinator txn)
               case mCoord of
                 Nothing -> do
                   atomically $ StmMap.delete tp producerRegisteredPartitions

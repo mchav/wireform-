@@ -48,7 +48,7 @@ module Kafka.Client.Internal.Subscribe
 
 import Control.Concurrent.STM
 import Control.Monad (forM)
-import Data.IORef (IORef, atomicModifyIORef')
+import Data.IORef (IORef, atomicModifyIORef', readIORef, writeIORef)
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import qualified Data.ByteString as BS
 import Data.Int (Int16, Int32, Int64)
@@ -211,7 +211,7 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
       case coordConnR of
         Left err -> pure (Left (SubscribeCoordinator err))
         Right coordConn -> do
-          atomically $ writeTVar (HB.hbCoordinatorAddr hbState) (Just coordAddr)
+          writeIORef (HB.hbCoordinatorAddr hbState) (Just coordAddr)
 
           -- 3. JoinGroup. Advertise the chosen assignor by name; the
           --    coordinator picks one assignor that every member of the
@@ -219,7 +219,7 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
           let subMeta = encodeSubscription topics
               protocols = [(assignorName assignor, subMeta)]
           cid1 <- nextCorrId
-          existingMember <- atomically $ readTVar (HB.hbMemberId hbState)
+          existingMember <- readIORef (HB.hbMemberId hbState)
           joinR <- CG.joinGroup versionCache connMgr coordAddr coordConn groupId
                      existingMember clientId
                      sessionTimeoutMs rebalanceTimeoutMs
@@ -227,9 +227,8 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
           case joinR of
             Left err -> pure (Left (SubscribeJoin err))
             Right join -> do
-              atomically $ do
-                writeTVar (HB.hbMemberId     hbState) (CG.jgrMemberId join)
-                writeTVar (HB.hbGenerationId hbState) (CG.jgrGenerationId join)
+              writeIORef (HB.hbMemberId     hbState) (CG.jgrMemberId join)
+              writeIORef (HB.hbGenerationId hbState) (CG.jgrGenerationId join)
 
               -- 4. If we are the leader, decode every member's
               --    subscription, run the range assignor against the
