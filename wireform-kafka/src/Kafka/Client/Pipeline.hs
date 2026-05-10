@@ -141,15 +141,8 @@ data Pipeline = Pipeline
   , pipelineConfig     :: !PipelineConfig
   , pipelineNextId     :: !(TVar RequestId)
   , pipelinePending    :: !(TVar (IntMap PendingRequest))
-    -- ^ 'IntMap' keyed on the 'RequestId' (correlation id) is
-    -- the hottest access on the pipeline: every response from
-    -- the broker triggers a 'lookup' + 'delete'. 'IntMap' wins
-    -- over both 'Data.Map.Strict.Map' (which would do
-    -- lexicographic 'Int' compares per branch) and
-    -- 'Data.HashMap.Strict.HashMap' (which would compute a
-    -- per-call 'hashInt32' and walk a collision chain). For
-    -- the typical 5-100 in-flight count the Patricia trie is
-    -- 1-7 nodes deep, comparing branching bits directly.
+    -- ^ Outstanding requests keyed on correlation id; every
+    -- response from the broker triggers a 'lookup' + 'delete'.
   , pipelineSendQueue  :: !(TQueue SendItem)
   , pipelineStats      :: !(TVar PipelineStats)
   , pipelineClosed     :: !(TVar Bool)
@@ -465,9 +458,6 @@ timeoutLoop p@Pipeline{..} = loop
         let cutoff = now - pipelineTimeout pipelineConfig
         timedOut <- atomically $ do
           m <- readTVar pipelinePending
-          -- 'IntMap' has 'partition' built in: one Patricia-trie
-          -- walk splits the still-alive entries from the expired
-          -- ones in O(n + m).
           let !(alive, expiredMap) =
                 IntMap.partition
                   (\PendingRequest{..} -> pendingTimestamp > cutoff)

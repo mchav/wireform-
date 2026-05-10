@@ -2,12 +2,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Round-trip tests for the protocol primitives that the codegen
--- composes into message codecs (KafkaString, KafkaArray, ...).
---
--- Before the no-Serial migration these tests went through
--- 'Data.Bytes.Serial' instances on the primitives. Those instances
--- are gone; the equivalent round-trip is now over the 'Wire'
--- instances + per-helper poke / peek pairs.
+-- composes into message codecs (KafkaString, KafkaArray, ...) via
+-- the 'Wire' instances + per-helper poke / peek pairs.
 module Protocol.Generated.SimpleRoundTripSpec (tests) where
 
 import Data.Int (Int32)

@@ -182,8 +182,7 @@ recordsWireSize = V.foldl' (\acc r -> acc + recordWireSize r) 0
 -- 'Kafka.Protocol.RecordBatch.encodeRecordBatchWithCompression':
 --
 --   1. Encodes the records section in one pass via
---      'encodeRecordsWire' (~10x faster than the legacy
---      Builder-per-record path).
+--      'encodeRecordsWire'.
 --   2. Compresses the resulting bytes through the codec named
 --      in the batch attributes.
 --   3. Wraps the compressed payload in a single-allocation
@@ -383,10 +382,9 @@ pokeRecords p0 records = V.foldM' pokeOne p0 records
 -- common case) the actual VarInt is 1 byte and we copy 4 fewer
 -- bytes than reserved.
 --
--- This trades one short memcpy per record for the cleaner "two-pass
--- size + copy" the legacy encoder did via @runPutS@. The break-even
--- is around 16 bytes / record; for typical Kafka records (hundreds
--- of bytes) the saving is large.
+-- This trades one short memcpy per record for a two-pass "size +
+-- copy" encode. The break-even is around 16 bytes / record; for
+-- typical Kafka records (hundreds of bytes) the saving is large.
 {-# INLINE pokeRecord #-}
 pokeRecord :: Ptr Word8 -> Record -> IO (Ptr Word8)
 pokeRecord !p Record{..} = do
@@ -493,21 +491,11 @@ memmoveLeft !src !dst !n = moveBytes dst src n
 -- | Direct-poke decoder for 'RecordBatch'. Reads the entire batch
 -- in a single pass straight off the source 'ByteString' buffer
 -- (held alive by its 'ForeignPtr'), with one mutable 'V.Vector'
--- allocation for the records.
+-- allocation for the records. Errors come back as @Left err@.
 --
--- Equivalent to 'Kafka.Protocol.RecordBatch.decodeRecordBatch' on
--- well-formed inputs (proven by the round-trip property in
--- 'Protocol.RecordBatchWireSpec'). Errors come back as @Left@ with
--- the same shape of message the legacy decoder produces, so callers
--- that pattern-match on the message text won't break.
---
--- == Per-record steady-state cost (GHC 9.6.4 -O1):
---
---   * legacy 'decodeRecordBatch' (100 records): ~89 µs / 890 ns/rec
---   * 'decodeRecordBatchWire'    (100 records): see
---     'Benchmarks.HotPath' / WireDecode for the latest figure;
---     the win comes from one mutable vector + one CRC32C raw-ptr
---     call instead of N 'getByteString' wrappers.
+-- Per-record steady-state cost: see 'Benchmarks.HotPath' / WireDecode
+-- for the latest figure. One mutable vector + one CRC32C raw-ptr
+-- call.
 {-# INLINEABLE decodeRecordBatchWire #-}
 decodeRecordBatchWire :: ByteString -> Either String RecordBatch
 decodeRecordBatchWire bs = unsafePerformIO $ do
@@ -586,9 +574,7 @@ peekBatch fp basePtr p endPtr = do
             }
 
 -- | Inline copy of 'RB.decodeAttributes' so we don't pay an
--- allocator round-trip for the @Either@ on the hot path. The
--- legacy module currently keeps the helper private; once we
--- export it from "Kafka.Protocol.RecordBatch" this can be removed.
+-- allocator round-trip for the @Either@ on the hot path.
 {-# INLINE decodeAttributes #-}
 decodeAttributes :: Int16 -> Either String Attributes
 decodeAttributes attrs =
@@ -607,9 +593,7 @@ decodeAttributes attrs =
   in Right $ Attributes codec ts txn ctrl del
 
 -- | Decode @n@ records into a freshly allocated 'V.Vector' using
--- one mutable buffer. Beats the legacy
--- @replicateM n decodeRecord >>= return . V.fromList@ by skipping
--- the intermediate list / array fusion handshake.
+-- one mutable buffer.
 {-# INLINE readRecords #-}
 readRecords
   :: ForeignPtr Word8
@@ -649,8 +633,8 @@ peekRecord fp basePtr p endPtr = do
   (offDelta, p3)    <- peekVarInt p2 endPtr
   (mKey, p4)        <- peekVarBytesSlice fp basePtr p3 endPtr
   (mVal, p5)        <- peekVarBytesSlice fp basePtr p4 endPtr
-  -- The legacy decoder turns null (length=-1) value into BS.empty;
-  -- preserve that.
+  -- A null value (length=-1) round-trips to 'BS.empty'; preserve
+  -- that so encode/decode is invertible.
   let !value = case mVal of
                   Nothing -> BS.empty
                   Just v  -> v
@@ -722,10 +706,8 @@ errOut = ioError . userError
 -- Decoder with decompression
 ----------------------------------------------------------------------
 
--- | Decode a 'RecordBatch' with automatic decompression. Mirrors
--- 'Kafka.Protocol.RecordBatch.decodeRecordBatchWithDecompression'
--- but stays entirely in the Wire shape — no 'Data.Bytes.Serial'
--- detour. The hot path:
+-- | Decode a 'RecordBatch' with automatic decompression. The
+-- hot path:
 --
 --   1. Parse the batch header + everything before the records via
 --      Wire pokes.
@@ -1139,28 +1121,10 @@ readSlicedRecords basePtr n start endPtr = do
   mvVal      <- VUM.unsafeNew n
   mvHdrCount <- VUM.unsafeNew n
   mvHdrStart <- VUM.unsafeNew (n + 1)
-  -- Headers go into a /doubling-grow/ unboxed mutable vector
-  -- (one for keys, one for values). Why not 'IORef [(Int32,
-  -- Int32)]' as before:
-  --
-  --   * The list-based version paid a 'readMutVar#' +
-  --     'writeMutVar#' per header (two of each, one per side)
-  --     plus a fresh boxed @(Int32, Int32)@ tuple + cons cell
-  --     per header — all visible in the @-ddump-simpl@ Core
-  --     for the inner record loop.
-  --   * The growable 'IOVector (Int32, Int32)' stores the
-  --     primitives unboxed in-line, so every header is two
-  --     'writeInt32Array#' primops — no allocation, no
-  --     'modifyIORef''.
-  --   * Growth is amortised O(1) (the buffer doubles when
-  --     full); for the typical case (most batches have 0-4
-  --     headers per record) the initial capacity below covers
-  --     the whole batch in one shot.
-  --
-  -- The 'IORef Int' counter the previous version kept for
-  -- 'hdrTotal' is also gone — we thread the running total
-  -- through 'go' as a strict 'Int' parameter, so there's no
-  -- per-record IORef R-M-W pair on the no-header path either.
+  -- Headers go into doubling-grow unboxed mutable vectors (one for
+  -- keys, one for values). The running total is threaded through
+  -- 'go' as a strict 'Int' so the no-header path doesn't touch an
+  -- IORef.
   let !initialHdrCap = max 16 (n * 2)
   hdrKeysRef <- newIORef =<< (VUM.unsafeNew initialHdrCap
                                 :: IO (VUM.IOVector (Int32, Int32)))
@@ -1188,24 +1152,16 @@ readSlicedRecords basePtr n start endPtr = do
                          then p6
                          else p6 `plusPtr` valLenInt
             (hdrCount, p8) <- peekVarInt p7 endPtr
-            -- Stamp the prefix-sum index for this record.
+            -- Stamp the prefix-sum index for this record. All
+            -- per-record writes happen before the header walk so
+            -- they can't be reordered around its potential
+            -- IOVector growth.
             VUM.unsafeWrite mvHdrStart i (fromIntegral runningHdrTotal)
-            -- All the per-record vector writes happen here so
-            -- they can't get reordered around the header walk
-            -- (which may grow the header IOVectors and thus
-            -- allocate). They're also unconditional, no
-            -- branching dance — Core for this section is just
-            -- a flat sequence of 'writeInt32Array#' /
-            -- 'writeInt64Array#' primops.
             VUM.unsafeWrite mvOff      i offDelta
             VUM.unsafeWrite mvTs       i tsDelta
             VUM.unsafeWrite mvKey      i (keyOffset, fromIntegral keyLen)
             VUM.unsafeWrite mvVal      i (valOffset, fromIntegral valLen)
             VUM.unsafeWrite mvHdrCount i hdrCount
-            -- For the (overwhelmingly common) zero-header case
-            -- recurse directly with the same running total —
-            -- skipping the IORef reads + tuple allocation that
-            -- the 'else' arm would have done.
             if hdrCount == 0
               then go (i + 1) p8 runningHdrTotal
               else do
@@ -1215,8 +1171,8 @@ readSlicedRecords basePtr n start endPtr = do
                 go (i + 1) p9 (runningHdrTotal + hcInt)
   totalHdrs <- go 0 start 0
   -- Trailing entry of 'mvHdrStart' is the total header count;
-  -- 'slicedRecordHeader' uses this for the O(1) per-record
-  -- length-derivation @count = start[i+1] - start[i]@ idiom.
+  -- 'slicedRecordHeader' derives per-record header length as
+  -- @start[i+1] - start[i]@.
   VUM.unsafeWrite mvHdrStart n (fromIntegral totalHdrs)
   -- Snap the header buffers to their used prefix and freeze
   -- in place — no copy.

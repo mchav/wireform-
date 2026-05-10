@@ -193,12 +193,8 @@ data Topology = Topology
   , topoStoreOwners   :: !(Map StoreName [NodeName])
   , topoOrder         :: !(Seq NodeName)
     -- ^ Insertion order across every source / processor / sink.
-    -- 'Seq' (not '[]') so the @addX@ family's right-snoc is
-    -- amortised \(O(1)\); the runtime's downstream iteration
-    -- treats it like any 'Foldable'.
   , topoSourceOrder   :: !(Seq NodeName)
-    -- ^ Insertion order across just the sources. Same reasoning
-    -- as 'topoOrder'.
+    -- ^ Insertion order across just the sources.
   , topoChildrenIndex :: !(Map NodeName [NodeName])
   , topoGlobalStores  :: !(Set StoreName)
     -- ^ Stores registered via 'addGlobalStore'. The runtime treats
@@ -610,10 +606,6 @@ detectCycle t =
                 err      -> err
 
 -- | All node names present in a topology, in insertion order.
--- Returned as a list because that's what every existing caller
--- consumes; the underlying storage is a 'Seq' so the @addX@ family
--- can right-snoc in amortised \(O(1)\). The conversion is a single
--- foldr, no copy.
 topologyNodes :: Topology -> [NodeName]
 topologyNodes = Foldable.toList . topoOrder
 

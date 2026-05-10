@@ -61,9 +61,7 @@ generateMessageModule schema =
         _ -> []) (schemaCommonStructs schema)
     allTypes = nub $ filter (not . T.null) $ [schemaName schema] ++ nestedTypeNames ++ commonTypeNames
     typeExports = map (\t -> pretty t <> "(..)") allTypes
-    -- Wire codec is exposed via the 'WireCodec' instance only;
-    -- the legacy Serial-shape @encode<Foo>@ / @decode<Foo>@ pair is
-    -- no longer emitted, so it doesn't appear in the export list.
+    -- Wire codec is exposed via the 'WireCodec' instance only.
     funcExports = []
     -- Add max version export
     maxVersionExport = "max" <> pretty (schemaName schema) <> "Version"
@@ -187,12 +185,8 @@ generateMessage schema =
                          flexibleVersion structName structFields]
         ]
   in vsep
-    [ -- Generate common struct types (data declarations only — no
-      -- Serial-shape encode / decode functions; the per-struct
-      -- Wire pokes/peeks below subsume them).
-      vsep (map (<> line) commonTypes)
-    , -- Generate nested structure types (same: data only).
-      vsep (map (<> line) nestedTypes)
+    [ vsep (map (<> line) commonTypes)
+    , vsep (map (<> line) nestedTypes)
     , generateDataType (schemaName schema) (schemaFields schema) (schemaAbout schema)
     , ""
     , generateMaxVersionConstant (schemaName schema) maxVersion
@@ -202,11 +196,7 @@ generateMessage schema =
     , -- Per-struct Wire pokes / peeks (children first so the
       -- message-level codec can call them transparently).
       vsep perStructWire
-    , -- Native Wire codec block: per-message 'wireMaxSize' /
-      -- 'wirePoke' / 'wirePeek' functions + the 'WireCodec'
-      -- instance pointing at them. There is no Serial fallback —
-      -- the WireGenerator handles every schema the parser accepts.
-      case WG.generateWireFunctions schema of
+    , case WG.generateWireFunctions schema of
         Just fns -> vsep (fns ++ ["", WG.generateWireCodecOverride schema])
         Nothing  -> WG.generateWireCodecOverride schema
     ]
@@ -236,8 +226,7 @@ collectStructsField _parent f = case fieldType f of
 -- | Generate a common struct type definition. Just the @data@
 -- declaration; the per-struct Wire pokes / peeks are emitted
 -- separately by 'WG.generateNestedWireFunctions' over the same
--- struct list (see 'collectStructs'). No Serial-shape encode /
--- decode functions are emitted any more.
+-- struct list (see 'collectStructs').
 generateCommonStruct :: Maybe Int16 -> FieldSpec -> [Doc ann]
 generateCommonStruct flexibleVersion field =
   case (fieldType field, fieldFields field) of
@@ -355,18 +344,8 @@ generateDataType typeName fields maybeDoc =
         ]
 
 -- -----------------------------------------------------------------------------
--- Field type rendering
---
--- The bulk of the Serial-shape encode / decode generators that
--- used to live below this point are gone — the codegen now emits
--- only the data type + 'WireCodec' instance + 'wirePoke*' /
--- 'wirePeek*' / 'wireMaxSize*' functions, all driven from
--- "Kafka.Protocol.Codegen.WireGenerator". The legacy helpers were
--- dead after that migration and are removed here.
---
--- The two surviving helpers below ('fieldToHaskellType' /
--- 'typeSpecToHaskellType') are still called by 'generateField'
--- when emitting the @data Foo = Foo { ... }@ declaration.
+-- Field type rendering — used by 'generateField' when emitting the
+-- @data Foo = Foo { ... }@ declaration.
 -- -----------------------------------------------------------------------------
 
 -- | Convert a field spec to a Haskell type, considering nullable versions.

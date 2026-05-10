@@ -104,11 +104,7 @@ data ProducerBatch = ProducerBatch
   , batchCompressionLevel :: !Compression.CompressionLevel
     -- ^ Compression level (KIP-353/776/909)
   , batchCallbacks :: !(Seq RecordCallback)
-    -- ^ Completion callbacks for each record (in order). A 'Seq'
-    -- rather than a list because the producer hot path appends to
-    -- this on every record; a list would be O(n) per append and
-    -- therefore O(n^2) per batch (the older shape was the
-    -- dominant cost in the BatchAccumulator append benchmark).
+    -- ^ Completion callbacks for each record, in order.
   , batchAttempts :: !Int
     -- ^ Number of retry attempts already taken on this batch.
     --   Bumped each time the sender re-enqueues the batch after a

@@ -148,11 +148,6 @@ shouldRefreshToken now t = now >= tokenRefreshDeadlineMs t
 ----------------------------------------------------------------------
 
 -- | In-memory cache of OIDC tokens keyed by client id.
---
--- Backed by 'HashMap' (not 'Data.Map') because client ids are
--- 'Text' and the cache is meant to handle the multi-tenant case
--- (one process talking to N upstream identity providers); O(1)
--- average lookup beats O(log n) tree-based access at scale.
 newtype TokenCache = TokenCache (TVar (HashMap Text OidcToken))
 
 newTokenCache :: IO TokenCache

@@ -57,8 +57,7 @@ buildDeleteRecordsRequest
   :: HashMap KC.TopicPartition DeleteRecordsRequest
   -> [(String, [(Int, Int64)])]
 buildDeleteRecordsRequest =
-  -- Use 'HashMap' (not list) for the per-topic grouping. We keep
-  -- the per-topic value as a snoc-list reversed at the end so
+  -- The per-topic value is a snoc-list reversed at the end so
   -- partition order matches the input iteration order.
   finalise . HashMap.foldlWithKey' step HashMap.empty
   where

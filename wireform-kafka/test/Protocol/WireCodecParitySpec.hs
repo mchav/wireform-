@@ -1,13 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Round-trip tests for the native 'Wire' codec dispatch.
---
--- Before the no-Serial migration this module compared the native
--- 'WireCodec' output against a Serial-shape baseline. With Serial
--- gone from the runtime path the test reduces to a property-based
--- /round-trip/ check (decode . encode == id) plus exact-byte unit
--- checks for the on-wire layout.
+-- | Round-trip tests for the native 'Wire' codec dispatch:
+-- property-based @decode . encode == id@ checks plus exact-byte
+-- unit checks for the on-wire layout.
 module Protocol.WireCodecParitySpec (tests) where
 
 import qualified Data.ByteString as BS

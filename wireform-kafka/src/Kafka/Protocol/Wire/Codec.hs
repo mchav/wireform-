@@ -93,8 +93,7 @@ data WireCodecImpl a = WireCodecImpl
 --
 -- Every generated module emits an instance pointing at native
 -- codegen-emitted 'wirePokeFoo' / 'wirePeekFoo' / 'wireMaxSizeFoo'
--- functions. There is no Serial fallback — the runner dispatches
--- unconditionally through the codec.
+-- functions.
 --
 -- The class deliberately /does not/ provide a default
 -- implementation. An empty @instance WireCodec MyType where {}@

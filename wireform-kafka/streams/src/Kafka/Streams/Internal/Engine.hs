@@ -177,9 +177,7 @@ data PunctuatorEntry = PunctuatorEntry
 data SourceHandler = SourceHandler
   { shSourceName :: !Topo.NodeName
   , shTopics     :: !(HashSet TopicName)
-    -- ^ Source topics for this handler, indexed for \(O(1)\)
-    -- membership in 'feedSource'. The Java client carries a
-    -- 'Set<String>' here for the same reason.
+    -- ^ Source topics for this handler.
   , shHandler    :: !(SourceInput -> IO ())
   }
 
@@ -606,10 +604,6 @@ feedSource
   -> IO ()
 feedSource engine topic key value ts part off = do
   shs <- readIORef (engineSources engine)
-  -- Topic membership is now an \(O(1)\) HashSet check (was a list
-  -- 'elem' walk per source). The outer iteration over source
-  -- handlers is unchanged; in practice a topology has a small
-  -- number of sources so this is a tight inner loop.
   let matching =
         filter (\sh -> HashSet.member topic (shTopics sh)) (Map.elems shs)
   case matching of

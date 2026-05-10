@@ -46,11 +46,7 @@ import qualified Kafka.Client.ShareConsumer as SC
 -- Pause / resume (KIP-1119)
 ----------------------------------------------------------------------
 
--- | Set of paused (topic, partition) pairs, backed by a 'HashSet'
--- (rather than the previous 'Data.Set'-based shape) for O(1)
--- average membership / union / difference. Pause sets follow
--- partition cardinality, so the asymptotic improvement matters
--- under high partition counts.
+-- | Set of paused (topic, partition) pairs.
 newtype PauseSet = PauseSet (TVar (HashSet (Text, Int32)))
 
 newPauseSet :: IO PauseSet

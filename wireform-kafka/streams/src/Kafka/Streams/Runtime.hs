@@ -246,13 +246,6 @@ setError ks msg = transitionTo ks (StreamsError msg)
 
 producerCollector :: KP.Producer -> IO RecordCollector
 producerCollector p = do
-  -- Backed by a 'Seq' instead of '[]'. Sink writes are an
-  -- amortised \(O(1)\) right-snoc, so the FIFO collectorFlush
-  -- ordering falls out for free without the @reverse xs@ that the
-  -- old list-as-stack implementation needed. A flush that touches
-  -- a 100k-record window now skips the O(n) reverse + cons-list
-  -- traversal in favour of a single Seq.foldlM walk over
-  -- contiguous-ish chunks.
   bufRef <- newIORef (Seq.empty :: Seq CollectedRecord)
   pure RecordCollector
     { collectorSend = \cr -> atomicModifyIORef' bufRef

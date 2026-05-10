@@ -19,9 +19,6 @@
 --      each field's type, the tagged-fields trailer on flexible
 --      versions, the per-field @flexibleVersions: none@ opt-out)
 --      appear in the rendered text.
---
--- The byte-level equivalence with the legacy 'Serial' codec is
--- checked by 'Protocol.WireCodecParitySpec'.
 module Codegen.WireGeneratorSpec (tests) where
 
 import qualified Data.Text as T

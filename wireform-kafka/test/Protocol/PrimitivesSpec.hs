@@ -1,9 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Round-trip tests for the protocol primitives via the 'Wire'
--- codec. Before the no-Serial migration these were
--- 'Data.Bytes.Serial' round-trips; the equivalent guarantee now
--- runs over the per-primitive Wire helpers.
+-- codec — exercises the per-primitive Wire helpers.
 module Protocol.PrimitivesSpec (tests) where
 
 import Hedgehog

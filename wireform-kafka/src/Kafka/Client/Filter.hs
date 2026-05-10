@@ -74,10 +74,6 @@ byHeaderEquals name expected = RecordFilter $ \r ->
     Nothing -> False
 
 -- | Pass records whose topic is in the supplied set.
---
--- Uses 'HashSet Text' for O(1) average membership; for sparse
--- consumers with large allow-lists the 'Data.Set'-based variant
--- this used to be was a measurable hit on the 'poll' path.
 byTopicIn :: HashSet Text -> RecordFilter
 byTopicIn topics = RecordFilter $ \r ->
   HashSet.member (crTopic r) topics

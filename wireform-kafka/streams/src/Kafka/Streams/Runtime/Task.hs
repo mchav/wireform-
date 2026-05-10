@@ -113,10 +113,6 @@ closeTask = closeEngine . taskEngine
 -- TaskManager
 ----------------------------------------------------------------------
 
--- | Routing tables backed by 'HashMap' (not 'Data.Map') because
--- 'TaskId' and '(TopicName, Int32)' are both 'Hashable' and the
--- per-record dispatch path runs 'routeByPartition' on every
--- inbound record.
 data TaskManager = TaskManager
   { tmTasks  :: !(TVar (HashMap TaskId Task))
   , tmByPart :: !(TVar (HashMap (TopicName, Int32) TaskId))

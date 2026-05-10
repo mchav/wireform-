@@ -1539,13 +1539,11 @@ extractRecordsFromFetchResponse isolationLevel response = do
           else if BS.null recordsBytes
                  then pure (Right partial)
                  else do
-                   -- Sliced decoder path: avoids the
-                   -- 'V.Vector Record' + per-record
-                   -- 'BS.ByteString' allocations the legacy
-                   -- decoder produced before we built the
-                   -- final 'ConsumerRecord' shape.  See
-                   -- 'Kafka.Protocol.RecordBatchWire' for
-                   -- the SlicedRecordBatch design.
+                   -- Sliced decoder: keys / values / headers stay
+                   -- as 'SliceVector' views over the source buffer
+                   -- through 'ConsumerRecord' construction. See
+                   -- 'Kafka.Protocol.RecordBatchWire' for the
+                   -- SlicedRecordBatch design.
                    batches <- decodeAllBatchesSliced recordsBytes
                    case batches of
                      Left err -> pure (Left ("Failed to decode batches: " ++ err))
@@ -1572,9 +1570,7 @@ extractRecordsFromFetchResponse isolationLevel response = do
                       Just firstOffset ->
                         RBW.sbBaseOffset batch < firstOffset)
 
--- | 'Vector'-returning sibling of 'convertBatchToRecords'. The
--- batch's records are already a 'V.Vector', so we 'V.map' instead
--- of round-tripping through a list.
+-- | 'Vector'-returning sibling of 'convertBatchToRecords'.
 convertBatchToRecordsV :: Text -> Int32 -> RB.RecordBatch -> V.Vector ConsumerRecord
 convertBatchToRecordsV topic partId batch =
   let baseOffset    = RB.batchBaseOffset batch
@@ -1635,12 +1631,6 @@ extractKafkaString ks = case P.unKafkaString ks of
   P.NotNull t -> t
 
 -- | Decode all RecordBatches from a ByteString.
---
--- For uncompressed batches we use the direct-poke
--- 'RBW.decodeRecordBatchWire' (~9x faster than the legacy decoder
--- on the per-record path); for compressed batches the existing
--- 'RB.decodeRecordBatchWithDecompression' is the only option
--- because the codec round-trip is in IO.
 decodeAllBatches :: ByteString -> IO (Either String [RB.RecordBatch])
 decodeAllBatches input = go input []
   where
@@ -2067,9 +2057,9 @@ parseOffsetFetchResponseV8 resp =
 
 -- | Variant of 'queryPartitionOffsets' that returns
 -- the full @OffsetAndTimestamp@ tuple (offset + timestamp +
--- leader epoch). Both the legacy offset-only helper and
--- 'offsetsForTimesFull' delegate here so the wire round-trip
--- only happens once per call.
+-- leader epoch). The offset-only helper and 'offsetsForTimesFull'
+-- both delegate here so the wire round-trip only happens once
+-- per call.
 queryPartitionOffsetsByTimestampFull
   :: Consumer
   -> [(TopicPartition, Int64)]

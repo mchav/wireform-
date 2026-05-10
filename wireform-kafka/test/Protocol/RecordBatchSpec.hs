@@ -87,15 +87,11 @@ prop_recordBatch_roundtrip = property $ do
       failure
     Right decoded -> batch === decoded
 
--- The single-record round-trip property the legacy spec carried
--- ('prop_record_roundtrip') was dropped after the no-Serial
--- migration: 'RB.encodeRecord' / 'RB.decodeRecord' are Serial-shape
--- helpers that have no Wire equivalent at the per-record level (the
--- Wire codec works at the batch level via 'RBW.encodeRecordBatchWire'
--- / 'RBW.decodeRecordBatchWire'). The full-batch round-trip
--- properties below exercise the per-record path implicitly: every
--- encoded record has to round-trip identically for the batch
--- assertion to hold.
+-- The Wire codec works at the batch level via
+-- 'RBW.encodeRecordBatchWire' / 'RBW.decodeRecordBatchWire'; the
+-- full-batch round-trip properties below exercise the per-record
+-- path implicitly (every encoded record has to round-trip
+-- identically for the batch assertion to hold).
 
 -- | Test that an empty batch encodes and decodes correctly
 prop_empty_batch :: Property
@@ -146,10 +142,9 @@ prop_crc_validation = property $ do
         failure
 
 -- | Test that 'calculateBatchSize' is a /safe upper bound/ on the
--- actual encoded size. Post no-Serial migration the function is a
--- worst-case estimator (uses the worst-case varint width per
--- field), not an exact computation; the exact size requires a
--- full encode round.
+-- actual encoded size. The function is a worst-case estimator
+-- (uses the worst-case varint width per field), not an exact
+-- computation; the exact size requires a full encode round.
 prop_batch_size :: Property
 prop_batch_size = property $ do
   batch <- forAll genRecordBatch

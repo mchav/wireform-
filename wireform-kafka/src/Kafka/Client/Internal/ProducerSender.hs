@@ -556,23 +556,18 @@ buildPartitionProduceData batch = do
       codec = RB.attrCompressionType (RB.batchAttributes recordBatch)
 
   -- Fast path for the uncompressed common case: skip the
-  -- compression layer entirely (it's a no-op for NoCompression
-  -- but still pays a runPutS hop for the records section). The
-  -- direct-poke Wire encoder writes the whole batch in a single
-  -- pass — ~10x faster than the legacy Builder shape.
+  -- compression layer entirely (it's a no-op for NoCompression).
+  -- The direct-poke Wire encoder writes the whole batch in a
+  -- single pass.
   if codec == NoCompression
     then pure $ PR.PartitionProduceData
       { PR.partitionProduceDataIndex   = partition
       , PR.partitionProduceDataRecords = P.mkKafkaBytes (RBW.encodeRecordBatchWire recordBatch)
       }
     else do
-      -- Compressed path now goes through the Wire-based
-      -- compressed encoder ('encodeRecordBatchWireCompressedWithLevel'):
-      -- the records section is built once via 'encodeRecordsWire'
-      -- (~10x faster than the legacy Builder-per-record loop)
-      -- and the batch envelope is back-patched in place. Bytes
-      -- are byte-identical with 'RB.encodeRecordBatchWithCompressionLevel'
-      -- (verified by 'Protocol.RecordBatchWireSpec').
+      -- Compressed path: build the records section once via
+      -- 'encodeRecordsWire' and back-patch the batch envelope in
+      -- place.
       encodeResult <- RBW.encodeRecordBatchWireCompressedWithLevel recordBatch compressionLevel
       case encodeResult of
         Left err -> do
@@ -602,10 +597,6 @@ buildPartitionProduceData batch = do
 buildRecordBatch :: BA.ProducerBatch -> RB.RecordBatch
 buildRecordBatch batch =
   let !recSeq = BA.batchRecords batch
-      -- Single-pass Seq -> Vector: ask 'Vector' to fill itself
-      -- from the 'Seq' length + indexed access. Avoids the
-      -- intermediate list spine 'V.fromList . toList' would
-      -- allocate (one cons cell per record).
       !nRec = Seq.length recSeq
       !records = V.generate nRec (Seq.index recSeq)
       attrs = RB.Attributes
@@ -692,11 +683,7 @@ processProduceResponse metaCacheM batches response = do
         P.NotNull vec -> vec
 
   -- Pre-index outbound batches by their (topic, partition) so
-  -- the per-response lookup is O(1) instead of an O(#batches)
-  -- 'filter' on every partition row. For the common one-batch-
-  -- per-(topic, partition) shape the map values are singleton
-  -- lists (HashMap is keyed on 'TopicPartition' which already
-  -- has a 'Hashable' instance via 'BA.TopicPartition').
+  -- the per-response lookup is O(1).
   let batchIndex :: HashMap BA.TopicPartition [BA.ProducerBatch]
       !batchIndex = HashMap.fromListWith (++)
         [ (BA.batchTopicPartition b, [b]) | b <- batches ]
@@ -726,7 +713,6 @@ processProduceResponse metaCacheM batches response = do
             Meta.updatePartitionLeader cache topicName partitionId curLeaderId
         _ -> pure ()
 
-      -- O(1) average lookup into the pre-built index.
       let !key = BA.TopicPartition topicName partitionId
           matchingBatches = HashMap.lookupDefault [] key batchIndex
 

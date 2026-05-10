@@ -277,8 +277,6 @@ produceSimple client topic partition keyM value = do
         timestamp       -- Base timestamp
         (V.singleton record)
   
-  -- Encode the batch via the direct-poke Wire encoder
-  -- (~10x faster than the legacy Builder shape).
   let batchBytes = RBW.encodeRecordBatchWire batch
       recordsField = P.mkKafkaBytes batchBytes
   
@@ -402,10 +400,6 @@ decodeRecordBatches kafkaBytes =
     decodeBatches bs chunks
       | BS.null bs = return $! concat (reverse chunks)
       | otherwise = do
-          -- 'RBW.decodeRecordBatchWireWithDecompression' replaces
-          -- the legacy Serial-shape 'RB.decodeRecordBatchWithDecompression';
-          -- byte-identical wire output, no 'Data.Bytes.Get' on the
-          -- runtime path.
           result <- RBW.decodeRecordBatchWireWithDecompression bs
           case result of
             Left _err ->

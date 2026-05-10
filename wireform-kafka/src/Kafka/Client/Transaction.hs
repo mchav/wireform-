@@ -97,16 +97,9 @@ data Transaction = Transaction
   , txnProducerEpoch :: !(TVar (Maybe ProducerEpoch))
   , txnState :: !(TVar TransactionState)
   , txnPartitions :: !(TVar (HashSet TopicPartition))
-  -- ^ Partitions involved in current transaction. 'HashSet' (not
-  -- 'Data.Set') because every transactional 'sendInTransaction'
-  -- inserts into this set; with many partitions in flight the
-  -- O(1) average insert / member is materially faster than the
-  -- tree-based version, which compares the @(Text, Int32)@ pair
-  -- lexicographically at every level.
+  -- ^ Partitions involved in the current transaction.
   , txnSequenceNumbers :: !(TVar (HashMap TopicPartition Int32))
-  -- ^ Sequence numbers per partition for idempotency. Same
-  -- reasoning as 'txnPartitions': hot per-record bookkeeping on
-  -- a 'TopicPartition' key benefits from hash-based access.
+  -- ^ Sequence numbers per partition for idempotency.
   , txnCoordinator :: !(TVar (Maybe TransactionCoordinator))
   -- ^ Cached transaction coordinator
   , txnConnectionManager :: !ConnectionManager

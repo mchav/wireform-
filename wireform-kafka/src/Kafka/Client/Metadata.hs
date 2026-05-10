@@ -92,15 +92,6 @@ data PartitionMetadata = PartitionMetadata
 data TopicMetadata = TopicMetadata
   { topicMetaName :: !Text
   , topicMetaPartitions :: !(IntMap PartitionMetadata)
-    -- ^ Map from partition ID to partition metadata. 'IntMap'
-    -- (not 'HashMap' or 'Data.Map.Strict.Map') because the
-    -- producer/consumer hot path looks up by 'Int32' partition
-    -- id every time. 'IntMap' beats 'HashMap' on small int
-    -- keys: no per-call hash, no collision chain, the Patricia
-    -- trie compares the partition id against branching bits
-    -- directly. For the typical 1-100 partition cardinality the
-    -- tree is 1-7 nodes deep; the lookup is essentially a
-    -- handful of pointer dereferences with great cache locality.
   , topicMetaErrorCode :: !Int16
   , topicMetaIsInternal :: !Bool
     -- ^ KIP-444: whether this topic is a Kafka-internal topic
@@ -118,13 +109,7 @@ data TopicMetadata = TopicMetadata
 -- | Complete cluster metadata
 data ClusterMetadata = ClusterMetadata
   { clusterBrokers :: !(IntMap BrokerMetadata)
-    -- ^ Map from node ID to broker metadata. 'IntMap' for the
-    -- same reason as 'topicMetaPartitions': hot
-    -- 'getPartitionLeader' path does one broker lookup per
-    -- produce / fetch, and the broker count is even smaller
-    -- (3-30 nodes is typical), so the no-hash, branchless
-    -- Patricia walk is meaningfully cheaper than 'HashMap''s
-    -- per-call 'hashInt' + chain traversal.
+    -- ^ Map from node ID to broker metadata.
   , clusterTopics :: !(HashMap Text TopicMetadata)
     -- ^ Map from topic name to topic metadata. 'HashMap Text'
     -- avoids the lexicographic 'Text' compare a 'Map Text'

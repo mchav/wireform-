@@ -88,16 +88,16 @@ rackAwareAssignment
   -> Map m [p]
 rackAwareAssignment RackAwareInputs{..} =
   let memberList = Map.keys raiMembers
-      -- Carry a parallel @loads :: Map m Int@ so we don't scan
-      -- the per-member partition list (O(n)) on every placement.
+      -- Parallel @loads :: Map m Int@ avoids scanning the per-member
+      -- partition list on every placement.
       loads0     = Map.fromList [(m, 0 :: Int) | m <- memberList]
       empty0     = Map.fromList [(m, []) | m <- memberList]
       (placed, _finalLoads) =
         L.foldl' place (empty0, loads0)
                  (sortByAffinity raiPartitions)
   in
-    -- Per-member lists were built with cons (O(1)) for snoc, so
-    -- reverse once at the end to restore input partition order.
+    -- Per-member lists are built with cons; reverse once at the
+    -- end to restore input partition order.
     Map.map reverse placed
   where
     place !(!acc, !loads) pri =

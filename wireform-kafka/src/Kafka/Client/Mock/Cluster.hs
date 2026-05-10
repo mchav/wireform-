@@ -195,11 +195,6 @@ data MockPartition = MockPartition
 data MockTopic = MockTopic
   { mtName       :: !Text
   , mtPartitions :: !(IntMap MockPartition)
-    -- ^ 'IntMap' (not 'Data.Map.Strict.Map') keyed on partition
-    -- id. 'IntMap' wins on small Int keys (typical
-    -- @num.partitions@ is 1-100): no per-call hash, no key
-    -- comparison via @Ord Int32@'s 32-bit subtract / branch,
-    -- the Patricia trie just compares branching bits.
   }
 
 ----------------------------------------------------------------------

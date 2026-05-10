@@ -4,11 +4,9 @@
 -- | Round-trip tests for the direct-poke Wire codec
 -- (`Kafka.Protocol.Wire` + `Kafka.Protocol.Wire.Primitives`).
 --
--- Pre no-Serial migration this spec also held cross-codec
--- equivalence properties (Wire == Serial). The Serial codec is
--- gone now; the equivalent guarantee on the runtime path is the
--- per-message Wire codec round-trip in 'Protocol.WireCodecParitySpec'
--- and the per-vector exact-byte tests in 'Protocol.Generated.*Spec'.
+-- The per-message Wire codec round-trip lives in
+-- 'Protocol.WireCodecParitySpec' and the per-vector exact-byte
+-- tests in 'Protocol.Generated.*Spec'.
 module Protocol.WireSpec (tests) where
 
 import qualified Data.ByteString as BS

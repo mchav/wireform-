@@ -1239,11 +1239,6 @@ refreshTopicOnDemand Producer{..} topic = do
 -- Kafka client (JVM, librdkafka, kafka-go, …) computes the same
 -- result, so a record with @key=\"foo\"@ produced from any
 -- language lands on the same partition.
---
--- Until this commit we used 'Data.Hashable.hash' (siphash),
--- which routed the same key to /different/ partitions than the
--- JVM client. That broke per-key ordering whenever a topic was
--- written by multiple Kafka client implementations.
 hashPartition :: ByteString -> Int32 -> Int32
 hashPartition = Murmur2.partitionForKey
 

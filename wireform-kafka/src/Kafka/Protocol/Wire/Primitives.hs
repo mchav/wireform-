@@ -590,9 +590,7 @@ replicateMVec n peekElt p endPtr = do
 
 -- | Write a list of @(tag, payloadBytes)@ entries in the wire format
 -- the @TaggedFields@ envelope expects: a UVarInt count followed by
--- per-entry @UVarInt tag, UVarInt size, bytes@. Mirrors the legacy
--- 'P.serializeTaggedFieldEntries' helper but writes through 'Wire'
--- primitives instead of 'Data.Bytes.Put'.
+-- per-entry @UVarInt tag, UVarInt size, bytes@.
 --
 -- Used by codegen-emitted Wire pokes for messages that carry tagged
 -- fields with payloads (e.g. KIP-866 @NodeEndpoints@ on

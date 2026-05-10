@@ -240,10 +240,6 @@ pickStandbys
   -> MemberId              -- active member to exclude
   -> (Int, [MemberId])     -- (new index, picked standbys)
 pickStandbys startIdx members n exclude =
-  -- Project the input into a 'Vector' so the rotating @i `mod` total@
-  -- lookup is O(1) instead of the previous list (!!) walk; the cost
-  -- of the conversion is paid once per outer 'computeStandbys' fold
-  -- rather than per element.
   let !memV = V.fromList members
       !total = V.length memV
       go i picked needed

@@ -93,12 +93,6 @@ generateWireImports = vsep
 
 -- | @True@ iff every field of the schema (recursively, into nested
 -- + common structs) is in the WireGenerator's supported subset.
--- Tagged fields with payloads (KIP-866 style) anywhere in the
--- transitive graph knock the whole message off the native path:
--- either the whole message + every reachable struct emits native
--- pokes, or the whole message uses the Serial shim. Mixing is not
--- safe because the message-level native code expects to call
--- @wirePokeStructName@ for each nested struct.
 isWireSupported :: ProtocolSchema -> Bool
 isWireSupported schema =
   fieldsSupportedTransitive (schemaFields schema)
@@ -206,12 +200,12 @@ generateNestedWireFunctions flexibleVer structName fields
 
 -- | Emit a native @WireCodec@ instance for /every/ schema. The
 -- instance points at codegen-emitted 'wirePokeFoo' / 'wirePeekFoo'
--- / 'wireMaxSizeFoo' functions; there is no Serial fallback.
+-- / 'wireMaxSizeFoo' functions.
 generateWireCodecOverride :: ProtocolSchema -> Doc ann
 generateWireCodecOverride schema = vsep
   [ "-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /"
   , "-- 'WC.runDecodeVer' dispatch into the direct-poke functions"
-  , "-- generated above. There is no Serial fallback path."
+  , "-- generated above."
   , "instance WC.WireCodec" <+> pretty typeName <+> "where"
   , indent 2 $ vsep
       [ "wireCodec = WC.WireCodecImpl"

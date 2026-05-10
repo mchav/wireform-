@@ -3,14 +3,9 @@
 
 -- | Round-trip tests for the direct-poke
 -- 'Kafka.Protocol.RecordBatchWire' codec — the production path for
--- record batches in both produce and consume after the no-Serial
--- migration.
---
--- Before the migration these tests doubled as cross-codec parity
--- (Wire output == legacy Serial output). Now that Serial is gone
--- from the production path, the suite reduces to what actually
--- matters at the runtime layer: every encode round-trips through
--- the matching Wire decoder, with and without compression.
+-- record batches in both produce and consume. Every encode
+-- round-trips through the matching Wire decoder, with and without
+-- compression.
 module Protocol.RecordBatchWireSpec (tests) where
 
 import qualified Data.ByteString as BS

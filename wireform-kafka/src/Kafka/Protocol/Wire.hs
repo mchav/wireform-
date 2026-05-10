@@ -97,8 +97,7 @@ module Kafka.Protocol.Wire
     -- * Bound checking
   , ensureBytes
     -- * ByteString-shaped fast helpers (for callers that have a
-    -- 'ByteString' in hand and want a single primitive read
-    -- without going through the Serial-monad runner).
+    -- 'ByteString' in hand and want a single primitive read).
   , readInt32BE
   ) where
 

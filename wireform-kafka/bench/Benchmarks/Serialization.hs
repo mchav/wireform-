@@ -16,12 +16,6 @@ The benchmark works directly off the codegen-emitted
 'Kafka.Protocol.Wire.Codec.WireCodec' instance for each message,
 so adding coverage for a new request/response type is a one-line
 edit.
-
-The legacy @bytes@ / @binary@ / @cereal@ comparison benches that
-used to live here are gone — the no-Serial migration deleted the
-@Data.Bytes.Serial@-shaped @encodeFoo@/@decodeFoo@ helpers the
-old benches dispatched through, so the comparison no longer has a
-left-hand side.
 -}
 module Benchmarks.Serialization (benchmarks) where
 

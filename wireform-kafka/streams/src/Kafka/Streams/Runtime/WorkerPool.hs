@@ -122,20 +122,12 @@ data WorkRecord = WorkRecord
 
 data WorkerPool = WorkerPool
   { poolWorkers       :: !(Vector Worker)
-    -- ^ Workers in deterministic order. 'Vector' (not '[]') so the
-    -- iteration sites in 'commitAllWorkers' / 'closeWorkerPool' /
-    -- 'waitForQuiescence' are tight loops over contiguous storage
-    -- instead of a thunky cons-list walk. The lookup hot path
-    -- ('submitRecord') routes through 'poolWorkersByIdx' instead.
+    -- ^ Workers in deterministic order.
   , poolWorkersByIdx  :: !(HashMap.HashMap Int Worker)
     -- ^ Cache of 'poolWorkers' keyed by 'workerId' so the hot
-    -- 'submitRecord' lookup is O(1) instead of an O(n) walk over
-    -- the worker list. Built once in 'newWorkerPool'; the worker
-    -- list is fixed for the pool's lifetime.
+    -- 'submitRecord' lookup is O(1). Built once in 'newWorkerPool';
+    -- the worker list is fixed for the pool's lifetime.
   , poolRouting       :: !(TVar (HashMap.HashMap (TopicName, Int32) Int))
-    -- ^ 'HashMap' (not 'Data.Map') for the routing table — every
-    -- 'submitRecord' looks up by '(TopicName, Int32)' which has a
-    -- 'Hashable' instance.
   , poolNextOff       :: !(IORef Int64)
   }
 
@@ -219,9 +211,6 @@ submitRecord pool topic key val ts part = do
   case HashMap.lookup (topic, fromIntegral part) routing of
     Nothing  -> pure ()
     Just idx ->
-      -- O(1) lookup against the cached index; the previous shape
-      -- walked '[(workerId w, w) | w <- poolWorkers pool]' on
-      -- every record (O(numWorkers)).
       case HashMap.lookup idx (poolWorkersByIdx pool) of
         Nothing -> pure ()
         Just w  ->

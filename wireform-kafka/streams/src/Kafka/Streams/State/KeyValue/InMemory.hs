@@ -4,9 +4,9 @@
 -- Module      : Kafka.Streams.State.KeyValue.InMemory
 -- Description : In-memory @KeyValueStore@
 --
--- Single-task store backed by 'Data.Map.Strict'. Tasks are inherently
--- single-threaded inside Streams, so we use 'IORef' rather than STM /
--- MVar; this matches the Java in-memory store's lock-free design.
+-- Single-task store. Tasks are inherently single-threaded inside
+-- Streams, so the store is 'IORef'-backed (no STM / MVar); this
+-- matches the Java in-memory store's lock-free design.
 --
 -- Use 'inMemoryKeyValueStoreBuilder' to declare a store inside a
 -- topology — the runtime calls 'sbKvBuild' once per assigned task.

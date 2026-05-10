@@ -58,10 +58,6 @@ isNullTopicId :: TopicId -> Bool
 isNullTopicId (TopicId bs) = bs == BS.replicate 16 0
 
 -- | Bidirectional lookup table.
---
--- Both directions use 'HashMap'; metadata refresh can touch many
--- topics in a single response so the O(1) average path is the
--- right shape.
 data TopicIdTable = TopicIdTable
   { titByName :: !(TVar (HashMap Text TopicId))
   , titById   :: !(TVar (HashMap TopicId Text))

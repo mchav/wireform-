@@ -54,16 +54,13 @@ Individual records within a batch use a different format from the batch header.
 See 'Record' for details.
 
 -}
--- | The Serial-shape encode / decode functions this module used to
--- export ('encodeRecordBatch', 'decodeRecordBatch',
--- 'encodeRecordBatchWithCompression', and friends) are gone. The
--- runtime path goes through 'Kafka.Protocol.RecordBatchWire' for
--- both produce and consume — see 'RBW.encodeRecordBatchWire' and
--- 'RBW.decodeRecordBatchWireWithDecompression'.
+-- | This module holds the on-the-wire data types + constants + the
+-- attribute bit packers. Encoders / decoders live in
+-- "Kafka.Protocol.RecordBatchWire" — see 'RBW.encodeRecordBatchWire'
+-- and 'RBW.decodeRecordBatchWireWithDecompression'.
 --
--- This module keeps the on-the-wire data types + constants + the
--- attribute bit packers so callers (Wire codec, tests, mock
--- clusters) can manipulate batches without rebuilding the type
+-- Callers (Wire codec, tests, mock clusters) manipulate batches
+-- via the data types here without rebuilding the type
 -- system.
 module Kafka.Protocol.RecordBatch
   ( -- * RecordBatch Types
@@ -330,20 +327,8 @@ mkSimpleBatch baseOffset baseTimestamp records =
 
 -- | Calculate CRC32C checksum using Castagnoli polynomial.
 -- 
--- (The 'crc32c' re-export that used to sit here is gone; callers
--- import @Kafka.Protocol.CRC32C@ directly, which is also where the
--- streaming + raw-pointer variants live.)
-
-
 -- -----------------------------------------------------------------------------
 -- Worst-case batch-size estimator
---
--- The legacy Serial-shape encoders / decoders ('encodeRecordBatch',
--- 'decodeRecordBatch', 'encodeRecordBatchWithCompression', etc.)
--- that lived here pre-migration are gone. The on-the-wire codec
--- for record batches is "Kafka.Protocol.RecordBatchWire" — see
--- 'RBW.encodeRecordBatchWire' and
--- 'RBW.decodeRecordBatchWireWithDecompression'.
 -- -----------------------------------------------------------------------------
 
 -- | Worst-case upper bound on the wire size of a 'RecordBatch'.

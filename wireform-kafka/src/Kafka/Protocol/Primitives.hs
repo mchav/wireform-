@@ -16,10 +16,7 @@ UUIDs, and the @TaggedFields@ container.
 
 The on-the-wire codec lives in "Kafka.Protocol.Wire" /
 "Kafka.Protocol.Wire.Primitives" and uses these types via the
-'Wire' typeclass / per-helper poke / peek pairs. The legacy
-'Data.Bytes.Serial' instances that used to live here are gone:
-the runtime path is fully Wire and pre-existing 'Serial'-shape
-clients are unsupported.
+'Wire' typeclass / per-helper poke / peek pairs.
 
 The Kafka protocol uses big-endian (network byte order) for all
 integer types.
@@ -152,9 +149,6 @@ newtype VarLong = VarLong { unVarLong :: Int64 }
 newtype UVarInt = UVarInt { unUVarInt :: Word32 }
   deriving (Eq, Show, Ord, Num, Generic)
 
--- (Serial-shape varint encode / decode helpers + zig-zag primitives
--- removed by the no-Serial migration; the equivalent direct-poke /
--- direct-peek primitives live in "Kafka.Protocol.Wire".)
 -- -----------------------------------------------------------------------------
 -- String Types
 -- -----------------------------------------------------------------------------
@@ -261,10 +255,6 @@ lookupTaggedField tag (TaggedFields m) = Map.lookup tag m
 -- | Insert or update a tagged field.
 insertTaggedField :: Word32 -> ByteString -> TaggedFields -> TaggedFields
 insertTaggedField tag bs (TaggedFields m) = TaggedFields (Map.insert tag bs m)
-
--- ('serializeTaggedFieldEntries' Serial-shape helper removed by the
--- no-Serial migration; the equivalent direct-poke helper lives in
--- "Kafka.Protocol.Wire.Primitives.pokeTaggedFieldEntries".)
 
 -- -----------------------------------------------------------------------------
 -- Type Conversions
