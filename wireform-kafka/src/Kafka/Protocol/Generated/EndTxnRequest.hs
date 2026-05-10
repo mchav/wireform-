@@ -94,7 +94,7 @@ instance KafkaMessage EndTxnRequest where
 wireMaxSizeEndTxnRequest :: Int -> EndTxnRequest -> Int
 wireMaxSizeEndTxnRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (endTxnRequestTransactionalId msg))
+  + WP.dualStringMaxSize (endTxnRequestTransactionalId msg)
   + 8
   + 2
   + 1

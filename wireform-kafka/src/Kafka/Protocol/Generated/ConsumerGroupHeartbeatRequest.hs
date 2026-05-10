@@ -176,15 +176,15 @@ defaultTopicPartitions = TopicPartitions { topicPartitionsTopicId = P.nullUuid, 
 wireMaxSizeConsumerGroupHeartbeatRequest :: Int -> ConsumerGroupHeartbeatRequest -> Int
 wireMaxSizeConsumerGroupHeartbeatRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (consumerGroupHeartbeatRequestGroupId msg))
-  + WP.compactStringMaxSize (P.toCompactString (consumerGroupHeartbeatRequestMemberId msg))
+  + WP.dualStringMaxSize (consumerGroupHeartbeatRequestGroupId msg)
+  + WP.dualStringMaxSize (consumerGroupHeartbeatRequestMemberId msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (consumerGroupHeartbeatRequestInstanceId msg))
-  + WP.compactStringMaxSize (P.toCompactString (consumerGroupHeartbeatRequestRackId msg))
+  + WP.dualStringMaxSize (consumerGroupHeartbeatRequestInstanceId msg)
+  + WP.dualStringMaxSize (consumerGroupHeartbeatRequestRackId msg)
   + 4
   + (5 + (case P.unKafkaArray (consumerGroupHeartbeatRequestSubscribedTopicNames msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
-  + WP.compactStringMaxSize (P.toCompactString (consumerGroupHeartbeatRequestSubscribedTopicRegex msg))
-  + WP.compactStringMaxSize (P.toCompactString (consumerGroupHeartbeatRequestServerAssignor msg))
+  + WP.dualStringMaxSize (consumerGroupHeartbeatRequestSubscribedTopicRegex msg)
+  + WP.dualStringMaxSize (consumerGroupHeartbeatRequestServerAssignor msg)
   + (5 + (case P.unKafkaArray (consumerGroupHeartbeatRequestTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicPartitions _version x ) v); P.Null -> 0 }))
   + 1
 

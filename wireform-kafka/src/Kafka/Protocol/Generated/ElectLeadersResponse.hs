@@ -132,7 +132,7 @@ wireMaxSizePartitionResult _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (partitionResultErrorMessage msg))
+  + WP.dualStringMaxSize (partitionResultErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for PartitionResult.
@@ -162,7 +162,7 @@ defaultPartitionResult = PartitionResult { partitionResultPartitionId = 0, parti
 wireMaxSizeReplicaElectionResult :: Int -> ReplicaElectionResult -> Int
 wireMaxSizeReplicaElectionResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (replicaElectionResultTopic msg))
+  + WP.dualStringMaxSize (replicaElectionResultTopic msg)
   + (5 + (case P.unKafkaArray (replicaElectionResultPartitionResult msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionResult _version x ) v); P.Null -> 0 }))
   + 1
 

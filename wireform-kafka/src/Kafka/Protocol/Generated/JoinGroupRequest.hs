@@ -135,8 +135,8 @@ instance KafkaMessage JoinGroupRequest where
 wireMaxSizeJoinGroupRequestProtocol :: Int -> JoinGroupRequestProtocol -> Int
 wireMaxSizeJoinGroupRequestProtocol _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (joinGroupRequestProtocolName msg))
-  + WP.compactBytesMaxSize (P.toCompactBytes (joinGroupRequestProtocolMetadata msg))
+  + WP.dualStringMaxSize (joinGroupRequestProtocolName msg)
+  + WP.dualBytesMaxSize (joinGroupRequestProtocolMetadata msg)
   + 1
 
 -- | Direct-poke encoder for JoinGroupRequestProtocol.
@@ -164,14 +164,14 @@ defaultJoinGroupRequestProtocol = JoinGroupRequestProtocol { joinGroupRequestPro
 wireMaxSizeJoinGroupRequest :: Int -> JoinGroupRequest -> Int
 wireMaxSizeJoinGroupRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (joinGroupRequestGroupId msg))
+  + WP.dualStringMaxSize (joinGroupRequestGroupId msg)
   + 4
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (joinGroupRequestMemberId msg))
-  + WP.compactStringMaxSize (P.toCompactString (joinGroupRequestGroupInstanceId msg))
-  + WP.compactStringMaxSize (P.toCompactString (joinGroupRequestProtocolType msg))
+  + WP.dualStringMaxSize (joinGroupRequestMemberId msg)
+  + WP.dualStringMaxSize (joinGroupRequestGroupInstanceId msg)
+  + WP.dualStringMaxSize (joinGroupRequestProtocolType msg)
   + (5 + (case P.unKafkaArray (joinGroupRequestProtocols msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeJoinGroupRequestProtocol _version x ) v); P.Null -> 0 }))
-  + WP.compactStringMaxSize (P.toCompactString (joinGroupRequestReason msg))
+  + WP.dualStringMaxSize (joinGroupRequestReason msg)
   + 1
 
 -- | Direct-poke encoder for JoinGroupRequest.

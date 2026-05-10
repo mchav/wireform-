@@ -153,7 +153,7 @@ defaultTxnOffsetCommitResponsePartition = TxnOffsetCommitResponsePartition { txn
 wireMaxSizeTxnOffsetCommitResponseTopic :: Int -> TxnOffsetCommitResponseTopic -> Int
 wireMaxSizeTxnOffsetCommitResponseTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitResponseTopicName msg))
+  + WP.dualStringMaxSize (txnOffsetCommitResponseTopicName msg)
   + 16
   + (5 + (case P.unKafkaArray (txnOffsetCommitResponseTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTxnOffsetCommitResponsePartition _version x ) v); P.Null -> 0 }))
   + 1

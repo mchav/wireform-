@@ -167,7 +167,7 @@ instance KafkaMessage OffsetFetchRequest where
 wireMaxSizeOffsetFetchRequestTopic :: Int -> OffsetFetchRequestTopic -> Int
 wireMaxSizeOffsetFetchRequestTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (offsetFetchRequestTopicName msg))
+  + WP.dualStringMaxSize (offsetFetchRequestTopicName msg)
   + (5 + (case P.unKafkaArray (offsetFetchRequestTopicPartitionIndexes msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 
@@ -196,7 +196,7 @@ defaultOffsetFetchRequestTopic = OffsetFetchRequestTopic { offsetFetchRequestTop
 wireMaxSizeOffsetFetchRequestTopics :: Int -> OffsetFetchRequestTopics -> Int
 wireMaxSizeOffsetFetchRequestTopics _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (offsetFetchRequestTopicsName msg))
+  + WP.dualStringMaxSize (offsetFetchRequestTopicsName msg)
   + 16
   + (5 + (case P.unKafkaArray (offsetFetchRequestTopicsPartitionIndexes msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
@@ -228,8 +228,8 @@ defaultOffsetFetchRequestTopics = OffsetFetchRequestTopics { offsetFetchRequestT
 wireMaxSizeOffsetFetchRequestGroup :: Int -> OffsetFetchRequestGroup -> Int
 wireMaxSizeOffsetFetchRequestGroup _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (offsetFetchRequestGroupGroupId msg))
-  + WP.compactStringMaxSize (P.toCompactString (offsetFetchRequestGroupMemberId msg))
+  + WP.dualStringMaxSize (offsetFetchRequestGroupGroupId msg)
+  + WP.dualStringMaxSize (offsetFetchRequestGroupMemberId msg)
   + 4
   + (5 + (case P.unKafkaArray (offsetFetchRequestGroupTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOffsetFetchRequestTopics _version x ) v); P.Null -> 0 }))
   + 1
@@ -263,7 +263,7 @@ defaultOffsetFetchRequestGroup = OffsetFetchRequestGroup { offsetFetchRequestGro
 wireMaxSizeOffsetFetchRequest :: Int -> OffsetFetchRequest -> Int
 wireMaxSizeOffsetFetchRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (offsetFetchRequestGroupId msg))
+  + WP.dualStringMaxSize (offsetFetchRequestGroupId msg)
   + (5 + (case P.unKafkaArray (offsetFetchRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOffsetFetchRequestTopic _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (offsetFetchRequestGroups msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOffsetFetchRequestGroup _version x ) v); P.Null -> 0 }))
   + 1

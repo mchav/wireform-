@@ -120,7 +120,7 @@ wireMaxSizePartitionResult _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (partitionResultErrorMessage msg))
+  + WP.dualStringMaxSize (partitionResultErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for PartitionResult.

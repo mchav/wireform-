@@ -153,7 +153,7 @@ instance KafkaMessage AddPartitionsToTxnRequest where
 wireMaxSizeAddPartitionsToTxnTopic :: Int -> AddPartitionsToTxnTopic -> Int
 wireMaxSizeAddPartitionsToTxnTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (addPartitionsToTxnTopicName msg))
+  + WP.dualStringMaxSize (addPartitionsToTxnTopicName msg)
   + (5 + (case P.unKafkaArray (addPartitionsToTxnTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 
@@ -182,7 +182,7 @@ defaultAddPartitionsToTxnTopic = AddPartitionsToTxnTopic { addPartitionsToTxnTop
 wireMaxSizeAddPartitionsToTxnTransaction :: Int -> AddPartitionsToTxnTransaction -> Int
 wireMaxSizeAddPartitionsToTxnTransaction _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (addPartitionsToTxnTransactionTransactionalId msg))
+  + WP.dualStringMaxSize (addPartitionsToTxnTransactionTransactionalId msg)
   + 8
   + 2
   + 1
@@ -221,7 +221,7 @@ wireMaxSizeAddPartitionsToTxnRequest :: Int -> AddPartitionsToTxnRequest -> Int
 wireMaxSizeAddPartitionsToTxnRequest _version msg =
   0
   + (5 + (case P.unKafkaArray (addPartitionsToTxnRequestTransactions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAddPartitionsToTxnTransaction _version x ) v); P.Null -> 0 }))
-  + WP.compactStringMaxSize (P.toCompactString (addPartitionsToTxnRequestV3AndBelowTransactionalId msg))
+  + WP.dualStringMaxSize (addPartitionsToTxnRequestV3AndBelowTransactionalId msg)
   + 8
   + 2
   + (5 + (case P.unKafkaArray (addPartitionsToTxnRequestV3AndBelowTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAddPartitionsToTxnTopic _version x ) v); P.Null -> 0 }))

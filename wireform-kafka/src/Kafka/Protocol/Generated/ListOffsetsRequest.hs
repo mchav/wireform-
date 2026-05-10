@@ -168,7 +168,7 @@ defaultListOffsetsPartition = ListOffsetsPartition { listOffsetsPartitionPartiti
 wireMaxSizeListOffsetsTopic :: Int -> ListOffsetsTopic -> Int
 wireMaxSizeListOffsetsTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (listOffsetsTopicName msg))
+  + WP.dualStringMaxSize (listOffsetsTopicName msg)
   + (5 + (case P.unKafkaArray (listOffsetsTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeListOffsetsPartition _version x ) v); P.Null -> 0 }))
   + 1
 

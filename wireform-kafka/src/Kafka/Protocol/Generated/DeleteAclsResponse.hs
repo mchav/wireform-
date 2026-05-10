@@ -167,12 +167,12 @@ wireMaxSizeDeleteAclsMatchingAcl :: Int -> DeleteAclsMatchingAcl -> Int
 wireMaxSizeDeleteAclsMatchingAcl _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (deleteAclsMatchingAclErrorMessage msg))
+  + WP.dualStringMaxSize (deleteAclsMatchingAclErrorMessage msg)
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (deleteAclsMatchingAclResourceName msg))
+  + WP.dualStringMaxSize (deleteAclsMatchingAclResourceName msg)
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (deleteAclsMatchingAclPrincipal msg))
-  + WP.compactStringMaxSize (P.toCompactString (deleteAclsMatchingAclHost msg))
+  + WP.dualStringMaxSize (deleteAclsMatchingAclPrincipal msg)
+  + WP.dualStringMaxSize (deleteAclsMatchingAclHost msg)
   + 1
   + 1
   + 1
@@ -217,7 +217,7 @@ wireMaxSizeDeleteAclsFilterResult :: Int -> DeleteAclsFilterResult -> Int
 wireMaxSizeDeleteAclsFilterResult _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (deleteAclsFilterResultErrorMessage msg))
+  + WP.dualStringMaxSize (deleteAclsFilterResultErrorMessage msg)
   + (5 + (case P.unKafkaArray (deleteAclsFilterResultMatchingAcls msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDeleteAclsMatchingAcl _version x ) v); P.Null -> 0 }))
   + 1
 

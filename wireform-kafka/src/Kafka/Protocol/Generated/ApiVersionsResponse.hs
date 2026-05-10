@@ -217,7 +217,7 @@ defaultApiVersion = ApiVersion { apiVersionApiKey = 0, apiVersionMinVersion = 0,
 wireMaxSizeSupportedFeatureKey :: Int -> SupportedFeatureKey -> Int
 wireMaxSizeSupportedFeatureKey _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (supportedFeatureKeyName msg))
+  + WP.dualStringMaxSize (supportedFeatureKeyName msg)
   + 2
   + 2
   + 1
@@ -249,7 +249,7 @@ defaultSupportedFeatureKey = SupportedFeatureKey { supportedFeatureKeyName = P.K
 wireMaxSizeFinalizedFeatureKey :: Int -> FinalizedFeatureKey -> Int
 wireMaxSizeFinalizedFeatureKey _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (finalizedFeatureKeyName msg))
+  + WP.dualStringMaxSize (finalizedFeatureKeyName msg)
   + 2
   + 2
   + 1

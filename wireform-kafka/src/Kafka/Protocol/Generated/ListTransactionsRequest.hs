@@ -97,7 +97,7 @@ wireMaxSizeListTransactionsRequest _version msg =
   + (5 + (case P.unKafkaArray (listTransactionsRequestStateFilters msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (listTransactionsRequestProducerIdFilters msg) of { P.NotNull v -> sum (fmap (\x -> 8 ) v); P.Null -> 0 }))
   + 8
-  + WP.compactStringMaxSize (P.toCompactString (listTransactionsRequestTransactionalIdPattern msg))
+  + WP.dualStringMaxSize (listTransactionsRequestTransactionalIdPattern msg)
   + 1
 
 -- | Direct-poke encoder for ListTransactionsRequest.

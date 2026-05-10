@@ -147,7 +147,7 @@ defaultAlterShareGroupOffsetsRequestPartition = AlterShareGroupOffsetsRequestPar
 wireMaxSizeAlterShareGroupOffsetsRequestTopic :: Int -> AlterShareGroupOffsetsRequestTopic -> Int
 wireMaxSizeAlterShareGroupOffsetsRequestTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (alterShareGroupOffsetsRequestTopicTopicName msg))
+  + WP.dualStringMaxSize (alterShareGroupOffsetsRequestTopicTopicName msg)
   + (5 + (case P.unKafkaArray (alterShareGroupOffsetsRequestTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAlterShareGroupOffsetsRequestPartition _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -176,7 +176,7 @@ defaultAlterShareGroupOffsetsRequestTopic = AlterShareGroupOffsetsRequestTopic {
 wireMaxSizeAlterShareGroupOffsetsRequest :: Int -> AlterShareGroupOffsetsRequest -> Int
 wireMaxSizeAlterShareGroupOffsetsRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (alterShareGroupOffsetsRequestGroupId msg))
+  + WP.dualStringMaxSize (alterShareGroupOffsetsRequestGroupId msg)
   + (5 + (case P.unKafkaArray (alterShareGroupOffsetsRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAlterShareGroupOffsetsRequestTopic _version x ) v); P.Null -> 0 }))
   + 1
 

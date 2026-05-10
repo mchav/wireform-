@@ -81,6 +81,9 @@ module Kafka.Protocol.Wire.Primitives
   , compactStringMaxSize
   , compactBytesMaxSize
   , compactArrayHeaderMaxSize
+    -- * Dual-format estimators (compact-or-plain upper bound)
+  , dualStringMaxSize
+  , dualBytesMaxSize
   ) where
 
 import Control.Exception (throwIO)
@@ -236,6 +239,33 @@ compactBytesMaxSize :: P.CompactBytes -> Int
 compactBytesMaxSize cb = case P.unCompactBytes cb of
   P.Null       -> 1
   P.NotNull bs -> 5 + BS.length bs
+
+-- | Worst-case wire size of a 'P.KafkaBytes' field that may be
+-- encoded either as compact bytes (varint length prefix, on
+-- flexible versions) or plain bytes (Int32 length prefix, on
+-- non-flexible versions). The codegen uses this for fields
+-- that straddle the flexible-version threshold so the per-
+-- request buffer is sized for the worst case regardless of
+-- which protocol version we end up at runtime.
+--
+--   * non-null payload: @max (4 + n) (5 + n) = 5 + n@
+--   * null payload:     @max 4 1 = 4@
+{-# INLINE dualBytesMaxSize #-}
+dualBytesMaxSize :: P.KafkaBytes -> Int
+dualBytesMaxSize (P.KafkaBytes P.Null)         = 4
+dualBytesMaxSize (P.KafkaBytes (P.NotNull bs)) = 5 + BS.length bs
+
+-- | Worst-case wire size of a 'P.KafkaString' field that may be
+-- encoded either as compact string (flexible) or plain string
+-- (non-flexible). Symmetric to 'dualBytesMaxSize'.
+--
+--   * non-null payload: @max (2 + n) (5 + n) = 5 + n@
+--   * null payload:     @max 2 1 = 2@
+{-# INLINE dualStringMaxSize #-}
+dualStringMaxSize :: P.KafkaString -> Int
+dualStringMaxSize ks = case P.unKafkaString ks of
+  P.Null      -> 2
+  P.NotNull t -> 5 + BS.length (TE.encodeUtf8 t)
 
 {-# INLINE pokeCompactBytes #-}
 pokeCompactBytes :: Ptr Word8 -> P.CompactBytes -> IO (Ptr Word8)

@@ -148,8 +148,8 @@ instance KafkaMessage UpdateRaftVoterRequest where
 wireMaxSizeListener :: Int -> Listener -> Int
 wireMaxSizeListener _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (listenerName msg))
-  + WP.compactStringMaxSize (P.toCompactString (listenerHost msg))
+  + WP.dualStringMaxSize (listenerName msg)
+  + WP.dualStringMaxSize (listenerHost msg)
   + 2
   + 1
 
@@ -209,7 +209,7 @@ defaultKRaftVersionFeature = KRaftVersionFeature { kRaftVersionFeatureMinSupport
 wireMaxSizeUpdateRaftVoterRequest :: Int -> UpdateRaftVoterRequest -> Int
 wireMaxSizeUpdateRaftVoterRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (updateRaftVoterRequestClusterId msg))
+  + WP.dualStringMaxSize (updateRaftVoterRequestClusterId msg)
   + 4
   + 4
   + 16

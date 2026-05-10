@@ -160,7 +160,7 @@ defaultWritableTxnMarkerPartitionResult = WritableTxnMarkerPartitionResult { wri
 wireMaxSizeWritableTxnMarkerTopicResult :: Int -> WritableTxnMarkerTopicResult -> Int
 wireMaxSizeWritableTxnMarkerTopicResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (writableTxnMarkerTopicResultName msg))
+  + WP.dualStringMaxSize (writableTxnMarkerTopicResultName msg)
   + (5 + (case P.unKafkaArray (writableTxnMarkerTopicResultPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeWritableTxnMarkerPartitionResult _version x ) v); P.Null -> 0 }))
   + 1
 

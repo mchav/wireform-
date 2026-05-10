@@ -148,7 +148,7 @@ instance KafkaMessage AddPartitionsToTxnResponse where
 wireMaxSizeAddPartitionsToTxnTopicResult :: Int -> AddPartitionsToTxnTopicResult -> Int
 wireMaxSizeAddPartitionsToTxnTopicResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (addPartitionsToTxnTopicResultName msg))
+  + WP.dualStringMaxSize (addPartitionsToTxnTopicResultName msg)
   + (5 + (case P.unKafkaArray (addPartitionsToTxnTopicResultResultsByPartition msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAddPartitionsToTxnPartitionResult _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -206,7 +206,7 @@ defaultAddPartitionsToTxnPartitionResult = AddPartitionsToTxnPartitionResult { a
 wireMaxSizeAddPartitionsToTxnResult :: Int -> AddPartitionsToTxnResult -> Int
 wireMaxSizeAddPartitionsToTxnResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (addPartitionsToTxnResultTransactionalId msg))
+  + WP.dualStringMaxSize (addPartitionsToTxnResultTransactionalId msg)
   + (5 + (case P.unKafkaArray (addPartitionsToTxnResultTopicResults msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAddPartitionsToTxnTopicResult _version x ) v); P.Null -> 0 }))
   + 1
 

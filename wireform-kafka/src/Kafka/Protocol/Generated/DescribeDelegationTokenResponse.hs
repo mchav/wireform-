@@ -172,8 +172,8 @@ instance KafkaMessage DescribeDelegationTokenResponse where
 wireMaxSizeDescribedDelegationTokenRenewer :: Int -> DescribedDelegationTokenRenewer -> Int
 wireMaxSizeDescribedDelegationTokenRenewer _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describedDelegationTokenRenewerPrincipalType msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedDelegationTokenRenewerPrincipalName msg))
+  + WP.dualStringMaxSize (describedDelegationTokenRenewerPrincipalType msg)
+  + WP.dualStringMaxSize (describedDelegationTokenRenewerPrincipalName msg)
   + 1
 
 -- | Direct-poke encoder for DescribedDelegationTokenRenewer.
@@ -201,15 +201,15 @@ defaultDescribedDelegationTokenRenewer = DescribedDelegationTokenRenewer { descr
 wireMaxSizeDescribedDelegationToken :: Int -> DescribedDelegationToken -> Int
 wireMaxSizeDescribedDelegationToken _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describedDelegationTokenPrincipalType msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedDelegationTokenPrincipalName msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedDelegationTokenTokenRequesterPrincipalType msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedDelegationTokenTokenRequesterPrincipalName msg))
+  + WP.dualStringMaxSize (describedDelegationTokenPrincipalType msg)
+  + WP.dualStringMaxSize (describedDelegationTokenPrincipalName msg)
+  + WP.dualStringMaxSize (describedDelegationTokenTokenRequesterPrincipalType msg)
+  + WP.dualStringMaxSize (describedDelegationTokenTokenRequesterPrincipalName msg)
   + 8
   + 8
   + 8
-  + WP.compactStringMaxSize (P.toCompactString (describedDelegationTokenTokenId msg))
-  + WP.compactBytesMaxSize (P.toCompactBytes (describedDelegationTokenHmac msg))
+  + WP.dualStringMaxSize (describedDelegationTokenTokenId msg)
+  + WP.dualBytesMaxSize (describedDelegationTokenHmac msg)
   + (5 + (case P.unKafkaArray (describedDelegationTokenRenewers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribedDelegationTokenRenewer _version x ) v); P.Null -> 0 }))
   + 1
 

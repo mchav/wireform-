@@ -95,8 +95,8 @@ wireMaxSizeSaslAuthenticateResponse :: Int -> SaslAuthenticateResponse -> Int
 wireMaxSizeSaslAuthenticateResponse _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (saslAuthenticateResponseErrorMessage msg))
-  + WP.compactBytesMaxSize (P.toCompactBytes (saslAuthenticateResponseAuthBytes msg))
+  + WP.dualStringMaxSize (saslAuthenticateResponseErrorMessage msg)
+  + WP.dualBytesMaxSize (saslAuthenticateResponseAuthBytes msg)
   + 8
   + 1
 

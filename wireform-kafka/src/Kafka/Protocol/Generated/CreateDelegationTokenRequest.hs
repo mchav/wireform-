@@ -111,8 +111,8 @@ instance KafkaMessage CreateDelegationTokenRequest where
 wireMaxSizeCreatableRenewers :: Int -> CreatableRenewers -> Int
 wireMaxSizeCreatableRenewers _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (creatableRenewersPrincipalType msg))
-  + WP.compactStringMaxSize (P.toCompactString (creatableRenewersPrincipalName msg))
+  + WP.dualStringMaxSize (creatableRenewersPrincipalType msg)
+  + WP.dualStringMaxSize (creatableRenewersPrincipalName msg)
   + 1
 
 -- | Direct-poke encoder for CreatableRenewers.
@@ -140,8 +140,8 @@ defaultCreatableRenewers = CreatableRenewers { creatableRenewersPrincipalType = 
 wireMaxSizeCreateDelegationTokenRequest :: Int -> CreateDelegationTokenRequest -> Int
 wireMaxSizeCreateDelegationTokenRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (createDelegationTokenRequestOwnerPrincipalType msg))
-  + WP.compactStringMaxSize (P.toCompactString (createDelegationTokenRequestOwnerPrincipalName msg))
+  + WP.dualStringMaxSize (createDelegationTokenRequestOwnerPrincipalType msg)
+  + WP.dualStringMaxSize (createDelegationTokenRequestOwnerPrincipalName msg)
   + (5 + (case P.unKafkaArray (createDelegationTokenRequestRenewers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCreatableRenewers _version x ) v); P.Null -> 0 }))
   + 8
   + 1

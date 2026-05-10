@@ -105,7 +105,7 @@ instance KafkaMessage DeleteTopicsRequest where
 wireMaxSizeDeleteTopicState :: Int -> DeleteTopicState -> Int
 wireMaxSizeDeleteTopicState _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (deleteTopicStateName msg))
+  + WP.dualStringMaxSize (deleteTopicStateName msg)
   + 16
   + 1
 

@@ -178,12 +178,12 @@ instance KafkaMessage DescribeGroupsResponse where
 wireMaxSizeDescribedGroupMember :: Int -> DescribedGroupMember -> Int
 wireMaxSizeDescribedGroupMember _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupMemberMemberId msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupMemberGroupInstanceId msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupMemberClientId msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupMemberClientHost msg))
-  + WP.compactBytesMaxSize (P.toCompactBytes (describedGroupMemberMemberMetadata msg))
-  + WP.compactBytesMaxSize (P.toCompactBytes (describedGroupMemberMemberAssignment msg))
+  + WP.dualStringMaxSize (describedGroupMemberMemberId msg)
+  + WP.dualStringMaxSize (describedGroupMemberGroupInstanceId msg)
+  + WP.dualStringMaxSize (describedGroupMemberClientId msg)
+  + WP.dualStringMaxSize (describedGroupMemberClientHost msg)
+  + WP.dualBytesMaxSize (describedGroupMemberMemberMetadata msg)
+  + WP.dualBytesMaxSize (describedGroupMemberMemberAssignment msg)
   + 1
 
 -- | Direct-poke encoder for DescribedGroupMember.
@@ -220,11 +220,11 @@ wireMaxSizeDescribedGroup :: Int -> DescribedGroup -> Int
 wireMaxSizeDescribedGroup _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupErrorMessage msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupGroupId msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupGroupState msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupProtocolType msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupProtocolData msg))
+  + WP.dualStringMaxSize (describedGroupErrorMessage msg)
+  + WP.dualStringMaxSize (describedGroupGroupId msg)
+  + WP.dualStringMaxSize (describedGroupGroupState msg)
+  + WP.dualStringMaxSize (describedGroupProtocolType msg)
+  + WP.dualStringMaxSize (describedGroupProtocolData msg)
   + (5 + (case P.unKafkaArray (describedGroupMembers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribedGroupMember _version x ) v); P.Null -> 0 }))
   + 4
   + 1

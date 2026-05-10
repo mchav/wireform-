@@ -88,7 +88,7 @@ instance KafkaMessage RemoveRaftVoterRequest where
 wireMaxSizeRemoveRaftVoterRequest :: Int -> RemoveRaftVoterRequest -> Int
 wireMaxSizeRemoveRaftVoterRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (removeRaftVoterRequestClusterId msg))
+  + WP.dualStringMaxSize (removeRaftVoterRequestClusterId msg)
   + 4
   + 16
   + 1

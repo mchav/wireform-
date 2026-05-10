@@ -429,7 +429,7 @@ wireMaxSizePartitionData _version msg =
   + wireMaxSizeSnapshotId _version (partitionDataSnapshotId msg)
   + (5 + (case P.unKafkaArray (partitionDataAbortedTransactions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAbortedTransaction _version x ) v); P.Null -> 0 }))
   + 4
-  + WP.compactBytesMaxSize (P.toCompactBytes (partitionDataRecords msg))
+  + WP.dualBytesMaxSize (partitionDataRecords msg)
   + 1
 
 -- | Direct-poke encoder for PartitionData.
@@ -475,7 +475,7 @@ defaultPartitionData = PartitionData { partitionDataPartitionIndex = 0, partitio
 wireMaxSizeFetchableTopicResponse :: Int -> FetchableTopicResponse -> Int
 wireMaxSizeFetchableTopicResponse _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (fetchableTopicResponseTopic msg))
+  + WP.dualStringMaxSize (fetchableTopicResponseTopic msg)
   + 16
   + (5 + (case P.unKafkaArray (fetchableTopicResponsePartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionData _version x ) v); P.Null -> 0 }))
   + 1
@@ -508,9 +508,9 @@ wireMaxSizeNodeEndpoint :: Int -> NodeEndpoint -> Int
 wireMaxSizeNodeEndpoint _version msg =
   0
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (nodeEndpointHost msg))
+  + WP.dualStringMaxSize (nodeEndpointHost msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (nodeEndpointRack msg))
+  + WP.dualStringMaxSize (nodeEndpointRack msg)
   + 1
 
 -- | Direct-poke encoder for NodeEndpoint.

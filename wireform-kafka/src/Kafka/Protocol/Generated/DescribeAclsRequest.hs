@@ -113,10 +113,10 @@ wireMaxSizeDescribeAclsRequest :: Int -> DescribeAclsRequest -> Int
 wireMaxSizeDescribeAclsRequest _version msg =
   0
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (describeAclsRequestResourceNameFilter msg))
+  + WP.dualStringMaxSize (describeAclsRequestResourceNameFilter msg)
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (describeAclsRequestPrincipalFilter msg))
-  + WP.compactStringMaxSize (P.toCompactString (describeAclsRequestHostFilter msg))
+  + WP.dualStringMaxSize (describeAclsRequestPrincipalFilter msg)
+  + WP.dualStringMaxSize (describeAclsRequestHostFilter msg)
   + 1
   + 1
   + 1

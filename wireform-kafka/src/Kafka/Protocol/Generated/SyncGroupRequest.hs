@@ -129,8 +129,8 @@ instance KafkaMessage SyncGroupRequest where
 wireMaxSizeSyncGroupRequestAssignment :: Int -> SyncGroupRequestAssignment -> Int
 wireMaxSizeSyncGroupRequestAssignment _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (syncGroupRequestAssignmentMemberId msg))
-  + WP.compactBytesMaxSize (P.toCompactBytes (syncGroupRequestAssignmentAssignment msg))
+  + WP.dualStringMaxSize (syncGroupRequestAssignmentMemberId msg)
+  + WP.dualBytesMaxSize (syncGroupRequestAssignmentAssignment msg)
   + 1
 
 -- | Direct-poke encoder for SyncGroupRequestAssignment.
@@ -158,12 +158,12 @@ defaultSyncGroupRequestAssignment = SyncGroupRequestAssignment { syncGroupReques
 wireMaxSizeSyncGroupRequest :: Int -> SyncGroupRequest -> Int
 wireMaxSizeSyncGroupRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (syncGroupRequestGroupId msg))
+  + WP.dualStringMaxSize (syncGroupRequestGroupId msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (syncGroupRequestMemberId msg))
-  + WP.compactStringMaxSize (P.toCompactString (syncGroupRequestGroupInstanceId msg))
-  + WP.compactStringMaxSize (P.toCompactString (syncGroupRequestProtocolType msg))
-  + WP.compactStringMaxSize (P.toCompactString (syncGroupRequestProtocolName msg))
+  + WP.dualStringMaxSize (syncGroupRequestMemberId msg)
+  + WP.dualStringMaxSize (syncGroupRequestGroupInstanceId msg)
+  + WP.dualStringMaxSize (syncGroupRequestProtocolType msg)
+  + WP.dualStringMaxSize (syncGroupRequestProtocolName msg)
   + (5 + (case P.unKafkaArray (syncGroupRequestAssignments msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeSyncGroupRequestAssignment _version x ) v); P.Null -> 0 }))
   + 1
 

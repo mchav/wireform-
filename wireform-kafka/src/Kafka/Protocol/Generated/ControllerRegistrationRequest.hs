@@ -154,8 +154,8 @@ instance KafkaMessage ControllerRegistrationRequest where
 wireMaxSizeListener :: Int -> Listener -> Int
 wireMaxSizeListener _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (listenerName msg))
-  + WP.compactStringMaxSize (P.toCompactString (listenerHost msg))
+  + WP.dualStringMaxSize (listenerName msg)
+  + WP.dualStringMaxSize (listenerHost msg)
   + 2
   + 2
   + 1
@@ -189,7 +189,7 @@ defaultListener = Listener { listenerName = P.KafkaString Null, listenerHost = P
 wireMaxSizeFeature :: Int -> Feature -> Int
 wireMaxSizeFeature _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (featureName msg))
+  + WP.dualStringMaxSize (featureName msg)
   + 2
   + 2
   + 1

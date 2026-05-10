@@ -147,7 +147,7 @@ defaultAlterReplicaLogDirPartitionResult = AlterReplicaLogDirPartitionResult { a
 wireMaxSizeAlterReplicaLogDirTopicResult :: Int -> AlterReplicaLogDirTopicResult -> Int
 wireMaxSizeAlterReplicaLogDirTopicResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (alterReplicaLogDirTopicResultTopicName msg))
+  + WP.dualStringMaxSize (alterReplicaLogDirTopicResultTopicName msg)
   + (5 + (case P.unKafkaArray (alterReplicaLogDirTopicResultPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAlterReplicaLogDirPartitionResult _version x ) v); P.Null -> 0 }))
   + 1
 

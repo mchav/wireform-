@@ -94,10 +94,10 @@ instance KafkaMessage HeartbeatRequest where
 wireMaxSizeHeartbeatRequest :: Int -> HeartbeatRequest -> Int
 wireMaxSizeHeartbeatRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (heartbeatRequestGroupId msg))
+  + WP.dualStringMaxSize (heartbeatRequestGroupId msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (heartbeatRequestMemberId msg))
-  + WP.compactStringMaxSize (P.toCompactString (heartbeatRequestGroupInstanceId msg))
+  + WP.dualStringMaxSize (heartbeatRequestMemberId msg)
+  + WP.dualStringMaxSize (heartbeatRequestGroupInstanceId msg)
   + 1
 
 -- | Direct-poke encoder for HeartbeatRequest.

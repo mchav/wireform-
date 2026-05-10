@@ -119,7 +119,7 @@ wireMaxSizeCurrentLeader _version msg =
   0
   + 4
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (currentLeaderHost msg))
+  + WP.dualStringMaxSize (currentLeaderHost msg)
   + 4
   + 1
 

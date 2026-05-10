@@ -94,10 +94,10 @@ instance KafkaMessage AddOffsetsToTxnRequest where
 wireMaxSizeAddOffsetsToTxnRequest :: Int -> AddOffsetsToTxnRequest -> Int
 wireMaxSizeAddOffsetsToTxnRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (addOffsetsToTxnRequestTransactionalId msg))
+  + WP.dualStringMaxSize (addOffsetsToTxnRequestTransactionalId msg)
   + 8
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (addOffsetsToTxnRequestGroupId msg))
+  + WP.dualStringMaxSize (addOffsetsToTxnRequestGroupId msg)
   + 1
 
 -- | Direct-poke encoder for AddOffsetsToTxnRequest.

@@ -154,9 +154,9 @@ wireMaxSizeDescribeClusterBroker :: Int -> DescribeClusterBroker -> Int
 wireMaxSizeDescribeClusterBroker _version msg =
   0
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (describeClusterBrokerHost msg))
+  + WP.dualStringMaxSize (describeClusterBrokerHost msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (describeClusterBrokerRack msg))
+  + WP.dualStringMaxSize (describeClusterBrokerRack msg)
   + 1
   + 1
 
@@ -193,9 +193,9 @@ wireMaxSizeDescribeClusterResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describeClusterResponseErrorMessage msg))
+  + WP.dualStringMaxSize (describeClusterResponseErrorMessage msg)
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (describeClusterResponseClusterId msg))
+  + WP.dualStringMaxSize (describeClusterResponseClusterId msg)
   + 4
   + (5 + (case P.unKafkaArray (describeClusterResponseBrokers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeClusterBroker _version x ) v); P.Null -> 0 }))
   + 4

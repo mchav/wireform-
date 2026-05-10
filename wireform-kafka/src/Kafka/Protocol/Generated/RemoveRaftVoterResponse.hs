@@ -90,7 +90,7 @@ wireMaxSizeRemoveRaftVoterResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (removeRaftVoterResponseErrorMessage msg))
+  + WP.dualStringMaxSize (removeRaftVoterResponseErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for RemoveRaftVoterResponse.

@@ -105,9 +105,9 @@ instance KafkaMessage CreatePartitionsResponse where
 wireMaxSizeCreatePartitionsTopicResult :: Int -> CreatePartitionsTopicResult -> Int
 wireMaxSizeCreatePartitionsTopicResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (createPartitionsTopicResultName msg))
+  + WP.dualStringMaxSize (createPartitionsTopicResultName msg)
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (createPartitionsTopicResultErrorMessage msg))
+  + WP.dualStringMaxSize (createPartitionsTopicResultErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for CreatePartitionsTopicResult.

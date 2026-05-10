@@ -88,9 +88,9 @@ instance KafkaMessage EnvelopeRequest where
 wireMaxSizeEnvelopeRequest :: Int -> EnvelopeRequest -> Int
 wireMaxSizeEnvelopeRequest _version msg =
   0
-  + WP.compactBytesMaxSize (P.toCompactBytes (envelopeRequestRequestData msg))
-  + WP.compactBytesMaxSize (P.toCompactBytes (envelopeRequestRequestPrincipal msg))
-  + WP.compactBytesMaxSize (P.toCompactBytes (envelopeRequestClientHostAddress msg))
+  + WP.dualBytesMaxSize (envelopeRequestRequestData msg)
+  + WP.dualBytesMaxSize (envelopeRequestRequestPrincipal msg)
+  + WP.dualBytesMaxSize (envelopeRequestClientHostAddress msg)
   + 1
 
 -- | Direct-poke encoder for EnvelopeRequest.

@@ -431,7 +431,7 @@ instance KafkaMessage StreamsGroupDescribeResponse where
 wireMaxSizeEndpoint :: Int -> Endpoint -> Int
 wireMaxSizeEndpoint _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (endpointHost msg))
+  + WP.dualStringMaxSize (endpointHost msg)
   + 2
   + 1
 
@@ -460,7 +460,7 @@ defaultEndpoint = Endpoint { endpointHost = P.KafkaString Null, endpointPort = 0
 wireMaxSizeTaskOffset :: Int -> TaskOffset -> Int
 wireMaxSizeTaskOffset _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (taskOffsetSubtopologyId msg))
+  + WP.dualStringMaxSize (taskOffsetSubtopologyId msg)
   + 4
   + 8
   + 1
@@ -524,7 +524,7 @@ defaultAssignment = Assignment { assignmentActiveTasks = P.mkKafkaArray V.empty,
 wireMaxSizeTaskIds :: Int -> TaskIds -> Int
 wireMaxSizeTaskIds _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (taskIdsSubtopologyId msg))
+  + WP.dualStringMaxSize (taskIdsSubtopologyId msg)
   + (5 + (case P.unKafkaArray (taskIdsPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 
@@ -553,8 +553,8 @@ defaultTaskIds = TaskIds { taskIdsSubtopologyId = P.KafkaString Null, taskIdsPar
 wireMaxSizeKeyValue :: Int -> KeyValue -> Int
 wireMaxSizeKeyValue _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (keyValueKey msg))
-  + WP.compactStringMaxSize (P.toCompactString (keyValueValue msg))
+  + WP.dualStringMaxSize (keyValueKey msg)
+  + WP.dualStringMaxSize (keyValueValue msg)
   + 1
 
 -- | Direct-poke encoder for KeyValue.
@@ -582,7 +582,7 @@ defaultKeyValue = KeyValue { keyValueKey = P.KafkaString Null, keyValueValue = P
 wireMaxSizeTopicInfo :: Int -> TopicInfo -> Int
 wireMaxSizeTopicInfo _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicInfoName msg))
+  + WP.dualStringMaxSize (topicInfoName msg)
   + 4
   + 2
   + (5 + (case P.unKafkaArray (topicInfoTopicConfigs msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeKeyValue _version x ) v); P.Null -> 0 }))
@@ -617,7 +617,7 @@ defaultTopicInfo = TopicInfo { topicInfoName = P.KafkaString Null, topicInfoPart
 wireMaxSizeSubtopology :: Int -> Subtopology -> Int
 wireMaxSizeSubtopology _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (subtopologySubtopologyId msg))
+  + WP.dualStringMaxSize (subtopologySubtopologyId msg)
   + (5 + (case P.unKafkaArray (subtopologySourceTopics msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (subtopologyRepartitionSinkTopics msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (subtopologyStateChangelogTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicInfo _version x ) v); P.Null -> 0 }))
@@ -684,14 +684,14 @@ defaultTopology = Topology { topologyEpoch = 0, topologySubtopologies = P.KafkaA
 wireMaxSizeMember :: Int -> Member -> Int
 wireMaxSizeMember _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (memberMemberId msg))
+  + WP.dualStringMaxSize (memberMemberId msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (memberInstanceId msg))
-  + WP.compactStringMaxSize (P.toCompactString (memberRackId msg))
-  + WP.compactStringMaxSize (P.toCompactString (memberClientId msg))
-  + WP.compactStringMaxSize (P.toCompactString (memberClientHost msg))
+  + WP.dualStringMaxSize (memberInstanceId msg)
+  + WP.dualStringMaxSize (memberRackId msg)
+  + WP.dualStringMaxSize (memberClientId msg)
+  + WP.dualStringMaxSize (memberClientHost msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (memberProcessId msg))
+  + WP.dualStringMaxSize (memberProcessId msg)
   + (case (memberUserEndpoint msg) of { P.Null -> 1; P.NotNull s -> 1 + wireMaxSizeEndpoint _version s })
   + (5 + (case P.unKafkaArray (memberClientTags msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeKeyValue _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (memberTaskOffsets msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTaskOffset _version x ) v); P.Null -> 0 }))
@@ -753,9 +753,9 @@ wireMaxSizeDescribedGroup :: Int -> DescribedGroup -> Int
 wireMaxSizeDescribedGroup _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupErrorMessage msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupGroupId msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupGroupState msg))
+  + WP.dualStringMaxSize (describedGroupErrorMessage msg)
+  + WP.dualStringMaxSize (describedGroupGroupId msg)
+  + WP.dualStringMaxSize (describedGroupGroupState msg)
   + 4
   + 4
   + (case (describedGroupTopology msg) of { P.Null -> 1; P.NotNull s -> 1 + wireMaxSizeTopology _version s })

@@ -183,7 +183,7 @@ wireMaxSizeDescribeShareGroupOffsetsResponsePartition _version msg =
   + 4
   + 8
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describeShareGroupOffsetsResponsePartitionErrorMessage msg))
+  + WP.dualStringMaxSize (describeShareGroupOffsetsResponsePartitionErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for DescribeShareGroupOffsetsResponsePartition.
@@ -219,7 +219,7 @@ defaultDescribeShareGroupOffsetsResponsePartition = DescribeShareGroupOffsetsRes
 wireMaxSizeDescribeShareGroupOffsetsResponseTopic :: Int -> DescribeShareGroupOffsetsResponseTopic -> Int
 wireMaxSizeDescribeShareGroupOffsetsResponseTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describeShareGroupOffsetsResponseTopicTopicName msg))
+  + WP.dualStringMaxSize (describeShareGroupOffsetsResponseTopicTopicName msg)
   + 16
   + (5 + (case P.unKafkaArray (describeShareGroupOffsetsResponseTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeShareGroupOffsetsResponsePartition _version x ) v); P.Null -> 0 }))
   + 1
@@ -251,10 +251,10 @@ defaultDescribeShareGroupOffsetsResponseTopic = DescribeShareGroupOffsetsRespons
 wireMaxSizeDescribeShareGroupOffsetsResponseGroup :: Int -> DescribeShareGroupOffsetsResponseGroup -> Int
 wireMaxSizeDescribeShareGroupOffsetsResponseGroup _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describeShareGroupOffsetsResponseGroupGroupId msg))
+  + WP.dualStringMaxSize (describeShareGroupOffsetsResponseGroupGroupId msg)
   + (5 + (case P.unKafkaArray (describeShareGroupOffsetsResponseGroupTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeShareGroupOffsetsResponseTopic _version x ) v); P.Null -> 0 }))
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describeShareGroupOffsetsResponseGroupErrorMessage msg))
+  + WP.dualStringMaxSize (describeShareGroupOffsetsResponseGroupErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for DescribeShareGroupOffsetsResponseGroup.

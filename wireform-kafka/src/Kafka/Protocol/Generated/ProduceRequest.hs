@@ -137,7 +137,7 @@ wireMaxSizePartitionProduceData :: Int -> PartitionProduceData -> Int
 wireMaxSizePartitionProduceData _version msg =
   0
   + 4
-  + WP.compactBytesMaxSize (P.toCompactBytes (partitionProduceDataRecords msg))
+  + WP.dualBytesMaxSize (partitionProduceDataRecords msg)
   + 1
 
 -- | Direct-poke encoder for PartitionProduceData.
@@ -165,7 +165,7 @@ defaultPartitionProduceData = PartitionProduceData { partitionProduceDataIndex =
 wireMaxSizeTopicProduceData :: Int -> TopicProduceData -> Int
 wireMaxSizeTopicProduceData _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicProduceDataName msg))
+  + WP.dualStringMaxSize (topicProduceDataName msg)
   + 16
   + (5 + (case P.unKafkaArray (topicProduceDataPartitionData msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionProduceData _version x ) v); P.Null -> 0 }))
   + 1
@@ -197,7 +197,7 @@ defaultTopicProduceData = TopicProduceData { topicProduceDataName = P.KafkaStrin
 wireMaxSizeProduceRequest :: Int -> ProduceRequest -> Int
 wireMaxSizeProduceRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (produceRequestTransactionalId msg))
+  + WP.dualStringMaxSize (produceRequestTransactionalId msg)
   + 2
   + 4
   + (5 + (case P.unKafkaArray (produceRequestTopicData msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicProduceData _version x ) v); P.Null -> 0 }))

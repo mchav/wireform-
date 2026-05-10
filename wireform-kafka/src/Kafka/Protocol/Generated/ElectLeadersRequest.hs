@@ -105,7 +105,7 @@ instance KafkaMessage ElectLeadersRequest where
 wireMaxSizeTopicPartitions :: Int -> TopicPartitions -> Int
 wireMaxSizeTopicPartitions _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicPartitionsTopic msg))
+  + WP.dualStringMaxSize (topicPartitionsTopic msg)
   + (5 + (case P.unKafkaArray (topicPartitionsPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 

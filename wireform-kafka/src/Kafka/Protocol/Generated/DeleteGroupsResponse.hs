@@ -99,7 +99,7 @@ instance KafkaMessage DeleteGroupsResponse where
 wireMaxSizeDeletableGroupResult :: Int -> DeletableGroupResult -> Int
 wireMaxSizeDeletableGroupResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (deletableGroupResultGroupId msg))
+  + WP.dualStringMaxSize (deletableGroupResultGroupId msg)
   + 2
   + 1
 

@@ -228,7 +228,7 @@ wireMaxSizeTopicPartitions :: Int -> TopicPartitions -> Int
 wireMaxSizeTopicPartitions _version msg =
   0
   + 16
-  + WP.compactStringMaxSize (P.toCompactString (topicPartitionsTopicName msg))
+  + WP.dualStringMaxSize (topicPartitionsTopicName msg)
   + (5 + (case P.unKafkaArray (topicPartitionsPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 
@@ -285,11 +285,11 @@ defaultAssignment = Assignment { assignmentTopicPartitions = P.mkKafkaArray V.em
 wireMaxSizeMember :: Int -> Member -> Int
 wireMaxSizeMember _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (memberMemberId msg))
-  + WP.compactStringMaxSize (P.toCompactString (memberRackId msg))
+  + WP.dualStringMaxSize (memberMemberId msg)
+  + WP.dualStringMaxSize (memberRackId msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (memberClientId msg))
-  + WP.compactStringMaxSize (P.toCompactString (memberClientHost msg))
+  + WP.dualStringMaxSize (memberClientId msg)
+  + WP.dualStringMaxSize (memberClientHost msg)
   + (5 + (case P.unKafkaArray (memberSubscribedTopicNames msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
   + wireMaxSizeAssignment _version (memberAssignment msg)
   + 1
@@ -330,12 +330,12 @@ wireMaxSizeDescribedGroup :: Int -> DescribedGroup -> Int
 wireMaxSizeDescribedGroup _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupErrorMessage msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupGroupId msg))
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupGroupState msg))
+  + WP.dualStringMaxSize (describedGroupErrorMessage msg)
+  + WP.dualStringMaxSize (describedGroupGroupId msg)
+  + WP.dualStringMaxSize (describedGroupGroupState msg)
   + 4
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (describedGroupAssignorName msg))
+  + WP.dualStringMaxSize (describedGroupAssignorName msg)
   + (5 + (case P.unKafkaArray (describedGroupMembers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeMember _version x ) v); P.Null -> 0 }))
   + 4
   + 1

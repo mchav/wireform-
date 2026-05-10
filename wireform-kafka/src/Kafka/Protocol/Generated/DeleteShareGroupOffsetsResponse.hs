@@ -123,10 +123,10 @@ instance KafkaMessage DeleteShareGroupOffsetsResponse where
 wireMaxSizeDeleteShareGroupOffsetsResponseTopic :: Int -> DeleteShareGroupOffsetsResponseTopic -> Int
 wireMaxSizeDeleteShareGroupOffsetsResponseTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (deleteShareGroupOffsetsResponseTopicTopicName msg))
+  + WP.dualStringMaxSize (deleteShareGroupOffsetsResponseTopicTopicName msg)
   + 16
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (deleteShareGroupOffsetsResponseTopicErrorMessage msg))
+  + WP.dualStringMaxSize (deleteShareGroupOffsetsResponseTopicErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for DeleteShareGroupOffsetsResponseTopic.
@@ -160,7 +160,7 @@ wireMaxSizeDeleteShareGroupOffsetsResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (deleteShareGroupOffsetsResponseErrorMessage msg))
+  + WP.dualStringMaxSize (deleteShareGroupOffsetsResponseErrorMessage msg)
   + (5 + (case P.unKafkaArray (deleteShareGroupOffsetsResponseResponses msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDeleteShareGroupOffsetsResponseTopic _version x ) v); P.Null -> 0 }))
   + 1
 

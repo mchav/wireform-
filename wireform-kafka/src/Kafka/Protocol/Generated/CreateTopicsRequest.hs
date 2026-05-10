@@ -190,8 +190,8 @@ defaultCreatableReplicaAssignment = CreatableReplicaAssignment { creatableReplic
 wireMaxSizeCreatableTopicConfig :: Int -> CreatableTopicConfig -> Int
 wireMaxSizeCreatableTopicConfig _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (creatableTopicConfigName msg))
-  + WP.compactStringMaxSize (P.toCompactString (creatableTopicConfigValue msg))
+  + WP.dualStringMaxSize (creatableTopicConfigName msg)
+  + WP.dualStringMaxSize (creatableTopicConfigValue msg)
   + 1
 
 -- | Direct-poke encoder for CreatableTopicConfig.
@@ -219,7 +219,7 @@ defaultCreatableTopicConfig = CreatableTopicConfig { creatableTopicConfigName = 
 wireMaxSizeCreatableTopic :: Int -> CreatableTopic -> Int
 wireMaxSizeCreatableTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (creatableTopicName msg))
+  + WP.dualStringMaxSize (creatableTopicName msg)
   + 4
   + 2
   + (5 + (case P.unKafkaArray (creatableTopicAssignments msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCreatableReplicaAssignment _version x ) v); P.Null -> 0 }))

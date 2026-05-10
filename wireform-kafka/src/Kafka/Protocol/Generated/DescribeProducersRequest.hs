@@ -93,7 +93,7 @@ instance KafkaMessage DescribeProducersRequest where
 wireMaxSizeTopicRequest :: Int -> TopicRequest -> Int
 wireMaxSizeTopicRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicRequestName msg))
+  + WP.dualStringMaxSize (topicRequestName msg)
   + (5 + (case P.unKafkaArray (topicRequestPartitionIndexes msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 

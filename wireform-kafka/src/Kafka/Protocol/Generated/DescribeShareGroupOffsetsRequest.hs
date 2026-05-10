@@ -112,7 +112,7 @@ instance KafkaMessage DescribeShareGroupOffsetsRequest where
 wireMaxSizeDescribeShareGroupOffsetsRequestTopic :: Int -> DescribeShareGroupOffsetsRequestTopic -> Int
 wireMaxSizeDescribeShareGroupOffsetsRequestTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describeShareGroupOffsetsRequestTopicTopicName msg))
+  + WP.dualStringMaxSize (describeShareGroupOffsetsRequestTopicTopicName msg)
   + (5 + (case P.unKafkaArray (describeShareGroupOffsetsRequestTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 
@@ -141,7 +141,7 @@ defaultDescribeShareGroupOffsetsRequestTopic = DescribeShareGroupOffsetsRequestT
 wireMaxSizeDescribeShareGroupOffsetsRequestGroup :: Int -> DescribeShareGroupOffsetsRequestGroup -> Int
 wireMaxSizeDescribeShareGroupOffsetsRequestGroup _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describeShareGroupOffsetsRequestGroupGroupId msg))
+  + WP.dualStringMaxSize (describeShareGroupOffsetsRequestGroupGroupId msg)
   + (5 + (case P.unKafkaArray (describeShareGroupOffsetsRequestGroupTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeShareGroupOffsetsRequestTopic _version x ) v); P.Null -> 0 }))
   + 1
 

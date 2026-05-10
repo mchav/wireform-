@@ -316,11 +316,11 @@ wireMaxSizePartitionData _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (partitionDataErrorMessage msg))
+  + WP.dualStringMaxSize (partitionDataErrorMessage msg)
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (partitionDataAcknowledgeErrorMessage msg))
+  + WP.dualStringMaxSize (partitionDataAcknowledgeErrorMessage msg)
   + wireMaxSizeLeaderIdAndEpoch _version (partitionDataCurrentLeader msg)
-  + WP.compactBytesMaxSize (P.toCompactBytes (partitionDataRecords msg))
+  + WP.dualBytesMaxSize (partitionDataRecords msg)
   + (5 + (case P.unKafkaArray (partitionDataAcquiredRecords msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAcquiredRecords _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -391,9 +391,9 @@ wireMaxSizeNodeEndpoint :: Int -> NodeEndpoint -> Int
 wireMaxSizeNodeEndpoint _version msg =
   0
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (nodeEndpointHost msg))
+  + WP.dualStringMaxSize (nodeEndpointHost msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (nodeEndpointRack msg))
+  + WP.dualStringMaxSize (nodeEndpointRack msg)
   + 1
 
 -- | Direct-poke encoder for NodeEndpoint.
@@ -427,7 +427,7 @@ wireMaxSizeShareFetchResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (shareFetchResponseErrorMessage msg))
+  + WP.dualStringMaxSize (shareFetchResponseErrorMessage msg)
   + 4
   + (5 + (case P.unKafkaArray (shareFetchResponseResponses msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeShareFetchableTopicResponse _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (shareFetchResponseNodeEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNodeEndpoint _version x ) v); P.Null -> 0 }))

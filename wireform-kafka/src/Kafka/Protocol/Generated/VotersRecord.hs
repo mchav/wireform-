@@ -150,8 +150,8 @@ maxVotersRecordVersion = 0
 wireMaxSizeEndpoint :: Int -> Endpoint -> Int
 wireMaxSizeEndpoint _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (endpointName msg))
-  + WP.compactStringMaxSize (P.toCompactString (endpointHost msg))
+  + WP.dualStringMaxSize (endpointName msg)
+  + WP.dualStringMaxSize (endpointHost msg)
   + 2
   + 1
 

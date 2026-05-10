@@ -117,7 +117,7 @@ instance KafkaMessage UpdateFeaturesRequest where
 wireMaxSizeFeatureUpdateKey :: Int -> FeatureUpdateKey -> Int
 wireMaxSizeFeatureUpdateKey _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (featureUpdateKeyFeature msg))
+  + WP.dualStringMaxSize (featureUpdateKeyFeature msg)
   + 2
   + 1
   + 1

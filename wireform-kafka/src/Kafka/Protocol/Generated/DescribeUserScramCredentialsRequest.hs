@@ -87,7 +87,7 @@ instance KafkaMessage DescribeUserScramCredentialsRequest where
 wireMaxSizeUserName :: Int -> UserName -> Int
 wireMaxSizeUserName _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (userNameName msg))
+  + WP.dualStringMaxSize (userNameName msg)
   + 1
 
 -- | Direct-poke encoder for UserName.

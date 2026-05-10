@@ -130,9 +130,9 @@ instance KafkaMessage IncrementalAlterConfigsRequest where
 wireMaxSizeAlterableConfig :: Int -> AlterableConfig -> Int
 wireMaxSizeAlterableConfig _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (alterableConfigName msg))
+  + WP.dualStringMaxSize (alterableConfigName msg)
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (alterableConfigValue msg))
+  + WP.dualStringMaxSize (alterableConfigValue msg)
   + 1
 
 -- | Direct-poke encoder for AlterableConfig.
@@ -163,7 +163,7 @@ wireMaxSizeAlterConfigsResource :: Int -> AlterConfigsResource -> Int
 wireMaxSizeAlterConfigsResource _version msg =
   0
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (alterConfigsResourceResourceName msg))
+  + WP.dualStringMaxSize (alterConfigsResourceResourceName msg)
   + (5 + (case P.unKafkaArray (alterConfigsResourceConfigs msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAlterableConfig _version x ) v); P.Null -> 0 }))
   + 1
 

@@ -174,7 +174,7 @@ defaultListOffsetsPartitionResponse = ListOffsetsPartitionResponse { listOffsets
 wireMaxSizeListOffsetsTopicResponse :: Int -> ListOffsetsTopicResponse -> Int
 wireMaxSizeListOffsetsTopicResponse _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (listOffsetsTopicResponseName msg))
+  + WP.dualStringMaxSize (listOffsetsTopicResponseName msg)
   + (5 + (case P.unKafkaArray (listOffsetsTopicResponsePartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeListOffsetsPartitionResponse _version x ) v); P.Null -> 0 }))
   + 1
 

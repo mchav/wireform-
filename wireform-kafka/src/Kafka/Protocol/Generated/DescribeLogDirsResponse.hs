@@ -214,7 +214,7 @@ defaultDescribeLogDirsPartition = DescribeLogDirsPartition { describeLogDirsPart
 wireMaxSizeDescribeLogDirsTopic :: Int -> DescribeLogDirsTopic -> Int
 wireMaxSizeDescribeLogDirsTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describeLogDirsTopicName msg))
+  + WP.dualStringMaxSize (describeLogDirsTopicName msg)
   + (5 + (case P.unKafkaArray (describeLogDirsTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeLogDirsPartition _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -244,7 +244,7 @@ wireMaxSizeDescribeLogDirsResult :: Int -> DescribeLogDirsResult -> Int
 wireMaxSizeDescribeLogDirsResult _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describeLogDirsResultLogDir msg))
+  + WP.dualStringMaxSize (describeLogDirsResultLogDir msg)
   + (5 + (case P.unKafkaArray (describeLogDirsResultTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeLogDirsTopic _version x ) v); P.Null -> 0 }))
   + 8
   + 8

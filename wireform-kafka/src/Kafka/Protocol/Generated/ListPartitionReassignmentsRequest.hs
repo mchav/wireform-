@@ -99,7 +99,7 @@ instance KafkaMessage ListPartitionReassignmentsRequest where
 wireMaxSizeListPartitionReassignmentsTopics :: Int -> ListPartitionReassignmentsTopics -> Int
 wireMaxSizeListPartitionReassignmentsTopics _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (listPartitionReassignmentsTopicsName msg))
+  + WP.dualStringMaxSize (listPartitionReassignmentsTopicsName msg)
   + (5 + (case P.unKafkaArray (listPartitionReassignmentsTopicsPartitionIndexes msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 

@@ -165,7 +165,7 @@ defaultEpochEndOffset = EpochEndOffset { epochEndOffsetErrorCode = 0, epochEndOf
 wireMaxSizeOffsetForLeaderTopicResult :: Int -> OffsetForLeaderTopicResult -> Int
 wireMaxSizeOffsetForLeaderTopicResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (offsetForLeaderTopicResultTopic msg))
+  + WP.dualStringMaxSize (offsetForLeaderTopicResultTopic msg)
   + (5 + (case P.unKafkaArray (offsetForLeaderTopicResultPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeEpochEndOffset _version x ) v); P.Null -> 0 }))
   + 1
 

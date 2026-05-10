@@ -143,7 +143,7 @@ wireMaxSizeAlterShareGroupOffsetsResponsePartition _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (alterShareGroupOffsetsResponsePartitionErrorMessage msg))
+  + WP.dualStringMaxSize (alterShareGroupOffsetsResponsePartitionErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for AlterShareGroupOffsetsResponsePartition.
@@ -173,7 +173,7 @@ defaultAlterShareGroupOffsetsResponsePartition = AlterShareGroupOffsetsResponseP
 wireMaxSizeAlterShareGroupOffsetsResponseTopic :: Int -> AlterShareGroupOffsetsResponseTopic -> Int
 wireMaxSizeAlterShareGroupOffsetsResponseTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (alterShareGroupOffsetsResponseTopicTopicName msg))
+  + WP.dualStringMaxSize (alterShareGroupOffsetsResponseTopicTopicName msg)
   + 16
   + (5 + (case P.unKafkaArray (alterShareGroupOffsetsResponseTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAlterShareGroupOffsetsResponsePartition _version x ) v); P.Null -> 0 }))
   + 1
@@ -207,7 +207,7 @@ wireMaxSizeAlterShareGroupOffsetsResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (alterShareGroupOffsetsResponseErrorMessage msg))
+  + WP.dualStringMaxSize (alterShareGroupOffsetsResponseErrorMessage msg)
   + (5 + (case P.unKafkaArray (alterShareGroupOffsetsResponseResponses msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAlterShareGroupOffsetsResponseTopic _version x ) v); P.Null -> 0 }))
   + 1
 

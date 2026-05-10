@@ -177,7 +177,7 @@ defaultOngoingPartitionReassignment = OngoingPartitionReassignment { ongoingPart
 wireMaxSizeOngoingTopicReassignment :: Int -> OngoingTopicReassignment -> Int
 wireMaxSizeOngoingTopicReassignment _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (ongoingTopicReassignmentName msg))
+  + WP.dualStringMaxSize (ongoingTopicReassignmentName msg)
   + (5 + (case P.unKafkaArray (ongoingTopicReassignmentPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOngoingPartitionReassignment _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -208,7 +208,7 @@ wireMaxSizeListPartitionReassignmentsResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (listPartitionReassignmentsResponseErrorMessage msg))
+  + WP.dualStringMaxSize (listPartitionReassignmentsResponseErrorMessage msg)
   + (5 + (case P.unKafkaArray (listPartitionReassignmentsResponseTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOngoingTopicReassignment _version x ) v); P.Null -> 0 }))
   + 1
 

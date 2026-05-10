@@ -132,7 +132,7 @@ defaultPartitionData = PartitionData { partitionDataPartitionIndex = 0 }
 wireMaxSizeTopicData :: Int -> TopicData -> Int
 wireMaxSizeTopicData _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicDataTopicName msg))
+  + WP.dualStringMaxSize (topicDataTopicName msg)
   + (5 + (case P.unKafkaArray (topicDataPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionData _version x ) v); P.Null -> 0 }))
   + 1
 

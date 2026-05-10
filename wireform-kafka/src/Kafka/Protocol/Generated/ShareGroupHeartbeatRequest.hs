@@ -100,10 +100,10 @@ instance KafkaMessage ShareGroupHeartbeatRequest where
 wireMaxSizeShareGroupHeartbeatRequest :: Int -> ShareGroupHeartbeatRequest -> Int
 wireMaxSizeShareGroupHeartbeatRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (shareGroupHeartbeatRequestGroupId msg))
-  + WP.compactStringMaxSize (P.toCompactString (shareGroupHeartbeatRequestMemberId msg))
+  + WP.dualStringMaxSize (shareGroupHeartbeatRequestGroupId msg)
+  + WP.dualStringMaxSize (shareGroupHeartbeatRequestMemberId msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (shareGroupHeartbeatRequestRackId msg))
+  + WP.dualStringMaxSize (shareGroupHeartbeatRequestRackId msg)
   + (5 + (case P.unKafkaArray (shareGroupHeartbeatRequestSubscribedTopicNames msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
   + 1
 

@@ -171,9 +171,9 @@ defaultCredentialInfo = CredentialInfo { credentialInfoMechanism = 0, credential
 wireMaxSizeDescribeUserScramCredentialsResult :: Int -> DescribeUserScramCredentialsResult -> Int
 wireMaxSizeDescribeUserScramCredentialsResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describeUserScramCredentialsResultUser msg))
+  + WP.dualStringMaxSize (describeUserScramCredentialsResultUser msg)
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describeUserScramCredentialsResultErrorMessage msg))
+  + WP.dualStringMaxSize (describeUserScramCredentialsResultErrorMessage msg)
   + (5 + (case P.unKafkaArray (describeUserScramCredentialsResultCredentialInfos msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCredentialInfo _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -208,7 +208,7 @@ wireMaxSizeDescribeUserScramCredentialsResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describeUserScramCredentialsResponseErrorMessage msg))
+  + WP.dualStringMaxSize (describeUserScramCredentialsResponseErrorMessage msg)
   + (5 + (case P.unKafkaArray (describeUserScramCredentialsResponseResults msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeUserScramCredentialsResult _version x ) v); P.Null -> 0 }))
   + 1
 

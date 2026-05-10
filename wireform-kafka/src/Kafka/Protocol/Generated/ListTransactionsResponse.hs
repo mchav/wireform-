@@ -117,9 +117,9 @@ instance KafkaMessage ListTransactionsResponse where
 wireMaxSizeTransactionState :: Int -> TransactionState -> Int
 wireMaxSizeTransactionState _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (transactionStateTransactionalId msg))
+  + WP.dualStringMaxSize (transactionStateTransactionalId msg)
   + 8
-  + WP.compactStringMaxSize (P.toCompactString (transactionStateTransactionState msg))
+  + WP.dualStringMaxSize (transactionStateTransactionState msg)
   + 1
 
 -- | Direct-poke encoder for TransactionState.

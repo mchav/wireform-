@@ -176,63 +176,84 @@ responseHeaderVersionFor apiKey apiVersion = case apiKey of
 -- have to reach back into 'KafkaMessage' for every send.
 flexibleVersionTable :: [(Int16, Int16)]
 flexibleVersionTable =
-  [ (0, 9)   -- Produce
-  , (1, 12)  -- Fetch
-  , (2, 6)   -- ListOffsets
-  , (3, 9)   -- Metadata
-  , (8, 8)   -- OffsetCommit
-  , (9, 6)   -- OffsetFetch
-  , (10, 4)  -- FindCoordinator
-  , (11, 6)  -- JoinGroup
-  , (12, 4)  -- Heartbeat
-  , (13, 4)  -- LeaveGroup
-  , (14, 4)  -- SyncGroup
-  , (15, 5)  -- DescribeGroups
-  , (16, 3)  -- ListGroups
-  , (17, 2)  -- SaslHandshake (still header v1; SaslHandshake stays non-flexible)
-    -- Note: SaslHandshake actually never goes flexible. The
-    -- entry is here to document the choice.
-  , (18, 3)  -- ApiVersions (flexible at body v3+)
-  , (19, 5)  -- CreateTopics
-  , (20, 4)  -- DeleteTopics
-  , (21, 2)  -- DeleteRecords
-  , (22, 2)  -- InitProducerId
-  , (23, 4)  -- OffsetForLeaderEpoch
-  , (24, 3)  -- AddPartitionsToTxn
-  , (25, 3)  -- AddOffsetsToTxn
-  , (26, 3)  -- EndTxn
-  , (27, 1)  -- WriteTxnMarkers
-  , (28, 3)  -- TxnOffsetCommit
-  , (29, 2)  -- DescribeAcls
-  , (30, 2)  -- CreateAcls
-  , (31, 2)  -- DeleteAcls
-  , (32, 4)  -- DescribeConfigs
-  , (33, 2)  -- AlterConfigs
-  , (34, 2)  -- AlterReplicaLogDirs
-  , (35, 2)  -- DescribeLogDirs
-  , (37, 2)  -- CreatePartitions
-  , (38, 2)  -- CreateDelegationToken
-  , (39, 2)  -- RenewDelegationToken
-  , (40, 2)  -- ExpireDelegationToken
-  , (41, 2)  -- DescribeDelegationToken
-  , (42, 2)  -- DeleteGroups
-  , (43, 2)  -- ElectLeaders
-  , (44, 1)  -- IncrementalAlterConfigs
-  , (45, 0)  -- AlterPartitionReassignments
-  , (46, 0)  -- ListPartitionReassignments
-  , (47, 0)  -- OffsetDelete (kept v1; never went flexible)
-  , (48, 1)  -- DescribeClientQuotas
-  , (49, 1)  -- AlterClientQuotas
-  , (50, 0)  -- DescribeUserScramCredentials
-  , (51, 0)  -- AlterUserScramCredentials
-  , (60, 0)  -- DescribeCluster
-  , (61, 0)  -- DescribeProducers
-  , (65, 0)  -- DescribeTransactions
-  , (66, 0)  -- ListTransactions
-  , (68, 0)  -- ConsumerGroupHeartbeat
-  , (69, 0)  -- ConsumerGroupDescribe
-  , (71, 0)  -- GetTelemetrySubscriptions
-  , (72, 0)  -- PushTelemetry
+  -- Mechanically derived from
+  -- @data/kafka-protocol-schemas/*Request.json@ via the
+  -- @"flexibleVersions": "N+"@ field. Re-derive when bumping the
+  -- vendored schemas; until then, do not hand-edit.
+  [ (0, 9)    -- Produce
+  , (1, 12)   -- Fetch
+  , (2, 6)    -- ListOffsets
+  , (3, 9)    -- Metadata
+  , (8, 8)    -- OffsetCommit
+  , (9, 6)    -- OffsetFetch
+  , (10, 3)   -- FindCoordinator (was 4 — wrong; broker rejected v3 with header v1)
+  , (11, 6)   -- JoinGroup
+  , (12, 4)   -- Heartbeat
+  , (13, 4)   -- LeaveGroup
+  , (14, 4)   -- SyncGroup
+  , (15, 5)   -- DescribeGroups
+  , (16, 3)   -- ListGroups
+  -- ApiVersions: flexible at body v3+ on the wire, but the
+  -- response is /always/ emitted with header v0; the
+  -- responseHeaderVersionFor function below has the special case.
+  , (18, 3)   -- ApiVersions
+  , (19, 5)   -- CreateTopics
+  , (20, 4)   -- DeleteTopics
+  , (21, 2)   -- DeleteRecords
+  , (22, 2)   -- InitProducerId
+  , (23, 4)   -- OffsetForLeaderEpoch
+  , (24, 3)   -- AddPartitionsToTxn
+  , (25, 3)   -- AddOffsetsToTxn
+  , (26, 3)   -- EndTxn
+  , (27, 1)   -- WriteTxnMarkers
+  , (28, 3)   -- TxnOffsetCommit
+  , (29, 2)   -- DescribeAcls
+  , (30, 2)   -- CreateAcls
+  , (31, 2)   -- DeleteAcls
+  , (32, 4)   -- DescribeConfigs
+  , (33, 2)   -- AlterConfigs
+  , (34, 2)   -- AlterReplicaLogDirs
+  , (35, 2)   -- DescribeLogDirs
+  , (36, 2)   -- SaslAuthenticate (added — was missing; v2+ body paired with header v1 was malformed)
+  , (37, 2)   -- CreatePartitions
+  , (38, 2)   -- CreateDelegationToken
+  , (39, 2)   -- RenewDelegationToken
+  , (40, 2)   -- ExpireDelegationToken
+  , (41, 2)   -- DescribeDelegationToken
+  , (42, 2)   -- DeleteGroups
+  , (43, 2)   -- ElectLeaders
+  , (44, 1)   -- IncrementalAlterConfigs
+  , (45, 0)   -- AlterPartitionReassignments
+  , (46, 0)   -- ListPartitionReassignments
+  , (47, 0)   -- OffsetDelete (never went flexible per upstream; kept here for explicitness)
+  , (48, 1)   -- DescribeClientQuotas
+  , (49, 1)   -- AlterClientQuotas
+  , (50, 0)   -- DescribeUserScramCredentials
+  , (51, 0)   -- AlterUserScramCredentials
+  , (52, 0)   -- Vote
+  , (53, 1)   -- BeginQuorumEpoch
+  , (54, 1)   -- EndQuorumEpoch
+  , (55, 0)   -- DescribeQuorum
+  , (56, 0)   -- AlterPartition
+  , (57, 0)   -- UpdateFeatures
+  , (58, 0)   -- Envelope
+  , (59, 0)   -- FetchSnapshot
+  , (60, 0)   -- DescribeCluster
+  , (61, 0)   -- DescribeProducers
+  , (62, 0)   -- BrokerRegistration
+  , (63, 0)   -- BrokerHeartbeat
+  , (64, 0)   -- UnregisterBroker
+  , (65, 0)   -- DescribeTransactions
+  , (66, 0)   -- ListTransactions
+  , (67, 0)   -- AllocateProducerIds
+  , (68, 0)   -- ConsumerGroupHeartbeat
+  , (69, 0)   -- ConsumerGroupDescribe
+  , (70, 0)   -- ControllerRegistration
+  , (71, 0)   -- GetTelemetrySubscriptions
+  , (72, 0)   -- PushTelemetry
+  , (73, 0)   -- AssignReplicasToDirs
+  , (74, 0)   -- ListConfigResources
+  , (75, 0)   -- DescribeTopicPartitions
   ]
 
 -- | Parse a response frame, extracting the correlation ID and

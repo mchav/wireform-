@@ -93,8 +93,8 @@ instance KafkaMessage DescribeDelegationTokenRequest where
 wireMaxSizeDescribeDelegationTokenOwner :: Int -> DescribeDelegationTokenOwner -> Int
 wireMaxSizeDescribeDelegationTokenOwner _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describeDelegationTokenOwnerPrincipalType msg))
-  + WP.compactStringMaxSize (P.toCompactString (describeDelegationTokenOwnerPrincipalName msg))
+  + WP.dualStringMaxSize (describeDelegationTokenOwnerPrincipalType msg)
+  + WP.dualStringMaxSize (describeDelegationTokenOwnerPrincipalName msg)
   + 1
 
 -- | Direct-poke encoder for DescribeDelegationTokenOwner.

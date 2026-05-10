@@ -118,7 +118,7 @@ instance KafkaMessage DescribeTopicPartitionsRequest where
 wireMaxSizeTopicRequest :: Int -> TopicRequest -> Int
 wireMaxSizeTopicRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicRequestName msg))
+  + WP.dualStringMaxSize (topicRequestName msg)
   + 1
 
 -- | Direct-poke encoder for TopicRequest.
@@ -144,7 +144,7 @@ defaultTopicRequest = TopicRequest { topicRequestName = P.KafkaString Null }
 wireMaxSizeCursor :: Int -> Cursor -> Int
 wireMaxSizeCursor _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (cursorTopicName msg))
+  + WP.dualStringMaxSize (cursorTopicName msg)
   + 4
   + 1
 

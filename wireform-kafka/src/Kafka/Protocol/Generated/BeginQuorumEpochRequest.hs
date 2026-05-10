@@ -202,7 +202,7 @@ defaultPartitionData = PartitionData { partitionDataPartitionIndex = 0, partitio
 wireMaxSizeTopicData :: Int -> TopicData -> Int
 wireMaxSizeTopicData _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicDataTopicName msg))
+  + WP.dualStringMaxSize (topicDataTopicName msg)
   + (5 + (case P.unKafkaArray (topicDataPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionData _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -231,8 +231,8 @@ defaultTopicData = TopicData { topicDataTopicName = P.KafkaString Null, topicDat
 wireMaxSizeLeaderEndpoint :: Int -> LeaderEndpoint -> Int
 wireMaxSizeLeaderEndpoint _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (leaderEndpointName msg))
-  + WP.compactStringMaxSize (P.toCompactString (leaderEndpointHost msg))
+  + WP.dualStringMaxSize (leaderEndpointName msg)
+  + WP.dualStringMaxSize (leaderEndpointHost msg)
   + 2
   + 1
 
@@ -263,7 +263,7 @@ defaultLeaderEndpoint = LeaderEndpoint { leaderEndpointName = P.KafkaString Null
 wireMaxSizeBeginQuorumEpochRequest :: Int -> BeginQuorumEpochRequest -> Int
 wireMaxSizeBeginQuorumEpochRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (beginQuorumEpochRequestClusterId msg))
+  + WP.dualStringMaxSize (beginQuorumEpochRequestClusterId msg)
   + 4
   + (5 + (case P.unKafkaArray (beginQuorumEpochRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicData _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (beginQuorumEpochRequestLeaderEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeLeaderEndpoint _version x ) v); P.Null -> 0 }))

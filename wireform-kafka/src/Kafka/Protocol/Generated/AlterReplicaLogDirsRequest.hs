@@ -112,7 +112,7 @@ instance KafkaMessage AlterReplicaLogDirsRequest where
 wireMaxSizeAlterReplicaLogDirTopic :: Int -> AlterReplicaLogDirTopic -> Int
 wireMaxSizeAlterReplicaLogDirTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (alterReplicaLogDirTopicName msg))
+  + WP.dualStringMaxSize (alterReplicaLogDirTopicName msg)
   + (5 + (case P.unKafkaArray (alterReplicaLogDirTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 
@@ -141,7 +141,7 @@ defaultAlterReplicaLogDirTopic = AlterReplicaLogDirTopic { alterReplicaLogDirTop
 wireMaxSizeAlterReplicaLogDir :: Int -> AlterReplicaLogDir -> Int
 wireMaxSizeAlterReplicaLogDir _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (alterReplicaLogDirPath msg))
+  + WP.dualStringMaxSize (alterReplicaLogDirPath msg)
   + (5 + (case P.unKafkaArray (alterReplicaLogDirTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAlterReplicaLogDirTopic _version x ) v); P.Null -> 0 }))
   + 1
 

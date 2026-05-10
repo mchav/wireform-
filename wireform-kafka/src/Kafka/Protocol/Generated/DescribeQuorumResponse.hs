@@ -286,7 +286,7 @@ wireMaxSizePartitionData _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (partitionDataErrorMessage msg))
+  + WP.dualStringMaxSize (partitionDataErrorMessage msg)
   + 4
   + 4
   + 8
@@ -331,7 +331,7 @@ defaultPartitionData = PartitionData { partitionDataPartitionIndex = 0, partitio
 wireMaxSizeTopicData :: Int -> TopicData -> Int
 wireMaxSizeTopicData _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicDataTopicName msg))
+  + WP.dualStringMaxSize (topicDataTopicName msg)
   + (5 + (case P.unKafkaArray (topicDataPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionData _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -360,8 +360,8 @@ defaultTopicData = TopicData { topicDataTopicName = P.KafkaString Null, topicDat
 wireMaxSizeListener :: Int -> Listener -> Int
 wireMaxSizeListener _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (listenerName msg))
-  + WP.compactStringMaxSize (P.toCompactString (listenerHost msg))
+  + WP.dualStringMaxSize (listenerName msg)
+  + WP.dualStringMaxSize (listenerHost msg)
   + 2
   + 1
 
@@ -422,7 +422,7 @@ wireMaxSizeDescribeQuorumResponse :: Int -> DescribeQuorumResponse -> Int
 wireMaxSizeDescribeQuorumResponse _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describeQuorumResponseErrorMessage msg))
+  + WP.dualStringMaxSize (describeQuorumResponseErrorMessage msg)
   + (5 + (case P.unKafkaArray (describeQuorumResponseTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicData _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (describeQuorumResponseNodes msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNode _version x ) v); P.Null -> 0 }))
   + 1

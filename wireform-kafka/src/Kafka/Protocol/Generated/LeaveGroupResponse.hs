@@ -111,8 +111,8 @@ instance KafkaMessage LeaveGroupResponse where
 wireMaxSizeMemberResponse :: Int -> MemberResponse -> Int
 wireMaxSizeMemberResponse _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (memberResponseMemberId msg))
-  + WP.compactStringMaxSize (P.toCompactString (memberResponseGroupInstanceId msg))
+  + WP.dualStringMaxSize (memberResponseMemberId msg)
+  + WP.dualStringMaxSize (memberResponseGroupInstanceId msg)
   + 2
   + 1
 

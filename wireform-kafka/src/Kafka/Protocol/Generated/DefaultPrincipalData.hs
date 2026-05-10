@@ -83,8 +83,8 @@ maxDefaultPrincipalDataVersion = 0
 wireMaxSizeDefaultPrincipalData :: Int -> DefaultPrincipalData -> Int
 wireMaxSizeDefaultPrincipalData _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (defaultPrincipalDataType msg))
-  + WP.compactStringMaxSize (P.toCompactString (defaultPrincipalDataName msg))
+  + WP.dualStringMaxSize (defaultPrincipalDataType msg)
+  + WP.dualStringMaxSize (defaultPrincipalDataName msg)
   + 1
   + 1
 

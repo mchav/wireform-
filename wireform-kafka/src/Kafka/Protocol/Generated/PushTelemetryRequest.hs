@@ -104,7 +104,7 @@ wireMaxSizePushTelemetryRequest _version msg =
   + 4
   + 1
   + 1
-  + WP.compactBytesMaxSize (P.toCompactBytes (pushTelemetryRequestMetrics msg))
+  + WP.dualBytesMaxSize (pushTelemetryRequestMetrics msg)
   + 1
 
 -- | Direct-poke encoder for PushTelemetryRequest.

@@ -112,7 +112,7 @@ wireMaxSizeDescribeConfigsResource :: Int -> DescribeConfigsResource -> Int
 wireMaxSizeDescribeConfigsResource _version msg =
   0
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (describeConfigsResourceResourceName msg))
+  + WP.dualStringMaxSize (describeConfigsResourceResourceName msg)
   + (5 + (case P.unKafkaArray (describeConfigsResourceConfigurationKeys msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
   + 1
 

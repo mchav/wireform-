@@ -251,8 +251,8 @@ defaultAcknowledgeTopic = AcknowledgeTopic { acknowledgeTopicTopicId = P.nullUui
 wireMaxSizeShareAcknowledgeRequest :: Int -> ShareAcknowledgeRequest -> Int
 wireMaxSizeShareAcknowledgeRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (shareAcknowledgeRequestGroupId msg))
-  + WP.compactStringMaxSize (P.toCompactString (shareAcknowledgeRequestMemberId msg))
+  + WP.dualStringMaxSize (shareAcknowledgeRequestGroupId msg)
+  + WP.dualStringMaxSize (shareAcknowledgeRequestMemberId msg)
   + 4
   + 1
   + (5 + (case P.unKafkaArray (shareAcknowledgeRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAcknowledgeTopic _version x ) v); P.Null -> 0 }))

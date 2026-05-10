@@ -236,7 +236,7 @@ defaultPartitionSnapshot = PartitionSnapshot { partitionSnapshotPartition = 0, p
 wireMaxSizeTopicSnapshot :: Int -> TopicSnapshot -> Int
 wireMaxSizeTopicSnapshot _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicSnapshotName msg))
+  + WP.dualStringMaxSize (topicSnapshotName msg)
   + (5 + (case P.unKafkaArray (topicSnapshotPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionSnapshot _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -265,7 +265,7 @@ defaultTopicSnapshot = TopicSnapshot { topicSnapshotName = P.KafkaString Null, t
 wireMaxSizeFetchSnapshotRequest :: Int -> FetchSnapshotRequest -> Int
 wireMaxSizeFetchSnapshotRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (fetchSnapshotRequestClusterId msg))
+  + WP.dualStringMaxSize (fetchSnapshotRequestClusterId msg)
   + 4
   + 4
   + (5 + (case P.unKafkaArray (fetchSnapshotRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicSnapshot _version x ) v); P.Null -> 0 }))

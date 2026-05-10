@@ -93,7 +93,7 @@ instance KafkaMessage DescribeLogDirsRequest where
 wireMaxSizeDescribableLogDirTopic :: Int -> DescribableLogDirTopic -> Int
 wireMaxSizeDescribableLogDirTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describableLogDirTopicTopic msg))
+  + WP.dualStringMaxSize (describableLogDirTopicTopic msg)
   + (5 + (case P.unKafkaArray (describableLogDirTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 

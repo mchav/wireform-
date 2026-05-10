@@ -143,8 +143,8 @@ instance KafkaMessage AlterClientQuotasRequest where
 wireMaxSizeEntityData :: Int -> EntityData -> Int
 wireMaxSizeEntityData _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (entityDataEntityType msg))
-  + WP.compactStringMaxSize (P.toCompactString (entityDataEntityName msg))
+  + WP.dualStringMaxSize (entityDataEntityType msg)
+  + WP.dualStringMaxSize (entityDataEntityName msg)
   + 1
 
 -- | Direct-poke encoder for EntityData.
@@ -172,7 +172,7 @@ defaultEntityData = EntityData { entityDataEntityType = P.KafkaString Null, enti
 wireMaxSizeOpData :: Int -> OpData -> Int
 wireMaxSizeOpData _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (opDataKey msg))
+  + WP.dualStringMaxSize (opDataKey msg)
   + 8
   + 1
   + 1

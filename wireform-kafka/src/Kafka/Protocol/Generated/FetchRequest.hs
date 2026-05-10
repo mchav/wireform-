@@ -341,7 +341,7 @@ defaultFetchPartition = FetchPartition { fetchPartitionPartition = 0, fetchParti
 wireMaxSizeFetchTopic :: Int -> FetchTopic -> Int
 wireMaxSizeFetchTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (fetchTopicTopic msg))
+  + WP.dualStringMaxSize (fetchTopicTopic msg)
   + 16
   + (5 + (case P.unKafkaArray (fetchTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeFetchPartition _version x ) v); P.Null -> 0 }))
   + 1
@@ -373,7 +373,7 @@ defaultFetchTopic = FetchTopic { fetchTopicTopic = P.KafkaString Null, fetchTopi
 wireMaxSizeForgottenTopic :: Int -> ForgottenTopic -> Int
 wireMaxSizeForgottenTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (forgottenTopicTopic msg))
+  + WP.dualStringMaxSize (forgottenTopicTopic msg)
   + 16
   + (5 + (case P.unKafkaArray (forgottenTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
@@ -405,7 +405,7 @@ defaultForgottenTopic = ForgottenTopic { forgottenTopicTopic = P.KafkaString Nul
 wireMaxSizeFetchRequest :: Int -> FetchRequest -> Int
 wireMaxSizeFetchRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (fetchRequestClusterId msg))
+  + WP.dualStringMaxSize (fetchRequestClusterId msg)
   + 4
   + wireMaxSizeReplicaState _version (fetchRequestReplicaState msg)
   + 4
@@ -416,7 +416,7 @@ wireMaxSizeFetchRequest _version msg =
   + 4
   + (5 + (case P.unKafkaArray (fetchRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeFetchTopic _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (fetchRequestForgottenTopicsData msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeForgottenTopic _version x ) v); P.Null -> 0 }))
-  + WP.compactStringMaxSize (P.toCompactString (fetchRequestRackId msg))
+  + WP.dualStringMaxSize (fetchRequestRackId msg)
   + 1
 
 -- | Direct-poke encoder for FetchRequest.

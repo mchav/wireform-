@@ -111,9 +111,9 @@ instance KafkaMessage LeaveGroupRequest where
 wireMaxSizeMemberIdentity :: Int -> MemberIdentity -> Int
 wireMaxSizeMemberIdentity _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (memberIdentityMemberId msg))
-  + WP.compactStringMaxSize (P.toCompactString (memberIdentityGroupInstanceId msg))
-  + WP.compactStringMaxSize (P.toCompactString (memberIdentityReason msg))
+  + WP.dualStringMaxSize (memberIdentityMemberId msg)
+  + WP.dualStringMaxSize (memberIdentityGroupInstanceId msg)
+  + WP.dualStringMaxSize (memberIdentityReason msg)
   + 1
 
 -- | Direct-poke encoder for MemberIdentity.
@@ -143,8 +143,8 @@ defaultMemberIdentity = MemberIdentity { memberIdentityMemberId = P.KafkaString 
 wireMaxSizeLeaveGroupRequest :: Int -> LeaveGroupRequest -> Int
 wireMaxSizeLeaveGroupRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (leaveGroupRequestGroupId msg))
-  + WP.compactStringMaxSize (P.toCompactString (leaveGroupRequestMemberId msg))
+  + WP.dualStringMaxSize (leaveGroupRequestGroupId msg)
+  + WP.dualStringMaxSize (leaveGroupRequestMemberId msg)
   + (5 + (case P.unKafkaArray (leaveGroupRequestMembers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeMemberIdentity _version x ) v); P.Null -> 0 }))
   + 1
 

@@ -90,7 +90,7 @@ wireMaxSizeUnregisterBrokerResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (unregisterBrokerResponseErrorMessage msg))
+  + WP.dualStringMaxSize (unregisterBrokerResponseErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for UnregisterBrokerResponse.

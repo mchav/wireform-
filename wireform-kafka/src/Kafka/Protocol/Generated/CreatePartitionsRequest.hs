@@ -150,7 +150,7 @@ defaultCreatePartitionsAssignment = CreatePartitionsAssignment { createPartition
 wireMaxSizeCreatePartitionsTopic :: Int -> CreatePartitionsTopic -> Int
 wireMaxSizeCreatePartitionsTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (createPartitionsTopicName msg))
+  + WP.dualStringMaxSize (createPartitionsTopicName msg)
   + 4
   + (5 + (case P.unKafkaArray (createPartitionsTopicAssignments msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCreatePartitionsAssignment _version x ) v); P.Null -> 0 }))
   + 1

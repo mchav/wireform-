@@ -102,9 +102,9 @@ wireMaxSizeSyncGroupResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (syncGroupResponseProtocolType msg))
-  + WP.compactStringMaxSize (P.toCompactString (syncGroupResponseProtocolName msg))
-  + WP.compactBytesMaxSize (P.toCompactBytes (syncGroupResponseAssignment msg))
+  + WP.dualStringMaxSize (syncGroupResponseProtocolType msg)
+  + WP.dualStringMaxSize (syncGroupResponseProtocolName msg)
+  + WP.dualBytesMaxSize (syncGroupResponseAssignment msg)
   + 1
 
 -- | Direct-poke encoder for SyncGroupResponse.

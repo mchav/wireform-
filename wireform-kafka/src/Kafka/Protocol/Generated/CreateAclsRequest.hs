@@ -124,10 +124,10 @@ wireMaxSizeAclCreation :: Int -> AclCreation -> Int
 wireMaxSizeAclCreation _version msg =
   0
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (aclCreationResourceName msg))
+  + WP.dualStringMaxSize (aclCreationResourceName msg)
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (aclCreationPrincipal msg))
-  + WP.compactStringMaxSize (P.toCompactString (aclCreationHost msg))
+  + WP.dualStringMaxSize (aclCreationPrincipal msg)
+  + WP.dualStringMaxSize (aclCreationHost msg)
   + 1
   + 1
   + 1

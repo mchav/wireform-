@@ -112,7 +112,7 @@ wireMaxSizeMetadataRequestTopic :: Int -> MetadataRequestTopic -> Int
 wireMaxSizeMetadataRequestTopic _version msg =
   0
   + 16
-  + WP.compactStringMaxSize (P.toCompactString (metadataRequestTopicName msg))
+  + WP.dualStringMaxSize (metadataRequestTopicName msg)
   + 1
 
 -- | Direct-poke encoder for MetadataRequestTopic.

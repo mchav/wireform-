@@ -176,7 +176,7 @@ defaultReadStateData = ReadStateData { readStateDataTopicId = P.nullUuid, readSt
 wireMaxSizeReadShareGroupStateRequest :: Int -> ReadShareGroupStateRequest -> Int
 wireMaxSizeReadShareGroupStateRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (readShareGroupStateRequestGroupId msg))
+  + WP.dualStringMaxSize (readShareGroupStateRequestGroupId msg)
   + (5 + (case P.unKafkaArray (readShareGroupStateRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeReadStateData _version x ) v); P.Null -> 0 }))
   + 1
 

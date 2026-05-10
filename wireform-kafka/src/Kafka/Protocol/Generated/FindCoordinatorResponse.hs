@@ -153,12 +153,12 @@ instance KafkaMessage FindCoordinatorResponse where
 wireMaxSizeCoordinator :: Int -> Coordinator -> Int
 wireMaxSizeCoordinator _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (coordinatorKey msg))
+  + WP.dualStringMaxSize (coordinatorKey msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (coordinatorHost msg))
+  + WP.dualStringMaxSize (coordinatorHost msg)
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (coordinatorErrorMessage msg))
+  + WP.dualStringMaxSize (coordinatorErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for Coordinator.
@@ -196,9 +196,9 @@ wireMaxSizeFindCoordinatorResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (findCoordinatorResponseErrorMessage msg))
+  + WP.dualStringMaxSize (findCoordinatorResponseErrorMessage msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (findCoordinatorResponseHost msg))
+  + WP.dualStringMaxSize (findCoordinatorResponseHost msg)
   + 4
   + (5 + (case P.unKafkaArray (findCoordinatorResponseCoordinators msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCoordinator _version x ) v); P.Null -> 0 }))
   + 1

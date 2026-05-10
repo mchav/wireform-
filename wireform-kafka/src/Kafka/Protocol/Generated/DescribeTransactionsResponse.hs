@@ -154,7 +154,7 @@ instance KafkaMessage DescribeTransactionsResponse where
 wireMaxSizeTopicData :: Int -> TopicData -> Int
 wireMaxSizeTopicData _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicDataTopic msg))
+  + WP.dualStringMaxSize (topicDataTopic msg)
   + (5 + (case P.unKafkaArray (topicDataPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 
@@ -184,8 +184,8 @@ wireMaxSizeTransactionState :: Int -> TransactionState -> Int
 wireMaxSizeTransactionState _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (transactionStateTransactionalId msg))
-  + WP.compactStringMaxSize (P.toCompactString (transactionStateTransactionState msg))
+  + WP.dualStringMaxSize (transactionStateTransactionalId msg)
+  + WP.dualStringMaxSize (transactionStateTransactionState msg)
   + 4
   + 8
   + 8

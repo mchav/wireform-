@@ -198,8 +198,8 @@ wireMaxSizeShareGroupHeartbeatResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (shareGroupHeartbeatResponseErrorMessage msg))
-  + WP.compactStringMaxSize (P.toCompactString (shareGroupHeartbeatResponseMemberId msg))
+  + WP.dualStringMaxSize (shareGroupHeartbeatResponseErrorMessage msg)
+  + WP.dualStringMaxSize (shareGroupHeartbeatResponseMemberId msg)
   + 4
   + 4
   + (case (shareGroupHeartbeatResponseAssignment msg) of { P.Null -> 1; P.NotNull s -> 1 + wireMaxSizeAssignment _version s })

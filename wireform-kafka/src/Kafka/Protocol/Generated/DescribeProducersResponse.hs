@@ -216,7 +216,7 @@ wireMaxSizePartitionResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (partitionResponseErrorMessage msg))
+  + WP.dualStringMaxSize (partitionResponseErrorMessage msg)
   + (5 + (case P.unKafkaArray (partitionResponseActiveProducers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeProducerState _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -249,7 +249,7 @@ defaultPartitionResponse = PartitionResponse { partitionResponsePartitionIndex =
 wireMaxSizeTopicResponse :: Int -> TopicResponse -> Int
 wireMaxSizeTopicResponse _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicResponseName msg))
+  + WP.dualStringMaxSize (topicResponseName msg)
   + (5 + (case P.unKafkaArray (topicResponsePartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionResponse _version x ) v); P.Null -> 0 }))
   + 1
 

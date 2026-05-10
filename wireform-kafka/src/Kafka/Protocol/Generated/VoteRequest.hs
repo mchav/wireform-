@@ -207,7 +207,7 @@ defaultPartitionData = PartitionData { partitionDataPartitionIndex = 0, partitio
 wireMaxSizeTopicData :: Int -> TopicData -> Int
 wireMaxSizeTopicData _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicDataTopicName msg))
+  + WP.dualStringMaxSize (topicDataTopicName msg)
   + (5 + (case P.unKafkaArray (topicDataPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionData _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -236,7 +236,7 @@ defaultTopicData = TopicData { topicDataTopicName = P.KafkaString Null, topicDat
 wireMaxSizeVoteRequest :: Int -> VoteRequest -> Int
 wireMaxSizeVoteRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (voteRequestClusterId msg))
+  + WP.dualStringMaxSize (voteRequestClusterId msg)
   + 4
   + (5 + (case P.unKafkaArray (voteRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicData _version x ) v); P.Null -> 0 }))
   + 1

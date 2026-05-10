@@ -105,9 +105,9 @@ instance KafkaMessage DescribeClientQuotasRequest where
 wireMaxSizeComponentData :: Int -> ComponentData -> Int
 wireMaxSizeComponentData _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (componentDataEntityType msg))
+  + WP.dualStringMaxSize (componentDataEntityType msg)
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (componentDataMatch msg))
+  + WP.dualStringMaxSize (componentDataMatch msg)
   + 1
 
 -- | Direct-poke encoder for ComponentData.

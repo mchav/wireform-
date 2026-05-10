@@ -260,7 +260,7 @@ wireMaxSizeDescribeTopicPartitionsResponseTopic :: Int -> DescribeTopicPartition
 wireMaxSizeDescribeTopicPartitionsResponseTopic _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describeTopicPartitionsResponseTopicName msg))
+  + WP.dualStringMaxSize (describeTopicPartitionsResponseTopicName msg)
   + 16
   + 1
   + (5 + (case P.unKafkaArray (describeTopicPartitionsResponseTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeTopicPartitionsResponsePartition _version x ) v); P.Null -> 0 }))
@@ -300,7 +300,7 @@ defaultDescribeTopicPartitionsResponseTopic = DescribeTopicPartitionsResponseTop
 wireMaxSizeCursor :: Int -> Cursor -> Int
 wireMaxSizeCursor _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (cursorTopicName msg))
+  + WP.dualStringMaxSize (cursorTopicName msg)
   + 4
   + 1
 

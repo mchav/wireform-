@@ -278,7 +278,7 @@ defaultWriteStateData = WriteStateData { writeStateDataTopicId = P.nullUuid, wri
 wireMaxSizeWriteShareGroupStateRequest :: Int -> WriteShareGroupStateRequest -> Int
 wireMaxSizeWriteShareGroupStateRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (writeShareGroupStateRequestGroupId msg))
+  + WP.dualStringMaxSize (writeShareGroupStateRequestGroupId msg)
   + (5 + (case P.unKafkaArray (writeShareGroupStateRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeWriteStateData _version x ) v); P.Null -> 0 }))
   + 1
 

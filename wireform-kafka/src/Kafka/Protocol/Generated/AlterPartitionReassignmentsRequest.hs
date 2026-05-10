@@ -153,7 +153,7 @@ defaultReassignablePartition = ReassignablePartition { reassignablePartitionPart
 wireMaxSizeReassignableTopic :: Int -> ReassignableTopic -> Int
 wireMaxSizeReassignableTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (reassignableTopicName msg))
+  + WP.dualStringMaxSize (reassignableTopicName msg)
   + (5 + (case P.unKafkaArray (reassignableTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeReassignablePartition _version x ) v); P.Null -> 0 }))
   + 1
 

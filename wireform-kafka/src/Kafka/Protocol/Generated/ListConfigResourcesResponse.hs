@@ -105,7 +105,7 @@ instance KafkaMessage ListConfigResourcesResponse where
 wireMaxSizeConfigResource :: Int -> ConfigResource -> Int
 wireMaxSizeConfigResource _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (configResourceResourceName msg))
+  + WP.dualStringMaxSize (configResourceResourceName msg)
   + 1
   + 1
 

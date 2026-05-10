@@ -117,17 +117,24 @@ findGroupCoordinator
   -> IO (Either String GroupCoordinator)
 findGroupCoordinator versionCache brokerAddr conn groupId correlationId clientId = do
   let apiKey = 10  -- FindCoordinator API key
-      clientMaxVersion = 4  -- Max version we support
-  
+      -- We cap at v3 because v4 (KIP-699) reshapes the response into
+      -- a 'Coordinators' array, with the single Host/Port fields
+      -- gone from the top level. Until we add the batched-lookup
+      -- handler, talking v4 to a 4.0 broker would parse Host/Port
+      -- as their default empty / 0 (the field is absent at v4+),
+      -- giving us a coordinator address of @:0@ that
+      -- 'Conn.getOrCreateConnection' then fails to resolve.
+      clientMaxVersion = 3
+
   -- Query broker's supported version
   brokerVersionM <- atomically $ AV.queryApiVersion versionCache brokerAddr apiKey
-  
+
   let apiVersion = case brokerVersionM of
         Nothing -> 0  -- Fall back to v0 if unknown
         Just range -> case AV.selectVersion clientMaxVersion range of
           Nothing -> 0  -- Fall back if incompatible
           Just v -> v
-      
+
       request = FCReq.FindCoordinatorRequest
         { FCReq.findCoordinatorRequestKey = P.mkKafkaString groupId
         , FCReq.findCoordinatorRequestKeyType = 0  -- 0 = consumer group
@@ -178,9 +185,31 @@ joinGroup
   -> [(Text, ByteString)]  -- ^ Supported protocols with metadata
   -> Int32               -- ^ Correlation ID
   -> IO (Either String JoinGroupResult)
-joinGroup versionCache brokerAddr conn groupId memberId clientId sessionTimeout rebalanceTimeout protocolType protocols correlationId = do
+joinGroup vc ba conn gid mid cid st rt pt protos corrId =
+  joinGroupGo vc ba conn gid mid cid st rt pt protos corrId 0
+
+-- | Internal joinGroup loop with a retry counter.  Handles
+-- 'MEMBER_ID_REQUIRED' (error 79, KIP-394): the broker, on the
+-- first JoinGroup from a dynamic member, returns a freshly-
+-- minted member id and requires the client to re-issue the
+-- JoinGroup with that id.  We retry once.
+joinGroupGo
+  :: AV.ApiVersionCache -> BrokerAddress -> Connection
+  -> Text -> Text -> Text
+  -> Int32 -> Int32
+  -> Text -> [(Text, ByteString)]
+  -> Int32
+  -> Int       -- ^ retry attempt (0 = first call)
+  -> IO (Either String JoinGroupResult)
+joinGroupGo versionCache brokerAddr conn groupId memberId clientId sessionTimeout rebalanceTimeout protocolType protocols correlationId attempt = do
   let apiKey = 11  -- JoinGroup API key
-      clientMaxVersion = 9  -- Max version we support
+      -- Cap at v5 (KIP-394 introduced MEMBER_ID_REQUIRED at v4,
+      -- so v5 keeps the membership protocol stable enough that
+      -- we can rely on the simple two-call retry below; v6
+      -- becomes flexible and makes the response shape
+      -- meaningfully different in ways we haven't checked
+      -- end-to-end against the live broker yet).
+      clientMaxVersion = 5
   
   -- Query broker's supported version
   brokerVersionM <- atomically $ AV.queryApiVersion versionCache brokerAddr apiKey
@@ -221,9 +250,19 @@ joinGroup versionCache brokerAddr conn groupId memberId clientId sessionTimeout 
         Right response -> do
           let errorCode = JGResp.joinGroupResponseErrorCode response
           
-          if errorCode /= 0
-            then return $ Left $ "JoinGroup error: code " ++ show errorCode
-            else do
+          let assignedMember =
+                extractText (JGResp.joinGroupResponseMemberId response)
+          case errorCode of
+            -- KIP-394 MEMBER_ID_REQUIRED: broker handed us a fresh
+            -- member id on the first JoinGroup; retry once with it.
+            -- Any other non-zero code is fatal at this layer.
+            79 | attempt == 0 && not (T.null assignedMember) ->
+              joinGroupGo versionCache brokerAddr conn groupId
+                assignedMember clientId sessionTimeout rebalanceTimeout
+                protocolType protocols (correlationId + 1) (attempt + 1)
+            c | c /= 0 ->
+              pure (Left ("JoinGroup error: code " ++ show c))
+            _ -> do
               let genId = JGResp.joinGroupResponseGenerationId response
                   protocol = extractText $ JGResp.joinGroupResponseProtocolName response
                   leader = extractText $ JGResp.joinGroupResponseLeader response

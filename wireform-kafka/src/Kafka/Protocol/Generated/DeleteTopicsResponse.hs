@@ -111,10 +111,10 @@ instance KafkaMessage DeleteTopicsResponse where
 wireMaxSizeDeletableTopicResult :: Int -> DeletableTopicResult -> Int
 wireMaxSizeDeletableTopicResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (deletableTopicResultName msg))
+  + WP.dualStringMaxSize (deletableTopicResultName msg)
   + 16
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (deletableTopicResultErrorMessage msg))
+  + WP.dualStringMaxSize (deletableTopicResultErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for DeletableTopicResult.

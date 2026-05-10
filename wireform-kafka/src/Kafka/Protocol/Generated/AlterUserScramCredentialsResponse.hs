@@ -105,9 +105,9 @@ instance KafkaMessage AlterUserScramCredentialsResponse where
 wireMaxSizeAlterUserScramCredentialsResult :: Int -> AlterUserScramCredentialsResult -> Int
 wireMaxSizeAlterUserScramCredentialsResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (alterUserScramCredentialsResultUser msg))
+  + WP.dualStringMaxSize (alterUserScramCredentialsResultUser msg)
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (alterUserScramCredentialsResultErrorMessage msg))
+  + WP.dualStringMaxSize (alterUserScramCredentialsResultErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for AlterUserScramCredentialsResult.

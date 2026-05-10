@@ -172,8 +172,8 @@ instance KafkaMessage CreateTopicsResponse where
 wireMaxSizeCreatableTopicConfigs :: Int -> CreatableTopicConfigs -> Int
 wireMaxSizeCreatableTopicConfigs _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (creatableTopicConfigsName msg))
-  + WP.compactStringMaxSize (P.toCompactString (creatableTopicConfigsValue msg))
+  + WP.dualStringMaxSize (creatableTopicConfigsName msg)
+  + WP.dualStringMaxSize (creatableTopicConfigsValue msg)
   + 1
   + 1
   + 1
@@ -210,10 +210,10 @@ defaultCreatableTopicConfigs = CreatableTopicConfigs { creatableTopicConfigsName
 wireMaxSizeCreatableTopicResult :: Int -> CreatableTopicResult -> Int
 wireMaxSizeCreatableTopicResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (creatableTopicResultName msg))
+  + WP.dualStringMaxSize (creatableTopicResultName msg)
   + 16
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (creatableTopicResultErrorMessage msg))
+  + WP.dualStringMaxSize (creatableTopicResultErrorMessage msg)
   + 2
   + 4
   + 2

@@ -350,8 +350,8 @@ defaultForgottenTopic = ForgottenTopic { forgottenTopicTopicId = P.nullUuid, for
 wireMaxSizeShareFetchRequest :: Int -> ShareFetchRequest -> Int
 wireMaxSizeShareFetchRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (shareFetchRequestGroupId msg))
-  + WP.compactStringMaxSize (P.toCompactString (shareFetchRequestMemberId msg))
+  + WP.dualStringMaxSize (shareFetchRequestGroupId msg)
+  + WP.dualStringMaxSize (shareFetchRequestMemberId msg)
   + 4
   + 4
   + 4

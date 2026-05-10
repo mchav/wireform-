@@ -154,8 +154,8 @@ instance KafkaMessage DescribeAclsResponse where
 wireMaxSizeAclDescription :: Int -> AclDescription -> Int
 wireMaxSizeAclDescription _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (aclDescriptionPrincipal msg))
-  + WP.compactStringMaxSize (P.toCompactString (aclDescriptionHost msg))
+  + WP.dualStringMaxSize (aclDescriptionPrincipal msg)
+  + WP.dualStringMaxSize (aclDescriptionHost msg)
   + 1
   + 1
   + 1
@@ -190,7 +190,7 @@ wireMaxSizeDescribeAclsResource :: Int -> DescribeAclsResource -> Int
 wireMaxSizeDescribeAclsResource _version msg =
   0
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (describeAclsResourceResourceName msg))
+  + WP.dualStringMaxSize (describeAclsResourceResourceName msg)
   + 1
   + (5 + (case P.unKafkaArray (describeAclsResourceAcls msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAclDescription _version x ) v); P.Null -> 0 }))
   + 1
@@ -226,7 +226,7 @@ wireMaxSizeDescribeAclsResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describeAclsResponseErrorMessage msg))
+  + WP.dualStringMaxSize (describeAclsResponseErrorMessage msg)
   + (5 + (case P.unKafkaArray (describeAclsResponseResources msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeAclsResource _version x ) v); P.Null -> 0 }))
   + 1
 

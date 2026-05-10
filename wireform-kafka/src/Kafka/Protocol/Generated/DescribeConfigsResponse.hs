@@ -197,8 +197,8 @@ instance KafkaMessage DescribeConfigsResponse where
 wireMaxSizeDescribeConfigsSynonym :: Int -> DescribeConfigsSynonym -> Int
 wireMaxSizeDescribeConfigsSynonym _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describeConfigsSynonymName msg))
-  + WP.compactStringMaxSize (P.toCompactString (describeConfigsSynonymValue msg))
+  + WP.dualStringMaxSize (describeConfigsSynonymName msg)
+  + WP.dualStringMaxSize (describeConfigsSynonymValue msg)
   + 1
   + 1
 
@@ -229,14 +229,14 @@ defaultDescribeConfigsSynonym = DescribeConfigsSynonym { describeConfigsSynonymN
 wireMaxSizeDescribeConfigsResourceResult :: Int -> DescribeConfigsResourceResult -> Int
 wireMaxSizeDescribeConfigsResourceResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (describeConfigsResourceResultName msg))
-  + WP.compactStringMaxSize (P.toCompactString (describeConfigsResourceResultValue msg))
+  + WP.dualStringMaxSize (describeConfigsResourceResultName msg)
+  + WP.dualStringMaxSize (describeConfigsResourceResultValue msg)
   + 1
   + 1
   + 1
   + (5 + (case P.unKafkaArray (describeConfigsResourceResultSynonyms msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeConfigsSynonym _version x ) v); P.Null -> 0 }))
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (describeConfigsResourceResultDocumentation msg))
+  + WP.dualStringMaxSize (describeConfigsResourceResultDocumentation msg)
   + 1
 
 -- | Direct-poke encoder for DescribeConfigsResourceResult.
@@ -277,9 +277,9 @@ wireMaxSizeDescribeConfigsResult :: Int -> DescribeConfigsResult -> Int
 wireMaxSizeDescribeConfigsResult _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (describeConfigsResultErrorMessage msg))
+  + WP.dualStringMaxSize (describeConfigsResultErrorMessage msg)
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (describeConfigsResultResourceName msg))
+  + WP.dualStringMaxSize (describeConfigsResultResourceName msg)
   + (5 + (case P.unKafkaArray (describeConfigsResultConfigs msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribeConfigsResourceResult _version x ) v); P.Null -> 0 }))
   + 1
 

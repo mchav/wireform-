@@ -236,7 +236,7 @@ wireMaxSizeBatchIndexAndErrorMessage :: Int -> BatchIndexAndErrorMessage -> Int
 wireMaxSizeBatchIndexAndErrorMessage _version msg =
   0
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (batchIndexAndErrorMessageBatchIndexErrorMessage msg))
+  + WP.dualStringMaxSize (batchIndexAndErrorMessageBatchIndexErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for BatchIndexAndErrorMessage.
@@ -299,7 +299,7 @@ wireMaxSizePartitionProduceResponse _version msg =
   + 8
   + 8
   + (5 + (case P.unKafkaArray (partitionProduceResponseRecordErrors msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeBatchIndexAndErrorMessage _version x ) v); P.Null -> 0 }))
-  + WP.compactStringMaxSize (P.toCompactString (partitionProduceResponseErrorMessage msg))
+  + WP.dualStringMaxSize (partitionProduceResponseErrorMessage msg)
   + wireMaxSizeLeaderIdAndEpoch _version (partitionProduceResponseCurrentLeader msg)
   + 1
 
@@ -342,7 +342,7 @@ defaultPartitionProduceResponse = PartitionProduceResponse { partitionProduceRes
 wireMaxSizeTopicProduceResponse :: Int -> TopicProduceResponse -> Int
 wireMaxSizeTopicProduceResponse _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicProduceResponseName msg))
+  + WP.dualStringMaxSize (topicProduceResponseName msg)
   + 16
   + (5 + (case P.unKafkaArray (topicProduceResponsePartitionResponses msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionProduceResponse _version x ) v); P.Null -> 0 }))
   + 1
@@ -375,9 +375,9 @@ wireMaxSizeNodeEndpoint :: Int -> NodeEndpoint -> Int
 wireMaxSizeNodeEndpoint _version msg =
   0
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (nodeEndpointHost msg))
+  + WP.dualStringMaxSize (nodeEndpointHost msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (nodeEndpointRack msg))
+  + WP.dualStringMaxSize (nodeEndpointRack msg)
   + 1
 
 -- | Direct-poke encoder for NodeEndpoint.

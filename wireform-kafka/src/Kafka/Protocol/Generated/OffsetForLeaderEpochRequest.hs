@@ -156,7 +156,7 @@ defaultOffsetForLeaderPartition = OffsetForLeaderPartition { offsetForLeaderPart
 wireMaxSizeOffsetForLeaderTopic :: Int -> OffsetForLeaderTopic -> Int
 wireMaxSizeOffsetForLeaderTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (offsetForLeaderTopicTopic msg))
+  + WP.dualStringMaxSize (offsetForLeaderTopicTopic msg)
   + (5 + (case P.unKafkaArray (offsetForLeaderTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOffsetForLeaderPartition _version x ) v); P.Null -> 0 }))
   + 1
 

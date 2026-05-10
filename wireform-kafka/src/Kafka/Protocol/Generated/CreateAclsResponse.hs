@@ -100,7 +100,7 @@ wireMaxSizeAclCreationResult :: Int -> AclCreationResult -> Int
 wireMaxSizeAclCreationResult _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (aclCreationResultErrorMessage msg))
+  + WP.dualStringMaxSize (aclCreationResultErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for AclCreationResult.

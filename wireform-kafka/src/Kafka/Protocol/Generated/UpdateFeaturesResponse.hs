@@ -117,9 +117,9 @@ instance KafkaMessage UpdateFeaturesResponse where
 wireMaxSizeUpdatableFeatureResult :: Int -> UpdatableFeatureResult -> Int
 wireMaxSizeUpdatableFeatureResult _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (updatableFeatureResultFeature msg))
+  + WP.dualStringMaxSize (updatableFeatureResultFeature msg)
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (updatableFeatureResultErrorMessage msg))
+  + WP.dualStringMaxSize (updatableFeatureResultErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for UpdatableFeatureResult.
@@ -151,7 +151,7 @@ wireMaxSizeUpdateFeaturesResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (updateFeaturesResponseErrorMessage msg))
+  + WP.dualStringMaxSize (updateFeaturesResponseErrorMessage msg)
   + (5 + (case P.unKafkaArray (updateFeaturesResponseResults msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeUpdatableFeatureResult _version x ) v); P.Null -> 0 }))
   + 1
 

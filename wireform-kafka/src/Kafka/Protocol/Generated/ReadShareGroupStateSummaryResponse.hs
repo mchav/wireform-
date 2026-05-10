@@ -144,7 +144,7 @@ wireMaxSizePartitionResult _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (partitionResultErrorMessage msg))
+  + WP.dualStringMaxSize (partitionResultErrorMessage msg)
   + 4
   + 4
   + 8

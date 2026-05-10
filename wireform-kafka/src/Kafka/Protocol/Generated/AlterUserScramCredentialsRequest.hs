@@ -136,7 +136,7 @@ instance KafkaMessage AlterUserScramCredentialsRequest where
 wireMaxSizeScramCredentialDeletion :: Int -> ScramCredentialDeletion -> Int
 wireMaxSizeScramCredentialDeletion _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (scramCredentialDeletionName msg))
+  + WP.dualStringMaxSize (scramCredentialDeletionName msg)
   + 1
   + 1
 
@@ -165,11 +165,11 @@ defaultScramCredentialDeletion = ScramCredentialDeletion { scramCredentialDeleti
 wireMaxSizeScramCredentialUpsertion :: Int -> ScramCredentialUpsertion -> Int
 wireMaxSizeScramCredentialUpsertion _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (scramCredentialUpsertionName msg))
+  + WP.dualStringMaxSize (scramCredentialUpsertionName msg)
   + 1
   + 4
-  + WP.compactBytesMaxSize (P.toCompactBytes (scramCredentialUpsertionSalt msg))
-  + WP.compactBytesMaxSize (P.toCompactBytes (scramCredentialUpsertionSaltedPassword msg))
+  + WP.dualBytesMaxSize (scramCredentialUpsertionSalt msg)
+  + WP.dualBytesMaxSize (scramCredentialUpsertionSaltedPassword msg)
   + 1
 
 -- | Direct-poke encoder for ScramCredentialUpsertion.

@@ -94,9 +94,9 @@ instance KafkaMessage ApiVersionsRequest where
 wireMaxSizeApiVersionsRequest :: Int -> ApiVersionsRequest -> Int
 wireMaxSizeApiVersionsRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (apiVersionsRequestClientSoftwareName msg))
-  + WP.compactStringMaxSize (P.toCompactString (apiVersionsRequestClientSoftwareVersion msg))
-  + WP.compactStringMaxSize (P.toCompactString (apiVersionsRequestClusterId msg))
+  + WP.dualStringMaxSize (apiVersionsRequestClientSoftwareName msg)
+  + WP.dualStringMaxSize (apiVersionsRequestClientSoftwareVersion msg)
+  + WP.dualStringMaxSize (apiVersionsRequestClusterId msg)
   + 4
   + 1
 

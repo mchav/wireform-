@@ -147,9 +147,9 @@ instance KafkaMessage JoinGroupResponse where
 wireMaxSizeJoinGroupResponseMember :: Int -> JoinGroupResponseMember -> Int
 wireMaxSizeJoinGroupResponseMember _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (joinGroupResponseMemberMemberId msg))
-  + WP.compactStringMaxSize (P.toCompactString (joinGroupResponseMemberGroupInstanceId msg))
-  + WP.compactBytesMaxSize (P.toCompactBytes (joinGroupResponseMemberMetadata msg))
+  + WP.dualStringMaxSize (joinGroupResponseMemberMemberId msg)
+  + WP.dualStringMaxSize (joinGroupResponseMemberGroupInstanceId msg)
+  + WP.dualBytesMaxSize (joinGroupResponseMemberMetadata msg)
   + 1
 
 -- | Direct-poke encoder for JoinGroupResponseMember.
@@ -182,11 +182,11 @@ wireMaxSizeJoinGroupResponse _version msg =
   + 4
   + 2
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (joinGroupResponseProtocolType msg))
-  + WP.compactStringMaxSize (P.toCompactString (joinGroupResponseProtocolName msg))
-  + WP.compactStringMaxSize (P.toCompactString (joinGroupResponseLeader msg))
+  + WP.dualStringMaxSize (joinGroupResponseProtocolType msg)
+  + WP.dualStringMaxSize (joinGroupResponseProtocolName msg)
+  + WP.dualStringMaxSize (joinGroupResponseLeader msg)
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (joinGroupResponseMemberId msg))
+  + WP.dualStringMaxSize (joinGroupResponseMemberId msg)
   + (5 + (case P.unKafkaArray (joinGroupResponseMembers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeJoinGroupResponseMember _version x ) v); P.Null -> 0 }))
   + 1
 

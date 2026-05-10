@@ -112,9 +112,9 @@ wireMaxSizeAlterConfigsResourceResponse :: Int -> AlterConfigsResourceResponse -
 wireMaxSizeAlterConfigsResourceResponse _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (alterConfigsResourceResponseErrorMessage msg))
+  + WP.dualStringMaxSize (alterConfigsResourceResponseErrorMessage msg)
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (alterConfigsResourceResponseResourceName msg))
+  + WP.dualStringMaxSize (alterConfigsResourceResponseResourceName msg)
   + 1
 
 -- | Direct-poke encoder for AlterConfigsResourceResponse.

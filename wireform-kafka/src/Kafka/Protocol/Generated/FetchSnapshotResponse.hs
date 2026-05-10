@@ -287,7 +287,7 @@ wireMaxSizePartitionSnapshot _version msg =
   + wireMaxSizeLeaderIdAndEpoch _version (partitionSnapshotCurrentLeader msg)
   + 8
   + 8
-  + WP.compactBytesMaxSize (P.toCompactBytes (partitionSnapshotUnalignedRecords msg))
+  + WP.dualBytesMaxSize (partitionSnapshotUnalignedRecords msg)
   + 1
 
 -- | Direct-poke encoder for PartitionSnapshot.
@@ -327,7 +327,7 @@ defaultPartitionSnapshot = PartitionSnapshot { partitionSnapshotIndex = 0, parti
 wireMaxSizeTopicSnapshot :: Int -> TopicSnapshot -> Int
 wireMaxSizeTopicSnapshot _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicSnapshotName msg))
+  + WP.dualStringMaxSize (topicSnapshotName msg)
   + (5 + (case P.unKafkaArray (topicSnapshotPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionSnapshot _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -357,7 +357,7 @@ wireMaxSizeNodeEndpoint :: Int -> NodeEndpoint -> Int
 wireMaxSizeNodeEndpoint _version msg =
   0
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (nodeEndpointHost msg))
+  + WP.dualStringMaxSize (nodeEndpointHost msg)
   + 2
   + 1
 

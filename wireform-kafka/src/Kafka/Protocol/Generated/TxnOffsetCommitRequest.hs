@@ -175,7 +175,7 @@ wireMaxSizeTxnOffsetCommitRequestPartition _version msg =
   + 4
   + 8
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitRequestPartitionCommittedMetadata msg))
+  + WP.dualStringMaxSize (txnOffsetCommitRequestPartitionCommittedMetadata msg)
   + 1
 
 -- | Direct-poke encoder for TxnOffsetCommitRequestPartition.
@@ -207,7 +207,7 @@ defaultTxnOffsetCommitRequestPartition = TxnOffsetCommitRequestPartition { txnOf
 wireMaxSizeTxnOffsetCommitRequestTopic :: Int -> TxnOffsetCommitRequestTopic -> Int
 wireMaxSizeTxnOffsetCommitRequestTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitRequestTopicName msg))
+  + WP.dualStringMaxSize (txnOffsetCommitRequestTopicName msg)
   + 16
   + (5 + (case P.unKafkaArray (txnOffsetCommitRequestTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTxnOffsetCommitRequestPartition _version x ) v); P.Null -> 0 }))
   + 1
@@ -239,13 +239,13 @@ defaultTxnOffsetCommitRequestTopic = TxnOffsetCommitRequestTopic { txnOffsetComm
 wireMaxSizeTxnOffsetCommitRequest :: Int -> TxnOffsetCommitRequest -> Int
 wireMaxSizeTxnOffsetCommitRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitRequestTransactionalId msg))
-  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitRequestGroupId msg))
+  + WP.dualStringMaxSize (txnOffsetCommitRequestTransactionalId msg)
+  + WP.dualStringMaxSize (txnOffsetCommitRequestGroupId msg)
   + 8
   + 2
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitRequestMemberId msg))
-  + WP.compactStringMaxSize (P.toCompactString (txnOffsetCommitRequestGroupInstanceId msg))
+  + WP.dualStringMaxSize (txnOffsetCommitRequestMemberId msg)
+  + WP.dualStringMaxSize (txnOffsetCommitRequestGroupInstanceId msg)
   + (5 + (case P.unKafkaArray (txnOffsetCommitRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTxnOffsetCommitRequestTopic _version x ) v); P.Null -> 0 }))
   + 1
 

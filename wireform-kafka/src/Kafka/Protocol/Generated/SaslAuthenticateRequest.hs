@@ -76,7 +76,7 @@ instance KafkaMessage SaslAuthenticateRequest where
 wireMaxSizeSaslAuthenticateRequest :: Int -> SaslAuthenticateRequest -> Int
 wireMaxSizeSaslAuthenticateRequest _version msg =
   0
-  + WP.compactBytesMaxSize (P.toCompactBytes (saslAuthenticateRequestAuthBytes msg))
+  + WP.dualBytesMaxSize (saslAuthenticateRequestAuthBytes msg)
   + 1
 
 -- | Direct-poke encoder for SaslAuthenticateRequest.

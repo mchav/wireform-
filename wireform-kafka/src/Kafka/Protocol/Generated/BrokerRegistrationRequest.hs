@@ -178,8 +178,8 @@ instance KafkaMessage BrokerRegistrationRequest where
 wireMaxSizeListener :: Int -> Listener -> Int
 wireMaxSizeListener _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (listenerName msg))
-  + WP.compactStringMaxSize (P.toCompactString (listenerHost msg))
+  + WP.dualStringMaxSize (listenerName msg)
+  + WP.dualStringMaxSize (listenerHost msg)
   + 2
   + 2
   + 1
@@ -213,7 +213,7 @@ defaultListener = Listener { listenerName = P.KafkaString Null, listenerHost = P
 wireMaxSizeFeature :: Int -> Feature -> Int
 wireMaxSizeFeature _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (featureName msg))
+  + WP.dualStringMaxSize (featureName msg)
   + 2
   + 2
   + 1
@@ -246,11 +246,11 @@ wireMaxSizeBrokerRegistrationRequest :: Int -> BrokerRegistrationRequest -> Int
 wireMaxSizeBrokerRegistrationRequest _version msg =
   0
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (brokerRegistrationRequestClusterId msg))
+  + WP.dualStringMaxSize (brokerRegistrationRequestClusterId msg)
   + 16
   + (5 + (case P.unKafkaArray (brokerRegistrationRequestListeners msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeListener _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (brokerRegistrationRequestFeatures msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeFeature _version x ) v); P.Null -> 0 }))
-  + WP.compactStringMaxSize (P.toCompactString (brokerRegistrationRequestRack msg))
+  + WP.dualStringMaxSize (brokerRegistrationRequestRack msg)
   + 1
   + (5 + (case P.unKafkaArray (brokerRegistrationRequestLogDirs msg) of { P.NotNull v -> sum (fmap (\x -> 16 ) v); P.Null -> 0 }))
   + 8

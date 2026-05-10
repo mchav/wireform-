@@ -167,7 +167,7 @@ defaultDeleteStateData = DeleteStateData { deleteStateDataTopicId = P.nullUuid, 
 wireMaxSizeDeleteShareGroupStateRequest :: Int -> DeleteShareGroupStateRequest -> Int
 wireMaxSizeDeleteShareGroupStateRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (deleteShareGroupStateRequestGroupId msg))
+  + WP.dualStringMaxSize (deleteShareGroupStateRequestGroupId msg)
   + (5 + (case P.unKafkaArray (deleteShareGroupStateRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDeleteStateData _version x ) v); P.Null -> 0 }))
   + 1
 

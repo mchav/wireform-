@@ -204,7 +204,7 @@ wireMaxSizePartitionResult _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (partitionResultErrorMessage msg))
+  + WP.dualStringMaxSize (partitionResultErrorMessage msg)
   + 4
   + 8
   + (5 + (case P.unKafkaArray (partitionResultStateBatches msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeStateBatch _version x ) v); P.Null -> 0 }))

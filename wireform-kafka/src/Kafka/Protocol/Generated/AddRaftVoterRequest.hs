@@ -129,8 +129,8 @@ instance KafkaMessage AddRaftVoterRequest where
 wireMaxSizeListener :: Int -> Listener -> Int
 wireMaxSizeListener _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (listenerName msg))
-  + WP.compactStringMaxSize (P.toCompactString (listenerHost msg))
+  + WP.dualStringMaxSize (listenerName msg)
+  + WP.dualStringMaxSize (listenerHost msg)
   + 2
   + 1
 
@@ -161,7 +161,7 @@ defaultListener = Listener { listenerName = P.KafkaString Null, listenerHost = P
 wireMaxSizeAddRaftVoterRequest :: Int -> AddRaftVoterRequest -> Int
 wireMaxSizeAddRaftVoterRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (addRaftVoterRequestClusterId msg))
+  + WP.dualStringMaxSize (addRaftVoterRequestClusterId msg)
   + 4
   + 4
   + 16

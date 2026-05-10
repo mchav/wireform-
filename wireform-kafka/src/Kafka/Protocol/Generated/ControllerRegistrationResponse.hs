@@ -90,7 +90,7 @@ wireMaxSizeControllerRegistrationResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (controllerRegistrationResponseErrorMessage msg))
+  + WP.dualStringMaxSize (controllerRegistrationResponseErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for ControllerRegistrationResponse.

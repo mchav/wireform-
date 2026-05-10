@@ -294,16 +294,24 @@ fieldMaxSize typeName flexibleVer f =
     PrimitiveType "uint32"  -> "4"
     PrimitiveType "uuid"    -> "16"
     PrimitiveType "float64" -> "8"
-    PrimitiveType "string" ->
-      if fieldUsesCompact f flexibleVer
-        then "WP.compactStringMaxSize" <+> parens
-               ("P.toCompactString" <+> acc)
-        else "WP.kafkaStringMaxSize" <+> acc
-    PrimitiveType "bytes" ->
-      if fieldUsesCompact f flexibleVer
-        then "WP.compactBytesMaxSize" <+> parens
-               ("P.toCompactBytes" <+> acc)
-        else "WP.kafkaBytesMaxSize" <+> acc
+    PrimitiveType "string"
+      -- Flexible-API string fields straddle the flexible-version
+      -- threshold at runtime: compact at @version >= flexibleVer@,
+      -- plain Int16-prefixed at lower versions. Use the dual-format
+      -- estimator so the per-message buffer is large enough for
+      -- whichever encoding 'wirePoke' picks. (Plain Null is 2
+      -- bytes vs compact's 1, so the previous compact-only
+      -- estimate was actually undersized for fields encoding
+      -- 'P.KafkaString P.Null' on the non-flexible path.)
+      | fieldUsesCompact f flexibleVer ->
+          "WP.dualStringMaxSize" <+> acc
+      | otherwise ->
+          "WP.kafkaStringMaxSize" <+> acc
+    PrimitiveType "bytes"
+      | fieldUsesCompact f flexibleVer ->
+          "WP.dualBytesMaxSize" <+> acc
+      | otherwise ->
+          "WP.kafkaBytesMaxSize" <+> acc
     PrimitiveType _ -> "0"  -- unreachable (gated by isWireSupported)
     -- Nested struct: recurse via the per-struct estimator.
     StructType structName | isFieldNullable f ->

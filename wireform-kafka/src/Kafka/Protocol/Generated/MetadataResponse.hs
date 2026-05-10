@@ -234,9 +234,9 @@ wireMaxSizeMetadataResponseBroker :: Int -> MetadataResponseBroker -> Int
 wireMaxSizeMetadataResponseBroker _version msg =
   0
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (metadataResponseBrokerHost msg))
+  + WP.dualStringMaxSize (metadataResponseBrokerHost msg)
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (metadataResponseBrokerRack msg))
+  + WP.dualStringMaxSize (metadataResponseBrokerRack msg)
   + 1
 
 -- | Direct-poke encoder for MetadataResponseBroker.
@@ -313,7 +313,7 @@ wireMaxSizeMetadataResponseTopic :: Int -> MetadataResponseTopic -> Int
 wireMaxSizeMetadataResponseTopic _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (metadataResponseTopicName msg))
+  + WP.dualStringMaxSize (metadataResponseTopicName msg)
   + 16
   + 1
   + (5 + (case P.unKafkaArray (metadataResponseTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeMetadataResponsePartition _version x ) v); P.Null -> 0 }))
@@ -355,7 +355,7 @@ wireMaxSizeMetadataResponse _version msg =
   0
   + 4
   + (5 + (case P.unKafkaArray (metadataResponseBrokers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeMetadataResponseBroker _version x ) v); P.Null -> 0 }))
-  + WP.compactStringMaxSize (P.toCompactString (metadataResponseClusterId msg))
+  + WP.dualStringMaxSize (metadataResponseClusterId msg)
   + 4
   + (5 + (case P.unKafkaArray (metadataResponseTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeMetadataResponseTopic _version x ) v); P.Null -> 0 }))
   + 4

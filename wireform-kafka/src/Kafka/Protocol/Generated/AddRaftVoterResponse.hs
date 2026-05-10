@@ -90,7 +90,7 @@ wireMaxSizeAddRaftVoterResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (addRaftVoterResponseErrorMessage msg))
+  + WP.dualStringMaxSize (addRaftVoterResponseErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for AddRaftVoterResponse.

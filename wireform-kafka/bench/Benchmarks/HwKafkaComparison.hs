@@ -36,7 +36,7 @@ module Benchmarks.HwKafkaComparison
   ( benchmarks
   ) where
 
-import Control.Monad (forM_, replicateM_, void)
+import Control.Monad (forM_, replicateM, replicateM_, void, when)
 import Criterion (Benchmark, bench, bgroup, nfIO, whnfIO)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -46,9 +46,12 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Time.Clock.POSIX as Time
 import GHC.IO (unsafePerformIO)
+import qualified Kafka.Client.Consumer as WC
 import qualified Kafka.Client.Producer as WP
+import qualified Kafka.Consumer as HWC
 import qualified Kafka.Producer as HW
 import System.Environment (lookupEnv)
+import System.IO.Unsafe (unsafePerformIO)
 
 ----------------------------------------------------------------------
 -- Public group
@@ -62,10 +65,14 @@ benchmarks = bgroup "HwKafkaComparison"
           nfIO (pure ())
       Just _broker ->
         bgroup ("1 partition, " ++ show recordsPerRun ++ " records / iteration")
-          [ bench "hw-kafka       (librdkafka, baseline)" $
+          [ bench "Producer:  hw-kafka       (librdkafka, baseline)" $
               whnfIO hwSetupAndRun
-          , bench "wireform-kafka (this package)        " $
+          , bench "Producer:  wireform-kafka (this package)        " $
               whnfIO wireformSetupAndRun
+          , bench "Consumer:  hw-kafka       (librdkafka, baseline)" $
+              whnfIO hwConsumeAndRun
+          , bench "Consumer:  wireform-kafka (this package)        " $
+              whnfIO wireformConsumeAndRun
           ]
   ]
 
@@ -177,3 +184,130 @@ wireformSetupAndRun = do
         Left e  -> error ("wireform-kafka flushProducer failed: " ++ e)
         Right _ -> pure ()
       WP.closeProducer p
+
+----------------------------------------------------------------------
+-- Consumer head-to-head
+--
+-- Both consumers read the same pre-populated topic
+-- ('consumerTopic') with @auto.offset.reset=earliest@ + a fresh
+-- group id per criterion sample (so each iteration starts at
+-- offset 0 instead of resuming where the last one stopped).
+-- The benchmark drains until 'recordsPerRun' records have been
+-- pulled off the wire — the same shape used to compare the
+-- producers above.
+----------------------------------------------------------------------
+
+-- | Topic the consumer reads from.  Pre-populated lazily by the
+-- first 'ensureSeeded' call on either side; subsequent runs reuse
+-- the existing data because the topic is created with
+-- 'cleanup.policy=delete' and a long retention window.
+consumerTopic :: T.Text
+consumerTopic = T.pack "wireform-bench-cmp"
+
+----------------------------------------------------------------------
+-- hw-kafka consumer
+----------------------------------------------------------------------
+
+hwConsumeAndRun :: IO ()
+hwConsumeAndRun = do
+  ensureSeeded
+  st <- hwConsumerSetup
+  hwConsumerDrain st
+
+hwConsumerSetup :: IO HWC.KafkaConsumer
+hwConsumerSetup = do
+  groupId <- freshGroupId "hw-kafka"
+  let !broker = fromMaybe (error "WIREFORM_KAFKA_BROKER unset") envBroker
+      !cfg = HWC.brokersList [HWC.BrokerAddress (T.pack broker)]
+          <> HWC.groupId (HWC.ConsumerGroupId (T.pack groupId))
+          <> HWC.noAutoCommit
+          <> HWC.logLevel HWC.KafkaLogErr
+      !sub = HWC.topics [HWC.TopicName consumerTopic]
+          <> HWC.offsetReset HWC.Earliest
+  r <- HWC.newConsumer cfg sub
+  case r of
+    Left err -> error ("hw-kafka newConsumer failed: " ++ show err)
+    Right c  -> pure c
+
+hwConsumerDrain :: HWC.KafkaConsumer -> IO ()
+hwConsumerDrain c = go (0 :: Int)
+  where
+    go !n
+      | n >= recordsPerRun = void (HWC.closeConsumer c)
+      | otherwise = do
+          mr <- HWC.pollMessage c (HWC.Timeout 1000)
+          case mr of
+            Right _ -> go (n + 1)
+            Left  _ -> go n
+
+----------------------------------------------------------------------
+-- wireform-kafka consumer
+----------------------------------------------------------------------
+
+wireformConsumeAndRun :: IO ()
+wireformConsumeAndRun = do
+  ensureSeeded
+  groupId <- freshGroupId "wireform-kafka"
+  let !broker = T.pack (fromMaybe (error "WIREFORM_KAFKA_BROKER unset") envBroker)
+      !ccfg   = WC.defaultConsumerConfig
+                  { WC.consumerAutoOffsetReset = WC.Earliest
+                  , WC.consumerAutoCommit      = False
+                  }
+  res <- WC.createConsumer [broker] (T.pack groupId) ccfg
+  case res of
+    Left err -> error ("wireform-kafka createConsumer failed: " ++ err)
+    Right c  -> do
+      sr <- WC.subscribe c [consumerTopic]
+      case sr of
+        Left e -> error ("wireform-kafka subscribe failed: " ++ e)
+        Right () -> pure ()
+      drainW c 0
+      WC.closeConsumer c
+  where
+    drainW c !n
+      | n >= recordsPerRun = pure ()
+      | otherwise = do
+          r <- WC.poll c 1000
+          case r of
+            Right rs -> drainW c (n + length rs)
+            Left  _  -> drainW c n
+
+----------------------------------------------------------------------
+-- Seeding helpers
+----------------------------------------------------------------------
+
+-- | Top-up the topic to at least 'recordsPerRun' records before
+-- the first consumer benchmark sample runs.  Subsequent samples
+-- reuse the same data — both consumers use a fresh group id per
+-- run so they each start at offset 0.
+{-# NOINLINE ensureSeeded #-}
+ensureSeeded :: IO ()
+ensureSeeded = do
+  -- One-shot seeding via the wireform producer: it's faster than
+  -- hw-kafka here (see the producer bench above) so the bench
+  -- harness setup is as quick as possible.
+  let !payload = BS.replicate valueSize 0x42
+      !broker  = T.pack (fromMaybe (error "WIREFORM_KAFKA_BROKER unset") envBroker)
+      !pcfg    = WP.defaultProducerConfig
+        { WP.producerLingerMs  = 5
+        , WP.producerBatchSize = 16384
+        }
+  res <- WP.createProducer [broker] pcfg
+  case res of
+    Left err -> error ("ensureSeeded createProducer failed: " ++ err)
+    Right p  -> do
+      replicateM_ recordsPerRun $ do
+        r <- WP.sendMessageAsync p consumerTopic Nothing payload
+        case r of
+          Left e  -> error ("ensureSeeded sendMessageAsync failed: " ++ e)
+          Right _ -> pure ()
+      flushRes <- WP.flushProducer p
+      case flushRes of
+        Left e  -> error ("ensureSeeded flushProducer failed: " ++ e)
+        Right _ -> pure ()
+      WP.closeProducer p
+
+freshGroupId :: String -> IO String
+freshGroupId tag = do
+  t <- Time.getPOSIXTime
+  pure (tag ++ "-bench-" ++ show (truncate (t * 1000) :: Integer))

@@ -144,7 +144,7 @@ wireMaxSizeReassignablePartitionResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (reassignablePartitionResponseErrorMessage msg))
+  + WP.dualStringMaxSize (reassignablePartitionResponseErrorMessage msg)
   + 1
 
 -- | Direct-poke encoder for ReassignablePartitionResponse.
@@ -174,7 +174,7 @@ defaultReassignablePartitionResponse = ReassignablePartitionResponse { reassigna
 wireMaxSizeReassignableTopicResponse :: Int -> ReassignableTopicResponse -> Int
 wireMaxSizeReassignableTopicResponse _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (reassignableTopicResponseName msg))
+  + WP.dualStringMaxSize (reassignableTopicResponseName msg)
   + (5 + (case P.unKafkaArray (reassignableTopicResponsePartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeReassignablePartitionResponse _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -206,7 +206,7 @@ wireMaxSizeAlterPartitionReassignmentsResponse _version msg =
   + 4
   + 1
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (alterPartitionReassignmentsResponseErrorMessage msg))
+  + WP.dualStringMaxSize (alterPartitionReassignmentsResponseErrorMessage msg)
   + (5 + (case P.unKafkaArray (alterPartitionReassignmentsResponseResponses msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeReassignableTopicResponse _version x ) v); P.Null -> 0 }))
   + 1
 

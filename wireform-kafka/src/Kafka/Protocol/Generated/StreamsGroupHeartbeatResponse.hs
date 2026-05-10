@@ -253,7 +253,7 @@ wireMaxSizeStatus :: Int -> Status -> Int
 wireMaxSizeStatus _version msg =
   0
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (statusStatusDetail msg))
+  + WP.dualStringMaxSize (statusStatusDetail msg)
   + 1
 
 -- | Direct-poke encoder for Status.
@@ -281,7 +281,7 @@ defaultStatus = Status { statusStatusCode = 0, statusStatusDetail = P.KafkaStrin
 wireMaxSizeTopicPartition :: Int -> TopicPartition -> Int
 wireMaxSizeTopicPartition _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicPartitionTopic msg))
+  + WP.dualStringMaxSize (topicPartitionTopic msg)
   + (5 + (case P.unKafkaArray (topicPartitionPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 
@@ -310,7 +310,7 @@ defaultTopicPartition = TopicPartition { topicPartitionTopic = P.KafkaString Nul
 wireMaxSizeTaskIds :: Int -> TaskIds -> Int
 wireMaxSizeTaskIds _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (taskIdsSubtopologyId msg))
+  + WP.dualStringMaxSize (taskIdsSubtopologyId msg)
   + (5 + (case P.unKafkaArray (taskIdsPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 
@@ -339,7 +339,7 @@ defaultTaskIds = TaskIds { taskIdsSubtopologyId = P.KafkaString Null, taskIdsPar
 wireMaxSizeEndpoint :: Int -> Endpoint -> Int
 wireMaxSizeEndpoint _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (endpointHost msg))
+  + WP.dualStringMaxSize (endpointHost msg)
   + 2
   + 1
 
@@ -402,8 +402,8 @@ wireMaxSizeStreamsGroupHeartbeatResponse _version msg =
   0
   + 4
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (streamsGroupHeartbeatResponseErrorMessage msg))
-  + WP.compactStringMaxSize (P.toCompactString (streamsGroupHeartbeatResponseMemberId msg))
+  + WP.dualStringMaxSize (streamsGroupHeartbeatResponseErrorMessage msg)
+  + WP.dualStringMaxSize (streamsGroupHeartbeatResponseMemberId msg)
   + 4
   + 4
   + 4

@@ -185,7 +185,7 @@ defaultInitializeStateData = InitializeStateData { initializeStateDataTopicId = 
 wireMaxSizeInitializeShareGroupStateRequest :: Int -> InitializeShareGroupStateRequest -> Int
 wireMaxSizeInitializeShareGroupStateRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (initializeShareGroupStateRequestGroupId msg))
+  + WP.dualStringMaxSize (initializeShareGroupStateRequestGroupId msg)
   + (5 + (case P.unKafkaArray (initializeShareGroupStateRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeInitializeStateData _version x ) v); P.Null -> 0 }))
   + 1
 

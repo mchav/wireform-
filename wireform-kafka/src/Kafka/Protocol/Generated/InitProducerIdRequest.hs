@@ -106,7 +106,7 @@ instance KafkaMessage InitProducerIdRequest where
 wireMaxSizeInitProducerIdRequest :: Int -> InitProducerIdRequest -> Int
 wireMaxSizeInitProducerIdRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (initProducerIdRequestTransactionalId msg))
+  + WP.dualStringMaxSize (initProducerIdRequestTransactionalId msg)
   + 4
   + 8
   + 2

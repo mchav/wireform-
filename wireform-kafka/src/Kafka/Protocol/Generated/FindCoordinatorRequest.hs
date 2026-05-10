@@ -88,7 +88,7 @@ instance KafkaMessage FindCoordinatorRequest where
 wireMaxSizeFindCoordinatorRequest :: Int -> FindCoordinatorRequest -> Int
 wireMaxSizeFindCoordinatorRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (findCoordinatorRequestKey msg))
+  + WP.dualStringMaxSize (findCoordinatorRequestKey msg)
   + 1
   + (5 + (case P.unKafkaArray (findCoordinatorRequestCoordinatorKeys msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
   + 1

@@ -82,7 +82,7 @@ instance KafkaMessage RenewDelegationTokenRequest where
 wireMaxSizeRenewDelegationTokenRequest :: Int -> RenewDelegationTokenRequest -> Int
 wireMaxSizeRenewDelegationTokenRequest _version msg =
   0
-  + WP.compactBytesMaxSize (P.toCompactBytes (renewDelegationTokenRequestHmac msg))
+  + WP.dualBytesMaxSize (renewDelegationTokenRequestHmac msg)
   + 8
   + 1
 

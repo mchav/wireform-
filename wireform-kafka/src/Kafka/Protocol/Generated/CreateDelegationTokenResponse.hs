@@ -137,15 +137,15 @@ wireMaxSizeCreateDelegationTokenResponse :: Int -> CreateDelegationTokenResponse
 wireMaxSizeCreateDelegationTokenResponse _version msg =
   0
   + 2
-  + WP.compactStringMaxSize (P.toCompactString (createDelegationTokenResponsePrincipalType msg))
-  + WP.compactStringMaxSize (P.toCompactString (createDelegationTokenResponsePrincipalName msg))
-  + WP.compactStringMaxSize (P.toCompactString (createDelegationTokenResponseTokenRequesterPrincipalType msg))
-  + WP.compactStringMaxSize (P.toCompactString (createDelegationTokenResponseTokenRequesterPrincipalName msg))
+  + WP.dualStringMaxSize (createDelegationTokenResponsePrincipalType msg)
+  + WP.dualStringMaxSize (createDelegationTokenResponsePrincipalName msg)
+  + WP.dualStringMaxSize (createDelegationTokenResponseTokenRequesterPrincipalType msg)
+  + WP.dualStringMaxSize (createDelegationTokenResponseTokenRequesterPrincipalName msg)
   + 8
   + 8
   + 8
-  + WP.compactStringMaxSize (P.toCompactString (createDelegationTokenResponseTokenId msg))
-  + WP.compactBytesMaxSize (P.toCompactBytes (createDelegationTokenResponseHmac msg))
+  + WP.dualStringMaxSize (createDelegationTokenResponseTokenId msg)
+  + WP.dualBytesMaxSize (createDelegationTokenResponseHmac msg)
   + 4
   + 1
 

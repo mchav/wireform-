@@ -375,8 +375,8 @@ instance KafkaMessage StreamsGroupHeartbeatRequest where
 wireMaxSizeKeyValue :: Int -> KeyValue -> Int
 wireMaxSizeKeyValue _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (keyValueKey msg))
-  + WP.compactStringMaxSize (P.toCompactString (keyValueValue msg))
+  + WP.dualStringMaxSize (keyValueKey msg)
+  + WP.dualStringMaxSize (keyValueValue msg)
   + 1
 
 -- | Direct-poke encoder for KeyValue.
@@ -404,7 +404,7 @@ defaultKeyValue = KeyValue { keyValueKey = P.KafkaString Null, keyValueValue = P
 wireMaxSizeTopicInfo :: Int -> TopicInfo -> Int
 wireMaxSizeTopicInfo _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (topicInfoName msg))
+  + WP.dualStringMaxSize (topicInfoName msg)
   + 4
   + 2
   + (5 + (case P.unKafkaArray (topicInfoTopicConfigs msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeKeyValue _version x ) v); P.Null -> 0 }))
@@ -439,7 +439,7 @@ defaultTopicInfo = TopicInfo { topicInfoName = P.KafkaString Null, topicInfoPart
 wireMaxSizeEndpoint :: Int -> Endpoint -> Int
 wireMaxSizeEndpoint _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (endpointHost msg))
+  + WP.dualStringMaxSize (endpointHost msg)
   + 2
   + 1
 
@@ -468,7 +468,7 @@ defaultEndpoint = Endpoint { endpointHost = P.KafkaString Null, endpointPort = 0
 wireMaxSizeTaskOffset :: Int -> TaskOffset -> Int
 wireMaxSizeTaskOffset _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (taskOffsetSubtopologyId msg))
+  + WP.dualStringMaxSize (taskOffsetSubtopologyId msg)
   + 4
   + 8
   + 1
@@ -500,7 +500,7 @@ defaultTaskOffset = TaskOffset { taskOffsetSubtopologyId = P.KafkaString Null, t
 wireMaxSizeTaskIds :: Int -> TaskIds -> Int
 wireMaxSizeTaskIds _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (taskIdsSubtopologyId msg))
+  + WP.dualStringMaxSize (taskIdsSubtopologyId msg)
   + (5 + (case P.unKafkaArray (taskIdsPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
   + 1
 
@@ -561,7 +561,7 @@ defaultCopartitionGroup = CopartitionGroup { copartitionGroupSourceTopics = P.mk
 wireMaxSizeSubtopology :: Int -> Subtopology -> Int
 wireMaxSizeSubtopology _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (subtopologySubtopologyId msg))
+  + WP.dualStringMaxSize (subtopologySubtopologyId msg)
   + (5 + (case P.unKafkaArray (subtopologySourceTopics msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (subtopologySourceTopicRegex msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (subtopologyStateChangelogTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicInfo _version x ) v); P.Null -> 0 }))
@@ -634,18 +634,18 @@ defaultTopology = Topology { topologyEpoch = 0, topologySubtopologies = P.mkKafk
 wireMaxSizeStreamsGroupHeartbeatRequest :: Int -> StreamsGroupHeartbeatRequest -> Int
 wireMaxSizeStreamsGroupHeartbeatRequest _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (streamsGroupHeartbeatRequestGroupId msg))
-  + WP.compactStringMaxSize (P.toCompactString (streamsGroupHeartbeatRequestMemberId msg))
+  + WP.dualStringMaxSize (streamsGroupHeartbeatRequestGroupId msg)
+  + WP.dualStringMaxSize (streamsGroupHeartbeatRequestMemberId msg)
   + 4
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (streamsGroupHeartbeatRequestInstanceId msg))
-  + WP.compactStringMaxSize (P.toCompactString (streamsGroupHeartbeatRequestRackId msg))
+  + WP.dualStringMaxSize (streamsGroupHeartbeatRequestInstanceId msg)
+  + WP.dualStringMaxSize (streamsGroupHeartbeatRequestRackId msg)
   + 4
   + (case (streamsGroupHeartbeatRequestTopology msg) of { P.Null -> 1; P.NotNull s -> 1 + wireMaxSizeTopology _version s })
   + (5 + (case P.unKafkaArray (streamsGroupHeartbeatRequestActiveTasks msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTaskIds _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (streamsGroupHeartbeatRequestStandbyTasks msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTaskIds _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (streamsGroupHeartbeatRequestWarmupTasks msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTaskIds _version x ) v); P.Null -> 0 }))
-  + WP.compactStringMaxSize (P.toCompactString (streamsGroupHeartbeatRequestProcessId msg))
+  + WP.dualStringMaxSize (streamsGroupHeartbeatRequestProcessId msg)
   + (case (streamsGroupHeartbeatRequestUserEndpoint msg) of { P.Null -> 1; P.NotNull s -> 1 + wireMaxSizeEndpoint _version s })
   + (5 + (case P.unKafkaArray (streamsGroupHeartbeatRequestClientTags msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeKeyValue _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (streamsGroupHeartbeatRequestTaskOffsets msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTaskOffset _version x ) v); P.Null -> 0 }))

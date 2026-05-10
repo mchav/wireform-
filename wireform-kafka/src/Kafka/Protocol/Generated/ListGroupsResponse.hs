@@ -117,10 +117,10 @@ instance KafkaMessage ListGroupsResponse where
 wireMaxSizeListedGroup :: Int -> ListedGroup -> Int
 wireMaxSizeListedGroup _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (listedGroupGroupId msg))
-  + WP.compactStringMaxSize (P.toCompactString (listedGroupProtocolType msg))
-  + WP.compactStringMaxSize (P.toCompactString (listedGroupGroupState msg))
-  + WP.compactStringMaxSize (P.toCompactString (listedGroupGroupType msg))
+  + WP.dualStringMaxSize (listedGroupGroupId msg)
+  + WP.dualStringMaxSize (listedGroupProtocolType msg)
+  + WP.dualStringMaxSize (listedGroupGroupState msg)
+  + WP.dualStringMaxSize (listedGroupGroupType msg)
   + 1
 
 -- | Direct-poke encoder for ListedGroup.

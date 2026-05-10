@@ -82,7 +82,7 @@ instance KafkaMessage EnvelopeResponse where
 wireMaxSizeEnvelopeResponse :: Int -> EnvelopeResponse -> Int
 wireMaxSizeEnvelopeResponse _version msg =
   0
-  + WP.compactBytesMaxSize (P.toCompactBytes (envelopeResponseResponseData msg))
+  + WP.dualBytesMaxSize (envelopeResponseResponseData msg)
   + 2
   + 1
 

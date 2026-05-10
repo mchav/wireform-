@@ -124,10 +124,10 @@ wireMaxSizeDeleteAclsFilter :: Int -> DeleteAclsFilter -> Int
 wireMaxSizeDeleteAclsFilter _version msg =
   0
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (deleteAclsFilterResourceNameFilter msg))
+  + WP.dualStringMaxSize (deleteAclsFilterResourceNameFilter msg)
   + 1
-  + WP.compactStringMaxSize (P.toCompactString (deleteAclsFilterPrincipalFilter msg))
-  + WP.compactStringMaxSize (P.toCompactString (deleteAclsFilterHostFilter msg))
+  + WP.dualStringMaxSize (deleteAclsFilterPrincipalFilter msg)
+  + WP.dualStringMaxSize (deleteAclsFilterHostFilter msg)
   + 1
   + 1
   + 1

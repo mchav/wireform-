@@ -147,7 +147,7 @@ defaultDeleteRecordsPartition = DeleteRecordsPartition { deleteRecordsPartitionP
 wireMaxSizeDeleteRecordsTopic :: Int -> DeleteRecordsTopic -> Int
 wireMaxSizeDeleteRecordsTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (deleteRecordsTopicName msg))
+  + WP.dualStringMaxSize (deleteRecordsTopicName msg)
   + (5 + (case P.unKafkaArray (deleteRecordsTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDeleteRecordsPartition _version x ) v); P.Null -> 0 }))
   + 1
 

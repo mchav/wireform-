@@ -238,7 +238,7 @@ wireMaxSizeOffsetFetchResponsePartition _version msg =
   + 4
   + 8
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (offsetFetchResponsePartitionMetadata msg))
+  + WP.dualStringMaxSize (offsetFetchResponsePartitionMetadata msg)
   + 2
   + 1
 
@@ -273,7 +273,7 @@ defaultOffsetFetchResponsePartition = OffsetFetchResponsePartition { offsetFetch
 wireMaxSizeOffsetFetchResponseTopic :: Int -> OffsetFetchResponseTopic -> Int
 wireMaxSizeOffsetFetchResponseTopic _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (offsetFetchResponseTopicName msg))
+  + WP.dualStringMaxSize (offsetFetchResponseTopicName msg)
   + (5 + (case P.unKafkaArray (offsetFetchResponseTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOffsetFetchResponsePartition _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -305,7 +305,7 @@ wireMaxSizeOffsetFetchResponsePartitions _version msg =
   + 4
   + 8
   + 4
-  + WP.compactStringMaxSize (P.toCompactString (offsetFetchResponsePartitionsMetadata msg))
+  + WP.dualStringMaxSize (offsetFetchResponsePartitionsMetadata msg)
   + 2
   + 1
 
@@ -340,7 +340,7 @@ defaultOffsetFetchResponsePartitions = OffsetFetchResponsePartitions { offsetFet
 wireMaxSizeOffsetFetchResponseTopics :: Int -> OffsetFetchResponseTopics -> Int
 wireMaxSizeOffsetFetchResponseTopics _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (offsetFetchResponseTopicsName msg))
+  + WP.dualStringMaxSize (offsetFetchResponseTopicsName msg)
   + 16
   + (5 + (case P.unKafkaArray (offsetFetchResponseTopicsPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOffsetFetchResponsePartitions _version x ) v); P.Null -> 0 }))
   + 1
@@ -372,7 +372,7 @@ defaultOffsetFetchResponseTopics = OffsetFetchResponseTopics { offsetFetchRespon
 wireMaxSizeOffsetFetchResponseGroup :: Int -> OffsetFetchResponseGroup -> Int
 wireMaxSizeOffsetFetchResponseGroup _version msg =
   0
-  + WP.compactStringMaxSize (P.toCompactString (offsetFetchResponseGroupGroupId msg))
+  + WP.dualStringMaxSize (offsetFetchResponseGroupGroupId msg)
   + (5 + (case P.unKafkaArray (offsetFetchResponseGroupTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOffsetFetchResponseTopics _version x ) v); P.Null -> 0 }))
   + 2
   + 1
