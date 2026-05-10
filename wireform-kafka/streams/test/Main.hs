@@ -49,6 +49,7 @@ import qualified Streams.TopologyOptimizationSpec
 import qualified Streams.SchemaRegistrySerdeSpec
 import qualified Streams.TransactionalStoreSpec
 import qualified Streams.StreamsConfigSurfaceSpec
+import qualified Streams.ForeignKeyJoinDSLSpec
 import qualified Streams.ForeignKeyJoinV2Spec
 import qualified Streams.MultiInstanceHarnessSpec
 import qualified Streams.SchemaRegistryHttpSpec
@@ -103,6 +104,7 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.SchemaRegistrySerdeSpec.tests
   , Streams.TransactionalStoreSpec.tests
   , Streams.StreamsConfigSurfaceSpec.tests
+  , Streams.ForeignKeyJoinDSLSpec.tests
   , Streams.ForeignKeyJoinV2Spec.tests
   , Streams.MultiInstanceHarnessSpec.tests
   , Streams.SchemaRegistryHttpSpec.tests
