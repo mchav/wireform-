@@ -74,7 +74,7 @@ runProduce broker topic n vsize acks batch lingerMs compression = do
     Right p -> do
       t0 <- Time.getPOSIXTime
       replicateM_ n $ do
-        r <- WP.sendMessageDrop p topic Nothing payload
+        r <- WP.sendMessageAsync p topic Nothing payload
         case r of
           Left e -> die ("send: " ++ e)
           Right _ -> pure ()
