@@ -62,14 +62,22 @@ module Kafka.Telemetry.OpenTelemetry
   , extractContextHeaders
   , injectSpanContextHeaders
   , extractSpanContextHeaders
+    -- * Producer + consumer header bridges
+  , injectIntoProducerHeaders
+  , extractFromConsumerHeaders
+  , tracingProducerInterceptor
     -- * Telemetry Configuration
   , TelemetryConfig(..)
   , defaultTelemetryConfig
   ) where
 
-import Data.Int
-import Data.Text (Text)
-import Data.Map.Strict (Map)
+import           Data.ByteString    (ByteString)
+import qualified Data.ByteString    as BS
+import           Data.Int
+import           Data.Map.Strict    (Map)
+import qualified Data.Map.Strict    as Map
+import           Data.Text          (Text)
+import qualified Data.Text.Encoding as TE
 import qualified Kafka.Telemetry.TraceContext as TC
 
 -- Note: hs-opentelemetry-api integration would go here for the
@@ -265,4 +273,84 @@ extractContextHeaders
   :: Map Text Text
   -> IO ()
 extractContextHeaders _ = pure ()
+
+----------------------------------------------------------------------
+-- Producer + consumer header bridges
+--
+-- Producer 'recordHeaders' / consumer 'crHeaders' are
+-- @[(Text, ByteString)]@ pairs (UTF-8 strings on the value side
+-- per the JVM client's idiom, even when the spec is bytes-only).
+-- The helpers below sit between that shape and the
+-- @Map<Text, Text>@ shape that 'TC.injectIntoHeaders' /
+-- 'TC.extractFromHeaders' work with, and are the recommended way
+-- to thread W3C Trace Context across producer → consumer hops.
+----------------------------------------------------------------------
+
+-- | Inject a 'TC.SpanContext' into a producer's @recordHeaders@
+-- list (UTF-8-encoded). Existing @traceparent@ / @tracestate@
+-- headers are replaced; unrelated headers are passed through
+-- unchanged. The output preserves the original header ordering
+-- (with non-trace headers first), then appends the freshly-
+-- minted trace headers.
+injectIntoProducerHeaders
+  :: TC.SpanContext
+  -> [(Text, ByteString)]
+  -> [(Text, ByteString)]
+injectIntoProducerHeaders sc headers =
+  let keepKey k     = k /= TC.traceparentHeader && k /= TC.tracestateHeader
+      preserved     = filter (keepKey . fst) headers
+      withInjected  = TC.injectIntoHeaders sc Map.empty
+      injectedPairs = [ (k, TE.encodeUtf8 v)
+                      | (k, v) <- Map.toList withInjected
+                      ]
+  in preserved <> injectedPairs
+
+-- | Extract a 'TC.SpanContext' from a consumer record's
+-- @[(Text, ByteString)]@ headers, or 'Nothing' if no
+-- @traceparent@ is present.  Errors during parse are surfaced as
+-- @Just (Left err)@ so the caller can decide whether to drop the
+-- record, log, or treat it as an un-traced message.
+extractFromConsumerHeaders
+  :: [(Text, ByteString)]
+  -> Maybe (Either TC.TraceContextError TC.SpanContext)
+extractFromConsumerHeaders headers =
+  let asMap = Map.fromList
+        [ (k, t)
+        | (k, v) <- headers
+        , Right t <- [TE.decodeUtf8' v]
+        , k == TC.traceparentHeader || k == TC.tracestateHeader
+        ]
+  in TC.extractFromHeaders asMap
+
+-- | Build a pre-send header interceptor that injects whatever
+-- 'TC.SpanContext' the supplied callback returns. Callers wire
+-- it into 'ProducerConfig.producerInterceptor' by threading the
+-- result through their record:
+--
+-- @
+-- let injectHdrs = tracingProducerInterceptor MyTracer.currentSpanContext
+--     onSend rec = do
+--       hs' <- injectHdrs (recordHeaders rec)
+--       pure rec { recordHeaders = hs' }
+--     cfg = defaultProducerConfig { producerInterceptor = onSend }
+-- @
+--
+-- The callback runs once per record from the producer thread;
+-- return 'Nothing' from it to skip injection (e.g. when no
+-- current span exists).
+--
+-- This module deliberately does /not/ import
+-- @Kafka.Client.Producer@ — that's a much heavier dependency
+-- and would create a coupling between telemetry and the
+-- producer surface. The trade-off is the small wrapper above
+-- at the call site.
+tracingProducerInterceptor
+  :: IO (Maybe TC.SpanContext)
+  -> [(Text, ByteString)]
+  -> IO [(Text, ByteString)]
+tracingProducerInterceptor pull headers = do
+  ctxM <- pull
+  case ctxM of
+    Nothing -> pure headers
+    Just sc -> pure (injectIntoProducerHeaders sc headers)
 

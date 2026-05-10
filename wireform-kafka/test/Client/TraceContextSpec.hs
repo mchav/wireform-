@@ -9,14 +9,18 @@
 -- subsequent refactors.
 module Client.TraceContextSpec (tests) where
 
-import qualified Data.ByteString as BS
-import qualified Data.Map.Strict as Map
-import           Data.Text       (Text)
-import qualified Data.Text       as T
-import           Test.Tasty       (TestTree, testGroup)
-import           Test.Tasty.HUnit (testCase, (@?=), assertBool, assertFailure)
+import qualified Data.ByteString    as BS
+import           Data.IORef
+import           Data.List          (sortOn)
+import qualified Data.Map.Strict    as Map
+import           Data.Text          (Text)
+import qualified Data.Text          as T
+import qualified Data.Text.Encoding as TE
+import           Test.Tasty          (TestTree, testGroup)
+import           Test.Tasty.HUnit    (testCase, (@?=), assertBool, assertFailure)
 
-import qualified Kafka.Telemetry.TraceContext as TC
+import qualified Kafka.Telemetry.OpenTelemetry as OT
+import qualified Kafka.Telemetry.TraceContext  as TC
 
 tests :: TestTree
 tests = testGroup "Telemetry: W3C Trace Context"
@@ -59,6 +63,20 @@ tests = testGroup "Telemetry: W3C Trace Context"
           headers_bad_traceparent
       , testCase "empty tracestate suppresses the header"
           headers_empty_tracestate_no_header
+      ]
+  , testGroup "OpenTelemetry producer/consumer bridge"
+      [ testCase "injectIntoProducerHeaders preserves unrelated headers"
+          ot_inject_preserves
+      , testCase "injectIntoProducerHeaders replaces existing trace headers"
+          ot_inject_replaces
+      , testCase "extractFromConsumerHeaders round-trips after inject"
+          ot_round_trip
+      , testCase "extractFromConsumerHeaders returns Nothing without traceparent"
+          ot_extract_missing
+      , testCase "tracingProducerInterceptor with Nothing pull is a no-op"
+          ot_interceptor_noop
+      , testCase "tracingProducerInterceptor injects when pull returns Just"
+          ot_interceptor_injects
       ]
   ]
 
@@ -212,3 +230,82 @@ expectRight (Right a)  = pure a
 expectRight (Left err) = do
   assertFailure ("unexpected Left: " ++ show err)
   error "unreachable"
+
+----------------------------------------------------------------------
+-- OpenTelemetry producer / consumer bridges
+----------------------------------------------------------------------
+
+userHeader :: (Text, BS.ByteString)
+userHeader = ("x-user-id", TE.encodeUtf8 "alice")
+
+stringHeader :: TC.SpanContext -> Text -> (Text, BS.ByteString)
+stringHeader _ k = (k, TE.encodeUtf8 ("stale-" <> k))
+
+ot_inject_preserves :: IO ()
+ot_inject_preserves =
+  let injected = OT.injectIntoProducerHeaders sampleSpanContext [userHeader]
+  in lookup (fst userHeader) injected @?= Just (snd userHeader)
+
+ot_inject_replaces :: IO ()
+ot_inject_replaces = do
+  let stale     = [ stringHeader sampleSpanContext TC.traceparentHeader
+                  , stringHeader sampleSpanContext TC.tracestateHeader
+                  , userHeader
+                  ]
+      injected  = OT.injectIntoProducerHeaders sampleSpanContext stale
+      tpEntries = filter ((== TC.traceparentHeader) . fst) injected
+      tsEntries = filter ((== TC.tracestateHeader)  . fst) injected
+  -- Exactly one of each, and they're the freshly-injected values.
+  length tpEntries @?= 1
+  length tsEntries @?= 1
+  fmap snd tpEntries @?=
+    [TE.encodeUtf8 (TC.renderTraceparent sampleSpanContext)]
+  fmap snd tsEntries @?=
+    [TE.encodeUtf8 (TC.renderTracestate (TC.spanContextTraceState sampleSpanContext))]
+  -- Unrelated header still there, unchanged.
+  lookup (fst userHeader) injected @?= Just (snd userHeader)
+
+ot_round_trip :: IO ()
+ot_round_trip = do
+  let injected = OT.injectIntoProducerHeaders sampleSpanContext [userHeader]
+  case OT.extractFromConsumerHeaders injected of
+    Just (Right sc) ->
+      -- Compare structurally; the order of the trace-state list
+      -- inside the SpanContext is preserved.
+      ( TC.spanContextTraceId    sc
+      , TC.spanContextSpanId     sc
+      , TC.spanContextTraceFlags sc
+      , sortOn fst (TC.spanContextTraceState sc)
+      )
+        @?=
+      ( TC.spanContextTraceId    sampleSpanContext
+      , TC.spanContextSpanId     sampleSpanContext
+      , TC.spanContextTraceFlags sampleSpanContext
+      , sortOn fst (TC.spanContextTraceState sampleSpanContext)
+      )
+    other -> assertFailure ("expected Right SpanContext, got " ++ show other)
+
+ot_extract_missing :: IO ()
+ot_extract_missing =
+  case OT.extractFromConsumerHeaders [userHeader] of
+    Nothing -> pure ()
+    other   -> assertFailure ("expected Nothing, got " ++ show other)
+
+ot_interceptor_noop :: IO ()
+ot_interceptor_noop = do
+  out <- OT.tracingProducerInterceptor (pure Nothing) [userHeader]
+  out @?= [userHeader]
+
+ot_interceptor_injects :: IO ()
+ot_interceptor_injects = do
+  -- Verify the pull is invoked exactly once per call.
+  callCount <- newIORef (0 :: Int)
+  let pull = do
+        modifyIORef' callCount (+1)
+        pure (Just sampleSpanContext)
+  out <- OT.tracingProducerInterceptor pull [userHeader]
+  count <- readIORef callCount
+  count @?= 1
+  -- traceparent injected.
+  lookup TC.traceparentHeader out @?=
+    Just (TE.encodeUtf8 (TC.renderTraceparent sampleSpanContext))
