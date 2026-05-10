@@ -2,11 +2,28 @@
 
 ## Status
 
-**Draft / proposal.** No code changes have landed against this spec yet; it
-exists so we can decide which tiers to actually do and in what order. The
-analysis below is grounded in the current code (commit ahead of `3b05eb5`
-on `cursor/wire-codegen-and-slice-vector-7d97`) and the
-`Benchmarks.HotPath` numbers from the most recent run.
+**Tiers 1 + 2 + 3 implemented** (full-sweep option from the
+"Decision required" section below). Tier 4 left as STM by design.
+The `Metadata` module's `metadataVar` (mentioned under Category C)
+is the remaining single-writer / multi-reader `TVar` we kept as
+STM: its public interface is `STM`-typed and consumed by other
+modules' STM transactions, so a clean conversion needs a separate
+call-site audit. It is not on the per-record / per-poll hot paths
+the rest of this spec calls out.
+
+Implementation notes:
+
+* See the `cursor/kafka-stm-replacement-7b7c` branch for the
+  three commits — one per tier — plus a commit fixing the two
+  conformance ports (`T0103-transactions_local`,
+  `T0144-idempotence_mock`) that peeked at internals that moved
+  off STM. The pre-existing `T0006/Symbols.hs` build failure is
+  unrelated and left for a follow-up.
+* Library + 746 unit tests + 316 streams tests pass at GHC 9.8.2.
+  Benchmark numbers below are estimates from the original spec;
+  re-running `Benchmarks.HotPath` against the new code is left as
+  a follow-up that needs `librdkafka` available for the
+  `Benchmarks.HwKafkaComparison` cross-check.
 
 ## Motivation
 
