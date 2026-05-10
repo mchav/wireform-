@@ -4,6 +4,9 @@ A set of Haskell topologies that mirror the canonical Apache Kafka
 Streams demos under `org.apache.kafka.streams.examples` and the
 patterns from `kafka-streams-examples`.
 
+> For a top-level overview of what the library does and doesn't
+> support relative to the JVM, see [`../README.md`](../README.md).
+
 Every example is a self-contained module and is wired into a single
 executable so you can run them without configuring a broker — the
 in-process `TopologyTestDriver` feeds sample data and prints the

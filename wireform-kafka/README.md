@@ -12,6 +12,7 @@ A comprehensive Kafka client library for Haskell with full protocol support and 
 - **Producer API**: High-level producer with batching, partitioning, and delivery guarantees
 - **Consumer API**: Full consumer group support with automatic rebalancing
 - **Transactions**: Exactly-once semantics with transactional producer/consumer
+- **Streams DSL**: Full operator-parity port of Apache Kafka Streams — see [`streams/README.md`](streams/README.md) for the canonical scope-of-the-library reference
 - **Observability**: OpenTelemetry instrumentation following semantic conventions
 - **Type Safety**: Leverages Haskell's type system to prevent errors at compile time
 
