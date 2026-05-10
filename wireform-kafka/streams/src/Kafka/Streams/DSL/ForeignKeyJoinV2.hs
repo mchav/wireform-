@@ -6,16 +6,10 @@
 
 {-|
 Module      : Kafka.Streams.DSL.ForeignKeyJoinV2
-Description : KIP-213 foreign-key join with subscription store + responder
+Description : KIP-213 foreign-key-join data layer (subscription / responder model)
 
-Today's "ForeignKeyJoin" combinator does naive re-keying: every
-left update is republished to the right side under the foreign
-key, and the join is recomputed on the right side. That works
-for monotonic streams but breaks under timing skew — out-of-order
-right updates can shadow a more recent left value, producing a
-stale join output.
-
-KIP-213 fixes this with two pieces:
+KIP-213 fixes a timing-skew failure of a naive re-key with two
+pieces:
 
   1. A /subscription store/ on the left side: each left record
      publishes a "subscription" message keyed by the foreign key,
@@ -27,20 +21,19 @@ KIP-213 fixes this with two pieces:
      joins each responder against its current left-value cache
      and only emits the join if the token matches.
 
-This module provides the pure data layer:
+This module provides the /pure data layer/ that the wired DSL
+combinator in 'Kafka.Streams.DSL.ForeignKeyJoin' uses to maintain
+the per-key subscription token. The pure layer is exported on its
+own so property tests (e.g. permutation invariance) can exercise
+the protocol without spinning up a full topology.
 
-  * 'SubscriptionMessage'    — what the left side publishes.
-  * 'Responder'              — what the right side publishes back.
-  * 'foreignKeyJoinPure'     — the join transition state machine
-    (left update / right update / responder), used by tests to
-    exercise the protocol without spinning up a full topology.
-
-The DSL combinator that wires this into a 'StreamsBuilder' is a
-larger change still pending; this module is the correctness
-foundation it would build on.
+User-facing DSL: see 'Kafka.Streams.DSL.ForeignKeyJoin.foreignKeyJoinKTable'.
+There is /one/ combinator: it always uses the KIP-213 token
+verification under the hood.
 -}
 module Kafka.Streams.DSL.ForeignKeyJoinV2
   ( SubscriptionToken (..)
+  , mkToken
   , SubscriptionMessage (..)
   , Responder (..)
   , FkJoinState (..)
@@ -95,14 +88,9 @@ data Responder k v0 = Responder
 -- | The pure FK-join state machine.
 data FkJoinState k fk vl vr vo = FkJoinState
   { fjsLefts        :: !(Map k vl)
-    -- ^ Latest left value per key.
   , fjsLeftTokens   :: !(Map k SubscriptionToken)
-    -- ^ Latest token published to the right side per key.
   , fjsRights       :: !(Map fk vr)
-    -- ^ Latest right value per foreign key.
   , fjsLeftToFk     :: !(Map k fk)
-    -- ^ Map a left key to the foreign key its current value
-    --   subscribed to. Updated when a left record changes.
   , fjsJoiner       :: !(vl -> vr -> vo)
   , fjsExtractFk    :: !(vl -> fk)
   }
@@ -188,21 +176,45 @@ stepRight
 stepRight st = \case
   RightPut fk vr ->
     let !st' = st { fjsRights = Map.insert fk vr (fjsRights st) }
-        !outs =
-          [ JoinOutput k (Just (fjsJoiner st vl vr))
-          | (k, fk') <- Map.toList (fjsLeftToFk st)
-          , fk' == fk
-          , Just vl <- [Map.lookup k (fjsLefts st)]
-          ]
+        !outs = collectSubscribers fk vr st (fjsJoiner st)
     in (st', outs)
   RightDelete fk ->
     let !st' = st { fjsRights = Map.delete fk (fjsRights st) }
-        !outs =
-          [ JoinOutput k Nothing
-          | (k, fk') <- Map.toList (fjsLeftToFk st)
-          , fk' == fk
-          ]
+        !outs = tombstoneSubscribers fk st
     in (st', outs)
+
+-- Walk the LeftToFk map and collect a JoinOutput for every left
+-- key whose foreign key matches the updated 'fk' and whose left
+-- value is still cached. A list comprehension would be more
+-- compact but the project style prefers explicit folds with
+-- bounded recursion.
+collectSubscribers
+  :: (Ord k, Ord fk)
+  => fk
+  -> vr
+  -> FkJoinState k fk vl vr vo
+  -> (vl -> vr -> vo)
+  -> [JoinOutput k vo]
+collectSubscribers fk vr st joiner =
+  Map.foldrWithKey go [] (fjsLeftToFk st)
+  where
+    go k fk' acc
+      | fk' /= fk = acc
+      | otherwise = case Map.lookup k (fjsLefts st) of
+          Just vl -> JoinOutput k (Just (joiner vl vr)) : acc
+          Nothing -> acc
+
+tombstoneSubscribers
+  :: (Ord k, Ord fk)
+  => fk
+  -> FkJoinState k fk vl vr vo
+  -> [JoinOutput k vo]
+tombstoneSubscribers fk st =
+  Map.foldrWithKey go [] (fjsLeftToFk st)
+  where
+    go k fk' acc
+      | fk' /= fk = acc
+      | otherwise = JoinOutput k Nothing : acc
 
 -- | Replay a sequence of events. Useful for property-style tests:
 -- the output for a serialised execution must equal the output for
