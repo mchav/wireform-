@@ -12,7 +12,7 @@ Kafka response for API key 9.
 
 
 
-Valid versions: 1-10
+Valid versions: 1-9
 Flexible versions: 6+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -148,14 +148,8 @@ data OffsetFetchResponseTopics = OffsetFetchResponseTopics
 
   -- | The topic name.
 
-  -- Versions: 8-9
+  -- Versions: 8+
   offsetFetchResponseTopicsName :: !(KafkaString)
-,
-
-  -- | The topic ID.
-
-  -- Versions: 10+
-  offsetFetchResponseTopicsTopicId :: !(KafkaUuid)
 ,
 
   -- | The responses per partition.
@@ -222,13 +216,13 @@ data OffsetFetchResponse = OffsetFetchResponse
 
 -- | Maximum supported version for OffsetFetchResponse.
 maxOffsetFetchResponseVersion :: Int16
-maxOffsetFetchResponseVersion = 10
+maxOffsetFetchResponseVersion = 9
 
 -- | KafkaMessage instance for OffsetFetchResponse.
 instance KafkaMessage OffsetFetchResponse where
   messageApiKey = 9
   messageMinVersion = 1
-  messageMaxVersion = 10
+  messageMaxVersion = 9
   messageFlexibleVersion = Just 6
 
 -- | Worst-case wire size of a OffsetFetchResponsePartition.
@@ -341,7 +335,6 @@ wireMaxSizeOffsetFetchResponseTopics :: Int -> OffsetFetchResponseTopics -> Int
 wireMaxSizeOffsetFetchResponseTopics _version msg =
   0
   + WP.dualStringMaxSize (offsetFetchResponseTopicsName msg)
-  + 16
   + (5 + (case P.unKafkaArray (offsetFetchResponseTopicsPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeOffsetFetchResponsePartitions _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -349,24 +342,22 @@ wireMaxSizeOffsetFetchResponseTopics _version msg =
 wirePokeOffsetFetchResponseTopics :: Int -> Ptr Word8 -> OffsetFetchResponseTopics -> IO (Ptr Word8)
 wirePokeOffsetFetchResponseTopics version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- (if version >= 8 && version <= 9 then (if version >= 6 then WP.pokeCompactString p0 (P.toCompactString (offsetFetchResponseTopicsName msg)) else WP.pokeKafkaString p0 (offsetFetchResponseTopicsName msg)) else pure p0)
-  p2 <- (if version >= 10 then WP.pokeKafkaUuid p1 (offsetFetchResponseTopicsTopicId msg) else pure p1)
-  p3 <- (if version >= 8 then WP.pokeVersionedArray version 6 (\p x -> wirePokeOffsetFetchResponsePartitions version p x) p2 (offsetFetchResponseTopicsPartitions msg) else pure p2)
-  if version >= 6 then WP.pokeEmptyTaggedFields p3 else pure p3
+  p1 <- (if version >= 8 then (if version >= 6 then WP.pokeCompactString p0 (P.toCompactString (offsetFetchResponseTopicsName msg)) else WP.pokeKafkaString p0 (offsetFetchResponseTopicsName msg)) else pure p0)
+  p2 <- (if version >= 8 then WP.pokeVersionedArray version 6 (\p x -> wirePokeOffsetFetchResponsePartitions version p x) p1 (offsetFetchResponseTopicsPartitions msg) else pure p1)
+  if version >= 6 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for OffsetFetchResponseTopics.
 wirePeekOffsetFetchResponseTopics :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OffsetFetchResponseTopics, Ptr Word8)
 wirePeekOffsetFetchResponseTopics version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (if version >= 8 && version <= 9 then (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
-  (f1_topicid, p2) <- (if version >= 10 then WP.peekKafkaUuid p1 endPtr else pure (P.nullUuid, p1))
-  (f2_partitions, p3) <- (if version >= 8 then WP.peekVersionedArray version 6 (\p e -> wirePeekOffsetFetchResponsePartitions version _fp _basePtr p e) p2 endPtr else pure (P.mkKafkaArray V.empty, p2))
-  pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
-  pure (OffsetFetchResponseTopics { offsetFetchResponseTopicsName = f0_name, offsetFetchResponseTopicsTopicId = f1_topicid, offsetFetchResponseTopicsPartitions = f2_partitions }, pTagsEnd)
+  (f0_name, p1) <- (if version >= 8 then (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+  (f1_partitions, p2) <- (if version >= 8 then WP.peekVersionedArray version 6 (\p e -> wirePeekOffsetFetchResponsePartitions version _fp _basePtr p e) p1 endPtr else pure (P.mkKafkaArray V.empty, p1))
+  pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (OffsetFetchResponseTopics { offsetFetchResponseTopicsName = f0_name, offsetFetchResponseTopicsPartitions = f1_partitions }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultOffsetFetchResponseTopics :: OffsetFetchResponseTopics
-defaultOffsetFetchResponseTopics = OffsetFetchResponseTopics { offsetFetchResponseTopicsName = P.KafkaString Null, offsetFetchResponseTopicsTopicId = P.nullUuid, offsetFetchResponseTopicsPartitions = P.mkKafkaArray V.empty }
+defaultOffsetFetchResponseTopics = OffsetFetchResponseTopics { offsetFetchResponseTopicsName = P.KafkaString Null, offsetFetchResponseTopicsPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a OffsetFetchResponseGroup.
 wireMaxSizeOffsetFetchResponseGroup :: Int -> OffsetFetchResponseGroup -> Int
@@ -428,17 +419,17 @@ wirePokeOffsetFetchResponse version basePtr msg
     p2 <- (if version <= 7 then WP.pokeVersionedArray version 6 (\p x -> wirePokeOffsetFetchResponseTopic version p x) p1 (offsetFetchResponseTopics msg) else pure p1)
     p3 <- (if version >= 2 && version <= 7 then W.pokeInt16BE p2 (offsetFetchResponseErrorCode msg) else pure p2)
     WP.pokeEmptyTaggedFields p3
+  | version >= 8 && version <= 9 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 3 then W.pokeInt32BE p0 (offsetFetchResponseThrottleTimeMs msg) else pure p0)
+    p2 <- (if version >= 8 then WP.pokeVersionedArray version 6 (\p x -> wirePokeOffsetFetchResponseGroup version p x) p1 (offsetFetchResponseGroups msg) else pure p1)
+    WP.pokeEmptyTaggedFields p2
   | version >= 3 && version <= 5 = do
     p0 <- pure basePtr
     p1 <- (if version >= 3 then W.pokeInt32BE p0 (offsetFetchResponseThrottleTimeMs msg) else pure p0)
     p2 <- (if version <= 7 then WP.pokeVersionedArray version 6 (\p x -> wirePokeOffsetFetchResponseTopic version p x) p1 (offsetFetchResponseTopics msg) else pure p1)
     p3 <- (if version >= 2 && version <= 7 then W.pokeInt16BE p2 (offsetFetchResponseErrorCode msg) else pure p2)
     pure p3
-  | version >= 8 && version <= 10 = do
-    p0 <- pure basePtr
-    p1 <- (if version >= 3 then W.pokeInt32BE p0 (offsetFetchResponseThrottleTimeMs msg) else pure p0)
-    p2 <- (if version >= 8 then WP.pokeVersionedArray version 6 (\p x -> wirePokeOffsetFetchResponseGroup version p x) p1 (offsetFetchResponseGroups msg) else pure p1)
-    WP.pokeEmptyTaggedFields p2
   | otherwise = error $ "wirePoke OffsetFetchResponse : unsupported version: " ++ show version
 
 -- | Direct-poke decoder for OffsetFetchResponse.
@@ -457,22 +448,22 @@ wirePeekOffsetFetchResponse version _fp _basePtr p0 endPtr
     (f2_errorcode, p3) <- (if version >= 2 && version <= 7 then W.peekInt16BE p2 endPtr else pure (0, p2))
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (OffsetFetchResponse { offsetFetchResponseThrottleTimeMs = f0_throttletimems, offsetFetchResponseTopics = f1_topics, offsetFetchResponseErrorCode = f2_errorcode, offsetFetchResponseGroups = P.mkKafkaArray V.empty }, pTagsEnd)
+  | version >= 8 && version <= 9 = do
+    (f0_throttletimems, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
+    (f1_groups, p2) <- (if version >= 8 then WP.peekVersionedArray version 6 (\p e -> wirePeekOffsetFetchResponseGroup version _fp _basePtr p e) p1 endPtr else pure (P.mkKafkaArray V.empty, p1))
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (OffsetFetchResponse { offsetFetchResponseThrottleTimeMs = f0_throttletimems, offsetFetchResponseTopics = P.mkKafkaArray V.empty, offsetFetchResponseErrorCode = 0, offsetFetchResponseGroups = f1_groups }, pTagsEnd)
   | version >= 3 && version <= 5 = do
     (f0_throttletimems, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_topics, p2) <- (if version <= 7 then WP.peekVersionedArray version 6 (\p e -> wirePeekOffsetFetchResponseTopic version _fp _basePtr p e) p1 endPtr else pure (P.mkKafkaArray V.empty, p1))
     (f2_errorcode, p3) <- (if version >= 2 && version <= 7 then W.peekInt16BE p2 endPtr else pure (0, p2))
     pure (OffsetFetchResponse { offsetFetchResponseThrottleTimeMs = f0_throttletimems, offsetFetchResponseTopics = f1_topics, offsetFetchResponseErrorCode = f2_errorcode, offsetFetchResponseGroups = P.mkKafkaArray V.empty }, p3)
-  | version >= 8 && version <= 10 = do
-    (f0_throttletimems, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
-    (f1_groups, p2) <- (if version >= 8 then WP.peekVersionedArray version 6 (\p e -> wirePeekOffsetFetchResponseGroup version _fp _basePtr p e) p1 endPtr else pure (P.mkKafkaArray V.empty, p1))
-    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
-    pure (OffsetFetchResponse { offsetFetchResponseThrottleTimeMs = f0_throttletimems, offsetFetchResponseTopics = P.mkKafkaArray V.empty, offsetFetchResponseErrorCode = 0, offsetFetchResponseGroups = f1_groups }, pTagsEnd)
   | otherwise = error $ "wirePeek OffsetFetchResponse : unsupported version: " ++ show version
 
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec OffsetFetchResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeOffsetFetchResponse (fromIntegral v) msg

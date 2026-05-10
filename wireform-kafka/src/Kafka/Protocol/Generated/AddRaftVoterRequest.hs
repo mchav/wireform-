@@ -12,7 +12,7 @@ Kafka request for API key 80.
 
 
 
-Valid versions: 0-1
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -104,25 +104,19 @@ data AddRaftVoterRequest = AddRaftVoterRequest
 
   -- Versions: 0+
   addRaftVoterRequestListeners :: !(KafkaArray (Listener))
-,
-
-  -- | When true, return a response after the new voter set is committed. Otherwise, return after the leade
-
-  -- Versions: 1+
-  addRaftVoterRequestAckWhenCommitted :: !(Bool)
 
   }
   deriving (Eq, Show, Generic)
 
 -- | Maximum supported version for AddRaftVoterRequest.
 maxAddRaftVoterRequestVersion :: Int16
-maxAddRaftVoterRequestVersion = 1
+maxAddRaftVoterRequestVersion = 0
 
 -- | KafkaMessage instance for AddRaftVoterRequest.
 instance KafkaMessage AddRaftVoterRequest where
   messageApiKey = 80
   messageMinVersion = 0
-  messageMaxVersion = 1
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a Listener.
@@ -167,7 +161,6 @@ wireMaxSizeAddRaftVoterRequest _version msg =
   + 16
   + (5 + (case P.unKafkaArray (addRaftVoterRequestListeners msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeListener _version x ) v); P.Null -> 0 }))
   + 1
-  + 1
 
 -- | Direct-poke encoder for AddRaftVoterRequest.
 wirePokeAddRaftVoterRequest :: Int -> Ptr Word8 -> AddRaftVoterRequest -> IO (Ptr Word8)
@@ -180,15 +173,6 @@ wirePokeAddRaftVoterRequest version basePtr msg
     p4 <- WP.pokeKafkaUuid p3 (addRaftVoterRequestVoterDirectoryId msg)
     p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeListener version p x) p4 (addRaftVoterRequestListeners msg)
     WP.pokeEmptyTaggedFields p5
-  | version == 1 = do
-    p0 <- pure basePtr
-    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (addRaftVoterRequestClusterId msg)) else WP.pokeKafkaString p0 (addRaftVoterRequestClusterId msg))
-    p2 <- W.pokeInt32BE p1 (addRaftVoterRequestTimeoutMs msg)
-    p3 <- W.pokeInt32BE p2 (addRaftVoterRequestVoterId msg)
-    p4 <- WP.pokeKafkaUuid p3 (addRaftVoterRequestVoterDirectoryId msg)
-    p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeListener version p x) p4 (addRaftVoterRequestListeners msg)
-    p6 <- (if version >= 1 then W.pokeWord8 p5 (if (addRaftVoterRequestAckWhenCommitted msg) then 1 else 0) else pure p5)
-    WP.pokeEmptyTaggedFields p6
   | otherwise = error $ "wirePoke AddRaftVoterRequest : unsupported version: " ++ show version
 
 -- | Direct-poke decoder for AddRaftVoterRequest.
@@ -201,22 +185,13 @@ wirePeekAddRaftVoterRequest version _fp _basePtr p0 endPtr
     (f3_voterdirectoryid, p4) <- WP.peekKafkaUuid p3 endPtr
     (f4_listeners, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekListener version _fp _basePtr p e) p4 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
-    pure (AddRaftVoterRequest { addRaftVoterRequestClusterId = f0_clusterid, addRaftVoterRequestTimeoutMs = f1_timeoutms, addRaftVoterRequestVoterId = f2_voterid, addRaftVoterRequestVoterDirectoryId = f3_voterdirectoryid, addRaftVoterRequestListeners = f4_listeners, addRaftVoterRequestAckWhenCommitted = True }, pTagsEnd)
-  | version == 1 = do
-    (f0_clusterid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
-    (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
-    (f2_voterid, p3) <- W.peekInt32BE p2 endPtr
-    (f3_voterdirectoryid, p4) <- WP.peekKafkaUuid p3 endPtr
-    (f4_listeners, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekListener version _fp _basePtr p e) p4 endPtr
-    (f5_ackwhencommitted, p6) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p5 endPtr else pure (True, p5))
-    pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
-    pure (AddRaftVoterRequest { addRaftVoterRequestClusterId = f0_clusterid, addRaftVoterRequestTimeoutMs = f1_timeoutms, addRaftVoterRequestVoterId = f2_voterid, addRaftVoterRequestVoterDirectoryId = f3_voterdirectoryid, addRaftVoterRequestListeners = f4_listeners, addRaftVoterRequestAckWhenCommitted = f5_ackwhencommitted }, pTagsEnd)
+    pure (AddRaftVoterRequest { addRaftVoterRequestClusterId = f0_clusterid, addRaftVoterRequestTimeoutMs = f1_timeoutms, addRaftVoterRequestVoterId = f2_voterid, addRaftVoterRequestVoterDirectoryId = f3_voterdirectoryid, addRaftVoterRequestListeners = f4_listeners }, pTagsEnd)
   | otherwise = error $ "wirePeek AddRaftVoterRequest : unsupported version: " ++ show version
 
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec AddRaftVoterRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeAddRaftVoterRequest (fromIntegral v) msg

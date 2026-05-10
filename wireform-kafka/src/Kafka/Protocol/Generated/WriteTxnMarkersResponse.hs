@@ -12,7 +12,7 @@ Kafka response for API key 27.
 
 
 
-Valid versions: 1-2
+Valid versions: 1
 Flexible versions: 1+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -118,13 +118,13 @@ data WriteTxnMarkersResponse = WriteTxnMarkersResponse
 
 -- | Maximum supported version for WriteTxnMarkersResponse.
 maxWriteTxnMarkersResponseVersion :: Int16
-maxWriteTxnMarkersResponseVersion = 2
+maxWriteTxnMarkersResponseVersion = 1
 
 -- | KafkaMessage instance for WriteTxnMarkersResponse.
 instance KafkaMessage WriteTxnMarkersResponse where
   messageApiKey = 27
   messageMinVersion = 1
-  messageMaxVersion = 2
+  messageMaxVersion = 1
   messageFlexibleVersion = Just 1
 
 -- | Worst-case wire size of a WritableTxnMarkerPartitionResult.
@@ -224,7 +224,7 @@ wireMaxSizeWriteTxnMarkersResponse _version msg =
 -- | Direct-poke encoder for WriteTxnMarkersResponse.
 wirePokeWriteTxnMarkersResponse :: Int -> Ptr Word8 -> WriteTxnMarkersResponse -> IO (Ptr Word8)
 wirePokeWriteTxnMarkersResponse version basePtr msg
-  | version >= 1 && version <= 2 = do
+  | version == 1 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeWritableTxnMarkerResult version p x) p0 (writeTxnMarkersResponseMarkers msg)
     WP.pokeEmptyTaggedFields p1
@@ -233,7 +233,7 @@ wirePokeWriteTxnMarkersResponse version basePtr msg
 -- | Direct-poke decoder for WriteTxnMarkersResponse.
 wirePeekWriteTxnMarkersResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (WriteTxnMarkersResponse, Ptr Word8)
 wirePeekWriteTxnMarkersResponse version _fp _basePtr p0 endPtr
-  | version >= 1 && version <= 2 = do
+  | version == 1 = do
     (f0_markers, p1) <- WP.peekVersionedArray version 1 (\p e -> wirePeekWritableTxnMarkerResult version _fp _basePtr p e) p0 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
     pure (WriteTxnMarkersResponse { writeTxnMarkersResponseMarkers = f0_markers }, pTagsEnd)
@@ -242,7 +242,7 @@ wirePeekWriteTxnMarkersResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec WriteTxnMarkersResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeWriteTxnMarkersResponse (fromIntegral v) msg

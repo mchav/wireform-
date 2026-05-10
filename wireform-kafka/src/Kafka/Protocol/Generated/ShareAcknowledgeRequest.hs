@@ -12,7 +12,7 @@ Kafka request for API key 79.
 
 
 
-Valid versions: 1-2
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -66,7 +66,7 @@ data AcknowledgementBatch = AcknowledgementBatch
   acknowledgementBatchLastOffset :: !(Int64)
 ,
 
-  -- | Array of acknowledge types - 0:Gap,1:Accept,2:Release,3:Reject,4:Renew.
+  -- | Array of acknowledge types - 0:Gap,1:Accept,2:Release,3:Reject.
 
   -- Versions: 0+
   acknowledgementBatchAcknowledgeTypes :: !(KafkaArray (Int8))
@@ -132,12 +132,6 @@ data ShareAcknowledgeRequest = ShareAcknowledgeRequest
   shareAcknowledgeRequestShareSessionEpoch :: !(Int32)
 ,
 
-  -- | Whether Renew type acknowledgements present in AcknowledgementBatches.
-
-  -- Versions: 2+
-  shareAcknowledgeRequestIsRenewAck :: !(Bool)
-,
-
   -- | The topics containing records to acknowledge.
 
   -- Versions: 0+
@@ -148,13 +142,13 @@ data ShareAcknowledgeRequest = ShareAcknowledgeRequest
 
 -- | Maximum supported version for ShareAcknowledgeRequest.
 maxShareAcknowledgeRequestVersion :: Int16
-maxShareAcknowledgeRequestVersion = 2
+maxShareAcknowledgeRequestVersion = 0
 
 -- | KafkaMessage instance for ShareAcknowledgeRequest.
 instance KafkaMessage ShareAcknowledgeRequest where
   messageApiKey = 79
-  messageMinVersion = 1
-  messageMaxVersion = 2
+  messageMinVersion = 0
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a AcknowledgementBatch.
@@ -254,54 +248,37 @@ wireMaxSizeShareAcknowledgeRequest _version msg =
   + WP.dualStringMaxSize (shareAcknowledgeRequestGroupId msg)
   + WP.dualStringMaxSize (shareAcknowledgeRequestMemberId msg)
   + 4
-  + 1
   + (5 + (case P.unKafkaArray (shareAcknowledgeRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAcknowledgeTopic _version x ) v); P.Null -> 0 }))
   + 1
 
 -- | Direct-poke encoder for ShareAcknowledgeRequest.
 wirePokeShareAcknowledgeRequest :: Int -> Ptr Word8 -> ShareAcknowledgeRequest -> IO (Ptr Word8)
 wirePokeShareAcknowledgeRequest version basePtr msg
-  | version == 1 = do
+  | version == 0 = do
     p0 <- pure basePtr
     p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (shareAcknowledgeRequestGroupId msg)) else WP.pokeKafkaString p0 (shareAcknowledgeRequestGroupId msg))
     p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (shareAcknowledgeRequestMemberId msg)) else WP.pokeKafkaString p1 (shareAcknowledgeRequestMemberId msg))
     p3 <- W.pokeInt32BE p2 (shareAcknowledgeRequestShareSessionEpoch msg)
     p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeAcknowledgeTopic version p x) p3 (shareAcknowledgeRequestTopics msg)
     WP.pokeEmptyTaggedFields p4
-  | version == 2 = do
-    p0 <- pure basePtr
-    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (shareAcknowledgeRequestGroupId msg)) else WP.pokeKafkaString p0 (shareAcknowledgeRequestGroupId msg))
-    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (shareAcknowledgeRequestMemberId msg)) else WP.pokeKafkaString p1 (shareAcknowledgeRequestMemberId msg))
-    p3 <- W.pokeInt32BE p2 (shareAcknowledgeRequestShareSessionEpoch msg)
-    p4 <- (if version >= 2 then W.pokeWord8 p3 (if (shareAcknowledgeRequestIsRenewAck msg) then 1 else 0) else pure p3)
-    p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeAcknowledgeTopic version p x) p4 (shareAcknowledgeRequestTopics msg)
-    WP.pokeEmptyTaggedFields p5
   | otherwise = error $ "wirePoke ShareAcknowledgeRequest : unsupported version: " ++ show version
 
 -- | Direct-poke decoder for ShareAcknowledgeRequest.
 wirePeekShareAcknowledgeRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ShareAcknowledgeRequest, Ptr Word8)
 wirePeekShareAcknowledgeRequest version _fp _basePtr p0 endPtr
-  | version == 1 = do
+  | version == 0 = do
     (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_sharesessionepoch, p3) <- W.peekInt32BE p2 endPtr
     (f3_topics, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekAcknowledgeTopic version _fp _basePtr p e) p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
-    pure (ShareAcknowledgeRequest { shareAcknowledgeRequestGroupId = f0_groupid, shareAcknowledgeRequestMemberId = f1_memberid, shareAcknowledgeRequestShareSessionEpoch = f2_sharesessionepoch, shareAcknowledgeRequestIsRenewAck = False, shareAcknowledgeRequestTopics = f3_topics }, pTagsEnd)
-  | version == 2 = do
-    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
-    (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
-    (f2_sharesessionepoch, p3) <- W.peekInt32BE p2 endPtr
-    (f3_isrenewack, p4) <- (if version >= 2 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr else pure (False, p3))
-    (f4_topics, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekAcknowledgeTopic version _fp _basePtr p e) p4 endPtr
-    pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
-    pure (ShareAcknowledgeRequest { shareAcknowledgeRequestGroupId = f0_groupid, shareAcknowledgeRequestMemberId = f1_memberid, shareAcknowledgeRequestShareSessionEpoch = f2_sharesessionepoch, shareAcknowledgeRequestIsRenewAck = f3_isrenewack, shareAcknowledgeRequestTopics = f4_topics }, pTagsEnd)
+    pure (ShareAcknowledgeRequest { shareAcknowledgeRequestGroupId = f0_groupid, shareAcknowledgeRequestMemberId = f1_memberid, shareAcknowledgeRequestShareSessionEpoch = f2_sharesessionepoch, shareAcknowledgeRequestTopics = f3_topics }, pTagsEnd)
   | otherwise = error $ "wirePeek ShareAcknowledgeRequest : unsupported version: " ++ show version
 
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ShareAcknowledgeRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeShareAcknowledgeRequest (fromIntegral v) msg

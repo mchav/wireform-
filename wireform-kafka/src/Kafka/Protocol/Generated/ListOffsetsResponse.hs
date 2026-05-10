@@ -12,7 +12,7 @@ Kafka response for API key 2.
 
 
 
-Valid versions: 1-11
+Valid versions: 1-10
 Flexible versions: 6+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -123,13 +123,13 @@ data ListOffsetsResponse = ListOffsetsResponse
 
 -- | Maximum supported version for ListOffsetsResponse.
 maxListOffsetsResponseVersion :: Int16
-maxListOffsetsResponseVersion = 11
+maxListOffsetsResponseVersion = 10
 
 -- | KafkaMessage instance for ListOffsetsResponse.
 instance KafkaMessage ListOffsetsResponse where
   messageApiKey = 2
   messageMinVersion = 1
-  messageMaxVersion = 11
+  messageMaxVersion = 10
   messageFlexibleVersion = Just 6
 
 -- | Worst-case wire size of a ListOffsetsPartitionResponse.
@@ -219,7 +219,7 @@ wirePokeListOffsetsResponse version basePtr msg
     p1 <- (if version >= 2 then W.pokeInt32BE p0 (listOffsetsResponseThrottleTimeMs msg) else pure p0)
     p2 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsTopicResponse version p x) p1 (listOffsetsResponseTopics msg)
     pure p2
-  | version >= 6 && version <= 11 = do
+  | version >= 6 && version <= 10 = do
     p0 <- pure basePtr
     p1 <- (if version >= 2 then W.pokeInt32BE p0 (listOffsetsResponseThrottleTimeMs msg) else pure p0)
     p2 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsTopicResponse version p x) p1 (listOffsetsResponseTopics msg)
@@ -236,7 +236,7 @@ wirePeekListOffsetsResponse version _fp _basePtr p0 endPtr
     (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_topics, p2) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopicResponse version _fp _basePtr p e) p1 endPtr
     pure (ListOffsetsResponse { listOffsetsResponseThrottleTimeMs = f0_throttletimems, listOffsetsResponseTopics = f1_topics }, p2)
-  | version >= 6 && version <= 11 = do
+  | version >= 6 && version <= 10 = do
     (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_topics, p2) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopicResponse version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
@@ -246,7 +246,7 @@ wirePeekListOffsetsResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ListOffsetsResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeListOffsetsResponse (fromIntegral v) msg

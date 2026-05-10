@@ -59,7 +59,7 @@ data DeleteRecordsPartition = DeleteRecordsPartition
   deleteRecordsPartitionPartitionIndex :: !(Int32)
 ,
 
-  -- | The deletion offset. -1 means that records should be truncated to the high watermark.
+  -- | The deletion offset.
 
   -- Versions: 0+
   deleteRecordsPartitionOffset :: !(Int64)
@@ -212,7 +212,7 @@ wirePeekDeleteRecordsRequest version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec DeleteRecordsRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDeleteRecordsRequest (fromIntegral v) msg

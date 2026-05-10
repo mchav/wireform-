@@ -12,7 +12,7 @@ Kafka response for API key 45.
 
 
 
-Valid versions: 0-1
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -101,12 +101,6 @@ data AlterPartitionReassignmentsResponse = AlterPartitionReassignmentsResponse
   alterPartitionReassignmentsResponseThrottleTimeMs :: !(Int32)
 ,
 
-  -- | The option indicating whether changing the replication factor of any given partition as part of the 
-
-  -- Versions: 1+
-  alterPartitionReassignmentsResponseAllowReplicationFactorChange :: !(Bool)
-,
-
   -- | The top-level error code, or 0 if there was no error.
 
   -- Versions: 0+
@@ -129,13 +123,13 @@ data AlterPartitionReassignmentsResponse = AlterPartitionReassignmentsResponse
 
 -- | Maximum supported version for AlterPartitionReassignmentsResponse.
 maxAlterPartitionReassignmentsResponseVersion :: Int16
-maxAlterPartitionReassignmentsResponseVersion = 1
+maxAlterPartitionReassignmentsResponseVersion = 0
 
 -- | KafkaMessage instance for AlterPartitionReassignmentsResponse.
 instance KafkaMessage AlterPartitionReassignmentsResponse where
   messageApiKey = 45
   messageMinVersion = 0
-  messageMaxVersion = 1
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a ReassignablePartitionResponse.
@@ -204,7 +198,6 @@ wireMaxSizeAlterPartitionReassignmentsResponse :: Int -> AlterPartitionReassignm
 wireMaxSizeAlterPartitionReassignmentsResponse _version msg =
   0
   + 4
-  + 1
   + 2
   + WP.dualStringMaxSize (alterPartitionReassignmentsResponseErrorMessage msg)
   + (5 + (case P.unKafkaArray (alterPartitionReassignmentsResponseResponses msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeReassignableTopicResponse _version x ) v); P.Null -> 0 }))
@@ -220,14 +213,6 @@ wirePokeAlterPartitionReassignmentsResponse version basePtr msg
     p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (alterPartitionReassignmentsResponseErrorMessage msg)) else WP.pokeKafkaString p2 (alterPartitionReassignmentsResponseErrorMessage msg))
     p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeReassignableTopicResponse version p x) p3 (alterPartitionReassignmentsResponseResponses msg)
     WP.pokeEmptyTaggedFields p4
-  | version == 1 = do
-    p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (alterPartitionReassignmentsResponseThrottleTimeMs msg)
-    p2 <- (if version >= 1 then W.pokeWord8 p1 (if (alterPartitionReassignmentsResponseAllowReplicationFactorChange msg) then 1 else 0) else pure p1)
-    p3 <- W.pokeInt16BE p2 (alterPartitionReassignmentsResponseErrorCode msg)
-    p4 <- (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (alterPartitionReassignmentsResponseErrorMessage msg)) else WP.pokeKafkaString p3 (alterPartitionReassignmentsResponseErrorMessage msg))
-    p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeReassignableTopicResponse version p x) p4 (alterPartitionReassignmentsResponseResponses msg)
-    WP.pokeEmptyTaggedFields p5
   | otherwise = error $ "wirePoke AlterPartitionReassignmentsResponse : unsupported version: " ++ show version
 
 -- | Direct-poke decoder for AlterPartitionReassignmentsResponse.
@@ -239,21 +224,13 @@ wirePeekAlterPartitionReassignmentsResponse version _fp _basePtr p0 endPtr
     (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     (f3_responses, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReassignableTopicResponse version _fp _basePtr p e) p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
-    pure (AlterPartitionReassignmentsResponse { alterPartitionReassignmentsResponseThrottleTimeMs = f0_throttletimems, alterPartitionReassignmentsResponseAllowReplicationFactorChange = True, alterPartitionReassignmentsResponseErrorCode = f1_errorcode, alterPartitionReassignmentsResponseErrorMessage = f2_errormessage, alterPartitionReassignmentsResponseResponses = f3_responses }, pTagsEnd)
-  | version == 1 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
-    (f1_allowreplicationfactorchange, p2) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr else pure (True, p1))
-    (f2_errorcode, p3) <- W.peekInt16BE p2 endPtr
-    (f3_errormessage, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
-    (f4_responses, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReassignableTopicResponse version _fp _basePtr p e) p4 endPtr
-    pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
-    pure (AlterPartitionReassignmentsResponse { alterPartitionReassignmentsResponseThrottleTimeMs = f0_throttletimems, alterPartitionReassignmentsResponseAllowReplicationFactorChange = f1_allowreplicationfactorchange, alterPartitionReassignmentsResponseErrorCode = f2_errorcode, alterPartitionReassignmentsResponseErrorMessage = f3_errormessage, alterPartitionReassignmentsResponseResponses = f4_responses }, pTagsEnd)
+    pure (AlterPartitionReassignmentsResponse { alterPartitionReassignmentsResponseThrottleTimeMs = f0_throttletimems, alterPartitionReassignmentsResponseErrorCode = f1_errorcode, alterPartitionReassignmentsResponseErrorMessage = f2_errormessage, alterPartitionReassignmentsResponseResponses = f3_responses }, pTagsEnd)
   | otherwise = error $ "wirePeek AlterPartitionReassignmentsResponse : unsupported version: " ++ show version
 
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec AlterPartitionReassignmentsResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeAlterPartitionReassignmentsResponse (fromIntegral v) msg
