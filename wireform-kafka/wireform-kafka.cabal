@@ -32,8 +32,14 @@ extra-source-files:
     cbits/crc32c.h
     cbits/snappy_ffi.h
     cbits/lz4_ffi.h
+    cbits/wireform_time.h
     data/message-inventory.json
     test-data/test-vectors.json
+    test/Network/TLS/server.crt
+    test/Network/TLS/server.key
+    test/Network/TLS/client.crt
+    test/Network/TLS/client.key
+    test/Network/TLS/README.md
 
 flag rocksdb
     description:
@@ -74,10 +80,17 @@ library
         crc32c.h
         snappy_ffi.h
         lz4_ffi.h
+        wireform_time.h
     c-sources:
         cbits/crc32c.c
         cbits/snappy_ffi.c
         cbits/lz4_ffi.c
+    -- The fast-clock C shim is gated to non-Windows. On Windows
+    -- 'Kafka.Time' falls back to 'Data.Time.Clock.POSIX.getPOSIXTime'
+    -- which itself uses 'GetSystemTimeAsFileTime' (also a fast
+    -- vDSO-style page read; no syscall).
+    if !os(windows)
+      c-sources: cbits/wireform_time.c
     -- -O3 lets the compiler inline simde_mm_crc32_u* into the CRC32C
     -- inner loop. -march=native picks up SSE4.2 / ARMv8.1 CRC32 on the
     -- build host so SIMDe emits the hardware instruction; for portable
@@ -89,9 +102,31 @@ library
     exposed-modules:
         Kafka
         Kafka.Client.AdminClient
+        Kafka.Client.AdminExtras
+        Kafka.Client.AdminTimeouts
+        Kafka.Client.ConfigValidation
+        Kafka.Client.ConnectionExtras
         Kafka.Client.Consumer
+        Kafka.Client.ConsumerExtras
+        Kafka.Client.DeleteRecords
+        Kafka.Client.ConsumerGroupV2
+        Kafka.Client.Filter
+        Kafka.Client.Future
         Kafka.Client.Group
+        Kafka.Client.MetadataCacheControl
+        Kafka.Client.ProducerExtras
+        Kafka.Client.RackAware
+        Kafka.Client.RebalanceListener
+        Kafka.Client.RecordMetadata
+        Kafka.Client.RetryClassifier
+        Kafka.Client.SerdeContext
+        Kafka.Client.ShareConsumer
+        Kafka.Client.ShareGroupExtras
+        Kafka.Client.StatsEmitter
+        Kafka.Client.TopicId
+        Kafka.Client.Internal.BatchSplitting
         Kafka.Client.Internal.BatchAccumulator
+        Kafka.Client.Internal.Murmur2
         Kafka.Client.Internal.ConsumerGroup
         Kafka.Client.Internal.Heartbeat
         Kafka.Client.Internal.ProducerSender
@@ -109,6 +144,7 @@ library
         Kafka.Client.Mock.Telemetry
         Kafka.Client.Pipeline
         Kafka.Client.Producer
+        Kafka.Client.ReauthDriver
         Kafka.Client.Simple
         Kafka.Client.Transaction
         Kafka.Compression.Gzip
@@ -118,13 +154,16 @@ library
         Kafka.Compression.Zstd
         Kafka.Network.Auth.AwsMskIam
         Kafka.Network.Auth.OAuthBearer
+        Kafka.Network.Auth.OAuthOidc
+        Kafka.Network.Bootstrap
         Kafka.Network.Auth.Plain
         Kafka.Network.Auth.SASL
         Kafka.Network.Auth.Scram
         Kafka.Network.Connection
+        Kafka.Network.Transport
         Kafka.Protocol.ApiVersions
+        Kafka.Protocol.VersionNegotiation
         Kafka.Protocol.CRC32C
-        Kafka.Protocol.Encoding
         Kafka.Protocol.Generated.AddOffsetsToTxnRequest
         Kafka.Protocol.Generated.AddOffsetsToTxnResponse
         Kafka.Protocol.Generated.AddPartitionsToTxnRequest
@@ -325,16 +364,24 @@ library
         Kafka.Protocol.Message
         Kafka.Protocol.Primitives
         Kafka.Protocol.RecordBatch
+        Kafka.Protocol.RecordBatchWire
+        Kafka.Protocol.Wire
+        Kafka.Protocol.Wire.Codec
+        Kafka.Protocol.Wire.Primitives
+        Kafka.Protocol.Wire.SliceVector
+        Kafka.Telemetry.Metrics
         Kafka.Telemetry.OpenTelemetry
+        Kafka.Telemetry.Push
+        Kafka.Telemetry.StatsJson
+        Kafka.Telemetry.TraceContext
+        Kafka.Time
     build-depends:
         base                      >= 4.16  && < 5,
         aeson                     >= 2.0   && < 2.3,
         async                     >= 2.2   && < 3,
         base64-bytestring         >= 1.2   && < 1.3,
         binary                    >= 0.8   && < 0.11,
-        bytes                     >= 0.17  && < 1,
         bytestring                >= 0.11  && < 0.13,
-        cereal                    >= 0.5   && < 0.6,
         containers                >= 0.6   && < 0.8,
         crypton                   >= 1.0   && < 1.1,
         crypton-connection        >= 0.4   && < 0.5,
@@ -416,12 +463,25 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.Cogroup
         Kafka.Streams.DSL.Suppress
         Kafka.Streams.DSL.DslStoreSuppliers
+        Kafka.Streams.DSL.ForeignKeyJoinV2
         Kafka.Streams.Runtime
         Kafka.Streams.Runtime.EOS
         Kafka.Streams.Runtime.Task
         Kafka.Streams.Runtime.Standby
         Kafka.Streams.Runtime.Assignor
         Kafka.Streams.Runtime.WorkerPool
+        Kafka.Streams.Runtime.ProbingRebalance
+        Kafka.Streams.Runtime.RevocationGrace
+        Kafka.Streams.Runtime.NativeDriver
+        Kafka.Streams.Runtime.MultiInstanceHarness
+        Kafka.Streams.State.Transactional
+        Kafka.Streams.Topology.Optimization
+        Kafka.Streams.Topology.StableNames
+        Kafka.Streams.Serde.Avro
+        Kafka.Streams.Serde.JsonSchema
+        Kafka.Streams.Serde.Protobuf
+        Kafka.Streams.Serde.SchemaRegistry
+        Kafka.Streams.Serde.SchemaRegistry.Http
         Kafka.Streams.InteractiveQueries
     build-depends:
         base                      >= 4.16  && < 5,
@@ -433,11 +493,14 @@ library wireform-kafka-streams
         directory                 >= 1.3   && < 1.4,
         filepath                  >= 1.4   && < 1.6,
         hashable                  >= 1.3   && < 1.6,
+        list-t                    >= 1.0   && < 1.1,
         stm                       >= 2.5   && < 2.6,
+        stm-containers            >= 1.2   && < 1.3,
         text                      >= 2.0   && < 2.2,
         time                      >= 1.11  && < 1.13,
         unordered-containers      >= 0.2   && < 0.3,
         uuid                      >= 1.3   && < 1.4,
+        vector                    >= 0.13  && < 0.14,
         wireform-kafka
     if flag(rocksdb)
         exposed-modules: Kafka.Streams.State.KeyValue.RocksDB
@@ -495,6 +558,17 @@ test-suite wireform-kafka-streams-test
         Streams.MockFailureModesSpec
         Streams.MockAdvancedSpec
         Streams.MockDriverModesSpec
+        Streams.ProbingRebalanceSpec
+        Streams.RevocationGraceSpec
+        Streams.StableNamesSpec
+        Streams.TopologyOptimizationSpec
+        Streams.SchemaRegistrySerdeSpec
+        Streams.TransactionalStoreSpec
+        Streams.StreamsConfigSurfaceSpec
+        Streams.ForeignKeyJoinV2Spec
+        Streams.MultiInstanceHarnessSpec
+        Streams.SchemaRegistryHttpSpec
+        Streams.SchemaRegistryFormatsSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
@@ -512,7 +586,9 @@ test-suite wireform-kafka-streams-test
         temporary                 >= 1.3   && < 1.4,
         text,
         time,
-        uuid                      >= 1.3   && < 1.4
+        unordered-containers      >= 0.2   && < 0.3,
+        uuid                      >= 1.3   && < 1.4,
+        vector                    >= 0.13  && < 0.14
 
 test-suite wireform-kafka-streams-integration
     import: defaults
@@ -540,6 +616,7 @@ library wireform-kafka-codegen
         Kafka.Protocol.Codegen.Parser
         Kafka.Protocol.Codegen.Types
         Kafka.Protocol.Codegen.Generator
+        Kafka.Protocol.Codegen.WireGenerator
     build-depends:
         base                      >= 4.16  && < 5,
         aeson                     >= 2.0   && < 2.3,
@@ -561,11 +638,21 @@ executable gen-test-vectors
         wireform-kafka,
         aeson,
         aeson-pretty             >= 0.8   && < 0.9,
-        bytes,
         bytestring,
         memory                   >= 0.18  && < 0.19,
         text,
         vector
+
+executable kafka-codegen-emit-snapshot
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: codegen-emit-snapshot
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    build-depends:
+        base,
+        wireform-kafka:wireform-kafka-codegen,
+        prettyprinter             >= 1.7   && < 1.8,
+        text                      >= 2.0   && < 2.2
 
 executable kafka-codegen
     import: defaults
@@ -597,6 +684,35 @@ test-suite wireform-kafka-test
         Client.ProducerTimeoutSpec
         Client.TransactionCoordinatorSpec
         Client.TransactionSpec
+        Client.ProducerTransactionWiringSpec
+        Client.InterceptorSpec
+        Client.MetadataLeaderUpdateSpec
+        Client.MetricsRegistrySpec
+        Client.Murmur2Spec
+        Client.StatsJsonSpec
+        Client.ConsumerGroupV2Spec
+        Client.ShareConsumerSpec
+        Client.TelemetryPushSpec
+        Client.TraceContextSpec
+        Client.RecordMetadataSpec
+        Client.FilterSpec
+        Client.FutureSpec
+        Client.TopicIdSpec
+        Client.RebalanceListenerSpec
+        Client.AdminTimeoutsSpec
+        Client.RetryClassifierSpec
+        Client.BatchSplittingSpec
+        Client.ResponseFrameSpec
+        Network.OAuthOidcSpec
+        Network.BootstrapSpec
+        Client.ConsumerExtrasSpec
+        Client.MetadataCacheControlSpec
+        Client.RackAwareSpec
+        Client.ProducerExtrasSpec
+        Client.ConnectionExtrasSpec
+        Client.AdminExtrasSpec
+        Client.SerdeContextSpec
+        Client.ShareGroupExtrasSpec
         Client.MockBrokerSpec
         Client.MockBrokerFailureModesSpec
         Client.MockBrokerAdvancedSpec
@@ -608,12 +724,19 @@ test-suite wireform-kafka-test
         Client.MockBrokerStoreSpec
         Client.MockBrokerProtoSpec
         Client.ConfigParitySpec
+        Client.ConfigValidationSpec
+        Client.HeartbeatRejoinSpec
+        Codegen.WireGeneratorSpec
         Client.ProducerRetrySpec
         Client.PipelineSpec
         Client.SubscribeSpec
         Network.ConnectionLivenessSpec
         Network.AuthSpec
         Network.ConnectionRetrySpec
+        Network.TlsHandshakeSpec
+        Network.TransportSpec
+        Network.SaslReauthSpec
+        Network.ReauthDriverSpec
         Protocol.ApiVersionsSpec
         Protocol.CompressionSpec
         Protocol.CRC32CSpec
@@ -621,20 +744,26 @@ test-suite wireform-kafka-test
         Protocol.Generated.KnownGoodSpec
         Protocol.Generated.SimpleRoundTripSpec
         Protocol.PrimitivesSpec
+        Protocol.RecordBatchAttributesSpec
+        Protocol.WireCodecParitySpec
         Protocol.RecordBatchSpec
         Protocol.RoundTripSpec
         Protocol.VersionHandlingSpec
+        Protocol.WireSpec
+        Protocol.RecordBatchWireSpec
+        Protocol.SliceVectorSpec
+        Protocol.VersionNegotiationSpec
         TestUtil.BrokerGate
     build-depends:
         base,
         wireform-kafka,
+        wireform-kafka:wireform-kafka-codegen,
+        prettyprinter             >= 1.7   && < 1.8,
         aeson,
         async,
         base64-bytestring,
         binary,
-        bytes,
         bytestring,
-        cereal,
         containers,
         directory                 >= 1.3   && < 1.4,
         memory                    >= 0.18  && < 0.19,
@@ -642,8 +771,12 @@ test-suite wireform-kafka-test
         hedgehog                  >= 1.2   && < 2,
         binary,
         crypton-connection,
+        crypton-x509,
+        crypton-x509-store,
+        data-default-class,
         hashable,
-        network,
+        network                   >= 3.1   && < 3.3,
+        tls,
         random,
         stm,
         tasty                     >= 1.4   && < 1.6,
@@ -692,15 +825,21 @@ test-suite wireform-kafka-integration
     hs-source-dirs: test-integration
     ghc-options: -threaded -rtsopts -with-rtsopts=-N
     other-modules:
+        Integration.AdminClientExtendedSpec
         Integration.BasicSpec
+        Integration.ConsumerOffsetsSpec
+        Integration.TransactionalSpec
     -- Skipped at run time unless WIREFORM_KAFKA_BROKER=host:port is set.
     build-depends:
         base,
         wireform-kafka,
         bytestring,
+        containers,
         tasty                     >= 1.4   && < 1.6,
         tasty-hunit               >= 0.10  && < 0.11,
-        text
+        text,
+        time                      >= 1.11  && < 1.13,
+        unordered-containers      >= 0.2   && < 0.3
 
 benchmark wireform-kafka-bench
     import: defaults
@@ -711,23 +850,26 @@ benchmark wireform-kafka-bench
     other-modules:
         Benchmarks.ClientOps
         Benchmarks.CRC32C
-        Benchmarks.SerLib
         Benchmarks.Serialization
+        Benchmarks.StatsAndStamping
+        Benchmarks.HotPath
+        Benchmarks.HwKafkaComparison
         Benchmarks.Util
     build-depends:
         base,
         wireform-kafka,
         async,
         binary,
-        bytes,
         bytestring,
-        cereal,
+        containers,
         criterion                 >= 1.5   && < 1.7,
         deepseq,
         directory,
         filepath,
+        process,
         random,
         stm,
         text,
         time,
-        vector
+        vector,
+        hw-kafka-client

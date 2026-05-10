@@ -9,24 +9,25 @@ Copyright   : (c) 2025
 License     : BSD-3-Clause
 Maintainer  : kafka-native
 
-This module provides the fundamental primitive types used in the Kafka wire protocol,
-including fixed-width integers, variable-length integers, strings, and other basic types.
+This module provides the fundamental newtype + smart-constructor
+surface for the Kafka wire-protocol primitives — fixed-width
+integers, variable-length integers, strings, byte blobs, arrays,
+UUIDs, and the @TaggedFields@ container.
 
-All types implement the 'Serial' type class from the @bytes@ package, which provides
-a unified interface for both @binary@ and @cereal@ serialization libraries.
+The on-the-wire codec lives in "Kafka.Protocol.Wire" /
+"Kafka.Protocol.Wire.Primitives" and uses these types via the
+'Wire' typeclass / per-helper poke / peek pairs.
 
-The Kafka protocol uses big-endian (network byte order) for all integer types.
+The Kafka protocol uses big-endian (network byte order) for all
+integer types.
 
 = Variable-Length Integers
 
-Kafka uses variable-length encoding for integers in "compact" message formats
-(introduced in flexible versions, KIP-482):
+Kafka uses variable-length encoding for integers in "compact"
+message formats (introduced in flexible versions, KIP-482):
 
-* 'VarInt' - Variable-length signed 32-bit integer using ZigZag encoding
-* 'VarLong' - Variable-length signed 64-bit integer using ZigZag encoding
-
-Variable-length integers use a continuation bit encoding where the most significant
-bit indicates whether more bytes follow.
+* 'VarInt'  — variable-length signed 32-bit integer using ZigZag
+* 'VarLong' — variable-length signed 64-bit integer using ZigZag
 
 = Strings and Arrays
 
@@ -38,13 +39,10 @@ Kafka strings and arrays have length prefixes:
 
 = Tagged Fields
 
-Flexible message versions (9+ for most messages) support tagged fields, which allow
-backward-compatible protocol evolution. Tagged fields are encoded as:
-
-1. Tag (VarInt)
-2. Size (VarInt)
-3. Data (variable length)
-
+Flexible message versions (9+ for most messages) support tagged
+fields, which allow backward-compatible protocol evolution. Tagged
+fields are encoded as a 'UVarInt' count followed by a sequence of
+@(UVarInt tag, UVarInt size, bytes)@ triples.
 -}
 module Kafka.Protocol.Primitives
   ( -- * Fixed-Width Integer Types
@@ -93,13 +91,6 @@ module Kafka.Protocol.Primitives
   , Nullable(..)
   , toNullable
   , fromNullable
-    -- * Encoding Helpers
-  , putVarInt
-  , getVarInt
-  , putVarLong
-  , getVarLong
-  , putUVarInt
-  , getUVarInt
     -- * Type Conversions
   , toCompactString
   , fromCompactString
@@ -109,20 +100,11 @@ module Kafka.Protocol.Primitives
   , fromCompactArray
   ) where
 
-import Control.Monad (replicateM)
-import Data.Bits
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BL
-import Data.Bytes.Get (MonadGet, getByteString, getWord8, runGetS)
-import Data.Bytes.Put (MonadPut, putByteString, putWord8, runPutS)
-import Data.Bytes.Serial
 import Data.Int
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import qualified Data.Text.Encoding as T
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Data.Vector (Vector)
@@ -144,23 +126,6 @@ toNullable (Just x) = NotNull x
 fromNullable :: Nullable a -> Maybe a
 fromNullable Null = Nothing
 fromNullable (NotNull x) = Just x
-
--- | Serial instance for Nullable types.
--- Encodes Null as a byte value 0, and NotNull as byte value 1 followed by the serialized value.
--- This is used for nullable struct types.
-instance Serial a => Serial (Nullable a) where
-  serialize Null = putWord8 0
-  serialize (NotNull x) = do
-    putWord8 1
-    serialize x
-  
-  deserialize = do
-    flag <- getWord8
-    case flag of
-      0 -> return Null
-      1 -> NotNull <$> deserialize
-      _ -> fail $ "Invalid nullable flag: " ++ show flag
-
 -- -----------------------------------------------------------------------------
 -- Variable-Length Integers
 -- -----------------------------------------------------------------------------
@@ -184,104 +149,6 @@ newtype VarLong = VarLong { unVarLong :: Int64 }
 newtype UVarInt = UVarInt { unUVarInt :: Word32 }
   deriving (Eq, Show, Ord, Num, Generic)
 
--- | Encode a signed 32-bit integer as ZigZag encoded VarInt.
-zigZagEncode32 :: Int32 -> Word32
-zigZagEncode32 n = fromIntegral $ (n `shiftL` 1) `xor` (n `shiftR` 31)
-
--- | Decode a ZigZag encoded value to a signed 32-bit integer.
-zigZagDecode32 :: Word32 -> Int32
-zigZagDecode32 n = fromIntegral $ (n `shiftR` 1) `xor` (-(n .&. 1))
-
--- | Encode a signed 64-bit integer as ZigZag encoded VarLong.
-zigZagEncode64 :: Int64 -> Word64
-zigZagEncode64 n = fromIntegral $ (n `shiftL` 1) `xor` (n `shiftR` 63)
-
--- | Decode a ZigZag encoded value to a signed 64-bit integer.
-zigZagDecode64 :: Word64 -> Int64
-zigZagDecode64 n = fromIntegral $ (n `shiftR` 1) `xor` (-(n .&. 1))
-
--- | Encode a VarInt to bytes.
-putVarInt :: MonadPut m => VarInt -> m ()
-putVarInt (VarInt n) = putUVarInt (UVarInt $ zigZagEncode32 n)
-
--- | Decode a VarInt from bytes.
-getVarInt :: MonadGet m => m VarInt
-getVarInt = VarInt . zigZagDecode32 . unUVarInt <$> getUVarInt
-
--- | Encode a VarLong to bytes.
-putVarLong :: MonadPut m => VarLong -> m ()
-putVarLong (VarLong n) = putUVarLong64 (zigZagEncode64 n)
-
--- | Decode a VarLong from bytes.
-getVarLong :: MonadGet m => m VarLong
-getVarLong = VarLong . zigZagDecode64 <$> getUVarLong64
-
--- | Encode an unsigned variable-length integer.
-putUVarInt :: MonadPut m => UVarInt -> m ()
-putUVarInt (UVarInt n) = go n
-  where
-    go v
-      | v < 128 = putWord8 (fromIntegral v)
-      | otherwise = do
-          putWord8 (fromIntegral (v .&. 0x7F) .|. 0x80)
-          go (v `shiftR` 7)
-{-# INLINE putUVarInt #-}
-
--- | Decode an unsigned variable-length integer.
-getUVarInt :: MonadGet m => m UVarInt
-getUVarInt = UVarInt <$> go 0 0
-  where
-    go :: MonadGet m => Int -> Word32 -> m Word32
-    go shift acc = do
-      b <- getWord8
-      let value = acc .|. ((fromIntegral (b .&. 0x7F)) `shiftL` shift)
-      if b .&. 0x80 == 0
-        then return value
-        else go (shift + 7) value
-{-# INLINE getUVarInt #-}
-
--- | Encode an unsigned 64-bit variable-length integer (for VarLong).
-putUVarLong64 :: MonadPut m => Word64 -> m ()
-putUVarLong64 n = go n
-  where
-    go v
-      | v < 128 = putWord8 (fromIntegral v)
-      | otherwise = do
-          putWord8 (fromIntegral (v .&. 0x7F) .|. 0x80)
-          go (v `shiftR` 7)
-{-# INLINE putUVarLong64 #-}
-
--- | Decode an unsigned 64-bit variable-length integer (for VarLong).
-getUVarLong64 :: MonadGet m => m Word64
-getUVarLong64 = go 0 0
-  where
-    go :: MonadGet m => Int -> Word64 -> m Word64
-    go shift acc = do
-      b <- getWord8
-      let value = acc .|. ((fromIntegral (b .&. 0x7F)) `shiftL` shift)
-      if b .&. 0x80 == 0
-        then return value
-        else go (shift + 7) value
-{-# INLINE getUVarLong64 #-}
-
-instance Serial VarInt where
-  serialize = putVarInt
-  {-# INLINE serialize #-}
-  deserialize = getVarInt
-  {-# INLINE deserialize #-}
-
-instance Serial VarLong where
-  serialize = putVarLong
-  {-# INLINE serialize #-}
-  deserialize = getVarLong
-  {-# INLINE deserialize #-}
-
-instance Serial UVarInt where
-  serialize = putUVarInt
-  {-# INLINE serialize #-}
-  deserialize = getUVarInt
-  {-# INLINE deserialize #-}
-
 -- -----------------------------------------------------------------------------
 -- String Types
 -- -----------------------------------------------------------------------------
@@ -294,24 +161,6 @@ newtype KafkaString = KafkaString { unKafkaString :: Nullable Text }
 -- | Create a non-null Kafka string.
 mkKafkaString :: Text -> KafkaString
 mkKafkaString = KafkaString . NotNull
-
-instance Serial KafkaString where
-  serialize (KafkaString Null) = serialize (-1 :: Int16)
-  serialize (KafkaString (NotNull t)) = do
-    let bs = T.encodeUtf8 t
-    serialize (fromIntegral (BS.length bs) :: Int16)
-    putByteString bs
-  {-# INLINE serialize #-}
-
-  deserialize = do
-    len <- deserialize
-    if (len :: Int16) < 0
-      then return (KafkaString Null)
-      else do
-        bs <- getByteString (fromIntegral len)
-        return $ KafkaString (NotNull $ T.decodeUtf8 bs)
-  {-# INLINE deserialize #-}
-
 -- | Compact Kafka string with variable-length unsigned length prefix.
 -- Used in flexible message versions. A length of 0 indicates null,
 -- so actual lengths are encoded as length + 1.
@@ -321,24 +170,6 @@ newtype CompactString = CompactString { unCompactString :: Nullable Text }
 -- | Create a non-null compact Kafka string.
 mkCompactString :: Text -> CompactString
 mkCompactString = CompactString . NotNull
-
-instance Serial CompactString where
-  serialize (CompactString Null) = serialize (UVarInt 0)
-  serialize (CompactString (NotNull t)) = do
-    let bs = T.encodeUtf8 t
-    serialize (UVarInt $ fromIntegral (BS.length bs) + 1)
-    putByteString bs
-  {-# INLINE serialize #-}
-
-  deserialize = do
-    UVarInt len <- deserialize
-    if len == 0
-      then return (CompactString Null)
-      else do
-        bs <- getByteString (fromIntegral len - 1)
-        return $ CompactString (NotNull $ T.decodeUtf8 bs)
-  {-# INLINE deserialize #-}
-
 -- -----------------------------------------------------------------------------
 -- UUID Type
 -- -----------------------------------------------------------------------------
@@ -355,18 +186,6 @@ mkKafkaUuid = KafkaUuid
 -- | The null UUID (all zeros).
 nullUuid :: KafkaUuid
 nullUuid = KafkaUuid UUID.nil
-
-instance Serial KafkaUuid where
-  serialize (KafkaUuid uuid) = do
-    let bs = BL.toStrict $ UUID.toByteString uuid
-    putByteString bs
-  
-  deserialize = do
-    bs <- getByteString 16
-    case UUID.fromByteString (BL.fromStrict bs) of
-      Just uuid -> return (KafkaUuid uuid)
-      Nothing -> fail "Invalid UUID bytes"
-
 -- -----------------------------------------------------------------------------
 -- Array Types
 -- -----------------------------------------------------------------------------
@@ -379,23 +198,6 @@ newtype KafkaArray a = KafkaArray { unKafkaArray :: Nullable (Vector a) }
 -- | Create a non-null Kafka array.
 mkKafkaArray :: Vector a -> KafkaArray a
 mkKafkaArray = KafkaArray . NotNull
-
-instance Serial a => Serial (KafkaArray a) where
-  serialize (KafkaArray Null) = serialize (-1 :: Int32)
-  serialize (KafkaArray (NotNull vec)) = do
-    serialize (fromIntegral (V.length vec) :: Int32)
-    V.mapM_ serialize vec
-  {-# INLINE serialize #-}
-
-  deserialize = do
-    len <- deserialize
-    if (len :: Int32) < 0
-      then return (KafkaArray Null)
-      -- V.replicateM grows a mutable buffer in one allocation instead
-      -- of building a list of length n + V.fromList.
-      else KafkaArray . NotNull <$> V.replicateM (fromIntegral (len :: Int32)) deserialize
-  {-# INLINE deserialize #-}
-
 -- | Compact Kafka array with variable-length unsigned length prefix.
 -- Used in flexible message versions. A length of 0 indicates null,
 -- so actual lengths are encoded as length + 1.
@@ -405,22 +207,6 @@ newtype CompactArray a = CompactArray { unCompactArray :: Nullable (Vector a) }
 -- | Create a non-null compact Kafka array.
 mkCompactArray :: Vector a -> CompactArray a
 mkCompactArray = CompactArray . NotNull
-
-instance Serial a => Serial (CompactArray a) where
-  serialize (CompactArray Null) = serialize (UVarInt 0)
-  serialize (CompactArray (NotNull vec)) = do
-    serialize (UVarInt $ fromIntegral (V.length vec) + 1)
-    V.mapM_ serialize vec
-  {-# INLINE serialize #-}
-
-  deserialize = do
-    UVarInt len <- deserialize
-    if len == 0
-      then return (CompactArray Null)
-      else CompactArray . NotNull
-             <$> V.replicateM (fromIntegral (len :: Word32) - 1) deserialize
-  {-# INLINE deserialize #-}
-
 -- -----------------------------------------------------------------------------
 -- Bytes Types
 -- -----------------------------------------------------------------------------
@@ -433,21 +219,6 @@ newtype KafkaBytes = KafkaBytes { unKafkaBytes :: Nullable ByteString }
 -- | Create non-null Kafka bytes.
 mkKafkaBytes :: ByteString -> KafkaBytes
 mkKafkaBytes = KafkaBytes . NotNull
-
-instance Serial KafkaBytes where
-  serialize (KafkaBytes Null) = serialize (-1 :: Int32)
-  serialize (KafkaBytes (NotNull bs)) = do
-    serialize (fromIntegral (BS.length bs) :: Int32)
-    putByteString bs
-  {-# INLINE serialize #-}
-
-  deserialize = do
-    len <- deserialize
-    if (len :: Int32) < 0
-      then return (KafkaBytes Null)
-      else KafkaBytes . NotNull <$> getByteString (fromIntegral len)
-  {-# INLINE deserialize #-}
-
 -- | Compact Kafka bytes with variable-length unsigned length prefix.
 -- Used in flexible message versions. A length of 0 indicates null,
 -- so actual lengths are encoded as length + 1.
@@ -457,21 +228,6 @@ newtype CompactBytes = CompactBytes { unCompactBytes :: Nullable ByteString }
 -- | Create non-null compact Kafka bytes.
 mkCompactBytes :: ByteString -> CompactBytes
 mkCompactBytes = CompactBytes . NotNull
-
-instance Serial CompactBytes where
-  serialize (CompactBytes Null) = serialize (UVarInt 0)
-  serialize (CompactBytes (NotNull bs)) = do
-    serialize (UVarInt $ fromIntegral (BS.length bs) + 1)
-    putByteString bs
-  {-# INLINE serialize #-}
-
-  deserialize = do
-    UVarInt len <- deserialize
-    if len == 0
-      then return (CompactBytes Null)
-      else CompactBytes . NotNull <$> getByteString (fromIntegral len - 1)
-  {-# INLINE deserialize #-}
-
 -- -----------------------------------------------------------------------------
 -- Tagged Fields
 -- -----------------------------------------------------------------------------
@@ -499,29 +255,6 @@ lookupTaggedField tag (TaggedFields m) = Map.lookup tag m
 -- | Insert or update a tagged field.
 insertTaggedField :: Word32 -> ByteString -> TaggedFields -> TaggedFields
 insertTaggedField tag bs (TaggedFields m) = TaggedFields (Map.insert tag bs m)
-
-instance Serial TaggedFields where
-  serialize (TaggedFields fields) = do
-    -- Number of tags
-    serialize (UVarInt $ fromIntegral $ Map.size fields)
-    -- Each tag and its data
-    mapM_ encodeField (Map.toAscList fields)
-    where
-      encodeField (tag, bs) = do
-        serialize (UVarInt tag)  -- Tag number
-        serialize (UVarInt $ fromIntegral $ BS.length bs)  -- Size
-        putByteString bs  -- Data
-  
-  deserialize = do
-    UVarInt numTags <- deserialize
-    fields <- replicateM (fromIntegral numTags) decodeField
-    return $ TaggedFields (Map.fromList fields)
-    where
-      decodeField = do
-        UVarInt tag <- deserialize
-        UVarInt size <- deserialize
-        bs <- getByteString (fromIntegral size)
-        return (tag, bs)
 
 -- -----------------------------------------------------------------------------
 -- Type Conversions

@@ -10,7 +10,7 @@
     {
         "api_key": 18,
         "description": "ApiVersionsResponse v3 (no error, no API entries)",
-        "hex": "0000010000000000",
+        "hex": "00000100000000040001010108ffffffffffffffff020101030100",
         "message_type": "ApiVersionsResponse",
         "test_case": "ok",
         "version": 3

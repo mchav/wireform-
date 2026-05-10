@@ -43,8 +43,8 @@ import Control.Monad (forM_, void)
 import Data.ByteString (ByteString)
 import Data.IORef
 import Data.Int (Int32, Int64)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
+import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 
 import Kafka.Streams.Errors (DeserializationHandler)
@@ -114,14 +114,14 @@ closeTask = closeEngine . taskEngine
 ----------------------------------------------------------------------
 
 data TaskManager = TaskManager
-  { tmTasks  :: !(TVar (Map TaskId Task))
-  , tmByPart :: !(TVar (Map (TopicName, Int32) TaskId))
+  { tmTasks  :: !(TVar (HashMap TaskId Task))
+  , tmByPart :: !(TVar (HashMap (TopicName, Int32) TaskId))
   }
 
 newTaskManager :: IO TaskManager
 newTaskManager = do
-  ts <- newTVarIO Map.empty
-  ip <- newTVarIO Map.empty
+  ts <- newTVarIO HashMap.empty
+  ip <- newTVarIO HashMap.empty
   pure TaskManager { tmTasks = ts, tmByPart = ip }
 
 -- | Register a task and the (topic, partition) pairs it owns.
@@ -131,18 +131,18 @@ addTask
   -> [(TopicName, Int32)]
   -> IO ()
 addTask tm t parts = atomically $ do
-  modifyTVar' (tmTasks tm) (Map.insert (taskTaskId t) t)
+  modifyTVar' (tmTasks tm) (HashMap.insert (taskTaskId t) t)
   forM_ parts $ \tp ->
-    modifyTVar' (tmByPart tm) (Map.insert tp (taskTaskId t))
+    modifyTVar' (tmByPart tm) (HashMap.insert tp (taskTaskId t))
 
 -- | Drop a task from the manager. The caller is responsible for
 -- 'closeTask' separately if it wants to release the engine's
 -- resources.
 removeTask :: TaskManager -> TaskId -> IO ()
 removeTask tm tid = atomically $ do
-  modifyTVar' (tmTasks tm) (Map.delete tid)
+  modifyTVar' (tmTasks tm) (HashMap.delete tid)
   modifyTVar' (tmByPart tm) $
-    Map.filter (/= tid)
+    HashMap.filter (/= tid)
 
 -- | Find the task that owns a given (topic, partition) pair.
 routeByPartition
@@ -152,17 +152,17 @@ routeByPartition
   -> IO (Maybe Task)
 routeByPartition tm topic part = atomically $ do
   byPart <- readTVar (tmByPart tm)
-  case Map.lookup (topic, part) byPart of
+  case HashMap.lookup (topic, part) byPart of
     Nothing  -> pure Nothing
     Just tid -> do
       ts <- readTVar (tmTasks tm)
-      pure (Map.lookup tid ts)
+      pure (HashMap.lookup tid ts)
 
 tasks :: TaskManager -> IO [Task]
-tasks tm = Map.elems <$> readTVarIO (tmTasks tm)
+tasks tm = HashMap.elems <$> readTVarIO (tmTasks tm)
 
 taskCount :: TaskManager -> IO Int
-taskCount tm = Map.size <$> readTVarIO (tmTasks tm)
+taskCount tm = HashMap.size <$> readTVarIO (tmTasks tm)
 
 commitAllTasks :: TaskManager -> IO ()
 commitAllTasks tm = do

@@ -74,6 +74,28 @@ data StreamsConfig = StreamsConfig
   , stateDir                 :: !FilePath
   , defaultDeserHandler      :: !DeserializationHandler
   , defaultProductionHandler :: !(Maybe ProductionHandler)
+    -- KIP-892 / Streams full-config-surface additions ------------
+  , taskTimeoutMs            :: !Int
+    -- ^ @task.timeout.ms@ — how long a task may stall on a
+    --   recoverable error before the runtime kills it. Default
+    --   300_000 (5 minutes), matching Java.
+  , acceptableRecoveryLag    :: !Int64
+    -- ^ @acceptable.recovery.lag@ — maximum changelog lag (in
+    --   records) at which a warmup replica is considered "caught
+    --   up" and may be promoted to active. Default 10_000.
+  , maxWarmupReplicas        :: !Int
+    -- ^ @max.warmup.replicas@ — total warmup replicas allowed
+    --   across the application instance. Default 2.
+  , probingRebalanceIntervalMs :: !Int
+    -- ^ @probing.rebalance.interval.ms@ — KIP-441 cadence for
+    --   re-issuing rebalances to check whether warmups are
+    --   ready. Default 600_000 (10 minutes).
+  , taskAssignorClass        :: !(Maybe Text)
+    -- ^ @task.assignor.class@ — fully-qualified class name (or
+    --   our @Text@ tag for an in-process assignor) the runtime
+    --   should use when computing assignments. 'Nothing' (the
+    --   default) selects the built-in cooperative-sticky
+    --   assignor.
   }
 
 defaultCommitIntervalMs :: Int
@@ -103,6 +125,11 @@ defaultStreamsConfig = StreamsConfig
   , stateDir                 = defaultStateDir
   , defaultDeserHandler      = logAndContinue
   , defaultProductionHandler = Nothing
+  , taskTimeoutMs              = 300_000
+  , acceptableRecoveryLag      = 10_000
+  , maxWarmupReplicas          = 2
+  , probingRebalanceIntervalMs = 600_000
+  , taskAssignorClass          = Nothing
   }
 
 ----------------------------------------------------------------------
@@ -161,6 +188,15 @@ streamsConfigFromMap m = foldl' step defaultStreamsConfig (Map.toAscList m)
       "replication.factor"         ->
         maybe cfg (\n -> cfg { replicationFactor = n }) (readT v)
       "state.dir"                  -> cfg { stateDir = T.unpack v }
+      "task.timeout.ms"            ->
+        maybe cfg (\n -> cfg { taskTimeoutMs = n }) (readT v)
+      "acceptable.recovery.lag"    ->
+        maybe cfg (\n -> cfg { acceptableRecoveryLag = n }) (readT v)
+      "max.warmup.replicas"        ->
+        maybe cfg (\n -> cfg { maxWarmupReplicas = n }) (readT v)
+      "probing.rebalance.interval.ms" ->
+        maybe cfg (\n -> cfg { probingRebalanceIntervalMs = n }) (readT v)
+      "task.assignor.class"        -> cfg { taskAssignorClass = Just v }
       _                            -> cfg
 
 readT :: Read a => T.Text -> Maybe a

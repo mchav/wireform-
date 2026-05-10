@@ -23,15 +23,9 @@ module Kafka.Protocol.Generated.DescribeDelegationTokenResponse
     DescribeDelegationTokenResponse(..),
     DescribedDelegationToken(..),
     DescribedDelegationTokenRenewer(..),
-    encodeDescribeDelegationTokenResponse,
-    decodeDescribeDelegationTokenResponse,
     maxDescribeDelegationTokenResponseVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +33,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Those who are able to renew this token before it expires.
@@ -65,31 +66,6 @@ data DescribedDelegationTokenRenewer = DescribedDelegationTokenRenewer
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode DescribedDelegationTokenRenewer with version-aware field handling.
-encodeDescribedDelegationTokenRenewer :: MonadPut m => E.ApiVersion -> DescribedDelegationTokenRenewer -> m ()
-encodeDescribedDelegationTokenRenewer version dmsg =
-  do
-    if version >= 2 then serialize (toCompactString (describedDelegationTokenRenewerPrincipalType dmsg)) else serialize (describedDelegationTokenRenewerPrincipalType dmsg)
-    if version >= 2 then serialize (toCompactString (describedDelegationTokenRenewerPrincipalName dmsg)) else serialize (describedDelegationTokenRenewerPrincipalName dmsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribedDelegationTokenRenewer with version-aware field handling.
-decodeDescribedDelegationTokenRenewer :: MonadGet m => E.ApiVersion -> m DescribedDelegationTokenRenewer
-decodeDescribedDelegationTokenRenewer version =
-  do
-    fieldprincipaltype <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldprincipalname <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribedDelegationTokenRenewer
-      {
-      describedDelegationTokenRenewerPrincipalType = fieldprincipaltype
-      ,
-      describedDelegationTokenRenewerPrincipalName = fieldprincipalname
-      }
-
 
 -- | The tokens.
 data DescribedDelegationToken = DescribedDelegationToken
@@ -158,69 +134,6 @@ data DescribedDelegationToken = DescribedDelegationToken
   deriving (Eq, Show, Generic)
 
 
--- | Encode DescribedDelegationToken with version-aware field handling.
-encodeDescribedDelegationToken :: MonadPut m => E.ApiVersion -> DescribedDelegationToken -> m ()
-encodeDescribedDelegationToken version dmsg =
-  do
-    if version >= 2 then serialize (toCompactString (describedDelegationTokenPrincipalType dmsg)) else serialize (describedDelegationTokenPrincipalType dmsg)
-    if version >= 2 then serialize (toCompactString (describedDelegationTokenPrincipalName dmsg)) else serialize (describedDelegationTokenPrincipalName dmsg)
-    when (version >= 3) $
-      if version >= 2 then serialize (toCompactString (describedDelegationTokenTokenRequesterPrincipalType dmsg)) else serialize (describedDelegationTokenTokenRequesterPrincipalType dmsg)
-    when (version >= 3) $
-      if version >= 2 then serialize (toCompactString (describedDelegationTokenTokenRequesterPrincipalName dmsg)) else serialize (describedDelegationTokenTokenRequesterPrincipalName dmsg)
-    serialize (describedDelegationTokenIssueTimestamp dmsg)
-    serialize (describedDelegationTokenExpiryTimestamp dmsg)
-    serialize (describedDelegationTokenMaxTimestamp dmsg)
-    if version >= 2 then serialize (toCompactString (describedDelegationTokenTokenId dmsg)) else serialize (describedDelegationTokenTokenId dmsg)
-    if version >= 2 then serialize (toCompactBytes (describedDelegationTokenHmac dmsg)) else serialize (describedDelegationTokenHmac dmsg)
-    E.encodeVersionedArray version 2 encodeDescribedDelegationTokenRenewer (case P.unKafkaArray (describedDelegationTokenRenewers dmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribedDelegationToken with version-aware field handling.
-decodeDescribedDelegationToken :: MonadGet m => E.ApiVersion -> m DescribedDelegationToken
-decodeDescribedDelegationToken version =
-  do
-    fieldprincipaltype <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldprincipalname <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldtokenrequesterprincipaltype <- if version >= 3
-      then if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldtokenrequesterprincipalname <- if version >= 3
-      then if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldissuetimestamp <- deserialize
-    fieldexpirytimestamp <- deserialize
-    fieldmaxtimestamp <- deserialize
-    fieldtokenid <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldhmac <- if version >= 2 then P.fromCompactBytes <$> deserialize else deserialize
-    fieldrenewers <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDescribedDelegationTokenRenewer
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribedDelegationToken
-      {
-      describedDelegationTokenPrincipalType = fieldprincipaltype
-      ,
-      describedDelegationTokenPrincipalName = fieldprincipalname
-      ,
-      describedDelegationTokenTokenRequesterPrincipalType = fieldtokenrequesterprincipaltype
-      ,
-      describedDelegationTokenTokenRequesterPrincipalName = fieldtokenrequesterprincipalname
-      ,
-      describedDelegationTokenIssueTimestamp = fieldissuetimestamp
-      ,
-      describedDelegationTokenExpiryTimestamp = fieldexpirytimestamp
-      ,
-      describedDelegationTokenMaxTimestamp = fieldmaxtimestamp
-      ,
-      describedDelegationTokenTokenId = fieldtokenid
-      ,
-      describedDelegationTokenHmac = fieldhmac
-      ,
-      describedDelegationTokenRenewers = fieldrenewers
-      }
-
-
-
 data DescribeDelegationTokenResponse = DescribeDelegationTokenResponse
   {
 
@@ -248,53 +161,146 @@ data DescribeDelegationTokenResponse = DescribeDelegationTokenResponse
 maxDescribeDelegationTokenResponseVersion :: Int16
 maxDescribeDelegationTokenResponseVersion = 3
 
--- | Encode DescribeDelegationTokenResponse with the given API version.
-encodeDescribeDelegationTokenResponse :: MonadPut m => E.ApiVersion -> DescribeDelegationTokenResponse -> m ()
-encodeDescribeDelegationTokenResponse version msg
-  | version == 1 =
-    do
-      serialize (describeDelegationTokenResponseErrorCode msg)
-      E.encodeVersionedArray version 2 encodeDescribedDelegationToken (case P.unKafkaArray (describeDelegationTokenResponseTokens msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (describeDelegationTokenResponseThrottleTimeMs msg)
+-- | KafkaMessage instance for DescribeDelegationTokenResponse.
+instance KafkaMessage DescribeDelegationTokenResponse where
+  messageApiKey = 41
+  messageMinVersion = 1
+  messageMaxVersion = 3
+  messageFlexibleVersion = Just 2
+
+-- | Worst-case wire size of a DescribedDelegationTokenRenewer.
+wireMaxSizeDescribedDelegationTokenRenewer :: Int -> DescribedDelegationTokenRenewer -> Int
+wireMaxSizeDescribedDelegationTokenRenewer _version msg =
+  0
+  + WP.dualStringMaxSize (describedDelegationTokenRenewerPrincipalType msg)
+  + WP.dualStringMaxSize (describedDelegationTokenRenewerPrincipalName msg)
+  + 1
+
+-- | Direct-poke encoder for DescribedDelegationTokenRenewer.
+wirePokeDescribedDelegationTokenRenewer :: Int -> Ptr Word8 -> DescribedDelegationTokenRenewer -> IO (Ptr Word8)
+wirePokeDescribedDelegationTokenRenewer version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (describedDelegationTokenRenewerPrincipalType msg)) else WP.pokeKafkaString p0 (describedDelegationTokenRenewerPrincipalType msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (describedDelegationTokenRenewerPrincipalName msg)) else WP.pokeKafkaString p1 (describedDelegationTokenRenewerPrincipalName msg))
+  if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for DescribedDelegationTokenRenewer.
+wirePeekDescribedDelegationTokenRenewer :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribedDelegationTokenRenewer, Ptr Word8)
+wirePeekDescribedDelegationTokenRenewer version _fp _basePtr p0 endPtr = do
+  (f0_principaltype, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_principalname, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (DescribedDelegationTokenRenewer { describedDelegationTokenRenewerPrincipalType = f0_principaltype, describedDelegationTokenRenewerPrincipalName = f1_principalname }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribedDelegationTokenRenewer :: DescribedDelegationTokenRenewer
+defaultDescribedDelegationTokenRenewer = DescribedDelegationTokenRenewer { describedDelegationTokenRenewerPrincipalType = P.KafkaString Null, describedDelegationTokenRenewerPrincipalName = P.KafkaString Null }
+
+-- | Worst-case wire size of a DescribedDelegationToken.
+wireMaxSizeDescribedDelegationToken :: Int -> DescribedDelegationToken -> Int
+wireMaxSizeDescribedDelegationToken _version msg =
+  0
+  + WP.dualStringMaxSize (describedDelegationTokenPrincipalType msg)
+  + WP.dualStringMaxSize (describedDelegationTokenPrincipalName msg)
+  + WP.dualStringMaxSize (describedDelegationTokenTokenRequesterPrincipalType msg)
+  + WP.dualStringMaxSize (describedDelegationTokenTokenRequesterPrincipalName msg)
+  + 8
+  + 8
+  + 8
+  + WP.dualStringMaxSize (describedDelegationTokenTokenId msg)
+  + WP.dualBytesMaxSize (describedDelegationTokenHmac msg)
+  + (5 + (case P.unKafkaArray (describedDelegationTokenRenewers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribedDelegationTokenRenewer _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribedDelegationToken.
+wirePokeDescribedDelegationToken :: Int -> Ptr Word8 -> DescribedDelegationToken -> IO (Ptr Word8)
+wirePokeDescribedDelegationToken version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (describedDelegationTokenPrincipalType msg)) else WP.pokeKafkaString p0 (describedDelegationTokenPrincipalType msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (describedDelegationTokenPrincipalName msg)) else WP.pokeKafkaString p1 (describedDelegationTokenPrincipalName msg))
+  p3 <- (if version >= 3 then (if version >= 2 then WP.pokeCompactString p2 (P.toCompactString (describedDelegationTokenTokenRequesterPrincipalType msg)) else WP.pokeKafkaString p2 (describedDelegationTokenTokenRequesterPrincipalType msg)) else pure p2)
+  p4 <- (if version >= 3 then (if version >= 2 then WP.pokeCompactString p3 (P.toCompactString (describedDelegationTokenTokenRequesterPrincipalName msg)) else WP.pokeKafkaString p3 (describedDelegationTokenTokenRequesterPrincipalName msg)) else pure p3)
+  p5 <- W.pokeInt64BE p4 (describedDelegationTokenIssueTimestamp msg)
+  p6 <- W.pokeInt64BE p5 (describedDelegationTokenExpiryTimestamp msg)
+  p7 <- W.pokeInt64BE p6 (describedDelegationTokenMaxTimestamp msg)
+  p8 <- (if version >= 2 then WP.pokeCompactString p7 (P.toCompactString (describedDelegationTokenTokenId msg)) else WP.pokeKafkaString p7 (describedDelegationTokenTokenId msg))
+  p9 <- (if version >= 2 then WP.pokeCompactBytes p8 (P.toCompactBytes (describedDelegationTokenHmac msg)) else WP.pokeKafkaBytes p8 (describedDelegationTokenHmac msg))
+  p10 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribedDelegationTokenRenewer version p x) p9 (describedDelegationTokenRenewers msg)
+  if version >= 2 then WP.pokeEmptyTaggedFields p10 else pure p10
+
+-- | Direct-poke decoder for DescribedDelegationToken.
+wirePeekDescribedDelegationToken :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribedDelegationToken, Ptr Word8)
+wirePeekDescribedDelegationToken version _fp _basePtr p0 endPtr = do
+  (f0_principaltype, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_principalname, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  (f2_tokenrequesterprincipaltype, p3) <- (if version >= 3 then (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
+  (f3_tokenrequesterprincipalname, p4) <- (if version >= 3 then (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
+  (f4_issuetimestamp, p5) <- W.peekInt64BE p4 endPtr
+  (f5_expirytimestamp, p6) <- W.peekInt64BE p5 endPtr
+  (f6_maxtimestamp, p7) <- W.peekInt64BE p6 endPtr
+  (f7_tokenid, p8) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr else WP.peekKafkaString p7 endPtr)
+  (f8_hmac, p9) <- (if version >= 2 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p8 endPtr else WP.peekKafkaBytes p8 endPtr)
+  (f9_renewers, p10) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribedDelegationTokenRenewer version _fp _basePtr p e) p9 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p10 endPtr else pure p10
+  pure (DescribedDelegationToken { describedDelegationTokenPrincipalType = f0_principaltype, describedDelegationTokenPrincipalName = f1_principalname, describedDelegationTokenTokenRequesterPrincipalType = f2_tokenrequesterprincipaltype, describedDelegationTokenTokenRequesterPrincipalName = f3_tokenrequesterprincipalname, describedDelegationTokenIssueTimestamp = f4_issuetimestamp, describedDelegationTokenExpiryTimestamp = f5_expirytimestamp, describedDelegationTokenMaxTimestamp = f6_maxtimestamp, describedDelegationTokenTokenId = f7_tokenid, describedDelegationTokenHmac = f8_hmac, describedDelegationTokenRenewers = f9_renewers }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribedDelegationToken :: DescribedDelegationToken
+defaultDescribedDelegationToken = DescribedDelegationToken { describedDelegationTokenPrincipalType = P.KafkaString Null, describedDelegationTokenPrincipalName = P.KafkaString Null, describedDelegationTokenTokenRequesterPrincipalType = P.KafkaString Null, describedDelegationTokenTokenRequesterPrincipalName = P.KafkaString Null, describedDelegationTokenIssueTimestamp = 0, describedDelegationTokenExpiryTimestamp = 0, describedDelegationTokenMaxTimestamp = 0, describedDelegationTokenTokenId = P.KafkaString Null, describedDelegationTokenHmac = P.KafkaBytes Null, describedDelegationTokenRenewers = P.mkKafkaArray V.empty }
+
+-- | Worst-case wire size of a DescribeDelegationTokenResponse.
+wireMaxSizeDescribeDelegationTokenResponse :: Int -> DescribeDelegationTokenResponse -> Int
+wireMaxSizeDescribeDelegationTokenResponse _version msg =
+  0
+  + 2
+  + (5 + (case P.unKafkaArray (describeDelegationTokenResponseTokens msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribedDelegationToken _version x ) v); P.Null -> 0 }))
+  + 4
+  + 1
+
+-- | Direct-poke encoder for DescribeDelegationTokenResponse.
+wirePokeDescribeDelegationTokenResponse :: Int -> Ptr Word8 -> DescribeDelegationTokenResponse -> IO (Ptr Word8)
+wirePokeDescribeDelegationTokenResponse version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (describeDelegationTokenResponseErrorCode msg)
+    p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribedDelegationToken version p x) p1 (describeDelegationTokenResponseTokens msg)
+    p3 <- W.pokeInt32BE p2 (describeDelegationTokenResponseThrottleTimeMs msg)
+    pure p3
+  | version >= 2 && version <= 3 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (describeDelegationTokenResponseErrorCode msg)
+    p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribedDelegationToken version p x) p1 (describeDelegationTokenResponseTokens msg)
+    p3 <- W.pokeInt32BE p2 (describeDelegationTokenResponseThrottleTimeMs msg)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke DescribeDelegationTokenResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeDelegationTokenResponse.
+wirePeekDescribeDelegationTokenResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeDelegationTokenResponse, Ptr Word8)
+wirePeekDescribeDelegationTokenResponse version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_tokens, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribedDelegationToken version _fp _basePtr p e) p1 endPtr
+    (f2_throttletimems, p3) <- W.peekInt32BE p2 endPtr
+    pure (DescribeDelegationTokenResponse { describeDelegationTokenResponseErrorCode = f0_errorcode, describeDelegationTokenResponseTokens = f1_tokens, describeDelegationTokenResponseThrottleTimeMs = f2_throttletimems }, p3)
+  | version >= 2 && version <= 3 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_tokens, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribedDelegationToken version _fp _basePtr p e) p1 endPtr
+    (f2_throttletimems, p3) <- W.peekInt32BE p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (DescribeDelegationTokenResponse { describeDelegationTokenResponseErrorCode = f0_errorcode, describeDelegationTokenResponseTokens = f1_tokens, describeDelegationTokenResponseThrottleTimeMs = f2_throttletimems }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeDelegationTokenResponse : unsupported version: " ++ show version
 
 
-  | version >= 2 && version <= 3 =
-    do
-      serialize (describeDelegationTokenResponseErrorCode msg)
-      E.encodeVersionedArray version 2 encodeDescribedDelegationToken (case P.unKafkaArray (describeDelegationTokenResponseTokens msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (describeDelegationTokenResponseThrottleTimeMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeDelegationTokenResponse with the given API version.
-decodeDescribeDelegationTokenResponse :: MonadGet m => E.ApiVersion -> m DescribeDelegationTokenResponse
-decodeDescribeDelegationTokenResponse version
-  | version == 1 =
-    do
-      fielderrorcode <- deserialize
-      fieldtokens <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDescribedDelegationToken
-      fieldthrottletimems <- deserialize
-      pure DescribeDelegationTokenResponse
-        {
-        describeDelegationTokenResponseErrorCode = fielderrorcode
-        ,
-        describeDelegationTokenResponseTokens = fieldtokens
-        ,
-        describeDelegationTokenResponseThrottleTimeMs = fieldthrottletimems
-        }
-
-  | version >= 2 && version <= 3 =
-    do
-      fielderrorcode <- deserialize
-      fieldtokens <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDescribedDelegationToken
-      fieldthrottletimems <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeDelegationTokenResponse
-        {
-        describeDelegationTokenResponseErrorCode = fielderrorcode
-        ,
-        describeDelegationTokenResponseTokens = fieldtokens
-        ,
-        describeDelegationTokenResponseThrottleTimeMs = fieldthrottletimems
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec DescribeDelegationTokenResponse where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeDelegationTokenResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeDelegationTokenResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeDelegationTokenResponse (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

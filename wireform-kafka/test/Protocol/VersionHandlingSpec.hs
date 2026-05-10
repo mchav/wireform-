@@ -4,7 +4,6 @@
 module Protocol.VersionHandlingSpec (tests) where
 
 import qualified Data.ByteString as BS
-import Data.Bytes.Put (runPutS)
 import Data.Int (Int16)
 import Kafka.Protocol.Generated.MetadataRequest
 import Test.Tasty

@@ -4,8 +4,8 @@ module Client.MetadataSpec (tests) where
 
 import Control.Concurrent.STM
 import Data.Int
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
+import qualified Data.HashMap.Strict as Map
+import qualified Data.IntMap.Strict as IntMap
 import Data.Text (Text)
 import Control.Monad (replicateM)
 import Hedgehog
@@ -17,6 +17,7 @@ import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
 
 import Kafka.Client.Metadata
 import Kafka.Network.Connection (BrokerAddress(..))
+import qualified Kafka.Protocol.Primitives as P
 
 -- | Generate a broker metadata
 genBrokerMetadata :: Gen BrokerMetadata
@@ -43,24 +44,28 @@ genTopicMetadata = do
   name <- Gen.text (Range.linear 5 20) Gen.alphaNum
   numPartitions <- Gen.int (Range.linear 1 5)
   partitions <- replicateM numPartitions genPartitionMetadata
-  let partMap = Map.fromList $ map (\p -> (partitionMetaId p, p)) partitions
+  let partMap = IntMap.fromList
+        $ map (\p -> (fromIntegral (partitionMetaId p), p)) partitions
   errorCode <- Gen.int16 (Range.linear 0 10)
-  return $ TopicMetadata name partMap errorCode
+  isInternal <- Gen.bool
+  return $ TopicMetadata name partMap errorCode isInternal P.nullUuid
 
 -- | Generate cluster metadata
 genClusterMetadata :: Gen ClusterMetadata
 genClusterMetadata = do
   numBrokers <- Gen.int (Range.linear 1 5)
   brokers <- replicateM numBrokers genBrokerMetadata
-  let brokerMap = Map.fromList $ map (\b -> (brokerMetaNodeId b, b)) brokers
+  let brokerMap = IntMap.fromList
+        $ map (\b -> (fromIntegral (brokerMetaNodeId b), b)) brokers
   
   numTopics <- Gen.int (Range.linear 1 3)
   topics <- replicateM numTopics genTopicMetadata
   let topicMap = Map.fromList $ map (\t -> (topicMetaName t, t)) topics
   
   controllerId <- Gen.int32 (Range.linear 0 (fromIntegral numBrokers - 1))
-  
-  return $ ClusterMetadata brokerMap topicMap controllerId
+  -- KIP-78 cluster id; sometimes Nothing to exercise both paths.
+  cId <- Gen.maybe (Gen.text (Range.linear 8 16) Gen.alphaNum)
+  return $ ClusterMetadata brokerMap topicMap controllerId cId
 
 -- | Test creating an empty metadata cache
 unit_createMetadataCache :: Assertion

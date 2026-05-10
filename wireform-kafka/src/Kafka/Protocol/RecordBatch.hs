@@ -54,6 +54,14 @@ Individual records within a batch use a different format from the batch header.
 See 'Record' for details.
 
 -}
+-- | This module holds the on-the-wire data types + constants + the
+-- attribute bit packers. Encoders / decoders live in
+-- "Kafka.Protocol.RecordBatchWire" — see 'RBW.encodeRecordBatchWire'
+-- and 'RBW.decodeRecordBatchWireWithDecompression'.
+--
+-- Callers (Wire codec, tests, mock clusters) manipulate batches
+-- via the data types here without rebuilding the type
+-- system.
 module Kafka.Protocol.RecordBatch
   ( -- * RecordBatch Types
     RecordBatch(..)
@@ -67,14 +75,8 @@ module Kafka.Protocol.RecordBatch
   , Attributes(..)
   , mkAttributes
   , defaultAttributes
-    -- * Encoding/Decoding
-  , encodeRecordBatch
-  , decodeRecordBatch
-  , encodeRecordBatchWithCompression
-  , encodeRecordBatchWithCompressionLevel
-  , decodeRecordBatchWithDecompression
-  , encodeRecord
-  , decodeRecord
+  , encodeAttributes
+  , decodeAttributes
     -- * Constants
   , magicV2
   , noProducerId
@@ -87,22 +89,15 @@ module Kafka.Protocol.RecordBatch
   , recordBatchOverhead
   ) where
 
-import Control.Monad (replicateM)
 import Data.Bits ((.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Data.Bytes.Get (MonadGet, getByteString, runGetS)
-import Data.Bytes.Put (MonadPut, putByteString, runPutS)
-import Data.Bytes.Serial
 import Data.Int
 import Data.Word
 import GHC.Generics (Generic)
 import qualified Data.Vector as V
 
 import qualified Kafka.Compression.Types as Compression
-import qualified Kafka.Protocol.CRC32C as CRC
-import qualified Kafka.Protocol.Primitives as P
-
 -- | Magic byte value for RecordBatch v2 format.
 magicV2 :: Int8
 magicV2 = 2
@@ -332,471 +327,34 @@ mkSimpleBatch baseOffset baseTimestamp records =
 
 -- | Calculate CRC32C checksum using Castagnoli polynomial.
 -- 
--- This uses a fast C implementation with hardware acceleration (SSE4.2/AVX512)
--- when available, falling back to a software lookup table on unsupported
--- architectures.
---
--- The CRC32C polynomial is 0x1EDC6F41 (Castagnoli).
-crc32c :: ByteString -> Word32
-crc32c = CRC.crc32c
-
 -- -----------------------------------------------------------------------------
--- Record Encoding/Decoding
+-- Worst-case batch-size estimator
 -- -----------------------------------------------------------------------------
 
--- | Encode a record header.
-encodeRecordHeader :: MonadPut m => RecordHeader -> m ()
-encodeRecordHeader RecordHeader{..} = do
-  -- Key length and key
-  serialize (P.VarInt $ fromIntegral $ BS.length headerKey)
-  putByteString headerKey
-  -- Value length and value
-  case headerValue of
-    Nothing -> serialize (P.VarInt (-1))
-    Just v -> do
-      serialize (P.VarInt $ fromIntegral $ BS.length v)
-      putByteString v
-
--- | Decode a record header.
-decodeRecordHeader :: MonadGet m => m RecordHeader
-decodeRecordHeader = do
-  -- Key length and key
-  P.VarInt keyLen <- deserialize
-  headerKey <- getByteString (fromIntegral keyLen)
-  -- Value length and value
-  P.VarInt valueLen <- deserialize
-  headerValue <- if valueLen < 0
-                 then return Nothing
-                 else Just <$> getByteString (fromIntegral valueLen)
-  return RecordHeader{..}
-
--- | Encode a single record.
-encodeRecord :: MonadPut m => Record -> m ()
-encodeRecord Record{..} = do
-  -- First, encode the record body to calculate the length
-  let bodyBytes = runPutS $ do
-        -- Attributes (unused for now, always 0)
-        serialize (0 :: Int8)
-        -- Timestamp delta
-        serialize (P.VarLong recordTimestampDelta)
-        -- Offset delta
-        serialize (P.VarInt recordOffsetDelta)
-        -- Key
-        case recordKey of
-          Nothing -> serialize (P.VarInt (-1))
-          Just k -> do
-            serialize (P.VarInt $ fromIntegral $ BS.length k)
-            putByteString k
-        -- Value
-        serialize (P.VarInt $ fromIntegral $ BS.length recordValue)
-        putByteString recordValue
-        -- Headers
-        serialize (P.VarInt $ fromIntegral $ length recordHeaders)
-        mapM_ encodeRecordHeader recordHeaders
-  
-  -- Length of the record
-  serialize (P.VarInt $ fromIntegral $ BS.length bodyBytes)
-  -- Record body
-  putByteString bodyBytes
-
--- | Decode a single record.
-decodeRecord :: MonadGet m => m Record
-decodeRecord = do
-  -- Length (we don't use it for decoding, but it's in the format)
-  P.VarInt _length <- deserialize
-  -- Attributes (unused)
-  _attributes :: Int8 <- deserialize
-  -- Timestamp delta
-  P.VarLong recordTimestampDelta <- deserialize
-  -- Offset delta
-  P.VarInt recordOffsetDelta <- deserialize
-  -- Key
-  P.VarInt keyLen <- deserialize
-  recordKey <- if keyLen < 0
-               then return Nothing
-               else Just <$> getByteString (fromIntegral keyLen)
-  -- Value
-  P.VarInt valueLen <- deserialize
-  recordValue <- if valueLen < 0
-                 then return BS.empty  -- Treat null as empty for simplicity
-                 else getByteString (fromIntegral valueLen)
-  -- Headers
-  P.VarInt headersCount <- deserialize
-  recordHeaders <- replicateM (fromIntegral headersCount) decodeRecordHeader
-  
-  return Record{..}
-
--- -----------------------------------------------------------------------------
--- RecordBatch Encoding/Decoding
--- -----------------------------------------------------------------------------
-
--- | Encode a RecordBatch to bytes.
-encodeRecordBatch :: RecordBatch -> ByteString
-encodeRecordBatch RecordBatch{..} =
-  let
-    -- Encode the records
-    recordsBytes = runPutS $ V.mapM_ encodeRecord batchRecords
-    
-    -- Encode attributes
-    attributes = encodeAttributes batchAttributes
-    
-    -- Encode the batch body (everything after the CRC field)
-    bodyBytes = runPutS $ do
-      -- Attributes (2 bytes)
-      serialize attributes
-      -- Last offset delta (4 bytes)
-      serialize batchLastOffsetDelta
-      -- Base timestamp (8 bytes)
-      serialize batchBaseTimestamp
-      -- Max timestamp (8 bytes)
-      serialize batchMaxTimestamp
-      -- Producer ID (8 bytes)
-      serialize batchProducerId
-      -- Producer epoch (2 bytes)
-      serialize batchProducerEpoch
-      -- Base sequence (4 bytes)
-      serialize batchBaseSequence
-      -- Records count (4 bytes)
-      serialize (fromIntegral (V.length batchRecords) :: Int32)
-      -- Records
-      putByteString recordsBytes
-    
-    -- Calculate CRC32C over the body
-    crc = crc32c bodyBytes
-    
-    -- Calculate the length (everything after the Length field)
-    -- = partition leader epoch (4) + magic (1) + crc (4) + body
-    lengthValue = 4 + 1 + 4 + BS.length bodyBytes
-    
-    -- Encode the complete batch
-    batchBytes = runPutS $ do
-      -- Base offset (8 bytes)
-      serialize batchBaseOffset
-      -- Length (4 bytes)
-      serialize (fromIntegral lengthValue :: Int32)
-      -- Partition leader epoch (4 bytes)
-      serialize batchPartitionLeaderEpoch
-      -- Magic (1 byte)
-      serialize magicV2
-      -- CRC (4 bytes)
-      serialize crc
-      -- Body
-      putByteString bodyBytes
-  in
-    batchBytes
-
--- | Decode a RecordBatch from bytes.
-decodeRecordBatch :: ByteString -> Either String RecordBatch
-decodeRecordBatch bs = runGetS deserializeRecordBatch bs
-  where
-    deserializeRecordBatch :: MonadGet m => m RecordBatch
-    deserializeRecordBatch = do
-      -- Base offset (8 bytes)
-      baseOffset <- deserialize
-      -- Length (4 bytes)
-      lengthValue <- deserialize
-      -- Partition leader epoch (4 bytes)
-      leaderEpoch <- deserialize
-      -- Magic (1 byte)
-      magic <- deserialize
-      if (magic :: Int8) /= magicV2
-        then fail $ "Unsupported magic byte: " ++ show magic ++ " (expected " ++ show magicV2 ++ ")"
-        else do
-          -- CRC (4 bytes)
-          storedCrc <- deserialize
-          -- Read the body (for CRC verification)
-          let bodyLength = fromIntegral (lengthValue :: Int32) - 4 - 1 - 4  -- Subtract leader epoch, magic, and crc
-          bodyBytes <- getByteString bodyLength
-          
-          -- Verify CRC
-          let computedCrc = crc32c bodyBytes
-          if (storedCrc :: Word32) /= computedCrc
-            then fail $ "CRC mismatch: stored=" ++ show storedCrc ++ ", computed=" ++ show computedCrc
-            else do
-              -- Parse the body
-              case runGetS (parseBody baseOffset leaderEpoch) bodyBytes of
-                Left err -> fail err
-                Right result -> return result
-    
-    parseBody :: MonadGet m => Int64 -> Int32 -> m RecordBatch
-    parseBody baseOffset leaderEpoch = do
-      -- Attributes (2 bytes)
-      attributesValue <- deserialize
-      attrs <- case decodeAttributes (attributesValue :: Int16) of
-        Left err -> fail err
-        Right a -> return a
-      -- Last offset delta (4 bytes)
-      lastOffsetDelta <- deserialize
-      -- Base timestamp (8 bytes)
-      baseTimestamp <- deserialize
-      -- Max timestamp (8 bytes)
-      maxTimestamp <- deserialize
-      -- Producer ID (8 bytes)
-      producerId <- deserialize
-      -- Producer epoch (2 bytes)
-      producerEpoch <- deserialize
-      -- Base sequence (4 bytes)
-      baseSequence <- deserialize
-      -- Records count (4 bytes)
-      recordsCount <- deserialize
-      -- Records
-      recordsList <- replicateM (fromIntegral (recordsCount :: Int32)) decodeRecord
-      let records = V.fromList recordsList
-      
-      return RecordBatch
-        { batchBaseOffset = baseOffset
-        , batchPartitionLeaderEpoch = leaderEpoch
-        , batchAttributes = attrs
-        , batchLastOffsetDelta = lastOffsetDelta
-        , batchBaseTimestamp = baseTimestamp
-        , batchMaxTimestamp = maxTimestamp
-        , batchProducerId = producerId
-        , batchProducerEpoch = producerEpoch
-        , batchBaseSequence = baseSequence
-        , batchRecords = records
-        }
-
--- | Calculate the size of an encoded RecordBatch in bytes.
+-- | Worst-case upper bound on the wire size of a 'RecordBatch'.
+-- Sums the per-record overhead + payload bytes; uses the worst-
+-- case varint width (5 bytes for 'VarInt', 10 for 'VarLong') so
+-- the result is a permissive over-estimate (typically a handful
+-- of bytes per record). Used by buffer pre-sizing on the caller
+-- side, so an over-estimate is exactly the right call.
 calculateBatchSize :: RecordBatch -> Int
-calculateBatchSize batch = BS.length (encodeRecordBatch batch)
-
--- | Encode a RecordBatch with compression applied to the records section.
--- The compression codec is taken from the batch attributes.
--- If NoCompression is specified, this is equivalent to 'encodeRecordBatch'.
---
--- This function compresses the entire records section and updates the
--- batch length and CRC accordingly.
-encodeRecordBatchWithCompression :: RecordBatch -> IO (Either String ByteString)
-encodeRecordBatchWithCompression batch@RecordBatch{..} = do
-  let codec = attrCompressionType batchAttributes
-  
-  -- Encode the records
-  let recordsBytes = runPutS $ V.mapM_ encodeRecord batchRecords
-  
-  -- Compress the records if needed
-  compressedRecordsResult <- Compression.compress codec recordsBytes
-  
-  case compressedRecordsResult of
-    Left err -> return $ Left err
-    Right compressedRecords -> do
-      -- Encode attributes
-      let attributes = encodeAttributes batchAttributes
-      
-      -- Encode the batch body (everything after the CRC field)
-      let bodyBytes = runPutS $ do
-            -- Attributes (2 bytes)
-            serialize attributes
-            -- Last offset delta (4 bytes)
-            serialize batchLastOffsetDelta
-            -- Base timestamp (8 bytes)
-            serialize batchBaseTimestamp
-            -- Max timestamp (8 bytes)
-            serialize batchMaxTimestamp
-            -- Producer ID (8 bytes)
-            serialize batchProducerId
-            -- Producer epoch (2 bytes)
-            serialize batchProducerEpoch
-            -- Base sequence (4 bytes)
-            serialize batchBaseSequence
-            -- Records count (4 bytes)
-            serialize (fromIntegral (V.length batchRecords) :: Int32)
-            -- Compressed records
-            putByteString compressedRecords
-      
-      -- Calculate CRC32C over the body
-      let crc = crc32c bodyBytes
-      
-      -- Calculate the length (everything after the Length field)
-      -- = partition leader epoch (4) + magic (1) + crc (4) + body
-      let lengthValue = 4 + 1 + 4 + BS.length bodyBytes
-      
-      -- Encode the complete batch
-      let batchBytes = runPutS $ do
-            -- Base offset (8 bytes)
-            serialize batchBaseOffset
-            -- Length (4 bytes)
-            serialize (fromIntegral lengthValue :: Int32)
-            -- Partition leader epoch (4 bytes)
-            serialize batchPartitionLeaderEpoch
-            -- Magic (1 byte)
-            serialize magicV2
-            -- CRC (4 bytes)
-            serialize crc
-            -- Body
-            putByteString bodyBytes
-      
-      return $ Right batchBytes
-
--- | Encode a RecordBatch with compression applied to the records section at a specific level.
--- This is similar to 'encodeRecordBatchWithCompression' but allows specifying the
--- compression level (KIP-353/776/909).
---
--- The compression codec is taken from the batch attributes, and the compression level
--- parameter controls the speed/ratio tradeoff.
---
--- If NoCompression is specified, the level is ignored and this is equivalent to 'encodeRecordBatch'.
-encodeRecordBatchWithCompressionLevel :: RecordBatch -> Compression.CompressionLevel -> IO (Either String ByteString)
-encodeRecordBatchWithCompressionLevel batch@RecordBatch{..} level = do
-  let codec = attrCompressionType batchAttributes
-  
-  -- Encode the records
-  let recordsBytes = runPutS $ V.mapM_ encodeRecord batchRecords
-  
-  -- Compress the records with specified level if needed
-  compressedRecordsResult <- Compression.compressWithLevel codec level recordsBytes
-  
-  case compressedRecordsResult of
-    Left err -> return $ Left err
-    Right compressedRecords -> do
-      -- Encode attributes
-      let attributes = encodeAttributes batchAttributes
-      
-      -- Encode the batch body (everything after the CRC field)
-      let bodyBytes = runPutS $ do
-            -- Attributes (2 bytes)
-            serialize attributes
-            -- Last offset delta (4 bytes)
-            serialize batchLastOffsetDelta
-            -- Base timestamp (8 bytes)
-            serialize batchBaseTimestamp
-            -- Max timestamp (8 bytes)
-            serialize batchMaxTimestamp
-            -- Producer ID (8 bytes)
-            serialize batchProducerId
-            -- Producer epoch (2 bytes)
-            serialize batchProducerEpoch
-            -- Base sequence (4 bytes)
-            serialize batchBaseSequence
-            -- Records count (4 bytes)
-            serialize (fromIntegral (V.length batchRecords) :: Int32)
-            -- Compressed records
-            putByteString compressedRecords
-      
-      -- Calculate CRC32C over the body
-      let crc = crc32c bodyBytes
-      
-      -- Calculate the length (everything after the Length field)
-      -- = partition leader epoch (4) + magic (1) + crc (4) + body
-      let lengthValue = 4 + 1 + 4 + BS.length bodyBytes
-      
-      -- Encode the complete batch
-      let batchBytes = runPutS $ do
-            -- Base offset (8 bytes)
-            serialize batchBaseOffset
-            -- Length (4 bytes)
-            serialize (fromIntegral lengthValue :: Int32)
-            -- Partition leader epoch (4 bytes)
-            serialize batchPartitionLeaderEpoch
-            -- Magic (1 byte)
-            serialize magicV2
-            -- CRC (4 bytes)
-            serialize crc
-            -- Body
-            putByteString bodyBytes
-      
-      return $ Right batchBytes
-
--- | Decode a RecordBatch with automatic decompression.
--- This function reads the compression codec from the batch attributes
--- and automatically decompresses the records section if needed.
---
--- If NoCompression is specified in the attributes, this is equivalent
--- to 'decodeRecordBatch'.
-decodeRecordBatchWithDecompression :: ByteString -> IO (Either String RecordBatch)
-decodeRecordBatchWithDecompression bs = do
-  case runGetS deserializeRecordBatch bs of
-    Left err -> return $ Left err
-    Right (baseOffset, leaderEpoch, attrs, bodyBytes) -> do
-      -- Check if decompression is needed
-      let codec = attrCompressionType attrs
-      
-      -- Parse the metadata part of the body (everything before records)
-      -- Metadata is: attributes (2) + last offset delta (4) + base timestamp (8) +
-      -- max timestamp (8) + producer id (8) + producer epoch (2) + base sequence (4) + records count (4) = 40 bytes
-      let metadataSize = 40
-      let recordsBytes = BS.drop metadataSize bodyBytes
-      
-      case runGetS parseMetadata bodyBytes of
-        Left err -> return $ Left err
-        Right (lastOffsetDelta, baseTimestamp, maxTimestamp, producerId, producerEpoch, baseSequence, recordsCount) -> do
-          -- Decompress records if needed
-          decompressedResult <- Compression.decompress codec recordsBytes
-          
-          case decompressedResult of
-            Left err -> return $ Left $ "Decompression failed: " ++ err
-            Right decompressedRecords -> do
-              -- Parse the decompressed records
-              case runGetS (parseRecords recordsCount) decompressedRecords of
-                Left err -> return $ Left err
-                Right records -> return $ Right RecordBatch
-                  { batchBaseOffset = baseOffset
-                  , batchPartitionLeaderEpoch = leaderEpoch
-                  , batchAttributes = attrs
-                  , batchLastOffsetDelta = lastOffsetDelta
-                  , batchBaseTimestamp = baseTimestamp
-                  , batchMaxTimestamp = maxTimestamp
-                  , batchProducerId = producerId
-                  , batchProducerEpoch = producerEpoch
-                  , batchBaseSequence = baseSequence
-                  , batchRecords = V.fromList records
-                  }
+calculateBatchSize RecordBatch{..} =
+  let !recordsBytes = sum (fmap recordWireUpperBound batchRecords)
+  in recordBatchOverhead + recordsBytes
   where
-    deserializeRecordBatch :: MonadGet m => m (Int64, Int32, Attributes, ByteString)
-    deserializeRecordBatch = do
-      -- Base offset (8 bytes)
-      baseOffset <- deserialize
-      -- Length (4 bytes)
-      lengthValue <- deserialize
-      -- Partition leader epoch (4 bytes)
-      leaderEpoch <- deserialize
-      -- Magic (1 byte)
-      magic <- deserialize
-      if (magic :: Int8) /= magicV2
-        then fail $ "Unsupported magic byte: " ++ show magic ++ " (expected " ++ show magicV2 ++ ")"
-        else do
-          -- CRC (4 bytes)
-          storedCrc <- deserialize
-          -- Read the body (for CRC verification)
-          let bodyLength = fromIntegral (lengthValue :: Int32) - 4 - 1 - 4  -- Subtract leader epoch, magic, and crc
-          bodyBytes <- getByteString bodyLength
-          
-          -- Verify CRC
-          let computedCrc = crc32c bodyBytes
-          if (storedCrc :: Word32) /= computedCrc
-            then fail $ "CRC mismatch: stored=" ++ show storedCrc ++ ", computed=" ++ show computedCrc
-            else do
-              -- Parse attributes to get compression codec
-              case runGetS parseAttrs bodyBytes of
-                Left err -> fail err
-                Right attrs -> return (baseOffset, leaderEpoch, attrs, bodyBytes)
-    
-    parseAttrs :: MonadGet m => m Attributes
-    parseAttrs = do
-      attributesValue <- deserialize
-      case decodeAttributes (attributesValue :: Int16) of
-        Left err -> fail err
-        Right attrs -> return attrs
-    
-    parseMetadata :: MonadGet m => m (Int32, Int64, Int64, Int64, Int16, Int32, Int32)
-    parseMetadata = do
-      -- Attributes (2 bytes)
-      _ :: Int16 <- deserialize
-      -- Last offset delta (4 bytes)
-      lastOffsetDelta <- deserialize
-      -- Base timestamp (8 bytes)
-      baseTimestamp <- deserialize
-      -- Max timestamp (8 bytes)
-      maxTimestamp <- deserialize
-      -- Producer ID (8 bytes)
-      producerId <- deserialize
-      -- Producer epoch (2 bytes)
-      producerEpoch <- deserialize
-      -- Base sequence (4 bytes)
-      baseSequence <- deserialize
-      -- Records count (4 bytes)
-      recordsCount <- deserialize
-      return (lastOffsetDelta, baseTimestamp, maxTimestamp, producerId, producerEpoch, baseSequence, recordsCount)
-    
-    parseRecords :: MonadGet m => Int32 -> m [Record]
-    parseRecords count = replicateM (fromIntegral count) decodeRecord
-
+    recordWireUpperBound :: Record -> Int
+    recordWireUpperBound Record{..} =
+      let !keyLen   = maybe 0 BS.length recordKey
+          !valLen   = BS.length recordValue
+          !hdrBytes = sum
+            [ 5 + BS.length headerKey
+                + 5 + maybe 0 BS.length headerValue
+            | RecordHeader{..} <- recordHeaders
+            ]
+      in 5  -- outer length varint
+       + 1  -- record attributes byte
+       + 10 -- timestamp delta varint (worst case)
+       + 5  -- offset delta varint (worst case)
+       + 5 + keyLen
+       + 5 + valLen
+       + 5 + hdrBytes

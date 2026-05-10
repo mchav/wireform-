@@ -21,15 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.AddRaftVoterResponse
   (
     AddRaftVoterResponse(..),
-    encodeAddRaftVoterResponse,
-    decodeAddRaftVoterResponse,
     maxAddRaftVoterResponseVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -37,13 +31,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -75,32 +76,54 @@ data AddRaftVoterResponse = AddRaftVoterResponse
 maxAddRaftVoterResponseVersion :: Int16
 maxAddRaftVoterResponseVersion = 1
 
--- | Encode AddRaftVoterResponse with the given API version.
-encodeAddRaftVoterResponse :: MonadPut m => E.ApiVersion -> AddRaftVoterResponse -> m ()
-encodeAddRaftVoterResponse version msg
-  | version >= 0 && version <= 1 =
-    do
-      serialize (addRaftVoterResponseThrottleTimeMs msg)
-      serialize (addRaftVoterResponseErrorCode msg)
-      serialize (toCompactString (addRaftVoterResponseErrorMessage msg))
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
+-- | KafkaMessage instance for AddRaftVoterResponse.
+instance KafkaMessage AddRaftVoterResponse where
+  messageApiKey = 80
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 0
 
--- | Decode AddRaftVoterResponse with the given API version.
-decodeAddRaftVoterResponse :: MonadGet m => E.ApiVersion -> m AddRaftVoterResponse
-decodeAddRaftVoterResponse version
-  | version >= 0 && version <= 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure AddRaftVoterResponse
-        {
-        addRaftVoterResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        addRaftVoterResponseErrorCode = fielderrorcode
-        ,
-        addRaftVoterResponseErrorMessage = fielderrormessage
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+
+-- | Worst-case wire size of a AddRaftVoterResponse.
+wireMaxSizeAddRaftVoterResponse :: Int -> AddRaftVoterResponse -> Int
+wireMaxSizeAddRaftVoterResponse _version msg =
+  0
+  + 4
+  + 2
+  + WP.dualStringMaxSize (addRaftVoterResponseErrorMessage msg)
+  + 1
+
+-- | Direct-poke encoder for AddRaftVoterResponse.
+wirePokeAddRaftVoterResponse :: Int -> Ptr Word8 -> AddRaftVoterResponse -> IO (Ptr Word8)
+wirePokeAddRaftVoterResponse version basePtr msg
+  | version >= 0 && version <= 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (addRaftVoterResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (addRaftVoterResponseErrorCode msg)
+    p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (addRaftVoterResponseErrorMessage msg)) else WP.pokeKafkaString p2 (addRaftVoterResponseErrorMessage msg))
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke AddRaftVoterResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for AddRaftVoterResponse.
+wirePeekAddRaftVoterResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AddRaftVoterResponse, Ptr Word8)
+wirePeekAddRaftVoterResponse version _fp _basePtr p0 endPtr
+  | version >= 0 && version <= 1 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (AddRaftVoterResponse { addRaftVoterResponseThrottleTimeMs = f0_throttletimems, addRaftVoterResponseErrorCode = f1_errorcode, addRaftVoterResponseErrorMessage = f2_errormessage }, pTagsEnd)
+  | otherwise = error $ "wirePeek AddRaftVoterResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec AddRaftVoterResponse where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeAddRaftVoterResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeAddRaftVoterResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekAddRaftVoterResponse (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

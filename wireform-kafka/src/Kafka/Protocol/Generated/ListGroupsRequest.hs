@@ -21,15 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.ListGroupsRequest
   (
     ListGroupsRequest(..),
-    encodeListGroupsRequest,
-    decodeListGroupsRequest,
     maxListGroupsRequestVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -37,13 +31,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -69,72 +70,70 @@ data ListGroupsRequest = ListGroupsRequest
 maxListGroupsRequestVersion :: Int16
 maxListGroupsRequestVersion = 5
 
--- | Encode ListGroupsRequest with the given API version.
-encodeListGroupsRequest :: MonadPut m => E.ApiVersion -> ListGroupsRequest -> m ()
-encodeListGroupsRequest version msg
-  | version == 3 =
-    do
-      
-      serialize (emptyTaggedFields :: TaggedFields)
+-- | KafkaMessage instance for ListGroupsRequest.
+instance KafkaMessage ListGroupsRequest where
+  messageApiKey = 16
+  messageMinVersion = 0
+  messageMaxVersion = 5
+  messageFlexibleVersion = Just 3
 
-  | version == 4 =
-    do
-      E.encodeVersionedArray version 3 (\v s -> if v >= 3 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (listGroupsRequestStatesFilter msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
 
-  | version == 5 =
-    do
-      E.encodeVersionedArray version 3 (\v s -> if v >= 3 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (listGroupsRequestStatesFilter msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 3 (\v s -> if v >= 3 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (listGroupsRequestTypesFilter msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
+-- | Worst-case wire size of a ListGroupsRequest.
+wireMaxSizeListGroupsRequest :: Int -> ListGroupsRequest -> Int
+wireMaxSizeListGroupsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (listGroupsRequestStatesFilter msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (listGroupsRequestTypesFilter msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
+  + 1
 
-  | version >= 0 && version <= 2 =
-    pure ()
-  | otherwise = error $ "Unsupported version: " ++ show version
+-- | Direct-poke encoder for ListGroupsRequest.
+wirePokeListGroupsRequest :: Int -> Ptr Word8 -> ListGroupsRequest -> IO (Ptr Word8)
+wirePokeListGroupsRequest version basePtr msg
+  | version == 3 = do
+    p0 <- pure basePtr
+    WP.pokeEmptyTaggedFields p0
+  | version == 4 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 4 then WP.pokeVersionedArray version 3 (\p s -> if version >= 3 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (listGroupsRequestStatesFilter msg) else pure p0)
+    WP.pokeEmptyTaggedFields p1
+  | version == 5 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 4 then WP.pokeVersionedArray version 3 (\p s -> if version >= 3 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (listGroupsRequestStatesFilter msg) else pure p0)
+    p2 <- (if version >= 5 then WP.pokeVersionedArray version 3 (\p s -> if version >= 3 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p1 (listGroupsRequestTypesFilter msg) else pure p1)
+    WP.pokeEmptyTaggedFields p2
+  | version >= 0 && version <= 2 = do
+    p0 <- pure basePtr
+    pure p0
+  | otherwise = error $ "wirePoke ListGroupsRequest : unsupported version: " ++ show version
 
--- | Decode ListGroupsRequest with the given API version.
-decodeListGroupsRequest :: MonadGet m => E.ApiVersion -> m ListGroupsRequest
-decodeListGroupsRequest version
-  | version == 3 =
-    do
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ListGroupsRequest
-        {
-        listGroupsRequestStatesFilter = P.mkKafkaArray V.empty
-        ,
-        listGroupsRequestTypesFilter = P.mkKafkaArray V.empty
-        }
+-- | Direct-poke decoder for ListGroupsRequest.
+wirePeekListGroupsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListGroupsRequest, Ptr Word8)
+wirePeekListGroupsRequest version _fp _basePtr p0 endPtr
+  | version == 3 = do
+    pTagsEnd <- WP.peekAndSkipTaggedFields p0 endPtr
+    pure (ListGroupsRequest { listGroupsRequestStatesFilter = P.mkKafkaArray V.empty, listGroupsRequestTypesFilter = P.mkKafkaArray V.empty }, pTagsEnd)
+  | version == 4 = do
+    (f0_statesfilter, p1) <- (if version >= 4 then WP.peekVersionedArray version 3 (\p e -> if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr else pure (P.mkKafkaArray V.empty, p0))
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (ListGroupsRequest { listGroupsRequestStatesFilter = f0_statesfilter, listGroupsRequestTypesFilter = P.mkKafkaArray V.empty }, pTagsEnd)
+  | version == 5 = do
+    (f0_statesfilter, p1) <- (if version >= 4 then WP.peekVersionedArray version 3 (\p e -> if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr else pure (P.mkKafkaArray V.empty, p0))
+    (f1_typesfilter, p2) <- (if version >= 5 then WP.peekVersionedArray version 3 (\p e -> if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p1 endPtr else pure (P.mkKafkaArray V.empty, p1))
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (ListGroupsRequest { listGroupsRequestStatesFilter = f0_statesfilter, listGroupsRequestTypesFilter = f1_typesfilter }, pTagsEnd)
+  | version >= 0 && version <= 2 = do
+    pure (ListGroupsRequest { listGroupsRequestStatesFilter = P.mkKafkaArray V.empty, listGroupsRequestTypesFilter = P.mkKafkaArray V.empty }, p0)
+  | otherwise = error $ "wirePeek ListGroupsRequest : unsupported version: " ++ show version
 
-  | version == 4 =
-    do
-      fieldstatesfilter <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 (\v -> if v >= 3 then P.fromCompactString <$> deserialize else deserialize)
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ListGroupsRequest
-        {
-        listGroupsRequestStatesFilter = fieldstatesfilter
-        ,
-        listGroupsRequestTypesFilter = P.mkKafkaArray V.empty
-        }
 
-  | version == 5 =
-    do
-      fieldstatesfilter <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 (\v -> if v >= 3 then P.fromCompactString <$> deserialize else deserialize)
-      fieldtypesfilter <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 (\v -> if v >= 3 then P.fromCompactString <$> deserialize else deserialize)
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ListGroupsRequest
-        {
-        listGroupsRequestStatesFilter = fieldstatesfilter
-        ,
-        listGroupsRequestTypesFilter = fieldtypesfilter
-        }
-
-  | version >= 0 && version <= 2 =
-    do
-
-      pure ListGroupsRequest
-        {
-        listGroupsRequestStatesFilter = P.mkKafkaArray V.empty
-        ,
-        listGroupsRequestTypesFilter = P.mkKafkaArray V.empty
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec ListGroupsRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeListGroupsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeListGroupsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekListGroupsRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

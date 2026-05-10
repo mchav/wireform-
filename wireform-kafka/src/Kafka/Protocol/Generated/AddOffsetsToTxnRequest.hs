@@ -21,15 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.AddOffsetsToTxnRequest
   (
     AddOffsetsToTxnRequest(..),
-    encodeAddOffsetsToTxnRequest,
-    decodeAddOffsetsToTxnRequest,
     maxAddOffsetsToTxnRequestVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -37,13 +31,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -81,61 +82,70 @@ data AddOffsetsToTxnRequest = AddOffsetsToTxnRequest
 maxAddOffsetsToTxnRequestVersion :: Int16
 maxAddOffsetsToTxnRequestVersion = 4
 
--- | Encode AddOffsetsToTxnRequest with the given API version.
-encodeAddOffsetsToTxnRequest :: MonadPut m => E.ApiVersion -> AddOffsetsToTxnRequest -> m ()
-encodeAddOffsetsToTxnRequest version msg
-  | version >= 3 && version <= 4 =
-    do
-      serialize (toCompactString (addOffsetsToTxnRequestTransactionalId msg))
-      serialize (addOffsetsToTxnRequestProducerId msg)
-      serialize (addOffsetsToTxnRequestProducerEpoch msg)
-      serialize (toCompactString (addOffsetsToTxnRequestGroupId msg))
-      serialize (emptyTaggedFields :: TaggedFields)
+-- | KafkaMessage instance for AddOffsetsToTxnRequest.
+instance KafkaMessage AddOffsetsToTxnRequest where
+  messageApiKey = 25
+  messageMinVersion = 0
+  messageMaxVersion = 4
+  messageFlexibleVersion = Just 3
 
-  | version >= 0 && version <= 2 =
-    do
-      serialize (addOffsetsToTxnRequestTransactionalId msg)
-      serialize (addOffsetsToTxnRequestProducerId msg)
-      serialize (addOffsetsToTxnRequestProducerEpoch msg)
-      serialize (addOffsetsToTxnRequestGroupId msg)
 
-  | otherwise = error $ "Unsupported version: " ++ show version
+-- | Worst-case wire size of a AddOffsetsToTxnRequest.
+wireMaxSizeAddOffsetsToTxnRequest :: Int -> AddOffsetsToTxnRequest -> Int
+wireMaxSizeAddOffsetsToTxnRequest _version msg =
+  0
+  + WP.dualStringMaxSize (addOffsetsToTxnRequestTransactionalId msg)
+  + 8
+  + 2
+  + WP.dualStringMaxSize (addOffsetsToTxnRequestGroupId msg)
+  + 1
 
--- | Decode AddOffsetsToTxnRequest with the given API version.
-decodeAddOffsetsToTxnRequest :: MonadGet m => E.ApiVersion -> m AddOffsetsToTxnRequest
-decodeAddOffsetsToTxnRequest version
-  | version >= 3 && version <= 4 =
-    do
-      fieldtransactionalid <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      fieldproducerid <- deserialize
-      fieldproducerepoch <- deserialize
-      fieldgroupid <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure AddOffsetsToTxnRequest
-        {
-        addOffsetsToTxnRequestTransactionalId = fieldtransactionalid
-        ,
-        addOffsetsToTxnRequestProducerId = fieldproducerid
-        ,
-        addOffsetsToTxnRequestProducerEpoch = fieldproducerepoch
-        ,
-        addOffsetsToTxnRequestGroupId = fieldgroupid
-        }
+-- | Direct-poke encoder for AddOffsetsToTxnRequest.
+wirePokeAddOffsetsToTxnRequest :: Int -> Ptr Word8 -> AddOffsetsToTxnRequest -> IO (Ptr Word8)
+wirePokeAddOffsetsToTxnRequest version basePtr msg
+  | version >= 3 && version <= 4 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (addOffsetsToTxnRequestTransactionalId msg)) else WP.pokeKafkaString p0 (addOffsetsToTxnRequestTransactionalId msg))
+    p2 <- W.pokeInt64BE p1 (addOffsetsToTxnRequestProducerId msg)
+    p3 <- W.pokeInt16BE p2 (addOffsetsToTxnRequestProducerEpoch msg)
+    p4 <- (if version >= 3 then WP.pokeCompactString p3 (P.toCompactString (addOffsetsToTxnRequestGroupId msg)) else WP.pokeKafkaString p3 (addOffsetsToTxnRequestGroupId msg))
+    WP.pokeEmptyTaggedFields p4
+  | version >= 0 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (addOffsetsToTxnRequestTransactionalId msg)) else WP.pokeKafkaString p0 (addOffsetsToTxnRequestTransactionalId msg))
+    p2 <- W.pokeInt64BE p1 (addOffsetsToTxnRequestProducerId msg)
+    p3 <- W.pokeInt16BE p2 (addOffsetsToTxnRequestProducerEpoch msg)
+    p4 <- (if version >= 3 then WP.pokeCompactString p3 (P.toCompactString (addOffsetsToTxnRequestGroupId msg)) else WP.pokeKafkaString p3 (addOffsetsToTxnRequestGroupId msg))
+    pure p4
+  | otherwise = error $ "wirePoke AddOffsetsToTxnRequest : unsupported version: " ++ show version
 
-  | version >= 0 && version <= 2 =
-    do
-      fieldtransactionalid <- deserialize
-      fieldproducerid <- deserialize
-      fieldproducerepoch <- deserialize
-      fieldgroupid <- deserialize
-      pure AddOffsetsToTxnRequest
-        {
-        addOffsetsToTxnRequestTransactionalId = fieldtransactionalid
-        ,
-        addOffsetsToTxnRequestProducerId = fieldproducerid
-        ,
-        addOffsetsToTxnRequestProducerEpoch = fieldproducerepoch
-        ,
-        addOffsetsToTxnRequestGroupId = fieldgroupid
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Direct-poke decoder for AddOffsetsToTxnRequest.
+wirePeekAddOffsetsToTxnRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AddOffsetsToTxnRequest, Ptr Word8)
+wirePeekAddOffsetsToTxnRequest version _fp _basePtr p0 endPtr
+  | version >= 3 && version <= 4 = do
+    (f0_transactionalid, p1) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_producerid, p2) <- W.peekInt64BE p1 endPtr
+    (f2_producerepoch, p3) <- W.peekInt16BE p2 endPtr
+    (f3_groupid, p4) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (AddOffsetsToTxnRequest { addOffsetsToTxnRequestTransactionalId = f0_transactionalid, addOffsetsToTxnRequestProducerId = f1_producerid, addOffsetsToTxnRequestProducerEpoch = f2_producerepoch, addOffsetsToTxnRequestGroupId = f3_groupid }, pTagsEnd)
+  | version >= 0 && version <= 2 = do
+    (f0_transactionalid, p1) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_producerid, p2) <- W.peekInt64BE p1 endPtr
+    (f2_producerepoch, p3) <- W.peekInt16BE p2 endPtr
+    (f3_groupid, p4) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+    pure (AddOffsetsToTxnRequest { addOffsetsToTxnRequestTransactionalId = f0_transactionalid, addOffsetsToTxnRequestProducerId = f1_producerid, addOffsetsToTxnRequestProducerEpoch = f2_producerepoch, addOffsetsToTxnRequestGroupId = f3_groupid }, p4)
+  | otherwise = error $ "wirePeek AddOffsetsToTxnRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec AddOffsetsToTxnRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeAddOffsetsToTxnRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeAddOffsetsToTxnRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekAddOffsetsToTxnRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

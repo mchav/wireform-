@@ -23,7 +23,10 @@ import qualified System.Exit as Exit
 import qualified System.IO as IO
 
 import Test.Tasty
+import qualified Integration.AdminClientExtendedSpec
 import qualified Integration.BasicSpec
+import qualified Integration.ConsumerOffsetsSpec
+import qualified Integration.TransactionalSpec
 
 main :: IO ()
 main = do
@@ -39,4 +42,7 @@ main = do
 tests :: TestTree
 tests = testGroup "Kafka Integration Tests"
   [ Integration.BasicSpec.tests
+  , Integration.ConsumerOffsetsSpec.tests
+  , Integration.AdminClientExtendedSpec.tests
+  , Integration.TransactionalSpec.tests
   ]

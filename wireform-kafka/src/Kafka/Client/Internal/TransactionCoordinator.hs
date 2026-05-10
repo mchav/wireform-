@@ -1,6 +1,7 @@
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module: Kafka.Client.Internal.TransactionCoordinator
@@ -30,21 +31,16 @@ module Kafka.Client.Internal.TransactionCoordinator
 
 import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
 import Control.Exception (Exception)
-import Data.ByteString (ByteString)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
-import Data.Int (Int8, Int16, Int32, Int64)
-import Data.Map.Strict (Map)
+import Data.Int (Int16, Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
-import Kafka.Protocol.ApiVersions (ApiVersionCache)
 import qualified Kafka.Protocol.ApiVersions as AV
 import Kafka.Client.Consumer (TopicPartition(..))
 import qualified Kafka.Client.Internal.Request as Req
-import Kafka.Network.Connection (BrokerAddress(..), Connection)
+import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.Primitives as P
 
@@ -61,6 +57,7 @@ import qualified Kafka.Protocol.Generated.AddOffsetsToTxnRequest as AOTReq
 import qualified Kafka.Protocol.Generated.AddOffsetsToTxnResponse as AOTResp
 import qualified Kafka.Protocol.Generated.TxnOffsetCommitRequest as TOCReq
 import qualified Kafka.Protocol.Generated.TxnOffsetCommitResponse as TOCResp
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Transaction coordinator information
 data TransactionCoordinator = TransactionCoordinator
@@ -86,19 +83,48 @@ data TransactionCoordinatorError
 
 instance Exception TransactionCoordinatorError
 
--- | Interpret Kafka error codes into TransactionCoordinatorError
+-- | Interpret Kafka error codes into TransactionCoordinatorError.
+--
+-- Mapping cross-checked against
+-- @clients/src/main/java/org/apache/kafka/common/protocol/Errors.java@
+-- (Kafka 3.7.0). The codes the wire actually uses for the
+-- transactional path:
+--
+--   * 14 COORDINATOR_LOAD_IN_PROGRESS
+--   * 15 COORDINATOR_NOT_AVAILABLE
+--   * 16 NOT_COORDINATOR
+--   * 47 INVALID_PRODUCER_EPOCH
+--   * 48 INVALID_TXN_STATE
+--   * 49 INVALID_PRODUCER_ID_MAPPING
+--   * 50 INVALID_TRANSACTION_TIMEOUT
+--   * 51 CONCURRENT_TRANSACTIONS
+--   * 52 TRANSACTION_COORDINATOR_FENCED
+--   * 53 TRANSACTIONAL_ID_AUTHORIZATION_FAILED (no dedicated
+--        constructor — surfaced through 'UnknownCoordinatorError'
+--        with the code so callers can react)
+--   * 59 UNKNOWN_PRODUCER_ID
+--   * 90 PRODUCER_FENCED
+--
+-- The previous mapping used codes from a much older protocol
+-- spec (51 -> INVALID_PRODUCER_EPOCH, 96 -> CONCURRENT_TRANSACTIONS,
+-- etc.) which no Kafka 0.11+ broker ever sends. That meant /every/
+-- transactional error was opaque ('UnknownCoordinatorError') and
+-- the retry-on-mid-transition logic in 'Transaction.initTransactions'
+-- silently never fired. Fixing the mapping is what makes
+-- @TRANSACTION_COORDINATOR_FENCED@ / @CONCURRENT_TRANSACTIONS@
+-- actually take their retry / fence paths.
 interpretCoordinatorError :: Int16 -> TransactionCoordinatorError
 interpretCoordinatorError code = case code of
-  15 -> CoordinatorNotAvailable "Coordinator not available"
   14 -> CoordinatorLoadInProgress "Coordinator load in progress"
+  15 -> CoordinatorNotAvailable "Coordinator not available"
   16 -> NotCoordinator "Not coordinator for this resource"
-  47 -> InvalidProducerIdMapping "Invalid producer ID mapping"
-  51 -> InvalidProducerEpoch "Invalid producer epoch"
-  24 -> InvalidTxnState "Invalid transaction state"
-  48 -> InvalidPartitionsInTxn "Invalid partitions in transaction"
-  32 -> TransactionCoordinatorFenced "Transaction coordinator fenced"
+  47 -> InvalidProducerEpoch "Invalid producer epoch"
+  48 -> InvalidTxnState "Invalid transaction state"
+  49 -> InvalidProducerIdMapping "Invalid producer ID mapping"
+  50 -> InvalidPartitionsInTxn "Invalid transaction timeout"
+  51 -> ConcurrentTransactions "Concurrent transactions"
+  52 -> TransactionCoordinatorFenced "Transaction coordinator fenced"
   90 -> ProducerFenced "Producer fenced by another instance"
-  96 -> ConcurrentTransactions "Concurrent transactions"
   _  -> UnknownCoordinatorError code $ "Unknown error code: " <> T.pack (show code)
 
 -- | Find the transaction coordinator for a given transactional ID
@@ -126,51 +152,77 @@ findTransactionCoordinator connMgr versionCache corrIdVar bootstrapBroker client
         return cid
       
       let apiKey = 10  -- FindCoordinator API key
-          clientMaxVersion = 3  -- We support up to v3
-      
-      -- Version negotiation
+          -- v6 = trunk; we handle both legacy v0-v3 and v4+
+          -- (KIP-699 batched Coordinators[]) shapes below.
+          clientMaxVersion = 6
+
       brokerVersionM <- atomically $ AV.queryApiVersion versionCache bootstrapBroker apiKey
       let apiVersion = case brokerVersionM of
             Nothing -> 1  -- Default to v1 (has keyType field)
             Just range -> case AV.selectVersion clientMaxVersion range of
               Nothing -> 1
-              Just v -> v
-      
-      -- Build FindCoordinatorRequest
-      let request = FCReq.FindCoordinatorRequest
-            { FCReq.findCoordinatorRequestKey = P.mkKafkaString transactionalId
-            , FCReq.findCoordinatorRequestKeyType = 1  -- TRANSACTION type
-            , FCReq.findCoordinatorRequestCoordinatorKeys = P.KafkaArray (P.NotNull V.empty)
-            }
-          
-          requestBody = runPutS $ FCReq.encodeFindCoordinatorRequest apiVersion request
+              Just v  -> v
+
+          request
+            | apiVersion >= 4 = FCReq.FindCoordinatorRequest
+                { FCReq.findCoordinatorRequestKey             = P.KafkaString P.Null
+                , FCReq.findCoordinatorRequestKeyType         = 1  -- TRANSACTION
+                , FCReq.findCoordinatorRequestCoordinatorKeys =
+                    P.mkKafkaArray (V.singleton (P.mkKafkaString transactionalId))
+                }
+            | otherwise = FCReq.FindCoordinatorRequest
+                { FCReq.findCoordinatorRequestKey             = P.mkKafkaString transactionalId
+                , FCReq.findCoordinatorRequestKeyType         = 1
+                , FCReq.findCoordinatorRequestCoordinatorKeys = P.mkKafkaArray V.empty
+                }
+
+          requestBody   = WC.runEncodeVer @FCReq.FindCoordinatorRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
-      
-      -- Send request and receive response
+
       result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-      
+
       case result of
-        Left err -> return $ Left $ CoordinatorNotAvailable $ 
+        Left err -> return $ Left $ CoordinatorNotAvailable $
           "FindCoordinator request failed: " <> T.pack err
-        
+
         Right (_corrId, responseBody) -> do
-          -- Parse response
-          case runGetS (FCResp.decodeFindCoordinatorResponse apiVersion) responseBody of
+          case WC.runDecodeVer @FCResp.FindCoordinatorResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse FindCoordinatorResponse: " <> T.pack err
-            
+
             Right response -> do
-              let errorCode = FCResp.findCoordinatorResponseErrorCode response
-              
+              -- v0-v3 carries the result on top-level fields;
+              -- v4+ moves it into the first entry of
+              -- Coordinators[]. KIP-699 also sinks the per-result
+              -- error code into the array entry, so we read it
+              -- from there too on v4+.
+              let (errorCode, nodeId, host, port)
+                    | apiVersion >= 4 =
+                        case P.unKafkaArray (FCResp.findCoordinatorResponseCoordinators response) of
+                          P.NotNull v | not (V.null v) ->
+                            let !c = V.head v
+                                h  = case P.unKafkaString (FCResp.coordinatorHost c) of
+                                       P.NotNull t -> t
+                                       P.Null      -> T.empty
+                            in ( FCResp.coordinatorErrorCode c
+                               , FCResp.coordinatorNodeId    c
+                               , h
+                               , FCResp.coordinatorPort      c
+                               )
+                          _ -> (15, 0, T.empty, 0)  -- 15 = COORDINATOR_NOT_AVAILABLE
+                    | otherwise =
+                        let h = case P.unKafkaString (FCResp.findCoordinatorResponseHost response) of
+                                  P.NotNull t -> t
+                                  P.Null      -> T.empty
+                        in ( FCResp.findCoordinatorResponseErrorCode response
+                           , FCResp.findCoordinatorResponseNodeId    response
+                           , h
+                           , FCResp.findCoordinatorResponsePort      response
+                           )
+
               if errorCode /= 0
                 then return $ Left $ interpretCoordinatorError errorCode
-                else do
-                  let nodeId = FCResp.findCoordinatorResponseNodeId response
-                      host = case P.unKafkaString $ FCResp.findCoordinatorResponseHost response of
-                        P.NotNull h -> h
-                        P.Null -> ""  -- Should not happen for successful response
-                      port = FCResp.findCoordinatorResponsePort response
-                  
+                else
                   return $ Right $ TransactionCoordinator
                     { tcNodeId = nodeId
                     , tcHost = host
@@ -208,7 +260,10 @@ initProducerId connMgr versionCache corrIdVar clientId coordinator transactional
         return cid
       
       let apiKey = 22  -- InitProducerId API key
-          clientMaxVersion = 3  -- We support up to v3
+          -- v6 = trunk; we set Enable2Pc=False / KeepPreparedTxn=False
+          -- on the request below, which is the existing-behaviour-
+          -- compatible (KIP-939 opt-in is False).
+          clientMaxVersion = 6
       
       -- Version negotiation
       brokerVersionM <- atomically $ AV.queryApiVersion versionCache coordAddr apiKey
@@ -231,7 +286,7 @@ initProducerId connMgr versionCache corrIdVar clientId coordinator transactional
             , IPReq.initProducerIdRequestKeepPreparedTxn = False  -- v6+ only
             }
           
-          requestBody = runPutS $ IPReq.encodeInitProducerIdRequest apiVersion request
+          requestBody = WC.runEncodeVer @IPReq.InitProducerIdRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
       
       -- Send request and receive response
@@ -243,7 +298,7 @@ initProducerId connMgr versionCache corrIdVar clientId coordinator transactional
         
         Right (_corrId, responseBody) -> do
           -- Parse response
-          case runGetS (IPResp.decodeInitProducerIdResponse apiVersion) responseBody of
+          case WC.runDecodeVer @IPResp.InitProducerIdResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse InitProducerIdResponse: " <> T.pack err
             
@@ -299,7 +354,13 @@ addPartitionsToTxn connMgr versionCache corrIdVar clientId coordinator transacti
         return cid
       
       let apiKey = 24
-          clientMaxVersion = 3  -- Use v3 (flexible but simpler than v4+)
+          -- Hold at v3. The schema's own header note —
+          -- @Versions 3 and below will be exclusively used by
+          -- clients and versions 4 and above will be used by
+          -- brokers@ — makes v4 (KIP-704 batched cross-txn
+          -- shape) inter-broker-only; clients should stay at v3
+          -- regardless of how high the broker advertises.
+          clientMaxVersion = 3
       
       brokerVersionM <- atomically $ AV.queryApiVersion versionCache coordAddr apiKey
       let apiVersion = case brokerVersionM of
@@ -316,7 +377,7 @@ addPartitionsToTxn connMgr versionCache corrIdVar clientId coordinator transacti
             , APTReq.addPartitionsToTxnRequestV3AndBelowTopics = P.mkKafkaArray topics
             }
           
-          requestBody = runPutS $ APTReq.encodeAddPartitionsToTxnRequest apiVersion request
+          requestBody = WC.runEncodeVer @APTReq.AddPartitionsToTxnRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
       
       result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
@@ -326,7 +387,7 @@ addPartitionsToTxn connMgr versionCache corrIdVar clientId coordinator transacti
           "AddPartitionsToTxn request failed: " <> T.pack err
         
         Right (_corrId, responseBody) -> do
-          case runGetS (APTResp.decodeAddPartitionsToTxnResponse apiVersion) responseBody of
+          case WC.runDecodeVer @APTResp.AddPartitionsToTxnResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse AddPartitionsToTxnResponse: " <> T.pack err
             
@@ -384,7 +445,11 @@ endTransaction connMgr versionCache corrIdVar clientId coordinator transactional
         return cid
       
       let apiKey = 26  -- EndTxn API key
-          clientMaxVersion = 3
+          -- v5 = trunk; the request fields are unchanged from
+          -- v3 (v4 added a new error code, v5 added KIP-890
+          -- Part 2 epoch-bumping which is broker-side
+          -- behaviour).
+          clientMaxVersion = 5
       
       brokerVersionM <- atomically $ AV.queryApiVersion versionCache coordAddr apiKey
       let apiVersion = case brokerVersionM of
@@ -400,7 +465,7 @@ endTransaction connMgr versionCache corrIdVar clientId coordinator transactional
             , ETReq.endTxnRequestCommitted = committed
             }
           
-          requestBody = runPutS $ ETReq.encodeEndTxnRequest apiVersion request
+          requestBody = WC.runEncodeVer @ETReq.EndTxnRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
       
       result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
@@ -410,7 +475,7 @@ endTransaction connMgr versionCache corrIdVar clientId coordinator transactional
           "EndTxn request failed: " <> T.pack err
         
         Right (_corrId, responseBody) -> do
-          case runGetS (ETResp.decodeEndTxnResponse apiVersion) responseBody of
+          case WC.runDecodeVer @ETResp.EndTxnResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse EndTxnResponse: " <> T.pack err
             
@@ -461,7 +526,7 @@ addOffsetsToTxn connMgr versionCache corrIdVar clientId coordinator transactiona
               Just v  -> v
 
           request = buildAddOffsetsToTxnRequest transactionalId producerId epoch groupId
-          requestBody  = runPutS $ AOTReq.encodeAddOffsetsToTxnRequest apiVersion request
+          requestBody  = WC.runEncodeVer @AOTReq.AddOffsetsToTxnRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
 
       result <- Req.sendRequestReceiveResponse
@@ -470,7 +535,7 @@ addOffsetsToTxn connMgr versionCache corrIdVar clientId coordinator transactiona
         Left err -> return $ Left $ CoordinatorNotAvailable $
           "AddOffsetsToTxn request failed: " <> T.pack err
         Right (_, responseBody) ->
-          case runGetS (AOTResp.decodeAddOffsetsToTxnResponse apiVersion) responseBody of
+          case WC.runDecodeVer @AOTResp.AddOffsetsToTxnResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse AddOffsetsToTxnResponse: " <> T.pack err
             Right response -> do
@@ -540,7 +605,13 @@ txnOffsetCommitWith connMgr versionCache corrIdVar clientId groupCoordinator gro
         writeTVar corrIdVar (cid + 1)
         return cid
       let apiKey = 28  -- TxnOffsetCommit API key
-          clientMaxVersion = 3
+          -- v5 = highest version that still uses topic /names/.
+          -- v6 (KIP-1319) drops the name field in favour of
+          -- topic IDs only; we'd need to plumb the metadata-
+          -- cache UUID lookup into this codepath before bumping
+          -- past v5. v4-v5 are pure error-code additions
+          -- (TRANSACTION_ABORTABLE) — no shape change.
+          clientMaxVersion = 5
       brokerVersionM <- atomically $
         AV.queryApiVersion versionCache groupCoordinator apiKey
       let apiVersion = case brokerVersionM of
@@ -550,7 +621,7 @@ txnOffsetCommitWith connMgr versionCache corrIdVar clientId groupCoordinator gro
               Just v  -> v
 
       let request = buildTxnOffsetCommitRequest groupId producerId epoch offsets
-          requestBody  = runPutS $ TOCReq.encodeTxnOffsetCommitRequest apiVersion request
+          requestBody  = WC.runEncodeVer @TOCReq.TxnOffsetCommitRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
       result <- Req.sendRequestReceiveResponse
                   conn apiKey apiVersion corrId clientIdKafka requestBody
@@ -558,7 +629,7 @@ txnOffsetCommitWith connMgr versionCache corrIdVar clientId groupCoordinator gro
         Left err -> return $ Left $ CoordinatorNotAvailable $
           "TxnOffsetCommit request failed: " <> T.pack err
         Right (_, responseBody) ->
-          case runGetS (TOCResp.decodeTxnOffsetCommitResponse apiVersion) responseBody of
+          case WC.runDecodeVer @TOCResp.TxnOffsetCommitResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse TxnOffsetCommitResponse: " <> T.pack err
             Right response -> do
@@ -640,7 +711,10 @@ buildTxnOffsetCommitRequest groupId producerId epoch offsets =
         ]
       !topicVec = V.fromList
         [ TOCReq.TxnOffsetCommitRequestTopic
-            { TOCReq.txnOffsetCommitRequestTopicName = P.mkKafkaString topic
+            { TOCReq.txnOffsetCommitRequestTopicName    = P.mkKafkaString topic
+            , -- KIP-848 (v6+): topic id; nullUuid is the
+              -- "I don't know the topic id" sentinel.
+              TOCReq.txnOffsetCommitRequestTopicTopicId = P.nullUuid
             , TOCReq.txnOffsetCommitRequestTopicPartitions = P.mkKafkaArray $ V.fromList
                 [ TOCReq.TxnOffsetCommitRequestPartition
                     { TOCReq.txnOffsetCommitRequestPartitionPartitionIndex   = pid
@@ -658,7 +732,9 @@ buildTxnOffsetCommitRequest groupId producerId epoch offsets =
         , TOCReq.txnOffsetCommitRequestGroupId         = P.mkKafkaString groupId
         , TOCReq.txnOffsetCommitRequestProducerId      = producerId
         , TOCReq.txnOffsetCommitRequestProducerEpoch   = epoch
-        , TOCReq.txnOffsetCommitRequestGenerationId    = -1
+        , -- KIP-848 renamed this from GenerationId to
+          -- GenerationIdOrMemberEpoch. -1 still means "no generation".
+          TOCReq.txnOffsetCommitRequestGenerationIdOrMemberEpoch = -1
         , TOCReq.txnOffsetCommitRequestMemberId        = P.KafkaString P.Null
         , TOCReq.txnOffsetCommitRequestGroupInstanceId = P.KafkaString P.Null
         , TOCReq.txnOffsetCommitRequestTopics          = P.mkKafkaArray topicVec

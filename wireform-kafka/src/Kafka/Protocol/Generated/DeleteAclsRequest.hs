@@ -22,15 +22,9 @@ module Kafka.Protocol.Generated.DeleteAclsRequest
   (
     DeleteAclsRequest(..),
     DeleteAclsFilter(..),
-    encodeDeleteAclsRequest,
-    decodeDeleteAclsRequest,
     maxDeleteAclsRequestVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -38,13 +32,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The filters to use when deleting ACLs.
@@ -96,54 +97,6 @@ data DeleteAclsFilter = DeleteAclsFilter
   deriving (Eq, Show, Generic)
 
 
--- | Encode DeleteAclsFilter with version-aware field handling.
-encodeDeleteAclsFilter :: MonadPut m => E.ApiVersion -> DeleteAclsFilter -> m ()
-encodeDeleteAclsFilter version dmsg =
-  do
-    serialize (deleteAclsFilterResourceTypeFilter dmsg)
-    if version >= 2 then serialize (toCompactString (deleteAclsFilterResourceNameFilter dmsg)) else serialize (deleteAclsFilterResourceNameFilter dmsg)
-    when (version >= 1) $
-      serialize (deleteAclsFilterPatternTypeFilter dmsg)
-    if version >= 2 then serialize (toCompactString (deleteAclsFilterPrincipalFilter dmsg)) else serialize (deleteAclsFilterPrincipalFilter dmsg)
-    if version >= 2 then serialize (toCompactString (deleteAclsFilterHostFilter dmsg)) else serialize (deleteAclsFilterHostFilter dmsg)
-    serialize (deleteAclsFilterOperation dmsg)
-    serialize (deleteAclsFilterPermissionType dmsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DeleteAclsFilter with version-aware field handling.
-decodeDeleteAclsFilter :: MonadGet m => E.ApiVersion -> m DeleteAclsFilter
-decodeDeleteAclsFilter version =
-  do
-    fieldresourcetypefilter <- deserialize
-    fieldresourcenamefilter <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldpatterntypefilter <- if version >= 1
-      then deserialize
-      else pure (3)
-    fieldprincipalfilter <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldhostfilter <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldoperation <- deserialize
-    fieldpermissiontype <- deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DeleteAclsFilter
-      {
-      deleteAclsFilterResourceTypeFilter = fieldresourcetypefilter
-      ,
-      deleteAclsFilterResourceNameFilter = fieldresourcenamefilter
-      ,
-      deleteAclsFilterPatternTypeFilter = fieldpatterntypefilter
-      ,
-      deleteAclsFilterPrincipalFilter = fieldprincipalfilter
-      ,
-      deleteAclsFilterHostFilter = fieldhostfilter
-      ,
-      deleteAclsFilterOperation = fieldoperation
-      ,
-      deleteAclsFilterPermissionType = fieldpermissiontype
-      }
-
-
-
 data DeleteAclsRequest = DeleteAclsRequest
   {
 
@@ -159,37 +112,98 @@ data DeleteAclsRequest = DeleteAclsRequest
 maxDeleteAclsRequestVersion :: Int16
 maxDeleteAclsRequestVersion = 3
 
--- | Encode DeleteAclsRequest with the given API version.
-encodeDeleteAclsRequest :: MonadPut m => E.ApiVersion -> DeleteAclsRequest -> m ()
-encodeDeleteAclsRequest version msg
-  | version == 1 =
-    do
-      E.encodeVersionedArray version 2 encodeDeleteAclsFilter (case P.unKafkaArray (deleteAclsRequestFilters msg) of { P.NotNull v -> v; P.Null -> V.empty })
+-- | KafkaMessage instance for DeleteAclsRequest.
+instance KafkaMessage DeleteAclsRequest where
+  messageApiKey = 31
+  messageMinVersion = 1
+  messageMaxVersion = 3
+  messageFlexibleVersion = Just 2
+
+-- | Worst-case wire size of a DeleteAclsFilter.
+wireMaxSizeDeleteAclsFilter :: Int -> DeleteAclsFilter -> Int
+wireMaxSizeDeleteAclsFilter _version msg =
+  0
+  + 1
+  + WP.dualStringMaxSize (deleteAclsFilterResourceNameFilter msg)
+  + 1
+  + WP.dualStringMaxSize (deleteAclsFilterPrincipalFilter msg)
+  + WP.dualStringMaxSize (deleteAclsFilterHostFilter msg)
+  + 1
+  + 1
+  + 1
+
+-- | Direct-poke encoder for DeleteAclsFilter.
+wirePokeDeleteAclsFilter :: Int -> Ptr Word8 -> DeleteAclsFilter -> IO (Ptr Word8)
+wirePokeDeleteAclsFilter version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeWord8 p0 (fromIntegral (deleteAclsFilterResourceTypeFilter msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (deleteAclsFilterResourceNameFilter msg)) else WP.pokeKafkaString p1 (deleteAclsFilterResourceNameFilter msg))
+  p3 <- (if version >= 1 then W.pokeWord8 p2 (fromIntegral (deleteAclsFilterPatternTypeFilter msg)) else pure p2)
+  p4 <- (if version >= 2 then WP.pokeCompactString p3 (P.toCompactString (deleteAclsFilterPrincipalFilter msg)) else WP.pokeKafkaString p3 (deleteAclsFilterPrincipalFilter msg))
+  p5 <- (if version >= 2 then WP.pokeCompactString p4 (P.toCompactString (deleteAclsFilterHostFilter msg)) else WP.pokeKafkaString p4 (deleteAclsFilterHostFilter msg))
+  p6 <- W.pokeWord8 p5 (fromIntegral (deleteAclsFilterOperation msg))
+  p7 <- W.pokeWord8 p6 (fromIntegral (deleteAclsFilterPermissionType msg))
+  if version >= 2 then WP.pokeEmptyTaggedFields p7 else pure p7
+
+-- | Direct-poke decoder for DeleteAclsFilter.
+wirePeekDeleteAclsFilter :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteAclsFilter, Ptr Word8)
+wirePeekDeleteAclsFilter version _fp _basePtr p0 endPtr = do
+  (f0_resourcetypefilter, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
+  (f1_resourcenamefilter, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  (f2_patterntypefilter, p3) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr else pure (3, p2))
+  (f3_principalfilter, p4) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+  (f4_hostfilter, p5) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
+  (f5_operation, p6) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p5 endPtr
+  (f6_permissiontype, p7) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p6 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p7 endPtr else pure p7
+  pure (DeleteAclsFilter { deleteAclsFilterResourceTypeFilter = f0_resourcetypefilter, deleteAclsFilterResourceNameFilter = f1_resourcenamefilter, deleteAclsFilterPatternTypeFilter = f2_patterntypefilter, deleteAclsFilterPrincipalFilter = f3_principalfilter, deleteAclsFilterHostFilter = f4_hostfilter, deleteAclsFilterOperation = f5_operation, deleteAclsFilterPermissionType = f6_permissiontype }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDeleteAclsFilter :: DeleteAclsFilter
+defaultDeleteAclsFilter = DeleteAclsFilter { deleteAclsFilterResourceTypeFilter = 0, deleteAclsFilterResourceNameFilter = P.KafkaString Null, deleteAclsFilterPatternTypeFilter = 3, deleteAclsFilterPrincipalFilter = P.KafkaString Null, deleteAclsFilterHostFilter = P.KafkaString Null, deleteAclsFilterOperation = 0, deleteAclsFilterPermissionType = 0 }
+
+-- | Worst-case wire size of a DeleteAclsRequest.
+wireMaxSizeDeleteAclsRequest :: Int -> DeleteAclsRequest -> Int
+wireMaxSizeDeleteAclsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (deleteAclsRequestFilters msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDeleteAclsFilter _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DeleteAclsRequest.
+wirePokeDeleteAclsRequest :: Int -> Ptr Word8 -> DeleteAclsRequest -> IO (Ptr Word8)
+wirePokeDeleteAclsRequest version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDeleteAclsFilter version p x) p0 (deleteAclsRequestFilters msg)
+    pure p1
+  | version >= 2 && version <= 3 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDeleteAclsFilter version p x) p0 (deleteAclsRequestFilters msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke DeleteAclsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DeleteAclsRequest.
+wirePeekDeleteAclsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteAclsRequest, Ptr Word8)
+wirePeekDeleteAclsRequest version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_filters, p1) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDeleteAclsFilter version _fp _basePtr p e) p0 endPtr
+    pure (DeleteAclsRequest { deleteAclsRequestFilters = f0_filters }, p1)
+  | version >= 2 && version <= 3 = do
+    (f0_filters, p1) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDeleteAclsFilter version _fp _basePtr p e) p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (DeleteAclsRequest { deleteAclsRequestFilters = f0_filters }, pTagsEnd)
+  | otherwise = error $ "wirePeek DeleteAclsRequest : unsupported version: " ++ show version
 
 
-  | version >= 2 && version <= 3 =
-    do
-      E.encodeVersionedArray version 2 encodeDeleteAclsFilter (case P.unKafkaArray (deleteAclsRequestFilters msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DeleteAclsRequest with the given API version.
-decodeDeleteAclsRequest :: MonadGet m => E.ApiVersion -> m DeleteAclsRequest
-decodeDeleteAclsRequest version
-  | version == 1 =
-    do
-      fieldfilters <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDeleteAclsFilter
-      pure DeleteAclsRequest
-        {
-        deleteAclsRequestFilters = fieldfilters
-        }
-
-  | version >= 2 && version <= 3 =
-    do
-      fieldfilters <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeDeleteAclsFilter
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DeleteAclsRequest
-        {
-        deleteAclsRequestFilters = fieldfilters
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec DeleteAclsRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDeleteAclsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDeleteAclsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDeleteAclsRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

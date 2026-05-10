@@ -49,6 +49,7 @@ let crc = crc32cInit
 module Kafka.Protocol.CRC32C
   ( -- * One-shot checksum
     crc32c
+  , crc32cPtr
     -- * Incremental checksum
   , crc32cInit
   , crc32cAppend
@@ -152,4 +153,15 @@ crc32c bs =
     BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
       return $! c_crc32c (castPtr ptr :: Ptr Word8) (fromIntegral len)
 {-# INLINE crc32c #-}
+
+-- | Compute CRC32C of a raw memory range without first wrapping it
+-- in a 'ByteString'. Used by the direct-poke encoder
+-- ("Kafka.Protocol.RecordBatchWire") so it can checksum a slice of
+-- its own output buffer without an intermediate copy.
+--
+-- Caller is responsible for keeping the buffer alive across the
+-- call (typically via 'Foreign.ForeignPtr.withForeignPtr').
+crc32cPtr :: Ptr Word8 -> Int -> IO Word32
+crc32cPtr p n = pure $! c_crc32c p (fromIntegral n)
+{-# INLINE crc32cPtr #-}
 

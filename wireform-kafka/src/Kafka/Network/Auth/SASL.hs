@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Network.Auth.SASL
@@ -57,6 +58,9 @@ module Kafka.Network.Auth.SASL
     -- * High-level entry point
   , authenticate
   , AuthError(..)
+    -- * KIP-368 session re-authentication
+  , effectiveReauthDeadlineMs
+  , reauthRequiredAtMs
     -- * Built-in mechanism implementations (advanced)
   , SaslMechanismImpl(..)
   , StepResult(..)
@@ -70,8 +74,6 @@ module Kafka.Network.Auth.SASL
 
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.IORef
@@ -92,6 +94,7 @@ import qualified Kafka.Protocol.Generated.SaslAuthenticateResponse as SAResp
 import qualified Kafka.Protocol.Generated.SaslHandshakeRequest as SHReq
 import qualified Kafka.Protocol.Generated.SaslHandshakeResponse as SHResp
 import qualified Kafka.Protocol.Primitives as P
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 ------------------------------------------------------------------------
 -- User-facing config
@@ -230,7 +233,7 @@ runHandshake conn clientId nextCorrId mechName = do
   let req = SHReq.SaslHandshakeRequest
         { SHReq.saslHandshakeRequestMechanism = P.mkKafkaString mechName }
       apiVersion = 1 :: Int16
-      reqBytes   = runPutS (SHReq.encodeSaslHandshakeRequest apiVersion req)
+      reqBytes   = WC.runEncodeVer @SHReq.SaslHandshakeRequest apiVersion req
   cid <- nextCorrId
   txn <- try $ Req.sendRequestReceiveResponse conn 17 apiVersion cid clientId reqBytes
   case txn of
@@ -239,7 +242,7 @@ runHandshake conn clientId nextCorrId mechName = do
     Right (Left err) ->
       pure (Left (AuthHandshake ("SaslHandshake transport: " <> err)))
     Right (Right (_, body)) ->
-      case runGetS (SHResp.decodeSaslHandshakeResponse apiVersion) body of
+      case WC.runDecodeVer @SHResp.SaslHandshakeResponse apiVersion body of
         Left err -> pure (Left (AuthHandshake ("SaslHandshakeResponse decode: " <> err)))
         Right resp ->
           let ec  = SHResp.saslHandshakeResponseErrorCode resp
@@ -293,7 +296,7 @@ saslAuthenticate conn clientId nextCorrId bytes = do
   let req = SAReq.SaslAuthenticateRequest
         { SAReq.saslAuthenticateRequestAuthBytes = P.mkKafkaBytes bytes }
       apiVersion = 1 :: Int16
-      reqBytes   = runPutS (SAReq.encodeSaslAuthenticateRequest apiVersion req)
+      reqBytes   = WC.runEncodeVer @SAReq.SaslAuthenticateRequest apiVersion req
   cid <- nextCorrId
   txn <- try $ Req.sendRequestReceiveResponse conn 36 apiVersion cid clientId reqBytes
   case txn of
@@ -302,7 +305,7 @@ saslAuthenticate conn clientId nextCorrId bytes = do
     Right (Left err) ->
       pure (Left (AuthTransport ("SaslAuthenticate transport: " <> err)))
     Right (Right (_, body)) ->
-      case runGetS (SAResp.decodeSaslAuthenticateResponse apiVersion) body of
+      case WC.runDecodeVer @SAResp.SaslAuthenticateResponse apiVersion body of
         Left err -> pure (Left (AuthTransport ("SaslAuthenticateResponse decode: " <> err)))
         Right resp ->
           let ec   = SAResp.saslAuthenticateResponseErrorCode resp
@@ -415,8 +418,56 @@ kafkaStrToText ks = case P.unKafkaString ks of
   P.NotNull t -> t
   P.Null      -> T.empty
 
--- Suppress unused-import warning until KIP-368 session re-auth wiring
--- consumes encodeUtf8.
+------------------------------------------------------------------------
+-- KIP-368 session re-authentication
+------------------------------------------------------------------------
+
+-- | Compute the effective re-authentication deadline (epoch
+-- milliseconds) from the broker-advertised lifetime and the
+-- client's @connections.max.reauth.ms@ knob.
+--
+-- KIP-368 lets the broker tell us how long the credentials we
+-- presented are valid via 'SaslAuthenticateResponse.lifetime_ms'.
+-- The client should run a fresh @SaslHandshake@ + @SaslAuthenticate@
+-- cycle /before/ the smaller of the two deadlines elapses,
+-- otherwise the broker silently closes the connection.
+--
+-- Returns @Nothing@ when neither side has set a deadline (i.e. both
+-- the broker lifetime and the client config are 0): the connection
+-- is open-ended, no re-auth is required. Otherwise returns the
+-- absolute epoch-ms at which re-auth must complete by.
+effectiveReauthDeadlineMs
+  :: Int          -- ^ wall-clock when authentication completed (epoch ms)
+  -> Int          -- ^ broker-advertised lifetime (ms; 0 = no expiry)
+  -> Int          -- ^ client @connections.max.reauth.ms@ (0 = disabled)
+  -> Maybe Int
+effectiveReauthDeadlineMs nowMs brokerLifetimeMs clientMaxMs =
+  case (brokerLifetimeMs > 0, clientMaxMs > 0) of
+    (False, False) -> Nothing
+    (True,  False) -> Just (nowMs + brokerLifetimeMs)
+    (False, True)  -> Just (nowMs + clientMaxMs)
+    (True,  True)  -> Just (nowMs + min brokerLifetimeMs clientMaxMs)
+
+-- | Decide whether the next request should run through a fresh
+-- handshake first. Compares the current time to the previously
+-- computed deadline (from 'effectiveReauthDeadlineMs') and applies
+-- a small safety margin so we don't race the broker's enforcement.
+--
+-- The safety margin is taken as @max 1000 (deadline\/10)@ — i.e.
+-- one second or 10% of the remaining window, whichever is greater.
+-- Mirrors the JVM client's behaviour.
+reauthRequiredAtMs
+  :: Int          -- ^ now (epoch ms)
+  -> Maybe Int    -- ^ deadline returned by 'effectiveReauthDeadlineMs'
+  -> Bool
+reauthRequiredAtMs _   Nothing  = False
+reauthRequiredAtMs now (Just d) =
+  let !remaining = d - now
+      !margin    = max 1000 (max 0 d `div` 10)
+  in remaining <= margin
+
+-- Suppress unused-import warnings on building blocks that the
+-- mechanism implementations above use indirectly.
 _dummyEncode :: Text -> ByteString
 _dummyEncode = TE.encodeUtf8
 

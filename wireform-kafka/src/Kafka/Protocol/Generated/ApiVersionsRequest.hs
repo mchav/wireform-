@@ -12,7 +12,7 @@ Kafka request for API key 18.
 
 
 
-Valid versions: 0-4
+Valid versions: 0-5
 Flexible versions: 3+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -21,15 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.ApiVersionsRequest
   (
     ApiVersionsRequest(..),
-    encodeApiVersionsRequest,
-    decodeApiVersionsRequest,
     maxApiVersionsRequestVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -37,13 +31,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -61,49 +62,92 @@ data ApiVersionsRequest = ApiVersionsRequest
 
   -- Versions: 3+
   apiVersionsRequestClientSoftwareVersion :: !(KafkaString)
+,
+
+  -- | The cluster ID the client intends to connect to, if known.
+
+  -- Versions: 5+
+  apiVersionsRequestClusterId :: !(KafkaString)
+,
+
+  -- | The node ID the client intends to connect to, if known.
+
+  -- Versions: 5+
+  apiVersionsRequestNodeId :: !(Int32)
 
   }
   deriving (Eq, Show, Generic)
 
 -- | Maximum supported version for ApiVersionsRequest.
 maxApiVersionsRequestVersion :: Int16
-maxApiVersionsRequestVersion = 4
+maxApiVersionsRequestVersion = 5
 
--- | Encode ApiVersionsRequest with the given API version.
-encodeApiVersionsRequest :: MonadPut m => E.ApiVersion -> ApiVersionsRequest -> m ()
-encodeApiVersionsRequest version msg
-  | version >= 3 && version <= 4 =
-    do
-      serialize (toCompactString (apiVersionsRequestClientSoftwareName msg))
-      serialize (toCompactString (apiVersionsRequestClientSoftwareVersion msg))
-      serialize (emptyTaggedFields :: TaggedFields)
+-- | KafkaMessage instance for ApiVersionsRequest.
+instance KafkaMessage ApiVersionsRequest where
+  messageApiKey = 18
+  messageMinVersion = 0
+  messageMaxVersion = 5
+  messageFlexibleVersion = Just 3
 
-  | version >= 0 && version <= 2 =
-    pure ()
-  | otherwise = error $ "Unsupported version: " ++ show version
 
--- | Decode ApiVersionsRequest with the given API version.
-decodeApiVersionsRequest :: MonadGet m => E.ApiVersion -> m ApiVersionsRequest
-decodeApiVersionsRequest version
-  | version >= 3 && version <= 4 =
-    do
-      fieldclientsoftwarename <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      fieldclientsoftwareversion <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ApiVersionsRequest
-        {
-        apiVersionsRequestClientSoftwareName = fieldclientsoftwarename
-        ,
-        apiVersionsRequestClientSoftwareVersion = fieldclientsoftwareversion
-        }
+-- | Worst-case wire size of a ApiVersionsRequest.
+wireMaxSizeApiVersionsRequest :: Int -> ApiVersionsRequest -> Int
+wireMaxSizeApiVersionsRequest _version msg =
+  0
+  + WP.dualStringMaxSize (apiVersionsRequestClientSoftwareName msg)
+  + WP.dualStringMaxSize (apiVersionsRequestClientSoftwareVersion msg)
+  + WP.dualStringMaxSize (apiVersionsRequestClusterId msg)
+  + 4
+  + 1
 
-  | version >= 0 && version <= 2 =
-    do
+-- | Direct-poke encoder for ApiVersionsRequest.
+wirePokeApiVersionsRequest :: Int -> Ptr Word8 -> ApiVersionsRequest -> IO (Ptr Word8)
+wirePokeApiVersionsRequest version basePtr msg
+  | version == 5 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 3 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (apiVersionsRequestClientSoftwareName msg)) else WP.pokeKafkaString p0 (apiVersionsRequestClientSoftwareName msg)) else pure p0)
+    p2 <- (if version >= 3 then (if version >= 3 then WP.pokeCompactString p1 (P.toCompactString (apiVersionsRequestClientSoftwareVersion msg)) else WP.pokeKafkaString p1 (apiVersionsRequestClientSoftwareVersion msg)) else pure p1)
+    p3 <- (if version >= 5 then (if version >= 3 then WP.pokeCompactString p2 (P.toCompactString (apiVersionsRequestClusterId msg)) else WP.pokeKafkaString p2 (apiVersionsRequestClusterId msg)) else pure p2)
+    p4 <- (if version >= 5 then W.pokeInt32BE p3 (apiVersionsRequestNodeId msg) else pure p3)
+    WP.pokeEmptyTaggedFields p4
+  | version >= 3 && version <= 4 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 3 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (apiVersionsRequestClientSoftwareName msg)) else WP.pokeKafkaString p0 (apiVersionsRequestClientSoftwareName msg)) else pure p0)
+    p2 <- (if version >= 3 then (if version >= 3 then WP.pokeCompactString p1 (P.toCompactString (apiVersionsRequestClientSoftwareVersion msg)) else WP.pokeKafkaString p1 (apiVersionsRequestClientSoftwareVersion msg)) else pure p1)
+    WP.pokeEmptyTaggedFields p2
+  | version >= 0 && version <= 2 = do
+    p0 <- pure basePtr
+    pure p0
+  | otherwise = error $ "wirePoke ApiVersionsRequest : unsupported version: " ++ show version
 
-      pure ApiVersionsRequest
-        {
-        apiVersionsRequestClientSoftwareName = P.KafkaString Null
-        ,
-        apiVersionsRequestClientSoftwareVersion = P.KafkaString Null
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Direct-poke decoder for ApiVersionsRequest.
+wirePeekApiVersionsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ApiVersionsRequest, Ptr Word8)
+wirePeekApiVersionsRequest version _fp _basePtr p0 endPtr
+  | version == 5 = do
+    (f0_clientsoftwarename, p1) <- (if version >= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+    (f1_clientsoftwareversion, p2) <- (if version >= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
+    (f2_clusterid, p3) <- (if version >= 5 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
+    (f3_nodeid, p4) <- (if version >= 5 then W.peekInt32BE p3 endPtr else pure (-1, p3))
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (ApiVersionsRequest { apiVersionsRequestClientSoftwareName = f0_clientsoftwarename, apiVersionsRequestClientSoftwareVersion = f1_clientsoftwareversion, apiVersionsRequestClusterId = f2_clusterid, apiVersionsRequestNodeId = f3_nodeid }, pTagsEnd)
+  | version >= 3 && version <= 4 = do
+    (f0_clientsoftwarename, p1) <- (if version >= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+    (f1_clientsoftwareversion, p2) <- (if version >= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (ApiVersionsRequest { apiVersionsRequestClientSoftwareName = f0_clientsoftwarename, apiVersionsRequestClientSoftwareVersion = f1_clientsoftwareversion, apiVersionsRequestClusterId = P.KafkaString Null, apiVersionsRequestNodeId = -1 }, pTagsEnd)
+  | version >= 0 && version <= 2 = do
+    pure (ApiVersionsRequest { apiVersionsRequestClientSoftwareName = P.KafkaString Null, apiVersionsRequestClientSoftwareVersion = P.KafkaString Null, apiVersionsRequestClusterId = P.KafkaString Null, apiVersionsRequestNodeId = -1 }, p0)
+  | otherwise = error $ "wirePeek ApiVersionsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec ApiVersionsRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeApiVersionsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeApiVersionsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekApiVersionsRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

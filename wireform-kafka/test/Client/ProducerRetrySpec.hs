@@ -34,11 +34,12 @@ mkBatch = BA.ProducerBatch
   , BA.batchState = BA.Filling
   , BA.batchCompression = Compression.NoCompression
   , BA.batchCompressionLevel = Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks = []
+  , BA.batchCallbacks = Seq.empty
   , BA.batchAttempts = 0
   , BA.batchProducerId = RB.noProducerId
   , BA.batchProducerEpoch = RB.noProducerEpoch
   , BA.batchBaseSequence = RB.noSequence
+  , BA.batchIsTransactional = False
   }
 
 batch_starts_at_attempt_zero :: TestTree

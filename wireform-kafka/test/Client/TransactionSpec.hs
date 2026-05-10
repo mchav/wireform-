@@ -14,8 +14,8 @@ import Control.Concurrent.STM
 import Control.Concurrent.Async
 import Control.Exception (try, SomeException)
 import Control.Monad (replicateM_, forM_)
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
+import qualified Data.HashMap.Strict as Map
+import qualified Data.HashSet as Set
 
 import Kafka.Client.Consumer (TopicPartition(..))
 import Kafka.Client.Transaction

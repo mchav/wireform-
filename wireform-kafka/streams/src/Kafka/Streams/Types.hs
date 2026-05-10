@@ -72,9 +72,7 @@ data Header = Header
   deriving stock (Eq, Ord, Show, Generic)
 
 -- | Ordered, possibly-duplicating header collection (matches the Java
--- @org.apache.kafka.common.header.Headers@ semantics). Backed by a
--- 'Seq' so prepend / append / iteration are all amortised \(O(1)\)
--- and 'lastHeader' is \(O(n)\) with a small constant.
+-- @org.apache.kafka.common.header.Headers@ semantics).
 newtype Headers = Headers { headerEntries :: Seq Header }
   deriving stock (Eq, Show, Generic)
 

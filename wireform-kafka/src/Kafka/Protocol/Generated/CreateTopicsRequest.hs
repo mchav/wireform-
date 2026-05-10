@@ -24,15 +24,9 @@ module Kafka.Protocol.Generated.CreateTopicsRequest
     CreatableTopic(..),
     CreatableReplicaAssignment(..),
     CreatableTopicConfig(..),
-    encodeCreateTopicsRequest,
-    decodeCreateTopicsRequest,
     maxCreateTopicsRequestVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +34,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The manual partition assignment, or the empty array if we are using automatic assignment.
@@ -67,31 +68,6 @@ data CreatableReplicaAssignment = CreatableReplicaAssignment
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode CreatableReplicaAssignment with version-aware field handling.
-encodeCreatableReplicaAssignment :: MonadPut m => E.ApiVersion -> CreatableReplicaAssignment -> m ()
-encodeCreatableReplicaAssignment version cmsg =
-  do
-    serialize (creatableReplicaAssignmentPartitionIndex cmsg)
-    E.encodeVersionedArray version 5 (\_ x -> serialize x) (case P.unKafkaArray (creatableReplicaAssignmentBrokerIds cmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 5) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode CreatableReplicaAssignment with version-aware field handling.
-decodeCreatableReplicaAssignment :: MonadGet m => E.ApiVersion -> m CreatableReplicaAssignment
-decodeCreatableReplicaAssignment version =
-  do
-    fieldpartitionindex <- deserialize
-    fieldbrokerids <- P.mkKafkaArray <$> E.decodeVersionedArray version 5 (\_ -> deserialize)
-    _ <- if version >= 5 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure CreatableReplicaAssignment
-      {
-      creatableReplicaAssignmentPartitionIndex = fieldpartitionindex
-      ,
-      creatableReplicaAssignmentBrokerIds = fieldbrokerids
-      }
-
-
 -- | The custom topic configurations to set.
 data CreatableTopicConfig = CreatableTopicConfig
   {
@@ -109,31 +85,6 @@ data CreatableTopicConfig = CreatableTopicConfig
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode CreatableTopicConfig with version-aware field handling.
-encodeCreatableTopicConfig :: MonadPut m => E.ApiVersion -> CreatableTopicConfig -> m ()
-encodeCreatableTopicConfig version cmsg =
-  do
-    if version >= 5 then serialize (toCompactString (creatableTopicConfigName cmsg)) else serialize (creatableTopicConfigName cmsg)
-    if version >= 5 then serialize (toCompactString (creatableTopicConfigValue cmsg)) else serialize (creatableTopicConfigValue cmsg)
-    when (version >= 5) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode CreatableTopicConfig with version-aware field handling.
-decodeCreatableTopicConfig :: MonadGet m => E.ApiVersion -> m CreatableTopicConfig
-decodeCreatableTopicConfig version =
-  do
-    fieldname <- if version >= 5 then P.fromCompactString <$> deserialize else deserialize
-    fieldvalue <- if version >= 5 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 5 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure CreatableTopicConfig
-      {
-      creatableTopicConfigName = fieldname
-      ,
-      creatableTopicConfigValue = fieldvalue
-      }
-
 
 -- | The topics to create.
 data CreatableTopic = CreatableTopic
@@ -172,43 +123,6 @@ data CreatableTopic = CreatableTopic
   deriving (Eq, Show, Generic)
 
 
--- | Encode CreatableTopic with version-aware field handling.
-encodeCreatableTopic :: MonadPut m => E.ApiVersion -> CreatableTopic -> m ()
-encodeCreatableTopic version cmsg =
-  do
-    if version >= 5 then serialize (toCompactString (creatableTopicName cmsg)) else serialize (creatableTopicName cmsg)
-    serialize (creatableTopicNumPartitions cmsg)
-    serialize (creatableTopicReplicationFactor cmsg)
-    E.encodeVersionedArray version 5 encodeCreatableReplicaAssignment (case P.unKafkaArray (creatableTopicAssignments cmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    E.encodeVersionedArray version 5 encodeCreatableTopicConfig (case P.unKafkaArray (creatableTopicConfigs cmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 5) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode CreatableTopic with version-aware field handling.
-decodeCreatableTopic :: MonadGet m => E.ApiVersion -> m CreatableTopic
-decodeCreatableTopic version =
-  do
-    fieldname <- if version >= 5 then P.fromCompactString <$> deserialize else deserialize
-    fieldnumpartitions <- deserialize
-    fieldreplicationfactor <- deserialize
-    fieldassignments <- P.mkKafkaArray <$> E.decodeVersionedArray version 5 decodeCreatableReplicaAssignment
-    fieldconfigs <- P.mkKafkaArray <$> E.decodeVersionedArray version 5 decodeCreatableTopicConfig
-    _ <- if version >= 5 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure CreatableTopic
-      {
-      creatableTopicName = fieldname
-      ,
-      creatableTopicNumPartitions = fieldnumpartitions
-      ,
-      creatableTopicReplicationFactor = fieldreplicationfactor
-      ,
-      creatableTopicAssignments = fieldassignments
-      ,
-      creatableTopicConfigs = fieldconfigs
-      }
-
-
-
 data CreateTopicsRequest = CreateTopicsRequest
   {
 
@@ -236,53 +150,160 @@ data CreateTopicsRequest = CreateTopicsRequest
 maxCreateTopicsRequestVersion :: Int16
 maxCreateTopicsRequestVersion = 7
 
--- | Encode CreateTopicsRequest with the given API version.
-encodeCreateTopicsRequest :: MonadPut m => E.ApiVersion -> CreateTopicsRequest -> m ()
-encodeCreateTopicsRequest version msg
-  | version >= 2 && version <= 4 =
-    do
-      E.encodeVersionedArray version 5 encodeCreatableTopic (case P.unKafkaArray (createTopicsRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (createTopicsRequesttimeoutMs msg)
-      serialize (createTopicsRequestvalidateOnly msg)
+-- | KafkaMessage instance for CreateTopicsRequest.
+instance KafkaMessage CreateTopicsRequest where
+  messageApiKey = 19
+  messageMinVersion = 2
+  messageMaxVersion = 7
+  messageFlexibleVersion = Just 5
+
+-- | Worst-case wire size of a CreatableReplicaAssignment.
+wireMaxSizeCreatableReplicaAssignment :: Int -> CreatableReplicaAssignment -> Int
+wireMaxSizeCreatableReplicaAssignment _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (creatableReplicaAssignmentBrokerIds msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for CreatableReplicaAssignment.
+wirePokeCreatableReplicaAssignment :: Int -> Ptr Word8 -> CreatableReplicaAssignment -> IO (Ptr Word8)
+wirePokeCreatableReplicaAssignment version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (creatableReplicaAssignmentPartitionIndex msg)
+  p2 <- WP.pokeVersionedArray version 5 W.pokeInt32BE p1 (creatableReplicaAssignmentBrokerIds msg)
+  if version >= 5 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for CreatableReplicaAssignment.
+wirePeekCreatableReplicaAssignment :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatableReplicaAssignment, Ptr Word8)
+wirePeekCreatableReplicaAssignment version _fp _basePtr p0 endPtr = do
+  (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_brokerids, p2) <- WP.peekVersionedArray version 5 W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 5 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (CreatableReplicaAssignment { creatableReplicaAssignmentPartitionIndex = f0_partitionindex, creatableReplicaAssignmentBrokerIds = f1_brokerids }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultCreatableReplicaAssignment :: CreatableReplicaAssignment
+defaultCreatableReplicaAssignment = CreatableReplicaAssignment { creatableReplicaAssignmentPartitionIndex = 0, creatableReplicaAssignmentBrokerIds = P.mkKafkaArray V.empty }
+
+-- | Worst-case wire size of a CreatableTopicConfig.
+wireMaxSizeCreatableTopicConfig :: Int -> CreatableTopicConfig -> Int
+wireMaxSizeCreatableTopicConfig _version msg =
+  0
+  + WP.dualStringMaxSize (creatableTopicConfigName msg)
+  + WP.dualStringMaxSize (creatableTopicConfigValue msg)
+  + 1
+
+-- | Direct-poke encoder for CreatableTopicConfig.
+wirePokeCreatableTopicConfig :: Int -> Ptr Word8 -> CreatableTopicConfig -> IO (Ptr Word8)
+wirePokeCreatableTopicConfig version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 5 then WP.pokeCompactString p0 (P.toCompactString (creatableTopicConfigName msg)) else WP.pokeKafkaString p0 (creatableTopicConfigName msg))
+  p2 <- (if version >= 5 then WP.pokeCompactString p1 (P.toCompactString (creatableTopicConfigValue msg)) else WP.pokeKafkaString p1 (creatableTopicConfigValue msg))
+  if version >= 5 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for CreatableTopicConfig.
+wirePeekCreatableTopicConfig :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatableTopicConfig, Ptr Word8)
+wirePeekCreatableTopicConfig version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_value, p2) <- (if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  pTagsEnd <- if version >= 5 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (CreatableTopicConfig { creatableTopicConfigName = f0_name, creatableTopicConfigValue = f1_value }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultCreatableTopicConfig :: CreatableTopicConfig
+defaultCreatableTopicConfig = CreatableTopicConfig { creatableTopicConfigName = P.KafkaString Null, creatableTopicConfigValue = P.KafkaString Null }
+
+-- | Worst-case wire size of a CreatableTopic.
+wireMaxSizeCreatableTopic :: Int -> CreatableTopic -> Int
+wireMaxSizeCreatableTopic _version msg =
+  0
+  + WP.dualStringMaxSize (creatableTopicName msg)
+  + 4
+  + 2
+  + (5 + (case P.unKafkaArray (creatableTopicAssignments msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCreatableReplicaAssignment _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (creatableTopicConfigs msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCreatableTopicConfig _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for CreatableTopic.
+wirePokeCreatableTopic :: Int -> Ptr Word8 -> CreatableTopic -> IO (Ptr Word8)
+wirePokeCreatableTopic version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 5 then WP.pokeCompactString p0 (P.toCompactString (creatableTopicName msg)) else WP.pokeKafkaString p0 (creatableTopicName msg))
+  p2 <- W.pokeInt32BE p1 (creatableTopicNumPartitions msg)
+  p3 <- W.pokeInt16BE p2 (creatableTopicReplicationFactor msg)
+  p4 <- WP.pokeVersionedArray version 5 (\p x -> wirePokeCreatableReplicaAssignment version p x) p3 (creatableTopicAssignments msg)
+  p5 <- WP.pokeVersionedArray version 5 (\p x -> wirePokeCreatableTopicConfig version p x) p4 (creatableTopicConfigs msg)
+  if version >= 5 then WP.pokeEmptyTaggedFields p5 else pure p5
+
+-- | Direct-poke decoder for CreatableTopic.
+wirePeekCreatableTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatableTopic, Ptr Word8)
+wirePeekCreatableTopic version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_numpartitions, p2) <- W.peekInt32BE p1 endPtr
+  (f2_replicationfactor, p3) <- W.peekInt16BE p2 endPtr
+  (f3_assignments, p4) <- WP.peekVersionedArray version 5 (\p e -> wirePeekCreatableReplicaAssignment version _fp _basePtr p e) p3 endPtr
+  (f4_configs, p5) <- WP.peekVersionedArray version 5 (\p e -> wirePeekCreatableTopicConfig version _fp _basePtr p e) p4 endPtr
+  pTagsEnd <- if version >= 5 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (CreatableTopic { creatableTopicName = f0_name, creatableTopicNumPartitions = f1_numpartitions, creatableTopicReplicationFactor = f2_replicationfactor, creatableTopicAssignments = f3_assignments, creatableTopicConfigs = f4_configs }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultCreatableTopic :: CreatableTopic
+defaultCreatableTopic = CreatableTopic { creatableTopicName = P.KafkaString Null, creatableTopicNumPartitions = 0, creatableTopicReplicationFactor = 0, creatableTopicAssignments = P.mkKafkaArray V.empty, creatableTopicConfigs = P.mkKafkaArray V.empty }
+
+-- | Worst-case wire size of a CreateTopicsRequest.
+wireMaxSizeCreateTopicsRequest :: Int -> CreateTopicsRequest -> Int
+wireMaxSizeCreateTopicsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (createTopicsRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeCreatableTopic _version x ) v); P.Null -> 0 }))
+  + 4
+  + 1
+  + 1
+
+-- | Direct-poke encoder for CreateTopicsRequest.
+wirePokeCreateTopicsRequest :: Int -> Ptr Word8 -> CreateTopicsRequest -> IO (Ptr Word8)
+wirePokeCreateTopicsRequest version basePtr msg
+  | version >= 2 && version <= 4 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 5 (\p x -> wirePokeCreatableTopic version p x) p0 (createTopicsRequestTopics msg)
+    p2 <- W.pokeInt32BE p1 (createTopicsRequesttimeoutMs msg)
+    p3 <- (if version >= 1 then W.pokeWord8 p2 (if (createTopicsRequestvalidateOnly msg) then 1 else 0) else pure p2)
+    pure p3
+  | version >= 5 && version <= 7 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 5 (\p x -> wirePokeCreatableTopic version p x) p0 (createTopicsRequestTopics msg)
+    p2 <- W.pokeInt32BE p1 (createTopicsRequesttimeoutMs msg)
+    p3 <- (if version >= 1 then W.pokeWord8 p2 (if (createTopicsRequestvalidateOnly msg) then 1 else 0) else pure p2)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke CreateTopicsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for CreateTopicsRequest.
+wirePeekCreateTopicsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreateTopicsRequest, Ptr Word8)
+wirePeekCreateTopicsRequest version _fp _basePtr p0 endPtr
+  | version >= 2 && version <= 4 = do
+    (f0_topics, p1) <- WP.peekVersionedArray version 5 (\p e -> wirePeekCreatableTopic version _fp _basePtr p e) p0 endPtr
+    (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
+    (f2_validateonly, p3) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr else pure (False, p2))
+    pure (CreateTopicsRequest { createTopicsRequestTopics = f0_topics, createTopicsRequesttimeoutMs = f1_timeoutms, createTopicsRequestvalidateOnly = f2_validateonly }, p3)
+  | version >= 5 && version <= 7 = do
+    (f0_topics, p1) <- WP.peekVersionedArray version 5 (\p e -> wirePeekCreatableTopic version _fp _basePtr p e) p0 endPtr
+    (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
+    (f2_validateonly, p3) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr else pure (False, p2))
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (CreateTopicsRequest { createTopicsRequestTopics = f0_topics, createTopicsRequesttimeoutMs = f1_timeoutms, createTopicsRequestvalidateOnly = f2_validateonly }, pTagsEnd)
+  | otherwise = error $ "wirePeek CreateTopicsRequest : unsupported version: " ++ show version
 
 
-  | version >= 5 && version <= 7 =
-    do
-      E.encodeVersionedArray version 5 encodeCreatableTopic (case P.unKafkaArray (createTopicsRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (createTopicsRequesttimeoutMs msg)
-      serialize (createTopicsRequestvalidateOnly msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode CreateTopicsRequest with the given API version.
-decodeCreateTopicsRequest :: MonadGet m => E.ApiVersion -> m CreateTopicsRequest
-decodeCreateTopicsRequest version
-  | version >= 2 && version <= 4 =
-    do
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 5 decodeCreatableTopic
-      fieldtimeoutms <- deserialize
-      fieldvalidateonly <- deserialize
-      pure CreateTopicsRequest
-        {
-        createTopicsRequestTopics = fieldtopics
-        ,
-        createTopicsRequesttimeoutMs = fieldtimeoutms
-        ,
-        createTopicsRequestvalidateOnly = fieldvalidateonly
-        }
-
-  | version >= 5 && version <= 7 =
-    do
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 5 decodeCreatableTopic
-      fieldtimeoutms <- deserialize
-      fieldvalidateonly <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure CreateTopicsRequest
-        {
-        createTopicsRequestTopics = fieldtopics
-        ,
-        createTopicsRequesttimeoutMs = fieldtimeoutms
-        ,
-        createTopicsRequestvalidateOnly = fieldvalidateonly
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec CreateTopicsRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeCreateTopicsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeCreateTopicsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekCreateTopicsRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

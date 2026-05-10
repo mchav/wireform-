@@ -3,6 +3,7 @@
 -- | Tests focused on the low-level Topology / validation surface.
 module Streams.TopologySpec (tests) where
 
+import qualified Data.Foldable as Foldable
 import qualified Data.Map.Strict as Map
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
@@ -137,4 +138,5 @@ topology_round_trip_in_order =
           $ addSource (NodeName "a") [topicName "in"]
               textSerde textSerde recordTimestampExtractor
           $ emptyTopology
-    Topo.topoOrder t @?= [NodeName "a", NodeName "b", NodeName "c"]
+    Foldable.toList (Topo.topoOrder t)
+      @?= [NodeName "a", NodeName "b", NodeName "c"]

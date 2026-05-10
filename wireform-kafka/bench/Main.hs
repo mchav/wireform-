@@ -30,9 +30,11 @@ import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime, defaultTimeLocale)
 
 import qualified Benchmarks.CRC32C as CRC32C
-import qualified Benchmarks.SerLib as SerLib
 import qualified Benchmarks.Serialization as Serialization
 import qualified Benchmarks.ClientOps as ClientOps
+import qualified Benchmarks.StatsAndStamping as StatsAndStamping
+import qualified Benchmarks.HotPath as HotPath
+import qualified Benchmarks.HwKafkaComparison as HwKafkaComparison
 
 -- -----------------------------------------------------------------------------
 -- Main Entry Point
@@ -67,8 +69,10 @@ main = do
   defaultMainWith config
     [ CRC32C.benchmarks
     , Serialization.benchmarks
-    , SerLib.benchmarks
     , ClientOps.benchmarks
+    , StatsAndStamping.benchmarks
+    , HotPath.benchmarks
+    , HwKafkaComparison.benchmarks
     ]
 
 -- -----------------------------------------------------------------------------

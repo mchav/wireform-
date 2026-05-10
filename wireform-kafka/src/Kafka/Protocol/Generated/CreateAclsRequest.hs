@@ -22,15 +22,9 @@ module Kafka.Protocol.Generated.CreateAclsRequest
   (
     CreateAclsRequest(..),
     AclCreation(..),
-    encodeCreateAclsRequest,
-    decodeCreateAclsRequest,
     maxCreateAclsRequestVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -38,13 +32,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The ACLs that we want to create.
@@ -96,54 +97,6 @@ data AclCreation = AclCreation
   deriving (Eq, Show, Generic)
 
 
--- | Encode AclCreation with version-aware field handling.
-encodeAclCreation :: MonadPut m => E.ApiVersion -> AclCreation -> m ()
-encodeAclCreation version amsg =
-  do
-    serialize (aclCreationResourceType amsg)
-    if version >= 2 then serialize (toCompactString (aclCreationResourceName amsg)) else serialize (aclCreationResourceName amsg)
-    when (version >= 1) $
-      serialize (aclCreationResourcePatternType amsg)
-    if version >= 2 then serialize (toCompactString (aclCreationPrincipal amsg)) else serialize (aclCreationPrincipal amsg)
-    if version >= 2 then serialize (toCompactString (aclCreationHost amsg)) else serialize (aclCreationHost amsg)
-    serialize (aclCreationOperation amsg)
-    serialize (aclCreationPermissionType amsg)
-    when (version >= 2) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode AclCreation with version-aware field handling.
-decodeAclCreation :: MonadGet m => E.ApiVersion -> m AclCreation
-decodeAclCreation version =
-  do
-    fieldresourcetype <- deserialize
-    fieldresourcename <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldresourcepatterntype <- if version >= 1
-      then deserialize
-      else pure (3)
-    fieldprincipal <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldhost <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-    fieldoperation <- deserialize
-    fieldpermissiontype <- deserialize
-    _ <- if version >= 2 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure AclCreation
-      {
-      aclCreationResourceType = fieldresourcetype
-      ,
-      aclCreationResourceName = fieldresourcename
-      ,
-      aclCreationResourcePatternType = fieldresourcepatterntype
-      ,
-      aclCreationPrincipal = fieldprincipal
-      ,
-      aclCreationHost = fieldhost
-      ,
-      aclCreationOperation = fieldoperation
-      ,
-      aclCreationPermissionType = fieldpermissiontype
-      }
-
-
-
 data CreateAclsRequest = CreateAclsRequest
   {
 
@@ -159,37 +112,98 @@ data CreateAclsRequest = CreateAclsRequest
 maxCreateAclsRequestVersion :: Int16
 maxCreateAclsRequestVersion = 3
 
--- | Encode CreateAclsRequest with the given API version.
-encodeCreateAclsRequest :: MonadPut m => E.ApiVersion -> CreateAclsRequest -> m ()
-encodeCreateAclsRequest version msg
-  | version == 1 =
-    do
-      E.encodeVersionedArray version 2 encodeAclCreation (case P.unKafkaArray (createAclsRequestCreations msg) of { P.NotNull v -> v; P.Null -> V.empty })
+-- | KafkaMessage instance for CreateAclsRequest.
+instance KafkaMessage CreateAclsRequest where
+  messageApiKey = 30
+  messageMinVersion = 1
+  messageMaxVersion = 3
+  messageFlexibleVersion = Just 2
+
+-- | Worst-case wire size of a AclCreation.
+wireMaxSizeAclCreation :: Int -> AclCreation -> Int
+wireMaxSizeAclCreation _version msg =
+  0
+  + 1
+  + WP.dualStringMaxSize (aclCreationResourceName msg)
+  + 1
+  + WP.dualStringMaxSize (aclCreationPrincipal msg)
+  + WP.dualStringMaxSize (aclCreationHost msg)
+  + 1
+  + 1
+  + 1
+
+-- | Direct-poke encoder for AclCreation.
+wirePokeAclCreation :: Int -> Ptr Word8 -> AclCreation -> IO (Ptr Word8)
+wirePokeAclCreation version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeWord8 p0 (fromIntegral (aclCreationResourceType msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (aclCreationResourceName msg)) else WP.pokeKafkaString p1 (aclCreationResourceName msg))
+  p3 <- (if version >= 1 then W.pokeWord8 p2 (fromIntegral (aclCreationResourcePatternType msg)) else pure p2)
+  p4 <- (if version >= 2 then WP.pokeCompactString p3 (P.toCompactString (aclCreationPrincipal msg)) else WP.pokeKafkaString p3 (aclCreationPrincipal msg))
+  p5 <- (if version >= 2 then WP.pokeCompactString p4 (P.toCompactString (aclCreationHost msg)) else WP.pokeKafkaString p4 (aclCreationHost msg))
+  p6 <- W.pokeWord8 p5 (fromIntegral (aclCreationOperation msg))
+  p7 <- W.pokeWord8 p6 (fromIntegral (aclCreationPermissionType msg))
+  if version >= 2 then WP.pokeEmptyTaggedFields p7 else pure p7
+
+-- | Direct-poke decoder for AclCreation.
+wirePeekAclCreation :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AclCreation, Ptr Word8)
+wirePeekAclCreation version _fp _basePtr p0 endPtr = do
+  (f0_resourcetype, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
+  (f1_resourcename, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  (f2_resourcepatterntype, p3) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr else pure (3, p2))
+  (f3_principal, p4) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+  (f4_host, p5) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
+  (f5_operation, p6) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p5 endPtr
+  (f6_permissiontype, p7) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p6 endPtr
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p7 endPtr else pure p7
+  pure (AclCreation { aclCreationResourceType = f0_resourcetype, aclCreationResourceName = f1_resourcename, aclCreationResourcePatternType = f2_resourcepatterntype, aclCreationPrincipal = f3_principal, aclCreationHost = f4_host, aclCreationOperation = f5_operation, aclCreationPermissionType = f6_permissiontype }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAclCreation :: AclCreation
+defaultAclCreation = AclCreation { aclCreationResourceType = 0, aclCreationResourceName = P.KafkaString Null, aclCreationResourcePatternType = 3, aclCreationPrincipal = P.KafkaString Null, aclCreationHost = P.KafkaString Null, aclCreationOperation = 0, aclCreationPermissionType = 0 }
+
+-- | Worst-case wire size of a CreateAclsRequest.
+wireMaxSizeCreateAclsRequest :: Int -> CreateAclsRequest -> Int
+wireMaxSizeCreateAclsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (createAclsRequestCreations msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeAclCreation _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for CreateAclsRequest.
+wirePokeCreateAclsRequest :: Int -> Ptr Word8 -> CreateAclsRequest -> IO (Ptr Word8)
+wirePokeCreateAclsRequest version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeAclCreation version p x) p0 (createAclsRequestCreations msg)
+    pure p1
+  | version >= 2 && version <= 3 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeAclCreation version p x) p0 (createAclsRequestCreations msg)
+    WP.pokeEmptyTaggedFields p1
+  | otherwise = error $ "wirePoke CreateAclsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for CreateAclsRequest.
+wirePeekCreateAclsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreateAclsRequest, Ptr Word8)
+wirePeekCreateAclsRequest version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_creations, p1) <- WP.peekVersionedArray version 2 (\p e -> wirePeekAclCreation version _fp _basePtr p e) p0 endPtr
+    pure (CreateAclsRequest { createAclsRequestCreations = f0_creations }, p1)
+  | version >= 2 && version <= 3 = do
+    (f0_creations, p1) <- WP.peekVersionedArray version 2 (\p e -> wirePeekAclCreation version _fp _basePtr p e) p0 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
+    pure (CreateAclsRequest { createAclsRequestCreations = f0_creations }, pTagsEnd)
+  | otherwise = error $ "wirePeek CreateAclsRequest : unsupported version: " ++ show version
 
 
-  | version >= 2 && version <= 3 =
-    do
-      E.encodeVersionedArray version 2 encodeAclCreation (case P.unKafkaArray (createAclsRequestCreations msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode CreateAclsRequest with the given API version.
-decodeCreateAclsRequest :: MonadGet m => E.ApiVersion -> m CreateAclsRequest
-decodeCreateAclsRequest version
-  | version == 1 =
-    do
-      fieldcreations <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeAclCreation
-      pure CreateAclsRequest
-        {
-        createAclsRequestCreations = fieldcreations
-        }
-
-  | version >= 2 && version <= 3 =
-    do
-      fieldcreations <- P.mkKafkaArray <$> E.decodeVersionedArray version 2 decodeAclCreation
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure CreateAclsRequest
-        {
-        createAclsRequestCreations = fieldcreations
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec CreateAclsRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeCreateAclsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeCreateAclsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekCreateAclsRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

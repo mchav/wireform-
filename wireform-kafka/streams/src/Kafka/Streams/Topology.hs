@@ -88,9 +88,12 @@ module Kafka.Streams.Topology
   ) where
 
 import Control.Exception (Exception, throwIO)
+import qualified Data.Foldable as Foldable
 import Data.List (foldl', nub)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import Data.Sequence (Seq, (|>))
+import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -188,8 +191,10 @@ data Topology = Topology
   , topoSinks         :: !(Map NodeName SinkSpec)
   , topoStores        :: !(Map StoreName AnyStoreBuilder)
   , topoStoreOwners   :: !(Map StoreName [NodeName])
-  , topoOrder         :: ![NodeName]
-  , topoSourceOrder   :: ![NodeName]
+  , topoOrder         :: !(Seq NodeName)
+    -- ^ Insertion order across every source / processor / sink.
+  , topoSourceOrder   :: !(Seq NodeName)
+    -- ^ Insertion order across just the sources.
   , topoChildrenIndex :: !(Map NodeName [NodeName])
   , topoGlobalStores  :: !(Set StoreName)
     -- ^ Stores registered via 'addGlobalStore'. The runtime treats
@@ -204,8 +209,8 @@ emptyTopology = Topology
   , topoSinks         = Map.empty
   , topoStores        = Map.empty
   , topoStoreOwners   = Map.empty
-  , topoOrder         = []
-  , topoSourceOrder   = []
+  , topoOrder         = Seq.empty
+  , topoSourceOrder   = Seq.empty
   , topoChildrenIndex = Map.empty
   , topoGlobalStores  = Set.empty
   }
@@ -254,8 +259,8 @@ addSourceWith spec t = ensureNameFree t (sourceName spec) (insertSource t spec)
 insertSource :: Topology -> SourceSpec -> Topology
 insertSource t spec = t
   { topoSources     = Map.insert (sourceName spec) spec (topoSources t)
-  , topoOrder       = topoOrder t ++ [sourceName spec]
-  , topoSourceOrder = topoSourceOrder t ++ [sourceName spec]
+  , topoOrder       = topoOrder t |> sourceName spec
+  , topoSourceOrder = topoSourceOrder t |> sourceName spec
   }
 
 -- | Add a processor with a list of named parents. Parents must
@@ -282,7 +287,7 @@ addProcessorWith spec t =
     let !t' = t
           { topoProcessors    = Map.insert (processorSpecName spec) spec
                                   (topoProcessors t)
-          , topoOrder         = topoOrder t ++ [processorSpecName spec]
+          , topoOrder         = topoOrder t |> processorSpecName spec
           , topoChildrenIndex =
               foldl'
                 (\acc p ->
@@ -317,7 +322,7 @@ addSinkWith spec t =
   ensureNameFree t (sinkName spec) $
     let !t' = t
           { topoSinks         = Map.insert (sinkName spec) spec (topoSinks t)
-          , topoOrder         = topoOrder t ++ [sinkName spec]
+          , topoOrder         = topoOrder t |> sinkName spec
           , topoChildrenIndex =
               foldl'
                 (\acc p -> Map.insertWith (++) p [sinkName spec] acc)
@@ -600,9 +605,9 @@ detectCycle t =
                 Right s' -> Right (Set.insert n s')
                 err      -> err
 
--- | All node names present in a topology.
+-- | All node names present in a topology, in insertion order.
 topologyNodes :: Topology -> [NodeName]
-topologyNodes = topoOrder
+topologyNodes = Foldable.toList . topoOrder
 
 -- | Reverse-lookup: who feeds @n@?
 parentsOf :: Topology -> NodeName -> [NodeName]

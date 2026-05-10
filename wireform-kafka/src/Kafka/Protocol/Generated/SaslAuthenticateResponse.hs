@@ -21,15 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.SaslAuthenticateResponse
   (
     SaslAuthenticateResponse(..),
-    encodeSaslAuthenticateResponse,
-    decodeSaslAuthenticateResponse,
     maxSaslAuthenticateResponseVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -37,13 +31,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -81,84 +82,81 @@ data SaslAuthenticateResponse = SaslAuthenticateResponse
 maxSaslAuthenticateResponseVersion :: Int16
 maxSaslAuthenticateResponseVersion = 2
 
--- | Encode SaslAuthenticateResponse with the given API version.
-encodeSaslAuthenticateResponse :: MonadPut m => E.ApiVersion -> SaslAuthenticateResponse -> m ()
-encodeSaslAuthenticateResponse version msg
-  | version == 0 =
-    do
-      serialize (saslAuthenticateResponseErrorCode msg)
-      serialize (saslAuthenticateResponseErrorMessage msg)
-      serialize (saslAuthenticateResponseAuthBytes msg)
+-- | KafkaMessage instance for SaslAuthenticateResponse.
+instance KafkaMessage SaslAuthenticateResponse where
+  messageApiKey = 36
+  messageMinVersion = 0
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 2
 
 
-  | version == 1 =
-    do
-      serialize (saslAuthenticateResponseErrorCode msg)
-      serialize (saslAuthenticateResponseErrorMessage msg)
-      serialize (saslAuthenticateResponseAuthBytes msg)
-      serialize (saslAuthenticateResponseSessionLifetimeMs msg)
+-- | Worst-case wire size of a SaslAuthenticateResponse.
+wireMaxSizeSaslAuthenticateResponse :: Int -> SaslAuthenticateResponse -> Int
+wireMaxSizeSaslAuthenticateResponse _version msg =
+  0
+  + 2
+  + WP.dualStringMaxSize (saslAuthenticateResponseErrorMessage msg)
+  + WP.dualBytesMaxSize (saslAuthenticateResponseAuthBytes msg)
+  + 8
+  + 1
+
+-- | Direct-poke encoder for SaslAuthenticateResponse.
+wirePokeSaslAuthenticateResponse :: Int -> Ptr Word8 -> SaslAuthenticateResponse -> IO (Ptr Word8)
+wirePokeSaslAuthenticateResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (saslAuthenticateResponseErrorCode msg)
+    p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (saslAuthenticateResponseErrorMessage msg)) else WP.pokeKafkaString p1 (saslAuthenticateResponseErrorMessage msg))
+    p3 <- (if version >= 2 then WP.pokeCompactBytes p2 (P.toCompactBytes (saslAuthenticateResponseAuthBytes msg)) else WP.pokeKafkaBytes p2 (saslAuthenticateResponseAuthBytes msg))
+    pure p3
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (saslAuthenticateResponseErrorCode msg)
+    p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (saslAuthenticateResponseErrorMessage msg)) else WP.pokeKafkaString p1 (saslAuthenticateResponseErrorMessage msg))
+    p3 <- (if version >= 2 then WP.pokeCompactBytes p2 (P.toCompactBytes (saslAuthenticateResponseAuthBytes msg)) else WP.pokeKafkaBytes p2 (saslAuthenticateResponseAuthBytes msg))
+    p4 <- (if version >= 1 then W.pokeInt64BE p3 (saslAuthenticateResponseSessionLifetimeMs msg) else pure p3)
+    pure p4
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (saslAuthenticateResponseErrorCode msg)
+    p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (saslAuthenticateResponseErrorMessage msg)) else WP.pokeKafkaString p1 (saslAuthenticateResponseErrorMessage msg))
+    p3 <- (if version >= 2 then WP.pokeCompactBytes p2 (P.toCompactBytes (saslAuthenticateResponseAuthBytes msg)) else WP.pokeKafkaBytes p2 (saslAuthenticateResponseAuthBytes msg))
+    p4 <- (if version >= 1 then W.pokeInt64BE p3 (saslAuthenticateResponseSessionLifetimeMs msg) else pure p3)
+    WP.pokeEmptyTaggedFields p4
+  | otherwise = error $ "wirePoke SaslAuthenticateResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for SaslAuthenticateResponse.
+wirePeekSaslAuthenticateResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (SaslAuthenticateResponse, Ptr Word8)
+wirePeekSaslAuthenticateResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_errormessage, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+    (f2_authbytes, p3) <- (if version >= 2 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr else WP.peekKafkaBytes p2 endPtr)
+    pure (SaslAuthenticateResponse { saslAuthenticateResponseErrorCode = f0_errorcode, saslAuthenticateResponseErrorMessage = f1_errormessage, saslAuthenticateResponseAuthBytes = f2_authbytes, saslAuthenticateResponseSessionLifetimeMs = 0 }, p3)
+  | version == 1 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_errormessage, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+    (f2_authbytes, p3) <- (if version >= 2 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr else WP.peekKafkaBytes p2 endPtr)
+    (f3_sessionlifetimems, p4) <- (if version >= 1 then W.peekInt64BE p3 endPtr else pure (0, p3))
+    pure (SaslAuthenticateResponse { saslAuthenticateResponseErrorCode = f0_errorcode, saslAuthenticateResponseErrorMessage = f1_errormessage, saslAuthenticateResponseAuthBytes = f2_authbytes, saslAuthenticateResponseSessionLifetimeMs = f3_sessionlifetimems }, p4)
+  | version == 2 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_errormessage, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+    (f2_authbytes, p3) <- (if version >= 2 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr else WP.peekKafkaBytes p2 endPtr)
+    (f3_sessionlifetimems, p4) <- (if version >= 1 then W.peekInt64BE p3 endPtr else pure (0, p3))
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (SaslAuthenticateResponse { saslAuthenticateResponseErrorCode = f0_errorcode, saslAuthenticateResponseErrorMessage = f1_errormessage, saslAuthenticateResponseAuthBytes = f2_authbytes, saslAuthenticateResponseSessionLifetimeMs = f3_sessionlifetimems }, pTagsEnd)
+  | otherwise = error $ "wirePeek SaslAuthenticateResponse : unsupported version: " ++ show version
 
 
-  | version == 2 =
-    do
-      serialize (saslAuthenticateResponseErrorCode msg)
-      serialize (toCompactString (saslAuthenticateResponseErrorMessage msg))
-      serialize (toCompactBytes (saslAuthenticateResponseAuthBytes msg))
-      serialize (saslAuthenticateResponseSessionLifetimeMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode SaslAuthenticateResponse with the given API version.
-decodeSaslAuthenticateResponse :: MonadGet m => E.ApiVersion -> m SaslAuthenticateResponse
-decodeSaslAuthenticateResponse version
-  | version == 0 =
-    do
-      fielderrorcode <- deserialize
-      fielderrormessage <- deserialize
-      fieldauthbytes <- deserialize
-      pure SaslAuthenticateResponse
-        {
-        saslAuthenticateResponseErrorCode = fielderrorcode
-        ,
-        saslAuthenticateResponseErrorMessage = fielderrormessage
-        ,
-        saslAuthenticateResponseAuthBytes = fieldauthbytes
-        ,
-        saslAuthenticateResponseSessionLifetimeMs = 0
-        }
-
-  | version == 1 =
-    do
-      fielderrorcode <- deserialize
-      fielderrormessage <- deserialize
-      fieldauthbytes <- deserialize
-      fieldsessionlifetimems <- deserialize
-      pure SaslAuthenticateResponse
-        {
-        saslAuthenticateResponseErrorCode = fielderrorcode
-        ,
-        saslAuthenticateResponseErrorMessage = fielderrormessage
-        ,
-        saslAuthenticateResponseAuthBytes = fieldauthbytes
-        ,
-        saslAuthenticateResponseSessionLifetimeMs = fieldsessionlifetimems
-        }
-
-  | version == 2 =
-    do
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldauthbytes <- if version >= 2 then P.fromCompactBytes <$> deserialize else deserialize
-      fieldsessionlifetimems <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure SaslAuthenticateResponse
-        {
-        saslAuthenticateResponseErrorCode = fielderrorcode
-        ,
-        saslAuthenticateResponseErrorMessage = fielderrormessage
-        ,
-        saslAuthenticateResponseAuthBytes = fieldauthbytes
-        ,
-        saslAuthenticateResponseSessionLifetimeMs = fieldsessionlifetimems
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec SaslAuthenticateResponse where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeSaslAuthenticateResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeSaslAuthenticateResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekSaslAuthenticateResponse (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

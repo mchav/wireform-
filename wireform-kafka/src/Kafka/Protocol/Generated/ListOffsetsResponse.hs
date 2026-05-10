@@ -23,15 +23,9 @@ module Kafka.Protocol.Generated.ListOffsetsResponse
     ListOffsetsResponse(..),
     ListOffsetsTopicResponse(..),
     ListOffsetsPartitionResponse(..),
-    encodeListOffsetsResponse,
-    decodeListOffsetsResponse,
     maxListOffsetsResponseVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +33,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Each partition in the response.
@@ -84,52 +85,6 @@ data ListOffsetsPartitionResponse = ListOffsetsPartitionResponse
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode ListOffsetsPartitionResponse with version-aware field handling.
-encodeListOffsetsPartitionResponse :: MonadPut m => E.ApiVersion -> ListOffsetsPartitionResponse -> m ()
-encodeListOffsetsPartitionResponse version lmsg =
-  do
-    serialize (listOffsetsPartitionResponsePartitionIndex lmsg)
-    serialize (listOffsetsPartitionResponseErrorCode lmsg)
-    when (version >= 1) $
-      serialize (listOffsetsPartitionResponseTimestamp lmsg)
-    when (version >= 1) $
-      serialize (listOffsetsPartitionResponseOffset lmsg)
-    when (version >= 4) $
-      serialize (listOffsetsPartitionResponseLeaderEpoch lmsg)
-    when (version >= 6) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ListOffsetsPartitionResponse with version-aware field handling.
-decodeListOffsetsPartitionResponse :: MonadGet m => E.ApiVersion -> m ListOffsetsPartitionResponse
-decodeListOffsetsPartitionResponse version =
-  do
-    fieldpartitionindex <- deserialize
-    fielderrorcode <- deserialize
-    fieldtimestamp <- if version >= 1
-      then deserialize
-      else pure ((-1))
-    fieldoffset <- if version >= 1
-      then deserialize
-      else pure ((-1))
-    fieldleaderepoch <- if version >= 4
-      then deserialize
-      else pure ((-1))
-    _ <- if version >= 6 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ListOffsetsPartitionResponse
-      {
-      listOffsetsPartitionResponsePartitionIndex = fieldpartitionindex
-      ,
-      listOffsetsPartitionResponseErrorCode = fielderrorcode
-      ,
-      listOffsetsPartitionResponseTimestamp = fieldtimestamp
-      ,
-      listOffsetsPartitionResponseOffset = fieldoffset
-      ,
-      listOffsetsPartitionResponseLeaderEpoch = fieldleaderepoch
-      }
-
-
 -- | Each topic in the response.
 data ListOffsetsTopicResponse = ListOffsetsTopicResponse
   {
@@ -147,31 +102,6 @@ data ListOffsetsTopicResponse = ListOffsetsTopicResponse
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode ListOffsetsTopicResponse with version-aware field handling.
-encodeListOffsetsTopicResponse :: MonadPut m => E.ApiVersion -> ListOffsetsTopicResponse -> m ()
-encodeListOffsetsTopicResponse version lmsg =
-  do
-    if version >= 6 then serialize (toCompactString (listOffsetsTopicResponseName lmsg)) else serialize (listOffsetsTopicResponseName lmsg)
-    E.encodeVersionedArray version 6 encodeListOffsetsPartitionResponse (case P.unKafkaArray (listOffsetsTopicResponsePartitions lmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 6) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ListOffsetsTopicResponse with version-aware field handling.
-decodeListOffsetsTopicResponse :: MonadGet m => E.ApiVersion -> m ListOffsetsTopicResponse
-decodeListOffsetsTopicResponse version =
-  do
-    fieldname <- if version >= 6 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeListOffsetsPartitionResponse
-    _ <- if version >= 6 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ListOffsetsTopicResponse
-      {
-      listOffsetsTopicResponseName = fieldname
-      ,
-      listOffsetsTopicResponsePartitions = fieldpartitions
-      }
-
 
 
 data ListOffsetsResponse = ListOffsetsResponse
@@ -195,60 +125,133 @@ data ListOffsetsResponse = ListOffsetsResponse
 maxListOffsetsResponseVersion :: Int16
 maxListOffsetsResponseVersion = 11
 
--- | Encode ListOffsetsResponse with the given API version.
-encodeListOffsetsResponse :: MonadPut m => E.ApiVersion -> ListOffsetsResponse -> m ()
-encodeListOffsetsResponse version msg
-  | version == 1 =
-    do
-      E.encodeVersionedArray version 6 encodeListOffsetsTopicResponse (case P.unKafkaArray (listOffsetsResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
+-- | KafkaMessage instance for ListOffsetsResponse.
+instance KafkaMessage ListOffsetsResponse where
+  messageApiKey = 2
+  messageMinVersion = 1
+  messageMaxVersion = 11
+  messageFlexibleVersion = Just 6
+
+-- | Worst-case wire size of a ListOffsetsPartitionResponse.
+wireMaxSizeListOffsetsPartitionResponse :: Int -> ListOffsetsPartitionResponse -> Int
+wireMaxSizeListOffsetsPartitionResponse _version msg =
+  0
+  + 4
+  + 2
+  + 8
+  + 8
+  + 4
+  + 1
+
+-- | Direct-poke encoder for ListOffsetsPartitionResponse.
+wirePokeListOffsetsPartitionResponse :: Int -> Ptr Word8 -> ListOffsetsPartitionResponse -> IO (Ptr Word8)
+wirePokeListOffsetsPartitionResponse version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (listOffsetsPartitionResponsePartitionIndex msg)
+  p2 <- W.pokeInt16BE p1 (listOffsetsPartitionResponseErrorCode msg)
+  p3 <- (if version >= 1 then W.pokeInt64BE p2 (listOffsetsPartitionResponseTimestamp msg) else pure p2)
+  p4 <- (if version >= 1 then W.pokeInt64BE p3 (listOffsetsPartitionResponseOffset msg) else pure p3)
+  p5 <- (if version >= 4 then W.pokeInt32BE p4 (listOffsetsPartitionResponseLeaderEpoch msg) else pure p4)
+  if version >= 6 then WP.pokeEmptyTaggedFields p5 else pure p5
+
+-- | Direct-poke decoder for ListOffsetsPartitionResponse.
+wirePeekListOffsetsPartitionResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListOffsetsPartitionResponse, Ptr Word8)
+wirePeekListOffsetsPartitionResponse version _fp _basePtr p0 endPtr = do
+  (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+  (f2_timestamp, p3) <- (if version >= 1 then W.peekInt64BE p2 endPtr else pure (-1, p2))
+  (f3_offset, p4) <- (if version >= 1 then W.peekInt64BE p3 endPtr else pure (-1, p3))
+  (f4_leaderepoch, p5) <- (if version >= 4 then W.peekInt32BE p4 endPtr else pure (-1, p4))
+  pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (ListOffsetsPartitionResponse { listOffsetsPartitionResponsePartitionIndex = f0_partitionindex, listOffsetsPartitionResponseErrorCode = f1_errorcode, listOffsetsPartitionResponseTimestamp = f2_timestamp, listOffsetsPartitionResponseOffset = f3_offset, listOffsetsPartitionResponseLeaderEpoch = f4_leaderepoch }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultListOffsetsPartitionResponse :: ListOffsetsPartitionResponse
+defaultListOffsetsPartitionResponse = ListOffsetsPartitionResponse { listOffsetsPartitionResponsePartitionIndex = 0, listOffsetsPartitionResponseErrorCode = 0, listOffsetsPartitionResponseTimestamp = -1, listOffsetsPartitionResponseOffset = -1, listOffsetsPartitionResponseLeaderEpoch = -1 }
+
+-- | Worst-case wire size of a ListOffsetsTopicResponse.
+wireMaxSizeListOffsetsTopicResponse :: Int -> ListOffsetsTopicResponse -> Int
+wireMaxSizeListOffsetsTopicResponse _version msg =
+  0
+  + WP.dualStringMaxSize (listOffsetsTopicResponseName msg)
+  + (5 + (case P.unKafkaArray (listOffsetsTopicResponsePartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeListOffsetsPartitionResponse _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ListOffsetsTopicResponse.
+wirePokeListOffsetsTopicResponse :: Int -> Ptr Word8 -> ListOffsetsTopicResponse -> IO (Ptr Word8)
+wirePokeListOffsetsTopicResponse version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 6 then WP.pokeCompactString p0 (P.toCompactString (listOffsetsTopicResponseName msg)) else WP.pokeKafkaString p0 (listOffsetsTopicResponseName msg))
+  p2 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsPartitionResponse version p x) p1 (listOffsetsTopicResponsePartitions msg)
+  if version >= 6 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for ListOffsetsTopicResponse.
+wirePeekListOffsetsTopicResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListOffsetsTopicResponse, Ptr Word8)
+wirePeekListOffsetsTopicResponse version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_partitions, p2) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsPartitionResponse version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (ListOffsetsTopicResponse { listOffsetsTopicResponseName = f0_name, listOffsetsTopicResponsePartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultListOffsetsTopicResponse :: ListOffsetsTopicResponse
+defaultListOffsetsTopicResponse = ListOffsetsTopicResponse { listOffsetsTopicResponseName = P.KafkaString Null, listOffsetsTopicResponsePartitions = P.mkKafkaArray V.empty }
+
+-- | Worst-case wire size of a ListOffsetsResponse.
+wireMaxSizeListOffsetsResponse :: Int -> ListOffsetsResponse -> Int
+wireMaxSizeListOffsetsResponse _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (listOffsetsResponseTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeListOffsetsTopicResponse _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ListOffsetsResponse.
+wirePokeListOffsetsResponse :: Int -> Ptr Word8 -> ListOffsetsResponse -> IO (Ptr Word8)
+wirePokeListOffsetsResponse version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsTopicResponse version p x) p0 (listOffsetsResponseTopics msg)
+    pure p1
+  | version >= 2 && version <= 5 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 2 then W.pokeInt32BE p0 (listOffsetsResponseThrottleTimeMs msg) else pure p0)
+    p2 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsTopicResponse version p x) p1 (listOffsetsResponseTopics msg)
+    pure p2
+  | version >= 6 && version <= 11 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 2 then W.pokeInt32BE p0 (listOffsetsResponseThrottleTimeMs msg) else pure p0)
+    p2 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsTopicResponse version p x) p1 (listOffsetsResponseTopics msg)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke ListOffsetsResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ListOffsetsResponse.
+wirePeekListOffsetsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListOffsetsResponse, Ptr Word8)
+wirePeekListOffsetsResponse version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_topics, p1) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopicResponse version _fp _basePtr p e) p0 endPtr
+    pure (ListOffsetsResponse { listOffsetsResponseThrottleTimeMs = 0, listOffsetsResponseTopics = f0_topics }, p1)
+  | version >= 2 && version <= 5 = do
+    (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
+    (f1_topics, p2) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopicResponse version _fp _basePtr p e) p1 endPtr
+    pure (ListOffsetsResponse { listOffsetsResponseThrottleTimeMs = f0_throttletimems, listOffsetsResponseTopics = f1_topics }, p2)
+  | version >= 6 && version <= 11 = do
+    (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
+    (f1_topics, p2) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopicResponse version _fp _basePtr p e) p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (ListOffsetsResponse { listOffsetsResponseThrottleTimeMs = f0_throttletimems, listOffsetsResponseTopics = f1_topics }, pTagsEnd)
+  | otherwise = error $ "wirePeek ListOffsetsResponse : unsupported version: " ++ show version
 
 
-  | version >= 2 && version <= 5 =
-    do
-      serialize (listOffsetsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 6 encodeListOffsetsTopicResponse (case P.unKafkaArray (listOffsetsResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version >= 6 && version <= 11 =
-    do
-      serialize (listOffsetsResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 6 encodeListOffsetsTopicResponse (case P.unKafkaArray (listOffsetsResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ListOffsetsResponse with the given API version.
-decodeListOffsetsResponse :: MonadGet m => E.ApiVersion -> m ListOffsetsResponse
-decodeListOffsetsResponse version
-  | version == 1 =
-    do
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeListOffsetsTopicResponse
-      pure ListOffsetsResponse
-        {
-        listOffsetsResponseThrottleTimeMs = 0
-        ,
-        listOffsetsResponseTopics = fieldtopics
-        }
-
-  | version >= 2 && version <= 5 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeListOffsetsTopicResponse
-      pure ListOffsetsResponse
-        {
-        listOffsetsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        listOffsetsResponseTopics = fieldtopics
-        }
-
-  | version >= 6 && version <= 11 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 6 decodeListOffsetsTopicResponse
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ListOffsetsResponse
-        {
-        listOffsetsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        listOffsetsResponseTopics = fieldtopics
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec ListOffsetsResponse where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeListOffsetsResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeListOffsetsResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekListOffsetsResponse (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

@@ -21,15 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.DescribeAclsRequest
   (
     DescribeAclsRequest(..),
-    encodeDescribeAclsRequest,
-    decodeDescribeAclsRequest,
     maxDescribeAclsRequestVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -37,13 +31,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -99,85 +100,85 @@ data DescribeAclsRequest = DescribeAclsRequest
 maxDescribeAclsRequestVersion :: Int16
 maxDescribeAclsRequestVersion = 3
 
--- | Encode DescribeAclsRequest with the given API version.
-encodeDescribeAclsRequest :: MonadPut m => E.ApiVersion -> DescribeAclsRequest -> m ()
-encodeDescribeAclsRequest version msg
-  | version == 1 =
-    do
-      serialize (describeAclsRequestResourceTypeFilter msg)
-      serialize (describeAclsRequestResourceNameFilter msg)
-      serialize (describeAclsRequestPatternTypeFilter msg)
-      serialize (describeAclsRequestPrincipalFilter msg)
-      serialize (describeAclsRequestHostFilter msg)
-      serialize (describeAclsRequestOperation msg)
-      serialize (describeAclsRequestPermissionType msg)
+-- | KafkaMessage instance for DescribeAclsRequest.
+instance KafkaMessage DescribeAclsRequest where
+  messageApiKey = 29
+  messageMinVersion = 1
+  messageMaxVersion = 3
+  messageFlexibleVersion = Just 2
 
 
-  | version >= 2 && version <= 3 =
-    do
-      serialize (describeAclsRequestResourceTypeFilter msg)
-      serialize (toCompactString (describeAclsRequestResourceNameFilter msg))
-      serialize (describeAclsRequestPatternTypeFilter msg)
-      serialize (toCompactString (describeAclsRequestPrincipalFilter msg))
-      serialize (toCompactString (describeAclsRequestHostFilter msg))
-      serialize (describeAclsRequestOperation msg)
-      serialize (describeAclsRequestPermissionType msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
+-- | Worst-case wire size of a DescribeAclsRequest.
+wireMaxSizeDescribeAclsRequest :: Int -> DescribeAclsRequest -> Int
+wireMaxSizeDescribeAclsRequest _version msg =
+  0
+  + 1
+  + WP.dualStringMaxSize (describeAclsRequestResourceNameFilter msg)
+  + 1
+  + WP.dualStringMaxSize (describeAclsRequestPrincipalFilter msg)
+  + WP.dualStringMaxSize (describeAclsRequestHostFilter msg)
+  + 1
+  + 1
+  + 1
 
--- | Decode DescribeAclsRequest with the given API version.
-decodeDescribeAclsRequest :: MonadGet m => E.ApiVersion -> m DescribeAclsRequest
-decodeDescribeAclsRequest version
-  | version == 1 =
-    do
-      fieldresourcetypefilter <- deserialize
-      fieldresourcenamefilter <- deserialize
-      fieldpatterntypefilter <- deserialize
-      fieldprincipalfilter <- deserialize
-      fieldhostfilter <- deserialize
-      fieldoperation <- deserialize
-      fieldpermissiontype <- deserialize
-      pure DescribeAclsRequest
-        {
-        describeAclsRequestResourceTypeFilter = fieldresourcetypefilter
-        ,
-        describeAclsRequestResourceNameFilter = fieldresourcenamefilter
-        ,
-        describeAclsRequestPatternTypeFilter = fieldpatterntypefilter
-        ,
-        describeAclsRequestPrincipalFilter = fieldprincipalfilter
-        ,
-        describeAclsRequestHostFilter = fieldhostfilter
-        ,
-        describeAclsRequestOperation = fieldoperation
-        ,
-        describeAclsRequestPermissionType = fieldpermissiontype
-        }
+-- | Direct-poke encoder for DescribeAclsRequest.
+wirePokeDescribeAclsRequest :: Int -> Ptr Word8 -> DescribeAclsRequest -> IO (Ptr Word8)
+wirePokeDescribeAclsRequest version basePtr msg
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeWord8 p0 (fromIntegral (describeAclsRequestResourceTypeFilter msg))
+    p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (describeAclsRequestResourceNameFilter msg)) else WP.pokeKafkaString p1 (describeAclsRequestResourceNameFilter msg))
+    p3 <- (if version >= 1 then W.pokeWord8 p2 (fromIntegral (describeAclsRequestPatternTypeFilter msg)) else pure p2)
+    p4 <- (if version >= 2 then WP.pokeCompactString p3 (P.toCompactString (describeAclsRequestPrincipalFilter msg)) else WP.pokeKafkaString p3 (describeAclsRequestPrincipalFilter msg))
+    p5 <- (if version >= 2 then WP.pokeCompactString p4 (P.toCompactString (describeAclsRequestHostFilter msg)) else WP.pokeKafkaString p4 (describeAclsRequestHostFilter msg))
+    p6 <- W.pokeWord8 p5 (fromIntegral (describeAclsRequestOperation msg))
+    p7 <- W.pokeWord8 p6 (fromIntegral (describeAclsRequestPermissionType msg))
+    pure p7
+  | version >= 2 && version <= 3 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeWord8 p0 (fromIntegral (describeAclsRequestResourceTypeFilter msg))
+    p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (describeAclsRequestResourceNameFilter msg)) else WP.pokeKafkaString p1 (describeAclsRequestResourceNameFilter msg))
+    p3 <- (if version >= 1 then W.pokeWord8 p2 (fromIntegral (describeAclsRequestPatternTypeFilter msg)) else pure p2)
+    p4 <- (if version >= 2 then WP.pokeCompactString p3 (P.toCompactString (describeAclsRequestPrincipalFilter msg)) else WP.pokeKafkaString p3 (describeAclsRequestPrincipalFilter msg))
+    p5 <- (if version >= 2 then WP.pokeCompactString p4 (P.toCompactString (describeAclsRequestHostFilter msg)) else WP.pokeKafkaString p4 (describeAclsRequestHostFilter msg))
+    p6 <- W.pokeWord8 p5 (fromIntegral (describeAclsRequestOperation msg))
+    p7 <- W.pokeWord8 p6 (fromIntegral (describeAclsRequestPermissionType msg))
+    WP.pokeEmptyTaggedFields p7
+  | otherwise = error $ "wirePoke DescribeAclsRequest : unsupported version: " ++ show version
 
-  | version >= 2 && version <= 3 =
-    do
-      fieldresourcetypefilter <- deserialize
-      fieldresourcenamefilter <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldpatterntypefilter <- deserialize
-      fieldprincipalfilter <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldhostfilter <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldoperation <- deserialize
-      fieldpermissiontype <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeAclsRequest
-        {
-        describeAclsRequestResourceTypeFilter = fieldresourcetypefilter
-        ,
-        describeAclsRequestResourceNameFilter = fieldresourcenamefilter
-        ,
-        describeAclsRequestPatternTypeFilter = fieldpatterntypefilter
-        ,
-        describeAclsRequestPrincipalFilter = fieldprincipalfilter
-        ,
-        describeAclsRequestHostFilter = fieldhostfilter
-        ,
-        describeAclsRequestOperation = fieldoperation
-        ,
-        describeAclsRequestPermissionType = fieldpermissiontype
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Direct-poke decoder for DescribeAclsRequest.
+wirePeekDescribeAclsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeAclsRequest, Ptr Word8)
+wirePeekDescribeAclsRequest version _fp _basePtr p0 endPtr
+  | version == 1 = do
+    (f0_resourcetypefilter, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
+    (f1_resourcenamefilter, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+    (f2_patterntypefilter, p3) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr else pure (3, p2))
+    (f3_principalfilter, p4) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+    (f4_hostfilter, p5) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
+    (f5_operation, p6) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p5 endPtr
+    (f6_permissiontype, p7) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p6 endPtr
+    pure (DescribeAclsRequest { describeAclsRequestResourceTypeFilter = f0_resourcetypefilter, describeAclsRequestResourceNameFilter = f1_resourcenamefilter, describeAclsRequestPatternTypeFilter = f2_patterntypefilter, describeAclsRequestPrincipalFilter = f3_principalfilter, describeAclsRequestHostFilter = f4_hostfilter, describeAclsRequestOperation = f5_operation, describeAclsRequestPermissionType = f6_permissiontype }, p7)
+  | version >= 2 && version <= 3 = do
+    (f0_resourcetypefilter, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
+    (f1_resourcenamefilter, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+    (f2_patterntypefilter, p3) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr else pure (3, p2))
+    (f3_principalfilter, p4) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+    (f4_hostfilter, p5) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
+    (f5_operation, p6) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p5 endPtr
+    (f6_permissiontype, p7) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p6 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p7 endPtr
+    pure (DescribeAclsRequest { describeAclsRequestResourceTypeFilter = f0_resourcetypefilter, describeAclsRequestResourceNameFilter = f1_resourcenamefilter, describeAclsRequestPatternTypeFilter = f2_patterntypefilter, describeAclsRequestPrincipalFilter = f3_principalfilter, describeAclsRequestHostFilter = f4_hostfilter, describeAclsRequestOperation = f5_operation, describeAclsRequestPermissionType = f6_permissiontype }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeAclsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec DescribeAclsRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeAclsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeAclsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeAclsRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

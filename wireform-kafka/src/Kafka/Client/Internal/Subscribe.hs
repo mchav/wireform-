@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Client.Internal.Subscribe
@@ -47,10 +48,10 @@ module Kafka.Client.Internal.Subscribe
 
 import Control.Concurrent.STM
 import Control.Monad (forM)
+import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import qualified Data.ByteString as BS
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import Data.Int (Int16, Int32, Int64)
+import Data.Word (Word8)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
@@ -67,9 +68,13 @@ import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Protocol.Generated.ConsumerProtocolAssignment as CPA
 import qualified Kafka.Protocol.Generated.ConsumerProtocolSubscription as CPS
+import qualified Kafka.Protocol.Generated.ListOffsetsRequest as LOReq
+import qualified Kafka.Protocol.Generated.ListOffsetsResponse as LOResp
 import qualified Kafka.Protocol.Generated.OffsetFetchRequest as OFReq
 import qualified Kafka.Protocol.Generated.OffsetFetchResponse as OFResp
+import qualified Kafka.Protocol.VersionNegotiation as VN
 import qualified Kafka.Protocol.Primitives as P
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Discriminated error type for the subscribe flow. Anything that
 -- isn't a structured failure (network / decode / broker-error code)
@@ -166,7 +171,7 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
       -- 2. FindCoordinator using any known broker.
       withBootstrapBroker $ \bootAddr bootConn -> do
         cid <- nextCorrId
-        coordResult <- CG.findGroupCoordinator versionCache bootAddr bootConn
+        coordResult <- CG.findGroupCoordinator versionCache connMgr bootAddr bootConn
                          groupId cid clientId
         case coordResult of
           Left err -> pure (Left (SubscribeCoordinator err))
@@ -217,7 +222,7 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
               protocols = [(assignorName assignor, subMeta)]
           cid1 <- nextCorrId
           existingMember <- atomically $ readTVar (HB.hbMemberId hbState)
-          joinR <- CG.joinGroup versionCache coordAddr coordConn groupId
+          joinR <- CG.joinGroup versionCache connMgr coordAddr coordConn groupId
                      existingMember clientId
                      sessionTimeoutMs rebalanceTimeoutMs
                      "consumer" protocols cid1
@@ -240,9 +245,13 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
                   else pure []
 
               cid2 <- nextCorrId
-              syncR <- CG.syncGroup versionCache coordAddr coordConn groupId
+              -- 'protocolType' is fixed by the caller ("consumer"); the
+              -- 'protocolName' is whatever the broker picked from our
+              -- 'protocols' list (KIP-559 SyncGroup v5 demands both).
+              syncR <- CG.syncGroup versionCache connMgr coordAddr coordConn groupId
                          (CG.jgrGenerationId join) (CG.jgrMemberId join)
-                         clientId assignments cid2
+                         clientId "consumer" (CG.jgrProtocolName join)
+                         assignments cid2
               case syncR of
                 Left err -> pure (Left (SubscribeSync err))
                 Right myAssignmentBytes -> do
@@ -294,22 +303,31 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
             (Map.fromList topicParts)
             mPrev
 
-      pure
-        [ (mid, runPutS $ CPA.encodeConsumerProtocolAssignment 0 $
-                  CPA.ConsumerProtocolAssignment
-                    { CPA.consumerProtocolAssignmentAssignedPartitions =
-                        P.mkKafkaArray $ V.fromList
-                          [ CPA.TopicPartition
-                              { CPA.topicPartitionTopic = P.mkKafkaString t
-                              , CPA.topicPartitionPartitions =
-                                  P.mkKafkaArray (V.fromList ps)
-                              }
-                          | (t, ps) <- byTopic
-                          ]
-                    , CPA.consumerProtocolAssignmentUserData = P.mkKafkaBytes BS.empty
-                    })
-        | (mid, byTopic) <- perMember
-        ]
+      -- Assignment payload mirrors the subscription on the wire:
+      -- a two-byte big-endian version header followed by the
+      -- ConsumerProtocolAssignment body. Followers / future
+      -- generations decode the version off the header, so this
+      -- has to be present even when there's only one member in
+      -- the group.
+      let assignmentVersion = 0 :: Int16
+          assignmentBytes byTopic =
+            let !msg = CPA.ConsumerProtocolAssignment
+                  { CPA.consumerProtocolAssignmentAssignedPartitions =
+                      P.mkKafkaArray $ V.fromList
+                        [ CPA.TopicPartition
+                            { CPA.topicPartitionTopic = P.mkKafkaString t
+                            , CPA.topicPartitionPartitions =
+                                P.mkKafkaArray (V.fromList ps)
+                            }
+                        | (t, ps) <- byTopic
+                        ]
+                  , CPA.consumerProtocolAssignmentUserData = P.mkKafkaBytes BS.empty
+                  }
+                !body = WC.runEncodeVer @CPA.ConsumerProtocolAssignment assignmentVersion msg
+                !vHi = fromIntegral (assignmentVersion `shiftR` 8) :: Word8
+                !vLo = fromIntegral (assignmentVersion .&. 0xff)   :: Word8
+            in BS.cons vHi (BS.cons vLo body)
+      pure [ (mid, assignmentBytes byTopic) | (mid, byTopic) <- perMember ]
 
     -- After SyncGroup we know the partitions assigned to *us*. For
     -- each one, look up its committed offset; if missing, fall back to
@@ -325,16 +343,123 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
         [] -> pure (Right [])
         _  -> do
           cid <- nextCorrId
-          fetchR <- offsetFetchAll versionCache coordAddr coordConn
+          fetchR <- offsetFetchAll versionCache connMgr coordAddr coordConn
                        clientId groupId tps cid
           case fetchR of
             Left err -> pure (Left (SubscribeOffsetFetch err))
             Right committed -> do
-              let resolved =
-                    [ (tp, fromMaybe (resetSentinel resetPolicy) (Map.lookup tp committed))
-                    | tp <- tps
-                    ]
-              pure (Right resolved)
+              -- Partitions with a stored commit reuse it.  The
+              -- rest fall back to the @auto.offset.reset@ policy:
+              -- ResetEarliest/ResetLatest issue a ListOffsets
+              -- query (so the consumer starts from the actual
+              -- log-start / log-end offset, not the broker-
+              -- rejected sentinel '0'), ResetNone defaults to 0
+              -- (callers that care will get OffsetOutOfRange on
+              -- first fetch and decide what to do).
+              let needsReset = [ tp | tp <- tps, not (Map.member tp committed) ]
+              resetMap <- case (resetPolicy, needsReset) of
+                (_, [])           -> pure (Right Map.empty)
+                (ResetNone, _)    -> pure (Right Map.empty)
+                (ResetEarliest, _) ->
+                  resolveByListOffsets needsReset (-2 :: Int64)
+                (ResetLatest, _)   ->
+                  resolveByListOffsets needsReset (-1 :: Int64)
+              case resetMap of
+                Left e -> pure (Left (SubscribeOther e))
+                Right rm -> do
+                  let resolved =
+                        [ (tp, fromMaybe (Map.findWithDefault 0 tp rm)
+                                 (Map.lookup tp committed))
+                        | tp <- tps
+                        ]
+                  pure (Right resolved)
+
+    -- | Issue a single ListOffsets request to any known broker
+    -- (the broker forwards to the per-partition leader internally)
+    -- to resolve a 'auto.offset.reset' fall-back to a real offset.
+    resolveByListOffsets
+      :: [TopicPartition]
+      -> Int64                  -- ^ -2 for earliest, -1 for latest
+      -> IO (Either String (Map.Map TopicPartition Int64))
+    resolveByListOffsets tps timestamp = do
+      brokersM <- atomically $ Meta.getAllBrokers metaCache
+      case brokersM of
+        Just (b:_) -> do
+          let addr = Meta.brokerMetaAddress b
+          connRes <- Conn.getOrCreateConnection connMgr addr connConfig
+          case connRes of
+            Left err  -> pure (Left ("ListOffsets connect: " <> err))
+            Right c   -> doListOffsets addr c tps timestamp
+        _ -> pure (Left "no brokers in metadata cache")
+
+    doListOffsets brokerAddr conn tps timestamp = do
+      cid <- nextCorrId
+      let apiKey = 2  -- ListOffsets
+      -- Cap at v8 like the Consumer.queryPartitionOffsets path,
+      -- for the same reason: v9+ requires KIP-405 tiered storage
+      -- which 3.7's default builds don't enable.
+      verR <- VN.pickApiVersionForRange @LOReq.ListOffsetsRequest
+                0 8 versionCache brokerAddr 1
+      let apiVersion = case verR of
+            Right v -> v
+            Left  _ -> 1
+          byTopic = Map.fromListWith (++)
+                      [ (tpTopic tp, [tpPartition tp]) | tp <- tps ]
+          topics = V.fromList
+            [ LOReq.ListOffsetsTopic
+                { LOReq.listOffsetsTopicName = P.mkKafkaString topic
+                , LOReq.listOffsetsTopicPartitions = P.mkKafkaArray $
+                    V.fromList
+                      [ LOReq.ListOffsetsPartition
+                          { LOReq.listOffsetsPartitionPartitionIndex = pid
+                          , LOReq.listOffsetsPartitionCurrentLeaderEpoch = -1
+                          , LOReq.listOffsetsPartitionTimestamp = timestamp
+                          }
+                      | pid <- pids
+                      ]
+                }
+            | (topic, pids) <- Map.toList byTopic
+            ]
+          request = LOReq.ListOffsetsRequest
+            { LOReq.listOffsetsRequestReplicaId = -1
+            , LOReq.listOffsetsRequestIsolationLevel = 0
+            , LOReq.listOffsetsRequestTopics = P.mkKafkaArray topics
+            , LOReq.listOffsetsRequestTimeoutMs = 30000
+            }
+          requestBody = WC.runEncodeVer @LOReq.ListOffsetsRequest apiVersion request
+          clientIdK   = P.mkKafkaString clientId
+      r <- Req.sendRequestReceiveResponseLocked
+             (Conn.withBrokerLock connMgr brokerAddr)
+             conn apiKey apiVersion cid clientIdK requestBody
+      case r of
+        Left err -> pure (Left ("ListOffsets: " <> err))
+        Right (_, body) ->
+          case WC.runDecodeVer @LOResp.ListOffsetsResponse apiVersion body of
+            Left err -> pure (Left ("decode ListOffsets: " <> err))
+            Right resp ->
+              let !pairs = case P.unKafkaArray (LOResp.listOffsetsResponseTopics resp) of
+                    P.Null         -> []
+                    P.NotNull tvec ->
+                      concatMap
+                        (\tr ->
+                           let topic = case P.unKafkaString
+                                          (LOResp.listOffsetsTopicResponseName tr) of
+                                 P.Null      -> T.empty
+                                 P.NotNull t -> t
+                               partsVec = case P.unKafkaArray
+                                            (LOResp.listOffsetsTopicResponsePartitions tr) of
+                                 P.Null      -> V.empty
+                                 P.NotNull v -> v
+                           in [ (TopicPartition topic pid, off)
+                              | pr <- V.toList partsVec
+                              , let pid = LOResp.listOffsetsPartitionResponsePartitionIndex pr
+                                    off = LOResp.listOffsetsPartitionResponseOffset pr
+                                    ec  = LOResp.listOffsetsPartitionResponseErrorCode pr
+                              , ec == 0
+                              , off >= 0
+                              ])
+                        (V.toList tvec)
+              in pure (Right (Map.fromList pairs))
 
 -- | Dispatch on 'Assignor'. The third argument is the previous
 -- generation's assignment (if any), which only the sticky assignor
@@ -633,22 +758,37 @@ encodeSubscriptionWithOwned
   -> [(Text, [Int32])]      -- ^ owned partitions: @(topic, [pid])@
   -> BS.ByteString
 encodeSubscriptionWithOwned topics userData owned =
-  runPutS $ CPS.encodeConsumerProtocolSubscription consumerProtocolVersion $
-    CPS.ConsumerProtocolSubscription
-      { CPS.consumerProtocolSubscriptionTopics =
-          P.mkKafkaArray $ V.fromList (map P.mkKafkaString topics)
-      , CPS.consumerProtocolSubscriptionUserData = P.mkKafkaBytes userData
-      , CPS.consumerProtocolSubscriptionOwnedPartitions =
-          P.mkKafkaArray $ V.fromList
-            [ CPS.TopicPartition
-                { CPS.topicPartitionTopic = P.mkKafkaString t
-                , CPS.topicPartitionPartitions = P.mkKafkaArray (V.fromList ps)
-                }
-            | (t, ps) <- owned
-            ]
-      , CPS.consumerProtocolSubscriptionGenerationId = -1
-      , CPS.consumerProtocolSubscriptionRackId = P.KafkaString P.Null
-      }
+  -- The JoinGroup 'protocols[].metadata' field is the
+  -- /serialised ConsumerProtocolSubscription/ as the JVM client
+  -- writes it (org.apache.kafka.clients.consumer.internals.
+  -- ConsumerProtocol#serializeSubscription) — a two-byte
+  -- big-endian version header followed by the version-specific
+  -- subscription body. The version header is what tells the
+  -- broker (and any peer member that reads our subscription)
+  -- which schema version to decode against; without it the
+  -- broker reads the first two bytes of the topics-array
+  -- length as the version, sees a non-existent vNNN, and silently
+  -- ignores the rebalance-completion path — the JoinGroup just
+  -- hangs in PreparingRebalance until the rebalance timeout.
+  let !body = WC.runEncodeVer @CPS.ConsumerProtocolSubscription consumerProtocolVersion $
+        CPS.ConsumerProtocolSubscription
+          { CPS.consumerProtocolSubscriptionTopics =
+              P.mkKafkaArray $ V.fromList (map P.mkKafkaString topics)
+          , CPS.consumerProtocolSubscriptionUserData = P.mkKafkaBytes userData
+          , CPS.consumerProtocolSubscriptionOwnedPartitions =
+              P.mkKafkaArray $ V.fromList
+                [ CPS.TopicPartition
+                    { CPS.topicPartitionTopic = P.mkKafkaString t
+                    , CPS.topicPartitionPartitions = P.mkKafkaArray (V.fromList ps)
+                    }
+                | (t, ps) <- owned
+                ]
+          , CPS.consumerProtocolSubscriptionGenerationId = -1
+          , CPS.consumerProtocolSubscriptionRackId = P.KafkaString P.Null
+          }
+      !versionHi = fromIntegral (consumerProtocolVersion `shiftR` 8) :: Word8
+      !versionLo = fromIntegral (consumerProtocolVersion .&. 0xff)   :: Word8
+  in BS.cons versionHi (BS.cons versionLo body)
 
 -- | Subscription metadata schema version we negotiate. v1
 -- introduced @ownedPartitions@ (KIP-341), needed for sticky and
@@ -672,8 +812,19 @@ decodeSubscription bs =
 decodeSubscriptionFull
   :: BS.ByteString
   -> Either String ([Text], BS.ByteString, [(Text, [Int32])])
-decodeSubscriptionFull bs =
-  case runGetS (CPS.decodeConsumerProtocolSubscription consumerProtocolVersion) bs of
+decodeSubscriptionFull rawBs =
+  -- Symmetric to 'encodeSubscriptionWithOwned': skip the
+  -- two-byte version header before handing the body to the
+  -- ConsumerProtocolSubscription decoder. Use the embedded
+  -- version (not 'consumerProtocolVersion') so a peer that
+  -- speaks an older subscription schema still decodes
+  -- correctly.
+  let (verBs, body) = BS.splitAt 2 rawBs
+      msgVer = if BS.length verBs == 2
+                  then fromIntegral (BS.index verBs 0) `shiftL` 8
+                       .|. fromIntegral (BS.index verBs 1)
+                  else consumerProtocolVersion
+  in case WC.runDecodeVer @CPS.ConsumerProtocolSubscription msgVer body of
     Left err -> Left err
     Right s ->
       let topicsArr = case P.unKafkaArray (CPS.consumerProtocolSubscriptionTopics s) of
@@ -697,8 +848,16 @@ decodeSubscriptionFull bs =
 
 -- | Decode the per-member SyncGroup assignment payload.
 decodeAssignment :: BS.ByteString -> Either String [(Text, [Int32])]
-decodeAssignment bs =
-  case runGetS (CPA.decodeConsumerProtocolAssignment 0) bs of
+decodeAssignment rawBs =
+  -- Symmetric to 'assignmentBytes' above: skip the two-byte
+  -- version header, then decode the body at the embedded
+  -- version.
+  let (verBs, body) = BS.splitAt 2 rawBs
+      msgVer = if BS.length verBs == 2
+                  then fromIntegral (BS.index verBs 0) `shiftL` 8
+                       .|. fromIntegral (BS.index verBs 1)
+                  else 0
+  in case WC.runDecodeVer @CPA.ConsumerProtocolAssignment msgVer body of
     Left err -> Left err
     Right a ->
       let parts = case P.unKafkaArray (CPA.consumerProtocolAssignmentAssignedPartitions a) of
@@ -719,6 +878,7 @@ decodeAssignment bs =
 -- consumer's reset policy).
 offsetFetchAll
   :: AV.ApiVersionCache
+  -> Conn.ConnectionManager
   -> BrokerAddress
   -> Conn.Connection
   -> Text                  -- ^ clientId
@@ -726,7 +886,7 @@ offsetFetchAll
   -> [TopicPartition]
   -> Int32                 -- ^ correlation id
   -> IO (Either String (Map.Map TopicPartition Int64))
-offsetFetchAll versionCache coordAddr conn clientId groupId tps corrId = do
+offsetFetchAll versionCache connMgr coordAddr conn clientId groupId tps corrId = do
   let apiKey           = 9
       clientMaxVersion = 5
   brokerVersionM <- atomically $ AV.queryApiVersion versionCache coordAddr apiKey
@@ -750,13 +910,14 @@ offsetFetchAll versionCache coordAddr conn clientId groupId tps corrId = do
         , OFReq.offsetFetchRequestGroups  = P.mkKafkaArray V.empty
         , OFReq.offsetFetchRequestRequireStable = False
         }
-      requestBody = runPutS $ OFReq.encodeOffsetFetchRequest apiVersion request
+      requestBody = WC.runEncodeVer @OFReq.OffsetFetchRequest apiVersion request
       clientIdK   = P.mkKafkaString clientId
-  result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdK requestBody
+  result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock connMgr coordAddr)
+              conn apiKey apiVersion corrId clientIdK requestBody
   case result of
     Left err -> pure (Left err)
     Right (_, body) ->
-      case runGetS (OFResp.decodeOffsetFetchResponse apiVersion) body of
+      case WC.runDecodeVer @OFResp.OffsetFetchResponse apiVersion body of
         Left err -> pure (Left ("decode OffsetFetch: " <> err))
         Right resp ->
           let topicsList = case P.unKafkaArray (OFResp.offsetFetchResponseTopics resp) of

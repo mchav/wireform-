@@ -128,7 +128,7 @@ createFetchRequest numTopics numPartitions =
         , Fetch.fetchPartitionLogStartOffset = -1
         , Fetch.fetchPartitionPartitionMaxBytes = 1048576
         , Fetch.fetchPartitionReplicaDirectoryId = P.nullUuid
-        , Fetch.fetchPartitionHighWatermark = -1
+        , Fetch.fetchPartitionHighWatermark      = -1
         }
     
     mkTopicName :: Int -> P.KafkaString

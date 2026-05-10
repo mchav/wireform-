@@ -12,7 +12,7 @@ Kafka request for API key 63.
 
 
 
-Valid versions: 0-1
+Valid versions: 0-2
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -21,15 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.BrokerHeartbeatRequest
   (
     BrokerHeartbeatRequest(..),
-    encodeBrokerHeartbeatRequest,
-    decodeBrokerHeartbeatRequest,
     maxBrokerHeartbeatRequestVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -37,13 +31,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -85,82 +86,117 @@ data BrokerHeartbeatRequest = BrokerHeartbeatRequest
 
   -- Versions: 1+
   brokerHeartbeatRequestOfflineLogDirs :: !(KafkaArray (KafkaUuid))
+,
+
+  -- | List of log directories that are cordoned. This is null before the broker reaches the RECOVERY state
+
+  -- Versions: 2+
+  brokerHeartbeatRequestCordonedLogDirs :: !(KafkaArray (KafkaUuid))
 
   }
   deriving (Eq, Show, Generic)
 
 -- | Maximum supported version for BrokerHeartbeatRequest.
 maxBrokerHeartbeatRequestVersion :: Int16
-maxBrokerHeartbeatRequestVersion = 1
+maxBrokerHeartbeatRequestVersion = 2
 
--- | Encode BrokerHeartbeatRequest with the given API version.
-encodeBrokerHeartbeatRequest :: MonadPut m => E.ApiVersion -> BrokerHeartbeatRequest -> m ()
-encodeBrokerHeartbeatRequest version msg
-  | version == 0 =
-    do
-      serialize (brokerHeartbeatRequestBrokerId msg)
-      serialize (brokerHeartbeatRequestBrokerEpoch msg)
-      serialize (brokerHeartbeatRequestCurrentMetadataOffset msg)
-      serialize (brokerHeartbeatRequestWantFence msg)
-      serialize (brokerHeartbeatRequestWantShutDown msg)
-      serialize (emptyTaggedFields :: TaggedFields)
+-- | KafkaMessage instance for BrokerHeartbeatRequest.
+instance KafkaMessage BrokerHeartbeatRequest where
+  messageApiKey = 63
+  messageMinVersion = 0
+  messageMaxVersion = 2
+  messageFlexibleVersion = Just 0
 
-  | version == 1 =
-    do
-      serialize (brokerHeartbeatRequestBrokerId msg)
-      serialize (brokerHeartbeatRequestBrokerEpoch msg)
-      serialize (brokerHeartbeatRequestCurrentMetadataOffset msg)
-      serialize (brokerHeartbeatRequestWantFence msg)
-      serialize (brokerHeartbeatRequestWantShutDown msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
 
--- | Decode BrokerHeartbeatRequest with the given API version.
-decodeBrokerHeartbeatRequest :: MonadGet m => E.ApiVersion -> m BrokerHeartbeatRequest
-decodeBrokerHeartbeatRequest version
-  | version == 0 =
-    do
-      fieldbrokerid <- deserialize
-      fieldbrokerepoch <- deserialize
-      fieldcurrentmetadataoffset <- deserialize
-      fieldwantfence <- deserialize
-      fieldwantshutdown <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure BrokerHeartbeatRequest
-        {
-        brokerHeartbeatRequestBrokerId = fieldbrokerid
-        ,
-        brokerHeartbeatRequestBrokerEpoch = fieldbrokerepoch
-        ,
-        brokerHeartbeatRequestCurrentMetadataOffset = fieldcurrentmetadataoffset
-        ,
-        brokerHeartbeatRequestWantFence = fieldwantfence
-        ,
-        brokerHeartbeatRequestWantShutDown = fieldwantshutdown
-        ,
-        brokerHeartbeatRequestOfflineLogDirs = P.mkKafkaArray V.empty
-        }
+-- | Worst-case wire size of a BrokerHeartbeatRequest.
+wireMaxSizeBrokerHeartbeatRequest :: Int -> BrokerHeartbeatRequest -> Int
+wireMaxSizeBrokerHeartbeatRequest _version msg =
+  0
+  + 4
+  + 8
+  + 8
+  + 1
+  + 1
+  + (5 + (case P.unKafkaArray (brokerHeartbeatRequestOfflineLogDirs msg) of { P.NotNull v -> sum (fmap (\x -> 16 ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (brokerHeartbeatRequestCordonedLogDirs msg) of { P.NotNull v -> sum (fmap (\x -> 16 ) v); P.Null -> 0 }))
+  + 1
 
-  | version == 1 =
-    do
-      fieldbrokerid <- deserialize
-      fieldbrokerepoch <- deserialize
-      fieldcurrentmetadataoffset <- deserialize
-      fieldwantfence <- deserialize
-      fieldwantshutdown <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure BrokerHeartbeatRequest
-        {
-        brokerHeartbeatRequestBrokerId = fieldbrokerid
-        ,
-        brokerHeartbeatRequestBrokerEpoch = fieldbrokerepoch
-        ,
-        brokerHeartbeatRequestCurrentMetadataOffset = fieldcurrentmetadataoffset
-        ,
-        brokerHeartbeatRequestWantFence = fieldwantfence
-        ,
-        brokerHeartbeatRequestWantShutDown = fieldwantshutdown
-        ,
-        brokerHeartbeatRequestOfflineLogDirs = P.mkKafkaArray V.empty
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Direct-poke encoder for BrokerHeartbeatRequest.
+wirePokeBrokerHeartbeatRequest :: Int -> Ptr Word8 -> BrokerHeartbeatRequest -> IO (Ptr Word8)
+wirePokeBrokerHeartbeatRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (brokerHeartbeatRequestBrokerId msg)
+    p2 <- W.pokeInt64BE p1 (brokerHeartbeatRequestBrokerEpoch msg)
+    p3 <- W.pokeInt64BE p2 (brokerHeartbeatRequestCurrentMetadataOffset msg)
+    p4 <- W.pokeWord8 p3 (if (brokerHeartbeatRequestWantFence msg) then 1 else 0)
+    p5 <- W.pokeWord8 p4 (if (brokerHeartbeatRequestWantShutDown msg) then 1 else 0)
+    let !_taggedEntries = (if version >= 1 then [(0, W.runWirePokeWith (5 + (case P.unKafkaArray (brokerHeartbeatRequestOfflineLogDirs msg) of { P.NotNull v -> sum (fmap (\x -> 16) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray WP.pokeKafkaUuid p (brokerHeartbeatRequestOfflineLogDirs msg)))] else []) ++ (if version >= 2 then [(1, W.runWirePokeWith (5 + (case P.unKafkaArray (brokerHeartbeatRequestCordonedLogDirs msg) of { P.NotNull v -> sum (fmap (\x -> 16) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray WP.pokeKafkaUuid p (brokerHeartbeatRequestCordonedLogDirs msg)))] else [])
+    WP.pokeTaggedFieldEntries p5 _taggedEntries
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (brokerHeartbeatRequestBrokerId msg)
+    p2 <- W.pokeInt64BE p1 (brokerHeartbeatRequestBrokerEpoch msg)
+    p3 <- W.pokeInt64BE p2 (brokerHeartbeatRequestCurrentMetadataOffset msg)
+    p4 <- W.pokeWord8 p3 (if (brokerHeartbeatRequestWantFence msg) then 1 else 0)
+    p5 <- W.pokeWord8 p4 (if (brokerHeartbeatRequestWantShutDown msg) then 1 else 0)
+    let !_taggedEntries = (if version >= 1 then [(0, W.runWirePokeWith (5 + (case P.unKafkaArray (brokerHeartbeatRequestOfflineLogDirs msg) of { P.NotNull v -> sum (fmap (\x -> 16) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray WP.pokeKafkaUuid p (brokerHeartbeatRequestOfflineLogDirs msg)))] else []) ++ (if version >= 2 then [(1, W.runWirePokeWith (5 + (case P.unKafkaArray (brokerHeartbeatRequestCordonedLogDirs msg) of { P.NotNull v -> sum (fmap (\x -> 16) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray WP.pokeKafkaUuid p (brokerHeartbeatRequestCordonedLogDirs msg)))] else [])
+    WP.pokeTaggedFieldEntries p5 _taggedEntries
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (brokerHeartbeatRequestBrokerId msg)
+    p2 <- W.pokeInt64BE p1 (brokerHeartbeatRequestBrokerEpoch msg)
+    p3 <- W.pokeInt64BE p2 (brokerHeartbeatRequestCurrentMetadataOffset msg)
+    p4 <- W.pokeWord8 p3 (if (brokerHeartbeatRequestWantFence msg) then 1 else 0)
+    p5 <- W.pokeWord8 p4 (if (brokerHeartbeatRequestWantShutDown msg) then 1 else 0)
+    let !_taggedEntries = (if version >= 1 then [(0, W.runWirePokeWith (5 + (case P.unKafkaArray (brokerHeartbeatRequestOfflineLogDirs msg) of { P.NotNull v -> sum (fmap (\x -> 16) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray WP.pokeKafkaUuid p (brokerHeartbeatRequestOfflineLogDirs msg)))] else []) ++ (if version >= 2 then [(1, W.runWirePokeWith (5 + (case P.unKafkaArray (brokerHeartbeatRequestCordonedLogDirs msg) of { P.NotNull v -> sum (fmap (\x -> 16) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray WP.pokeKafkaUuid p (brokerHeartbeatRequestCordonedLogDirs msg)))] else [])
+    WP.pokeTaggedFieldEntries p5 _taggedEntries
+  | otherwise = error $ "wirePoke BrokerHeartbeatRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for BrokerHeartbeatRequest.
+wirePeekBrokerHeartbeatRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (BrokerHeartbeatRequest, Ptr Word8)
+wirePeekBrokerHeartbeatRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
+    (f1_brokerepoch, p2) <- W.peekInt64BE p1 endPtr
+    (f2_currentmetadataoffset, p3) <- W.peekInt64BE p2 endPtr
+    (f3_wantfence, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+    (f4_wantshutdown, p5) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr
+    (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p5 endPtr
+    let !_tag_offlinelogdirs = if version >= 1 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray WP.peekKafkaUuid p e)) _bs of { Right _v -> _v ; Left _ -> P.mkKafkaArray V.empty}; Nothing -> P.mkKafkaArray V.empty} else P.mkKafkaArray V.empty
+    let !_tag_cordonedlogdirs = if version >= 2 then case Data.Map.Strict.lookup 1 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray WP.peekKafkaUuid p e)) _bs of { Right _v -> _v ; Left _ -> P.KafkaArray P.Null}; Nothing -> P.KafkaArray P.Null} else P.KafkaArray P.Null
+    pure (BrokerHeartbeatRequest { brokerHeartbeatRequestBrokerId = f0_brokerid, brokerHeartbeatRequestBrokerEpoch = f1_brokerepoch, brokerHeartbeatRequestCurrentMetadataOffset = f2_currentmetadataoffset, brokerHeartbeatRequestWantFence = f3_wantfence, brokerHeartbeatRequestWantShutDown = f4_wantshutdown, brokerHeartbeatRequestOfflineLogDirs = _tag_offlinelogdirs, brokerHeartbeatRequestCordonedLogDirs = _tag_cordonedlogdirs }, pTagsEnd)
+  | version == 1 = do
+    (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
+    (f1_brokerepoch, p2) <- W.peekInt64BE p1 endPtr
+    (f2_currentmetadataoffset, p3) <- W.peekInt64BE p2 endPtr
+    (f3_wantfence, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+    (f4_wantshutdown, p5) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr
+    (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p5 endPtr
+    let !_tag_offlinelogdirs = if version >= 1 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray WP.peekKafkaUuid p e)) _bs of { Right _v -> _v ; Left _ -> P.mkKafkaArray V.empty}; Nothing -> P.mkKafkaArray V.empty} else P.mkKafkaArray V.empty
+    let !_tag_cordonedlogdirs = if version >= 2 then case Data.Map.Strict.lookup 1 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray WP.peekKafkaUuid p e)) _bs of { Right _v -> _v ; Left _ -> P.KafkaArray P.Null}; Nothing -> P.KafkaArray P.Null} else P.KafkaArray P.Null
+    pure (BrokerHeartbeatRequest { brokerHeartbeatRequestBrokerId = f0_brokerid, brokerHeartbeatRequestBrokerEpoch = f1_brokerepoch, brokerHeartbeatRequestCurrentMetadataOffset = f2_currentmetadataoffset, brokerHeartbeatRequestWantFence = f3_wantfence, brokerHeartbeatRequestWantShutDown = f4_wantshutdown, brokerHeartbeatRequestOfflineLogDirs = _tag_offlinelogdirs, brokerHeartbeatRequestCordonedLogDirs = _tag_cordonedlogdirs }, pTagsEnd)
+  | version == 2 = do
+    (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
+    (f1_brokerepoch, p2) <- W.peekInt64BE p1 endPtr
+    (f2_currentmetadataoffset, p3) <- W.peekInt64BE p2 endPtr
+    (f3_wantfence, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+    (f4_wantshutdown, p5) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr
+    (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p5 endPtr
+    let !_tag_offlinelogdirs = if version >= 1 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray WP.peekKafkaUuid p e)) _bs of { Right _v -> _v ; Left _ -> P.mkKafkaArray V.empty}; Nothing -> P.mkKafkaArray V.empty} else P.mkKafkaArray V.empty
+    let !_tag_cordonedlogdirs = if version >= 2 then case Data.Map.Strict.lookup 1 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray WP.peekKafkaUuid p e)) _bs of { Right _v -> _v ; Left _ -> P.KafkaArray P.Null}; Nothing -> P.KafkaArray P.Null} else P.KafkaArray P.Null
+    pure (BrokerHeartbeatRequest { brokerHeartbeatRequestBrokerId = f0_brokerid, brokerHeartbeatRequestBrokerEpoch = f1_brokerepoch, brokerHeartbeatRequestCurrentMetadataOffset = f2_currentmetadataoffset, brokerHeartbeatRequestWantFence = f3_wantfence, brokerHeartbeatRequestWantShutDown = f4_wantshutdown, brokerHeartbeatRequestOfflineLogDirs = _tag_offlinelogdirs, brokerHeartbeatRequestCordonedLogDirs = _tag_cordonedlogdirs }, pTagsEnd)
+  | otherwise = error $ "wirePeek BrokerHeartbeatRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec BrokerHeartbeatRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeBrokerHeartbeatRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeBrokerHeartbeatRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekBrokerHeartbeatRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

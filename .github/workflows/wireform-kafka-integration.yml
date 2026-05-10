@@ -1,0 +1,98 @@
+name: wireform-kafka integration
+
+on:
+  pull_request:
+    paths:
+      - 'wireform-kafka/**'
+      - '.github/workflows/wireform-kafka-integration.yml'
+  push:
+    branches:
+      - main
+
+# Live-broker integration suite for wireform-kafka. Runs against a
+# Docker'd KRaft Kafka 3.7 broker spun up via
+# wireform-kafka/test-integration/docker-compose.yml.
+
+jobs:
+  integration:
+    name: integration (GHC ${{ matrix.ghc }}, Kafka ${{ matrix.kafka }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc: ['9.6.4', '9.8.4', '9.10.1']
+        kafka: ['3.7.0']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GHC ${{ matrix.ghc }}
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          cabal-version: 'latest'
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsnappy-dev liblz4-dev libzstd-dev
+
+      - name: Cabal cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cabal/store
+            dist-newstyle
+          key: ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-${{ hashFiles('cabal.project', 'wireform-kafka/wireform-kafka.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-
+
+      - name: Build wireform-kafka + integration
+        run: |
+          cabal update
+          cabal build \
+            wireform-kafka:wireform-kafka-test \
+            wireform-kafka:wireform-kafka-integration \
+            wireform-kafka:wireform-kafka-streams-integration
+
+      - name: Run in-process tests (no broker)
+        run: |
+          cabal test wireform-kafka:wireform-kafka-test \
+                     wireform-kafka:wireform-kafka-streams-test \
+            --test-show-details=streaming
+
+      - name: Spin up Kafka ${{ matrix.kafka }}
+        run: |
+          docker compose -f wireform-kafka/test-integration/docker-compose.yml up -d
+          # Wait for the broker to become ready.
+          for i in $(seq 1 30); do
+            if docker compose -f wireform-kafka/test-integration/docker-compose.yml \
+                 exec -T kafka kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
+              echo "Kafka is ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Pre-create topics for transactional spec
+        run: |
+          docker compose -f wireform-kafka/test-integration/docker-compose.yml \
+            exec -T kafka kafka-topics --bootstrap-server localhost:9092 \
+              --create --if-not-exists --topic wireform-kafka-txn-source \
+              --partitions 1 --replication-factor 1
+          docker compose -f wireform-kafka/test-integration/docker-compose.yml \
+            exec -T kafka kafka-topics --bootstrap-server localhost:9092 \
+              --create --if-not-exists --topic wireform-kafka-txn-sink \
+              --partitions 1 --replication-factor 1
+
+      - name: Run live-broker integration suite
+        env:
+          WIREFORM_KAFKA_BROKER: 'localhost:9092'
+        run: |
+          cabal test wireform-kafka:wireform-kafka-integration \
+                     wireform-kafka:wireform-kafka-streams-integration \
+            --test-show-details=streaming
+
+      - name: Tear down Kafka
+        if: always()
+        run: |
+          docker compose -f wireform-kafka/test-integration/docker-compose.yml down -v

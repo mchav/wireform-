@@ -22,15 +22,9 @@ module Kafka.Protocol.Generated.ListConfigResourcesResponse
   (
     ListConfigResourcesResponse(..),
     ConfigResource(..),
-    encodeListConfigResourcesResponse,
-    decodeListConfigResourcesResponse,
     maxListConfigResourcesResponseVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -38,13 +32,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Each config resource in the response.
@@ -64,34 +65,6 @@ data ConfigResource = ConfigResource
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode ConfigResource with version-aware field handling.
-encodeConfigResource :: MonadPut m => E.ApiVersion -> ConfigResource -> m ()
-encodeConfigResource version cmsg =
-  do
-    if version >= 0 then serialize (toCompactString (configResourceResourceName cmsg)) else serialize (configResourceResourceName cmsg)
-    when (version >= 1) $
-      serialize (configResourceResourceType cmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ConfigResource with version-aware field handling.
-decodeConfigResource :: MonadGet m => E.ApiVersion -> m ConfigResource
-decodeConfigResource version =
-  do
-    fieldresourcename <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldresourcetype <- if version >= 1
-      then deserialize
-      else pure (16)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ConfigResource
-      {
-      configResourceResourceName = fieldresourcename
-      ,
-      configResourceResourceType = fieldresourcetype
-      }
-
 
 
 data ListConfigResourcesResponse = ListConfigResourcesResponse
@@ -121,32 +94,82 @@ data ListConfigResourcesResponse = ListConfigResourcesResponse
 maxListConfigResourcesResponseVersion :: Int16
 maxListConfigResourcesResponseVersion = 1
 
--- | Encode ListConfigResourcesResponse with the given API version.
-encodeListConfigResourcesResponse :: MonadPut m => E.ApiVersion -> ListConfigResourcesResponse -> m ()
-encodeListConfigResourcesResponse version msg
-  | version >= 0 && version <= 1 =
-    do
-      serialize (listConfigResourcesResponseThrottleTimeMs msg)
-      serialize (listConfigResourcesResponseErrorCode msg)
-      E.encodeVersionedArray version 0 encodeConfigResource (case P.unKafkaArray (listConfigResourcesResponseConfigResources msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
+-- | KafkaMessage instance for ListConfigResourcesResponse.
+instance KafkaMessage ListConfigResourcesResponse where
+  messageApiKey = 74
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 0
 
--- | Decode ListConfigResourcesResponse with the given API version.
-decodeListConfigResourcesResponse :: MonadGet m => E.ApiVersion -> m ListConfigResourcesResponse
-decodeListConfigResourcesResponse version
-  | version >= 0 && version <= 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldconfigresources <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeConfigResource
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ListConfigResourcesResponse
-        {
-        listConfigResourcesResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        listConfigResourcesResponseErrorCode = fielderrorcode
-        ,
-        listConfigResourcesResponseConfigResources = fieldconfigresources
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Worst-case wire size of a ConfigResource.
+wireMaxSizeConfigResource :: Int -> ConfigResource -> Int
+wireMaxSizeConfigResource _version msg =
+  0
+  + WP.dualStringMaxSize (configResourceResourceName msg)
+  + 1
+  + 1
+
+-- | Direct-poke encoder for ConfigResource.
+wirePokeConfigResource :: Int -> Ptr Word8 -> ConfigResource -> IO (Ptr Word8)
+wirePokeConfigResource version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (configResourceResourceName msg)) else WP.pokeKafkaString p0 (configResourceResourceName msg))
+  p2 <- (if version >= 1 then W.pokeWord8 p1 (fromIntegral (configResourceResourceType msg)) else pure p1)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for ConfigResource.
+wirePeekConfigResource :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ConfigResource, Ptr Word8)
+wirePeekConfigResource version _fp _basePtr p0 endPtr = do
+  (f0_resourcename, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_resourcetype, p2) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (16, p1))
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (ConfigResource { configResourceResourceName = f0_resourcename, configResourceResourceType = f1_resourcetype }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultConfigResource :: ConfigResource
+defaultConfigResource = ConfigResource { configResourceResourceName = P.KafkaString Null, configResourceResourceType = 16 }
+
+-- | Worst-case wire size of a ListConfigResourcesResponse.
+wireMaxSizeListConfigResourcesResponse :: Int -> ListConfigResourcesResponse -> Int
+wireMaxSizeListConfigResourcesResponse _version msg =
+  0
+  + 4
+  + 2
+  + (5 + (case P.unKafkaArray (listConfigResourcesResponseConfigResources msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeConfigResource _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ListConfigResourcesResponse.
+wirePokeListConfigResourcesResponse :: Int -> Ptr Word8 -> ListConfigResourcesResponse -> IO (Ptr Word8)
+wirePokeListConfigResourcesResponse version basePtr msg
+  | version >= 0 && version <= 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (listConfigResourcesResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (listConfigResourcesResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeConfigResource version p x) p2 (listConfigResourcesResponseConfigResources msg)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke ListConfigResourcesResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ListConfigResourcesResponse.
+wirePeekListConfigResourcesResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListConfigResourcesResponse, Ptr Word8)
+wirePeekListConfigResourcesResponse version _fp _basePtr p0 endPtr
+  | version >= 0 && version <= 1 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_configresources, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekConfigResource version _fp _basePtr p e) p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (ListConfigResourcesResponse { listConfigResourcesResponseThrottleTimeMs = f0_throttletimems, listConfigResourcesResponseErrorCode = f1_errorcode, listConfigResourcesResponseConfigResources = f2_configresources }, pTagsEnd)
+  | otherwise = error $ "wirePeek ListConfigResourcesResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec ListConfigResourcesResponse where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeListConfigResourcesResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeListConfigResourcesResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekListConfigResourcesResponse (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Client.Simple
@@ -39,26 +40,19 @@ module Kafka.Client.Simple
   , Record(..)
   ) where
 
-import Control.Exception (bracket)
-import Control.Monad (forM)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
-import Data.Bytes.Serial (serialize, deserialize)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int
 import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Time.Clock.POSIX as Time
+import qualified Kafka.Time as KafkaTime
 import qualified Data.Vector as V
 import Data.Word
 import GHC.Generics (Generic)
-import Network.Connection (connectionPut)
 
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Encoding as E
 import qualified Kafka.Protocol.Generated.MetadataRequest as MR
 import qualified Kafka.Protocol.Generated.MetadataResponse as MResp
 import qualified Kafka.Protocol.Generated.ProduceRequest as PReq
@@ -68,6 +62,9 @@ import qualified Kafka.Protocol.Generated.FetchResponse as FResp
 
 import Kafka.Client.Internal.Request
 import qualified Kafka.Protocol.RecordBatch as RB
+import qualified Kafka.Protocol.RecordBatchWire as RBW
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | A simple Kafka client with synchronous operations
 data SimpleClient = SimpleClient
@@ -180,7 +177,7 @@ getMetadata client topicsM = do
         }
       
       apiVersion = 0  -- Use version 0 for maximum compatibility
-      reqBody = runPutS $ MR.encodeMetadataRequest apiVersion req
+      reqBody = WC.runEncodeVer @MR.MetadataRequest apiVersion req
       clientIdStr = P.mkKafkaString $ clientId $ clientConfig client
   
   result <- sendRequestReceiveResponse 
@@ -196,7 +193,7 @@ getMetadata client topicsM = do
     Right (respCorrId, respBody) ->
       if respCorrId /= corrId
         then return $ Left $ "Correlation ID mismatch: expected " ++ show corrId ++ ", got " ++ show respCorrId
-        else case runGetS (MResp.decodeMetadataResponse apiVersion) respBody of
+        else case WC.runDecodeVer @MResp.MetadataResponse apiVersion respBody of
           Left err -> return $ Left $ "Failed to decode metadata response: " ++ err
           Right resp -> do
             let brokers = extractBrokers resp
@@ -262,8 +259,8 @@ produceSimple
   -> ByteString  -- ^ Value
   -> IO (Either String ProduceResult)
 produceSimple client topic partition keyM value = do
-  -- Get current timestamp
-  timestamp <- round . (* 1000) <$> Time.getPOSIXTime
+  -- Get current timestamp via the fast vDSO-coarse clock.
+  timestamp <- KafkaTime.currentTimeMillis
   
   -- Create a single record
   let record = RB.Record
@@ -280,8 +277,7 @@ produceSimple client topic partition keyM value = do
         timestamp       -- Base timestamp
         (V.singleton record)
   
-  -- Encode the batch to bytes
-  let batchBytes = RB.encodeRecordBatch batch
+  let batchBytes = RBW.encodeRecordBatchWire batch
       recordsField = P.mkKafkaBytes batchBytes
   
   -- Create partition data
@@ -308,7 +304,7 @@ produceSimple client topic partition keyM value = do
         }
   
   -- Encode the request body
-  let requestBody = runPutS $ PReq.encodeProduceRequest apiVersion request
+  let requestBody = WC.runEncodeVer @PReq.ProduceRequest apiVersion request
       correlationId = clientCorrelationId client
       clientIdStr = P.mkKafkaString (clientId $ clientConfig client)
   
@@ -327,7 +323,7 @@ produceSimple client topic partition keyM value = do
       if respCorrelationId /= correlationId
         then return $ Left $ "Correlation ID mismatch: expected " ++ 
                              show correlationId ++ ", got " ++ show respCorrelationId
-        else case runGetS (PResp.decodeProduceResponse apiVersion) responseBody of
+        else case WC.runDecodeVer @PResp.ProduceResponse apiVersion responseBody of
           Left err -> return $ Left $ "Failed to decode produce response: " ++ err
           Right response -> do
             -- Extract the result from the response
@@ -394,35 +390,37 @@ decodeRecordBatches kafkaBytes =
     P.NotNull bytes ->
       if BS.null bytes
         then return []
-        else decodeBatches bytes []
+        else decodeBatches bytes ([] :: [[Record]])
   where
-    -- Recursively decode batches from the bytes
-    decodeBatches :: ByteString -> [Record] -> IO [Record]
-    decodeBatches bs acc
-      | BS.null bs = return $ reverse acc  -- Done, return accumulated records
+    -- Recursively decode batches. Accumulate /chunks/ of records in
+    -- reverse order, then 'concat . reverse' once at the end. The
+    -- previous shape did 'batchRecords ++ acc' on every iteration,
+    -- which is O(|acc|) per step and O(n^2) total in record count.
+    decodeBatches :: ByteString -> [[Record]] -> IO [Record]
+    decodeBatches bs chunks
+      | BS.null bs = return $! concat (reverse chunks)
       | otherwise = do
-          -- Try to decode a RecordBatch with decompression
-          result <- RB.decodeRecordBatchWithDecompression bs
+          result <- RBW.decodeRecordBatchWireWithDecompression bs
           case result of
-            Left err -> 
+            Left _err ->
               -- If decode fails, return what we have so far
-              -- (In production, we might want to log this error)
-              return $ reverse acc
+              -- (In production we might want to log this error.)
+              return $! concat (reverse chunks)
             Right batch -> do
-              let batchRecords = convertRecords batch
+              let !batchRecords = convertRecords batch
                   -- Calculate how many bytes this batch consumed
                   -- Base offset (8) + Length field (4) + Length value
-                  batchSize = 8 + 4 + fromIntegral (calculateBatchLength batch)
-                  remaining = BS.drop batchSize bs
-              decodeBatches remaining (batchRecords ++ acc)
+                  !batchSize = 8 + 4 + fromIntegral (calculateBatchLength batch)
+                  !remaining = BS.drop batchSize bs
+              decodeBatches remaining (batchRecords : chunks)
     
     -- Calculate the length field value for a batch (everything after the length field)
     calculateBatchLength :: RB.RecordBatch -> Int32
     calculateBatchLength batch =
-      let encoded = RB.encodeRecordBatch batch
+      let encoded = RBW.encodeRecordBatchWire batch
           -- Skip base offset (8 bytes) to get to length field
           lengthBytes = BS.take 4 $ BS.drop 8 encoded
-      in case runGetS deserialize lengthBytes of
+      in case W.readInt32BE lengthBytes of
           Left _ -> 0
           Right len -> len
 
@@ -465,8 +463,11 @@ fetchSimple client topic partition offset maxBytes = do
         , FR.fetchPartitionLastFetchedEpoch = -1
         , FR.fetchPartitionLogStartOffset = -1
         , FR.fetchPartitionPartitionMaxBytes = maxBytes
-        , FR.fetchPartitionReplicaDirectoryId = P.nullUuid  -- v17+, will be ignored for v11
-        , FR.fetchPartitionHighWatermark = 9223372036854775807  -- v18+, max value means not known
+        , -- New v17+ fields (KIP-853 / KIP-405). We don't track
+          -- replica directory IDs or high watermarks in the simple
+          -- client; the broker accepts the sentinels.
+          FR.fetchPartitionReplicaDirectoryId = P.nullUuid
+        , FR.fetchPartitionHighWatermark = -1
         }
       
       -- Create topic fetch request
@@ -496,7 +497,7 @@ fetchSimple client topic partition offset maxBytes = do
         , FR.fetchRequestRackId = P.KafkaString P.Null
         }
       
-      requestBody = runPutS $ FR.encodeFetchRequest apiVersion request
+      requestBody = WC.runEncodeVer @FR.FetchRequest apiVersion request
       clientIdStr = P.mkKafkaString (clientId $ clientConfig client)
   
   result <- sendRequestReceiveResponse
@@ -512,7 +513,7 @@ fetchSimple client topic partition offset maxBytes = do
     Right (respCorrId, respBody) ->
       if respCorrId /= corrId
         then return $ Left $ "Correlation ID mismatch: expected " ++ show corrId ++ ", got " ++ show respCorrId
-        else case runGetS (FResp.decodeFetchResponse apiVersion) respBody of
+        else case WC.runDecodeVer @FResp.FetchResponse apiVersion respBody of
           Left err -> return $ Left $ "Failed to decode fetch response: " ++ err
           Right response -> do
             -- Extract the records from the response (this performs IO for decompression)

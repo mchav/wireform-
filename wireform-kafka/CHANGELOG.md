@@ -1,4 +1,4 @@
-# Changelog for `kafka-native`
+# Changelog for `wireform-kafka`
 
 All notable changes to this project will be documented in this file.
 
@@ -7,5 +7,3 @@ and this project adheres to the
 [Haskell Package Versioning Policy](https://pvp.haskell.org/).
 
 ## Unreleased
-
-## 0.1.0.0 - YYYY-MM-DD

@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Client.Internal.ProducerSender
@@ -36,6 +37,8 @@ module Kafka.Client.Internal.ProducerSender
   , bumpBatchAttempts
   , batchBackoffMs
   , shouldRetry
+    -- * Pure batch construction (exposed for testing)
+  , buildRecordBatch
     -- * Timeout Checking (KIP-91)
   , isBatchTimedOut
     -- * Configuration
@@ -49,41 +52,38 @@ module Kafka.Client.Internal.ProducerSender
   , silentLogger
   ) where
 
-import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
-import Control.Concurrent.Async (Async, async, wait, cancel)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
-import Control.Exception (SomeException, try, bracket)
-import Control.Monad (forever, when, unless, forM, forM_)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
-import qualified Data.ByteString as BS
-import Data.Foldable (toList)
+import Control.Exception (SomeException, try)
+import Control.Monad (when, forM, forM_)
 import Data.Int
-import qualified Data.Sequence as Seq
 import Data.List (groupBy, sortBy, partition)
+import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Ord (comparing)
-import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Network.Connection (Connection)
-import qualified Data.Time.Clock.POSIX as Time
 import System.IO (hPutStrLn, stderr)
+import qualified Kafka.Time as KafkaTime
 
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Client.Metadata as Meta
-import Kafka.Compression.Types (CompressionCodec)
+import Kafka.Compression.Types (CompressionCodec (NoCompression))
 import qualified Kafka.Network.Connection as Conn
-import Kafka.Network.Connection (BrokerAddress(..))
-import qualified Kafka.Protocol.Encoding as E
+import qualified Kafka.Protocol.ApiVersions as AV
+import qualified Kafka.Protocol.VersionNegotiation as VN
 import qualified Kafka.Protocol.Generated.ProduceRequest as PR
 import qualified Kafka.Protocol.Generated.ProduceResponse as PResp
 import qualified Kafka.Protocol.Primitives as P
 import qualified Kafka.Protocol.RecordBatch as RB
+import qualified Kafka.Protocol.RecordBatchWire as RBW
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Retry configuration for failed sends. Mirrors librdkafka's
 -- @retries@ + @retry.backoff.ms@ + @retry.backoff.max.ms@ +
@@ -190,6 +190,32 @@ data SenderState = SenderState
   , senderLogger :: !Logger
     -- ^ Structured logger callback; invoked on retriable / fatal
     --   produce errors. Defaults to 'defaultLogger'.
+  , senderVersionCache :: !AV.ApiVersionCache
+    -- ^ Per-broker negotiated API version cache. Populated on
+    --   first contact with each leader broker via
+    --   'VN.ensureVersionsNegotiated' so the Produce-version
+    --   selection ('VN.pickApiVersion') matches what the broker
+    --   actually accepts (rather than the hardcoded v3 the
+    --   sender used to emit unconditionally).
+  , senderTransactionalId :: !(TVar (Maybe Text))
+    -- ^ Transactional id the producer is bound to.
+    --
+    -- For transactional sends ('attrIsTransactional == True' on
+    -- the batch) the broker requires the @transactionalId@
+    -- field on the ProduceRequest envelope to match the txn id
+    -- the producer's records claim. Sending @Null@ here makes
+    -- the broker reject the produce with
+    -- @TRANSACTIONAL_ID_AUTHORIZATION_FAILED@ (53) — the
+    -- broker's authorization gate runs before the no-auth
+    -- shortcut, and a null transactionalId on a transactional
+    -- ProduceRequest is, definitionally, unauthorised.
+    --
+    -- 'Nothing' for non-transactional / idempotent-only
+    -- producers; written by 'Producer.bindTransaction' when a
+    -- 'Transaction' is bound. The sender reads this TVar each
+    -- send and folds it into the request, so a producer that
+    -- /unbinds/ a transaction mid-flight stops attaching the
+    -- id from the next send onwards.
   }
 
 -- | Create a new sender state
@@ -202,10 +228,14 @@ createSenderState
   -> Int           -- ^ Delivery timeout (ms) - KIP-91
   -> CompressionCodec
   -> Text         -- ^ Client ID
+  -> AV.ApiVersionCache
+                 -- ^ Per-broker negotiated API-version cache (shared
+                 --   with the producer's bootstrap handshake)
   -> IO SenderState
-createSenderState accumulator metadata connManager retryConfig acks deliveryTimeoutMs compression clientId = do
+createSenderState accumulator metadata connManager retryConfig acks deliveryTimeoutMs compression clientId versionCache = do
   running <- newTVarIO True
   correlationId <- newTVarIO 0
+  txnIdVar <- newTVarIO Nothing
   -- Use the smaller of delivery timeout and 30 seconds for individual request timeout
   -- The delivery timeout covers all retries, while request timeout is per-request
   let requestTimeoutMs = min 30000 (fromIntegral deliveryTimeoutMs)
@@ -222,6 +252,8 @@ createSenderState accumulator metadata connManager retryConfig acks deliveryTime
     , senderClientId = clientId
     , senderCorrelationId = correlationId
     , senderLogger = defaultLogger
+    , senderVersionCache = versionCache
+    , senderTransactionalId = txnIdVar
     }
 
 -- | Start the sender background thread
@@ -328,8 +360,10 @@ isBatchTimedOut currentTime deliveryTimeoutMs batch =
 -- | Send batches to a specific broker
 sendToBroker :: SenderState -> Meta.BrokerMetadata -> [BA.ProducerBatch] -> IO ()
 sendToBroker state@SenderState{..} broker batches = do
-  -- Get current time to check delivery timeout (KIP-91)
-  currentTime <- round . (* 1000) <$> Time.getPOSIXTime
+  -- Get current time to check delivery timeout (KIP-91).
+  -- 'KafkaTime.currentTimeMillis' is the fast vDSO-coarse clock
+  -- (~8 ns on Linux), called once per send-loop iteration.
+  currentTime <- KafkaTime.currentTimeMillis
   
   -- Partition batches into those that have exceeded delivery timeout and those that haven't
   let (timedOutBatches, validBatches) = partition (isBatchTimedOut currentTime senderDeliveryTimeoutMs) batches
@@ -347,8 +381,11 @@ sendToBroker state@SenderState{..} broker batches = do
   when (not $ null validBatches) $ do
     -- Get or create connection to the broker
     let brokerAddr = Meta.brokerMetaAddress broker
+        nextCid = atomically $ do
+          cid <- readTVar senderCorrelationId
+          writeTVar senderCorrelationId (cid + 1)
+          pure cid
     connResult <- Conn.getOrCreateConnection senderConnManager brokerAddr Conn.defaultConnectionConfig
-    
     case connResult of
       Left err -> do
         senderLogger LogError
@@ -359,18 +396,60 @@ sendToBroker state@SenderState{..} broker batches = do
           forM_ callbacks $ \callback -> callback (Left errorMsg)
     
       Right conn -> do
-        -- Get next correlation ID
-        corrId <- atomically $ do
-          cid <- readTVar senderCorrelationId
-          writeTVar senderCorrelationId (cid + 1)
-          return cid
-        
-        -- Build and encode the request (compression is IO)
-        request <- buildProduceRequest senderAcks senderTimeoutMs validBatches
-        let apiVersion = 3  -- Use version 3 for compatibility
-            apiKey = 0       -- ProduceRequest API key
+        -- Negotiate ApiVersions for this broker if we haven't yet;
+        -- idempotent, single round-trip per (sender, broker) pair.
+        _ <- VN.ensureVersionsNegotiated conn brokerAddr senderVersionCache nextCid
+        corrId <- nextCid
+
+        -- Build and encode the request (compression is IO).
+        -- Threads the metadata cache through so v13+ requests
+        -- can populate the KIP-516 TopicId on each
+        -- TopicProduceData entry; the cache maintains
+        -- 'topicMetaTopicId' from the v10+ MetadataResponse.
+        --
+        -- Reads 'senderTransactionalId' so transactional
+        -- batches ship with the configured txn id on the
+        -- request envelope (otherwise the broker rejects with
+        -- @TRANSACTIONAL_ID_AUTHORIZATION_FAILED@).
+        txnIdM <- readTVarIO senderTransactionalId
+        request <- buildProduceRequest
+                     senderMetadata
+                     txnIdM
+                     senderAcks
+                     senderTimeoutMs
+                     validBatches
+        -- ProduceRequest: codegen handles up to v13. The request
+        -- shape is stable from v3 onwards (v3 added the
+        -- transactional id, which we send as Null on the
+        -- non-transactional path). v9 went flexible (the broker
+        -- expects compact strings + tagged-fields trailer); v10+
+        -- added per-partition response fields (KIP-467
+        -- 'RecordErrors' + 'ErrorMessage') that our decoder
+        -- handles via the codegen, and the codegen-flexible-
+        -- tagged-string fix in this branch unblocks v12 against
+        -- Kafka 3.7.
+        --
+        -- v13 swapped the per-topic name field for a KIP-516
+        -- TopicId; we plumb the id through the metadata cache
+        -- ('Meta.getTopicId') and 'buildTopicProduceData' fills
+        -- in 'topicProduceDataTopicId' for v13+, or leaves it
+        -- nullUuid for v0-v12 (which expect the name).
+        --
+        -- Cap at v13. The api key + cache lookup come from the
+        -- 'KafkaMessage PR.ProduceRequest' instance via
+        -- 'pickApiVersionForRange'; the (3, 13) range overrides
+        -- the codegen's full schema range to keep us off versions
+        -- we haven't validated end-to-end yet (v0-v2 don't carry
+        -- a transactional id, v14+ doesn't exist in the schema
+        -- we ship).
+        verR <- VN.pickApiVersionForRange @PR.ProduceRequest
+                  3 13 senderVersionCache brokerAddr 3
+        let apiVersion = case verR of
+              Right v -> v
+              Left  _ -> 3
+            apiKey = 0
             clientId = P.mkKafkaString senderClientId
-            requestBody = runPutS $ PR.encodeProduceRequest apiVersion request
+            requestBody = WC.runEncodeVer @PR.ProduceRequest apiVersion request
         
         -- Send the request and receive response
         result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
@@ -394,7 +473,7 @@ sendToBroker state@SenderState{..} broker batches = do
                   forM_ callbacks $ \callback -> callback (Left errorMsg)
               else do
                 -- Parse the response
-                case runGetS (PResp.decodeProduceResponse apiVersion) responseBody of
+                case WC.runDecodeVer @PResp.ProduceResponse apiVersion responseBody of
                   Left err -> do
                     -- Invoke error callbacks
                     forM_ validBatches $ \batch -> do
@@ -404,35 +483,66 @@ sendToBroker state@SenderState{..} broker batches = do
                   
                   Right response -> do
                     -- Process the response and update batch states
-                    processProduceResponse validBatches response
+                    processProduceResponse (Just senderMetadata) validBatches response
 
--- | Build a ProduceRequest from a list of batches
--- Compression happens here, so this is an IO operation
-buildProduceRequest :: Int16 -> Int32 -> [BA.ProducerBatch] -> IO PR.ProduceRequest
-buildProduceRequest acks timeoutMs batches = do
+-- | Build a ProduceRequest from a list of batches.
+-- Compression happens here, so this is an IO operation.
+-- The metadata cache is consulted per-topic to populate the
+-- KIP-516 TopicId field; on pre-v10 brokers (or topics not yet
+-- in the cache) the field stays 'P.nullUuid' which is fine for
+-- v0-v12 (where the encoder ignores it). v13+ requires a real
+-- topic id.
+--
+-- The @transactionalId@ is plumbed in from the caller (read off
+-- the 'SenderState' TVar populated by @bindTransaction@). When
+-- 'Just' it goes onto the request envelope verbatim; @Nothing@
+-- sends @KafkaString Null@. The broker requires this to match
+-- the txn id any transactional records in the request claim or
+-- it rejects with @TRANSACTIONAL_ID_AUTHORIZATION_FAILED@ (53).
+buildProduceRequest
+  :: Meta.MetadataCache
+  -> Maybe Text
+  -> Int16
+  -> Int32
+  -> [BA.ProducerBatch]
+  -> IO PR.ProduceRequest
+buildProduceRequest metaCache transactionalIdM acks timeoutMs batches = do
   -- Group batches by topic
   let batchesByTopic = groupBy (\b1 b2 -> BA.tpTopic (BA.batchTopicPartition b1) == BA.tpTopic (BA.batchTopicPartition b2))
                      $ sortBy (comparing (BA.tpTopic . BA.batchTopicPartition)) batches
-  
+
   -- Build TopicProduceData for each topic (with compression, so IO)
-  topicData <- mapM buildTopicProduceData batchesByTopic
-  
+  topicData <- mapM (buildTopicProduceData metaCache) batchesByTopic
+
   return $ PR.ProduceRequest
-    { PR.produceRequestTransactionalId = P.KafkaString P.Null
+    { PR.produceRequestTransactionalId = case transactionalIdM of
+        Nothing  -> P.KafkaString P.Null
+        Just tid -> P.mkKafkaString tid
     , PR.produceRequestAcks = acks
     , PR.produceRequestTimeoutMs = timeoutMs
     , PR.produceRequestTopicData = P.mkKafkaArray (V.fromList topicData)
     }
 
--- | Build TopicProduceData for a group of batches from the same topic
--- Compression happens here, so this is an IO operation
-buildTopicProduceData :: [BA.ProducerBatch] -> IO PR.TopicProduceData
-buildTopicProduceData batches = do
+-- | Build TopicProduceData for a group of batches from the same topic.
+-- Compression happens here, so this is an IO operation. Populates
+-- the KIP-516 'topicProduceDataTopicId' from the metadata cache
+-- when known; falls back to 'P.nullUuid' otherwise (which is
+-- what every Produce version through v12 expects in the field).
+buildTopicProduceData
+  :: Meta.MetadataCache -> [BA.ProducerBatch] -> IO PR.TopicProduceData
+buildTopicProduceData metaCache batches = do
   let topic = BA.tpTopic $ BA.batchTopicPartition $ head batches
+  topicIdM <- atomically (Meta.getTopicId metaCache topic)
   partitionData <- mapM buildPartitionProduceData batches
   return $ PR.TopicProduceData
     { PR.topicProduceDataName = P.mkKafkaString topic
-    , PR.topicProduceDataTopicId = P.nullUuid
+    , PR.topicProduceDataTopicId =
+        -- 'getTopicId' returns 'Nothing' before the cache is
+        -- populated; that path keeps the field at nullUuid
+        -- which is what v0-v12 expect anyway.
+        case topicIdM of
+          Just tid -> tid
+          Nothing  -> P.nullUuid
     , PR.topicProduceDataPartitionData = P.mkKafkaArray (V.fromList partitionData)
     }
 
@@ -443,57 +553,69 @@ buildPartitionProduceData batch = do
   let partition = BA.tpPartition $ BA.batchTopicPartition batch
       recordBatch = buildRecordBatch batch
       compressionLevel = BA.batchCompressionLevel batch
-  
-  -- Encode RecordBatch with compression (KIP-353/776/909)
-  encodeResult <- RB.encodeRecordBatchWithCompressionLevel recordBatch compressionLevel
-  
-  case encodeResult of
-    Left err -> do
-      -- Compression failed; fall back to uncompressed encoding.
-      -- This is rare (the codec defaults are well-tested for any
-      -- payload shape), so we log to stderr rather than thread a
-      -- 'Logger' through this otherwise pure-ish helper.
-      hPutStrLn stderr
-        ("[warn] producer: compression failed for batch, "
-          <> "sending uncompressed: " <> err)
-      let recordBytes = RB.encodeRecordBatch recordBatch
-      return $ PR.PartitionProduceData
-        { PR.partitionProduceDataIndex = partition
-        , PR.partitionProduceDataRecords = P.mkKafkaBytes recordBytes
-        }
-    Right recordBytes -> 
-      return $ PR.PartitionProduceData
-        { PR.partitionProduceDataIndex = partition
-        , PR.partitionProduceDataRecords = P.mkKafkaBytes recordBytes
-        }
+      codec = RB.attrCompressionType (RB.batchAttributes recordBatch)
+
+  -- Fast path for the uncompressed common case: skip the
+  -- compression layer entirely (it's a no-op for NoCompression).
+  -- The direct-poke Wire encoder writes the whole batch in a
+  -- single pass.
+  if codec == NoCompression
+    then pure $ PR.PartitionProduceData
+      { PR.partitionProduceDataIndex   = partition
+      , PR.partitionProduceDataRecords = P.mkKafkaBytes (RBW.encodeRecordBatchWire recordBatch)
+      }
+    else do
+      -- Compressed path: build the records section once via
+      -- 'encodeRecordsWire' and back-patch the batch envelope in
+      -- place.
+      encodeResult <- RBW.encodeRecordBatchWireCompressedWithLevel recordBatch compressionLevel
+      case encodeResult of
+        Left err -> do
+          -- Compression failed; fall back to uncompressed
+          -- encoding via the direct-poke Wire encoder. Rare,
+          -- so we log to stderr rather than thread a 'Logger'
+          -- through this otherwise pure-ish helper.
+          hPutStrLn stderr
+            ("[warn] producer: compression failed for batch, "
+              <> "sending uncompressed: " <> err)
+          pure $ PR.PartitionProduceData
+            { PR.partitionProduceDataIndex   = partition
+            , PR.partitionProduceDataRecords = P.mkKafkaBytes (RBW.encodeRecordBatchWire recordBatch)
+            }
+        Right recordBytes ->
+          pure $ PR.PartitionProduceData
+            { PR.partitionProduceDataIndex   = partition
+            , PR.partitionProduceDataRecords = P.mkKafkaBytes recordBytes
+            }
 
 -- | Build a RecordBatch from a ProducerBatch. Idempotent /
 -- transactional state is read off the batch itself
--- ('batchProducerId', 'batchProducerEpoch', 'batchBaseSequence');
--- the producer-side 'sendMessage' / 'sendBatch' path stamps these
--- fields when @producerIdempotent@ or @producerTransactional@ is
--- enabled.
+-- ('batchProducerId', 'batchProducerEpoch', 'batchBaseSequence',
+-- 'batchIsTransactional'); the producer-side 'sendMessage' /
+-- 'sendBatch' path stamps these fields when @producerIdempotent@
+-- or @producerTransactional@ is enabled, via 'BA.appendRecordStamped'.
 buildRecordBatch :: BA.ProducerBatch -> RB.RecordBatch
 buildRecordBatch batch =
-  let records = V.fromList $ toList $ BA.batchRecords batch
-      isTxn   = BA.batchProducerId batch /= RB.noProducerId
-                && BA.batchProducerId batch /= RB.noProducerId
-                  -- (transactional vs idempotent is not directly
-                  -- distinguished by producer id alone; the
-                  -- producer wires attrIsTransactional separately
-                  -- when it constructs the batch in transactional
-                  -- mode)
+  let !recSeq = BA.batchRecords batch
+      !nRec = Seq.length recSeq
+      !records = V.generate nRec (Seq.index recSeq)
       attrs = RB.Attributes
         { RB.attrCompressionType = BA.batchCompression batch
         , RB.attrTimestampType = RB.CreateTime
-        , RB.attrIsTransactional = False
+        , RB.attrIsTransactional = BA.batchIsTransactional batch
         , RB.attrIsControl = False
         , RB.attrHasDeleteHorizon = False
         }
       baseTimestamp = BA.batchBaseTimestamp batch
-      maxTimestamp = if V.null records
-                     then baseTimestamp
-                     else maximum $ baseTimestamp : map (\r -> baseTimestamp + RB.recordTimestampDelta r) (V.toList records)
+      -- Single fold instead of (V.toList + map + maximum +
+      -- intermediate list). 'V.foldl'' walks the vector in one
+      -- pass and computes the max delta directly.
+      !maxTimestamp =
+        if nRec == 0
+          then baseTimestamp
+          else baseTimestamp
+                 + V.foldl' (\acc r -> max acc (RB.recordTimestampDelta r))
+                            0 records
   in
     RB.RecordBatch
       { RB.batchBaseOffset = 0  -- Broker will assign
@@ -538,32 +660,62 @@ retryBatch state batch = do
   threadDelay (backoffMs * 1000)
   pure (bumpBatchAttempts batch)
 
--- | Process a ProduceResponse and update batch states
-processProduceResponse :: [BA.ProducerBatch] -> PResp.ProduceResponse -> IO ()
-processProduceResponse batches response = do
+-- | Process a ProduceResponse and update batch states. Honours
+-- the broker's @ThrottleTimeMs@ (KIP-219): if the broker has
+-- requested back-pressure, the sender thread sleeps for that
+-- duration /before/ returning to its loop, so the next produce
+-- request waits the broker-requested interval. This is the same
+-- behaviour the JVM client / librdkafka implement.
+processProduceResponse
+  :: Maybe Meta.MetadataCache  -- ^ Optional metadata cache for KIP-466 leader-cache patches
+  -> [BA.ProducerBatch]
+  -> PResp.ProduceResponse
+  -> IO ()
+processProduceResponse metaCacheM batches response = do
+  -- KIP-219 throttle. Negative / zero values are no-ops.
+  let throttleMs = PResp.produceResponseThrottleTimeMs response
+  when (throttleMs > 0) $
+    threadDelay (fromIntegral throttleMs * 1000)
+
   -- Extract topic responses
   let topics = case P.unKafkaArray (PResp.produceResponseResponses response) of
         P.Null -> V.empty
         P.NotNull vec -> vec
-  
+
+  -- Pre-index outbound batches by their (topic, partition) so
+  -- the per-response lookup is O(1).
+  let batchIndex :: HashMap BA.TopicPartition [BA.ProducerBatch]
+      !batchIndex = HashMap.fromListWith (++)
+        [ (BA.batchTopicPartition b, [b]) | b <- batches ]
+
   -- Process each topic response
   V.forM_ topics $ \topicResp -> do
     let topicName = extractText $ PResp.topicProduceResponseName topicResp
         partitions = case P.unKafkaArray (PResp.topicProduceResponsePartitionResponses topicResp) of
           P.Null -> V.empty
           P.NotNull vec -> vec
-    
+
     -- Process each partition response
     V.forM_ partitions $ \partResp -> do
       let partitionId = PResp.partitionProduceResponseIndex partResp
           errorCode = PResp.partitionProduceResponseErrorCode partResp
           baseOffset = PResp.partitionProduceResponseBaseOffset partResp
-      
-      -- Find the batch for this topic-partition
-      let matchingBatches = filter (\b ->
-            let tp = BA.batchTopicPartition b
-            in BA.tpTopic tp == topicName && BA.tpPartition tp == partitionId) batches
-      
+          curLeader   = PResp.partitionProduceResponseCurrentLeader partResp
+          curLeaderId = PResp.leaderIdAndEpochLeaderId curLeader
+
+      -- KIP-466: if the broker reports a CurrentLeader for this
+      -- partition (>= 0), patch the metadata cache so the next
+      -- produce goes to that broker without an extra
+      -- MetadataRequest round-trip.
+      case metaCacheM of
+        Just cache | curLeaderId >= 0 ->
+          atomically $
+            Meta.updatePartitionLeader cache topicName partitionId curLeaderId
+        _ -> pure ()
+
+      let !key = BA.TopicPartition topicName partitionId
+          matchingBatches = HashMap.lookupDefault [] key batchIndex
+
       -- Update batch state based on error code
       forM_ matchingBatches $ \batch -> do
         if errorCode == 0
@@ -574,14 +726,16 @@ processProduceResponse batches response = do
             -- the per-record callbacks, which are the public
             -- success channel.
             let callbacks = BA.batchCallbacks batch
-            timestamp <- round . (* 1000) <$> Time.getPOSIXTime
+            timestamp <- KafkaTime.currentTimeMillis
             -- (Per-record timestamps aren't surfaced in
             -- ProduceResponse; the per-record
             -- 'PartitionProduceResponse.LogAppendTimeMs' is
             -- only set when the topic is in @LogAppendTime@ mode,
             -- and we can't tell here, so we use the wall-clock
             -- timestamp as a reasonable fallback.)
-            forM_ (zip [0..] callbacks) $ \(idx, callback) -> do
+            -- 'callbacks' is a 'Seq', so we walk the sequence
+            -- with its index to assign each record's offset.
+            forM_ (Seq.mapWithIndex (,) callbacks) $ \(idx, callback) -> do
               let recordOffset = baseOffset + fromIntegral (idx :: Int)
                   metadata = (topicName, partitionId, recordOffset, timestamp)
               callback (Right metadata)

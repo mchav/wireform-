@@ -22,15 +22,9 @@ module Kafka.Protocol.Generated.ListGroupsResponse
   (
     ListGroupsResponse(..),
     ListedGroup(..),
-    encodeListGroupsResponse,
-    decodeListGroupsResponse,
     maxListGroupsResponseVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -38,13 +32,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | Each group in the response.
@@ -78,45 +79,6 @@ data ListedGroup = ListedGroup
   deriving (Eq, Show, Generic)
 
 
--- | Encode ListedGroup with version-aware field handling.
-encodeListedGroup :: MonadPut m => E.ApiVersion -> ListedGroup -> m ()
-encodeListedGroup version lmsg =
-  do
-    if version >= 3 then serialize (toCompactString (listedGroupGroupId lmsg)) else serialize (listedGroupGroupId lmsg)
-    if version >= 3 then serialize (toCompactString (listedGroupProtocolType lmsg)) else serialize (listedGroupProtocolType lmsg)
-    when (version >= 4) $
-      if version >= 3 then serialize (toCompactString (listedGroupGroupState lmsg)) else serialize (listedGroupGroupState lmsg)
-    when (version >= 5) $
-      if version >= 3 then serialize (toCompactString (listedGroupGroupType lmsg)) else serialize (listedGroupGroupType lmsg)
-    when (version >= 3) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ListedGroup with version-aware field handling.
-decodeListedGroup :: MonadGet m => E.ApiVersion -> m ListedGroup
-decodeListedGroup version =
-  do
-    fieldgroupid <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-    fieldprotocoltype <- if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-    fieldgroupstate <- if version >= 4
-      then if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldgrouptype <- if version >= 5
-      then if version >= 3 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    _ <- if version >= 3 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ListedGroup
-      {
-      listedGroupGroupId = fieldgroupid
-      ,
-      listedGroupProtocolType = fieldprotocoltype
-      ,
-      listedGroupGroupState = fieldgroupstate
-      ,
-      listedGroupGroupType = fieldgrouptype
-      }
-
-
-
 data ListGroupsResponse = ListGroupsResponse
   {
 
@@ -144,72 +106,108 @@ data ListGroupsResponse = ListGroupsResponse
 maxListGroupsResponseVersion :: Int16
 maxListGroupsResponseVersion = 5
 
--- | Encode ListGroupsResponse with the given API version.
-encodeListGroupsResponse :: MonadPut m => E.ApiVersion -> ListGroupsResponse -> m ()
-encodeListGroupsResponse version msg
-  | version == 0 =
-    do
-      serialize (listGroupsResponseErrorCode msg)
-      E.encodeVersionedArray version 3 encodeListedGroup (case P.unKafkaArray (listGroupsResponseGroups msg) of { P.NotNull v -> v; P.Null -> V.empty })
+-- | KafkaMessage instance for ListGroupsResponse.
+instance KafkaMessage ListGroupsResponse where
+  messageApiKey = 16
+  messageMinVersion = 0
+  messageMaxVersion = 5
+  messageFlexibleVersion = Just 3
+
+-- | Worst-case wire size of a ListedGroup.
+wireMaxSizeListedGroup :: Int -> ListedGroup -> Int
+wireMaxSizeListedGroup _version msg =
+  0
+  + WP.dualStringMaxSize (listedGroupGroupId msg)
+  + WP.dualStringMaxSize (listedGroupProtocolType msg)
+  + WP.dualStringMaxSize (listedGroupGroupState msg)
+  + WP.dualStringMaxSize (listedGroupGroupType msg)
+  + 1
+
+-- | Direct-poke encoder for ListedGroup.
+wirePokeListedGroup :: Int -> Ptr Word8 -> ListedGroup -> IO (Ptr Word8)
+wirePokeListedGroup version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (listedGroupGroupId msg)) else WP.pokeKafkaString p0 (listedGroupGroupId msg))
+  p2 <- (if version >= 3 then WP.pokeCompactString p1 (P.toCompactString (listedGroupProtocolType msg)) else WP.pokeKafkaString p1 (listedGroupProtocolType msg))
+  p3 <- (if version >= 4 then (if version >= 3 then WP.pokeCompactString p2 (P.toCompactString (listedGroupGroupState msg)) else WP.pokeKafkaString p2 (listedGroupGroupState msg)) else pure p2)
+  p4 <- (if version >= 5 then (if version >= 3 then WP.pokeCompactString p3 (P.toCompactString (listedGroupGroupType msg)) else WP.pokeKafkaString p3 (listedGroupGroupType msg)) else pure p3)
+  if version >= 3 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for ListedGroup.
+wirePeekListedGroup :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListedGroup, Ptr Word8)
+wirePeekListedGroup version _fp _basePtr p0 endPtr = do
+  (f0_groupid, p1) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_protocoltype, p2) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  (f2_groupstate, p3) <- (if version >= 4 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
+  (f3_grouptype, p4) <- (if version >= 5 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
+  pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (ListedGroup { listedGroupGroupId = f0_groupid, listedGroupProtocolType = f1_protocoltype, listedGroupGroupState = f2_groupstate, listedGroupGroupType = f3_grouptype }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultListedGroup :: ListedGroup
+defaultListedGroup = ListedGroup { listedGroupGroupId = P.KafkaString Null, listedGroupProtocolType = P.KafkaString Null, listedGroupGroupState = P.KafkaString Null, listedGroupGroupType = P.KafkaString Null }
+
+-- | Worst-case wire size of a ListGroupsResponse.
+wireMaxSizeListGroupsResponse :: Int -> ListGroupsResponse -> Int
+wireMaxSizeListGroupsResponse _version msg =
+  0
+  + 4
+  + 2
+  + (5 + (case P.unKafkaArray (listGroupsResponseGroups msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeListedGroup _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ListGroupsResponse.
+wirePokeListGroupsResponse :: Int -> Ptr Word8 -> ListGroupsResponse -> IO (Ptr Word8)
+wirePokeListGroupsResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt16BE p0 (listGroupsResponseErrorCode msg)
+    p2 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeListedGroup version p x) p1 (listGroupsResponseGroups msg)
+    pure p2
+  | version >= 1 && version <= 2 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (listGroupsResponseThrottleTimeMs msg) else pure p0)
+    p2 <- W.pokeInt16BE p1 (listGroupsResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeListedGroup version p x) p2 (listGroupsResponseGroups msg)
+    pure p3
+  | version >= 3 && version <= 5 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (listGroupsResponseThrottleTimeMs msg) else pure p0)
+    p2 <- W.pokeInt16BE p1 (listGroupsResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeListedGroup version p x) p2 (listGroupsResponseGroups msg)
+    WP.pokeEmptyTaggedFields p3
+  | otherwise = error $ "wirePoke ListGroupsResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ListGroupsResponse.
+wirePeekListGroupsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListGroupsResponse, Ptr Word8)
+wirePeekListGroupsResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+    (f1_groups, p2) <- WP.peekVersionedArray version 3 (\p e -> wirePeekListedGroup version _fp _basePtr p e) p1 endPtr
+    pure (ListGroupsResponse { listGroupsResponseThrottleTimeMs = 0, listGroupsResponseErrorCode = f0_errorcode, listGroupsResponseGroups = f1_groups }, p2)
+  | version >= 1 && version <= 2 = do
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_groups, p3) <- WP.peekVersionedArray version 3 (\p e -> wirePeekListedGroup version _fp _basePtr p e) p2 endPtr
+    pure (ListGroupsResponse { listGroupsResponseThrottleTimeMs = f0_throttletimems, listGroupsResponseErrorCode = f1_errorcode, listGroupsResponseGroups = f2_groups }, p3)
+  | version >= 3 && version <= 5 = do
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_groups, p3) <- WP.peekVersionedArray version 3 (\p e -> wirePeekListedGroup version _fp _basePtr p e) p2 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
+    pure (ListGroupsResponse { listGroupsResponseThrottleTimeMs = f0_throttletimems, listGroupsResponseErrorCode = f1_errorcode, listGroupsResponseGroups = f2_groups }, pTagsEnd)
+  | otherwise = error $ "wirePeek ListGroupsResponse : unsupported version: " ++ show version
 
 
-  | version >= 1 && version <= 2 =
-    do
-      serialize (listGroupsResponseThrottleTimeMs msg)
-      serialize (listGroupsResponseErrorCode msg)
-      E.encodeVersionedArray version 3 encodeListedGroup (case P.unKafkaArray (listGroupsResponseGroups msg) of { P.NotNull v -> v; P.Null -> V.empty })
-
-
-  | version >= 3 && version <= 5 =
-    do
-      serialize (listGroupsResponseThrottleTimeMs msg)
-      serialize (listGroupsResponseErrorCode msg)
-      E.encodeVersionedArray version 3 encodeListedGroup (case P.unKafkaArray (listGroupsResponseGroups msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode ListGroupsResponse with the given API version.
-decodeListGroupsResponse :: MonadGet m => E.ApiVersion -> m ListGroupsResponse
-decodeListGroupsResponse version
-  | version == 0 =
-    do
-      fielderrorcode <- deserialize
-      fieldgroups <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 decodeListedGroup
-      pure ListGroupsResponse
-        {
-        listGroupsResponseThrottleTimeMs = 0
-        ,
-        listGroupsResponseErrorCode = fielderrorcode
-        ,
-        listGroupsResponseGroups = fieldgroups
-        }
-
-  | version >= 1 && version <= 2 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldgroups <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 decodeListedGroup
-      pure ListGroupsResponse
-        {
-        listGroupsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        listGroupsResponseErrorCode = fielderrorcode
-        ,
-        listGroupsResponseGroups = fieldgroups
-        }
-
-  | version >= 3 && version <= 5 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldgroups <- P.mkKafkaArray <$> E.decodeVersionedArray version 3 decodeListedGroup
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ListGroupsResponse
-        {
-        listGroupsResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        listGroupsResponseErrorCode = fielderrorcode
-        ,
-        listGroupsResponseGroups = fieldgroups
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec ListGroupsResponse where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeListGroupsResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeListGroupsResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekListGroupsResponse (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

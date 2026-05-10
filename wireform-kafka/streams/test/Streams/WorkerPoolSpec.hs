@@ -4,11 +4,13 @@
 module Streams.WorkerPoolSpec (tests) where
 
 import qualified Data.ByteString.Char8 as BSC
+import qualified Data.HashSet as HashSet
+import Data.HashSet (HashSet)
 import qualified Data.Int as Int
 import qualified Data.Set as Set
-import Data.Set (Set)
 import qualified Data.Text as T
 import Data.Text (Text)
+import qualified Data.Vector as V
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
@@ -25,8 +27,8 @@ unbytes = T.pack . BSC.unpack
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-owned :: [(Text, Int)] -> Set (TopicName, Int.Int32)
-owned = Set.fromList . map (\(tp, p) -> (topicName tp, fromIntegral p))
+owned :: [(Text, Int)] -> HashSet (TopicName, Int.Int32)
+owned = HashSet.fromList . map (\(tp, p) -> (topicName tp, fromIntegral p))
 
 tests :: TestTree
 tests = testGroup "WorkerPool"
@@ -63,7 +65,7 @@ pool_routes_to_owner =
     waitForQuiescence pool
     -- Allow a short interval for engine processing to settle.
 
-    case poolWorkers pool of
+    case V.toList (poolWorkers pool) of
       [w0, w1] -> do
         out0 <- collectorTake (workerCollector w0) (topicName "out")
         out1 <- collectorTake (workerCollector w1) (topicName "out")
@@ -92,7 +94,7 @@ pool_per_worker_state_isolation =
 
     waitForQuiescence pool
 
-    case poolWorkers pool of
+    case V.toList (poolWorkers pool) of
       [w0, w1] -> do
         c0 <- workerProcessedCount w0
         c1 <- workerProcessedCount w1
@@ -110,7 +112,7 @@ pool_count_processed =
       (\v -> submitRecord pool (topicName "in") Nothing (bytes v) (t 0) 0)
       ["v1", "v2", "v3", "v4", "v5"]
     waitForQuiescence pool
-    case poolWorkers pool of
+    case V.toList (poolWorkers pool) of
       [w] -> workerProcessedCount w >>= (@?= 5)
       _   -> error "expected 1 worker"
     closeWorkerPool pool

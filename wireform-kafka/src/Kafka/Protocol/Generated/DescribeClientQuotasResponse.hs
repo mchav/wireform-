@@ -24,15 +24,9 @@ module Kafka.Protocol.Generated.DescribeClientQuotasResponse
     EntryData(..),
     EntityData(..),
     ValueData(..),
-    encodeDescribeClientQuotasResponse,
-    decodeDescribeClientQuotasResponse,
     maxDescribeClientQuotasResponseVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +34,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The quota entity description.
@@ -67,31 +68,6 @@ data EntityData = EntityData
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode EntityData with version-aware field handling.
-encodeEntityData :: MonadPut m => E.ApiVersion -> EntityData -> m ()
-encodeEntityData version emsg =
-  do
-    if version >= 1 then serialize (toCompactString (entityDataEntityType emsg)) else serialize (entityDataEntityType emsg)
-    if version >= 1 then serialize (toCompactString (entityDataEntityName emsg)) else serialize (entityDataEntityName emsg)
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode EntityData with version-aware field handling.
-decodeEntityData :: MonadGet m => E.ApiVersion -> m EntityData
-decodeEntityData version =
-  do
-    fieldentitytype <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    fieldentityname <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure EntityData
-      {
-      entityDataEntityType = fieldentitytype
-      ,
-      entityDataEntityName = fieldentityname
-      }
-
-
 -- | The quota values for the entity.
 data ValueData = ValueData
   {
@@ -110,31 +86,6 @@ data ValueData = ValueData
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode ValueData with version-aware field handling.
-encodeValueData :: MonadPut m => E.ApiVersion -> ValueData -> m ()
-encodeValueData version vmsg =
-  do
-    if version >= 1 then serialize (toCompactString (valueDataKey vmsg)) else serialize (valueDataKey vmsg)
-    serialize (valueDataValue vmsg)
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ValueData with version-aware field handling.
-decodeValueData :: MonadGet m => E.ApiVersion -> m ValueData
-decodeValueData version =
-  do
-    fieldkey <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    fieldvalue <- deserialize
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ValueData
-      {
-      valueDataKey = fieldkey
-      ,
-      valueDataValue = fieldvalue
-      }
-
-
 -- | A result entry.
 data EntryData = EntryData
   {
@@ -152,31 +103,6 @@ data EntryData = EntryData
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode EntryData with version-aware field handling.
-encodeEntryData :: MonadPut m => E.ApiVersion -> EntryData -> m ()
-encodeEntryData version emsg =
-  do
-    E.encodeVersionedArray version 1 encodeEntityData (case P.unKafkaArray (entryDataEntity emsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    E.encodeVersionedArray version 1 encodeValueData (case P.unKafkaArray (entryDataValues emsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode EntryData with version-aware field handling.
-decodeEntryData :: MonadGet m => E.ApiVersion -> m EntryData
-decodeEntryData version =
-  do
-    fieldentity <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeEntityData
-    fieldvalues <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeValueData
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure EntryData
-      {
-      entryDataEntity = fieldentity
-      ,
-      entryDataValues = fieldvalues
-      }
-
 
 
 data DescribeClientQuotasResponse = DescribeClientQuotasResponse
@@ -212,61 +138,156 @@ data DescribeClientQuotasResponse = DescribeClientQuotasResponse
 maxDescribeClientQuotasResponseVersion :: Int16
 maxDescribeClientQuotasResponseVersion = 1
 
--- | Encode DescribeClientQuotasResponse with the given API version.
-encodeDescribeClientQuotasResponse :: MonadPut m => E.ApiVersion -> DescribeClientQuotasResponse -> m ()
-encodeDescribeClientQuotasResponse version msg
-  | version == 0 =
-    do
-      serialize (describeClientQuotasResponseThrottleTimeMs msg)
-      serialize (describeClientQuotasResponseErrorCode msg)
-      serialize (describeClientQuotasResponseErrorMessage msg)
-      E.encodeVersionedNullableArray version 1 encodeEntryData (describeClientQuotasResponseEntries msg)
+-- | KafkaMessage instance for DescribeClientQuotasResponse.
+instance KafkaMessage DescribeClientQuotasResponse where
+  messageApiKey = 48
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 1
+
+-- | Worst-case wire size of a EntityData.
+wireMaxSizeEntityData :: Int -> EntityData -> Int
+wireMaxSizeEntityData _version msg =
+  0
+  + WP.dualStringMaxSize (entityDataEntityType msg)
+  + WP.dualStringMaxSize (entityDataEntityName msg)
+  + 1
+
+-- | Direct-poke encoder for EntityData.
+wirePokeEntityData :: Int -> Ptr Word8 -> EntityData -> IO (Ptr Word8)
+wirePokeEntityData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (entityDataEntityType msg)) else WP.pokeKafkaString p0 (entityDataEntityType msg))
+  p2 <- (if version >= 1 then WP.pokeCompactString p1 (P.toCompactString (entityDataEntityName msg)) else WP.pokeKafkaString p1 (entityDataEntityName msg))
+  if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for EntityData.
+wirePeekEntityData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EntityData, Ptr Word8)
+wirePeekEntityData version _fp _basePtr p0 endPtr = do
+  (f0_entitytype, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_entityname, p2) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (EntityData { entityDataEntityType = f0_entitytype, entityDataEntityName = f1_entityname }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultEntityData :: EntityData
+defaultEntityData = EntityData { entityDataEntityType = P.KafkaString Null, entityDataEntityName = P.KafkaString Null }
+
+-- | Worst-case wire size of a ValueData.
+wireMaxSizeValueData :: Int -> ValueData -> Int
+wireMaxSizeValueData _version msg =
+  0
+  + WP.dualStringMaxSize (valueDataKey msg)
+  + 8
+  + 1
+
+-- | Direct-poke encoder for ValueData.
+wirePokeValueData :: Int -> Ptr Word8 -> ValueData -> IO (Ptr Word8)
+wirePokeValueData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (valueDataKey msg)) else WP.pokeKafkaString p0 (valueDataKey msg))
+  p2 <- W.pokeFloat64BE p1 (valueDataValue msg)
+  if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for ValueData.
+wirePeekValueData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ValueData, Ptr Word8)
+wirePeekValueData version _fp _basePtr p0 endPtr = do
+  (f0_key, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_value, p2) <- W.peekFloat64BE p1 endPtr
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (ValueData { valueDataKey = f0_key, valueDataValue = f1_value }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultValueData :: ValueData
+defaultValueData = ValueData { valueDataKey = P.KafkaString Null, valueDataValue = 0.0 }
+
+-- | Worst-case wire size of a EntryData.
+wireMaxSizeEntryData :: Int -> EntryData -> Int
+wireMaxSizeEntryData _version msg =
+  0
+  + (5 + (case P.unKafkaArray (entryDataEntity msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeEntityData _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (entryDataValues msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeValueData _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for EntryData.
+wirePokeEntryData :: Int -> Ptr Word8 -> EntryData -> IO (Ptr Word8)
+wirePokeEntryData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeEntityData version p x) p0 (entryDataEntity msg)
+  p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeValueData version p x) p1 (entryDataValues msg)
+  if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for EntryData.
+wirePeekEntryData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EntryData, Ptr Word8)
+wirePeekEntryData version _fp _basePtr p0 endPtr = do
+  (f0_entity, p1) <- WP.peekVersionedArray version 1 (\p e -> wirePeekEntityData version _fp _basePtr p e) p0 endPtr
+  (f1_values, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekValueData version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (EntryData { entryDataEntity = f0_entity, entryDataValues = f1_values }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultEntryData :: EntryData
+defaultEntryData = EntryData { entryDataEntity = P.mkKafkaArray V.empty, entryDataValues = P.mkKafkaArray V.empty }
+
+-- | Worst-case wire size of a DescribeClientQuotasResponse.
+wireMaxSizeDescribeClientQuotasResponse :: Int -> DescribeClientQuotasResponse -> Int
+wireMaxSizeDescribeClientQuotasResponse _version msg =
+  0
+  + 4
+  + 2
+  + WP.dualStringMaxSize (describeClientQuotasResponseErrorMessage msg)
+  + (5 + (case P.unKafkaArray (describeClientQuotasResponseEntries msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeEntryData _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for DescribeClientQuotasResponse.
+wirePokeDescribeClientQuotasResponse :: Int -> Ptr Word8 -> DescribeClientQuotasResponse -> IO (Ptr Word8)
+wirePokeDescribeClientQuotasResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeClientQuotasResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (describeClientQuotasResponseErrorCode msg)
+    p3 <- (if version >= 1 then WP.pokeCompactString p2 (P.toCompactString (describeClientQuotasResponseErrorMessage msg)) else WP.pokeKafkaString p2 (describeClientQuotasResponseErrorMessage msg))
+    p4 <- WP.pokeVersionedNullableArray version 1 (\p x -> wirePokeEntryData version p x) p3 (describeClientQuotasResponseEntries msg)
+    pure p4
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (describeClientQuotasResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (describeClientQuotasResponseErrorCode msg)
+    p3 <- (if version >= 1 then WP.pokeCompactString p2 (P.toCompactString (describeClientQuotasResponseErrorMessage msg)) else WP.pokeKafkaString p2 (describeClientQuotasResponseErrorMessage msg))
+    p4 <- WP.pokeVersionedNullableArray version 1 (\p x -> wirePokeEntryData version p x) p3 (describeClientQuotasResponseEntries msg)
+    WP.pokeEmptyTaggedFields p4
+  | otherwise = error $ "wirePoke DescribeClientQuotasResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for DescribeClientQuotasResponse.
+wirePeekDescribeClientQuotasResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeClientQuotasResponse, Ptr Word8)
+wirePeekDescribeClientQuotasResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_errormessage, p3) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
+    (f3_entries, p4) <- WP.peekVersionedNullableArray version 1 (\p e -> wirePeekEntryData version _fp _basePtr p e) p3 endPtr
+    pure (DescribeClientQuotasResponse { describeClientQuotasResponseThrottleTimeMs = f0_throttletimems, describeClientQuotasResponseErrorCode = f1_errorcode, describeClientQuotasResponseErrorMessage = f2_errormessage, describeClientQuotasResponseEntries = f3_entries }, p4)
+  | version == 1 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_errormessage, p3) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
+    (f3_entries, p4) <- WP.peekVersionedNullableArray version 1 (\p e -> wirePeekEntryData version _fp _basePtr p e) p3 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (DescribeClientQuotasResponse { describeClientQuotasResponseThrottleTimeMs = f0_throttletimems, describeClientQuotasResponseErrorCode = f1_errorcode, describeClientQuotasResponseErrorMessage = f2_errormessage, describeClientQuotasResponseEntries = f3_entries }, pTagsEnd)
+  | otherwise = error $ "wirePeek DescribeClientQuotasResponse : unsupported version: " ++ show version
 
 
-  | version == 1 =
-    do
-      serialize (describeClientQuotasResponseThrottleTimeMs msg)
-      serialize (describeClientQuotasResponseErrorCode msg)
-      serialize (toCompactString (describeClientQuotasResponseErrorMessage msg))
-      E.encodeVersionedNullableArray version 1 encodeEntryData (describeClientQuotasResponseEntries msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode DescribeClientQuotasResponse with the given API version.
-decodeDescribeClientQuotasResponse :: MonadGet m => E.ApiVersion -> m DescribeClientQuotasResponse
-decodeDescribeClientQuotasResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- deserialize
-      fieldentries <- E.decodeVersionedNullableArray version 1 decodeEntryData
-      pure DescribeClientQuotasResponse
-        {
-        describeClientQuotasResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        describeClientQuotasResponseErrorCode = fielderrorcode
-        ,
-        describeClientQuotasResponseErrorMessage = fielderrormessage
-        ,
-        describeClientQuotasResponseEntries = fieldentries
-        }
-
-  | version == 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fielderrormessage <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-      fieldentries <- E.decodeVersionedNullableArray version 1 decodeEntryData
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure DescribeClientQuotasResponse
-        {
-        describeClientQuotasResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        describeClientQuotasResponseErrorCode = fielderrorcode
-        ,
-        describeClientQuotasResponseErrorMessage = fielderrormessage
-        ,
-        describeClientQuotasResponseEntries = fieldentries
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec DescribeClientQuotasResponse where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeClientQuotasResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeDescribeClientQuotasResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekDescribeClientQuotasResponse (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

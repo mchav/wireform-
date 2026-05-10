@@ -23,15 +23,9 @@ module Kafka.Protocol.Generated.AlterUserScramCredentialsRequest
     AlterUserScramCredentialsRequest(..),
     ScramCredentialDeletion(..),
     ScramCredentialUpsertion(..),
-    encodeAlterUserScramCredentialsRequest,
-    decodeAlterUserScramCredentialsRequest,
     maxAlterUserScramCredentialsRequestVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -39,13 +33,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The SCRAM credentials to remove.
@@ -65,31 +66,6 @@ data ScramCredentialDeletion = ScramCredentialDeletion
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode ScramCredentialDeletion with version-aware field handling.
-encodeScramCredentialDeletion :: MonadPut m => E.ApiVersion -> ScramCredentialDeletion -> m ()
-encodeScramCredentialDeletion version smsg =
-  do
-    if version >= 0 then serialize (toCompactString (scramCredentialDeletionName smsg)) else serialize (scramCredentialDeletionName smsg)
-    serialize (scramCredentialDeletionMechanism smsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ScramCredentialDeletion with version-aware field handling.
-decodeScramCredentialDeletion :: MonadGet m => E.ApiVersion -> m ScramCredentialDeletion
-decodeScramCredentialDeletion version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldmechanism <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ScramCredentialDeletion
-      {
-      scramCredentialDeletionName = fieldname
-      ,
-      scramCredentialDeletionMechanism = fieldmechanism
-      }
-
 
 -- | The SCRAM credentials to update/insert.
 data ScramCredentialUpsertion = ScramCredentialUpsertion
@@ -128,43 +104,6 @@ data ScramCredentialUpsertion = ScramCredentialUpsertion
   deriving (Eq, Show, Generic)
 
 
--- | Encode ScramCredentialUpsertion with version-aware field handling.
-encodeScramCredentialUpsertion :: MonadPut m => E.ApiVersion -> ScramCredentialUpsertion -> m ()
-encodeScramCredentialUpsertion version smsg =
-  do
-    if version >= 0 then serialize (toCompactString (scramCredentialUpsertionName smsg)) else serialize (scramCredentialUpsertionName smsg)
-    serialize (scramCredentialUpsertionMechanism smsg)
-    serialize (scramCredentialUpsertionIterations smsg)
-    if version >= 0 then serialize (toCompactBytes (scramCredentialUpsertionSalt smsg)) else serialize (scramCredentialUpsertionSalt smsg)
-    if version >= 0 then serialize (toCompactBytes (scramCredentialUpsertionSaltedPassword smsg)) else serialize (scramCredentialUpsertionSaltedPassword smsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode ScramCredentialUpsertion with version-aware field handling.
-decodeScramCredentialUpsertion :: MonadGet m => E.ApiVersion -> m ScramCredentialUpsertion
-decodeScramCredentialUpsertion version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldmechanism <- deserialize
-    fielditerations <- deserialize
-    fieldsalt <- if version >= 0 then P.fromCompactBytes <$> deserialize else deserialize
-    fieldsaltedpassword <- if version >= 0 then P.fromCompactBytes <$> deserialize else deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure ScramCredentialUpsertion
-      {
-      scramCredentialUpsertionName = fieldname
-      ,
-      scramCredentialUpsertionMechanism = fieldmechanism
-      ,
-      scramCredentialUpsertionIterations = fielditerations
-      ,
-      scramCredentialUpsertionSalt = fieldsalt
-      ,
-      scramCredentialUpsertionSaltedPassword = fieldsaltedpassword
-      }
-
-
-
 data AlterUserScramCredentialsRequest = AlterUserScramCredentialsRequest
   {
 
@@ -186,28 +125,117 @@ data AlterUserScramCredentialsRequest = AlterUserScramCredentialsRequest
 maxAlterUserScramCredentialsRequestVersion :: Int16
 maxAlterUserScramCredentialsRequestVersion = 0
 
--- | Encode AlterUserScramCredentialsRequest with the given API version.
-encodeAlterUserScramCredentialsRequest :: MonadPut m => E.ApiVersion -> AlterUserScramCredentialsRequest -> m ()
-encodeAlterUserScramCredentialsRequest version msg
-  | version == 0 =
-    do
-      E.encodeVersionedArray version 0 encodeScramCredentialDeletion (case P.unKafkaArray (alterUserScramCredentialsRequestDeletions msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 0 encodeScramCredentialUpsertion (case P.unKafkaArray (alterUserScramCredentialsRequestUpsertions msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
+-- | KafkaMessage instance for AlterUserScramCredentialsRequest.
+instance KafkaMessage AlterUserScramCredentialsRequest where
+  messageApiKey = 51
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
 
--- | Decode AlterUserScramCredentialsRequest with the given API version.
-decodeAlterUserScramCredentialsRequest :: MonadGet m => E.ApiVersion -> m AlterUserScramCredentialsRequest
-decodeAlterUserScramCredentialsRequest version
-  | version == 0 =
-    do
-      fielddeletions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeScramCredentialDeletion
-      fieldupsertions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeScramCredentialUpsertion
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure AlterUserScramCredentialsRequest
-        {
-        alterUserScramCredentialsRequestDeletions = fielddeletions
-        ,
-        alterUserScramCredentialsRequestUpsertions = fieldupsertions
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Worst-case wire size of a ScramCredentialDeletion.
+wireMaxSizeScramCredentialDeletion :: Int -> ScramCredentialDeletion -> Int
+wireMaxSizeScramCredentialDeletion _version msg =
+  0
+  + WP.dualStringMaxSize (scramCredentialDeletionName msg)
+  + 1
+  + 1
+
+-- | Direct-poke encoder for ScramCredentialDeletion.
+wirePokeScramCredentialDeletion :: Int -> Ptr Word8 -> ScramCredentialDeletion -> IO (Ptr Word8)
+wirePokeScramCredentialDeletion version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (scramCredentialDeletionName msg)) else WP.pokeKafkaString p0 (scramCredentialDeletionName msg))
+  p2 <- W.pokeWord8 p1 (fromIntegral (scramCredentialDeletionMechanism msg))
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for ScramCredentialDeletion.
+wirePeekScramCredentialDeletion :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ScramCredentialDeletion, Ptr Word8)
+wirePeekScramCredentialDeletion version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_mechanism, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (ScramCredentialDeletion { scramCredentialDeletionName = f0_name, scramCredentialDeletionMechanism = f1_mechanism }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultScramCredentialDeletion :: ScramCredentialDeletion
+defaultScramCredentialDeletion = ScramCredentialDeletion { scramCredentialDeletionName = P.KafkaString Null, scramCredentialDeletionMechanism = 0 }
+
+-- | Worst-case wire size of a ScramCredentialUpsertion.
+wireMaxSizeScramCredentialUpsertion :: Int -> ScramCredentialUpsertion -> Int
+wireMaxSizeScramCredentialUpsertion _version msg =
+  0
+  + WP.dualStringMaxSize (scramCredentialUpsertionName msg)
+  + 1
+  + 4
+  + WP.dualBytesMaxSize (scramCredentialUpsertionSalt msg)
+  + WP.dualBytesMaxSize (scramCredentialUpsertionSaltedPassword msg)
+  + 1
+
+-- | Direct-poke encoder for ScramCredentialUpsertion.
+wirePokeScramCredentialUpsertion :: Int -> Ptr Word8 -> ScramCredentialUpsertion -> IO (Ptr Word8)
+wirePokeScramCredentialUpsertion version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (scramCredentialUpsertionName msg)) else WP.pokeKafkaString p0 (scramCredentialUpsertionName msg))
+  p2 <- W.pokeWord8 p1 (fromIntegral (scramCredentialUpsertionMechanism msg))
+  p3 <- W.pokeInt32BE p2 (scramCredentialUpsertionIterations msg)
+  p4 <- (if version >= 0 then WP.pokeCompactBytes p3 (P.toCompactBytes (scramCredentialUpsertionSalt msg)) else WP.pokeKafkaBytes p3 (scramCredentialUpsertionSalt msg))
+  p5 <- (if version >= 0 then WP.pokeCompactBytes p4 (P.toCompactBytes (scramCredentialUpsertionSaltedPassword msg)) else WP.pokeKafkaBytes p4 (scramCredentialUpsertionSaltedPassword msg))
+  if version >= 0 then WP.pokeEmptyTaggedFields p5 else pure p5
+
+-- | Direct-poke decoder for ScramCredentialUpsertion.
+wirePeekScramCredentialUpsertion :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ScramCredentialUpsertion, Ptr Word8)
+wirePeekScramCredentialUpsertion version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_mechanism, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+  (f2_iterations, p3) <- W.peekInt32BE p2 endPtr
+  (f3_salt, p4) <- (if version >= 0 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p3 endPtr else WP.peekKafkaBytes p3 endPtr)
+  (f4_saltedpassword, p5) <- (if version >= 0 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p4 endPtr else WP.peekKafkaBytes p4 endPtr)
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (ScramCredentialUpsertion { scramCredentialUpsertionName = f0_name, scramCredentialUpsertionMechanism = f1_mechanism, scramCredentialUpsertionIterations = f2_iterations, scramCredentialUpsertionSalt = f3_salt, scramCredentialUpsertionSaltedPassword = f4_saltedpassword }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultScramCredentialUpsertion :: ScramCredentialUpsertion
+defaultScramCredentialUpsertion = ScramCredentialUpsertion { scramCredentialUpsertionName = P.KafkaString Null, scramCredentialUpsertionMechanism = 0, scramCredentialUpsertionIterations = 0, scramCredentialUpsertionSalt = P.KafkaBytes Null, scramCredentialUpsertionSaltedPassword = P.KafkaBytes Null }
+
+-- | Worst-case wire size of a AlterUserScramCredentialsRequest.
+wireMaxSizeAlterUserScramCredentialsRequest :: Int -> AlterUserScramCredentialsRequest -> Int
+wireMaxSizeAlterUserScramCredentialsRequest _version msg =
+  0
+  + (5 + (case P.unKafkaArray (alterUserScramCredentialsRequestDeletions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeScramCredentialDeletion _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (alterUserScramCredentialsRequestUpsertions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeScramCredentialUpsertion _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for AlterUserScramCredentialsRequest.
+wirePokeAlterUserScramCredentialsRequest :: Int -> Ptr Word8 -> AlterUserScramCredentialsRequest -> IO (Ptr Word8)
+wirePokeAlterUserScramCredentialsRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeScramCredentialDeletion version p x) p0 (alterUserScramCredentialsRequestDeletions msg)
+    p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeScramCredentialUpsertion version p x) p1 (alterUserScramCredentialsRequestUpsertions msg)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke AlterUserScramCredentialsRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for AlterUserScramCredentialsRequest.
+wirePeekAlterUserScramCredentialsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AlterUserScramCredentialsRequest, Ptr Word8)
+wirePeekAlterUserScramCredentialsRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_deletions, p1) <- WP.peekVersionedArray version 0 (\p e -> wirePeekScramCredentialDeletion version _fp _basePtr p e) p0 endPtr
+    (f1_upsertions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekScramCredentialUpsertion version _fp _basePtr p e) p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (AlterUserScramCredentialsRequest { alterUserScramCredentialsRequestDeletions = f0_deletions, alterUserScramCredentialsRequestUpsertions = f1_upsertions }, pTagsEnd)
+  | otherwise = error $ "wirePeek AlterUserScramCredentialsRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec AlterUserScramCredentialsRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeAlterUserScramCredentialsRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeAlterUserScramCredentialsRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekAlterUserScramCredentialsRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

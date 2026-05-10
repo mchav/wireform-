@@ -160,8 +160,17 @@ connection_defaults =
     Conn.connMaxRetries                           c @?= 3
     Conn.connBackoffMaxMs                         c @?= 10000
     Conn.connBackoffMultiplier                    c @?= 2.0
-    Conn.connSocketKeepalive                      c @?= False
-    Conn.connSocketNagleDisable                   c @?= False
+    -- Both default 'True' here (we deliberately diverge from
+    -- librdkafka, which defaults both off): every Kafka write is
+    -- already a complete framed request, so Nagle is pure
+    -- latency penalty (the JVM client also sets TCP_NODELAY
+    -- unconditionally).  SO_KEEPALIVE is on so silent dead-peer
+    -- cases (NAT, broker crash) fail fast instead of parking
+    -- forever on the TCP send-queue.  See the field-level
+    -- comments in 'defaultConnectionConfig' for the full
+    -- rationale.
+    Conn.connSocketKeepalive                      c @?= True
+    Conn.connSocketNagleDisable                   c @?= True
     Conn.connSocketSendBuffer                     c @?= 0
     Conn.connSocketReceiveBuffer                  c @?= 0
     Conn.connSocketMaxFails                       c @?= 1

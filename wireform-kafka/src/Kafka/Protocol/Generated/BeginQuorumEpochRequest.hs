@@ -24,15 +24,9 @@ module Kafka.Protocol.Generated.BeginQuorumEpochRequest
     TopicData(..),
     PartitionData(..),
     LeaderEndpoint(..),
-    encodeBeginQuorumEpochRequest,
-    decodeBeginQuorumEpochRequest,
     maxBeginQuorumEpochRequestVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -40,13 +34,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The partitions.
@@ -79,42 +80,6 @@ data PartitionData = PartitionData
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode PartitionData with version-aware field handling.
-encodePartitionData :: MonadPut m => E.ApiVersion -> PartitionData -> m ()
-encodePartitionData version pmsg =
-  do
-    serialize (partitionDataPartitionIndex pmsg)
-    when (version >= 1) $
-      serialize (partitionDataVoterDirectoryId pmsg)
-    serialize (partitionDataLeaderId pmsg)
-    serialize (partitionDataLeaderEpoch pmsg)
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode PartitionData with version-aware field handling.
-decodePartitionData :: MonadGet m => E.ApiVersion -> m PartitionData
-decodePartitionData version =
-  do
-    fieldpartitionindex <- deserialize
-    fieldvoterdirectoryid <- if version >= 1
-      then deserialize
-      else pure (P.nullUuid)
-    fieldleaderid <- deserialize
-    fieldleaderepoch <- deserialize
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure PartitionData
-      {
-      partitionDataPartitionIndex = fieldpartitionindex
-      ,
-      partitionDataVoterDirectoryId = fieldvoterdirectoryid
-      ,
-      partitionDataLeaderId = fieldleaderid
-      ,
-      partitionDataLeaderEpoch = fieldleaderepoch
-      }
-
-
 -- | The topics.
 data TopicData = TopicData
   {
@@ -132,31 +97,6 @@ data TopicData = TopicData
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicData with version-aware field handling.
-encodeTopicData :: MonadPut m => E.ApiVersion -> TopicData -> m ()
-encodeTopicData version tmsg =
-  do
-    if version >= 1 then serialize (toCompactString (topicDataTopicName tmsg)) else serialize (topicDataTopicName tmsg)
-    E.encodeVersionedArray version 1 encodePartitionData (case P.unKafkaArray (topicDataPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicData with version-aware field handling.
-decodeTopicData :: MonadGet m => E.ApiVersion -> m TopicData
-decodeTopicData version =
-  do
-    fieldtopicname <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodePartitionData
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicData
-      {
-      topicDataTopicName = fieldtopicname
-      ,
-      topicDataPartitions = fieldpartitions
-      }
-
 
 -- | Endpoints for the leader.
 data LeaderEndpoint = LeaderEndpoint
@@ -181,44 +121,6 @@ data LeaderEndpoint = LeaderEndpoint
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode LeaderEndpoint with version-aware field handling.
-encodeLeaderEndpoint :: MonadPut m => E.ApiVersion -> LeaderEndpoint -> m ()
-encodeLeaderEndpoint version lmsg =
-  do
-    when (version >= 1) $
-      if version >= 1 then serialize (toCompactString (leaderEndpointName lmsg)) else serialize (leaderEndpointName lmsg)
-    when (version >= 1) $
-      if version >= 1 then serialize (toCompactString (leaderEndpointHost lmsg)) else serialize (leaderEndpointHost lmsg)
-    when (version >= 1) $
-      serialize (leaderEndpointPort lmsg)
-    when (version >= 1) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode LeaderEndpoint with version-aware field handling.
-decodeLeaderEndpoint :: MonadGet m => E.ApiVersion -> m LeaderEndpoint
-decodeLeaderEndpoint version =
-  do
-    fieldname <- if version >= 1
-      then if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldhost <- if version >= 1
-      then if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldport <- if version >= 1
-      then deserialize
-      else pure (0)
-    _ <- if version >= 1 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure LeaderEndpoint
-      {
-      leaderEndpointName = fieldname
-      ,
-      leaderEndpointHost = fieldhost
-      ,
-      leaderEndpointPort = fieldport
-      }
-
 
 
 data BeginQuorumEpochRequest = BeginQuorumEpochRequest
@@ -254,57 +156,161 @@ data BeginQuorumEpochRequest = BeginQuorumEpochRequest
 maxBeginQuorumEpochRequestVersion :: Int16
 maxBeginQuorumEpochRequestVersion = 1
 
--- | Encode BeginQuorumEpochRequest with the given API version.
-encodeBeginQuorumEpochRequest :: MonadPut m => E.ApiVersion -> BeginQuorumEpochRequest -> m ()
-encodeBeginQuorumEpochRequest version msg
-  | version == 0 =
-    do
-      serialize (beginQuorumEpochRequestClusterId msg)
-      E.encodeVersionedArray version 1 encodeTopicData (case P.unKafkaArray (beginQuorumEpochRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
+-- | KafkaMessage instance for BeginQuorumEpochRequest.
+instance KafkaMessage BeginQuorumEpochRequest where
+  messageApiKey = 53
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 1
+
+-- | Worst-case wire size of a PartitionData.
+wireMaxSizePartitionData :: Int -> PartitionData -> Int
+wireMaxSizePartitionData _version msg =
+  0
+  + 4
+  + 16
+  + 4
+  + 4
+  + 1
+
+-- | Direct-poke encoder for PartitionData.
+wirePokePartitionData :: Int -> Ptr Word8 -> PartitionData -> IO (Ptr Word8)
+wirePokePartitionData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (partitionDataPartitionIndex msg)
+  p2 <- (if version >= 1 then WP.pokeKafkaUuid p1 (partitionDataVoterDirectoryId msg) else pure p1)
+  p3 <- W.pokeInt32BE p2 (partitionDataLeaderId msg)
+  p4 <- W.pokeInt32BE p3 (partitionDataLeaderEpoch msg)
+  if version >= 1 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for PartitionData.
+wirePeekPartitionData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (PartitionData, Ptr Word8)
+wirePeekPartitionData version _fp _basePtr p0 endPtr = do
+  (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
+  (f1_voterdirectoryid, p2) <- (if version >= 1 then WP.peekKafkaUuid p1 endPtr else pure (P.nullUuid, p1))
+  (f2_leaderid, p3) <- W.peekInt32BE p2 endPtr
+  (f3_leaderepoch, p4) <- W.peekInt32BE p3 endPtr
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (PartitionData { partitionDataPartitionIndex = f0_partitionindex, partitionDataVoterDirectoryId = f1_voterdirectoryid, partitionDataLeaderId = f2_leaderid, partitionDataLeaderEpoch = f3_leaderepoch }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionData :: PartitionData
+defaultPartitionData = PartitionData { partitionDataPartitionIndex = 0, partitionDataVoterDirectoryId = P.nullUuid, partitionDataLeaderId = 0, partitionDataLeaderEpoch = 0 }
+
+-- | Worst-case wire size of a TopicData.
+wireMaxSizeTopicData :: Int -> TopicData -> Int
+wireMaxSizeTopicData _version msg =
+  0
+  + WP.dualStringMaxSize (topicDataTopicName msg)
+  + (5 + (case P.unKafkaArray (topicDataPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionData _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TopicData.
+wirePokeTopicData :: Int -> Ptr Word8 -> TopicData -> IO (Ptr Word8)
+wirePokeTopicData version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (topicDataTopicName msg)) else WP.pokeKafkaString p0 (topicDataTopicName msg))
+  p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokePartitionData version p x) p1 (topicDataPartitions msg)
+  if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for TopicData.
+wirePeekTopicData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicData, Ptr Word8)
+wirePeekTopicData version _fp _basePtr p0 endPtr = do
+  (f0_topicname, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_partitions, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekPartitionData version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TopicData { topicDataTopicName = f0_topicname, topicDataPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicData :: TopicData
+defaultTopicData = TopicData { topicDataTopicName = P.KafkaString Null, topicDataPartitions = P.mkKafkaArray V.empty }
+
+-- | Worst-case wire size of a LeaderEndpoint.
+wireMaxSizeLeaderEndpoint :: Int -> LeaderEndpoint -> Int
+wireMaxSizeLeaderEndpoint _version msg =
+  0
+  + WP.dualStringMaxSize (leaderEndpointName msg)
+  + WP.dualStringMaxSize (leaderEndpointHost msg)
+  + 2
+  + 1
+
+-- | Direct-poke encoder for LeaderEndpoint.
+wirePokeLeaderEndpoint :: Int -> Ptr Word8 -> LeaderEndpoint -> IO (Ptr Word8)
+wirePokeLeaderEndpoint version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 1 then (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (leaderEndpointName msg)) else WP.pokeKafkaString p0 (leaderEndpointName msg)) else pure p0)
+  p2 <- (if version >= 1 then (if version >= 1 then WP.pokeCompactString p1 (P.toCompactString (leaderEndpointHost msg)) else WP.pokeKafkaString p1 (leaderEndpointHost msg)) else pure p1)
+  p3 <- (if version >= 1 then W.pokeWord16BE p2 (leaderEndpointPort msg) else pure p2)
+  if version >= 1 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for LeaderEndpoint.
+wirePeekLeaderEndpoint :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (LeaderEndpoint, Ptr Word8)
+wirePeekLeaderEndpoint version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (if version >= 1 then (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+  (f1_host, p2) <- (if version >= 1 then (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
+  (f2_port, p3) <- (if version >= 1 then W.peekWord16BE p2 endPtr else pure (0, p2))
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (LeaderEndpoint { leaderEndpointName = f0_name, leaderEndpointHost = f1_host, leaderEndpointPort = f2_port }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultLeaderEndpoint :: LeaderEndpoint
+defaultLeaderEndpoint = LeaderEndpoint { leaderEndpointName = P.KafkaString Null, leaderEndpointHost = P.KafkaString Null, leaderEndpointPort = 0 }
+
+-- | Worst-case wire size of a BeginQuorumEpochRequest.
+wireMaxSizeBeginQuorumEpochRequest :: Int -> BeginQuorumEpochRequest -> Int
+wireMaxSizeBeginQuorumEpochRequest _version msg =
+  0
+  + WP.dualStringMaxSize (beginQuorumEpochRequestClusterId msg)
+  + 4
+  + (5 + (case P.unKafkaArray (beginQuorumEpochRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicData _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (beginQuorumEpochRequestLeaderEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeLeaderEndpoint _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for BeginQuorumEpochRequest.
+wirePokeBeginQuorumEpochRequest :: Int -> Ptr Word8 -> BeginQuorumEpochRequest -> IO (Ptr Word8)
+wirePokeBeginQuorumEpochRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (beginQuorumEpochRequestClusterId msg)) else WP.pokeKafkaString p0 (beginQuorumEpochRequestClusterId msg))
+    p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeTopicData version p x) p1 (beginQuorumEpochRequestTopics msg)
+    pure p2
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (beginQuorumEpochRequestClusterId msg)) else WP.pokeKafkaString p0 (beginQuorumEpochRequestClusterId msg))
+    p2 <- (if version >= 1 then W.pokeInt32BE p1 (beginQuorumEpochRequestVoterId msg) else pure p1)
+    p3 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeTopicData version p x) p2 (beginQuorumEpochRequestTopics msg)
+    p4 <- (if version >= 1 then WP.pokeVersionedArray version 1 (\p x -> wirePokeLeaderEndpoint version p x) p3 (beginQuorumEpochRequestLeaderEndpoints msg) else pure p3)
+    WP.pokeEmptyTaggedFields p4
+  | otherwise = error $ "wirePoke BeginQuorumEpochRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for BeginQuorumEpochRequest.
+wirePeekBeginQuorumEpochRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (BeginQuorumEpochRequest, Ptr Word8)
+wirePeekBeginQuorumEpochRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_clusterid, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_topics, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
+    pure (BeginQuorumEpochRequest { beginQuorumEpochRequestClusterId = f0_clusterid, beginQuorumEpochRequestVoterId = -1, beginQuorumEpochRequestTopics = f1_topics, beginQuorumEpochRequestLeaderEndpoints = P.mkKafkaArray V.empty }, p2)
+  | version == 1 = do
+    (f0_clusterid, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_voterid, p2) <- (if version >= 1 then W.peekInt32BE p1 endPtr else pure (-1, p1))
+    (f2_topics, p3) <- WP.peekVersionedArray version 1 (\p e -> wirePeekTopicData version _fp _basePtr p e) p2 endPtr
+    (f3_leaderendpoints, p4) <- (if version >= 1 then WP.peekVersionedArray version 1 (\p e -> wirePeekLeaderEndpoint version _fp _basePtr p e) p3 endPtr else pure (P.mkKafkaArray V.empty, p3))
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (BeginQuorumEpochRequest { beginQuorumEpochRequestClusterId = f0_clusterid, beginQuorumEpochRequestVoterId = f1_voterid, beginQuorumEpochRequestTopics = f2_topics, beginQuorumEpochRequestLeaderEndpoints = f3_leaderendpoints }, pTagsEnd)
+  | otherwise = error $ "wirePeek BeginQuorumEpochRequest : unsupported version: " ++ show version
 
 
-  | version == 1 =
-    do
-      serialize (toCompactString (beginQuorumEpochRequestClusterId msg))
-      serialize (beginQuorumEpochRequestVoterId msg)
-      E.encodeVersionedArray version 1 encodeTopicData (case P.unKafkaArray (beginQuorumEpochRequestTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      E.encodeVersionedArray version 1 encodeLeaderEndpoint (case P.unKafkaArray (beginQuorumEpochRequestLeaderEndpoints msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
-
--- | Decode BeginQuorumEpochRequest with the given API version.
-decodeBeginQuorumEpochRequest :: MonadGet m => E.ApiVersion -> m BeginQuorumEpochRequest
-decodeBeginQuorumEpochRequest version
-  | version == 0 =
-    do
-      fieldclusterid <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeTopicData
-      pure BeginQuorumEpochRequest
-        {
-        beginQuorumEpochRequestClusterId = fieldclusterid
-        ,
-        beginQuorumEpochRequestVoterId = (-1)
-        ,
-        beginQuorumEpochRequestTopics = fieldtopics
-        ,
-        beginQuorumEpochRequestLeaderEndpoints = P.mkKafkaArray V.empty
-        }
-
-  | version == 1 =
-    do
-      fieldclusterid <- if version >= 1 then P.fromCompactString <$> deserialize else deserialize
-      fieldvoterid <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeTopicData
-      fieldleaderendpoints <- P.mkKafkaArray <$> E.decodeVersionedArray version 1 decodeLeaderEndpoint
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure BeginQuorumEpochRequest
-        {
-        beginQuorumEpochRequestClusterId = fieldclusterid
-        ,
-        beginQuorumEpochRequestVoterId = fieldvoterid
-        ,
-        beginQuorumEpochRequestTopics = fieldtopics
-        ,
-        beginQuorumEpochRequestLeaderEndpoints = fieldleaderendpoints
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec BeginQuorumEpochRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeBeginQuorumEpochRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeBeginQuorumEpochRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekBeginQuorumEpochRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

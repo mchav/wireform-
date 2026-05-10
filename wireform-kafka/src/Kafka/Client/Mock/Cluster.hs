@@ -118,6 +118,8 @@ import Control.Monad (forM_, unless, when)
 import qualified Data.List as L
 import Data.ByteString (ByteString)
 import Data.Int (Int32, Int64)
+import qualified Data.IntMap.Strict as IntMap
+import Data.IntMap.Strict (IntMap)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Foldable as F
@@ -192,7 +194,7 @@ data MockPartition = MockPartition
 
 data MockTopic = MockTopic
   { mtName       :: !Text
-  , mtPartitions :: !(Map Int32 MockPartition)
+  , mtPartitions :: !(IntMap MockPartition)
   }
 
 ----------------------------------------------------------------------
@@ -338,16 +340,17 @@ createTopic c topic n = do
   parts <- mapM (mkPartition brokers) [0 .. fromIntegral (n - 1)]
   let !mt = MockTopic
         { mtName       = topic
-        , mtPartitions = Map.fromList parts
+        , mtPartitions = IntMap.fromList
+            [(fromIntegral k, v) | (k, v) <- parts]
         }
   atomically $ do
     existing <- readTVar (mcTopics c)
     case Map.lookup topic existing of
       Just t
-        | Map.size (mtPartitions t) == n -> pure ()
+        | IntMap.size (mtPartitions t) == n -> pure ()
         | otherwise -> error $
             "createTopic: " <> T.unpack (id topic)
-            <> " already exists with " <> show (Map.size (mtPartitions t))
+            <> " already exists with " <> show (IntMap.size (mtPartitions t))
             <> " partitions; cannot resize to " <> show n
       Nothing ->
         writeTVar (mcTopics c) (Map.insert topic mt existing)
@@ -401,7 +404,7 @@ autoCreateDefaultPartitions = 1
 partitionCount :: MockCluster -> Text -> IO (Maybe Int)
 partitionCount c topic = do
   m <- readTVarIO (mcTopics c)
-  pure (Map.size . mtPartitions <$> Map.lookup topic m)
+  pure (IntMap.size . mtPartitions <$> Map.lookup topic m)
 
 ----------------------------------------------------------------------
 -- Brokers
@@ -443,7 +446,7 @@ partitionLeader
   :: MockCluster -> Text -> Int32 -> IO (Maybe BrokerId)
 partitionLeader c topic part = do
   topics <- readTVarIO (mcTopics c)
-  case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+  case Map.lookup topic topics >>= IntMap.lookup (fromIntegral part) . mtPartitions of
     Nothing -> pure Nothing
     Just p  -> Just <$> readTVarIO (mpLeader p)
 
@@ -454,7 +457,7 @@ reassignPartitionLeader
   :: MockCluster -> Text -> Int32 -> BrokerId -> IO (Maybe Int32)
 reassignPartitionLeader c topic part newLeader = atomically $ do
   topics <- readTVar (mcTopics c)
-  case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+  case Map.lookup topic topics >>= IntMap.lookup (fromIntegral part) . mtPartitions of
     Nothing -> pure Nothing
     Just p  -> do
       writeTVar (mpLeader p) newLeader
@@ -497,7 +500,7 @@ appendToPartition c topic part mk v ts hdrs stamp = do
           _                   -> pure False
     if fenced
       then pure (Left "fenced: producer epoch superseded")
-      else case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+      else case Map.lookup topic topics >>= IntMap.lookup (fromIntegral part) . mtPartitions of
         Nothing -> pure (Left $
           "appendToPartition: no partition "
            <> show part <> " on topic "
@@ -555,7 +558,7 @@ fetchSlice
   -> IO (Either String ([StoredRecord], Int64))
 fetchSlice c topic part from maxN stableOnly = atomically $ do
   topics <- readTVar (mcTopics c)
-  case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+  case Map.lookup topic topics >>= IntMap.lookup (fromIntegral part) . mtPartitions of
     Nothing -> pure (Left "fetchSlice: no such partition")
     Just p  -> do
       log_ <- readTVar (mpLog p)
@@ -588,7 +591,7 @@ fetchSlice c topic part from maxN stableOnly = atomically $ do
 partitionHWM :: MockCluster -> Text -> Int32 -> IO (Maybe Int64)
 partitionHWM c topic part = do
   topics <- readTVarIO (mcTopics c)
-  case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+  case Map.lookup topic topics >>= IntMap.lookup (fromIntegral part) . mtPartitions of
     Nothing -> pure Nothing
     Just p  -> Just <$> readTVarIO (mpHwm p)
 
@@ -596,7 +599,7 @@ partitionLastStableOffset
   :: MockCluster -> Text -> Int32 -> IO (Maybe Int64)
 partitionLastStableOffset c topic part = do
   topics <- readTVarIO (mcTopics c)
-  case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+  case Map.lookup topic topics >>= IntMap.lookup (fromIntegral part) . mtPartitions of
     Nothing -> pure Nothing
     Just p  -> Just <$> readTVarIO (mpLastStableOffset p)
 
@@ -640,7 +643,13 @@ describeClusterMetadata c = do
     }
   where
     mkTopicMeta ds (name, mt) = do
-      pms <- mapM (mkPartMeta ds) (Map.toAscList (mtPartitions mt))
+      -- Convert the IntMap key back to Int32 to keep the
+      -- downstream tuple shape consistent with the broker's
+      -- partition-id type.
+      pms <- mapM (mkPartMeta ds)
+               [ (fromIntegral k, v)
+               | (k, v) <- IntMap.toAscList (mtPartitions mt)
+               ]
       pure TopicMetadata { tmName = name, tmPartitions = pms }
 
     mkPartMeta ds (pid, p) = do
@@ -663,7 +672,7 @@ currentLeaderEpoch
   :: MockCluster -> Text -> Int32 -> IO (Maybe Int32)
 currentLeaderEpoch c topic part = do
   topics <- readTVarIO (mcTopics c)
-  case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+  case Map.lookup topic topics >>= IntMap.lookup (fromIntegral part) . mtPartitions of
     Nothing -> pure Nothing
     Just p  -> Just <$> readTVarIO (mpLeaderEpoch p)
 
@@ -674,7 +683,7 @@ currentLeaderEpoch c topic part = do
 bumpLeaderEpoch :: MockCluster -> Text -> Int32 -> IO Int32
 bumpLeaderEpoch c topic part = atomically $ do
   topics <- readTVar (mcTopics c)
-  case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+  case Map.lookup topic topics >>= IntMap.lookup (fromIntegral part) . mtPartitions of
     Nothing -> pure (-1)
     Just p  -> do
       modifyTVar' (mpLeaderEpoch p) (+ 1)
@@ -813,7 +822,7 @@ commitTxn c tid = atomically $ do
   -- belonging to this transaction.
   topics <- readTVar (mcTopics c)
   forM_ (Map.elems topics) $ \mt ->
-    forM_ (Map.elems (mtPartitions mt)) $ \p -> do
+    forM_ (IntMap.elems (mtPartitions mt)) $ \p -> do
       log_ <- readTVar (mpLog p)
       let touched = any (\r -> case srProducer r of
                                   Just (ProducerStamp t _) -> t == tid
@@ -837,7 +846,7 @@ abortTxn c tid = atomically $ do
   -- skip them on the next fetch.
   topics <- readTVar (mcTopics c)
   forM_ (Map.elems topics) $ \mt ->
-    forM_ (Map.elems (mtPartitions mt)) $ \p -> do
+    forM_ (IntMap.elems (mtPartitions mt)) $ \p -> do
       log_ <- readTVar (mpLog p)
       let touched = any (\r -> case srProducer r of
                                   Just (ProducerStamp t _) -> t == tid
@@ -972,7 +981,7 @@ assignmentFor c grp mid = do
             [ m | (m, sub) <- sorted, Set.member t sub ]
        in case (Map.lookup t topicMap, lookupIdx self subscribers) of
             (Just mt, Just selfIdx) ->
-              let !n  = Map.size (mtPartitions mt)
+              let !n  = IntMap.size (mtPartitions mt)
                   !ms = length subscribers
                in [ (t, fromIntegral i)
                   | i <- [0 .. n - 1]
@@ -1071,13 +1080,13 @@ isReauthExpired c = do
 dumpPartition :: MockCluster -> Text -> Int32 -> IO [StoredRecord]
 dumpPartition c topic part = do
   topics <- readTVarIO (mcTopics c)
-  case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+  case Map.lookup topic topics >>= IntMap.lookup (fromIntegral part) . mtPartitions of
     Nothing -> pure []
     Just p  -> F.toList <$> readTVarIO (mpLog p)
 
 partitionLogSize :: MockCluster -> Text -> Int32 -> IO Int
 partitionLogSize c topic part = do
   topics <- readTVarIO (mcTopics c)
-  case Map.lookup topic topics >>= Map.lookup part . mtPartitions of
+  case Map.lookup topic topics >>= IntMap.lookup (fromIntegral part) . mtPartitions of
     Nothing -> pure 0
     Just p  -> Seq.length <$> readTVarIO (mpLog p)

@@ -35,9 +35,8 @@ import Foreign.Storable
 defaultSnappyLevel :: Int
 defaultSnappyLevel = 0
 
--- | FFI binding to snappy_max_compressed_length
-foreign import ccall unsafe "snappy-c.h snappy_max_compressed_length"
-  c_snappy_max_compressed_length :: CSize -> CSize
+-- (The 'snappy_max_compressed_length' FFI binding is unused by us;
+-- the wrapper calls do their own buffer sizing inside the C side.)
 
 -- | FFI binding to snappy_compress_wrapper
 foreign import ccall unsafe "snappy_ffi.h snappy_compress_wrapper"

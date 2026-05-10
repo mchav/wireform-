@@ -32,6 +32,9 @@ module Kafka.Client.Internal.BatchAccumulator
     -- * Adding Records
   , appendRecord
   , appendRecordWithCallback
+  , appendRecordStamped
+  , BatchStamp (..)
+  , noStamp
   , TopicPartition(..)
     -- * Draining Batches
   , drainReadyBatches
@@ -40,23 +43,19 @@ module Kafka.Client.Internal.BatchAccumulator
   , ProducerBatch(..)
   , BatchState(..)
   , RecordCallback
+  , flushPendingBatches
   ) where
 
-import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import Control.Monad (when)
-import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Foldable (toList)
 import Data.Int
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq, (|>))
 import qualified Data.Sequence as Seq
 import Data.Hashable (Hashable)
 import Data.Text (Text)
-import qualified Data.Time.Clock.POSIX as Time
-import qualified Data.Vector as V
+import qualified Kafka.Time as KafkaTime
 import GHC.Generics (Generic)
 import qualified ListT
 import qualified StmContainers.Map as StmMap
@@ -104,8 +103,8 @@ data ProducerBatch = ProducerBatch
     -- ^ Compression codec to use
   , batchCompressionLevel :: !Compression.CompressionLevel
     -- ^ Compression level (KIP-353/776/909)
-  , batchCallbacks :: ![RecordCallback]
-    -- ^ Completion callbacks for each record (in order)
+  , batchCallbacks :: !(Seq RecordCallback)
+    -- ^ Completion callbacks for each record, in order.
   , batchAttempts :: !Int
     -- ^ Number of retry attempts already taken on this batch.
     --   Bumped each time the sender re-enqueues the batch after a
@@ -129,6 +128,14 @@ data ProducerBatch = ProducerBatch
     --   batch. Each successive batch on the same (topic, partition)
     --   gets the previous batch's @batchBaseSequence + count@.
     --   'noSequence' (= -1) for non-idempotent producers.
+  , batchIsTransactional :: !Bool
+    -- ^ Whether this batch is part of an open transaction. When
+    --   'True', 'Kafka.Client.Internal.ProducerSender.buildRecordBatch'
+    --   sets 'attrIsTransactional' on the wire-level
+    --   'RecordBatch.Attributes' so the broker treats the batch as a
+    --   transactional write (consumed by read-committed consumers
+    --   only after 'EndTxn(commit)'). Always 'False' for
+    --   non-transactional / idempotent-only producers.
   }
 
 -- | Per-partition batch queue
@@ -191,17 +198,27 @@ closeBatchAccumulator BatchAccumulator{..} = atomically $ do
   -- Mark all current batches as ready
   partitionList <- ListT.toList $ StmMap.listT accumulatorPartitions
   mapM_ markCurrentBatchReady partitionList
-  where
-    markCurrentBatchReady :: (TopicPartition, PartitionQueue) -> STM ()
-    markCurrentBatchReady (_, PartitionQueue{..}) = do
-      currentM <- readTVar queueCurrentBatch
-      case currentM of
-        Nothing -> return ()
-        Just batch -> do
-          -- Move current batch to ready queue
-          let readyBatch = batch { batchState = Ready }
-          modifyTVar' queueBatches (|> readyBatch)
-          writeTVar queueCurrentBatch Nothing
+
+-- | Mark every partition's filling batch as 'Ready' /without/
+-- closing the accumulator.  Used by 'Kafka.Client.Producer.
+-- flushProducer' so subsequent sends keep working — the JVM
+-- client + librdkafka behave the same way: 'flush()' is a
+-- drain-checkpoint, not a destructor.
+flushPendingBatches :: BatchAccumulator -> IO ()
+flushPendingBatches BatchAccumulator{..} = atomically $ do
+  partitionList <- ListT.toList $ StmMap.listT accumulatorPartitions
+  mapM_ markCurrentBatchReady partitionList
+
+markCurrentBatchReady :: (TopicPartition, PartitionQueue) -> STM ()
+markCurrentBatchReady (_, PartitionQueue{..}) = do
+  currentM <- readTVar queueCurrentBatch
+  case currentM of
+    Nothing -> return ()
+    Just batch -> do
+      -- Move current batch to ready queue
+      let readyBatch = batch { batchState = Ready }
+      modifyTVar' queueBatches (|> readyBatch)
+      writeTVar queueCurrentBatch Nothing
 
 -- | Append a record to the accumulator
 -- Returns True if the record was added, False if accumulator is closed
@@ -213,6 +230,172 @@ appendRecord
 appendRecord accumulator tp record = do
   -- Use appendRecordWithCallback with a no-op callback
   appendRecordWithCallback accumulator tp record (\_ -> return ())
+
+-- | Producer-id / epoch / sequence triple stamped onto each new
+-- batch when the producer is idempotent (KIP-98) or transactional
+-- (KIP-98 / KIP-447). Carries an 'isTransactional' flag so the
+-- record-batch encoder can flip the corresponding bit in the
+-- attributes word.
+--
+-- Use 'noStamp' for non-idempotent producers; the accumulator will
+-- leave 'batchProducerId' / 'batchProducerEpoch' / 'batchBaseSequence'
+-- at the @no…@ sentinels.
+data BatchStamp = BatchStamp
+  { stampProducerId      :: !Int64
+  , stampProducerEpoch   :: !Int16
+  , stampBaseSequence    :: !Int32
+    -- ^ Sequence number to stamp on a /freshly created/ batch.
+    --   Records appended to a batch that's already filling inherit
+    --   that batch's sequence base; the producer-side counter
+    --   should therefore be advanced /after/ a batch is sealed.
+  , stampIsTransactional :: !Bool
+  }
+  deriving (Eq, Show)
+
+-- | Stamp value used when no idempotent / transactional state is
+-- in scope.
+noStamp :: BatchStamp
+noStamp = BatchStamp
+  { stampProducerId      = RB.noProducerId
+  , stampProducerEpoch   = RB.noProducerEpoch
+  , stampBaseSequence    = RB.noSequence
+  , stampIsTransactional = False
+  }
+
+-- | Append a record carrying an explicit 'BatchStamp'. If the
+-- record creates a new batch, the stamp is recorded on the batch;
+-- if it joins an existing /filling/ batch, the existing stamp is
+-- preserved and the call asserts (in debug mode) that the
+-- producer-id + epoch match.
+--
+-- The producer is responsible for ensuring that consecutive
+-- 'stampBaseSequence' values across batches on the same
+-- (topic, partition) form a gapless sequence; the accumulator only
+-- records what it's given.
+appendRecordStamped
+  :: BatchAccumulator
+  -> TopicPartition
+  -> RB.Record
+  -> RecordCallback
+  -> BatchStamp
+  -> IO Bool
+appendRecordStamped acc@BatchAccumulator{..} tp record callback stamp = do
+  -- Fast path: try to append to an existing /filling/ batch
+  -- without paying for getCurrentTime + new-batch construction.
+  -- This is the common case once a partition's batch has been
+  -- created; for steady-state high-throughput producers it skips
+  -- the syscall on every record except the first per batch.
+  r <- atomically (tryFastAppend tp record callback acc)
+  case r of
+    FastAppendDone done -> pure done
+    FastAppendNeedsNewBatch -> do
+      currentTime <- getCurrentTimeMillis
+      atomically (slowAppend tp record callback stamp currentTime acc)
+
+-- | Result of an optimistic append into an already-filling batch.
+data FastAppendResult
+  = FastAppendDone !Bool
+    -- ^ The append landed (or the accumulator is closed). The
+    -- 'Bool' mirrors 'appendRecordStamped's return value.
+  | FastAppendNeedsNewBatch
+    -- ^ No existing /filling/ batch for this partition; the
+    -- caller must take the slow path (which fetches a timestamp
+    -- before creating a fresh batch).
+  deriving (Eq, Show)
+
+-- | STM-only fast path. Re-uses the existing 'PartitionQueue'
+-- for this 'TopicPartition' and the existing /filling/
+-- 'ProducerBatch' on it. Falls through to 'FastAppendNeedsNewBatch'
+-- when either is missing so the caller can do the IO bits
+-- (clock + new batch construction) outside the transaction.
+{-# INLINE tryFastAppend #-}
+tryFastAppend
+  :: TopicPartition
+  -> RB.Record
+  -> RecordCallback
+  -> BatchAccumulator
+  -> STM FastAppendResult
+tryFastAppend tp record callback BatchAccumulator{..} = do
+  isClosed <- readTVar accumulatorClosed
+  if isClosed
+    then pure (FastAppendDone False)
+    else do
+      mq <- StmMap.lookup tp accumulatorPartitions
+      case mq of
+        Nothing    -> pure FastAppendNeedsNewBatch
+        Just queue -> do
+          mc <- readTVar (queueCurrentBatch queue)
+          case mc of
+            Nothing    -> pure FastAppendNeedsNewBatch
+            Just batch -> do
+              let !recordSize = approximateRecordSize record
+                  !newSize    = batchSizeBytes batch + recordSize
+                  !newBatch   = batch
+                    { batchRecords   = batchRecords batch |> record
+                    , batchSizeBytes = newSize
+                    , batchCallbacks = batchCallbacks batch |> callback
+                    }
+              if newSize >= accumulatorBatchSize accumulatorConfig
+                then do
+                  let !readyBatch = newBatch { batchState = Ready }
+                  modifyTVar' (queueBatches queue) (|> readyBatch)
+                  writeTVar (queueCurrentBatch queue) Nothing
+                  pure (FastAppendDone True)
+                else do
+                  writeTVar (queueCurrentBatch queue) (Just newBatch)
+                  pure (FastAppendDone True)
+
+-- | Slow path: clock has been read, we may need to create a new
+-- partition queue + new batch. If between the fast-path peek and
+-- this call another thread already filled in a batch, we still
+-- append to it (so we don't lose the timestamp work, but also
+-- don't double-create the batch).
+{-# INLINE slowAppend #-}
+slowAppend
+  :: TopicPartition
+  -> RB.Record
+  -> RecordCallback
+  -> BatchStamp
+  -> Int64           -- ^ current time, fetched in IO
+  -> BatchAccumulator
+  -> STM Bool
+slowAppend tp record callback stamp currentTime BatchAccumulator{..} = do
+  isClosed <- readTVar accumulatorClosed
+  if isClosed
+    then pure False
+    else do
+      queue <- getOrCreatePartitionQueue accumulatorPartitions tp
+      current <- readTVar (queueCurrentBatch queue)
+      batch <- case current of
+        Just b  -> pure b
+        Nothing -> do
+          let !newBatch = applyStamp stamp $
+                createBatch accumulatorConfig tp currentTime
+          writeTVar (queueCurrentBatch queue) (Just newBatch)
+          pure newBatch
+      let !recordSize = approximateRecordSize record
+          !newSize    = batchSizeBytes batch + recordSize
+          !newBatch   = batch
+            { batchRecords   = batchRecords batch |> record
+            , batchSizeBytes = newSize
+            , batchCallbacks = batchCallbacks batch |> callback
+            }
+      if newSize >= accumulatorBatchSize accumulatorConfig
+        then do
+          let !readyBatch = newBatch { batchState = Ready }
+          modifyTVar' (queueBatches queue) (|> readyBatch)
+          writeTVar (queueCurrentBatch queue) Nothing
+          pure True
+        else do
+          writeTVar (queueCurrentBatch queue) (Just newBatch)
+          pure True
+  where
+    applyStamp BatchStamp{..} b = b
+      { batchProducerId      = stampProducerId
+      , batchProducerEpoch   = stampProducerEpoch
+      , batchBaseSequence    = stampBaseSequence
+      , batchIsTransactional = stampIsTransactional
+      }
 
 -- | Append a record with a completion callback
 -- Returns True if the record was added, False if accumulator is closed
@@ -248,7 +431,7 @@ appendRecordWithCallback BatchAccumulator{..} tp record callback = do
             newBatch = batch
               { batchRecords = batchRecords batch |> record
               , batchSizeBytes = newSize
-              , batchCallbacks = batchCallbacks batch ++ [callback]
+              , batchCallbacks = batchCallbacks batch |> callback
               }
         
         -- Check if batch is now full
@@ -365,16 +548,24 @@ createBatch BatchAccumulatorConfig{..} tp currentTime =
     , batchState = Filling
     , batchCompression = accumulatorCompression
     , batchCompressionLevel = accumulatorCompressionLevel
-    , batchCallbacks = []
+    , batchCallbacks = Seq.empty
     , batchAttempts = 0
     , batchProducerId = RB.noProducerId
     , batchProducerEpoch = RB.noProducerEpoch
     , batchBaseSequence = RB.noSequence
+    , batchIsTransactional = False
     }
 
--- | Get current time in milliseconds
+-- | Get current time in milliseconds.
+--
+-- Uses 'Kafka.Time.currentTimeMillis' which on Linux reads the
+-- vDSO-mapped @CLOCK_REALTIME_COARSE@ (~8 ns per call) and on
+-- macOS/BSD reads the regular vDSO 'CLOCK_REALTIME'. The
+-- accumulator's @tryFastAppend@ STM-only path skips this call
+-- entirely; only the @slowAppend@ path (one in N records) needs
+-- the timestamp to seed a fresh batch.
 getCurrentTimeMillis :: IO Int64
-getCurrentTimeMillis = round . (* 1000) <$> Time.getPOSIXTime
+getCurrentTimeMillis = KafkaTime.currentTimeMillis
 
 -- | Approximate size of a record in bytes
 -- This is a rough estimate for batch size tracking

@@ -21,15 +21,9 @@ This code is auto-generated from Kafka protocol definitions.
 module Kafka.Protocol.Generated.InitProducerIdRequest
   (
     InitProducerIdRequest(..),
-    encodeInitProducerIdRequest,
-    decodeInitProducerIdRequest,
     maxInitProducerIdRequestVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -37,13 +31,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 
@@ -93,125 +94,96 @@ data InitProducerIdRequest = InitProducerIdRequest
 maxInitProducerIdRequestVersion :: Int16
 maxInitProducerIdRequestVersion = 6
 
--- | Encode InitProducerIdRequest with the given API version.
-encodeInitProducerIdRequest :: MonadPut m => E.ApiVersion -> InitProducerIdRequest -> m ()
-encodeInitProducerIdRequest version msg
-  | version == 2 =
-    do
-      serialize (toCompactString (initProducerIdRequestTransactionalId msg))
-      serialize (initProducerIdRequestTransactionTimeoutMs msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version == 6 =
-    do
-      serialize (toCompactString (initProducerIdRequestTransactionalId msg))
-      serialize (initProducerIdRequestTransactionTimeoutMs msg)
-      serialize (initProducerIdRequestProducerId msg)
-      serialize (initProducerIdRequestProducerEpoch msg)
-      serialize (initProducerIdRequestEnable2Pc msg)
-      serialize (initProducerIdRequestKeepPreparedTxn msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-
-  | version >= 0 && version <= 1 =
-    do
-      serialize (initProducerIdRequestTransactionalId msg)
-      serialize (initProducerIdRequestTransactionTimeoutMs msg)
+-- | KafkaMessage instance for InitProducerIdRequest.
+instance KafkaMessage InitProducerIdRequest where
+  messageApiKey = 22
+  messageMinVersion = 0
+  messageMaxVersion = 6
+  messageFlexibleVersion = Just 2
 
 
-  | version >= 3 && version <= 5 =
-    do
-      serialize (toCompactString (initProducerIdRequestTransactionalId msg))
-      serialize (initProducerIdRequestTransactionTimeoutMs msg)
-      serialize (initProducerIdRequestProducerId msg)
-      serialize (initProducerIdRequestProducerEpoch msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
+-- | Worst-case wire size of a InitProducerIdRequest.
+wireMaxSizeInitProducerIdRequest :: Int -> InitProducerIdRequest -> Int
+wireMaxSizeInitProducerIdRequest _version msg =
+  0
+  + WP.dualStringMaxSize (initProducerIdRequestTransactionalId msg)
+  + 4
+  + 8
+  + 2
+  + 1
+  + 1
+  + 1
 
--- | Decode InitProducerIdRequest with the given API version.
-decodeInitProducerIdRequest :: MonadGet m => E.ApiVersion -> m InitProducerIdRequest
-decodeInitProducerIdRequest version
-  | version == 2 =
-    do
-      fieldtransactionalid <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldtransactiontimeoutms <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure InitProducerIdRequest
-        {
-        initProducerIdRequestTransactionalId = fieldtransactionalid
-        ,
-        initProducerIdRequestTransactionTimeoutMs = fieldtransactiontimeoutms
-        ,
-        initProducerIdRequestProducerId = (-1)
-        ,
-        initProducerIdRequestProducerEpoch = (-1)
-        ,
-        initProducerIdRequestEnable2Pc = False
-        ,
-        initProducerIdRequestKeepPreparedTxn = False
-        }
+-- | Direct-poke encoder for InitProducerIdRequest.
+wirePokeInitProducerIdRequest :: Int -> Ptr Word8 -> InitProducerIdRequest -> IO (Ptr Word8)
+wirePokeInitProducerIdRequest version basePtr msg
+  | version == 2 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (initProducerIdRequestTransactionalId msg)) else WP.pokeKafkaString p0 (initProducerIdRequestTransactionalId msg))
+    p2 <- W.pokeInt32BE p1 (initProducerIdRequestTransactionTimeoutMs msg)
+    WP.pokeEmptyTaggedFields p2
+  | version == 6 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (initProducerIdRequestTransactionalId msg)) else WP.pokeKafkaString p0 (initProducerIdRequestTransactionalId msg))
+    p2 <- W.pokeInt32BE p1 (initProducerIdRequestTransactionTimeoutMs msg)
+    p3 <- (if version >= 3 then W.pokeInt64BE p2 (initProducerIdRequestProducerId msg) else pure p2)
+    p4 <- (if version >= 3 then W.pokeInt16BE p3 (initProducerIdRequestProducerEpoch msg) else pure p3)
+    p5 <- (if version >= 6 then W.pokeWord8 p4 (if (initProducerIdRequestEnable2Pc msg) then 1 else 0) else pure p4)
+    p6 <- (if version >= 6 then W.pokeWord8 p5 (if (initProducerIdRequestKeepPreparedTxn msg) then 1 else 0) else pure p5)
+    WP.pokeEmptyTaggedFields p6
+  | version >= 0 && version <= 1 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (initProducerIdRequestTransactionalId msg)) else WP.pokeKafkaString p0 (initProducerIdRequestTransactionalId msg))
+    p2 <- W.pokeInt32BE p1 (initProducerIdRequestTransactionTimeoutMs msg)
+    pure p2
+  | version >= 3 && version <= 5 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (initProducerIdRequestTransactionalId msg)) else WP.pokeKafkaString p0 (initProducerIdRequestTransactionalId msg))
+    p2 <- W.pokeInt32BE p1 (initProducerIdRequestTransactionTimeoutMs msg)
+    p3 <- (if version >= 3 then W.pokeInt64BE p2 (initProducerIdRequestProducerId msg) else pure p2)
+    p4 <- (if version >= 3 then W.pokeInt16BE p3 (initProducerIdRequestProducerEpoch msg) else pure p3)
+    WP.pokeEmptyTaggedFields p4
+  | otherwise = error $ "wirePoke InitProducerIdRequest : unsupported version: " ++ show version
 
-  | version == 6 =
-    do
-      fieldtransactionalid <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldtransactiontimeoutms <- deserialize
-      fieldproducerid <- deserialize
-      fieldproducerepoch <- deserialize
-      fieldenable2pc <- deserialize
-      fieldkeeppreparedtxn <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure InitProducerIdRequest
-        {
-        initProducerIdRequestTransactionalId = fieldtransactionalid
-        ,
-        initProducerIdRequestTransactionTimeoutMs = fieldtransactiontimeoutms
-        ,
-        initProducerIdRequestProducerId = fieldproducerid
-        ,
-        initProducerIdRequestProducerEpoch = fieldproducerepoch
-        ,
-        initProducerIdRequestEnable2Pc = fieldenable2pc
-        ,
-        initProducerIdRequestKeepPreparedTxn = fieldkeeppreparedtxn
-        }
+-- | Direct-poke decoder for InitProducerIdRequest.
+wirePeekInitProducerIdRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (InitProducerIdRequest, Ptr Word8)
+wirePeekInitProducerIdRequest version _fp _basePtr p0 endPtr
+  | version == 2 = do
+    (f0_transactionalid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_transactiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = -1, initProducerIdRequestProducerEpoch = -1, initProducerIdRequestEnable2Pc = False, initProducerIdRequestKeepPreparedTxn = False }, pTagsEnd)
+  | version == 6 = do
+    (f0_transactionalid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_transactiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
+    (f2_producerid, p3) <- (if version >= 3 then W.peekInt64BE p2 endPtr else pure (-1, p2))
+    (f3_producerepoch, p4) <- (if version >= 3 then W.peekInt16BE p3 endPtr else pure (-1, p3))
+    (f4_enable2pc, p5) <- (if version >= 6 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr else pure (False, p4))
+    (f5_keeppreparedtxn, p6) <- (if version >= 6 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p5 endPtr else pure (False, p5))
+    pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
+    pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = f2_producerid, initProducerIdRequestProducerEpoch = f3_producerepoch, initProducerIdRequestEnable2Pc = f4_enable2pc, initProducerIdRequestKeepPreparedTxn = f5_keeppreparedtxn }, pTagsEnd)
+  | version >= 0 && version <= 1 = do
+    (f0_transactionalid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_transactiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
+    pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = -1, initProducerIdRequestProducerEpoch = -1, initProducerIdRequestEnable2Pc = False, initProducerIdRequestKeepPreparedTxn = False }, p2)
+  | version >= 3 && version <= 5 = do
+    (f0_transactionalid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_transactiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
+    (f2_producerid, p3) <- (if version >= 3 then W.peekInt64BE p2 endPtr else pure (-1, p2))
+    (f3_producerepoch, p4) <- (if version >= 3 then W.peekInt16BE p3 endPtr else pure (-1, p3))
+    pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
+    pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = f2_producerid, initProducerIdRequestProducerEpoch = f3_producerepoch, initProducerIdRequestEnable2Pc = False, initProducerIdRequestKeepPreparedTxn = False }, pTagsEnd)
+  | otherwise = error $ "wirePeek InitProducerIdRequest : unsupported version: " ++ show version
 
-  | version >= 0 && version <= 1 =
-    do
-      fieldtransactionalid <- deserialize
-      fieldtransactiontimeoutms <- deserialize
-      pure InitProducerIdRequest
-        {
-        initProducerIdRequestTransactionalId = fieldtransactionalid
-        ,
-        initProducerIdRequestTransactionTimeoutMs = fieldtransactiontimeoutms
-        ,
-        initProducerIdRequestProducerId = (-1)
-        ,
-        initProducerIdRequestProducerEpoch = (-1)
-        ,
-        initProducerIdRequestEnable2Pc = False
-        ,
-        initProducerIdRequestKeepPreparedTxn = False
-        }
 
-  | version >= 3 && version <= 5 =
-    do
-      fieldtransactionalid <- if version >= 2 then P.fromCompactString <$> deserialize else deserialize
-      fieldtransactiontimeoutms <- deserialize
-      fieldproducerid <- deserialize
-      fieldproducerepoch <- deserialize
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure InitProducerIdRequest
-        {
-        initProducerIdRequestTransactionalId = fieldtransactionalid
-        ,
-        initProducerIdRequestTransactionTimeoutMs = fieldtransactiontimeoutms
-        ,
-        initProducerIdRequestProducerId = fieldproducerid
-        ,
-        initProducerIdRequestProducerEpoch = fieldproducerepoch
-        ,
-        initProducerIdRequestEnable2Pc = False
-        ,
-        initProducerIdRequestKeepPreparedTxn = False
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec InitProducerIdRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeInitProducerIdRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeInitProducerIdRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekInitProducerIdRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

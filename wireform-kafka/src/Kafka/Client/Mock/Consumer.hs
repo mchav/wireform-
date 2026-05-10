@@ -45,7 +45,7 @@ module Kafka.Client.Mock.Consumer
   ) where
 
 import Control.Concurrent.STM
-import Control.Monad (forM, when)
+import Control.Monad (forM)
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Map.Strict as Map
@@ -67,8 +67,6 @@ import Kafka.Client.Mock.Cluster
   , fetchSlice
   , groupOffsetsFor
   , joinGroup
-  , listTopics
-  , partitionCount
   )
 import qualified Kafka.Client.Mock.Fault
 import Kafka.Client.Mock.Fault
@@ -77,7 +75,6 @@ import Kafka.Client.Mock.Fault
   , takeFetchFault
   , takeCommitFault
   )
-import qualified Data.Text
 
 
 ----------------------------------------------------------------------

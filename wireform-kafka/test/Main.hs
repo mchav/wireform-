@@ -23,12 +23,17 @@ import Test.Tasty
 import qualified Protocol.CRC32CSpec
 import qualified Protocol.PrimitivesSpec
 import qualified Protocol.RoundTripSpec
+import qualified Protocol.RecordBatchAttributesSpec
 import qualified Protocol.RecordBatchSpec
 import qualified Protocol.CompressionSpec
 import qualified Protocol.Generated.SimpleRoundTripSpec
 import qualified Protocol.Generated.KnownGoodSpec
 import qualified Protocol.Generated.ComprehensiveSpec
 import qualified Protocol.VersionHandlingSpec
+import qualified Protocol.WireSpec
+import qualified Protocol.RecordBatchWireSpec
+import qualified Protocol.SliceVectorSpec
+import qualified Protocol.VersionNegotiationSpec
 import qualified Protocol.ApiVersionsSpec
 import qualified Client.BatchAccumulatorSpec
 import qualified Client.ConsumerConfigSpec
@@ -39,6 +44,36 @@ import qualified Client.ProducerTimeoutSpec
 import qualified Client.ProducerConsumerLifecycleSpec
 import qualified Client.TransactionSpec
 import qualified Client.TransactionCoordinatorSpec
+import qualified Client.ProducerTransactionWiringSpec
+import qualified Client.InterceptorSpec
+import qualified Client.MetadataLeaderUpdateSpec
+import qualified Client.MetricsRegistrySpec
+import qualified Client.Murmur2Spec
+import qualified Client.StatsJsonSpec
+import qualified Client.ConsumerGroupV2Spec
+import qualified Client.ShareConsumerSpec
+import qualified Client.TelemetryPushSpec
+import qualified Client.TraceContextSpec
+import qualified Client.RecordMetadataSpec
+import qualified Client.FilterSpec
+import qualified Client.FutureSpec
+import qualified Client.TopicIdSpec
+import qualified Client.RebalanceListenerSpec
+import qualified Client.AdminTimeoutsSpec
+import qualified Client.RetryClassifierSpec
+import qualified Client.BatchSplittingSpec
+import qualified Client.ResponseFrameSpec
+import qualified Network.OAuthOidcSpec
+import qualified Network.BootstrapSpec
+import qualified Network.ReauthDriverSpec
+import qualified Client.ConsumerExtrasSpec
+import qualified Client.MetadataCacheControlSpec
+import qualified Client.RackAwareSpec
+import qualified Client.ProducerExtrasSpec
+import qualified Client.ConnectionExtrasSpec
+import qualified Client.AdminExtrasSpec
+import qualified Client.SerdeContextSpec
+import qualified Client.ShareGroupExtrasSpec
 import qualified Client.AdminClientSpec
 import qualified Client.MockBrokerSpec
 import qualified Client.MockBrokerFailureModesSpec
@@ -51,12 +86,19 @@ import qualified Client.MockBrokerNetSpec
 import qualified Client.MockBrokerStoreSpec
 import qualified Client.MockBrokerProtoSpec
 import qualified Client.ConfigParitySpec
+import qualified Client.ConfigValidationSpec
+import qualified Client.HeartbeatRejoinSpec
+import qualified Codegen.WireGeneratorSpec
+import qualified Protocol.WireCodecParitySpec
 import qualified Client.ProducerRetrySpec
 import qualified Client.PipelineSpec
 import qualified Client.SubscribeSpec
 import qualified Network.ConnectionLivenessSpec
 import qualified Network.AuthSpec
 import qualified Network.ConnectionRetrySpec
+import qualified Network.TlsHandshakeSpec
+import qualified Network.TransportSpec
+import qualified Network.SaslReauthSpec
 
 main :: IO ()
 main = do
@@ -80,6 +122,11 @@ protocolTests = testGroup "Protocol"
   , Protocol.PrimitivesSpec.tests
   , Protocol.RoundTripSpec.tests
   , Protocol.RecordBatchSpec.tests
+  , Protocol.RecordBatchAttributesSpec.tests
+  , Protocol.WireSpec.tests
+  , Protocol.RecordBatchWireSpec.tests
+  , Protocol.SliceVectorSpec.tests
+  , Protocol.VersionNegotiationSpec.tests
   ]
 
 generatedTests :: TestTree -> TestTree -> TestTree
@@ -106,6 +153,33 @@ clientTests = testGroup "Client"
   , Client.ProducerConsumerLifecycleSpec.lifecycleSpec
   , Client.TransactionSpec.transactionSpec
   , Client.TransactionCoordinatorSpec.transactionCoordinatorSpec
+  , Client.ProducerTransactionWiringSpec.tests
+  , Client.InterceptorSpec.tests
+  , Client.MetadataLeaderUpdateSpec.tests
+  , Client.MetricsRegistrySpec.tests
+  , Client.Murmur2Spec.tests
+  , Client.StatsJsonSpec.tests
+  , Client.ConsumerGroupV2Spec.tests
+  , Client.ShareConsumerSpec.tests
+  , Client.TelemetryPushSpec.tests
+  , Client.TraceContextSpec.tests
+  , Client.RecordMetadataSpec.tests
+  , Client.FilterSpec.tests
+  , Client.FutureSpec.tests
+  , Client.TopicIdSpec.tests
+  , Client.RebalanceListenerSpec.tests
+  , Client.AdminTimeoutsSpec.tests
+  , Client.RetryClassifierSpec.tests
+  , Client.BatchSplittingSpec.tests
+  , Client.ResponseFrameSpec.tests
+  , Client.ConsumerExtrasSpec.tests
+  , Client.MetadataCacheControlSpec.tests
+  , Client.RackAwareSpec.tests
+  , Client.ProducerExtrasSpec.tests
+  , Client.ConnectionExtrasSpec.tests
+  , Client.AdminExtrasSpec.tests
+  , Client.SerdeContextSpec.tests
+  , Client.ShareGroupExtrasSpec.tests
   , Client.AdminClientSpec.tests
   , Client.GroupSpec.groupSpec
   , Client.MockBrokerSpec.tests
@@ -119,6 +193,10 @@ clientTests = testGroup "Client"
   , Client.MockBrokerStoreSpec.tests
   , Client.MockBrokerProtoSpec.tests
   , Client.ConfigParitySpec.tests
+  , Client.ConfigValidationSpec.tests
+  , Client.HeartbeatRejoinSpec.tests
+  , Codegen.WireGeneratorSpec.tests
+  , Protocol.WireCodecParitySpec.tests
   , Client.ProducerRetrySpec.tests
   , Client.PipelineSpec.tests
   , Client.SubscribeSpec.tests
@@ -129,4 +207,10 @@ networkTests :: TestTree
 networkTests = testGroup "Network"
   [ Network.ConnectionRetrySpec.tests
   , Network.AuthSpec.authSpec
+  , Network.TlsHandshakeSpec.tests
+  , Network.TransportSpec.tests
+  , Network.SaslReauthSpec.tests
+  , Network.OAuthOidcSpec.tests
+  , Network.BootstrapSpec.tests
+  , Network.ReauthDriverSpec.tests
   ]

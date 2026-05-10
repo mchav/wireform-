@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Client.TransactionCoordinatorSpec
@@ -31,14 +32,13 @@ import Data.Int (Int16, Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import qualified Data.Vector as V
 import Kafka.Client.Consumer (TopicPartition(..))
 import Kafka.Client.Internal.TransactionCoordinator
 import qualified Kafka.Protocol.Generated.AddOffsetsToTxnRequest as AOTReq
 import qualified Kafka.Protocol.Generated.TxnOffsetCommitRequest as TOCReq
 import qualified Kafka.Protocol.Primitives as P
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Main test tree
 transactionCoordinatorSpec :: TestTree
@@ -73,40 +73,39 @@ errorInterpretationTests = testGroup "Error Code Interpretation"
         NotCoordinator msg -> assertBool "Has message" (not $ T.null msg)
         _ -> assertFailure "Wrong error type"
 
-  , testCase "INVALID_PRODUCER_ID_MAPPING (47)" $ do
+  -- Error code mapping cross-checked against Kafka 3.7's
+  -- Errors.java; the previous test fixtures asserted the
+  -- wrong-codes mapping that 'interpretCoordinatorError' had
+  -- before the live-broker fix. The codes now actually match
+  -- the wire protocol.
+  , testCase "INVALID_PRODUCER_EPOCH (47)" $ do
       let err = interpretCoordinatorError 47
-      case err of
-        InvalidProducerIdMapping msg -> assertBool "Has message" (not $ T.null msg)
-        _ -> assertFailure "Wrong error type"
-
-  , testCase "INVALID_PRODUCER_EPOCH (51)" $ do
-      let err = interpretCoordinatorError 51
       case err of
         InvalidProducerEpoch msg -> assertBool "Has message" (not $ T.null msg)
         _ -> assertFailure "Wrong error type"
 
-  , testCase "INVALID_TXN_STATE (24)" $ do
-      let err = interpretCoordinatorError 24
+  , testCase "INVALID_TXN_STATE (48)" $ do
+      let err = interpretCoordinatorError 48
       case err of
         InvalidTxnState msg -> assertBool "Has message" (not $ T.null msg)
         _ -> assertFailure "Wrong error type"
 
-  , testCase "INVALID_PARTITIONS_IN_TXN (48)" $ do
-      let err = interpretCoordinatorError 48
+  , testCase "INVALID_PRODUCER_ID_MAPPING (49)" $ do
+      let err = interpretCoordinatorError 49
       case err of
-        InvalidPartitionsInTxn msg -> assertBool "Has message" (not $ T.null msg)
+        InvalidProducerIdMapping msg -> assertBool "Has message" (not $ T.null msg)
         _ -> assertFailure "Wrong error type"
 
-  , testCase "TRANSACTION_COORDINATOR_FENCED (32)" $ do
-      let err = interpretCoordinatorError 32
-      case err of
-        TransactionCoordinatorFenced msg -> assertBool "Has message" (not $ T.null msg)
-        _ -> assertFailure "Wrong error type"
-
-  , testCase "CONCURRENT_TRANSACTIONS (96)" $ do
-      let err = interpretCoordinatorError 96
+  , testCase "CONCURRENT_TRANSACTIONS (51)" $ do
+      let err = interpretCoordinatorError 51
       case err of
         ConcurrentTransactions msg -> assertBool "Has message" (not $ T.null msg)
+        _ -> assertFailure "Wrong error type"
+
+  , testCase "TRANSACTION_COORDINATOR_FENCED (52)" $ do
+      let err = interpretCoordinatorError 52
+      case err of
+        TransactionCoordinatorFenced msg -> assertBool "Has message" (not $ T.null msg)
         _ -> assertFailure "Wrong error type"
 
   , testCase "PRODUCER_FENCED (90)" $ do
@@ -155,9 +154,9 @@ coordinatorTypeTests = testGroup "TransactionCoordinator Type"
 unitTests :: TestTree
 unitTests = testGroup "Unit Tests"
   [ testCase "Error codes are distinct" $ do
-      let errors = map interpretCoordinatorError [14, 15, 16, 24, 32, 47, 48, 51, 90, 96]
+      let errors = map interpretCoordinatorError [14, 15, 16, 47, 48, 49, 51, 52, 90]
       -- All errors should be different types
-      assertEqual "Number of error codes" 10 (length errors)
+      assertEqual "Number of error codes" 9 (length errors)
 
   , testCase "TransactionCoordinator shows correctly" $ do
       let coordinator = TransactionCoordinator 1 "localhost" 9092
@@ -200,8 +199,8 @@ requestBuilderTests = testGroup "Request Builders"
 
   , testCase "AddOffsetsToTxnRequest round-trips through encoder/decoder (v3)" $ do
       let req   = buildAddOffsetsToTxnRequest "tx-rt" 1 0 "g"
-          bytes = runPutS (AOTReq.encodeAddOffsetsToTxnRequest 3 req)
-      case runGetS (AOTReq.decodeAddOffsetsToTxnRequest 3) bytes of
+          bytes = WC.runEncodeVer @AOTReq.AddOffsetsToTxnRequest 3 req
+      case WC.runDecodeVer @AOTReq.AddOffsetsToTxnRequest 3 bytes of
         Left err -> assertFailure ("decode failed: " <> err)
         Right r2 -> do
           extractK (AOTReq.addOffsetsToTxnRequestTransactionalId r2) @?= "tx-rt"
@@ -260,8 +259,8 @@ requestBuilderTests = testGroup "Request Builders"
   , testCase "TxnOffsetCommitRequest round-trips through encoder/decoder (v3)" $ do
       let req   = buildTxnOffsetCommitRequest "grp" 7 9
                     [(TopicPartition "x" 0, 1), (TopicPartition "x" 1, 2)]
-          bytes = runPutS (TOCReq.encodeTxnOffsetCommitRequest 3 req)
-      case runGetS (TOCReq.decodeTxnOffsetCommitRequest 3) bytes of
+          bytes = WC.runEncodeVer @TOCReq.TxnOffsetCommitRequest 3 req
+      case WC.runDecodeVer @TOCReq.TxnOffsetCommitRequest 3 bytes of
         Left err -> assertFailure ("decode failed: " <> err)
         Right r2 -> do
           extractK (TOCReq.txnOffsetCommitRequestGroupId r2)      @?= "grp"
@@ -296,7 +295,7 @@ prop_errorCodesValid = H.property $ do
 -- | Known error codes should not produce UnknownCoordinatorError
 prop_knownErrorCodes :: H.Property
 prop_knownErrorCodes = H.property $ do
-  errorCode <- H.forAll $ Gen.element [14, 15, 16, 24, 32, 47, 48, 51, 90, 96]
+  errorCode <- H.forAll $ Gen.element [14, 15, 16, 47, 48, 49, 51, 52, 90]
   
   let err = interpretCoordinatorError errorCode
   

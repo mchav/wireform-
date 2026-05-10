@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Protocol.ApiVersions
@@ -29,11 +30,11 @@ module Kafka.Protocol.ApiVersions
     -- * Utilities
   , selectVersion
   , isVersionSupported
+    -- * Test seeding (use with care)
+  , unsafeSeedVersionCache
   ) where
 
 import Control.Concurrent.STM
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import Data.Int
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -44,10 +45,10 @@ import qualified StmContainers.Map as StmMap
 
 import Kafka.Client.Internal.Request
 import Kafka.Network.Connection (BrokerAddress)
-import qualified Kafka.Protocol.Encoding as E
 import qualified Kafka.Protocol.Generated.ApiVersionsRequest as AVReq
 import qualified Kafka.Protocol.Generated.ApiVersionsResponse as AVResp
 import qualified Kafka.Protocol.Primitives as P
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Range of supported versions for an API
 data ApiVersionRange = ApiVersionRange
@@ -96,8 +97,13 @@ negotiateVersions conn brokerAddr (ApiVersionCache cache) correlationId = do
       request = AVReq.ApiVersionsRequest
         { AVReq.apiVersionsRequestClientSoftwareName = P.mkKafkaString "kafka-native"
         , AVReq.apiVersionsRequestClientSoftwareVersion = P.mkKafkaString "0.1.0"
+        , -- KIP-1242 (v5+): nullable string + node id. We have
+          -- nothing to contribute here; the broker is fine with the
+          -- sentinels.
+          AVReq.apiVersionsRequestClusterId = P.KafkaString P.Null
+        , AVReq.apiVersionsRequestNodeId    = -1
         }
-      requestBody = runPutS $ AVReq.encodeApiVersionsRequest apiVersion request
+      requestBody = WC.runEncodeVer @AVReq.ApiVersionsRequest apiVersion request
       clientId = P.mkKafkaString "kafka-native"
   
   result <- sendRequestReceiveResponse
@@ -113,7 +119,7 @@ negotiateVersions conn brokerAddr (ApiVersionCache cache) correlationId = do
     Right (respCorrelationId, respBody) ->
       if respCorrelationId /= correlationId
         then return $ Left $ "Correlation ID mismatch: expected " ++ show correlationId ++ ", got " ++ show respCorrelationId
-        else case runGetS (AVResp.decodeApiVersionsResponse apiVersion) respBody of
+        else case WC.runDecodeVer @AVResp.ApiVersionsResponse apiVersion respBody of
           Left err -> return $ Left $ "Failed to decode ApiVersions response: " ++ err
           Right response -> do
             -- Extract version ranges from response
@@ -157,3 +163,21 @@ selectVersion clientMaxVersion ApiVersionRange{..}
 isVersionSupported :: Int16 -> ApiVersionRange -> Bool
 isVersionSupported version ApiVersionRange{..} =
   version >= rangeMinVersion && version <= rangeMaxVersion
+
+-- | Manually seed a 'ApiVersionCache' with a (broker, apiKey
+-- range) entry, bypassing the wire-level handshake. Intended
+-- for the test suite — production callers should use
+-- 'negotiateVersions' (or 'Kafka.Protocol.VersionNegotiation.ensureVersionsNegotiated')
+-- which both populates the cache and validates the broker is
+-- actually reachable.
+--
+-- The function is named @unsafeSeed*@ so a @grep@ for it picks
+-- it up; if you find yourself reaching for this in
+-- application code, prefer the negotiation helpers.
+unsafeSeedVersionCache
+  :: ApiVersionCache
+  -> BrokerAddress
+  -> Map Int16 ApiVersionRange
+  -> IO ()
+unsafeSeedVersionCache (ApiVersionCache cache) addr m =
+  atomically (StmMap.insert m addr cache)

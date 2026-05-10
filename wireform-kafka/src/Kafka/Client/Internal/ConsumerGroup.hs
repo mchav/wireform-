@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Client.Internal.ConsumerGroup
@@ -40,8 +41,6 @@ module Kafka.Client.Internal.ConsumerGroup
 
 import Control.Concurrent.STM
 import Control.Monad (forM)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int
@@ -51,6 +50,7 @@ import qualified Data.Vector as V
 import Network.Connection (Connection)
 
 import qualified Kafka.Client.Internal.Request as Req
+import qualified Kafka.Network.Connection as Conn
 import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Protocol.Generated.FindCoordinatorRequest as FCReq
@@ -62,6 +62,7 @@ import qualified Kafka.Protocol.Generated.SyncGroupResponse as SGResp
 import qualified Kafka.Protocol.Generated.LeaveGroupRequest as LGReq
 import qualified Kafka.Protocol.Generated.LeaveGroupResponse as LGResp
 import qualified Kafka.Protocol.Primitives as P
+import qualified Kafka.Protocol.Wire.Codec as WC
 
 -- | Information about the group coordinator broker
 data GroupCoordinator = GroupCoordinator
@@ -109,51 +110,91 @@ data MemberAssignment = MemberAssignment
 -- and partition assignments for this group.
 findGroupCoordinator
   :: AV.ApiVersionCache  -- ^ Version cache for version negotiation
+  -> Conn.ConnectionManager  -- ^ Connection manager (for per-broker lock)
   -> BrokerAddress       -- ^ Broker address for version lookup
   -> Connection
   -> Text                -- ^ Group ID
   -> Int32               -- ^ Correlation ID
   -> Text                -- ^ Client ID
   -> IO (Either String GroupCoordinator)
-findGroupCoordinator versionCache brokerAddr conn groupId correlationId clientId = do
+findGroupCoordinator versionCache connMgr brokerAddr conn groupId correlationId clientId = do
   let apiKey = 10  -- FindCoordinator API key
-      clientMaxVersion = 4  -- Max version we support
-  
+      -- v6 = trunk; we now handle both legacy v0-v3 (top-level
+      -- Host/Port) and v4+ (KIP-699 Coordinators[]) shapes
+      -- below, so it's safe to negotiate up.
+      clientMaxVersion = 6
+
   -- Query broker's supported version
   brokerVersionM <- atomically $ AV.queryApiVersion versionCache brokerAddr apiKey
-  
+
   let apiVersion = case brokerVersionM of
-        Nothing -> 0  -- Fall back to v0 if unknown
+        Nothing    -> 0
         Just range -> case AV.selectVersion clientMaxVersion range of
-          Nothing -> 0  -- Fall back if incompatible
-          Just v -> v
-      
-      request = FCReq.FindCoordinatorRequest
-        { FCReq.findCoordinatorRequestKey = P.mkKafkaString groupId
-        , FCReq.findCoordinatorRequestKeyType = 0  -- 0 = consumer group
-        , FCReq.findCoordinatorRequestCoordinatorKeys = P.mkKafkaArray V.empty
-        }
-      
-      requestBody = runPutS $ FCReq.encodeFindCoordinatorRequest apiVersion request
+          Nothing -> 0
+          Just v  -> v
+
+      -- v0-v3 use the singular 'Key' field; v4+ use the
+      -- 'CoordinatorKeys' batched array. Build both so the
+      -- codegen sees the right one for the chosen version
+      -- (the wirePoke for absent-version fields is a no-op).
+      request
+        | apiVersion >= 4 = FCReq.FindCoordinatorRequest
+            { FCReq.findCoordinatorRequestKey             = P.KafkaString P.Null
+            , FCReq.findCoordinatorRequestKeyType         = 0  -- 0 = consumer group
+            , FCReq.findCoordinatorRequestCoordinatorKeys =
+                P.mkKafkaArray (V.singleton (P.mkKafkaString groupId))
+            }
+        | otherwise = FCReq.FindCoordinatorRequest
+            { FCReq.findCoordinatorRequestKey             = P.mkKafkaString groupId
+            , FCReq.findCoordinatorRequestKeyType         = 0
+            , FCReq.findCoordinatorRequestCoordinatorKeys = P.mkKafkaArray V.empty
+            }
+
+      requestBody = WC.runEncodeVer @FCReq.FindCoordinatorRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
-  
+
   -- Send request and receive response
-  result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
-  
+  result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock connMgr brokerAddr) conn apiKey apiVersion correlationId clientIdKafka requestBody
+
   case result of
     Left err -> return $ Left $ "FindCoordinator request failed: " ++ err
     Right (_, responseBody) -> do
-      case runGetS (FCResp.decodeFindCoordinatorResponse apiVersion) responseBody of
+      case WC.runDecodeVer @FCResp.FindCoordinatorResponse apiVersion responseBody of
         Left err -> return $ Left $ "Failed to parse FindCoordinatorResponse: " ++ err
         Right response -> do
-          let errorCode = FCResp.findCoordinatorResponseErrorCode response
-          
+          -- Pick the coordinator out of whichever response shape
+          -- the broker negotiated. v0-v3 carries the result on
+          -- the top-level fields; v4+ moves it into the first
+          -- (and for our single-key request, only) entry of the
+          -- 'coordinators' array. KIP-699 also sinks the per-
+          -- result error code into the array entry, so we read
+          -- it from there too on v4+.
+          let (errorCode, nodeId, host, port)
+                | apiVersion >= 4 =
+                    case P.unKafkaArray (FCResp.findCoordinatorResponseCoordinators response) of
+                      P.NotNull v | not (V.null v) ->
+                        let !c = V.head v
+                        in ( FCResp.coordinatorErrorCode c
+                           , FCResp.coordinatorNodeId    c
+                           , extractText (FCResp.coordinatorHost c)
+                           , FCResp.coordinatorPort      c
+                           )
+                      _ ->
+                        -- Empty Coordinators[] in a 0-error v4+
+                        -- response would be a broker bug; surface
+                        -- as an explicit \"no coordinator\" error
+                        -- below.
+                        (15, 0, T.empty, 0)  -- 15 = COORDINATOR_NOT_AVAILABLE
+                | otherwise =
+                    ( FCResp.findCoordinatorResponseErrorCode response
+                    , FCResp.findCoordinatorResponseNodeId    response
+                    , extractText (FCResp.findCoordinatorResponseHost response)
+                    , FCResp.findCoordinatorResponsePort      response
+                    )
+
           if errorCode /= 0
             then return $ Left $ "FindCoordinator error: code " ++ show errorCode
             else do
-              let nodeId = FCResp.findCoordinatorResponseNodeId response
-                  host = extractText $ FCResp.findCoordinatorResponseHost response
-                  port = FCResp.findCoordinatorResponsePort response
               
               return $ Right GroupCoordinator
                 { coordNodeId = nodeId
@@ -167,20 +208,45 @@ findGroupCoordinator versionCache brokerAddr conn groupId correlationId clientId
 -- member or if rebalance is needed, one member will be elected as leader.
 joinGroup
   :: AV.ApiVersionCache  -- ^ Version cache for version negotiation
+  -> Conn.ConnectionManager  -- ^ Connection manager (for per-broker lock)
   -> BrokerAddress       -- ^ Broker address for version lookup
   -> Connection
   -> Text                -- ^ Group ID
   -> Text                -- ^ Member ID (empty for first join)
-  -> Text                -- ^ Client ID  
+  -> Text                -- ^ Client ID
   -> Int32               -- ^ Session timeout (ms)
   -> Int32               -- ^ Rebalance timeout (ms)
   -> Text                -- ^ Protocol type (e.g., "consumer")
   -> [(Text, ByteString)]  -- ^ Supported protocols with metadata
   -> Int32               -- ^ Correlation ID
   -> IO (Either String JoinGroupResult)
-joinGroup versionCache brokerAddr conn groupId memberId clientId sessionTimeout rebalanceTimeout protocolType protocols correlationId = do
+joinGroup vc cm ba conn gid mid cid st rt pt protos corrId =
+  joinGroupGo vc cm ba conn gid mid cid st rt pt protos corrId 0
+
+-- | Internal joinGroup loop with a retry counter.  Handles
+-- 'MEMBER_ID_REQUIRED' (error 79, KIP-394): the broker, on the
+-- first JoinGroup from a dynamic member, returns a freshly-
+-- minted member id and requires the client to re-issue the
+-- JoinGroup with that id.  We retry once.
+joinGroupGo
+  :: AV.ApiVersionCache -> Conn.ConnectionManager -> BrokerAddress -> Connection
+  -> Text -> Text -> Text
+  -> Int32 -> Int32
+  -> Text -> [(Text, ByteString)]
+  -> Int32
+  -> Int       -- ^ retry attempt (0 = first call)
+  -> IO (Either String JoinGroupResult)
+joinGroupGo versionCache connMgr brokerAddr conn groupId memberId clientId sessionTimeout rebalanceTimeout protocolType protocols correlationId attempt = do
   let apiKey = 11  -- JoinGroup API key
-      clientMaxVersion = 9  -- Max version we support
+      -- Bump back to v9 (= schema trunk). Versions added since
+      -- v5: v6 made the protocol flexible (the codegen handles
+      -- the per-version compact-vs-plain dispatch); v7 added
+      -- 'ProtocolType' on the response (KIP-559) which we
+      -- ignore; v8 added 'Reason' on the request (we send
+      -- Null); v9 added 'SkipAssignment' on the response
+      -- (KIP-848 transition) which we treat as a hint and let
+      -- the assignor run anyway when False.
+      clientMaxVersion = 9
   
   -- Query broker's supported version
   brokerVersionM <- atomically $ AV.queryApiVersion versionCache brokerAddr apiKey
@@ -197,6 +263,18 @@ joinGroup versionCache brokerAddr conn groupId memberId clientId sessionTimeout 
           , JGReq.joinGroupRequestProtocolMetadata = P.mkKafkaBytes metadata
           }) protocols
       
+      -- KIP-394: when this is the retry after MEMBER_ID_REQUIRED,
+      -- the JVM client sets a 'Reason' string of
+      -- @"need to re-join with the given member-id"@ so the
+      -- coordinator's audit log records why the group rebalanced.
+      -- Mirror that here; it doesn't change the broker's
+      -- behaviour but makes our requests look like the JVM
+      -- client's in broker-side traces.
+      reasonStr
+        | attempt > 0 = P.mkKafkaString
+            "need to re-join with the given member-id"
+        | otherwise   = P.KafkaString P.Null
+
       request = JGReq.JoinGroupRequest
         { JGReq.joinGroupRequestGroupId = P.mkKafkaString groupId
         , JGReq.joinGroupRequestSessionTimeoutMs = sessionTimeout
@@ -205,25 +283,35 @@ joinGroup versionCache brokerAddr conn groupId memberId clientId sessionTimeout 
         , JGReq.joinGroupRequestGroupInstanceId = P.KafkaString P.Null
         , JGReq.joinGroupRequestProtocolType = P.mkKafkaString protocolType
         , JGReq.joinGroupRequestProtocols = P.mkKafkaArray protocolVec
-        , JGReq.joinGroupRequestReason = P.KafkaString P.Null
+        , JGReq.joinGroupRequestReason = reasonStr
         }
-      
-      requestBody = runPutS $ JGReq.encodeJoinGroupRequest apiVersion request
+
+      requestBody = WC.runEncodeVer @JGReq.JoinGroupRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
   
-  result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
-  
+  result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock connMgr brokerAddr) conn apiKey apiVersion correlationId clientIdKafka requestBody
+
   case result of
     Left err -> return $ Left $ "JoinGroup request failed: " ++ err
     Right (_, responseBody) -> do
-      case runGetS (JGResp.decodeJoinGroupResponse apiVersion) responseBody of
+      case WC.runDecodeVer @JGResp.JoinGroupResponse apiVersion responseBody of
         Left err -> return $ Left $ "Failed to parse JoinGroupResponse: " ++ err
         Right response -> do
           let errorCode = JGResp.joinGroupResponseErrorCode response
           
-          if errorCode /= 0
-            then return $ Left $ "JoinGroup error: code " ++ show errorCode
-            else do
+          let assignedMember =
+                extractText (JGResp.joinGroupResponseMemberId response)
+          case errorCode of
+            -- KIP-394 MEMBER_ID_REQUIRED: broker handed us a fresh
+            -- member id on the first JoinGroup; retry once with it.
+            -- Any other non-zero code is fatal at this layer.
+            79 | attempt == 0 && not (T.null assignedMember) ->
+              joinGroupGo versionCache connMgr brokerAddr conn groupId
+                assignedMember clientId sessionTimeout rebalanceTimeout
+                protocolType protocols (correlationId + 1) (attempt + 1)
+            c | c /= 0 ->
+              pure (Left ("JoinGroup error: code " ++ show c))
+            _ -> do
               let genId = JGResp.joinGroupResponseGenerationId response
                   protocol = extractText $ JGResp.joinGroupResponseProtocolName response
                   leader = extractText $ JGResp.joinGroupResponseLeader response
@@ -251,54 +339,60 @@ joinGroup versionCache brokerAddr conn groupId memberId clientId sessionTimeout 
 -- The leader sends assignments for all members.
 -- Followers send empty assignments and receive their own assignment.
 syncGroup
-  :: AV.ApiVersionCache  -- ^ Version cache for version negotiation
-  -> BrokerAddress       -- ^ Broker address for version lookup
+  :: AV.ApiVersionCache    -- ^ Version cache for version negotiation
+  -> Conn.ConnectionManager  -- ^ Connection manager (for per-broker lock)
+  -> BrokerAddress         -- ^ Broker address for version lookup
   -> Connection
-  -> Text                -- ^ Group ID
-  -> Int32               -- ^ Generation ID
-  -> Text                -- ^ Member ID
-  -> Text                -- ^ Client ID
+  -> Text                  -- ^ Group ID
+  -> Int32                 -- ^ Generation ID
+  -> Text                  -- ^ Member ID
+  -> Text                  -- ^ Client ID
+  -> Text                  -- ^ Protocol type ("consumer")
+  -> Text                  -- ^ Protocol name (the assignor the broker picked
+                           --   in the JoinGroup response — required at v5+
+                           --   per KIP-559; broker rejects with
+                           --   'INCONSISTENT_GROUP_PROTOCOL' (23) if
+                           --   we send Null here on a v5 request).
   -> [(Text, ByteString)]  -- ^ Assignments (memberId -> assignment bytes)
-  -> Int32               -- ^ Correlation ID
+  -> Int32                 -- ^ Correlation ID
   -> IO (Either String ByteString)
-syncGroup versionCache brokerAddr conn groupId generationId memberId clientId assignments correlationId = do
+syncGroup versionCache connMgr brokerAddr conn groupId generationId memberId clientId protocolType protocolName assignments correlationId = do
   let apiKey = 14  -- SyncGroup API key
       clientMaxVersion = 5  -- Max version we support
-  
-  -- Query broker's supported version
+
   brokerVersionM <- atomically $ AV.queryApiVersion versionCache brokerAddr apiKey
-  
+
   let apiVersion = case brokerVersionM of
-        Nothing -> 0  -- Fall back to v0 if unknown
+        Nothing -> 0
         Just range -> case AV.selectVersion clientMaxVersion range of
-          Nothing -> 0  -- Fall back if incompatible
-          Just v -> v
-      
+          Nothing -> 0
+          Just v  -> v
+
       assignmentVec = V.fromList $ map (\(mid, asgn) ->
         SGReq.SyncGroupRequestAssignment
-          { SGReq.syncGroupRequestAssignmentMemberId = P.mkKafkaString mid
+          { SGReq.syncGroupRequestAssignmentMemberId   = P.mkKafkaString mid
           , SGReq.syncGroupRequestAssignmentAssignment = P.mkKafkaBytes asgn
           }) assignments
-      
+
       request = SGReq.SyncGroupRequest
-        { SGReq.syncGroupRequestGroupId = P.mkKafkaString groupId
-        , SGReq.syncGroupRequestGenerationId = generationId
-        , SGReq.syncGroupRequestMemberId = P.mkKafkaString memberId
+        { SGReq.syncGroupRequestGroupId         = P.mkKafkaString groupId
+        , SGReq.syncGroupRequestGenerationId    = generationId
+        , SGReq.syncGroupRequestMemberId        = P.mkKafkaString memberId
         , SGReq.syncGroupRequestGroupInstanceId = P.KafkaString P.Null
-        , SGReq.syncGroupRequestProtocolType = P.KafkaString P.Null
-        , SGReq.syncGroupRequestProtocolName = P.KafkaString P.Null
-        , SGReq.syncGroupRequestAssignments = P.mkKafkaArray assignmentVec
+        , SGReq.syncGroupRequestProtocolType    = P.mkKafkaString protocolType
+        , SGReq.syncGroupRequestProtocolName    = P.mkKafkaString protocolName
+        , SGReq.syncGroupRequestAssignments     = P.mkKafkaArray assignmentVec
         }
       
-      requestBody = runPutS $ SGReq.encodeSyncGroupRequest apiVersion request
+      requestBody = WC.runEncodeVer @SGReq.SyncGroupRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
-  
-  result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
-  
+
+  result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock connMgr brokerAddr) conn apiKey apiVersion correlationId clientIdKafka requestBody
+
   case result of
     Left err -> return $ Left $ "SyncGroup request failed: " ++ err
     Right (_, responseBody) -> do
-      case runGetS (SGResp.decodeSyncGroupResponse apiVersion) responseBody of
+      case WC.runDecodeVer @SGResp.SyncGroupResponse apiVersion responseBody of
         Left err -> return $ Left $ "Failed to parse SyncGroupResponse: " ++ err
         Right response -> do
           let errorCode = SGResp.syncGroupResponseErrorCode response
@@ -312,6 +406,7 @@ syncGroup versionCache brokerAddr conn groupId generationId memberId clientId as
 -- | Leave a consumer group
 leaveGroup
   :: AV.ApiVersionCache  -- ^ Version cache for version negotiation
+  -> Conn.ConnectionManager  -- ^ Connection manager (for per-broker lock)
   -> BrokerAddress       -- ^ Broker address for version lookup
   -> Connection
   -> Text                -- ^ Group ID
@@ -319,7 +414,7 @@ leaveGroup
   -> Text                -- ^ Client ID
   -> Int32               -- ^ Correlation ID
   -> IO (Either String ())
-leaveGroup versionCache brokerAddr conn groupId memberId clientId correlationId = do
+leaveGroup versionCache connMgr brokerAddr conn groupId memberId clientId correlationId = do
   let apiKey = 13  -- LeaveGroup API key
       clientMaxVersion = 5  -- Max version we support
   
@@ -345,15 +440,15 @@ leaveGroup versionCache brokerAddr conn groupId memberId clientId correlationId 
         , LGReq.leaveGroupRequestMembers = P.mkKafkaArray memberVec
         }
       
-      requestBody = runPutS $ LGReq.encodeLeaveGroupRequest apiVersion request
+      requestBody = WC.runEncodeVer @LGReq.LeaveGroupRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
-  
-  result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
+
+  result <- Req.sendRequestReceiveResponseLocked (Conn.withBrokerLock connMgr brokerAddr) conn apiKey apiVersion correlationId clientIdKafka requestBody
   
   case result of
     Left err -> return $ Left $ "LeaveGroup request failed: " ++ err
     Right (_, responseBody) -> do
-      case runGetS (LGResp.decodeLeaveGroupResponse apiVersion) responseBody of
+      case WC.runDecodeVer @LGResp.LeaveGroupResponse apiVersion responseBody of
         Left err -> return $ Left $ "Failed to parse LeaveGroupResponse: " ++ err
         Right response -> do
           let errorCode = LGResp.leaveGroupResponseErrorCode response

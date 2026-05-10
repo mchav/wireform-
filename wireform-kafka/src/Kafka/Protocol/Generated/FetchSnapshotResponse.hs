@@ -26,15 +26,9 @@ module Kafka.Protocol.Generated.FetchSnapshotResponse
     SnapshotId(..),
     LeaderIdAndEpoch(..),
     NodeEndpoint(..),
-    encodeFetchSnapshotResponse,
-    decodeFetchSnapshotResponse,
     maxFetchSnapshotResponseVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -42,13 +36,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | The snapshot endOffset and epoch fetched.
@@ -69,31 +70,6 @@ data SnapshotId = SnapshotId
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode SnapshotId with version-aware field handling.
-encodeSnapshotId :: MonadPut m => E.ApiVersion -> SnapshotId -> m ()
-encodeSnapshotId version smsg =
-  do
-    serialize (snapshotIdEndOffset smsg)
-    serialize (snapshotIdEpoch smsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode SnapshotId with version-aware field handling.
-decodeSnapshotId :: MonadGet m => E.ApiVersion -> m SnapshotId
-decodeSnapshotId version =
-  do
-    fieldendoffset <- deserialize
-    fieldepoch <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure SnapshotId
-      {
-      snapshotIdEndOffset = fieldendoffset
-      ,
-      snapshotIdEpoch = fieldepoch
-      }
-
-
 -- | The leader of the partition at the time of the snapshot.
 data LeaderIdAndEpoch = LeaderIdAndEpoch
   {
@@ -111,31 +87,6 @@ data LeaderIdAndEpoch = LeaderIdAndEpoch
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode LeaderIdAndEpoch with version-aware field handling.
-encodeLeaderIdAndEpoch :: MonadPut m => E.ApiVersion -> LeaderIdAndEpoch -> m ()
-encodeLeaderIdAndEpoch version lmsg =
-  do
-    serialize (leaderIdAndEpochLeaderId lmsg)
-    serialize (leaderIdAndEpochLeaderEpoch lmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode LeaderIdAndEpoch with version-aware field handling.
-decodeLeaderIdAndEpoch :: MonadGet m => E.ApiVersion -> m LeaderIdAndEpoch
-decodeLeaderIdAndEpoch version =
-  do
-    fieldleaderid <- deserialize
-    fieldleaderepoch <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure LeaderIdAndEpoch
-      {
-      leaderIdAndEpochLeaderId = fieldleaderid
-      ,
-      leaderIdAndEpochLeaderEpoch = fieldleaderepoch
-      }
-
 
 -- | The partitions to fetch.
 data PartitionSnapshot = PartitionSnapshot
@@ -185,51 +136,6 @@ data PartitionSnapshot = PartitionSnapshot
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode PartitionSnapshot with version-aware field handling.
-encodePartitionSnapshot :: MonadPut m => E.ApiVersion -> PartitionSnapshot -> m ()
-encodePartitionSnapshot version pmsg =
-  do
-    serialize (partitionSnapshotIndex pmsg)
-    serialize (partitionSnapshotErrorCode pmsg)
-    encodeSnapshotId version (partitionSnapshotSnapshotId pmsg)
-    encodeLeaderIdAndEpoch version (partitionSnapshotCurrentLeader pmsg)
-    serialize (partitionSnapshotSize pmsg)
-    serialize (partitionSnapshotPosition pmsg)
-    if version >= 0 then serialize (toCompactBytes (partitionSnapshotUnalignedRecords pmsg)) else serialize (partitionSnapshotUnalignedRecords pmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode PartitionSnapshot with version-aware field handling.
-decodePartitionSnapshot :: MonadGet m => E.ApiVersion -> m PartitionSnapshot
-decodePartitionSnapshot version =
-  do
-    fieldindex <- deserialize
-    fielderrorcode <- deserialize
-    fieldsnapshotid <- decodeSnapshotId version
-    fieldcurrentleader <- decodeLeaderIdAndEpoch version
-    fieldsize <- deserialize
-    fieldposition <- deserialize
-    fieldunalignedrecords <- if version >= 0 then P.fromCompactBytes <$> deserialize else deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure PartitionSnapshot
-      {
-      partitionSnapshotIndex = fieldindex
-      ,
-      partitionSnapshotErrorCode = fielderrorcode
-      ,
-      partitionSnapshotSnapshotId = fieldsnapshotid
-      ,
-      partitionSnapshotCurrentLeader = fieldcurrentleader
-      ,
-      partitionSnapshotSize = fieldsize
-      ,
-      partitionSnapshotPosition = fieldposition
-      ,
-      partitionSnapshotUnalignedRecords = fieldunalignedrecords
-      }
-
-
 -- | The topics to fetch.
 data TopicSnapshot = TopicSnapshot
   {
@@ -247,31 +153,6 @@ data TopicSnapshot = TopicSnapshot
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicSnapshot with version-aware field handling.
-encodeTopicSnapshot :: MonadPut m => E.ApiVersion -> TopicSnapshot -> m ()
-encodeTopicSnapshot version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (topicSnapshotName tmsg)) else serialize (topicSnapshotName tmsg)
-    E.encodeVersionedArray version 0 encodePartitionSnapshot (case P.unKafkaArray (topicSnapshotPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicSnapshot with version-aware field handling.
-decodeTopicSnapshot :: MonadGet m => E.ApiVersion -> m TopicSnapshot
-decodeTopicSnapshot version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodePartitionSnapshot
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicSnapshot
-      {
-      topicSnapshotName = fieldname
-      ,
-      topicSnapshotPartitions = fieldpartitions
-      }
-
 
 -- | Endpoints for all current-leaders enumerated in PartitionSnapshot.
 data NodeEndpoint = NodeEndpoint
@@ -296,44 +177,6 @@ data NodeEndpoint = NodeEndpoint
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode NodeEndpoint with version-aware field handling.
-encodeNodeEndpoint :: MonadPut m => E.ApiVersion -> NodeEndpoint -> m ()
-encodeNodeEndpoint version nmsg =
-  do
-    when (version >= 1) $
-      serialize (nodeEndpointNodeId nmsg)
-    when (version >= 1) $
-      if version >= 0 then serialize (toCompactString (nodeEndpointHost nmsg)) else serialize (nodeEndpointHost nmsg)
-    when (version >= 1) $
-      serialize (nodeEndpointPort nmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode NodeEndpoint with version-aware field handling.
-decodeNodeEndpoint :: MonadGet m => E.ApiVersion -> m NodeEndpoint
-decodeNodeEndpoint version =
-  do
-    fieldnodeid <- if version >= 1
-      then deserialize
-      else pure (0)
-    fieldhost <- if version >= 1
-      then if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      else pure (P.KafkaString Null)
-    fieldport <- if version >= 1
-      then deserialize
-      else pure (0)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure NodeEndpoint
-      {
-      nodeEndpointNodeId = fieldnodeid
-      ,
-      nodeEndpointHost = fieldhost
-      ,
-      nodeEndpointPort = fieldport
-      }
-
 
 
 data FetchSnapshotResponse = FetchSnapshotResponse
@@ -369,58 +212,235 @@ data FetchSnapshotResponse = FetchSnapshotResponse
 maxFetchSnapshotResponseVersion :: Int16
 maxFetchSnapshotResponseVersion = 1
 
--- | Encode FetchSnapshotResponse with the given API version.
-encodeFetchSnapshotResponse :: MonadPut m => E.ApiVersion -> FetchSnapshotResponse -> m ()
-encodeFetchSnapshotResponse version msg
-  | version == 0 =
-    do
-      serialize (fetchSnapshotResponseThrottleTimeMs msg)
-      serialize (fetchSnapshotResponseErrorCode msg)
-      E.encodeVersionedArray version 0 encodeTopicSnapshot (case P.unKafkaArray (fetchSnapshotResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
+-- | KafkaMessage instance for FetchSnapshotResponse.
+instance KafkaMessage FetchSnapshotResponse where
+  messageApiKey = 59
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 0
 
-  | version == 1 =
-    do
-      serialize (fetchSnapshotResponseThrottleTimeMs msg)
-      serialize (fetchSnapshotResponseErrorCode msg)
-      E.encodeVersionedArray version 0 encodeTopicSnapshot (case P.unKafkaArray (fetchSnapshotResponseTopics msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
+-- | Worst-case wire size of a SnapshotId.
+wireMaxSizeSnapshotId :: Int -> SnapshotId -> Int
+wireMaxSizeSnapshotId _version msg =
+  0
+  + 8
+  + 4
+  + 1
 
--- | Decode FetchSnapshotResponse with the given API version.
-decodeFetchSnapshotResponse :: MonadGet m => E.ApiVersion -> m FetchSnapshotResponse
-decodeFetchSnapshotResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicSnapshot
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure FetchSnapshotResponse
-        {
-        fetchSnapshotResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        fetchSnapshotResponseErrorCode = fielderrorcode
-        ,
-        fetchSnapshotResponseTopics = fieldtopics
-        ,
-        fetchSnapshotResponseNodeEndpoints = P.mkKafkaArray V.empty
-        }
+-- | Direct-poke encoder for SnapshotId.
+wirePokeSnapshotId :: Int -> Ptr Word8 -> SnapshotId -> IO (Ptr Word8)
+wirePokeSnapshotId version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt64BE p0 (snapshotIdEndOffset msg)
+  p2 <- W.pokeInt32BE p1 (snapshotIdEpoch msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
-  | version == 1 =
-    do
-      fieldthrottletimems <- deserialize
-      fielderrorcode <- deserialize
-      fieldtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicSnapshot
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure FetchSnapshotResponse
-        {
-        fetchSnapshotResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        fetchSnapshotResponseErrorCode = fielderrorcode
-        ,
-        fetchSnapshotResponseTopics = fieldtopics
-        ,
-        fetchSnapshotResponseNodeEndpoints = P.mkKafkaArray V.empty
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Direct-poke decoder for SnapshotId.
+wirePeekSnapshotId :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (SnapshotId, Ptr Word8)
+wirePeekSnapshotId version _fp _basePtr p0 endPtr = do
+  (f0_endoffset, p1) <- W.peekInt64BE p0 endPtr
+  (f1_epoch, p2) <- W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (SnapshotId { snapshotIdEndOffset = f0_endoffset, snapshotIdEpoch = f1_epoch }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultSnapshotId :: SnapshotId
+defaultSnapshotId = SnapshotId { snapshotIdEndOffset = 0, snapshotIdEpoch = 0 }
+
+-- | Worst-case wire size of a LeaderIdAndEpoch.
+wireMaxSizeLeaderIdAndEpoch :: Int -> LeaderIdAndEpoch -> Int
+wireMaxSizeLeaderIdAndEpoch _version msg =
+  0
+  + 4
+  + 4
+  + 1
+
+-- | Direct-poke encoder for LeaderIdAndEpoch.
+wirePokeLeaderIdAndEpoch :: Int -> Ptr Word8 -> LeaderIdAndEpoch -> IO (Ptr Word8)
+wirePokeLeaderIdAndEpoch version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (leaderIdAndEpochLeaderId msg)
+  p2 <- W.pokeInt32BE p1 (leaderIdAndEpochLeaderEpoch msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for LeaderIdAndEpoch.
+wirePeekLeaderIdAndEpoch :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (LeaderIdAndEpoch, Ptr Word8)
+wirePeekLeaderIdAndEpoch version _fp _basePtr p0 endPtr = do
+  (f0_leaderid, p1) <- W.peekInt32BE p0 endPtr
+  (f1_leaderepoch, p2) <- W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = f0_leaderid, leaderIdAndEpochLeaderEpoch = f1_leaderepoch }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultLeaderIdAndEpoch :: LeaderIdAndEpoch
+defaultLeaderIdAndEpoch = LeaderIdAndEpoch { leaderIdAndEpochLeaderId = 0, leaderIdAndEpochLeaderEpoch = 0 }
+
+-- | Worst-case wire size of a PartitionSnapshot.
+wireMaxSizePartitionSnapshot :: Int -> PartitionSnapshot -> Int
+wireMaxSizePartitionSnapshot _version msg =
+  0
+  + 4
+  + 2
+  + wireMaxSizeSnapshotId _version (partitionSnapshotSnapshotId msg)
+  + wireMaxSizeLeaderIdAndEpoch _version (partitionSnapshotCurrentLeader msg)
+  + 8
+  + 8
+  + WP.dualBytesMaxSize (partitionSnapshotUnalignedRecords msg)
+  + 1
+
+-- | Direct-poke encoder for PartitionSnapshot.
+wirePokePartitionSnapshot :: Int -> Ptr Word8 -> PartitionSnapshot -> IO (Ptr Word8)
+wirePokePartitionSnapshot version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (partitionSnapshotIndex msg)
+  p2 <- W.pokeInt16BE p1 (partitionSnapshotErrorCode msg)
+  p3 <- wirePokeSnapshotId version p2 (partitionSnapshotSnapshotId msg)
+  p4 <- W.pokeInt64BE p3 (partitionSnapshotSize msg)
+  p5 <- W.pokeInt64BE p4 (partitionSnapshotPosition msg)
+  p6 <- (if version >= 0 then WP.pokeCompactBytes p5 (P.toCompactBytes (partitionSnapshotUnalignedRecords msg)) else WP.pokeKafkaBytes p5 (partitionSnapshotUnalignedRecords msg))
+  if version >= 0 then do
+    let !_taggedEntries = (if version >= 0 then [(0, W.runWirePokeWith (wireMaxSizeLeaderIdAndEpoch version (partitionSnapshotCurrentLeader msg)) (\p -> wirePokeLeaderIdAndEpoch version p (partitionSnapshotCurrentLeader msg)))] else [])
+    WP.pokeTaggedFieldEntries p6 _taggedEntries
+  else pure p6
+
+-- | Direct-poke decoder for PartitionSnapshot.
+wirePeekPartitionSnapshot :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (PartitionSnapshot, Ptr Word8)
+wirePeekPartitionSnapshot version _fp _basePtr p0 endPtr = do
+  (f0_index, p1) <- W.peekInt32BE p0 endPtr
+  (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+  (f2_snapshotid, p3) <- wirePeekSnapshotId version _fp _basePtr p2 endPtr
+  (f3_size, p4) <- W.peekInt64BE p3 endPtr
+  (f4_position, p5) <- W.peekInt64BE p4 endPtr
+  (f5_unalignedrecords, p6) <- (if version >= 0 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p5 endPtr else WP.peekKafkaBytes p5 endPtr)
+  (_taggedMap, pTagsEnd) <- if version >= 0 then WP.peekTaggedFieldsMap p6 endPtr else pure (Data.Map.Strict.empty, p6)
+  let !_tag_currentleader = if version >= 0 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> wirePeekLeaderIdAndEpoch version _fp _bp p e)) _bs of { Right _v -> _v ; Left _ -> defaultLeaderIdAndEpoch}; Nothing -> defaultLeaderIdAndEpoch} else defaultLeaderIdAndEpoch
+  pure (PartitionSnapshot { partitionSnapshotIndex = f0_index, partitionSnapshotErrorCode = f1_errorcode, partitionSnapshotSnapshotId = f2_snapshotid, partitionSnapshotCurrentLeader = _tag_currentleader, partitionSnapshotSize = f3_size, partitionSnapshotPosition = f4_position, partitionSnapshotUnalignedRecords = f5_unalignedrecords }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionSnapshot :: PartitionSnapshot
+defaultPartitionSnapshot = PartitionSnapshot { partitionSnapshotIndex = 0, partitionSnapshotErrorCode = 0, partitionSnapshotSnapshotId = defaultSnapshotId, partitionSnapshotCurrentLeader = defaultLeaderIdAndEpoch, partitionSnapshotSize = 0, partitionSnapshotPosition = 0, partitionSnapshotUnalignedRecords = P.KafkaBytes Null }
+
+-- | Worst-case wire size of a TopicSnapshot.
+wireMaxSizeTopicSnapshot :: Int -> TopicSnapshot -> Int
+wireMaxSizeTopicSnapshot _version msg =
+  0
+  + WP.dualStringMaxSize (topicSnapshotName msg)
+  + (5 + (case P.unKafkaArray (topicSnapshotPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizePartitionSnapshot _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TopicSnapshot.
+wirePokeTopicSnapshot :: Int -> Ptr Word8 -> TopicSnapshot -> IO (Ptr Word8)
+wirePokeTopicSnapshot version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (topicSnapshotName msg)) else WP.pokeKafkaString p0 (topicSnapshotName msg))
+  p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokePartitionSnapshot version p x) p1 (topicSnapshotPartitions msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for TopicSnapshot.
+wirePeekTopicSnapshot :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicSnapshot, Ptr Word8)
+wirePeekTopicSnapshot version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekPartitionSnapshot version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TopicSnapshot { topicSnapshotName = f0_name, topicSnapshotPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicSnapshot :: TopicSnapshot
+defaultTopicSnapshot = TopicSnapshot { topicSnapshotName = P.KafkaString Null, topicSnapshotPartitions = P.mkKafkaArray V.empty }
+
+-- | Worst-case wire size of a NodeEndpoint.
+wireMaxSizeNodeEndpoint :: Int -> NodeEndpoint -> Int
+wireMaxSizeNodeEndpoint _version msg =
+  0
+  + 4
+  + WP.dualStringMaxSize (nodeEndpointHost msg)
+  + 2
+  + 1
+
+-- | Direct-poke encoder for NodeEndpoint.
+wirePokeNodeEndpoint :: Int -> Ptr Word8 -> NodeEndpoint -> IO (Ptr Word8)
+wirePokeNodeEndpoint version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 1 then W.pokeInt32BE p0 (nodeEndpointNodeId msg) else pure p0)
+  p2 <- (if version >= 1 then (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (nodeEndpointHost msg)) else WP.pokeKafkaString p1 (nodeEndpointHost msg)) else pure p1)
+  p3 <- (if version >= 1 then W.pokeWord16BE p2 (nodeEndpointPort msg) else pure p2)
+  if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for NodeEndpoint.
+wirePeekNodeEndpoint :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (NodeEndpoint, Ptr Word8)
+wirePeekNodeEndpoint version _fp _basePtr p0 endPtr = do
+  (f0_nodeid, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
+  (f1_host, p2) <- (if version >= 1 then (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
+  (f2_port, p3) <- (if version >= 1 then W.peekWord16BE p2 endPtr else pure (0, p2))
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (NodeEndpoint { nodeEndpointNodeId = f0_nodeid, nodeEndpointHost = f1_host, nodeEndpointPort = f2_port }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultNodeEndpoint :: NodeEndpoint
+defaultNodeEndpoint = NodeEndpoint { nodeEndpointNodeId = 0, nodeEndpointHost = P.KafkaString Null, nodeEndpointPort = 0 }
+
+-- | Worst-case wire size of a FetchSnapshotResponse.
+wireMaxSizeFetchSnapshotResponse :: Int -> FetchSnapshotResponse -> Int
+wireMaxSizeFetchSnapshotResponse _version msg =
+  0
+  + 4
+  + 2
+  + (5 + (case P.unKafkaArray (fetchSnapshotResponseTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicSnapshot _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (fetchSnapshotResponseNodeEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNodeEndpoint _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for FetchSnapshotResponse.
+wirePokeFetchSnapshotResponse :: Int -> Ptr Word8 -> FetchSnapshotResponse -> IO (Ptr Word8)
+wirePokeFetchSnapshotResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (fetchSnapshotResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (fetchSnapshotResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicSnapshot version p x) p2 (fetchSnapshotResponseTopics msg)
+    let !_taggedEntries = (if version >= 1 then [(0, W.runWirePokeWith (5 + (case P.unKafkaArray (fetchSnapshotResponseNodeEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNodeEndpoint version x) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray (\p_ x -> wirePokeNodeEndpoint version p_ x) p (fetchSnapshotResponseNodeEndpoints msg)))] else [])
+    WP.pokeTaggedFieldEntries p3 _taggedEntries
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (fetchSnapshotResponseThrottleTimeMs msg)
+    p2 <- W.pokeInt16BE p1 (fetchSnapshotResponseErrorCode msg)
+    p3 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicSnapshot version p x) p2 (fetchSnapshotResponseTopics msg)
+    let !_taggedEntries = (if version >= 1 then [(0, W.runWirePokeWith (5 + (case P.unKafkaArray (fetchSnapshotResponseNodeEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNodeEndpoint version x) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray (\p_ x -> wirePokeNodeEndpoint version p_ x) p (fetchSnapshotResponseNodeEndpoints msg)))] else [])
+    WP.pokeTaggedFieldEntries p3 _taggedEntries
+  | otherwise = error $ "wirePoke FetchSnapshotResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for FetchSnapshotResponse.
+wirePeekFetchSnapshotResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (FetchSnapshotResponse, Ptr Word8)
+wirePeekFetchSnapshotResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_topics, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicSnapshot version _fp _basePtr p e) p2 endPtr
+    (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p3 endPtr
+    let !_tag_nodeendpoints = if version >= 1 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray (\p e -> wirePeekNodeEndpoint version _fp _bp p e) p e)) _bs of { Right _v -> _v ; Left _ -> P.mkKafkaArray V.empty}; Nothing -> P.mkKafkaArray V.empty} else P.mkKafkaArray V.empty
+    pure (FetchSnapshotResponse { fetchSnapshotResponseThrottleTimeMs = f0_throttletimems, fetchSnapshotResponseErrorCode = f1_errorcode, fetchSnapshotResponseTopics = f2_topics, fetchSnapshotResponseNodeEndpoints = _tag_nodeendpoints }, pTagsEnd)
+  | version == 1 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f2_topics, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicSnapshot version _fp _basePtr p e) p2 endPtr
+    (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p3 endPtr
+    let !_tag_nodeendpoints = if version >= 1 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray (\p e -> wirePeekNodeEndpoint version _fp _bp p e) p e)) _bs of { Right _v -> _v ; Left _ -> P.mkKafkaArray V.empty}; Nothing -> P.mkKafkaArray V.empty} else P.mkKafkaArray V.empty
+    pure (FetchSnapshotResponse { fetchSnapshotResponseThrottleTimeMs = f0_throttletimems, fetchSnapshotResponseErrorCode = f1_errorcode, fetchSnapshotResponseTopics = f2_topics, fetchSnapshotResponseNodeEndpoints = _tag_nodeendpoints }, pTagsEnd)
+  | otherwise = error $ "wirePeek FetchSnapshotResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec FetchSnapshotResponse where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeFetchSnapshotResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeFetchSnapshotResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekFetchSnapshotResponse (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

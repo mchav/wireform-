@@ -61,6 +61,8 @@ import Control.Monad (forM, forM_)
 import Data.ByteString (ByteString)
 import Data.IORef
 import GHC.Exts (Any)
+import qualified Data.HashSet as HashSet
+import Data.HashSet (HashSet)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Text (Text)
@@ -174,7 +176,8 @@ data PunctuatorEntry = PunctuatorEntry
 
 data SourceHandler = SourceHandler
   { shSourceName :: !Topo.NodeName
-  , shTopics     :: ![TopicName]
+  , shTopics     :: !(HashSet TopicName)
+    -- ^ Source topics for this handler.
   , shHandler    :: !(SourceInput -> IO ())
   }
 
@@ -403,7 +406,7 @@ instantiateSource engine nm spec = do
     let !m' = Map.insert nm
                 SourceHandler
                   { shSourceName = nm
-                  , shTopics     = Topo.sourceTopics spec
+                  , shTopics     = HashSet.fromList (Topo.sourceTopics spec)
                   , shHandler    = handler
                   } m
      in (m', ())
@@ -602,10 +605,7 @@ feedSource
 feedSource engine topic key value ts part off = do
   shs <- readIORef (engineSources engine)
   let matching =
-        [ sh
-        | sh <- Map.elems shs
-        , topic `elem` shTopics sh
-        ]
+        filter (\sh -> HashSet.member topic (shTopics sh)) (Map.elems shs)
   case matching of
     [] -> pure ()
     _  -> do

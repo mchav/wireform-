@@ -22,15 +22,9 @@ module Kafka.Protocol.Generated.ConsumerGroupHeartbeatRequest
   (
     ConsumerGroupHeartbeatRequest(..),
     TopicPartitions(..),
-    encodeConsumerGroupHeartbeatRequest,
-    decodeConsumerGroupHeartbeatRequest,
     maxConsumerGroupHeartbeatRequestVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -38,13 +32,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 -- | null if it didn't change since the last heartbeat; the partitions owned by the member.
@@ -64,31 +65,6 @@ data TopicPartitions = TopicPartitions
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicPartitions with version-aware field handling.
-encodeTopicPartitions :: MonadPut m => E.ApiVersion -> TopicPartitions -> m ()
-encodeTopicPartitions version tmsg =
-  do
-    serialize (topicPartitionsTopicId tmsg)
-    E.encodeVersionedArray version 0 (\_ x -> serialize x) (case P.unKafkaArray (topicPartitionsPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicPartitions with version-aware field handling.
-decodeTopicPartitions :: MonadGet m => E.ApiVersion -> m TopicPartitions
-decodeTopicPartitions version =
-  do
-    fieldtopicid <- deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\_ -> deserialize)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicPartitions
-      {
-      topicPartitionsTopicId = fieldtopicid
-      ,
-      topicPartitionsPartitions = fieldpartitions
-      }
-
 
 
 data ConsumerGroupHeartbeatRequest = ConsumerGroupHeartbeatRequest
@@ -160,108 +136,127 @@ data ConsumerGroupHeartbeatRequest = ConsumerGroupHeartbeatRequest
 maxConsumerGroupHeartbeatRequestVersion :: Int16
 maxConsumerGroupHeartbeatRequestVersion = 1
 
--- | Encode ConsumerGroupHeartbeatRequest with the given API version.
-encodeConsumerGroupHeartbeatRequest :: MonadPut m => E.ApiVersion -> ConsumerGroupHeartbeatRequest -> m ()
-encodeConsumerGroupHeartbeatRequest version msg
-  | version == 0 =
-    do
-      serialize (toCompactString (consumerGroupHeartbeatRequestGroupId msg))
-      serialize (toCompactString (consumerGroupHeartbeatRequestMemberId msg))
-      serialize (consumerGroupHeartbeatRequestMemberEpoch msg)
-      serialize (toCompactString (consumerGroupHeartbeatRequestInstanceId msg))
-      serialize (toCompactString (consumerGroupHeartbeatRequestRackId msg))
-      serialize (consumerGroupHeartbeatRequestRebalanceTimeoutMs msg)
-      E.encodeVersionedNullableArray version 0 (\v s -> if v >= 0 then serialize (toCompactString s) else serialize s) (consumerGroupHeartbeatRequestSubscribedTopicNames msg)
-      serialize (toCompactString (consumerGroupHeartbeatRequestServerAssignor msg))
-      E.encodeVersionedNullableArray version 0 encodeTopicPartitions (consumerGroupHeartbeatRequestTopicPartitions msg)
-      serialize (emptyTaggedFields :: TaggedFields)
+-- | KafkaMessage instance for ConsumerGroupHeartbeatRequest.
+instance KafkaMessage ConsumerGroupHeartbeatRequest where
+  messageApiKey = 68
+  messageMinVersion = 0
+  messageMaxVersion = 1
+  messageFlexibleVersion = Just 0
 
-  | version == 1 =
-    do
-      serialize (toCompactString (consumerGroupHeartbeatRequestGroupId msg))
-      serialize (toCompactString (consumerGroupHeartbeatRequestMemberId msg))
-      serialize (consumerGroupHeartbeatRequestMemberEpoch msg)
-      serialize (toCompactString (consumerGroupHeartbeatRequestInstanceId msg))
-      serialize (toCompactString (consumerGroupHeartbeatRequestRackId msg))
-      serialize (consumerGroupHeartbeatRequestRebalanceTimeoutMs msg)
-      E.encodeVersionedNullableArray version 0 (\v s -> if v >= 0 then serialize (toCompactString s) else serialize s) (consumerGroupHeartbeatRequestSubscribedTopicNames msg)
-      serialize (toCompactString (consumerGroupHeartbeatRequestSubscribedTopicRegex msg))
-      serialize (toCompactString (consumerGroupHeartbeatRequestServerAssignor msg))
-      E.encodeVersionedNullableArray version 0 encodeTopicPartitions (consumerGroupHeartbeatRequestTopicPartitions msg)
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
+-- | Worst-case wire size of a TopicPartitions.
+wireMaxSizeTopicPartitions :: Int -> TopicPartitions -> Int
+wireMaxSizeTopicPartitions _version msg =
+  0
+  + 16
+  + (5 + (case P.unKafkaArray (topicPartitionsPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
 
--- | Decode ConsumerGroupHeartbeatRequest with the given API version.
-decodeConsumerGroupHeartbeatRequest :: MonadGet m => E.ApiVersion -> m ConsumerGroupHeartbeatRequest
-decodeConsumerGroupHeartbeatRequest version
-  | version == 0 =
-    do
-      fieldgroupid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberepoch <- deserialize
-      fieldinstanceid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldrackid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldrebalancetimeoutms <- deserialize
-      fieldsubscribedtopicnames <- E.decodeVersionedNullableArray version 0 (\v -> if v >= 0 then P.fromCompactString <$> deserialize else deserialize)
-      fieldserverassignor <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldtopicpartitions <- E.decodeVersionedNullableArray version 0 decodeTopicPartitions
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ConsumerGroupHeartbeatRequest
-        {
-        consumerGroupHeartbeatRequestGroupId = fieldgroupid
-        ,
-        consumerGroupHeartbeatRequestMemberId = fieldmemberid
-        ,
-        consumerGroupHeartbeatRequestMemberEpoch = fieldmemberepoch
-        ,
-        consumerGroupHeartbeatRequestInstanceId = fieldinstanceid
-        ,
-        consumerGroupHeartbeatRequestRackId = fieldrackid
-        ,
-        consumerGroupHeartbeatRequestRebalanceTimeoutMs = fieldrebalancetimeoutms
-        ,
-        consumerGroupHeartbeatRequestSubscribedTopicNames = fieldsubscribedtopicnames
-        ,
-        consumerGroupHeartbeatRequestSubscribedTopicRegex = P.KafkaString Null
-        ,
-        consumerGroupHeartbeatRequestServerAssignor = fieldserverassignor
-        ,
-        consumerGroupHeartbeatRequestTopicPartitions = fieldtopicpartitions
-        }
+-- | Direct-poke encoder for TopicPartitions.
+wirePokeTopicPartitions :: Int -> Ptr Word8 -> TopicPartitions -> IO (Ptr Word8)
+wirePokeTopicPartitions version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeKafkaUuid p0 (topicPartitionsTopicId msg)
+  p2 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p1 (topicPartitionsPartitions msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
-  | version == 1 =
-    do
-      fieldgroupid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldmemberepoch <- deserialize
-      fieldinstanceid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldrackid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldrebalancetimeoutms <- deserialize
-      fieldsubscribedtopicnames <- E.decodeVersionedNullableArray version 0 (\v -> if v >= 0 then P.fromCompactString <$> deserialize else deserialize)
-      fieldsubscribedtopicregex <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldserverassignor <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-      fieldtopicpartitions <- E.decodeVersionedNullableArray version 0 decodeTopicPartitions
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure ConsumerGroupHeartbeatRequest
-        {
-        consumerGroupHeartbeatRequestGroupId = fieldgroupid
-        ,
-        consumerGroupHeartbeatRequestMemberId = fieldmemberid
-        ,
-        consumerGroupHeartbeatRequestMemberEpoch = fieldmemberepoch
-        ,
-        consumerGroupHeartbeatRequestInstanceId = fieldinstanceid
-        ,
-        consumerGroupHeartbeatRequestRackId = fieldrackid
-        ,
-        consumerGroupHeartbeatRequestRebalanceTimeoutMs = fieldrebalancetimeoutms
-        ,
-        consumerGroupHeartbeatRequestSubscribedTopicNames = fieldsubscribedtopicnames
-        ,
-        consumerGroupHeartbeatRequestSubscribedTopicRegex = fieldsubscribedtopicregex
-        ,
-        consumerGroupHeartbeatRequestServerAssignor = fieldserverassignor
-        ,
-        consumerGroupHeartbeatRequestTopicPartitions = fieldtopicpartitions
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Direct-poke decoder for TopicPartitions.
+wirePeekTopicPartitions :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicPartitions, Ptr Word8)
+wirePeekTopicPartitions version _fp _basePtr p0 endPtr = do
+  (f0_topicid, p1) <- WP.peekKafkaUuid p0 endPtr
+  (f1_partitions, p2) <- WP.peekVersionedArray version 0 W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TopicPartitions { topicPartitionsTopicId = f0_topicid, topicPartitionsPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicPartitions :: TopicPartitions
+defaultTopicPartitions = TopicPartitions { topicPartitionsTopicId = P.nullUuid, topicPartitionsPartitions = P.mkKafkaArray V.empty }
+
+-- | Worst-case wire size of a ConsumerGroupHeartbeatRequest.
+wireMaxSizeConsumerGroupHeartbeatRequest :: Int -> ConsumerGroupHeartbeatRequest -> Int
+wireMaxSizeConsumerGroupHeartbeatRequest _version msg =
+  0
+  + WP.dualStringMaxSize (consumerGroupHeartbeatRequestGroupId msg)
+  + WP.dualStringMaxSize (consumerGroupHeartbeatRequestMemberId msg)
+  + 4
+  + WP.dualStringMaxSize (consumerGroupHeartbeatRequestInstanceId msg)
+  + WP.dualStringMaxSize (consumerGroupHeartbeatRequestRackId msg)
+  + 4
+  + (5 + (case P.unKafkaArray (consumerGroupHeartbeatRequestSubscribedTopicNames msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
+  + WP.dualStringMaxSize (consumerGroupHeartbeatRequestSubscribedTopicRegex msg)
+  + WP.dualStringMaxSize (consumerGroupHeartbeatRequestServerAssignor msg)
+  + (5 + (case P.unKafkaArray (consumerGroupHeartbeatRequestTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicPartitions _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ConsumerGroupHeartbeatRequest.
+wirePokeConsumerGroupHeartbeatRequest :: Int -> Ptr Word8 -> ConsumerGroupHeartbeatRequest -> IO (Ptr Word8)
+wirePokeConsumerGroupHeartbeatRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (consumerGroupHeartbeatRequestGroupId msg)) else WP.pokeKafkaString p0 (consumerGroupHeartbeatRequestGroupId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (consumerGroupHeartbeatRequestMemberId msg)) else WP.pokeKafkaString p1 (consumerGroupHeartbeatRequestMemberId msg))
+    p3 <- W.pokeInt32BE p2 (consumerGroupHeartbeatRequestMemberEpoch msg)
+    p4 <- (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (consumerGroupHeartbeatRequestInstanceId msg)) else WP.pokeKafkaString p3 (consumerGroupHeartbeatRequestInstanceId msg))
+    p5 <- (if version >= 0 then WP.pokeCompactString p4 (P.toCompactString (consumerGroupHeartbeatRequestRackId msg)) else WP.pokeKafkaString p4 (consumerGroupHeartbeatRequestRackId msg))
+    p6 <- W.pokeInt32BE p5 (consumerGroupHeartbeatRequestRebalanceTimeoutMs msg)
+    p7 <- WP.pokeVersionedNullableArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p6 (consumerGroupHeartbeatRequestSubscribedTopicNames msg)
+    p8 <- (if version >= 0 then WP.pokeCompactString p7 (P.toCompactString (consumerGroupHeartbeatRequestServerAssignor msg)) else WP.pokeKafkaString p7 (consumerGroupHeartbeatRequestServerAssignor msg))
+    p9 <- WP.pokeVersionedNullableArray version 0 (\p x -> wirePokeTopicPartitions version p x) p8 (consumerGroupHeartbeatRequestTopicPartitions msg)
+    WP.pokeEmptyTaggedFields p9
+  | version == 1 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (consumerGroupHeartbeatRequestGroupId msg)) else WP.pokeKafkaString p0 (consumerGroupHeartbeatRequestGroupId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (consumerGroupHeartbeatRequestMemberId msg)) else WP.pokeKafkaString p1 (consumerGroupHeartbeatRequestMemberId msg))
+    p3 <- W.pokeInt32BE p2 (consumerGroupHeartbeatRequestMemberEpoch msg)
+    p4 <- (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (consumerGroupHeartbeatRequestInstanceId msg)) else WP.pokeKafkaString p3 (consumerGroupHeartbeatRequestInstanceId msg))
+    p5 <- (if version >= 0 then WP.pokeCompactString p4 (P.toCompactString (consumerGroupHeartbeatRequestRackId msg)) else WP.pokeKafkaString p4 (consumerGroupHeartbeatRequestRackId msg))
+    p6 <- W.pokeInt32BE p5 (consumerGroupHeartbeatRequestRebalanceTimeoutMs msg)
+    p7 <- WP.pokeVersionedNullableArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p6 (consumerGroupHeartbeatRequestSubscribedTopicNames msg)
+    p8 <- (if version >= 1 then (if version >= 0 then WP.pokeCompactString p7 (P.toCompactString (consumerGroupHeartbeatRequestSubscribedTopicRegex msg)) else WP.pokeKafkaString p7 (consumerGroupHeartbeatRequestSubscribedTopicRegex msg)) else pure p7)
+    p9 <- (if version >= 0 then WP.pokeCompactString p8 (P.toCompactString (consumerGroupHeartbeatRequestServerAssignor msg)) else WP.pokeKafkaString p8 (consumerGroupHeartbeatRequestServerAssignor msg))
+    p10 <- WP.pokeVersionedNullableArray version 0 (\p x -> wirePokeTopicPartitions version p x) p9 (consumerGroupHeartbeatRequestTopicPartitions msg)
+    WP.pokeEmptyTaggedFields p10
+  | otherwise = error $ "wirePoke ConsumerGroupHeartbeatRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ConsumerGroupHeartbeatRequest.
+wirePeekConsumerGroupHeartbeatRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ConsumerGroupHeartbeatRequest, Ptr Word8)
+wirePeekConsumerGroupHeartbeatRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+    (f2_memberepoch, p3) <- W.peekInt32BE p2 endPtr
+    (f3_instanceid, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+    (f4_rackid, p5) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
+    (f5_rebalancetimeoutms, p6) <- W.peekInt32BE p5 endPtr
+    (f6_subscribedtopicnames, p7) <- WP.peekVersionedNullableArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p6 endPtr
+    (f7_serverassignor, p8) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr else WP.peekKafkaString p7 endPtr)
+    (f8_topicpartitions, p9) <- WP.peekVersionedNullableArray version 0 (\p e -> wirePeekTopicPartitions version _fp _basePtr p e) p8 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p9 endPtr
+    pure (ConsumerGroupHeartbeatRequest { consumerGroupHeartbeatRequestGroupId = f0_groupid, consumerGroupHeartbeatRequestMemberId = f1_memberid, consumerGroupHeartbeatRequestMemberEpoch = f2_memberepoch, consumerGroupHeartbeatRequestInstanceId = f3_instanceid, consumerGroupHeartbeatRequestRackId = f4_rackid, consumerGroupHeartbeatRequestRebalanceTimeoutMs = f5_rebalancetimeoutms, consumerGroupHeartbeatRequestSubscribedTopicNames = f6_subscribedtopicnames, consumerGroupHeartbeatRequestSubscribedTopicRegex = P.KafkaString Null, consumerGroupHeartbeatRequestServerAssignor = f7_serverassignor, consumerGroupHeartbeatRequestTopicPartitions = f8_topicpartitions }, pTagsEnd)
+  | version == 1 = do
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+    (f2_memberepoch, p3) <- W.peekInt32BE p2 endPtr
+    (f3_instanceid, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+    (f4_rackid, p5) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
+    (f5_rebalancetimeoutms, p6) <- W.peekInt32BE p5 endPtr
+    (f6_subscribedtopicnames, p7) <- WP.peekVersionedNullableArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p6 endPtr
+    (f7_subscribedtopicregex, p8) <- (if version >= 1 then (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr else WP.peekKafkaString p7 endPtr) else pure (P.KafkaString Null, p7))
+    (f8_serverassignor, p9) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p8 endPtr else WP.peekKafkaString p8 endPtr)
+    (f9_topicpartitions, p10) <- WP.peekVersionedNullableArray version 0 (\p e -> wirePeekTopicPartitions version _fp _basePtr p e) p9 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p10 endPtr
+    pure (ConsumerGroupHeartbeatRequest { consumerGroupHeartbeatRequestGroupId = f0_groupid, consumerGroupHeartbeatRequestMemberId = f1_memberid, consumerGroupHeartbeatRequestMemberEpoch = f2_memberepoch, consumerGroupHeartbeatRequestInstanceId = f3_instanceid, consumerGroupHeartbeatRequestRackId = f4_rackid, consumerGroupHeartbeatRequestRebalanceTimeoutMs = f5_rebalancetimeoutms, consumerGroupHeartbeatRequestSubscribedTopicNames = f6_subscribedtopicnames, consumerGroupHeartbeatRequestSubscribedTopicRegex = f7_subscribedtopicregex, consumerGroupHeartbeatRequestServerAssignor = f8_serverassignor, consumerGroupHeartbeatRequestTopicPartitions = f9_topicpartitions }, pTagsEnd)
+  | otherwise = error $ "wirePeek ConsumerGroupHeartbeatRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec ConsumerGroupHeartbeatRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeConsumerGroupHeartbeatRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeConsumerGroupHeartbeatRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekConsumerGroupHeartbeatRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

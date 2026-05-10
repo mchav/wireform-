@@ -30,17 +30,10 @@ module Kafka.Protocol.Generated.StreamsGroupDescribeResponse
     KeyValue(..),
     TaskOffset(..),
     Assignment(..),
-    TopicPartitions(..),
     TaskIds(..),
-    encodeStreamsGroupDescribeResponse,
-    decodeStreamsGroupDescribeResponse,
     maxStreamsGroupDescribeResponseVersion
   ) where
 
-import Control.Monad (when)
-import Data.Bytes.Get (MonadGet)
-import Data.Bytes.Put (MonadPut)
-import Data.Bytes.Serial (Serial(..), serialize, deserialize)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word16, Word32)
 import GHC.Generics (Generic)
@@ -48,13 +41,20 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Kafka.Protocol.Primitives as P
 import Kafka.Protocol.Primitives
-  ( VarInt(..), VarLong(..), UVarInt(..)
-  , KafkaString, KafkaBytes, KafkaArray, KafkaUuid
-  , CompactString, CompactBytes, CompactArray
-  , TaggedFields, emptyTaggedFields, Nullable(..)
-  , toCompactString, toCompactBytes, toCompactArray
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
   )
-import qualified Kafka.Protocol.Encoding as E
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
 
 
 data Endpoint = Endpoint
@@ -73,31 +73,6 @@ data Endpoint = Endpoint
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode Endpoint with version-aware field handling.
-encodeEndpoint :: MonadPut m => E.ApiVersion -> Endpoint -> m ()
-encodeEndpoint version emsg =
-  do
-    if version >= 0 then serialize (toCompactString (endpointHost emsg)) else serialize (endpointHost emsg)
-    serialize (endpointPort emsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Endpoint with version-aware field handling.
-decodeEndpoint :: MonadGet m => E.ApiVersion -> m Endpoint
-decodeEndpoint version =
-  do
-    fieldhost <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldport <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Endpoint
-      {
-      endpointHost = fieldhost
-      ,
-      endpointPort = fieldport
-      }
-
 
 
 data TaskOffset = TaskOffset
@@ -124,88 +99,6 @@ data TaskOffset = TaskOffset
   deriving (Eq, Show, Generic)
 
 
--- | Encode TaskOffset with version-aware field handling.
-encodeTaskOffset :: MonadPut m => E.ApiVersion -> TaskOffset -> m ()
-encodeTaskOffset version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (taskOffsetSubtopologyId tmsg)) else serialize (taskOffsetSubtopologyId tmsg)
-    serialize (taskOffsetPartition tmsg)
-    serialize (taskOffsetOffset tmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TaskOffset with version-aware field handling.
-decodeTaskOffset :: MonadGet m => E.ApiVersion -> m TaskOffset
-decodeTaskOffset version =
-  do
-    fieldsubtopologyid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartition <- deserialize
-    fieldoffset <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TaskOffset
-      {
-      taskOffsetSubtopologyId = fieldsubtopologyid
-      ,
-      taskOffsetPartition = fieldpartition
-      ,
-      taskOffsetOffset = fieldoffset
-      }
-
-
-
-data TopicPartitions = TopicPartitions
-  {
-
-  -- | The topic ID.
-
-  -- Versions: 0+
-  topicPartitionsTopicId :: !(KafkaUuid)
-,
-
-  -- | The topic name.
-
-  -- Versions: 0+
-  topicPartitionsTopicName :: !(KafkaString)
-,
-
-  -- | The partitions.
-
-  -- Versions: 0+
-  topicPartitionsPartitions :: !(KafkaArray (Int32))
-
-  }
-  deriving (Eq, Show, Generic)
-
-
--- | Encode TopicPartitions with version-aware field handling.
-encodeTopicPartitions :: MonadPut m => E.ApiVersion -> TopicPartitions -> m ()
-encodeTopicPartitions version tmsg =
-  do
-    serialize (topicPartitionsTopicId tmsg)
-    if version >= 0 then serialize (toCompactString (topicPartitionsTopicName tmsg)) else serialize (topicPartitionsTopicName tmsg)
-    E.encodeVersionedArray version 0 (\_ x -> serialize x) (case P.unKafkaArray (topicPartitionsPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicPartitions with version-aware field handling.
-decodeTopicPartitions :: MonadGet m => E.ApiVersion -> m TopicPartitions
-decodeTopicPartitions version =
-  do
-    fieldtopicid <- deserialize
-    fieldtopicname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\_ -> deserialize)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicPartitions
-      {
-      topicPartitionsTopicId = fieldtopicid
-      ,
-      topicPartitionsTopicName = fieldtopicname
-      ,
-      topicPartitionsPartitions = fieldpartitions
-      }
-
-
-
 data Assignment = Assignment
   {
 
@@ -230,35 +123,6 @@ data Assignment = Assignment
   deriving (Eq, Show, Generic)
 
 
--- | Encode Assignment with version-aware field handling.
-encodeAssignment :: MonadPut m => E.ApiVersion -> Assignment -> m ()
-encodeAssignment version amsg =
-  do
-    E.encodeVersionedArray version 0 encodeTaskIds (case P.unKafkaArray (assignmentActiveTasks amsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    E.encodeVersionedArray version 0 encodeTaskIds (case P.unKafkaArray (assignmentStandbyTasks amsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    E.encodeVersionedArray version 0 encodeTaskIds (case P.unKafkaArray (assignmentWarmupTasks amsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Assignment with version-aware field handling.
-decodeAssignment :: MonadGet m => E.ApiVersion -> m Assignment
-decodeAssignment version =
-  do
-    fieldactivetasks <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTaskIds
-    fieldstandbytasks <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTaskIds
-    fieldwarmuptasks <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTaskIds
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Assignment
-      {
-      assignmentActiveTasks = fieldactivetasks
-      ,
-      assignmentStandbyTasks = fieldstandbytasks
-      ,
-      assignmentWarmupTasks = fieldwarmuptasks
-      }
-
-
-
 data TaskIds = TaskIds
   {
 
@@ -277,31 +141,6 @@ data TaskIds = TaskIds
   deriving (Eq, Show, Generic)
 
 
--- | Encode TaskIds with version-aware field handling.
-encodeTaskIds :: MonadPut m => E.ApiVersion -> TaskIds -> m ()
-encodeTaskIds version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (taskIdsSubtopologyId tmsg)) else serialize (taskIdsSubtopologyId tmsg)
-    E.encodeVersionedArray version 0 (\_ x -> serialize x) (case P.unKafkaArray (taskIdsPartitions tmsg) of { P.NotNull v -> v; P.Null -> V.empty }) -- ArrayType: PrimitiveType "int32"
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TaskIds with version-aware field handling.
-decodeTaskIds :: MonadGet m => E.ApiVersion -> m TaskIds
-decodeTaskIds version =
-  do
-    fieldsubtopologyid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\_ -> deserialize)
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TaskIds
-      {
-      taskIdsSubtopologyId = fieldsubtopologyid
-      ,
-      taskIdsPartitions = fieldpartitions
-      }
-
-
-
 data KeyValue = KeyValue
   {
 
@@ -318,31 +157,6 @@ data KeyValue = KeyValue
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode KeyValue with version-aware field handling.
-encodeKeyValue :: MonadPut m => E.ApiVersion -> KeyValue -> m ()
-encodeKeyValue version kmsg =
-  do
-    if version >= 0 then serialize (toCompactString (keyValueKey kmsg)) else serialize (keyValueKey kmsg)
-    if version >= 0 then serialize (toCompactString (keyValueValue kmsg)) else serialize (keyValueValue kmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode KeyValue with version-aware field handling.
-decodeKeyValue :: MonadGet m => E.ApiVersion -> m KeyValue
-decodeKeyValue version =
-  do
-    fieldkey <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldvalue <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure KeyValue
-      {
-      keyValueKey = fieldkey
-      ,
-      keyValueValue = fieldvalue
-      }
-
 
 
 data TopicInfo = TopicInfo
@@ -373,39 +187,6 @@ data TopicInfo = TopicInfo
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode TopicInfo with version-aware field handling.
-encodeTopicInfo :: MonadPut m => E.ApiVersion -> TopicInfo -> m ()
-encodeTopicInfo version tmsg =
-  do
-    if version >= 0 then serialize (toCompactString (topicInfoName tmsg)) else serialize (topicInfoName tmsg)
-    serialize (topicInfoPartitions tmsg)
-    serialize (topicInfoReplicationFactor tmsg)
-    E.encodeVersionedArray version 0 encodeKeyValue (case P.unKafkaArray (topicInfoTopicConfigs tmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode TopicInfo with version-aware field handling.
-decodeTopicInfo :: MonadGet m => E.ApiVersion -> m TopicInfo
-decodeTopicInfo version =
-  do
-    fieldname <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldpartitions <- deserialize
-    fieldreplicationfactor <- deserialize
-    fieldtopicconfigs <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeKeyValue
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure TopicInfo
-      {
-      topicInfoName = fieldname
-      ,
-      topicInfoPartitions = fieldpartitions
-      ,
-      topicInfoReplicationFactor = fieldreplicationfactor
-      ,
-      topicInfoTopicConfigs = fieldtopicconfigs
-      }
-
 
 -- | The subtopologies of the streams application. This contains the configured subtopologies, where the number of partitions are set and any regular expressions are resolved to actual topics. Null if the 
 data Subtopology = Subtopology
@@ -443,43 +224,6 @@ data Subtopology = Subtopology
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode Subtopology with version-aware field handling.
-encodeSubtopology :: MonadPut m => E.ApiVersion -> Subtopology -> m ()
-encodeSubtopology version smsg =
-  do
-    if version >= 0 then serialize (toCompactString (subtopologySubtopologyId smsg)) else serialize (subtopologySubtopologyId smsg)
-    E.encodeVersionedArray version 0 (\v s -> if v >= 0 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (subtopologySourceTopics smsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    E.encodeVersionedArray version 0 (\v s -> if v >= 0 then serialize (toCompactString s) else serialize s) (case P.unKafkaArray (subtopologyRepartitionSinkTopics smsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    E.encodeVersionedArray version 0 encodeTopicInfo (case P.unKafkaArray (subtopologyStateChangelogTopics smsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    E.encodeVersionedArray version 0 encodeTopicInfo (case P.unKafkaArray (subtopologyRepartitionSourceTopics smsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Subtopology with version-aware field handling.
-decodeSubtopology :: MonadGet m => E.ApiVersion -> m Subtopology
-decodeSubtopology version =
-  do
-    fieldsubtopologyid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldsourcetopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\v -> if v >= 0 then P.fromCompactString <$> deserialize else deserialize)
-    fieldrepartitionsinktopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 (\v -> if v >= 0 then P.fromCompactString <$> deserialize else deserialize)
-    fieldstatechangelogtopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicInfo
-    fieldrepartitionsourcetopics <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTopicInfo
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Subtopology
-      {
-      subtopologySubtopologyId = fieldsubtopologyid
-      ,
-      subtopologySourceTopics = fieldsourcetopics
-      ,
-      subtopologyRepartitionSinkTopics = fieldrepartitionsinktopics
-      ,
-      subtopologyStateChangelogTopics = fieldstatechangelogtopics
-      ,
-      subtopologyRepartitionSourceTopics = fieldrepartitionsourcetopics
-      }
-
-
 -- | The topology metadata currently initialized for the streams application. Can be null in case of a describe error.
 data Topology = Topology
   {
@@ -497,31 +241,6 @@ data Topology = Topology
 
   }
   deriving (Eq, Show, Generic)
-
-
--- | Encode Topology with version-aware field handling.
-encodeTopology :: MonadPut m => E.ApiVersion -> Topology -> m ()
-encodeTopology version tmsg =
-  do
-    serialize (topologyEpoch tmsg)
-    E.encodeVersionedNullableArray version 0 encodeSubtopology (topologySubtopologies tmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Topology with version-aware field handling.
-decodeTopology :: MonadGet m => E.ApiVersion -> m Topology
-decodeTopology version =
-  do
-    fieldepoch <- deserialize
-    fieldsubtopologies <- E.decodeVersionedNullableArray version 0 decodeSubtopology
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Topology
-      {
-      topologyEpoch = fieldepoch
-      ,
-      topologySubtopologies = fieldsubtopologies
-      }
-
 
 -- | The members.
 data Member = Member
@@ -619,83 +338,6 @@ data Member = Member
   }
   deriving (Eq, Show, Generic)
 
-
--- | Encode Member with version-aware field handling.
-encodeMember :: MonadPut m => E.ApiVersion -> Member -> m ()
-encodeMember version mmsg =
-  do
-    if version >= 0 then serialize (toCompactString (memberMemberId mmsg)) else serialize (memberMemberId mmsg)
-    serialize (memberMemberEpoch mmsg)
-    if version >= 0 then serialize (toCompactString (memberInstanceId mmsg)) else serialize (memberInstanceId mmsg)
-    if version >= 0 then serialize (toCompactString (memberRackId mmsg)) else serialize (memberRackId mmsg)
-    if version >= 0 then serialize (toCompactString (memberClientId mmsg)) else serialize (memberClientId mmsg)
-    if version >= 0 then serialize (toCompactString (memberClientHost mmsg)) else serialize (memberClientHost mmsg)
-    serialize (memberTopologyEpoch mmsg)
-    if version >= 0 then serialize (toCompactString (memberProcessId mmsg)) else serialize (memberProcessId mmsg)
-    case (memberUserEndpoint mmsg) of { P.Null -> serialize (0 :: Int8); P.NotNull val -> do { serialize (1 :: Int8); encodeEndpoint version val } }
-    E.encodeVersionedArray version 0 encodeKeyValue (case P.unKafkaArray (memberClientTags mmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    E.encodeVersionedArray version 0 encodeTaskOffset (case P.unKafkaArray (memberTaskOffsets mmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    E.encodeVersionedArray version 0 encodeTaskOffset (case P.unKafkaArray (memberTaskEndOffsets mmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    encodeAssignment version (memberAssignment mmsg)
-    encodeAssignment version (memberTargetAssignment mmsg)
-    serialize (memberIsClassic mmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode Member with version-aware field handling.
-decodeMember :: MonadGet m => E.ApiVersion -> m Member
-decodeMember version =
-  do
-    fieldmemberid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldmemberepoch <- deserialize
-    fieldinstanceid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldrackid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldclientid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldclienthost <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldtopologyepoch <- deserialize
-    fieldprocessid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fielduserendpoint <- do { flag <- deserialize :: (MonadGet m) => m Int8; case flag of { 0 -> pure P.Null; 1 -> P.NotNull <$> decodeEndpoint version; _ -> fail "Invalid nullable flag" } }
-    fieldclienttags <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeKeyValue
-    fieldtaskoffsets <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTaskOffset
-    fieldtaskendoffsets <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeTaskOffset
-    fieldassignment <- decodeAssignment version
-    fieldtargetassignment <- decodeAssignment version
-    fieldisclassic <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure Member
-      {
-      memberMemberId = fieldmemberid
-      ,
-      memberMemberEpoch = fieldmemberepoch
-      ,
-      memberInstanceId = fieldinstanceid
-      ,
-      memberRackId = fieldrackid
-      ,
-      memberClientId = fieldclientid
-      ,
-      memberClientHost = fieldclienthost
-      ,
-      memberTopologyEpoch = fieldtopologyepoch
-      ,
-      memberProcessId = fieldprocessid
-      ,
-      memberUserEndpoint = fielduserendpoint
-      ,
-      memberClientTags = fieldclienttags
-      ,
-      memberTaskOffsets = fieldtaskoffsets
-      ,
-      memberTaskEndOffsets = fieldtaskendoffsets
-      ,
-      memberAssignment = fieldassignment
-      ,
-      memberTargetAssignment = fieldtargetassignment
-      ,
-      memberIsClassic = fieldisclassic
-      }
-
-
 -- | Each described group.
 data DescribedGroup = DescribedGroup
   {
@@ -757,59 +399,6 @@ data DescribedGroup = DescribedGroup
   deriving (Eq, Show, Generic)
 
 
--- | Encode DescribedGroup with version-aware field handling.
-encodeDescribedGroup :: MonadPut m => E.ApiVersion -> DescribedGroup -> m ()
-encodeDescribedGroup version dmsg =
-  do
-    serialize (describedGroupErrorCode dmsg)
-    if version >= 0 then serialize (toCompactString (describedGroupErrorMessage dmsg)) else serialize (describedGroupErrorMessage dmsg)
-    if version >= 0 then serialize (toCompactString (describedGroupGroupId dmsg)) else serialize (describedGroupGroupId dmsg)
-    if version >= 0 then serialize (toCompactString (describedGroupGroupState dmsg)) else serialize (describedGroupGroupState dmsg)
-    serialize (describedGroupGroupEpoch dmsg)
-    serialize (describedGroupAssignmentEpoch dmsg)
-    case (describedGroupTopology dmsg) of { P.Null -> serialize (0 :: Int8); P.NotNull val -> do { serialize (1 :: Int8); encodeTopology version val } }
-    E.encodeVersionedArray version 0 encodeMember (case P.unKafkaArray (describedGroupMembers dmsg) of { P.NotNull v -> v; P.Null -> V.empty })
-    serialize (describedGroupAuthorizedOperations dmsg)
-    when (version >= 0) $ serialize (emptyTaggedFields :: TaggedFields)
-
-
--- | Decode DescribedGroup with version-aware field handling.
-decodeDescribedGroup :: MonadGet m => E.ApiVersion -> m DescribedGroup
-decodeDescribedGroup version =
-  do
-    fielderrorcode <- deserialize
-    fielderrormessage <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldgroupid <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldgroupstate <- if version >= 0 then P.fromCompactString <$> deserialize else deserialize
-    fieldgroupepoch <- deserialize
-    fieldassignmentepoch <- deserialize
-    fieldtopology <- do { flag <- deserialize :: (MonadGet m) => m Int8; case flag of { 0 -> pure P.Null; 1 -> P.NotNull <$> decodeTopology version; _ -> fail "Invalid nullable flag" } }
-    fieldmembers <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeMember
-    fieldauthorizedoperations <- deserialize
-    _ <- if version >= 0 then (deserialize :: MonadGet m => m TaggedFields) else pure emptyTaggedFields
-    pure DescribedGroup
-      {
-      describedGroupErrorCode = fielderrorcode
-      ,
-      describedGroupErrorMessage = fielderrormessage
-      ,
-      describedGroupGroupId = fieldgroupid
-      ,
-      describedGroupGroupState = fieldgroupstate
-      ,
-      describedGroupGroupEpoch = fieldgroupepoch
-      ,
-      describedGroupAssignmentEpoch = fieldassignmentepoch
-      ,
-      describedGroupTopology = fieldtopology
-      ,
-      describedGroupMembers = fieldmembers
-      ,
-      describedGroupAuthorizedOperations = fieldauthorizedoperations
-      }
-
-
-
 data StreamsGroupDescribeResponse = StreamsGroupDescribeResponse
   {
 
@@ -831,28 +420,421 @@ data StreamsGroupDescribeResponse = StreamsGroupDescribeResponse
 maxStreamsGroupDescribeResponseVersion :: Int16
 maxStreamsGroupDescribeResponseVersion = 0
 
--- | Encode StreamsGroupDescribeResponse with the given API version.
-encodeStreamsGroupDescribeResponse :: MonadPut m => E.ApiVersion -> StreamsGroupDescribeResponse -> m ()
-encodeStreamsGroupDescribeResponse version msg
-  | version == 0 =
-    do
-      serialize (streamsGroupDescribeResponseThrottleTimeMs msg)
-      E.encodeVersionedArray version 0 encodeDescribedGroup (case P.unKafkaArray (streamsGroupDescribeResponseGroups msg) of { P.NotNull v -> v; P.Null -> V.empty })
-      serialize (emptyTaggedFields :: TaggedFields)
-  | otherwise = error $ "Unsupported version: " ++ show version
+-- | KafkaMessage instance for StreamsGroupDescribeResponse.
+instance KafkaMessage StreamsGroupDescribeResponse where
+  messageApiKey = 89
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
 
--- | Decode StreamsGroupDescribeResponse with the given API version.
-decodeStreamsGroupDescribeResponse :: MonadGet m => E.ApiVersion -> m StreamsGroupDescribeResponse
-decodeStreamsGroupDescribeResponse version
-  | version == 0 =
-    do
-      fieldthrottletimems <- deserialize
-      fieldgroups <- P.mkKafkaArray <$> E.decodeVersionedArray version 0 decodeDescribedGroup
-      _ <- (deserialize :: MonadGet m => m TaggedFields)
-      pure StreamsGroupDescribeResponse
-        {
-        streamsGroupDescribeResponseThrottleTimeMs = fieldthrottletimems
-        ,
-        streamsGroupDescribeResponseGroups = fieldgroups
-        }
-  | otherwise = fail $ "Unsupported version: " ++ show version
+-- | Worst-case wire size of a Endpoint.
+wireMaxSizeEndpoint :: Int -> Endpoint -> Int
+wireMaxSizeEndpoint _version msg =
+  0
+  + WP.dualStringMaxSize (endpointHost msg)
+  + 2
+  + 1
+
+-- | Direct-poke encoder for Endpoint.
+wirePokeEndpoint :: Int -> Ptr Word8 -> Endpoint -> IO (Ptr Word8)
+wirePokeEndpoint version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (endpointHost msg)) else WP.pokeKafkaString p0 (endpointHost msg))
+  p2 <- W.pokeWord16BE p1 (endpointPort msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for Endpoint.
+wirePeekEndpoint :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Endpoint, Ptr Word8)
+wirePeekEndpoint version _fp _basePtr p0 endPtr = do
+  (f0_host, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_port, p2) <- W.peekWord16BE p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (Endpoint { endpointHost = f0_host, endpointPort = f1_port }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultEndpoint :: Endpoint
+defaultEndpoint = Endpoint { endpointHost = P.KafkaString Null, endpointPort = 0 }
+
+-- | Worst-case wire size of a TaskOffset.
+wireMaxSizeTaskOffset :: Int -> TaskOffset -> Int
+wireMaxSizeTaskOffset _version msg =
+  0
+  + WP.dualStringMaxSize (taskOffsetSubtopologyId msg)
+  + 4
+  + 8
+  + 1
+
+-- | Direct-poke encoder for TaskOffset.
+wirePokeTaskOffset :: Int -> Ptr Word8 -> TaskOffset -> IO (Ptr Word8)
+wirePokeTaskOffset version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (taskOffsetSubtopologyId msg)) else WP.pokeKafkaString p0 (taskOffsetSubtopologyId msg))
+  p2 <- W.pokeInt32BE p1 (taskOffsetPartition msg)
+  p3 <- W.pokeInt64BE p2 (taskOffsetOffset msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for TaskOffset.
+wirePeekTaskOffset :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TaskOffset, Ptr Word8)
+wirePeekTaskOffset version _fp _basePtr p0 endPtr = do
+  (f0_subtopologyid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_partition, p2) <- W.peekInt32BE p1 endPtr
+  (f2_offset, p3) <- W.peekInt64BE p2 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (TaskOffset { taskOffsetSubtopologyId = f0_subtopologyid, taskOffsetPartition = f1_partition, taskOffsetOffset = f2_offset }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTaskOffset :: TaskOffset
+defaultTaskOffset = TaskOffset { taskOffsetSubtopologyId = P.KafkaString Null, taskOffsetPartition = 0, taskOffsetOffset = 0 }
+
+-- | Worst-case wire size of a Assignment.
+wireMaxSizeAssignment :: Int -> Assignment -> Int
+wireMaxSizeAssignment _version msg =
+  0
+  + (5 + (case P.unKafkaArray (assignmentActiveTasks msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTaskIds _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (assignmentStandbyTasks msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTaskIds _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (assignmentWarmupTasks msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTaskIds _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for Assignment.
+wirePokeAssignment :: Int -> Ptr Word8 -> Assignment -> IO (Ptr Word8)
+wirePokeAssignment version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTaskIds version p x) p0 (assignmentActiveTasks msg)
+  p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTaskIds version p x) p1 (assignmentStandbyTasks msg)
+  p3 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTaskIds version p x) p2 (assignmentWarmupTasks msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
+
+-- | Direct-poke decoder for Assignment.
+wirePeekAssignment :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Assignment, Ptr Word8)
+wirePeekAssignment version _fp _basePtr p0 endPtr = do
+  (f0_activetasks, p1) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTaskIds version _fp _basePtr p e) p0 endPtr
+  (f1_standbytasks, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTaskIds version _fp _basePtr p e) p1 endPtr
+  (f2_warmuptasks, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTaskIds version _fp _basePtr p e) p2 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
+  pure (Assignment { assignmentActiveTasks = f0_activetasks, assignmentStandbyTasks = f1_standbytasks, assignmentWarmupTasks = f2_warmuptasks }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAssignment :: Assignment
+defaultAssignment = Assignment { assignmentActiveTasks = P.mkKafkaArray V.empty, assignmentStandbyTasks = P.mkKafkaArray V.empty, assignmentWarmupTasks = P.mkKafkaArray V.empty }
+
+-- | Worst-case wire size of a TaskIds.
+wireMaxSizeTaskIds :: Int -> TaskIds -> Int
+wireMaxSizeTaskIds _version msg =
+  0
+  + WP.dualStringMaxSize (taskIdsSubtopologyId msg)
+  + (5 + (case P.unKafkaArray (taskIdsPartitions msg) of { P.NotNull v -> sum (fmap (\x -> 4 ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TaskIds.
+wirePokeTaskIds :: Int -> Ptr Word8 -> TaskIds -> IO (Ptr Word8)
+wirePokeTaskIds version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (taskIdsSubtopologyId msg)) else WP.pokeKafkaString p0 (taskIdsSubtopologyId msg))
+  p2 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p1 (taskIdsPartitions msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for TaskIds.
+wirePeekTaskIds :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TaskIds, Ptr Word8)
+wirePeekTaskIds version _fp _basePtr p0 endPtr = do
+  (f0_subtopologyid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_partitions, p2) <- WP.peekVersionedArray version 0 W.peekInt32BE p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TaskIds { taskIdsSubtopologyId = f0_subtopologyid, taskIdsPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTaskIds :: TaskIds
+defaultTaskIds = TaskIds { taskIdsSubtopologyId = P.KafkaString Null, taskIdsPartitions = P.mkKafkaArray V.empty }
+
+-- | Worst-case wire size of a KeyValue.
+wireMaxSizeKeyValue :: Int -> KeyValue -> Int
+wireMaxSizeKeyValue _version msg =
+  0
+  + WP.dualStringMaxSize (keyValueKey msg)
+  + WP.dualStringMaxSize (keyValueValue msg)
+  + 1
+
+-- | Direct-poke encoder for KeyValue.
+wirePokeKeyValue :: Int -> Ptr Word8 -> KeyValue -> IO (Ptr Word8)
+wirePokeKeyValue version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (keyValueKey msg)) else WP.pokeKafkaString p0 (keyValueKey msg))
+  p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (keyValueValue msg)) else WP.pokeKafkaString p1 (keyValueValue msg))
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for KeyValue.
+wirePeekKeyValue :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (KeyValue, Ptr Word8)
+wirePeekKeyValue version _fp _basePtr p0 endPtr = do
+  (f0_key, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_value, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (KeyValue { keyValueKey = f0_key, keyValueValue = f1_value }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultKeyValue :: KeyValue
+defaultKeyValue = KeyValue { keyValueKey = P.KafkaString Null, keyValueValue = P.KafkaString Null }
+
+-- | Worst-case wire size of a TopicInfo.
+wireMaxSizeTopicInfo :: Int -> TopicInfo -> Int
+wireMaxSizeTopicInfo _version msg =
+  0
+  + WP.dualStringMaxSize (topicInfoName msg)
+  + 4
+  + 2
+  + (5 + (case P.unKafkaArray (topicInfoTopicConfigs msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeKeyValue _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for TopicInfo.
+wirePokeTopicInfo :: Int -> Ptr Word8 -> TopicInfo -> IO (Ptr Word8)
+wirePokeTopicInfo version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (topicInfoName msg)) else WP.pokeKafkaString p0 (topicInfoName msg))
+  p2 <- W.pokeInt32BE p1 (topicInfoPartitions msg)
+  p3 <- W.pokeInt16BE p2 (topicInfoReplicationFactor msg)
+  p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeKeyValue version p x) p3 (topicInfoTopicConfigs msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p4 else pure p4
+
+-- | Direct-poke decoder for TopicInfo.
+wirePeekTopicInfo :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicInfo, Ptr Word8)
+wirePeekTopicInfo version _fp _basePtr p0 endPtr = do
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_partitions, p2) <- W.peekInt32BE p1 endPtr
+  (f2_replicationfactor, p3) <- W.peekInt16BE p2 endPtr
+  (f3_topicconfigs, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekKeyValue version _fp _basePtr p e) p3 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
+  pure (TopicInfo { topicInfoName = f0_name, topicInfoPartitions = f1_partitions, topicInfoReplicationFactor = f2_replicationfactor, topicInfoTopicConfigs = f3_topicconfigs }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicInfo :: TopicInfo
+defaultTopicInfo = TopicInfo { topicInfoName = P.KafkaString Null, topicInfoPartitions = 0, topicInfoReplicationFactor = 0, topicInfoTopicConfigs = P.mkKafkaArray V.empty }
+
+-- | Worst-case wire size of a Subtopology.
+wireMaxSizeSubtopology :: Int -> Subtopology -> Int
+wireMaxSizeSubtopology _version msg =
+  0
+  + WP.dualStringMaxSize (subtopologySubtopologyId msg)
+  + (5 + (case P.unKafkaArray (subtopologySourceTopics msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (subtopologyRepartitionSinkTopics msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (subtopologyStateChangelogTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicInfo _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (subtopologyRepartitionSourceTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTopicInfo _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for Subtopology.
+wirePokeSubtopology :: Int -> Ptr Word8 -> Subtopology -> IO (Ptr Word8)
+wirePokeSubtopology version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (subtopologySubtopologyId msg)) else WP.pokeKafkaString p0 (subtopologySubtopologyId msg))
+  p2 <- WP.pokeVersionedArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p1 (subtopologySourceTopics msg)
+  p3 <- WP.pokeVersionedArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p2 (subtopologyRepartitionSinkTopics msg)
+  p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicInfo version p x) p3 (subtopologyStateChangelogTopics msg)
+  p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTopicInfo version p x) p4 (subtopologyRepartitionSourceTopics msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p5 else pure p5
+
+-- | Direct-poke decoder for Subtopology.
+wirePeekSubtopology :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Subtopology, Ptr Word8)
+wirePeekSubtopology version _fp _basePtr p0 endPtr = do
+  (f0_subtopologyid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_sourcetopics, p2) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p1 endPtr
+  (f2_repartitionsinktopics, p3) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p2 endPtr
+  (f3_statechangelogtopics, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicInfo version _fp _basePtr p e) p3 endPtr
+  (f4_repartitionsourcetopics, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicInfo version _fp _basePtr p e) p4 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (Subtopology { subtopologySubtopologyId = f0_subtopologyid, subtopologySourceTopics = f1_sourcetopics, subtopologyRepartitionSinkTopics = f2_repartitionsinktopics, subtopologyStateChangelogTopics = f3_statechangelogtopics, subtopologyRepartitionSourceTopics = f4_repartitionsourcetopics }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultSubtopology :: Subtopology
+defaultSubtopology = Subtopology { subtopologySubtopologyId = P.KafkaString Null, subtopologySourceTopics = P.mkKafkaArray V.empty, subtopologyRepartitionSinkTopics = P.mkKafkaArray V.empty, subtopologyStateChangelogTopics = P.mkKafkaArray V.empty, subtopologyRepartitionSourceTopics = P.mkKafkaArray V.empty }
+
+-- | Worst-case wire size of a Topology.
+wireMaxSizeTopology :: Int -> Topology -> Int
+wireMaxSizeTopology _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (topologySubtopologies msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeSubtopology _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for Topology.
+wirePokeTopology :: Int -> Ptr Word8 -> Topology -> IO (Ptr Word8)
+wirePokeTopology version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt32BE p0 (topologyEpoch msg)
+  p2 <- WP.pokeVersionedNullableArray version 0 (\p x -> wirePokeSubtopology version p x) p1 (topologySubtopologies msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
+
+-- | Direct-poke decoder for Topology.
+wirePeekTopology :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Topology, Ptr Word8)
+wirePeekTopology version _fp _basePtr p0 endPtr = do
+  (f0_epoch, p1) <- W.peekInt32BE p0 endPtr
+  (f1_subtopologies, p2) <- WP.peekVersionedNullableArray version 0 (\p e -> wirePeekSubtopology version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (Topology { topologyEpoch = f0_epoch, topologySubtopologies = f1_subtopologies }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopology :: Topology
+defaultTopology = Topology { topologyEpoch = 0, topologySubtopologies = P.KafkaArray P.Null }
+
+-- | Worst-case wire size of a Member.
+wireMaxSizeMember :: Int -> Member -> Int
+wireMaxSizeMember _version msg =
+  0
+  + WP.dualStringMaxSize (memberMemberId msg)
+  + 4
+  + WP.dualStringMaxSize (memberInstanceId msg)
+  + WP.dualStringMaxSize (memberRackId msg)
+  + WP.dualStringMaxSize (memberClientId msg)
+  + WP.dualStringMaxSize (memberClientHost msg)
+  + 4
+  + WP.dualStringMaxSize (memberProcessId msg)
+  + (case (memberUserEndpoint msg) of { P.Null -> 1; P.NotNull s -> 1 + wireMaxSizeEndpoint _version s })
+  + (5 + (case P.unKafkaArray (memberClientTags msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeKeyValue _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (memberTaskOffsets msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTaskOffset _version x ) v); P.Null -> 0 }))
+  + (5 + (case P.unKafkaArray (memberTaskEndOffsets msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTaskOffset _version x ) v); P.Null -> 0 }))
+  + wireMaxSizeAssignment _version (memberAssignment msg)
+  + wireMaxSizeAssignment _version (memberTargetAssignment msg)
+  + 1
+  + 1
+
+-- | Direct-poke encoder for Member.
+wirePokeMember :: Int -> Ptr Word8 -> Member -> IO (Ptr Word8)
+wirePokeMember version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (memberMemberId msg)) else WP.pokeKafkaString p0 (memberMemberId msg))
+  p2 <- W.pokeInt32BE p1 (memberMemberEpoch msg)
+  p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (memberInstanceId msg)) else WP.pokeKafkaString p2 (memberInstanceId msg))
+  p4 <- (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (memberRackId msg)) else WP.pokeKafkaString p3 (memberRackId msg))
+  p5 <- (if version >= 0 then WP.pokeCompactString p4 (P.toCompactString (memberClientId msg)) else WP.pokeKafkaString p4 (memberClientId msg))
+  p6 <- (if version >= 0 then WP.pokeCompactString p5 (P.toCompactString (memberClientHost msg)) else WP.pokeKafkaString p5 (memberClientHost msg))
+  p7 <- W.pokeInt32BE p6 (memberTopologyEpoch msg)
+  p8 <- (if version >= 0 then WP.pokeCompactString p7 (P.toCompactString (memberProcessId msg)) else WP.pokeKafkaString p7 (memberProcessId msg))
+  p9 <- (case (memberUserEndpoint msg) of { P.Null -> W.pokeWord8 p8 0; P.NotNull s -> W.pokeWord8 p8 1 >>= \p' -> wirePokeEndpoint version p' s })
+  p10 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeKeyValue version p x) p9 (memberClientTags msg)
+  p11 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTaskOffset version p x) p10 (memberTaskOffsets msg)
+  p12 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeTaskOffset version p x) p11 (memberTaskEndOffsets msg)
+  p13 <- wirePokeAssignment version p12 (memberAssignment msg)
+  p14 <- wirePokeAssignment version p13 (memberTargetAssignment msg)
+  p15 <- W.pokeWord8 p14 (if (memberIsClassic msg) then 1 else 0)
+  if version >= 0 then WP.pokeEmptyTaggedFields p15 else pure p15
+
+-- | Direct-poke decoder for Member.
+wirePeekMember :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Member, Ptr Word8)
+wirePeekMember version _fp _basePtr p0 endPtr = do
+  (f0_memberid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_memberepoch, p2) <- W.peekInt32BE p1 endPtr
+  (f2_instanceid, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
+  (f3_rackid, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+  (f4_clientid, p5) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
+  (f5_clienthost, p6) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
+  (f6_topologyepoch, p7) <- W.peekInt32BE p6 endPtr
+  (f7_processid, p8) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr else WP.peekKafkaString p7 endPtr)
+  (f8_userendpoint, p9) <- (do { (flag, pAfterFlag) <- W.peekWord8 p8 endPtr; case flag of { 0 -> pure (P.Null, pAfterFlag); _ -> do { (s, p'') <- wirePeekEndpoint version _fp _basePtr pAfterFlag endPtr; pure (P.NotNull s, p'') } } })
+  (f9_clienttags, p10) <- WP.peekVersionedArray version 0 (\p e -> wirePeekKeyValue version _fp _basePtr p e) p9 endPtr
+  (f10_taskoffsets, p11) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTaskOffset version _fp _basePtr p e) p10 endPtr
+  (f11_taskendoffsets, p12) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTaskOffset version _fp _basePtr p e) p11 endPtr
+  (f12_assignment, p13) <- wirePeekAssignment version _fp _basePtr p12 endPtr
+  (f13_targetassignment, p14) <- wirePeekAssignment version _fp _basePtr p13 endPtr
+  (f14_isclassic, p15) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p14 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p15 endPtr else pure p15
+  pure (Member { memberMemberId = f0_memberid, memberMemberEpoch = f1_memberepoch, memberInstanceId = f2_instanceid, memberRackId = f3_rackid, memberClientId = f4_clientid, memberClientHost = f5_clienthost, memberTopologyEpoch = f6_topologyepoch, memberProcessId = f7_processid, memberUserEndpoint = f8_userendpoint, memberClientTags = f9_clienttags, memberTaskOffsets = f10_taskoffsets, memberTaskEndOffsets = f11_taskendoffsets, memberAssignment = f12_assignment, memberTargetAssignment = f13_targetassignment, memberIsClassic = f14_isclassic }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultMember :: Member
+defaultMember = Member { memberMemberId = P.KafkaString Null, memberMemberEpoch = 0, memberInstanceId = P.KafkaString Null, memberRackId = P.KafkaString Null, memberClientId = P.KafkaString Null, memberClientHost = P.KafkaString Null, memberTopologyEpoch = 0, memberProcessId = P.KafkaString Null, memberUserEndpoint = P.Null, memberClientTags = P.mkKafkaArray V.empty, memberTaskOffsets = P.mkKafkaArray V.empty, memberTaskEndOffsets = P.mkKafkaArray V.empty, memberAssignment = defaultAssignment, memberTargetAssignment = defaultAssignment, memberIsClassic = False }
+
+-- | Worst-case wire size of a DescribedGroup.
+wireMaxSizeDescribedGroup :: Int -> DescribedGroup -> Int
+wireMaxSizeDescribedGroup _version msg =
+  0
+  + 2
+  + WP.dualStringMaxSize (describedGroupErrorMessage msg)
+  + WP.dualStringMaxSize (describedGroupGroupId msg)
+  + WP.dualStringMaxSize (describedGroupGroupState msg)
+  + 4
+  + 4
+  + (case (describedGroupTopology msg) of { P.Null -> 1; P.NotNull s -> 1 + wireMaxSizeTopology _version s })
+  + (5 + (case P.unKafkaArray (describedGroupMembers msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeMember _version x ) v); P.Null -> 0 }))
+  + 4
+  + 1
+
+-- | Direct-poke encoder for DescribedGroup.
+wirePokeDescribedGroup :: Int -> Ptr Word8 -> DescribedGroup -> IO (Ptr Word8)
+wirePokeDescribedGroup version basePtr msg = do
+  p0 <- pure basePtr
+  p1 <- W.pokeInt16BE p0 (describedGroupErrorCode msg)
+  p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (describedGroupErrorMessage msg)) else WP.pokeKafkaString p1 (describedGroupErrorMessage msg))
+  p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (describedGroupGroupId msg)) else WP.pokeKafkaString p2 (describedGroupGroupId msg))
+  p4 <- (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (describedGroupGroupState msg)) else WP.pokeKafkaString p3 (describedGroupGroupState msg))
+  p5 <- W.pokeInt32BE p4 (describedGroupGroupEpoch msg)
+  p6 <- W.pokeInt32BE p5 (describedGroupAssignmentEpoch msg)
+  p7 <- (case (describedGroupTopology msg) of { P.Null -> W.pokeWord8 p6 0; P.NotNull s -> W.pokeWord8 p6 1 >>= \p' -> wirePokeTopology version p' s })
+  p8 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeMember version p x) p7 (describedGroupMembers msg)
+  p9 <- W.pokeInt32BE p8 (describedGroupAuthorizedOperations msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p9 else pure p9
+
+-- | Direct-poke decoder for DescribedGroup.
+wirePeekDescribedGroup :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribedGroup, Ptr Word8)
+wirePeekDescribedGroup version _fp _basePtr p0 endPtr = do
+  (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
+  (f1_errormessage, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  (f2_groupid, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
+  (f3_groupstate, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+  (f4_groupepoch, p5) <- W.peekInt32BE p4 endPtr
+  (f5_assignmentepoch, p6) <- W.peekInt32BE p5 endPtr
+  (f6_topology, p7) <- (do { (flag, pAfterFlag) <- W.peekWord8 p6 endPtr; case flag of { 0 -> pure (P.Null, pAfterFlag); _ -> do { (s, p'') <- wirePeekTopology version _fp _basePtr pAfterFlag endPtr; pure (P.NotNull s, p'') } } })
+  (f7_members, p8) <- WP.peekVersionedArray version 0 (\p e -> wirePeekMember version _fp _basePtr p e) p7 endPtr
+  (f8_authorizedoperations, p9) <- W.peekInt32BE p8 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p9 endPtr else pure p9
+  pure (DescribedGroup { describedGroupErrorCode = f0_errorcode, describedGroupErrorMessage = f1_errormessage, describedGroupGroupId = f2_groupid, describedGroupGroupState = f3_groupstate, describedGroupGroupEpoch = f4_groupepoch, describedGroupAssignmentEpoch = f5_assignmentepoch, describedGroupTopology = f6_topology, describedGroupMembers = f7_members, describedGroupAuthorizedOperations = f8_authorizedoperations }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribedGroup :: DescribedGroup
+defaultDescribedGroup = DescribedGroup { describedGroupErrorCode = 0, describedGroupErrorMessage = P.KafkaString Null, describedGroupGroupId = P.KafkaString Null, describedGroupGroupState = P.KafkaString Null, describedGroupGroupEpoch = 0, describedGroupAssignmentEpoch = 0, describedGroupTopology = P.Null, describedGroupMembers = P.mkKafkaArray V.empty, describedGroupAuthorizedOperations = -2147483648 }
+
+-- | Worst-case wire size of a StreamsGroupDescribeResponse.
+wireMaxSizeStreamsGroupDescribeResponse :: Int -> StreamsGroupDescribeResponse -> Int
+wireMaxSizeStreamsGroupDescribeResponse _version msg =
+  0
+  + 4
+  + (5 + (case P.unKafkaArray (streamsGroupDescribeResponseGroups msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeDescribedGroup _version x ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for StreamsGroupDescribeResponse.
+wirePokeStreamsGroupDescribeResponse :: Int -> Ptr Word8 -> StreamsGroupDescribeResponse -> IO (Ptr Word8)
+wirePokeStreamsGroupDescribeResponse version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- W.pokeInt32BE p0 (streamsGroupDescribeResponseThrottleTimeMs msg)
+    p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeDescribedGroup version p x) p1 (streamsGroupDescribeResponseGroups msg)
+    WP.pokeEmptyTaggedFields p2
+  | otherwise = error $ "wirePoke StreamsGroupDescribeResponse : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for StreamsGroupDescribeResponse.
+wirePeekStreamsGroupDescribeResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (StreamsGroupDescribeResponse, Ptr Word8)
+wirePeekStreamsGroupDescribeResponse version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f1_groups, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDescribedGroup version _fp _basePtr p e) p1 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
+    pure (StreamsGroupDescribeResponse { streamsGroupDescribeResponseThrottleTimeMs = f0_throttletimems, streamsGroupDescribeResponseGroups = f1_groups }, pTagsEnd)
+  | otherwise = error $ "wirePeek StreamsGroupDescribeResponse : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above. There is no Serial fallback path.
+instance WC.WireCodec StreamsGroupDescribeResponse where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeStreamsGroupDescribeResponse (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeStreamsGroupDescribeResponse (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekStreamsGroupDescribeResponse (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

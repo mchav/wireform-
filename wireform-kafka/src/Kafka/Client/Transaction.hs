@@ -38,14 +38,15 @@ module Kafka.Client.Transaction
   , transitionState
   ) where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import Control.Exception (Exception, try, SomeException)
 import Control.Monad (unless)
 import Data.Int (Int16, Int32, Int64)
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
-import Data.Set (Set)
-import qualified Data.Set as Set
+import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashSet as HashSet
+import Data.HashSet (HashSet)
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -95,10 +96,10 @@ data Transaction = Transaction
   , txnProducerId :: !(TVar (Maybe ProducerId))
   , txnProducerEpoch :: !(TVar (Maybe ProducerEpoch))
   , txnState :: !(TVar TransactionState)
-  , txnPartitions :: !(TVar (Set TopicPartition))
-  -- ^ Partitions involved in current transaction
-  , txnSequenceNumbers :: !(TVar (Map TopicPartition Int32))
-  -- ^ Sequence numbers per partition for idempotency
+  , txnPartitions :: !(TVar (HashSet TopicPartition))
+  -- ^ Partitions involved in the current transaction.
+  , txnSequenceNumbers :: !(TVar (HashMap TopicPartition Int32))
+  -- ^ Sequence numbers per partition for idempotency.
   , txnCoordinator :: !(TVar (Maybe TransactionCoordinator))
   -- ^ Cached transaction coordinator
   , txnConnectionManager :: !ConnectionManager
@@ -142,8 +143,8 @@ createTransaction transactionalId connMgr versionCache clientId bootstrapBroker 
   producerId <- newTVarIO Nothing
   producerEpoch <- newTVarIO Nothing
   state <- newTVarIO Uninitialized
-  partitions <- newTVarIO Set.empty
-  sequences <- newTVarIO Map.empty
+  partitions <- newTVarIO HashSet.empty
+  sequences <- newTVarIO HashMap.empty
   coordinator <- newTVarIO Nothing
   correlationId <- newTVarIO 0
   return Transaction
@@ -226,19 +227,28 @@ initTransactions txn = do
         Right coordinator -> do
           -- Cache the coordinator
           atomically $ writeTVar (txnCoordinator txn) (Just coordinator)
-          
-          -- Initialize producer ID
-          pidResult <- TC.initProducerId
-            (txnConnectionManager txn)
-            (txnVersionCache txn)
-            (txnCorrelationId txn)
-            (txnClientId txn)
-            coordinator
-            (Just transactionalId)
-            (txnTimeoutMs txn)
-            Nothing  -- No existing producer ID for first init
-            Nothing  -- No existing epoch for first init
-          
+
+          -- Initialize producer ID, with retry for the broker's
+          -- mid-transition error codes:
+          --
+          --   * @CONCURRENT_TRANSACTIONS@ (96) — the broker is
+          --     in the middle of completing a previous
+          --     transaction for this id; retry once the abort
+          --     marker has landed.
+          --   * @INVALID_PRODUCER_EPOCH@ (51) — when InitProducerId
+          --     arrives against an @Ongoing@ transaction the
+          --     broker has to drive the previous epoch through
+          --     @PrepareEpochFence -> CompleteAbort@ before
+          --     bumping; some Kafka 3.7 paths surface this as
+          --     INVALID_PRODUCER_EPOCH instead of
+          --     CONCURRENT_TRANSACTIONS while the transit is in
+          --     flight. The JVM client retries on both.
+          --
+          -- Bounded retry: 5 attempts with 100ms exponential
+          -- backoff (max ~1.6s total). Beyond that we surface
+          -- the last error.
+          pidResult <- initProducerIdWithRetry txn coordinator transactionalId 5
+
           case pidResult of
             Left err -> return $ Left $ CoordinatorNotAvailable $ T.pack $ show err
             Right (pid, epoch) -> do
@@ -247,7 +257,7 @@ initTransactions txn = do
                 writeTVar (txnProducerId txn) (Just $ ProducerId pid)
                 writeTVar (txnProducerEpoch txn) (Just $ ProducerEpoch epoch)
                 writeTVar (txnState txn) Ready
-              
+
               return $ Right ()
     
     Ready -> return $ Right ()  -- Already initialized, idempotent
@@ -257,6 +267,54 @@ initTransactions txn = do
     Fenced -> return $ Left $ ProducerFenced "Producer has been fenced"
     
     _ -> return $ Left $ InvalidStateTransition state Ready
+
+-- | InitProducerId with bounded retry for the broker's
+-- mid-transition error codes. Mirrors the JVM client's
+-- @TransactionManager.initializeTransactions@ loop: retry on
+-- @CONCURRENT_TRANSACTIONS@ / @INVALID_PRODUCER_EPOCH@ /
+-- @COORDINATOR_LOAD_IN_PROGRESS@ with exponential backoff, surface
+-- everything else immediately.
+--
+-- The retry is bounded so a genuine producer-fenced situation
+-- (e.g. a different client really did bump our epoch and we're
+-- not allowed in) eventually surfaces as a hard error rather
+-- than spinning forever.
+initProducerIdWithRetry
+  :: Transaction
+  -> TC.TransactionCoordinator
+  -> Text                              -- ^ transactional id
+  -> Int                               -- ^ remaining attempts
+  -> IO (Either TC.TransactionCoordinatorError (Int64, Int16))
+initProducerIdWithRetry txn coordinator transactionalId attemptsLeft = do
+  pidResult <- TC.initProducerId
+    (txnConnectionManager txn)
+    (txnVersionCache txn)
+    (txnCorrelationId txn)
+    (txnClientId txn)
+    coordinator
+    (Just transactionalId)
+    (txnTimeoutMs txn)
+    Nothing  -- No existing producer ID for first init
+    Nothing  -- No existing epoch for first init
+  case pidResult of
+    Right ok -> pure (Right ok)
+    Left err
+      | attemptsLeft <= 1 -> pure (Left err)
+      | retriable err     -> do
+          -- 5 attempts: 100ms, 200ms, 400ms, 800ms, give up.
+          let !attempt   = 5 - attemptsLeft
+              !delayUs   = 100_000 * (2 ^ max 0 attempt)
+          threadDelay delayUs
+          initProducerIdWithRetry txn coordinator transactionalId (attemptsLeft - 1)
+      | otherwise         -> pure (Left err)
+  where
+    retriable :: TC.TransactionCoordinatorError -> Bool
+    retriable e = case e of
+      TC.ConcurrentTransactions _      -> True
+      TC.InvalidProducerEpoch _        -> True
+      TC.CoordinatorLoadInProgress _   -> True
+      TC.CoordinatorNotAvailable _     -> True
+      _                                -> False
 
 -- | Begin a new transaction (KIP-98)
 beginTransaction :: Transaction -> IO (Either TransactionError ())
@@ -268,7 +326,7 @@ beginTransaction txn = do
       if success
         then do
           -- Clear partition tracking for new transaction
-          atomically $ writeTVar (txnPartitions txn) Set.empty
+          atomically $ writeTVar (txnPartitions txn) HashSet.empty
           return $ Right ()
         else return $ Left $ InvalidStateTransition state InTransaction
     
@@ -302,7 +360,7 @@ commitTransaction txn = do
               let transactionalId = unTransactionalId $ txnTransactionalId txn
               
               -- Add partitions to transaction if any exist
-              unless (Set.null partitions) $ do
+              unless (HashSet.null partitions) $ do
                 _ <- TC.addPartitionsToTxn
                   (txnConnectionManager txn)
                   (txnVersionCache txn)
@@ -312,7 +370,7 @@ commitTransaction txn = do
                   transactionalId
                   pid
                   epoch
-                  (Set.toList partitions)
+                  (HashSet.toList partitions)
                 return ()
               
               -- End transaction with commit=true
@@ -372,7 +430,7 @@ abortTransaction txn = do
               let transactionalId = unTransactionalId $ txnTransactionalId txn
               
               -- Add partitions to transaction if any exist
-              unless (Set.null partitions) $ do
+              unless (HashSet.null partitions) $ do
                 _ <- TC.addPartitionsToTxn
                   (txnConnectionManager txn)
                   (txnVersionCache txn)
@@ -382,7 +440,7 @@ abortTransaction txn = do
                   transactionalId
                   pid
                   epoch
-                  (Set.toList partitions)
+                  (HashSet.toList partitions)
                 return ()
               
               -- End transaction with commit=false (abort)
@@ -455,13 +513,13 @@ sendInTransaction txn tp = do
       -- Add partition to transaction tracking
       atomically $ do
         partitions <- readTVar (txnPartitions txn)
-        writeTVar (txnPartitions txn) (Set.insert tp partitions)
+        writeTVar (txnPartitions txn) (HashSet.insert tp partitions)
 
         -- Get and increment sequence number for this partition
         sequences <- readTVar (txnSequenceNumbers txn)
-        let currentSeq = Map.findWithDefault 0 tp sequences
+        let currentSeq = HashMap.lookupDefault 0 tp sequences
             nextSeq = currentSeq + 1
-        writeTVar (txnSequenceNumbers txn) (Map.insert tp nextSeq sequences)
+        writeTVar (txnSequenceNumbers txn) (HashMap.insert tp nextSeq sequences)
 
       -- Note: the actual @ProduceRequest@ goes through
       -- 'Kafka.Client.Producer.sendMessage' on the same
@@ -479,9 +537,9 @@ sendInTransaction txn tp = do
     _ -> return $ Left $ TransactionNotInProgress "Must be in a transaction to send records"
 
 -- | Commit consumer offsets within a transaction (KIP-447)
-commitOffsetsInTransaction :: Transaction 
+commitOffsetsInTransaction :: Transaction
                            -> Text  -- ^ Consumer group ID
-                           -> Map TopicPartition Int64  -- ^ Offsets to commit
+                           -> HashMap TopicPartition Int64  -- ^ Offsets to commit
                            -> IO (Either TransactionError ())
 commitOffsetsInTransaction txn groupId offsets = do
   state <- getTransactionState txn
