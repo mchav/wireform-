@@ -4,8 +4,8 @@
 
 ```bash
 # Set up a local broker (KRaft mode, single node):
-cd /tmp && curl -sL https://dlcdn.apache.org/kafka/3.9.2/kafka_2.13-3.9.2.tgz | tar xz
-cd kafka_2.13-3.9.2
+cd /tmp && curl -sL https://dlcdn.apache.org/kafka/4.0.0/kafka_2.13-4.0.0.tgz | tar xz
+cd kafka_2.13-4.0.0
 KAFKA_CLUSTER_ID=$(bin/kafka-storage.sh random-uuid)
 bin/kafka-storage.sh format -t $KAFKA_CLUSTER_ID -c config/kraft/server.properties
 KAFKA_HEAP_OPTS="-Xmx1G -Xms512M" bin/kafka-server-start.sh config/kraft/server.properties
