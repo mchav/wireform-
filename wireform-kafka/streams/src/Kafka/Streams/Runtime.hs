@@ -5,42 +5,42 @@
 
 -- |
 -- Module      : Kafka.Streams.Runtime
--- Description : Broker-backed runtime
+-- Description : Driver-backed runtime
 --
 -- @
 -- KafkaStreams
 -- @
 --
--- mirrors the JVM @KafkaStreams@ class.  Each instance:
+-- mirrors the JVM @KafkaStreams@ class. Each instance:
 --
---   * Spins up @numStreamThreads@ stream-threads.
---   * Each stream-thread owns a 'Kafka.Client.Consumer.Consumer' and
---     a 'Kafka.Client.Producer.Producer' from the underlying
---     @wireform-kafka@ client.
---   * Each thread runs an event loop:
+--   * Spins up @numStreamThreads@ stream-threads (currently
+--     consolidated into a single foreground worker).
+--   * Owns a 'Kafka.Streams.Runtime.NativeDriver.StreamDriver'
+--     that wraps everything talking to the broker: consumer
+--     poll/commit/subscribe/close, producer
+--     send/flush/close, and the EOS-V2 transactional callbacks.
+--   * Runs an event loop:
 --
---       1. @poll@ for records.
+--       1. @poll@ for records via the driver.
 --       2. For each batch, drive the engine by calling 'feedSource'
 --          per record.
---       3. Drain the record collector and produce.
---       4. Commit consumer offsets at the configured cadence.
+--       3. Drain the record collector through the driver's
+--          producer hook.
+--       4. Commit consumer offsets at the configured cadence,
+--          either via 'sdConsumerCommit' (at-least-once) or
+--          through the EOS coordinator (exactly-once-V2).
 --
--- We stay deliberately simple here: a single stream-thread runs in
--- the foreground, and partition assignment is whatever the consumer
--- group coordinator hands us (there is /no/ Streams-aware assignor
--- yet — see 'Kafka.Streams.Runtime.PartitionAssignor' in a future
--- iteration). When EOS is requested, the producer is configured to
--- be transactional and 'commitOffsets' goes through
--- @TxnOffsetCommit@.
---
--- This is the "happy-path" runtime; it is not yet feature-complete
--- (no standby tasks, no global tables, no rack-aware fetching, etc.)
--- but it is enough to run a real topology against a real broker for
--- end-to-end validation.
+-- Running against a real broker uses 'startKafkaStreams', which
+-- builds a default 'StreamDriver' from a fresh 'Producer' /
+-- 'Consumer' pair and delegates to 'startKafkaStreamsWith'.
+-- Tests inject a mock driver via 'startKafkaStreamsWith' to
+-- exercise the runtime deterministically without spinning up a
+-- broker.
 module Kafka.Streams.Runtime
   ( KafkaStreams
   , newKafkaStreams
   , startKafkaStreams
+  , startKafkaStreamsWith
   , closeKafkaStreams
     -- * Status
   , StreamsStatus (..)
@@ -63,11 +63,9 @@ module Kafka.Streams.Runtime
   , ksEngine
   ) where
 
-import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.Async (Async, async, cancel, waitCatch)
 import Control.Concurrent.STM
-import Control.Exception (SomeException, try)
-import Control.Monad (forM_, unless, when)
+import Control.Monad (forM_, unless)
 import qualified Data.Foldable as Foldable
 import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
@@ -91,6 +89,10 @@ import Kafka.Streams.Runtime.EOS
   , noopEOSCoordinator
   , runCommitCycle
   )
+import Kafka.Streams.Runtime.NativeDriver
+  ( StreamDriver (..)
+  , newNativeDriver
+  )
 import Kafka.Streams.Internal.Engine
   ( Engine
   , buildEngine
@@ -101,7 +103,6 @@ import Kafka.Streams.Internal.Engine
 import Kafka.Streams.Internal.RecordCollector
   ( CollectedRecord (..)
   , RecordCollector (..)
-  , drainCollector
   )
 import Data.Int (Int64)
 import Kafka.Streams.Processor (TaskId (..))
@@ -129,15 +130,12 @@ data KafkaStreams = KafkaStreams
   , ksTopology  :: !Topo.TopologyValid
   , ksStatus    :: !(TVar StreamsStatus)
   , ksThread    :: !(IORef (Maybe (Async ())))
-  , ksProducer  :: !(IORef (Maybe KP.Producer))
-  , ksConsumer  :: !(IORef (Maybe KC.Consumer))
+  , ksDriver    :: !(IORef (Maybe StreamDriver))
   , ksEngine    :: !(IORef (Maybe Engine))
   , ksEosCoord  :: !(IORef EOSCoordinator)
   , ksListener  :: !(IORef StateListener)
   , ksPaused    :: !(TVar Bool)
   , ksLagLis    :: !(IORef LagListener)
-    -- ^ Set during 'startKafkaStreams' based on
-    -- 'processingGuarantee'; defaults to 'noopEOSCoordinator'.
   }
 
 newKafkaStreams
@@ -147,8 +145,7 @@ newKafkaStreams
 newKafkaStreams cfg topo = do
   s <- newTVarIO StreamsCreated
   t <- newIORef Nothing
-  p <- newIORef Nothing
-  c <- newIORef Nothing
+  d <- newIORef Nothing
   e <- newIORef Nothing
   eos <- newIORef noopEOSCoordinator
   lis <- newIORef (\_ _ -> pure ())
@@ -159,8 +156,7 @@ newKafkaStreams cfg topo = do
     , ksTopology  = topo
     , ksStatus    = s
     , ksThread    = t
-    , ksProducer  = p
-    , ksConsumer  = c
+    , ksDriver    = d
     , ksEngine    = e
     , ksEosCoord  = eos
     , ksListener  = lis
@@ -168,84 +164,101 @@ newKafkaStreams cfg topo = do
     , ksLagLis    = lagL
     }
 
--- | Start the runtime in the background. Returns immediately; once
--- the thread terminates (cleanly or otherwise), 'streamsStatus'
--- reflects the result.
+-- | Start the runtime against a real broker. Constructs a
+-- 'KP.Producer' + 'KC.Consumer' from the bootstrap settings on
+-- 'StreamsConfig', wraps them in a default 'StreamDriver', and
+-- delegates to 'startKafkaStreamsWith'.
 startKafkaStreams :: KafkaStreams -> IO ()
 startKafkaStreams ks = do
-  ePR <- KP.createProducer (bootstrapServers (ksConfig ks)) producerCfg
+  ePR <- KP.createProducer (bootstrapServers (ksConfig ks)) (producerCfg ks)
   case ePR of
     Left err -> setError ks ("producer create: " <> Text.pack err)
     Right p  -> do
-      writeIORef (ksProducer ks) (Just p)
       eCR <- KC.createConsumer
               (bootstrapServers (ksConfig ks))
               (applicationId (ksConfig ks))
-              consumerCfg
+              (consumerCfg ks)
       case eCR of
-        Left err -> setError ks ("consumer create: " <> Text.pack err)
+        Left err -> do
+          KP.closeProducer p
+          setError ks ("consumer create: " <> Text.pack err)
         Right c  -> do
-          writeIORef (ksConsumer ks) (Just c)
-          collector <- producerCollector p
-          let topo = ksTopology ks
-          engine <- buildEngine topo (TaskId 0 0)
-                      (applicationId (ksConfig ks))
-                      collector
-                      logAndContinue
-          writeIORef (ksEngine ks) (Just engine)
-          -- Pick the EOS coordinator based on the configured
-          -- processing guarantee. AtLeastOnceP uses the
-          -- 'noopEOSCoordinator' (commit cycles still fire, but
-          -- there's no transaction). ExactlyOnceV2 also defaults
-          -- to the no-op so the commit sequence is exercised
-          -- structurally; users that need wire-level EOS install
-          -- their own coordinator via 'applyEOSCoordinator', for
-          -- example wrapping a 'Kafka.Client.Transaction.Transaction'
-          -- with 'newRealEOSCoordinator'. We deliberately don't
-          -- auto-instantiate a 'Transaction' here: the producer's
-          -- send path doesn't yet route records through a txn
-          -- envelope, so a real coordinator combined with the
-          -- current producer would commit empty transactions.
-          writeIORef (ksEosCoord ks) noopEOSCoordinator
-          let topics = sourceTopics topo
-          eSubs <- KC.subscribe c (map unTopicName topics)
-          case eSubs of
-            Left err -> setError ks ("subscribe: " <> Text.pack err)
-            Right () -> do
-              ah <- async (eventLoop ks engine c)
-              writeIORef (ksThread ks) (Just ah)
-              transitionTo ks StreamsRunning
-  where
-    producerCfg = KP.defaultProducerConfig
-      { KP.producerClientId  = clientId (ksConfig ks)
-      , KP.producerTransactional =
-          case processingGuarantee (ksConfig ks) of
-            AtLeastOnceP  -> Nothing
-            ExactlyOnceV2 -> Just (applicationId (ksConfig ks)
-                                      <> "-txn")
-      , KP.producerIdempotent =
-          case processingGuarantee (ksConfig ks) of
-            AtLeastOnceP  -> False
-            ExactlyOnceV2 -> True
-      , KP.producerDelivery =
-          case processingGuarantee (ksConfig ks) of
-            AtLeastOnceP  -> KP.AtLeastOnce
-            ExactlyOnceV2 -> KP.ExactlyOnce
-      }
-    consumerCfg = KC.defaultConsumerConfig
-      { KC.consumerClientId  = clientId (ksConfig ks)
-      , KC.consumerGroupId   = applicationId (ksConfig ks)
-      }
+          driver <- newNativeDriver p c Nothing
+          startKafkaStreamsWith ks driver
+
+-- | Start the runtime against a caller-supplied 'StreamDriver'.
+-- This is the seam tests use to feed in a 'newMockDriver'; it is
+-- also where future runtime composition (per-task drivers,
+-- standby threads, etc.) will plug in.
+--
+-- Returns immediately after the worker thread is launched.
+-- Status transitions are visible via 'streamsStatus' /
+-- 'awaitState'.
+startKafkaStreamsWith :: KafkaStreams -> StreamDriver -> IO ()
+startKafkaStreamsWith ks driver = do
+  writeIORef (ksDriver ks) (Just driver)
+  collector <- driverCollector driver
+  let topo = ksTopology ks
+  engine <- buildEngine topo (TaskId 0 0)
+              (applicationId (ksConfig ks))
+              collector
+              logAndContinue
+  writeIORef (ksEngine ks) (Just engine)
+  -- We deliberately do NOT reset 'ksEosCoord' here: a caller
+  -- that 'applyEOSCoordinator' before starting expects their
+  -- coordinator to be the one driving commit cycles. The default
+  -- ('noopEOSCoordinator') is already installed by
+  -- 'newKafkaStreams'; under AtLeastOnceP that's exactly the
+  -- behaviour we want, and under ExactlyOnceV2 the user is
+  -- expected to install a real coordinator (typically a
+  -- 'newRealEOSCoordinator' wrapping a
+  -- 'Kafka.Client.Transaction.Transaction') before 'start*'.
+  let topics = sourceTopics topo
+  eSubs <- sdConsumerSubscribe driver (map unTopicName topics)
+  case eSubs of
+    Left err -> setError ks ("subscribe: " <> Text.pack err)
+    Right () -> do
+      ah <- async (eventLoop ks driver engine)
+      writeIORef (ksThread ks) (Just ah)
+      transitionTo ks StreamsRunning
+
+producerCfg :: KafkaStreams -> KP.ProducerConfig
+producerCfg ks = KP.defaultProducerConfig
+  { KP.producerClientId  = clientId (ksConfig ks)
+  , KP.producerTransactional =
+      case processingGuarantee (ksConfig ks) of
+        AtLeastOnceP  -> Nothing
+        ExactlyOnceV2 -> Just (applicationId (ksConfig ks)
+                                  <> "-txn")
+  , KP.producerIdempotent =
+      case processingGuarantee (ksConfig ks) of
+        AtLeastOnceP  -> False
+        ExactlyOnceV2 -> True
+  , KP.producerDelivery =
+      case processingGuarantee (ksConfig ks) of
+        AtLeastOnceP  -> KP.AtLeastOnce
+        ExactlyOnceV2 -> KP.ExactlyOnce
+  }
+
+consumerCfg :: KafkaStreams -> KC.ConsumerConfig
+consumerCfg ks = KC.defaultConsumerConfig
+  { KC.consumerClientId  = clientId (ksConfig ks)
+  , KC.consumerGroupId   = applicationId (ksConfig ks)
+  }
 
 setError :: KafkaStreams -> Text -> IO ()
 setError ks msg = transitionTo ks (StreamsError msg)
 
 ----------------------------------------------------------------------
--- Producer-backed collector
+-- Driver-backed collector
 ----------------------------------------------------------------------
 
-producerCollector :: KP.Producer -> IO RecordCollector
-producerCollector p = do
+-- | Build a record collector that buffers sink emissions in
+-- memory and, on flush, hands them off to the driver's producer
+-- hooks. The buffering means a failed flush leaves the buffer
+-- intact for the next attempt instead of stranding records.
+driverCollector :: StreamDriver -> IO RecordCollector
+driverCollector drv = do
   bufRef <- newIORef (Seq.empty :: Seq CollectedRecord)
   pure RecordCollector
     { collectorSend = \cr -> atomicModifyIORef' bufRef
@@ -253,9 +266,9 @@ producerCollector p = do
     , collectorFlush = do
         buf <- atomicModifyIORef' bufRef (\s -> (Seq.empty, s))
         Foldable.for_ buf $ \cr -> do
-          _ <- KP.sendMessage p (unTopicName (crTopic cr)) (crKey cr) (crValue cr)
+          _ <- sdProducerSend drv (unTopicName (crTopic cr)) (crKey cr) (crValue cr)
           pure ()
-        _ <- KP.flushProducer p
+        _ <- sdProducerFlush drv
         pure ()
     , collectorClose = pure ()
     , collectorPeek  = pure Map.empty
@@ -266,13 +279,13 @@ producerCollector p = do
 -- Event loop
 ----------------------------------------------------------------------
 
-eventLoop :: KafkaStreams -> Engine -> KC.Consumer -> IO ()
-eventLoop ks engine consumer = go
+eventLoop :: KafkaStreams -> StreamDriver -> Engine -> IO ()
+eventLoop ks driver engine = go
   where
     go = do
       status <- readTVarIO (ksStatus ks)
       unless (status == StreamsClosing || status == StreamsClosed) $ do
-        eRecs <- KC.poll consumer (pollMs (ksConfig ks))
+        eRecs <- sdConsumerPoll driver (pollMs (ksConfig ks))
         case eRecs of
           Left err ->
             transitionTo ks (StreamsError (Text.pack err))
@@ -323,7 +336,7 @@ eventLoop ks engine consumer = go
               (commitEngine engine)
             case outcome of
               CommitSucceeded -> do
-                _ <- KC.commitSync consumer
+                _ <- sdConsumerCommit driver
                 go
               CommitAborted reason -> do
                 -- Aborted: the txn was rolled back; we keep running
@@ -347,10 +360,10 @@ closeKafkaStreams ks = do
     Nothing -> pure ()
   mE <- readIORef (ksEngine ks)
   forM_ mE closeEngine
-  mC <- readIORef (ksConsumer ks)
-  forM_ mC KC.closeConsumer
-  mP <- readIORef (ksProducer ks)
-  forM_ mP KP.closeProducer
+  mD <- readIORef (ksDriver ks)
+  forM_ mD $ \drv -> do
+    sdConsumerClose drv
+    sdProducerClose drv
   transitionTo ks StreamsClosed
 
 streamsStatus :: KafkaStreams -> IO StreamsStatus
