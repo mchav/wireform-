@@ -463,7 +463,6 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.Cogroup
         Kafka.Streams.DSL.Suppress
         Kafka.Streams.DSL.DslStoreSuppliers
-        Kafka.Streams.DSL.ForeignKeyJoinV2
         Kafka.Streams.Runtime
         Kafka.Streams.Runtime.EOS
         Kafka.Streams.Runtime.Task
@@ -566,7 +565,6 @@ test-suite wireform-kafka-streams-test
         Streams.TransactionalStoreSpec
         Streams.StreamsConfigSurfaceSpec
         Streams.ForeignKeyJoinDSLSpec
-        Streams.ForeignKeyJoinV2Spec
         Streams.MultiInstanceHarnessSpec
         Streams.SchemaRegistryHttpSpec
         Streams.SchemaRegistryFormatsSpec

@@ -227,7 +227,7 @@ with the implementation.
 | Suite                              | Count |
 |------------------------------------|-------|
 | `wireform-kafka:wireform-kafka-test`         | 588 |
-| `wireform-kafka:wireform-kafka-streams-test` | 319 |
+| `wireform-kafka:wireform-kafka-streams-test` | 315 |
 
 Both green on every commit on this branch.
 
@@ -299,20 +299,22 @@ surface that must land.
 
 #### KIP-213 foreign-key join: DSL combinator wiring [DONE]
 
-- `Kafka.Streams.DSL.ForeignKeyJoin.foreignKeyJoinKTable` now bakes
-  in the KIP-213 subscription-token semantics: every left record
-  carries a token derived from the value's hash; the subscription
-  store is keyed by foreign key with a `Map k SubscriptionToken`
-  payload; the right-side processor verifies the live token
-  matches the subscription token before emitting. This is
-  redundant in a single-task synchronous topology (the right-side
-  processor sees live left state) but is the correctness invariant
-  for future multi-task wiring.
-- `Kafka.Streams.DSL.ForeignKeyJoinV2` retains the pure data layer
-  (`SubscriptionMessage`, `Responder`, `FkJoinState`,
-  `stepLeft`/`stepRight`/`runEvents`) used by the property tests.
-  There is now a single user-facing `foreignKeyJoinKTable`
-  combinator; consumers don't have to choose between V1 and V2.
+- `Kafka.Streams.DSL.ForeignKeyJoin.foreignKeyJoinKTable` (and the
+  `left` variant) is the single user-facing FK-join combinator. It
+  bakes in the KIP-213 subscription-token semantics:
+  every left record carries a token derived from the value's hash;
+  the subscription store is keyed by foreign key with a
+  `Map k SubscriptionToken` payload; the right-side processor
+  verifies the live token matches the subscription token before
+  emitting. The verification is redundant in a single-task
+  synchronous topology (the right-side processor sees live left
+  state) but is the correctness invariant for future multi-task
+  wiring.
+- The previous `Kafka.Streams.DSL.ForeignKeyJoinV2` "pure data
+  layer" module has been removed. There is one combinator, end of
+  story. The property test that lived against the pure machine
+  has been ported to drive the DSL combinator directly
+  (`Streams.ForeignKeyJoinDSLSpec`).
 
 ### 3.3 Cross-cutting / infrastructure
 

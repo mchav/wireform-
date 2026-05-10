@@ -65,16 +65,13 @@ module Kafka.Streams.DSL.ForeignKeyJoin
   , leftForeignKeyJoinKTable
   ) where
 
-import Data.Hashable (Hashable)
+import Data.Hashable (Hashable, hash)
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Unsafe.Coerce as Unsafe
+import GHC.Generics (Generic)
 
-import Kafka.Streams.DSL.ForeignKeyJoinV2
-  ( SubscriptionToken
-  , mkToken
-  )
 import Kafka.Streams.DSL.KTable
   ( KTable (..)
   , ktableBuilder
@@ -108,6 +105,16 @@ import Kafka.Streams.State.Store
   )
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Types (Record (..))
+
+-- | Internal: token derived from a left value's hash. Stamped on
+-- every subscription so the right side can detect (and drop) a
+-- responder that refers to a left value the publisher has since
+-- replaced.
+newtype SubscriptionToken = SubscriptionToken { unToken :: Int }
+  deriving stock (Eq, Ord, Show, Generic)
+
+mkToken :: Hashable v => v -> SubscriptionToken
+mkToken v = SubscriptionToken (hash v)
 
 -- | Inner foreign-key KTable-KTable join. Implements KIP-213 with
 -- subscription token verification.
