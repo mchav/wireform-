@@ -542,6 +542,7 @@ createProducer brokerAddrs config = do
         (producerCompression config)
         (producerClientId config)
         versionCache
+        (producerMaxInFlight config)
       
       -- Start sender thread
       senderThread <- Sender.startSenderThread senderState
@@ -652,11 +653,12 @@ waitForDrain :: Producer -> Int -> IO Bool
 waitForDrain Producer{..} deadlineMs = do
   start <- nowMillis
   let loop = do
-        pending <- BA.hasReadyBatches producerAccumulator
-        busy    <- readIORef (Sender.senderBusy producerSenderState)
+        pending  <- BA.hasReadyBatches producerAccumulator
+        busy     <- readIORef (Sender.senderBusy producerSenderState)
+        inFlight <- Sender.senderTotalInFlight producerSenderState
         now <- nowMillis
         let elapsed = now - start
-        if not pending && not busy
+        if not pending && not busy && inFlight == 0
           then pure True
           else if elapsed >= fromIntegral deadlineMs
             then pure False
@@ -698,7 +700,8 @@ closeProducerWithTimeout Producer{..} timeoutMs = do
     waitForDrain n = do
       hasReady <- BA.hasReadyBatches producerAccumulator
       busy     <- readIORef (Sender.senderBusy producerSenderState)
-      if not hasReady && not busy
+      inFlight <- Sender.senderTotalInFlight producerSenderState
+      if not hasReady && not busy && inFlight == 0
         then return ()  -- All batches sent
         else do
           threadDelay 100000  -- 100ms
@@ -742,7 +745,8 @@ flushProducer Producer{..} = do
     waitForAllBatches n = do
       hasReady <- BA.hasReadyBatches producerAccumulator
       busy     <- readIORef (Sender.senderBusy producerSenderState)
-      if not hasReady && not busy
+      inFlight <- Sender.senderTotalInFlight producerSenderState
+      if not hasReady && not busy && inFlight == 0
         then return $ Right ()  -- All batches sent
         else do
           threadDelay 100000  -- 100ms

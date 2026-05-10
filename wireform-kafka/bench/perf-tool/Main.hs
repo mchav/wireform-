@@ -54,6 +54,7 @@ runProduce broker topic n vsize acks batch lingerMs compression = do
       !pcfg = WP.defaultProducerConfig
         { WP.producerLingerMs  = lingerMs
         , WP.producerBatchSize = batch
+        , WP.producerMaxInFlight = 32
         , WP.producerDelivery = case acks of
             0 -> WP.AtMostOnce
             _ -> WP.AtLeastOnce
@@ -73,7 +74,7 @@ runProduce broker topic n vsize acks batch lingerMs compression = do
     Right p -> do
       t0 <- Time.getPOSIXTime
       replicateM_ n $ do
-        r <- WP.sendMessageAsync p topic Nothing payload
+        r <- WP.sendMessageDrop p topic Nothing payload
         case r of
           Left e -> die ("send: " ++ e)
           Right _ -> pure ()
