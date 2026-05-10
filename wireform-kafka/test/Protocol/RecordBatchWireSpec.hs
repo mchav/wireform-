@@ -166,7 +166,7 @@ genHeader = do
 -- documented to skip over header bytes without exposing them.
 prop_sliced_matches_record :: Property
 prop_sliced_matches_record = property $ do
-  records <- forAll (Gen.list (Range.linear 0 16) genRecordNoHeaders)
+  records <- forAll (Gen.list (Range.linear 0 16) genRecord)
   let !b   = mkBatch records
       !bs  = RBW.encodeRecordBatchWire b
   case (RBW.decodeRecordBatchWire bs, RBW.decodeRecordBatchWireSliced bs) of
@@ -183,22 +183,14 @@ prop_sliced_matches_record = property $ do
         RBW.slicedRecordTimestamp sb i === RB.batchBaseTimestamp rb
                                           + RB.recordTimestampDelta rec
         RBW.slicedRecordKey       sb i === RB.recordKey   rec
-        RBW.slicedRecordValue     sb i === RB.recordValue rec)
+        RBW.slicedRecordValue     sb i === RB.recordValue rec
+        -- KIP-82 headers: count + per-header content matches
+        RBW.slicedRecordHeaderCount sb i === length (RB.recordHeaders rec)
+        let slicedHdrs = RBW.slicedRecordHeaders sb i
+            recHdrs    = [ (RB.headerKey h, RB.headerValue h)
+                         | h <- RB.recordHeaders rec ]
+        slicedHdrs === recHdrs)
         (zip [0..] recs)
-
-genRecordNoHeaders :: Gen RB.Record
-genRecordNoHeaders = do
-  ofs <- Gen.int32 (Range.linear (-1000) 1000)
-  ts  <- Gen.int64 (Range.linear (-1000) 1000)
-  k   <- Gen.maybe (Gen.bytes (Range.linear 0 32))
-  v   <- Gen.bytes (Range.linear 0 256)
-  pure RB.Record
-    { RB.recordTimestampDelta = ts
-    , RB.recordOffsetDelta    = ofs
-    , RB.recordKey            = k
-    , RB.recordValue          = v
-    , RB.recordHeaders        = []
-    }
 
 sliced_empty_batch :: IO ()
 sliced_empty_batch =

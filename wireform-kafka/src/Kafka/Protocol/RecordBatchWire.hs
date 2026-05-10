@@ -52,6 +52,10 @@ module Kafka.Protocol.RecordBatchWire
   , slicedRecordCount
   , slicedRecordOffset
   , slicedRecordTimestamp
+    -- ** Header accessors (KIP-82)
+  , slicedRecordHeaderCount
+  , slicedRecordHeader
+  , slicedRecordHeaders
   ) where
 
 import Control.Exception (SomeException, try)
@@ -61,6 +65,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import Data.Foldable (foldl')
 import Data.Int (Int16, Int32, Int64)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.Word (Word8)
 import Foreign.ForeignPtr
   ( ForeignPtr, mallocForeignPtrBytes, withForeignPtr )
@@ -853,10 +858,16 @@ peekBatchWithDecompression fp basePtr p endPtr = do
 -- access is one 'IntMap'-free, branch-free pointer arithmetic
 -- step.
 --
--- The downside: this view drops headers (the v2 record-format
--- 'headers' list). Callers that need headers should fall back
--- to 'decodeRecordBatchWire'. A future iteration can add
--- 'sbHeaders :: SliceVector' if there's demand.
+-- Headers (KIP-82) are also exposed via the same flat-slice
+-- shape: 'sbHeaderKeys' and 'sbHeaderValues' carry every
+-- record's headers concatenated together, and
+-- 'sbHeaderStartOffs' is the per-record prefix-sum index into
+-- those (so record @i@'s headers live at indices
+-- @[sbHeaderStartOffs ! i .. sbHeaderStartOffs ! (i+1) - 1]@).
+-- 'slicedRecordHeaders' / 'slicedRecordHeader' /
+-- 'slicedRecordHeaderCount' provide convenient per-record
+-- access without forcing the caller to do the index
+-- arithmetic.
 
 -- | Memory-efficient view of a Kafka 'RecordBatch'. See the
 -- module-level commentary above for the trade-offs vs
@@ -886,9 +897,22 @@ data SlicedRecordBatch = SlicedRecordBatch
     -- ^ Per-record values. A length of @-1@ means the value
     --   was null; the v2 record format permits this.
   , sbHeaderCounts         :: !(VU.Vector Int32)
-    -- ^ Number of headers each record has. Records with a
-    --   non-zero count need 'decodeRecordBatchWire' to access
-    --   header bytes.
+    -- ^ Number of headers each record has.
+  , sbHeaderStartOffs      :: !(VU.Vector Int32)
+    -- ^ Per-record prefix-sum index into 'sbHeaderKeys' /
+    --   'sbHeaderValues'. Length @sbCount + 1@; record @i@'s
+    --   headers live at indices
+    --   @[sbHeaderStartOffs ! i .. sbHeaderStartOffs ! (i+1) - 1]@.
+    --   The trailing entry equals the total header count, which
+    --   is also @SV.length sbHeaderKeys@.
+  , sbHeaderKeys           :: !SV.SliceVector
+    -- ^ Header keys, concatenated across every record in the
+    --   batch. Header keys are non-nullable (KIP-82); a length
+    --   of zero is a legitimate empty key.
+  , sbHeaderValues         :: !SV.SliceVector
+    -- ^ Header values, concatenated. A length of @-1@ means
+    --   the value was null on the wire (KIP-82 allows this);
+    --   'slicedRecordHeader' returns 'Nothing' for it.
   }
 
 -- | Number of records in the batch.
@@ -932,6 +956,54 @@ slicedRecordValue SlicedRecordBatch{..} i =
        then BS.empty
        else BSI.fromForeignPtr (SV.sliceVectorBuffer sbValueSlices)
               (fromIntegral off) (fromIntegral len)
+
+-- | Number of headers attached to the i-th record (KIP-82).
+{-# INLINE slicedRecordHeaderCount #-}
+slicedRecordHeaderCount :: SlicedRecordBatch -> Int -> Int
+slicedRecordHeaderCount SlicedRecordBatch{..} i =
+  fromIntegral (VU.unsafeIndex sbHeaderCounts i)
+
+-- | Read the j-th header on the i-th record as a zero-copy
+-- @(key, Just value)@ pair, or @(key, Nothing)@ if the value
+-- was null on the wire (KIP-82 permits null values; keys are
+-- non-null).
+--
+-- Bounds checking is the caller's responsibility: pair with
+-- 'slicedRecordHeaderCount'. Out-of-range reads
+-- 'Prelude.error' through the underlying 'VU.Vector' index.
+{-# INLINE slicedRecordHeader #-}
+slicedRecordHeader
+  :: SlicedRecordBatch
+  -> Int                -- ^ record index
+  -> Int                -- ^ header index within the record (0-based)
+  -> (ByteString, Maybe ByteString)
+slicedRecordHeader SlicedRecordBatch{..} i j =
+  let !startIx = fromIntegral (VU.unsafeIndex sbHeaderStartOffs i) :: Int
+      !flatIx  = startIx + j
+      !(kOff, kLen) = VU.unsafeIndex (SV.sliceVectorOffsets sbHeaderKeys)   flatIx
+      !(vOff, vLen) = VU.unsafeIndex (SV.sliceVectorOffsets sbHeaderValues) flatIx
+      !key = BSI.fromForeignPtr (SV.sliceVectorBuffer sbHeaderKeys)
+               (fromIntegral kOff) (fromIntegral kLen)
+      !val | vLen < 0 = Nothing
+           | otherwise = Just (BSI.fromForeignPtr
+                                 (SV.sliceVectorBuffer sbHeaderValues)
+                                 (fromIntegral vOff)
+                                 (fromIntegral vLen))
+  in (key, val)
+
+-- | Materialise every header on the i-th record as a list of
+-- @(key, Just value)@ / @(key, Nothing)@ pairs. Convenience
+-- wrapper around 'slicedRecordHeader' for callers that prefer
+-- the list shape; the per-header bytes are still zero-copy
+-- slices of the underlying source buffer.
+{-# INLINE slicedRecordHeaders #-}
+slicedRecordHeaders
+  :: SlicedRecordBatch
+  -> Int
+  -> [(ByteString, Maybe ByteString)]
+slicedRecordHeaders sb i =
+  let !cnt = slicedRecordHeaderCount sb i
+  in [ slicedRecordHeader sb i j | j <- [0 .. cnt - 1] ]
 
 -- | Decode a record batch into the memory-efficient sliced
 -- view. The bytes are interpreted exactly the same way as
@@ -1007,9 +1079,13 @@ peekSlicedBatch fp basePtr p endPtr = do
               , sbKeySlices            = SV.empty
               , sbValueSlices          = SV.empty
               , sbHeaderCounts         = VU.empty
+              , sbHeaderStartOffs      = VU.singleton 0
+              , sbHeaderKeys           = SV.empty
+              , sbHeaderValues         = SV.empty
               }
             else do
-              (offDeltas, tsDeltas, keyOffs, valOffs, hdrCounts)
+              (offDeltas, tsDeltas, keyOffs, valOffs,
+               hdrCounts, hdrStarts, hdrKeyOffs, hdrValOffs)
                 <- readSlicedRecords basePtr n q8 bodyEnd
               pure SlicedRecordBatch
                 { sbBaseOffset           = baseOffset
@@ -1027,13 +1103,17 @@ peekSlicedBatch fp basePtr p endPtr = do
                 , sbKeySlices            = SV.fromForeignPtrSlices fp keyOffs
                 , sbValueSlices          = SV.fromForeignPtrSlices fp valOffs
                 , sbHeaderCounts         = hdrCounts
+                , sbHeaderStartOffs      = hdrStarts
+                , sbHeaderKeys           = SV.fromForeignPtrSlices fp hdrKeyOffs
+                , sbHeaderValues         = SV.fromForeignPtrSlices fp hdrValOffs
                 }
 
--- | Walk the @n@ records once, populating five parallel
--- vectors. The two 'SliceVector' offset arrays use the source
--- buffer's 'ForeignPtr' as the shared backing store so the
--- per-record cost is just two @(Int32, Int32)@ writes — no
--- 'ByteString' header allocation.
+-- | Walk the @n@ records once, populating eight parallel
+-- vectors. The two 'SliceVector' offset arrays for keys /
+-- values + the two for header keys / values all use the
+-- source buffer's 'ForeignPtr' as the shared backing store
+-- so the per-record cost is a handful of @(Int32, Int32)@
+-- writes — no 'ByteString' header allocation.
 {-# INLINE readSlicedRecords #-}
 readSlicedRecords
   :: Ptr Word8                       -- ^ basePtr (start of source buffer)
@@ -1044,14 +1124,28 @@ readSlicedRecords
         , VU.Vector Int64            -- timestamp deltas
         , VU.Vector (Int32, Int32)   -- key (offset, length) pairs
         , VU.Vector (Int32, Int32)   -- value (offset, length) pairs
-        , VU.Vector Int32            -- header counts (mostly 0)
+        , VU.Vector Int32            -- per-record header counts
+        , VU.Vector Int32            -- per-record header start indices
+                                     -- (prefix-sum, length n+1)
+        , VU.Vector (Int32, Int32)   -- header key (offset, length)
+        , VU.Vector (Int32, Int32)   -- header value (offset, length)
         )
 readSlicedRecords basePtr n start endPtr = do
-  mvOff   <- VUM.unsafeNew n
-  mvTs    <- VUM.unsafeNew n
-  mvKey   <- VUM.unsafeNew n
-  mvVal   <- VUM.unsafeNew n
-  mvHdr   <- VUM.unsafeNew n
+  mvOff      <- VUM.unsafeNew n
+  mvTs       <- VUM.unsafeNew n
+  mvKey      <- VUM.unsafeNew n
+  mvVal      <- VUM.unsafeNew n
+  mvHdrCount <- VUM.unsafeNew n
+  mvHdrStart <- VUM.unsafeNew (n + 1)
+  -- Headers are unbounded per record so we accumulate them
+  -- into reverse-order lists during the walk + reverse +
+  -- materialise into a 'VU.Vector' at the end. Lists are fine
+  -- here: the per-header overhead (cons cell + tuple) is
+  -- amortised against the per-record work, and the typical
+  -- header count is 0-4.
+  hdrKeyAccRef <- newIORef ([] :: [(Int32, Int32)])
+  hdrValAccRef <- newIORef ([] :: [(Int32, Int32)])
+  hdrTotalRef  <- newIORef (0 :: Int)
   let go !i !p
         | i >= n    = pure ()
         | otherwise = do
@@ -1061,47 +1155,76 @@ readSlicedRecords basePtr n start endPtr = do
             (_attrs,  p1) <- peekWord8  p0 endPtr
             (tsDelta, p2) <- peekVarLong p1 endPtr
             (offDelta,p3) <- peekVarInt  p2 endPtr
-            -- key: VarInt length + bytes; -1 means null
             (keyLen,  p4) <- peekVarInt p3 endPtr
             let !keyOffset = fromIntegral (p4 `minusPtr` basePtr) :: Int32
                 !keyLenInt = fromIntegral keyLen :: Int
                 !p5 = if keyLen < 0
                          then p4
                          else p4 `plusPtr` keyLenInt
-            -- value: same shape
             (valLen,  p6) <- peekVarInt p5 endPtr
             let !valOffset = fromIntegral (p6 `minusPtr` basePtr) :: Int32
                 !valLenInt = fromIntegral valLen :: Int
                 !p7 = if valLen < 0
                          then p6
                          else p6 `plusPtr` valLenInt
-            -- header count: skip the headers' bytes without
-            -- materialising them; sliced view doesn't expose
-            -- headers (yet).
             (hdrCount, p8) <- peekVarInt p7 endPtr
-            p9 <- skipHeaders (fromIntegral hdrCount) p8 endPtr
-            VUM.unsafeWrite mvOff i offDelta
-            VUM.unsafeWrite mvTs  i tsDelta
-            VUM.unsafeWrite mvKey i (keyOffset, fromIntegral keyLen)
-            VUM.unsafeWrite mvVal i (valOffset, fromIntegral valLen)
-            VUM.unsafeWrite mvHdr i hdrCount
+            -- Stamp this record's start-index BEFORE walking
+            -- the headers so the prefix-sum is correct.
+            currentStart <- readIORef hdrTotalRef
+            VUM.unsafeWrite mvHdrStart i (fromIntegral currentStart)
+            p9 <- captureHeaders basePtr (fromIntegral hdrCount) p8 endPtr
+                    hdrKeyAccRef hdrValAccRef
+            modifyIORef' hdrTotalRef (+ fromIntegral hdrCount)
+            VUM.unsafeWrite mvOff      i offDelta
+            VUM.unsafeWrite mvTs       i tsDelta
+            VUM.unsafeWrite mvKey      i (keyOffset, fromIntegral keyLen)
+            VUM.unsafeWrite mvVal      i (valOffset, fromIntegral valLen)
+            VUM.unsafeWrite mvHdrCount i hdrCount
             go (i + 1) p9
   go 0 start
-  (,,,,) <$> VU.unsafeFreeze mvOff
-         <*> VU.unsafeFreeze mvTs
-         <*> VU.unsafeFreeze mvKey
-         <*> VU.unsafeFreeze mvVal
-         <*> VU.unsafeFreeze mvHdr
+  -- Trailing entry of 'mvHdrStart' is the total header count;
+  -- 'slicedRecordHeader' uses this for an O(1) per-record
+  -- range check.
+  totalHdrs <- readIORef hdrTotalRef
+  VUM.unsafeWrite mvHdrStart n (fromIntegral totalHdrs)
+  -- Materialise the header slice arrays. Lists were built
+  -- right-to-left so we reverse on conversion; 'fromListN' is
+  -- a single pass with the size hint.
+  hdrKeysRev <- readIORef hdrKeyAccRef
+  hdrValsRev <- readIORef hdrValAccRef
+  let !hdrKeysVec = VU.fromListN totalHdrs (reverse hdrKeysRev)
+      !hdrValsVec = VU.fromListN totalHdrs (reverse hdrValsRev)
+  (,,,,,,,) <$> VU.unsafeFreeze mvOff
+            <*> VU.unsafeFreeze mvTs
+            <*> VU.unsafeFreeze mvKey
+            <*> VU.unsafeFreeze mvVal
+            <*> VU.unsafeFreeze mvHdrCount
+            <*> VU.unsafeFreeze mvHdrStart
+            <*> pure hdrKeysVec
+            <*> pure hdrValsVec
 
--- | Walk past @n@ records' worth of headers without
--- materialising them. Each header is @VarInt key-length + key
--- bytes + VarInt value-length + value bytes (or none on -1)@.
-{-# INLINE skipHeaders #-}
-skipHeaders :: Int -> Ptr Word8 -> Ptr Word8 -> IO (Ptr Word8)
-skipHeaders 0  !p _ = pure p
-skipHeaders !k !p endPtr = do
+-- | Walk @k@ headers, recording each header's key and value
+-- @(offset, length)@ pair into the supplied accumulator
+-- 'IORef's. Returns the cursor positioned past the last
+-- header. Header keys are non-nullable per KIP-82; header
+-- values may be null (encoded as VarInt length -1).
+{-# INLINE captureHeaders #-}
+captureHeaders
+  :: Ptr Word8
+  -> Int
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IORef [(Int32, Int32)]
+  -> IORef [(Int32, Int32)]
+  -> IO (Ptr Word8)
+captureHeaders _ 0 !p _ _ _ = pure p
+captureHeaders basePtr !k !p endPtr keyAccRef valAccRef = do
   (kLen, p1) <- peekVarInt p endPtr
-  let !p2 = p1 `plusPtr` fromIntegral kLen
+  let !kOff = fromIntegral (p1 `minusPtr` basePtr) :: Int32
+      !p2 = p1 `plusPtr` fromIntegral kLen
   (vLen, p3) <- peekVarInt p2 endPtr
-  let !p4 = if vLen < 0 then p3 else p3 `plusPtr` fromIntegral vLen
-  skipHeaders (k - 1) p4 endPtr
+  let !vOff = fromIntegral (p3 `minusPtr` basePtr) :: Int32
+      !p4 = if vLen < 0 then p3 else p3 `plusPtr` fromIntegral vLen
+  modifyIORef' keyAccRef ((kOff, fromIntegral kLen) :)
+  modifyIORef' valAccRef ((vOff, fromIntegral vLen) :)
+  captureHeaders basePtr (k - 1) p4 endPtr keyAccRef valAccRef
