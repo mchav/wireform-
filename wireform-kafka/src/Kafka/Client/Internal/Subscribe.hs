@@ -48,8 +48,10 @@ module Kafka.Client.Internal.Subscribe
 
 import Control.Concurrent.STM
 import Control.Monad (forM)
+import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import qualified Data.ByteString as BS
 import Data.Int (Int16, Int32, Int64)
+import Data.Word (Word8)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
@@ -240,9 +242,13 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
                   else pure []
 
               cid2 <- nextCorrId
+              -- 'protocolType' is fixed by the caller ("consumer"); the
+              -- 'protocolName' is whatever the broker picked from our
+              -- 'protocols' list (KIP-559 SyncGroup v5 demands both).
               syncR <- CG.syncGroup versionCache coordAddr coordConn groupId
                          (CG.jgrGenerationId join) (CG.jgrMemberId join)
-                         clientId assignments cid2
+                         clientId "consumer" (CG.jgrProtocolName join)
+                         assignments cid2
               case syncR of
                 Left err -> pure (Left (SubscribeSync err))
                 Right myAssignmentBytes -> do
@@ -294,22 +300,31 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
             (Map.fromList topicParts)
             mPrev
 
-      pure
-        [ (mid, WC.runEncodeVer @CPA.ConsumerProtocolAssignment 0 $
-                  CPA.ConsumerProtocolAssignment
-                    { CPA.consumerProtocolAssignmentAssignedPartitions =
-                        P.mkKafkaArray $ V.fromList
-                          [ CPA.TopicPartition
-                              { CPA.topicPartitionTopic = P.mkKafkaString t
-                              , CPA.topicPartitionPartitions =
-                                  P.mkKafkaArray (V.fromList ps)
-                              }
-                          | (t, ps) <- byTopic
-                          ]
-                    , CPA.consumerProtocolAssignmentUserData = P.mkKafkaBytes BS.empty
-                    })
-        | (mid, byTopic) <- perMember
-        ]
+      -- Assignment payload mirrors the subscription on the wire:
+      -- a two-byte big-endian version header followed by the
+      -- ConsumerProtocolAssignment body. Followers / future
+      -- generations decode the version off the header, so this
+      -- has to be present even when there's only one member in
+      -- the group.
+      let assignmentVersion = 0 :: Int16
+          assignmentBytes byTopic =
+            let !msg = CPA.ConsumerProtocolAssignment
+                  { CPA.consumerProtocolAssignmentAssignedPartitions =
+                      P.mkKafkaArray $ V.fromList
+                        [ CPA.TopicPartition
+                            { CPA.topicPartitionTopic = P.mkKafkaString t
+                            , CPA.topicPartitionPartitions =
+                                P.mkKafkaArray (V.fromList ps)
+                            }
+                        | (t, ps) <- byTopic
+                        ]
+                  , CPA.consumerProtocolAssignmentUserData = P.mkKafkaBytes BS.empty
+                  }
+                !body = WC.runEncodeVer @CPA.ConsumerProtocolAssignment assignmentVersion msg
+                !vHi = fromIntegral (assignmentVersion `shiftR` 8) :: Word8
+                !vLo = fromIntegral (assignmentVersion .&. 0xff)   :: Word8
+            in BS.cons vHi (BS.cons vLo body)
+      pure [ (mid, assignmentBytes byTopic) | (mid, byTopic) <- perMember ]
 
     -- After SyncGroup we know the partitions assigned to *us*. For
     -- each one, look up its committed offset; if missing, fall back to
@@ -633,22 +648,37 @@ encodeSubscriptionWithOwned
   -> [(Text, [Int32])]      -- ^ owned partitions: @(topic, [pid])@
   -> BS.ByteString
 encodeSubscriptionWithOwned topics userData owned =
-  WC.runEncodeVer @CPS.ConsumerProtocolSubscription consumerProtocolVersion $
-    CPS.ConsumerProtocolSubscription
-      { CPS.consumerProtocolSubscriptionTopics =
-          P.mkKafkaArray $ V.fromList (map P.mkKafkaString topics)
-      , CPS.consumerProtocolSubscriptionUserData = P.mkKafkaBytes userData
-      , CPS.consumerProtocolSubscriptionOwnedPartitions =
-          P.mkKafkaArray $ V.fromList
-            [ CPS.TopicPartition
-                { CPS.topicPartitionTopic = P.mkKafkaString t
-                , CPS.topicPartitionPartitions = P.mkKafkaArray (V.fromList ps)
-                }
-            | (t, ps) <- owned
-            ]
-      , CPS.consumerProtocolSubscriptionGenerationId = -1
-      , CPS.consumerProtocolSubscriptionRackId = P.KafkaString P.Null
-      }
+  -- The JoinGroup 'protocols[].metadata' field is the
+  -- /serialised ConsumerProtocolSubscription/ as the JVM client
+  -- writes it (org.apache.kafka.clients.consumer.internals.
+  -- ConsumerProtocol#serializeSubscription) — a two-byte
+  -- big-endian version header followed by the version-specific
+  -- subscription body. The version header is what tells the
+  -- broker (and any peer member that reads our subscription)
+  -- which schema version to decode against; without it the
+  -- broker reads the first two bytes of the topics-array
+  -- length as the version, sees a non-existent vNNN, and silently
+  -- ignores the rebalance-completion path — the JoinGroup just
+  -- hangs in PreparingRebalance until the rebalance timeout.
+  let !body = WC.runEncodeVer @CPS.ConsumerProtocolSubscription consumerProtocolVersion $
+        CPS.ConsumerProtocolSubscription
+          { CPS.consumerProtocolSubscriptionTopics =
+              P.mkKafkaArray $ V.fromList (map P.mkKafkaString topics)
+          , CPS.consumerProtocolSubscriptionUserData = P.mkKafkaBytes userData
+          , CPS.consumerProtocolSubscriptionOwnedPartitions =
+              P.mkKafkaArray $ V.fromList
+                [ CPS.TopicPartition
+                    { CPS.topicPartitionTopic = P.mkKafkaString t
+                    , CPS.topicPartitionPartitions = P.mkKafkaArray (V.fromList ps)
+                    }
+                | (t, ps) <- owned
+                ]
+          , CPS.consumerProtocolSubscriptionGenerationId = -1
+          , CPS.consumerProtocolSubscriptionRackId = P.KafkaString P.Null
+          }
+      !versionHi = fromIntegral (consumerProtocolVersion `shiftR` 8) :: Word8
+      !versionLo = fromIntegral (consumerProtocolVersion .&. 0xff)   :: Word8
+  in BS.cons versionHi (BS.cons versionLo body)
 
 -- | Subscription metadata schema version we negotiate. v1
 -- introduced @ownedPartitions@ (KIP-341), needed for sticky and
@@ -672,8 +702,19 @@ decodeSubscription bs =
 decodeSubscriptionFull
   :: BS.ByteString
   -> Either String ([Text], BS.ByteString, [(Text, [Int32])])
-decodeSubscriptionFull bs =
-  case WC.runDecodeVer @CPS.ConsumerProtocolSubscription consumerProtocolVersion bs of
+decodeSubscriptionFull rawBs =
+  -- Symmetric to 'encodeSubscriptionWithOwned': skip the
+  -- two-byte version header before handing the body to the
+  -- ConsumerProtocolSubscription decoder. Use the embedded
+  -- version (not 'consumerProtocolVersion') so a peer that
+  -- speaks an older subscription schema still decodes
+  -- correctly.
+  let (verBs, body) = BS.splitAt 2 rawBs
+      msgVer = if BS.length verBs == 2
+                  then fromIntegral (BS.index verBs 0) `shiftL` 8
+                       .|. fromIntegral (BS.index verBs 1)
+                  else consumerProtocolVersion
+  in case WC.runDecodeVer @CPS.ConsumerProtocolSubscription msgVer body of
     Left err -> Left err
     Right s ->
       let topicsArr = case P.unKafkaArray (CPS.consumerProtocolSubscriptionTopics s) of
@@ -697,8 +738,16 @@ decodeSubscriptionFull bs =
 
 -- | Decode the per-member SyncGroup assignment payload.
 decodeAssignment :: BS.ByteString -> Either String [(Text, [Int32])]
-decodeAssignment bs =
-  case WC.runDecodeVer @CPA.ConsumerProtocolAssignment 0 bs of
+decodeAssignment rawBs =
+  -- Symmetric to 'assignmentBytes' above: skip the two-byte
+  -- version header, then decode the body at the embedded
+  -- version.
+  let (verBs, body) = BS.splitAt 2 rawBs
+      msgVer = if BS.length verBs == 2
+                  then fromIntegral (BS.index verBs 0) `shiftL` 8
+                       .|. fromIntegral (BS.index verBs 1)
+                  else 0
+  in case WC.runDecodeVer @CPA.ConsumerProtocolAssignment msgVer body of
     Left err -> Left err
     Right a ->
       let parts = case P.unKafkaArray (CPA.consumerProtocolAssignmentAssignedPartitions a) of

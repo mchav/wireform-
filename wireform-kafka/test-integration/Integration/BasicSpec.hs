@@ -33,7 +33,9 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.Int
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Word
+import System.Timeout (timeout)
 
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Client.Simple as Simple
@@ -306,6 +308,7 @@ consumerTests = testGroup "Consumer"
   [ testCase "Can create and close consumer" testCreateConsumer
   , testCase "Can manually assign partitions" testConsumerAssign
   , testCase "Can poll for records" testConsumerPoll
+  , testCase "Can subscribe + receive an assignment" testConsumerSubscribe
   ]
 
 -- | Test creating and closing a consumer
@@ -370,6 +373,35 @@ testConsumerPoll = do
             Right records -> do
               putStrLn $ "Polled " ++ show (length records) ++ " record(s)"
               -- We may or may not get records depending on topic state
+
+-- | End-to-end exercise of the consumer-group join path:
+-- createConsumer (which kicks off the heartbeat thread for a
+-- non-empty group id) -> subscribe (which runs FindCoordinator
+-- + JoinGroup + SyncGroup against the live broker). The
+-- assertion is that subscribe returns within a reasonable
+-- wall-clock budget (10 s). For a single-member group the
+-- broker should hold JoinGroup open only until
+-- 'group.initial.rebalance.delay.ms' elapses (3 s default),
+-- so 10 s is more than enough headroom on a healthy cluster.
+testConsumerSubscribe :: Assertion
+testConsumerSubscribe = do
+  ts <- (show :: Integer -> String) . truncate <$> getPOSIXTime
+  let groupId = T.pack ("wf-it-subgrp-" ++ ts)
+      cfg     = Consumer.defaultConsumerConfig
+                  { Consumer.consumerAutoOffsetReset = Consumer.Earliest
+                  , Consumer.consumerAutoCommit      = False
+                  }
+  result <- Consumer.createConsumer ["localhost:9092"] groupId cfg
+  case result of
+    Left err -> assertFailure $ "Failed to create consumer: " ++ err
+    Right consumer -> do
+      mr <- timeout (10 * 1000_000) $ Consumer.subscribe consumer [testTopic]
+      Consumer.closeConsumer consumer
+      case mr of
+        Nothing       -> assertFailure
+          "subscribe took longer than 10 s — heartbeat / rebalance hung"
+        Just (Left e) -> assertFailure ("subscribe: " ++ e)
+        Just (Right _) -> putStrLn "subscribe completed in <10 s"
 
 -- | Produce-consume integration tests
 produceConsumeTests :: TestTree

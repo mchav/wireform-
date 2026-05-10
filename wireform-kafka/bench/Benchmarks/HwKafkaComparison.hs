@@ -73,11 +73,10 @@ benchmarks = bgroup "HwKafkaComparison"
               whnfIO wireformSetupAndRunLargeBatch
           , bench "Producer 16K-batch sendDrop:     wireform-kafka (this package)" $
               whnfIO wireformSetupAndRunDrop
-            -- Consumer benches deferred until the Subscribe-flow
-            -- rebalance ordering bug is fixed (the broker sits in
-            -- PreparingRebalance for rebalanceTimeoutMs because we
-            -- don't start the heartbeat thread until JoinGroup
-            -- returns); separate follow-up.
+          , bench "Consumer subscribe + drain:      hw-kafka       (librdkafka, baseline)" $
+              whnfIO hwConsumeAndRun
+          , bench "Consumer subscribe + drain:      wireform-kafka (this package)" $
+              whnfIO wireformConsumeAndRun
           ]
   ]
 

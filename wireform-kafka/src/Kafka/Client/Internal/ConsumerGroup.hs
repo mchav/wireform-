@@ -260,6 +260,18 @@ joinGroupGo versionCache brokerAddr conn groupId memberId clientId sessionTimeou
           , JGReq.joinGroupRequestProtocolMetadata = P.mkKafkaBytes metadata
           }) protocols
       
+      -- KIP-394: when this is the retry after MEMBER_ID_REQUIRED,
+      -- the JVM client sets a 'Reason' string of
+      -- @"need to re-join with the given member-id"@ so the
+      -- coordinator's audit log records why the group rebalanced.
+      -- Mirror that here; it doesn't change the broker's
+      -- behaviour but makes our requests look like the JVM
+      -- client's in broker-side traces.
+      reasonStr
+        | attempt > 0 = P.mkKafkaString
+            "need to re-join with the given member-id"
+        | otherwise   = P.KafkaString P.Null
+
       request = JGReq.JoinGroupRequest
         { JGReq.joinGroupRequestGroupId = P.mkKafkaString groupId
         , JGReq.joinGroupRequestSessionTimeoutMs = sessionTimeout
@@ -268,14 +280,14 @@ joinGroupGo versionCache brokerAddr conn groupId memberId clientId sessionTimeou
         , JGReq.joinGroupRequestGroupInstanceId = P.KafkaString P.Null
         , JGReq.joinGroupRequestProtocolType = P.mkKafkaString protocolType
         , JGReq.joinGroupRequestProtocols = P.mkKafkaArray protocolVec
-        , JGReq.joinGroupRequestReason = P.KafkaString P.Null
+        , JGReq.joinGroupRequestReason = reasonStr
         }
-      
+
       requestBody = WC.runEncodeVer @JGReq.JoinGroupRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
   
   result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
-  
+
   case result of
     Left err -> return $ Left $ "JoinGroup request failed: " ++ err
     Right (_, responseBody) -> do
@@ -324,43 +336,48 @@ joinGroupGo versionCache brokerAddr conn groupId memberId clientId sessionTimeou
 -- The leader sends assignments for all members.
 -- Followers send empty assignments and receive their own assignment.
 syncGroup
-  :: AV.ApiVersionCache  -- ^ Version cache for version negotiation
-  -> BrokerAddress       -- ^ Broker address for version lookup
+  :: AV.ApiVersionCache    -- ^ Version cache for version negotiation
+  -> BrokerAddress         -- ^ Broker address for version lookup
   -> Connection
-  -> Text                -- ^ Group ID
-  -> Int32               -- ^ Generation ID
-  -> Text                -- ^ Member ID
-  -> Text                -- ^ Client ID
+  -> Text                  -- ^ Group ID
+  -> Int32                 -- ^ Generation ID
+  -> Text                  -- ^ Member ID
+  -> Text                  -- ^ Client ID
+  -> Text                  -- ^ Protocol type ("consumer")
+  -> Text                  -- ^ Protocol name (the assignor the broker picked
+                           --   in the JoinGroup response — required at v5+
+                           --   per KIP-559; broker rejects with
+                           --   'INCONSISTENT_GROUP_PROTOCOL' (23) if
+                           --   we send Null here on a v5 request).
   -> [(Text, ByteString)]  -- ^ Assignments (memberId -> assignment bytes)
-  -> Int32               -- ^ Correlation ID
+  -> Int32                 -- ^ Correlation ID
   -> IO (Either String ByteString)
-syncGroup versionCache brokerAddr conn groupId generationId memberId clientId assignments correlationId = do
+syncGroup versionCache brokerAddr conn groupId generationId memberId clientId protocolType protocolName assignments correlationId = do
   let apiKey = 14  -- SyncGroup API key
       clientMaxVersion = 5  -- Max version we support
-  
-  -- Query broker's supported version
+
   brokerVersionM <- atomically $ AV.queryApiVersion versionCache brokerAddr apiKey
-  
+
   let apiVersion = case brokerVersionM of
-        Nothing -> 0  -- Fall back to v0 if unknown
+        Nothing -> 0
         Just range -> case AV.selectVersion clientMaxVersion range of
-          Nothing -> 0  -- Fall back if incompatible
-          Just v -> v
-      
+          Nothing -> 0
+          Just v  -> v
+
       assignmentVec = V.fromList $ map (\(mid, asgn) ->
         SGReq.SyncGroupRequestAssignment
-          { SGReq.syncGroupRequestAssignmentMemberId = P.mkKafkaString mid
+          { SGReq.syncGroupRequestAssignmentMemberId   = P.mkKafkaString mid
           , SGReq.syncGroupRequestAssignmentAssignment = P.mkKafkaBytes asgn
           }) assignments
-      
+
       request = SGReq.SyncGroupRequest
-        { SGReq.syncGroupRequestGroupId = P.mkKafkaString groupId
-        , SGReq.syncGroupRequestGenerationId = generationId
-        , SGReq.syncGroupRequestMemberId = P.mkKafkaString memberId
+        { SGReq.syncGroupRequestGroupId         = P.mkKafkaString groupId
+        , SGReq.syncGroupRequestGenerationId    = generationId
+        , SGReq.syncGroupRequestMemberId        = P.mkKafkaString memberId
         , SGReq.syncGroupRequestGroupInstanceId = P.KafkaString P.Null
-        , SGReq.syncGroupRequestProtocolType = P.KafkaString P.Null
-        , SGReq.syncGroupRequestProtocolName = P.KafkaString P.Null
-        , SGReq.syncGroupRequestAssignments = P.mkKafkaArray assignmentVec
+        , SGReq.syncGroupRequestProtocolType    = P.mkKafkaString protocolType
+        , SGReq.syncGroupRequestProtocolName    = P.mkKafkaString protocolName
+        , SGReq.syncGroupRequestAssignments     = P.mkKafkaArray assignmentVec
         }
       
       requestBody = WC.runEncodeVer @SGReq.SyncGroupRequest apiVersion request
