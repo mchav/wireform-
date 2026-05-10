@@ -33,25 +33,18 @@ module Kafka.Protocol.Codegen.Generator
   , generateMessageInventory
   ) where
 
-import Data.Aeson (Value)
 import qualified Data.Aeson as Aeson
-import qualified Data.ByteString.Lazy as BL
-import Data.Char (isUpper, toLower, toUpper)
+import Data.Char (toLower, toUpper)
 import Data.Int
-import Data.List (intercalate, nub, sort, groupBy, sortBy)
-import Data.Maybe (fromMaybe, isJust, catMaybes)
-import Data.Ord (comparing)
-import Data.Scientific (Scientific)
-import qualified Data.Scientific as Scientific
+import Data.List (nub, sort)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
 import Kafka.Protocol.Codegen.Types
 import qualified Kafka.Protocol.Codegen.WireGenerator as WG
 import Prettyprinter
-import Prettyprinter.Render.Text
 
 -- | Generate a complete Haskell module for a protocol message.
 generateMessageModule :: ProtocolSchema -> Doc ann
@@ -169,7 +162,7 @@ generateMessage schema =
     
     -- Calculate max version
     maxVersion = case validVersions of
-      Right (VersionFrom v) -> Just 20  -- Use reasonable upper bound for open-ended
+      Right (VersionFrom _) -> Just 20  -- Use reasonable upper bound for open-ended
       Right (VersionRange _ v) -> Just v
       Right (ExactVersion v) -> Just v
       _ -> Nothing
@@ -239,41 +232,6 @@ collectStructsField _parent f = case fieldType f of
       ++ [(structName, fs)]
     Nothing -> []
   _ -> []
-
--- | Check if a structure has version-dependent fields (fields not present in all versions).
-hasVersionDependentFields :: [FieldSpec] -> Bool
-hasVersionDependentFields fields = any (not . isAlwaysPresent) fields
-  where
-    isAlwaysPresent :: FieldSpec -> Bool
-    isAlwaysPresent field = 
-      case parseVersionSpec (fieldVersions field) of
-        Right (VersionFrom 0) -> True  -- "0+" means always present
-        _ -> False  -- Any other version spec means version-dependent
-
--- | Check if a field is a tagged field (appears in tagged fields section for given version)
-isTaggedField :: Int16 -> FieldSpec -> Bool
-isTaggedField version field =
-  case (fieldTag field, fieldTaggedVersions field) of
-    (Just _, Just taggedVers) ->
-      -- This field has a tag and tagged versions - check if this version is in range
-      case parseVersionSpec taggedVers of
-        Right spec -> inVersionRange version spec
-        Left _ -> False
-    _ -> False
-
--- | Compile-time check: does this field have a tag number assigned?
--- Used to decide whether the codegen needs to emit per-tag encode /
--- decode dispatch in the nested-struct generators. (A field with
--- 'fieldTag = Just _' is treated as tagged on the wire from
--- 'fieldTaggedVersions' onwards; before that it's absent entirely.)
-isPotentiallyTaggedField :: FieldSpec -> Bool
-isPotentiallyTaggedField f = isJust (fieldTag f)
-
--- | Sub-list of tagged fields. Used by the nested-struct generators
--- to skip them in the regular-field loop and emit them inside the
--- TaggedFields envelope instead.
-nestedTaggedFields :: [FieldSpec] -> [FieldSpec]
-nestedTaggedFields = filter isPotentiallyTaggedField
 
 -- | Generate a common struct type definition. Just the @data@
 -- declaration; the per-struct Wire pokes / peeks are emitted
@@ -450,6 +408,8 @@ typeSpecToHaskellType (StructType name) _ = name
 -- Naming + module-name helpers
 -- -----------------------------------------------------------------------------
 
+-- | Convert a protocol type name to a Haskell type name (uppercase first letter).
+toHaskellTypeName :: Text -> Text
 toHaskellTypeName = T.pack . ensureUpper . T.unpack
   where
     ensureUpper [] = []
@@ -458,12 +418,11 @@ toHaskellTypeName = T.pack . ensureUpper . T.unpack
 -- | Convert a protocol field name to a Haskell record field name.
 -- Prepends the type name in camelCase to avoid field name conflicts.
 toHaskellFieldName :: Text -> Text -> Text
-toHaskellFieldName typeName fieldName =
-  let typePrefix = if T.null typeName 
+toHaskellFieldName typeName fname =
+  let typePrefix = if T.null typeName
                      then ""
                      else T.pack $ toCamelCase $ T.unpack typeName
-      fieldSuffix = T.pack $ T.unpack fieldName
-  in typePrefix <> fieldSuffix
+  in typePrefix <> fname
   where
     toCamelCase [] = []
     toCamelCase (x:xs) = toLower x : xs
@@ -471,10 +430,6 @@ toHaskellFieldName typeName fieldName =
 -- | Convert a protocol name to a Haskell module name.
 toHaskellModuleName :: Text -> Text
 toHaskellModuleName name = "Kafka.Protocol.Generated." <> name
-
--- | Render a Doc to Text.
-renderDoc :: Doc ann -> Text
-renderDoc = renderStrict . layoutPretty defaultLayoutOptions
 
 -- | Generate a JSON inventory of all messages for test generation.
 -- This produces a JSON array with metadata about each message type.

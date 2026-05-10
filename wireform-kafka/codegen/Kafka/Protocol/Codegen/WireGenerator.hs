@@ -128,10 +128,6 @@ isFieldSupportedTransitive f = case fieldType f of
     Just fs -> fieldsSupportedTransitive fs
     Nothing -> isElementSupported inner
 
--- | Backwards-compat alias; some local helpers still call this.
-isFieldSupported :: FieldSpec -> Bool
-isFieldSupported = isFieldSupportedTransitive
-
 isElementSupported :: TypeSpec -> Bool
 isElementSupported = \case
   PrimitiveType t -> isSupportedPrimitive t
@@ -1000,25 +996,6 @@ elementPeek flexibleVer = \case
       <+> "version _fp _basePtr p e)"
   ArrayType _ ->
     "(\\p _ -> error \"WireGenerator: arrays-of-arrays unsupported\")"
-
--- | Build the record-construction expression for the decoded value.
--- Fields present in this version pull from 'fieldVarMap'; fields
--- absent in this version (e.g. v3+ fields when decoding v2) fall
--- through to 'generateFieldDefaultDoc'.
-buildRecord
-  :: Text
-  -> [FieldSpec]
-  -> [(Text, Text)]
-  -> Doc ann
-buildRecord typeName allFields fieldVarMap =
-  let fieldDoc f =
-        let recName = toHaskellFieldName typeName (fieldName f)
-            value   = case lookup (fieldName f) fieldVarMap of
-              Just var -> pretty var
-              Nothing  -> generateFieldDefaultDoc f
-        in pretty recName <+> "=" <+> value
-      assignments = punctuate "," (map fieldDoc allFields)
-  in pretty typeName <+> "{" <+> hsep assignments <+> "}"
 
 emptyPokeStub :: Text -> Doc ann
 emptyPokeStub typeName = vsep

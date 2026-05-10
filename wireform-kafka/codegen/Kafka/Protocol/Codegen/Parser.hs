@@ -26,9 +26,6 @@ import Control.Monad (filterM)
 import Data.Aeson (eitherDecode)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as BL
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
 import Kafka.Protocol.Codegen.Types
@@ -93,7 +90,7 @@ stripComments = TL.encodeUtf8 . TL.unlines . map stripLine . TL.lines . TL.decod
     stripLine :: TL.Text -> TL.Text
     stripLine line =
       case TL.breakOn "//" line of
-        (before, comment) ->
+        (before, _comment) ->
           -- Check if // is actually in a string by counting quotes before it
           if countQuotes before `mod` 2 == 0
             then TL.stripEnd before
