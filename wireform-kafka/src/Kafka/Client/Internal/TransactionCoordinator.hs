@@ -152,51 +152,77 @@ findTransactionCoordinator connMgr versionCache corrIdVar bootstrapBroker client
         return cid
       
       let apiKey = 10  -- FindCoordinator API key
-          clientMaxVersion = 3  -- We support up to v3
-      
-      -- Version negotiation
+          -- v6 = trunk; we handle both legacy v0-v3 and v4+
+          -- (KIP-699 batched Coordinators[]) shapes below.
+          clientMaxVersion = 6
+
       brokerVersionM <- atomically $ AV.queryApiVersion versionCache bootstrapBroker apiKey
       let apiVersion = case brokerVersionM of
             Nothing -> 1  -- Default to v1 (has keyType field)
             Just range -> case AV.selectVersion clientMaxVersion range of
               Nothing -> 1
-              Just v -> v
-      
-      -- Build FindCoordinatorRequest
-      let request = FCReq.FindCoordinatorRequest
-            { FCReq.findCoordinatorRequestKey = P.mkKafkaString transactionalId
-            , FCReq.findCoordinatorRequestKeyType = 1  -- TRANSACTION type
-            , FCReq.findCoordinatorRequestCoordinatorKeys = P.KafkaArray (P.NotNull V.empty)
-            }
-          
-          requestBody = WC.runEncodeVer @FCReq.FindCoordinatorRequest apiVersion request
+              Just v  -> v
+
+          request
+            | apiVersion >= 4 = FCReq.FindCoordinatorRequest
+                { FCReq.findCoordinatorRequestKey             = P.KafkaString P.Null
+                , FCReq.findCoordinatorRequestKeyType         = 1  -- TRANSACTION
+                , FCReq.findCoordinatorRequestCoordinatorKeys =
+                    P.mkKafkaArray (V.singleton (P.mkKafkaString transactionalId))
+                }
+            | otherwise = FCReq.FindCoordinatorRequest
+                { FCReq.findCoordinatorRequestKey             = P.mkKafkaString transactionalId
+                , FCReq.findCoordinatorRequestKeyType         = 1
+                , FCReq.findCoordinatorRequestCoordinatorKeys = P.mkKafkaArray V.empty
+                }
+
+          requestBody   = WC.runEncodeVer @FCReq.FindCoordinatorRequest apiVersion request
           clientIdKafka = P.mkKafkaString clientId
-      
-      -- Send request and receive response
+
       result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientIdKafka requestBody
-      
+
       case result of
-        Left err -> return $ Left $ CoordinatorNotAvailable $ 
+        Left err -> return $ Left $ CoordinatorNotAvailable $
           "FindCoordinator request failed: " <> T.pack err
-        
+
         Right (_corrId, responseBody) -> do
-          -- Parse response
           case WC.runDecodeVer @FCResp.FindCoordinatorResponse apiVersion responseBody of
             Left err -> return $ Left $ CoordinatorNotAvailable $
               "Failed to parse FindCoordinatorResponse: " <> T.pack err
-            
+
             Right response -> do
-              let errorCode = FCResp.findCoordinatorResponseErrorCode response
-              
+              -- v0-v3 carries the result on top-level fields;
+              -- v4+ moves it into the first entry of
+              -- Coordinators[]. KIP-699 also sinks the per-result
+              -- error code into the array entry, so we read it
+              -- from there too on v4+.
+              let (errorCode, nodeId, host, port)
+                    | apiVersion >= 4 =
+                        case P.unKafkaArray (FCResp.findCoordinatorResponseCoordinators response) of
+                          P.NotNull v | not (V.null v) ->
+                            let !c = V.head v
+                                h  = case P.unKafkaString (FCResp.coordinatorHost c) of
+                                       P.NotNull t -> t
+                                       P.Null      -> T.empty
+                            in ( FCResp.coordinatorErrorCode c
+                               , FCResp.coordinatorNodeId    c
+                               , h
+                               , FCResp.coordinatorPort      c
+                               )
+                          _ -> (15, 0, T.empty, 0)  -- 15 = COORDINATOR_NOT_AVAILABLE
+                    | otherwise =
+                        let h = case P.unKafkaString (FCResp.findCoordinatorResponseHost response) of
+                                  P.NotNull t -> t
+                                  P.Null      -> T.empty
+                        in ( FCResp.findCoordinatorResponseErrorCode response
+                           , FCResp.findCoordinatorResponseNodeId    response
+                           , h
+                           , FCResp.findCoordinatorResponsePort      response
+                           )
+
               if errorCode /= 0
                 then return $ Left $ interpretCoordinatorError errorCode
-                else do
-                  let nodeId = FCResp.findCoordinatorResponseNodeId response
-                      host = case P.unKafkaString $ FCResp.findCoordinatorResponseHost response of
-                        P.NotNull h -> h
-                        P.Null -> ""  -- Should not happen for successful response
-                      port = FCResp.findCoordinatorResponsePort response
-                  
+                else
                   return $ Right $ TransactionCoordinator
                     { tcNodeId = nodeId
                     , tcHost = host
@@ -234,7 +260,10 @@ initProducerId connMgr versionCache corrIdVar clientId coordinator transactional
         return cid
       
       let apiKey = 22  -- InitProducerId API key
-          clientMaxVersion = 3  -- We support up to v3
+          -- v6 = trunk; we set Enable2Pc=False / KeepPreparedTxn=False
+          -- on the request below, which is the existing-behaviour-
+          -- compatible (KIP-939 opt-in is False).
+          clientMaxVersion = 6
       
       -- Version negotiation
       brokerVersionM <- atomically $ AV.queryApiVersion versionCache coordAddr apiKey
@@ -325,7 +354,13 @@ addPartitionsToTxn connMgr versionCache corrIdVar clientId coordinator transacti
         return cid
       
       let apiKey = 24
-          clientMaxVersion = 3  -- Use v3 (flexible but simpler than v4+)
+          -- Hold at v3. The schema's own header note —
+          -- @Versions 3 and below will be exclusively used by
+          -- clients and versions 4 and above will be used by
+          -- brokers@ — makes v4 (KIP-704 batched cross-txn
+          -- shape) inter-broker-only; clients should stay at v3
+          -- regardless of how high the broker advertises.
+          clientMaxVersion = 3
       
       brokerVersionM <- atomically $ AV.queryApiVersion versionCache coordAddr apiKey
       let apiVersion = case brokerVersionM of
@@ -410,7 +445,11 @@ endTransaction connMgr versionCache corrIdVar clientId coordinator transactional
         return cid
       
       let apiKey = 26  -- EndTxn API key
-          clientMaxVersion = 3
+          -- v5 = trunk; the request fields are unchanged from
+          -- v3 (v4 added a new error code, v5 added KIP-890
+          -- Part 2 epoch-bumping which is broker-side
+          -- behaviour).
+          clientMaxVersion = 5
       
       brokerVersionM <- atomically $ AV.queryApiVersion versionCache coordAddr apiKey
       let apiVersion = case brokerVersionM of
@@ -566,7 +605,13 @@ txnOffsetCommitWith connMgr versionCache corrIdVar clientId groupCoordinator gro
         writeTVar corrIdVar (cid + 1)
         return cid
       let apiKey = 28  -- TxnOffsetCommit API key
-          clientMaxVersion = 3
+          -- v5 = highest version that still uses topic /names/.
+          -- v6 (KIP-1319) drops the name field in favour of
+          -- topic IDs only; we'd need to plumb the metadata-
+          -- cache UUID lookup into this codepath before bumping
+          -- past v5. v4-v5 are pure error-code additions
+          -- (TRANSACTION_ABORTABLE) — no shape change.
+          clientMaxVersion = 5
       brokerVersionM <- atomically $
         AV.queryApiVersion versionCache groupCoordinator apiKey
       let apiVersion = case brokerVersionM of

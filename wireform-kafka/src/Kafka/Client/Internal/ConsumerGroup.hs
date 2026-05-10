@@ -117,50 +117,82 @@ findGroupCoordinator
   -> IO (Either String GroupCoordinator)
 findGroupCoordinator versionCache brokerAddr conn groupId correlationId clientId = do
   let apiKey = 10  -- FindCoordinator API key
-      -- We cap at v3 because v4 (KIP-699) reshapes the response into
-      -- a 'Coordinators' array, with the single Host/Port fields
-      -- gone from the top level. Until we add the batched-lookup
-      -- handler, talking v4 to a 4.0 broker would parse Host/Port
-      -- as their default empty / 0 (the field is absent at v4+),
-      -- giving us a coordinator address of @:0@ that
-      -- 'Conn.getOrCreateConnection' then fails to resolve.
-      clientMaxVersion = 3
+      -- v6 = trunk; we now handle both legacy v0-v3 (top-level
+      -- Host/Port) and v4+ (KIP-699 Coordinators[]) shapes
+      -- below, so it's safe to negotiate up.
+      clientMaxVersion = 6
 
   -- Query broker's supported version
   brokerVersionM <- atomically $ AV.queryApiVersion versionCache brokerAddr apiKey
 
   let apiVersion = case brokerVersionM of
-        Nothing -> 0  -- Fall back to v0 if unknown
+        Nothing    -> 0
         Just range -> case AV.selectVersion clientMaxVersion range of
-          Nothing -> 0  -- Fall back if incompatible
-          Just v -> v
+          Nothing -> 0
+          Just v  -> v
 
-      request = FCReq.FindCoordinatorRequest
-        { FCReq.findCoordinatorRequestKey = P.mkKafkaString groupId
-        , FCReq.findCoordinatorRequestKeyType = 0  -- 0 = consumer group
-        , FCReq.findCoordinatorRequestCoordinatorKeys = P.mkKafkaArray V.empty
-        }
-      
+      -- v0-v3 use the singular 'Key' field; v4+ use the
+      -- 'CoordinatorKeys' batched array. Build both so the
+      -- codegen sees the right one for the chosen version
+      -- (the wirePoke for absent-version fields is a no-op).
+      request
+        | apiVersion >= 4 = FCReq.FindCoordinatorRequest
+            { FCReq.findCoordinatorRequestKey             = P.KafkaString P.Null
+            , FCReq.findCoordinatorRequestKeyType         = 0  -- 0 = consumer group
+            , FCReq.findCoordinatorRequestCoordinatorKeys =
+                P.mkKafkaArray (V.singleton (P.mkKafkaString groupId))
+            }
+        | otherwise = FCReq.FindCoordinatorRequest
+            { FCReq.findCoordinatorRequestKey             = P.mkKafkaString groupId
+            , FCReq.findCoordinatorRequestKeyType         = 0
+            , FCReq.findCoordinatorRequestCoordinatorKeys = P.mkKafkaArray V.empty
+            }
+
       requestBody = WC.runEncodeVer @FCReq.FindCoordinatorRequest apiVersion request
       clientIdKafka = P.mkKafkaString clientId
-  
+
   -- Send request and receive response
   result <- Req.sendRequestReceiveResponse conn apiKey apiVersion correlationId clientIdKafka requestBody
-  
+
   case result of
     Left err -> return $ Left $ "FindCoordinator request failed: " ++ err
     Right (_, responseBody) -> do
       case WC.runDecodeVer @FCResp.FindCoordinatorResponse apiVersion responseBody of
         Left err -> return $ Left $ "Failed to parse FindCoordinatorResponse: " ++ err
         Right response -> do
-          let errorCode = FCResp.findCoordinatorResponseErrorCode response
-          
+          -- Pick the coordinator out of whichever response shape
+          -- the broker negotiated. v0-v3 carries the result on
+          -- the top-level fields; v4+ moves it into the first
+          -- (and for our single-key request, only) entry of the
+          -- 'coordinators' array. KIP-699 also sinks the per-
+          -- result error code into the array entry, so we read
+          -- it from there too on v4+.
+          let (errorCode, nodeId, host, port)
+                | apiVersion >= 4 =
+                    case P.unKafkaArray (FCResp.findCoordinatorResponseCoordinators response) of
+                      P.NotNull v | not (V.null v) ->
+                        let !c = V.head v
+                        in ( FCResp.coordinatorErrorCode c
+                           , FCResp.coordinatorNodeId    c
+                           , extractText (FCResp.coordinatorHost c)
+                           , FCResp.coordinatorPort      c
+                           )
+                      _ ->
+                        -- Empty Coordinators[] in a 0-error v4+
+                        -- response would be a broker bug; surface
+                        -- as an explicit \"no coordinator\" error
+                        -- below.
+                        (15, 0, T.empty, 0)  -- 15 = COORDINATOR_NOT_AVAILABLE
+                | otherwise =
+                    ( FCResp.findCoordinatorResponseErrorCode response
+                    , FCResp.findCoordinatorResponseNodeId    response
+                    , extractText (FCResp.findCoordinatorResponseHost response)
+                    , FCResp.findCoordinatorResponsePort      response
+                    )
+
           if errorCode /= 0
             then return $ Left $ "FindCoordinator error: code " ++ show errorCode
             else do
-              let nodeId = FCResp.findCoordinatorResponseNodeId response
-                  host = extractText $ FCResp.findCoordinatorResponseHost response
-                  port = FCResp.findCoordinatorResponsePort response
               
               return $ Right GroupCoordinator
                 { coordNodeId = nodeId
@@ -203,13 +235,15 @@ joinGroupGo
   -> IO (Either String JoinGroupResult)
 joinGroupGo versionCache brokerAddr conn groupId memberId clientId sessionTimeout rebalanceTimeout protocolType protocols correlationId attempt = do
   let apiKey = 11  -- JoinGroup API key
-      -- Cap at v5 (KIP-394 introduced MEMBER_ID_REQUIRED at v4,
-      -- so v5 keeps the membership protocol stable enough that
-      -- we can rely on the simple two-call retry below; v6
-      -- becomes flexible and makes the response shape
-      -- meaningfully different in ways we haven't checked
-      -- end-to-end against the live broker yet).
-      clientMaxVersion = 5
+      -- Bump back to v9 (= schema trunk). Versions added since
+      -- v5: v6 made the protocol flexible (the codegen handles
+      -- the per-version compact-vs-plain dispatch); v7 added
+      -- 'ProtocolType' on the response (KIP-559) which we
+      -- ignore; v8 added 'Reason' on the request (we send
+      -- Null); v9 added 'SkipAssignment' on the response
+      -- (KIP-848 transition) which we treat as a hint and let
+      -- the assignor run anyway when False.
+      clientMaxVersion = 9
   
   -- Query broker's supported version
   brokerVersionM <- atomically $ AV.queryApiVersion versionCache brokerAddr apiKey
