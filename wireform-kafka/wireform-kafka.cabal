@@ -816,7 +816,8 @@ test-suite wireform-kafka-conformance
         tasty                     >= 1.4   && < 1.6,
         tasty-hunit               >= 0.10  && < 0.11,
         text,
-        time
+        time,
+        unordered-containers      >= 0.2   && < 0.3
 
 test-suite wireform-kafka-integration
     import: defaults
