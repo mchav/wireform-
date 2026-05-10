@@ -634,18 +634,29 @@ closeProducer p@Producer{..} = do
   -- Close all connections.
   Conn.closeAllConnections producerConnManager
 
--- | Poll the accumulator until it has no pending batches or the
--- caller-supplied deadline elapses. Returns @True@ if everything
--- drained cleanly, @False@ on timeout. The polling interval is
--- 10ms which keeps the close path responsive without burning CPU.
+-- | Poll the accumulator until it has no pending batches /and/
+-- the sender thread is not currently mid-iteration on a drained
+-- batch (i.e. 'senderBusy' is False), or the caller-supplied
+-- deadline elapses. Returns @True@ if everything drained cleanly,
+-- @False@ on timeout. The polling interval is 10ms which keeps
+-- the close path responsive without burning CPU.
+--
+-- Checking the busy flag in addition to 'hasReadyBatches' is
+-- required for correctness: 'BA.drainReadyBatches' removes
+-- batches from the accumulator queue /before/ the sender has
+-- received the broker's 'ProduceResponse' for them. A poller
+-- that watched 'hasReadyBatches' alone would race the in-flight
+-- window and a 'closeProducer' that fires immediately after
+-- 'flushProducer' returned could lose every record on the wire.
 waitForDrain :: Producer -> Int -> IO Bool
 waitForDrain Producer{..} deadlineMs = do
   start <- nowMillis
   let loop = do
         pending <- BA.hasReadyBatches producerAccumulator
+        busy    <- readIORef (Sender.senderBusy producerSenderState)
         now <- nowMillis
         let elapsed = now - start
-        if not pending
+        if not pending && not busy
           then pure True
           else if elapsed >= fromIntegral deadlineMs
             then pure False
@@ -686,7 +697,8 @@ closeProducerWithTimeout Producer{..} timeoutMs = do
     waitForDrain 0 = return ()  -- Timeout expired
     waitForDrain n = do
       hasReady <- BA.hasReadyBatches producerAccumulator
-      if not hasReady
+      busy     <- readIORef (Sender.senderBusy producerSenderState)
+      if not hasReady && not busy
         then return ()  -- All batches sent
         else do
           threadDelay 100000  -- 100ms
@@ -718,15 +730,19 @@ flushProducer Producer{..} = do
       waitIncrement = 100000  -- 100ms
       maxWaits = max 1 (timeoutMicros `div` waitIncrement)
   
-  -- Poll until all batches are sent or timeout
+  -- Poll until all batches are sent or timeout. Both
+  -- 'hasReadyBatches' (queued in the accumulator) and 'senderBusy'
+  -- (drained by the sender but the broker reply hasn't landed)
+  -- must be clear before we can claim a record is durable.
   result <- waitForAllBatches maxWaits
-  
+
   return result
   where
     waitForAllBatches 0 = return $ Left "Flush timeout: not all records sent within delivery timeout"
     waitForAllBatches n = do
       hasReady <- BA.hasReadyBatches producerAccumulator
-      if not hasReady
+      busy     <- readIORef (Sender.senderBusy producerSenderState)
+      if not hasReady && not busy
         then return $ Right ()  -- All batches sent
         else do
           threadDelay 100000  -- 100ms

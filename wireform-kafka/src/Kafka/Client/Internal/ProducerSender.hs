@@ -57,8 +57,10 @@ import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Control.Monad (when, forM, forM_)
+import qualified Data.ByteString as BS
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int
+import qualified Data.List
 import Data.List (groupBy, sortBy, partition)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
@@ -176,6 +178,21 @@ data SenderState = SenderState
     -- ^ Retry configuration
   , senderRunning :: !(TVar Bool)
     -- ^ Whether the sender thread should keep running
+  , senderBusy :: !(IORef Bool)
+    -- ^ True while the sender loop is mid-iteration on a drained
+    --   batch (i.e. has called 'drainReadyBatches' but the broker
+    --   reply for those records has not yet landed).
+    --
+    --   Required for correctness of 'flushProducer' /
+    --   'closeProducer'\'s drain check: polling
+    --   'BA.hasReadyBatches' alone races the in-flight window in
+    --   which the sender has /pulled/ the batches off the
+    --   accumulator but is still waiting for a 'ProduceResponse'.
+    --   Without this flag a producer that 'flushProducer' +
+    --   'closeProducer' immediately can lose every record that
+    --   was on the wire at the time of the flush. Plain 'IORef'
+    --   is sufficient because the sender thread is the only
+    --   writer.
   , senderAcks :: !Int16
     -- ^ Required acks: 0 = none, 1 = leader, -1 = all ISRs
   , senderTimeoutMs :: !Int32
@@ -242,6 +259,7 @@ createSenderState
   -> IO SenderState
 createSenderState accumulator metadata connManager retryConfig acks deliveryTimeoutMs compression clientId versionCache = do
   running <- newTVarIO True
+  busy <- newIORef False
   correlationId <- newIORef 0
   txnIdVar <- newIORef Nothing
   -- Use the smaller of delivery timeout and 30 seconds for individual request timeout
@@ -253,6 +271,7 @@ createSenderState accumulator metadata connManager retryConfig acks deliveryTime
     , senderConnManager = connManager
     , senderRetryConfig = retryConfig
     , senderRunning = running
+    , senderBusy = busy
     , senderAcks = acks
     , senderTimeoutMs = requestTimeoutMs
     , senderDeliveryTimeoutMs = fromIntegral deliveryTimeoutMs
@@ -288,44 +307,80 @@ senderLoop state@SenderState{..} = do
       
       if hasReady
         then do
-          -- Drain ready batches
+          -- Mark the sender busy /before/ draining; the drain
+          -- removes batches from the accumulator queue but the
+          -- 'ProduceResponse' for them only lands inside
+          -- 'sendBatches' below. 'flushProducer' /
+          -- 'closeProducer' wait on (not hasReady) AND (not
+          -- senderBusy) so they don't return mid-flight.
+          writeIORef senderBusy True
           batches <- BA.drainReadyBatches senderAccumulator
-          
-          -- Group batches by topic-partition, then by leader broker
           result <- try $ sendBatches state batches
-          
+          writeIORef senderBusy False
           case result of
             Left (e :: SomeException) ->
               senderLogger
                 LogError
                 (T.pack ("Sender loop error: " <> show e))
             Right () -> return ()
-          
-          -- Continue immediately if there might be more batches
           senderLoop state
         else do
-          -- No ready batches, sleep briefly
           threadDelay 10000  -- 10ms
           senderLoop state
 
--- | Send a collection of batches to their respective brokers
+-- | Send a collection of batches to their respective brokers.
+--
+-- Batches are first grouped by broker (the partition leader). For
+-- each broker we then split the batches into rounds where every
+-- (topic, partition) appears at most once per round; each round
+-- becomes one ProduceRequest. This keeps the wire shape valid
+-- (one PartitionProduceData per partition per request, which is
+-- what the Kafka protocol requires) while still preserving
+-- multi-partition batching within a single request. Multiple
+-- ready batches for the same partition naturally produce
+-- multiple ProduceRequest rounds — the sender pays an extra
+-- network round-trip per extra batch but never silently drops
+-- data on the broker side, which the prior \"all batches in one
+-- request\" path did when the accumulator queued >1 ready batch
+-- per partition.
 sendBatches :: SenderState -> [BA.ProducerBatch] -> IO ()
 sendBatches state@SenderState{..} batches = do
   -- Group batches by broker (based on partition leader)
   batchesByBroker <- groupBatchesByBroker senderMetadata batches
-  
+
   -- Send to each broker
   forM_ (Map.toList batchesByBroker) $ \(broker, brokerBatches) -> do
-    result <- try $ sendToBroker state broker brokerBatches
-    
-    case result of
-      Left (e :: SomeException) -> do
-        -- Invoke error callbacks for all batches
-        forM_ brokerBatches $ \batch -> do
-          let callbacks = BA.batchCallbacks batch
-              errorMsg = "Exception sending to broker: " <> T.pack (show e)
-          forM_ callbacks $ \callback -> callback (Left errorMsg)
-      Right () -> return ()
+    forM_ (roundsPerPartition brokerBatches) $ \roundBatches -> do
+      result <- try $ sendToBroker state broker roundBatches
+      case result of
+        Left (e :: SomeException) -> do
+          forM_ roundBatches $ \batch -> do
+            let callbacks = BA.batchCallbacks batch
+                errorMsg = "Exception sending to broker: " <> T.pack (show e)
+            forM_ callbacks $ \callback -> callback (Left errorMsg)
+        Right () -> return ()
+  where
+    -- Split batches into rounds such that every (topic, partition)
+    -- appears at most once per round. The k-th round contains the
+    -- k-th batch (in arrival order) for every partition that had
+    -- at least k queued.
+    roundsPerPartition :: [BA.ProducerBatch] -> [[BA.ProducerBatch]]
+    roundsPerPartition bs =
+      let groups :: [[BA.ProducerBatch]]
+          groups = groupBy (\a b -> tpKey a == tpKey b)
+                 $ sortBy (comparing tpKey) bs
+          tpKey :: BA.ProducerBatch -> BA.TopicPartition
+          tpKey = BA.batchTopicPartition
+      in transposeNonEmpty groups
+
+    -- Like Data.List.transpose but skips empty inputs and stops
+    -- at the longest column. For [[a,b,c],[x],[p,q]] returns
+    -- [[a,x,p],[b,q],[c]].
+    transposeNonEmpty :: [[a]] -> [[a]]
+    transposeNonEmpty xss =
+      case [ (h, t) | (h:t) <- xss ] of
+        []   -> []
+        hts  -> map fst hts : transposeNonEmpty (map snd hts)
 
 -- | Group batches by their target broker
 groupBatchesByBroker
@@ -538,6 +593,10 @@ buildTopicProduceData
 buildTopicProduceData metaCache batches = do
   let topic = BA.tpTopic $ BA.batchTopicPartition $ head batches
   topicIdM <- atomically (Meta.getTopicId metaCache topic)
+  -- 'sendBatches' upstream guarantees that each (topic,
+  -- partition) appears at most once in this batch list, so a
+  -- straight per-batch mapM produces one PartitionProduceData per
+  -- partition.
   partitionData <- mapM buildPartitionProduceData batches
   return $ PR.TopicProduceData
     { PR.topicProduceDataName = P.mkKafkaString topic
@@ -551,35 +610,30 @@ buildTopicProduceData metaCache batches = do
     , PR.topicProduceDataPartitionData = P.mkKafkaArray (V.fromList partitionData)
     }
 
--- | Build PartitionProduceData for a single batch
--- Applies compression using the batch's compression codec and level
+-- | Build PartitionProduceData for a single batch.
+-- Applies compression using the batch's compression codec and level.
+--
+-- 'sendBatches' upstream guarantees that each round contains at
+-- most one batch per (topic, partition), so the pre-fix shape of
+-- "one PartitionProduceData per ProducerBatch" is now safe — the
+-- protocol's "one PartitionProduceData per partition per request"
+-- invariant is upheld by the round splitter rather than by
+-- coalescing here.
 buildPartitionProduceData :: BA.ProducerBatch -> IO PR.PartitionProduceData
 buildPartitionProduceData batch = do
   let partition = BA.tpPartition $ BA.batchTopicPartition batch
       recordBatch = buildRecordBatch batch
       compressionLevel = BA.batchCompressionLevel batch
       codec = RB.attrCompressionType (RB.batchAttributes recordBatch)
-
-  -- Fast path for the uncompressed common case: skip the
-  -- compression layer entirely (it's a no-op for NoCompression).
-  -- The direct-poke Wire encoder writes the whole batch in a
-  -- single pass.
   if codec == NoCompression
     then pure $ PR.PartitionProduceData
       { PR.partitionProduceDataIndex   = partition
       , PR.partitionProduceDataRecords = P.mkKafkaBytes (RBW.encodeRecordBatchWire recordBatch)
       }
     else do
-      -- Compressed path: build the records section once via
-      -- 'encodeRecordsWire' and back-patch the batch envelope in
-      -- place.
       encodeResult <- RBW.encodeRecordBatchWireCompressedWithLevel recordBatch compressionLevel
       case encodeResult of
         Left err -> do
-          -- Compression failed; fall back to uncompressed
-          -- encoding via the direct-poke Wire encoder. Rare,
-          -- so we log to stderr rather than thread a 'Logger'
-          -- through this otherwise pure-ish helper.
           hPutStrLn stderr
             ("[warn] producer: compression failed for batch, "
               <> "sending uncompressed: " <> err)
@@ -603,7 +657,19 @@ buildRecordBatch :: BA.ProducerBatch -> RB.RecordBatch
 buildRecordBatch batch =
   let !recSeq = BA.batchRecords batch
       !nRec = Seq.length recSeq
-      !records = V.generate nRec (Seq.index recSeq)
+      -- The producer-side append path leaves 'recordOffsetDelta'
+      -- at 0 because the offset within the batch is only known
+      -- once the batch is sealed (the same record could in
+      -- principle live in different positions across retries).
+      -- Stamp the per-record delta here, immediately before
+      -- handing the records to the wire encoder; without it the
+      -- broker sees N records all claiming delta 0 and silently
+      -- collapses them, which is the data-loss bug the
+      -- 'PartitionProduceData' consolidation in
+      -- 'buildTopicProduceData' was supposed to expose.
+      !records = V.generate nRec $ \i ->
+        let !r = Seq.index recSeq i
+        in r { RB.recordOffsetDelta = fromIntegral i }
       attrs = RB.Attributes
         { RB.attrCompressionType = BA.batchCompression batch
         , RB.attrTimestampType = RB.CreateTime

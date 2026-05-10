@@ -628,6 +628,18 @@ library wireform-kafka-codegen
         scientific                >= 0.3   && < 0.4,
         text                      >= 2.0   && < 2.2
 
+executable wireform-kafka-perf
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: bench/perf-tool
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -O2
+    build-depends:
+        base,
+        wireform-kafka,
+        bytestring,
+        text,
+        time
+
 executable gen-test-vectors
     import: defaults
     main-is: Main.hs
