@@ -160,9 +160,20 @@ wireformSetupAndRun = do
   case res of
     Left err -> error ("wireform-kafka createProducer failed: " ++ err)
     Right p  -> do
+      -- Mirror the hw-kafka loop: enqueue + return
+      -- ('produceMessage' / 'sendMessageAsync'), then 'flushProducer'
+      -- to wait for every record to be acked.  The previous shape
+      -- used the synchronous 'sendMessage', which serialised the
+      -- entire workload to one record per broker round-trip and
+      -- showed wireform-kafka as ~80x slower than hw-kafka for
+      -- reasons that had nothing to do with the codec.
       replicateM_ recordsPerRun $ do
-        r <- WP.sendMessage p topic Nothing payload
+        r <- WP.sendMessageAsync p topic Nothing payload
         case r of
-          Left e  -> error ("wireform-kafka sendMessage failed: " ++ e)
+          Left e  -> error ("wireform-kafka sendMessageAsync failed: " ++ e)
           Right _ -> pure ()
+      flushRes <- WP.flushProducer p
+      case flushRes of
+        Left e  -> error ("wireform-kafka flushProducer failed: " ++ e)
+        Right _ -> pure ()
       WP.closeProducer p

@@ -704,8 +704,14 @@ closeProducerWithTimeout Producer{..} timeoutMs = do
 -- @since KIP-8
 flushProducer :: Producer -> IO (Either String ())
 flushProducer Producer{..} = do
-  -- Mark all current batches as ready (without closing accumulator)
-  BA.closeBatchAccumulator producerAccumulator
+  -- Mark all current batches as ready /without/ closing the
+  -- accumulator: this is a drain-checkpoint and the producer
+  -- must remain usable for subsequent sends.  (The pre-fix code
+  -- called 'closeBatchAccumulator' here, which silently turned
+  -- every later send into a "Failed to append record
+  -- (accumulator closed or full)" — manifested as missing
+  -- records in the head-to-head producer benchmark.)
+  BA.flushPendingBatches producerAccumulator
   
   -- Wait for all batches to be sent
   let deliveryTimeout = producerDeliveryTimeoutMs producerConfig
@@ -1044,22 +1050,85 @@ producerTxnGate st mPid mEpoch = case st of
   _ -> Left $
     "transactional producer: cannot send in state " <> show st
 
--- | Send a message asynchronously (returns immediately).
+-- | Send a message asynchronously: enqueue into the batch
+-- accumulator and return immediately, /without/ waiting for the
+-- broker ack.  Mirrors librdkafka's @rd_kafka_produce@ +
+-- 'Kafka.Producer.produceMessage' from @hw-kafka-client@: the
+-- record sits in the in-memory queue and is flushed by the
+-- background sender thread on the next batch round-trip.
 --
--- Note: This currently has the same behavior as sendMessage since we don't
--- have a callback/future mechanism yet. In a full implementation, this would
--- return a future or take a callback parameter.
+-- Returns 'Left' only for /pre-enqueue/ failures (transactional
+-- state checks, partition-selection errors, accumulator closed
+-- or full).  Per-record broker errors surface through
+-- 'producerOnAcknowledgement', not through this 'IO ()' result.
+--
+-- For at-least-once semantics, pair with 'flushProducer' before
+-- 'closeProducer' so the queue drains.
 sendMessageAsync
   :: Producer
   -> Text
   -> Maybe ByteString
   -> ByteString
   -> IO (Either String ())
-sendMessageAsync producer topic key value = do
-  result <- sendMessage producer topic key value
-  case result of
-    Left err -> return $ Left err
-    Right _ -> return $ Right ()
+sendMessageAsync p@Producer{..} topic key value = do
+  let preInterceptRecord = ProducerRecord
+        { recordTopic     = topic
+        , recordKey       = key
+        , recordValue     = value
+        , recordHeaders   = []
+        , recordPartition = Nothing
+        , recordTimestamp = Nothing
+        }
+  iceptedRecord <- producerInterceptor producerConfig preInterceptRecord
+  let icTopic = recordTopic   iceptedRecord
+      icKey   = recordKey     iceptedRecord
+      icValue = recordValue   iceptedRecord
+      icHdrs  = recordHeaders iceptedRecord
+  preCheck <- producerPreSendCheck p icTopic icKey
+  case preCheck of
+    Left err -> do
+      runAckInterceptor producerConfig iceptedRecord (Left err)
+      return (Left err)
+    Right (partition, stamp) -> do
+      let record = RB.Record
+            { RB.recordTimestampDelta = 0
+            , RB.recordOffsetDelta    = 0
+            , RB.recordKey            = icKey
+            , RB.recordValue          = icValue
+            , RB.recordHeaders =
+                map (\(k, v) -> RB.RecordHeader (TE.encodeUtf8 k) (Just v)) icHdrs
+            }
+          topicPartition = BA.TopicPartition icTopic partition
+          -- The async path doesn't need a result-bearing TMVar:
+          -- we just hand the broker outcome straight to the
+          -- caller's ack interceptor.  This is the usual
+          -- librdkafka shape — synchronous backpressure happens
+          -- at 'flushProducer', not at the per-record send.
+          callback result = do
+            let outcome = case result of
+                  Left err -> Left (T.unpack err)
+                  Right (topic', part, offset, timestamp) ->
+                    Right RecordMetadata
+                      { metadataTopic     = topic'
+                      , metadataPartition = part
+                      , metadataOffset    = offset
+                      , metadataTimestamp = timestamp
+                      }
+            runAckInterceptor producerConfig iceptedRecord outcome
+
+      success <- BA.appendRecordStamped
+                   producerAccumulator
+                   topicPartition
+                   record
+                   callback
+                   stamp
+
+      if success
+        then return (Right ())
+        else do
+          let err = "Failed to append record (accumulator closed or full)"
+          runAckInterceptor producerConfig iceptedRecord (Left err)
+          return (Left err)
 
 -- | Select partition for a message based on configured partitioner (KIP-480).
 selectPartition

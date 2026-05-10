@@ -43,6 +43,7 @@ module Kafka.Client.Internal.BatchAccumulator
   , ProducerBatch(..)
   , BatchState(..)
   , RecordCallback
+  , flushPendingBatches
   ) where
 
 import Control.Concurrent.STM
@@ -201,17 +202,27 @@ closeBatchAccumulator BatchAccumulator{..} = atomically $ do
   -- Mark all current batches as ready
   partitionList <- ListT.toList $ StmMap.listT accumulatorPartitions
   mapM_ markCurrentBatchReady partitionList
-  where
-    markCurrentBatchReady :: (TopicPartition, PartitionQueue) -> STM ()
-    markCurrentBatchReady (_, PartitionQueue{..}) = do
-      currentM <- readTVar queueCurrentBatch
-      case currentM of
-        Nothing -> return ()
-        Just batch -> do
-          -- Move current batch to ready queue
-          let readyBatch = batch { batchState = Ready }
-          modifyTVar' queueBatches (|> readyBatch)
-          writeTVar queueCurrentBatch Nothing
+
+-- | Mark every partition's filling batch as 'Ready' /without/
+-- closing the accumulator.  Used by 'Kafka.Client.Producer.
+-- flushProducer' so subsequent sends keep working — the JVM
+-- client + librdkafka behave the same way: 'flush()' is a
+-- drain-checkpoint, not a destructor.
+flushPendingBatches :: BatchAccumulator -> IO ()
+flushPendingBatches BatchAccumulator{..} = atomically $ do
+  partitionList <- ListT.toList $ StmMap.listT accumulatorPartitions
+  mapM_ markCurrentBatchReady partitionList
+
+markCurrentBatchReady :: (TopicPartition, PartitionQueue) -> STM ()
+markCurrentBatchReady (_, PartitionQueue{..}) = do
+  currentM <- readTVar queueCurrentBatch
+  case currentM of
+    Nothing -> return ()
+    Just batch -> do
+      -- Move current batch to ready queue
+      let readyBatch = batch { batchState = Ready }
+      modifyTVar' queueBatches (|> readyBatch)
+      writeTVar queueCurrentBatch Nothing
 
 -- | Append a record to the accumulator
 -- Returns True if the record was added, False if accumulator is closed
