@@ -47,6 +47,7 @@ module Kafka.Protocol.RecordBatchWire
     -- * Sliced (memory-efficient) decoder
   , SlicedRecordBatch(..)
   , decodeRecordBatchWireSliced
+  , decodeRecordBatchWireSlicedWithDecompression
   , slicedRecordKey
   , slicedRecordValue
   , slicedRecordCount
@@ -1283,3 +1284,140 @@ captureHeadersInto basePtr !k !p endPtr !startIx keyBufRef valBufRef = go k p st
     growBuf :: VUM.IOVector (Int32, Int32) -> Int
             -> IO (VUM.IOVector (Int32, Int32))
     growBuf old cap = VUM.unsafeGrow old cap
+
+----------------------------------------------------------------------
+-- Sliced decoder with decompression
+----------------------------------------------------------------------
+
+-- | Variant of 'decodeRecordBatchWireSliced' that also handles
+-- compressed batches. Mirrors
+-- 'decodeRecordBatchWireWithDecompression' but produces a
+-- 'SlicedRecordBatch' so the consumer's hot poll path can take
+-- the lower-allocation slice view through to ConsumerRecord
+-- materialisation. For uncompressed batches the work is the
+-- same as 'decodeRecordBatchWireSliced' (just one extra branch
+-- on 'attrCompressionType'); for compressed batches we
+-- decompress the records section, then run
+-- 'readSlicedRecords' against the decompressed buffer's
+-- 'ForeignPtr' so the resulting 'SliceVector's stay zero-copy
+-- relative to the decompressed bytes.
+decodeRecordBatchWireSlicedWithDecompression
+  :: ByteString -> IO (Either String SlicedRecordBatch)
+decodeRecordBatchWireSlicedWithDecompression bs = do
+  let (fp, off, len) = BSI.toForeignPtr bs
+  withForeignPtr fp $ \basePtr -> do
+    let !startPtr = basePtr `plusPtr` off
+        !endPtr   = startPtr `plusPtr` len
+    r <- try (peekSlicedBatchWithDecompression fp basePtr startPtr endPtr)
+           :: IO (Either SomeException SlicedRecordBatch)
+    case r of
+      Left e   -> pure (Left (show e))
+      Right rb -> pure (Right rb)
+
+peekSlicedBatchWithDecompression
+  :: ForeignPtr Word8
+  -> Ptr Word8
+  -> Ptr Word8
+  -> Ptr Word8
+  -> IO SlicedRecordBatch
+peekSlicedBatchWithDecompression fp basePtr p endPtr = do
+  ensureBytes p endPtr 21 "RecordBatch header"
+  (baseOffset, p1) <- peekInt64BE p endPtr
+  (lenValue,   p2) <- peekInt32BE p1 endPtr
+  (leaderEp,   p3) <- peekInt32BE p2 endPtr
+  (magic,      p4) <- peekWord8   p3 endPtr
+  if fromIntegral magic /= magicV2
+    then errOut ("Unsupported magic byte: " ++ show magic)
+    else do
+      (storedCrc, p5) <- peekWord32BE p4 endPtr
+      let !bodyStart = p5
+          !bodyLen   = fromIntegral lenValue - 4 - 1 - 4
+          !bodyEnd   = bodyStart `plusPtr` bodyLen
+      ensureBytes bodyStart endPtr bodyLen "RecordBatch body"
+      computedCrc <- CRC.crc32cPtr bodyStart bodyLen
+      if computedCrc /= storedCrc
+        then errOut ("CRC mismatch: stored=" ++ show storedCrc
+                       ++ ", computed=" ++ show computedCrc)
+        else do
+          (attrsW, q1) <- peekInt16BE bodyStart bodyEnd
+          attrs <- case decodeAttributes attrsW of
+            Left e  -> errOut e
+            Right a -> pure a
+          (lastDelta, q2) <- peekInt32BE q1 bodyEnd
+          (baseTs,    q3) <- peekInt64BE q2 bodyEnd
+          (maxTs,     q4) <- peekInt64BE q3 bodyEnd
+          (pid,       q5) <- peekInt64BE q4 bodyEnd
+          (pep,       q6) <- peekInt16BE q5 bodyEnd
+          (baseSeq,   q7) <- peekInt32BE q6 bodyEnd
+          (recCount,  q8) <- peekInt32BE q7 bodyEnd
+          let !n     = fromIntegral recCount :: Int
+              !codec = attrCompressionType attrs
+          -- The no-compression and compression branches both
+          -- end up calling 'readSlicedRecords' against some
+          -- 'ForeignPtr'; the only difference is which
+          -- 'ForeignPtr' the resulting 'SliceVector's get
+          -- keyed on (the source buffer's 'fp' for the
+          -- uncompressed case, or a fresh decompressed-buffer
+          -- 'ForeignPtr' for the compressed case).
+          (offDeltas, tsDeltas, keyVec, valVec,
+           hdrCounts, hdrStarts, hdrKeyVec, hdrValVec) <-
+            case codec of
+              Compression.NoCompression
+                | n <= 0   ->
+                    pure (VU.empty, VU.empty, SV.empty, SV.empty,
+                          VU.empty, VU.singleton 0, SV.empty, SV.empty)
+                | otherwise -> do
+                    (offD, tsD, kP, vP, hC, hS, hK, hV)
+                      <- readSlicedRecords basePtr n q8 bodyEnd
+                    pure ( offD, tsD
+                         , SV.fromForeignPtrSlices fp kP
+                         , SV.fromForeignPtrSlices fp vP
+                         , hC, hS
+                         , SV.fromForeignPtrSlices fp hK
+                         , SV.fromForeignPtrSlices fp hV
+                         )
+              _ -> do
+                let !rawLen = bodyEnd `minusPtr` q8
+                    !rawOff = q8 `minusPtr` basePtr
+                    !rawBs  = BSI.fromForeignPtr fp rawOff rawLen
+                decompressedR <- Compression.decompress codec rawBs
+                case decompressedR of
+                  Left err -> errOut ("Decompression failed: " ++ err)
+                  Right decompressed
+                    | n <= 0    ->
+                        pure (VU.empty, VU.empty, SV.empty, SV.empty,
+                              VU.empty, VU.singleton 0, SV.empty, SV.empty)
+                    | otherwise -> do
+                        let (dfp, doff, dlen) = BSI.toForeignPtr decompressed
+                        withForeignPtr dfp $ \dbase -> do
+                          let !ds = dbase `plusPtr` doff
+                              !de = ds    `plusPtr` dlen
+                          (offD, tsD, kP, vP, hC, hS, hK, hV)
+                            <- readSlicedRecords dbase n ds de
+                          pure ( offD, tsD
+                               , SV.fromForeignPtrSlices dfp kP
+                               , SV.fromForeignPtrSlices dfp vP
+                               , hC, hS
+                               , SV.fromForeignPtrSlices dfp hK
+                               , SV.fromForeignPtrSlices dfp hV
+                               )
+          pure SlicedRecordBatch
+            { sbBaseOffset           = baseOffset
+            , sbPartitionLeaderEpoch = leaderEp
+            , sbAttributes           = attrs
+            , sbLastOffsetDelta      = lastDelta
+            , sbBaseTimestamp        = baseTs
+            , sbMaxTimestamp         = maxTs
+            , sbProducerId           = pid
+            , sbProducerEpoch        = pep
+            , sbBaseSequence         = baseSeq
+            , sbCount                = n
+            , sbOffsetDeltas         = offDeltas
+            , sbTimestampDeltas      = tsDeltas
+            , sbKeySlices            = keyVec
+            , sbValueSlices          = valVec
+            , sbHeaderCounts         = hdrCounts
+            , sbHeaderStartOffs      = hdrStarts
+            , sbHeaderKeys           = hdrKeyVec
+            , sbHeaderValues         = hdrValVec
+            }

@@ -1539,37 +1539,38 @@ extractRecordsFromFetchResponse isolationLevel response = do
           else if BS.null recordsBytes
                  then pure (Right partial)
                  else do
-                   batches <- decodeAllBatches recordsBytes
+                   -- Sliced decoder path: avoids the
+                   -- 'V.Vector Record' + per-record
+                   -- 'BS.ByteString' allocations the legacy
+                   -- decoder produced before we built the
+                   -- final 'ConsumerRecord' shape.  See
+                   -- 'Kafka.Protocol.RecordBatchWire' for
+                   -- the SlicedRecordBatch design.
+                   batches <- decodeAllBatchesSliced recordsBytes
                    case batches of
                      Left err -> pure (Left ("Failed to decode batches: " ++ err))
                      Right bs ->
-                       let !kept = filter (keepBatch abortedByProducer) bs
+                       let !kept = filter (keepSlicedBatch abortedByProducer) bs
                            !v = V.concat
-                                  (map (convertBatchToRecordsV topicName partId) kept)
+                                  (map (convertSlicedBatchToRecordsV topicName partId) kept)
                        in pure (Right (partial V.++ v))
 
-    -- Decide whether to surface a batch's records to the user.
-    -- See the haddock at the top of the function for the full
-    -- rule set.
-    keepBatch :: HashMap.HashMap Int64 Int64 -> RB.RecordBatch -> Bool
-    keepBatch abortedByProducer batch =
-      let attrs = RB.batchAttributes batch
+    -- Sliced-batch variant of 'keepBatch'. See the haddock at
+    -- the top of the function for the rule set.
+    keepSlicedBatch
+      :: HashMap.HashMap Int64 Int64 -> RBW.SlicedRecordBatch -> Bool
+    keepSlicedBatch abortedByProducer batch =
+      let attrs = RBW.sbAttributes batch
       in not (RB.attrIsControl attrs)
          && (case isolationLevel of
                ReadUncommitted -> True
                ReadCommitted   ->
-                 -- A transactional batch is aborted when its
-                 -- producer id appears in 'abortedByProducer' and
-                 -- the batch's baseOffset is at or after the
-                 -- aborted-transaction's first offset. Non-
-                 -- transactional batches (attrIsTransactional ==
-                 -- False) are always kept.
                  not (RB.attrIsTransactional attrs)
                  || case HashMap.lookup
-                          (RB.batchProducerId batch) abortedByProducer of
-                      Nothing            -> True
+                          (RBW.sbProducerId batch) abortedByProducer of
+                      Nothing          -> True
                       Just firstOffset ->
-                        RB.batchBaseOffset batch < firstOffset)
+                        RBW.sbBaseOffset batch < firstOffset)
 
 -- | 'Vector'-returning sibling of 'convertBatchToRecords'. The
 -- batch's records are already a 'V.Vector', so we 'V.map' instead
@@ -1589,6 +1590,43 @@ convertBatchToRecordsV topic partId batch =
           , crHeaders   = convertHeaders (RB.recordHeaders rec)
           })
        (RB.batchRecords batch)
+
+-- | Materialise a 'V.Vector ConsumerRecord' directly from the
+-- sliced-batch shape. Skips the per-record 'RB.Record' /
+-- 'RB.RecordHeader' allocations the 'V.Vector Record' path
+-- would have produced; the per-record key + value
+-- 'BS.ByteString's are still zero-copy slices of the source
+-- buffer (the 'SliceVector' just collapses N independent
+-- 'ForeignPtr' GC roots into one).
+convertSlicedBatchToRecordsV
+  :: Text -> Int32 -> RBW.SlicedRecordBatch -> V.Vector ConsumerRecord
+convertSlicedBatchToRecordsV topic partId sb =
+  let !n = RBW.slicedRecordCount sb
+  in V.generate n $ \i -> ConsumerRecord
+       { crTopic     = topic
+       , crPartition = partId
+       , crOffset    = RBW.slicedRecordOffset    sb i
+       , crTimestamp = RBW.slicedRecordTimestamp sb i
+       , crKey       = RBW.slicedRecordKey       sb i
+       , crValue     = RBW.slicedRecordValue     sb i
+       , crHeaders   = convertSlicedHeaders sb i
+       }
+
+-- | Pull the i-th record's headers out of a 'SlicedRecordBatch'
+-- in the public @[(Text, ByteString)]@ shape. Mirrors
+-- 'convertHeaders' (UTF-8 decode the key, drop null values).
+convertSlicedHeaders
+  :: RBW.SlicedRecordBatch -> Int -> [(Text, ByteString)]
+convertSlicedHeaders sb i =
+  let !cnt = RBW.slicedRecordHeaderCount sb i
+      go !j acc
+        | j < 0     = acc
+        | otherwise =
+            let (kBs, mvBs) = RBW.slicedRecordHeader sb i j
+            in case mvBs of
+                 Nothing -> go (j - 1) acc
+                 Just vBs -> go (j - 1) ((TE.decodeUtf8 kBs, vBs) : acc)
+  in go (cnt - 1) []
 
 -- | Extract Text from KafkaString
 extractKafkaString :: P.KafkaString -> Text
@@ -1651,6 +1689,39 @@ calculateBatchLength batch =
   in case W.readInt32BE lengthBytes of
       Left _ -> 0
       Right len -> len
+
+-- | Sliced-shape sibling of 'decodeAllBatches'. Walks the
+-- concatenated record-batches buffer once, materialising each
+-- batch as a 'SlicedRecordBatch' (memory-efficient flat slice
+-- vectors over the source 'ForeignPtr', or over a fresh
+-- decompressed buffer for compressed batches).
+--
+-- The advance-cursor step uses the on-the-wire @length@ field
+-- (peeked directly via 'W.readInt32BE') so we don't have to
+-- re-encode the batch to learn how many bytes it occupies.
+decodeAllBatchesSliced
+  :: ByteString -> IO (Either String [RBW.SlicedRecordBatch])
+decodeAllBatchesSliced input = go input []
+  where
+    go bs acc
+      | BS.null bs = pure (Right (reverse acc))
+      | otherwise = do
+          -- Peek the on-the-wire length field at offset 8
+          -- (right after baseOffset). Handles both
+          -- compressed and uncompressed shapes since the
+          -- envelope is identical.
+          let !lengthBytes = BS.take 4 (BS.drop 8 bs)
+          case W.readInt32BE lengthBytes of
+            Left err -> pure (Left ("decodeAllBatchesSliced: bad length: " ++ err))
+            Right batchLen -> do
+              let !batchSize = 8 + 4 + fromIntegral batchLen :: Int
+                  !batchBs   = BS.take batchSize bs
+              r <- RBW.decodeRecordBatchWireSlicedWithDecompression batchBs
+              case r of
+                Left e -> pure (Left e)
+                Right sb -> do
+                  let !remaining = BS.drop batchSize bs
+                  go remaining (sb : acc)
 
 -- | Convert RecordHeaders to (Text, ByteString) tuples
 -- Only includes headers with non-null values
