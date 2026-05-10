@@ -227,7 +227,7 @@ with the implementation.
 | Suite                              | Count |
 |------------------------------------|-------|
 | `wireform-kafka:wireform-kafka-test`         | 588 |
-| `wireform-kafka:wireform-kafka-streams-test` | 315 |
+| `wireform-kafka:wireform-kafka-streams-test` | 318 |
 
 Both green on every commit on this branch.
 
@@ -271,20 +271,26 @@ surface that must land.
 
 ### 3.2 Streams gaps
 
-#### S0 — KafkaStreams runtime: engine ↔ NativeDriver wiring
+#### KafkaStreams runtime: engine ↔ StreamDriver wiring [DONE]
 
-- **What's done.** `Kafka.Streams.Runtime.NativeDriver` is the
-  driver record that wires `Producer` + `Consumer` + bound
-  `Transaction` against the streams engine. The pure decision
-  layers for KIP-441 probing (`ProbingRebalance`) and KIP-869
-  revocation grace (`RevocationGrace`) are in place. The KIP-892
-  store transactional buffer (`State.Transactional`) is in place.
-- **What's left.** Refactor `Kafka.Streams.Runtime` so the engine
-  consumes a `StreamDriver` instead of driving the in-process
-  mock directly. Cascades into `Streams/MockDriverModesSpec` and
-  `Streams/EngineSpec`. The driver / store-transactional / probe
-  / revocation building blocks the refactor needs are all
-  present; the work is "thread the driver through".
+- `Kafka.Streams.Runtime.NativeDriver.StreamDriver` is the
+  pluggable record-of-IO the streams runtime talks to. It
+  carries every consumer / producer / transactional / rebalance
+  callback the engine needs, so `Kafka.Streams.Runtime` is fully
+  decoupled from the wire layer.
+- `newNativeDriver` constructs the production driver from a
+  `Producer` + `Consumer` (+ optional bound `Transaction` for
+  EOS-V2). `newMockDriver` is a deterministic in-process driver
+  the test suite uses to exercise the runtime without a broker.
+- `startKafkaStreamsWith :: KafkaStreams -> StreamDriver -> IO ()`
+  is the injection seam; `startKafkaStreams` delegates to it
+  after building the default native driver. Tests in
+  `Streams.RuntimeDriverSpec` cover record flow, pause/resume,
+  and the EOS-V2 commit cycle through a recording coordinator.
+- The pure decision layers for KIP-441 probing
+  (`ProbingRebalance`) and KIP-869 revocation grace
+  (`RevocationGrace`) are in place; the KIP-892 store
+  transactional buffer (`State.Transactional`) is in place.
 
 #### S0 — Schema Registry: Avro / JSON-Schema / Protobuf payload serdes
 
@@ -331,26 +337,22 @@ surface that must land.
 
 In approximate order:
 
-1. **`KafkaStreams` runtime ↔ NativeDriver wiring** (S0). The
-   driver record + the pure decision layers (probing rebalance,
-   revocation grace) and the EOS-V3 store transactional buffer
-   are all in place. The remaining work is a deep refactor of
-   `Kafka.Streams.Runtime` so the engine consumes a `StreamDriver`
-   rather than driving the mock directly. Cascades into the
-   existing streams-test specs.
+1. ~~**`KafkaStreams` runtime ↔ StreamDriver wiring** (S0).~~
+   **DONE** — the runtime consumes a `StreamDriver` record-of-IO;
+   `startKafkaStreamsWith` is the injection seam and
+   `newMockDriver` covers the deterministic test path.
 2. **KIP-368 SASL re-auth pipeline integration** (S1). Pure
    helpers are in place (`effectiveReauthDeadlineMs` /
    `reauthRequiredAtMs`); the pipeline-side machinery that runs
    the fresh handshake mid-session without dropping in-flight
    requests still has to land.
-3. **Schema Registry payload serdes** (S0). Wire concrete Avro /
-   JSON-Schema / Protobuf serdes on top of the existing
-   `SchemaRegistryClient` + envelope helpers. HTTP-backed client
-   in a separate sub-library so http-client stays optional.
+3. ~~**Schema Registry payload serdes** (S0).~~ **DONE** —
+   `Kafka.Streams.Serde.{Avro,JsonSchema,Protobuf}` ship on top
+   of the `SchemaRegistryClient` + envelope helpers, plus a
+   transport-agnostic `Kafka.Streams.Serde.SchemaRegistry.Http`.
 4. ~~**KIP-213 FK-join DSL wiring** (S1).~~ **DONE** — the single
    `foreignKeyJoinKTable` combinator bakes in the KIP-213
-   subscription-token semantics; the V2 module is now the pure
-   data layer used by tests.
+   subscription-token semantics; the V2 module has been removed.
 5. **librdkafka stats interval emitter + OTLP exporter** (S1).
    `StatsJson` ships the snapshot shape; the producer / consumer
    need a scheduled emitter that polls existing counters every
@@ -411,12 +413,7 @@ commit message.
 
 The current snapshot of in-progress / pending work is:
 
-- **Top of the queue:** thread the new `Kafka.Streams.Runtime.NativeDriver`
-  through `Kafka.Streams.Runtime` so the engine drives the real
-  `Producer` + `Consumer` (with the bound `Transaction` providing
-  EOS-V2 commit boundaries) and the KIP-892 store-transactional
-  buffer drains on each commit (§3.2). All the building blocks
-  this refactor needs landed in this branch.
-- After that, the open items are the SASL re-auth pipeline driver
-  (KIP-368) and the live-broker Docker fixture for CI. None block
-  the others.
+- **Top of the queue:** the SASL re-auth pipeline driver
+  (KIP-368) and the live-broker Docker fixture for CI. The
+  S0 streams items (engine ↔ driver wiring, FK-join DSL,
+  Schema Registry payload serdes) have all landed.
