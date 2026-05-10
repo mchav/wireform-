@@ -22,6 +22,7 @@ module Streams.RuntimeDriverSpec (tests) where
 import qualified Control.Concurrent
 import qualified Data.ByteString.Char8 as BSC
 import Data.IORef
+import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
@@ -48,6 +49,8 @@ tests = testGroup "Runtime <-> StreamDriver"
   [ records_pumped_through_topology
   , pause_stops_engine_but_not_polling
   , commit_cycle_invokes_eos_coordinator
+  , multi_thread_runtime_dispatches_by_partition
+  , multi_thread_runtime_drains_collectors_at_commit
   ]
 
 bytes :: Text -> BSC.ByteString
@@ -244,6 +247,130 @@ commit_cycle_invokes_eos_coordinator =
     cnt <- mockDriverCommitCount h
     assertBool "runtime committed consumer offsets at least once"
       (cnt >= 1)
+
+----------------------------------------------------------------------
+-- 4. Multi-thread runtime: per-partition dispatch
+----------------------------------------------------------------------
+
+multi_thread_runtime_dispatches_by_partition :: TestTree
+multi_thread_runtime_dispatches_by_partition =
+  testCase "numStreamThreads=4: every partition's records reach the sink" $ do
+    topo <- buildUpcaseTopo
+    let cfg = defaultStreamsConfig
+          { applicationId    = "rt-multi-1"
+          , bootstrapServers = ["mock:0"]
+          , numStreamThreads = 4
+          , pollMs           = 0
+          }
+    ks <- newKafkaStreams cfg topo
+    (drv, h) <- newMockDriver
+
+    let recOn p = consumerRecordPart "in" p ("k" <> textShow p) "hello"
+                    (Int64ish (fromIntegral p)) (Int64ish 100)
+    -- 8 records spread across 4 partitions (2 per partition).
+    mockDriverInjectPoll h
+      [ recOn 0, recOn 1, recOn 2, recOn 3
+      , recOn 0, recOn 1, recOn 2, recOn 3
+      ]
+
+    startKafkaStreamsWith ks drv
+    awaitState ks StreamsRunning
+
+    sentRef <- newIORef []
+    waitFor 2000 $ do
+      sends <- mockDriverDrainSends h
+      modifyIORef' sentRef (++ sends)
+      acc <- readIORef sentRef
+      pure (length acc == 8 && all ((== "out") . mockSendTopic) acc)
+
+    finalSends <- readIORef sentRef
+    -- Order across workers isn't guaranteed (parallel), but
+    -- every send must be the upper-cased value and there must
+    -- be exactly 8 of them.
+    map (unbytes . mockSendValue) finalSends @?=
+      replicate 8 "HELLO"
+
+    closeKafkaStreams ks
+    awaitState ks StreamsClosed
+
+----------------------------------------------------------------------
+-- 5. Multi-thread runtime: collector drain + IQ federation
+----------------------------------------------------------------------
+
+multi_thread_runtime_drains_collectors_at_commit :: TestTree
+multi_thread_runtime_drains_collectors_at_commit =
+  testCase "numStreamThreads=2: per-key counts are partition-local + federated read returns the union" $ do
+    topo <- buildCountTopo
+    let cfg = defaultStreamsConfig
+          { applicationId    = "rt-multi-2"
+          , bootstrapServers = ["mock:0"]
+          , numStreamThreads = 2
+          , pollMs           = 0
+          }
+    ks <- newKafkaStreams cfg topo
+    (drv, h) <- newMockDriver
+
+    -- Three distinct keys on three distinct partitions; the
+    -- (topic, partition) hash decides which worker each lands
+    -- on, and we don't care which one — only that every key
+    -- shows up in the federated IQ view with the right count.
+    mockDriverInjectPoll h
+      [ consumerRecordPart "in" 0 "alice" "1" (Int64ish 0) (Int64ish 100)
+      , consumerRecordPart "in" 1 "bob"   "1" (Int64ish 1) (Int64ish 100)
+      , consumerRecordPart "in" 2 "carol" "1" (Int64ish 2) (Int64ish 100)
+      , consumerRecordPart "in" 0 "alice" "1" (Int64ish 3) (Int64ish 100)
+      , consumerRecordPart "in" 0 "alice" "1" (Int64ish 4) (Int64ish 100)
+      ]
+
+    startKafkaStreamsWith ks drv
+    awaitState ks StreamsRunning
+
+    -- Wait until the federated count shows the expected totals.
+    waitFor 2000 $ do
+      mIQ <- queryKVStore @Text @Int64 ks (storeName "counts")
+      case mIQ of
+        Nothing -> pure False
+        Just kvs -> do
+          a <- roKvGet kvs "alice"
+          b <- roKvGet kvs "bob"
+          c <- roKvGet kvs "carol"
+          pure (a == Just 3 && b == Just 1 && c == Just 1)
+
+    closeKafkaStreams ks
+    awaitState ks StreamsClosed
+
+----------------------------------------------------------------------
+-- Helpers shared by multi-thread tests
+----------------------------------------------------------------------
+
+textShow :: Show a => a -> Text
+textShow = T.pack . show
+
+-- | Build a count-by-key topology. Used by the IQ federation test.
+buildCountTopo :: IO TopologyValid
+buildCountTopo = do
+  b <- newStreamsBuilder
+  s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
+  let g = grouped textSerde textSerde
+      kgs = groupByKey g s
+  _ <- countStream (materializedAs (storeName "counts")) kgs
+  topo <- buildTopology b
+  case validateTopology topo of
+    Left err -> error (show err)
+    Right v  -> pure v
+
+consumerRecordPart
+  :: Text -> Int -> Text -> Text -> Int64ish -> Int64ish
+  -> KC.ConsumerRecord
+consumerRecordPart topic part k v off ts = KC.ConsumerRecord
+  { KC.crTopic     = topic
+  , KC.crPartition = fromIntegral part
+  , KC.crOffset    = fromIntegral (unI64 off)
+  , KC.crTimestamp = fromIntegral (unI64 ts)
+  , KC.crKey       = Just (bytes k)
+  , KC.crValue     = bytes v
+  , KC.crHeaders   = []
+  }
 
 ----------------------------------------------------------------------
 -- Wait helper (no threadDelay)

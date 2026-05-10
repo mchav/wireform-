@@ -59,7 +59,8 @@ module Kafka.Streams.InteractiveQueries
   ) where
 
 import Control.Exception (Exception)
-import Data.IORef (readIORef)
+import qualified Data.Foldable as Foldable
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import qualified Unsafe.Coerce as Unsafe
@@ -72,10 +73,16 @@ import Kafka.Streams.Internal.Engine
 import Kafka.Streams.Runtime
   ( KafkaStreams
   , ksEngine
+  , ksPool
+  )
+import qualified Kafka.Streams.Runtime.WorkerPool
+import Kafka.Streams.Runtime.WorkerPool
+  ( poolWorkers
+  , workerEngine
   )
 import Kafka.Streams.State.Store
   ( AnyStateStore (..)
-  , KeyValueIterator
+  , KeyValueIterator (..)
   , KeyValueStore (..)
   , SessionKey
   , SessionStore (..)
@@ -160,8 +167,85 @@ queryKVStore
 queryKVStore ks sn = do
   mEng <- readIORef (ksEngine ks)
   case mEng of
-    Nothing  -> pure Nothing
     Just eng -> queryEngineStore @k @v eng sn
+    Nothing  -> do
+      -- No single-thread engine: must be a multi-thread runtime
+      -- with a worker pool. Federate across worker engines (same
+      -- shape as Java's @CompositeReadOnlyKeyValueStore@: a
+      -- 'roKvGet' tries each task in turn, a 'roKvAll' chains
+      -- iterators across tasks).
+      mPool <- readIORef (ksPool ks)
+      case mPool of
+        Nothing   -> pure Nothing
+        Just pool -> federatedKV @k @v pool sn
+
+-- | Build a federated 'ReadOnlyKeyValueStore' that delegates to
+-- every worker's engine. Keys live on exactly one worker (the
+-- one the corresponding partition hashes to), so 'roKvGet'
+-- finds at most one match. 'roKvAll' chains all workers'
+-- iterators in deterministic worker-id order, matching the JVM
+-- composite-store ordering across local tasks.
+federatedKV
+  :: forall k v
+   . Kafka.Streams.Runtime.WorkerPool.WorkerPool
+  -> StoreName
+  -> IO (Maybe (ReadOnlyKeyValueStore k v))
+federatedKV pool sn = do
+  let !ws = poolWorkers pool
+  perWorker <- traverse
+    (\w -> queryEngineStore @k @v (workerEngine w) sn)
+    (Foldable.toList ws)
+  case [ s | Just s <- perWorker ] of
+    []     -> pure Nothing
+    stores -> pure $ Just $ ReadOnlyKeyValueStore
+      { roKvGet   = \k -> firstHit (map (\s -> roKvGet s k) stores)
+      , roKvRange = \lo hi -> do
+          its <- traverse (\s -> roKvRange s lo hi) stores
+          chainIterators its
+      , roKvAll = do
+          its <- traverse roKvAll stores
+          chainIterators its
+      , roKvCount = sumCounts stores
+      }
+  where
+    sumCounts ss = do
+      cs <- traverse roKvCount ss
+      pure $! sum cs
+
+-- | First IO action that yields 'Just'.
+firstHit :: [IO (Maybe a)] -> IO (Maybe a)
+firstHit []       = pure Nothing
+firstHit (a : as) = do
+  r <- a
+  case r of
+    Just _  -> pure r
+    Nothing -> firstHit as
+
+-- | Sequence a list of iterators into one. Each iterator is
+-- consumed in turn; we close it when it's drained.
+chainIterators :: [KeyValueIterator k v] -> IO (KeyValueIterator k v)
+chainIterators its0 = do
+  ref <- newIORef its0
+  pure KeyValueIterator
+    { kvIterNext = pump ref
+    , kvIterClose = do
+        rs <- readIORef ref
+        mapM_ kvIterClose rs
+        writeIORef ref []
+    }
+  where
+    pump ref = do
+      rs <- readIORef ref
+      case rs of
+        []       -> pure Nothing
+        (it : rest) -> do
+          mNext <- kvIterNext it
+          case mNext of
+            Just _  -> pure mNext
+            Nothing -> do
+              kvIterClose it
+              writeIORef ref rest
+              pump ref
 
 queryWindowStore
   :: forall k v

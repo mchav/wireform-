@@ -30,8 +30,10 @@ module Kafka.Streams.Runtime.WorkerPool
     WorkerPool
   , Worker (..)
   , newWorkerPool
+  , newWorkerPoolHashed
   , poolWorkers
   , submitRecord
+  , submitRecordHashed
   , waitForQuiescence
   , commitAllWorkers
   , closeWorkerPool
@@ -50,6 +52,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad (unless)
 import Data.ByteString (ByteString)
+import Data.Hashable (hash)
 import Data.Int (Int32, Int64)
 import Data.IORef
   ( IORef
@@ -190,6 +193,25 @@ buildRouting perWorker =
     , tp <- HashSet.toList owned
     ]
 
+-- | Build a pool of @n@ workers with no fixed partition
+-- ownership. Records submitted via 'submitRecordHashed' are
+-- dispatched by hashing @(topic, partition)@ modulo the worker
+-- count, so the same (topic, partition) always lands on the
+-- same worker (state-store consistency) even though the
+-- partition set isn't known up-front.
+--
+-- Used by the multi-thread runtime, where partitions are
+-- discovered as records are polled from the broker.
+newWorkerPoolHashed
+  :: Topo.TopologyValid
+  -> Text                                 -- ^ application id
+  -> Int                                  -- ^ worker count (>= 1)
+  -> IO WorkerPool
+newWorkerPoolHashed topo appId n
+  | n < 1     = error "newWorkerPoolHashed: worker count must be >= 1"
+  | otherwise = newWorkerPool topo appId
+                  (replicate n HashSet.empty)
+
 ----------------------------------------------------------------------
 -- Submit
 ----------------------------------------------------------------------
@@ -218,6 +240,47 @@ submitRecord pool topic key val ts part = do
             writeTQueue (workerInbox w)
               (WorkRecord topic key val ts part off)
             modifyTVar' (workerSubmitted w) (+ 1)
+
+-- | Like 'submitRecord' but dispatch by @hash (topic, partition)
+-- mod numWorkers@. Used by the broker-backed runtime where the
+-- partition set isn't known until the consumer reports them.
+-- Records that hash to the same worker preserve state-store
+-- locality: stores live per-worker, so the same key (and the
+-- same partition) always hit the same store.
+--
+-- The first time a (topic, partition) lands here we record the
+-- chosen worker in 'poolRouting', so subsequent records on that
+-- partition skip the hash and route through the table — matches
+-- the JVM's sticky behaviour within a stream-thread.
+submitRecordHashed
+  :: WorkerPool
+  -> TopicName
+  -> Maybe ByteString
+  -> ByteString
+  -> Timestamp
+  -> Int
+  -> IO ()
+submitRecordHashed pool topic key val ts part = do
+  off <- atomicModifyIORef' (poolNextOff pool) (\n -> (n + 1, n))
+  let !nWorkers = V.length (poolWorkers pool)
+  if nWorkers == 0
+    then pure ()
+    else do
+      let !tp = (topic, fromIntegral part :: Int32)
+      idx <- atomically $ do
+        m <- readTVar (poolRouting pool)
+        case HashMap.lookup tp m of
+          Just i -> pure i
+          Nothing -> do
+            let !i = abs (hash tp) `mod` nWorkers
+            writeTVar (poolRouting pool) (HashMap.insert tp i m)
+            pure i
+      case HashMap.lookup idx (poolWorkersByIdx pool) of
+        Nothing -> pure ()
+        Just w  -> atomically $ do
+          writeTQueue (workerInbox w)
+            (WorkRecord topic key val ts part off)
+          modifyTVar' (workerSubmitted w) (+ 1)
 
 -- | Block until every record submitted so far has finished
 -- processing on the right worker.  Coordinated via per-worker
@@ -269,16 +332,26 @@ workerLoop w = loop
       case next of
         Nothing -> pure ()
         Just r  -> do
-          -- Filter on ownership for safety; the routing index
-          -- shouldn't have sent us anything we don't own.
+          -- Filter on ownership for safety, but only when the
+          -- pool was constructed with an explicit ownership
+          -- set. Hash-routed pools (built by
+          -- 'newWorkerPoolHashed') have empty 'workerOwned' and
+          -- skip the check; routing is decided by the
+          -- 'submitRecordHashed' caller.
           let !tp = (wrTopic r, fromIntegral (wrPartition r))
-          if HashSet.member tp (workerOwned w)
+              !ok = HashSet.null (workerOwned w)
+                      || HashSet.member tp (workerOwned w)
+          if ok
             then do
               feedSource (workerEngine w) (wrTopic r)
                 (wrKey r) (wrValue r) (wrTimestamp r)
                 (wrPartition r) (wrOffset r)
               atomically $ modifyTVar' (workerProcessed w) (+ 1)
-            else pure ()
+            else
+              -- Record is for a partition this worker doesn't
+              -- own; drop it but still bump 'workerProcessed'
+              -- so 'waitForQuiescence' can make progress.
+              atomically $ modifyTVar' (workerProcessed w) (+ 1)
           loop
 
 workerProcessedCount :: Worker -> IO Int64

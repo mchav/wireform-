@@ -34,7 +34,7 @@ whether the library fits your use case before writing code.
 | Schema Registry serdes        | **In place.** Avro / JSON-Schema / Protobuf payload serdes + Confluent envelope + transport-agnostic HTTP.  |
 | Standby tasks                 | **Scaffolding only.** Mock cluster understands changelog topics; no live runtime support yet.               |
 | KIP-441 probing rebalance     | **Pure decision layer in place.** Not yet wired into the live consumer-group protocol.                      |
-| Multi-broker live runtime     | **Best-effort.** Single-thread happy path runs against a real broker; multi-thread / multi-instance is the next milestone. |
+| Multi-thread runtime          | **Yes.** `numStreamThreads > 1` spins up an N-worker pool; one consumer dispatches by `hash (topic, partition) mod N` so per-partition state stays coherent. Multi-instance (multiple processes joining the same group) is the next milestone. |
 | Live-broker integration tests | Behind a `WIREFORM_KAFKA_BROKER` env var. Docker fixture for CI is pending.                                 |
 | GHC                           | **9.6.4 and 9.8.4** (matrix in CI). 9.10 / 9.12 not yet tested.                                             |
 
@@ -299,14 +299,32 @@ slightly differently. None are deal-breakers; they just exist.
    a separate type. To strip the window envelope use
    `selectKey` after `suppress`.
 
-5. **The runtime is single-thread happy-path.** A single
-   stream-thread processes all assigned partitions
-   sequentially. Multi-thread / multi-instance is the next
-   milestone; the building blocks are in place
-   (`Kafka.Streams.Runtime.WorkerPool`, KIP-441 probing
-   rebalance, KIP-869 revocation grace, KIP-892 transactional
-   buffer) but the live consumer-group integration is still
-   single-thread.
+5. **The runtime is "one consumer, N workers", not "N
+   stream-threads, each its own consumer".** Java's
+   `StreamThread` model is one consumer + one producer per
+   thread joining the same group; the broker's coordinator
+   reassigns partitions across threads. We use a
+   simpler-but-effective design:
+   - One `StreamDriver` (one consumer, one producer) per
+     `KafkaStreams` instance.
+   - With `numStreamThreads = N > 1`, the runtime spins up a
+     'WorkerPool' of N workers, each with its own engine and
+     state stores. Records dispatch by `hash (topic,
+     partition) mod N` (sticky within a process), so the
+     same partition consistently lands on the same worker.
+   - At commit time the runtime drains every worker's
+     in-memory collector through the shared producer.
+   - Interactive Queries federate across worker engines the
+     way Java's `CompositeReadOnlyKeyValueStore` federates
+     across local tasks.
+
+   The tradeoffs vs. Java's per-thread model:
+   - **Less network overhead** — one consumer connection.
+   - **No store rebalance across workers within a process** —
+     a partition's state stays on whichever worker it first
+     hashed to. Multi-instance (multiple OS processes joining
+     the same group) is what you'd use to redistribute work
+     across a cluster, and that's the next milestone.
 
 6. **`processStream` returns `IO ()`, not `KStream`.** The
    JVM `KStream.process(ProcessorSupplier, ...)` returns a
@@ -333,13 +351,15 @@ Honest list. Items here aren't unsupported in principle —
 they just haven't landed yet. Each line points at the relevant
 tracker entry.
 
-- **Multi-thread runtime live-broker.** A single-thread happy
-  path runs against a real broker (see
-  `Kafka.Streams.Runtime`). The pure decision layers
-  (probing rebalance, revocation grace, store-transactional
-  buffer) are in place; threading them through a worker pool
-  driving the live consumer-group protocol is the next
-  milestone. `FEATURE_PARITY.md` §3.2.
+- **Multi-instance runtime.** `numStreamThreads > 1` works
+  within a process (worker pool with per-partition stickiness
+  and federated IQ). Multiple OS processes joining the same
+  consumer group and rebalancing partitions across instances
+  is the next milestone — the pure decision layers
+  (probing rebalance, revocation grace) are in place
+  (`Kafka.Streams.Runtime.{ProbingRebalance,RevocationGrace}`),
+  the live consumer-group rebalance hooks are pending.
+  `FEATURE_PARITY.md` §3.2.
 - **Standby tasks, live.** The mock cluster understands
   changelog topics and warmup reads (`Kafka.Streams.Mock.Cluster`);
   the live runtime doesn't yet recover state from changelogs
@@ -370,8 +390,8 @@ tracker entry.
 
 The streams runtime and DSL are otherwise considered
 **feature-complete relative to Kafka 4.0 Streams** for the
-single-thread / in-process happy path, and tests cover every
-shipped operator end-to-end (318 tests in
+single-thread / multi-thread / in-process happy path, and
+tests cover every shipped operator end-to-end (320 tests in
 `wireform-kafka-streams-test`).
 
 ---
@@ -394,9 +414,10 @@ shipped operator end-to-end (318 tests in
 
 **Consider alternatives:**
 
-- You need a battle-hardened multi-instance live runtime
-  *today* — JVM Streams is the answer until our multi-thread
-  runtime work lands.
+- You need to scale a single consumer group across many OS
+  processes today — the within-process multi-thread runtime
+  works, but cross-process rebalance hasn't landed; for a
+  multi-instance deployment JVM Streams is still the answer.
 - You need bug-for-bug compatibility with Streams-the-product
   including its quirks. We aim for spec compliance, not
   bug-for-bug.

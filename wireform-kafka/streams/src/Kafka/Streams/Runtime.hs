@@ -61,6 +61,7 @@ module Kafka.Streams.Runtime
   , publishLag
     -- * Internal access (used by Kafka.Streams.InteractiveQueries)
   , ksEngine
+  , ksPool
   ) where
 
 import Control.Concurrent.Async (Async, async, cancel, waitCatch)
@@ -93,6 +94,17 @@ import Kafka.Streams.Runtime.NativeDriver
   ( StreamDriver (..)
   , newNativeDriver
   )
+import Kafka.Streams.Runtime.WorkerPool
+  ( WorkerPool
+  , Worker (..)
+  , closeWorkerPool
+  , commitAllWorkers
+  , newWorkerPoolHashed
+  , poolWorkers
+  , submitRecordHashed
+  , waitForQuiescence
+  , workerCollector
+  )
 import Kafka.Streams.Internal.Engine
   ( Engine
   , buildEngine
@@ -103,7 +115,9 @@ import Kafka.Streams.Internal.Engine
 import Kafka.Streams.Internal.RecordCollector
   ( CollectedRecord (..)
   , RecordCollector (..)
+  , drainCollector
   )
+import qualified Data.Vector as V
 import Data.Int (Int64)
 import Kafka.Streams.Processor (TaskId (..))
 import qualified Kafka.Streams.Topology as Topo
@@ -132,6 +146,15 @@ data KafkaStreams = KafkaStreams
   , ksThread    :: !(IORef (Maybe (Async ())))
   , ksDriver    :: !(IORef (Maybe StreamDriver))
   , ksEngine    :: !(IORef (Maybe Engine))
+    -- ^ Single-threaded runtime engine. With
+    -- 'numStreamThreads = 1' (the default) this is the engine
+    -- that drives every record. With 'numStreamThreads > 1'
+    -- it remains 'Nothing'; per-thread engines live inside
+    -- 'ksPool' instead. 'Kafka.Streams.InteractiveQueries'
+    -- prefers 'ksEngine' when set and falls back to the
+    -- first worker's engine otherwise.
+  , ksPool      :: !(IORef (Maybe WorkerPool))
+    -- ^ Worker pool used when 'numStreamThreads > 1'.
   , ksEosCoord  :: !(IORef EOSCoordinator)
   , ksListener  :: !(IORef StateListener)
   , ksPaused    :: !(TVar Bool)
@@ -147,6 +170,7 @@ newKafkaStreams cfg topo = do
   t <- newIORef Nothing
   d <- newIORef Nothing
   e <- newIORef Nothing
+  pool <- newIORef Nothing
   eos <- newIORef noopEOSCoordinator
   lis <- newIORef (\_ _ -> pure ())
   pa  <- newTVarIO False
@@ -158,6 +182,7 @@ newKafkaStreams cfg topo = do
     , ksThread    = t
     , ksDriver    = d
     , ksEngine    = e
+    , ksPool      = pool
     , ksEosCoord  = eos
     , ksListener  = lis
     , ksPaused    = pa
@@ -197,30 +222,47 @@ startKafkaStreams ks = do
 startKafkaStreamsWith :: KafkaStreams -> StreamDriver -> IO ()
 startKafkaStreamsWith ks driver = do
   writeIORef (ksDriver ks) (Just driver)
-  collector <- driverCollector driver
-  let topo = ksTopology ks
-  engine <- buildEngine topo (TaskId 0 0)
-              (applicationId (ksConfig ks))
-              collector
-              logAndContinue
-  writeIORef (ksEngine ks) (Just engine)
-  -- We deliberately do NOT reset 'ksEosCoord' here: a caller
-  -- that 'applyEOSCoordinator' before starting expects their
-  -- coordinator to be the one driving commit cycles. The default
-  -- ('noopEOSCoordinator') is already installed by
-  -- 'newKafkaStreams'; under AtLeastOnceP that's exactly the
-  -- behaviour we want, and under ExactlyOnceV2 the user is
-  -- expected to install a real coordinator (typically a
-  -- 'newRealEOSCoordinator' wrapping a
-  -- 'Kafka.Client.Transaction.Transaction') before 'start*'.
-  let topics = sourceTopics topo
-  eSubs <- sdConsumerSubscribe driver (map unTopicName topics)
-  case eSubs of
-    Left err -> setError ks ("subscribe: " <> Text.pack err)
-    Right () -> do
-      ah <- async (eventLoop ks driver engine)
-      writeIORef (ksThread ks) (Just ah)
-      transitionTo ks StreamsRunning
+  let cfg  = ksConfig ks
+      topo = ksTopology ks
+      n    = max 1 (numStreamThreads cfg)
+  if n <= 1
+    then startSingleThreaded ks driver topo
+    else startMultiThreaded  ks driver topo n
+  where
+    startSingleThreaded ks_ drv topo = do
+      collector <- driverCollector drv
+      engine <- buildEngine topo (TaskId 0 0)
+                  (applicationId (ksConfig ks_))
+                  collector
+                  logAndContinue
+      writeIORef (ksEngine ks_) (Just engine)
+      -- We deliberately do NOT reset 'ksEosCoord' here: a caller
+      -- that 'applyEOSCoordinator' before starting expects their
+      -- coordinator to be the one driving commit cycles. The
+      -- default ('noopEOSCoordinator') is already installed by
+      -- 'newKafkaStreams'; under AtLeastOnceP that's exactly the
+      -- behaviour we want, and under ExactlyOnceV2 the user is
+      -- expected to install a real coordinator before 'start*'.
+      let topics = sourceTopics topo
+      eSubs <- sdConsumerSubscribe drv (map unTopicName topics)
+      case eSubs of
+        Left err -> setError ks_ ("subscribe: " <> Text.pack err)
+        Right () -> do
+          ah <- async (eventLoop ks_ drv engine)
+          writeIORef (ksThread ks_) (Just ah)
+          transitionTo ks_ StreamsRunning
+
+    startMultiThreaded ks_ drv topo n = do
+      pool <- newWorkerPoolHashed topo (applicationId (ksConfig ks_)) n
+      writeIORef (ksPool ks_) (Just pool)
+      let topics = sourceTopics topo
+      eSubs <- sdConsumerSubscribe drv (map unTopicName topics)
+      case eSubs of
+        Left err -> setError ks_ ("subscribe: " <> Text.pack err)
+        Right () -> do
+          ah <- async (multiEventLoop ks_ drv pool)
+          writeIORef (ksThread ks_) (Just ah)
+          transitionTo ks_ StreamsRunning
 
 producerCfg :: KafkaStreams -> KP.ProducerConfig
 producerCfg ks = KP.defaultProducerConfig
@@ -348,6 +390,100 @@ eventLoop ks driver engine = go
               CommitFatal reason ->
                 transitionTo ks (StreamsError reason)
 
+----------------------------------------------------------------------
+-- Multi-thread event loop
+----------------------------------------------------------------------
+
+-- | The N-worker variant. One async thread polls the consumer
+-- and dispatches each polled record into the worker pool by
+-- @hash (topic, partition) mod N@. After every poll we wait for
+-- worker-side quiescence, drain every worker's collector
+-- through the producer, then commit consumer offsets — same
+-- shape as the single-thread loop, but the engine work happens
+-- in parallel across workers.
+--
+-- The "one consumer, N workers" topology is a deliberate
+-- simplification of Java's "one consumer per StreamThread"
+-- model. It uses a single consumer connection (less network
+-- overhead) and lets per-partition state stay coherent because
+-- each (topic, partition) consistently lands on the same
+-- worker. Tradeoff: rebalance reassignments don't redistribute
+-- store state across workers — they stay where they were
+-- hashed. Documented in 'streams/README.md'.
+multiEventLoop :: KafkaStreams -> StreamDriver -> WorkerPool -> IO ()
+multiEventLoop ks driver pool = go
+  where
+    go = do
+      status <- readTVarIO (ksStatus ks)
+      unless (status == StreamsClosing || status == StreamsClosed) $ do
+        eRecs <- sdConsumerPoll driver (pollMs (ksConfig ks))
+        case eRecs of
+          Left err ->
+            transitionTo ks (StreamsError (Text.pack err))
+          Right recs -> do
+            paused <- readTVarIO (ksPaused ks)
+            unless paused $
+              forM_ recs $ \rec ->
+                submitRecordHashed pool
+                  (topicName (KC.crTopic rec))
+                  (KC.crKey rec)
+                  (KC.crValue rec)
+                  (Timestamp (KC.crTimestamp rec))
+                  (fromIntegral (KC.crPartition rec))
+            -- Wait until every just-submitted record is processed.
+            waitForQuiescence pool
+
+            let !commitOffsets =
+                  if paused
+                    then HashMap.empty
+                    else HashMap.fromListWith max
+                           [ ( KC.TopicPartition
+                                 (KC.crTopic rec)
+                                 (fromIntegral (KC.crPartition rec))
+                             , KC.crOffset rec + 1
+                             )
+                           | rec <- recs
+                           ]
+
+            coord <- readIORef (ksEosCoord ks)
+            outcome <- runCommitCycle
+              coord
+              (applicationId (ksConfig ks))
+              (pure commitOffsets)
+              (drainWorkersThroughDriver driver pool)
+            case outcome of
+              CommitSucceeded -> do
+                _ <- sdConsumerCommit driver
+                go
+              CommitAborted reason -> do
+                putStrLn ("[streams] commit aborted: "
+                  <> Text.unpack reason)
+                go
+              CommitFatal reason ->
+                transitionTo ks (StreamsError reason)
+
+-- | Commit-cycle body for the multi-thread loop: commit each
+-- worker's engine (flushing state stores), drain every
+-- worker's in-memory collector through the producer, and flush
+-- the producer once at the end. The producer flush is the
+-- single sync barrier guaranteeing every record made it to
+-- the broker before consumer offsets advance.
+drainWorkersThroughDriver :: StreamDriver -> WorkerPool -> IO ()
+drainWorkersThroughDriver driver pool = do
+  commitAllWorkers pool
+  V.forM_ (poolWorkers pool) $ \w -> do
+    pairs <- drainCollector (workerCollector w)
+    forM_ pairs $ \(t, rs) ->
+      forM_ rs $ \cr -> do
+        _ <- sdProducerSend driver (unTopicName t) (crKey cr) (crValue cr)
+        pure ()
+  _ <- sdProducerFlush driver
+  pure ()
+
+----------------------------------------------------------------------
+-- Lifecycle
+----------------------------------------------------------------------
+
 closeKafkaStreams :: KafkaStreams -> IO ()
 closeKafkaStreams ks = do
   transitionTo ks StreamsClosing
@@ -360,6 +496,8 @@ closeKafkaStreams ks = do
     Nothing -> pure ()
   mE <- readIORef (ksEngine ks)
   forM_ mE closeEngine
+  mPool <- readIORef (ksPool ks)
+  forM_ mPool closeWorkerPool
   mD <- readIORef (ksDriver ks)
   forM_ mD $ \drv -> do
     sdConsumerClose drv
