@@ -6,6 +6,7 @@ module Client.MetadataLeaderUpdateSpec (tests) where
 
 import Control.Concurrent.STM (atomically)
 import qualified Data.HashMap.Strict as Map
+import qualified Data.IntMap.Strict as IntMap
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
@@ -39,14 +40,14 @@ mkCacheWith cm = do
 
 baseMetadata :: Meta.ClusterMetadata
 baseMetadata = Meta.ClusterMetadata
-  { Meta.clusterBrokers = Map.fromList
+  { Meta.clusterBrokers = IntMap.fromList
       [ (1, Meta.BrokerMetadata 1 (BrokerAddress "b1" 9092))
       , (2, Meta.BrokerMetadata 2 (BrokerAddress "b2" 9092))
       ]
   , Meta.clusterTopics = Map.fromList
       [ ( "t"
         , Meta.TopicMetadata "t"
-            (Map.fromList
+            (IntMap.fromList
                [ (0, Meta.PartitionMetadata 0 1 [1, 2] [1, 2])
                , (1, Meta.PartitionMetadata 1 2 [1, 2] [1, 2])
                ])

@@ -5,6 +5,7 @@ module Client.MetadataSpec (tests) where
 import Control.Concurrent.STM
 import Data.Int
 import qualified Data.HashMap.Strict as Map
+import qualified Data.IntMap.Strict as IntMap
 import Data.Text (Text)
 import Control.Monad (replicateM)
 import Hedgehog
@@ -43,7 +44,8 @@ genTopicMetadata = do
   name <- Gen.text (Range.linear 5 20) Gen.alphaNum
   numPartitions <- Gen.int (Range.linear 1 5)
   partitions <- replicateM numPartitions genPartitionMetadata
-  let partMap = Map.fromList $ map (\p -> (partitionMetaId p, p)) partitions
+  let partMap = IntMap.fromList
+        $ map (\p -> (fromIntegral (partitionMetaId p), p)) partitions
   errorCode <- Gen.int16 (Range.linear 0 10)
   isInternal <- Gen.bool
   return $ TopicMetadata name partMap errorCode isInternal P.nullUuid
@@ -53,7 +55,8 @@ genClusterMetadata :: Gen ClusterMetadata
 genClusterMetadata = do
   numBrokers <- Gen.int (Range.linear 1 5)
   brokers <- replicateM numBrokers genBrokerMetadata
-  let brokerMap = Map.fromList $ map (\b -> (brokerMetaNodeId b, b)) brokers
+  let brokerMap = IntMap.fromList
+        $ map (\b -> (fromIntegral (brokerMetaNodeId b), b)) brokers
   
   numTopics <- Gen.int (Range.linear 1 3)
   topics <- replicateM numTopics genTopicMetadata

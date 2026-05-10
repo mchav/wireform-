@@ -82,8 +82,8 @@ import qualified Data.Binary.Put as BP
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.HashMap.Strict as HashMap
-import Data.HashMap.Strict (HashMap)
+import qualified Data.IntMap.Strict as IntMap
+import Data.IntMap.Strict (IntMap)
 import Data.Int
 import qualified Data.IntSet as IntSet
 import Data.IntSet (IntSet)
@@ -140,12 +140,16 @@ data Pipeline = Pipeline
   { pipelineConnection :: !Connection
   , pipelineConfig     :: !PipelineConfig
   , pipelineNextId     :: !(TVar RequestId)
-  , pipelinePending    :: !(TVar (HashMap RequestId PendingRequest))
-    -- ^ 'HashMap' (not 'Data.Map.Strict.Map') because the receive
-    -- loop's per-response 'lookup' + 'delete' is the hottest
-    -- access on the pipeline; with a 32-bit 'RequestId' key the
-    -- O(1) average path is materially cheaper than the tree
-    -- variant under high in-flight counts.
+  , pipelinePending    :: !(TVar (IntMap PendingRequest))
+    -- ^ 'IntMap' keyed on the 'RequestId' (correlation id) is
+    -- the hottest access on the pipeline: every response from
+    -- the broker triggers a 'lookup' + 'delete'. 'IntMap' wins
+    -- over both 'Data.Map.Strict.Map' (which would do
+    -- lexicographic 'Int' compares per branch) and
+    -- 'Data.HashMap.Strict.HashMap' (which would compute a
+    -- per-call 'hashInt32' and walk a collision chain). For
+    -- the typical 5-100 in-flight count the Patricia trie is
+    -- 1-7 nodes deep, comparing branching bits directly.
   , pipelineSendQueue  :: !(TQueue SendItem)
   , pipelineStats      :: !(TVar PipelineStats)
   , pipelineClosed     :: !(TVar Bool)
@@ -174,7 +178,7 @@ createPipeline
   -> IO Pipeline
 createPipeline conn config = do
   nextId    <- newTVarIO 0
-  pending   <- newTVarIO HashMap.empty
+  pending   <- newTVarIO IntMap.empty
   sendQueue <- newTQueueIO
   stats     <- newTVarIO emptyStats
   closed    <- newTVarIO False
@@ -213,8 +217,8 @@ closePipeline Pipeline{..} = do
       mapM_
         (\PendingRequest{..} ->
             tryPutTMVar pendingResponse (Left "pipeline closed"))
-        (HashMap.elems m)
-      writeTVar pipelinePending HashMap.empty
+        (IntMap.elems m)
+      writeTVar pipelinePending IntMap.empty
     -- Cancel background threads.
     ts <- readTVarIO pipelineThreads
     mapM_ cancel ts
@@ -269,7 +273,7 @@ allocateAndQueue Pipeline{..} builder now = do
       -- Backpressure: block until both inflight + queue have headroom.
       qSize <- queueSize pipelineSendQueue
       pendingMap <- readTVar pipelinePending
-      let !inFlight = HashMap.size pendingMap
+      let !inFlight = IntMap.size pendingMap
       check (qSize <  pipelineMaxQueueSize pipelineConfig)
       check (inFlight < pipelineMaxInFlight pipelineConfig)
       -- Allocate a fresh correlation id. We loop until we find
@@ -282,7 +286,8 @@ allocateAndQueue Pipeline{..} builder now = do
             , pendingResponse  = slot
             , pendingTimestamp = now
             }
-      writeTVar pipelinePending (HashMap.insert cid req pendingMap)
+      writeTVar pipelinePending
+        (IntMap.insert (fromIntegral cid) req pendingMap)
       let !bytes = builder cid
       writeTQueue pipelineSendQueue (SendItem cid bytes)
       modifyTVar' pipelineStats $ \s -> s
@@ -306,7 +311,7 @@ queueSize q = go 0 []
         Just h -> go (n + 1) (h : acc)
 
 nextFreeCorrelationId
-  :: TVar RequestId -> HashMap RequestId a -> STM RequestId
+  :: TVar RequestId -> IntMap a -> STM RequestId
 nextFreeCorrelationId ref m = go (32 :: Int)
   where
     go 0 = pure 0  -- gave up (every id pending — practically impossible)
@@ -314,7 +319,7 @@ nextFreeCorrelationId ref m = go (32 :: Int)
       cid <- readTVar ref
       let !next = if cid == maxBound then 0 else cid + 1
       writeTVar ref next
-      if HashMap.member cid m
+      if IntMap.member (fromIntegral cid) m
         then go (n - 1)
         else pure cid
 
@@ -404,10 +409,11 @@ receiveLoop p@Pipeline{..} = loop
           Right (Right (cid, body)) -> do
             mReq <- atomically $ do
               m <- readTVar pipelinePending
-              case HashMap.lookup cid m of
+              case IntMap.lookup (fromIntegral cid) m of
                 Nothing -> pure Nothing
                 Just req -> do
-                  writeTVar pipelinePending (HashMap.delete cid m)
+                  writeTVar pipelinePending
+                    (IntMap.delete (fromIntegral cid) m)
                   modifyTVar' pipelineStats $ \s -> s
                     { statsResponsesReceived = statsResponsesReceived s + 1
                     , statsCurrentInFlight   = max 0 (statsCurrentInFlight s - 1)
@@ -459,16 +465,15 @@ timeoutLoop p@Pipeline{..} = loop
         let cutoff = now - pipelineTimeout pipelineConfig
         timedOut <- atomically $ do
           m <- readTVar pipelinePending
-          -- 'HashMap' has no 'partition'; do the split in one
-          -- 'foldlWithKey'' pass so we don't traverse twice.
-          let !(expiredList, !alive, !nExpired) =
-                HashMap.foldlWithKey'
-                  (\(es, a, n) k req@PendingRequest{..} ->
-                      if pendingTimestamp <= cutoff
-                        then (req : es, a, n + 1)
-                        else (es, HashMap.insert k req a, n))
-                  ([], HashMap.empty, 0 :: Int)
+          -- 'IntMap' has 'partition' built in: one Patricia-trie
+          -- walk splits the still-alive entries from the expired
+          -- ones in O(n + m).
+          let !(alive, expiredMap) =
+                IntMap.partition
+                  (\PendingRequest{..} -> pendingTimestamp > cutoff)
                   m
+              !expiredList = IntMap.elems expiredMap
+              !nExpired    = IntMap.size  expiredMap
           writeTVar pipelinePending alive
           modifyTVar' pipelineStats $ \s -> s
             { statsRequestsTimedOut =
@@ -494,8 +499,8 @@ failPipeline Pipeline{..} reason = do
     mapM_
       (\PendingRequest{..} ->
           tryPutTMVar pendingResponse (Left reason))
-      (HashMap.elems m)
-    writeTVar pipelinePending HashMap.empty
+      (IntMap.elems m)
+    writeTVar pipelinePending IntMap.empty
 
 ----------------------------------------------------------------------
 -- Helpers

@@ -55,6 +55,8 @@ import Control.Concurrent.STM
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 import Data.Int
+import qualified Data.IntMap.Strict as IntMap
+import Data.IntMap.Strict (IntMap)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -89,11 +91,16 @@ data PartitionMetadata = PartitionMetadata
 -- | Information about a topic
 data TopicMetadata = TopicMetadata
   { topicMetaName :: !Text
-  , topicMetaPartitions :: !(HashMap Int32 PartitionMetadata)
-    -- ^ Map from partition ID to partition metadata. 'HashMap'
-    -- (not 'Data.Map.Strict.Map') because the producer/consumer
-    -- hot path looks up by 'Int32' partition id; O(1) average
-    -- vs. tree-based O(log n).
+  , topicMetaPartitions :: !(IntMap PartitionMetadata)
+    -- ^ Map from partition ID to partition metadata. 'IntMap'
+    -- (not 'HashMap' or 'Data.Map.Strict.Map') because the
+    -- producer/consumer hot path looks up by 'Int32' partition
+    -- id every time. 'IntMap' beats 'HashMap' on small int
+    -- keys: no per-call hash, no collision chain, the Patricia
+    -- trie compares the partition id against branching bits
+    -- directly. For the typical 1-100 partition cardinality the
+    -- tree is 1-7 nodes deep; the lookup is essentially a
+    -- handful of pointer dereferences with great cache locality.
   , topicMetaErrorCode :: !Int16
   , topicMetaIsInternal :: !Bool
     -- ^ KIP-444: whether this topic is a Kafka-internal topic
@@ -110,10 +117,14 @@ data TopicMetadata = TopicMetadata
 
 -- | Complete cluster metadata
 data ClusterMetadata = ClusterMetadata
-  { clusterBrokers :: !(HashMap Int32 BrokerMetadata)
-    -- ^ Map from node ID to broker metadata. 'HashMap' for the
-    -- same reason as 'topicMetaPartitions': hot 'getPartitionLeader'
-    -- path does one broker lookup per produce / fetch.
+  { clusterBrokers :: !(IntMap BrokerMetadata)
+    -- ^ Map from node ID to broker metadata. 'IntMap' for the
+    -- same reason as 'topicMetaPartitions': hot
+    -- 'getPartitionLeader' path does one broker lookup per
+    -- produce / fetch, and the broker count is even smaller
+    -- (3-30 nodes is typical), so the no-hash, branchless
+    -- Patricia walk is meaningfully cheaper than 'HashMap''s
+    -- per-call 'hashInt' + chain traversal.
   , clusterTopics :: !(HashMap Text TopicMetadata)
     -- ^ Map from topic name to topic metadata. 'HashMap Text'
     -- avoids the lexicographic 'Text' compare a 'Map Text'
@@ -152,10 +163,10 @@ getPartitionLeader (MetadataCache metaVar) topic partitionId = do
       case HashMap.lookup topic clusterTopics of
         Nothing -> return Nothing
         Just TopicMetadata{..} ->
-          case HashMap.lookup partitionId topicMetaPartitions of
+          case IntMap.lookup (fromIntegral partitionId) topicMetaPartitions of
             Nothing -> return Nothing
             Just PartitionMetadata{..} ->
-              return $ HashMap.lookup partitionMetaLeader clusterBrokers
+              return $ IntMap.lookup (fromIntegral partitionMetaLeader) clusterBrokers
 
 -- | Get all partitions for a topic
 getTopicPartitions
@@ -170,7 +181,7 @@ getTopicPartitions (MetadataCache metaVar) topic = do
       case HashMap.lookup topic clusterTopics of
         Nothing -> return Nothing
         Just TopicMetadata{..} ->
-          return $ Just $ HashMap.elems topicMetaPartitions
+          return $ Just $ IntMap.elems topicMetaPartitions
 
 -- | Get partition count for a topic (KIP-480: needed for sticky partitioner)
 getPartitionCount
@@ -185,7 +196,7 @@ getPartitionCount (MetadataCache metaVar) topic = do
       case HashMap.lookup topic clusterTopics of
         Nothing -> return Nothing
         Just TopicMetadata{..} ->
-          return $ Just $ fromIntegral $ HashMap.size topicMetaPartitions
+          return $ Just $ fromIntegral $ IntMap.size topicMetaPartitions
 
 -- | KIP-466: update the cached leader for a (topic, partition).
 -- Called when a Produce / Fetch response surfaces the
@@ -212,12 +223,13 @@ updatePartitionLeader (MetadataCache metaVar) topic partitionId newLeaderId = do
       case HashMap.lookup topic clusterTopics of
         Nothing -> pure ()
         Just t@TopicMetadata{..} ->
-          case HashMap.lookup partitionId topicMetaPartitions of
+          case IntMap.lookup (fromIntegral partitionId) topicMetaPartitions of
             Nothing -> pure ()
             Just p ->
               let !p'  = p { partitionMetaLeader = newLeaderId }
                   !t'  = t { topicMetaPartitions =
-                              HashMap.insert partitionId p' topicMetaPartitions }
+                              IntMap.insert (fromIntegral partitionId) p'
+                                topicMetaPartitions }
                   !m'  = m { clusterTopics =
                               HashMap.insert topic t' clusterTopics }
                in writeTVar metaVar (Just m')
@@ -229,7 +241,7 @@ getAllBrokers (MetadataCache metaVar) = do
   case metaM of
     Nothing -> return Nothing
     Just ClusterMetadata{..} ->
-      return $ Just $ HashMap.elems clusterBrokers
+      return $ Just $ IntMap.elems clusterBrokers
 
 -- | KIP-78: read the broker-supplied cluster id, if known.
 -- Returns 'Nothing' before the first metadata refresh, on
@@ -362,19 +374,19 @@ parseMetadataResponse response =
       }
 
 -- | Parse broker information from metadata response
-parseBrokers :: MResp.MetadataResponse -> HashMap Int32 BrokerMetadata
+parseBrokers :: MResp.MetadataResponse -> IntMap BrokerMetadata
 parseBrokers response =
   case P.unKafkaArray (MResp.metadataResponseBrokers response) of
-    P.Null -> HashMap.empty
-    P.NotNull vec -> HashMap.fromList $ V.toList $ V.map parseBroker vec
+    P.Null        -> IntMap.empty
+    P.NotNull vec -> IntMap.fromList $ V.toList $ V.map parseBroker vec
   where
-    parseBroker :: MResp.MetadataResponseBroker -> (Int32, BrokerMetadata)
+    parseBroker :: MResp.MetadataResponseBroker -> (Int, BrokerMetadata)
     parseBroker broker =
-      let nodeId = MResp.metadataResponseBrokerNodeId broker
-          host = T.unpack $ extractText $ MResp.metadataResponseBrokerHost broker
-          port = MResp.metadataResponseBrokerPort broker
+      let nodeId  = MResp.metadataResponseBrokerNodeId broker
+          host    = T.unpack $ extractText $ MResp.metadataResponseBrokerHost broker
+          port    = MResp.metadataResponseBrokerPort broker
           address = BrokerAddress host (fromIntegral port)
-      in (nodeId, BrokerMetadata nodeId address)
+      in (fromIntegral nodeId, BrokerMetadata nodeId address)
 
 -- | Parse topic information from metadata response
 parseTopics :: MResp.MetadataResponse -> HashMap Text TopicMetadata
@@ -393,13 +405,13 @@ parseTopics response =
       in (name, TopicMetadata name partitions errorCode isInternal topicId)
 
 -- | Parse partition information from a topic
-parsePartitions :: MResp.MetadataResponseTopic -> HashMap Int32 PartitionMetadata
+parsePartitions :: MResp.MetadataResponseTopic -> IntMap PartitionMetadata
 parsePartitions topic =
   case P.unKafkaArray (MResp.metadataResponseTopicPartitions topic) of
-    P.Null -> HashMap.empty
-    P.NotNull vec -> HashMap.fromList $ V.toList $ V.map parsePartition vec
+    P.Null        -> IntMap.empty
+    P.NotNull vec -> IntMap.fromList $ V.toList $ V.map parsePartition vec
   where
-    parsePartition :: MResp.MetadataResponsePartition -> (Int32, PartitionMetadata)
+    parsePartition :: MResp.MetadataResponsePartition -> (Int, PartitionMetadata)
     parsePartition partition =
       let partId = MResp.metadataResponsePartitionPartitionIndex partition
           leader = MResp.metadataResponsePartitionLeaderId partition
@@ -409,8 +421,8 @@ parsePartitions topic =
           isr = case P.unKafkaArray (MResp.metadataResponsePartitionIsrNodes partition) of
             P.Null -> []
             P.NotNull vec -> V.toList vec
-          errorCode = MResp.metadataResponsePartitionErrorCode partition
-      in (partId, PartitionMetadata partId leader replicas isr)
+          _errorCode = MResp.metadataResponsePartitionErrorCode partition
+      in (fromIntegral partId, PartitionMetadata partId leader replicas isr)
 
 -- | Helper to extract Text from KafkaString
 extractText :: P.KafkaString -> Text
