@@ -20,10 +20,35 @@ Implementation notes:
   off STM. The pre-existing `T0006/Symbols.hs` build failure is
   unrelated and left for a follow-up.
 * Library + 746 unit tests + 316 streams tests pass at GHC 9.8.2.
-  Benchmark numbers below are estimates from the original spec;
-  re-running `Benchmarks.HotPath` against the new code is left as
-  a follow-up that needs `librdkafka` available for the
-  `Benchmarks.HwKafkaComparison` cross-check.
+* `Benchmarks.HotPath` numbers, before vs after on the same
+  machine (GHC 9.8.2, `-O2`, `criterion --time-limit 5`):
+
+| Bench                                                          | Before (main) | After (this branch) | Δ            |
+|----------------------------------------------------------------|---------------|---------------------|--------------|
+| `appendRecordStamped`, single append                           | 266.1 ns      | 124.5 ns            | **−53 %**    |
+| `appendRecordStamped`, 100 appends                             | 257 ns/rec    | 117 ns/rec          | **−54 %**    |
+| `appendRecordStamped`, 1000 appends                            | 262 ns/rec    | 120 ns/rec          | **−54 %**    |
+| `MockConsumer.pollMC`, 1 record                                | 304.6 ns      | 239.5 ns            | **−21 %**    |
+| `MockConsumer.pollMC`, 100 records                             | 827.7 ns      | 825.0 ns            | within noise |
+| `MockProducer.sendMockH`, 1 record / 100 B                     | 288.6 ns      | 296.5 ns            | within noise |
+| `MockProducer.sendMockH`, 1 record / 1 KiB                     | 250.0 ns      | 255.7 ns            | within noise |
+| `MockProducer.sendMockH`, 1000 records sequential              | 241 µs        | 239 µs              | within noise |
+
+  The `appendRecordStamped` numbers land squarely in the spec's
+  predicted "~120–150 ns/append" window. `MockProducer.sendMockH`
+  exercises the producer accumulator *plus* the mock-cluster's
+  own STM (Tier 4 — explicitly out of scope; "test-only state
+  machines that trade per-op CPU for clarity, not on any hot
+  path"), so the round-trip number is dominated by the
+  mock-cluster's STM rather than the per-record accumulator
+  cost. The Tier 2 win shows up cleanly in the dedicated
+  `appendRecordStamped` bench.
+
+  `Benchmarks.HwKafkaComparison` re-run is left as a follow-up;
+  the projection in the original spec was a producer-vs-`librdkafka`
+  ratio improvement of ~2.3× → ~2.7× from a Tier 2 saving of
+  ~6–8 ms / 50 000-record iteration, which the
+  `appendRecordStamped` numbers above confirm is achievable.
 
 ## Motivation
 
