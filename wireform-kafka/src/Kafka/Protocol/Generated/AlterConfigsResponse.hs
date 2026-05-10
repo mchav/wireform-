@@ -122,20 +122,25 @@ wirePokeAlterConfigsResourceResponse :: Int -> Ptr Word8 -> AlterConfigsResource
 wirePokeAlterConfigsResourceResponse version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt16BE p0 (alterConfigsResourceResponseErrorCode msg)
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (alterConfigsResourceResponseErrorMessage msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (alterConfigsResourceResponseErrorMessage msg)) else WP.pokeKafkaString p1 (alterConfigsResourceResponseErrorMessage msg))
   p3 <- W.pokeWord8 p2 (fromIntegral (alterConfigsResourceResponseResourceType msg))
-  p4 <- WP.pokeCompactString p3 (P.toCompactString (alterConfigsResourceResponseResourceName msg))
+  p4 <- (if version >= 2 then WP.pokeCompactString p3 (P.toCompactString (alterConfigsResourceResponseResourceName msg)) else WP.pokeKafkaString p3 (alterConfigsResourceResponseResourceName msg))
   if version >= 2 then WP.pokeEmptyTaggedFields p4 else pure p4
 
 -- | Direct-poke decoder for AlterConfigsResourceResponse.
 wirePeekAlterConfigsResourceResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AlterConfigsResourceResponse, Ptr Word8)
 wirePeekAlterConfigsResourceResponse version _fp _basePtr p0 endPtr = do
   (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
-  (f1_errormessage, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f1_errormessage, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_resourcetype, p3) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr
-  (f3_resourcename, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  (f3_resourcename, p4) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (AlterConfigsResourceResponse { alterConfigsResourceResponseErrorCode = f0_errorcode, alterConfigsResourceResponseErrorMessage = f1_errormessage, alterConfigsResourceResponseResourceType = f2_resourcetype, alterConfigsResourceResponseResourceName = f3_resourcename }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAlterConfigsResourceResponse :: AlterConfigsResourceResponse
+defaultAlterConfigsResourceResponse = AlterConfigsResourceResponse { alterConfigsResourceResponseErrorCode = 0, alterConfigsResourceResponseErrorMessage = P.KafkaString Null, alterConfigsResourceResponseResourceType = 0, alterConfigsResourceResponseResourceName = P.KafkaString Null }
 
 -- | Worst-case wire size of a AlterConfigsResponse.
 wireMaxSizeAlterConfigsResponse :: Int -> AlterConfigsResponse -> Int

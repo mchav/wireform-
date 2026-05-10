@@ -175,17 +175,22 @@ wireMaxSizeBrokerState _version msg =
 wirePokeBrokerState :: Int -> Ptr Word8 -> BrokerState -> IO (Ptr Word8)
 wirePokeBrokerState version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- W.pokeInt32BE p0 (brokerStateBrokerId msg)
-  p2 <- W.pokeInt64BE p1 (brokerStateBrokerEpoch msg)
+  p1 <- (if version >= 3 then W.pokeInt32BE p0 (brokerStateBrokerId msg) else pure p0)
+  p2 <- (if version >= 3 then W.pokeInt64BE p1 (brokerStateBrokerEpoch msg) else pure p1)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for BrokerState.
 wirePeekBrokerState :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (BrokerState, Ptr Word8)
 wirePeekBrokerState version _fp _basePtr p0 endPtr = do
-  (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
-  (f1_brokerepoch, p2) <- W.peekInt64BE p1 endPtr
+  (f0_brokerid, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
+  (f1_brokerepoch, p2) <- (if version >= 3 then W.peekInt64BE p1 endPtr else pure (0, p1))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (BrokerState { brokerStateBrokerId = f0_brokerid, brokerStateBrokerEpoch = f1_brokerepoch }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultBrokerState :: BrokerState
+defaultBrokerState = BrokerState { brokerStateBrokerId = 0, brokerStateBrokerEpoch = 0 }
 
 -- | Worst-case wire size of a PartitionData.
 wireMaxSizePartitionData :: Int -> PartitionData -> Int
@@ -205,9 +210,9 @@ wirePokePartitionData version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (partitionDataPartitionIndex msg)
   p2 <- W.pokeInt32BE p1 (partitionDataLeaderEpoch msg)
-  p3 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p2 (partitionDataNewIsr msg)
-  p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeBrokerState version p x) p3 (partitionDataNewIsrWithEpochs msg)
-  p5 <- W.pokeWord8 p4 (fromIntegral (partitionDataLeaderRecoveryState msg))
+  p3 <- (if version <= 2 then WP.pokeVersionedArray version 0 W.pokeInt32BE p2 (partitionDataNewIsr msg) else pure p2)
+  p4 <- (if version >= 3 then WP.pokeVersionedArray version 0 (\p x -> wirePokeBrokerState version p x) p3 (partitionDataNewIsrWithEpochs msg) else pure p3)
+  p5 <- (if version >= 1 then W.pokeWord8 p4 (fromIntegral (partitionDataLeaderRecoveryState msg)) else pure p4)
   p6 <- W.pokeInt32BE p5 (partitionDataPartitionEpoch msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p6 else pure p6
 
@@ -216,12 +221,17 @@ wirePeekPartitionData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Pt
 wirePeekPartitionData version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
   (f1_leaderepoch, p2) <- W.peekInt32BE p1 endPtr
-  (f2_newisr, p3) <- WP.peekVersionedArray version 0 W.peekInt32BE p2 endPtr
-  (f3_newisrwithepochs, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekBrokerState version _fp _basePtr p e) p3 endPtr
-  (f4_leaderrecoverystate, p5) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p4 endPtr
+  (f2_newisr, p3) <- (if version <= 2 then WP.peekVersionedArray version 0 W.peekInt32BE p2 endPtr else pure (P.mkKafkaArray V.empty, p2))
+  (f3_newisrwithepochs, p4) <- (if version >= 3 then WP.peekVersionedArray version 0 (\p e -> wirePeekBrokerState version _fp _basePtr p e) p3 endPtr else pure (P.mkKafkaArray V.empty, p3))
+  (f4_leaderrecoverystate, p5) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p4 endPtr else pure (0, p4))
   (f5_partitionepoch, p6) <- W.peekInt32BE p5 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
   pure (PartitionData { partitionDataPartitionIndex = f0_partitionindex, partitionDataLeaderEpoch = f1_leaderepoch, partitionDataNewIsr = f2_newisr, partitionDataNewIsrWithEpochs = f3_newisrwithepochs, partitionDataLeaderRecoveryState = f4_leaderrecoverystate, partitionDataPartitionEpoch = f5_partitionepoch }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionData :: PartitionData
+defaultPartitionData = PartitionData { partitionDataPartitionIndex = 0, partitionDataLeaderEpoch = 0, partitionDataNewIsr = P.mkKafkaArray V.empty, partitionDataNewIsrWithEpochs = P.mkKafkaArray V.empty, partitionDataLeaderRecoveryState = 0, partitionDataPartitionEpoch = 0 }
 
 -- | Worst-case wire size of a TopicData.
 wireMaxSizeTopicData :: Int -> TopicData -> Int
@@ -235,17 +245,22 @@ wireMaxSizeTopicData _version msg =
 wirePokeTopicData :: Int -> Ptr Word8 -> TopicData -> IO (Ptr Word8)
 wirePokeTopicData version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeKafkaUuid p0 (topicDataTopicId msg)
+  p1 <- (if version >= 2 then WP.pokeKafkaUuid p0 (topicDataTopicId msg) else pure p0)
   p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokePartitionData version p x) p1 (topicDataPartitions msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for TopicData.
 wirePeekTopicData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicData, Ptr Word8)
 wirePeekTopicData version _fp _basePtr p0 endPtr = do
-  (f0_topicid, p1) <- WP.peekKafkaUuid p0 endPtr
+  (f0_topicid, p1) <- (if version >= 2 then WP.peekKafkaUuid p0 endPtr else pure (P.nullUuid, p0))
   (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekPartitionData version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (TopicData { topicDataTopicId = f0_topicid, topicDataPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicData :: TopicData
+defaultTopicData = TopicData { topicDataTopicId = P.nullUuid, topicDataPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a AlterPartitionRequest.
 wireMaxSizeAlterPartitionRequest :: Int -> AlterPartitionRequest -> Int

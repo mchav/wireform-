@@ -92,12 +92,12 @@ wirePokeDescribeGroupsRequest version basePtr msg
   | version >= 3 && version <= 4 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedArray version 5 (\p s -> if version >= 5 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (describeGroupsRequestGroups msg)
-    p2 <- W.pokeWord8 p1 (if (describeGroupsRequestIncludeAuthorizedOperations msg) then 1 else 0)
+    p2 <- (if version >= 3 then W.pokeWord8 p1 (if (describeGroupsRequestIncludeAuthorizedOperations msg) then 1 else 0) else pure p1)
     pure p2
   | version >= 5 && version <= 6 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedArray version 5 (\p s -> if version >= 5 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (describeGroupsRequestGroups msg)
-    p2 <- W.pokeWord8 p1 (if (describeGroupsRequestIncludeAuthorizedOperations msg) then 1 else 0)
+    p2 <- (if version >= 3 then W.pokeWord8 p1 (if (describeGroupsRequestIncludeAuthorizedOperations msg) then 1 else 0) else pure p1)
     WP.pokeEmptyTaggedFields p2
   | version >= 0 && version <= 2 = do
     p0 <- pure basePtr
@@ -110,11 +110,11 @@ wirePeekDescribeGroupsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Wor
 wirePeekDescribeGroupsRequest version _fp _basePtr p0 endPtr
   | version >= 3 && version <= 4 = do
     (f0_groups, p1) <- WP.peekVersionedArray version 5 (\p e -> if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
-    (f1_includeauthorizedoperations, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    (f1_includeauthorizedoperations, p2) <- (if version >= 3 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr else pure (False, p1))
     pure (DescribeGroupsRequest { describeGroupsRequestGroups = f0_groups, describeGroupsRequestIncludeAuthorizedOperations = f1_includeauthorizedoperations }, p2)
   | version >= 5 && version <= 6 = do
     (f0_groups, p1) <- WP.peekVersionedArray version 5 (\p e -> if version >= 5 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
-    (f1_includeauthorizedoperations, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    (f1_includeauthorizedoperations, p2) <- (if version >= 3 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr else pure (False, p1))
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (DescribeGroupsRequest { describeGroupsRequestGroups = f0_groups, describeGroupsRequestIncludeAuthorizedOperations = f1_includeauthorizedoperations }, pTagsEnd)
   | version >= 0 && version <= 2 = do

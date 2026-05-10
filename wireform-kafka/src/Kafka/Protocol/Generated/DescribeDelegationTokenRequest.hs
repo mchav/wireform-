@@ -101,17 +101,22 @@ wireMaxSizeDescribeDelegationTokenOwner _version msg =
 wirePokeDescribeDelegationTokenOwner :: Int -> Ptr Word8 -> DescribeDelegationTokenOwner -> IO (Ptr Word8)
 wirePokeDescribeDelegationTokenOwner version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (describeDelegationTokenOwnerPrincipalType msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeDelegationTokenOwnerPrincipalName msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (describeDelegationTokenOwnerPrincipalType msg)) else WP.pokeKafkaString p0 (describeDelegationTokenOwnerPrincipalType msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (describeDelegationTokenOwnerPrincipalName msg)) else WP.pokeKafkaString p1 (describeDelegationTokenOwnerPrincipalName msg))
   if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for DescribeDelegationTokenOwner.
 wirePeekDescribeDelegationTokenOwner :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeDelegationTokenOwner, Ptr Word8)
 wirePeekDescribeDelegationTokenOwner version _fp _basePtr p0 endPtr = do
-  (f0_principaltype, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_principalname, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f0_principaltype, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_principalname, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (DescribeDelegationTokenOwner { describeDelegationTokenOwnerPrincipalType = f0_principaltype, describeDelegationTokenOwnerPrincipalName = f1_principalname }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribeDelegationTokenOwner :: DescribeDelegationTokenOwner
+defaultDescribeDelegationTokenOwner = DescribeDelegationTokenOwner { describeDelegationTokenOwnerPrincipalType = P.KafkaString Null, describeDelegationTokenOwnerPrincipalName = P.KafkaString Null }
 
 -- | Worst-case wire size of a DescribeDelegationTokenRequest.
 wireMaxSizeDescribeDelegationTokenRequest :: Int -> DescribeDelegationTokenRequest -> Int

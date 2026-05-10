@@ -161,17 +161,22 @@ wireMaxSizeAddPartitionsToTxnTopic _version msg =
 wirePokeAddPartitionsToTxnTopic :: Int -> Ptr Word8 -> AddPartitionsToTxnTopic -> IO (Ptr Word8)
 wirePokeAddPartitionsToTxnTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (addPartitionsToTxnTopicName msg))
+  p1 <- (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (addPartitionsToTxnTopicName msg)) else WP.pokeKafkaString p0 (addPartitionsToTxnTopicName msg))
   p2 <- WP.pokeVersionedArray version 3 W.pokeInt32BE p1 (addPartitionsToTxnTopicPartitions msg)
   if version >= 3 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for AddPartitionsToTxnTopic.
 wirePeekAddPartitionsToTxnTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AddPartitionsToTxnTopic, Ptr Word8)
 wirePeekAddPartitionsToTxnTopic version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 3 W.peekInt32BE p1 endPtr
   pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (AddPartitionsToTxnTopic { addPartitionsToTxnTopicName = f0_name, addPartitionsToTxnTopicPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAddPartitionsToTxnTopic :: AddPartitionsToTxnTopic
+defaultAddPartitionsToTxnTopic = AddPartitionsToTxnTopic { addPartitionsToTxnTopicName = P.KafkaString Null, addPartitionsToTxnTopicPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a AddPartitionsToTxnTransaction.
 wireMaxSizeAddPartitionsToTxnTransaction :: Int -> AddPartitionsToTxnTransaction -> Int
@@ -188,23 +193,28 @@ wireMaxSizeAddPartitionsToTxnTransaction _version msg =
 wirePokeAddPartitionsToTxnTransaction :: Int -> Ptr Word8 -> AddPartitionsToTxnTransaction -> IO (Ptr Word8)
 wirePokeAddPartitionsToTxnTransaction version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (addPartitionsToTxnTransactionTransactionalId msg))
-  p2 <- W.pokeInt64BE p1 (addPartitionsToTxnTransactionProducerId msg)
-  p3 <- W.pokeInt16BE p2 (addPartitionsToTxnTransactionProducerEpoch msg)
-  p4 <- W.pokeWord8 p3 (if (addPartitionsToTxnTransactionVerifyOnly msg) then 1 else 0)
-  p5 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeAddPartitionsToTxnTopic version p x) p4 (addPartitionsToTxnTransactionTopics msg)
+  p1 <- (if version >= 4 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (addPartitionsToTxnTransactionTransactionalId msg)) else WP.pokeKafkaString p0 (addPartitionsToTxnTransactionTransactionalId msg)) else pure p0)
+  p2 <- (if version >= 4 then W.pokeInt64BE p1 (addPartitionsToTxnTransactionProducerId msg) else pure p1)
+  p3 <- (if version >= 4 then W.pokeInt16BE p2 (addPartitionsToTxnTransactionProducerEpoch msg) else pure p2)
+  p4 <- (if version >= 4 then W.pokeWord8 p3 (if (addPartitionsToTxnTransactionVerifyOnly msg) then 1 else 0) else pure p3)
+  p5 <- (if version >= 4 then WP.pokeVersionedArray version 3 (\p x -> wirePokeAddPartitionsToTxnTopic version p x) p4 (addPartitionsToTxnTransactionTopics msg) else pure p4)
   if version >= 3 then WP.pokeEmptyTaggedFields p5 else pure p5
 
 -- | Direct-poke decoder for AddPartitionsToTxnTransaction.
 wirePeekAddPartitionsToTxnTransaction :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AddPartitionsToTxnTransaction, Ptr Word8)
 wirePeekAddPartitionsToTxnTransaction version _fp _basePtr p0 endPtr = do
-  (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_producerid, p2) <- W.peekInt64BE p1 endPtr
-  (f2_producerepoch, p3) <- W.peekInt16BE p2 endPtr
-  (f3_verifyonly, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
-  (f4_topics, p5) <- WP.peekVersionedArray version 3 (\p e -> wirePeekAddPartitionsToTxnTopic version _fp _basePtr p e) p4 endPtr
+  (f0_transactionalid, p1) <- (if version >= 4 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+  (f1_producerid, p2) <- (if version >= 4 then W.peekInt64BE p1 endPtr else pure (0, p1))
+  (f2_producerepoch, p3) <- (if version >= 4 then W.peekInt16BE p2 endPtr else pure (0, p2))
+  (f3_verifyonly, p4) <- (if version >= 4 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr else pure (False, p3))
+  (f4_topics, p5) <- (if version >= 4 then WP.peekVersionedArray version 3 (\p e -> wirePeekAddPartitionsToTxnTopic version _fp _basePtr p e) p4 endPtr else pure (P.mkKafkaArray V.empty, p4))
   pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
   pure (AddPartitionsToTxnTransaction { addPartitionsToTxnTransactionTransactionalId = f0_transactionalid, addPartitionsToTxnTransactionProducerId = f1_producerid, addPartitionsToTxnTransactionProducerEpoch = f2_producerepoch, addPartitionsToTxnTransactionVerifyOnly = f3_verifyonly, addPartitionsToTxnTransactionTopics = f4_topics }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAddPartitionsToTxnTransaction :: AddPartitionsToTxnTransaction
+defaultAddPartitionsToTxnTransaction = AddPartitionsToTxnTransaction { addPartitionsToTxnTransactionTransactionalId = P.KafkaString Null, addPartitionsToTxnTransactionProducerId = 0, addPartitionsToTxnTransactionProducerEpoch = 0, addPartitionsToTxnTransactionVerifyOnly = False, addPartitionsToTxnTransactionTopics = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a AddPartitionsToTxnRequest.
 wireMaxSizeAddPartitionsToTxnRequest :: Int -> AddPartitionsToTxnRequest -> Int
@@ -222,21 +232,21 @@ wirePokeAddPartitionsToTxnRequest :: Int -> Ptr Word8 -> AddPartitionsToTxnReque
 wirePokeAddPartitionsToTxnRequest version basePtr msg
   | version == 3 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (addPartitionsToTxnRequestV3AndBelowTransactionalId msg))
-    p2 <- W.pokeInt64BE p1 (addPartitionsToTxnRequestV3AndBelowProducerId msg)
-    p3 <- W.pokeInt16BE p2 (addPartitionsToTxnRequestV3AndBelowProducerEpoch msg)
-    p4 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeAddPartitionsToTxnTopic version p x) p3 (addPartitionsToTxnRequestV3AndBelowTopics msg)
+    p1 <- (if version <= 3 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (addPartitionsToTxnRequestV3AndBelowTransactionalId msg)) else WP.pokeKafkaString p0 (addPartitionsToTxnRequestV3AndBelowTransactionalId msg)) else pure p0)
+    p2 <- (if version <= 3 then W.pokeInt64BE p1 (addPartitionsToTxnRequestV3AndBelowProducerId msg) else pure p1)
+    p3 <- (if version <= 3 then W.pokeInt16BE p2 (addPartitionsToTxnRequestV3AndBelowProducerEpoch msg) else pure p2)
+    p4 <- (if version <= 3 then WP.pokeVersionedArray version 3 (\p x -> wirePokeAddPartitionsToTxnTopic version p x) p3 (addPartitionsToTxnRequestV3AndBelowTopics msg) else pure p3)
     WP.pokeEmptyTaggedFields p4
   | version >= 4 && version <= 5 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeAddPartitionsToTxnTransaction version p x) p0 (addPartitionsToTxnRequestTransactions msg)
+    p1 <- (if version >= 4 then WP.pokeVersionedArray version 3 (\p x -> wirePokeAddPartitionsToTxnTransaction version p x) p0 (addPartitionsToTxnRequestTransactions msg) else pure p0)
     WP.pokeEmptyTaggedFields p1
   | version >= 0 && version <= 2 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (addPartitionsToTxnRequestV3AndBelowTransactionalId msg))
-    p2 <- W.pokeInt64BE p1 (addPartitionsToTxnRequestV3AndBelowProducerId msg)
-    p3 <- W.pokeInt16BE p2 (addPartitionsToTxnRequestV3AndBelowProducerEpoch msg)
-    p4 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeAddPartitionsToTxnTopic version p x) p3 (addPartitionsToTxnRequestV3AndBelowTopics msg)
+    p1 <- (if version <= 3 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (addPartitionsToTxnRequestV3AndBelowTransactionalId msg)) else WP.pokeKafkaString p0 (addPartitionsToTxnRequestV3AndBelowTransactionalId msg)) else pure p0)
+    p2 <- (if version <= 3 then W.pokeInt64BE p1 (addPartitionsToTxnRequestV3AndBelowProducerId msg) else pure p1)
+    p3 <- (if version <= 3 then W.pokeInt16BE p2 (addPartitionsToTxnRequestV3AndBelowProducerEpoch msg) else pure p2)
+    p4 <- (if version <= 3 then WP.pokeVersionedArray version 3 (\p x -> wirePokeAddPartitionsToTxnTopic version p x) p3 (addPartitionsToTxnRequestV3AndBelowTopics msg) else pure p3)
     pure p4
   | otherwise = error $ "wirePoke AddPartitionsToTxnRequest : unsupported version: " ++ show version
 
@@ -244,21 +254,21 @@ wirePokeAddPartitionsToTxnRequest version basePtr msg
 wirePeekAddPartitionsToTxnRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AddPartitionsToTxnRequest, Ptr Word8)
 wirePeekAddPartitionsToTxnRequest version _fp _basePtr p0 endPtr
   | version == 3 = do
-    (f0_v3andbelowtransactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_v3andbelowproducerid, p2) <- W.peekInt64BE p1 endPtr
-    (f2_v3andbelowproducerepoch, p3) <- W.peekInt16BE p2 endPtr
-    (f3_v3andbelowtopics, p4) <- WP.peekVersionedArray version 3 (\p e -> wirePeekAddPartitionsToTxnTopic version _fp _basePtr p e) p3 endPtr
+    (f0_v3andbelowtransactionalid, p1) <- (if version <= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+    (f1_v3andbelowproducerid, p2) <- (if version <= 3 then W.peekInt64BE p1 endPtr else pure (0, p1))
+    (f2_v3andbelowproducerepoch, p3) <- (if version <= 3 then W.peekInt16BE p2 endPtr else pure (0, p2))
+    (f3_v3andbelowtopics, p4) <- (if version <= 3 then WP.peekVersionedArray version 3 (\p e -> wirePeekAddPartitionsToTxnTopic version _fp _basePtr p e) p3 endPtr else pure (P.mkKafkaArray V.empty, p3))
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (AddPartitionsToTxnRequest { addPartitionsToTxnRequestTransactions = P.mkKafkaArray V.empty, addPartitionsToTxnRequestV3AndBelowTransactionalId = f0_v3andbelowtransactionalid, addPartitionsToTxnRequestV3AndBelowProducerId = f1_v3andbelowproducerid, addPartitionsToTxnRequestV3AndBelowProducerEpoch = f2_v3andbelowproducerepoch, addPartitionsToTxnRequestV3AndBelowTopics = f3_v3andbelowtopics }, pTagsEnd)
   | version >= 4 && version <= 5 = do
-    (f0_transactions, p1) <- WP.peekVersionedArray version 3 (\p e -> wirePeekAddPartitionsToTxnTransaction version _fp _basePtr p e) p0 endPtr
+    (f0_transactions, p1) <- (if version >= 4 then WP.peekVersionedArray version 3 (\p e -> wirePeekAddPartitionsToTxnTransaction version _fp _basePtr p e) p0 endPtr else pure (P.mkKafkaArray V.empty, p0))
     pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
     pure (AddPartitionsToTxnRequest { addPartitionsToTxnRequestTransactions = f0_transactions, addPartitionsToTxnRequestV3AndBelowTransactionalId = P.KafkaString Null, addPartitionsToTxnRequestV3AndBelowProducerId = 0, addPartitionsToTxnRequestV3AndBelowProducerEpoch = 0, addPartitionsToTxnRequestV3AndBelowTopics = P.mkKafkaArray V.empty }, pTagsEnd)
   | version >= 0 && version <= 2 = do
-    (f0_v3andbelowtransactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_v3andbelowproducerid, p2) <- W.peekInt64BE p1 endPtr
-    (f2_v3andbelowproducerepoch, p3) <- W.peekInt16BE p2 endPtr
-    (f3_v3andbelowtopics, p4) <- WP.peekVersionedArray version 3 (\p e -> wirePeekAddPartitionsToTxnTopic version _fp _basePtr p e) p3 endPtr
+    (f0_v3andbelowtransactionalid, p1) <- (if version <= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+    (f1_v3andbelowproducerid, p2) <- (if version <= 3 then W.peekInt64BE p1 endPtr else pure (0, p1))
+    (f2_v3andbelowproducerepoch, p3) <- (if version <= 3 then W.peekInt16BE p2 endPtr else pure (0, p2))
+    (f3_v3andbelowtopics, p4) <- (if version <= 3 then WP.peekVersionedArray version 3 (\p e -> wirePeekAddPartitionsToTxnTopic version _fp _basePtr p e) p3 endPtr else pure (P.mkKafkaArray V.empty, p3))
     pure (AddPartitionsToTxnRequest { addPartitionsToTxnRequestTransactions = P.mkKafkaArray V.empty, addPartitionsToTxnRequestV3AndBelowTransactionalId = f0_v3andbelowtransactionalid, addPartitionsToTxnRequestV3AndBelowProducerId = f1_v3andbelowproducerid, addPartitionsToTxnRequestV3AndBelowProducerEpoch = f2_v3andbelowproducerepoch, addPartitionsToTxnRequestV3AndBelowTopics = f3_v3andbelowtopics }, p4)
   | otherwise = error $ "wirePeek AddPartitionsToTxnRequest : unsupported version: " ++ show version
 

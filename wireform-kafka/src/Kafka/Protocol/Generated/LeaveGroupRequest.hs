@@ -120,19 +120,24 @@ wireMaxSizeMemberIdentity _version msg =
 wirePokeMemberIdentity :: Int -> Ptr Word8 -> MemberIdentity -> IO (Ptr Word8)
 wirePokeMemberIdentity version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (memberIdentityMemberId msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (memberIdentityGroupInstanceId msg))
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (memberIdentityReason msg))
+  p1 <- (if version >= 3 then (if version >= 4 then WP.pokeCompactString p0 (P.toCompactString (memberIdentityMemberId msg)) else WP.pokeKafkaString p0 (memberIdentityMemberId msg)) else pure p0)
+  p2 <- (if version >= 3 then (if version >= 4 then WP.pokeCompactString p1 (P.toCompactString (memberIdentityGroupInstanceId msg)) else WP.pokeKafkaString p1 (memberIdentityGroupInstanceId msg)) else pure p1)
+  p3 <- (if version >= 5 then (if version >= 4 then WP.pokeCompactString p2 (P.toCompactString (memberIdentityReason msg)) else WP.pokeKafkaString p2 (memberIdentityReason msg)) else pure p2)
   if version >= 4 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for MemberIdentity.
 wirePeekMemberIdentity :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (MemberIdentity, Ptr Word8)
 wirePeekMemberIdentity version _fp _basePtr p0 endPtr = do
-  (f0_memberid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_groupinstanceid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-  (f2_reason, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f0_memberid, p1) <- (if version >= 3 then (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+  (f1_groupinstanceid, p2) <- (if version >= 3 then (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
+  (f2_reason, p3) <- (if version >= 5 then (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
   pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (MemberIdentity { memberIdentityMemberId = f0_memberid, memberIdentityGroupInstanceId = f1_groupinstanceid, memberIdentityReason = f2_reason }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultMemberIdentity :: MemberIdentity
+defaultMemberIdentity = MemberIdentity { memberIdentityMemberId = P.KafkaString Null, memberIdentityGroupInstanceId = P.KafkaString Null, memberIdentityReason = P.KafkaString Null }
 
 -- | Worst-case wire size of a LeaveGroupRequest.
 wireMaxSizeLeaveGroupRequest :: Int -> LeaveGroupRequest -> Int
@@ -148,18 +153,18 @@ wirePokeLeaveGroupRequest :: Int -> Ptr Word8 -> LeaveGroupRequest -> IO (Ptr Wo
 wirePokeLeaveGroupRequest version basePtr msg
   | version == 3 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (leaveGroupRequestGroupId msg))
-    p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeMemberIdentity version p x) p1 (leaveGroupRequestMembers msg)
+    p1 <- (if version >= 4 then WP.pokeCompactString p0 (P.toCompactString (leaveGroupRequestGroupId msg)) else WP.pokeKafkaString p0 (leaveGroupRequestGroupId msg))
+    p2 <- (if version >= 3 then WP.pokeVersionedArray version 4 (\p x -> wirePokeMemberIdentity version p x) p1 (leaveGroupRequestMembers msg) else pure p1)
     pure p2
   | version >= 4 && version <= 5 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (leaveGroupRequestGroupId msg))
-    p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeMemberIdentity version p x) p1 (leaveGroupRequestMembers msg)
+    p1 <- (if version >= 4 then WP.pokeCompactString p0 (P.toCompactString (leaveGroupRequestGroupId msg)) else WP.pokeKafkaString p0 (leaveGroupRequestGroupId msg))
+    p2 <- (if version >= 3 then WP.pokeVersionedArray version 4 (\p x -> wirePokeMemberIdentity version p x) p1 (leaveGroupRequestMembers msg) else pure p1)
     WP.pokeEmptyTaggedFields p2
   | version >= 0 && version <= 2 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (leaveGroupRequestGroupId msg))
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (leaveGroupRequestMemberId msg))
+    p1 <- (if version >= 4 then WP.pokeCompactString p0 (P.toCompactString (leaveGroupRequestGroupId msg)) else WP.pokeKafkaString p0 (leaveGroupRequestGroupId msg))
+    p2 <- (if version <= 2 then (if version >= 4 then WP.pokeCompactString p1 (P.toCompactString (leaveGroupRequestMemberId msg)) else WP.pokeKafkaString p1 (leaveGroupRequestMemberId msg)) else pure p1)
     pure p2
   | otherwise = error $ "wirePoke LeaveGroupRequest : unsupported version: " ++ show version
 
@@ -167,17 +172,17 @@ wirePokeLeaveGroupRequest version basePtr msg
 wirePeekLeaveGroupRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (LeaveGroupRequest, Ptr Word8)
 wirePeekLeaveGroupRequest version _fp _basePtr p0 endPtr
   | version == 3 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_members, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekMemberIdentity version _fp _basePtr p e) p1 endPtr
+    (f0_groupid, p1) <- (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_members, p2) <- (if version >= 3 then WP.peekVersionedArray version 4 (\p e -> wirePeekMemberIdentity version _fp _basePtr p e) p1 endPtr else pure (P.mkKafkaArray V.empty, p1))
     pure (LeaveGroupRequest { leaveGroupRequestGroupId = f0_groupid, leaveGroupRequestMemberId = P.KafkaString Null, leaveGroupRequestMembers = f1_members }, p2)
   | version >= 4 && version <= 5 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_members, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekMemberIdentity version _fp _basePtr p e) p1 endPtr
+    (f0_groupid, p1) <- (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_members, p2) <- (if version >= 3 then WP.peekVersionedArray version 4 (\p e -> wirePeekMemberIdentity version _fp _basePtr p e) p1 endPtr else pure (P.mkKafkaArray V.empty, p1))
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (LeaveGroupRequest { leaveGroupRequestGroupId = f0_groupid, leaveGroupRequestMemberId = P.KafkaString Null, leaveGroupRequestMembers = f1_members }, pTagsEnd)
   | version >= 0 && version <= 2 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_memberid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f0_groupid, p1) <- (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_memberid, p2) <- (if version <= 2 then (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
     pure (LeaveGroupRequest { leaveGroupRequestGroupId = f0_groupid, leaveGroupRequestMemberId = f1_memberid, leaveGroupRequestMembers = P.mkKafkaArray V.empty }, p2)
   | otherwise = error $ "wirePeek LeaveGroupRequest : unsupported version: " ++ show version
 

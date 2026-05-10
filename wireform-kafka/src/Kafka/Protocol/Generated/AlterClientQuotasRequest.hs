@@ -151,17 +151,22 @@ wireMaxSizeEntityData _version msg =
 wirePokeEntityData :: Int -> Ptr Word8 -> EntityData -> IO (Ptr Word8)
 wirePokeEntityData version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (entityDataEntityType msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (entityDataEntityName msg))
+  p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (entityDataEntityType msg)) else WP.pokeKafkaString p0 (entityDataEntityType msg))
+  p2 <- (if version >= 1 then WP.pokeCompactString p1 (P.toCompactString (entityDataEntityName msg)) else WP.pokeKafkaString p1 (entityDataEntityName msg))
   if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for EntityData.
 wirePeekEntityData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EntityData, Ptr Word8)
 wirePeekEntityData version _fp _basePtr p0 endPtr = do
-  (f0_entitytype, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_entityname, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f0_entitytype, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_entityname, p2) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (EntityData { entityDataEntityType = f0_entitytype, entityDataEntityName = f1_entityname }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultEntityData :: EntityData
+defaultEntityData = EntityData { entityDataEntityType = P.KafkaString Null, entityDataEntityName = P.KafkaString Null }
 
 -- | Worst-case wire size of a OpData.
 wireMaxSizeOpData :: Int -> OpData -> Int
@@ -176,7 +181,7 @@ wireMaxSizeOpData _version msg =
 wirePokeOpData :: Int -> Ptr Word8 -> OpData -> IO (Ptr Word8)
 wirePokeOpData version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (opDataKey msg))
+  p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (opDataKey msg)) else WP.pokeKafkaString p0 (opDataKey msg))
   p2 <- W.pokeFloat64BE p1 (opDataValue msg)
   p3 <- W.pokeWord8 p2 (if (opDataRemove msg) then 1 else 0)
   if version >= 1 then WP.pokeEmptyTaggedFields p3 else pure p3
@@ -184,11 +189,16 @@ wirePokeOpData version basePtr msg = do
 -- | Direct-poke decoder for OpData.
 wirePeekOpData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OpData, Ptr Word8)
 wirePeekOpData version _fp _basePtr p0 endPtr = do
-  (f0_key, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_key, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_value, p2) <- W.peekFloat64BE p1 endPtr
   (f2_remove, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (OpData { opDataKey = f0_key, opDataValue = f1_value, opDataRemove = f2_remove }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultOpData :: OpData
+defaultOpData = OpData { opDataKey = P.KafkaString Null, opDataValue = 0.0, opDataRemove = False }
 
 -- | Worst-case wire size of a EntryData.
 wireMaxSizeEntryData :: Int -> EntryData -> Int
@@ -213,6 +223,11 @@ wirePeekEntryData version _fp _basePtr p0 endPtr = do
   (f1_ops, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekOpData version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (EntryData { entryDataEntity = f0_entity, entryDataOps = f1_ops }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultEntryData :: EntryData
+defaultEntryData = EntryData { entryDataEntity = P.mkKafkaArray V.empty, entryDataOps = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a AlterClientQuotasRequest.
 wireMaxSizeAlterClientQuotasRequest :: Int -> AlterClientQuotasRequest -> Int

@@ -113,17 +113,22 @@ wireMaxSizeConfigResource _version msg =
 wirePokeConfigResource :: Int -> Ptr Word8 -> ConfigResource -> IO (Ptr Word8)
 wirePokeConfigResource version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (configResourceResourceName msg))
-  p2 <- W.pokeWord8 p1 (fromIntegral (configResourceResourceType msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (configResourceResourceName msg)) else WP.pokeKafkaString p0 (configResourceResourceName msg))
+  p2 <- (if version >= 1 then W.pokeWord8 p1 (fromIntegral (configResourceResourceType msg)) else pure p1)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for ConfigResource.
 wirePeekConfigResource :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ConfigResource, Ptr Word8)
 wirePeekConfigResource version _fp _basePtr p0 endPtr = do
-  (f0_resourcename, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_resourcetype, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+  (f0_resourcename, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_resourcetype, p2) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (0, p1))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ConfigResource { configResourceResourceName = f0_resourcename, configResourceResourceType = f1_resourcetype }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultConfigResource :: ConfigResource
+defaultConfigResource = ConfigResource { configResourceResourceName = P.KafkaString Null, configResourceResourceType = 0 }
 
 -- | Worst-case wire size of a ListConfigResourcesResponse.
 wireMaxSizeListConfigResourcesResponse :: Int -> ListConfigResourcesResponse -> Int

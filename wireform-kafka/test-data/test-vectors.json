@@ -34,7 +34,7 @@
     {
         "api_key": 13,
         "description": "LeaveGroupRequest v4 (single member, reason=shutdown)",
-        "hex": "0e77662d746573742d67726f7570020b636f6e73756d65722d31000973687574646f776e0000",
+        "hex": "0e77662d746573742d67726f7570020b636f6e73756d65722d31000000",
         "message_type": "LeaveGroupRequest",
         "test_case": "single-member",
         "version": 4
@@ -50,7 +50,7 @@
     {
         "api_key": 3,
         "description": "MetadataRequest v9 (single topic 'events', auto-create on)",
-        "hex": "0200000000000000000000000000000000076576656e74730001000000",
+        "hex": "02076576656e74730001000000",
         "message_type": "MetadataRequest",
         "test_case": "single-topic",
         "version": 9
@@ -82,7 +82,7 @@
     {
         "api_key": 36,
         "description": "SaslAuthenticateRequest v1 (PLAIN: \\0alice\\0pw)",
-        "hex": "0a00616c696365007077",
+        "hex": "0000000900616c696365007077",
         "message_type": "SaslAuthenticateRequest",
         "test_case": "plain",
         "version": 1
@@ -90,7 +90,7 @@
     {
         "api_key": 36,
         "description": "SaslAuthenticateResponse v1 (success, no payload)",
-        "hex": "000000010000000000000000",
+        "hex": "0000ffff000000000000000000000000",
         "message_type": "SaslAuthenticateResponse",
         "test_case": "ok",
         "version": 1
@@ -114,7 +114,7 @@
     {
         "api_key": 8,
         "description": "OffsetCommitRequest v2 (group=wf-test-group, no topics)",
-        "hex": "0e77662d746573742d67726f7570000000070b636f6e73756d65722d31ffffffffffffffff00000000",
+        "hex": "000d77662d746573742d67726f757000000007000a636f6e73756d65722d31ffffffffffffffff00000000",
         "message_type": "OffsetCommitRequest",
         "test_case": "no-topics",
         "version": 2
@@ -130,7 +130,7 @@
     {
         "api_key": 9,
         "description": "OffsetFetchRequest v5 (no topics, require_stable=false)",
-        "hex": "0e77662d746573742d67726f757000000000",
+        "hex": "000d77662d746573742d67726f757000000000",
         "message_type": "OffsetFetchRequest",
         "test_case": "no-topics",
         "version": 5

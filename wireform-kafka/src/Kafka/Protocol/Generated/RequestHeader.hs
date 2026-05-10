@@ -103,14 +103,14 @@ wirePokeRequestHeader version basePtr msg
     p1 <- W.pokeInt16BE p0 (requestHeaderRequestApiKey msg)
     p2 <- W.pokeInt16BE p1 (requestHeaderRequestApiVersion msg)
     p3 <- W.pokeInt32BE p2 (requestHeaderCorrelationId msg)
-    p4 <- WP.pokeKafkaString p3 (requestHeaderClientId msg)
+    p4 <- (if version >= 1 then WP.pokeKafkaString p3 (requestHeaderClientId msg) else pure p3)
     pure p4
   | version == 2 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt16BE p0 (requestHeaderRequestApiKey msg)
     p2 <- W.pokeInt16BE p1 (requestHeaderRequestApiVersion msg)
     p3 <- W.pokeInt32BE p2 (requestHeaderCorrelationId msg)
-    p4 <- WP.pokeKafkaString p3 (requestHeaderClientId msg)
+    p4 <- (if version >= 1 then WP.pokeKafkaString p3 (requestHeaderClientId msg) else pure p3)
     WP.pokeEmptyTaggedFields p4
   | otherwise = error $ "wirePoke RequestHeader : unsupported version: " ++ show version
 
@@ -121,13 +121,13 @@ wirePeekRequestHeader version _fp _basePtr p0 endPtr
     (f0_requestapikey, p1) <- W.peekInt16BE p0 endPtr
     (f1_requestapiversion, p2) <- W.peekInt16BE p1 endPtr
     (f2_correlationid, p3) <- W.peekInt32BE p2 endPtr
-    (f3_clientid, p4) <- WP.peekKafkaString p3 endPtr
+    (f3_clientid, p4) <- (if version >= 1 then WP.peekKafkaString p3 endPtr else pure (P.KafkaString Null, p3))
     pure (RequestHeader { requestHeaderRequestApiKey = f0_requestapikey, requestHeaderRequestApiVersion = f1_requestapiversion, requestHeaderCorrelationId = f2_correlationid, requestHeaderClientId = f3_clientid }, p4)
   | version == 2 = do
     (f0_requestapikey, p1) <- W.peekInt16BE p0 endPtr
     (f1_requestapiversion, p2) <- W.peekInt16BE p1 endPtr
     (f2_correlationid, p3) <- W.peekInt32BE p2 endPtr
-    (f3_clientid, p4) <- WP.peekKafkaString p3 endPtr
+    (f3_clientid, p4) <- (if version >= 1 then WP.peekKafkaString p3 endPtr else pure (P.KafkaString Null, p3))
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (RequestHeader { requestHeaderRequestApiKey = f0_requestapikey, requestHeaderRequestApiVersion = f1_requestapiversion, requestHeaderCorrelationId = f2_correlationid, requestHeaderClientId = f3_clientid }, pTagsEnd)
   | otherwise = error $ "wirePeek RequestHeader : unsupported version: " ++ show version

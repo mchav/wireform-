@@ -91,7 +91,7 @@ wirePokeEnvelopeResponse :: Int -> Ptr Word8 -> EnvelopeResponse -> IO (Ptr Word
 wirePokeEnvelopeResponse version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactBytes p0 (P.toCompactBytes (envelopeResponseResponseData msg))
+    p1 <- (if version >= 0 then WP.pokeCompactBytes p0 (P.toCompactBytes (envelopeResponseResponseData msg)) else WP.pokeKafkaBytes p0 (envelopeResponseResponseData msg))
     p2 <- W.pokeInt16BE p1 (envelopeResponseErrorCode msg)
     WP.pokeEmptyTaggedFields p2
   | otherwise = error $ "wirePoke EnvelopeResponse : unsupported version: " ++ show version
@@ -100,7 +100,7 @@ wirePokeEnvelopeResponse version basePtr msg
 wirePeekEnvelopeResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EnvelopeResponse, Ptr Word8)
 wirePeekEnvelopeResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
-    (f0_responsedata, p1) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr
+    (f0_responsedata, p1) <- (if version >= 0 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr else WP.peekKafkaBytes p0 endPtr)
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (EnvelopeResponse { envelopeResponseResponseData = f0_responsedata, envelopeResponseErrorCode = f1_errorcode }, pTagsEnd)

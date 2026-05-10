@@ -144,17 +144,22 @@ wireMaxSizeScramCredentialDeletion _version msg =
 wirePokeScramCredentialDeletion :: Int -> Ptr Word8 -> ScramCredentialDeletion -> IO (Ptr Word8)
 wirePokeScramCredentialDeletion version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (scramCredentialDeletionName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (scramCredentialDeletionName msg)) else WP.pokeKafkaString p0 (scramCredentialDeletionName msg))
   p2 <- W.pokeWord8 p1 (fromIntegral (scramCredentialDeletionMechanism msg))
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for ScramCredentialDeletion.
 wirePeekScramCredentialDeletion :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ScramCredentialDeletion, Ptr Word8)
 wirePeekScramCredentialDeletion version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_mechanism, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ScramCredentialDeletion { scramCredentialDeletionName = f0_name, scramCredentialDeletionMechanism = f1_mechanism }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultScramCredentialDeletion :: ScramCredentialDeletion
+defaultScramCredentialDeletion = ScramCredentialDeletion { scramCredentialDeletionName = P.KafkaString Null, scramCredentialDeletionMechanism = 0 }
 
 -- | Worst-case wire size of a ScramCredentialUpsertion.
 wireMaxSizeScramCredentialUpsertion :: Int -> ScramCredentialUpsertion -> Int
@@ -171,23 +176,28 @@ wireMaxSizeScramCredentialUpsertion _version msg =
 wirePokeScramCredentialUpsertion :: Int -> Ptr Word8 -> ScramCredentialUpsertion -> IO (Ptr Word8)
 wirePokeScramCredentialUpsertion version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (scramCredentialUpsertionName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (scramCredentialUpsertionName msg)) else WP.pokeKafkaString p0 (scramCredentialUpsertionName msg))
   p2 <- W.pokeWord8 p1 (fromIntegral (scramCredentialUpsertionMechanism msg))
   p3 <- W.pokeInt32BE p2 (scramCredentialUpsertionIterations msg)
-  p4 <- WP.pokeCompactBytes p3 (P.toCompactBytes (scramCredentialUpsertionSalt msg))
-  p5 <- WP.pokeCompactBytes p4 (P.toCompactBytes (scramCredentialUpsertionSaltedPassword msg))
+  p4 <- (if version >= 0 then WP.pokeCompactBytes p3 (P.toCompactBytes (scramCredentialUpsertionSalt msg)) else WP.pokeKafkaBytes p3 (scramCredentialUpsertionSalt msg))
+  p5 <- (if version >= 0 then WP.pokeCompactBytes p4 (P.toCompactBytes (scramCredentialUpsertionSaltedPassword msg)) else WP.pokeKafkaBytes p4 (scramCredentialUpsertionSaltedPassword msg))
   if version >= 0 then WP.pokeEmptyTaggedFields p5 else pure p5
 
 -- | Direct-poke decoder for ScramCredentialUpsertion.
 wirePeekScramCredentialUpsertion :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ScramCredentialUpsertion, Ptr Word8)
 wirePeekScramCredentialUpsertion version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_mechanism, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
   (f2_iterations, p3) <- W.peekInt32BE p2 endPtr
-  (f3_salt, p4) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p3 endPtr
-  (f4_saltedpassword, p5) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p4 endPtr
+  (f3_salt, p4) <- (if version >= 0 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p3 endPtr else WP.peekKafkaBytes p3 endPtr)
+  (f4_saltedpassword, p5) <- (if version >= 0 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p4 endPtr else WP.peekKafkaBytes p4 endPtr)
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
   pure (ScramCredentialUpsertion { scramCredentialUpsertionName = f0_name, scramCredentialUpsertionMechanism = f1_mechanism, scramCredentialUpsertionIterations = f2_iterations, scramCredentialUpsertionSalt = f3_salt, scramCredentialUpsertionSaltedPassword = f4_saltedpassword }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultScramCredentialUpsertion :: ScramCredentialUpsertion
+defaultScramCredentialUpsertion = ScramCredentialUpsertion { scramCredentialUpsertionName = P.KafkaString Null, scramCredentialUpsertionMechanism = 0, scramCredentialUpsertionIterations = 0, scramCredentialUpsertionSalt = P.KafkaBytes Null, scramCredentialUpsertionSaltedPassword = P.KafkaBytes Null }
 
 -- | Worst-case wire size of a AlterUserScramCredentialsRequest.
 wireMaxSizeAlterUserScramCredentialsRequest :: Int -> AlterUserScramCredentialsRequest -> Int

@@ -162,6 +162,11 @@ wirePeekCredentialInfo version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (CredentialInfo { credentialInfoMechanism = f0_mechanism, credentialInfoIterations = f1_iterations }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultCredentialInfo :: CredentialInfo
+defaultCredentialInfo = CredentialInfo { credentialInfoMechanism = 0, credentialInfoIterations = 0 }
+
 -- | Worst-case wire size of a DescribeUserScramCredentialsResult.
 wireMaxSizeDescribeUserScramCredentialsResult :: Int -> DescribeUserScramCredentialsResult -> Int
 wireMaxSizeDescribeUserScramCredentialsResult _version msg =
@@ -176,21 +181,26 @@ wireMaxSizeDescribeUserScramCredentialsResult _version msg =
 wirePokeDescribeUserScramCredentialsResult :: Int -> Ptr Word8 -> DescribeUserScramCredentialsResult -> IO (Ptr Word8)
 wirePokeDescribeUserScramCredentialsResult version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (describeUserScramCredentialsResultUser msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (describeUserScramCredentialsResultUser msg)) else WP.pokeKafkaString p0 (describeUserScramCredentialsResultUser msg))
   p2 <- W.pokeInt16BE p1 (describeUserScramCredentialsResultErrorCode msg)
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (describeUserScramCredentialsResultErrorMessage msg))
+  p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (describeUserScramCredentialsResultErrorMessage msg)) else WP.pokeKafkaString p2 (describeUserScramCredentialsResultErrorMessage msg))
   p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeCredentialInfo version p x) p3 (describeUserScramCredentialsResultCredentialInfos msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p4 else pure p4
 
 -- | Direct-poke decoder for DescribeUserScramCredentialsResult.
 wirePeekDescribeUserScramCredentialsResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeUserScramCredentialsResult, Ptr Word8)
 wirePeekDescribeUserScramCredentialsResult version _fp _basePtr p0 endPtr = do
-  (f0_user, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_user, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   (f3_credentialinfos, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekCredentialInfo version _fp _basePtr p e) p3 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (DescribeUserScramCredentialsResult { describeUserScramCredentialsResultUser = f0_user, describeUserScramCredentialsResultErrorCode = f1_errorcode, describeUserScramCredentialsResultErrorMessage = f2_errormessage, describeUserScramCredentialsResultCredentialInfos = f3_credentialinfos }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribeUserScramCredentialsResult :: DescribeUserScramCredentialsResult
+defaultDescribeUserScramCredentialsResult = DescribeUserScramCredentialsResult { describeUserScramCredentialsResultUser = P.KafkaString Null, describeUserScramCredentialsResultErrorCode = 0, describeUserScramCredentialsResultErrorMessage = P.KafkaString Null, describeUserScramCredentialsResultCredentialInfos = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a DescribeUserScramCredentialsResponse.
 wireMaxSizeDescribeUserScramCredentialsResponse :: Int -> DescribeUserScramCredentialsResponse -> Int
@@ -209,7 +219,7 @@ wirePokeDescribeUserScramCredentialsResponse version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (describeUserScramCredentialsResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (describeUserScramCredentialsResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (describeUserScramCredentialsResponseErrorMessage msg))
+    p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (describeUserScramCredentialsResponseErrorMessage msg)) else WP.pokeKafkaString p2 (describeUserScramCredentialsResponseErrorMessage msg))
     p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeDescribeUserScramCredentialsResult version p x) p3 (describeUserScramCredentialsResponseResults msg)
     WP.pokeEmptyTaggedFields p4
   | otherwise = error $ "wirePoke DescribeUserScramCredentialsResponse : unsupported version: " ++ show version
@@ -220,7 +230,7 @@ wirePeekDescribeUserScramCredentialsResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     (f3_results, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDescribeUserScramCredentialsResult version _fp _basePtr p e) p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (DescribeUserScramCredentialsResponse { describeUserScramCredentialsResponseThrottleTimeMs = f0_throttletimems, describeUserScramCredentialsResponseErrorCode = f1_errorcode, describeUserScramCredentialsResponseErrorMessage = f2_errormessage, describeUserScramCredentialsResponseResults = f3_results }, pTagsEnd)

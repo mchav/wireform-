@@ -146,7 +146,7 @@ wirePokeListOffsetsPartition :: Int -> Ptr Word8 -> ListOffsetsPartition -> IO (
 wirePokeListOffsetsPartition version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (listOffsetsPartitionPartitionIndex msg)
-  p2 <- W.pokeInt32BE p1 (listOffsetsPartitionCurrentLeaderEpoch msg)
+  p2 <- (if version >= 4 then W.pokeInt32BE p1 (listOffsetsPartitionCurrentLeaderEpoch msg) else pure p1)
   p3 <- W.pokeInt64BE p2 (listOffsetsPartitionTimestamp msg)
   if version >= 6 then WP.pokeEmptyTaggedFields p3 else pure p3
 
@@ -154,10 +154,15 @@ wirePokeListOffsetsPartition version basePtr msg = do
 wirePeekListOffsetsPartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListOffsetsPartition, Ptr Word8)
 wirePeekListOffsetsPartition version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
-  (f1_currentleaderepoch, p2) <- W.peekInt32BE p1 endPtr
+  (f1_currentleaderepoch, p2) <- (if version >= 4 then W.peekInt32BE p1 endPtr else pure (0, p1))
   (f2_timestamp, p3) <- W.peekInt64BE p2 endPtr
   pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (ListOffsetsPartition { listOffsetsPartitionPartitionIndex = f0_partitionindex, listOffsetsPartitionCurrentLeaderEpoch = f1_currentleaderepoch, listOffsetsPartitionTimestamp = f2_timestamp }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultListOffsetsPartition :: ListOffsetsPartition
+defaultListOffsetsPartition = ListOffsetsPartition { listOffsetsPartitionPartitionIndex = 0, listOffsetsPartitionCurrentLeaderEpoch = 0, listOffsetsPartitionTimestamp = 0 }
 
 -- | Worst-case wire size of a ListOffsetsTopic.
 wireMaxSizeListOffsetsTopic :: Int -> ListOffsetsTopic -> Int
@@ -171,17 +176,22 @@ wireMaxSizeListOffsetsTopic _version msg =
 wirePokeListOffsetsTopic :: Int -> Ptr Word8 -> ListOffsetsTopic -> IO (Ptr Word8)
 wirePokeListOffsetsTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (listOffsetsTopicName msg))
+  p1 <- (if version >= 6 then WP.pokeCompactString p0 (P.toCompactString (listOffsetsTopicName msg)) else WP.pokeKafkaString p0 (listOffsetsTopicName msg))
   p2 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsPartition version p x) p1 (listOffsetsTopicPartitions msg)
   if version >= 6 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for ListOffsetsTopic.
 wirePeekListOffsetsTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListOffsetsTopic, Ptr Word8)
 wirePeekListOffsetsTopic version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsPartition version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ListOffsetsTopic { listOffsetsTopicName = f0_name, listOffsetsTopicPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultListOffsetsTopic :: ListOffsetsTopic
+defaultListOffsetsTopic = ListOffsetsTopic { listOffsetsTopicName = P.KafkaString Null, listOffsetsTopicPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a ListOffsetsRequest.
 wireMaxSizeListOffsetsRequest :: Int -> ListOffsetsRequest -> Int
@@ -204,20 +214,20 @@ wirePokeListOffsetsRequest version basePtr msg
   | version >= 10 && version <= 11 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (listOffsetsRequestReplicaId msg)
-    p2 <- W.pokeWord8 p1 (fromIntegral (listOffsetsRequestIsolationLevel msg))
+    p2 <- (if version >= 2 then W.pokeWord8 p1 (fromIntegral (listOffsetsRequestIsolationLevel msg)) else pure p1)
     p3 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsTopic version p x) p2 (listOffsetsRequestTopics msg)
-    p4 <- W.pokeInt32BE p3 (listOffsetsRequestTimeoutMs msg)
+    p4 <- (if version >= 10 then W.pokeInt32BE p3 (listOffsetsRequestTimeoutMs msg) else pure p3)
     WP.pokeEmptyTaggedFields p4
   | version >= 2 && version <= 5 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (listOffsetsRequestReplicaId msg)
-    p2 <- W.pokeWord8 p1 (fromIntegral (listOffsetsRequestIsolationLevel msg))
+    p2 <- (if version >= 2 then W.pokeWord8 p1 (fromIntegral (listOffsetsRequestIsolationLevel msg)) else pure p1)
     p3 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsTopic version p x) p2 (listOffsetsRequestTopics msg)
     pure p3
   | version >= 6 && version <= 9 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (listOffsetsRequestReplicaId msg)
-    p2 <- W.pokeWord8 p1 (fromIntegral (listOffsetsRequestIsolationLevel msg))
+    p2 <- (if version >= 2 then W.pokeWord8 p1 (fromIntegral (listOffsetsRequestIsolationLevel msg)) else pure p1)
     p3 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsTopic version p x) p2 (listOffsetsRequestTopics msg)
     WP.pokeEmptyTaggedFields p3
   | otherwise = error $ "wirePoke ListOffsetsRequest : unsupported version: " ++ show version
@@ -231,19 +241,19 @@ wirePeekListOffsetsRequest version _fp _basePtr p0 endPtr
     pure (ListOffsetsRequest { listOffsetsRequestReplicaId = f0_replicaid, listOffsetsRequestIsolationLevel = 0, listOffsetsRequestTopics = f1_topics, listOffsetsRequestTimeoutMs = 0 }, p2)
   | version >= 10 && version <= 11 = do
     (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
-    (f1_isolationlevel, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+    (f1_isolationlevel, p2) <- (if version >= 2 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (0, p1))
     (f2_topics, p3) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopic version _fp _basePtr p e) p2 endPtr
-    (f3_timeoutms, p4) <- W.peekInt32BE p3 endPtr
+    (f3_timeoutms, p4) <- (if version >= 10 then W.peekInt32BE p3 endPtr else pure (0, p3))
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (ListOffsetsRequest { listOffsetsRequestReplicaId = f0_replicaid, listOffsetsRequestIsolationLevel = f1_isolationlevel, listOffsetsRequestTopics = f2_topics, listOffsetsRequestTimeoutMs = f3_timeoutms }, pTagsEnd)
   | version >= 2 && version <= 5 = do
     (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
-    (f1_isolationlevel, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+    (f1_isolationlevel, p2) <- (if version >= 2 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (0, p1))
     (f2_topics, p3) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopic version _fp _basePtr p e) p2 endPtr
     pure (ListOffsetsRequest { listOffsetsRequestReplicaId = f0_replicaid, listOffsetsRequestIsolationLevel = f1_isolationlevel, listOffsetsRequestTopics = f2_topics, listOffsetsRequestTimeoutMs = 0 }, p3)
   | version >= 6 && version <= 9 = do
     (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
-    (f1_isolationlevel, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+    (f1_isolationlevel, p2) <- (if version >= 2 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (0, p1))
     (f2_topics, p3) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopic version _fp _basePtr p e) p2 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (ListOffsetsRequest { listOffsetsRequestReplicaId = f0_replicaid, listOffsetsRequestIsolationLevel = f1_isolationlevel, listOffsetsRequestTopics = f2_topics, listOffsetsRequestTimeoutMs = 0 }, pTagsEnd)

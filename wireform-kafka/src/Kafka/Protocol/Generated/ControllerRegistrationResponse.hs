@@ -100,7 +100,7 @@ wirePokeControllerRegistrationResponse version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (controllerRegistrationResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (controllerRegistrationResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (controllerRegistrationResponseErrorMessage msg))
+    p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (controllerRegistrationResponseErrorMessage msg)) else WP.pokeKafkaString p2 (controllerRegistrationResponseErrorMessage msg))
     WP.pokeEmptyTaggedFields p3
   | otherwise = error $ "wirePoke ControllerRegistrationResponse : unsupported version: " ++ show version
 
@@ -110,7 +110,7 @@ wirePeekControllerRegistrationResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (ControllerRegistrationResponse { controllerRegistrationResponseThrottleTimeMs = f0_throttletimems, controllerRegistrationResponseErrorCode = f1_errorcode, controllerRegistrationResponseErrorMessage = f2_errormessage }, pTagsEnd)
   | otherwise = error $ "wirePeek ControllerRegistrationResponse : unsupported version: " ++ show version

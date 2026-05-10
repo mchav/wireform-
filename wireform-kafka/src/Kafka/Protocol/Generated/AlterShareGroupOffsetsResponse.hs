@@ -152,7 +152,7 @@ wirePokeAlterShareGroupOffsetsResponsePartition version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (alterShareGroupOffsetsResponsePartitionPartitionIndex msg)
   p2 <- W.pokeInt16BE p1 (alterShareGroupOffsetsResponsePartitionErrorCode msg)
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (alterShareGroupOffsetsResponsePartitionErrorMessage msg))
+  p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (alterShareGroupOffsetsResponsePartitionErrorMessage msg)) else WP.pokeKafkaString p2 (alterShareGroupOffsetsResponsePartitionErrorMessage msg))
   if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for AlterShareGroupOffsetsResponsePartition.
@@ -160,9 +160,14 @@ wirePeekAlterShareGroupOffsetsResponsePartition :: Int -> ForeignPtr Word8 -> Pt
 wirePeekAlterShareGroupOffsetsResponsePartition version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (AlterShareGroupOffsetsResponsePartition { alterShareGroupOffsetsResponsePartitionPartitionIndex = f0_partitionindex, alterShareGroupOffsetsResponsePartitionErrorCode = f1_errorcode, alterShareGroupOffsetsResponsePartitionErrorMessage = f2_errormessage }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAlterShareGroupOffsetsResponsePartition :: AlterShareGroupOffsetsResponsePartition
+defaultAlterShareGroupOffsetsResponsePartition = AlterShareGroupOffsetsResponsePartition { alterShareGroupOffsetsResponsePartitionPartitionIndex = 0, alterShareGroupOffsetsResponsePartitionErrorCode = 0, alterShareGroupOffsetsResponsePartitionErrorMessage = P.KafkaString Null }
 
 -- | Worst-case wire size of a AlterShareGroupOffsetsResponseTopic.
 wireMaxSizeAlterShareGroupOffsetsResponseTopic :: Int -> AlterShareGroupOffsetsResponseTopic -> Int
@@ -177,7 +182,7 @@ wireMaxSizeAlterShareGroupOffsetsResponseTopic _version msg =
 wirePokeAlterShareGroupOffsetsResponseTopic :: Int -> Ptr Word8 -> AlterShareGroupOffsetsResponseTopic -> IO (Ptr Word8)
 wirePokeAlterShareGroupOffsetsResponseTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (alterShareGroupOffsetsResponseTopicTopicName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (alterShareGroupOffsetsResponseTopicTopicName msg)) else WP.pokeKafkaString p0 (alterShareGroupOffsetsResponseTopicTopicName msg))
   p2 <- WP.pokeKafkaUuid p1 (alterShareGroupOffsetsResponseTopicTopicId msg)
   p3 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeAlterShareGroupOffsetsResponsePartition version p x) p2 (alterShareGroupOffsetsResponseTopicPartitions msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
@@ -185,11 +190,16 @@ wirePokeAlterShareGroupOffsetsResponseTopic version basePtr msg = do
 -- | Direct-poke decoder for AlterShareGroupOffsetsResponseTopic.
 wirePeekAlterShareGroupOffsetsResponseTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AlterShareGroupOffsetsResponseTopic, Ptr Word8)
 wirePeekAlterShareGroupOffsetsResponseTopic version _fp _basePtr p0 endPtr = do
-  (f0_topicname, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_topicname, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_topicid, p2) <- WP.peekKafkaUuid p1 endPtr
   (f2_partitions, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekAlterShareGroupOffsetsResponsePartition version _fp _basePtr p e) p2 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (AlterShareGroupOffsetsResponseTopic { alterShareGroupOffsetsResponseTopicTopicName = f0_topicname, alterShareGroupOffsetsResponseTopicTopicId = f1_topicid, alterShareGroupOffsetsResponseTopicPartitions = f2_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAlterShareGroupOffsetsResponseTopic :: AlterShareGroupOffsetsResponseTopic
+defaultAlterShareGroupOffsetsResponseTopic = AlterShareGroupOffsetsResponseTopic { alterShareGroupOffsetsResponseTopicTopicName = P.KafkaString Null, alterShareGroupOffsetsResponseTopicTopicId = P.nullUuid, alterShareGroupOffsetsResponseTopicPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a AlterShareGroupOffsetsResponse.
 wireMaxSizeAlterShareGroupOffsetsResponse :: Int -> AlterShareGroupOffsetsResponse -> Int
@@ -208,7 +218,7 @@ wirePokeAlterShareGroupOffsetsResponse version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (alterShareGroupOffsetsResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (alterShareGroupOffsetsResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (alterShareGroupOffsetsResponseErrorMessage msg))
+    p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (alterShareGroupOffsetsResponseErrorMessage msg)) else WP.pokeKafkaString p2 (alterShareGroupOffsetsResponseErrorMessage msg))
     p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeAlterShareGroupOffsetsResponseTopic version p x) p3 (alterShareGroupOffsetsResponseResponses msg)
     WP.pokeEmptyTaggedFields p4
   | otherwise = error $ "wirePoke AlterShareGroupOffsetsResponse : unsupported version: " ++ show version
@@ -219,7 +229,7 @@ wirePeekAlterShareGroupOffsetsResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     (f3_responses, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekAlterShareGroupOffsetsResponseTopic version _fp _basePtr p e) p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (AlterShareGroupOffsetsResponse { alterShareGroupOffsetsResponseThrottleTimeMs = f0_throttletimems, alterShareGroupOffsetsResponseErrorCode = f1_errorcode, alterShareGroupOffsetsResponseErrorMessage = f2_errormessage, alterShareGroupOffsetsResponseResponses = f3_responses }, pTagsEnd)

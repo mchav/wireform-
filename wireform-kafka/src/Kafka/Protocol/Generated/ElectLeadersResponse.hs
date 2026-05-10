@@ -141,7 +141,7 @@ wirePokePartitionResult version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (partitionResultPartitionId msg)
   p2 <- W.pokeInt16BE p1 (partitionResultErrorCode msg)
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (partitionResultErrorMessage msg))
+  p3 <- (if version >= 2 then WP.pokeCompactString p2 (P.toCompactString (partitionResultErrorMessage msg)) else WP.pokeKafkaString p2 (partitionResultErrorMessage msg))
   if version >= 2 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for PartitionResult.
@@ -149,9 +149,14 @@ wirePeekPartitionResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> 
 wirePeekPartitionResult version _fp _basePtr p0 endPtr = do
   (f0_partitionid, p1) <- W.peekInt32BE p0 endPtr
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f2_errormessage, p3) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (PartitionResult { partitionResultPartitionId = f0_partitionid, partitionResultErrorCode = f1_errorcode, partitionResultErrorMessage = f2_errormessage }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionResult :: PartitionResult
+defaultPartitionResult = PartitionResult { partitionResultPartitionId = 0, partitionResultErrorCode = 0, partitionResultErrorMessage = P.KafkaString Null }
 
 -- | Worst-case wire size of a ReplicaElectionResult.
 wireMaxSizeReplicaElectionResult :: Int -> ReplicaElectionResult -> Int
@@ -165,17 +170,22 @@ wireMaxSizeReplicaElectionResult _version msg =
 wirePokeReplicaElectionResult :: Int -> Ptr Word8 -> ReplicaElectionResult -> IO (Ptr Word8)
 wirePokeReplicaElectionResult version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (replicaElectionResultTopic msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (replicaElectionResultTopic msg)) else WP.pokeKafkaString p0 (replicaElectionResultTopic msg))
   p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokePartitionResult version p x) p1 (replicaElectionResultPartitionResult msg)
   if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for ReplicaElectionResult.
 wirePeekReplicaElectionResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ReplicaElectionResult, Ptr Word8)
 wirePeekReplicaElectionResult version _fp _basePtr p0 endPtr = do
-  (f0_topic, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_topic, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitionresult, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekPartitionResult version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ReplicaElectionResult { replicaElectionResultTopic = f0_topic, replicaElectionResultPartitionResult = f1_partitionresult }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultReplicaElectionResult :: ReplicaElectionResult
+defaultReplicaElectionResult = ReplicaElectionResult { replicaElectionResultTopic = P.KafkaString Null, replicaElectionResultPartitionResult = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a ElectLeadersResponse.
 wireMaxSizeElectLeadersResponse :: Int -> ElectLeadersResponse -> Int
@@ -197,13 +207,13 @@ wirePokeElectLeadersResponse version basePtr msg
   | version == 1 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (electLeadersResponseThrottleTimeMs msg)
-    p2 <- W.pokeInt16BE p1 (electLeadersResponseErrorCode msg)
+    p2 <- (if version >= 1 then W.pokeInt16BE p1 (electLeadersResponseErrorCode msg) else pure p1)
     p3 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeReplicaElectionResult version p x) p2 (electLeadersResponseReplicaElectionResults msg)
     pure p3
   | version == 2 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (electLeadersResponseThrottleTimeMs msg)
-    p2 <- W.pokeInt16BE p1 (electLeadersResponseErrorCode msg)
+    p2 <- (if version >= 1 then W.pokeInt16BE p1 (electLeadersResponseErrorCode msg) else pure p1)
     p3 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeReplicaElectionResult version p x) p2 (electLeadersResponseReplicaElectionResults msg)
     WP.pokeEmptyTaggedFields p3
   | otherwise = error $ "wirePoke ElectLeadersResponse : unsupported version: " ++ show version
@@ -217,12 +227,12 @@ wirePeekElectLeadersResponse version _fp _basePtr p0 endPtr
     pure (ElectLeadersResponse { electLeadersResponseThrottleTimeMs = f0_throttletimems, electLeadersResponseErrorCode = 0, electLeadersResponseReplicaElectionResults = f1_replicaelectionresults }, p2)
   | version == 1 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
-    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f1_errorcode, p2) <- (if version >= 1 then W.peekInt16BE p1 endPtr else pure (0, p1))
     (f2_replicaelectionresults, p3) <- WP.peekVersionedArray version 2 (\p e -> wirePeekReplicaElectionResult version _fp _basePtr p e) p2 endPtr
     pure (ElectLeadersResponse { electLeadersResponseThrottleTimeMs = f0_throttletimems, electLeadersResponseErrorCode = f1_errorcode, electLeadersResponseReplicaElectionResults = f2_replicaelectionresults }, p3)
   | version == 2 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
-    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
+    (f1_errorcode, p2) <- (if version >= 1 then W.peekInt16BE p1 endPtr else pure (0, p1))
     (f2_replicaelectionresults, p3) <- WP.peekVersionedArray version 2 (\p e -> wirePeekReplicaElectionResult version _fp _basePtr p e) p2 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (ElectLeadersResponse { electLeadersResponseThrottleTimeMs = f0_throttletimems, electLeadersResponseErrorCode = f1_errorcode, electLeadersResponseReplicaElectionResults = f2_replicaelectionresults }, pTagsEnd)

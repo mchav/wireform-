@@ -107,17 +107,22 @@ wireMaxSizeListPartitionReassignmentsTopics _version msg =
 wirePokeListPartitionReassignmentsTopics :: Int -> Ptr Word8 -> ListPartitionReassignmentsTopics -> IO (Ptr Word8)
 wirePokeListPartitionReassignmentsTopics version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (listPartitionReassignmentsTopicsName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (listPartitionReassignmentsTopicsName msg)) else WP.pokeKafkaString p0 (listPartitionReassignmentsTopicsName msg))
   p2 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p1 (listPartitionReassignmentsTopicsPartitionIndexes msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for ListPartitionReassignmentsTopics.
 wirePeekListPartitionReassignmentsTopics :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListPartitionReassignmentsTopics, Ptr Word8)
 wirePeekListPartitionReassignmentsTopics version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitionindexes, p2) <- WP.peekVersionedArray version 0 W.peekInt32BE p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ListPartitionReassignmentsTopics { listPartitionReassignmentsTopicsName = f0_name, listPartitionReassignmentsTopicsPartitionIndexes = f1_partitionindexes }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultListPartitionReassignmentsTopics :: ListPartitionReassignmentsTopics
+defaultListPartitionReassignmentsTopics = ListPartitionReassignmentsTopics { listPartitionReassignmentsTopicsName = P.KafkaString Null, listPartitionReassignmentsTopicsPartitionIndexes = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a ListPartitionReassignmentsRequest.
 wireMaxSizeListPartitionReassignmentsRequest :: Int -> ListPartitionReassignmentsRequest -> Int

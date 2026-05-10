@@ -194,6 +194,13 @@ generateNestedWireFunctions flexibleVer structName fields
     [ generateNestedWireMaxSize structName fields flexibleVer
     , generateNestedWirePoke    structName fields flexibleVer
     , generateNestedWirePeek    structName fields flexibleVer
+      -- A 'defaultStructName' value used by absent-version
+      -- field defaults inside other structs that embed this one
+      -- as a tagged or version-gated field. Without this, the
+      -- decoder would fall back to @undefined :: StructName@,
+      -- which crashes the strict record constructor for any
+      -- response that doesn't carry the field on the wire.
+    , generateNestedWireDefault structName fields
     ]
 
 -- | Emit a native @WireCodec@ instance for /every/ schema. The
@@ -545,6 +552,24 @@ taggedFieldPayloadExpr f acc = case fieldType f of
       _                       -> "(\\p_ _ -> pure p_)"
 
 -- | Emit per-field poke statements; threads cursor through @p0, p1, …@.
+--
+-- For fields whose @versions:@ spec is anything other than @"0+"@
+-- (always present) we wrap the per-field encoder in a runtime
+-- version guard:
+--
+-- @
+-- p1 <- if version >= 13 then WP.pokeKafkaUuid p0 (...) else pure p0
+-- @
+--
+-- Without the guard, nested-struct decoders for messages like
+-- 'TopicProduceResponse' would unconditionally pull a
+-- @topicProduceResponseTopicId@ KafkaUuid (KIP-516, v13+) off the
+-- wire even at v3-v12 — eating into the next field's bytes and
+-- corrupting the rest of the response. (Top-level messages
+-- don't hit this because 'generatePokeBranch' filters by
+-- 'fieldInVersionRange' before calling here; nested structs
+-- emit a single un-branched function and so /must/ guard at
+-- runtime.)
 pokeFieldStmts
   :: Text
   -> Maybe Int16
@@ -555,11 +580,33 @@ pokeFieldStmts typeName flexibleVer fs = go (0 :: Int) fs []
     go i [] acc = (cur i, reverse acc)
     go i (f : rest) acc =
       let !next = i + 1
-          stmt  = pretty (cur next) <+> "<-" <+> pokeFieldExpr
-                    typeName flexibleVer f (cur i)
+          body  = pokeFieldExpr typeName flexibleVer f (cur i)
+          guarded = case fieldVersionGuard f of
+            Nothing   -> body
+            Just cond -> parens
+              ("if" <+> cond <+> "then" <+> body
+                 <+> "else pure" <+> pretty (cur i))
+          stmt  = pretty (cur next) <+> "<-" <+> guarded
       in go next rest (stmt : acc)
 
     cur n = "p" <> T.pack (show n)
+
+-- | Compile the field's @versions:@ JSON spec to an optional
+-- runtime guard expression in terms of the surrounding
+-- @version@ binding. 'Nothing' means \"always present\" — emit
+-- no guard at all and let the encoder/decoder run unconditionally.
+fieldVersionGuard :: FieldSpec -> Maybe (Doc ann)
+fieldVersionGuard f =
+  case parseVersionSpec (fieldVersions f) of
+    Right (VersionFrom 0)         -> Nothing
+    Right (VersionFrom v)         -> Just ("version >=" <+> pretty v)
+    Right (ExactVersion v)        -> Just ("version ==" <+> pretty v)
+    Right (VersionRange minV maxV)
+      | minV == 0                 -> Just ("version <=" <+> pretty maxV)
+      | otherwise                 -> Just ("version >=" <+> pretty minV
+                                            <+> "&& version <=" <+> pretty maxV)
+    Right NoVersions              -> Just "False"
+    Left _                        -> Nothing
 
 pokeFieldExpr
   :: Text
@@ -584,13 +631,30 @@ pokeFieldExpr typeName flexibleVer f cur =
     PrimitiveType "uint32"  -> "W.pokeWord32BE"  <+> cp <+> acc
     PrimitiveType "uuid"    -> "WP.pokeKafkaUuid" <+> cp <+> acc
     PrimitiveType "float64" -> "W.pokeFloat64BE" <+> cp <+> acc
+    -- Flexible-aware string/bytes encoding.  When the message is
+    -- flexible at all (and the field doesn't opt out with
+    -- @flexibleVersions: "none"@), the codec needs a runtime
+    -- check on the version: at @version >= flexibleVer@ the
+    -- field is encoded compact (varint length+1), at lower
+    -- versions it's the legacy 4-byte / 2-byte length prefix.
+    -- The codegen used to emit a static compile-time choice per
+    -- field, which sent the compact shape on /every/ version
+    -- and made the broker close the connection with
+    -- @InvalidRequestException@ + buffer-underflow on
+    -- non-flexible versions.
     PrimitiveType "string" ->
       if fieldUsesCompact f flexibleVer
-        then "WP.pokeCompactString" <+> cp <+> parens ("P.toCompactString" <+> acc)
+        then parens ("if version >=" <+> threshold flexibleVer
+                       <+> "then WP.pokeCompactString" <+> cp
+                         <+> parens ("P.toCompactString" <+> acc)
+                       <+> "else WP.pokeKafkaString" <+> cp <+> acc)
         else "WP.pokeKafkaString"   <+> cp <+> acc
     PrimitiveType "bytes" ->
       if fieldUsesCompact f flexibleVer
-        then "WP.pokeCompactBytes" <+> cp <+> parens ("P.toCompactBytes" <+> acc)
+        then parens ("if version >=" <+> threshold flexibleVer
+                       <+> "then WP.pokeCompactBytes" <+> cp
+                         <+> parens ("P.toCompactBytes" <+> acc)
+                       <+> "else WP.pokeKafkaBytes" <+> cp <+> acc)
         else "WP.pokeKafkaBytes"   <+> cp <+> acc
     PrimitiveType _ -> "error \"WireGenerator: unsupported primitive\""
 
@@ -891,8 +955,22 @@ peekFieldStmts _typeName flexibleVer fs = go (0 :: Int) fs [] []
     go i (f : rest) acc varMap =
       let !next = i + 1
           var   = "f" <> T.pack (show i) <> "_" <> sanitiseVar (fieldName f)
+          body  = peekFieldExpr flexibleVer f (cur i)
+          -- Mirror image of 'pokeFieldStmts': nested-struct
+          -- decoders emit a single un-branched function, so they
+          -- /must/ guard each version-bracketed field at runtime
+          -- and substitute the field's documented default when
+          -- the wire doesn't carry it. Without this, decoding
+          -- e.g. a v3 'TopicProduceResponse' would over-read
+          -- by 16 bytes (the v13+ TopicId field).
+          guarded = case fieldVersionGuard f of
+            Nothing   -> body
+            Just cond -> parens
+              ("if" <+> cond <+> "then" <+> body
+                 <+> "else pure" <+> parens
+                       (generateFieldDefaultDoc f <> "," <+> pretty (cur i)))
           stmt  = parens (pretty var <> "," <+> pretty (cur next))
-                    <+> "<-" <+> peekFieldExpr flexibleVer f (cur i)
+                    <+> "<-" <+> guarded
       in go next rest (stmt : acc) ((fieldName f, var) : varMap)
 
     cur n = "p" <> T.pack (show n)
@@ -926,15 +1004,22 @@ peekFieldExpr flexibleVer f cur =
     PrimitiveType "uint32"  -> "W.peekWord32BE" <+> cp <+> end
     PrimitiveType "uuid"    -> "WP.peekKafkaUuid" <+> cp <+> end
     PrimitiveType "float64" -> "W.peekFloat64BE" <+> cp <+> end
+    -- Mirror image of the encoder's flexible-aware switch — see
+    -- the long comment in 'pokeFieldExpr' for why we emit a
+    -- runtime check rather than a compile-time choice.
     PrimitiveType "string" ->
       if fieldUsesCompact f flexibleVer
-        then "(\\(cs, p') -> (P.fromCompactString cs, p'))"
-              <+> "<$> WP.peekCompactString" <+> cp <+> end
+        then parens ("if version >=" <+> threshold flexibleVer
+                       <+> "then (\\(cs, p') -> (P.fromCompactString cs, p'))"
+                         <+> "<$> WP.peekCompactString" <+> cp <+> end
+                       <+> "else WP.peekKafkaString" <+> cp <+> end)
         else "WP.peekKafkaString" <+> cp <+> end
     PrimitiveType "bytes" ->
       if fieldUsesCompact f flexibleVer
-        then "(\\(cb, p') -> (P.fromCompactBytes cb, p'))"
-              <+> "<$> WP.peekCompactBytes" <+> cp <+> end
+        then parens ("if version >=" <+> threshold flexibleVer
+                       <+> "then (\\(cb, p') -> (P.fromCompactBytes cb, p'))"
+                         <+> "<$> WP.peekCompactBytes" <+> cp <+> end
+                       <+> "else WP.peekKafkaBytes" <+> cp <+> end)
         else "WP.peekKafkaBytes" <+> cp <+> end
     PrimitiveType _ -> "error \"WireGenerator: unsupported primitive\""
 
@@ -1133,14 +1218,39 @@ generateFieldDefaultDoc field = case fieldType field of
   PrimitiveType "uuid"    -> "P.nullUuid"
   StructType _ | isFieldNullable field -> "P.Null"
   StructType s | otherwise ->
-    -- A non-nullable nested struct that's absent at this version
-    -- doesn't have a sensible default; emit 'undefined' so a
-    -- caller forcing it surfaces the issue. (In practice this is
-    -- rare — nested structs are usually always present from v0.)
-    "undefined :: " <> pretty s
+    -- 'default<StructName>' is co-emitted by
+    -- 'generateNestedWireDefault' for every struct the codegen
+    -- visits. The strict record constructor can't accept
+    -- 'undefined' here without crashing on response decoding,
+    -- so we always reference the per-struct value instead.
+    "default" <> pretty s
   ArrayType _ | isFieldNullable field -> "P.KafkaArray P.Null"
   ArrayType _ -> "P.mkKafkaArray V.empty"
   PrimitiveType _ -> "undefined"
+
+-- | Emit a default value for a struct: a record literal whose
+-- fields are themselves recursively defaulted.  Lives at module
+-- scope as @defaultStructName :: StructName@ so version-gated
+-- absent fields elsewhere can reference it without re-deriving
+-- the constructor every time.
+generateNestedWireDefault
+  :: Text          -- ^ struct type name
+  -> [FieldSpec]   -- ^ struct fields
+  -> Doc ann
+generateNestedWireDefault structName fields =
+  let valName = "default" <> pretty structName
+      fieldDoc f =
+        pretty (toHaskellFieldName structName (fieldName f))
+          <+> "=" <+> generateFieldDefaultDoc f
+      assignments = punctuate "," (map fieldDoc fields)
+  in vsep
+    [ "-- | Per-struct default value referenced by 'generateFieldDefaultDoc'"
+    , "-- when an absent-version field elsewhere needs a placeholder."
+    , valName <+> ":: " <> pretty structName
+    , valName <+> "=" <+> pretty structName
+        <+> "{" <+> hsep assignments <+> "}"
+    , ""
+    ]
 
 -- 'fromMaybe' kept around for future per-version compact dispatch.
 _keepFromMaybe :: a -> Maybe a -> a

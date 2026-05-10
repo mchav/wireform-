@@ -91,12 +91,12 @@ wirePokeRenewDelegationTokenRequest :: Int -> Ptr Word8 -> RenewDelegationTokenR
 wirePokeRenewDelegationTokenRequest version basePtr msg
   | version == 1 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactBytes p0 (P.toCompactBytes (renewDelegationTokenRequestHmac msg))
+    p1 <- (if version >= 2 then WP.pokeCompactBytes p0 (P.toCompactBytes (renewDelegationTokenRequestHmac msg)) else WP.pokeKafkaBytes p0 (renewDelegationTokenRequestHmac msg))
     p2 <- W.pokeInt64BE p1 (renewDelegationTokenRequestRenewPeriodMs msg)
     pure p2
   | version == 2 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactBytes p0 (P.toCompactBytes (renewDelegationTokenRequestHmac msg))
+    p1 <- (if version >= 2 then WP.pokeCompactBytes p0 (P.toCompactBytes (renewDelegationTokenRequestHmac msg)) else WP.pokeKafkaBytes p0 (renewDelegationTokenRequestHmac msg))
     p2 <- W.pokeInt64BE p1 (renewDelegationTokenRequestRenewPeriodMs msg)
     WP.pokeEmptyTaggedFields p2
   | otherwise = error $ "wirePoke RenewDelegationTokenRequest : unsupported version: " ++ show version
@@ -105,11 +105,11 @@ wirePokeRenewDelegationTokenRequest version basePtr msg
 wirePeekRenewDelegationTokenRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (RenewDelegationTokenRequest, Ptr Word8)
 wirePeekRenewDelegationTokenRequest version _fp _basePtr p0 endPtr
   | version == 1 = do
-    (f0_hmac, p1) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr
+    (f0_hmac, p1) <- (if version >= 2 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr else WP.peekKafkaBytes p0 endPtr)
     (f1_renewperiodms, p2) <- W.peekInt64BE p1 endPtr
     pure (RenewDelegationTokenRequest { renewDelegationTokenRequestHmac = f0_hmac, renewDelegationTokenRequestRenewPeriodMs = f1_renewperiodms }, p2)
   | version == 2 = do
-    (f0_hmac, p1) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr
+    (f0_hmac, p1) <- (if version >= 2 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr else WP.peekKafkaBytes p0 endPtr)
     (f1_renewperiodms, p2) <- W.peekInt64BE p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (RenewDelegationTokenRequest { renewDelegationTokenRequestHmac = f0_hmac, renewDelegationTokenRequestRenewPeriodMs = f1_renewperiodms }, pTagsEnd)

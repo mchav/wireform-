@@ -101,17 +101,22 @@ wireMaxSizeDescribableLogDirTopic _version msg =
 wirePokeDescribableLogDirTopic :: Int -> Ptr Word8 -> DescribableLogDirTopic -> IO (Ptr Word8)
 wirePokeDescribableLogDirTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (describableLogDirTopicTopic msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (describableLogDirTopicTopic msg)) else WP.pokeKafkaString p0 (describableLogDirTopicTopic msg))
   p2 <- WP.pokeVersionedArray version 2 W.pokeInt32BE p1 (describableLogDirTopicPartitions msg)
   if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for DescribableLogDirTopic.
 wirePeekDescribableLogDirTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribableLogDirTopic, Ptr Word8)
 wirePeekDescribableLogDirTopic version _fp _basePtr p0 endPtr = do
-  (f0_topic, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_topic, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 2 W.peekInt32BE p1 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (DescribableLogDirTopic { describableLogDirTopicTopic = f0_topic, describableLogDirTopicPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribableLogDirTopic :: DescribableLogDirTopic
+defaultDescribableLogDirTopic = DescribableLogDirTopic { describableLogDirTopicTopic = P.KafkaString Null, describableLogDirTopicPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a DescribeLogDirsRequest.
 wireMaxSizeDescribeLogDirsRequest :: Int -> DescribeLogDirsRequest -> Int

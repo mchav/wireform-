@@ -164,8 +164,8 @@ wireMaxSizeListener _version msg =
 wirePokeListener :: Int -> Ptr Word8 -> Listener -> IO (Ptr Word8)
 wirePokeListener version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (listenerName msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (listenerHost msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (listenerName msg)) else WP.pokeKafkaString p0 (listenerName msg))
+  p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (listenerHost msg)) else WP.pokeKafkaString p1 (listenerHost msg))
   p3 <- W.pokeWord16BE p2 (listenerPort msg)
   p4 <- W.pokeInt16BE p3 (listenerSecurityProtocol msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p4 else pure p4
@@ -173,12 +173,17 @@ wirePokeListener version basePtr msg = do
 -- | Direct-poke decoder for Listener.
 wirePeekListener :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Listener, Ptr Word8)
 wirePeekListener version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_host, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_port, p3) <- W.peekWord16BE p2 endPtr
   (f3_securityprotocol, p4) <- W.peekInt16BE p3 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (Listener { listenerName = f0_name, listenerHost = f1_host, listenerPort = f2_port, listenerSecurityProtocol = f3_securityprotocol }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultListener :: Listener
+defaultListener = Listener { listenerName = P.KafkaString Null, listenerHost = P.KafkaString Null, listenerPort = 0, listenerSecurityProtocol = 0 }
 
 -- | Worst-case wire size of a Feature.
 wireMaxSizeFeature :: Int -> Feature -> Int
@@ -193,7 +198,7 @@ wireMaxSizeFeature _version msg =
 wirePokeFeature :: Int -> Ptr Word8 -> Feature -> IO (Ptr Word8)
 wirePokeFeature version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (featureName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (featureName msg)) else WP.pokeKafkaString p0 (featureName msg))
   p2 <- W.pokeInt16BE p1 (featureMinSupportedVersion msg)
   p3 <- W.pokeInt16BE p2 (featureMaxSupportedVersion msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
@@ -201,11 +206,16 @@ wirePokeFeature version basePtr msg = do
 -- | Direct-poke decoder for Feature.
 wirePeekFeature :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Feature, Ptr Word8)
 wirePeekFeature version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_minsupportedversion, p2) <- W.peekInt16BE p1 endPtr
   (f2_maxsupportedversion, p3) <- W.peekInt16BE p2 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (Feature { featureName = f0_name, featureMinSupportedVersion = f1_minsupportedversion, featureMaxSupportedVersion = f2_maxsupportedversion }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultFeature :: Feature
+defaultFeature = Feature { featureName = P.KafkaString Null, featureMinSupportedVersion = 0, featureMaxSupportedVersion = 0 }
 
 -- | Worst-case wire size of a ControllerRegistrationRequest.
 wireMaxSizeControllerRegistrationRequest :: Int -> ControllerRegistrationRequest -> Int

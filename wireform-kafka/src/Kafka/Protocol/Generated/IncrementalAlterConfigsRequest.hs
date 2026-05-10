@@ -139,19 +139,24 @@ wireMaxSizeAlterableConfig _version msg =
 wirePokeAlterableConfig :: Int -> Ptr Word8 -> AlterableConfig -> IO (Ptr Word8)
 wirePokeAlterableConfig version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (alterableConfigName msg))
+  p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (alterableConfigName msg)) else WP.pokeKafkaString p0 (alterableConfigName msg))
   p2 <- W.pokeWord8 p1 (fromIntegral (alterableConfigConfigOperation msg))
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (alterableConfigValue msg))
+  p3 <- (if version >= 1 then WP.pokeCompactString p2 (P.toCompactString (alterableConfigValue msg)) else WP.pokeKafkaString p2 (alterableConfigValue msg))
   if version >= 1 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for AlterableConfig.
 wirePeekAlterableConfig :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AlterableConfig, Ptr Word8)
 wirePeekAlterableConfig version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_configoperation, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
-  (f2_value, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f2_value, p3) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (AlterableConfig { alterableConfigName = f0_name, alterableConfigConfigOperation = f1_configoperation, alterableConfigValue = f2_value }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAlterableConfig :: AlterableConfig
+defaultAlterableConfig = AlterableConfig { alterableConfigName = P.KafkaString Null, alterableConfigConfigOperation = 0, alterableConfigValue = P.KafkaString Null }
 
 -- | Worst-case wire size of a AlterConfigsResource.
 wireMaxSizeAlterConfigsResource :: Int -> AlterConfigsResource -> Int
@@ -167,7 +172,7 @@ wirePokeAlterConfigsResource :: Int -> Ptr Word8 -> AlterConfigsResource -> IO (
 wirePokeAlterConfigsResource version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeWord8 p0 (fromIntegral (alterConfigsResourceResourceType msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (alterConfigsResourceResourceName msg))
+  p2 <- (if version >= 1 then WP.pokeCompactString p1 (P.toCompactString (alterConfigsResourceResourceName msg)) else WP.pokeKafkaString p1 (alterConfigsResourceResourceName msg))
   p3 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeAlterableConfig version p x) p2 (alterConfigsResourceConfigs msg)
   if version >= 1 then WP.pokeEmptyTaggedFields p3 else pure p3
 
@@ -175,10 +180,15 @@ wirePokeAlterConfigsResource version basePtr msg = do
 wirePeekAlterConfigsResource :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AlterConfigsResource, Ptr Word8)
 wirePeekAlterConfigsResource version _fp _basePtr p0 endPtr = do
   (f0_resourcetype, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
-  (f1_resourcename, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f1_resourcename, p2) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_configs, p3) <- WP.peekVersionedArray version 1 (\p e -> wirePeekAlterableConfig version _fp _basePtr p e) p2 endPtr
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (AlterConfigsResource { alterConfigsResourceResourceType = f0_resourcetype, alterConfigsResourceResourceName = f1_resourcename, alterConfigsResourceConfigs = f2_configs }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAlterConfigsResource :: AlterConfigsResource
+defaultAlterConfigsResource = AlterConfigsResource { alterConfigsResourceResourceType = 0, alterConfigsResourceResourceName = P.KafkaString Null, alterConfigsResourceConfigs = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a IncrementalAlterConfigsRequest.
 wireMaxSizeIncrementalAlterConfigsRequest :: Int -> IncrementalAlterConfigsRequest -> Int

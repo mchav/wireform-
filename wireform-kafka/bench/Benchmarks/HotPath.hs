@@ -69,45 +69,27 @@ producerBench = bgroup "Producer"
       , bench "1000 appends" $ whnfIO $
           appendNRecords sharedAccumulator 1000
       ]
-  , bgroup "RecordBatch encode (the wire serializer)"
-      [ bench "buildRecordBatch (1 record)" $
-          nf (BS.length . RB.encodeRecordBatch
+  , bgroup "RecordBatch encode (Wire serializer; producer hot path)"
+      [ bench "buildRecordBatch + encode (1 record)" $
+          nf (BS.length . RBW.encodeRecordBatchWire
                 . Sender.buildRecordBatch) (sampleBatch 1)
-      , bench "buildRecordBatch (10 records)" $
-          nf (BS.length . RB.encodeRecordBatch
+      , bench "buildRecordBatch + encode (10 records)" $
+          nf (BS.length . RBW.encodeRecordBatchWire
                 . Sender.buildRecordBatch) (sampleBatch 10)
-      , bench "buildRecordBatch (100 records)" $
-          nf (BS.length . RB.encodeRecordBatch
+      , bench "buildRecordBatch + encode (100 records)" $
+          nf (BS.length . RBW.encodeRecordBatchWire
                 . Sender.buildRecordBatch) (sampleBatch 100)
-      , bench "encodeRecordBatch only (1 record, prebuilt batch)" $
-          nf (BS.length . RB.encodeRecordBatch) builtBatch1
-      , bench "encodeRecordBatch only (10 records, prebuilt)" $
-          nf (BS.length . RB.encodeRecordBatch) builtBatch10
-      , bench "encodeRecordBatch only (100 records, prebuilt)" $
-          nf (BS.length . RB.encodeRecordBatch) builtBatch100
-      ]
-  , bgroup "RecordBatch encode: Wire vs legacy (head-to-head)"
-      [ bench "legacy   (1   record)" $
-          nf (BS.length . RB.encodeRecordBatch) builtBatch1
-      , bench "wire     (1   record)" $
+      , bench "encodeRecordBatchWire only (1 record, prebuilt)" $
           nf (BS.length . RBW.encodeRecordBatchWire) builtBatch1
-      , bench "legacy   (10  records)" $
-          nf (BS.length . RB.encodeRecordBatch) builtBatch10
-      , bench "wire     (10  records)" $
+      , bench "encodeRecordBatchWire only (10 records, prebuilt)" $
           nf (BS.length . RBW.encodeRecordBatchWire) builtBatch10
-      , bench "legacy   (100 records)" $
-          nf (BS.length . RB.encodeRecordBatch) builtBatch100
-      , bench "wire     (100 records)" $
+      , bench "encodeRecordBatchWire only (100 records, prebuilt)" $
           nf (BS.length . RBW.encodeRecordBatchWire) builtBatch100
       ]
-  , bgroup "RecordBatch encode: gzip Wire vs legacy (head-to-head)"
-      [ bench "legacy gzip (10 records)" $
-          whnfIO (sizeOfRight =<< RB.encodeRecordBatchWithCompression  gzipBatch10)
-      , bench "wire   gzip (10 records)" $
+  , bgroup "RecordBatch encode: gzip"
+      [ bench "encodeRecordBatchWireCompressed gzip (10 records)" $
           whnfIO (sizeOfRight =<< RBW.encodeRecordBatchWireCompressed gzipBatch10)
-      , bench "legacy gzip (100 records)" $
-          whnfIO (sizeOfRight =<< RB.encodeRecordBatchWithCompression  gzipBatch100)
-      , bench "wire   gzip (100 records)" $
+      , bench "encodeRecordBatchWireCompressed gzip (100 records)" $
           whnfIO (sizeOfRight =<< RBW.encodeRecordBatchWireCompressed gzipBatch100)
       ]
   ]
@@ -124,21 +106,13 @@ consumerBench = bgroup "Consumer"
       , bench "100 records waiting" $ whnfIO $
           MC.pollMC sharedConsumer100
       ]
-  , bgroup "RecordBatch decode (the wire reader)"
-      [ bench "decodeRecordBatch (1 record)" $
-          nf decodeOrDie encoded1
-      , bench "decodeRecordBatch (10 records)" $
-          nf decodeOrDie encoded10
-      , bench "decodeRecordBatch (100 records)" $
-          nf decodeOrDie encoded100
-      ]
-  , bgroup "RecordBatch decode: Wire vs legacy (head-to-head)"
-      [ bench "legacy (1   record)"  $ nf decodeLegacy encoded1
-      , bench "wire   (1   record)"  $ nf decodeWire   encoded1
-      , bench "legacy (10  records)" $ nf decodeLegacy encoded10
-      , bench "wire   (10  records)" $ nf decodeWire   encoded10
-      , bench "legacy (100 records)" $ nf decodeLegacy encoded100
-      , bench "wire   (100 records)" $ nf decodeWire   encoded100
+  , bgroup "RecordBatch decode (Wire reader; consumer hot path)"
+      [ bench "decodeRecordBatchWire (1 record)" $
+          nf decodeWire encoded1
+      , bench "decodeRecordBatchWire (10 records)" $
+          nf decodeWire encoded10
+      , bench "decodeRecordBatchWire (100 records)" $
+          nf decodeWire encoded100
       ]
   ]
 
@@ -264,26 +238,15 @@ sizeOfRight (Left  _) = pure 0
 sizeOfRight (Right b) = pure $! BS.length b
 
 encoded1, encoded10, encoded100 :: BS.ByteString
-encoded1   = RB.encodeRecordBatch builtBatch1
-encoded10  = RB.encodeRecordBatch builtBatch10
-encoded100 = RB.encodeRecordBatch builtBatch100
-
-decodeOrDie :: BS.ByteString -> Int
-decodeOrDie bs = case RB.decodeRecordBatch bs of
-  Left err -> error err
-  Right rb -> length (RB.batchRecords rb)
-                   -- forces every record (Vector elements are
-                   -- already strict by construction).
-
-decodeLegacy :: BS.ByteString -> Int
-decodeLegacy bs = case RB.decodeRecordBatch bs of
-  Left e   -> error e
-  Right rb -> length (RB.batchRecords rb)
+encoded1   = RBW.encodeRecordBatchWire builtBatch1
+encoded10  = RBW.encodeRecordBatchWire builtBatch10
+encoded100 = RBW.encodeRecordBatchWire builtBatch100
 
 decodeWire :: BS.ByteString -> Int
 decodeWire bs = case RBW.decodeRecordBatchWire bs of
   Left e   -> error e
   Right rb -> length (RB.batchRecords rb)
+              -- forces every record; Vector elements are strict.
 
 ----------------------------------------------------------------------
 -- Loops

@@ -125,15 +125,20 @@ wireMaxSizeTopicRequest _version msg =
 wirePokeTopicRequest :: Int -> Ptr Word8 -> TopicRequest -> IO (Ptr Word8)
 wirePokeTopicRequest version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicRequestName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (topicRequestName msg)) else WP.pokeKafkaString p0 (topicRequestName msg))
   if version >= 0 then WP.pokeEmptyTaggedFields p1 else pure p1
 
 -- | Direct-poke decoder for TopicRequest.
 wirePeekTopicRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicRequest, Ptr Word8)
 wirePeekTopicRequest version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p1 endPtr else pure p1
   pure (TopicRequest { topicRequestName = f0_name }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicRequest :: TopicRequest
+defaultTopicRequest = TopicRequest { topicRequestName = P.KafkaString Null }
 
 -- | Worst-case wire size of a Cursor.
 wireMaxSizeCursor :: Int -> Cursor -> Int
@@ -147,17 +152,22 @@ wireMaxSizeCursor _version msg =
 wirePokeCursor :: Int -> Ptr Word8 -> Cursor -> IO (Ptr Word8)
 wirePokeCursor version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (cursorTopicName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (cursorTopicName msg)) else WP.pokeKafkaString p0 (cursorTopicName msg))
   p2 <- W.pokeInt32BE p1 (cursorPartitionIndex msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for Cursor.
 wirePeekCursor :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Cursor, Ptr Word8)
 wirePeekCursor version _fp _basePtr p0 endPtr = do
-  (f0_topicname, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_topicname, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitionindex, p2) <- W.peekInt32BE p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (Cursor { cursorTopicName = f0_topicname, cursorPartitionIndex = f1_partitionindex }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultCursor :: Cursor
+defaultCursor = Cursor { cursorTopicName = P.KafkaString Null, cursorPartitionIndex = 0 }
 
 -- | Worst-case wire size of a DescribeTopicPartitionsRequest.
 wireMaxSizeDescribeTopicPartitionsRequest :: Int -> DescribeTopicPartitionsRequest -> Int

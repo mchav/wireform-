@@ -87,7 +87,7 @@ wirePokeListConfigResourcesRequest version basePtr msg
     WP.pokeEmptyTaggedFields p0
   | version == 1 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeVersionedArray version 0 (\p x -> W.pokeWord8 p (fromIntegral (x :: Int8))) p0 (listConfigResourcesRequestResourceTypes msg)
+    p1 <- (if version >= 1 then WP.pokeVersionedArray version 0 (\p x -> W.pokeWord8 p (fromIntegral (x :: Int8))) p0 (listConfigResourcesRequestResourceTypes msg) else pure p0)
     WP.pokeEmptyTaggedFields p1
   | otherwise = error $ "wirePoke ListConfigResourcesRequest : unsupported version: " ++ show version
 
@@ -98,7 +98,7 @@ wirePeekListConfigResourcesRequest version _fp _basePtr p0 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p0 endPtr
     pure (ListConfigResourcesRequest { listConfigResourcesRequestResourceTypes = P.mkKafkaArray V.empty }, pTagsEnd)
   | version == 1 = do
-    (f0_resourcetypes, p1) <- WP.peekVersionedArray version 0 (\p e -> (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p e) p0 endPtr
+    (f0_resourcetypes, p1) <- (if version >= 1 then WP.peekVersionedArray version 0 (\p e -> (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p e) p0 endPtr else pure (P.mkKafkaArray V.empty, p0))
     pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
     pure (ListConfigResourcesRequest { listConfigResourcesRequestResourceTypes = f0_resourcetypes }, pTagsEnd)
   | otherwise = error $ "wirePeek ListConfigResourcesRequest : unsupported version: " ++ show version

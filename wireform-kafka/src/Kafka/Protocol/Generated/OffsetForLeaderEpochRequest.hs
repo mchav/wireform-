@@ -134,7 +134,7 @@ wirePokeOffsetForLeaderPartition :: Int -> Ptr Word8 -> OffsetForLeaderPartition
 wirePokeOffsetForLeaderPartition version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (offsetForLeaderPartitionPartition msg)
-  p2 <- W.pokeInt32BE p1 (offsetForLeaderPartitionCurrentLeaderEpoch msg)
+  p2 <- (if version >= 2 then W.pokeInt32BE p1 (offsetForLeaderPartitionCurrentLeaderEpoch msg) else pure p1)
   p3 <- W.pokeInt32BE p2 (offsetForLeaderPartitionLeaderEpoch msg)
   if version >= 4 then WP.pokeEmptyTaggedFields p3 else pure p3
 
@@ -142,10 +142,15 @@ wirePokeOffsetForLeaderPartition version basePtr msg = do
 wirePeekOffsetForLeaderPartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OffsetForLeaderPartition, Ptr Word8)
 wirePeekOffsetForLeaderPartition version _fp _basePtr p0 endPtr = do
   (f0_partition, p1) <- W.peekInt32BE p0 endPtr
-  (f1_currentleaderepoch, p2) <- W.peekInt32BE p1 endPtr
+  (f1_currentleaderepoch, p2) <- (if version >= 2 then W.peekInt32BE p1 endPtr else pure (0, p1))
   (f2_leaderepoch, p3) <- W.peekInt32BE p2 endPtr
   pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (OffsetForLeaderPartition { offsetForLeaderPartitionPartition = f0_partition, offsetForLeaderPartitionCurrentLeaderEpoch = f1_currentleaderepoch, offsetForLeaderPartitionLeaderEpoch = f2_leaderepoch }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultOffsetForLeaderPartition :: OffsetForLeaderPartition
+defaultOffsetForLeaderPartition = OffsetForLeaderPartition { offsetForLeaderPartitionPartition = 0, offsetForLeaderPartitionCurrentLeaderEpoch = 0, offsetForLeaderPartitionLeaderEpoch = 0 }
 
 -- | Worst-case wire size of a OffsetForLeaderTopic.
 wireMaxSizeOffsetForLeaderTopic :: Int -> OffsetForLeaderTopic -> Int
@@ -159,17 +164,22 @@ wireMaxSizeOffsetForLeaderTopic _version msg =
 wirePokeOffsetForLeaderTopic :: Int -> Ptr Word8 -> OffsetForLeaderTopic -> IO (Ptr Word8)
 wirePokeOffsetForLeaderTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (offsetForLeaderTopicTopic msg))
+  p1 <- (if version >= 4 then WP.pokeCompactString p0 (P.toCompactString (offsetForLeaderTopicTopic msg)) else WP.pokeKafkaString p0 (offsetForLeaderTopicTopic msg))
   p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeOffsetForLeaderPartition version p x) p1 (offsetForLeaderTopicPartitions msg)
   if version >= 4 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for OffsetForLeaderTopic.
 wirePeekOffsetForLeaderTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OffsetForLeaderTopic, Ptr Word8)
 wirePeekOffsetForLeaderTopic version _fp _basePtr p0 endPtr = do
-  (f0_topic, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_topic, p1) <- (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderPartition version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (OffsetForLeaderTopic { offsetForLeaderTopicTopic = f0_topic, offsetForLeaderTopicPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultOffsetForLeaderTopic :: OffsetForLeaderTopic
+defaultOffsetForLeaderTopic = OffsetForLeaderTopic { offsetForLeaderTopicTopic = P.KafkaString Null, offsetForLeaderTopicPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a OffsetForLeaderEpochRequest.
 wireMaxSizeOffsetForLeaderEpochRequest :: Int -> OffsetForLeaderEpochRequest -> Int
@@ -188,12 +198,12 @@ wirePokeOffsetForLeaderEpochRequest version basePtr msg
     pure p1
   | version == 3 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (offsetForLeaderEpochRequestReplicaId msg)
+    p1 <- (if version >= 3 then W.pokeInt32BE p0 (offsetForLeaderEpochRequestReplicaId msg) else pure p0)
     p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeOffsetForLeaderTopic version p x) p1 (offsetForLeaderEpochRequestTopics msg)
     pure p2
   | version == 4 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (offsetForLeaderEpochRequestReplicaId msg)
+    p1 <- (if version >= 3 then W.pokeInt32BE p0 (offsetForLeaderEpochRequestReplicaId msg) else pure p0)
     p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeOffsetForLeaderTopic version p x) p1 (offsetForLeaderEpochRequestTopics msg)
     WP.pokeEmptyTaggedFields p2
   | otherwise = error $ "wirePoke OffsetForLeaderEpochRequest : unsupported version: " ++ show version
@@ -205,11 +215,11 @@ wirePeekOffsetForLeaderEpochRequest version _fp _basePtr p0 endPtr
     (f0_topics, p1) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderTopic version _fp _basePtr p e) p0 endPtr
     pure (OffsetForLeaderEpochRequest { offsetForLeaderEpochRequestReplicaId = 0, offsetForLeaderEpochRequestTopics = f0_topics }, p1)
   | version == 3 = do
-    (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
+    (f0_replicaid, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_topics, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderTopic version _fp _basePtr p e) p1 endPtr
     pure (OffsetForLeaderEpochRequest { offsetForLeaderEpochRequestReplicaId = f0_replicaid, offsetForLeaderEpochRequestTopics = f1_topics }, p2)
   | version == 4 = do
-    (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
+    (f0_replicaid, p1) <- (if version >= 3 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_topics, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderTopic version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (OffsetForLeaderEpochRequest { offsetForLeaderEpochRequestReplicaId = f0_replicaid, offsetForLeaderEpochRequestTopics = f1_topics }, pTagsEnd)

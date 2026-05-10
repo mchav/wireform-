@@ -145,16 +145,21 @@ wirePokePartitionProduceData :: Int -> Ptr Word8 -> PartitionProduceData -> IO (
 wirePokePartitionProduceData version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (partitionProduceDataIndex msg)
-  p2 <- WP.pokeCompactBytes p1 (P.toCompactBytes (partitionProduceDataRecords msg))
+  p2 <- (if version >= 9 then WP.pokeCompactBytes p1 (P.toCompactBytes (partitionProduceDataRecords msg)) else WP.pokeKafkaBytes p1 (partitionProduceDataRecords msg))
   if version >= 9 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for PartitionProduceData.
 wirePeekPartitionProduceData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (PartitionProduceData, Ptr Word8)
 wirePeekPartitionProduceData version _fp _basePtr p0 endPtr = do
   (f0_index, p1) <- W.peekInt32BE p0 endPtr
-  (f1_records, p2) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p1 endPtr
+  (f1_records, p2) <- (if version >= 9 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p1 endPtr else WP.peekKafkaBytes p1 endPtr)
   pTagsEnd <- if version >= 9 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (PartitionProduceData { partitionProduceDataIndex = f0_index, partitionProduceDataRecords = f1_records }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionProduceData :: PartitionProduceData
+defaultPartitionProduceData = PartitionProduceData { partitionProduceDataIndex = 0, partitionProduceDataRecords = P.KafkaBytes Null }
 
 -- | Worst-case wire size of a TopicProduceData.
 wireMaxSizeTopicProduceData :: Int -> TopicProduceData -> Int
@@ -169,19 +174,24 @@ wireMaxSizeTopicProduceData _version msg =
 wirePokeTopicProduceData :: Int -> Ptr Word8 -> TopicProduceData -> IO (Ptr Word8)
 wirePokeTopicProduceData version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicProduceDataName msg))
-  p2 <- WP.pokeKafkaUuid p1 (topicProduceDataTopicId msg)
+  p1 <- (if version <= 12 then (if version >= 9 then WP.pokeCompactString p0 (P.toCompactString (topicProduceDataName msg)) else WP.pokeKafkaString p0 (topicProduceDataName msg)) else pure p0)
+  p2 <- (if version >= 13 then WP.pokeKafkaUuid p1 (topicProduceDataTopicId msg) else pure p1)
   p3 <- WP.pokeVersionedArray version 9 (\p x -> wirePokePartitionProduceData version p x) p2 (topicProduceDataPartitionData msg)
   if version >= 9 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for TopicProduceData.
 wirePeekTopicProduceData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicProduceData, Ptr Word8)
 wirePeekTopicProduceData version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_topicid, p2) <- WP.peekKafkaUuid p1 endPtr
+  (f0_name, p1) <- (if version <= 12 then (if version >= 9 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+  (f1_topicid, p2) <- (if version >= 13 then WP.peekKafkaUuid p1 endPtr else pure (P.nullUuid, p1))
   (f2_partitiondata, p3) <- WP.peekVersionedArray version 9 (\p e -> wirePeekPartitionProduceData version _fp _basePtr p e) p2 endPtr
   pTagsEnd <- if version >= 9 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (TopicProduceData { topicProduceDataName = f0_name, topicProduceDataTopicId = f1_topicid, topicProduceDataPartitionData = f2_partitiondata }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicProduceData :: TopicProduceData
+defaultTopicProduceData = TopicProduceData { topicProduceDataName = P.KafkaString Null, topicProduceDataTopicId = P.nullUuid, topicProduceDataPartitionData = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a ProduceRequest.
 wireMaxSizeProduceRequest :: Int -> ProduceRequest -> Int
@@ -198,14 +208,14 @@ wirePokeProduceRequest :: Int -> Ptr Word8 -> ProduceRequest -> IO (Ptr Word8)
 wirePokeProduceRequest version basePtr msg
   | version >= 9 && version <= 13 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (produceRequestTransactionalId msg))
+    p1 <- (if version >= 3 then (if version >= 9 then WP.pokeCompactString p0 (P.toCompactString (produceRequestTransactionalId msg)) else WP.pokeKafkaString p0 (produceRequestTransactionalId msg)) else pure p0)
     p2 <- W.pokeInt16BE p1 (produceRequestAcks msg)
     p3 <- W.pokeInt32BE p2 (produceRequestTimeoutMs msg)
     p4 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeTopicProduceData version p x) p3 (produceRequestTopicData msg)
     WP.pokeEmptyTaggedFields p4
   | version >= 3 && version <= 8 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (produceRequestTransactionalId msg))
+    p1 <- (if version >= 3 then (if version >= 9 then WP.pokeCompactString p0 (P.toCompactString (produceRequestTransactionalId msg)) else WP.pokeKafkaString p0 (produceRequestTransactionalId msg)) else pure p0)
     p2 <- W.pokeInt16BE p1 (produceRequestAcks msg)
     p3 <- W.pokeInt32BE p2 (produceRequestTimeoutMs msg)
     p4 <- WP.pokeVersionedArray version 9 (\p x -> wirePokeTopicProduceData version p x) p3 (produceRequestTopicData msg)
@@ -216,14 +226,14 @@ wirePokeProduceRequest version basePtr msg
 wirePeekProduceRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ProduceRequest, Ptr Word8)
 wirePeekProduceRequest version _fp _basePtr p0 endPtr
   | version >= 9 && version <= 13 = do
-    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_transactionalid, p1) <- (if version >= 3 then (if version >= 9 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
     (f1_acks, p2) <- W.peekInt16BE p1 endPtr
     (f2_timeoutms, p3) <- W.peekInt32BE p2 endPtr
     (f3_topicdata, p4) <- WP.peekVersionedArray version 9 (\p e -> wirePeekTopicProduceData version _fp _basePtr p e) p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (ProduceRequest { produceRequestTransactionalId = f0_transactionalid, produceRequestAcks = f1_acks, produceRequestTimeoutMs = f2_timeoutms, produceRequestTopicData = f3_topicdata }, pTagsEnd)
   | version >= 3 && version <= 8 = do
-    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_transactionalid, p1) <- (if version >= 3 then (if version >= 9 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
     (f1_acks, p2) <- W.peekInt16BE p1 endPtr
     (f2_timeoutms, p3) <- W.peekInt32BE p2 endPtr
     (f3_topicdata, p4) <- WP.peekVersionedArray version 9 (\p e -> wirePeekTopicProduceData version _fp _basePtr p e) p3 endPtr

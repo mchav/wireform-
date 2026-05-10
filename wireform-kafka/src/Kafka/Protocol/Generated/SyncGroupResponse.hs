@@ -113,27 +113,27 @@ wirePokeSyncGroupResponse version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt16BE p0 (syncGroupResponseErrorCode msg)
-    p2 <- WP.pokeCompactBytes p1 (P.toCompactBytes (syncGroupResponseAssignment msg))
+    p2 <- (if version >= 4 then WP.pokeCompactBytes p1 (P.toCompactBytes (syncGroupResponseAssignment msg)) else WP.pokeKafkaBytes p1 (syncGroupResponseAssignment msg))
     pure p2
   | version == 4 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (syncGroupResponseThrottleTimeMs msg)
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (syncGroupResponseThrottleTimeMs msg) else pure p0)
     p2 <- W.pokeInt16BE p1 (syncGroupResponseErrorCode msg)
-    p3 <- WP.pokeCompactBytes p2 (P.toCompactBytes (syncGroupResponseAssignment msg))
+    p3 <- (if version >= 4 then WP.pokeCompactBytes p2 (P.toCompactBytes (syncGroupResponseAssignment msg)) else WP.pokeKafkaBytes p2 (syncGroupResponseAssignment msg))
     WP.pokeEmptyTaggedFields p3
   | version == 5 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (syncGroupResponseThrottleTimeMs msg)
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (syncGroupResponseThrottleTimeMs msg) else pure p0)
     p2 <- W.pokeInt16BE p1 (syncGroupResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (syncGroupResponseProtocolType msg))
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (syncGroupResponseProtocolName msg))
-    p5 <- WP.pokeCompactBytes p4 (P.toCompactBytes (syncGroupResponseAssignment msg))
+    p3 <- (if version >= 5 then (if version >= 4 then WP.pokeCompactString p2 (P.toCompactString (syncGroupResponseProtocolType msg)) else WP.pokeKafkaString p2 (syncGroupResponseProtocolType msg)) else pure p2)
+    p4 <- (if version >= 5 then (if version >= 4 then WP.pokeCompactString p3 (P.toCompactString (syncGroupResponseProtocolName msg)) else WP.pokeKafkaString p3 (syncGroupResponseProtocolName msg)) else pure p3)
+    p5 <- (if version >= 4 then WP.pokeCompactBytes p4 (P.toCompactBytes (syncGroupResponseAssignment msg)) else WP.pokeKafkaBytes p4 (syncGroupResponseAssignment msg))
     WP.pokeEmptyTaggedFields p5
   | version >= 1 && version <= 3 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (syncGroupResponseThrottleTimeMs msg)
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (syncGroupResponseThrottleTimeMs msg) else pure p0)
     p2 <- W.pokeInt16BE p1 (syncGroupResponseErrorCode msg)
-    p3 <- WP.pokeCompactBytes p2 (P.toCompactBytes (syncGroupResponseAssignment msg))
+    p3 <- (if version >= 4 then WP.pokeCompactBytes p2 (P.toCompactBytes (syncGroupResponseAssignment msg)) else WP.pokeKafkaBytes p2 (syncGroupResponseAssignment msg))
     pure p3
   | otherwise = error $ "wirePoke SyncGroupResponse : unsupported version: " ++ show version
 
@@ -142,26 +142,26 @@ wirePeekSyncGroupResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -
 wirePeekSyncGroupResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
-    (f1_assignment, p2) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p1 endPtr
+    (f1_assignment, p2) <- (if version >= 4 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p1 endPtr else WP.peekKafkaBytes p1 endPtr)
     pure (SyncGroupResponse { syncGroupResponseThrottleTimeMs = 0, syncGroupResponseErrorCode = f0_errorcode, syncGroupResponseProtocolType = P.KafkaString Null, syncGroupResponseProtocolName = P.KafkaString Null, syncGroupResponseAssignment = f1_assignment }, p2)
   | version == 4 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_assignment, p3) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr
+    (f2_assignment, p3) <- (if version >= 4 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr else WP.peekKafkaBytes p2 endPtr)
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (SyncGroupResponse { syncGroupResponseThrottleTimeMs = f0_throttletimems, syncGroupResponseErrorCode = f1_errorcode, syncGroupResponseProtocolType = P.KafkaString Null, syncGroupResponseProtocolName = P.KafkaString Null, syncGroupResponseAssignment = f2_assignment }, pTagsEnd)
   | version == 5 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_protocoltype, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
-    (f3_protocolname, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
-    (f4_assignment, p5) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p4 endPtr
+    (f2_protocoltype, p3) <- (if version >= 5 then (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
+    (f3_protocolname, p4) <- (if version >= 5 then (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
+    (f4_assignment, p5) <- (if version >= 4 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p4 endPtr else WP.peekKafkaBytes p4 endPtr)
     pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
     pure (SyncGroupResponse { syncGroupResponseThrottleTimeMs = f0_throttletimems, syncGroupResponseErrorCode = f1_errorcode, syncGroupResponseProtocolType = f2_protocoltype, syncGroupResponseProtocolName = f3_protocolname, syncGroupResponseAssignment = f4_assignment }, pTagsEnd)
   | version >= 1 && version <= 3 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_assignment, p3) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr
+    (f2_assignment, p3) <- (if version >= 4 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr else WP.peekKafkaBytes p2 endPtr)
     pure (SyncGroupResponse { syncGroupResponseThrottleTimeMs = f0_throttletimems, syncGroupResponseErrorCode = f1_errorcode, syncGroupResponseProtocolType = P.KafkaString Null, syncGroupResponseProtocolName = P.KafkaString Null, syncGroupResponseAssignment = f2_assignment }, p3)
   | otherwise = error $ "wirePeek SyncGroupResponse : unsupported version: " ++ show version
 

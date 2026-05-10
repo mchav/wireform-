@@ -205,6 +205,11 @@ wirePeekProducerState version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
   pure (ProducerState { producerStateProducerId = f0_producerid, producerStateProducerEpoch = f1_producerepoch, producerStateLastSequence = f2_lastsequence, producerStateLastTimestamp = f3_lasttimestamp, producerStateCoordinatorEpoch = f4_coordinatorepoch, producerStateCurrentTxnStartOffset = f5_currenttxnstartoffset }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultProducerState :: ProducerState
+defaultProducerState = ProducerState { producerStateProducerId = 0, producerStateProducerEpoch = 0, producerStateLastSequence = 0, producerStateLastTimestamp = 0, producerStateCoordinatorEpoch = 0, producerStateCurrentTxnStartOffset = 0 }
+
 -- | Worst-case wire size of a PartitionResponse.
 wireMaxSizePartitionResponse :: Int -> PartitionResponse -> Int
 wireMaxSizePartitionResponse _version msg =
@@ -221,7 +226,7 @@ wirePokePartitionResponse version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (partitionResponsePartitionIndex msg)
   p2 <- W.pokeInt16BE p1 (partitionResponseErrorCode msg)
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (partitionResponseErrorMessage msg))
+  p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (partitionResponseErrorMessage msg)) else WP.pokeKafkaString p2 (partitionResponseErrorMessage msg))
   p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeProducerState version p x) p3 (partitionResponseActiveProducers msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p4 else pure p4
 
@@ -230,10 +235,15 @@ wirePeekPartitionResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -
 wirePeekPartitionResponse version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   (f3_activeproducers, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekProducerState version _fp _basePtr p e) p3 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (PartitionResponse { partitionResponsePartitionIndex = f0_partitionindex, partitionResponseErrorCode = f1_errorcode, partitionResponseErrorMessage = f2_errormessage, partitionResponseActiveProducers = f3_activeproducers }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionResponse :: PartitionResponse
+defaultPartitionResponse = PartitionResponse { partitionResponsePartitionIndex = 0, partitionResponseErrorCode = 0, partitionResponseErrorMessage = P.KafkaString Null, partitionResponseActiveProducers = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a TopicResponse.
 wireMaxSizeTopicResponse :: Int -> TopicResponse -> Int
@@ -247,17 +257,22 @@ wireMaxSizeTopicResponse _version msg =
 wirePokeTopicResponse :: Int -> Ptr Word8 -> TopicResponse -> IO (Ptr Word8)
 wirePokeTopicResponse version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicResponseName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (topicResponseName msg)) else WP.pokeKafkaString p0 (topicResponseName msg))
   p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokePartitionResponse version p x) p1 (topicResponsePartitions msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for TopicResponse.
 wirePeekTopicResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicResponse, Ptr Word8)
 wirePeekTopicResponse version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekPartitionResponse version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (TopicResponse { topicResponseName = f0_name, topicResponsePartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicResponse :: TopicResponse
+defaultTopicResponse = TopicResponse { topicResponseName = P.KafkaString Null, topicResponsePartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a DescribeProducersResponse.
 wireMaxSizeDescribeProducersResponse :: Int -> DescribeProducersResponse -> Int

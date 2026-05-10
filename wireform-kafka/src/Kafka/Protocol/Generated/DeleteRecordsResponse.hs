@@ -147,6 +147,11 @@ wirePeekDeleteRecordsPartitionResult version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (DeleteRecordsPartitionResult { deleteRecordsPartitionResultPartitionIndex = f0_partitionindex, deleteRecordsPartitionResultLowWatermark = f1_lowwatermark, deleteRecordsPartitionResultErrorCode = f2_errorcode }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDeleteRecordsPartitionResult :: DeleteRecordsPartitionResult
+defaultDeleteRecordsPartitionResult = DeleteRecordsPartitionResult { deleteRecordsPartitionResultPartitionIndex = 0, deleteRecordsPartitionResultLowWatermark = 0, deleteRecordsPartitionResultErrorCode = 0 }
+
 -- | Worst-case wire size of a DeleteRecordsTopicResult.
 wireMaxSizeDeleteRecordsTopicResult :: Int -> DeleteRecordsTopicResult -> Int
 wireMaxSizeDeleteRecordsTopicResult _version msg =
@@ -159,17 +164,22 @@ wireMaxSizeDeleteRecordsTopicResult _version msg =
 wirePokeDeleteRecordsTopicResult :: Int -> Ptr Word8 -> DeleteRecordsTopicResult -> IO (Ptr Word8)
 wirePokeDeleteRecordsTopicResult version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (deleteRecordsTopicResultName msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (deleteRecordsTopicResultName msg)) else WP.pokeKafkaString p0 (deleteRecordsTopicResultName msg))
   p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDeleteRecordsPartitionResult version p x) p1 (deleteRecordsTopicResultPartitions msg)
   if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for DeleteRecordsTopicResult.
 wirePeekDeleteRecordsTopicResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteRecordsTopicResult, Ptr Word8)
 wirePeekDeleteRecordsTopicResult version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDeleteRecordsPartitionResult version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (DeleteRecordsTopicResult { deleteRecordsTopicResultName = f0_name, deleteRecordsTopicResultPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDeleteRecordsTopicResult :: DeleteRecordsTopicResult
+defaultDeleteRecordsTopicResult = DeleteRecordsTopicResult { deleteRecordsTopicResultName = P.KafkaString Null, deleteRecordsTopicResultPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a DeleteRecordsResponse.
 wireMaxSizeDeleteRecordsResponse :: Int -> DeleteRecordsResponse -> Int

@@ -94,12 +94,12 @@ wirePokeListGroupsRequest version basePtr msg
     WP.pokeEmptyTaggedFields p0
   | version == 4 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeVersionedArray version 3 (\p s -> if version >= 3 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (listGroupsRequestStatesFilter msg)
+    p1 <- (if version >= 4 then WP.pokeVersionedArray version 3 (\p s -> if version >= 3 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (listGroupsRequestStatesFilter msg) else pure p0)
     WP.pokeEmptyTaggedFields p1
   | version == 5 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeVersionedArray version 3 (\p s -> if version >= 3 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (listGroupsRequestStatesFilter msg)
-    p2 <- WP.pokeVersionedArray version 3 (\p s -> if version >= 3 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p1 (listGroupsRequestTypesFilter msg)
+    p1 <- (if version >= 4 then WP.pokeVersionedArray version 3 (\p s -> if version >= 3 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (listGroupsRequestStatesFilter msg) else pure p0)
+    p2 <- (if version >= 5 then WP.pokeVersionedArray version 3 (\p s -> if version >= 3 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p1 (listGroupsRequestTypesFilter msg) else pure p1)
     WP.pokeEmptyTaggedFields p2
   | version >= 0 && version <= 2 = do
     p0 <- pure basePtr
@@ -113,12 +113,12 @@ wirePeekListGroupsRequest version _fp _basePtr p0 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p0 endPtr
     pure (ListGroupsRequest { listGroupsRequestStatesFilter = P.mkKafkaArray V.empty, listGroupsRequestTypesFilter = P.mkKafkaArray V.empty }, pTagsEnd)
   | version == 4 = do
-    (f0_statesfilter, p1) <- WP.peekVersionedArray version 3 (\p e -> if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
+    (f0_statesfilter, p1) <- (if version >= 4 then WP.peekVersionedArray version 3 (\p e -> if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr else pure (P.mkKafkaArray V.empty, p0))
     pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
     pure (ListGroupsRequest { listGroupsRequestStatesFilter = f0_statesfilter, listGroupsRequestTypesFilter = P.mkKafkaArray V.empty }, pTagsEnd)
   | version == 5 = do
-    (f0_statesfilter, p1) <- WP.peekVersionedArray version 3 (\p e -> if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
-    (f1_typesfilter, p2) <- WP.peekVersionedArray version 3 (\p e -> if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p1 endPtr
+    (f0_statesfilter, p1) <- (if version >= 4 then WP.peekVersionedArray version 3 (\p e -> if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr else pure (P.mkKafkaArray V.empty, p0))
+    (f1_typesfilter, p2) <- (if version >= 5 then WP.peekVersionedArray version 3 (\p e -> if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p1 endPtr else pure (P.mkKafkaArray V.empty, p1))
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (ListGroupsRequest { listGroupsRequestStatesFilter = f0_statesfilter, listGroupsRequestTypesFilter = f1_typesfilter }, pTagsEnd)
   | version >= 0 && version <= 2 = do

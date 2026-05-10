@@ -208,6 +208,11 @@ wirePeekApiVersion version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (ApiVersion { apiVersionApiKey = f0_apikey, apiVersionMinVersion = f1_minversion, apiVersionMaxVersion = f2_maxversion }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultApiVersion :: ApiVersion
+defaultApiVersion = ApiVersion { apiVersionApiKey = 0, apiVersionMinVersion = 0, apiVersionMaxVersion = 0 }
+
 -- | Worst-case wire size of a SupportedFeatureKey.
 wireMaxSizeSupportedFeatureKey :: Int -> SupportedFeatureKey -> Int
 wireMaxSizeSupportedFeatureKey _version msg =
@@ -221,19 +226,24 @@ wireMaxSizeSupportedFeatureKey _version msg =
 wirePokeSupportedFeatureKey :: Int -> Ptr Word8 -> SupportedFeatureKey -> IO (Ptr Word8)
 wirePokeSupportedFeatureKey version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (supportedFeatureKeyName msg))
-  p2 <- W.pokeInt16BE p1 (supportedFeatureKeyMinVersion msg)
-  p3 <- W.pokeInt16BE p2 (supportedFeatureKeyMaxVersion msg)
+  p1 <- (if version >= 3 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (supportedFeatureKeyName msg)) else WP.pokeKafkaString p0 (supportedFeatureKeyName msg)) else pure p0)
+  p2 <- (if version >= 3 then W.pokeInt16BE p1 (supportedFeatureKeyMinVersion msg) else pure p1)
+  p3 <- (if version >= 3 then W.pokeInt16BE p2 (supportedFeatureKeyMaxVersion msg) else pure p2)
   if version >= 3 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for SupportedFeatureKey.
 wirePeekSupportedFeatureKey :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (SupportedFeatureKey, Ptr Word8)
 wirePeekSupportedFeatureKey version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_minversion, p2) <- W.peekInt16BE p1 endPtr
-  (f2_maxversion, p3) <- W.peekInt16BE p2 endPtr
+  (f0_name, p1) <- (if version >= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+  (f1_minversion, p2) <- (if version >= 3 then W.peekInt16BE p1 endPtr else pure (0, p1))
+  (f2_maxversion, p3) <- (if version >= 3 then W.peekInt16BE p2 endPtr else pure (0, p2))
   pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (SupportedFeatureKey { supportedFeatureKeyName = f0_name, supportedFeatureKeyMinVersion = f1_minversion, supportedFeatureKeyMaxVersion = f2_maxversion }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultSupportedFeatureKey :: SupportedFeatureKey
+defaultSupportedFeatureKey = SupportedFeatureKey { supportedFeatureKeyName = P.KafkaString Null, supportedFeatureKeyMinVersion = 0, supportedFeatureKeyMaxVersion = 0 }
 
 -- | Worst-case wire size of a FinalizedFeatureKey.
 wireMaxSizeFinalizedFeatureKey :: Int -> FinalizedFeatureKey -> Int
@@ -248,19 +258,24 @@ wireMaxSizeFinalizedFeatureKey _version msg =
 wirePokeFinalizedFeatureKey :: Int -> Ptr Word8 -> FinalizedFeatureKey -> IO (Ptr Word8)
 wirePokeFinalizedFeatureKey version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (finalizedFeatureKeyName msg))
-  p2 <- W.pokeInt16BE p1 (finalizedFeatureKeyMaxVersionLevel msg)
-  p3 <- W.pokeInt16BE p2 (finalizedFeatureKeyMinVersionLevel msg)
+  p1 <- (if version >= 3 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (finalizedFeatureKeyName msg)) else WP.pokeKafkaString p0 (finalizedFeatureKeyName msg)) else pure p0)
+  p2 <- (if version >= 3 then W.pokeInt16BE p1 (finalizedFeatureKeyMaxVersionLevel msg) else pure p1)
+  p3 <- (if version >= 3 then W.pokeInt16BE p2 (finalizedFeatureKeyMinVersionLevel msg) else pure p2)
   if version >= 3 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for FinalizedFeatureKey.
 wirePeekFinalizedFeatureKey :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (FinalizedFeatureKey, Ptr Word8)
 wirePeekFinalizedFeatureKey version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_maxversionlevel, p2) <- W.peekInt16BE p1 endPtr
-  (f2_minversionlevel, p3) <- W.peekInt16BE p2 endPtr
+  (f0_name, p1) <- (if version >= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+  (f1_maxversionlevel, p2) <- (if version >= 3 then W.peekInt16BE p1 endPtr else pure (0, p1))
+  (f2_minversionlevel, p3) <- (if version >= 3 then W.peekInt16BE p2 endPtr else pure (0, p2))
   pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (FinalizedFeatureKey { finalizedFeatureKeyName = f0_name, finalizedFeatureKeyMaxVersionLevel = f1_maxversionlevel, finalizedFeatureKeyMinVersionLevel = f2_minversionlevel }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultFinalizedFeatureKey :: FinalizedFeatureKey
+defaultFinalizedFeatureKey = FinalizedFeatureKey { finalizedFeatureKeyName = P.KafkaString Null, finalizedFeatureKeyMaxVersionLevel = 0, finalizedFeatureKeyMinVersionLevel = 0 }
 
 -- | Worst-case wire size of a ApiVersionsResponse.
 wireMaxSizeApiVersionsResponse :: Int -> ApiVersionsResponse -> Int
@@ -287,13 +302,13 @@ wirePokeApiVersionsResponse version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt16BE p0 (apiVersionsResponseErrorCode msg)
     p2 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeApiVersion version p x) p1 (apiVersionsResponseApiKeys msg)
-    p3 <- W.pokeInt32BE p2 (apiVersionsResponseThrottleTimeMs msg)
+    p3 <- (if version >= 1 then W.pokeInt32BE p2 (apiVersionsResponseThrottleTimeMs msg) else pure p2)
     pure p3
   | version >= 3 && version <= 5 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt16BE p0 (apiVersionsResponseErrorCode msg)
     p2 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeApiVersion version p x) p1 (apiVersionsResponseApiKeys msg)
-    p3 <- W.pokeInt32BE p2 (apiVersionsResponseThrottleTimeMs msg)
+    p3 <- (if version >= 1 then W.pokeInt32BE p2 (apiVersionsResponseThrottleTimeMs msg) else pure p2)
     let !_taggedEntries = (if version >= 3 then [(0, W.runWirePokeWith (5 + (case P.unKafkaArray (apiVersionsResponseSupportedFeatures msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeSupportedFeatureKey version x) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray (\p_ x -> wirePokeSupportedFeatureKey version p_ x) p (apiVersionsResponseSupportedFeatures msg)))] else []) ++ (if version >= 3 then [(1, W.runWirePut (apiVersionsResponseFinalizedFeaturesEpoch msg))] else []) ++ (if version >= 3 then [(2, W.runWirePokeWith (5 + (case P.unKafkaArray (apiVersionsResponseFinalizedFeatures msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeFinalizedFeatureKey version x) v); P.Null -> 0 })) (\p -> WP.pokeCompactArray (\p_ x -> wirePokeFinalizedFeatureKey version p_ x) p (apiVersionsResponseFinalizedFeatures msg)))] else []) ++ (if version >= 3 then [(3, W.runWirePut (apiVersionsResponseZkMigrationReady msg))] else [])
     WP.pokeTaggedFieldEntries p3 _taggedEntries
   | otherwise = error $ "wirePoke ApiVersionsResponse : unsupported version: " ++ show version
@@ -308,12 +323,12 @@ wirePeekApiVersionsResponse version _fp _basePtr p0 endPtr
   | version >= 1 && version <= 2 = do
     (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
     (f1_apikeys, p2) <- WP.peekVersionedArray version 3 (\p e -> wirePeekApiVersion version _fp _basePtr p e) p1 endPtr
-    (f2_throttletimems, p3) <- W.peekInt32BE p2 endPtr
+    (f2_throttletimems, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (0, p2))
     pure (ApiVersionsResponse { apiVersionsResponseErrorCode = f0_errorcode, apiVersionsResponseApiKeys = f1_apikeys, apiVersionsResponseThrottleTimeMs = f2_throttletimems, apiVersionsResponseSupportedFeatures = P.mkKafkaArray V.empty, apiVersionsResponseFinalizedFeaturesEpoch = 0, apiVersionsResponseFinalizedFeatures = P.mkKafkaArray V.empty, apiVersionsResponseZkMigrationReady = False }, p3)
   | version >= 3 && version <= 5 = do
     (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
     (f1_apikeys, p2) <- WP.peekVersionedArray version 3 (\p e -> wirePeekApiVersion version _fp _basePtr p e) p1 endPtr
-    (f2_throttletimems, p3) <- W.peekInt32BE p2 endPtr
+    (f2_throttletimems, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (0, p2))
     (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p3 endPtr
     let !_tag_supportedfeatures = if version >= 3 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> WP.peekCompactArray (\p e -> wirePeekSupportedFeatureKey version _fp _bp p e) p e)) _bs of { Right _v -> _v ; Left _ -> P.mkKafkaArray V.empty}; Nothing -> P.mkKafkaArray V.empty} else P.mkKafkaArray V.empty
     let !_tag_finalizedfeaturesepoch = if version >= 3 then case Data.Map.Strict.lookup 1 _taggedMap of { Just _bs -> case (W.runWireGet :: Data.ByteString.ByteString -> Either String Data.Int.Int64) _bs of { Right _v -> _v ; Left _ -> 0}; Nothing -> 0} else 0

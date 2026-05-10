@@ -133,21 +133,26 @@ wireMaxSizeDeleteShareGroupOffsetsResponseTopic _version msg =
 wirePokeDeleteShareGroupOffsetsResponseTopic :: Int -> Ptr Word8 -> DeleteShareGroupOffsetsResponseTopic -> IO (Ptr Word8)
 wirePokeDeleteShareGroupOffsetsResponseTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (deleteShareGroupOffsetsResponseTopicTopicName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (deleteShareGroupOffsetsResponseTopicTopicName msg)) else WP.pokeKafkaString p0 (deleteShareGroupOffsetsResponseTopicTopicName msg))
   p2 <- WP.pokeKafkaUuid p1 (deleteShareGroupOffsetsResponseTopicTopicId msg)
   p3 <- W.pokeInt16BE p2 (deleteShareGroupOffsetsResponseTopicErrorCode msg)
-  p4 <- WP.pokeCompactString p3 (P.toCompactString (deleteShareGroupOffsetsResponseTopicErrorMessage msg))
+  p4 <- (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (deleteShareGroupOffsetsResponseTopicErrorMessage msg)) else WP.pokeKafkaString p3 (deleteShareGroupOffsetsResponseTopicErrorMessage msg))
   if version >= 0 then WP.pokeEmptyTaggedFields p4 else pure p4
 
 -- | Direct-poke decoder for DeleteShareGroupOffsetsResponseTopic.
 wirePeekDeleteShareGroupOffsetsResponseTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteShareGroupOffsetsResponseTopic, Ptr Word8)
 wirePeekDeleteShareGroupOffsetsResponseTopic version _fp _basePtr p0 endPtr = do
-  (f0_topicname, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_topicname, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_topicid, p2) <- WP.peekKafkaUuid p1 endPtr
   (f2_errorcode, p3) <- W.peekInt16BE p2 endPtr
-  (f3_errormessage, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  (f3_errormessage, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (DeleteShareGroupOffsetsResponseTopic { deleteShareGroupOffsetsResponseTopicTopicName = f0_topicname, deleteShareGroupOffsetsResponseTopicTopicId = f1_topicid, deleteShareGroupOffsetsResponseTopicErrorCode = f2_errorcode, deleteShareGroupOffsetsResponseTopicErrorMessage = f3_errormessage }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDeleteShareGroupOffsetsResponseTopic :: DeleteShareGroupOffsetsResponseTopic
+defaultDeleteShareGroupOffsetsResponseTopic = DeleteShareGroupOffsetsResponseTopic { deleteShareGroupOffsetsResponseTopicTopicName = P.KafkaString Null, deleteShareGroupOffsetsResponseTopicTopicId = P.nullUuid, deleteShareGroupOffsetsResponseTopicErrorCode = 0, deleteShareGroupOffsetsResponseTopicErrorMessage = P.KafkaString Null }
 
 -- | Worst-case wire size of a DeleteShareGroupOffsetsResponse.
 wireMaxSizeDeleteShareGroupOffsetsResponse :: Int -> DeleteShareGroupOffsetsResponse -> Int
@@ -166,7 +171,7 @@ wirePokeDeleteShareGroupOffsetsResponse version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (deleteShareGroupOffsetsResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (deleteShareGroupOffsetsResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (deleteShareGroupOffsetsResponseErrorMessage msg))
+    p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (deleteShareGroupOffsetsResponseErrorMessage msg)) else WP.pokeKafkaString p2 (deleteShareGroupOffsetsResponseErrorMessage msg))
     p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeDeleteShareGroupOffsetsResponseTopic version p x) p3 (deleteShareGroupOffsetsResponseResponses msg)
     WP.pokeEmptyTaggedFields p4
   | otherwise = error $ "wirePoke DeleteShareGroupOffsetsResponse : unsupported version: " ++ show version
@@ -177,7 +182,7 @@ wirePeekDeleteShareGroupOffsetsResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     (f3_responses, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDeleteShareGroupOffsetsResponseTopic version _fp _basePtr p e) p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (DeleteShareGroupOffsetsResponse { deleteShareGroupOffsetsResponseThrottleTimeMs = f0_throttletimems, deleteShareGroupOffsetsResponseErrorCode = f1_errorcode, deleteShareGroupOffsetsResponseErrorMessage = f2_errormessage, deleteShareGroupOffsetsResponseResponses = f3_responses }, pTagsEnd)

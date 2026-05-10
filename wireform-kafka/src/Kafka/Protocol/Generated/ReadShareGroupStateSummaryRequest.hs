@@ -138,6 +138,11 @@ wirePeekPartitionData version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (PartitionData { partitionDataPartition = f0_partition, partitionDataLeaderEpoch = f1_leaderepoch }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionData :: PartitionData
+defaultPartitionData = PartitionData { partitionDataPartition = 0, partitionDataLeaderEpoch = 0 }
+
 -- | Worst-case wire size of a ReadStateSummaryData.
 wireMaxSizeReadStateSummaryData :: Int -> ReadStateSummaryData -> Int
 wireMaxSizeReadStateSummaryData _version msg =
@@ -162,6 +167,11 @@ wirePeekReadStateSummaryData version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ReadStateSummaryData { readStateSummaryDataTopicId = f0_topicid, readStateSummaryDataPartitions = f1_partitions }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultReadStateSummaryData :: ReadStateSummaryData
+defaultReadStateSummaryData = ReadStateSummaryData { readStateSummaryDataTopicId = P.nullUuid, readStateSummaryDataPartitions = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a ReadShareGroupStateSummaryRequest.
 wireMaxSizeReadShareGroupStateSummaryRequest :: Int -> ReadShareGroupStateSummaryRequest -> Int
 wireMaxSizeReadShareGroupStateSummaryRequest _version msg =
@@ -175,7 +185,7 @@ wirePokeReadShareGroupStateSummaryRequest :: Int -> Ptr Word8 -> ReadShareGroupS
 wirePokeReadShareGroupStateSummaryRequest version basePtr msg
   | version >= 0 && version <= 1 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (readShareGroupStateSummaryRequestGroupId msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (readShareGroupStateSummaryRequestGroupId msg)) else WP.pokeKafkaString p0 (readShareGroupStateSummaryRequestGroupId msg))
     p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeReadStateSummaryData version p x) p1 (readShareGroupStateSummaryRequestTopics msg)
     WP.pokeEmptyTaggedFields p2
   | otherwise = error $ "wirePoke ReadShareGroupStateSummaryRequest : unsupported version: " ++ show version
@@ -184,7 +194,7 @@ wirePokeReadShareGroupStateSummaryRequest version basePtr msg
 wirePeekReadShareGroupStateSummaryRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ReadShareGroupStateSummaryRequest, Ptr Word8)
 wirePeekReadShareGroupStateSummaryRequest version _fp _basePtr p0 endPtr
   | version >= 0 && version <= 1 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReadStateSummaryData version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (ReadShareGroupStateSummaryRequest { readShareGroupStateSummaryRequestGroupId = f0_groupid, readShareGroupStateSummaryRequestTopics = f1_topics }, pTagsEnd)

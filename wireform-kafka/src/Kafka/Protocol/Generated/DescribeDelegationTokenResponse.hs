@@ -180,17 +180,22 @@ wireMaxSizeDescribedDelegationTokenRenewer _version msg =
 wirePokeDescribedDelegationTokenRenewer :: Int -> Ptr Word8 -> DescribedDelegationTokenRenewer -> IO (Ptr Word8)
 wirePokeDescribedDelegationTokenRenewer version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (describedDelegationTokenRenewerPrincipalType msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (describedDelegationTokenRenewerPrincipalName msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (describedDelegationTokenRenewerPrincipalType msg)) else WP.pokeKafkaString p0 (describedDelegationTokenRenewerPrincipalType msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (describedDelegationTokenRenewerPrincipalName msg)) else WP.pokeKafkaString p1 (describedDelegationTokenRenewerPrincipalName msg))
   if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for DescribedDelegationTokenRenewer.
 wirePeekDescribedDelegationTokenRenewer :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribedDelegationTokenRenewer, Ptr Word8)
 wirePeekDescribedDelegationTokenRenewer version _fp _basePtr p0 endPtr = do
-  (f0_principaltype, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_principalname, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f0_principaltype, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_principalname, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (DescribedDelegationTokenRenewer { describedDelegationTokenRenewerPrincipalType = f0_principaltype, describedDelegationTokenRenewerPrincipalName = f1_principalname }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribedDelegationTokenRenewer :: DescribedDelegationTokenRenewer
+defaultDescribedDelegationTokenRenewer = DescribedDelegationTokenRenewer { describedDelegationTokenRenewerPrincipalType = P.KafkaString Null, describedDelegationTokenRenewerPrincipalName = P.KafkaString Null }
 
 -- | Worst-case wire size of a DescribedDelegationToken.
 wireMaxSizeDescribedDelegationToken :: Int -> DescribedDelegationToken -> Int
@@ -212,33 +217,38 @@ wireMaxSizeDescribedDelegationToken _version msg =
 wirePokeDescribedDelegationToken :: Int -> Ptr Word8 -> DescribedDelegationToken -> IO (Ptr Word8)
 wirePokeDescribedDelegationToken version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (describedDelegationTokenPrincipalType msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (describedDelegationTokenPrincipalName msg))
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (describedDelegationTokenTokenRequesterPrincipalType msg))
-  p4 <- WP.pokeCompactString p3 (P.toCompactString (describedDelegationTokenTokenRequesterPrincipalName msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (describedDelegationTokenPrincipalType msg)) else WP.pokeKafkaString p0 (describedDelegationTokenPrincipalType msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (describedDelegationTokenPrincipalName msg)) else WP.pokeKafkaString p1 (describedDelegationTokenPrincipalName msg))
+  p3 <- (if version >= 3 then (if version >= 2 then WP.pokeCompactString p2 (P.toCompactString (describedDelegationTokenTokenRequesterPrincipalType msg)) else WP.pokeKafkaString p2 (describedDelegationTokenTokenRequesterPrincipalType msg)) else pure p2)
+  p4 <- (if version >= 3 then (if version >= 2 then WP.pokeCompactString p3 (P.toCompactString (describedDelegationTokenTokenRequesterPrincipalName msg)) else WP.pokeKafkaString p3 (describedDelegationTokenTokenRequesterPrincipalName msg)) else pure p3)
   p5 <- W.pokeInt64BE p4 (describedDelegationTokenIssueTimestamp msg)
   p6 <- W.pokeInt64BE p5 (describedDelegationTokenExpiryTimestamp msg)
   p7 <- W.pokeInt64BE p6 (describedDelegationTokenMaxTimestamp msg)
-  p8 <- WP.pokeCompactString p7 (P.toCompactString (describedDelegationTokenTokenId msg))
-  p9 <- WP.pokeCompactBytes p8 (P.toCompactBytes (describedDelegationTokenHmac msg))
+  p8 <- (if version >= 2 then WP.pokeCompactString p7 (P.toCompactString (describedDelegationTokenTokenId msg)) else WP.pokeKafkaString p7 (describedDelegationTokenTokenId msg))
+  p9 <- (if version >= 2 then WP.pokeCompactBytes p8 (P.toCompactBytes (describedDelegationTokenHmac msg)) else WP.pokeKafkaBytes p8 (describedDelegationTokenHmac msg))
   p10 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribedDelegationTokenRenewer version p x) p9 (describedDelegationTokenRenewers msg)
   if version >= 2 then WP.pokeEmptyTaggedFields p10 else pure p10
 
 -- | Direct-poke decoder for DescribedDelegationToken.
 wirePeekDescribedDelegationToken :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribedDelegationToken, Ptr Word8)
 wirePeekDescribedDelegationToken version _fp _basePtr p0 endPtr = do
-  (f0_principaltype, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_principalname, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-  (f2_tokenrequesterprincipaltype, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
-  (f3_tokenrequesterprincipalname, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  (f0_principaltype, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_principalname, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  (f2_tokenrequesterprincipaltype, p3) <- (if version >= 3 then (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
+  (f3_tokenrequesterprincipalname, p4) <- (if version >= 3 then (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
   (f4_issuetimestamp, p5) <- W.peekInt64BE p4 endPtr
   (f5_expirytimestamp, p6) <- W.peekInt64BE p5 endPtr
   (f6_maxtimestamp, p7) <- W.peekInt64BE p6 endPtr
-  (f7_tokenid, p8) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr
-  (f8_hmac, p9) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p8 endPtr
+  (f7_tokenid, p8) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr else WP.peekKafkaString p7 endPtr)
+  (f8_hmac, p9) <- (if version >= 2 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p8 endPtr else WP.peekKafkaBytes p8 endPtr)
   (f9_renewers, p10) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribedDelegationTokenRenewer version _fp _basePtr p e) p9 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p10 endPtr else pure p10
   pure (DescribedDelegationToken { describedDelegationTokenPrincipalType = f0_principaltype, describedDelegationTokenPrincipalName = f1_principalname, describedDelegationTokenTokenRequesterPrincipalType = f2_tokenrequesterprincipaltype, describedDelegationTokenTokenRequesterPrincipalName = f3_tokenrequesterprincipalname, describedDelegationTokenIssueTimestamp = f4_issuetimestamp, describedDelegationTokenExpiryTimestamp = f5_expirytimestamp, describedDelegationTokenMaxTimestamp = f6_maxtimestamp, describedDelegationTokenTokenId = f7_tokenid, describedDelegationTokenHmac = f8_hmac, describedDelegationTokenRenewers = f9_renewers }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribedDelegationToken :: DescribedDelegationToken
+defaultDescribedDelegationToken = DescribedDelegationToken { describedDelegationTokenPrincipalType = P.KafkaString Null, describedDelegationTokenPrincipalName = P.KafkaString Null, describedDelegationTokenTokenRequesterPrincipalType = P.KafkaString Null, describedDelegationTokenTokenRequesterPrincipalName = P.KafkaString Null, describedDelegationTokenIssueTimestamp = 0, describedDelegationTokenExpiryTimestamp = 0, describedDelegationTokenMaxTimestamp = 0, describedDelegationTokenTokenId = P.KafkaString Null, describedDelegationTokenHmac = P.KafkaBytes Null, describedDelegationTokenRenewers = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a DescribeDelegationTokenResponse.
 wireMaxSizeDescribeDelegationTokenResponse :: Int -> DescribeDelegationTokenResponse -> Int

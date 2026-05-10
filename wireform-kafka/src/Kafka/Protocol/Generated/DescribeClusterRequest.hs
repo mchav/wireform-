@@ -103,13 +103,13 @@ wirePokeDescribeClusterRequest version basePtr msg
   | version == 1 = do
     p0 <- pure basePtr
     p1 <- W.pokeWord8 p0 (if (describeClusterRequestIncludeClusterAuthorizedOperations msg) then 1 else 0)
-    p2 <- W.pokeWord8 p1 (fromIntegral (describeClusterRequestEndpointType msg))
+    p2 <- (if version >= 1 then W.pokeWord8 p1 (fromIntegral (describeClusterRequestEndpointType msg)) else pure p1)
     WP.pokeEmptyTaggedFields p2
   | version == 2 = do
     p0 <- pure basePtr
     p1 <- W.pokeWord8 p0 (if (describeClusterRequestIncludeClusterAuthorizedOperations msg) then 1 else 0)
-    p2 <- W.pokeWord8 p1 (fromIntegral (describeClusterRequestEndpointType msg))
-    p3 <- W.pokeWord8 p2 (if (describeClusterRequestIncludeFencedBrokers msg) then 1 else 0)
+    p2 <- (if version >= 1 then W.pokeWord8 p1 (fromIntegral (describeClusterRequestEndpointType msg)) else pure p1)
+    p3 <- (if version >= 2 then W.pokeWord8 p2 (if (describeClusterRequestIncludeFencedBrokers msg) then 1 else 0) else pure p2)
     WP.pokeEmptyTaggedFields p3
   | otherwise = error $ "wirePoke DescribeClusterRequest : unsupported version: " ++ show version
 
@@ -122,13 +122,13 @@ wirePeekDescribeClusterRequest version _fp _basePtr p0 endPtr
     pure (DescribeClusterRequest { describeClusterRequestIncludeClusterAuthorizedOperations = f0_includeclusterauthorizedoperations, describeClusterRequestEndpointType = 0, describeClusterRequestIncludeFencedBrokers = False }, pTagsEnd)
   | version == 1 = do
     (f0_includeclusterauthorizedoperations, p1) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p0 endPtr
-    (f1_endpointtype, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+    (f1_endpointtype, p2) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (0, p1))
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (DescribeClusterRequest { describeClusterRequestIncludeClusterAuthorizedOperations = f0_includeclusterauthorizedoperations, describeClusterRequestEndpointType = f1_endpointtype, describeClusterRequestIncludeFencedBrokers = False }, pTagsEnd)
   | version == 2 = do
     (f0_includeclusterauthorizedoperations, p1) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p0 endPtr
-    (f1_endpointtype, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
-    (f2_includefencedbrokers, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    (f1_endpointtype, p2) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (0, p1))
+    (f2_includefencedbrokers, p3) <- (if version >= 2 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr else pure (False, p2))
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (DescribeClusterRequest { describeClusterRequestIncludeClusterAuthorizedOperations = f0_includeclusterauthorizedoperations, describeClusterRequestEndpointType = f1_endpointtype, describeClusterRequestIncludeFencedBrokers = f2_includefencedbrokers }, pTagsEnd)
   | otherwise = error $ "wirePeek DescribeClusterRequest : unsupported version: " ++ show version

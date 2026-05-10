@@ -120,17 +120,22 @@ wireMaxSizeDescribeShareGroupOffsetsRequestTopic _version msg =
 wirePokeDescribeShareGroupOffsetsRequestTopic :: Int -> Ptr Word8 -> DescribeShareGroupOffsetsRequestTopic -> IO (Ptr Word8)
 wirePokeDescribeShareGroupOffsetsRequestTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (describeShareGroupOffsetsRequestTopicTopicName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (describeShareGroupOffsetsRequestTopicTopicName msg)) else WP.pokeKafkaString p0 (describeShareGroupOffsetsRequestTopicTopicName msg))
   p2 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p1 (describeShareGroupOffsetsRequestTopicPartitions msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for DescribeShareGroupOffsetsRequestTopic.
 wirePeekDescribeShareGroupOffsetsRequestTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeShareGroupOffsetsRequestTopic, Ptr Word8)
 wirePeekDescribeShareGroupOffsetsRequestTopic version _fp _basePtr p0 endPtr = do
-  (f0_topicname, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_topicname, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 0 W.peekInt32BE p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (DescribeShareGroupOffsetsRequestTopic { describeShareGroupOffsetsRequestTopicTopicName = f0_topicname, describeShareGroupOffsetsRequestTopicPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribeShareGroupOffsetsRequestTopic :: DescribeShareGroupOffsetsRequestTopic
+defaultDescribeShareGroupOffsetsRequestTopic = DescribeShareGroupOffsetsRequestTopic { describeShareGroupOffsetsRequestTopicTopicName = P.KafkaString Null, describeShareGroupOffsetsRequestTopicPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a DescribeShareGroupOffsetsRequestGroup.
 wireMaxSizeDescribeShareGroupOffsetsRequestGroup :: Int -> DescribeShareGroupOffsetsRequestGroup -> Int
@@ -144,17 +149,22 @@ wireMaxSizeDescribeShareGroupOffsetsRequestGroup _version msg =
 wirePokeDescribeShareGroupOffsetsRequestGroup :: Int -> Ptr Word8 -> DescribeShareGroupOffsetsRequestGroup -> IO (Ptr Word8)
 wirePokeDescribeShareGroupOffsetsRequestGroup version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (describeShareGroupOffsetsRequestGroupGroupId msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (describeShareGroupOffsetsRequestGroupGroupId msg)) else WP.pokeKafkaString p0 (describeShareGroupOffsetsRequestGroupGroupId msg))
   p2 <- WP.pokeVersionedNullableArray version 0 (\p x -> wirePokeDescribeShareGroupOffsetsRequestTopic version p x) p1 (describeShareGroupOffsetsRequestGroupTopics msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for DescribeShareGroupOffsetsRequestGroup.
 wirePeekDescribeShareGroupOffsetsRequestGroup :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeShareGroupOffsetsRequestGroup, Ptr Word8)
 wirePeekDescribeShareGroupOffsetsRequestGroup version _fp _basePtr p0 endPtr = do
-  (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_topics, p2) <- WP.peekVersionedNullableArray version 0 (\p e -> wirePeekDescribeShareGroupOffsetsRequestTopic version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (DescribeShareGroupOffsetsRequestGroup { describeShareGroupOffsetsRequestGroupGroupId = f0_groupid, describeShareGroupOffsetsRequestGroupTopics = f1_topics }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribeShareGroupOffsetsRequestGroup :: DescribeShareGroupOffsetsRequestGroup
+defaultDescribeShareGroupOffsetsRequestGroup = DescribeShareGroupOffsetsRequestGroup { describeShareGroupOffsetsRequestGroupGroupId = P.KafkaString Null, describeShareGroupOffsetsRequestGroupTopics = P.KafkaArray P.Null }
 
 -- | Worst-case wire size of a DescribeShareGroupOffsetsRequest.
 wireMaxSizeDescribeShareGroupOffsetsRequest :: Int -> DescribeShareGroupOffsetsRequest -> Int

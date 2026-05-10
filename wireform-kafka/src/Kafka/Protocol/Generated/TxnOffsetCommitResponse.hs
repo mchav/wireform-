@@ -144,6 +144,11 @@ wirePeekTxnOffsetCommitResponsePartition version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (TxnOffsetCommitResponsePartition { txnOffsetCommitResponsePartitionPartitionIndex = f0_partitionindex, txnOffsetCommitResponsePartitionErrorCode = f1_errorcode }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTxnOffsetCommitResponsePartition :: TxnOffsetCommitResponsePartition
+defaultTxnOffsetCommitResponsePartition = TxnOffsetCommitResponsePartition { txnOffsetCommitResponsePartitionPartitionIndex = 0, txnOffsetCommitResponsePartitionErrorCode = 0 }
+
 -- | Worst-case wire size of a TxnOffsetCommitResponseTopic.
 wireMaxSizeTxnOffsetCommitResponseTopic :: Int -> TxnOffsetCommitResponseTopic -> Int
 wireMaxSizeTxnOffsetCommitResponseTopic _version msg =
@@ -157,19 +162,24 @@ wireMaxSizeTxnOffsetCommitResponseTopic _version msg =
 wirePokeTxnOffsetCommitResponseTopic :: Int -> Ptr Word8 -> TxnOffsetCommitResponseTopic -> IO (Ptr Word8)
 wirePokeTxnOffsetCommitResponseTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (txnOffsetCommitResponseTopicName msg))
-  p2 <- WP.pokeKafkaUuid p1 (txnOffsetCommitResponseTopicTopicId msg)
+  p1 <- (if version <= 5 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (txnOffsetCommitResponseTopicName msg)) else WP.pokeKafkaString p0 (txnOffsetCommitResponseTopicName msg)) else pure p0)
+  p2 <- (if version >= 6 then WP.pokeKafkaUuid p1 (txnOffsetCommitResponseTopicTopicId msg) else pure p1)
   p3 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeTxnOffsetCommitResponsePartition version p x) p2 (txnOffsetCommitResponseTopicPartitions msg)
   if version >= 3 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for TxnOffsetCommitResponseTopic.
 wirePeekTxnOffsetCommitResponseTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TxnOffsetCommitResponseTopic, Ptr Word8)
 wirePeekTxnOffsetCommitResponseTopic version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_topicid, p2) <- WP.peekKafkaUuid p1 endPtr
+  (f0_name, p1) <- (if version <= 5 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+  (f1_topicid, p2) <- (if version >= 6 then WP.peekKafkaUuid p1 endPtr else pure (P.nullUuid, p1))
   (f2_partitions, p3) <- WP.peekVersionedArray version 3 (\p e -> wirePeekTxnOffsetCommitResponsePartition version _fp _basePtr p e) p2 endPtr
   pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (TxnOffsetCommitResponseTopic { txnOffsetCommitResponseTopicName = f0_name, txnOffsetCommitResponseTopicTopicId = f1_topicid, txnOffsetCommitResponseTopicPartitions = f2_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTxnOffsetCommitResponseTopic :: TxnOffsetCommitResponseTopic
+defaultTxnOffsetCommitResponseTopic = TxnOffsetCommitResponseTopic { txnOffsetCommitResponseTopicName = P.KafkaString Null, txnOffsetCommitResponseTopicTopicId = P.nullUuid, txnOffsetCommitResponseTopicPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a TxnOffsetCommitResponse.
 wireMaxSizeTxnOffsetCommitResponse :: Int -> TxnOffsetCommitResponse -> Int

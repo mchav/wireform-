@@ -172,7 +172,7 @@ wirePokePartitionData version basePtr msg = do
   p3 <- W.pokeInt32BE p2 (partitionDataLeaderId msg)
   p4 <- W.pokeInt32BE p3 (partitionDataLeaderEpoch msg)
   p5 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p4 (partitionDataIsr msg)
-  p6 <- W.pokeWord8 p5 (fromIntegral (partitionDataLeaderRecoveryState msg))
+  p6 <- (if version >= 1 then W.pokeWord8 p5 (fromIntegral (partitionDataLeaderRecoveryState msg)) else pure p5)
   p7 <- W.pokeInt32BE p6 (partitionDataPartitionEpoch msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p7 else pure p7
 
@@ -184,10 +184,15 @@ wirePeekPartitionData version _fp _basePtr p0 endPtr = do
   (f2_leaderid, p3) <- W.peekInt32BE p2 endPtr
   (f3_leaderepoch, p4) <- W.peekInt32BE p3 endPtr
   (f4_isr, p5) <- WP.peekVersionedArray version 0 W.peekInt32BE p4 endPtr
-  (f5_leaderrecoverystate, p6) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p5 endPtr
+  (f5_leaderrecoverystate, p6) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p5 endPtr else pure (0, p5))
   (f6_partitionepoch, p7) <- W.peekInt32BE p6 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p7 endPtr else pure p7
   pure (PartitionData { partitionDataPartitionIndex = f0_partitionindex, partitionDataErrorCode = f1_errorcode, partitionDataLeaderId = f2_leaderid, partitionDataLeaderEpoch = f3_leaderepoch, partitionDataIsr = f4_isr, partitionDataLeaderRecoveryState = f5_leaderrecoverystate, partitionDataPartitionEpoch = f6_partitionepoch }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionData :: PartitionData
+defaultPartitionData = PartitionData { partitionDataPartitionIndex = 0, partitionDataErrorCode = 0, partitionDataLeaderId = 0, partitionDataLeaderEpoch = 0, partitionDataIsr = P.mkKafkaArray V.empty, partitionDataLeaderRecoveryState = 0, partitionDataPartitionEpoch = 0 }
 
 -- | Worst-case wire size of a TopicData.
 wireMaxSizeTopicData :: Int -> TopicData -> Int
@@ -201,17 +206,22 @@ wireMaxSizeTopicData _version msg =
 wirePokeTopicData :: Int -> Ptr Word8 -> TopicData -> IO (Ptr Word8)
 wirePokeTopicData version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeKafkaUuid p0 (topicDataTopicId msg)
+  p1 <- (if version >= 2 then WP.pokeKafkaUuid p0 (topicDataTopicId msg) else pure p0)
   p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokePartitionData version p x) p1 (topicDataPartitions msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for TopicData.
 wirePeekTopicData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicData, Ptr Word8)
 wirePeekTopicData version _fp _basePtr p0 endPtr = do
-  (f0_topicid, p1) <- WP.peekKafkaUuid p0 endPtr
+  (f0_topicid, p1) <- (if version >= 2 then WP.peekKafkaUuid p0 endPtr else pure (P.nullUuid, p0))
   (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekPartitionData version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (TopicData { topicDataTopicId = f0_topicid, topicDataPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicData :: TopicData
+defaultTopicData = TopicData { topicDataTopicId = P.nullUuid, topicDataPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a AlterPartitionResponse.
 wireMaxSizeAlterPartitionResponse :: Int -> AlterPartitionResponse -> Int

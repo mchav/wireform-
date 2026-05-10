@@ -127,21 +127,26 @@ wireMaxSizeListedGroup _version msg =
 wirePokeListedGroup :: Int -> Ptr Word8 -> ListedGroup -> IO (Ptr Word8)
 wirePokeListedGroup version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (listedGroupGroupId msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (listedGroupProtocolType msg))
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (listedGroupGroupState msg))
-  p4 <- WP.pokeCompactString p3 (P.toCompactString (listedGroupGroupType msg))
+  p1 <- (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (listedGroupGroupId msg)) else WP.pokeKafkaString p0 (listedGroupGroupId msg))
+  p2 <- (if version >= 3 then WP.pokeCompactString p1 (P.toCompactString (listedGroupProtocolType msg)) else WP.pokeKafkaString p1 (listedGroupProtocolType msg))
+  p3 <- (if version >= 4 then (if version >= 3 then WP.pokeCompactString p2 (P.toCompactString (listedGroupGroupState msg)) else WP.pokeKafkaString p2 (listedGroupGroupState msg)) else pure p2)
+  p4 <- (if version >= 5 then (if version >= 3 then WP.pokeCompactString p3 (P.toCompactString (listedGroupGroupType msg)) else WP.pokeKafkaString p3 (listedGroupGroupType msg)) else pure p3)
   if version >= 3 then WP.pokeEmptyTaggedFields p4 else pure p4
 
 -- | Direct-poke decoder for ListedGroup.
 wirePeekListedGroup :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListedGroup, Ptr Word8)
 wirePeekListedGroup version _fp _basePtr p0 endPtr = do
-  (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_protocoltype, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-  (f2_groupstate, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
-  (f3_grouptype, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  (f0_groupid, p1) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_protocoltype, p2) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  (f2_groupstate, p3) <- (if version >= 4 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
+  (f3_grouptype, p4) <- (if version >= 5 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
   pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (ListedGroup { listedGroupGroupId = f0_groupid, listedGroupProtocolType = f1_protocoltype, listedGroupGroupState = f2_groupstate, listedGroupGroupType = f3_grouptype }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultListedGroup :: ListedGroup
+defaultListedGroup = ListedGroup { listedGroupGroupId = P.KafkaString Null, listedGroupProtocolType = P.KafkaString Null, listedGroupGroupState = P.KafkaString Null, listedGroupGroupType = P.KafkaString Null }
 
 -- | Worst-case wire size of a ListGroupsResponse.
 wireMaxSizeListGroupsResponse :: Int -> ListGroupsResponse -> Int
@@ -162,13 +167,13 @@ wirePokeListGroupsResponse version basePtr msg
     pure p2
   | version >= 1 && version <= 2 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (listGroupsResponseThrottleTimeMs msg)
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (listGroupsResponseThrottleTimeMs msg) else pure p0)
     p2 <- W.pokeInt16BE p1 (listGroupsResponseErrorCode msg)
     p3 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeListedGroup version p x) p2 (listGroupsResponseGroups msg)
     pure p3
   | version >= 3 && version <= 5 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (listGroupsResponseThrottleTimeMs msg)
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (listGroupsResponseThrottleTimeMs msg) else pure p0)
     p2 <- W.pokeInt16BE p1 (listGroupsResponseErrorCode msg)
     p3 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeListedGroup version p x) p2 (listGroupsResponseGroups msg)
     WP.pokeEmptyTaggedFields p3
@@ -182,12 +187,12 @@ wirePeekListGroupsResponse version _fp _basePtr p0 endPtr
     (f1_groups, p2) <- WP.peekVersionedArray version 3 (\p e -> wirePeekListedGroup version _fp _basePtr p e) p1 endPtr
     pure (ListGroupsResponse { listGroupsResponseThrottleTimeMs = 0, listGroupsResponseErrorCode = f0_errorcode, listGroupsResponseGroups = f1_groups }, p2)
   | version >= 1 && version <= 2 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_groups, p3) <- WP.peekVersionedArray version 3 (\p e -> wirePeekListedGroup version _fp _basePtr p e) p2 endPtr
     pure (ListGroupsResponse { listGroupsResponseThrottleTimeMs = f0_throttletimems, listGroupsResponseErrorCode = f1_errorcode, listGroupsResponseGroups = f2_groups }, p3)
   | version >= 3 && version <= 5 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_groups, p3) <- WP.peekVersionedArray version 3 (\p e -> wirePeekListedGroup version _fp _basePtr p e) p2 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr

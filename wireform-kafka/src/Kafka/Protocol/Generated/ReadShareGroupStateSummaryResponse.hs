@@ -157,11 +157,11 @@ wirePokePartitionResult version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (partitionResultPartition msg)
   p2 <- W.pokeInt16BE p1 (partitionResultErrorCode msg)
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (partitionResultErrorMessage msg))
+  p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (partitionResultErrorMessage msg)) else WP.pokeKafkaString p2 (partitionResultErrorMessage msg))
   p4 <- W.pokeInt32BE p3 (partitionResultStateEpoch msg)
   p5 <- W.pokeInt32BE p4 (partitionResultLeaderEpoch msg)
   p6 <- W.pokeInt64BE p5 (partitionResultStartOffset msg)
-  p7 <- W.pokeInt32BE p6 (partitionResultDeliveryCompleteCount msg)
+  p7 <- (if version >= 1 then W.pokeInt32BE p6 (partitionResultDeliveryCompleteCount msg) else pure p6)
   if version >= 0 then WP.pokeEmptyTaggedFields p7 else pure p7
 
 -- | Direct-poke decoder for PartitionResult.
@@ -169,13 +169,18 @@ wirePeekPartitionResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> 
 wirePeekPartitionResult version _fp _basePtr p0 endPtr = do
   (f0_partition, p1) <- W.peekInt32BE p0 endPtr
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   (f3_stateepoch, p4) <- W.peekInt32BE p3 endPtr
   (f4_leaderepoch, p5) <- W.peekInt32BE p4 endPtr
   (f5_startoffset, p6) <- W.peekInt64BE p5 endPtr
-  (f6_deliverycompletecount, p7) <- W.peekInt32BE p6 endPtr
+  (f6_deliverycompletecount, p7) <- (if version >= 1 then W.peekInt32BE p6 endPtr else pure (0, p6))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p7 endPtr else pure p7
   pure (PartitionResult { partitionResultPartition = f0_partition, partitionResultErrorCode = f1_errorcode, partitionResultErrorMessage = f2_errormessage, partitionResultStateEpoch = f3_stateepoch, partitionResultLeaderEpoch = f4_leaderepoch, partitionResultStartOffset = f5_startoffset, partitionResultDeliveryCompleteCount = f6_deliverycompletecount }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionResult :: PartitionResult
+defaultPartitionResult = PartitionResult { partitionResultPartition = 0, partitionResultErrorCode = 0, partitionResultErrorMessage = P.KafkaString Null, partitionResultStateEpoch = 0, partitionResultLeaderEpoch = 0, partitionResultStartOffset = 0, partitionResultDeliveryCompleteCount = 0 }
 
 -- | Worst-case wire size of a ReadStateSummaryResult.
 wireMaxSizeReadStateSummaryResult :: Int -> ReadStateSummaryResult -> Int
@@ -200,6 +205,11 @@ wirePeekReadStateSummaryResult version _fp _basePtr p0 endPtr = do
   (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekPartitionResult version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ReadStateSummaryResult { readStateSummaryResultTopicId = f0_topicid, readStateSummaryResultPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultReadStateSummaryResult :: ReadStateSummaryResult
+defaultReadStateSummaryResult = ReadStateSummaryResult { readStateSummaryResultTopicId = P.nullUuid, readStateSummaryResultPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a ReadShareGroupStateSummaryResponse.
 wireMaxSizeReadShareGroupStateSummaryResponse :: Int -> ReadShareGroupStateSummaryResponse -> Int

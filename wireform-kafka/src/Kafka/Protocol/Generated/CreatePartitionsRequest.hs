@@ -141,6 +141,11 @@ wirePeekCreatePartitionsAssignment version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p1 endPtr else pure p1
   pure (CreatePartitionsAssignment { createPartitionsAssignmentBrokerIds = f0_brokerids }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultCreatePartitionsAssignment :: CreatePartitionsAssignment
+defaultCreatePartitionsAssignment = CreatePartitionsAssignment { createPartitionsAssignmentBrokerIds = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a CreatePartitionsTopic.
 wireMaxSizeCreatePartitionsTopic :: Int -> CreatePartitionsTopic -> Int
 wireMaxSizeCreatePartitionsTopic _version msg =
@@ -154,7 +159,7 @@ wireMaxSizeCreatePartitionsTopic _version msg =
 wirePokeCreatePartitionsTopic :: Int -> Ptr Word8 -> CreatePartitionsTopic -> IO (Ptr Word8)
 wirePokeCreatePartitionsTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (createPartitionsTopicName msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (createPartitionsTopicName msg)) else WP.pokeKafkaString p0 (createPartitionsTopicName msg))
   p2 <- W.pokeInt32BE p1 (createPartitionsTopicCount msg)
   p3 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeCreatePartitionsAssignment version p x) p2 (createPartitionsTopicAssignments msg)
   if version >= 2 then WP.pokeEmptyTaggedFields p3 else pure p3
@@ -162,11 +167,16 @@ wirePokeCreatePartitionsTopic version basePtr msg = do
 -- | Direct-poke decoder for CreatePartitionsTopic.
 wirePeekCreatePartitionsTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatePartitionsTopic, Ptr Word8)
 wirePeekCreatePartitionsTopic version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_count, p2) <- W.peekInt32BE p1 endPtr
   (f2_assignments, p3) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekCreatePartitionsAssignment version _fp _basePtr p e) p2 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (CreatePartitionsTopic { createPartitionsTopicName = f0_name, createPartitionsTopicCount = f1_count, createPartitionsTopicAssignments = f2_assignments }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultCreatePartitionsTopic :: CreatePartitionsTopic
+defaultCreatePartitionsTopic = CreatePartitionsTopic { createPartitionsTopicName = P.KafkaString Null, createPartitionsTopicCount = 0, createPartitionsTopicAssignments = P.KafkaArray P.Null }
 
 -- | Worst-case wire size of a CreatePartitionsRequest.
 wireMaxSizeCreatePartitionsRequest :: Int -> CreatePartitionsRequest -> Int

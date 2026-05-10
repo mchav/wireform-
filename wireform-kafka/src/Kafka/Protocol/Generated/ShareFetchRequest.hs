@@ -251,6 +251,11 @@ wirePeekAcknowledgementBatch version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (AcknowledgementBatch { acknowledgementBatchFirstOffset = f0_firstoffset, acknowledgementBatchLastOffset = f1_lastoffset, acknowledgementBatchAcknowledgeTypes = f2_acknowledgetypes }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAcknowledgementBatch :: AcknowledgementBatch
+defaultAcknowledgementBatch = AcknowledgementBatch { acknowledgementBatchFirstOffset = 0, acknowledgementBatchLastOffset = 0, acknowledgementBatchAcknowledgeTypes = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a FetchPartition.
 wireMaxSizeFetchPartition :: Int -> FetchPartition -> Int
 wireMaxSizeFetchPartition _version msg =
@@ -265,7 +270,7 @@ wirePokeFetchPartition :: Int -> Ptr Word8 -> FetchPartition -> IO (Ptr Word8)
 wirePokeFetchPartition version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (fetchPartitionPartitionIndex msg)
-  p2 <- W.pokeInt32BE p1 (fetchPartitionPartitionMaxBytes msg)
+  p2 <- (if version == 0 then W.pokeInt32BE p1 (fetchPartitionPartitionMaxBytes msg) else pure p1)
   p3 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeAcknowledgementBatch version p x) p2 (fetchPartitionAcknowledgementBatches msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
 
@@ -273,10 +278,15 @@ wirePokeFetchPartition version basePtr msg = do
 wirePeekFetchPartition :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (FetchPartition, Ptr Word8)
 wirePeekFetchPartition version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
-  (f1_partitionmaxbytes, p2) <- W.peekInt32BE p1 endPtr
+  (f1_partitionmaxbytes, p2) <- (if version == 0 then W.peekInt32BE p1 endPtr else pure (0, p1))
   (f2_acknowledgementbatches, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekAcknowledgementBatch version _fp _basePtr p e) p2 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (FetchPartition { fetchPartitionPartitionIndex = f0_partitionindex, fetchPartitionPartitionMaxBytes = f1_partitionmaxbytes, fetchPartitionAcknowledgementBatches = f2_acknowledgementbatches }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultFetchPartition :: FetchPartition
+defaultFetchPartition = FetchPartition { fetchPartitionPartitionIndex = 0, fetchPartitionPartitionMaxBytes = 0, fetchPartitionAcknowledgementBatches = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a FetchTopic.
 wireMaxSizeFetchTopic :: Int -> FetchTopic -> Int
@@ -302,6 +312,11 @@ wirePeekFetchTopic version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (FetchTopic { fetchTopicTopicId = f0_topicid, fetchTopicPartitions = f1_partitions }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultFetchTopic :: FetchTopic
+defaultFetchTopic = FetchTopic { fetchTopicTopicId = P.nullUuid, fetchTopicPartitions = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a ForgottenTopic.
 wireMaxSizeForgottenTopic :: Int -> ForgottenTopic -> Int
 wireMaxSizeForgottenTopic _version msg =
@@ -326,6 +341,11 @@ wirePeekForgottenTopic version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ForgottenTopic { forgottenTopicTopicId = f0_topicid, forgottenTopicPartitions = f1_partitions }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultForgottenTopic :: ForgottenTopic
+defaultForgottenTopic = ForgottenTopic { forgottenTopicTopicId = P.nullUuid, forgottenTopicPartitions = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a ShareFetchRequest.
 wireMaxSizeShareFetchRequest :: Int -> ShareFetchRequest -> Int
 wireMaxSizeShareFetchRequest _version msg =
@@ -349,29 +369,29 @@ wirePokeShareFetchRequest :: Int -> Ptr Word8 -> ShareFetchRequest -> IO (Ptr Wo
 wirePokeShareFetchRequest version basePtr msg
   | version == 1 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (shareFetchRequestGroupId msg))
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (shareFetchRequestMemberId msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (shareFetchRequestGroupId msg)) else WP.pokeKafkaString p0 (shareFetchRequestGroupId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (shareFetchRequestMemberId msg)) else WP.pokeKafkaString p1 (shareFetchRequestMemberId msg))
     p3 <- W.pokeInt32BE p2 (shareFetchRequestShareSessionEpoch msg)
     p4 <- W.pokeInt32BE p3 (shareFetchRequestMaxWaitMs msg)
     p5 <- W.pokeInt32BE p4 (shareFetchRequestMinBytes msg)
     p6 <- W.pokeInt32BE p5 (shareFetchRequestMaxBytes msg)
-    p7 <- W.pokeInt32BE p6 (shareFetchRequestMaxRecords msg)
-    p8 <- W.pokeInt32BE p7 (shareFetchRequestBatchSize msg)
+    p7 <- (if version >= 1 then W.pokeInt32BE p6 (shareFetchRequestMaxRecords msg) else pure p6)
+    p8 <- (if version >= 1 then W.pokeInt32BE p7 (shareFetchRequestBatchSize msg) else pure p7)
     p9 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeFetchTopic version p x) p8 (shareFetchRequestTopics msg)
     p10 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeForgottenTopic version p x) p9 (shareFetchRequestForgottenTopicsData msg)
     WP.pokeEmptyTaggedFields p10
   | version == 2 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (shareFetchRequestGroupId msg))
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (shareFetchRequestMemberId msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (shareFetchRequestGroupId msg)) else WP.pokeKafkaString p0 (shareFetchRequestGroupId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (shareFetchRequestMemberId msg)) else WP.pokeKafkaString p1 (shareFetchRequestMemberId msg))
     p3 <- W.pokeInt32BE p2 (shareFetchRequestShareSessionEpoch msg)
     p4 <- W.pokeInt32BE p3 (shareFetchRequestMaxWaitMs msg)
     p5 <- W.pokeInt32BE p4 (shareFetchRequestMinBytes msg)
     p6 <- W.pokeInt32BE p5 (shareFetchRequestMaxBytes msg)
-    p7 <- W.pokeInt32BE p6 (shareFetchRequestMaxRecords msg)
-    p8 <- W.pokeInt32BE p7 (shareFetchRequestBatchSize msg)
-    p9 <- W.pokeWord8 p8 (fromIntegral (shareFetchRequestShareAcquireMode msg))
-    p10 <- W.pokeWord8 p9 (if (shareFetchRequestIsRenewAck msg) then 1 else 0)
+    p7 <- (if version >= 1 then W.pokeInt32BE p6 (shareFetchRequestMaxRecords msg) else pure p6)
+    p8 <- (if version >= 1 then W.pokeInt32BE p7 (shareFetchRequestBatchSize msg) else pure p7)
+    p9 <- (if version >= 2 then W.pokeWord8 p8 (fromIntegral (shareFetchRequestShareAcquireMode msg)) else pure p8)
+    p10 <- (if version >= 2 then W.pokeWord8 p9 (if (shareFetchRequestIsRenewAck msg) then 1 else 0) else pure p9)
     p11 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeFetchTopic version p x) p10 (shareFetchRequestTopics msg)
     p12 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeForgottenTopic version p x) p11 (shareFetchRequestForgottenTopicsData msg)
     WP.pokeEmptyTaggedFields p12
@@ -381,29 +401,29 @@ wirePokeShareFetchRequest version basePtr msg
 wirePeekShareFetchRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ShareFetchRequest, Ptr Word8)
 wirePeekShareFetchRequest version _fp _basePtr p0 endPtr
   | version == 1 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_memberid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_sharesessionepoch, p3) <- W.peekInt32BE p2 endPtr
     (f3_maxwaitms, p4) <- W.peekInt32BE p3 endPtr
     (f4_minbytes, p5) <- W.peekInt32BE p4 endPtr
     (f5_maxbytes, p6) <- W.peekInt32BE p5 endPtr
-    (f6_maxrecords, p7) <- W.peekInt32BE p6 endPtr
-    (f7_batchsize, p8) <- W.peekInt32BE p7 endPtr
+    (f6_maxrecords, p7) <- (if version >= 1 then W.peekInt32BE p6 endPtr else pure (0, p6))
+    (f7_batchsize, p8) <- (if version >= 1 then W.peekInt32BE p7 endPtr else pure (0, p7))
     (f8_topics, p9) <- WP.peekVersionedArray version 0 (\p e -> wirePeekFetchTopic version _fp _basePtr p e) p8 endPtr
     (f9_forgottentopicsdata, p10) <- WP.peekVersionedArray version 0 (\p e -> wirePeekForgottenTopic version _fp _basePtr p e) p9 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p10 endPtr
     pure (ShareFetchRequest { shareFetchRequestGroupId = f0_groupid, shareFetchRequestMemberId = f1_memberid, shareFetchRequestShareSessionEpoch = f2_sharesessionepoch, shareFetchRequestMaxWaitMs = f3_maxwaitms, shareFetchRequestMinBytes = f4_minbytes, shareFetchRequestMaxBytes = f5_maxbytes, shareFetchRequestMaxRecords = f6_maxrecords, shareFetchRequestBatchSize = f7_batchsize, shareFetchRequestShareAcquireMode = 0, shareFetchRequestIsRenewAck = False, shareFetchRequestTopics = f8_topics, shareFetchRequestForgottenTopicsData = f9_forgottentopicsdata }, pTagsEnd)
   | version == 2 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_memberid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_sharesessionepoch, p3) <- W.peekInt32BE p2 endPtr
     (f3_maxwaitms, p4) <- W.peekInt32BE p3 endPtr
     (f4_minbytes, p5) <- W.peekInt32BE p4 endPtr
     (f5_maxbytes, p6) <- W.peekInt32BE p5 endPtr
-    (f6_maxrecords, p7) <- W.peekInt32BE p6 endPtr
-    (f7_batchsize, p8) <- W.peekInt32BE p7 endPtr
-    (f8_shareacquiremode, p9) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p8 endPtr
-    (f9_isrenewack, p10) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p9 endPtr
+    (f6_maxrecords, p7) <- (if version >= 1 then W.peekInt32BE p6 endPtr else pure (0, p6))
+    (f7_batchsize, p8) <- (if version >= 1 then W.peekInt32BE p7 endPtr else pure (0, p7))
+    (f8_shareacquiremode, p9) <- (if version >= 2 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p8 endPtr else pure (0, p8))
+    (f9_isrenewack, p10) <- (if version >= 2 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p9 endPtr else pure (False, p9))
     (f10_topics, p11) <- WP.peekVersionedArray version 0 (\p e -> wirePeekFetchTopic version _fp _basePtr p e) p10 endPtr
     (f11_forgottentopicsdata, p12) <- WP.peekVersionedArray version 0 (\p e -> wirePeekForgottenTopic version _fp _basePtr p e) p11 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p12 endPtr

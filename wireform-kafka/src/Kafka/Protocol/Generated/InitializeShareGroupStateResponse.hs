@@ -129,7 +129,7 @@ wirePokePartitionResult version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (partitionResultPartition msg)
   p2 <- W.pokeInt16BE p1 (partitionResultErrorCode msg)
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (partitionResultErrorMessage msg))
+  p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (partitionResultErrorMessage msg)) else WP.pokeKafkaString p2 (partitionResultErrorMessage msg))
   if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for PartitionResult.
@@ -137,9 +137,14 @@ wirePeekPartitionResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> 
 wirePeekPartitionResult version _fp _basePtr p0 endPtr = do
   (f0_partition, p1) <- W.peekInt32BE p0 endPtr
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (PartitionResult { partitionResultPartition = f0_partition, partitionResultErrorCode = f1_errorcode, partitionResultErrorMessage = f2_errormessage }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionResult :: PartitionResult
+defaultPartitionResult = PartitionResult { partitionResultPartition = 0, partitionResultErrorCode = 0, partitionResultErrorMessage = P.KafkaString Null }
 
 -- | Worst-case wire size of a InitializeStateResult.
 wireMaxSizeInitializeStateResult :: Int -> InitializeStateResult -> Int
@@ -164,6 +169,11 @@ wirePeekInitializeStateResult version _fp _basePtr p0 endPtr = do
   (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekPartitionResult version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (InitializeStateResult { initializeStateResultTopicId = f0_topicid, initializeStateResultPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultInitializeStateResult :: InitializeStateResult
+defaultInitializeStateResult = InitializeStateResult { initializeStateResultTopicId = P.nullUuid, initializeStateResultPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a InitializeShareGroupStateResponse.
 wireMaxSizeInitializeShareGroupStateResponse :: Int -> InitializeShareGroupStateResponse -> Int

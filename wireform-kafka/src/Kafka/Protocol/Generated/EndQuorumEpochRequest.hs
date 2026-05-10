@@ -194,17 +194,22 @@ wireMaxSizeReplicaInfo _version msg =
 wirePokeReplicaInfo :: Int -> Ptr Word8 -> ReplicaInfo -> IO (Ptr Word8)
 wirePokeReplicaInfo version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- W.pokeInt32BE p0 (replicaInfoCandidateId msg)
-  p2 <- WP.pokeKafkaUuid p1 (replicaInfoCandidateDirectoryId msg)
+  p1 <- (if version >= 1 then W.pokeInt32BE p0 (replicaInfoCandidateId msg) else pure p0)
+  p2 <- (if version >= 1 then WP.pokeKafkaUuid p1 (replicaInfoCandidateDirectoryId msg) else pure p1)
   if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for ReplicaInfo.
 wirePeekReplicaInfo :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ReplicaInfo, Ptr Word8)
 wirePeekReplicaInfo version _fp _basePtr p0 endPtr = do
-  (f0_candidateid, p1) <- W.peekInt32BE p0 endPtr
-  (f1_candidatedirectoryid, p2) <- WP.peekKafkaUuid p1 endPtr
+  (f0_candidateid, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
+  (f1_candidatedirectoryid, p2) <- (if version >= 1 then WP.peekKafkaUuid p1 endPtr else pure (P.nullUuid, p1))
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ReplicaInfo { replicaInfoCandidateId = f0_candidateid, replicaInfoCandidateDirectoryId = f1_candidatedirectoryid }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultReplicaInfo :: ReplicaInfo
+defaultReplicaInfo = ReplicaInfo { replicaInfoCandidateId = 0, replicaInfoCandidateDirectoryId = P.nullUuid }
 
 -- | Worst-case wire size of a PartitionData.
 wireMaxSizePartitionData :: Int -> PartitionData -> Int
@@ -224,8 +229,8 @@ wirePokePartitionData version basePtr msg = do
   p1 <- W.pokeInt32BE p0 (partitionDataPartitionIndex msg)
   p2 <- W.pokeInt32BE p1 (partitionDataLeaderId msg)
   p3 <- W.pokeInt32BE p2 (partitionDataLeaderEpoch msg)
-  p4 <- WP.pokeVersionedArray version 1 W.pokeInt32BE p3 (partitionDataPreferredSuccessors msg)
-  p5 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeReplicaInfo version p x) p4 (partitionDataPreferredCandidates msg)
+  p4 <- (if version == 0 then WP.pokeVersionedArray version 1 W.pokeInt32BE p3 (partitionDataPreferredSuccessors msg) else pure p3)
+  p5 <- (if version >= 1 then WP.pokeVersionedArray version 1 (\p x -> wirePokeReplicaInfo version p x) p4 (partitionDataPreferredCandidates msg) else pure p4)
   if version >= 1 then WP.pokeEmptyTaggedFields p5 else pure p5
 
 -- | Direct-poke decoder for PartitionData.
@@ -234,10 +239,15 @@ wirePeekPartitionData version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
   (f1_leaderid, p2) <- W.peekInt32BE p1 endPtr
   (f2_leaderepoch, p3) <- W.peekInt32BE p2 endPtr
-  (f3_preferredsuccessors, p4) <- WP.peekVersionedArray version 1 W.peekInt32BE p3 endPtr
-  (f4_preferredcandidates, p5) <- WP.peekVersionedArray version 1 (\p e -> wirePeekReplicaInfo version _fp _basePtr p e) p4 endPtr
+  (f3_preferredsuccessors, p4) <- (if version == 0 then WP.peekVersionedArray version 1 W.peekInt32BE p3 endPtr else pure (P.mkKafkaArray V.empty, p3))
+  (f4_preferredcandidates, p5) <- (if version >= 1 then WP.peekVersionedArray version 1 (\p e -> wirePeekReplicaInfo version _fp _basePtr p e) p4 endPtr else pure (P.mkKafkaArray V.empty, p4))
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
   pure (PartitionData { partitionDataPartitionIndex = f0_partitionindex, partitionDataLeaderId = f1_leaderid, partitionDataLeaderEpoch = f2_leaderepoch, partitionDataPreferredSuccessors = f3_preferredsuccessors, partitionDataPreferredCandidates = f4_preferredcandidates }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionData :: PartitionData
+defaultPartitionData = PartitionData { partitionDataPartitionIndex = 0, partitionDataLeaderId = 0, partitionDataLeaderEpoch = 0, partitionDataPreferredSuccessors = P.mkKafkaArray V.empty, partitionDataPreferredCandidates = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a TopicData.
 wireMaxSizeTopicData :: Int -> TopicData -> Int
@@ -251,17 +261,22 @@ wireMaxSizeTopicData _version msg =
 wirePokeTopicData :: Int -> Ptr Word8 -> TopicData -> IO (Ptr Word8)
 wirePokeTopicData version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicDataTopicName msg))
+  p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (topicDataTopicName msg)) else WP.pokeKafkaString p0 (topicDataTopicName msg))
   p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokePartitionData version p x) p1 (topicDataPartitions msg)
   if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for TopicData.
 wirePeekTopicData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicData, Ptr Word8)
 wirePeekTopicData version _fp _basePtr p0 endPtr = do
-  (f0_topicname, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_topicname, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekPartitionData version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (TopicData { topicDataTopicName = f0_topicname, topicDataPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicData :: TopicData
+defaultTopicData = TopicData { topicDataTopicName = P.KafkaString Null, topicDataPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a LeaderEndpoint.
 wireMaxSizeLeaderEndpoint :: Int -> LeaderEndpoint -> Int
@@ -276,19 +291,24 @@ wireMaxSizeLeaderEndpoint _version msg =
 wirePokeLeaderEndpoint :: Int -> Ptr Word8 -> LeaderEndpoint -> IO (Ptr Word8)
 wirePokeLeaderEndpoint version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (leaderEndpointName msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (leaderEndpointHost msg))
-  p3 <- W.pokeWord16BE p2 (leaderEndpointPort msg)
+  p1 <- (if version >= 1 then (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (leaderEndpointName msg)) else WP.pokeKafkaString p0 (leaderEndpointName msg)) else pure p0)
+  p2 <- (if version >= 1 then (if version >= 1 then WP.pokeCompactString p1 (P.toCompactString (leaderEndpointHost msg)) else WP.pokeKafkaString p1 (leaderEndpointHost msg)) else pure p1)
+  p3 <- (if version >= 1 then W.pokeWord16BE p2 (leaderEndpointPort msg) else pure p2)
   if version >= 1 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for LeaderEndpoint.
 wirePeekLeaderEndpoint :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (LeaderEndpoint, Ptr Word8)
 wirePeekLeaderEndpoint version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-  (f2_port, p3) <- W.peekWord16BE p2 endPtr
+  (f0_name, p1) <- (if version >= 1 then (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+  (f1_host, p2) <- (if version >= 1 then (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
+  (f2_port, p3) <- (if version >= 1 then W.peekWord16BE p2 endPtr else pure (0, p2))
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (LeaderEndpoint { leaderEndpointName = f0_name, leaderEndpointHost = f1_host, leaderEndpointPort = f2_port }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultLeaderEndpoint :: LeaderEndpoint
+defaultLeaderEndpoint = LeaderEndpoint { leaderEndpointName = P.KafkaString Null, leaderEndpointHost = P.KafkaString Null, leaderEndpointPort = 0 }
 
 -- | Worst-case wire size of a EndQuorumEpochRequest.
 wireMaxSizeEndQuorumEpochRequest :: Int -> EndQuorumEpochRequest -> Int
@@ -304,14 +324,14 @@ wirePokeEndQuorumEpochRequest :: Int -> Ptr Word8 -> EndQuorumEpochRequest -> IO
 wirePokeEndQuorumEpochRequest version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (endQuorumEpochRequestClusterId msg))
+    p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (endQuorumEpochRequestClusterId msg)) else WP.pokeKafkaString p0 (endQuorumEpochRequestClusterId msg))
     p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeTopicData version p x) p1 (endQuorumEpochRequestTopics msg)
     pure p2
   | version == 1 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (endQuorumEpochRequestClusterId msg))
+    p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (endQuorumEpochRequestClusterId msg)) else WP.pokeKafkaString p0 (endQuorumEpochRequestClusterId msg))
     p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeTopicData version p x) p1 (endQuorumEpochRequestTopics msg)
-    p3 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeLeaderEndpoint version p x) p2 (endQuorumEpochRequestLeaderEndpoints msg)
+    p3 <- (if version >= 1 then WP.pokeVersionedArray version 1 (\p x -> wirePokeLeaderEndpoint version p x) p2 (endQuorumEpochRequestLeaderEndpoints msg) else pure p2)
     WP.pokeEmptyTaggedFields p3
   | otherwise = error $ "wirePoke EndQuorumEpochRequest : unsupported version: " ++ show version
 
@@ -319,13 +339,13 @@ wirePokeEndQuorumEpochRequest version basePtr msg
 wirePeekEndQuorumEpochRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EndQuorumEpochRequest, Ptr Word8)
 wirePeekEndQuorumEpochRequest version _fp _basePtr p0 endPtr
   | version == 0 = do
-    (f0_clusterid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_clusterid, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_topics, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
     pure (EndQuorumEpochRequest { endQuorumEpochRequestClusterId = f0_clusterid, endQuorumEpochRequestTopics = f1_topics, endQuorumEpochRequestLeaderEndpoints = P.mkKafkaArray V.empty }, p2)
   | version == 1 = do
-    (f0_clusterid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_clusterid, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_topics, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
-    (f2_leaderendpoints, p3) <- WP.peekVersionedArray version 1 (\p e -> wirePeekLeaderEndpoint version _fp _basePtr p e) p2 endPtr
+    (f2_leaderendpoints, p3) <- (if version >= 1 then WP.peekVersionedArray version 1 (\p e -> wirePeekLeaderEndpoint version _fp _basePtr p e) p2 endPtr else pure (P.mkKafkaArray V.empty, p2))
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (EndQuorumEpochRequest { endQuorumEpochRequestClusterId = f0_clusterid, endQuorumEpochRequestTopics = f1_topics, endQuorumEpochRequestLeaderEndpoints = f2_leaderendpoints }, pTagsEnd)
   | otherwise = error $ "wirePeek EndQuorumEpochRequest : unsupported version: " ++ show version

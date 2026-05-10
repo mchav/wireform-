@@ -119,17 +119,22 @@ wireMaxSizeCreatableRenewers _version msg =
 wirePokeCreatableRenewers :: Int -> Ptr Word8 -> CreatableRenewers -> IO (Ptr Word8)
 wirePokeCreatableRenewers version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (creatableRenewersPrincipalType msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (creatableRenewersPrincipalName msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (creatableRenewersPrincipalType msg)) else WP.pokeKafkaString p0 (creatableRenewersPrincipalType msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (creatableRenewersPrincipalName msg)) else WP.pokeKafkaString p1 (creatableRenewersPrincipalName msg))
   if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for CreatableRenewers.
 wirePeekCreatableRenewers :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatableRenewers, Ptr Word8)
 wirePeekCreatableRenewers version _fp _basePtr p0 endPtr = do
-  (f0_principaltype, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_principalname, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f0_principaltype, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_principalname, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (CreatableRenewers { creatableRenewersPrincipalType = f0_principaltype, creatableRenewersPrincipalName = f1_principalname }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultCreatableRenewers :: CreatableRenewers
+defaultCreatableRenewers = CreatableRenewers { creatableRenewersPrincipalType = P.KafkaString Null, creatableRenewersPrincipalName = P.KafkaString Null }
 
 -- | Worst-case wire size of a CreateDelegationTokenRequest.
 wireMaxSizeCreateDelegationTokenRequest :: Int -> CreateDelegationTokenRequest -> Int
@@ -156,8 +161,8 @@ wirePokeCreateDelegationTokenRequest version basePtr msg
     WP.pokeEmptyTaggedFields p2
   | version == 3 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (createDelegationTokenRequestOwnerPrincipalType msg))
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (createDelegationTokenRequestOwnerPrincipalName msg))
+    p1 <- (if version >= 3 then (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (createDelegationTokenRequestOwnerPrincipalType msg)) else WP.pokeKafkaString p0 (createDelegationTokenRequestOwnerPrincipalType msg)) else pure p0)
+    p2 <- (if version >= 3 then (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (createDelegationTokenRequestOwnerPrincipalName msg)) else WP.pokeKafkaString p1 (createDelegationTokenRequestOwnerPrincipalName msg)) else pure p1)
     p3 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeCreatableRenewers version p x) p2 (createDelegationTokenRequestRenewers msg)
     p4 <- W.pokeInt64BE p3 (createDelegationTokenRequestMaxLifetimeMs msg)
     WP.pokeEmptyTaggedFields p4
@@ -176,8 +181,8 @@ wirePeekCreateDelegationTokenRequest version _fp _basePtr p0 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (CreateDelegationTokenRequest { createDelegationTokenRequestOwnerPrincipalType = P.KafkaString Null, createDelegationTokenRequestOwnerPrincipalName = P.KafkaString Null, createDelegationTokenRequestRenewers = f0_renewers, createDelegationTokenRequestMaxLifetimeMs = f1_maxlifetimems }, pTagsEnd)
   | version == 3 = do
-    (f0_ownerprincipaltype, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_ownerprincipalname, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f0_ownerprincipaltype, p1) <- (if version >= 3 then (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+    (f1_ownerprincipalname, p2) <- (if version >= 3 then (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
     (f2_renewers, p3) <- WP.peekVersionedArray version 2 (\p e -> wirePeekCreatableRenewers version _fp _basePtr p e) p2 endPtr
     (f3_maxlifetimems, p4) <- W.peekInt64BE p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr

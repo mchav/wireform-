@@ -151,6 +151,11 @@ wirePeekWritableTxnMarkerPartitionResult version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (WritableTxnMarkerPartitionResult { writableTxnMarkerPartitionResultPartitionIndex = f0_partitionindex, writableTxnMarkerPartitionResultErrorCode = f1_errorcode }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultWritableTxnMarkerPartitionResult :: WritableTxnMarkerPartitionResult
+defaultWritableTxnMarkerPartitionResult = WritableTxnMarkerPartitionResult { writableTxnMarkerPartitionResultPartitionIndex = 0, writableTxnMarkerPartitionResultErrorCode = 0 }
+
 -- | Worst-case wire size of a WritableTxnMarkerTopicResult.
 wireMaxSizeWritableTxnMarkerTopicResult :: Int -> WritableTxnMarkerTopicResult -> Int
 wireMaxSizeWritableTxnMarkerTopicResult _version msg =
@@ -163,17 +168,22 @@ wireMaxSizeWritableTxnMarkerTopicResult _version msg =
 wirePokeWritableTxnMarkerTopicResult :: Int -> Ptr Word8 -> WritableTxnMarkerTopicResult -> IO (Ptr Word8)
 wirePokeWritableTxnMarkerTopicResult version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (writableTxnMarkerTopicResultName msg))
+  p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (writableTxnMarkerTopicResultName msg)) else WP.pokeKafkaString p0 (writableTxnMarkerTopicResultName msg))
   p2 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeWritableTxnMarkerPartitionResult version p x) p1 (writableTxnMarkerTopicResultPartitions msg)
   if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for WritableTxnMarkerTopicResult.
 wirePeekWritableTxnMarkerTopicResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (WritableTxnMarkerTopicResult, Ptr Word8)
 wirePeekWritableTxnMarkerTopicResult version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekWritableTxnMarkerPartitionResult version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (WritableTxnMarkerTopicResult { writableTxnMarkerTopicResultName = f0_name, writableTxnMarkerTopicResultPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultWritableTxnMarkerTopicResult :: WritableTxnMarkerTopicResult
+defaultWritableTxnMarkerTopicResult = WritableTxnMarkerTopicResult { writableTxnMarkerTopicResultName = P.KafkaString Null, writableTxnMarkerTopicResultPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a WritableTxnMarkerResult.
 wireMaxSizeWritableTxnMarkerResult :: Int -> WritableTxnMarkerResult -> Int
@@ -198,6 +208,11 @@ wirePeekWritableTxnMarkerResult version _fp _basePtr p0 endPtr = do
   (f1_topics, p2) <- WP.peekVersionedArray version 1 (\p e -> wirePeekWritableTxnMarkerTopicResult version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (WritableTxnMarkerResult { writableTxnMarkerResultProducerId = f0_producerid, writableTxnMarkerResultTopics = f1_topics }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultWritableTxnMarkerResult :: WritableTxnMarkerResult
+defaultWritableTxnMarkerResult = WritableTxnMarkerResult { writableTxnMarkerResultProducerId = 0, writableTxnMarkerResultTopics = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a WriteTxnMarkersResponse.
 wireMaxSizeWriteTxnMarkersResponse :: Int -> WriteTxnMarkersResponse -> Int

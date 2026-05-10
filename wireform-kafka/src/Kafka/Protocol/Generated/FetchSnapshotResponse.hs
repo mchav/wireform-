@@ -243,6 +243,11 @@ wirePeekSnapshotId version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (SnapshotId { snapshotIdEndOffset = f0_endoffset, snapshotIdEpoch = f1_epoch }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultSnapshotId :: SnapshotId
+defaultSnapshotId = SnapshotId { snapshotIdEndOffset = 0, snapshotIdEpoch = 0 }
+
 -- | Worst-case wire size of a LeaderIdAndEpoch.
 wireMaxSizeLeaderIdAndEpoch :: Int -> LeaderIdAndEpoch -> Int
 wireMaxSizeLeaderIdAndEpoch _version msg =
@@ -267,6 +272,11 @@ wirePeekLeaderIdAndEpoch version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (LeaderIdAndEpoch { leaderIdAndEpochLeaderId = f0_leaderid, leaderIdAndEpochLeaderEpoch = f1_leaderepoch }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultLeaderIdAndEpoch :: LeaderIdAndEpoch
+defaultLeaderIdAndEpoch = LeaderIdAndEpoch { leaderIdAndEpochLeaderId = 0, leaderIdAndEpochLeaderEpoch = 0 }
+
 -- | Worst-case wire size of a PartitionSnapshot.
 wireMaxSizePartitionSnapshot :: Int -> PartitionSnapshot -> Int
 wireMaxSizePartitionSnapshot _version msg =
@@ -289,7 +299,7 @@ wirePokePartitionSnapshot version basePtr msg = do
   p3 <- wirePokeSnapshotId version p2 (partitionSnapshotSnapshotId msg)
   p4 <- W.pokeInt64BE p3 (partitionSnapshotSize msg)
   p5 <- W.pokeInt64BE p4 (partitionSnapshotPosition msg)
-  p6 <- WP.pokeCompactBytes p5 (P.toCompactBytes (partitionSnapshotUnalignedRecords msg))
+  p6 <- (if version >= 0 then WP.pokeCompactBytes p5 (P.toCompactBytes (partitionSnapshotUnalignedRecords msg)) else WP.pokeKafkaBytes p5 (partitionSnapshotUnalignedRecords msg))
   if version >= 0 then do
     let !_taggedEntries = (if version >= 0 then [(0, W.runWirePokeWith (wireMaxSizeLeaderIdAndEpoch version (partitionSnapshotCurrentLeader msg)) (\p -> wirePokeLeaderIdAndEpoch version p (partitionSnapshotCurrentLeader msg)))] else [])
     WP.pokeTaggedFieldEntries p6 _taggedEntries
@@ -303,10 +313,15 @@ wirePeekPartitionSnapshot version _fp _basePtr p0 endPtr = do
   (f2_snapshotid, p3) <- wirePeekSnapshotId version _fp _basePtr p2 endPtr
   (f3_size, p4) <- W.peekInt64BE p3 endPtr
   (f4_position, p5) <- W.peekInt64BE p4 endPtr
-  (f5_unalignedrecords, p6) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p5 endPtr
+  (f5_unalignedrecords, p6) <- (if version >= 0 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p5 endPtr else WP.peekKafkaBytes p5 endPtr)
   (_taggedMap, pTagsEnd) <- if version >= 0 then WP.peekTaggedFieldsMap p6 endPtr else pure (Data.Map.Strict.empty, p6)
-  let !_tag_currentleader = if version >= 0 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> wirePeekLeaderIdAndEpoch version _fp _bp p e)) _bs of { Right _v -> _v ; Left _ -> undefined :: LeaderIdAndEpoch}; Nothing -> undefined :: LeaderIdAndEpoch} else undefined :: LeaderIdAndEpoch
+  let !_tag_currentleader = if version >= 0 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> wirePeekLeaderIdAndEpoch version _fp _bp p e)) _bs of { Right _v -> _v ; Left _ -> defaultLeaderIdAndEpoch}; Nothing -> defaultLeaderIdAndEpoch} else defaultLeaderIdAndEpoch
   pure (PartitionSnapshot { partitionSnapshotIndex = f0_index, partitionSnapshotErrorCode = f1_errorcode, partitionSnapshotSnapshotId = f2_snapshotid, partitionSnapshotCurrentLeader = _tag_currentleader, partitionSnapshotSize = f3_size, partitionSnapshotPosition = f4_position, partitionSnapshotUnalignedRecords = f5_unalignedrecords }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionSnapshot :: PartitionSnapshot
+defaultPartitionSnapshot = PartitionSnapshot { partitionSnapshotIndex = 0, partitionSnapshotErrorCode = 0, partitionSnapshotSnapshotId = defaultSnapshotId, partitionSnapshotCurrentLeader = defaultLeaderIdAndEpoch, partitionSnapshotSize = 0, partitionSnapshotPosition = 0, partitionSnapshotUnalignedRecords = P.KafkaBytes Null }
 
 -- | Worst-case wire size of a TopicSnapshot.
 wireMaxSizeTopicSnapshot :: Int -> TopicSnapshot -> Int
@@ -320,17 +335,22 @@ wireMaxSizeTopicSnapshot _version msg =
 wirePokeTopicSnapshot :: Int -> Ptr Word8 -> TopicSnapshot -> IO (Ptr Word8)
 wirePokeTopicSnapshot version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicSnapshotName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (topicSnapshotName msg)) else WP.pokeKafkaString p0 (topicSnapshotName msg))
   p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokePartitionSnapshot version p x) p1 (topicSnapshotPartitions msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for TopicSnapshot.
 wirePeekTopicSnapshot :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicSnapshot, Ptr Word8)
 wirePeekTopicSnapshot version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekPartitionSnapshot version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (TopicSnapshot { topicSnapshotName = f0_name, topicSnapshotPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicSnapshot :: TopicSnapshot
+defaultTopicSnapshot = TopicSnapshot { topicSnapshotName = P.KafkaString Null, topicSnapshotPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a NodeEndpoint.
 wireMaxSizeNodeEndpoint :: Int -> NodeEndpoint -> Int
@@ -345,19 +365,24 @@ wireMaxSizeNodeEndpoint _version msg =
 wirePokeNodeEndpoint :: Int -> Ptr Word8 -> NodeEndpoint -> IO (Ptr Word8)
 wirePokeNodeEndpoint version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- W.pokeInt32BE p0 (nodeEndpointNodeId msg)
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (nodeEndpointHost msg))
-  p3 <- W.pokeWord16BE p2 (nodeEndpointPort msg)
+  p1 <- (if version >= 1 then W.pokeInt32BE p0 (nodeEndpointNodeId msg) else pure p0)
+  p2 <- (if version >= 1 then (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (nodeEndpointHost msg)) else WP.pokeKafkaString p1 (nodeEndpointHost msg)) else pure p1)
+  p3 <- (if version >= 1 then W.pokeWord16BE p2 (nodeEndpointPort msg) else pure p2)
   if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for NodeEndpoint.
 wirePeekNodeEndpoint :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (NodeEndpoint, Ptr Word8)
 wirePeekNodeEndpoint version _fp _basePtr p0 endPtr = do
-  (f0_nodeid, p1) <- W.peekInt32BE p0 endPtr
-  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-  (f2_port, p3) <- W.peekWord16BE p2 endPtr
+  (f0_nodeid, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
+  (f1_host, p2) <- (if version >= 1 then (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
+  (f2_port, p3) <- (if version >= 1 then W.peekWord16BE p2 endPtr else pure (0, p2))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (NodeEndpoint { nodeEndpointNodeId = f0_nodeid, nodeEndpointHost = f1_host, nodeEndpointPort = f2_port }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultNodeEndpoint :: NodeEndpoint
+defaultNodeEndpoint = NodeEndpoint { nodeEndpointNodeId = 0, nodeEndpointHost = P.KafkaString Null, nodeEndpointPort = 0 }
 
 -- | Worst-case wire size of a FetchSnapshotResponse.
 wireMaxSizeFetchSnapshotResponse :: Int -> FetchSnapshotResponse -> Int

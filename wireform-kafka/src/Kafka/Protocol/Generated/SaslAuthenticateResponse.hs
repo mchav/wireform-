@@ -106,22 +106,22 @@ wirePokeSaslAuthenticateResponse version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt16BE p0 (saslAuthenticateResponseErrorCode msg)
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (saslAuthenticateResponseErrorMessage msg))
-    p3 <- WP.pokeCompactBytes p2 (P.toCompactBytes (saslAuthenticateResponseAuthBytes msg))
+    p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (saslAuthenticateResponseErrorMessage msg)) else WP.pokeKafkaString p1 (saslAuthenticateResponseErrorMessage msg))
+    p3 <- (if version >= 2 then WP.pokeCompactBytes p2 (P.toCompactBytes (saslAuthenticateResponseAuthBytes msg)) else WP.pokeKafkaBytes p2 (saslAuthenticateResponseAuthBytes msg))
     pure p3
   | version == 1 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt16BE p0 (saslAuthenticateResponseErrorCode msg)
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (saslAuthenticateResponseErrorMessage msg))
-    p3 <- WP.pokeCompactBytes p2 (P.toCompactBytes (saslAuthenticateResponseAuthBytes msg))
-    p4 <- W.pokeInt64BE p3 (saslAuthenticateResponseSessionLifetimeMs msg)
+    p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (saslAuthenticateResponseErrorMessage msg)) else WP.pokeKafkaString p1 (saslAuthenticateResponseErrorMessage msg))
+    p3 <- (if version >= 2 then WP.pokeCompactBytes p2 (P.toCompactBytes (saslAuthenticateResponseAuthBytes msg)) else WP.pokeKafkaBytes p2 (saslAuthenticateResponseAuthBytes msg))
+    p4 <- (if version >= 1 then W.pokeInt64BE p3 (saslAuthenticateResponseSessionLifetimeMs msg) else pure p3)
     pure p4
   | version == 2 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt16BE p0 (saslAuthenticateResponseErrorCode msg)
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (saslAuthenticateResponseErrorMessage msg))
-    p3 <- WP.pokeCompactBytes p2 (P.toCompactBytes (saslAuthenticateResponseAuthBytes msg))
-    p4 <- W.pokeInt64BE p3 (saslAuthenticateResponseSessionLifetimeMs msg)
+    p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (saslAuthenticateResponseErrorMessage msg)) else WP.pokeKafkaString p1 (saslAuthenticateResponseErrorMessage msg))
+    p3 <- (if version >= 2 then WP.pokeCompactBytes p2 (P.toCompactBytes (saslAuthenticateResponseAuthBytes msg)) else WP.pokeKafkaBytes p2 (saslAuthenticateResponseAuthBytes msg))
+    p4 <- (if version >= 1 then W.pokeInt64BE p3 (saslAuthenticateResponseSessionLifetimeMs msg) else pure p3)
     WP.pokeEmptyTaggedFields p4
   | otherwise = error $ "wirePoke SaslAuthenticateResponse : unsupported version: " ++ show version
 
@@ -130,20 +130,20 @@ wirePeekSaslAuthenticateResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr 
 wirePeekSaslAuthenticateResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
-    (f1_errormessage, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-    (f2_authbytes, p3) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr
+    (f1_errormessage, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+    (f2_authbytes, p3) <- (if version >= 2 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr else WP.peekKafkaBytes p2 endPtr)
     pure (SaslAuthenticateResponse { saslAuthenticateResponseErrorCode = f0_errorcode, saslAuthenticateResponseErrorMessage = f1_errormessage, saslAuthenticateResponseAuthBytes = f2_authbytes, saslAuthenticateResponseSessionLifetimeMs = 0 }, p3)
   | version == 1 = do
     (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
-    (f1_errormessage, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-    (f2_authbytes, p3) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr
-    (f3_sessionlifetimems, p4) <- W.peekInt64BE p3 endPtr
+    (f1_errormessage, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+    (f2_authbytes, p3) <- (if version >= 2 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr else WP.peekKafkaBytes p2 endPtr)
+    (f3_sessionlifetimems, p4) <- (if version >= 1 then W.peekInt64BE p3 endPtr else pure (0, p3))
     pure (SaslAuthenticateResponse { saslAuthenticateResponseErrorCode = f0_errorcode, saslAuthenticateResponseErrorMessage = f1_errormessage, saslAuthenticateResponseAuthBytes = f2_authbytes, saslAuthenticateResponseSessionLifetimeMs = f3_sessionlifetimems }, p4)
   | version == 2 = do
     (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
-    (f1_errormessage, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-    (f2_authbytes, p3) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr
-    (f3_sessionlifetimems, p4) <- W.peekInt64BE p3 endPtr
+    (f1_errormessage, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+    (f2_authbytes, p3) <- (if version >= 2 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr else WP.peekKafkaBytes p2 endPtr)
+    (f3_sessionlifetimems, p4) <- (if version >= 1 then W.peekInt64BE p3 endPtr else pure (0, p3))
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (SaslAuthenticateResponse { saslAuthenticateResponseErrorCode = f0_errorcode, saslAuthenticateResponseErrorMessage = f1_errormessage, saslAuthenticateResponseAuthBytes = f2_authbytes, saslAuthenticateResponseSessionLifetimeMs = f3_sessionlifetimems }, pTagsEnd)
   | otherwise = error $ "wirePeek SaslAuthenticateResponse : unsupported version: " ++ show version

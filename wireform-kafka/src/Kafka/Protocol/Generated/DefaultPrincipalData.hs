@@ -93,8 +93,8 @@ wirePokeDefaultPrincipalData :: Int -> Ptr Word8 -> DefaultPrincipalData -> IO (
 wirePokeDefaultPrincipalData version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (defaultPrincipalDataType msg))
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (defaultPrincipalDataName msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (defaultPrincipalDataType msg)) else WP.pokeKafkaString p0 (defaultPrincipalDataType msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (defaultPrincipalDataName msg)) else WP.pokeKafkaString p1 (defaultPrincipalDataName msg))
     p3 <- W.pokeWord8 p2 (if (defaultPrincipalDataTokenAuthenticated msg) then 1 else 0)
     WP.pokeEmptyTaggedFields p3
   | otherwise = error $ "wirePoke DefaultPrincipalData : unsupported version: " ++ show version
@@ -103,8 +103,8 @@ wirePokeDefaultPrincipalData version basePtr msg
 wirePeekDefaultPrincipalData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DefaultPrincipalData, Ptr Word8)
 wirePeekDefaultPrincipalData version _fp _basePtr p0 endPtr
   | version == 0 = do
-    (f0_type, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_name, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f0_type, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_name, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_tokenauthenticated, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (DefaultPrincipalData { defaultPrincipalDataType = f0_type, defaultPrincipalDataName = f1_name, defaultPrincipalDataTokenAuthenticated = f2_tokenauthenticated }, pTagsEnd)

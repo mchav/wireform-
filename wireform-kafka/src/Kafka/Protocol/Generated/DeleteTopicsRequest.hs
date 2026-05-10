@@ -113,17 +113,22 @@ wireMaxSizeDeleteTopicState _version msg =
 wirePokeDeleteTopicState :: Int -> Ptr Word8 -> DeleteTopicState -> IO (Ptr Word8)
 wirePokeDeleteTopicState version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (deleteTopicStateName msg))
-  p2 <- WP.pokeKafkaUuid p1 (deleteTopicStateTopicId msg)
+  p1 <- (if version >= 6 then (if version >= 4 then WP.pokeCompactString p0 (P.toCompactString (deleteTopicStateName msg)) else WP.pokeKafkaString p0 (deleteTopicStateName msg)) else pure p0)
+  p2 <- (if version >= 6 then WP.pokeKafkaUuid p1 (deleteTopicStateTopicId msg) else pure p1)
   if version >= 4 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for DeleteTopicState.
 wirePeekDeleteTopicState :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteTopicState, Ptr Word8)
 wirePeekDeleteTopicState version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_topicid, p2) <- WP.peekKafkaUuid p1 endPtr
+  (f0_name, p1) <- (if version >= 6 then (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+  (f1_topicid, p2) <- (if version >= 6 then WP.peekKafkaUuid p1 endPtr else pure (P.nullUuid, p1))
   pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (DeleteTopicState { deleteTopicStateName = f0_name, deleteTopicStateTopicId = f1_topicid }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDeleteTopicState :: DeleteTopicState
+defaultDeleteTopicState = DeleteTopicState { deleteTopicStateName = P.KafkaString Null, deleteTopicStateTopicId = P.nullUuid }
 
 -- | Worst-case wire size of a DeleteTopicsRequest.
 wireMaxSizeDeleteTopicsRequest :: Int -> DeleteTopicsRequest -> Int
@@ -139,17 +144,17 @@ wirePokeDeleteTopicsRequest :: Int -> Ptr Word8 -> DeleteTopicsRequest -> IO (Pt
 wirePokeDeleteTopicsRequest version basePtr msg
   | version == 6 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDeleteTopicState version p x) p0 (deleteTopicsRequestTopics msg)
+    p1 <- (if version >= 6 then WP.pokeVersionedArray version 4 (\p x -> wirePokeDeleteTopicState version p x) p0 (deleteTopicsRequestTopics msg) else pure p0)
     p2 <- W.pokeInt32BE p1 (deleteTopicsRequestTimeoutMs msg)
     WP.pokeEmptyTaggedFields p2
   | version >= 4 && version <= 5 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeVersionedArray version 4 (\p s -> if version >= 4 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (deleteTopicsRequestTopicNames msg)
+    p1 <- (if version <= 5 then WP.pokeVersionedArray version 4 (\p s -> if version >= 4 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (deleteTopicsRequestTopicNames msg) else pure p0)
     p2 <- W.pokeInt32BE p1 (deleteTopicsRequestTimeoutMs msg)
     WP.pokeEmptyTaggedFields p2
   | version >= 1 && version <= 3 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeVersionedArray version 4 (\p s -> if version >= 4 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (deleteTopicsRequestTopicNames msg)
+    p1 <- (if version <= 5 then WP.pokeVersionedArray version 4 (\p s -> if version >= 4 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (deleteTopicsRequestTopicNames msg) else pure p0)
     p2 <- W.pokeInt32BE p1 (deleteTopicsRequestTimeoutMs msg)
     pure p2
   | otherwise = error $ "wirePoke DeleteTopicsRequest : unsupported version: " ++ show version
@@ -158,17 +163,17 @@ wirePokeDeleteTopicsRequest version basePtr msg
 wirePeekDeleteTopicsRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteTopicsRequest, Ptr Word8)
 wirePeekDeleteTopicsRequest version _fp _basePtr p0 endPtr
   | version == 6 = do
-    (f0_topics, p1) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDeleteTopicState version _fp _basePtr p e) p0 endPtr
+    (f0_topics, p1) <- (if version >= 6 then WP.peekVersionedArray version 4 (\p e -> wirePeekDeleteTopicState version _fp _basePtr p e) p0 endPtr else pure (P.mkKafkaArray V.empty, p0))
     (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (DeleteTopicsRequest { deleteTopicsRequestTopics = f0_topics, deleteTopicsRequestTopicNames = P.mkKafkaArray V.empty, deleteTopicsRequestTimeoutMs = f1_timeoutms }, pTagsEnd)
   | version >= 4 && version <= 5 = do
-    (f0_topicnames, p1) <- WP.peekVersionedArray version 4 (\p e -> if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
+    (f0_topicnames, p1) <- (if version <= 5 then WP.peekVersionedArray version 4 (\p e -> if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr else pure (P.mkKafkaArray V.empty, p0))
     (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (DeleteTopicsRequest { deleteTopicsRequestTopics = P.mkKafkaArray V.empty, deleteTopicsRequestTopicNames = f0_topicnames, deleteTopicsRequestTimeoutMs = f1_timeoutms }, pTagsEnd)
   | version >= 1 && version <= 3 = do
-    (f0_topicnames, p1) <- WP.peekVersionedArray version 4 (\p e -> if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
+    (f0_topicnames, p1) <- (if version <= 5 then WP.peekVersionedArray version 4 (\p e -> if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr else pure (P.mkKafkaArray V.empty, p0))
     (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
     pure (DeleteTopicsRequest { deleteTopicsRequestTopics = P.mkKafkaArray V.empty, deleteTopicsRequestTopicNames = f0_topicnames, deleteTopicsRequestTimeoutMs = f1_timeoutms }, p2)
   | otherwise = error $ "wirePeek DeleteTopicsRequest : unsupported version: " ++ show version

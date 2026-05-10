@@ -156,19 +156,24 @@ wireMaxSizeJoinGroupResponseMember _version msg =
 wirePokeJoinGroupResponseMember :: Int -> Ptr Word8 -> JoinGroupResponseMember -> IO (Ptr Word8)
 wirePokeJoinGroupResponseMember version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (joinGroupResponseMemberMemberId msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (joinGroupResponseMemberGroupInstanceId msg))
-  p3 <- WP.pokeCompactBytes p2 (P.toCompactBytes (joinGroupResponseMemberMetadata msg))
+  p1 <- (if version >= 6 then WP.pokeCompactString p0 (P.toCompactString (joinGroupResponseMemberMemberId msg)) else WP.pokeKafkaString p0 (joinGroupResponseMemberMemberId msg))
+  p2 <- (if version >= 5 then (if version >= 6 then WP.pokeCompactString p1 (P.toCompactString (joinGroupResponseMemberGroupInstanceId msg)) else WP.pokeKafkaString p1 (joinGroupResponseMemberGroupInstanceId msg)) else pure p1)
+  p3 <- (if version >= 6 then WP.pokeCompactBytes p2 (P.toCompactBytes (joinGroupResponseMemberMetadata msg)) else WP.pokeKafkaBytes p2 (joinGroupResponseMemberMetadata msg))
   if version >= 6 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for JoinGroupResponseMember.
 wirePeekJoinGroupResponseMember :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (JoinGroupResponseMember, Ptr Word8)
 wirePeekJoinGroupResponseMember version _fp _basePtr p0 endPtr = do
-  (f0_memberid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_groupinstanceid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-  (f2_metadata, p3) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr
+  (f0_memberid, p1) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_groupinstanceid, p2) <- (if version >= 5 then (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
+  (f2_metadata, p3) <- (if version >= 6 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr else WP.peekKafkaBytes p2 endPtr)
   pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (JoinGroupResponseMember { joinGroupResponseMemberMemberId = f0_memberid, joinGroupResponseMemberGroupInstanceId = f1_groupinstanceid, joinGroupResponseMemberMetadata = f2_metadata }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultJoinGroupResponseMember :: JoinGroupResponseMember
+defaultJoinGroupResponseMember = JoinGroupResponseMember { joinGroupResponseMemberMemberId = P.KafkaString Null, joinGroupResponseMemberGroupInstanceId = P.KafkaString Null, joinGroupResponseMemberMetadata = P.KafkaBytes Null }
 
 -- | Worst-case wire size of a JoinGroupResponse.
 wireMaxSizeJoinGroupResponse :: Int -> JoinGroupResponse -> Int
@@ -190,54 +195,54 @@ wirePokeJoinGroupResponse :: Int -> Ptr Word8 -> JoinGroupResponse -> IO (Ptr Wo
 wirePokeJoinGroupResponse version basePtr msg
   | version == 6 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (joinGroupResponseThrottleTimeMs msg)
+    p1 <- (if version >= 2 then W.pokeInt32BE p0 (joinGroupResponseThrottleTimeMs msg) else pure p0)
     p2 <- W.pokeInt16BE p1 (joinGroupResponseErrorCode msg)
     p3 <- W.pokeInt32BE p2 (joinGroupResponseGenerationId msg)
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (joinGroupResponseProtocolName msg))
-    p5 <- WP.pokeCompactString p4 (P.toCompactString (joinGroupResponseLeader msg))
-    p6 <- WP.pokeCompactString p5 (P.toCompactString (joinGroupResponseMemberId msg))
+    p4 <- (if version >= 6 then WP.pokeCompactString p3 (P.toCompactString (joinGroupResponseProtocolName msg)) else WP.pokeKafkaString p3 (joinGroupResponseProtocolName msg))
+    p5 <- (if version >= 6 then WP.pokeCompactString p4 (P.toCompactString (joinGroupResponseLeader msg)) else WP.pokeKafkaString p4 (joinGroupResponseLeader msg))
+    p6 <- (if version >= 6 then WP.pokeCompactString p5 (P.toCompactString (joinGroupResponseMemberId msg)) else WP.pokeKafkaString p5 (joinGroupResponseMemberId msg))
     p7 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeJoinGroupResponseMember version p x) p6 (joinGroupResponseMembers msg)
     WP.pokeEmptyTaggedFields p7
   | version == 9 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (joinGroupResponseThrottleTimeMs msg)
+    p1 <- (if version >= 2 then W.pokeInt32BE p0 (joinGroupResponseThrottleTimeMs msg) else pure p0)
     p2 <- W.pokeInt16BE p1 (joinGroupResponseErrorCode msg)
     p3 <- W.pokeInt32BE p2 (joinGroupResponseGenerationId msg)
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (joinGroupResponseProtocolType msg))
-    p5 <- WP.pokeCompactString p4 (P.toCompactString (joinGroupResponseProtocolName msg))
-    p6 <- WP.pokeCompactString p5 (P.toCompactString (joinGroupResponseLeader msg))
-    p7 <- W.pokeWord8 p6 (if (joinGroupResponseSkipAssignment msg) then 1 else 0)
-    p8 <- WP.pokeCompactString p7 (P.toCompactString (joinGroupResponseMemberId msg))
+    p4 <- (if version >= 7 then (if version >= 6 then WP.pokeCompactString p3 (P.toCompactString (joinGroupResponseProtocolType msg)) else WP.pokeKafkaString p3 (joinGroupResponseProtocolType msg)) else pure p3)
+    p5 <- (if version >= 6 then WP.pokeCompactString p4 (P.toCompactString (joinGroupResponseProtocolName msg)) else WP.pokeKafkaString p4 (joinGroupResponseProtocolName msg))
+    p6 <- (if version >= 6 then WP.pokeCompactString p5 (P.toCompactString (joinGroupResponseLeader msg)) else WP.pokeKafkaString p5 (joinGroupResponseLeader msg))
+    p7 <- (if version >= 9 then W.pokeWord8 p6 (if (joinGroupResponseSkipAssignment msg) then 1 else 0) else pure p6)
+    p8 <- (if version >= 6 then WP.pokeCompactString p7 (P.toCompactString (joinGroupResponseMemberId msg)) else WP.pokeKafkaString p7 (joinGroupResponseMemberId msg))
     p9 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeJoinGroupResponseMember version p x) p8 (joinGroupResponseMembers msg)
     WP.pokeEmptyTaggedFields p9
   | version >= 0 && version <= 1 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt16BE p0 (joinGroupResponseErrorCode msg)
     p2 <- W.pokeInt32BE p1 (joinGroupResponseGenerationId msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (joinGroupResponseProtocolName msg))
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (joinGroupResponseLeader msg))
-    p5 <- WP.pokeCompactString p4 (P.toCompactString (joinGroupResponseMemberId msg))
+    p3 <- (if version >= 6 then WP.pokeCompactString p2 (P.toCompactString (joinGroupResponseProtocolName msg)) else WP.pokeKafkaString p2 (joinGroupResponseProtocolName msg))
+    p4 <- (if version >= 6 then WP.pokeCompactString p3 (P.toCompactString (joinGroupResponseLeader msg)) else WP.pokeKafkaString p3 (joinGroupResponseLeader msg))
+    p5 <- (if version >= 6 then WP.pokeCompactString p4 (P.toCompactString (joinGroupResponseMemberId msg)) else WP.pokeKafkaString p4 (joinGroupResponseMemberId msg))
     p6 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeJoinGroupResponseMember version p x) p5 (joinGroupResponseMembers msg)
     pure p6
   | version >= 7 && version <= 8 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (joinGroupResponseThrottleTimeMs msg)
+    p1 <- (if version >= 2 then W.pokeInt32BE p0 (joinGroupResponseThrottleTimeMs msg) else pure p0)
     p2 <- W.pokeInt16BE p1 (joinGroupResponseErrorCode msg)
     p3 <- W.pokeInt32BE p2 (joinGroupResponseGenerationId msg)
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (joinGroupResponseProtocolType msg))
-    p5 <- WP.pokeCompactString p4 (P.toCompactString (joinGroupResponseProtocolName msg))
-    p6 <- WP.pokeCompactString p5 (P.toCompactString (joinGroupResponseLeader msg))
-    p7 <- WP.pokeCompactString p6 (P.toCompactString (joinGroupResponseMemberId msg))
+    p4 <- (if version >= 7 then (if version >= 6 then WP.pokeCompactString p3 (P.toCompactString (joinGroupResponseProtocolType msg)) else WP.pokeKafkaString p3 (joinGroupResponseProtocolType msg)) else pure p3)
+    p5 <- (if version >= 6 then WP.pokeCompactString p4 (P.toCompactString (joinGroupResponseProtocolName msg)) else WP.pokeKafkaString p4 (joinGroupResponseProtocolName msg))
+    p6 <- (if version >= 6 then WP.pokeCompactString p5 (P.toCompactString (joinGroupResponseLeader msg)) else WP.pokeKafkaString p5 (joinGroupResponseLeader msg))
+    p7 <- (if version >= 6 then WP.pokeCompactString p6 (P.toCompactString (joinGroupResponseMemberId msg)) else WP.pokeKafkaString p6 (joinGroupResponseMemberId msg))
     p8 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeJoinGroupResponseMember version p x) p7 (joinGroupResponseMembers msg)
     WP.pokeEmptyTaggedFields p8
   | version >= 2 && version <= 5 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (joinGroupResponseThrottleTimeMs msg)
+    p1 <- (if version >= 2 then W.pokeInt32BE p0 (joinGroupResponseThrottleTimeMs msg) else pure p0)
     p2 <- W.pokeInt16BE p1 (joinGroupResponseErrorCode msg)
     p3 <- W.pokeInt32BE p2 (joinGroupResponseGenerationId msg)
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (joinGroupResponseProtocolName msg))
-    p5 <- WP.pokeCompactString p4 (P.toCompactString (joinGroupResponseLeader msg))
-    p6 <- WP.pokeCompactString p5 (P.toCompactString (joinGroupResponseMemberId msg))
+    p4 <- (if version >= 6 then WP.pokeCompactString p3 (P.toCompactString (joinGroupResponseProtocolName msg)) else WP.pokeKafkaString p3 (joinGroupResponseProtocolName msg))
+    p5 <- (if version >= 6 then WP.pokeCompactString p4 (P.toCompactString (joinGroupResponseLeader msg)) else WP.pokeKafkaString p4 (joinGroupResponseLeader msg))
+    p6 <- (if version >= 6 then WP.pokeCompactString p5 (P.toCompactString (joinGroupResponseMemberId msg)) else WP.pokeKafkaString p5 (joinGroupResponseMemberId msg))
     p7 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeJoinGroupResponseMember version p x) p6 (joinGroupResponseMembers msg)
     pure p7
   | otherwise = error $ "wirePoke JoinGroupResponse : unsupported version: " ++ show version
@@ -246,53 +251,53 @@ wirePokeJoinGroupResponse version basePtr msg
 wirePeekJoinGroupResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (JoinGroupResponse, Ptr Word8)
 wirePeekJoinGroupResponse version _fp _basePtr p0 endPtr
   | version == 6 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_generationid, p3) <- W.peekInt32BE p2 endPtr
-    (f3_protocolname, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
-    (f4_leader, p5) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr
-    (f5_memberid, p6) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr
+    (f3_protocolname, p4) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+    (f4_leader, p5) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
+    (f5_memberid, p6) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
     (f6_members, p7) <- WP.peekVersionedArray version 6 (\p e -> wirePeekJoinGroupResponseMember version _fp _basePtr p e) p6 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p7 endPtr
     pure (JoinGroupResponse { joinGroupResponseThrottleTimeMs = f0_throttletimems, joinGroupResponseErrorCode = f1_errorcode, joinGroupResponseGenerationId = f2_generationid, joinGroupResponseProtocolType = P.KafkaString Null, joinGroupResponseProtocolName = f3_protocolname, joinGroupResponseLeader = f4_leader, joinGroupResponseSkipAssignment = False, joinGroupResponseMemberId = f5_memberid, joinGroupResponseMembers = f6_members }, pTagsEnd)
   | version == 9 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_generationid, p3) <- W.peekInt32BE p2 endPtr
-    (f3_protocoltype, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
-    (f4_protocolname, p5) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr
-    (f5_leader, p6) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr
-    (f6_skipassignment, p7) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p6 endPtr
-    (f7_memberid, p8) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr
+    (f3_protocoltype, p4) <- (if version >= 7 then (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
+    (f4_protocolname, p5) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
+    (f5_leader, p6) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
+    (f6_skipassignment, p7) <- (if version >= 9 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p6 endPtr else pure (False, p6))
+    (f7_memberid, p8) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr else WP.peekKafkaString p7 endPtr)
     (f8_members, p9) <- WP.peekVersionedArray version 6 (\p e -> wirePeekJoinGroupResponseMember version _fp _basePtr p e) p8 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p9 endPtr
     pure (JoinGroupResponse { joinGroupResponseThrottleTimeMs = f0_throttletimems, joinGroupResponseErrorCode = f1_errorcode, joinGroupResponseGenerationId = f2_generationid, joinGroupResponseProtocolType = f3_protocoltype, joinGroupResponseProtocolName = f4_protocolname, joinGroupResponseLeader = f5_leader, joinGroupResponseSkipAssignment = f6_skipassignment, joinGroupResponseMemberId = f7_memberid, joinGroupResponseMembers = f8_members }, pTagsEnd)
   | version >= 0 && version <= 1 = do
     (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
     (f1_generationid, p2) <- W.peekInt32BE p1 endPtr
-    (f2_protocolname, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
-    (f3_leader, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
-    (f4_memberid, p5) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr
+    (f2_protocolname, p3) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
+    (f3_leader, p4) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+    (f4_memberid, p5) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
     (f5_members, p6) <- WP.peekVersionedArray version 6 (\p e -> wirePeekJoinGroupResponseMember version _fp _basePtr p e) p5 endPtr
     pure (JoinGroupResponse { joinGroupResponseThrottleTimeMs = 0, joinGroupResponseErrorCode = f0_errorcode, joinGroupResponseGenerationId = f1_generationid, joinGroupResponseProtocolType = P.KafkaString Null, joinGroupResponseProtocolName = f2_protocolname, joinGroupResponseLeader = f3_leader, joinGroupResponseSkipAssignment = False, joinGroupResponseMemberId = f4_memberid, joinGroupResponseMembers = f5_members }, p6)
   | version >= 7 && version <= 8 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_generationid, p3) <- W.peekInt32BE p2 endPtr
-    (f3_protocoltype, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
-    (f4_protocolname, p5) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr
-    (f5_leader, p6) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr
-    (f6_memberid, p7) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p6 endPtr
+    (f3_protocoltype, p4) <- (if version >= 7 then (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
+    (f4_protocolname, p5) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
+    (f5_leader, p6) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
+    (f6_memberid, p7) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p6 endPtr else WP.peekKafkaString p6 endPtr)
     (f7_members, p8) <- WP.peekVersionedArray version 6 (\p e -> wirePeekJoinGroupResponseMember version _fp _basePtr p e) p7 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p8 endPtr
     pure (JoinGroupResponse { joinGroupResponseThrottleTimeMs = f0_throttletimems, joinGroupResponseErrorCode = f1_errorcode, joinGroupResponseGenerationId = f2_generationid, joinGroupResponseProtocolType = f3_protocoltype, joinGroupResponseProtocolName = f4_protocolname, joinGroupResponseLeader = f5_leader, joinGroupResponseSkipAssignment = False, joinGroupResponseMemberId = f6_memberid, joinGroupResponseMembers = f7_members }, pTagsEnd)
   | version >= 2 && version <= 5 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_generationid, p3) <- W.peekInt32BE p2 endPtr
-    (f3_protocolname, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
-    (f4_leader, p5) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr
-    (f5_memberid, p6) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr
+    (f3_protocolname, p4) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+    (f4_leader, p5) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
+    (f5_memberid, p6) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
     (f6_members, p7) <- WP.peekVersionedArray version 6 (\p e -> wirePeekJoinGroupResponseMember version _fp _basePtr p e) p6 endPtr
     pure (JoinGroupResponse { joinGroupResponseThrottleTimeMs = f0_throttletimems, joinGroupResponseErrorCode = f1_errorcode, joinGroupResponseGenerationId = f2_generationid, joinGroupResponseProtocolType = P.KafkaString Null, joinGroupResponseProtocolName = f3_protocolname, joinGroupResponseLeader = f4_leader, joinGroupResponseSkipAssignment = False, joinGroupResponseMemberId = f5_memberid, joinGroupResponseMembers = f6_members }, p7)
   | otherwise = error $ "wirePeek JoinGroupResponse : unsupported version: " ++ show version

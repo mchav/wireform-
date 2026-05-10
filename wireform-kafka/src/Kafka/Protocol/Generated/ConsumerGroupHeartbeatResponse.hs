@@ -161,6 +161,11 @@ wirePeekTopicPartitions version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (TopicPartitions { topicPartitionsTopicId = f0_topicid, topicPartitionsPartitions = f1_partitions }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicPartitions :: TopicPartitions
+defaultTopicPartitions = TopicPartitions { topicPartitionsTopicId = P.nullUuid, topicPartitionsPartitions = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a Assignment.
 wireMaxSizeAssignment :: Int -> Assignment -> Int
 wireMaxSizeAssignment _version msg =
@@ -182,6 +187,11 @@ wirePeekAssignment version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p1 endPtr else pure p1
   pure (Assignment { assignmentTopicPartitions = f0_topicpartitions }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAssignment :: Assignment
+defaultAssignment = Assignment { assignmentTopicPartitions = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a ConsumerGroupHeartbeatResponse.
 wireMaxSizeConsumerGroupHeartbeatResponse :: Int -> ConsumerGroupHeartbeatResponse -> Int
 wireMaxSizeConsumerGroupHeartbeatResponse _version msg =
@@ -202,8 +212,8 @@ wirePokeConsumerGroupHeartbeatResponse version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (consumerGroupHeartbeatResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (consumerGroupHeartbeatResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (consumerGroupHeartbeatResponseErrorMessage msg))
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (consumerGroupHeartbeatResponseMemberId msg))
+    p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (consumerGroupHeartbeatResponseErrorMessage msg)) else WP.pokeKafkaString p2 (consumerGroupHeartbeatResponseErrorMessage msg))
+    p4 <- (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (consumerGroupHeartbeatResponseMemberId msg)) else WP.pokeKafkaString p3 (consumerGroupHeartbeatResponseMemberId msg))
     p5 <- W.pokeInt32BE p4 (consumerGroupHeartbeatResponseMemberEpoch msg)
     p6 <- W.pokeInt32BE p5 (consumerGroupHeartbeatResponseHeartbeatIntervalMs msg)
     p7 <- (case (consumerGroupHeartbeatResponseAssignment msg) of { P.Null -> W.pokeWord8 p6 0; P.NotNull s -> W.pokeWord8 p6 1 >>= \p' -> wirePokeAssignment version p' s })
@@ -216,8 +226,8 @@ wirePeekConsumerGroupHeartbeatResponse version _fp _basePtr p0 endPtr
   | version >= 0 && version <= 1 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
-    (f3_memberid, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+    (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
+    (f3_memberid, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
     (f4_memberepoch, p5) <- W.peekInt32BE p4 endPtr
     (f5_heartbeatintervalms, p6) <- W.peekInt32BE p5 endPtr
     (f6_assignment, p7) <- (do { (flag, pAfterFlag) <- W.peekWord8 p6 endPtr; case flag of { 0 -> pure (P.Null, pAfterFlag); _ -> do { (s, p'') <- wirePeekAssignment version _fp _basePtr pAfterFlag endPtr; pure (P.NotNull s, p'') } } })

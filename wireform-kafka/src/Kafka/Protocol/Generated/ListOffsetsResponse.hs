@@ -149,9 +149,9 @@ wirePokeListOffsetsPartitionResponse version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (listOffsetsPartitionResponsePartitionIndex msg)
   p2 <- W.pokeInt16BE p1 (listOffsetsPartitionResponseErrorCode msg)
-  p3 <- W.pokeInt64BE p2 (listOffsetsPartitionResponseTimestamp msg)
-  p4 <- W.pokeInt64BE p3 (listOffsetsPartitionResponseOffset msg)
-  p5 <- W.pokeInt32BE p4 (listOffsetsPartitionResponseLeaderEpoch msg)
+  p3 <- (if version >= 1 then W.pokeInt64BE p2 (listOffsetsPartitionResponseTimestamp msg) else pure p2)
+  p4 <- (if version >= 1 then W.pokeInt64BE p3 (listOffsetsPartitionResponseOffset msg) else pure p3)
+  p5 <- (if version >= 4 then W.pokeInt32BE p4 (listOffsetsPartitionResponseLeaderEpoch msg) else pure p4)
   if version >= 6 then WP.pokeEmptyTaggedFields p5 else pure p5
 
 -- | Direct-poke decoder for ListOffsetsPartitionResponse.
@@ -159,11 +159,16 @@ wirePeekListOffsetsPartitionResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> 
 wirePeekListOffsetsPartitionResponse version _fp _basePtr p0 endPtr = do
   (f0_partitionindex, p1) <- W.peekInt32BE p0 endPtr
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-  (f2_timestamp, p3) <- W.peekInt64BE p2 endPtr
-  (f3_offset, p4) <- W.peekInt64BE p3 endPtr
-  (f4_leaderepoch, p5) <- W.peekInt32BE p4 endPtr
+  (f2_timestamp, p3) <- (if version >= 1 then W.peekInt64BE p2 endPtr else pure (0, p2))
+  (f3_offset, p4) <- (if version >= 1 then W.peekInt64BE p3 endPtr else pure (0, p3))
+  (f4_leaderepoch, p5) <- (if version >= 4 then W.peekInt32BE p4 endPtr else pure (0, p4))
   pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
   pure (ListOffsetsPartitionResponse { listOffsetsPartitionResponsePartitionIndex = f0_partitionindex, listOffsetsPartitionResponseErrorCode = f1_errorcode, listOffsetsPartitionResponseTimestamp = f2_timestamp, listOffsetsPartitionResponseOffset = f3_offset, listOffsetsPartitionResponseLeaderEpoch = f4_leaderepoch }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultListOffsetsPartitionResponse :: ListOffsetsPartitionResponse
+defaultListOffsetsPartitionResponse = ListOffsetsPartitionResponse { listOffsetsPartitionResponsePartitionIndex = 0, listOffsetsPartitionResponseErrorCode = 0, listOffsetsPartitionResponseTimestamp = 0, listOffsetsPartitionResponseOffset = 0, listOffsetsPartitionResponseLeaderEpoch = 0 }
 
 -- | Worst-case wire size of a ListOffsetsTopicResponse.
 wireMaxSizeListOffsetsTopicResponse :: Int -> ListOffsetsTopicResponse -> Int
@@ -177,17 +182,22 @@ wireMaxSizeListOffsetsTopicResponse _version msg =
 wirePokeListOffsetsTopicResponse :: Int -> Ptr Word8 -> ListOffsetsTopicResponse -> IO (Ptr Word8)
 wirePokeListOffsetsTopicResponse version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (listOffsetsTopicResponseName msg))
+  p1 <- (if version >= 6 then WP.pokeCompactString p0 (P.toCompactString (listOffsetsTopicResponseName msg)) else WP.pokeKafkaString p0 (listOffsetsTopicResponseName msg))
   p2 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsPartitionResponse version p x) p1 (listOffsetsTopicResponsePartitions msg)
   if version >= 6 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for ListOffsetsTopicResponse.
 wirePeekListOffsetsTopicResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ListOffsetsTopicResponse, Ptr Word8)
 wirePeekListOffsetsTopicResponse version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsPartitionResponse version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 6 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ListOffsetsTopicResponse { listOffsetsTopicResponseName = f0_name, listOffsetsTopicResponsePartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultListOffsetsTopicResponse :: ListOffsetsTopicResponse
+defaultListOffsetsTopicResponse = ListOffsetsTopicResponse { listOffsetsTopicResponseName = P.KafkaString Null, listOffsetsTopicResponsePartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a ListOffsetsResponse.
 wireMaxSizeListOffsetsResponse :: Int -> ListOffsetsResponse -> Int
@@ -206,12 +216,12 @@ wirePokeListOffsetsResponse version basePtr msg
     pure p1
   | version >= 2 && version <= 5 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (listOffsetsResponseThrottleTimeMs msg)
+    p1 <- (if version >= 2 then W.pokeInt32BE p0 (listOffsetsResponseThrottleTimeMs msg) else pure p0)
     p2 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsTopicResponse version p x) p1 (listOffsetsResponseTopics msg)
     pure p2
   | version >= 6 && version <= 11 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (listOffsetsResponseThrottleTimeMs msg)
+    p1 <- (if version >= 2 then W.pokeInt32BE p0 (listOffsetsResponseThrottleTimeMs msg) else pure p0)
     p2 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsTopicResponse version p x) p1 (listOffsetsResponseTopics msg)
     WP.pokeEmptyTaggedFields p2
   | otherwise = error $ "wirePoke ListOffsetsResponse : unsupported version: " ++ show version
@@ -223,11 +233,11 @@ wirePeekListOffsetsResponse version _fp _basePtr p0 endPtr
     (f0_topics, p1) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopicResponse version _fp _basePtr p e) p0 endPtr
     pure (ListOffsetsResponse { listOffsetsResponseThrottleTimeMs = 0, listOffsetsResponseTopics = f0_topics }, p1)
   | version >= 2 && version <= 5 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_topics, p2) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopicResponse version _fp _basePtr p e) p1 endPtr
     pure (ListOffsetsResponse { listOffsetsResponseThrottleTimeMs = f0_throttletimems, listOffsetsResponseTopics = f1_topics }, p2)
   | version >= 6 && version <= 11 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_topics, p2) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopicResponse version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (ListOffsetsResponse { listOffsetsResponseThrottleTimeMs = f0_throttletimems, listOffsetsResponseTopics = f1_topics }, pTagsEnd)

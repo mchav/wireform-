@@ -113,6 +113,11 @@ wirePeekTopicPartition version _fp _basePtr p0 endPtr = do
   (f1_partitions, p2) <- WP.peekKafkaArray W.peekInt32BE p1 endPtr
   pure (TopicPartition { topicPartitionTopic = f0_topic, topicPartitionPartitions = f1_partitions }, p2)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicPartition :: TopicPartition
+defaultTopicPartition = TopicPartition { topicPartitionTopic = P.KafkaString Null, topicPartitionPartitions = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a ConsumerProtocolAssignment.
 wireMaxSizeConsumerProtocolAssignment :: Int -> ConsumerProtocolAssignment -> Int
 wireMaxSizeConsumerProtocolAssignment _version msg =

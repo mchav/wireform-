@@ -119,29 +119,29 @@ wirePokeInitProducerIdRequest :: Int -> Ptr Word8 -> InitProducerIdRequest -> IO
 wirePokeInitProducerIdRequest version basePtr msg
   | version == 2 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (initProducerIdRequestTransactionalId msg))
+    p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (initProducerIdRequestTransactionalId msg)) else WP.pokeKafkaString p0 (initProducerIdRequestTransactionalId msg))
     p2 <- W.pokeInt32BE p1 (initProducerIdRequestTransactionTimeoutMs msg)
     WP.pokeEmptyTaggedFields p2
   | version == 6 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (initProducerIdRequestTransactionalId msg))
+    p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (initProducerIdRequestTransactionalId msg)) else WP.pokeKafkaString p0 (initProducerIdRequestTransactionalId msg))
     p2 <- W.pokeInt32BE p1 (initProducerIdRequestTransactionTimeoutMs msg)
-    p3 <- W.pokeInt64BE p2 (initProducerIdRequestProducerId msg)
-    p4 <- W.pokeInt16BE p3 (initProducerIdRequestProducerEpoch msg)
-    p5 <- W.pokeWord8 p4 (if (initProducerIdRequestEnable2Pc msg) then 1 else 0)
-    p6 <- W.pokeWord8 p5 (if (initProducerIdRequestKeepPreparedTxn msg) then 1 else 0)
+    p3 <- (if version >= 3 then W.pokeInt64BE p2 (initProducerIdRequestProducerId msg) else pure p2)
+    p4 <- (if version >= 3 then W.pokeInt16BE p3 (initProducerIdRequestProducerEpoch msg) else pure p3)
+    p5 <- (if version >= 6 then W.pokeWord8 p4 (if (initProducerIdRequestEnable2Pc msg) then 1 else 0) else pure p4)
+    p6 <- (if version >= 6 then W.pokeWord8 p5 (if (initProducerIdRequestKeepPreparedTxn msg) then 1 else 0) else pure p5)
     WP.pokeEmptyTaggedFields p6
   | version >= 0 && version <= 1 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (initProducerIdRequestTransactionalId msg))
+    p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (initProducerIdRequestTransactionalId msg)) else WP.pokeKafkaString p0 (initProducerIdRequestTransactionalId msg))
     p2 <- W.pokeInt32BE p1 (initProducerIdRequestTransactionTimeoutMs msg)
     pure p2
   | version >= 3 && version <= 5 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (initProducerIdRequestTransactionalId msg))
+    p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (initProducerIdRequestTransactionalId msg)) else WP.pokeKafkaString p0 (initProducerIdRequestTransactionalId msg))
     p2 <- W.pokeInt32BE p1 (initProducerIdRequestTransactionTimeoutMs msg)
-    p3 <- W.pokeInt64BE p2 (initProducerIdRequestProducerId msg)
-    p4 <- W.pokeInt16BE p3 (initProducerIdRequestProducerEpoch msg)
+    p3 <- (if version >= 3 then W.pokeInt64BE p2 (initProducerIdRequestProducerId msg) else pure p2)
+    p4 <- (if version >= 3 then W.pokeInt16BE p3 (initProducerIdRequestProducerEpoch msg) else pure p3)
     WP.pokeEmptyTaggedFields p4
   | otherwise = error $ "wirePoke InitProducerIdRequest : unsupported version: " ++ show version
 
@@ -149,28 +149,28 @@ wirePokeInitProducerIdRequest version basePtr msg
 wirePeekInitProducerIdRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (InitProducerIdRequest, Ptr Word8)
 wirePeekInitProducerIdRequest version _fp _basePtr p0 endPtr
   | version == 2 = do
-    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_transactionalid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_transactiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = 0, initProducerIdRequestProducerEpoch = 0, initProducerIdRequestEnable2Pc = False, initProducerIdRequestKeepPreparedTxn = False }, pTagsEnd)
   | version == 6 = do
-    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_transactionalid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_transactiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
-    (f2_producerid, p3) <- W.peekInt64BE p2 endPtr
-    (f3_producerepoch, p4) <- W.peekInt16BE p3 endPtr
-    (f4_enable2pc, p5) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr
-    (f5_keeppreparedtxn, p6) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p5 endPtr
+    (f2_producerid, p3) <- (if version >= 3 then W.peekInt64BE p2 endPtr else pure (0, p2))
+    (f3_producerepoch, p4) <- (if version >= 3 then W.peekInt16BE p3 endPtr else pure (0, p3))
+    (f4_enable2pc, p5) <- (if version >= 6 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr else pure (False, p4))
+    (f5_keeppreparedtxn, p6) <- (if version >= 6 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p5 endPtr else pure (False, p5))
     pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
     pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = f2_producerid, initProducerIdRequestProducerEpoch = f3_producerepoch, initProducerIdRequestEnable2Pc = f4_enable2pc, initProducerIdRequestKeepPreparedTxn = f5_keeppreparedtxn }, pTagsEnd)
   | version >= 0 && version <= 1 = do
-    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_transactionalid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_transactiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
     pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = 0, initProducerIdRequestProducerEpoch = 0, initProducerIdRequestEnable2Pc = False, initProducerIdRequestKeepPreparedTxn = False }, p2)
   | version >= 3 && version <= 5 = do
-    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_transactionalid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_transactiontimeoutms, p2) <- W.peekInt32BE p1 endPtr
-    (f2_producerid, p3) <- W.peekInt64BE p2 endPtr
-    (f3_producerepoch, p4) <- W.peekInt16BE p3 endPtr
+    (f2_producerid, p3) <- (if version >= 3 then W.peekInt64BE p2 endPtr else pure (0, p2))
+    (f3_producerepoch, p4) <- (if version >= 3 then W.peekInt16BE p3 endPtr else pure (0, p3))
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (InitProducerIdRequest { initProducerIdRequestTransactionalId = f0_transactionalid, initProducerIdRequestTransactionTimeoutMs = f1_transactiontimeoutms, initProducerIdRequestProducerId = f2_producerid, initProducerIdRequestProducerEpoch = f3_producerepoch, initProducerIdRequestEnable2Pc = False, initProducerIdRequestKeepPreparedTxn = False }, pTagsEnd)
   | otherwise = error $ "wirePeek InitProducerIdRequest : unsupported version: " ++ show version

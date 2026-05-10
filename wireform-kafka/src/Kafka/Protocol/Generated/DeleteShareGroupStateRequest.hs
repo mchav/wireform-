@@ -129,6 +129,11 @@ wirePeekPartitionData version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p1 endPtr else pure p1
   pure (PartitionData { partitionDataPartition = f0_partition }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionData :: PartitionData
+defaultPartitionData = PartitionData { partitionDataPartition = 0 }
+
 -- | Worst-case wire size of a DeleteStateData.
 wireMaxSizeDeleteStateData :: Int -> DeleteStateData -> Int
 wireMaxSizeDeleteStateData _version msg =
@@ -153,6 +158,11 @@ wirePeekDeleteStateData version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (DeleteStateData { deleteStateDataTopicId = f0_topicid, deleteStateDataPartitions = f1_partitions }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDeleteStateData :: DeleteStateData
+defaultDeleteStateData = DeleteStateData { deleteStateDataTopicId = P.nullUuid, deleteStateDataPartitions = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a DeleteShareGroupStateRequest.
 wireMaxSizeDeleteShareGroupStateRequest :: Int -> DeleteShareGroupStateRequest -> Int
 wireMaxSizeDeleteShareGroupStateRequest _version msg =
@@ -166,7 +176,7 @@ wirePokeDeleteShareGroupStateRequest :: Int -> Ptr Word8 -> DeleteShareGroupStat
 wirePokeDeleteShareGroupStateRequest version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (deleteShareGroupStateRequestGroupId msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (deleteShareGroupStateRequestGroupId msg)) else WP.pokeKafkaString p0 (deleteShareGroupStateRequestGroupId msg))
     p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeDeleteStateData version p x) p1 (deleteShareGroupStateRequestTopics msg)
     WP.pokeEmptyTaggedFields p2
   | otherwise = error $ "wirePoke DeleteShareGroupStateRequest : unsupported version: " ++ show version
@@ -175,7 +185,7 @@ wirePokeDeleteShareGroupStateRequest version basePtr msg
 wirePeekDeleteShareGroupStateRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteShareGroupStateRequest, Ptr Word8)
 wirePeekDeleteShareGroupStateRequest version _fp _basePtr p0 endPtr
   | version == 0 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDeleteStateData version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (DeleteShareGroupStateRequest { deleteShareGroupStateRequestGroupId = f0_groupid, deleteShareGroupStateRequestTopics = f1_topics }, pTagsEnd)

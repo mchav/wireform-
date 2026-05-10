@@ -857,10 +857,8 @@ benchmark wireform-kafka-bench
     other-modules:
         Benchmarks.ClientOps
         Benchmarks.CRC32C
-        Benchmarks.SerLib
         Benchmarks.Serialization
         Benchmarks.StatsAndStamping
-        Benchmarks.WireVsSerial
         Benchmarks.HotPath
         Benchmarks.HwKafkaComparison
         Benchmarks.Util

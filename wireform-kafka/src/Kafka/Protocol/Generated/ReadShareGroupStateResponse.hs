@@ -193,6 +193,11 @@ wirePeekStateBatch version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (StateBatch { stateBatchFirstOffset = f0_firstoffset, stateBatchLastOffset = f1_lastoffset, stateBatchDeliveryState = f2_deliverystate, stateBatchDeliveryCount = f3_deliverycount }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultStateBatch :: StateBatch
+defaultStateBatch = StateBatch { stateBatchFirstOffset = 0, stateBatchLastOffset = 0, stateBatchDeliveryState = 0, stateBatchDeliveryCount = 0 }
+
 -- | Worst-case wire size of a PartitionResult.
 wireMaxSizePartitionResult :: Int -> PartitionResult -> Int
 wireMaxSizePartitionResult _version msg =
@@ -211,7 +216,7 @@ wirePokePartitionResult version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (partitionResultPartition msg)
   p2 <- W.pokeInt16BE p1 (partitionResultErrorCode msg)
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (partitionResultErrorMessage msg))
+  p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (partitionResultErrorMessage msg)) else WP.pokeKafkaString p2 (partitionResultErrorMessage msg))
   p4 <- W.pokeInt32BE p3 (partitionResultStateEpoch msg)
   p5 <- W.pokeInt64BE p4 (partitionResultStartOffset msg)
   p6 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeStateBatch version p x) p5 (partitionResultStateBatches msg)
@@ -222,12 +227,17 @@ wirePeekPartitionResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> 
 wirePeekPartitionResult version _fp _basePtr p0 endPtr = do
   (f0_partition, p1) <- W.peekInt32BE p0 endPtr
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   (f3_stateepoch, p4) <- W.peekInt32BE p3 endPtr
   (f4_startoffset, p5) <- W.peekInt64BE p4 endPtr
   (f5_statebatches, p6) <- WP.peekVersionedArray version 0 (\p e -> wirePeekStateBatch version _fp _basePtr p e) p5 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
   pure (PartitionResult { partitionResultPartition = f0_partition, partitionResultErrorCode = f1_errorcode, partitionResultErrorMessage = f2_errormessage, partitionResultStateEpoch = f3_stateepoch, partitionResultStartOffset = f4_startoffset, partitionResultStateBatches = f5_statebatches }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionResult :: PartitionResult
+defaultPartitionResult = PartitionResult { partitionResultPartition = 0, partitionResultErrorCode = 0, partitionResultErrorMessage = P.KafkaString Null, partitionResultStateEpoch = 0, partitionResultStartOffset = 0, partitionResultStateBatches = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a ReadStateResult.
 wireMaxSizeReadStateResult :: Int -> ReadStateResult -> Int
@@ -252,6 +262,11 @@ wirePeekReadStateResult version _fp _basePtr p0 endPtr = do
   (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekPartitionResult version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ReadStateResult { readStateResultTopicId = f0_topicid, readStateResultPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultReadStateResult :: ReadStateResult
+defaultReadStateResult = ReadStateResult { readStateResultTopicId = P.nullUuid, readStateResultPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a ReadShareGroupStateResponse.
 wireMaxSizeReadShareGroupStateResponse :: Int -> ReadShareGroupStateResponse -> Int

@@ -119,17 +119,22 @@ wireMaxSizeMetadataRequestTopic _version msg =
 wirePokeMetadataRequestTopic :: Int -> Ptr Word8 -> MetadataRequestTopic -> IO (Ptr Word8)
 wirePokeMetadataRequestTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeKafkaUuid p0 (metadataRequestTopicTopicId msg)
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (metadataRequestTopicName msg))
+  p1 <- (if version >= 10 then WP.pokeKafkaUuid p0 (metadataRequestTopicTopicId msg) else pure p0)
+  p2 <- (if version >= 9 then WP.pokeCompactString p1 (P.toCompactString (metadataRequestTopicName msg)) else WP.pokeKafkaString p1 (metadataRequestTopicName msg))
   if version >= 9 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for MetadataRequestTopic.
 wirePeekMetadataRequestTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (MetadataRequestTopic, Ptr Word8)
 wirePeekMetadataRequestTopic version _fp _basePtr p0 endPtr = do
-  (f0_topicid, p1) <- WP.peekKafkaUuid p0 endPtr
-  (f1_name, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f0_topicid, p1) <- (if version >= 10 then WP.peekKafkaUuid p0 endPtr else pure (P.nullUuid, p0))
+  (f1_name, p2) <- (if version >= 9 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   pTagsEnd <- if version >= 9 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (MetadataRequestTopic { metadataRequestTopicTopicId = f0_topicid, metadataRequestTopicName = f1_name }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultMetadataRequestTopic :: MetadataRequestTopic
+defaultMetadataRequestTopic = MetadataRequestTopic { metadataRequestTopicTopicId = P.nullUuid, metadataRequestTopicName = P.KafkaString Null }
 
 -- | Worst-case wire size of a MetadataRequest.
 wireMaxSizeMetadataRequest :: Int -> MetadataRequest -> Int
@@ -147,22 +152,22 @@ wirePokeMetadataRequest version basePtr msg
   | version == 8 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedNullableArray version 9 (\p x -> wirePokeMetadataRequestTopic version p x) p0 (metadataRequestTopics msg)
-    p2 <- W.pokeWord8 p1 (if (metadataRequestAllowAutoTopicCreation msg) then 1 else 0)
-    p3 <- W.pokeWord8 p2 (if (metadataRequestIncludeClusterAuthorizedOperations msg) then 1 else 0)
-    p4 <- W.pokeWord8 p3 (if (metadataRequestIncludeTopicAuthorizedOperations msg) then 1 else 0)
+    p2 <- (if version >= 4 then W.pokeWord8 p1 (if (metadataRequestAllowAutoTopicCreation msg) then 1 else 0) else pure p1)
+    p3 <- (if version >= 8 && version <= 10 then W.pokeWord8 p2 (if (metadataRequestIncludeClusterAuthorizedOperations msg) then 1 else 0) else pure p2)
+    p4 <- (if version >= 8 then W.pokeWord8 p3 (if (metadataRequestIncludeTopicAuthorizedOperations msg) then 1 else 0) else pure p3)
     pure p4
   | version >= 9 && version <= 10 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedNullableArray version 9 (\p x -> wirePokeMetadataRequestTopic version p x) p0 (metadataRequestTopics msg)
-    p2 <- W.pokeWord8 p1 (if (metadataRequestAllowAutoTopicCreation msg) then 1 else 0)
-    p3 <- W.pokeWord8 p2 (if (metadataRequestIncludeClusterAuthorizedOperations msg) then 1 else 0)
-    p4 <- W.pokeWord8 p3 (if (metadataRequestIncludeTopicAuthorizedOperations msg) then 1 else 0)
+    p2 <- (if version >= 4 then W.pokeWord8 p1 (if (metadataRequestAllowAutoTopicCreation msg) then 1 else 0) else pure p1)
+    p3 <- (if version >= 8 && version <= 10 then W.pokeWord8 p2 (if (metadataRequestIncludeClusterAuthorizedOperations msg) then 1 else 0) else pure p2)
+    p4 <- (if version >= 8 then W.pokeWord8 p3 (if (metadataRequestIncludeTopicAuthorizedOperations msg) then 1 else 0) else pure p3)
     WP.pokeEmptyTaggedFields p4
   | version >= 11 && version <= 13 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedNullableArray version 9 (\p x -> wirePokeMetadataRequestTopic version p x) p0 (metadataRequestTopics msg)
-    p2 <- W.pokeWord8 p1 (if (metadataRequestAllowAutoTopicCreation msg) then 1 else 0)
-    p3 <- W.pokeWord8 p2 (if (metadataRequestIncludeTopicAuthorizedOperations msg) then 1 else 0)
+    p2 <- (if version >= 4 then W.pokeWord8 p1 (if (metadataRequestAllowAutoTopicCreation msg) then 1 else 0) else pure p1)
+    p3 <- (if version >= 8 then W.pokeWord8 p2 (if (metadataRequestIncludeTopicAuthorizedOperations msg) then 1 else 0) else pure p2)
     WP.pokeEmptyTaggedFields p3
   | version >= 0 && version <= 3 = do
     p0 <- pure basePtr
@@ -171,7 +176,7 @@ wirePokeMetadataRequest version basePtr msg
   | version >= 4 && version <= 7 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedNullableArray version 9 (\p x -> wirePokeMetadataRequestTopic version p x) p0 (metadataRequestTopics msg)
-    p2 <- W.pokeWord8 p1 (if (metadataRequestAllowAutoTopicCreation msg) then 1 else 0)
+    p2 <- (if version >= 4 then W.pokeWord8 p1 (if (metadataRequestAllowAutoTopicCreation msg) then 1 else 0) else pure p1)
     pure p2
   | otherwise = error $ "wirePoke MetadataRequest : unsupported version: " ++ show version
 
@@ -180,21 +185,21 @@ wirePeekMetadataRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> 
 wirePeekMetadataRequest version _fp _basePtr p0 endPtr
   | version == 8 = do
     (f0_topics, p1) <- WP.peekVersionedNullableArray version 9 (\p e -> wirePeekMetadataRequestTopic version _fp _basePtr p e) p0 endPtr
-    (f1_allowautotopiccreation, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
-    (f2_includeclusterauthorizedoperations, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
-    (f3_includetopicauthorizedoperations, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+    (f1_allowautotopiccreation, p2) <- (if version >= 4 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr else pure (False, p1))
+    (f2_includeclusterauthorizedoperations, p3) <- (if version >= 8 && version <= 10 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr else pure (False, p2))
+    (f3_includetopicauthorizedoperations, p4) <- (if version >= 8 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr else pure (False, p3))
     pure (MetadataRequest { metadataRequestTopics = f0_topics, metadataRequestAllowAutoTopicCreation = f1_allowautotopiccreation, metadataRequestIncludeClusterAuthorizedOperations = f2_includeclusterauthorizedoperations, metadataRequestIncludeTopicAuthorizedOperations = f3_includetopicauthorizedoperations }, p4)
   | version >= 9 && version <= 10 = do
     (f0_topics, p1) <- WP.peekVersionedNullableArray version 9 (\p e -> wirePeekMetadataRequestTopic version _fp _basePtr p e) p0 endPtr
-    (f1_allowautotopiccreation, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
-    (f2_includeclusterauthorizedoperations, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
-    (f3_includetopicauthorizedoperations, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+    (f1_allowautotopiccreation, p2) <- (if version >= 4 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr else pure (False, p1))
+    (f2_includeclusterauthorizedoperations, p3) <- (if version >= 8 && version <= 10 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr else pure (False, p2))
+    (f3_includetopicauthorizedoperations, p4) <- (if version >= 8 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr else pure (False, p3))
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (MetadataRequest { metadataRequestTopics = f0_topics, metadataRequestAllowAutoTopicCreation = f1_allowautotopiccreation, metadataRequestIncludeClusterAuthorizedOperations = f2_includeclusterauthorizedoperations, metadataRequestIncludeTopicAuthorizedOperations = f3_includetopicauthorizedoperations }, pTagsEnd)
   | version >= 11 && version <= 13 = do
     (f0_topics, p1) <- WP.peekVersionedNullableArray version 9 (\p e -> wirePeekMetadataRequestTopic version _fp _basePtr p e) p0 endPtr
-    (f1_allowautotopiccreation, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
-    (f2_includetopicauthorizedoperations, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    (f1_allowautotopiccreation, p2) <- (if version >= 4 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr else pure (False, p1))
+    (f2_includetopicauthorizedoperations, p3) <- (if version >= 8 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr else pure (False, p2))
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (MetadataRequest { metadataRequestTopics = f0_topics, metadataRequestAllowAutoTopicCreation = f1_allowautotopiccreation, metadataRequestIncludeClusterAuthorizedOperations = False, metadataRequestIncludeTopicAuthorizedOperations = f2_includetopicauthorizedoperations }, pTagsEnd)
   | version >= 0 && version <= 3 = do
@@ -202,7 +207,7 @@ wirePeekMetadataRequest version _fp _basePtr p0 endPtr
     pure (MetadataRequest { metadataRequestTopics = f0_topics, metadataRequestAllowAutoTopicCreation = False, metadataRequestIncludeClusterAuthorizedOperations = False, metadataRequestIncludeTopicAuthorizedOperations = False }, p1)
   | version >= 4 && version <= 7 = do
     (f0_topics, p1) <- WP.peekVersionedNullableArray version 9 (\p e -> wirePeekMetadataRequestTopic version _fp _basePtr p e) p0 endPtr
-    (f1_allowautotopiccreation, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
+    (f1_allowautotopiccreation, p2) <- (if version >= 4 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr else pure (False, p1))
     pure (MetadataRequest { metadataRequestTopics = f0_topics, metadataRequestAllowAutoTopicCreation = f1_allowautotopiccreation, metadataRequestIncludeClusterAuthorizedOperations = False, metadataRequestIncludeTopicAuthorizedOperations = False }, p2)
   | otherwise = error $ "wirePeek MetadataRequest : unsupported version: " ++ show version
 

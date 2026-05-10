@@ -114,19 +114,24 @@ wireMaxSizeAlterUserScramCredentialsResult _version msg =
 wirePokeAlterUserScramCredentialsResult :: Int -> Ptr Word8 -> AlterUserScramCredentialsResult -> IO (Ptr Word8)
 wirePokeAlterUserScramCredentialsResult version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (alterUserScramCredentialsResultUser msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (alterUserScramCredentialsResultUser msg)) else WP.pokeKafkaString p0 (alterUserScramCredentialsResultUser msg))
   p2 <- W.pokeInt16BE p1 (alterUserScramCredentialsResultErrorCode msg)
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (alterUserScramCredentialsResultErrorMessage msg))
+  p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (alterUserScramCredentialsResultErrorMessage msg)) else WP.pokeKafkaString p2 (alterUserScramCredentialsResultErrorMessage msg))
   if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for AlterUserScramCredentialsResult.
 wirePeekAlterUserScramCredentialsResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AlterUserScramCredentialsResult, Ptr Word8)
 wirePeekAlterUserScramCredentialsResult version _fp _basePtr p0 endPtr = do
-  (f0_user, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_user, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (AlterUserScramCredentialsResult { alterUserScramCredentialsResultUser = f0_user, alterUserScramCredentialsResultErrorCode = f1_errorcode, alterUserScramCredentialsResultErrorMessage = f2_errormessage }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAlterUserScramCredentialsResult :: AlterUserScramCredentialsResult
+defaultAlterUserScramCredentialsResult = AlterUserScramCredentialsResult { alterUserScramCredentialsResultUser = P.KafkaString Null, alterUserScramCredentialsResultErrorCode = 0, alterUserScramCredentialsResultErrorMessage = P.KafkaString Null }
 
 -- | Worst-case wire size of a AlterUserScramCredentialsResponse.
 wireMaxSizeAlterUserScramCredentialsResponse :: Int -> AlterUserScramCredentialsResponse -> Int

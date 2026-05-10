@@ -127,21 +127,26 @@ wireMaxSizeFeatureUpdateKey _version msg =
 wirePokeFeatureUpdateKey :: Int -> Ptr Word8 -> FeatureUpdateKey -> IO (Ptr Word8)
 wirePokeFeatureUpdateKey version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (featureUpdateKeyFeature msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (featureUpdateKeyFeature msg)) else WP.pokeKafkaString p0 (featureUpdateKeyFeature msg))
   p2 <- W.pokeInt16BE p1 (featureUpdateKeyMaxVersionLevel msg)
-  p3 <- W.pokeWord8 p2 (if (featureUpdateKeyAllowDowngrade msg) then 1 else 0)
-  p4 <- W.pokeWord8 p3 (fromIntegral (featureUpdateKeyUpgradeType msg))
+  p3 <- (if version == 0 then W.pokeWord8 p2 (if (featureUpdateKeyAllowDowngrade msg) then 1 else 0) else pure p2)
+  p4 <- (if version >= 1 then W.pokeWord8 p3 (fromIntegral (featureUpdateKeyUpgradeType msg)) else pure p3)
   if version >= 0 then WP.pokeEmptyTaggedFields p4 else pure p4
 
 -- | Direct-poke decoder for FeatureUpdateKey.
 wirePeekFeatureUpdateKey :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (FeatureUpdateKey, Ptr Word8)
 wirePeekFeatureUpdateKey version _fp _basePtr p0 endPtr = do
-  (f0_feature, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_feature, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_maxversionlevel, p2) <- W.peekInt16BE p1 endPtr
-  (f2_allowdowngrade, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
-  (f3_upgradetype, p4) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr
+  (f2_allowdowngrade, p3) <- (if version == 0 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr else pure (False, p2))
+  (f3_upgradetype, p4) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr else pure (0, p3))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (FeatureUpdateKey { featureUpdateKeyFeature = f0_feature, featureUpdateKeyMaxVersionLevel = f1_maxversionlevel, featureUpdateKeyAllowDowngrade = f2_allowdowngrade, featureUpdateKeyUpgradeType = f3_upgradetype }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultFeatureUpdateKey :: FeatureUpdateKey
+defaultFeatureUpdateKey = FeatureUpdateKey { featureUpdateKeyFeature = P.KafkaString Null, featureUpdateKeyMaxVersionLevel = 0, featureUpdateKeyAllowDowngrade = False, featureUpdateKeyUpgradeType = 0 }
 
 -- | Worst-case wire size of a UpdateFeaturesRequest.
 wireMaxSizeUpdateFeaturesRequest :: Int -> UpdateFeaturesRequest -> Int
@@ -164,7 +169,7 @@ wirePokeUpdateFeaturesRequest version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (updateFeaturesRequesttimeoutMs msg)
     p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeFeatureUpdateKey version p x) p1 (updateFeaturesRequestFeatureUpdates msg)
-    p3 <- W.pokeWord8 p2 (if (updateFeaturesRequestValidateOnly msg) then 1 else 0)
+    p3 <- (if version >= 1 then W.pokeWord8 p2 (if (updateFeaturesRequestValidateOnly msg) then 1 else 0) else pure p2)
     WP.pokeEmptyTaggedFields p3
   | otherwise = error $ "wirePoke UpdateFeaturesRequest : unsupported version: " ++ show version
 
@@ -179,7 +184,7 @@ wirePeekUpdateFeaturesRequest version _fp _basePtr p0 endPtr
   | version >= 1 && version <= 2 = do
     (f0_timeoutms, p1) <- W.peekInt32BE p0 endPtr
     (f1_featureupdates, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekFeatureUpdateKey version _fp _basePtr p e) p1 endPtr
-    (f2_validateonly, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
+    (f2_validateonly, p3) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr else pure (False, p2))
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (UpdateFeaturesRequest { updateFeaturesRequesttimeoutMs = f0_timeoutms, updateFeaturesRequestFeatureUpdates = f1_featureupdates, updateFeaturesRequestValidateOnly = f2_validateonly }, pTagsEnd)
   | otherwise = error $ "wirePeek UpdateFeaturesRequest : unsupported version: " ++ show version

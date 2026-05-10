@@ -116,7 +116,7 @@ wirePokePushTelemetryRequest version basePtr msg
     p2 <- W.pokeInt32BE p1 (pushTelemetryRequestSubscriptionId msg)
     p3 <- W.pokeWord8 p2 (if (pushTelemetryRequestTerminating msg) then 1 else 0)
     p4 <- W.pokeWord8 p3 (fromIntegral (pushTelemetryRequestCompressionType msg))
-    p5 <- WP.pokeCompactBytes p4 (P.toCompactBytes (pushTelemetryRequestMetrics msg))
+    p5 <- (if version >= 0 then WP.pokeCompactBytes p4 (P.toCompactBytes (pushTelemetryRequestMetrics msg)) else WP.pokeKafkaBytes p4 (pushTelemetryRequestMetrics msg))
     WP.pokeEmptyTaggedFields p5
   | otherwise = error $ "wirePoke PushTelemetryRequest : unsupported version: " ++ show version
 
@@ -128,7 +128,7 @@ wirePeekPushTelemetryRequest version _fp _basePtr p0 endPtr
     (f1_subscriptionid, p2) <- W.peekInt32BE p1 endPtr
     (f2_terminating, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
     (f3_compressiontype, p4) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr
-    (f4_metrics, p5) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p4 endPtr
+    (f4_metrics, p5) <- (if version >= 0 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p4 endPtr else WP.peekKafkaBytes p4 endPtr)
     pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
     pure (PushTelemetryRequest { pushTelemetryRequestClientInstanceId = f0_clientinstanceid, pushTelemetryRequestSubscriptionId = f1_subscriptionid, pushTelemetryRequestTerminating = f2_terminating, pushTelemetryRequestCompressionType = f3_compressiontype, pushTelemetryRequestMetrics = f4_metrics }, pTagsEnd)
   | otherwise = error $ "wirePeek PushTelemetryRequest : unsupported version: " ++ show version

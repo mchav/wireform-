@@ -114,19 +114,24 @@ wireMaxSizeCreatePartitionsTopicResult _version msg =
 wirePokeCreatePartitionsTopicResult :: Int -> Ptr Word8 -> CreatePartitionsTopicResult -> IO (Ptr Word8)
 wirePokeCreatePartitionsTopicResult version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (createPartitionsTopicResultName msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (createPartitionsTopicResultName msg)) else WP.pokeKafkaString p0 (createPartitionsTopicResultName msg))
   p2 <- W.pokeInt16BE p1 (createPartitionsTopicResultErrorCode msg)
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (createPartitionsTopicResultErrorMessage msg))
+  p3 <- (if version >= 2 then WP.pokeCompactString p2 (P.toCompactString (createPartitionsTopicResultErrorMessage msg)) else WP.pokeKafkaString p2 (createPartitionsTopicResultErrorMessage msg))
   if version >= 2 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for CreatePartitionsTopicResult.
 wirePeekCreatePartitionsTopicResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (CreatePartitionsTopicResult, Ptr Word8)
 wirePeekCreatePartitionsTopicResult version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-  (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f2_errormessage, p3) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (CreatePartitionsTopicResult { createPartitionsTopicResultName = f0_name, createPartitionsTopicResultErrorCode = f1_errorcode, createPartitionsTopicResultErrorMessage = f2_errormessage }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultCreatePartitionsTopicResult :: CreatePartitionsTopicResult
+defaultCreatePartitionsTopicResult = CreatePartitionsTopicResult { createPartitionsTopicResultName = P.KafkaString Null, createPartitionsTopicResultErrorCode = 0, createPartitionsTopicResultErrorMessage = P.KafkaString Null }
 
 -- | Worst-case wire size of a CreatePartitionsResponse.
 wireMaxSizeCreatePartitionsResponse :: Int -> CreatePartitionsResponse -> Int

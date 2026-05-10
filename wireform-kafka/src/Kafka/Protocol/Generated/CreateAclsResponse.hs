@@ -108,16 +108,21 @@ wirePokeAclCreationResult :: Int -> Ptr Word8 -> AclCreationResult -> IO (Ptr Wo
 wirePokeAclCreationResult version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt16BE p0 (aclCreationResultErrorCode msg)
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (aclCreationResultErrorMessage msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (aclCreationResultErrorMessage msg)) else WP.pokeKafkaString p1 (aclCreationResultErrorMessage msg))
   if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for AclCreationResult.
 wirePeekAclCreationResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AclCreationResult, Ptr Word8)
 wirePeekAclCreationResult version _fp _basePtr p0 endPtr = do
   (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
-  (f1_errormessage, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f1_errormessage, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (AclCreationResult { aclCreationResultErrorCode = f0_errorcode, aclCreationResultErrorMessage = f1_errormessage }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAclCreationResult :: AclCreationResult
+defaultAclCreationResult = AclCreationResult { aclCreationResultErrorCode = 0, aclCreationResultErrorMessage = P.KafkaString Null }
 
 -- | Worst-case wire size of a CreateAclsResponse.
 wireMaxSizeCreateAclsResponse :: Int -> CreateAclsResponse -> Int

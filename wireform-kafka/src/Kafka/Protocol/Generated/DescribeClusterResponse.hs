@@ -165,22 +165,27 @@ wirePokeDescribeClusterBroker :: Int -> Ptr Word8 -> DescribeClusterBroker -> IO
 wirePokeDescribeClusterBroker version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (describeClusterBrokerBrokerId msg)
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeClusterBrokerHost msg))
+  p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (describeClusterBrokerHost msg)) else WP.pokeKafkaString p1 (describeClusterBrokerHost msg))
   p3 <- W.pokeInt32BE p2 (describeClusterBrokerPort msg)
-  p4 <- WP.pokeCompactString p3 (P.toCompactString (describeClusterBrokerRack msg))
-  p5 <- W.pokeWord8 p4 (if (describeClusterBrokerIsFenced msg) then 1 else 0)
+  p4 <- (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (describeClusterBrokerRack msg)) else WP.pokeKafkaString p3 (describeClusterBrokerRack msg))
+  p5 <- (if version >= 2 then W.pokeWord8 p4 (if (describeClusterBrokerIsFenced msg) then 1 else 0) else pure p4)
   if version >= 0 then WP.pokeEmptyTaggedFields p5 else pure p5
 
 -- | Direct-poke decoder for DescribeClusterBroker.
 wirePeekDescribeClusterBroker :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeClusterBroker, Ptr Word8)
 wirePeekDescribeClusterBroker version _fp _basePtr p0 endPtr = do
   (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
-  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f1_host, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_port, p3) <- W.peekInt32BE p2 endPtr
-  (f3_rack, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
-  (f4_isfenced, p5) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr
+  (f3_rack, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+  (f4_isfenced, p5) <- (if version >= 2 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr else pure (False, p4))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
   pure (DescribeClusterBroker { describeClusterBrokerBrokerId = f0_brokerid, describeClusterBrokerHost = f1_host, describeClusterBrokerPort = f2_port, describeClusterBrokerRack = f3_rack, describeClusterBrokerIsFenced = f4_isfenced }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribeClusterBroker :: DescribeClusterBroker
+defaultDescribeClusterBroker = DescribeClusterBroker { describeClusterBrokerBrokerId = 0, describeClusterBrokerHost = P.KafkaString Null, describeClusterBrokerPort = 0, describeClusterBrokerRack = P.KafkaString Null, describeClusterBrokerIsFenced = False }
 
 -- | Worst-case wire size of a DescribeClusterResponse.
 wireMaxSizeDescribeClusterResponse :: Int -> DescribeClusterResponse -> Int
@@ -203,8 +208,8 @@ wirePokeDescribeClusterResponse version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (describeClusterResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (describeClusterResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (describeClusterResponseErrorMessage msg))
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (describeClusterResponseClusterId msg))
+    p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (describeClusterResponseErrorMessage msg)) else WP.pokeKafkaString p2 (describeClusterResponseErrorMessage msg))
+    p4 <- (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (describeClusterResponseClusterId msg)) else WP.pokeKafkaString p3 (describeClusterResponseClusterId msg))
     p5 <- W.pokeInt32BE p4 (describeClusterResponseControllerId msg)
     p6 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeDescribeClusterBroker version p x) p5 (describeClusterResponseBrokers msg)
     p7 <- W.pokeInt32BE p6 (describeClusterResponseClusterAuthorizedOperations msg)
@@ -213,9 +218,9 @@ wirePokeDescribeClusterResponse version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (describeClusterResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (describeClusterResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (describeClusterResponseErrorMessage msg))
-    p4 <- W.pokeWord8 p3 (fromIntegral (describeClusterResponseEndpointType msg))
-    p5 <- WP.pokeCompactString p4 (P.toCompactString (describeClusterResponseClusterId msg))
+    p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (describeClusterResponseErrorMessage msg)) else WP.pokeKafkaString p2 (describeClusterResponseErrorMessage msg))
+    p4 <- (if version >= 1 then W.pokeWord8 p3 (fromIntegral (describeClusterResponseEndpointType msg)) else pure p3)
+    p5 <- (if version >= 0 then WP.pokeCompactString p4 (P.toCompactString (describeClusterResponseClusterId msg)) else WP.pokeKafkaString p4 (describeClusterResponseClusterId msg))
     p6 <- W.pokeInt32BE p5 (describeClusterResponseControllerId msg)
     p7 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeDescribeClusterBroker version p x) p6 (describeClusterResponseBrokers msg)
     p8 <- W.pokeInt32BE p7 (describeClusterResponseClusterAuthorizedOperations msg)
@@ -228,8 +233,8 @@ wirePeekDescribeClusterResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
-    (f3_clusterid, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+    (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
+    (f3_clusterid, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
     (f4_controllerid, p5) <- W.peekInt32BE p4 endPtr
     (f5_brokers, p6) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDescribeClusterBroker version _fp _basePtr p e) p5 endPtr
     (f6_clusterauthorizedoperations, p7) <- W.peekInt32BE p6 endPtr
@@ -238,9 +243,9 @@ wirePeekDescribeClusterResponse version _fp _basePtr p0 endPtr
   | version >= 1 && version <= 2 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
-    (f3_endpointtype, p4) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr
-    (f4_clusterid, p5) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr
+    (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
+    (f3_endpointtype, p4) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr else pure (0, p3))
+    (f4_clusterid, p5) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
     (f5_controllerid, p6) <- W.peekInt32BE p5 endPtr
     (f6_brokers, p7) <- WP.peekVersionedArray version 0 (\p e -> wirePeekDescribeClusterBroker version _fp _basePtr p e) p6 endPtr
     (f7_clusterauthorizedoperations, p8) <- W.peekInt32BE p7 endPtr

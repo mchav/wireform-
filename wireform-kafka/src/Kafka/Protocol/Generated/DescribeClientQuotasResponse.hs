@@ -157,17 +157,22 @@ wireMaxSizeEntityData _version msg =
 wirePokeEntityData :: Int -> Ptr Word8 -> EntityData -> IO (Ptr Word8)
 wirePokeEntityData version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (entityDataEntityType msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (entityDataEntityName msg))
+  p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (entityDataEntityType msg)) else WP.pokeKafkaString p0 (entityDataEntityType msg))
+  p2 <- (if version >= 1 then WP.pokeCompactString p1 (P.toCompactString (entityDataEntityName msg)) else WP.pokeKafkaString p1 (entityDataEntityName msg))
   if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for EntityData.
 wirePeekEntityData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EntityData, Ptr Word8)
 wirePeekEntityData version _fp _basePtr p0 endPtr = do
-  (f0_entitytype, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_entityname, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f0_entitytype, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_entityname, p2) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (EntityData { entityDataEntityType = f0_entitytype, entityDataEntityName = f1_entityname }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultEntityData :: EntityData
+defaultEntityData = EntityData { entityDataEntityType = P.KafkaString Null, entityDataEntityName = P.KafkaString Null }
 
 -- | Worst-case wire size of a ValueData.
 wireMaxSizeValueData :: Int -> ValueData -> Int
@@ -181,17 +186,22 @@ wireMaxSizeValueData _version msg =
 wirePokeValueData :: Int -> Ptr Word8 -> ValueData -> IO (Ptr Word8)
 wirePokeValueData version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (valueDataKey msg))
+  p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (valueDataKey msg)) else WP.pokeKafkaString p0 (valueDataKey msg))
   p2 <- W.pokeFloat64BE p1 (valueDataValue msg)
   if version >= 1 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for ValueData.
 wirePeekValueData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ValueData, Ptr Word8)
 wirePeekValueData version _fp _basePtr p0 endPtr = do
-  (f0_key, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_key, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_value, p2) <- W.peekFloat64BE p1 endPtr
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (ValueData { valueDataKey = f0_key, valueDataValue = f1_value }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultValueData :: ValueData
+defaultValueData = ValueData { valueDataKey = P.KafkaString Null, valueDataValue = 0.0 }
 
 -- | Worst-case wire size of a EntryData.
 wireMaxSizeEntryData :: Int -> EntryData -> Int
@@ -217,6 +227,11 @@ wirePeekEntryData version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (EntryData { entryDataEntity = f0_entity, entryDataValues = f1_values }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultEntryData :: EntryData
+defaultEntryData = EntryData { entryDataEntity = P.mkKafkaArray V.empty, entryDataValues = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a DescribeClientQuotasResponse.
 wireMaxSizeDescribeClientQuotasResponse :: Int -> DescribeClientQuotasResponse -> Int
 wireMaxSizeDescribeClientQuotasResponse _version msg =
@@ -234,14 +249,14 @@ wirePokeDescribeClientQuotasResponse version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (describeClientQuotasResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (describeClientQuotasResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (describeClientQuotasResponseErrorMessage msg))
+    p3 <- (if version >= 1 then WP.pokeCompactString p2 (P.toCompactString (describeClientQuotasResponseErrorMessage msg)) else WP.pokeKafkaString p2 (describeClientQuotasResponseErrorMessage msg))
     p4 <- WP.pokeVersionedNullableArray version 1 (\p x -> wirePokeEntryData version p x) p3 (describeClientQuotasResponseEntries msg)
     pure p4
   | version == 1 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (describeClientQuotasResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (describeClientQuotasResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (describeClientQuotasResponseErrorMessage msg))
+    p3 <- (if version >= 1 then WP.pokeCompactString p2 (P.toCompactString (describeClientQuotasResponseErrorMessage msg)) else WP.pokeKafkaString p2 (describeClientQuotasResponseErrorMessage msg))
     p4 <- WP.pokeVersionedNullableArray version 1 (\p x -> wirePokeEntryData version p x) p3 (describeClientQuotasResponseEntries msg)
     WP.pokeEmptyTaggedFields p4
   | otherwise = error $ "wirePoke DescribeClientQuotasResponse : unsupported version: " ++ show version
@@ -252,13 +267,13 @@ wirePeekDescribeClientQuotasResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f2_errormessage, p3) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     (f3_entries, p4) <- WP.peekVersionedNullableArray version 1 (\p e -> wirePeekEntryData version _fp _basePtr p e) p3 endPtr
     pure (DescribeClientQuotasResponse { describeClientQuotasResponseThrottleTimeMs = f0_throttletimems, describeClientQuotasResponseErrorCode = f1_errorcode, describeClientQuotasResponseErrorMessage = f2_errormessage, describeClientQuotasResponseEntries = f3_entries }, p4)
   | version == 1 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f2_errormessage, p3) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     (f3_entries, p4) <- WP.peekVersionedNullableArray version 1 (\p e -> wirePeekEntryData version _fp _basePtr p e) p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (DescribeClientQuotasResponse { describeClientQuotasResponseThrottleTimeMs = f0_throttletimems, describeClientQuotasResponseErrorCode = f1_errorcode, describeClientQuotasResponseErrorMessage = f2_errormessage, describeClientQuotasResponseEntries = f3_entries }, pTagsEnd)

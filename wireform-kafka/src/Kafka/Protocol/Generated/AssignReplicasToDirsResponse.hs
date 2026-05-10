@@ -163,6 +163,11 @@ wirePeekPartitionData version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (PartitionData { partitionDataPartitionIndex = f0_partitionindex, partitionDataErrorCode = f1_errorcode }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionData :: PartitionData
+defaultPartitionData = PartitionData { partitionDataPartitionIndex = 0, partitionDataErrorCode = 0 }
+
 -- | Worst-case wire size of a TopicData.
 wireMaxSizeTopicData :: Int -> TopicData -> Int
 wireMaxSizeTopicData _version msg =
@@ -187,6 +192,11 @@ wirePeekTopicData version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (TopicData { topicDataTopicId = f0_topicid, topicDataPartitions = f1_partitions }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicData :: TopicData
+defaultTopicData = TopicData { topicDataTopicId = P.nullUuid, topicDataPartitions = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a DirectoryData.
 wireMaxSizeDirectoryData :: Int -> DirectoryData -> Int
 wireMaxSizeDirectoryData _version msg =
@@ -210,6 +220,11 @@ wirePeekDirectoryData version _fp _basePtr p0 endPtr = do
   (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicData version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (DirectoryData { directoryDataId = f0_id, directoryDataTopics = f1_topics }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDirectoryData :: DirectoryData
+defaultDirectoryData = DirectoryData { directoryDataId = P.nullUuid, directoryDataTopics = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a AssignReplicasToDirsResponse.
 wireMaxSizeAssignReplicasToDirsResponse :: Int -> AssignReplicasToDirsResponse -> Int

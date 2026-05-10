@@ -129,7 +129,7 @@ wirePokeCurrentLeader version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (currentLeaderLeaderId msg)
   p2 <- W.pokeInt32BE p1 (currentLeaderLeaderEpoch msg)
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (currentLeaderHost msg))
+  p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (currentLeaderHost msg)) else WP.pokeKafkaString p2 (currentLeaderHost msg))
   p4 <- W.pokeInt32BE p3 (currentLeaderPort msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p4 else pure p4
 
@@ -138,10 +138,15 @@ wirePeekCurrentLeader :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Pt
 wirePeekCurrentLeader version _fp _basePtr p0 endPtr = do
   (f0_leaderid, p1) <- W.peekInt32BE p0 endPtr
   (f1_leaderepoch, p2) <- W.peekInt32BE p1 endPtr
-  (f2_host, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f2_host, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   (f3_port, p4) <- W.peekInt32BE p3 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (CurrentLeader { currentLeaderLeaderId = f0_leaderid, currentLeaderLeaderEpoch = f1_leaderepoch, currentLeaderHost = f2_host, currentLeaderPort = f3_port }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultCurrentLeader :: CurrentLeader
+defaultCurrentLeader = CurrentLeader { currentLeaderLeaderId = 0, currentLeaderLeaderEpoch = 0, currentLeaderHost = P.KafkaString Null, currentLeaderPort = 0 }
 
 -- | Worst-case wire size of a UpdateRaftVoterResponse.
 wireMaxSizeUpdateRaftVoterResponse :: Int -> UpdateRaftVoterResponse -> Int
@@ -170,7 +175,7 @@ wirePeekUpdateRaftVoterResponse version _fp _basePtr p0 endPtr
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (_taggedMap, pTagsEnd) <- WP.peekTaggedFieldsMap p2 endPtr
-    let !_tag_currentleader = if version >= 0 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> wirePeekCurrentLeader version _fp _bp p e)) _bs of { Right _v -> _v ; Left _ -> undefined :: CurrentLeader}; Nothing -> undefined :: CurrentLeader} else undefined :: CurrentLeader
+    let !_tag_currentleader = if version >= 0 then case Data.Map.Strict.lookup 0 _taggedMap of { Just _bs -> case (W.runWireGetWith (\_fp _bp p e -> wirePeekCurrentLeader version _fp _bp p e)) _bs of { Right _v -> _v ; Left _ -> defaultCurrentLeader}; Nothing -> defaultCurrentLeader} else defaultCurrentLeader
     pure (UpdateRaftVoterResponse { updateRaftVoterResponseThrottleTimeMs = f0_throttletimems, updateRaftVoterResponseErrorCode = f1_errorcode, updateRaftVoterResponseCurrentLeader = _tag_currentleader }, pTagsEnd)
   | otherwise = error $ "wirePeek UpdateRaftVoterResponse : unsupported version: " ++ show version
 

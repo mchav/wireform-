@@ -164,8 +164,8 @@ wireMaxSizeAclDescription _version msg =
 wirePokeAclDescription :: Int -> Ptr Word8 -> AclDescription -> IO (Ptr Word8)
 wirePokeAclDescription version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (aclDescriptionPrincipal msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (aclDescriptionHost msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (aclDescriptionPrincipal msg)) else WP.pokeKafkaString p0 (aclDescriptionPrincipal msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (aclDescriptionHost msg)) else WP.pokeKafkaString p1 (aclDescriptionHost msg))
   p3 <- W.pokeWord8 p2 (fromIntegral (aclDescriptionOperation msg))
   p4 <- W.pokeWord8 p3 (fromIntegral (aclDescriptionPermissionType msg))
   if version >= 2 then WP.pokeEmptyTaggedFields p4 else pure p4
@@ -173,12 +173,17 @@ wirePokeAclDescription version basePtr msg = do
 -- | Direct-poke decoder for AclDescription.
 wirePeekAclDescription :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AclDescription, Ptr Word8)
 wirePeekAclDescription version _fp _basePtr p0 endPtr = do
-  (f0_principal, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f0_principal, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_host, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_operation, p3) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr
   (f3_permissiontype, p4) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (AclDescription { aclDescriptionPrincipal = f0_principal, aclDescriptionHost = f1_host, aclDescriptionOperation = f2_operation, aclDescriptionPermissionType = f3_permissiontype }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAclDescription :: AclDescription
+defaultAclDescription = AclDescription { aclDescriptionPrincipal = P.KafkaString Null, aclDescriptionHost = P.KafkaString Null, aclDescriptionOperation = 0, aclDescriptionPermissionType = 0 }
 
 -- | Worst-case wire size of a DescribeAclsResource.
 wireMaxSizeDescribeAclsResource :: Int -> DescribeAclsResource -> Int
@@ -195,8 +200,8 @@ wirePokeDescribeAclsResource :: Int -> Ptr Word8 -> DescribeAclsResource -> IO (
 wirePokeDescribeAclsResource version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeWord8 p0 (fromIntegral (describeAclsResourceResourceType msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeAclsResourceResourceName msg))
-  p3 <- W.pokeWord8 p2 (fromIntegral (describeAclsResourcePatternType msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (describeAclsResourceResourceName msg)) else WP.pokeKafkaString p1 (describeAclsResourceResourceName msg))
+  p3 <- (if version >= 1 then W.pokeWord8 p2 (fromIntegral (describeAclsResourcePatternType msg)) else pure p2)
   p4 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeAclDescription version p x) p3 (describeAclsResourceAcls msg)
   if version >= 2 then WP.pokeEmptyTaggedFields p4 else pure p4
 
@@ -204,11 +209,16 @@ wirePokeDescribeAclsResource version basePtr msg = do
 wirePeekDescribeAclsResource :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeAclsResource, Ptr Word8)
 wirePeekDescribeAclsResource version _fp _basePtr p0 endPtr = do
   (f0_resourcetype, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
-  (f1_resourcename, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-  (f2_patterntype, p3) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr
+  (f1_resourcename, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  (f2_patterntype, p3) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr else pure (0, p2))
   (f3_acls, p4) <- WP.peekVersionedArray version 2 (\p e -> wirePeekAclDescription version _fp _basePtr p e) p3 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (DescribeAclsResource { describeAclsResourceResourceType = f0_resourcetype, describeAclsResourceResourceName = f1_resourcename, describeAclsResourcePatternType = f2_patterntype, describeAclsResourceAcls = f3_acls }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribeAclsResource :: DescribeAclsResource
+defaultDescribeAclsResource = DescribeAclsResource { describeAclsResourceResourceType = 0, describeAclsResourceResourceName = P.KafkaString Null, describeAclsResourcePatternType = 0, describeAclsResourceAcls = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a DescribeAclsResponse.
 wireMaxSizeDescribeAclsResponse :: Int -> DescribeAclsResponse -> Int
@@ -227,14 +237,14 @@ wirePokeDescribeAclsResponse version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (describeAclsResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (describeAclsResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (describeAclsResponseErrorMessage msg))
+    p3 <- (if version >= 2 then WP.pokeCompactString p2 (P.toCompactString (describeAclsResponseErrorMessage msg)) else WP.pokeKafkaString p2 (describeAclsResponseErrorMessage msg))
     p4 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribeAclsResource version p x) p3 (describeAclsResponseResources msg)
     pure p4
   | version >= 2 && version <= 3 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (describeAclsResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (describeAclsResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (describeAclsResponseErrorMessage msg))
+    p3 <- (if version >= 2 then WP.pokeCompactString p2 (P.toCompactString (describeAclsResponseErrorMessage msg)) else WP.pokeKafkaString p2 (describeAclsResponseErrorMessage msg))
     p4 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribeAclsResource version p x) p3 (describeAclsResponseResources msg)
     WP.pokeEmptyTaggedFields p4
   | otherwise = error $ "wirePoke DescribeAclsResponse : unsupported version: " ++ show version
@@ -245,13 +255,13 @@ wirePeekDescribeAclsResponse version _fp _basePtr p0 endPtr
   | version == 1 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f2_errormessage, p3) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     (f3_resources, p4) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeAclsResource version _fp _basePtr p e) p3 endPtr
     pure (DescribeAclsResponse { describeAclsResponseThrottleTimeMs = f0_throttletimems, describeAclsResponseErrorCode = f1_errorcode, describeAclsResponseErrorMessage = f2_errormessage, describeAclsResponseResources = f3_resources }, p4)
   | version >= 2 && version <= 3 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f2_errormessage, p3) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     (f3_resources, p4) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeAclsResource version _fp _basePtr p e) p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (DescribeAclsResponse { describeAclsResponseThrottleTimeMs = f0_throttletimems, describeAclsResponseErrorCode = f1_errorcode, describeAclsResponseErrorMessage = f2_errormessage, describeAclsResponseResources = f3_resources }, pTagsEnd)

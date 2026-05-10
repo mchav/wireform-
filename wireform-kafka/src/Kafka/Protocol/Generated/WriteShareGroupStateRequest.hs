@@ -199,6 +199,11 @@ wirePeekStateBatch version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (StateBatch { stateBatchFirstOffset = f0_firstoffset, stateBatchLastOffset = f1_lastoffset, stateBatchDeliveryState = f2_deliverystate, stateBatchDeliveryCount = f3_deliverycount }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultStateBatch :: StateBatch
+defaultStateBatch = StateBatch { stateBatchFirstOffset = 0, stateBatchLastOffset = 0, stateBatchDeliveryState = 0, stateBatchDeliveryCount = 0 }
+
 -- | Worst-case wire size of a PartitionData.
 wireMaxSizePartitionData :: Int -> PartitionData -> Int
 wireMaxSizePartitionData _version msg =
@@ -219,7 +224,7 @@ wirePokePartitionData version basePtr msg = do
   p2 <- W.pokeInt32BE p1 (partitionDataStateEpoch msg)
   p3 <- W.pokeInt32BE p2 (partitionDataLeaderEpoch msg)
   p4 <- W.pokeInt64BE p3 (partitionDataStartOffset msg)
-  p5 <- W.pokeInt32BE p4 (partitionDataDeliveryCompleteCount msg)
+  p5 <- (if version >= 1 then W.pokeInt32BE p4 (partitionDataDeliveryCompleteCount msg) else pure p4)
   p6 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeStateBatch version p x) p5 (partitionDataStateBatches msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p6 else pure p6
 
@@ -230,10 +235,15 @@ wirePeekPartitionData version _fp _basePtr p0 endPtr = do
   (f1_stateepoch, p2) <- W.peekInt32BE p1 endPtr
   (f2_leaderepoch, p3) <- W.peekInt32BE p2 endPtr
   (f3_startoffset, p4) <- W.peekInt64BE p3 endPtr
-  (f4_deliverycompletecount, p5) <- W.peekInt32BE p4 endPtr
+  (f4_deliverycompletecount, p5) <- (if version >= 1 then W.peekInt32BE p4 endPtr else pure (0, p4))
   (f5_statebatches, p6) <- WP.peekVersionedArray version 0 (\p e -> wirePeekStateBatch version _fp _basePtr p e) p5 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
   pure (PartitionData { partitionDataPartition = f0_partition, partitionDataStateEpoch = f1_stateepoch, partitionDataLeaderEpoch = f2_leaderepoch, partitionDataStartOffset = f3_startoffset, partitionDataDeliveryCompleteCount = f4_deliverycompletecount, partitionDataStateBatches = f5_statebatches }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionData :: PartitionData
+defaultPartitionData = PartitionData { partitionDataPartition = 0, partitionDataStateEpoch = 0, partitionDataLeaderEpoch = 0, partitionDataStartOffset = 0, partitionDataDeliveryCompleteCount = 0, partitionDataStateBatches = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a WriteStateData.
 wireMaxSizeWriteStateData :: Int -> WriteStateData -> Int
@@ -259,6 +269,11 @@ wirePeekWriteStateData version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (WriteStateData { writeStateDataTopicId = f0_topicid, writeStateDataPartitions = f1_partitions }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultWriteStateData :: WriteStateData
+defaultWriteStateData = WriteStateData { writeStateDataTopicId = P.nullUuid, writeStateDataPartitions = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a WriteShareGroupStateRequest.
 wireMaxSizeWriteShareGroupStateRequest :: Int -> WriteShareGroupStateRequest -> Int
 wireMaxSizeWriteShareGroupStateRequest _version msg =
@@ -272,7 +287,7 @@ wirePokeWriteShareGroupStateRequest :: Int -> Ptr Word8 -> WriteShareGroupStateR
 wirePokeWriteShareGroupStateRequest version basePtr msg
   | version >= 0 && version <= 1 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (writeShareGroupStateRequestGroupId msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (writeShareGroupStateRequestGroupId msg)) else WP.pokeKafkaString p0 (writeShareGroupStateRequestGroupId msg))
     p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeWriteStateData version p x) p1 (writeShareGroupStateRequestTopics msg)
     WP.pokeEmptyTaggedFields p2
   | otherwise = error $ "wirePoke WriteShareGroupStateRequest : unsupported version: " ++ show version
@@ -281,7 +296,7 @@ wirePokeWriteShareGroupStateRequest version basePtr msg
 wirePeekWriteShareGroupStateRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (WriteShareGroupStateRequest, Ptr Word8)
 wirePeekWriteShareGroupStateRequest version _fp _basePtr p0 endPtr
   | version >= 0 && version <= 1 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekWriteStateData version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (WriteShareGroupStateRequest { writeShareGroupStateRequestGroupId = f0_groupid, writeShareGroupStateRequestTopics = f1_topics }, pTagsEnd)

@@ -98,22 +98,22 @@ wirePokeFindCoordinatorRequest :: Int -> Ptr Word8 -> FindCoordinatorRequest -> 
 wirePokeFindCoordinatorRequest version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (findCoordinatorRequestKey msg))
+    p1 <- (if version <= 3 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (findCoordinatorRequestKey msg)) else WP.pokeKafkaString p0 (findCoordinatorRequestKey msg)) else pure p0)
     pure p1
   | version == 3 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (findCoordinatorRequestKey msg))
-    p2 <- W.pokeWord8 p1 (fromIntegral (findCoordinatorRequestKeyType msg))
+    p1 <- (if version <= 3 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (findCoordinatorRequestKey msg)) else WP.pokeKafkaString p0 (findCoordinatorRequestKey msg)) else pure p0)
+    p2 <- (if version >= 1 then W.pokeWord8 p1 (fromIntegral (findCoordinatorRequestKeyType msg)) else pure p1)
     WP.pokeEmptyTaggedFields p2
   | version >= 1 && version <= 2 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (findCoordinatorRequestKey msg))
-    p2 <- W.pokeWord8 p1 (fromIntegral (findCoordinatorRequestKeyType msg))
+    p1 <- (if version <= 3 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (findCoordinatorRequestKey msg)) else WP.pokeKafkaString p0 (findCoordinatorRequestKey msg)) else pure p0)
+    p2 <- (if version >= 1 then W.pokeWord8 p1 (fromIntegral (findCoordinatorRequestKeyType msg)) else pure p1)
     pure p2
   | version >= 4 && version <= 6 = do
     p0 <- pure basePtr
-    p1 <- W.pokeWord8 p0 (fromIntegral (findCoordinatorRequestKeyType msg))
-    p2 <- WP.pokeVersionedArray version 3 (\p s -> if version >= 3 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p1 (findCoordinatorRequestCoordinatorKeys msg)
+    p1 <- (if version >= 1 then W.pokeWord8 p0 (fromIntegral (findCoordinatorRequestKeyType msg)) else pure p0)
+    p2 <- (if version >= 4 then WP.pokeVersionedArray version 3 (\p s -> if version >= 3 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p1 (findCoordinatorRequestCoordinatorKeys msg) else pure p1)
     WP.pokeEmptyTaggedFields p2
   | otherwise = error $ "wirePoke FindCoordinatorRequest : unsupported version: " ++ show version
 
@@ -121,20 +121,20 @@ wirePokeFindCoordinatorRequest version basePtr msg
 wirePeekFindCoordinatorRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (FindCoordinatorRequest, Ptr Word8)
 wirePeekFindCoordinatorRequest version _fp _basePtr p0 endPtr
   | version == 0 = do
-    (f0_key, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_key, p1) <- (if version <= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
     pure (FindCoordinatorRequest { findCoordinatorRequestKey = f0_key, findCoordinatorRequestKeyType = 0, findCoordinatorRequestCoordinatorKeys = P.mkKafkaArray V.empty }, p1)
   | version == 3 = do
-    (f0_key, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_keytype, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+    (f0_key, p1) <- (if version <= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+    (f1_keytype, p2) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (0, p1))
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (FindCoordinatorRequest { findCoordinatorRequestKey = f0_key, findCoordinatorRequestKeyType = f1_keytype, findCoordinatorRequestCoordinatorKeys = P.mkKafkaArray V.empty }, pTagsEnd)
   | version >= 1 && version <= 2 = do
-    (f0_key, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_keytype, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
+    (f0_key, p1) <- (if version <= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+    (f1_keytype, p2) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (0, p1))
     pure (FindCoordinatorRequest { findCoordinatorRequestKey = f0_key, findCoordinatorRequestKeyType = f1_keytype, findCoordinatorRequestCoordinatorKeys = P.mkKafkaArray V.empty }, p2)
   | version >= 4 && version <= 6 = do
-    (f0_keytype, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
-    (f1_coordinatorkeys, p2) <- WP.peekVersionedArray version 3 (\p e -> if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p1 endPtr
+    (f0_keytype, p1) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr else pure (0, p0))
+    (f1_coordinatorkeys, p2) <- (if version >= 4 then WP.peekVersionedArray version 3 (\p e -> if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p1 endPtr else pure (P.mkKafkaArray V.empty, p1))
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (FindCoordinatorRequest { findCoordinatorRequestKey = P.KafkaString Null, findCoordinatorRequestKeyType = f0_keytype, findCoordinatorRequestCoordinatorKeys = f1_coordinatorkeys }, pTagsEnd)
   | otherwise = error $ "wirePeek FindCoordinatorRequest : unsupported version: " ++ show version

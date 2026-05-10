@@ -95,12 +95,12 @@ wirePokeHeartbeatResponse version basePtr msg
     pure p1
   | version == 4 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (heartbeatResponseThrottleTimeMs msg)
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (heartbeatResponseThrottleTimeMs msg) else pure p0)
     p2 <- W.pokeInt16BE p1 (heartbeatResponseErrorCode msg)
     WP.pokeEmptyTaggedFields p2
   | version >= 1 && version <= 3 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (heartbeatResponseThrottleTimeMs msg)
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (heartbeatResponseThrottleTimeMs msg) else pure p0)
     p2 <- W.pokeInt16BE p1 (heartbeatResponseErrorCode msg)
     pure p2
   | otherwise = error $ "wirePoke HeartbeatResponse : unsupported version: " ++ show version
@@ -112,12 +112,12 @@ wirePeekHeartbeatResponse version _fp _basePtr p0 endPtr
     (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
     pure (HeartbeatResponse { heartbeatResponseThrottleTimeMs = 0, heartbeatResponseErrorCode = f0_errorcode }, p1)
   | version == 4 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (HeartbeatResponse { heartbeatResponseThrottleTimeMs = f0_throttletimems, heartbeatResponseErrorCode = f1_errorcode }, pTagsEnd)
   | version >= 1 && version <= 3 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     pure (HeartbeatResponse { heartbeatResponseThrottleTimeMs = f0_throttletimems, heartbeatResponseErrorCode = f1_errorcode }, p2)
   | otherwise = error $ "wirePeek HeartbeatResponse : unsupported version: " ++ show version

@@ -84,11 +84,11 @@ wirePokeSaslAuthenticateRequest :: Int -> Ptr Word8 -> SaslAuthenticateRequest -
 wirePokeSaslAuthenticateRequest version basePtr msg
   | version == 2 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactBytes p0 (P.toCompactBytes (saslAuthenticateRequestAuthBytes msg))
+    p1 <- (if version >= 2 then WP.pokeCompactBytes p0 (P.toCompactBytes (saslAuthenticateRequestAuthBytes msg)) else WP.pokeKafkaBytes p0 (saslAuthenticateRequestAuthBytes msg))
     WP.pokeEmptyTaggedFields p1
   | version >= 0 && version <= 1 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactBytes p0 (P.toCompactBytes (saslAuthenticateRequestAuthBytes msg))
+    p1 <- (if version >= 2 then WP.pokeCompactBytes p0 (P.toCompactBytes (saslAuthenticateRequestAuthBytes msg)) else WP.pokeKafkaBytes p0 (saslAuthenticateRequestAuthBytes msg))
     pure p1
   | otherwise = error $ "wirePoke SaslAuthenticateRequest : unsupported version: " ++ show version
 
@@ -96,11 +96,11 @@ wirePokeSaslAuthenticateRequest version basePtr msg
 wirePeekSaslAuthenticateRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (SaslAuthenticateRequest, Ptr Word8)
 wirePeekSaslAuthenticateRequest version _fp _basePtr p0 endPtr
   | version == 2 = do
-    (f0_authbytes, p1) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr
+    (f0_authbytes, p1) <- (if version >= 2 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr else WP.peekKafkaBytes p0 endPtr)
     pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
     pure (SaslAuthenticateRequest { saslAuthenticateRequestAuthBytes = f0_authbytes }, pTagsEnd)
   | version >= 0 && version <= 1 = do
-    (f0_authbytes, p1) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr
+    (f0_authbytes, p1) <- (if version >= 2 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr else WP.peekKafkaBytes p0 endPtr)
     pure (SaslAuthenticateRequest { saslAuthenticateRequestAuthBytes = f0_authbytes }, p1)
   | otherwise = error $ "wirePeek SaslAuthenticateRequest : unsupported version: " ++ show version
 

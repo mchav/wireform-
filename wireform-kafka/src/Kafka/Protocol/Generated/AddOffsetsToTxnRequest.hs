@@ -105,17 +105,17 @@ wirePokeAddOffsetsToTxnRequest :: Int -> Ptr Word8 -> AddOffsetsToTxnRequest -> 
 wirePokeAddOffsetsToTxnRequest version basePtr msg
   | version >= 3 && version <= 4 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (addOffsetsToTxnRequestTransactionalId msg))
+    p1 <- (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (addOffsetsToTxnRequestTransactionalId msg)) else WP.pokeKafkaString p0 (addOffsetsToTxnRequestTransactionalId msg))
     p2 <- W.pokeInt64BE p1 (addOffsetsToTxnRequestProducerId msg)
     p3 <- W.pokeInt16BE p2 (addOffsetsToTxnRequestProducerEpoch msg)
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (addOffsetsToTxnRequestGroupId msg))
+    p4 <- (if version >= 3 then WP.pokeCompactString p3 (P.toCompactString (addOffsetsToTxnRequestGroupId msg)) else WP.pokeKafkaString p3 (addOffsetsToTxnRequestGroupId msg))
     WP.pokeEmptyTaggedFields p4
   | version >= 0 && version <= 2 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (addOffsetsToTxnRequestTransactionalId msg))
+    p1 <- (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (addOffsetsToTxnRequestTransactionalId msg)) else WP.pokeKafkaString p0 (addOffsetsToTxnRequestTransactionalId msg))
     p2 <- W.pokeInt64BE p1 (addOffsetsToTxnRequestProducerId msg)
     p3 <- W.pokeInt16BE p2 (addOffsetsToTxnRequestProducerEpoch msg)
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (addOffsetsToTxnRequestGroupId msg))
+    p4 <- (if version >= 3 then WP.pokeCompactString p3 (P.toCompactString (addOffsetsToTxnRequestGroupId msg)) else WP.pokeKafkaString p3 (addOffsetsToTxnRequestGroupId msg))
     pure p4
   | otherwise = error $ "wirePoke AddOffsetsToTxnRequest : unsupported version: " ++ show version
 
@@ -123,17 +123,17 @@ wirePokeAddOffsetsToTxnRequest version basePtr msg
 wirePeekAddOffsetsToTxnRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AddOffsetsToTxnRequest, Ptr Word8)
 wirePeekAddOffsetsToTxnRequest version _fp _basePtr p0 endPtr
   | version >= 3 && version <= 4 = do
-    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_transactionalid, p1) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_producerid, p2) <- W.peekInt64BE p1 endPtr
     (f2_producerepoch, p3) <- W.peekInt16BE p2 endPtr
-    (f3_groupid, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+    (f3_groupid, p4) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (AddOffsetsToTxnRequest { addOffsetsToTxnRequestTransactionalId = f0_transactionalid, addOffsetsToTxnRequestProducerId = f1_producerid, addOffsetsToTxnRequestProducerEpoch = f2_producerepoch, addOffsetsToTxnRequestGroupId = f3_groupid }, pTagsEnd)
   | version >= 0 && version <= 2 = do
-    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_transactionalid, p1) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_producerid, p2) <- W.peekInt64BE p1 endPtr
     (f2_producerepoch, p3) <- W.peekInt16BE p2 endPtr
-    (f3_groupid, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+    (f3_groupid, p4) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
     pure (AddOffsetsToTxnRequest { addOffsetsToTxnRequestTransactionalId = f0_transactionalid, addOffsetsToTxnRequestProducerId = f1_producerid, addOffsetsToTxnRequestProducerEpoch = f2_producerepoch, addOffsetsToTxnRequestGroupId = f3_groupid }, p4)
   | otherwise = error $ "wirePeek AddOffsetsToTxnRequest : unsupported version: " ++ show version
 

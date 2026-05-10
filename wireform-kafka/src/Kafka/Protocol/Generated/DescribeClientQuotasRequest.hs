@@ -114,19 +114,24 @@ wireMaxSizeComponentData _version msg =
 wirePokeComponentData :: Int -> Ptr Word8 -> ComponentData -> IO (Ptr Word8)
 wirePokeComponentData version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (componentDataEntityType msg))
+  p1 <- (if version >= 1 then WP.pokeCompactString p0 (P.toCompactString (componentDataEntityType msg)) else WP.pokeKafkaString p0 (componentDataEntityType msg))
   p2 <- W.pokeWord8 p1 (fromIntegral (componentDataMatchType msg))
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (componentDataMatch msg))
+  p3 <- (if version >= 1 then WP.pokeCompactString p2 (P.toCompactString (componentDataMatch msg)) else WP.pokeKafkaString p2 (componentDataMatch msg))
   if version >= 1 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for ComponentData.
 wirePeekComponentData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ComponentData, Ptr Word8)
 wirePeekComponentData version _fp _basePtr p0 endPtr = do
-  (f0_entitytype, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_entitytype, p1) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_matchtype, p2) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr
-  (f2_match, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f2_match, p3) <- (if version >= 1 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (ComponentData { componentDataEntityType = f0_entitytype, componentDataMatchType = f1_matchtype, componentDataMatch = f2_match }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultComponentData :: ComponentData
+defaultComponentData = ComponentData { componentDataEntityType = P.KafkaString Null, componentDataMatchType = 0, componentDataMatch = P.KafkaString Null }
 
 -- | Worst-case wire size of a DescribeClientQuotasRequest.
 wireMaxSizeDescribeClientQuotasRequest :: Int -> DescribeClientQuotasRequest -> Int

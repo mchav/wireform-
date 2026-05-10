@@ -1,51 +1,47 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications    #-}
 
 {-|
 Module      : Benchmarks.Serialization
-Description : Benchmarks for serialization libraries
-Copyright   : (c) 2025
-License     : BSD-3-Clause
+Description : Per-message Wire encode/decode benchmarks
 
-This module benchmarks different serialization libraries (bytes, binary, cereal)
-for encoding and decoding Kafka protocol messages to measure their relative
-performance characteristics.
+Microbenchmarks for the Wire codec runtime as it dispatches on
+specific Kafka protocol message classes.  Useful for tracking
+per-message serialization cost over time and for comparing
+producer- vs consumer-side overhead.
 
-Note: Currently, we only benchmark the 'bytes' library that we actually use.
-To fairly compare binary and cereal, we would need to implement equivalent
-encoders/decoders for those libraries, which would be a significant undertaking.
-For now, this module provides a framework and benchmarks for the bytes-based
-serialization we currently use.
+The benchmark works directly off the codegen-emitted
+'Kafka.Protocol.Wire.Codec.WireCodec' instance for each message,
+so adding coverage for a new request/response type is a one-line
+edit.
+
+The legacy @bytes@ / @binary@ / @cereal@ comparison benches that
+used to live here are gone — the no-Serial migration deleted the
+@Data.Bytes.Serial@-shaped @encodeFoo@/@decodeFoo@ helpers the
+old benches dispatched through, so the comparison no longer has a
+left-hand side.
 -}
 module Benchmarks.Serialization (benchmarks) where
 
-import Criterion (Benchmark, bench, bgroup, whnf)
+import Criterion           (Benchmark, bench, bgroup, whnf)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BL
-import Data.ByteString (ByteString)
+import qualified Data.Int as Int
 
--- bytes library (what we currently use)
-import Data.Bytes.Serial (serialize, deserialize)
-import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
-
--- binary library (for comparison)
-import qualified Data.Binary as Binary
-import qualified Data.Binary.Get as BinaryGet
-import qualified Data.Binary.Put as BinaryPut
-
--- cereal library (for comparison)
-import qualified Data.Serialize as Cereal
-
-import qualified Kafka.Protocol.Generated.ProduceRequest as Produce
-import qualified Kafka.Protocol.Generated.FetchRequest as Fetch
+import qualified Kafka.Protocol.Generated.ProduceRequest  as Produce
+import qualified Kafka.Protocol.Generated.FetchRequest    as Fetch
 import qualified Kafka.Protocol.Generated.MetadataRequest as Metadata
-import Benchmarks.Util (createProduceRequest, createFetchRequest, createMetadataRequest)
+import qualified Kafka.Protocol.Wire.Codec                as WC
+import           Benchmarks.Util                          ( createProduceRequest
+                                                          , createFetchRequest
+                                                          , createMetadataRequest
+                                                          )
 
--- -----------------------------------------------------------------------------
--- Benchmarks
--- -----------------------------------------------------------------------------
+----------------------------------------------------------------------
+-- Public group
+----------------------------------------------------------------------
 
--- | All serialization benchmarks
 benchmarks :: Benchmark
 benchmarks = bgroup "Serialization"
   [ benchProduceRequest
@@ -53,182 +49,83 @@ benchmarks = bgroup "Serialization"
   , benchMetadataRequest
   ]
 
--- -----------------------------------------------------------------------------
--- ProduceRequest Benchmarks
--- -----------------------------------------------------------------------------
+----------------------------------------------------------------------
+-- ProduceRequest (apiKey 0, v9 flexible)
+----------------------------------------------------------------------
 
 benchProduceRequest :: Benchmark
-benchProduceRequest = bgroup "ProduceRequest"
-  [ benchProduceRequestSmall
-  , benchProduceRequestMedium
-  , benchProduceRequestLarge
+benchProduceRequest = bgroup "ProduceRequest (v9, flexible)"
+  [ produceRequestSized "small  (1 topic / 1 partition)"     1   1
+  , produceRequestSized "medium (10 topics / 10 partitions)" 10  10
+  , produceRequestSized "large  (100 topics / 100 partitions)" 100 100
   ]
 
-benchProduceRequestSmall :: Benchmark
-benchProduceRequestSmall = 
-  let msg = createProduceRequest 1 1
-      version = 9  -- Flexible version
-      encoded = runPutS (Produce.encodeProduceRequest version msg)
-  in bgroup "Small(1topic/1partition)"
-    [ bench "encode/bytes" $ whnf (runPutS . Produce.encodeProduceRequest version) msg
-    , bench "decode/bytes" $ whnf (runGetS (Produce.decodeProduceRequest version)) encoded
-    , bench "roundtrip/bytes" $ whnf (\m -> runGetS (Produce.decodeProduceRequest version) (runPutS (Produce.encodeProduceRequest version m))) msg
-    ]
+produceRequestSized :: String -> Int -> Int -> Benchmark
+produceRequestSized label topics partitions =
+  let !msg     = createProduceRequest topics partitions
+      !version = 9
+      !encoded = WC.runEncodeVer @Produce.ProduceRequest version msg
+  in bgroup label
+       [ bench "encode" $ whnf (BS.length . WC.runEncodeVer @Produce.ProduceRequest version) msg
+       , bench "decode" $ whnf (decodeOk @Produce.ProduceRequest version)            encoded
+       , bench "roundtrip" $ whnf (\m ->
+            case WC.runDecodeVer @Produce.ProduceRequest version
+                   (WC.runEncodeVer @Produce.ProduceRequest version m) of
+              Right _ -> ()
+              Left  e -> error e) msg
+       ]
 
-benchProduceRequestMedium :: Benchmark
-benchProduceRequestMedium = 
-  let msg = createProduceRequest 10 10
-      version = 9  -- Flexible version
-      encoded = runPutS (Produce.encodeProduceRequest version msg)
-  in bgroup "Medium(10topics/10partitions)"
-    [ bench "encode/bytes" $ whnf (runPutS . Produce.encodeProduceRequest version) msg
-    , bench "decode/bytes" $ whnf (runGetS (Produce.decodeProduceRequest version)) encoded
-    , bench "roundtrip/bytes" $ whnf (\m -> runGetS (Produce.decodeProduceRequest version) (runPutS (Produce.encodeProduceRequest version m))) msg
-    ]
-
-benchProduceRequestLarge :: Benchmark
-benchProduceRequestLarge = 
-  let msg = createProduceRequest 100 100
-      version = 9  -- Flexible version
-      encoded = runPutS (Produce.encodeProduceRequest version msg)
-  in bgroup "Large(100topics/100partitions)"
-    [ bench "encode/bytes" $ whnf (runPutS . Produce.encodeProduceRequest version) msg
-    , bench "decode/bytes" $ whnf (runGetS (Produce.decodeProduceRequest version)) encoded
-    , bench "roundtrip/bytes" $ whnf (\m -> runGetS (Produce.decodeProduceRequest version) (runPutS (Produce.encodeProduceRequest version m))) msg
-    ]
-
--- -----------------------------------------------------------------------------
--- FetchRequest Benchmarks
--- -----------------------------------------------------------------------------
+----------------------------------------------------------------------
+-- FetchRequest (apiKey 1, v12 flexible)
+----------------------------------------------------------------------
 
 benchFetchRequest :: Benchmark
-benchFetchRequest = bgroup "FetchRequest"
-  [ benchFetchRequestSmall
-  , benchFetchRequestMedium
-  , benchFetchRequestLarge
+benchFetchRequest = bgroup "FetchRequest (v12, flexible)"
+  [ fetchRequestSized "small  (1 topic / 1 partition)"     1   1
+  , fetchRequestSized "medium (10 topics / 10 partitions)" 10  10
+  , fetchRequestSized "large  (100 topics / 100 partitions)" 100 100
   ]
 
-benchFetchRequestSmall :: Benchmark
-benchFetchRequestSmall = 
-  let msg = createFetchRequest 1 1
-      version = 12  -- Flexible version
-      encoded = runPutS (Fetch.encodeFetchRequest version msg)
-  in bgroup "Small(1topic/1partition)"
-    [ bench "encode/bytes" $ whnf (runPutS . Fetch.encodeFetchRequest version) msg
-    , bench "decode/bytes" $ whnf (runGetS (Fetch.decodeFetchRequest version)) encoded
-    , bench "roundtrip/bytes" $ whnf (\m -> runGetS (Fetch.decodeFetchRequest version) (runPutS (Fetch.encodeFetchRequest version m))) msg
-    ]
+fetchRequestSized :: String -> Int -> Int -> Benchmark
+fetchRequestSized label topics partitions =
+  let !msg     = createFetchRequest topics partitions
+      !version = 12
+      !encoded = WC.runEncodeVer @Fetch.FetchRequest version msg
+  in bgroup label
+       [ bench "encode" $ whnf (BS.length . WC.runEncodeVer @Fetch.FetchRequest version) msg
+       , bench "decode" $ whnf (decodeOk @Fetch.FetchRequest version)            encoded
+       ]
 
-benchFetchRequestMedium :: Benchmark
-benchFetchRequestMedium = 
-  let msg = createFetchRequest 10 10
-      version = 12  -- Flexible version
-      encoded = runPutS (Fetch.encodeFetchRequest version msg)
-  in bgroup "Medium(10topics/10partitions)"
-    [ bench "encode/bytes" $ whnf (runPutS . Fetch.encodeFetchRequest version) msg
-    , bench "decode/bytes" $ whnf (runGetS (Fetch.decodeFetchRequest version)) encoded
-    , bench "roundtrip/bytes" $ whnf (\m -> runGetS (Fetch.decodeFetchRequest version) (runPutS (Fetch.encodeFetchRequest version m))) msg
-    ]
-
-benchFetchRequestLarge :: Benchmark
-benchFetchRequestLarge = 
-  let msg = createFetchRequest 100 100
-      version = 12  -- Flexible version
-      encoded = runPutS (Fetch.encodeFetchRequest version msg)
-  in bgroup "Large(100topics/100partitions)"
-    [ bench "encode/bytes" $ whnf (runPutS . Fetch.encodeFetchRequest version) msg
-    , bench "decode/bytes" $ whnf (runGetS (Fetch.decodeFetchRequest version)) encoded
-    , bench "roundtrip/bytes" $ whnf (\m -> runGetS (Fetch.decodeFetchRequest version) (runPutS (Fetch.encodeFetchRequest version m))) msg
-    ]
-
--- -----------------------------------------------------------------------------
--- MetadataRequest Benchmarks
--- -----------------------------------------------------------------------------
+----------------------------------------------------------------------
+-- MetadataRequest (apiKey 3, v9 flexible)
+----------------------------------------------------------------------
 
 benchMetadataRequest :: Benchmark
-benchMetadataRequest = bgroup "MetadataRequest"
-  [ benchMetadataRequestSmall
-  , benchMetadataRequestMedium
-  , benchMetadataRequestLarge
+benchMetadataRequest = bgroup "MetadataRequest (v9, flexible)"
+  [ metadataRequestSized "small  (1 topic)"   1
+  , metadataRequestSized "medium (50 topics)" 50
+  , metadataRequestSized "large  (500 topics)" 500
   ]
 
-benchMetadataRequestSmall :: Benchmark
-benchMetadataRequestSmall = 
-  let msg = createMetadataRequest 1
-      version = 9  -- Flexible version
-      encoded = runPutS (Metadata.encodeMetadataRequest version msg)
-  in bgroup "Small(1topic)"
-    [ bench "encode/bytes" $ whnf (runPutS . Metadata.encodeMetadataRequest version) msg
-    , bench "decode/bytes" $ whnf (runGetS (Metadata.decodeMetadataRequest version)) encoded
-    , bench "roundtrip/bytes" $ whnf (\m -> runGetS (Metadata.decodeMetadataRequest version) (runPutS (Metadata.encodeMetadataRequest version m))) msg
-    ]
+-- | Decode helper that forces the result to WHNF and discards
+-- the typed value (criterion's 'whnf' won't otherwise inspect
+-- the Either layer).
+decodeOk :: forall a. WC.WireCodec a => Int16Like -> BS.ByteString -> ()
+decodeOk version bs =
+  case WC.runDecodeVer @a version bs of
+    Right !_ -> ()
+    Left  e  -> error ("decode failed: " ++ e)
 
-benchMetadataRequestMedium :: Benchmark
-benchMetadataRequestMedium = 
-  let msg = createMetadataRequest 50
-      version = 9  -- Flexible version
-      encoded = runPutS (Metadata.encodeMetadataRequest version msg)
-  in bgroup "Medium(50topics)"
-    [ bench "encode/bytes" $ whnf (runPutS . Metadata.encodeMetadataRequest version) msg
-    , bench "decode/bytes" $ whnf (runGetS (Metadata.decodeMetadataRequest version)) encoded
-    , bench "roundtrip/bytes" $ whnf (\m -> runGetS (Metadata.decodeMetadataRequest version) (runPutS (Metadata.encodeMetadataRequest version m))) msg
-    ]
+-- | Local alias so callers don't need to import Data.Int just to
+-- spell the type of an api version.
+type Int16Like = Int.Int16
 
-benchMetadataRequestLarge :: Benchmark
-benchMetadataRequestLarge = 
-  let msg = createMetadataRequest 500
-      version = 9  -- Flexible version
-      encoded = runPutS (Metadata.encodeMetadataRequest version msg)
-  in bgroup "Large(500topics)"
-    [ bench "encode/bytes" $ whnf (runPutS . Metadata.encodeMetadataRequest version) msg
-    , bench "decode/bytes" $ whnf (runGetS (Metadata.decodeMetadataRequest version)) encoded
-    , bench "roundtrip/bytes" $ whnf (\m -> runGetS (Metadata.decodeMetadataRequest version) (runPutS (Metadata.encodeMetadataRequest version m))) msg
-    ]
-
-{- NOTE: Binary and Cereal Comparison
-
-To fairly compare the `binary` and `cereal` libraries against `bytes`, we would need to:
-
-1. Implement complete Binary instances for all Kafka protocol types
-2. Implement complete Serialize instances for all Kafka protocol types
-3. Handle version-aware encoding/decoding for both
-4. Handle flexible vs non-flexible versions
-5. Handle all the Kafka-specific types (VarInt, CompactString, TaggedFields, etc.)
-
-This is a significant undertaking (essentially reimplementing the entire protocol layer
-for each library) and would only be worthwhile if we were seriously considering switching
-serialization libraries.
-
-For now, we benchmark the `bytes` library that we actually use. If performance becomes
-a concern, we can implement comparison benchmarks at that time.
-
-Example skeleton of what would be needed:
-
-instance Binary ProduceRequest where
-  put req = do
-    -- Implement version-aware encoding matching Kafka protocol
-    Binary.put (transactionalId req)
-    Binary.put (acks req)
-    ...
-  
-  get = do
-    -- Implement version-aware decoding matching Kafka protocol
-    tid <- Binary.get
-    acks <- Binary.get
-    ...
-    return ProduceRequest{..}
-
-Similarly for Cereal:
-
-instance Serialize ProduceRequest where
-  put = ... -- Similar to Binary
-  get = ... -- Similar to Binary
-
-Then we could add benchmarks like:
-
-    , bench "encode/binary" $ whnf Binary.encode msg
-    , bench "decode/binary" $ nf Binary.decode encoded
-    , bench "encode/cereal" $ whnf Cereal.encode msg
-    , bench "decode/cereal" $ nf Cereal.decode encoded
--}
-
+metadataRequestSized :: String -> Int -> Benchmark
+metadataRequestSized label topics =
+  let !msg     = createMetadataRequest topics
+      !version = 9
+      !encoded = WC.runEncodeVer @Metadata.MetadataRequest version msg
+  in bgroup label
+       [ bench "encode" $ whnf (BS.length . WC.runEncodeVer @Metadata.MetadataRequest version) msg
+       , bench "decode" $ whnf (decodeOk @Metadata.MetadataRequest version)              encoded
+       ]

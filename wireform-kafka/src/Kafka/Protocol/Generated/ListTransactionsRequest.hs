@@ -112,14 +112,14 @@ wirePokeListTransactionsRequest version basePtr msg
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (listTransactionsRequestStateFilters msg)
     p2 <- WP.pokeVersionedArray version 0 W.pokeInt64BE p1 (listTransactionsRequestProducerIdFilters msg)
-    p3 <- W.pokeInt64BE p2 (listTransactionsRequestDurationFilter msg)
+    p3 <- (if version >= 1 then W.pokeInt64BE p2 (listTransactionsRequestDurationFilter msg) else pure p2)
     WP.pokeEmptyTaggedFields p3
   | version == 2 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (listTransactionsRequestStateFilters msg)
     p2 <- WP.pokeVersionedArray version 0 W.pokeInt64BE p1 (listTransactionsRequestProducerIdFilters msg)
-    p3 <- W.pokeInt64BE p2 (listTransactionsRequestDurationFilter msg)
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (listTransactionsRequestTransactionalIdPattern msg))
+    p3 <- (if version >= 1 then W.pokeInt64BE p2 (listTransactionsRequestDurationFilter msg) else pure p2)
+    p4 <- (if version >= 2 then (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (listTransactionsRequestTransactionalIdPattern msg)) else WP.pokeKafkaString p3 (listTransactionsRequestTransactionalIdPattern msg)) else pure p3)
     WP.pokeEmptyTaggedFields p4
   | otherwise = error $ "wirePoke ListTransactionsRequest : unsupported version: " ++ show version
 
@@ -134,14 +134,14 @@ wirePeekListTransactionsRequest version _fp _basePtr p0 endPtr
   | version == 1 = do
     (f0_statefilters, p1) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
     (f1_produceridfilters, p2) <- WP.peekVersionedArray version 0 W.peekInt64BE p1 endPtr
-    (f2_durationfilter, p3) <- W.peekInt64BE p2 endPtr
+    (f2_durationfilter, p3) <- (if version >= 1 then W.peekInt64BE p2 endPtr else pure (0, p2))
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (ListTransactionsRequest { listTransactionsRequestStateFilters = f0_statefilters, listTransactionsRequestProducerIdFilters = f1_produceridfilters, listTransactionsRequestDurationFilter = f2_durationfilter, listTransactionsRequestTransactionalIdPattern = P.KafkaString Null }, pTagsEnd)
   | version == 2 = do
     (f0_statefilters, p1) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
     (f1_produceridfilters, p2) <- WP.peekVersionedArray version 0 W.peekInt64BE p1 endPtr
-    (f2_durationfilter, p3) <- W.peekInt64BE p2 endPtr
-    (f3_transactionalidpattern, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+    (f2_durationfilter, p3) <- (if version >= 1 then W.peekInt64BE p2 endPtr else pure (0, p2))
+    (f3_transactionalidpattern, p4) <- (if version >= 2 then (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (ListTransactionsRequest { listTransactionsRequestStateFilters = f0_statefilters, listTransactionsRequestProducerIdFilters = f1_produceridfilters, listTransactionsRequestDurationFilter = f2_durationfilter, listTransactionsRequestTransactionalIdPattern = f3_transactionalidpattern }, pTagsEnd)
   | otherwise = error $ "wirePeek ListTransactionsRequest : unsupported version: " ++ show version

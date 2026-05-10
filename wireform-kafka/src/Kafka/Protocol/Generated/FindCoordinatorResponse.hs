@@ -165,25 +165,30 @@ wireMaxSizeCoordinator _version msg =
 wirePokeCoordinator :: Int -> Ptr Word8 -> Coordinator -> IO (Ptr Word8)
 wirePokeCoordinator version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (coordinatorKey msg))
-  p2 <- W.pokeInt32BE p1 (coordinatorNodeId msg)
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (coordinatorHost msg))
-  p4 <- W.pokeInt32BE p3 (coordinatorPort msg)
-  p5 <- W.pokeInt16BE p4 (coordinatorErrorCode msg)
-  p6 <- WP.pokeCompactString p5 (P.toCompactString (coordinatorErrorMessage msg))
+  p1 <- (if version >= 4 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (coordinatorKey msg)) else WP.pokeKafkaString p0 (coordinatorKey msg)) else pure p0)
+  p2 <- (if version >= 4 then W.pokeInt32BE p1 (coordinatorNodeId msg) else pure p1)
+  p3 <- (if version >= 4 then (if version >= 3 then WP.pokeCompactString p2 (P.toCompactString (coordinatorHost msg)) else WP.pokeKafkaString p2 (coordinatorHost msg)) else pure p2)
+  p4 <- (if version >= 4 then W.pokeInt32BE p3 (coordinatorPort msg) else pure p3)
+  p5 <- (if version >= 4 then W.pokeInt16BE p4 (coordinatorErrorCode msg) else pure p4)
+  p6 <- (if version >= 4 then (if version >= 3 then WP.pokeCompactString p5 (P.toCompactString (coordinatorErrorMessage msg)) else WP.pokeKafkaString p5 (coordinatorErrorMessage msg)) else pure p5)
   if version >= 3 then WP.pokeEmptyTaggedFields p6 else pure p6
 
 -- | Direct-poke decoder for Coordinator.
 wirePeekCoordinator :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Coordinator, Ptr Word8)
 wirePeekCoordinator version _fp _basePtr p0 endPtr = do
-  (f0_key, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_nodeid, p2) <- W.peekInt32BE p1 endPtr
-  (f2_host, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
-  (f3_port, p4) <- W.peekInt32BE p3 endPtr
-  (f4_errorcode, p5) <- W.peekInt16BE p4 endPtr
-  (f5_errormessage, p6) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr
+  (f0_key, p1) <- (if version >= 4 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+  (f1_nodeid, p2) <- (if version >= 4 then W.peekInt32BE p1 endPtr else pure (0, p1))
+  (f2_host, p3) <- (if version >= 4 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
+  (f3_port, p4) <- (if version >= 4 then W.peekInt32BE p3 endPtr else pure (0, p3))
+  (f4_errorcode, p5) <- (if version >= 4 then W.peekInt16BE p4 endPtr else pure (0, p4))
+  (f5_errormessage, p6) <- (if version >= 4 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr) else pure (P.KafkaString Null, p5))
   pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
   pure (Coordinator { coordinatorKey = f0_key, coordinatorNodeId = f1_nodeid, coordinatorHost = f2_host, coordinatorPort = f3_port, coordinatorErrorCode = f4_errorcode, coordinatorErrorMessage = f5_errormessage }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultCoordinator :: Coordinator
+defaultCoordinator = Coordinator { coordinatorKey = P.KafkaString Null, coordinatorNodeId = 0, coordinatorHost = P.KafkaString Null, coordinatorPort = 0, coordinatorErrorCode = 0, coordinatorErrorMessage = P.KafkaString Null }
 
 -- | Worst-case wire size of a FindCoordinatorResponse.
 wireMaxSizeFindCoordinatorResponse :: Int -> FindCoordinatorResponse -> Int
@@ -203,33 +208,33 @@ wirePokeFindCoordinatorResponse :: Int -> Ptr Word8 -> FindCoordinatorResponse -
 wirePokeFindCoordinatorResponse version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt16BE p0 (findCoordinatorResponseErrorCode msg)
-    p2 <- W.pokeInt32BE p1 (findCoordinatorResponseNodeId msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (findCoordinatorResponseHost msg))
-    p4 <- W.pokeInt32BE p3 (findCoordinatorResponsePort msg)
+    p1 <- (if version <= 3 then W.pokeInt16BE p0 (findCoordinatorResponseErrorCode msg) else pure p0)
+    p2 <- (if version <= 3 then W.pokeInt32BE p1 (findCoordinatorResponseNodeId msg) else pure p1)
+    p3 <- (if version <= 3 then (if version >= 3 then WP.pokeCompactString p2 (P.toCompactString (findCoordinatorResponseHost msg)) else WP.pokeKafkaString p2 (findCoordinatorResponseHost msg)) else pure p2)
+    p4 <- (if version <= 3 then W.pokeInt32BE p3 (findCoordinatorResponsePort msg) else pure p3)
     pure p4
   | version == 3 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (findCoordinatorResponseThrottleTimeMs msg)
-    p2 <- W.pokeInt16BE p1 (findCoordinatorResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (findCoordinatorResponseErrorMessage msg))
-    p4 <- W.pokeInt32BE p3 (findCoordinatorResponseNodeId msg)
-    p5 <- WP.pokeCompactString p4 (P.toCompactString (findCoordinatorResponseHost msg))
-    p6 <- W.pokeInt32BE p5 (findCoordinatorResponsePort msg)
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (findCoordinatorResponseThrottleTimeMs msg) else pure p0)
+    p2 <- (if version <= 3 then W.pokeInt16BE p1 (findCoordinatorResponseErrorCode msg) else pure p1)
+    p3 <- (if version >= 1 && version <= 3 then (if version >= 3 then WP.pokeCompactString p2 (P.toCompactString (findCoordinatorResponseErrorMessage msg)) else WP.pokeKafkaString p2 (findCoordinatorResponseErrorMessage msg)) else pure p2)
+    p4 <- (if version <= 3 then W.pokeInt32BE p3 (findCoordinatorResponseNodeId msg) else pure p3)
+    p5 <- (if version <= 3 then (if version >= 3 then WP.pokeCompactString p4 (P.toCompactString (findCoordinatorResponseHost msg)) else WP.pokeKafkaString p4 (findCoordinatorResponseHost msg)) else pure p4)
+    p6 <- (if version <= 3 then W.pokeInt32BE p5 (findCoordinatorResponsePort msg) else pure p5)
     WP.pokeEmptyTaggedFields p6
   | version >= 1 && version <= 2 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (findCoordinatorResponseThrottleTimeMs msg)
-    p2 <- W.pokeInt16BE p1 (findCoordinatorResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (findCoordinatorResponseErrorMessage msg))
-    p4 <- W.pokeInt32BE p3 (findCoordinatorResponseNodeId msg)
-    p5 <- WP.pokeCompactString p4 (P.toCompactString (findCoordinatorResponseHost msg))
-    p6 <- W.pokeInt32BE p5 (findCoordinatorResponsePort msg)
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (findCoordinatorResponseThrottleTimeMs msg) else pure p0)
+    p2 <- (if version <= 3 then W.pokeInt16BE p1 (findCoordinatorResponseErrorCode msg) else pure p1)
+    p3 <- (if version >= 1 && version <= 3 then (if version >= 3 then WP.pokeCompactString p2 (P.toCompactString (findCoordinatorResponseErrorMessage msg)) else WP.pokeKafkaString p2 (findCoordinatorResponseErrorMessage msg)) else pure p2)
+    p4 <- (if version <= 3 then W.pokeInt32BE p3 (findCoordinatorResponseNodeId msg) else pure p3)
+    p5 <- (if version <= 3 then (if version >= 3 then WP.pokeCompactString p4 (P.toCompactString (findCoordinatorResponseHost msg)) else WP.pokeKafkaString p4 (findCoordinatorResponseHost msg)) else pure p4)
+    p6 <- (if version <= 3 then W.pokeInt32BE p5 (findCoordinatorResponsePort msg) else pure p5)
     pure p6
   | version >= 4 && version <= 6 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (findCoordinatorResponseThrottleTimeMs msg)
-    p2 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeCoordinator version p x) p1 (findCoordinatorResponseCoordinators msg)
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (findCoordinatorResponseThrottleTimeMs msg) else pure p0)
+    p2 <- (if version >= 4 then WP.pokeVersionedArray version 3 (\p x -> wirePokeCoordinator version p x) p1 (findCoordinatorResponseCoordinators msg) else pure p1)
     WP.pokeEmptyTaggedFields p2
   | otherwise = error $ "wirePoke FindCoordinatorResponse : unsupported version: " ++ show version
 
@@ -237,31 +242,31 @@ wirePokeFindCoordinatorResponse version basePtr msg
 wirePeekFindCoordinatorResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (FindCoordinatorResponse, Ptr Word8)
 wirePeekFindCoordinatorResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
-    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
-    (f1_nodeid, p2) <- W.peekInt32BE p1 endPtr
-    (f2_host, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
-    (f3_port, p4) <- W.peekInt32BE p3 endPtr
+    (f0_errorcode, p1) <- (if version <= 3 then W.peekInt16BE p0 endPtr else pure (0, p0))
+    (f1_nodeid, p2) <- (if version <= 3 then W.peekInt32BE p1 endPtr else pure (0, p1))
+    (f2_host, p3) <- (if version <= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
+    (f3_port, p4) <- (if version <= 3 then W.peekInt32BE p3 endPtr else pure (0, p3))
     pure (FindCoordinatorResponse { findCoordinatorResponseThrottleTimeMs = 0, findCoordinatorResponseErrorCode = f0_errorcode, findCoordinatorResponseErrorMessage = P.KafkaString Null, findCoordinatorResponseNodeId = f1_nodeid, findCoordinatorResponseHost = f2_host, findCoordinatorResponsePort = f3_port, findCoordinatorResponseCoordinators = P.mkKafkaArray V.empty }, p4)
   | version == 3 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
-    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
-    (f3_nodeid, p4) <- W.peekInt32BE p3 endPtr
-    (f4_host, p5) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr
-    (f5_port, p6) <- W.peekInt32BE p5 endPtr
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
+    (f1_errorcode, p2) <- (if version <= 3 then W.peekInt16BE p1 endPtr else pure (0, p1))
+    (f2_errormessage, p3) <- (if version >= 1 && version <= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
+    (f3_nodeid, p4) <- (if version <= 3 then W.peekInt32BE p3 endPtr else pure (0, p3))
+    (f4_host, p5) <- (if version <= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr) else pure (P.KafkaString Null, p4))
+    (f5_port, p6) <- (if version <= 3 then W.peekInt32BE p5 endPtr else pure (0, p5))
     pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
     pure (FindCoordinatorResponse { findCoordinatorResponseThrottleTimeMs = f0_throttletimems, findCoordinatorResponseErrorCode = f1_errorcode, findCoordinatorResponseErrorMessage = f2_errormessage, findCoordinatorResponseNodeId = f3_nodeid, findCoordinatorResponseHost = f4_host, findCoordinatorResponsePort = f5_port, findCoordinatorResponseCoordinators = P.mkKafkaArray V.empty }, pTagsEnd)
   | version >= 1 && version <= 2 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
-    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
-    (f3_nodeid, p4) <- W.peekInt32BE p3 endPtr
-    (f4_host, p5) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr
-    (f5_port, p6) <- W.peekInt32BE p5 endPtr
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
+    (f1_errorcode, p2) <- (if version <= 3 then W.peekInt16BE p1 endPtr else pure (0, p1))
+    (f2_errormessage, p3) <- (if version >= 1 && version <= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr) else pure (P.KafkaString Null, p2))
+    (f3_nodeid, p4) <- (if version <= 3 then W.peekInt32BE p3 endPtr else pure (0, p3))
+    (f4_host, p5) <- (if version <= 3 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr) else pure (P.KafkaString Null, p4))
+    (f5_port, p6) <- (if version <= 3 then W.peekInt32BE p5 endPtr else pure (0, p5))
     pure (FindCoordinatorResponse { findCoordinatorResponseThrottleTimeMs = f0_throttletimems, findCoordinatorResponseErrorCode = f1_errorcode, findCoordinatorResponseErrorMessage = f2_errormessage, findCoordinatorResponseNodeId = f3_nodeid, findCoordinatorResponseHost = f4_host, findCoordinatorResponsePort = f5_port, findCoordinatorResponseCoordinators = P.mkKafkaArray V.empty }, p6)
   | version >= 4 && version <= 6 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
-    (f1_coordinators, p2) <- WP.peekVersionedArray version 3 (\p e -> wirePeekCoordinator version _fp _basePtr p e) p1 endPtr
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
+    (f1_coordinators, p2) <- (if version >= 4 then WP.peekVersionedArray version 3 (\p e -> wirePeekCoordinator version _fp _basePtr p e) p1 endPtr else pure (P.mkKafkaArray V.empty, p1))
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (FindCoordinatorResponse { findCoordinatorResponseThrottleTimeMs = f0_throttletimems, findCoordinatorResponseErrorCode = 0, findCoordinatorResponseErrorMessage = P.KafkaString Null, findCoordinatorResponseNodeId = 0, findCoordinatorResponseHost = P.KafkaString Null, findCoordinatorResponsePort = 0, findCoordinatorResponseCoordinators = f1_coordinators }, pTagsEnd)
   | otherwise = error $ "wirePeek FindCoordinatorResponse : unsupported version: " ++ show version

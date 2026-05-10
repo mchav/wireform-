@@ -159,19 +159,24 @@ wireMaxSizeEndpoint _version msg =
 wirePokeEndpoint :: Int -> Ptr Word8 -> Endpoint -> IO (Ptr Word8)
 wirePokeEndpoint version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (endpointName msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (endpointHost msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (endpointName msg)) else WP.pokeKafkaString p0 (endpointName msg))
+  p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (endpointHost msg)) else WP.pokeKafkaString p1 (endpointHost msg))
   p3 <- W.pokeWord16BE p2 (endpointPort msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for Endpoint.
 wirePeekEndpoint :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Endpoint, Ptr Word8)
 wirePeekEndpoint version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_host, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_port, p3) <- W.peekWord16BE p2 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (Endpoint { endpointName = f0_name, endpointHost = f1_host, endpointPort = f2_port }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultEndpoint :: Endpoint
+defaultEndpoint = Endpoint { endpointName = P.KafkaString Null, endpointHost = P.KafkaString Null, endpointPort = 0 }
 
 -- | Worst-case wire size of a KRaftVersionFeature.
 wireMaxSizeKRaftVersionFeature :: Int -> KRaftVersionFeature -> Int
@@ -196,6 +201,11 @@ wirePeekKRaftVersionFeature version _fp _basePtr p0 endPtr = do
   (f1_maxsupportedversion, p2) <- W.peekInt16BE p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (KRaftVersionFeature { kRaftVersionFeatureMinSupportedVersion = f0_minsupportedversion, kRaftVersionFeatureMaxSupportedVersion = f1_maxsupportedversion }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultKRaftVersionFeature :: KRaftVersionFeature
+defaultKRaftVersionFeature = KRaftVersionFeature { kRaftVersionFeatureMinSupportedVersion = 0, kRaftVersionFeatureMaxSupportedVersion = 0 }
 
 -- | Worst-case wire size of a Voter.
 wireMaxSizeVoter :: Int -> Voter -> Int
@@ -226,6 +236,11 @@ wirePeekVoter version _fp _basePtr p0 endPtr = do
   (f3_kraftversionfeature, p4) <- wirePeekKRaftVersionFeature version _fp _basePtr p3 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (Voter { voterVoterId = f0_voterid, voterVoterDirectoryId = f1_voterdirectoryid, voterEndpoints = f2_endpoints, voterKRaftVersionFeature = f3_kraftversionfeature }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultVoter :: Voter
+defaultVoter = Voter { voterVoterId = 0, voterVoterDirectoryId = P.nullUuid, voterEndpoints = P.mkKafkaArray V.empty, voterKRaftVersionFeature = defaultKRaftVersionFeature }
 
 -- | Worst-case wire size of a VotersRecord.
 wireMaxSizeVotersRecord :: Int -> VotersRecord -> Int

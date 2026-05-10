@@ -113,17 +113,22 @@ wireMaxSizeTopicPartitions _version msg =
 wirePokeTopicPartitions :: Int -> Ptr Word8 -> TopicPartitions -> IO (Ptr Word8)
 wirePokeTopicPartitions version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicPartitionsTopic msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (topicPartitionsTopic msg)) else WP.pokeKafkaString p0 (topicPartitionsTopic msg))
   p2 <- WP.pokeVersionedArray version 2 W.pokeInt32BE p1 (topicPartitionsPartitions msg)
   if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for TopicPartitions.
 wirePeekTopicPartitions :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicPartitions, Ptr Word8)
 wirePeekTopicPartitions version _fp _basePtr p0 endPtr = do
-  (f0_topic, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_topic, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 2 W.peekInt32BE p1 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (TopicPartitions { topicPartitionsTopic = f0_topic, topicPartitionsPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicPartitions :: TopicPartitions
+defaultTopicPartitions = TopicPartitions { topicPartitionsTopic = P.KafkaString Null, topicPartitionsPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a ElectLeadersRequest.
 wireMaxSizeElectLeadersRequest :: Int -> ElectLeadersRequest -> Int
@@ -144,13 +149,13 @@ wirePokeElectLeadersRequest version basePtr msg
     pure p2
   | version == 1 = do
     p0 <- pure basePtr
-    p1 <- W.pokeWord8 p0 (fromIntegral (electLeadersRequestElectionType msg))
+    p1 <- (if version >= 1 then W.pokeWord8 p0 (fromIntegral (electLeadersRequestElectionType msg)) else pure p0)
     p2 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeTopicPartitions version p x) p1 (electLeadersRequestTopicPartitions msg)
     p3 <- W.pokeInt32BE p2 (electLeadersRequestTimeoutMs msg)
     pure p3
   | version == 2 = do
     p0 <- pure basePtr
-    p1 <- W.pokeWord8 p0 (fromIntegral (electLeadersRequestElectionType msg))
+    p1 <- (if version >= 1 then W.pokeWord8 p0 (fromIntegral (electLeadersRequestElectionType msg)) else pure p0)
     p2 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeTopicPartitions version p x) p1 (electLeadersRequestTopicPartitions msg)
     p3 <- W.pokeInt32BE p2 (electLeadersRequestTimeoutMs msg)
     WP.pokeEmptyTaggedFields p3
@@ -164,12 +169,12 @@ wirePeekElectLeadersRequest version _fp _basePtr p0 endPtr
     (f1_timeoutms, p2) <- W.peekInt32BE p1 endPtr
     pure (ElectLeadersRequest { electLeadersRequestElectionType = 0, electLeadersRequestTopicPartitions = f0_topicpartitions, electLeadersRequestTimeoutMs = f1_timeoutms }, p2)
   | version == 1 = do
-    (f0_electiontype, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
+    (f0_electiontype, p1) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr else pure (0, p0))
     (f1_topicpartitions, p2) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekTopicPartitions version _fp _basePtr p e) p1 endPtr
     (f2_timeoutms, p3) <- W.peekInt32BE p2 endPtr
     pure (ElectLeadersRequest { electLeadersRequestElectionType = f0_electiontype, electLeadersRequestTopicPartitions = f1_topicpartitions, electLeadersRequestTimeoutMs = f2_timeoutms }, p3)
   | version == 2 = do
-    (f0_electiontype, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
+    (f0_electiontype, p1) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr else pure (0, p0))
     (f1_topicpartitions, p2) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekTopicPartitions version _fp _basePtr p e) p1 endPtr
     (f2_timeoutms, p3) <- W.peekInt32BE p2 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr

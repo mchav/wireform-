@@ -120,17 +120,22 @@ wireMaxSizeAlterReplicaLogDirTopic _version msg =
 wirePokeAlterReplicaLogDirTopic :: Int -> Ptr Word8 -> AlterReplicaLogDirTopic -> IO (Ptr Word8)
 wirePokeAlterReplicaLogDirTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (alterReplicaLogDirTopicName msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (alterReplicaLogDirTopicName msg)) else WP.pokeKafkaString p0 (alterReplicaLogDirTopicName msg))
   p2 <- WP.pokeVersionedArray version 2 W.pokeInt32BE p1 (alterReplicaLogDirTopicPartitions msg)
   if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for AlterReplicaLogDirTopic.
 wirePeekAlterReplicaLogDirTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AlterReplicaLogDirTopic, Ptr Word8)
 wirePeekAlterReplicaLogDirTopic version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 2 W.peekInt32BE p1 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (AlterReplicaLogDirTopic { alterReplicaLogDirTopicName = f0_name, alterReplicaLogDirTopicPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAlterReplicaLogDirTopic :: AlterReplicaLogDirTopic
+defaultAlterReplicaLogDirTopic = AlterReplicaLogDirTopic { alterReplicaLogDirTopicName = P.KafkaString Null, alterReplicaLogDirTopicPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a AlterReplicaLogDir.
 wireMaxSizeAlterReplicaLogDir :: Int -> AlterReplicaLogDir -> Int
@@ -144,17 +149,22 @@ wireMaxSizeAlterReplicaLogDir _version msg =
 wirePokeAlterReplicaLogDir :: Int -> Ptr Word8 -> AlterReplicaLogDir -> IO (Ptr Word8)
 wirePokeAlterReplicaLogDir version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (alterReplicaLogDirPath msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (alterReplicaLogDirPath msg)) else WP.pokeKafkaString p0 (alterReplicaLogDirPath msg))
   p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeAlterReplicaLogDirTopic version p x) p1 (alterReplicaLogDirTopics msg)
   if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for AlterReplicaLogDir.
 wirePeekAlterReplicaLogDir :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AlterReplicaLogDir, Ptr Word8)
 wirePeekAlterReplicaLogDir version _fp _basePtr p0 endPtr = do
-  (f0_path, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_path, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_topics, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekAlterReplicaLogDirTopic version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (AlterReplicaLogDir { alterReplicaLogDirPath = f0_path, alterReplicaLogDirTopics = f1_topics }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAlterReplicaLogDir :: AlterReplicaLogDir
+defaultAlterReplicaLogDir = AlterReplicaLogDir { alterReplicaLogDirPath = P.KafkaString Null, alterReplicaLogDirTopics = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a AlterReplicaLogDirsRequest.
 wireMaxSizeAlterReplicaLogDirsRequest :: Int -> AlterReplicaLogDirsRequest -> Int

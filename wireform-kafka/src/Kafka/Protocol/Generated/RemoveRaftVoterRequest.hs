@@ -98,7 +98,7 @@ wirePokeRemoveRaftVoterRequest :: Int -> Ptr Word8 -> RemoveRaftVoterRequest -> 
 wirePokeRemoveRaftVoterRequest version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (removeRaftVoterRequestClusterId msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (removeRaftVoterRequestClusterId msg)) else WP.pokeKafkaString p0 (removeRaftVoterRequestClusterId msg))
     p2 <- W.pokeInt32BE p1 (removeRaftVoterRequestVoterId msg)
     p3 <- WP.pokeKafkaUuid p2 (removeRaftVoterRequestVoterDirectoryId msg)
     WP.pokeEmptyTaggedFields p3
@@ -108,7 +108,7 @@ wirePokeRemoveRaftVoterRequest version basePtr msg
 wirePeekRemoveRaftVoterRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (RemoveRaftVoterRequest, Ptr Word8)
 wirePeekRemoveRaftVoterRequest version _fp _basePtr p0 endPtr
   | version == 0 = do
-    (f0_clusterid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_clusterid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_voterid, p2) <- W.peekInt32BE p1 endPtr
     (f2_voterdirectoryid, p3) <- WP.peekKafkaUuid p2 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr

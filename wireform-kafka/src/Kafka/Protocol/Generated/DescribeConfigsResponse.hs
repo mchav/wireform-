@@ -206,19 +206,24 @@ wireMaxSizeDescribeConfigsSynonym _version msg =
 wirePokeDescribeConfigsSynonym :: Int -> Ptr Word8 -> DescribeConfigsSynonym -> IO (Ptr Word8)
 wirePokeDescribeConfigsSynonym version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (describeConfigsSynonymName msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeConfigsSynonymValue msg))
-  p3 <- W.pokeWord8 p2 (fromIntegral (describeConfigsSynonymSource msg))
+  p1 <- (if version >= 1 then (if version >= 4 then WP.pokeCompactString p0 (P.toCompactString (describeConfigsSynonymName msg)) else WP.pokeKafkaString p0 (describeConfigsSynonymName msg)) else pure p0)
+  p2 <- (if version >= 1 then (if version >= 4 then WP.pokeCompactString p1 (P.toCompactString (describeConfigsSynonymValue msg)) else WP.pokeKafkaString p1 (describeConfigsSynonymValue msg)) else pure p1)
+  p3 <- (if version >= 1 then W.pokeWord8 p2 (fromIntegral (describeConfigsSynonymSource msg)) else pure p2)
   if version >= 4 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for DescribeConfigsSynonym.
 wirePeekDescribeConfigsSynonym :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeConfigsSynonym, Ptr Word8)
 wirePeekDescribeConfigsSynonym version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_value, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-  (f2_source, p3) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr
+  (f0_name, p1) <- (if version >= 1 then (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
+  (f1_value, p2) <- (if version >= 1 then (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr) else pure (P.KafkaString Null, p1))
+  (f2_source, p3) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr else pure (0, p2))
   pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (DescribeConfigsSynonym { describeConfigsSynonymName = f0_name, describeConfigsSynonymValue = f1_value, describeConfigsSynonymSource = f2_source }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribeConfigsSynonym :: DescribeConfigsSynonym
+defaultDescribeConfigsSynonym = DescribeConfigsSynonym { describeConfigsSynonymName = P.KafkaString Null, describeConfigsSynonymValue = P.KafkaString Null, describeConfigsSynonymSource = 0 }
 
 -- | Worst-case wire size of a DescribeConfigsResourceResult.
 wireMaxSizeDescribeConfigsResourceResult :: Int -> DescribeConfigsResourceResult -> Int
@@ -238,29 +243,34 @@ wireMaxSizeDescribeConfigsResourceResult _version msg =
 wirePokeDescribeConfigsResourceResult :: Int -> Ptr Word8 -> DescribeConfigsResourceResult -> IO (Ptr Word8)
 wirePokeDescribeConfigsResourceResult version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (describeConfigsResourceResultName msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeConfigsResourceResultValue msg))
+  p1 <- (if version >= 4 then WP.pokeCompactString p0 (P.toCompactString (describeConfigsResourceResultName msg)) else WP.pokeKafkaString p0 (describeConfigsResourceResultName msg))
+  p2 <- (if version >= 4 then WP.pokeCompactString p1 (P.toCompactString (describeConfigsResourceResultValue msg)) else WP.pokeKafkaString p1 (describeConfigsResourceResultValue msg))
   p3 <- W.pokeWord8 p2 (if (describeConfigsResourceResultReadOnly msg) then 1 else 0)
-  p4 <- W.pokeWord8 p3 (fromIntegral (describeConfigsResourceResultConfigSource msg))
+  p4 <- (if version >= 1 then W.pokeWord8 p3 (fromIntegral (describeConfigsResourceResultConfigSource msg)) else pure p3)
   p5 <- W.pokeWord8 p4 (if (describeConfigsResourceResultIsSensitive msg) then 1 else 0)
-  p6 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDescribeConfigsSynonym version p x) p5 (describeConfigsResourceResultSynonyms msg)
-  p7 <- W.pokeWord8 p6 (fromIntegral (describeConfigsResourceResultConfigType msg))
-  p8 <- WP.pokeCompactString p7 (P.toCompactString (describeConfigsResourceResultDocumentation msg))
+  p6 <- (if version >= 1 then WP.pokeVersionedArray version 4 (\p x -> wirePokeDescribeConfigsSynonym version p x) p5 (describeConfigsResourceResultSynonyms msg) else pure p5)
+  p7 <- (if version >= 3 then W.pokeWord8 p6 (fromIntegral (describeConfigsResourceResultConfigType msg)) else pure p6)
+  p8 <- (if version >= 3 then (if version >= 4 then WP.pokeCompactString p7 (P.toCompactString (describeConfigsResourceResultDocumentation msg)) else WP.pokeKafkaString p7 (describeConfigsResourceResultDocumentation msg)) else pure p7)
   if version >= 4 then WP.pokeEmptyTaggedFields p8 else pure p8
 
 -- | Direct-poke decoder for DescribeConfigsResourceResult.
 wirePeekDescribeConfigsResourceResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeConfigsResourceResult, Ptr Word8)
 wirePeekDescribeConfigsResourceResult version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_value, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f0_name, p1) <- (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_value, p2) <- (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_readonly, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
-  (f3_configsource, p4) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr
+  (f3_configsource, p4) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p3 endPtr else pure (0, p3))
   (f4_issensitive, p5) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p4 endPtr
-  (f5_synonyms, p6) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDescribeConfigsSynonym version _fp _basePtr p e) p5 endPtr
-  (f6_configtype, p7) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p6 endPtr
-  (f7_documentation, p8) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr
+  (f5_synonyms, p6) <- (if version >= 1 then WP.peekVersionedArray version 4 (\p e -> wirePeekDescribeConfigsSynonym version _fp _basePtr p e) p5 endPtr else pure (P.mkKafkaArray V.empty, p5))
+  (f6_configtype, p7) <- (if version >= 3 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p6 endPtr else pure (0, p6))
+  (f7_documentation, p8) <- (if version >= 3 then (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr else WP.peekKafkaString p7 endPtr) else pure (P.KafkaString Null, p7))
   pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p8 endPtr else pure p8
   pure (DescribeConfigsResourceResult { describeConfigsResourceResultName = f0_name, describeConfigsResourceResultValue = f1_value, describeConfigsResourceResultReadOnly = f2_readonly, describeConfigsResourceResultConfigSource = f3_configsource, describeConfigsResourceResultIsSensitive = f4_issensitive, describeConfigsResourceResultSynonyms = f5_synonyms, describeConfigsResourceResultConfigType = f6_configtype, describeConfigsResourceResultDocumentation = f7_documentation }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribeConfigsResourceResult :: DescribeConfigsResourceResult
+defaultDescribeConfigsResourceResult = DescribeConfigsResourceResult { describeConfigsResourceResultName = P.KafkaString Null, describeConfigsResourceResultValue = P.KafkaString Null, describeConfigsResourceResultReadOnly = False, describeConfigsResourceResultConfigSource = 0, describeConfigsResourceResultIsSensitive = False, describeConfigsResourceResultSynonyms = P.mkKafkaArray V.empty, describeConfigsResourceResultConfigType = 0, describeConfigsResourceResultDocumentation = P.KafkaString Null }
 
 -- | Worst-case wire size of a DescribeConfigsResult.
 wireMaxSizeDescribeConfigsResult :: Int -> DescribeConfigsResult -> Int
@@ -278,9 +288,9 @@ wirePokeDescribeConfigsResult :: Int -> Ptr Word8 -> DescribeConfigsResult -> IO
 wirePokeDescribeConfigsResult version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt16BE p0 (describeConfigsResultErrorCode msg)
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (describeConfigsResultErrorMessage msg))
+  p2 <- (if version >= 4 then WP.pokeCompactString p1 (P.toCompactString (describeConfigsResultErrorMessage msg)) else WP.pokeKafkaString p1 (describeConfigsResultErrorMessage msg))
   p3 <- W.pokeWord8 p2 (fromIntegral (describeConfigsResultResourceType msg))
-  p4 <- WP.pokeCompactString p3 (P.toCompactString (describeConfigsResultResourceName msg))
+  p4 <- (if version >= 4 then WP.pokeCompactString p3 (P.toCompactString (describeConfigsResultResourceName msg)) else WP.pokeKafkaString p3 (describeConfigsResultResourceName msg))
   p5 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDescribeConfigsResourceResult version p x) p4 (describeConfigsResultConfigs msg)
   if version >= 4 then WP.pokeEmptyTaggedFields p5 else pure p5
 
@@ -288,12 +298,17 @@ wirePokeDescribeConfigsResult version basePtr msg = do
 wirePeekDescribeConfigsResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeConfigsResult, Ptr Word8)
 wirePeekDescribeConfigsResult version _fp _basePtr p0 endPtr = do
   (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
-  (f1_errormessage, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f1_errormessage, p2) <- (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_resourcetype, p3) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr
-  (f3_resourcename, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  (f3_resourcename, p4) <- (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
   (f4_configs, p5) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDescribeConfigsResourceResult version _fp _basePtr p e) p4 endPtr
   pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
   pure (DescribeConfigsResult { describeConfigsResultErrorCode = f0_errorcode, describeConfigsResultErrorMessage = f1_errormessage, describeConfigsResultResourceType = f2_resourcetype, describeConfigsResultResourceName = f3_resourcename, describeConfigsResultConfigs = f4_configs }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDescribeConfigsResult :: DescribeConfigsResult
+defaultDescribeConfigsResult = DescribeConfigsResult { describeConfigsResultErrorCode = 0, describeConfigsResultErrorMessage = P.KafkaString Null, describeConfigsResultResourceType = 0, describeConfigsResultResourceName = P.KafkaString Null, describeConfigsResultConfigs = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a DescribeConfigsResponse.
 wireMaxSizeDescribeConfigsResponse :: Int -> DescribeConfigsResponse -> Int

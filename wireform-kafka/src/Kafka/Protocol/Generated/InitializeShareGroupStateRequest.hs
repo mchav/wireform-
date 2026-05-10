@@ -147,6 +147,11 @@ wirePeekPartitionData version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (PartitionData { partitionDataPartition = f0_partition, partitionDataStateEpoch = f1_stateepoch, partitionDataStartOffset = f2_startoffset }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultPartitionData :: PartitionData
+defaultPartitionData = PartitionData { partitionDataPartition = 0, partitionDataStateEpoch = 0, partitionDataStartOffset = 0 }
+
 -- | Worst-case wire size of a InitializeStateData.
 wireMaxSizeInitializeStateData :: Int -> InitializeStateData -> Int
 wireMaxSizeInitializeStateData _version msg =
@@ -171,6 +176,11 @@ wirePeekInitializeStateData version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (InitializeStateData { initializeStateDataTopicId = f0_topicid, initializeStateDataPartitions = f1_partitions }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultInitializeStateData :: InitializeStateData
+defaultInitializeStateData = InitializeStateData { initializeStateDataTopicId = P.nullUuid, initializeStateDataPartitions = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a InitializeShareGroupStateRequest.
 wireMaxSizeInitializeShareGroupStateRequest :: Int -> InitializeShareGroupStateRequest -> Int
 wireMaxSizeInitializeShareGroupStateRequest _version msg =
@@ -184,7 +194,7 @@ wirePokeInitializeShareGroupStateRequest :: Int -> Ptr Word8 -> InitializeShareG
 wirePokeInitializeShareGroupStateRequest version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (initializeShareGroupStateRequestGroupId msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (initializeShareGroupStateRequestGroupId msg)) else WP.pokeKafkaString p0 (initializeShareGroupStateRequestGroupId msg))
     p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeInitializeStateData version p x) p1 (initializeShareGroupStateRequestTopics msg)
     WP.pokeEmptyTaggedFields p2
   | otherwise = error $ "wirePoke InitializeShareGroupStateRequest : unsupported version: " ++ show version
@@ -193,7 +203,7 @@ wirePokeInitializeShareGroupStateRequest version basePtr msg
 wirePeekInitializeShareGroupStateRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (InitializeShareGroupStateRequest, Ptr Word8)
 wirePeekInitializeShareGroupStateRequest version _fp _basePtr p0 endPtr
   | version == 0 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekInitializeStateData version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (InitializeShareGroupStateRequest { initializeShareGroupStateRequestGroupId = f0_groupid, initializeShareGroupStateRequestTopics = f1_topics }, pTagsEnd)

@@ -16,6 +16,7 @@ import qualified Kafka.Client.Internal.BatchAccumulator as BA
 import qualified Kafka.Client.Internal.ProducerSender as Sender
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.RecordBatch as RB
+import qualified Kafka.Protocol.RecordBatchWire as RBW
 import qualified Kafka.Telemetry.StatsJson as Stats
 
 benchmarks :: Benchmark
@@ -35,10 +36,10 @@ benchmarks = bgroup "StatsAndStamping"
           whnf Sender.buildRecordBatch (sampleBatch True 32)
       ]
   , bgroup "encode-record-batch"
-      [ bench "encodeRecordBatch (1 record)" $
-          nf RB.encodeRecordBatch (Sender.buildRecordBatch (sampleBatch False 1))
-      , bench "encodeRecordBatch (32 records)" $
-          nf RB.encodeRecordBatch (Sender.buildRecordBatch (sampleBatch False 32))
+      [ bench "encodeRecordBatchWire (1 record)" $
+          nf RBW.encodeRecordBatchWire (Sender.buildRecordBatch (sampleBatch False 1))
+      , bench "encodeRecordBatchWire (32 records)" $
+          nf RBW.encodeRecordBatchWire (Sender.buildRecordBatch (sampleBatch False 32))
       ]
   ]
 

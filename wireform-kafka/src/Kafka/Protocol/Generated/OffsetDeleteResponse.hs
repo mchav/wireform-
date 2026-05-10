@@ -143,6 +143,11 @@ wirePeekOffsetDeleteResponsePartition version _fp _basePtr p0 endPtr = do
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
   pure (OffsetDeleteResponsePartition { offsetDeleteResponsePartitionPartitionIndex = f0_partitionindex, offsetDeleteResponsePartitionErrorCode = f1_errorcode }, p2)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultOffsetDeleteResponsePartition :: OffsetDeleteResponsePartition
+defaultOffsetDeleteResponsePartition = OffsetDeleteResponsePartition { offsetDeleteResponsePartitionPartitionIndex = 0, offsetDeleteResponsePartitionErrorCode = 0 }
+
 -- | Worst-case wire size of a OffsetDeleteResponseTopic.
 wireMaxSizeOffsetDeleteResponseTopic :: Int -> OffsetDeleteResponseTopic -> Int
 wireMaxSizeOffsetDeleteResponseTopic _version msg =
@@ -165,6 +170,11 @@ wirePeekOffsetDeleteResponseTopic version _fp _basePtr p0 endPtr = do
   (f0_name, p1) <- WP.peekKafkaString p0 endPtr
   (f1_partitions, p2) <- WP.peekKafkaArray (\p e -> wirePeekOffsetDeleteResponsePartition version _fp _basePtr p e) p1 endPtr
   pure (OffsetDeleteResponseTopic { offsetDeleteResponseTopicName = f0_name, offsetDeleteResponseTopicPartitions = f1_partitions }, p2)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultOffsetDeleteResponseTopic :: OffsetDeleteResponseTopic
+defaultOffsetDeleteResponseTopic = OffsetDeleteResponseTopic { offsetDeleteResponseTopicName = P.KafkaString Null, offsetDeleteResponseTopicPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a OffsetDeleteResponse.
 wireMaxSizeOffsetDeleteResponse :: Int -> OffsetDeleteResponse -> Int

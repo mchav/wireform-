@@ -142,7 +142,7 @@ wirePokeEpochEndOffset version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt16BE p0 (epochEndOffsetErrorCode msg)
   p2 <- W.pokeInt32BE p1 (epochEndOffsetPartition msg)
-  p3 <- W.pokeInt32BE p2 (epochEndOffsetLeaderEpoch msg)
+  p3 <- (if version >= 1 then W.pokeInt32BE p2 (epochEndOffsetLeaderEpoch msg) else pure p2)
   p4 <- W.pokeInt64BE p3 (epochEndOffsetEndOffset msg)
   if version >= 4 then WP.pokeEmptyTaggedFields p4 else pure p4
 
@@ -151,10 +151,15 @@ wirePeekEpochEndOffset :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> P
 wirePeekEpochEndOffset version _fp _basePtr p0 endPtr = do
   (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
   (f1_partition, p2) <- W.peekInt32BE p1 endPtr
-  (f2_leaderepoch, p3) <- W.peekInt32BE p2 endPtr
+  (f2_leaderepoch, p3) <- (if version >= 1 then W.peekInt32BE p2 endPtr else pure (0, p2))
   (f3_endoffset, p4) <- W.peekInt64BE p3 endPtr
   pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (EpochEndOffset { epochEndOffsetErrorCode = f0_errorcode, epochEndOffsetPartition = f1_partition, epochEndOffsetLeaderEpoch = f2_leaderepoch, epochEndOffsetEndOffset = f3_endoffset }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultEpochEndOffset :: EpochEndOffset
+defaultEpochEndOffset = EpochEndOffset { epochEndOffsetErrorCode = 0, epochEndOffsetPartition = 0, epochEndOffsetLeaderEpoch = 0, epochEndOffsetEndOffset = 0 }
 
 -- | Worst-case wire size of a OffsetForLeaderTopicResult.
 wireMaxSizeOffsetForLeaderTopicResult :: Int -> OffsetForLeaderTopicResult -> Int
@@ -168,17 +173,22 @@ wireMaxSizeOffsetForLeaderTopicResult _version msg =
 wirePokeOffsetForLeaderTopicResult :: Int -> Ptr Word8 -> OffsetForLeaderTopicResult -> IO (Ptr Word8)
 wirePokeOffsetForLeaderTopicResult version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (offsetForLeaderTopicResultTopic msg))
+  p1 <- (if version >= 4 then WP.pokeCompactString p0 (P.toCompactString (offsetForLeaderTopicResultTopic msg)) else WP.pokeKafkaString p0 (offsetForLeaderTopicResultTopic msg))
   p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeEpochEndOffset version p x) p1 (offsetForLeaderTopicResultPartitions msg)
   if version >= 4 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for OffsetForLeaderTopicResult.
 wirePeekOffsetForLeaderTopicResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OffsetForLeaderTopicResult, Ptr Word8)
 wirePeekOffsetForLeaderTopicResult version _fp _basePtr p0 endPtr = do
-  (f0_topic, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_topic, p1) <- (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekEpochEndOffset version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (OffsetForLeaderTopicResult { offsetForLeaderTopicResultTopic = f0_topic, offsetForLeaderTopicResultPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultOffsetForLeaderTopicResult :: OffsetForLeaderTopicResult
+defaultOffsetForLeaderTopicResult = OffsetForLeaderTopicResult { offsetForLeaderTopicResultTopic = P.KafkaString Null, offsetForLeaderTopicResultPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a OffsetForLeaderEpochResponse.
 wireMaxSizeOffsetForLeaderEpochResponse :: Int -> OffsetForLeaderEpochResponse -> Int
@@ -193,12 +203,12 @@ wirePokeOffsetForLeaderEpochResponse :: Int -> Ptr Word8 -> OffsetForLeaderEpoch
 wirePokeOffsetForLeaderEpochResponse version basePtr msg
   | version == 4 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (offsetForLeaderEpochResponseThrottleTimeMs msg)
+    p1 <- (if version >= 2 then W.pokeInt32BE p0 (offsetForLeaderEpochResponseThrottleTimeMs msg) else pure p0)
     p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeOffsetForLeaderTopicResult version p x) p1 (offsetForLeaderEpochResponseTopics msg)
     WP.pokeEmptyTaggedFields p2
   | version >= 2 && version <= 3 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (offsetForLeaderEpochResponseThrottleTimeMs msg)
+    p1 <- (if version >= 2 then W.pokeInt32BE p0 (offsetForLeaderEpochResponseThrottleTimeMs msg) else pure p0)
     p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeOffsetForLeaderTopicResult version p x) p1 (offsetForLeaderEpochResponseTopics msg)
     pure p2
   | otherwise = error $ "wirePoke OffsetForLeaderEpochResponse : unsupported version: " ++ show version
@@ -207,12 +217,12 @@ wirePokeOffsetForLeaderEpochResponse version basePtr msg
 wirePeekOffsetForLeaderEpochResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OffsetForLeaderEpochResponse, Ptr Word8)
 wirePeekOffsetForLeaderEpochResponse version _fp _basePtr p0 endPtr
   | version == 4 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_topics, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderTopicResult version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (OffsetForLeaderEpochResponse { offsetForLeaderEpochResponseThrottleTimeMs = f0_throttletimems, offsetForLeaderEpochResponseTopics = f1_topics }, pTagsEnd)
   | version >= 2 && version <= 3 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_topics, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekOffsetForLeaderTopicResult version _fp _basePtr p e) p1 endPtr
     pure (OffsetForLeaderEpochResponse { offsetForLeaderEpochResponseThrottleTimeMs = f0_throttletimems, offsetForLeaderEpochResponseTopics = f1_topics }, p2)
   | otherwise = error $ "wirePeek OffsetForLeaderEpochResponse : unsupported version: " ++ show version

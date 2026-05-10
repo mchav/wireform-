@@ -94,15 +94,20 @@ wireMaxSizeUserName _version msg =
 wirePokeUserName :: Int -> Ptr Word8 -> UserName -> IO (Ptr Word8)
 wirePokeUserName version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (userNameName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (userNameName msg)) else WP.pokeKafkaString p0 (userNameName msg))
   if version >= 0 then WP.pokeEmptyTaggedFields p1 else pure p1
 
 -- | Direct-poke decoder for UserName.
 wirePeekUserName :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (UserName, Ptr Word8)
 wirePeekUserName version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p1 endPtr else pure p1
   pure (UserName { userNameName = f0_name }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultUserName :: UserName
+defaultUserName = UserName { userNameName = P.KafkaString Null }
 
 -- | Worst-case wire size of a DescribeUserScramCredentialsRequest.
 wireMaxSizeDescribeUserScramCredentialsRequest :: Int -> DescribeUserScramCredentialsRequest -> Int

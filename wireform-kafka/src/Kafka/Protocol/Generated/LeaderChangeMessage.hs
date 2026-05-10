@@ -115,16 +115,21 @@ wirePokeVoter :: Int -> Ptr Word8 -> Voter -> IO (Ptr Word8)
 wirePokeVoter version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt32BE p0 (voterVoterId msg)
-  p2 <- WP.pokeKafkaUuid p1 (voterVoterDirectoryId msg)
+  p2 <- (if version >= 1 then WP.pokeKafkaUuid p1 (voterVoterDirectoryId msg) else pure p1)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for Voter.
 wirePeekVoter :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Voter, Ptr Word8)
 wirePeekVoter version _fp _basePtr p0 endPtr = do
   (f0_voterid, p1) <- W.peekInt32BE p0 endPtr
-  (f1_voterdirectoryid, p2) <- WP.peekKafkaUuid p1 endPtr
+  (f1_voterdirectoryid, p2) <- (if version >= 1 then WP.peekKafkaUuid p1 endPtr else pure (P.nullUuid, p1))
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (Voter { voterVoterId = f0_voterid, voterVoterDirectoryId = f1_voterdirectoryid }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultVoter :: Voter
+defaultVoter = Voter { voterVoterId = 0, voterVoterDirectoryId = P.nullUuid }
 
 -- | Worst-case wire size of a LeaderChangeMessage.
 wireMaxSizeLeaderChangeMessage :: Int -> LeaderChangeMessage -> Int

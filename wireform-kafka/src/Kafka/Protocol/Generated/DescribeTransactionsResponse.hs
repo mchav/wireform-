@@ -162,17 +162,22 @@ wireMaxSizeTopicData _version msg =
 wirePokeTopicData :: Int -> Ptr Word8 -> TopicData -> IO (Ptr Word8)
 wirePokeTopicData version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (topicDataTopic msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (topicDataTopic msg)) else WP.pokeKafkaString p0 (topicDataTopic msg))
   p2 <- WP.pokeVersionedArray version 0 W.pokeInt32BE p1 (topicDataPartitions msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for TopicData.
 wirePeekTopicData :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TopicData, Ptr Word8)
 wirePeekTopicData version _fp _basePtr p0 endPtr = do
-  (f0_topic, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_topic, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 0 W.peekInt32BE p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (TopicData { topicDataTopic = f0_topic, topicDataPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicData :: TopicData
+defaultTopicData = TopicData { topicDataTopic = P.KafkaString Null, topicDataPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a TransactionState.
 wireMaxSizeTransactionState :: Int -> TransactionState -> Int
@@ -193,8 +198,8 @@ wirePokeTransactionState :: Int -> Ptr Word8 -> TransactionState -> IO (Ptr Word
 wirePokeTransactionState version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeInt16BE p0 (transactionStateErrorCode msg)
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (transactionStateTransactionalId msg))
-  p3 <- WP.pokeCompactString p2 (P.toCompactString (transactionStateTransactionState msg))
+  p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (transactionStateTransactionalId msg)) else WP.pokeKafkaString p1 (transactionStateTransactionalId msg))
+  p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (transactionStateTransactionState msg)) else WP.pokeKafkaString p2 (transactionStateTransactionState msg))
   p4 <- W.pokeInt32BE p3 (transactionStateTransactionTimeoutMs msg)
   p5 <- W.pokeInt64BE p4 (transactionStateTransactionStartTimeMs msg)
   p6 <- W.pokeInt64BE p5 (transactionStateProducerId msg)
@@ -206,8 +211,8 @@ wirePokeTransactionState version basePtr msg = do
 wirePeekTransactionState :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TransactionState, Ptr Word8)
 wirePeekTransactionState version _fp _basePtr p0 endPtr = do
   (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
-  (f1_transactionalid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-  (f2_transactionstate, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+  (f1_transactionalid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  (f2_transactionstate, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   (f3_transactiontimeoutms, p4) <- W.peekInt32BE p3 endPtr
   (f4_transactionstarttimems, p5) <- W.peekInt64BE p4 endPtr
   (f5_producerid, p6) <- W.peekInt64BE p5 endPtr
@@ -215,6 +220,11 @@ wirePeekTransactionState version _fp _basePtr p0 endPtr = do
   (f7_topics, p8) <- WP.peekVersionedArray version 0 (\p e -> wirePeekTopicData version _fp _basePtr p e) p7 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p8 endPtr else pure p8
   pure (TransactionState { transactionStateErrorCode = f0_errorcode, transactionStateTransactionalId = f1_transactionalid, transactionStateTransactionState = f2_transactionstate, transactionStateTransactionTimeoutMs = f3_transactiontimeoutms, transactionStateTransactionStartTimeMs = f4_transactionstarttimems, transactionStateProducerId = f5_producerid, transactionStateProducerEpoch = f6_producerepoch, transactionStateTopics = f7_topics }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTransactionState :: TransactionState
+defaultTransactionState = TransactionState { transactionStateErrorCode = 0, transactionStateTransactionalId = P.KafkaString Null, transactionStateTransactionState = P.KafkaString Null, transactionStateTransactionTimeoutMs = 0, transactionStateTransactionStartTimeMs = 0, transactionStateProducerId = 0, transactionStateProducerEpoch = 0, transactionStateTopics = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a DescribeTransactionsResponse.
 wireMaxSizeDescribeTransactionsResponse :: Int -> DescribeTransactionsResponse -> Int

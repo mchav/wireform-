@@ -100,7 +100,7 @@ wirePokeUnregisterBrokerResponse version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (unregisterBrokerResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (unregisterBrokerResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (unregisterBrokerResponseErrorMessage msg))
+    p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (unregisterBrokerResponseErrorMessage msg)) else WP.pokeKafkaString p2 (unregisterBrokerResponseErrorMessage msg))
     WP.pokeEmptyTaggedFields p3
   | otherwise = error $ "wirePoke UnregisterBrokerResponse : unsupported version: " ++ show version
 
@@ -110,7 +110,7 @@ wirePeekUnregisterBrokerResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (UnregisterBrokerResponse { unregisterBrokerResponseThrottleTimeMs = f0_throttletimems, unregisterBrokerResponseErrorCode = f1_errorcode, unregisterBrokerResponseErrorMessage = f2_errormessage }, pTagsEnd)
   | otherwise = error $ "wirePeek UnregisterBrokerResponse : unsupported version: " ++ show version

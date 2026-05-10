@@ -137,10 +137,10 @@ wirePokeAclCreation :: Int -> Ptr Word8 -> AclCreation -> IO (Ptr Word8)
 wirePokeAclCreation version basePtr msg = do
   p0 <- pure basePtr
   p1 <- W.pokeWord8 p0 (fromIntegral (aclCreationResourceType msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (aclCreationResourceName msg))
-  p3 <- W.pokeWord8 p2 (fromIntegral (aclCreationResourcePatternType msg))
-  p4 <- WP.pokeCompactString p3 (P.toCompactString (aclCreationPrincipal msg))
-  p5 <- WP.pokeCompactString p4 (P.toCompactString (aclCreationHost msg))
+  p2 <- (if version >= 2 then WP.pokeCompactString p1 (P.toCompactString (aclCreationResourceName msg)) else WP.pokeKafkaString p1 (aclCreationResourceName msg))
+  p3 <- (if version >= 1 then W.pokeWord8 p2 (fromIntegral (aclCreationResourcePatternType msg)) else pure p2)
+  p4 <- (if version >= 2 then WP.pokeCompactString p3 (P.toCompactString (aclCreationPrincipal msg)) else WP.pokeKafkaString p3 (aclCreationPrincipal msg))
+  p5 <- (if version >= 2 then WP.pokeCompactString p4 (P.toCompactString (aclCreationHost msg)) else WP.pokeKafkaString p4 (aclCreationHost msg))
   p6 <- W.pokeWord8 p5 (fromIntegral (aclCreationOperation msg))
   p7 <- W.pokeWord8 p6 (fromIntegral (aclCreationPermissionType msg))
   if version >= 2 then WP.pokeEmptyTaggedFields p7 else pure p7
@@ -149,14 +149,19 @@ wirePokeAclCreation version basePtr msg = do
 wirePeekAclCreation :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AclCreation, Ptr Word8)
 wirePeekAclCreation version _fp _basePtr p0 endPtr = do
   (f0_resourcetype, p1) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p0 endPtr
-  (f1_resourcename, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
-  (f2_resourcepatterntype, p3) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr
-  (f3_principal, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
-  (f4_host, p5) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr
+  (f1_resourcename, p2) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+  (f2_resourcepatterntype, p3) <- (if version >= 1 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p2 endPtr else pure (0, p2))
+  (f3_principal, p4) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+  (f4_host, p5) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
   (f5_operation, p6) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p5 endPtr
   (f6_permissiontype, p7) <- (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p6 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p7 endPtr else pure p7
   pure (AclCreation { aclCreationResourceType = f0_resourcetype, aclCreationResourceName = f1_resourcename, aclCreationResourcePatternType = f2_resourcepatterntype, aclCreationPrincipal = f3_principal, aclCreationHost = f4_host, aclCreationOperation = f5_operation, aclCreationPermissionType = f6_permissiontype }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAclCreation :: AclCreation
+defaultAclCreation = AclCreation { aclCreationResourceType = 0, aclCreationResourceName = P.KafkaString Null, aclCreationResourcePatternType = 0, aclCreationPrincipal = P.KafkaString Null, aclCreationHost = P.KafkaString Null, aclCreationOperation = 0, aclCreationPermissionType = 0 }
 
 -- | Worst-case wire size of a CreateAclsRequest.
 wireMaxSizeCreateAclsRequest :: Int -> CreateAclsRequest -> Int

@@ -188,8 +188,8 @@ wireMaxSizeListener _version msg =
 wirePokeListener :: Int -> Ptr Word8 -> Listener -> IO (Ptr Word8)
 wirePokeListener version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (listenerName msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (listenerHost msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (listenerName msg)) else WP.pokeKafkaString p0 (listenerName msg))
+  p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (listenerHost msg)) else WP.pokeKafkaString p1 (listenerHost msg))
   p3 <- W.pokeWord16BE p2 (listenerPort msg)
   p4 <- W.pokeInt16BE p3 (listenerSecurityProtocol msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p4 else pure p4
@@ -197,12 +197,17 @@ wirePokeListener version basePtr msg = do
 -- | Direct-poke decoder for Listener.
 wirePeekListener :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Listener, Ptr Word8)
 wirePeekListener version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_host, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_port, p3) <- W.peekWord16BE p2 endPtr
   (f3_securityprotocol, p4) <- W.peekInt16BE p3 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (Listener { listenerName = f0_name, listenerHost = f1_host, listenerPort = f2_port, listenerSecurityProtocol = f3_securityprotocol }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultListener :: Listener
+defaultListener = Listener { listenerName = P.KafkaString Null, listenerHost = P.KafkaString Null, listenerPort = 0, listenerSecurityProtocol = 0 }
 
 -- | Worst-case wire size of a Feature.
 wireMaxSizeFeature :: Int -> Feature -> Int
@@ -217,7 +222,7 @@ wireMaxSizeFeature _version msg =
 wirePokeFeature :: Int -> Ptr Word8 -> Feature -> IO (Ptr Word8)
 wirePokeFeature version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (featureName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (featureName msg)) else WP.pokeKafkaString p0 (featureName msg))
   p2 <- W.pokeInt16BE p1 (featureMinSupportedVersion msg)
   p3 <- W.pokeInt16BE p2 (featureMaxSupportedVersion msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
@@ -225,11 +230,16 @@ wirePokeFeature version basePtr msg = do
 -- | Direct-poke decoder for Feature.
 wirePeekFeature :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Feature, Ptr Word8)
 wirePeekFeature version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_minsupportedversion, p2) <- W.peekInt16BE p1 endPtr
   (f2_maxsupportedversion, p3) <- W.peekInt16BE p2 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (Feature { featureName = f0_name, featureMinSupportedVersion = f1_minsupportedversion, featureMaxSupportedVersion = f2_maxsupportedversion }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultFeature :: Feature
+defaultFeature = Feature { featureName = P.KafkaString Null, featureMinSupportedVersion = 0, featureMaxSupportedVersion = 0 }
 
 -- | Worst-case wire size of a BrokerRegistrationRequest.
 wireMaxSizeBrokerRegistrationRequest :: Int -> BrokerRegistrationRequest -> Int
@@ -252,44 +262,44 @@ wirePokeBrokerRegistrationRequest version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (brokerRegistrationRequestBrokerId msg)
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (brokerRegistrationRequestClusterId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (brokerRegistrationRequestClusterId msg)) else WP.pokeKafkaString p1 (brokerRegistrationRequestClusterId msg))
     p3 <- WP.pokeKafkaUuid p2 (brokerRegistrationRequestIncarnationId msg)
     p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeListener version p x) p3 (brokerRegistrationRequestListeners msg)
     p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeFeature version p x) p4 (brokerRegistrationRequestFeatures msg)
-    p6 <- WP.pokeCompactString p5 (P.toCompactString (brokerRegistrationRequestRack msg))
+    p6 <- (if version >= 0 then WP.pokeCompactString p5 (P.toCompactString (brokerRegistrationRequestRack msg)) else WP.pokeKafkaString p5 (brokerRegistrationRequestRack msg))
     WP.pokeEmptyTaggedFields p6
   | version == 1 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (brokerRegistrationRequestBrokerId msg)
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (brokerRegistrationRequestClusterId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (brokerRegistrationRequestClusterId msg)) else WP.pokeKafkaString p1 (brokerRegistrationRequestClusterId msg))
     p3 <- WP.pokeKafkaUuid p2 (brokerRegistrationRequestIncarnationId msg)
     p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeListener version p x) p3 (brokerRegistrationRequestListeners msg)
     p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeFeature version p x) p4 (brokerRegistrationRequestFeatures msg)
-    p6 <- WP.pokeCompactString p5 (P.toCompactString (brokerRegistrationRequestRack msg))
-    p7 <- W.pokeWord8 p6 (if (brokerRegistrationRequestIsMigratingZkBroker msg) then 1 else 0)
+    p6 <- (if version >= 0 then WP.pokeCompactString p5 (P.toCompactString (brokerRegistrationRequestRack msg)) else WP.pokeKafkaString p5 (brokerRegistrationRequestRack msg))
+    p7 <- (if version >= 1 then W.pokeWord8 p6 (if (brokerRegistrationRequestIsMigratingZkBroker msg) then 1 else 0) else pure p6)
     WP.pokeEmptyTaggedFields p7
   | version == 2 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (brokerRegistrationRequestBrokerId msg)
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (brokerRegistrationRequestClusterId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (brokerRegistrationRequestClusterId msg)) else WP.pokeKafkaString p1 (brokerRegistrationRequestClusterId msg))
     p3 <- WP.pokeKafkaUuid p2 (brokerRegistrationRequestIncarnationId msg)
     p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeListener version p x) p3 (brokerRegistrationRequestListeners msg)
     p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeFeature version p x) p4 (brokerRegistrationRequestFeatures msg)
-    p6 <- WP.pokeCompactString p5 (P.toCompactString (brokerRegistrationRequestRack msg))
-    p7 <- W.pokeWord8 p6 (if (brokerRegistrationRequestIsMigratingZkBroker msg) then 1 else 0)
-    p8 <- WP.pokeVersionedArray version 0 WP.pokeKafkaUuid p7 (brokerRegistrationRequestLogDirs msg)
+    p6 <- (if version >= 0 then WP.pokeCompactString p5 (P.toCompactString (brokerRegistrationRequestRack msg)) else WP.pokeKafkaString p5 (brokerRegistrationRequestRack msg))
+    p7 <- (if version >= 1 then W.pokeWord8 p6 (if (brokerRegistrationRequestIsMigratingZkBroker msg) then 1 else 0) else pure p6)
+    p8 <- (if version >= 2 then WP.pokeVersionedArray version 0 WP.pokeKafkaUuid p7 (brokerRegistrationRequestLogDirs msg) else pure p7)
     WP.pokeEmptyTaggedFields p8
   | version >= 3 && version <= 4 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (brokerRegistrationRequestBrokerId msg)
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (brokerRegistrationRequestClusterId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (brokerRegistrationRequestClusterId msg)) else WP.pokeKafkaString p1 (brokerRegistrationRequestClusterId msg))
     p3 <- WP.pokeKafkaUuid p2 (brokerRegistrationRequestIncarnationId msg)
     p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeListener version p x) p3 (brokerRegistrationRequestListeners msg)
     p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeFeature version p x) p4 (brokerRegistrationRequestFeatures msg)
-    p6 <- WP.pokeCompactString p5 (P.toCompactString (brokerRegistrationRequestRack msg))
-    p7 <- W.pokeWord8 p6 (if (brokerRegistrationRequestIsMigratingZkBroker msg) then 1 else 0)
-    p8 <- WP.pokeVersionedArray version 0 WP.pokeKafkaUuid p7 (brokerRegistrationRequestLogDirs msg)
-    p9 <- W.pokeInt64BE p8 (brokerRegistrationRequestPreviousBrokerEpoch msg)
+    p6 <- (if version >= 0 then WP.pokeCompactString p5 (P.toCompactString (brokerRegistrationRequestRack msg)) else WP.pokeKafkaString p5 (brokerRegistrationRequestRack msg))
+    p7 <- (if version >= 1 then W.pokeWord8 p6 (if (brokerRegistrationRequestIsMigratingZkBroker msg) then 1 else 0) else pure p6)
+    p8 <- (if version >= 2 then WP.pokeVersionedArray version 0 WP.pokeKafkaUuid p7 (brokerRegistrationRequestLogDirs msg) else pure p7)
+    p9 <- (if version >= 3 then W.pokeInt64BE p8 (brokerRegistrationRequestPreviousBrokerEpoch msg) else pure p8)
     WP.pokeEmptyTaggedFields p9
   | otherwise = error $ "wirePoke BrokerRegistrationRequest : unsupported version: " ++ show version
 
@@ -298,44 +308,44 @@ wirePeekBrokerRegistrationRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr
 wirePeekBrokerRegistrationRequest version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
-    (f1_clusterid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f1_clusterid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_incarnationid, p3) <- WP.peekKafkaUuid p2 endPtr
     (f3_listeners, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekListener version _fp _basePtr p e) p3 endPtr
     (f4_features, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekFeature version _fp _basePtr p e) p4 endPtr
-    (f5_rack, p6) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr
+    (f5_rack, p6) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
     pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
     pure (BrokerRegistrationRequest { brokerRegistrationRequestBrokerId = f0_brokerid, brokerRegistrationRequestClusterId = f1_clusterid, brokerRegistrationRequestIncarnationId = f2_incarnationid, brokerRegistrationRequestListeners = f3_listeners, brokerRegistrationRequestFeatures = f4_features, brokerRegistrationRequestRack = f5_rack, brokerRegistrationRequestIsMigratingZkBroker = False, brokerRegistrationRequestLogDirs = P.mkKafkaArray V.empty, brokerRegistrationRequestPreviousBrokerEpoch = 0 }, pTagsEnd)
   | version == 1 = do
     (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
-    (f1_clusterid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f1_clusterid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_incarnationid, p3) <- WP.peekKafkaUuid p2 endPtr
     (f3_listeners, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekListener version _fp _basePtr p e) p3 endPtr
     (f4_features, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekFeature version _fp _basePtr p e) p4 endPtr
-    (f5_rack, p6) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr
-    (f6_ismigratingzkbroker, p7) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p6 endPtr
+    (f5_rack, p6) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
+    (f6_ismigratingzkbroker, p7) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p6 endPtr else pure (False, p6))
     pTagsEnd <- WP.peekAndSkipTaggedFields p7 endPtr
     pure (BrokerRegistrationRequest { brokerRegistrationRequestBrokerId = f0_brokerid, brokerRegistrationRequestClusterId = f1_clusterid, brokerRegistrationRequestIncarnationId = f2_incarnationid, brokerRegistrationRequestListeners = f3_listeners, brokerRegistrationRequestFeatures = f4_features, brokerRegistrationRequestRack = f5_rack, brokerRegistrationRequestIsMigratingZkBroker = f6_ismigratingzkbroker, brokerRegistrationRequestLogDirs = P.mkKafkaArray V.empty, brokerRegistrationRequestPreviousBrokerEpoch = 0 }, pTagsEnd)
   | version == 2 = do
     (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
-    (f1_clusterid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f1_clusterid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_incarnationid, p3) <- WP.peekKafkaUuid p2 endPtr
     (f3_listeners, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekListener version _fp _basePtr p e) p3 endPtr
     (f4_features, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekFeature version _fp _basePtr p e) p4 endPtr
-    (f5_rack, p6) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr
-    (f6_ismigratingzkbroker, p7) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p6 endPtr
-    (f7_logdirs, p8) <- WP.peekVersionedArray version 0 WP.peekKafkaUuid p7 endPtr
+    (f5_rack, p6) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
+    (f6_ismigratingzkbroker, p7) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p6 endPtr else pure (False, p6))
+    (f7_logdirs, p8) <- (if version >= 2 then WP.peekVersionedArray version 0 WP.peekKafkaUuid p7 endPtr else pure (P.mkKafkaArray V.empty, p7))
     pTagsEnd <- WP.peekAndSkipTaggedFields p8 endPtr
     pure (BrokerRegistrationRequest { brokerRegistrationRequestBrokerId = f0_brokerid, brokerRegistrationRequestClusterId = f1_clusterid, brokerRegistrationRequestIncarnationId = f2_incarnationid, brokerRegistrationRequestListeners = f3_listeners, brokerRegistrationRequestFeatures = f4_features, brokerRegistrationRequestRack = f5_rack, brokerRegistrationRequestIsMigratingZkBroker = f6_ismigratingzkbroker, brokerRegistrationRequestLogDirs = f7_logdirs, brokerRegistrationRequestPreviousBrokerEpoch = 0 }, pTagsEnd)
   | version >= 3 && version <= 4 = do
     (f0_brokerid, p1) <- W.peekInt32BE p0 endPtr
-    (f1_clusterid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f1_clusterid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_incarnationid, p3) <- WP.peekKafkaUuid p2 endPtr
     (f3_listeners, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekListener version _fp _basePtr p e) p3 endPtr
     (f4_features, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekFeature version _fp _basePtr p e) p4 endPtr
-    (f5_rack, p6) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr
-    (f6_ismigratingzkbroker, p7) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p6 endPtr
-    (f7_logdirs, p8) <- WP.peekVersionedArray version 0 WP.peekKafkaUuid p7 endPtr
-    (f8_previousbrokerepoch, p9) <- W.peekInt64BE p8 endPtr
+    (f5_rack, p6) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p5 endPtr else WP.peekKafkaString p5 endPtr)
+    (f6_ismigratingzkbroker, p7) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p6 endPtr else pure (False, p6))
+    (f7_logdirs, p8) <- (if version >= 2 then WP.peekVersionedArray version 0 WP.peekKafkaUuid p7 endPtr else pure (P.mkKafkaArray V.empty, p7))
+    (f8_previousbrokerepoch, p9) <- (if version >= 3 then W.peekInt64BE p8 endPtr else pure (0, p8))
     pTagsEnd <- WP.peekAndSkipTaggedFields p9 endPtr
     pure (BrokerRegistrationRequest { brokerRegistrationRequestBrokerId = f0_brokerid, brokerRegistrationRequestClusterId = f1_clusterid, brokerRegistrationRequestIncarnationId = f2_incarnationid, brokerRegistrationRequestListeners = f3_listeners, brokerRegistrationRequestFeatures = f4_features, brokerRegistrationRequestRack = f5_rack, brokerRegistrationRequestIsMigratingZkBroker = f6_ismigratingzkbroker, brokerRegistrationRequestLogDirs = f7_logdirs, brokerRegistrationRequestPreviousBrokerEpoch = f8_previousbrokerepoch }, pTagsEnd)
   | otherwise = error $ "wirePeek BrokerRegistrationRequest : unsupported version: " ++ show version

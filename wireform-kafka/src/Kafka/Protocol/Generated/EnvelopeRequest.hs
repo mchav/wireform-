@@ -98,9 +98,9 @@ wirePokeEnvelopeRequest :: Int -> Ptr Word8 -> EnvelopeRequest -> IO (Ptr Word8)
 wirePokeEnvelopeRequest version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactBytes p0 (P.toCompactBytes (envelopeRequestRequestData msg))
-    p2 <- WP.pokeCompactBytes p1 (P.toCompactBytes (envelopeRequestRequestPrincipal msg))
-    p3 <- WP.pokeCompactBytes p2 (P.toCompactBytes (envelopeRequestClientHostAddress msg))
+    p1 <- (if version >= 0 then WP.pokeCompactBytes p0 (P.toCompactBytes (envelopeRequestRequestData msg)) else WP.pokeKafkaBytes p0 (envelopeRequestRequestData msg))
+    p2 <- (if version >= 0 then WP.pokeCompactBytes p1 (P.toCompactBytes (envelopeRequestRequestPrincipal msg)) else WP.pokeKafkaBytes p1 (envelopeRequestRequestPrincipal msg))
+    p3 <- (if version >= 0 then WP.pokeCompactBytes p2 (P.toCompactBytes (envelopeRequestClientHostAddress msg)) else WP.pokeKafkaBytes p2 (envelopeRequestClientHostAddress msg))
     WP.pokeEmptyTaggedFields p3
   | otherwise = error $ "wirePoke EnvelopeRequest : unsupported version: " ++ show version
 
@@ -108,9 +108,9 @@ wirePokeEnvelopeRequest version basePtr msg
 wirePeekEnvelopeRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EnvelopeRequest, Ptr Word8)
 wirePeekEnvelopeRequest version _fp _basePtr p0 endPtr
   | version == 0 = do
-    (f0_requestdata, p1) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr
-    (f1_requestprincipal, p2) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p1 endPtr
-    (f2_clienthostaddress, p3) <- (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr
+    (f0_requestdata, p1) <- (if version >= 0 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p0 endPtr else WP.peekKafkaBytes p0 endPtr)
+    (f1_requestprincipal, p2) <- (if version >= 0 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p1 endPtr else WP.peekKafkaBytes p1 endPtr)
+    (f2_clienthostaddress, p3) <- (if version >= 0 then (\(cb, p') -> (P.fromCompactBytes cb, p')) <$> WP.peekCompactBytes p2 endPtr else WP.peekKafkaBytes p2 endPtr)
     pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
     pure (EnvelopeRequest { envelopeRequestRequestData = f0_requestdata, envelopeRequestRequestPrincipal = f1_requestprincipal, envelopeRequestClientHostAddress = f2_clienthostaddress }, pTagsEnd)
   | otherwise = error $ "wirePeek EnvelopeRequest : unsupported version: " ++ show version

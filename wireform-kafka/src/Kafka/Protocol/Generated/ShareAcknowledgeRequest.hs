@@ -184,6 +184,11 @@ wirePeekAcknowledgementBatch version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (AcknowledgementBatch { acknowledgementBatchFirstOffset = f0_firstoffset, acknowledgementBatchLastOffset = f1_lastoffset, acknowledgementBatchAcknowledgeTypes = f2_acknowledgetypes }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAcknowledgementBatch :: AcknowledgementBatch
+defaultAcknowledgementBatch = AcknowledgementBatch { acknowledgementBatchFirstOffset = 0, acknowledgementBatchLastOffset = 0, acknowledgementBatchAcknowledgeTypes = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a AcknowledgePartition.
 wireMaxSizeAcknowledgePartition :: Int -> AcknowledgePartition -> Int
 wireMaxSizeAcknowledgePartition _version msg =
@@ -207,6 +212,11 @@ wirePeekAcknowledgePartition version _fp _basePtr p0 endPtr = do
   (f1_acknowledgementbatches, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekAcknowledgementBatch version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (AcknowledgePartition { acknowledgePartitionPartitionIndex = f0_partitionindex, acknowledgePartitionAcknowledgementBatches = f1_acknowledgementbatches }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAcknowledgePartition :: AcknowledgePartition
+defaultAcknowledgePartition = AcknowledgePartition { acknowledgePartitionPartitionIndex = 0, acknowledgePartitionAcknowledgementBatches = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a AcknowledgeTopic.
 wireMaxSizeAcknowledgeTopic :: Int -> AcknowledgeTopic -> Int
@@ -232,6 +242,11 @@ wirePeekAcknowledgeTopic version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (AcknowledgeTopic { acknowledgeTopicTopicId = f0_topicid, acknowledgeTopicPartitions = f1_partitions }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultAcknowledgeTopic :: AcknowledgeTopic
+defaultAcknowledgeTopic = AcknowledgeTopic { acknowledgeTopicTopicId = P.nullUuid, acknowledgeTopicPartitions = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a ShareAcknowledgeRequest.
 wireMaxSizeShareAcknowledgeRequest :: Int -> ShareAcknowledgeRequest -> Int
 wireMaxSizeShareAcknowledgeRequest _version msg =
@@ -248,17 +263,17 @@ wirePokeShareAcknowledgeRequest :: Int -> Ptr Word8 -> ShareAcknowledgeRequest -
 wirePokeShareAcknowledgeRequest version basePtr msg
   | version == 1 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (shareAcknowledgeRequestGroupId msg))
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (shareAcknowledgeRequestMemberId msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (shareAcknowledgeRequestGroupId msg)) else WP.pokeKafkaString p0 (shareAcknowledgeRequestGroupId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (shareAcknowledgeRequestMemberId msg)) else WP.pokeKafkaString p1 (shareAcknowledgeRequestMemberId msg))
     p3 <- W.pokeInt32BE p2 (shareAcknowledgeRequestShareSessionEpoch msg)
     p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeAcknowledgeTopic version p x) p3 (shareAcknowledgeRequestTopics msg)
     WP.pokeEmptyTaggedFields p4
   | version == 2 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (shareAcknowledgeRequestGroupId msg))
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (shareAcknowledgeRequestMemberId msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (shareAcknowledgeRequestGroupId msg)) else WP.pokeKafkaString p0 (shareAcknowledgeRequestGroupId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (shareAcknowledgeRequestMemberId msg)) else WP.pokeKafkaString p1 (shareAcknowledgeRequestMemberId msg))
     p3 <- W.pokeInt32BE p2 (shareAcknowledgeRequestShareSessionEpoch msg)
-    p4 <- W.pokeWord8 p3 (if (shareAcknowledgeRequestIsRenewAck msg) then 1 else 0)
+    p4 <- (if version >= 2 then W.pokeWord8 p3 (if (shareAcknowledgeRequestIsRenewAck msg) then 1 else 0) else pure p3)
     p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeAcknowledgeTopic version p x) p4 (shareAcknowledgeRequestTopics msg)
     WP.pokeEmptyTaggedFields p5
   | otherwise = error $ "wirePoke ShareAcknowledgeRequest : unsupported version: " ++ show version
@@ -267,17 +282,17 @@ wirePokeShareAcknowledgeRequest version basePtr msg
 wirePeekShareAcknowledgeRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ShareAcknowledgeRequest, Ptr Word8)
 wirePeekShareAcknowledgeRequest version _fp _basePtr p0 endPtr
   | version == 1 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_memberid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_sharesessionepoch, p3) <- W.peekInt32BE p2 endPtr
     (f3_topics, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekAcknowledgeTopic version _fp _basePtr p e) p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (ShareAcknowledgeRequest { shareAcknowledgeRequestGroupId = f0_groupid, shareAcknowledgeRequestMemberId = f1_memberid, shareAcknowledgeRequestShareSessionEpoch = f2_sharesessionepoch, shareAcknowledgeRequestIsRenewAck = False, shareAcknowledgeRequestTopics = f3_topics }, pTagsEnd)
   | version == 2 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_memberid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_sharesessionepoch, p3) <- W.peekInt32BE p2 endPtr
-    (f3_isrenewack, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
+    (f3_isrenewack, p4) <- (if version >= 2 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr else pure (False, p3))
     (f4_topics, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekAcknowledgeTopic version _fp _basePtr p e) p4 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
     pure (ShareAcknowledgeRequest { shareAcknowledgeRequestGroupId = f0_groupid, shareAcknowledgeRequestMemberId = f1_memberid, shareAcknowledgeRequestShareSessionEpoch = f2_sharesessionepoch, shareAcknowledgeRequestIsRenewAck = f3_isrenewack, shareAcknowledgeRequestTopics = f4_topics }, pTagsEnd)

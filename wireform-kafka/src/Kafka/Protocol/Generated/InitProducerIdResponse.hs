@@ -123,8 +123,8 @@ wirePokeInitProducerIdResponse version basePtr msg
     p2 <- W.pokeInt16BE p1 (initProducerIdResponseErrorCode msg)
     p3 <- W.pokeInt64BE p2 (initProducerIdResponseProducerId msg)
     p4 <- W.pokeInt16BE p3 (initProducerIdResponseProducerEpoch msg)
-    p5 <- W.pokeInt64BE p4 (initProducerIdResponseOngoingTxnProducerId msg)
-    p6 <- W.pokeInt16BE p5 (initProducerIdResponseOngoingTxnProducerEpoch msg)
+    p5 <- (if version >= 6 then W.pokeInt64BE p4 (initProducerIdResponseOngoingTxnProducerId msg) else pure p4)
+    p6 <- (if version >= 6 then W.pokeInt16BE p5 (initProducerIdResponseOngoingTxnProducerEpoch msg) else pure p5)
     WP.pokeEmptyTaggedFields p6
   | version >= 0 && version <= 1 = do
     p0 <- pure basePtr
@@ -150,8 +150,8 @@ wirePeekInitProducerIdResponse version _fp _basePtr p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_producerid, p3) <- W.peekInt64BE p2 endPtr
     (f3_producerepoch, p4) <- W.peekInt16BE p3 endPtr
-    (f4_ongoingtxnproducerid, p5) <- W.peekInt64BE p4 endPtr
-    (f5_ongoingtxnproducerepoch, p6) <- W.peekInt16BE p5 endPtr
+    (f4_ongoingtxnproducerid, p5) <- (if version >= 6 then W.peekInt64BE p4 endPtr else pure (0, p4))
+    (f5_ongoingtxnproducerepoch, p6) <- (if version >= 6 then W.peekInt16BE p5 endPtr else pure (0, p5))
     pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
     pure (InitProducerIdResponse { initProducerIdResponseThrottleTimeMs = f0_throttletimems, initProducerIdResponseErrorCode = f1_errorcode, initProducerIdResponseProducerId = f2_producerid, initProducerIdResponseProducerEpoch = f3_producerepoch, initProducerIdResponseOngoingTxnProducerId = f4_ongoingtxnproducerid, initProducerIdResponseOngoingTxnProducerEpoch = f5_ongoingtxnproducerepoch }, pTagsEnd)
   | version >= 0 && version <= 1 = do

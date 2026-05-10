@@ -167,6 +167,11 @@ wirePeekTopicPartitions version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (TopicPartitions { topicPartitionsTopicId = f0_topicid, topicPartitionsPartitions = f1_partitions }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultTopicPartitions :: TopicPartitions
+defaultTopicPartitions = TopicPartitions { topicPartitionsTopicId = P.nullUuid, topicPartitionsPartitions = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a ConsumerGroupHeartbeatRequest.
 wireMaxSizeConsumerGroupHeartbeatRequest :: Int -> ConsumerGroupHeartbeatRequest -> Int
 wireMaxSizeConsumerGroupHeartbeatRequest _version msg =
@@ -188,27 +193,27 @@ wirePokeConsumerGroupHeartbeatRequest :: Int -> Ptr Word8 -> ConsumerGroupHeartb
 wirePokeConsumerGroupHeartbeatRequest version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (consumerGroupHeartbeatRequestGroupId msg))
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (consumerGroupHeartbeatRequestMemberId msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (consumerGroupHeartbeatRequestGroupId msg)) else WP.pokeKafkaString p0 (consumerGroupHeartbeatRequestGroupId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (consumerGroupHeartbeatRequestMemberId msg)) else WP.pokeKafkaString p1 (consumerGroupHeartbeatRequestMemberId msg))
     p3 <- W.pokeInt32BE p2 (consumerGroupHeartbeatRequestMemberEpoch msg)
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (consumerGroupHeartbeatRequestInstanceId msg))
-    p5 <- WP.pokeCompactString p4 (P.toCompactString (consumerGroupHeartbeatRequestRackId msg))
+    p4 <- (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (consumerGroupHeartbeatRequestInstanceId msg)) else WP.pokeKafkaString p3 (consumerGroupHeartbeatRequestInstanceId msg))
+    p5 <- (if version >= 0 then WP.pokeCompactString p4 (P.toCompactString (consumerGroupHeartbeatRequestRackId msg)) else WP.pokeKafkaString p4 (consumerGroupHeartbeatRequestRackId msg))
     p6 <- W.pokeInt32BE p5 (consumerGroupHeartbeatRequestRebalanceTimeoutMs msg)
     p7 <- WP.pokeVersionedNullableArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p6 (consumerGroupHeartbeatRequestSubscribedTopicNames msg)
-    p8 <- WP.pokeCompactString p7 (P.toCompactString (consumerGroupHeartbeatRequestServerAssignor msg))
+    p8 <- (if version >= 0 then WP.pokeCompactString p7 (P.toCompactString (consumerGroupHeartbeatRequestServerAssignor msg)) else WP.pokeKafkaString p7 (consumerGroupHeartbeatRequestServerAssignor msg))
     p9 <- WP.pokeVersionedNullableArray version 0 (\p x -> wirePokeTopicPartitions version p x) p8 (consumerGroupHeartbeatRequestTopicPartitions msg)
     WP.pokeEmptyTaggedFields p9
   | version == 1 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (consumerGroupHeartbeatRequestGroupId msg))
-    p2 <- WP.pokeCompactString p1 (P.toCompactString (consumerGroupHeartbeatRequestMemberId msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (consumerGroupHeartbeatRequestGroupId msg)) else WP.pokeKafkaString p0 (consumerGroupHeartbeatRequestGroupId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (consumerGroupHeartbeatRequestMemberId msg)) else WP.pokeKafkaString p1 (consumerGroupHeartbeatRequestMemberId msg))
     p3 <- W.pokeInt32BE p2 (consumerGroupHeartbeatRequestMemberEpoch msg)
-    p4 <- WP.pokeCompactString p3 (P.toCompactString (consumerGroupHeartbeatRequestInstanceId msg))
-    p5 <- WP.pokeCompactString p4 (P.toCompactString (consumerGroupHeartbeatRequestRackId msg))
+    p4 <- (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (consumerGroupHeartbeatRequestInstanceId msg)) else WP.pokeKafkaString p3 (consumerGroupHeartbeatRequestInstanceId msg))
+    p5 <- (if version >= 0 then WP.pokeCompactString p4 (P.toCompactString (consumerGroupHeartbeatRequestRackId msg)) else WP.pokeKafkaString p4 (consumerGroupHeartbeatRequestRackId msg))
     p6 <- W.pokeInt32BE p5 (consumerGroupHeartbeatRequestRebalanceTimeoutMs msg)
     p7 <- WP.pokeVersionedNullableArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p6 (consumerGroupHeartbeatRequestSubscribedTopicNames msg)
-    p8 <- WP.pokeCompactString p7 (P.toCompactString (consumerGroupHeartbeatRequestSubscribedTopicRegex msg))
-    p9 <- WP.pokeCompactString p8 (P.toCompactString (consumerGroupHeartbeatRequestServerAssignor msg))
+    p8 <- (if version >= 1 then (if version >= 0 then WP.pokeCompactString p7 (P.toCompactString (consumerGroupHeartbeatRequestSubscribedTopicRegex msg)) else WP.pokeKafkaString p7 (consumerGroupHeartbeatRequestSubscribedTopicRegex msg)) else pure p7)
+    p9 <- (if version >= 0 then WP.pokeCompactString p8 (P.toCompactString (consumerGroupHeartbeatRequestServerAssignor msg)) else WP.pokeKafkaString p8 (consumerGroupHeartbeatRequestServerAssignor msg))
     p10 <- WP.pokeVersionedNullableArray version 0 (\p x -> wirePokeTopicPartitions version p x) p9 (consumerGroupHeartbeatRequestTopicPartitions msg)
     WP.pokeEmptyTaggedFields p10
   | otherwise = error $ "wirePoke ConsumerGroupHeartbeatRequest : unsupported version: " ++ show version
@@ -217,27 +222,27 @@ wirePokeConsumerGroupHeartbeatRequest version basePtr msg
 wirePeekConsumerGroupHeartbeatRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ConsumerGroupHeartbeatRequest, Ptr Word8)
 wirePeekConsumerGroupHeartbeatRequest version _fp _basePtr p0 endPtr
   | version == 0 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_memberid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_memberepoch, p3) <- W.peekInt32BE p2 endPtr
-    (f3_instanceid, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
-    (f4_rackid, p5) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr
+    (f3_instanceid, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+    (f4_rackid, p5) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
     (f5_rebalancetimeoutms, p6) <- W.peekInt32BE p5 endPtr
     (f6_subscribedtopicnames, p7) <- WP.peekVersionedNullableArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p6 endPtr
-    (f7_serverassignor, p8) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr
+    (f7_serverassignor, p8) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr else WP.peekKafkaString p7 endPtr)
     (f8_topicpartitions, p9) <- WP.peekVersionedNullableArray version 0 (\p e -> wirePeekTopicPartitions version _fp _basePtr p e) p8 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p9 endPtr
     pure (ConsumerGroupHeartbeatRequest { consumerGroupHeartbeatRequestGroupId = f0_groupid, consumerGroupHeartbeatRequestMemberId = f1_memberid, consumerGroupHeartbeatRequestMemberEpoch = f2_memberepoch, consumerGroupHeartbeatRequestInstanceId = f3_instanceid, consumerGroupHeartbeatRequestRackId = f4_rackid, consumerGroupHeartbeatRequestRebalanceTimeoutMs = f5_rebalancetimeoutms, consumerGroupHeartbeatRequestSubscribedTopicNames = f6_subscribedtopicnames, consumerGroupHeartbeatRequestSubscribedTopicRegex = P.KafkaString Null, consumerGroupHeartbeatRequestServerAssignor = f7_serverassignor, consumerGroupHeartbeatRequestTopicPartitions = f8_topicpartitions }, pTagsEnd)
   | version == 1 = do
-    (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-    (f1_memberid, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
     (f2_memberepoch, p3) <- W.peekInt32BE p2 endPtr
-    (f3_instanceid, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
-    (f4_rackid, p5) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr
+    (f3_instanceid, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+    (f4_rackid, p5) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
     (f5_rebalancetimeoutms, p6) <- W.peekInt32BE p5 endPtr
     (f6_subscribedtopicnames, p7) <- WP.peekVersionedNullableArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p6 endPtr
-    (f7_subscribedtopicregex, p8) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr
-    (f8_serverassignor, p9) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p8 endPtr
+    (f7_subscribedtopicregex, p8) <- (if version >= 1 then (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p7 endPtr else WP.peekKafkaString p7 endPtr) else pure (P.KafkaString Null, p7))
+    (f8_serverassignor, p9) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p8 endPtr else WP.peekKafkaString p8 endPtr)
     (f9_topicpartitions, p10) <- WP.peekVersionedNullableArray version 0 (\p e -> wirePeekTopicPartitions version _fp _basePtr p e) p9 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p10 endPtr
     pure (ConsumerGroupHeartbeatRequest { consumerGroupHeartbeatRequestGroupId = f0_groupid, consumerGroupHeartbeatRequestMemberId = f1_memberid, consumerGroupHeartbeatRequestMemberEpoch = f2_memberepoch, consumerGroupHeartbeatRequestInstanceId = f3_instanceid, consumerGroupHeartbeatRequestRackId = f4_rackid, consumerGroupHeartbeatRequestRebalanceTimeoutMs = f5_rebalancetimeoutms, consumerGroupHeartbeatRequestSubscribedTopicNames = f6_subscribedtopicnames, consumerGroupHeartbeatRequestSubscribedTopicRegex = f7_subscribedtopicregex, consumerGroupHeartbeatRequestServerAssignor = f8_serverassignor, consumerGroupHeartbeatRequestTopicPartitions = f9_topicpartitions }, pTagsEnd)

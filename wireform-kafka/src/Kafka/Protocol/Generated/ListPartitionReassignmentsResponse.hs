@@ -168,6 +168,11 @@ wirePeekOngoingPartitionReassignment version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (OngoingPartitionReassignment { ongoingPartitionReassignmentPartitionIndex = f0_partitionindex, ongoingPartitionReassignmentReplicas = f1_replicas, ongoingPartitionReassignmentAddingReplicas = f2_addingreplicas, ongoingPartitionReassignmentRemovingReplicas = f3_removingreplicas }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultOngoingPartitionReassignment :: OngoingPartitionReassignment
+defaultOngoingPartitionReassignment = OngoingPartitionReassignment { ongoingPartitionReassignmentPartitionIndex = 0, ongoingPartitionReassignmentReplicas = P.mkKafkaArray V.empty, ongoingPartitionReassignmentAddingReplicas = P.mkKafkaArray V.empty, ongoingPartitionReassignmentRemovingReplicas = P.mkKafkaArray V.empty }
+
 -- | Worst-case wire size of a OngoingTopicReassignment.
 wireMaxSizeOngoingTopicReassignment :: Int -> OngoingTopicReassignment -> Int
 wireMaxSizeOngoingTopicReassignment _version msg =
@@ -180,17 +185,22 @@ wireMaxSizeOngoingTopicReassignment _version msg =
 wirePokeOngoingTopicReassignment :: Int -> Ptr Word8 -> OngoingTopicReassignment -> IO (Ptr Word8)
 wirePokeOngoingTopicReassignment version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (ongoingTopicReassignmentName msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (ongoingTopicReassignmentName msg)) else WP.pokeKafkaString p0 (ongoingTopicReassignmentName msg))
   p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeOngoingPartitionReassignment version p x) p1 (ongoingTopicReassignmentPartitions msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for OngoingTopicReassignment.
 wirePeekOngoingTopicReassignment :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (OngoingTopicReassignment, Ptr Word8)
 wirePeekOngoingTopicReassignment version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_partitions, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekOngoingPartitionReassignment version _fp _basePtr p e) p1 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (OngoingTopicReassignment { ongoingTopicReassignmentName = f0_name, ongoingTopicReassignmentPartitions = f1_partitions }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultOngoingTopicReassignment :: OngoingTopicReassignment
+defaultOngoingTopicReassignment = OngoingTopicReassignment { ongoingTopicReassignmentName = P.KafkaString Null, ongoingTopicReassignmentPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a ListPartitionReassignmentsResponse.
 wireMaxSizeListPartitionReassignmentsResponse :: Int -> ListPartitionReassignmentsResponse -> Int
@@ -209,7 +219,7 @@ wirePokeListPartitionReassignmentsResponse version basePtr msg
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (listPartitionReassignmentsResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (listPartitionReassignmentsResponseErrorCode msg)
-    p3 <- WP.pokeCompactString p2 (P.toCompactString (listPartitionReassignmentsResponseErrorMessage msg))
+    p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (listPartitionReassignmentsResponseErrorMessage msg)) else WP.pokeKafkaString p2 (listPartitionReassignmentsResponseErrorMessage msg))
     p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeOngoingTopicReassignment version p x) p3 (listPartitionReassignmentsResponseTopics msg)
     WP.pokeEmptyTaggedFields p4
   | otherwise = error $ "wirePoke ListPartitionReassignmentsResponse : unsupported version: " ++ show version
@@ -220,7 +230,7 @@ wirePeekListPartitionReassignmentsResponse version _fp _basePtr p0 endPtr
   | version == 0 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr
+    (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     (f3_topics, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekOngoingTopicReassignment version _fp _basePtr p e) p3 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p4 endPtr
     pure (ListPartitionReassignmentsResponse { listPartitionReassignmentsResponseThrottleTimeMs = f0_throttletimems, listPartitionReassignmentsResponseErrorCode = f1_errorcode, listPartitionReassignmentsResponseErrorMessage = f2_errormessage, listPartitionReassignmentsResponseTopics = f3_topics }, pTagsEnd)

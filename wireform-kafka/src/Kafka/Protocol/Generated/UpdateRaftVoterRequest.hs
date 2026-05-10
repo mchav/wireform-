@@ -157,19 +157,24 @@ wireMaxSizeListener _version msg =
 wirePokeListener :: Int -> Ptr Word8 -> Listener -> IO (Ptr Word8)
 wirePokeListener version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (listenerName msg))
-  p2 <- WP.pokeCompactString p1 (P.toCompactString (listenerHost msg))
+  p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (listenerName msg)) else WP.pokeKafkaString p0 (listenerName msg))
+  p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (listenerHost msg)) else WP.pokeKafkaString p1 (listenerHost msg))
   p3 <- W.pokeWord16BE p2 (listenerPort msg)
   if version >= 0 then WP.pokeEmptyTaggedFields p3 else pure p3
 
 -- | Direct-poke decoder for Listener.
 wirePeekListener :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (Listener, Ptr Word8)
 wirePeekListener version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_host, p2) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr
+  (f0_name, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_host, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
   (f2_port, p3) <- W.peekWord16BE p2 endPtr
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
   pure (Listener { listenerName = f0_name, listenerHost = f1_host, listenerPort = f2_port }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultListener :: Listener
+defaultListener = Listener { listenerName = P.KafkaString Null, listenerHost = P.KafkaString Null, listenerPort = 0 }
 
 -- | Worst-case wire size of a KRaftVersionFeature.
 wireMaxSizeKRaftVersionFeature :: Int -> KRaftVersionFeature -> Int
@@ -195,6 +200,11 @@ wirePeekKRaftVersionFeature version _fp _basePtr p0 endPtr = do
   pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (KRaftVersionFeature { kRaftVersionFeatureMinSupportedVersion = f0_minsupportedversion, kRaftVersionFeatureMaxSupportedVersion = f1_maxsupportedversion }, pTagsEnd)
 
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultKRaftVersionFeature :: KRaftVersionFeature
+defaultKRaftVersionFeature = KRaftVersionFeature { kRaftVersionFeatureMinSupportedVersion = 0, kRaftVersionFeatureMaxSupportedVersion = 0 }
+
 -- | Worst-case wire size of a UpdateRaftVoterRequest.
 wireMaxSizeUpdateRaftVoterRequest :: Int -> UpdateRaftVoterRequest -> Int
 wireMaxSizeUpdateRaftVoterRequest _version msg =
@@ -212,7 +222,7 @@ wirePokeUpdateRaftVoterRequest :: Int -> Ptr Word8 -> UpdateRaftVoterRequest -> 
 wirePokeUpdateRaftVoterRequest version basePtr msg
   | version == 0 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (updateRaftVoterRequestClusterId msg))
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (updateRaftVoterRequestClusterId msg)) else WP.pokeKafkaString p0 (updateRaftVoterRequestClusterId msg))
     p2 <- W.pokeInt32BE p1 (updateRaftVoterRequestCurrentLeaderEpoch msg)
     p3 <- W.pokeInt32BE p2 (updateRaftVoterRequestVoterId msg)
     p4 <- WP.pokeKafkaUuid p3 (updateRaftVoterRequestVoterDirectoryId msg)
@@ -225,7 +235,7 @@ wirePokeUpdateRaftVoterRequest version basePtr msg
 wirePeekUpdateRaftVoterRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (UpdateRaftVoterRequest, Ptr Word8)
 wirePeekUpdateRaftVoterRequest version _fp _basePtr p0 endPtr
   | version == 0 = do
-    (f0_clusterid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_clusterid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_currentleaderepoch, p2) <- W.peekInt32BE p1 endPtr
     (f2_voterid, p3) <- W.peekInt32BE p2 endPtr
     (f3_voterdirectoryid, p4) <- WP.peekKafkaUuid p3 endPtr

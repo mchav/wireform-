@@ -105,14 +105,14 @@ wirePokeEndTxnRequest :: Int -> Ptr Word8 -> EndTxnRequest -> IO (Ptr Word8)
 wirePokeEndTxnRequest version basePtr msg
   | version >= 0 && version <= 2 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (endTxnRequestTransactionalId msg))
+    p1 <- (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (endTxnRequestTransactionalId msg)) else WP.pokeKafkaString p0 (endTxnRequestTransactionalId msg))
     p2 <- W.pokeInt64BE p1 (endTxnRequestProducerId msg)
     p3 <- W.pokeInt16BE p2 (endTxnRequestProducerEpoch msg)
     p4 <- W.pokeWord8 p3 (if (endTxnRequestCommitted msg) then 1 else 0)
     pure p4
   | version >= 3 && version <= 5 = do
     p0 <- pure basePtr
-    p1 <- WP.pokeCompactString p0 (P.toCompactString (endTxnRequestTransactionalId msg))
+    p1 <- (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (endTxnRequestTransactionalId msg)) else WP.pokeKafkaString p0 (endTxnRequestTransactionalId msg))
     p2 <- W.pokeInt64BE p1 (endTxnRequestProducerId msg)
     p3 <- W.pokeInt16BE p2 (endTxnRequestProducerEpoch msg)
     p4 <- W.pokeWord8 p3 (if (endTxnRequestCommitted msg) then 1 else 0)
@@ -123,13 +123,13 @@ wirePokeEndTxnRequest version basePtr msg
 wirePeekEndTxnRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (EndTxnRequest, Ptr Word8)
 wirePeekEndTxnRequest version _fp _basePtr p0 endPtr
   | version >= 0 && version <= 2 = do
-    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_transactionalid, p1) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_producerid, p2) <- W.peekInt64BE p1 endPtr
     (f2_producerepoch, p3) <- W.peekInt16BE p2 endPtr
     (f3_committed, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr
     pure (EndTxnRequest { endTxnRequestTransactionalId = f0_transactionalid, endTxnRequestProducerId = f1_producerid, endTxnRequestProducerEpoch = f2_producerepoch, endTxnRequestCommitted = f3_committed }, p4)
   | version >= 3 && version <= 5 = do
-    (f0_transactionalid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+    (f0_transactionalid, p1) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_producerid, p2) <- W.peekInt64BE p1 endPtr
     (f2_producerepoch, p3) <- W.peekInt16BE p2 endPtr
     (f3_committed, p4) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p3 endPtr

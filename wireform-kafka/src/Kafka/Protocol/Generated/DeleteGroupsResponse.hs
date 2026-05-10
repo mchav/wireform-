@@ -107,17 +107,22 @@ wireMaxSizeDeletableGroupResult _version msg =
 wirePokeDeletableGroupResult :: Int -> Ptr Word8 -> DeletableGroupResult -> IO (Ptr Word8)
 wirePokeDeletableGroupResult version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (deletableGroupResultGroupId msg))
+  p1 <- (if version >= 2 then WP.pokeCompactString p0 (P.toCompactString (deletableGroupResultGroupId msg)) else WP.pokeKafkaString p0 (deletableGroupResultGroupId msg))
   p2 <- W.pokeInt16BE p1 (deletableGroupResultErrorCode msg)
   if version >= 2 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for DeletableGroupResult.
 wirePeekDeletableGroupResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeletableGroupResult, Ptr Word8)
 wirePeekDeletableGroupResult version _fp _basePtr p0 endPtr = do
-  (f0_groupid, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
+  (f0_groupid, p1) <- (if version >= 2 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
   pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
   pure (DeletableGroupResult { deletableGroupResultGroupId = f0_groupid, deletableGroupResultErrorCode = f1_errorcode }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDeletableGroupResult :: DeletableGroupResult
+defaultDeletableGroupResult = DeletableGroupResult { deletableGroupResultGroupId = P.KafkaString Null, deletableGroupResultErrorCode = 0 }
 
 -- | Worst-case wire size of a DeleteGroupsResponse.
 wireMaxSizeDeleteGroupsResponse :: Int -> DeleteGroupsResponse -> Int

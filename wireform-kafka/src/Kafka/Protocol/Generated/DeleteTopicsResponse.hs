@@ -121,21 +121,26 @@ wireMaxSizeDeletableTopicResult _version msg =
 wirePokeDeletableTopicResult :: Int -> Ptr Word8 -> DeletableTopicResult -> IO (Ptr Word8)
 wirePokeDeletableTopicResult version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- WP.pokeCompactString p0 (P.toCompactString (deletableTopicResultName msg))
-  p2 <- WP.pokeKafkaUuid p1 (deletableTopicResultTopicId msg)
+  p1 <- (if version >= 4 then WP.pokeCompactString p0 (P.toCompactString (deletableTopicResultName msg)) else WP.pokeKafkaString p0 (deletableTopicResultName msg))
+  p2 <- (if version >= 6 then WP.pokeKafkaUuid p1 (deletableTopicResultTopicId msg) else pure p1)
   p3 <- W.pokeInt16BE p2 (deletableTopicResultErrorCode msg)
-  p4 <- WP.pokeCompactString p3 (P.toCompactString (deletableTopicResultErrorMessage msg))
+  p4 <- (if version >= 5 then (if version >= 4 then WP.pokeCompactString p3 (P.toCompactString (deletableTopicResultErrorMessage msg)) else WP.pokeKafkaString p3 (deletableTopicResultErrorMessage msg)) else pure p3)
   if version >= 4 then WP.pokeEmptyTaggedFields p4 else pure p4
 
 -- | Direct-poke decoder for DeletableTopicResult.
 wirePeekDeletableTopicResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeletableTopicResult, Ptr Word8)
 wirePeekDeletableTopicResult version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr
-  (f1_topicid, p2) <- WP.peekKafkaUuid p1 endPtr
+  (f0_name, p1) <- (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_topicid, p2) <- (if version >= 6 then WP.peekKafkaUuid p1 endPtr else pure (P.nullUuid, p1))
   (f2_errorcode, p3) <- W.peekInt16BE p2 endPtr
-  (f3_errormessage, p4) <- (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr
+  (f3_errormessage, p4) <- (if version >= 5 then (if version >= 4 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr) else pure (P.KafkaString Null, p3))
   pTagsEnd <- if version >= 4 then WP.peekAndSkipTaggedFields p4 endPtr else pure p4
   pure (DeletableTopicResult { deletableTopicResultName = f0_name, deletableTopicResultTopicId = f1_topicid, deletableTopicResultErrorCode = f2_errorcode, deletableTopicResultErrorMessage = f3_errormessage }, pTagsEnd)
+
+-- | Per-struct default value referenced by 'generateFieldDefaultDoc'
+-- when an absent-version field elsewhere needs a placeholder.
+defaultDeletableTopicResult :: DeletableTopicResult
+defaultDeletableTopicResult = DeletableTopicResult { deletableTopicResultName = P.KafkaString Null, deletableTopicResultTopicId = P.nullUuid, deletableTopicResultErrorCode = 0, deletableTopicResultErrorMessage = P.KafkaString Null }
 
 -- | Worst-case wire size of a DeleteTopicsResponse.
 wireMaxSizeDeleteTopicsResponse :: Int -> DeleteTopicsResponse -> Int
@@ -150,12 +155,12 @@ wirePokeDeleteTopicsResponse :: Int -> Ptr Word8 -> DeleteTopicsResponse -> IO (
 wirePokeDeleteTopicsResponse version basePtr msg
   | version >= 1 && version <= 3 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (deleteTopicsResponseThrottleTimeMs msg)
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (deleteTopicsResponseThrottleTimeMs msg) else pure p0)
     p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDeletableTopicResult version p x) p1 (deleteTopicsResponseResponses msg)
     pure p2
   | version >= 4 && version <= 6 = do
     p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (deleteTopicsResponseThrottleTimeMs msg)
+    p1 <- (if version >= 1 then W.pokeInt32BE p0 (deleteTopicsResponseThrottleTimeMs msg) else pure p0)
     p2 <- WP.pokeVersionedArray version 4 (\p x -> wirePokeDeletableTopicResult version p x) p1 (deleteTopicsResponseResponses msg)
     WP.pokeEmptyTaggedFields p2
   | otherwise = error $ "wirePoke DeleteTopicsResponse : unsupported version: " ++ show version
@@ -164,11 +169,11 @@ wirePokeDeleteTopicsResponse version basePtr msg
 wirePeekDeleteTopicsResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DeleteTopicsResponse, Ptr Word8)
 wirePeekDeleteTopicsResponse version _fp _basePtr p0 endPtr
   | version >= 1 && version <= 3 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_responses, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDeletableTopicResult version _fp _basePtr p e) p1 endPtr
     pure (DeleteTopicsResponse { deleteTopicsResponseThrottleTimeMs = f0_throttletimems, deleteTopicsResponseResponses = f1_responses }, p2)
   | version >= 4 && version <= 6 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
+    (f0_throttletimems, p1) <- (if version >= 1 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_responses, p2) <- WP.peekVersionedArray version 4 (\p e -> wirePeekDeletableTopicResult version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (DeleteTopicsResponse { deleteTopicsResponseThrottleTimeMs = f0_throttletimems, deleteTopicsResponseResponses = f1_responses }, pTagsEnd)
