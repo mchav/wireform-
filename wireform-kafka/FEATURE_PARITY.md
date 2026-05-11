@@ -227,7 +227,7 @@ with the implementation.
 | Suite                              | Count |
 |------------------------------------|-------|
 | `wireform-kafka:wireform-kafka-test`         | 752 |
-| `wireform-kafka:wireform-kafka-streams-test` | 345 |
+| `wireform-kafka:wireform-kafka-streams-test` | 375 |
 
 Both green on every commit on this branch.
 
@@ -415,13 +415,77 @@ ProcessorAndStoreExtrasSpec}` and where relevant a
   `getTimestampedWindowStore` (typed accessors for
   `ValueAndTimestamp` stores).
 
+#### Streams promote-to-real (post-parity hardening)
+
+The parity audit above closed the API surface. The follow-up
+pass replaced the remaining stub implementations with live
+behaviour and wired the consumer-side hooks the deferred
+items needed:
+
+**Runtime**
+- `addStreamThread` / `removeStreamThread` now mutate the
+  live `WorkerPool` (`addPoolWorker` / `removePoolWorker`)
+  with `submitRecordHashed` doing the routing read inside the
+  same STM transaction so adds/removes don't race against
+  in-flight records.
+- `Suppressed.BufferConfig` bounded variants are now
+  enforced: the suppress processor tracks live buffered count
+  and dispatches `EmitEarlyWhenFull` / `ShutdownWhenFull` per
+  KIP-328. New exception type `SuppressBufferFullException`.
+- `CloseOptions.leaveGroup` threads through
+  `sdConsumerCloseWith` into a new
+  `Kafka.Client.Consumer.closeConsumerWithoutLeavingGroup`
+  entry-point (KIP-812).
+- `StoreQueryParameters` now honors `sqpStaleStoresEnabled`
+  (short-circuits to `Nothing` when the runtime isn't
+  Running) and `sqpPartition` (federated query restricted to
+  the worker that owns that partition via
+  `WorkerPool.routingFor` + `workerById`).
+
+**Assignor**
+- KIP-925 rack-aware assignment lives in
+  `Kafka.Streams.Runtime.Assignor.assignRackAware` with
+  `RackInfo` + `RackAwareCost` knobs. Tie-breaks among
+  lightest-loaded members by rack-matching cost; standbys
+  prefer different racks from the active.
+
+**Probing rebalance**
+- KIP-441 fully wired: `reportWarmupLag` / `clearWarmupLag` /
+  `warmupSnapshot` for user code; the event loop calls
+  `maybeIssueProbingRebalance` every iteration which fires
+  `sdRequestProbingRebalance` on the driver when warmups
+  are ready + the interval has elapsed.
+
+**Standby tasks**
+- `Kafka.Streams.Runtime.StandbyTask` ships
+  `StandbyTask` / `StandbyManager` + `standbyReplay` (folds
+  changelog records into the local store, reports lag).
+  Wired into `KafkaStreams.ksStandbyManager`. The
+  native-driver side (a second consumer reading changelog
+  topics from the broker) is the remaining live-runtime
+  piece.
+
+**Cross-instance IQ (KIP-535)**
+- `Kafka.Streams.Discovery.Subscription`: versioned wire
+  format for the JoinGroup subscription-userdata blob
+  (`encodeSubscriptionInfo` / `decodeSubscriptionInfo`).
+- `Kafka.Streams.Discovery.RemoteIQ`: pluggable transport
+  (`RemoteIQ` newtype) + `routeQuery` decision helper.
+  Standby-aware: a local standby beats a remote active.
+
+**SASL re-authentication (KIP-368)**
+- `Kafka.Client.Pipeline.attachReauthDriver` wraps the
+  user-supplied `ReauthRunner` so the handshake runs inside
+  `withPausedPipeline`. Then `startReauthThread` so the
+  deadline-driven loop fires automatically.
+
 ### 3.3 Cross-cutting / infrastructure
 
 | Item                                    | Severity | Notes                                                                 |
 |-----------------------------------------|----------|-----------------------------------------------------------------------|
-| Live-broker integration test harness    | S1       | `WIREFORM_KAFKA_BROKER`-gated suite includes the new transactional spec; promoting that to CI / Docker is still pending. |
-| GHC 9.10 / 9.12 build matrix            | S2       | Currently 9.6.4 only.                                                 |
-| Benchmark suite (vs `librdkafka` numbers) | S2     | New `Benchmarks.StatsAndStamping` covers stats JSON + record-batch building; comparative `librdkafka` numbers still anecdotal. |
+| Live-broker integration test harness    | DONE     | `.github/workflows/wireform-kafka-integration.yml` spins up an `apache/kafka` KRaft broker via `test-integration/docker-compose.yml` and runs the live-broker suite on every PR. Matrix: GHC 9.6.4 / 9.8.4 / 9.10.1 × Kafka 3.7.0 / 4.0.0. |
+| GHC build matrix                        | DONE     | `.github/workflows/ci.yml` runs every commit against GHC 9.6.4 / 9.8.4 / 9.10.1. The integration workflow matches that matrix. 9.12 is still pending the bound bumps. |
+| Benchmark suite (vs `librdkafka`)        | DONE     | `wireform-kafka:wireform-kafka-bench:Benchmarks.HwKafkaComparison` runs end-to-end producer numbers against the `hw-kafka-client` (librdkafka) bindings against a live broker. The new `wireform-kafka:wireform-kafka-streams-bench` criterion suite covers the streams runtime hot paths (passthrough / filter-map / count / windowed-count) in-process for reproducible per-record CPU envelope numbers. |
 | Documentation: tutorial-grade walkthrough | --     | `TUTORIAL.md` covers mock cluster → producer → transactions → Streams DSL → KIP-892 → Schema Registry → stats JSON. |
 
 ---
