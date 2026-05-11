@@ -1,3 +1,7 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+
 -- |
 -- Module      : Kafka.Streams.DSL.Joined
 -- Description : @Joined<K,V1,V2>@ DSL config + window join configuration
@@ -33,57 +37,57 @@ import Kafka.Streams.Time (Duration, durationMillis)
 import Data.Int (Int64)
 
 data Joined k v1 v2 = Joined
-  { joinedKeySerde    :: !(Serde k)
-  , joinedV1Serde     :: !(Serde v1)
-  , joinedV2Serde     :: !(Serde v2)
-  , joinedName        :: !(Maybe Text)
+  { keySerde   :: !(Serde k)
+  , v1Serde    :: !(Serde v1)
+  , v2Serde    :: !(Serde v2)
+  , name       :: !(Maybe Text)
   }
 
 joined :: Serde k -> Serde v1 -> Serde v2 -> Joined k v1 v2
 joined ks v1s v2s = Joined
-  { joinedKeySerde = ks
-  , joinedV1Serde  = v1s
-  , joinedV2Serde  = v2s
-  , joinedName     = Nothing
+  { keySerde = ks
+  , v1Serde  = v1s
+  , v2Serde  = v2s
+  , name     = Nothing
   }
 
 -- | Window over which two records are considered to "match" in a
 -- KStream-KStream window join. The window is asymmetric: a record on
 -- the left can match a record on the right that arrived up to
--- 'jwBeforeMs' before, and up to 'jwAfterMs' after.
+-- 'beforeMs' before, and up to 'afterMs' after.
 data JoinWindows = JoinWindows
-  { jwBeforeMs        :: !Int64
-  , jwAfterMs         :: !Int64
-  , jwGracePeriodMs   :: !Int64
+  { beforeMs      :: !Int64
+  , afterMs       :: !Int64
+  , gracePeriodMs :: !Int64
   }
 
 joinWindowsBefore :: Duration -> JoinWindows
 joinWindowsBefore d = JoinWindows
-  { jwBeforeMs      = durationMillis d
-  , jwAfterMs       = 0
-  , jwGracePeriodMs = 0
+  { beforeMs      = durationMillis d
+  , afterMs       = 0
+  , gracePeriodMs = 0
   }
 
 joinWindowsAfter :: Duration -> JoinWindows
 joinWindowsAfter d = JoinWindows
-  { jwBeforeMs      = 0
-  , jwAfterMs       = durationMillis d
-  , jwGracePeriodMs = 0
+  { beforeMs      = 0
+  , afterMs       = durationMillis d
+  , gracePeriodMs = 0
   }
 
 symmetricJoinWindows :: Duration -> JoinWindows
 symmetricJoinWindows d =
   let !ms = durationMillis d
    in JoinWindows
-        { jwBeforeMs      = ms
-        , jwAfterMs       = ms
-        , jwGracePeriodMs = 0
+        { beforeMs      = ms
+        , afterMs       = ms
+        , gracePeriodMs = 0
         }
 
 -- | Override the grace period on a 'JoinWindows'. Mirrors Java's
 -- @JoinWindows.ofTimeDifference(...).grace(...)@.
 withJoinWindowsGrace :: Duration -> JoinWindows -> JoinWindows
-withJoinWindowsGrace g jw = jw { jwGracePeriodMs = durationMillis g }
+withJoinWindowsGrace g jw = jw { gracePeriodMs = durationMillis g }
 
 ----------------------------------------------------------------------
 -- Sliding windows (KIP-450)
@@ -136,29 +140,29 @@ ofTimeDifferenceAndGrace size grace =
 -- production callers override store names to share buffers
 -- across stages or apply custom topic configuration.
 data StreamJoined k v1 v2 = StreamJoined
-  { sjKeySerde   :: !(Serde k)
-  , sjV1Serde    :: !(Serde v1)
-  , sjV2Serde    :: !(Serde v2)
-  , sjName       :: !(Maybe Text)
-  , sjLeftStore  :: !(Maybe Text)
-  , sjRightStore :: !(Maybe Text)
+  { keySerde   :: !(Serde k)
+  , v1Serde    :: !(Serde v1)
+  , v2Serde    :: !(Serde v2)
+  , name       :: !(Maybe Text)
+  , leftStore  :: !(Maybe Text)
+  , rightStore :: !(Maybe Text)
   }
 
 -- | Build a default 'StreamJoined' from three serdes; store
 -- names + processor name are auto-synthesised.
 streamJoined :: Serde k -> Serde v1 -> Serde v2 -> StreamJoined k v1 v2
 streamJoined ks v1s v2s = StreamJoined
-  { sjKeySerde   = ks
-  , sjV1Serde    = v1s
-  , sjV2Serde    = v2s
-  , sjName       = Nothing
-  , sjLeftStore  = Nothing
-  , sjRightStore = Nothing
+  { keySerde   = ks
+  , v1Serde    = v1s
+  , v2Serde    = v2s
+  , name       = Nothing
+  , leftStore  = Nothing
+  , rightStore = Nothing
   }
 
 withStreamJoinedName
   :: Text -> StreamJoined k v1 v2 -> StreamJoined k v1 v2
-withStreamJoinedName n s = s { sjName = Just n }
+withStreamJoinedName n s = s { name = Just n }
 
 ----------------------------------------------------------------------
 -- TableJoined (KIP-545)
@@ -169,20 +173,20 @@ withStreamJoinedName n s = s { sjName = Just n }
 -- decide which partition a join-side record routes to on the
 -- internal subscription / response topics.
 data TableJoined k ko = TableJoined
-  { tjName              :: !(Maybe Text)
-  , tjLeftPartitioner   :: !(Maybe (Text -> Maybe k  -> Int -> Int))
-  , tjOtherPartitioner  :: !(Maybe (Text -> Maybe ko -> Int -> Int))
+  { name             :: !(Maybe Text)
+  , leftPartitioner  :: !(Maybe (Text -> Maybe k  -> Int -> Int))
+  , otherPartitioner :: !(Maybe (Text -> Maybe ko -> Int -> Int))
   }
 
 tableJoined :: TableJoined k ko
 tableJoined = TableJoined
-  { tjName             = Nothing
-  , tjLeftPartitioner  = Nothing
-  , tjOtherPartitioner = Nothing
+  { name             = Nothing
+  , leftPartitioner  = Nothing
+  , otherPartitioner = Nothing
   }
 
 withTableJoinedName :: Text -> TableJoined k ko -> TableJoined k ko
-withTableJoinedName n t = t { tjName = Just n }
+withTableJoinedName n t = t { name = Just n }
 
 withTableJoinedPartitioner
   :: (Text -> Maybe k -> Int -> Int)        -- left
@@ -190,6 +194,6 @@ withTableJoinedPartitioner
   -> TableJoined k ko
   -> TableJoined k ko
 withTableJoinedPartitioner lp op t = t
-  { tjLeftPartitioner  = Just lp
-  , tjOtherPartitioner = Just op
+  { leftPartitioner  = Just lp
+  , otherPartitioner = Just op
   }

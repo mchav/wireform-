@@ -1,5 +1,8 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 -- |
 -- Module      : Kafka.Streams.DSL.Repartitioned
@@ -37,11 +40,11 @@ import Kafka.Streams.DSL.Produced (StreamPartitioner)
 import Kafka.Streams.Serde (Serde)
 
 data Repartitioned k v = Repartitioned
-  { rpName             :: !(Maybe Text)
-  , rpNumberOfPartitions :: !(Maybe Int32)
-  , rpKeySerde         :: !(Maybe (Serde k))
-  , rpValueSerde       :: !(Maybe (Serde v))
-  , rpStreamPartitioner :: !(Maybe (StreamPartitioner k v))
+  { name               :: !(Maybe Text)
+  , numberOfPartitions :: !(Maybe Int32)
+  , keySerde           :: !(Maybe (Serde k))
+  , valueSerde         :: !(Maybe (Serde v))
+  , streamPartitioner  :: !(Maybe (StreamPartitioner k v))
   }
   deriving stock Generic
 
@@ -49,26 +52,26 @@ data Repartitioned k v = Repartitioned
 -- the DSL synthesises sensible defaults.
 repartitioned :: Repartitioned k v
 repartitioned = Repartitioned
-  { rpName               = Nothing
-  , rpNumberOfPartitions = Nothing
-  , rpKeySerde           = Nothing
-  , rpValueSerde         = Nothing
-  , rpStreamPartitioner  = Nothing
+  { name               = Nothing
+  , numberOfPartitions = Nothing
+  , keySerde           = Nothing
+  , valueSerde         = Nothing
+  , streamPartitioner  = Nothing
   }
 
 withRepartitionName :: Text -> Repartitioned k v -> Repartitioned k v
-withRepartitionName n r = r { rpName = Just n }
+withRepartitionName n r = r { name = Just n }
 
 withNumberOfPartitions :: Int32 -> Repartitioned k v -> Repartitioned k v
-withNumberOfPartitions n r = r { rpNumberOfPartitions = Just n }
+withNumberOfPartitions n r = r { numberOfPartitions = Just n }
 
 withRepartitionKeySerde :: Serde k -> Repartitioned k v -> Repartitioned k v
-withRepartitionKeySerde s r = r { rpKeySerde = Just s }
+withRepartitionKeySerde s r = r { keySerde = Just s }
 
 withRepartitionValueSerde :: Serde v -> Repartitioned k v -> Repartitioned k v
-withRepartitionValueSerde s r = r { rpValueSerde = Just s }
+withRepartitionValueSerde s r = r { valueSerde = Just s }
 
 withRepartitionStreamPartitioner
   :: StreamPartitioner k v -> Repartitioned k v -> Repartitioned k v
-withRepartitionStreamPartitioner p r = r { rpStreamPartitioner = Just p }
+withRepartitionStreamPartitioner p r = r { streamPartitioner = Just p }
 

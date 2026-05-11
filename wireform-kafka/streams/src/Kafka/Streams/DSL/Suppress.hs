@@ -1,6 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -286,9 +289,9 @@ suppressWindowedWith grace windowSize bufCfg s = do
 -- KIP-671 handler stack and routed like any other processing
 -- exception.
 data SuppressBufferFullException = SuppressBufferFullException
-  { sbfeStore :: !StoreName
-  , sbfeCap   :: !Int
-  , sbfeAt    :: !Int
+  { store :: !StoreName
+  , cap   :: !Int
+  , at    :: !Int
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Exception)
@@ -309,7 +312,7 @@ suppressWindowedProc sn graceMs winMs bufCfg = do
   -- BufferConfig cap.
   sizeRef <- newIORef (0 :: Int)
   let !cap_ = bufferConfigCap bufCfg
-      !policy = bufOverflow bufCfg
+      !policy = bufCfg.overflow
   pure Processor
     { procName = processorName "SUPPRESS"
     , procInit = \ctx -> do
@@ -394,7 +397,7 @@ suppressWindowedProc sn graceMs winMs bufCfg = do
 -- record-count limit; the user gets soft enforcement either
 -- way.
 bufferConfigCap :: BufferConfig -> Maybe Int
-bufferConfigCap b = case (bufMaxRecords b, bufMaxBytes b) of
+bufferConfigCap b = case (b.maxRecords, b.maxBytes) of
   (Just n, _)      -> Just n
   (_,      Just n) -> Just n
   _                -> Nothing
@@ -567,9 +570,9 @@ suppressWindowedHandle grace winMs ks vs h = do
 -- variants accept the same JVM Suppressed.BufferConfig
 -- vocabulary so callers can author topologies declaratively.
 data BufferConfig = BufferConfig
-  { bufMaxBytes   :: !(Maybe Int)
-  , bufMaxRecords :: !(Maybe Int)
-  , bufOverflow   :: !BufferOverflowPolicy
+  { maxBytes   :: !(Maybe Int)
+  , maxRecords :: !(Maybe Int)
+  , overflow   :: !BufferOverflowPolicy
   }
   deriving (Eq, Show)
 
@@ -599,7 +602,7 @@ maxRecordsBufferConfig n = BufferConfig Nothing (Just n) ShutdownWhenFull
 -- Java's @BufferConfig.shutDownWhenFull()@ /
 -- @emitEarlyWhenFull()@.
 shutDownWhenFull :: BufferConfig -> BufferConfig
-shutDownWhenFull b = b { bufOverflow = ShutdownWhenFull }
+shutDownWhenFull b = b { overflow = ShutdownWhenFull }
 
 emitEarlyWhenFull :: BufferConfig -> BufferConfig
-emitEarlyWhenFull b = b { bufOverflow = EmitEarlyWhenFull }
+emitEarlyWhenFull b = b { overflow = EmitEarlyWhenFull }

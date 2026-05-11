@@ -1,7 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -851,7 +853,7 @@ joinKStreamKTableProcL storeNm joiner = do
 --   1. Stores its incoming record in its /own/ window store, keyed
 --      by record key, indexed by record timestamp.
 --   2. Range-scans the /other/ store over
---      @[ts - jwBeforeMs, ts + jwAfterMs]@ for matches.
+--      @[ts - (\j -> j.beforeMs), ts + (\j -> j.afterMs)]@ for matches.
 --   3. For each match, calls the joiner with both values in the
 --      canonical (left, right) order and forwards the result to the
 --      MergePass node.
@@ -942,7 +944,7 @@ buildWindowJoin sl sr jw prefix mkLeftProc mkRightProc = do
   rightNm      <- freshNodeName  b (prefix <> "-RIGHT")
   mergeNm      <- freshNodeName  b (prefix <> "-MERGE")
 
-  let !sz  = jwBeforeMs jw + jwAfterMs jw + 1
+  let !sz  = jw.beforeMs + jw.afterMs + 1
       !ret = sz * 2
       lsb = inMemoryWindowStoreBuilder leftStoreNm  sz ret
               :: StoreBuilderW k v1
@@ -1035,8 +1037,8 @@ mkSideProc jw joiner mode selfStoreNm otherStoreNm mergeNm = do
               (Just ctx, Just self_, Just other_) -> do
                 let !ts@(Timestamp tsMs) = recordTimestamp r
                 wsPut self_ k (recordValue r) ts
-                let !lo = Timestamp (tsMs - jwBeforeMs jw)
-                    !hi = Timestamp (tsMs + jwAfterMs  jw)
+                let !lo = Timestamp (tsMs - jw.beforeMs)
+                    !hi = Timestamp (tsMs + jw.afterMs)
                 it <- wsFetchRange other_ k lo hi
                 matches <- kvIteratorToList it
                 if null matches
@@ -1202,7 +1204,7 @@ repartitionWith
   -> IO (KStream k v)
 repartitionWith cfg s = do
   let b = kstreamBuilder s
-      !prefix = case KafkaStreamsRepartitioned.rpName cfg of
+      !prefix = case cfg.name of
         Just n  -> n
         Nothing -> "REPARTITION"
   nm <- freshNodeName b ("KSTREAM-REPARTITION-" <> prefix)
@@ -1213,11 +1215,9 @@ repartitionWith cfg s = do
     { kstreamBuilder    = b
     , kstreamParent     = nm
     , kstreamKeySerde   =
-        maybe (kstreamKeySerde s) id
-              (KafkaStreamsRepartitioned.rpKeySerde cfg)
+        maybe (kstreamKeySerde s) id cfg.keySerde
     , kstreamValueSerde =
-        maybe (kstreamValueSerde s) id
-              (KafkaStreamsRepartitioned.rpValueSerde cfg)
+        maybe (kstreamValueSerde s) id cfg.valueSerde
     }
 
 ----------------------------------------------------------------------
