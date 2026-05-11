@@ -80,6 +80,7 @@ module Kafka.Streams.DSL.KStream
     -- * Conversions
   , toTable
   , repartition
+  , repartitionWith
   , toKStreamFromKTable
   , groupByKTable
     -- * Joins
@@ -92,6 +93,8 @@ module Kafka.Streams.DSL.KStream
   , splitStream
   , Branched (..)
   , branchedFrom
+  , withFunction
+  , withConsumer
     -- * Low-level access
   , transformValuesStream
   , processStream
@@ -116,6 +119,7 @@ import Kafka.Streams.DSL.Produced
   ( Produced (..)
   , produced
   )
+import qualified Kafka.Streams.DSL.Repartitioned as KafkaStreamsRepartitioned
 import Kafka.Streams.DSL.StreamsBuilder
   ( StreamsBuilder
   , freshNodeName
@@ -1161,6 +1165,41 @@ repartition topicPrefix s = do
     , kstreamValueSerde = kstreamValueSerde s
     }
 
+-- | KIP-559 @KStream.repartition(Repartitioned)@. Wires every
+-- override the 'Repartitioned' record carries: explicit
+-- internal-topic name, partition count, key/value serdes, and
+-- an optional 'StreamPartitioner'.
+--
+-- In the in-process driver only the name override has
+-- visible effect (we don't emit real partitions); the rest
+-- threads through the topology to the live runtime where the
+-- internal repartition topic is created with the requested
+-- partition count and the per-record routing honours the
+-- 'StreamPartitioner'.
+repartitionWith
+  :: KafkaStreamsRepartitioned.Repartitioned k v
+  -> KStream k v
+  -> IO (KStream k v)
+repartitionWith cfg s = do
+  let b = kstreamBuilder s
+      !prefix = case KafkaStreamsRepartitioned.rpName cfg of
+        Just n  -> n
+        Nothing -> "REPARTITION"
+  nm <- freshNodeName b ("KSTREAM-REPARTITION-" <> prefix)
+  withTopology_ b $ \t ->
+    Topo.addProcessor nm [kstreamParent s]
+      (mkPassThrough "KSTREAM-REPARTITION") t
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nm
+    , kstreamKeySerde   =
+        maybe (kstreamKeySerde s) id
+              (KafkaStreamsRepartitioned.rpKeySerde cfg)
+    , kstreamValueSerde =
+        maybe (kstreamValueSerde s) id
+              (KafkaStreamsRepartitioned.rpValueSerde cfg)
+    }
+
 ----------------------------------------------------------------------
 -- Split (KIP-418)
 ----------------------------------------------------------------------
@@ -1185,6 +1224,34 @@ branchedFrom n p = Branched
   , branchedPred = p
   , branchedAct  = \_ -> pure ()
   }
+
+-- | KIP-418 @Branched.withFunction(stream -> stream')@. Attach
+-- a transform function that runs once on the branched stream;
+-- the returned 'KStream' replaces the original in the result
+-- map. Use this when each branch needs a different
+-- downstream shape.
+withFunction
+  :: T.Text
+  -> (Record k v -> Bool)
+  -> (KStream k v -> IO ())
+  -> Branched k v
+withFunction n p act = Branched
+  { branchedName = n
+  , branchedPred = p
+  , branchedAct  = act
+  }
+
+-- | KIP-418 @Branched.withConsumer(stream -> Unit)@. Consume
+-- the branch's stream in place (for example: sink to a topic);
+-- the branch doesn't appear in the result map. Same as
+-- 'withFunction' but the type spelling-out makes intent
+-- explicit at the call site.
+withConsumer
+  :: T.Text
+  -> (Record k v -> Bool)
+  -> (KStream k v -> IO ())
+  -> Branched k v
+withConsumer = withFunction
 
 -- | KIP-418-style split: each input record is routed to the first
 -- branch whose predicate matches. Records that match none are sent

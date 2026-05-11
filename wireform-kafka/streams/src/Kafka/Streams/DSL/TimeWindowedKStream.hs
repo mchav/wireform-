@@ -19,6 +19,11 @@ module Kafka.Streams.DSL.TimeWindowedKStream
   , aggregateWindowed
   , reduceWindowed
   , WindowedTableHandle (..)
+    -- * Emit strategy (KIP-825)
+  , EmitStrategy (..)
+  , emitOnWindowUpdate
+  , emitOnWindowClose
+  , withEmitStrategy
   ) where
 
 import Data.IORef
@@ -60,6 +65,27 @@ import Kafka.Streams.Window
 
 import Kafka.Streams.Processor (ProcessorContext (..))
 
+-- | KIP-825 emit policy. The default ('OnWindowUpdate') emits a
+-- downstream record on every record that updates a window's
+-- aggregate. 'OnWindowClose' buffers until stream-time has
+-- advanced past the window's end + grace period and emits a
+-- single record per window.
+data EmitStrategy
+  = OnWindowUpdate
+  | OnWindowClose
+  deriving stock (Eq, Show)
+
+-- | The JVM-default 'EmitStrategy'. Every update propagates.
+emitOnWindowUpdate :: EmitStrategy
+emitOnWindowUpdate = OnWindowUpdate
+
+-- | Emit one record per window after it closes; equivalent to
+-- @suppress(Suppressed.untilWindowCloses(unbounded()))@ in
+-- effect but expressed at the windowed-aggregation level so
+-- there's no separate downstream node.
+emitOnWindowClose :: EmitStrategy
+emitOnWindowClose = OnWindowClose
+
 -- | Result of a windowed aggregation: a (synthetic) handle to a
 -- window-store materialisation.  Convert into a stream of windowed
 -- records using 'toStreamWindowed'.
@@ -68,7 +94,20 @@ data WindowedTableHandle k v = WindowedTableHandle
   , wthStore   :: !StoreName
   , wthBuilder :: !StreamsBuilder
   , wthWindows :: !Windows
+  , wthEmit    :: !EmitStrategy
+    -- ^ KIP-825: how the downstream-as-stream adapter should
+    -- emit. 'OnWindowUpdate' (the JVM default) emits per
+    -- update; 'OnWindowClose' buffers until stream-time has
+    -- advanced past windowEnd + grace.
   }
+
+-- | Override the emit strategy on an existing handle. Used by
+-- 'streamFromWindowedHandle' downstream.
+withEmitStrategy
+  :: EmitStrategy
+  -> WindowedTableHandle k v
+  -> WindowedTableHandle k v
+withEmitStrategy e h = h { wthEmit = e }
 
 countWindowed
   :: forall k v
@@ -114,6 +153,7 @@ reduceWindowed combine m twks = do
     , wthStore   = storeNm
     , wthBuilder = b
     , wthWindows = ws
+    , wthEmit    = emitOnWindowUpdate
     }
 
 -- | Per-window reduce processor. Mirrors the JVM
@@ -207,6 +247,7 @@ aggregateWindowed initial agg m twks = do
     , wthStore   = storeNm
     , wthBuilder = b
     , wthWindows = ws
+    , wthEmit    = emitOnWindowUpdate
     }
 
 windowedAggProc

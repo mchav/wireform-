@@ -32,6 +32,7 @@ module Kafka.Streams
     -- * DSL
   , module Kafka.Streams.DSL.Consumed
   , module Kafka.Streams.DSL.Produced
+  , module Kafka.Streams.DSL.Repartitioned
   , module Kafka.Streams.DSL.Grouped
   , module Kafka.Streams.DSL.Joined
   , module Kafka.Streams.DSL.Named
@@ -64,6 +65,7 @@ import Kafka.Streams.DSL.KStream
 import Kafka.Streams.DSL.KTable
 import Kafka.Streams.DSL.Materialized
 import Kafka.Streams.DSL.Produced
+import Kafka.Streams.DSL.Repartitioned
 import Kafka.Streams.DSL.Cogroup
 import Kafka.Streams.DSL.Suppress
 import Kafka.Streams.DSL.ForeignKeyJoin

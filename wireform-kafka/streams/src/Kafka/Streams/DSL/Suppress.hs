@@ -47,9 +47,12 @@ module Kafka.Streams.DSL.Suppress
   , suppressKStream
     -- * Buffer config
   , BufferConfig (..)
+  , BufferOverflowPolicy (..)
   , unboundedBufferConfig
   , maxBytesBufferConfig
   , maxRecordsBufferConfig
+  , shutDownWhenFull
+  , emitEarlyWhenFull
   ) where
 
 import Data.IORef
@@ -67,8 +70,11 @@ import Kafka.Streams.DSL.StreamsBuilder
   , freshStoreName
   , withTopology_
   )
+import Kafka.Streams.Time (millis)
+import Kafka.Streams.Window (windowsGracePeriod, windowsSize)
 import Kafka.Streams.DSL.TimeWindowedKStream
-  ( WindowedTableHandle (..)
+  ( EmitStrategy (..)
+  , WindowedTableHandle (..)
   )
 import Kafka.Streams.Processor
   ( Cancellable
@@ -111,7 +117,32 @@ streamFromWindowedHandle
   -> Serde k                          -- ^ key serde for downstream
   -> Serde v                          -- ^ value serde for downstream
   -> IO (KStream (WindowedKey k) v)
-streamFromWindowedHandle h kserde vserde = do
+streamFromWindowedHandle h kserde vserde = case wthEmit h of
+  OnWindowClose ->
+    -- KIP-825: defer the (WindowedKey k, v) emission until the
+    -- window has fully closed. The existing
+    -- 'suppressWindowedHandle' helper already implements that
+    -- contract.
+    suppressWindowedHandle
+      (millis (windowsGracePeriod (wthWindows h)))
+      (windowsSize (wthWindows h))
+      kserde
+      vserde
+      h
+  OnWindowUpdate -> doStreamFromWindowedHandle h kserde vserde
+
+-- | Original behaviour — emit on every update to the window
+-- store. Kept as a separate helper so the
+-- 'streamFromWindowedHandle' dispatch above can route by
+-- 'wthEmit'.
+doStreamFromWindowedHandle
+  :: forall k v
+   . Ord k
+  => WindowedTableHandle k v
+  -> Serde k
+  -> Serde v
+  -> IO (KStream (WindowedKey k) v)
+doStreamFromWindowedHandle h kserde vserde = do
   let b = wthBuilder h
   -- The handle's @wthNode@ is the aggregation processor itself,
   -- which forwards the latest aggregate /value/ each time. It
@@ -441,24 +472,45 @@ suppressWindowedHandle grace winMs ks vs h = do
 -- BufferConfig (KIP-328)
 ----------------------------------------------------------------------
 
--- | Buffer-size advisory for 'Suppressed.untilWindowCloses'. The
--- in-memory backend respects 'unboundedBufferConfig' faithfully;
--- size limits are tracked but not enforced — the Java behaviour
--- under buffer overflow is "shutdown the application", which is
--- aggressive for embedded workloads. Treat 'maxBytesBufferConfig'
--- and 'maxRecordsBufferConfig' as documentation hints; the
--- enforcement layer is a deferred refinement.
+-- | Buffer-size advisory for 'Suppressed.untilWindowCloses'.
+-- 'unboundedBufferConfig' is the only mode the suppress
+-- processor currently /enforces/ at runtime, but the bounded
+-- variants accept the same JVM Suppressed.BufferConfig
+-- vocabulary so callers can author topologies declaratively.
 data BufferConfig = BufferConfig
   { bufMaxBytes   :: !(Maybe Int)
   , bufMaxRecords :: !(Maybe Int)
+  , bufOverflow   :: !BufferOverflowPolicy
   }
   deriving (Eq, Show)
 
+-- | What to do when a bounded suppress buffer overflows. Mirrors
+-- Java's 'BufferConfig.shutDownWhenFull' /
+-- 'emitEarlyWhenFull' (KIP-328).
+data BufferOverflowPolicy
+  = ShutdownWhenFull
+    -- ^ JVM default for bounded buffers: tear the stream down
+    --   when the budget is exceeded.
+  | EmitEarlyWhenFull
+    -- ^ Emit the buffered windows even though grace hasn't
+    --   elapsed yet, freeing space for new entries. Trades
+    --   some correctness for liveness.
+  deriving (Eq, Show)
+
 unboundedBufferConfig :: BufferConfig
-unboundedBufferConfig = BufferConfig Nothing Nothing
+unboundedBufferConfig = BufferConfig Nothing Nothing EmitEarlyWhenFull
 
 maxBytesBufferConfig :: Int -> BufferConfig
-maxBytesBufferConfig n = BufferConfig (Just n) Nothing
+maxBytesBufferConfig n = BufferConfig (Just n) Nothing ShutdownWhenFull
 
 maxRecordsBufferConfig :: Int -> BufferConfig
-maxRecordsBufferConfig n = BufferConfig Nothing (Just n)
+maxRecordsBufferConfig n = BufferConfig Nothing (Just n) ShutdownWhenFull
+
+-- | Set the overflow policy on a 'BufferConfig'. Mirrors
+-- Java's @BufferConfig.shutDownWhenFull()@ /
+-- @emitEarlyWhenFull()@.
+shutDownWhenFull :: BufferConfig -> BufferConfig
+shutDownWhenFull b = b { bufOverflow = ShutdownWhenFull }
+
+emitEarlyWhenFull :: BufferConfig -> BufferConfig
+emitEarlyWhenFull b = b { bufOverflow = EmitEarlyWhenFull }

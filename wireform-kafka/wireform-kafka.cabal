@@ -449,6 +449,7 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.Materialized
         Kafka.Streams.DSL.Consumed
         Kafka.Streams.DSL.Produced
+        Kafka.Streams.DSL.Repartitioned
         Kafka.Streams.DSL.Grouped
         Kafka.Streams.DSL.Joined
         Kafka.Streams.DSL.Named

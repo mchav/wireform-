@@ -9,9 +9,16 @@ module Kafka.Streams.DSL.Joined
   , joinWindowsAfter
   , symmetricJoinWindows
   , withJoinWindowsGrace
+    -- * Modern builders (KIP-633)
+  , ofTimeDifferenceWithNoGrace
+  , ofTimeDifferenceAndGrace
     -- * Sliding windows (KIP-450)
   , slidingWindowsOf
   , slidingWindowsWithGrace
+    -- * StreamJoined (KIP-479)
+  , StreamJoined (..)
+  , streamJoined
+  , withStreamJoinedName
   ) where
 
 import Data.Text (Text)
@@ -94,3 +101,56 @@ slidingWindowsOf = symmetricJoinWindows
 slidingWindowsWithGrace :: Duration -> Duration -> JoinWindows
 slidingWindowsWithGrace size grace =
   withJoinWindowsGrace grace (slidingWindowsOf size)
+
+----------------------------------------------------------------------
+-- KIP-633 modern JoinWindows builders
+----------------------------------------------------------------------
+
+-- | Symmetric @[-d, +d]@ join window with no grace period.
+-- Mirrors Java's @JoinWindows.ofTimeDifferenceWithNoGrace(d)@.
+ofTimeDifferenceWithNoGrace :: Duration -> JoinWindows
+ofTimeDifferenceWithNoGrace = symmetricJoinWindows
+
+-- | Symmetric @[-d, +d]@ join window with an explicit grace.
+-- Mirrors Java's @JoinWindows.ofTimeDifferenceAndGrace(d, g)@.
+ofTimeDifferenceAndGrace :: Duration -> Duration -> JoinWindows
+ofTimeDifferenceAndGrace size grace =
+  withJoinWindowsGrace grace (symmetricJoinWindows size)
+
+----------------------------------------------------------------------
+-- StreamJoined (KIP-479)
+----------------------------------------------------------------------
+
+-- | Configuration record for KStream-KStream window joins.
+-- Mirrors Java's @StreamJoined<K, V1, V2>@: carries the serdes
+-- for both sides + the left and right state-store names. The
+-- DSL combinator (e.g. @joinKStreamKStream@) materialises a
+-- per-side buffer store when the names are present.
+--
+-- Most users default to 'streamJoined' (auto-named buffers);
+-- production callers override store names to share buffers
+-- across stages or apply custom topic configuration.
+data StreamJoined k v1 v2 = StreamJoined
+  { sjKeySerde   :: !(Serde k)
+  , sjV1Serde    :: !(Serde v1)
+  , sjV2Serde    :: !(Serde v2)
+  , sjName       :: !(Maybe Text)
+  , sjLeftStore  :: !(Maybe Text)
+  , sjRightStore :: !(Maybe Text)
+  }
+
+-- | Build a default 'StreamJoined' from three serdes; store
+-- names + processor name are auto-synthesised.
+streamJoined :: Serde k -> Serde v1 -> Serde v2 -> StreamJoined k v1 v2
+streamJoined ks v1s v2s = StreamJoined
+  { sjKeySerde   = ks
+  , sjV1Serde    = v1s
+  , sjV2Serde    = v2s
+  , sjName       = Nothing
+  , sjLeftStore  = Nothing
+  , sjRightStore = Nothing
+  }
+
+withStreamJoinedName
+  :: Text -> StreamJoined k v1 v2 -> StreamJoined k v1 v2
+withStreamJoinedName n s = s { sjName = Just n }
