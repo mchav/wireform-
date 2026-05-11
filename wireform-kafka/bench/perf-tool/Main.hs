@@ -73,11 +73,14 @@ runProduce broker topic n vsize acks batch lingerMs compression = do
     Left err -> die ("createProducer: " ++ err)
     Right p -> do
       t0 <- Time.getPOSIXTime
-      replicateM_ n $ do
-        r <- WP.sendMessageDrop p topic Nothing payload
-        case r of
-          Left e -> die ("send: " ++ e)
-          Right _ -> pure ()
+      let go !i
+            | i <= 0 = pure ()
+            | otherwise = do
+                r <- WP.sendMessageDrop p topic Nothing payload
+                case r of
+                  Left e -> die ("send: " ++ e)
+                  Right _ -> go (i - 1)
+      go n
       flushRes <- WP.flushProducer p
       case flushRes of
         Left e -> die ("flushProducer: " ++ e)

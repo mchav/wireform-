@@ -694,6 +694,7 @@ getCurrentTimeMillis = KafkaTime.currentTimeMillis
 
 -- | Approximate size of a record in bytes
 -- This is a rough estimate for batch size tracking
+{-# INLINE approximateRecordSize #-}
 approximateRecordSize :: RB.Record -> Int
 approximateRecordSize RB.Record{..} =
   let keySize = maybe 0 BS.length recordKey
