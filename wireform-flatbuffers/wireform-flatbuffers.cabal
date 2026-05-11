@@ -3,6 +3,9 @@ name: wireform-flatbuffers
 version: 0.1.0.0
 synopsis: FlatBuffers zero-copy flat serialization
 license: BSD-3-Clause
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 common defaults

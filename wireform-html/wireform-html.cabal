@@ -4,6 +4,9 @@ version: 0.1.0.0
 synopsis:
   High-performance HTML5 tokenizer, tree builder, DOM, CSS selectors, and streaming rewriter
 license: BSD-3-Clause
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 common defaults
