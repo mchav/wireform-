@@ -30,6 +30,8 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool, assertFailure)
 
 import Kafka.Client.Pipeline
+import qualified Kafka.Client.ReauthDriver as Reauth
+import qualified Kafka.Network.Auth.SASL as SASL
 
 tests :: TestTree
 tests = testGroup "Pipeline"
@@ -39,6 +41,7 @@ tests = testGroup "Pipeline"
   , pipeline_stats_track_in_flight_and_responses
   , pipeline_timeout_fails_request
   , pipeline_pause_blocks_sends
+  , pipeline_attach_reauth_driver_pauses_during_handshake
   , pipeline_drain_waits_for_in_flight
   , pipeline_with_paused_pipeline_runs_action
   ]
@@ -419,3 +422,60 @@ pipeline_with_paused_pipeline_runs_action =
     -- show how a KIP-368 driver would consume the bracket.
     sameRef :: NC.Connection -> NC.Connection -> Bool
     sameRef _ _ = True
+
+----------------------------------------------------------------------
+-- attachReauthDriver: wraps the user's authenticator so the
+-- handshake runs inside withPausedPipeline.
+----------------------------------------------------------------------
+
+pipeline_attach_reauth_driver_pauses_during_handshake :: TestTree
+pipeline_attach_reauth_driver_pauses_during_handshake =
+  testCase "attachReauthDriver: the wrapped runner runs the handshake inside withPausedPipeline" $
+    withTestBroker $ \port ->
+      withClientConnection port $ \conn -> do
+        pipe <- createPipeline conn defaultPipelineConfig
+        state <- Reauth.createReauthState 60_000
+
+        -- The stub records two facts at the moment it fires:
+        --   1. whether 'isPipelinePaused' is True at that
+        --      instant (proves the wrapper paused us);
+        --   2. that the wrapper's connection callback was
+        --      handed the pipeline's connection.
+        observedPausedRef <- IORef.newIORef False
+        ranRef            <- IORef.newIORef False
+        let runner = Reauth.ReauthRunner
+              { Reauth.rrAuthenticate = do
+                  paused <- isPipelinePaused pipe
+                  IORef.writeIORef observedPausedRef paused
+                  IORef.writeIORef ranRef True
+                  pure (Right 60_000)
+              , Reauth.rrLogger = \_ -> pure ()
+              }
+
+        attachReauthDriver pipe state runner
+        -- Force the driver to fire as soon as it next checks.
+        Reauth.forceReauthNow state
+
+        -- Wait up to 5s for the runner to fire AND the
+        -- driver to record the new deadline (proves the loop
+        -- completed an iteration through the wrapper).
+        let pollOK :: Int -> IO Bool -> IO Bool
+            pollOK 0 _ = pure False
+            pollOK n act = do
+              ok <- act
+              if ok then pure True
+                    else threadDelay 25_000 >> pollOK (n - 1) act
+        ran <- pollOK 200 (IORef.readIORef ranRef)
+        ran @?= True
+
+        observedPaused <- IORef.readIORef observedPausedRef
+        observedPaused @?= True
+
+        -- After the handshake completes, the pipeline returns
+        -- to unpaused. Poll instead of asserting strictly to
+        -- avoid races against the driver's STM update.
+        unpaused <- pollOK 200 (not <$> isPipelinePaused pipe)
+        unpaused @?= True
+
+        Reauth.stopReauthThread state
+        closePipeline pipe

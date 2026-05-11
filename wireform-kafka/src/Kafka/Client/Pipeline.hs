@@ -78,6 +78,7 @@ module Kafka.Client.Pipeline
   , resumePipeline
   , isPipelinePaused
   , awaitPipelineDrained
+  , attachReauthDriver
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -97,6 +98,7 @@ import qualified Data.IntSet as IntSet
 import Data.IntSet (IntSet)
 import GHC.Generics (Generic)
 import qualified Kafka.Time as KafkaTime
+import qualified Kafka.Client.ReauthDriver
 import Network.Connection
   ( Connection
   , connectionGetExact
@@ -414,6 +416,43 @@ withPausedPipeline pipe action = do
   case result of
     Left e  -> throwIO e
     Right a -> pure a
+
+-- | KIP-368: attach a 'ReauthState'-driven background thread to
+-- this pipeline. The pipeline's 'pipelinePaused' flag is
+-- toggled around every 'rrAuthenticate' call so the SASL
+-- handshake doesn't race against in-flight requests:
+--
+-- @
+-- attachReauthDriver pipe reauthState reauthRunner
+-- @
+--
+-- runs the user's 'rrAuthenticate' /inside/
+-- 'withPausedPipeline', which:
+--
+--   1. flips 'pipelinePaused' to 'True', preventing the send
+--      loop from queueing new bytes;
+--   2. blocks until 'awaitPipelineDrained' (no pending
+--      requests left in flight);
+--   3. invokes the user-supplied authenticator on the
+--      pipeline's connection;
+--   4. flips 'pipelinePaused' back to 'False' (or rethrows on
+--      failure, again flipping back).
+--
+-- After the wrap, 'startReauthThread' is invoked so the
+-- background driver wakes when the broker-advertised
+-- @session.lifetime.ms@ deadline is reached.
+attachReauthDriver
+  :: Pipeline
+  -> Kafka.Client.ReauthDriver.ReauthState
+  -> Kafka.Client.ReauthDriver.ReauthRunner
+  -> IO ()
+attachReauthDriver pipe st runner = do
+  let !wrapped = runner
+        { Kafka.Client.ReauthDriver.rrAuthenticate =
+            withPausedPipeline pipe $ \_conn ->
+              Kafka.Client.ReauthDriver.rrAuthenticate runner
+        }
+  Kafka.Client.ReauthDriver.startReauthThread st wrapped
 
 ----------------------------------------------------------------------
 -- Background loops
