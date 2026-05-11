@@ -22,14 +22,14 @@ recordingCoordinator = do
   buf <- newIORef ([] :: [Text])
   let log_ s = modifyIORef' buf (s :)
       coord = EOSCoordinator
-        { eosInit          = log_ "init"   *> pure (Right ())
-        , eosBegin         = log_ "begin"  *> pure (Right ())
-        , eosCommit        = log_ "commit" *> pure (Right ())
-        , eosAbort         = log_ "abort"  *> pure (Right ())
-        , eosCommitOffsets = \_ _ ->
+        { initTxn          = log_ "init"   *> pure (Right ())
+        , beginTxn         = log_ "begin"  *> pure (Right ())
+        , commitTxn        = log_ "commit" *> pure (Right ())
+        , abortTxn         = log_ "abort"  *> pure (Right ())
+        , commitOffsets = \_ _ ->
             log_ "commitOffsets" *> pure (Right ())
-        , eosStoreCommit = log_ "storeCommit" *> pure (Right ())
-        , eosStoreAbort  = log_ "storeAbort"  *> pure (Right ())
+        , storeCommit = log_ "storeCommit" *> pure (Right ())
+        , storeAbort  = log_ "storeAbort"  *> pure (Right ())
         }
   pure (coord, reverse <$> readIORef buf)
 
@@ -42,14 +42,14 @@ failingAt failStep = do
         | name == failStep = log_ name *> pure (Left ("forced-fail-" <> name))
         | otherwise        = log_ name *> action
       coord = EOSCoordinator
-        { eosInit  = step "init" (pure (Right ()))
-        , eosBegin = step "begin" (pure (Right ()))
-        , eosCommit = step "commit" (pure (Right ()))
-        , eosAbort = step "abort" (pure (Right ()))
-        , eosCommitOffsets = \_ _ ->
+        { initTxn  = step "init" (pure (Right ()))
+        , beginTxn = step "begin" (pure (Right ()))
+        , commitTxn = step "commit" (pure (Right ()))
+        , abortTxn = step "abort" (pure (Right ()))
+        , commitOffsets = \_ _ ->
             step "commitOffsets" (pure (Right ()))
-        , eosStoreCommit = step "storeCommit" (pure (Right ()))
-        , eosStoreAbort  = step "storeAbort"  (pure (Right ()))
+        , storeCommit = step "storeCommit" (pure (Right ()))
+        , storeAbort  = step "storeAbort"  (pure (Right ()))
         }
   pure (coord, reverse <$> readIORef buf)
 
@@ -156,7 +156,7 @@ eos_transactional_stores_revert_on_abort =
     Store.kvsPut kvs "k" "v"
     let coord = withTransactionalStores
                   noopEOSCoordinator
-                    { eosCommit = pure (Left "forced-fail") }
+                    { commitTxn = pure (Left "forced-fail") }
                   [TX.txnCommit ts]
                   [TX.txnAbort  ts]
     outcome <- runCommitCycle coord "g" (pure Map.empty) (pure ())

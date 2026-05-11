@@ -1,5 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -54,20 +57,20 @@ import qualified Kafka.Client.Transaction as KT
 -- callbacks; production wires them to 'Kafka.Client.Transaction',
 -- tests wire them to a recorder.
 data EOSCoordinator = EOSCoordinator
-  { eosInit            :: !(IO (Either Text ()))
-  , eosBegin           :: !(IO (Either Text ()))
-  , eosCommit          :: !(IO (Either Text ()))
-  , eosAbort           :: !(IO (Either Text ()))
-  , eosCommitOffsets   :: !(Text                                  -- consumer group id
-                            -> HashMap KC.TopicPartition Int64
-                            -> IO (Either Text ()))
-  , eosStoreCommit     :: !(IO (Either Text ()))
+  { initTxn        :: !(IO (Either Text ()))
+  , beginTxn       :: !(IO (Either Text ()))
+  , commitTxn      :: !(IO (Either Text ()))
+  , abortTxn       :: !(IO (Either Text ()))
+  , commitOffsets  :: !(Text                                  -- consumer group id
+                       -> HashMap KC.TopicPartition Int64
+                       -> IO (Either Text ()))
+  , storeCommit    :: !(IO (Either Text ()))
     -- ^ KIP-892: drain every transactional state store onto its
     --   underlying store. Called by 'runCommitCycle' AFTER the
     --   producer transaction commit succeeds, so the store
     --   write happens iff the wire-side commit was durable.
     --   Default ('noopEOSCoordinator'): pure (Right ()).
-  , eosStoreAbort      :: !(IO (Either Text ()))
+  , storeAbort     :: !(IO (Either Text ()))
     -- ^ KIP-892: discard every transactional state store's
     --   buffered writes. Called when the producer transaction
     --   aborts so the store and the broker-side log stay
@@ -78,13 +81,13 @@ data EOSCoordinator = EOSCoordinator
 -- effects. Used by the at-least-once code path.
 noopEOSCoordinator :: EOSCoordinator
 noopEOSCoordinator = EOSCoordinator
-  { eosInit          = pure (Right ())
-  , eosBegin         = pure (Right ())
-  , eosCommit        = pure (Right ())
-  , eosAbort         = pure (Right ())
-  , eosCommitOffsets = \_ _ -> pure (Right ())
-  , eosStoreCommit   = pure (Right ())
-  , eosStoreAbort    = pure (Right ())
+  { initTxn       = pure (Right ())
+  , beginTxn      = pure (Right ())
+  , commitTxn     = pure (Right ())
+  , abortTxn      = pure (Right ())
+  , commitOffsets = \_ _ -> pure (Right ())
+  , storeCommit   = pure (Right ())
+  , storeAbort    = pure (Right ())
   }
 
 -- | Result of one commit cycle.
@@ -105,7 +108,7 @@ runCommitCycle
   -> IO ()                                           -- flush body
   -> IO CommitOutcome
 runCommitCycle coord groupId getOffsets flushBody = do
-  step1 <- eosBegin coord
+  step1 <- coord.beginTxn
   case step1 of
     Left err -> pure (CommitFatal ("begin: " <> err))
     Right () -> do
@@ -114,11 +117,11 @@ runCommitCycle coord groupId getOffsets flushBody = do
         Left e -> doAbort ("flush: " <> T.pack (show e))
         Right () -> do
           offs <- getOffsets
-          step2 <- eosCommitOffsets coord groupId offs
+          step2 <- coord.commitOffsets groupId offs
           case step2 of
             Left err -> doAbort ("commitOffsets: " <> err)
             Right () -> do
-              step3 <- eosCommit coord
+              step3 <- coord.commitTxn
               case step3 of
                 Left err -> doAbort ("commit: " <> err)
                 Right () -> do
@@ -127,7 +130,7 @@ runCommitCycle coord groupId getOffsets flushBody = do
                   -- is it safe to drain the per-task
                   -- TransactionalStore buffers onto their
                   -- underlying stores.
-                  step4 <- eosStoreCommit coord
+                  step4 <- coord.storeCommit
                   case step4 of
                     Left err ->
                       -- The wire commit succeeded but the
@@ -139,10 +142,10 @@ runCommitCycle coord groupId getOffsets flushBody = do
                     Right () -> pure CommitSucceeded
   where
     doAbort reason = do
-      _ <- eosAbort coord
+      _ <- coord.abortTxn
       -- KIP-892: matching abort on the store side discards
       -- buffered writes so a retry starts from a clean slate.
-      _ <- eosStoreAbort coord
+      _ <- coord.storeAbort
       pure (CommitAborted reason)
 
 ----------------------------------------------------------------------
@@ -154,17 +157,17 @@ runCommitCycle coord groupId getOffsets flushBody = do
 -- orchestrator.
 newRealEOSCoordinator :: KT.Transaction -> EOSCoordinator
 newRealEOSCoordinator txn = EOSCoordinator
-  { eosInit  = wrapTE <$> KT.initTransactions txn
-  , eosBegin = wrapTE <$> KT.beginTransaction txn
-  , eosCommit = wrapTE <$> KT.commitTransaction txn
-  , eosAbort = wrapTE <$> KT.abortTransaction txn
-  , eosCommitOffsets = \gid offs ->
+  { initTxn  = wrapTE <$> KT.initTransactions txn
+  , beginTxn = wrapTE <$> KT.beginTransaction txn
+  , commitTxn = wrapTE <$> KT.commitTransaction txn
+  , abortTxn = wrapTE <$> KT.abortTransaction txn
+  , commitOffsets = \gid offs ->
       wrapTE <$> KT.commitOffsetsInTransaction txn gid offs
-  , eosStoreCommit = pure (Right ())
+  , storeCommit = pure (Right ())
     -- No transactional stores registered with this coordinator
     -- by default. Callers that materialise stores wrap the
     -- coordinator with 'withTransactionalStores' below.
-  , eosStoreAbort  = pure (Right ())
+  , storeAbort  = pure (Right ())
   }
   where
     wrapTE = either (Left . T.pack . show) Right
@@ -185,8 +188,8 @@ withTransactionalStores
   -> [IO ()]                  -- per-store abort actions
   -> EOSCoordinator
 withTransactionalStores base commits aborts = base
-  { eosStoreCommit = runActions commits "store-commit"
-  , eosStoreAbort  = runActions aborts  "store-abort"
+  { storeCommit = runActions commits "store-commit"
+  , storeAbort  = runActions aborts  "store-abort"
   }
   where
     runActions xs label = do

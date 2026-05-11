@@ -25,14 +25,14 @@ recordingCoord = do
   buf <- newIORef ([] :: [Text])
   let log_ s = modifyIORef' buf (s :)
       coord = EOSCoordinator
-        { eosInit          = log_ "init"   *> pure (Right ())
-        , eosBegin         = log_ "begin"  *> pure (Right ())
-        , eosCommit        = log_ "commit" *> pure (Right ())
-        , eosAbort         = log_ "abort"  *> pure (Right ())
-        , eosCommitOffsets = \_ _ ->
+        { initTxn          = log_ "init"   *> pure (Right ())
+        , beginTxn         = log_ "begin"  *> pure (Right ())
+        , commitTxn        = log_ "commit" *> pure (Right ())
+        , abortTxn         = log_ "abort"  *> pure (Right ())
+        , commitOffsets = \_ _ ->
             log_ "commitOffsets" *> pure (Right ())
-        , eosStoreCommit = log_ "storeCommit" *> pure (Right ())
-        , eosStoreAbort  = log_ "storeAbort"  *> pure (Right ())
+        , storeCommit = log_ "storeCommit" *> pure (Right ())
+        , storeAbort  = log_ "storeAbort"  *> pure (Right ())
         }
   pure (coord, reverse <$> readIORef buf)
 
