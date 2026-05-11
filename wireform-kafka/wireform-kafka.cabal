@@ -576,6 +576,7 @@ test-suite wireform-kafka-streams-test
         Streams.QueryAndDiscoverySpec
         Streams.ProcessorAndStoreExtrasSpec
         Streams.DynamicThreadsSpec
+        Streams.BoundedSuppressSpec
         Streams.MultiInstanceHarnessSpec
         Streams.SchemaRegistryHttpSpec
         Streams.SchemaRegistryFormatsSpec

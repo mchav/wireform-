@@ -57,6 +57,7 @@ import qualified Streams.StoresExtraSpec
 import qualified Streams.QueryAndDiscoverySpec
 import qualified Streams.ProcessorAndStoreExtrasSpec
 import qualified Streams.DynamicThreadsSpec
+import qualified Streams.BoundedSuppressSpec
 import qualified Streams.MultiInstanceHarnessSpec
 import qualified Streams.SchemaRegistryHttpSpec
 import qualified Streams.SchemaRegistryFormatsSpec
@@ -118,6 +119,7 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.QueryAndDiscoverySpec.tests
   , Streams.ProcessorAndStoreExtrasSpec.tests
   , Streams.DynamicThreadsSpec.tests
+  , Streams.BoundedSuppressSpec.tests
   , Streams.MultiInstanceHarnessSpec.tests
   , Streams.SchemaRegistryHttpSpec.tests
   , Streams.SchemaRegistryFormatsSpec.tests
