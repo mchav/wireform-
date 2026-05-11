@@ -45,6 +45,16 @@ and this project adheres to the
 
 ### Changed
 
+- The 20 `Kafka.Streams.DSL.*` modules are renamed to
+  `Kafka.Streams.*` — `Kafka.Streams.DSL.KStream` →
+  `Kafka.Streams.KStream`, etc. The `DSL` segment was a
+  category, not a domain object, and sat between
+  `Kafka.Streams` and the actual user-facing types
+  (`KStream`, `KTable`, `StreamsBuilder`, `Consumed`,
+  `Produced`, …). Imports of the umbrella `Kafka.Streams`
+  module are unchanged; direct imports of
+  `Kafka.Streams.DSL.X` must be rewritten to
+  `Kafka.Streams.X`.
 - `Kafka.Client.Group.GroupConfig` and `GroupConsumer` field
   selectors lose the `gc` prefix — `gcBootstrapBrokers` →
   `bootstrapBrokers`, `gcGroupId` → `groupId`, `gcTopics` →
