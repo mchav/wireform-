@@ -3,64 +3,112 @@
 
 {-|
 Module      : Kafka.Client.Producer
-Description : High-level Kafka producer API
+Description : Send records to a Kafka topic
 Copyright   : (c) 2025
 License     : BSD-3-Clause
-Maintainer  : kafka-native
 
-This module provides a high-level producer API for sending messages to Kafka.
+Open a connection to a Kafka cluster and publish records to it.
 
-Features:
+A 'Producer' is a long-lived handle. Internally it keeps a connection
+pool, a per-partition batch accumulator, and a background sender
+thread; you keep that handle for the lifetime of your service and
+publish records through it concurrently from however many threads
+you like.
 
-* Automatic batching for improved throughput
-* Configurable partitioning strategies
-* Compression support
-* Idempotent and transactional producers
-* Asynchronous send with callbacks or futures
-* Automatic retry with exponential backoff
-* Delivery guarantees: at-most-once, at-least-once, exactly-once
-
-= Usage Example
+= Quick start
 
 @
-producer <- createProducer brokers defaultProducerConfig
-result <- sendMessage producer "my-topic" key value
-case result of
-  Left err -> putStrLn $ "Send failed: " ++ err
-  Right metadata -> print metadata
-closeProducer producer
+import qualified Kafka.Client.Producer as Producer
+
+main :: IO ()
+main =
+  Producer.'withProducer' [\"localhost:9092\"] Producer.'defaultProducerConfig' $ \\p -> do
+    md \<- 'sendMessage' p \"events\" Nothing \"hello\"
+    print md
 @
 
+'withProducer' is the recommended entry point: it opens the
+connection, hands you the handle, and guarantees the producer is
+flushed and closed even if your body throws. If you can't use a
+bracket, you can still call 'createProducer' / 'closeProducer'
+manually.
+
+= Picking a send function
+
+You almost always want 'sendMessage' (synchronous, returns
+'Either') or 'sendMessageAsync' (returns immediately, hands you a
+future). The other @send*@ variants exist for very high
+throughput pipelines that have specific latency or back-pressure
+needs; see the \"Performance-tuned send variants\" section below.
+
+= Configuration
+
+'ProducerConfig' has a knob for every behavior Kafka exposes:
+compression, batching, retries, delivery guarantees, idempotence,
+transactions, partitioner choice. Start from 'defaultProducerConfig'
+and override only the fields you care about. The defaults track the
+Kafka 3.x JVM client. Environment variables of the form @KAFKA_*@
+are layered on top automatically by 'createProducer' — see
+'applyKafkaEnvToProducerConfig'.
 -}
 module Kafka.Client.Producer
-  ( -- * Producer Types
+  ( -- * Producer lifecycle
+    --
+    -- | A producer holds a network connection pool, a batch
+    -- accumulator, and a background sender thread; use
+    -- 'withProducer' to make sure it is shut down cleanly.
     Producer
-  , ProducerConfig(..)
-  , ProducerRecord(..)
-  , RecordMetadata(..)
-    -- * Producer Creation
+  , withProducer
+  , withProducer'
   , createProducer
   , closeProducer
   , closeProducerWithTimeout
-    -- * Flushing
-  , flushProducer
-    -- * Sending Messages
+
+    -- * Sending records
+    --
+    -- | 'sendMessage' is the everyday choice: it waits for the
+    -- broker to acknowledge and returns the assigned offset.
+    -- 'sendMessageAsync' is the same call without the wait —
+    -- you get a future you can poll later.
   , sendMessage
   , sendMessageAsync
-  , sendMessageDrop
-  , sendMessageDropUnsafe
-  , sendMessageDropFastest
-  , sendMessagesDrop
-  , sendBatch
+  , ProducerRecord(..)
+  , RecordMetadata(..)
+
+    -- * Flushing
+    --
+    -- | 'flushProducer' blocks until everything currently buffered
+    -- has reached the broker. Always call it (or rely on
+    -- 'withProducer', which does) before tearing down the producer
+    -- if you care about at-least-once delivery.
+  , flushProducer
+
+    -- * Configuration
+  , ProducerConfig(..)
+  , defaultProducerConfig
+  , DeliveryGuarantee(..)
+  , validateProducerConfig
+
+    -- * Partitioning
+    --
+    -- | By default, records with a key are routed by a hash of
+    -- the key (so the same key always lands on the same
+    -- partition); records without a key use the sticky
+    -- partitioner to maximise batching. Override with
+    -- 'roundRobinPartitioner', 'hashPartitioner', or write your
+    -- own 'Partitioner'.
+  , Partitioner
+  , defaultPartitioner
+  , roundRobinPartitioner
+  , hashPartitioner
+  , stickyPartitioner
+
     -- * Transactions
     --
-    -- | The high-level transaction lifecycle (initTransactions /
-    -- beginTransaction / commitTransaction / abortTransaction /
-    -- sendOffsetsToTransaction) lives in
-    -- "Kafka.Client.Transaction". To make 'sendMessage' actually
-    -- participate in a transaction, bind a 'Txn.Transaction' to the
-    -- producer with 'bindTransaction' /after/
-    -- 'Txn.initTransactions' has populated its producer-id / epoch.
+    -- | The transaction lifecycle (init / begin / commit / abort /
+    -- send offsets) lives in "Kafka.Client.Transaction". Once you
+    -- have a 'Txn.Transaction', call 'bindTransaction' to make
+    -- subsequent 'sendMessage' calls participate in it.
     --
     -- After binding:
     --
@@ -75,17 +123,10 @@ module Kafka.Client.Producer
   , bindTransaction
   , producerBoundTransaction
   , producerTxnGate
-    -- * Partitioning
-  , Partitioner
-  , defaultPartitioner
-  , roundRobinPartitioner
-  , hashPartitioner
-  , stickyPartitioner
-    -- * Configuration
-  , defaultProducerConfig
-  , DeliveryGuarantee(..)
-    -- * Configuration validation
-  , validateProducerConfig
+
+    -- * Cluster info
+  , producerClusterId
+
     -- * Environment-variable overlay
     --
     -- | 'createProducer' already reads @KAFKA_*@ env vars and
@@ -95,15 +136,39 @@ module Kafka.Client.Producer
     -- (e.g. to log the effective config before connecting).
   , applyKafkaEnvToProducerConfig
   , producerConfigFromEnv
-    -- * Cluster info
-  , producerClusterId
+
+    -- * Performance-tuned send variants
+    --
+    -- | The standard send functions are 'sendMessage' (synchronous
+    -- ack) and 'sendMessageAsync' (future-based). The variants
+    -- below trade safety or feedback for throughput; reach for
+    -- them only when a benchmark shows you need them.
+    --
+    --   * 'sendMessageDrop' — fire-and-forget, no future, no
+    --     wait. Still uses the partitioner and accumulator.
+    --   * 'sendMessageDropUnsafe' — same as 'sendMessageDrop' but
+    --     skips the txn / idempotence guard rails. Only safe on a
+    --     plain non-transactional producer.
+    --   * 'sendMessageDropFastest' — caches the last touched
+    --     batch so repeated sends to the same (topic, partition)
+    --     skip the per-record map lookup. Use in tight inner
+    --     loops that fan-in to one partition.
+    --   * 'sendMessagesDrop' — bulk variant of
+    --     'sendMessageDropUnsafe' for a list of records.
+    --   * 'sendBatch' — bypasses the accumulator entirely and
+    --     ships an explicit batch. Used by the perf tool.
+  , sendMessageDrop
+  , sendMessageDropUnsafe
+  , sendMessageDropFastest
+  , sendMessagesDrop
+  , sendBatch
   ) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, bracket, throwIO, try)
 import Control.Monad (when)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.ByteString (ByteString)
@@ -735,6 +800,58 @@ parseBrokerAddress addr =
         [(port, "")] -> Right $ Conn.BrokerAddress (T.unpack host) port
         _ -> Left $ "Invalid port: " ++ T.unpack portText
     _ -> Left $ "Invalid broker address format (expected host:port): " ++ T.unpack addr
+
+-- | Open a producer, run an action with it, and tear it down safely.
+--
+-- This is the recommended way to use a 'Producer'. The bracket
+-- guarantees that 'closeProducer' runs even if the body throws,
+-- which in turn flushes any buffered records and aborts an open
+-- transaction. Any startup failure (broker unreachable, config
+-- invalid, etc.) is raised as an 'IOError' so you can decide
+-- whether to retry the whole bracket.
+--
+-- @
+-- 'withProducer' [\"localhost:9092\"] 'defaultProducerConfig' $ \\p -> do
+--   _ <- 'sendMessage' p \"events\" Nothing \"hello\"
+--   _ <- 'sendMessage' p \"events\" Nothing \"again\"
+--   pure ()
+-- @
+--
+-- If you can't structure your program around a bracket — for
+-- example, the producer lives in a long-running service whose
+-- handle is stored in some larger record — drop down to
+-- 'createProducer' and 'closeProducer' and own the lifetime
+-- explicitly.
+withProducer
+  :: [Text]          -- ^ Bootstrap brokers, e.g. @[\"localhost:9092\"]@.
+                     --   Empty list falls back to @KAFKA_BOOTSTRAP_SERVERS@.
+  -> ProducerConfig  -- ^ Configuration; start from 'defaultProducerConfig'.
+  -> (Producer -> IO a)
+  -> IO a
+withProducer brokers cfg = withProducer' brokers cfg closeProducer
+
+-- | Same as 'withProducer' but lets you swap in a custom
+-- shutdown function. Use 'closeProducerWithTimeout' when you
+-- want to bound how long the producer waits for in-flight
+-- records to drain.
+--
+-- @
+-- 'withProducer'' brokers cfg (\\p -> 'closeProducerWithTimeout' p 5000) $ \\p ->
+--   pump p
+-- @
+withProducer'
+  :: [Text]
+  -> ProducerConfig
+  -> (Producer -> IO ())   -- ^ Shutdown function applied on exit.
+  -> (Producer -> IO a)
+  -> IO a
+withProducer' brokers cfg shutdown body = bracket open shutdown body
+  where
+    open = do
+      r <- createProducer brokers cfg
+      case r of
+        Left err -> throwIO (userError ("wireform-kafka: createProducer failed: " <> err))
+        Right p  -> pure p
 
 -- | Close the producer and flush pending messages.
 --
