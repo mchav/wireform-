@@ -4,22 +4,29 @@
 
 {-|
 Module      : Kafka.Client.Simple
-Description : Simple synchronous Kafka client for basic operations
+Description : Low-level single-broker client used for debugging and the protocol test suite
 Copyright   : (c) 2025
 License     : BSD-3-Clause
 
-A simple, synchronous Kafka client implementation for basic operations.
-This module provides straightforward produce and consume functionality
-without the complexity of the full asynchronous client.
+__This is not the module beginners should reach for, despite its
+name.__ \"Simple\" here means \"close to the wire\" — one connection,
+one record at a time, no batching, no consumer group, no
+heartbeats, no transactional support, no compression. It is what we
+use internally for protocol smoke tests and for inspecting the
+encoding of a single request \/ response pair.
 
-This is suitable for:
-- Testing and development
-- Simple applications with low throughput requirements
-- Learning the Kafka protocol
+If you just want to publish records to a topic, use
+"Kafka.Client.Producer" (or its umbrella re-export from "Kafka").
+If you want to receive records from a topic, use
+"Kafka.Client.Group" for the \"call this handler per record\" loop
+or "Kafka.Client.Consumer" for a custom poll loop.
 
-For production use cases with high throughput, use the full Producer
-and Consumer APIs instead.
+This module sticks around for two reasons:
 
+  * It is small enough to read end-to-end and provides a useful
+    reference for someone learning the Kafka wire protocol.
+  * The conformance and admin test suites use it to produce and
+    fetch a single record without booting the full client stack.
 -}
 module Kafka.Client.Simple
   ( -- * Simple Client
