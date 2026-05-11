@@ -14,6 +14,14 @@ path = "src/read_arrow_ipc.rs"
 [dependencies]
 # Build with the lz4 + zstd feature flags so the IPC reader
 # can decompress what wireform emits via -fzstd / -flz4.
-arrow = { version = "53", features = ["ipc_compression"] }
-parquet = { version = "53", features = ["arrow", "snap", "lz4", "zstd"] }
-arrow-ipc = { version = "53", features = ["zstd", "lz4"] }
+#
+# arrow-rs 58 (released 2026-02-19) is the first release that
+# ships Apache Arrow's ListView / LargeListView through its IPC
+# reader (PR apache/arrow-rs#9006, merged 2025-12-18). 58 also
+# round-trips ListView through the Parquet arrow writer
+# (apache/arrow-rs#9344). We pin to 58.x so the Rust interop
+# probe exercises the same ListView shape pyarrow already
+# accepts.
+arrow = { version = "58", features = ["ipc_compression"] }
+parquet = { version = "58", features = ["arrow", "snap", "lz4", "zstd"] }
+arrow-ipc = { version = "58", features = ["zstd", "lz4"] }
