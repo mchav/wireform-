@@ -368,10 +368,8 @@ runConsumer cfg handler =
             threadDelay 50000  -- 50 ms
             loop gc keepGoing
           rs -> do
-            anyHandled <- newIORef False
             forM_ rs $ \rec -> do
               keep <- runHandler (groupConfig gc) handler rec
-              writeIORef anyHandled True
               unless keep $ writeIORef keepGoing False
             commit gc
             loop gc keepGoing

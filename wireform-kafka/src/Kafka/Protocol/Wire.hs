@@ -55,9 +55,12 @@ the advanced pointer; the end-of-buffer pointer is passed in so each
 read can do a single comparison rather than a length check.
 
 The Kafka code generator targets this typeclass via
-"Kafka.Protocol.Codegen.WireGenerator"; the existing
-'Data.Bytes.Serial' instances continue to work and are kept around for
-backwards compatibility.
+"Kafka.Protocol.Codegen.WireGenerator". The 'Data.Bytes.Serial'
+instances on the primitive types ('Int32', 'KafkaString', etc.)
+are still around — they are useful for hand-written tooling — but
+no @Kafka.Protocol.Generated.*@ module emits Serial-shaped
+@encodeFoo@ / @decodeFoo@ functions; the runtime path is
+unconditionally through 'Wire'.
 -}
 module Kafka.Protocol.Wire
   ( -- * Typeclass
