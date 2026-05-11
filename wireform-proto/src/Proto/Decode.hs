@@ -94,9 +94,6 @@ module Proto.Decode
     -- * Monadic CPS tag dispatch (zero Tag allocation, for generated code)
   , withTagM
   , skipWireType
-
-    -- * Combined three-way result type
-  , DecRes# (..)
   ) where
 
 import Data.Bits ((.&.), (.|.), shiftL)
@@ -119,14 +116,13 @@ import Data.Word (Word32, Word64)
 import Control.Monad.ST (runST)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Utils (copyBytes)
-import Foreign.Ptr (Ptr, castPtr)
+import Foreign.Ptr (castPtr)
 import Foreign.Storable (Storable)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 import Proto.Wire (Tag(..), WireType (..))
 import Proto.Wire.Decode
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64, putLengthDelimited, varintSize, tagSize)
-import Wireform.FFI (countPackedVarints, packedAllSingleByte)
-import Proto.Wire.Result
+import Wireform.FFI (countPackedVarints)
 
 -- | Typeclass for types that can be decoded from protobuf wire format.
 class MessageDecode a where

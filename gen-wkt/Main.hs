@@ -1,13 +1,17 @@
 -- | Regenerate the well-known type modules from the bundled .proto files.
 --
--- Run:  cabal run gen-wkt
+-- Run from the workspace root:
 --
--- This overwrites src/Proto/Google/Protobuf/*.hs with freshly-generated
--- code, ensuring the checked-in modules always match the codegen output.
+-- @
+-- cabal run gen-wkt
+-- @
+--
+-- This overwrites @wireform-proto\/src\/Proto\/Google\/Protobuf\/*.hs@
+-- with freshly-generated code, ensuring the checked-in modules always
+-- match the codegen output.
 module Main (main) where
 
 import Control.Monad (forM, forM_)
-import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import System.Directory (createDirectoryIfMissing)
@@ -18,10 +22,10 @@ import Proto.Parser.Resolver
 import Proto.CodeGen
 
 protoDir :: FilePath
-protoDir = "proto"
+protoDir = "wireform-proto" </> "data" </> "proto"
 
 outputDir :: FilePath
-outputDir = "src"
+outputDir = "wireform-proto" </> "src"
 
 protoFiles :: [FilePath]
 protoFiles =

@@ -58,18 +58,18 @@ import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Foreign as TF
 import Data.Word (Word32, Word64)
 
 import Proto.Wire (WireType, fieldTag)
 
 -- | Get the UTF-8 byte length of a Text without allocating a ByteString.
--- On text >= 2.0 (UTF-8 internal representation) this is O(1) since
--- the internal byte length IS the UTF-8 byte length.
--- Falls back to encodeUtf8 + BS.length on older versions.
+-- On text >= 2.0 the internal representation is already UTF-8, so
+-- 'Data.Text.Foreign.lengthWord8' just reads the length slot of the
+-- 'Text' record -- O(1), no allocation.
 textUtf8Length :: Text -> Int
-textUtf8Length t = BS.length (TE.encodeUtf8 t)
+textUtf8Length = TF.lengthWord8
 {-# INLINE textUtf8Length #-}
 
 -- | Encode a varint (unsigned). Unrolled for values that fit in 1-3 bytes

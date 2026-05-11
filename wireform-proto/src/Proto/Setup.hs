@@ -21,7 +21,7 @@
 -- build-type: Custom
 --
 -- custom-setup
---   setup-depends: base, wireform, Cabal, directory, filepath, text
+--   setup-depends: base, wireform-proto, Cabal, directory, filepath, text
 --
 -- library
 --   hs-source-dirs: src, gen
@@ -66,7 +66,7 @@ import System.FilePath ((</>), (<.>), takeDirectory, takeExtension)
 import Proto.AST (ProtoFile(..))
 import Proto.Parser (parseProtoFile, renderParseError)
 import Proto.CodeGen (generateModuleText, defaultGenerateOpts, GenerateOpts(..),
-                      TypeRegistry, hsModuleName, moduleNameForProto)
+                      TypeRegistry, moduleNameForProto)
 import Proto.CodeGen.Hooks (CodeGenHooks, defaultCodeGenHooks)
 import qualified Data.Map.Strict as Map
 
