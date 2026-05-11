@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -77,7 +78,7 @@ same_fk_value_change_re_emits =
     pipeInput driver (topicName "users") (Just (bytes "u1")) (bytes "ALICE2") (t 3) 0
 
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    roKvGet rs "o1" >>= (@?= Just "ALICE2:99")
+    rs.roKvGet "o1" >>= (@?= Just "ALICE2:99")
     closeDriver driver
 
 -- | After a left record swaps from fk1 to fk2, an update on fk1
@@ -112,7 +113,7 @@ rapid_fk_swap_then_old_fk_update_does_not_emit_stale =
     pipeInput driver (topicName "users")  (Just (bytes "u1")) (bytes "ALICE-NEW") (t 3) 0
 
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    roKvGet rs "o1" >>= (@?= Just "bob:10")
+    rs.roKvGet "o1" >>= (@?= Just "bob:10")
     closeDriver driver
 
 -- | Left-join tombstone path: the left value is present but the
@@ -145,14 +146,14 @@ left_join_token_path_emits_with_no_right =
     pipeInput driver (topicName "orders") (Just (bytes "o2")) (bytes "u9|z") (t 2) 0
 
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    roKvGet rs "o1" >>= (@?= Just "<NONE>:y")
-    roKvGet rs "o2" >>= (@?= Just "<NONE>:z")
+    rs.roKvGet "o1" >>= (@?= Just "<NONE>:y")
+    rs.roKvGet "o2" >>= (@?= Just "<NONE>:z")
 
     -- Right finally arrives: every subscriber re-emits with the
     -- live token (now matches the latest left value).
     pipeInput driver (topicName "users") (Just (bytes "u9")) (bytes "ENN") (t 3) 0
-    roKvGet rs "o1" >>= (@?= Just "ENN:y")
-    roKvGet rs "o2" >>= (@?= Just "ENN:z")
+    rs.roKvGet "o1" >>= (@?= Just "ENN:y")
+    rs.roKvGet "o2" >>= (@?= Just "ENN:z")
 
     closeDriver driver
 
@@ -265,7 +266,7 @@ collectStore rs ks =
   foldOverEvents grab Map.empty ks
   where
     grab acc k = do
-      mv <- roKvGet rs k
+      mv <- rs.roKvGet k
       pure $ case mv of
         Just v  -> Map.insert k v acc
         Nothing -> acc

@@ -16,7 +16,9 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Mock.Cluster as MC
 import Kafka.Streams.Mock.Cluster
+  hiding (leaveGroup)
 import Kafka.Streams.Mock.Consumer
 import Kafka.Streams.Mock.Fault
 import Kafka.Streams.Mock.Producer
@@ -202,7 +204,7 @@ three_consumers_one_leaves_partitions_redistribute =
     map snd cBefore @?= [2, 5]
 
     -- 'b' leaves; 'a' and 'c' refresh.
-    leaveGroup c g (MemberId "b")
+    MC.leaveGroup c g (MemberId "b")
     refreshAssignment a
     refreshAssignment cConsumer
 

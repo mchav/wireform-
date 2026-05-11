@@ -1,6 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -74,11 +77,11 @@ data CogroupSource k a where
     -> CogroupSource k a
 
 -- | A cogroup-in-progress. The 'a' type is the shared aggregator
--- state; each entry in 'cgsSources' contributes a different source
+-- state; each entry in 'sources' contributes a different source
 -- value type via the existential carrier.
 data CogroupedStream k a = CogroupedStream
-  { cgsBuilder :: !StreamsBuilder
-  , cgsSources :: ![CogroupSource k a]
+  { builder :: !StreamsBuilder
+  , sources :: ![CogroupSource k a]
   }
 
 -- | Start a cogroup with one source.
@@ -87,8 +90,8 @@ cogroup
   -> (k -> v -> a -> a)
   -> CogroupedStream k a
 cogroup kgs agg = CogroupedStream
-  { cgsBuilder = kgsBuilder kgs
-  , cgsSources = [CogroupSource kgs agg]
+  { builder = kgsBuilder kgs
+  , sources = [CogroupSource kgs agg]
   }
 
 -- | Add another source to an in-progress cogroup. The new source
@@ -100,7 +103,7 @@ addCogrouped
   -> (k -> v -> a -> a)
   -> CogroupedStream k a
 addCogrouped cgs kgs agg = cgs
-  { cgsSources = cgsSources cgs ++ [CogroupSource kgs agg]
+  { sources = cgs.sources ++ [CogroupSource kgs agg]
   }
 
 -- | Build the cogroup's output table. Mirrors
@@ -113,7 +116,7 @@ aggregateCogrouped
   -> CogroupedStream k a
   -> IO (CountedTableLocal k a)
 aggregateCogrouped initial m cgs = do
-  let b = cgsBuilder cgs
+  let b = cgs.builder
   storeNm <- maybe (freshStoreName b "KSTREAM-COGROUP-STORE")
                    pure
                    (matName m)
@@ -127,7 +130,7 @@ aggregateCogrouped initial m cgs = do
         nm <- freshNodeName b "KSTREAM-COGROUP-SIDE"
         addCogrupSideToTopology b nm storeNm initial src
         pure nm)
-    (cgsSources cgs)
+    cgs.sources
   withTopology_ b $ \t ->
     Topo.addStateStoreKV supplier ownerNms t
   pure CountedTableLocal
@@ -203,8 +206,8 @@ cogroupSideProc sn initial agg = do
 -- output is a windowed KTable produced by
 -- 'aggregateWindowedCogrouped' (a follow-up combinator).
 data TimeWindowedCogroupedStream k a = TimeWindowedCogroupedStream
-  { twcsInner   :: !(CogroupedStream k a)
-  , twcsWindows :: !Kafka.Streams.Window.Windows
+  { inner   :: !(CogroupedStream k a)
+  , windows :: !Kafka.Streams.Window.Windows
   }
 
 -- | @CogroupedStream.windowedBy(windows)@: attach a 'Windows'
@@ -219,6 +222,6 @@ windowedByCogroup
   -> CogroupedStream k a
   -> TimeWindowedCogroupedStream k a
 windowedByCogroup ws cg = TimeWindowedCogroupedStream
-  { twcsInner   = cg
-  , twcsWindows = ws
+  { inner   = cg
+  , windows = ws
   }

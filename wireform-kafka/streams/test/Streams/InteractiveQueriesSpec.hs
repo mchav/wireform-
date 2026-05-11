@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -48,10 +49,10 @@ iq_get_and_count =
     case mRO of
       Nothing -> error "iq store missing"
       Just ro -> do
-        roKvGet ro "k1" >>= (@?= Just "v1updated")
-        roKvGet ro "k2" >>= (@?= Just "v2")
-        roKvGet ro "k3" >>= (@?= Nothing)
-        roKvCount ro >>= (@?= 2)
+        ro.roKvGet "k1" >>= (@?= Just "v1updated")
+        ro.roKvGet "k2" >>= (@?= Just "v2")
+        ro.roKvGet "k3" >>= (@?= Nothing)
+        ro.roKvCount >>= (@?= 2)
     closeDriver driver
 
 iq_concurrent_read_during_writes :: TestTree
@@ -88,7 +89,7 @@ iq_concurrent_read_during_writes =
       [1 .. 1000 :: Int]
     takeMVar finished
     -- Final state should be the last value we wrote.
-    roKvGet ro "k" >>= (@?= Just "v1000")
+    ro.roKvGet "k" >>= (@?= Just "v1000")
     closeDriver driver
   where
     loop :: Int -> IO () -> IO ()
@@ -96,7 +97,7 @@ iq_concurrent_read_during_writes =
     loop n act = act >> loop (n - 1) act
 
     readNonNothing ro = do
-      _ <- roKvGet ro "k"
+      _ <- ro.roKvGet "k"
       pure ()
 
 iq_range_iterator :: TestTree
@@ -116,7 +117,7 @@ iq_range_iterator =
       ["a", "b", "c", "d", "e"]
 
     Just ro <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore kt)
-    it <- roKvRange ro "b" "d"
+    it <- ro.roKvRange "b" "d"
     xs <- kvIteratorToList it
     map fst xs @?= ["b", "c", "d"]
     closeDriver driver

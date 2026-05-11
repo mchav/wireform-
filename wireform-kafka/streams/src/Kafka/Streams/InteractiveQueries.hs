@@ -1,5 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -168,12 +171,12 @@ readOnlySession ss = ReadOnlySessionStore
 -- @KafkaStreams.store(...)@ entry-point takes. Mirrors the
 -- builder shape so call sites read like the Java original.
 data StoreQueryParameters = StoreQueryParameters
-  { sqpStoreName        :: !StoreName
-  , sqpStaleStoresEnabled :: !Bool
+  { storeName          :: !StoreName
+  , staleStoresEnabled :: !Bool
     -- ^ When 'True', return state-store handles even when the
     --   instance is still recovering / rebalancing. Mirrors
     --   @withStaleStoresEnabled()@.
-  , sqpPartition        :: !(Maybe Int)
+  , partition          :: !(Maybe Int)
     -- ^ When 'Just', restrict the query to a single
     --   partition. Mirrors @withPartition(int)@.
   }
@@ -183,21 +186,21 @@ data StoreQueryParameters = StoreQueryParameters
 -- match Java's 'StoreQueryParameters.fromNameAndType' shape.
 storeQueryParameters :: StoreName -> StoreQueryParameters
 storeQueryParameters n = StoreQueryParameters
-  { sqpStoreName          = n
-  , sqpStaleStoresEnabled = False
-  , sqpPartition          = Nothing
+  { storeName          = n
+  , staleStoresEnabled = False
+  , partition          = Nothing
   }
 
 -- | Resolve a key-value store using the full
 -- 'StoreQueryParameters' bag.
 --
---   * 'sqpStaleStoresEnabled': when 'False' the request fails
+--   * 'staleStoresEnabled': when 'False' the request fails
 --     with 'Nothing' unless the runtime is in 'StreamsRunning'.
 --     When 'True' we hand back a store handle in any state
 --     (including 'StreamsRebalancing' and 'StreamsCreated')
 --     so callers can read potentially-stale snapshots.
 --
---   * 'sqpPartition': when 'Just p' the federated query is
+--   * 'partition': when 'Just p' the federated query is
 --     restricted to the single worker whose routing table
 --     owns @(_, p)@ — every other worker's store is excluded
 --     from 'roKvGet' / 'roKvAll'. When 'Nothing' the query
@@ -211,13 +214,13 @@ queryKVStoreWithParameters ks p = do
   st <- streamsStatus ks
   let !okState =
         st == StreamsRunning
-          || sqpStaleStoresEnabled p
+          || p.staleStoresEnabled
   if not okState
     then pure Nothing
-    else case sqpPartition p of
-      Nothing   -> queryKVStore @k @v ks (sqpStoreName p)
+    else case p.partition of
+      Nothing   -> queryKVStore @k @v ks p.storeName
       Just part -> queryKVStoreRestricted @k @v ks part
-                     (sqpStoreName p)
+                     p.storeName
 
 -- | Federated IQ restricted to the worker that owns the
 -- supplied partition. Resolves the worker by reading the
@@ -288,18 +291,18 @@ federatedKV pool sn = do
   case [ s | Just s <- perWorker ] of
     []     -> pure Nothing
     stores -> pure $ Just $ ReadOnlyKeyValueStore
-      { roKvGet   = \k -> firstHit (map (\s -> roKvGet s k) stores)
+      { roKvGet   = \k -> firstHit (map (\s -> s.roKvGet k) stores)
       , roKvRange = \lo hi -> do
-          its <- traverse (\s -> roKvRange s lo hi) stores
+          its <- traverse (\s -> s.roKvRange lo hi) stores
           chainIterators its
       , roKvAll = do
-          its <- traverse roKvAll stores
+          its <- traverse (\s -> s.roKvAll) stores
           chainIterators its
       , roKvCount = sumCounts stores
       }
   where
     sumCounts ss = do
-      cs <- traverse roKvCount ss
+      cs <- traverse (\s -> s.roKvCount) ss
       pure $! sum cs
 
 -- | First IO action that yields 'Just'.

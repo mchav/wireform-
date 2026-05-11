@@ -1039,8 +1039,8 @@ cleanUp ks = do
 -- | Options passed to 'closeKafkaStreamsWith'. Mirrors Java's
 -- @KafkaStreams.CloseOptions@.
 data CloseOptions = CloseOptions
-  { closeTimeoutMs :: !(Maybe Int)
-  , closeLeaveGroup :: !Bool
+  { timeoutMs  :: !(Maybe Int)
+  , leaveGroup :: !Bool
     -- ^ When 'True' the consumer issues a LeaveGroup so the
     --   broker rebalances immediately instead of waiting for
     --   the session timeout (KIP-812).
@@ -1049,17 +1049,17 @@ data CloseOptions = CloseOptions
 
 defaultCloseOptions :: CloseOptions
 defaultCloseOptions = CloseOptions
-  { closeTimeoutMs  = Just 30_000
-  , closeLeaveGroup = True
+  { timeoutMs  = Just 30_000
+  , leaveGroup = True
   }
 
 -- | Close with explicit options (KIP-812). Threads the
 -- @leaveGroup@ flag into the consumer's close path via the
--- driver's 'sdConsumerCloseWith': when 'closeLeaveGroup' is
+-- driver's 'sdConsumerCloseWith': when @opts.leaveGroup@ is
 -- 'True' (the default) the consumer sends a @LeaveGroup@ so
 -- the broker rebalances immediately; when 'False' it skips
 -- the RPC and relies on the session-timeout reassignment.
--- 'closeTimeoutMs' bounds how long the consumer waits for the
+-- @opts.timeoutMs@ bounds how long the consumer waits for the
 -- leave-group ack.
 closeKafkaStreamsWith :: KafkaStreams -> CloseOptions -> IO ()
 closeKafkaStreamsWith ks opts = do
@@ -1078,8 +1078,8 @@ closeKafkaStreamsWith ks opts = do
   mD <- readIORef (ksDriver ks)
   forM_ mD $ \drv -> do
     sdConsumerCloseWith drv
-      (closeLeaveGroup opts)
-      (maybe 30_000 id (closeTimeoutMs opts))
+      opts.leaveGroup
+      (maybe 30_000 id opts.timeoutMs)
     sdProducerClose drv
   transitionTo ks StreamsClosed
 
@@ -1121,9 +1121,9 @@ setGlobalStateRestoreListener ks lis =
 -- | Per-thread snapshot. Mirrors Java's
 -- @ThreadMetadata@ (subset).
 data LocalThreadMetadata = LocalThreadMetadata
-  { ltmThreadId      :: !Int
-  , ltmAssigned      :: ![KC.TopicPartition]
-  , ltmProcessedRecs :: !Int64
+  { threadId      :: !Int
+  , assigned      :: ![KC.TopicPartition]
+  , processedRecs :: !Int64
   }
   deriving stock (Eq, Show)
 
@@ -1141,9 +1141,9 @@ metadataForLocalThreads ks = do
         (\i w -> do
             !cnt <- workerProcessedCount w
             pure LocalThreadMetadata
-              { ltmThreadId      = i
-              , ltmAssigned      = owned
-              , ltmProcessedRecs = cnt
+              { threadId      = i
+              , assigned      = owned
+              , processedRecs = cnt
               })
         (poolWorkers pool)
 

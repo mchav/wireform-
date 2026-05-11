@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -341,9 +342,9 @@ multi_thread_runtime_drains_collectors_at_commit =
       case mIQ of
         Nothing -> pure False
         Just kvs -> do
-          a <- roKvGet kvs "alice"
-          b <- roKvGet kvs "bob"
-          c <- roKvGet kvs "carol"
+          a <- kvs.roKvGet "alice"
+          b <- kvs.roKvGet "bob"
+          c <- kvs.roKvGet "carol"
           pure (a == Just 3 && b == Just 1 && c == Just 1)
 
     closeKafkaStreams ks
@@ -578,10 +579,10 @@ two_instances_handoff_partitions_via_rebalance =
       case mIQ of
         Nothing -> pure False
         Just kvs -> do
-          a <- roKvGet kvs "alice"
-          b <- roKvGet kvs "bob"
-          c <- roKvGet kvs "carol"
-          d <- roKvGet kvs "dave"
+          a <- kvs.roKvGet "alice"
+          b <- kvs.roKvGet "bob"
+          c <- kvs.roKvGet "carol"
+          d <- kvs.roKvGet "dave"
           pure (a == Just 2 && b == Just 1
                   && c == Just 1 && d == Just 1)
 
@@ -616,8 +617,8 @@ two_instances_handoff_partitions_via_rebalance =
       case mIqB of
         Nothing -> pure False
         Just kvs -> do
-          c <- roKvGet kvs "carol"
-          d <- roKvGet kvs "dave"
+          c <- kvs.roKvGet "carol"
+          d <- kvs.roKvGet "dave"
           pure (c == Just 2 && d == Just 1)
 
     -- A is no longer fed records on partitions 2 / 3 so its
@@ -625,14 +626,14 @@ two_instances_handoff_partitions_via_rebalance =
     -- ones — that's the KIP-869 grace-period IQ continuity
     -- guarantee.
     Just iqA <- queryKVStore @Text @Int64 ksA (storeName "counts")
-    aliceA  <- roKvGet iqA "alice"
-    carolA  <- roKvGet iqA "carol"
+    aliceA  <- iqA.roKvGet "alice"
+    carolA  <- iqA.roKvGet "carol"
     aliceA @?= Just 2  -- A's own partition, still being fed
     carolA @?= Just 1  -- standby on A, frozen at handoff
 
     Just iqB <- queryKVStore @Text @Int64 ksB (storeName "counts")
-    carolB  <- roKvGet iqB "carol"
-    daveB   <- roKvGet iqB "dave"
+    carolB  <- iqB.roKvGet "carol"
+    daveB   <- iqB.roKvGet "dave"
     carolB @?= Just 2  -- new owner, post-handoff records counted
     daveB  @?= Just 1
 

@@ -295,10 +295,10 @@ n' <- removeStreamThread ks   -- and shrink it
 
 -- Graceful close with leaveGroup=False (KIP-812):
 closeKafkaStreamsWith ks
-  defaultCloseOptions { closeLeaveGroup = False }
+  defaultCloseOptions { leaveGroup = False }
 ```
 
-`closeLeaveGroup = False` skips the LeaveGroup RPC so the
+`leaveGroup = False` skips the LeaveGroup RPC so the
 broker waits out the session timeout — useful for fast rolling
 restarts with static membership where you don't want the
 churn.

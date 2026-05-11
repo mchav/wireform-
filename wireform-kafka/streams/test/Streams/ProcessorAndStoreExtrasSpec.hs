@@ -1,3 +1,5 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -87,11 +89,11 @@ foreach_async_does_not_block =
 
 store_query_parameters_round_trip :: TestTree
 store_query_parameters_round_trip =
-  testCase "storeQueryParameters: defaults + sqpStaleStoresEnabled / sqpPartition gates" $ do
+  testCase "storeQueryParameters: defaults + staleStoresEnabled / partition gates" $ do
     let p = storeQueryParameters (storeName "x")
-    sqpStoreName p          @?= storeName "x"
-    sqpStaleStoresEnabled p @?= False
-    sqpPartition p          @?= Nothing
+    p.storeName          @?= storeName "x"
+    p.staleStoresEnabled @?= False
+    p.partition          @?= Nothing
 
     -- The strict-mode gate is the testable bit: when the
     -- runtime isn't Running, defaults must yield 'Nothing'.
@@ -118,7 +120,7 @@ store_query_parameters_round_trip =
               })
             topo'
 
-    let pStrict = p { sqpStoreName = storeName "iq-store" }
+    let pStrict = p { storeName = storeName "iq-store" }
     rStrict <- queryKVStoreWithParameters @Text @Text ks pStrict
     case rStrict of
       Nothing -> pure ()

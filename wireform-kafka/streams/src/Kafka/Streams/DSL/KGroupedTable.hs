@@ -1,7 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -94,11 +97,11 @@ import Kafka.Streams.Types (Record (..))
 -- KTable node to attach to, the typed key/value serdes for the
 -- aggregation result, and the builder.
 data KGroupedTable k v = KGroupedTable
-  { kgtParent  :: !Topo.NodeName
-  , kgtKey     :: !(Serde k)
-  , kgtValue   :: !(Serde v)
-  , kgtBuilder :: !StreamsBuilder
-  , kgtKeyMap  :: !(k -> v -> (k, v))
+  { parent  :: !Topo.NodeName
+  , key     :: !(Serde k)
+  , value   :: !(Serde v)
+  , builder :: !StreamsBuilder
+  , keyMap  :: !(k -> v -> (k, v))
     -- ^ Re-key function applied per input record. The JVM
     -- @KTable.groupBy@ takes a @KeyValueMapper@; we expose
     -- the same shape and capture it here so the aggregation
@@ -121,12 +124,12 @@ groupTableBy
   -> Grouped k' v'
   -> KTable k v
   -> KGroupedTable k' v'
-groupTableBy f g parent = KGroupedTable
-  { kgtParent  = ktableNode parent
-  , kgtKey     = groupedKeySerde g
-  , kgtValue   = groupedValueSerde g
-  , kgtBuilder = ktableBuilder parent
-  , kgtKeyMap  = Unsafe.unsafeCoerce f
+groupTableBy f g parentT = KGroupedTable
+  { parent  = ktableNode parentT
+  , key     = groupedKeySerde g
+  , value   = groupedValueSerde g
+  , builder = ktableBuilder parentT
+  , keyMap  = Unsafe.unsafeCoerce f
     -- f's actual type is k -> v -> (k', v'); we re-key
     -- inside the aggregation processor and let the engine's
     -- type erasure carry the typed values.
@@ -166,7 +169,7 @@ reduceKGroupedTable
   -> KGroupedTable k v
   -> IO (CountedTableLocal k v)
 reduceKGroupedTable add sub m kgt = do
-  let b = kgtBuilder kgt
+  let b = kgt.builder
   storeNm <- maybe (freshStoreName b "KTABLE-REDUCE-STORE")
                    pure
                    (matName m)
@@ -180,11 +183,11 @@ reduceKGroupedTable add sub m kgt = do
     let !t1 = Topo.addProcessorWith
                 Topo.ProcessorSpec
                   { Topo.processorSpecName     = procNm
-                  , Topo.processorSpecParents  = [kgtParent kgt]
+                  , Topo.processorSpecParents  = [kgt.parent]
                   , Topo.processorSpecSupplier =
                       Topo.AnyProcessor
                         (reduceKGroupedTableProc @k @v
-                           (kgtKeyMap kgt) add sub storeNm prevNm)
+                           (kgt.keyMap) add sub storeNm prevNm)
                   , Topo.processorSpecStores   = [storeNm, prevNm]
                   } t
         !t2 = Topo.addStateStoreKV outBuilder  [procNm] t1
@@ -291,7 +294,7 @@ aggregateKGroupedTable
   -> KGroupedTable k v
   -> IO (CountedTableLocal k a)
 aggregateKGroupedTable initial add sub m kgt = do
-  let b = kgtBuilder kgt
+  let b = kgt.builder
   storeNm <- maybe (freshStoreName b "KTABLE-AGGREGATE-STORE")
                    pure
                    (matName m)
@@ -309,11 +312,11 @@ aggregateKGroupedTable initial add sub m kgt = do
     let !t1 = Topo.addProcessorWith
                 Topo.ProcessorSpec
                   { Topo.processorSpecName     = procNm
-                  , Topo.processorSpecParents  = [kgtParent kgt]
+                  , Topo.processorSpecParents  = [kgt.parent]
                   , Topo.processorSpecSupplier =
                       Topo.AnyProcessor
                         (aggregateKGroupedTableProc @k @v @a
-                           (kgtKeyMap kgt) initial add sub
+                           (kgt.keyMap) initial add sub
                            storeNm prevNm)
                   , Topo.processorSpecStores   = [storeNm, prevNm]
                   } t

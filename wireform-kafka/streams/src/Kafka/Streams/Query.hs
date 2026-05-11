@@ -1,7 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -182,7 +185,7 @@ executeMultiVersionedKeyQuery vkvs k from to =
 -- @(topic, partition) -> offset@ that callers attach to a
 -- query to express "I want to see results that have absorbed
 -- at least up to these offsets".
-newtype Position = Position { unPosition :: Map (Text, Int32) Int64 }
+newtype Position = Position { offsets :: Map (Text, Int32) Int64 }
   deriving stock (Eq, Show, Generic)
 
 emptyPosition :: Position
@@ -219,14 +222,14 @@ atPosition = At
 -- | Partition-aware query container. Mirrors Java's
 -- @org.apache.kafka.streams.query.StateQueryRequest@.
 data StateQueryRequest k v r = StateQueryRequest
-  { sqrStore         :: !StoreName
-  , sqrQuery         :: !(Query k v r)
-  , sqrPartitions    :: !(Maybe (Set Int32))
+  { store         :: !StoreName
+  , query         :: !(Query k v r)
+  , partitions    :: !(Maybe (Set Int32))
     -- ^ If 'Nothing' the request goes to every partition the
     --   local instance holds; otherwise restricted to the
     --   supplied set.
-  , sqrPositionBound :: !PositionBound
-  , sqrStaleEnabled  :: !Bool
+  , positionBound :: !PositionBound
+  , staleEnabled  :: !Bool
     -- ^ Mirrors JVM's @enableExecutionInfo@ +
     --   @withStaleStoresEnabled@ combined into a single boolean
     --   for our simpler runtime.
@@ -235,30 +238,30 @@ data StateQueryRequest k v r = StateQueryRequest
 -- | Construct a 'StateQueryRequest' against a named store.
 inStore :: StoreName -> Query k v r -> StateQueryRequest k v r
 inStore sn q = StateQueryRequest
-  { sqrStore         = sn
-  , sqrQuery         = q
-  , sqrPartitions    = Nothing
-  , sqrPositionBound = Unbounded
-  , sqrStaleEnabled  = False
+  { store         = sn
+  , query         = q
+  , partitions    = Nothing
+  , positionBound = Unbounded
+  , staleEnabled  = False
   }
 
 withQuery
   :: Query k v r
   -> StateQueryRequest k v r0
   -> StateQueryRequest k v r
-withQuery q req = req { sqrQuery = q }
+withQuery q req = req { query = q }
 
 withPartitions
   :: Set Int32
   -> StateQueryRequest k v r
   -> StateQueryRequest k v r
-withPartitions ps req = req { sqrPartitions = Just ps }
+withPartitions ps req = req { partitions = Just ps }
 
 -- | Per-partition result keyed by partition id. Mirrors Java's
 -- @StateQueryResult@.
 data StateQueryResult r = StateQueryResult
-  { sqrResults  :: !(Map Int32 (QueryResult r))
-  , sqrPosition :: !Position
+  { results  :: !(Map Int32 (QueryResult r))
+  , position :: !Position
     -- ^ The position vector reported by the local instance at
     --   query time; clients can chain this into the next
     --   request via 'atPosition'.

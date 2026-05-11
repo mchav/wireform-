@@ -181,5 +181,5 @@ close_with_leave_group_false_skips_leave_group =
     -- StreamsClosed (i.e. the new code-path is wired up and
     -- doesn't get stuck waiting for a phantom LeaveGroup ack).
     closeKafkaStreamsWith ks
-      (defaultCloseOptions { closeLeaveGroup = False })
+      (defaultCloseOptions { leaveGroup = False })
     awaitState ks StreamsClosed
