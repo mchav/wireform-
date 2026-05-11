@@ -25,6 +25,11 @@ module Kafka.Streams.Processor
     Processor (..)
   , noopProcessor
   , statelessProcessor
+    -- * Fixed-key processor (KIP-820)
+  , FixedKeyProcessor (..)
+  , FixedKeyRecord
+  , fixedKeyOf
+  , liftFixedKeyProcessor
     -- * Typed handles to processor identity
   , ProcessorName (..)
   , processorName
@@ -40,6 +45,9 @@ module Kafka.Streams.Processor
   , wallClockTimeC
   , getStateStore
   , SinkEmit (..)
+  , currentHeaders
+  , appendHeader
+  , requestCommit
     -- * Punctuators
   , Punctuator (..)
   , PunctuationType (..)
@@ -49,11 +57,16 @@ module Kafka.Streams.Processor
     -- * Task identifiers
   , TaskId (..)
   , taskIdText
+    -- * Processor suppliers (KIP-820)
+  , ProcessorSupplier (..)
+  , supplierOf
+  , supplierWithStores
   ) where
 
 import Data.ByteString (ByteString)
 import Data.Hashable (Hashable)
 import Data.Int (Int32)
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
@@ -61,7 +74,7 @@ import GHC.Generics (Generic)
 import Kafka.Streams.State.Store (AnyStateStore, StoreName)
 import Kafka.Streams.Time (Timestamp)
 import qualified Kafka.Streams.Types
-import Kafka.Streams.Types (NodeName, Record, RecordMetadata)
+import Kafka.Streams.Types (NodeName, Record (..), RecordMetadata)
 
 -- | Logical processor name. Two processors with the same name belong
 -- to the same node in the topology — no two distinct processor
@@ -241,3 +254,113 @@ streamTimeC = ctxStreamTime
 
 wallClockTimeC :: ProcessorContext -> IO Timestamp
 wallClockTimeC = ctxWallClockTime
+
+-- | Read the headers attached to the in-flight record. Returns
+-- 'Nothing' when called outside of a record-processing
+-- context (e.g. from a punctuator).
+currentHeaders :: ProcessorContext -> IO (Maybe Kafka.Streams.Types.Headers)
+currentHeaders = ctxRecordHeaders
+
+-- | Append a header to the in-flight record. Mirrors Java's
+-- @ProcessorContext.headers().add(...)@. Subsequent
+-- 'forwardRecord' calls in the same procProcess see the
+-- updated headers.
+appendHeader :: ProcessorContext -> Kafka.Streams.Types.Header -> IO ()
+appendHeader = ctxAddHeader
+
+-- | Request that the runtime commit at the next safe point.
+-- Mirrors Java's @ProcessorContext.commit()@. The commit
+-- happens at the end of the current commit window, not
+-- synchronously.
+requestCommit :: ProcessorContext -> IO ()
+requestCommit = ctxRequestCommit
+
+----------------------------------------------------------------------
+-- KIP-820: Fixed-key processor
+----------------------------------------------------------------------
+
+-- | A 'FixedKeyRecord' is structurally the same as a 'Record'
+-- but the type guarantees the processor cannot change the
+-- key. Used as the input/output type for processors attached
+-- via @processValues@. Mirrors Java's
+-- @org.apache.kafka.streams.processor.api.FixedKeyRecord@.
+type FixedKeyRecord k v = Record k v
+
+-- | Build a 'FixedKeyRecord' from a regular 'Record'. The
+-- types are coincident in this port; the helper is here to
+-- make the intent at the call site explicit.
+fixedKeyOf :: Record k v -> FixedKeyRecord k v
+fixedKeyOf = id
+
+-- | A fixed-key processor: like 'Processor' but the input and
+-- output values share a key — the type makes that explicit.
+-- @procFixedProcess@ only forwards 'FixedKeyRecord' values
+-- with the same key as the input.
+data FixedKeyProcessor k v v' = FixedKeyProcessor
+  { fkpName    :: !ProcessorName
+  , fkpInit    :: !(ProcessorContext -> IO ())
+  , fkpProcess :: !(FixedKeyRecord k v -> IO (Maybe v'))
+  , fkpClose   :: !(IO ())
+  }
+
+-- | Convert a 'FixedKeyProcessor' into a regular 'Processor'
+-- whose 'procProcess' forwards a record with the same key.
+-- Used to bridge the typed surface into the existing engine,
+-- which works in terms of 'Processor'.
+liftFixedKeyProcessor
+  :: forall k v v'
+   . FixedKeyProcessor k v v'
+  -> IO (Processor k v)
+liftFixedKeyProcessor fkp = do
+  ctxRef <- newIORef Nothing
+  pure Processor
+    { procName    = fkpName fkp
+    , procInit    = \ctx -> do
+        writeIORef ctxRef (Just ctx)
+        fkpInit fkp ctx
+    , procProcess = \r -> do
+        mctx <- readIORef ctxRef
+        case mctx of
+          Nothing  -> pure ()
+          Just ctx -> do
+            mOut <- fkpProcess fkp (fixedKeyOf r)
+            case mOut of
+              Nothing -> pure ()
+              Just v' -> forwardRecord ctx
+                ((Record (recordKey r) v'
+                    (recordTimestamp r) (recordHeaders r))
+                  :: Record k v')
+    , procClose = fkpClose fkp
+    }
+
+----------------------------------------------------------------------
+-- KIP-820: ProcessorSupplier with declared stores
+----------------------------------------------------------------------
+
+-- | A supplier of 'Processor' instances + a declaration of
+-- which state stores the processor reads/writes. Mirrors
+-- Java's @org.apache.kafka.streams.processor.api.ProcessorSupplier@
+-- (which extends @Supplier<Processor>@ + @ConnectedStoreProvider@).
+data ProcessorSupplier k v = ProcessorSupplier
+  { psSupply :: !(IO (Processor k v))
+  , psStores :: ![StoreName]
+    -- ^ External state stores the processor declares it owns
+    --   (or co-owns with a sibling). DSL helpers that accept
+    --   a 'ProcessorSupplier' wire these into the topology
+    --   automatically so callers don't have to call
+    --   addStateStore + connectProcessorAndStateStores
+    --   separately.
+  }
+
+-- | Stateless supplier: lift an @IO Processor k v@.
+supplierOf :: IO (Processor k v) -> ProcessorSupplier k v
+supplierOf m = ProcessorSupplier { psSupply = m, psStores = [] }
+
+-- | Stateful supplier: lift an @IO Processor@ together with the
+-- store names it depends on.
+supplierWithStores
+  :: IO (Processor k v) -> [StoreName] -> ProcessorSupplier k v
+supplierWithStores m ss = ProcessorSupplier
+  { psSupply = m
+  , psStores = ss
+  }

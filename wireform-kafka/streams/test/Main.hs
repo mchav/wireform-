@@ -55,6 +55,7 @@ import qualified Streams.ExceptionHandlerSpec
 import qualified Streams.KGroupedTableSpec
 import qualified Streams.StoresExtraSpec
 import qualified Streams.QueryAndDiscoverySpec
+import qualified Streams.ProcessorAndStoreExtrasSpec
 import qualified Streams.MultiInstanceHarnessSpec
 import qualified Streams.SchemaRegistryHttpSpec
 import qualified Streams.SchemaRegistryFormatsSpec
@@ -114,6 +115,7 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.KGroupedTableSpec.tests
   , Streams.StoresExtraSpec.tests
   , Streams.QueryAndDiscoverySpec.tests
+  , Streams.ProcessorAndStoreExtrasSpec.tests
   , Streams.MultiInstanceHarnessSpec.tests
   , Streams.SchemaRegistryHttpSpec.tests
   , Streams.SchemaRegistryFormatsSpec.tests

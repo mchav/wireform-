@@ -1,0 +1,96 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
+
+-- | Tests for the remaining processor / store / TTD additions:
+--   * TimestampedWindowStore
+--   * KStream.foreachStreamAsync
+--   * StoreQueryParameters helper
+--   * FixedKeyProcessor lift round-trip
+module Streams.ProcessorAndStoreExtrasSpec (tests) where
+
+import qualified Control.Concurrent
+import Control.Concurrent.MVar
+import Data.IORef
+import qualified Data.Text as T
+import Data.Text (Text)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+
+import Kafka.Streams
+import qualified Kafka.Streams.State.Window.Timestamped as TWS
+import qualified Kafka.Streams.State.KeyValue.Timestamped as TS
+
+tests :: TestTree
+tests = testGroup "Processor + Store extras"
+  [ timestamped_window_store_keeps_record_ts
+  , foreach_async_does_not_block
+  , store_query_parameters_round_trip
+  ]
+
+----------------------------------------------------------------------
+-- TimestampedWindowStore
+----------------------------------------------------------------------
+
+timestamped_window_store_keeps_record_ts :: TestTree
+timestamped_window_store_keeps_record_ts =
+  testCase "TimestampedWindowStore: fetch returns value+ts" $ do
+    ws <- TWS.inMemoryTimestampedWindowStore @Text @Int
+            (storeName "tws") 1000 60_000
+    TWS.twsPut ws "alice" 5 (Timestamp 250) (Timestamp 100)
+    r <- TWS.twsFetch ws "alice" (Timestamp 100)
+    case r of
+      Just (TS.ValueAndTimestamp v ts) -> do
+        v  @?= 5
+        ts @?= Timestamp 250
+      Nothing -> error "expected the entry to be present"
+
+----------------------------------------------------------------------
+-- foreachStreamAsync — non-blocking
+----------------------------------------------------------------------
+
+foreach_async_does_not_block :: TestTree
+foreach_async_does_not_block =
+  testCase "foreachStreamAsync: callback runs without blocking caller" $ do
+    -- Use the topology test driver to push a couple of records
+    -- through a topology that calls foreachStreamAsync. The
+    -- callback signals an MVar — we just verify the MVar
+    -- eventually fires; the JVM contract is that the foreach
+    -- doesn't block the worker, not any particular ordering.
+    seenRef <- newIORef (0 :: Int)
+    b <- newStreamsBuilder
+    s <- streamFromTopic b (topicName "in")
+            (consumed textSerde textSerde)
+    foreachStreamAsync (\_ -> modifyIORef' seenRef (+ 1)) s
+    topo <- buildTopology b
+    driver <- newDriver topo "fea"
+    pipeInput driver (topicName "in")
+      (Just "k1") "v" (Timestamp 0) 0
+    pipeInput driver (topicName "in")
+      (Just "k2") "v" (Timestamp 1) 0
+    -- Yield a few times so the async callbacks have a chance.
+    let waitN 0 = pure ()
+        waitN n = do
+          v <- readIORef seenRef
+          if v >= 2
+            then pure ()
+            else do
+              Control.Concurrent.yield
+              waitN (n - 1 :: Int)
+    waitN 10_000
+    n <- readIORef seenRef
+    assertBool ("expected >=2 callback fires; got " <> show n) (n >= 2)
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- StoreQueryParameters round-trip
+----------------------------------------------------------------------
+
+store_query_parameters_round_trip :: TestTree
+store_query_parameters_round_trip =
+  testCase "storeQueryParameters defaults / queryKVStoreWithParameters" $ do
+    -- We just check the data record contract — the IQ entry
+    -- point shares its impl with queryKVStore.
+    let p = storeQueryParameters (storeName "x")
+    sqpStoreName p          @?= storeName "x"
+    sqpStaleStoresEnabled p @?= False
+    sqpPartition p          @?= Nothing

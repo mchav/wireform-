@@ -19,6 +19,11 @@ module Kafka.Streams.DSL.Joined
   , StreamJoined (..)
   , streamJoined
   , withStreamJoinedName
+    -- * TableJoined (KIP-545)
+  , TableJoined (..)
+  , tableJoined
+  , withTableJoinedName
+  , withTableJoinedPartitioner
   ) where
 
 import Data.Text (Text)
@@ -154,3 +159,37 @@ streamJoined ks v1s v2s = StreamJoined
 withStreamJoinedName
   :: Text -> StreamJoined k v1 v2 -> StreamJoined k v1 v2
 withStreamJoinedName n s = s { sjName = Just n }
+
+----------------------------------------------------------------------
+-- TableJoined (KIP-545)
+----------------------------------------------------------------------
+
+-- | KIP-545 @TableJoined<K, KO>@ — partitioner override for
+-- KTable-KTable foreign-key joins. The partitioner functions
+-- decide which partition a join-side record routes to on the
+-- internal subscription / response topics.
+data TableJoined k ko = TableJoined
+  { tjName              :: !(Maybe Text)
+  , tjLeftPartitioner   :: !(Maybe (Text -> Maybe k  -> Int -> Int))
+  , tjOtherPartitioner  :: !(Maybe (Text -> Maybe ko -> Int -> Int))
+  }
+
+tableJoined :: TableJoined k ko
+tableJoined = TableJoined
+  { tjName             = Nothing
+  , tjLeftPartitioner  = Nothing
+  , tjOtherPartitioner = Nothing
+  }
+
+withTableJoinedName :: Text -> TableJoined k ko -> TableJoined k ko
+withTableJoinedName n t = t { tjName = Just n }
+
+withTableJoinedPartitioner
+  :: (Text -> Maybe k -> Int -> Int)        -- left
+  -> (Text -> Maybe ko -> Int -> Int)       -- other
+  -> TableJoined k ko
+  -> TableJoined k ko
+withTableJoinedPartitioner lp op t = t
+  { tjLeftPartitioner  = Just lp
+  , tjOtherPartitioner = Just op
+  }

@@ -44,6 +44,10 @@ module Kafka.Streams.InteractiveQueries
     queryKVStore
   , queryWindowStore
   , querySessionStore
+    -- * StoreQueryParameters (KIP-535)
+  , StoreQueryParameters (..)
+  , storeQueryParameters
+  , queryKVStoreWithParameters
     -- * Read-only handles
   , ReadOnlyKeyValueStore (..)
   , ReadOnlyWindowStore (..)
@@ -159,6 +163,44 @@ readOnlySession ss = ReadOnlySessionStore
 
 -- | Resolve a store from a 'KafkaStreams' by name. Returns 'Nothing'
 -- if the runtime is not yet running or the store doesn't exist.
+-- | KIP-535 @StoreQueryParameters@ — the parameter bag the JVM
+-- @KafkaStreams.store(...)@ entry-point takes. Mirrors the
+-- builder shape so call sites read like the Java original.
+data StoreQueryParameters = StoreQueryParameters
+  { sqpStoreName        :: !StoreName
+  , sqpStaleStoresEnabled :: !Bool
+    -- ^ When 'True', return state-store handles even when the
+    --   instance is still recovering / rebalancing. Mirrors
+    --   @withStaleStoresEnabled()@.
+  , sqpPartition        :: !(Maybe Int)
+    -- ^ When 'Just', restrict the query to a single
+    --   partition. Mirrors @withPartition(int)@.
+  }
+  deriving stock (Eq, Show)
+
+-- | Build a 'StoreQueryParameters' from a store name; defaults
+-- match Java's 'StoreQueryParameters.fromNameAndType' shape.
+storeQueryParameters :: StoreName -> StoreQueryParameters
+storeQueryParameters n = StoreQueryParameters
+  { sqpStoreName          = n
+  , sqpStaleStoresEnabled = False
+  , sqpPartition          = Nothing
+  }
+
+-- | Resolve a key-value store using the full
+-- 'StoreQueryParameters' bag. Currently we ignore the
+-- partition selector (the local-instance store is partition-
+-- agnostic in our model) and 'sqpStaleStoresEnabled' (we don't
+-- gate IQ on the instance's state), but the call site is
+-- forward-compatible with both knobs once the underlying
+-- runtime grows partition-aware IQ.
+queryKVStoreWithParameters
+  :: forall k v
+   . KafkaStreams
+  -> StoreQueryParameters
+  -> IO (Maybe (ReadOnlyKeyValueStore k v))
+queryKVStoreWithParameters ks p = queryKVStore @k @v ks (sqpStoreName p)
+
 queryKVStore
   :: forall k v
    . KafkaStreams

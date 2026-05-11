@@ -443,6 +443,7 @@ library wireform-kafka-streams
         Kafka.Streams.State.KeyValue.Timestamped
         Kafka.Streams.State.KeyValue.Versioned
         Kafka.Streams.State.Window.InMemory
+        Kafka.Streams.State.Window.Timestamped
         Kafka.Streams.State.Session.InMemory
         Kafka.Streams.Internal.RecordCollector
         Kafka.Streams.Internal.Engine
@@ -573,6 +574,7 @@ test-suite wireform-kafka-streams-test
         Streams.KGroupedTableSpec
         Streams.StoresExtraSpec
         Streams.QueryAndDiscoverySpec
+        Streams.ProcessorAndStoreExtrasSpec
         Streams.MultiInstanceHarnessSpec
         Streams.SchemaRegistryHttpSpec
         Streams.SchemaRegistryFormatsSpec

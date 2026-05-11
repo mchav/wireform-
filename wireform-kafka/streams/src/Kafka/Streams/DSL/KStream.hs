@@ -62,6 +62,7 @@ module Kafka.Streams.DSL.KStream
   , peekStream
   , peekStreamNamed
   , foreachStream
+  , foreachStreamAsync
   , printStream
   , printToHandle
   , valuesStream
@@ -102,6 +103,7 @@ module Kafka.Streams.DSL.KStream
   , flatTransformValues
   ) where
 
+import qualified Control.Concurrent.Async
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
@@ -466,6 +468,24 @@ peekStream act s =
               Just ctx -> forwardRecord ctx r
         })
     (kstreamKeySerde s) (kstreamValueSerde s)
+
+-- | Non-blocking 'foreachStream': forks each callback into a
+-- detached 'Control.Concurrent.async' so a slow handler can't
+-- back-pressure the worker thread. Use when the side-effect
+-- is best-effort (logging, metrics emission, etc.) and you can
+-- tolerate ordering loss across records.
+--
+-- For ordered effects use 'foreachStream' instead.
+foreachStreamAsync
+  :: (Record k v -> IO ())
+  -> KStream k v
+  -> IO ()
+foreachStreamAsync act s =
+  foreachStream
+    (\r -> do
+       _ <- Control.Concurrent.Async.async (act r)
+       pure ())
+    s
 
 foreachStream :: (Record k v -> IO ()) -> KStream k v -> IO ()
 foreachStream act s = do
