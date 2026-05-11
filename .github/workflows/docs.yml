@@ -47,7 +47,20 @@ jobs:
             ${{ runner.os }}-haddock-ghc-9.6.4-
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+        # wireform-kafka uses pkg-config-depends for libsnappy /
+        # liblz4 / libzstd, and wireform-arrow links libzstd and
+        # liblz4 directly; without them 'cabal v2-haddock all' can't
+        # even resolve dependencies. librdkafka-dev backs
+        # hw-kafka-client which the wireform-kafka benchmarks use.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgmp-dev \
+            libsnappy-dev \
+            liblz4-dev \
+            libzstd-dev \
+            libbrotli-dev \
+            librdkafka-dev
 
       - name: Configure
         run: cabal configure --enable-documentation
