@@ -4,41 +4,93 @@
 
 {-|
 Module: Kafka.Client.Transaction
-Description: Transaction support for Kafka producer (KIP-98)
+Description: Group multiple producer sends + consumer offset commits into one atomic write.
 
-Provides exactly-once semantics (EOS) for Kafka producers through:
-- Idempotent producer with producer ID and epoch
-- Atomic writes across multiple partitions
-- Atomic offset commits within transactions
-- Producer fencing to prevent zombie writers
+A Kafka /transaction/ lets a producer publish to several partitions
+and update one or more consumer offsets, then commit the lot
+atomically — either every write lands, or none of them do. That is
+what \"exactly once\" actually means in Kafka: a stream-processing
+pipeline that reads from one topic and writes to another can
+guarantee its outputs and its consumer offsets advance together.
+
+= The five-step recipe
+
+@
+'withProducer' brokers
+  'defaultProducerConfig'
+    { 'producerTransactional' = Just \"my-app-1\"
+    , 'producerIdempotent'    = True
+    } $ \\p -> do
+      txn <- 'createTransaction' (TransactionalId \"my-app-1\") connMgr vCache
+               \"my-app-client\" bootstrap 60_000
+      Right () <- 'initTransactions' txn           -- once per producer
+      'bindTransaction' p txn
+
+      Right () <- 'beginTransaction' txn
+      _        <- 'sendMessage' p \"out\" Nothing payload
+      Right () <- 'commitTransaction' txn
+@
+
+Five steps in order:
+
+  1. Configure the producer with a 'producerTransactional' id and
+     'producerIdempotent' on (these are required by the broker).
+  2. 'createTransaction' for the coordinator handle, then
+     'initTransactions' once — this fences any zombie producer
+     using the same id from a previous run.
+  3. 'bindTransaction' the producer to the transaction so subsequent
+     sends participate in it.
+  4. 'beginTransaction', send records via 'sendMessage' (and / or
+     stage consumer offsets via 'commitOffsetsInTransaction'),
+     then 'commitTransaction' or 'abortTransaction'.
+  5. Repeat 4 as many times as you like — one initialised
+     'Transaction' handle supports many begin/commit cycles.
+
+The wire-level guarantees the broker provides:
+
+  * /Atomicity/ — every record in the transaction either becomes
+    visible or none of them do.
+  * /Fencing/ — only one producer instance can hold a given
+    transactional id at a time; an older instance is reliably
+    locked out as soon as a newer one calls 'initTransactions'.
+  * /Read isolation/ — a consumer configured with
+    'consumerIsolationLevel = ReadCommitted' will only return
+    records from committed transactions.
+
+= Where the lower-level primitives live
+
+Most user code only ever needs the five-step recipe above. The
+'createTransaction' \/ 'getTransactionState' \/ 'transitionState'
+exports are for the integration tests and the OpenTelemetry
+instrumentation.
 -}
 module Kafka.Client.Transaction
-  ( -- * Transaction Types
-    Transaction(..)
+  ( -- * The transaction lifecycle
+    --
+    -- | Initialise once per producer process; then begin / commit /
+    -- abort as many times as you like.
+    initTransactions
+  , beginTransaction
+  , commitTransaction
+  , abortTransaction
+  , withTransaction
+
+    -- * Transactional sends
+  , sendInTransaction
+  , commitOffsetsInTransaction
+
+    -- * Types
+  , Transaction(..)
   , TransactionState(..)
   , ProducerId(..)
   , ProducerEpoch(..)
   , TransactionalId(..)
   , TransactionError(..)
-    
-    -- * Transaction Operations
-  , initTransactions
-  , beginTransaction
-  , commitTransaction
-  , abortTransaction
-  , withTransaction
-    
-    -- * Transactional Send
-  , sendInTransaction
-  , commitOffsetsInTransaction
-    
-    -- * State management
+
+    -- * Low-level state management
     --
-    -- | These low-level state-management primitives are used by
-    -- the integration tests and the OpenTelemetry instrumentation.
-    -- Most user code only needs 'initTransactions' /
-    -- 'beginTransaction' / 'commitTransaction' /
-    -- 'abortTransaction' / 'withTransaction'.
+    -- | Used by integration tests and the OpenTelemetry
+    -- instrumentation. Most user code does not need to touch these.
   , createTransaction
   , getTransactionState
   , transitionState

@@ -5,33 +5,49 @@
 {-# LANGUAGE TypeApplications #-}
 
 {-|
-Module      : Kafka.Client.AdminClient  
-Description : High-level Kafka admin client API (KIP-117)
+Module      : Kafka.Client.AdminClient
+Description : Manage the cluster — topics, groups, configs, ACLs.
 Copyright   : (c) 2025
 License     : BSD-3-Clause
-Maintainer  : kafka-native
 
-This module provides a high-level admin client API for Kafka administrative operations.
+The /control plane/ counterpart to the producer and consumer.
+'AdminClient' is what you reach for when you need to:
 
-Features:
+  * create or delete a topic,
+  * change a topic's partition count or replication factor,
+  * inspect or update broker / topic configs,
+  * list / describe / reset / delete consumer groups,
+  * trim a partition by deleting records below an offset
+    ('deleteRecords'),
+  * trigger preferred or unclean leader election.
 
-* Topic management (create, delete, list, describe)
-* Consumer group management (list, describe, delete)
-* Configuration management (describe, alter)
-* Cluster metadata
-* Version negotiation with brokers
+Like the producer and consumer, an 'AdminClient' holds a
+long-lived connection pool — open it once at startup and reuse
+it across calls.
 
-= Usage Example
+= Quick start
 
 @
-adminClient <- createAdminClient brokers defaultAdminClientConfig
-result <- createTopics adminClient [newTopic]
-case result of
-  Left err -> putStrLn $ "Failed: " ++ err
-  Right results -> print results
-closeAdminClient adminClient
+import qualified Kafka.Client.AdminClient as Admin
+
+main :: IO ()
+main = do
+  Right adm <- Admin.'createAdminClient' [\"localhost:9092\"] Admin.'defaultAdminClientConfig'
+  Right results <- Admin.'createTopics' adm
+    [ Admin.NewTopic
+        { newTopicName              = \"events\"
+        , newTopicNumPartitions     = 3
+        , newTopicReplicationFactor = 1
+        , newTopicConfigs           = []
+        }
+    ]
+  print results
+  Admin.'closeAdminClient' adm
 @
 
+Every admin operation returns 'IO (Either String x)'. The
+@x@ payload is typically a per-resource result so you can tell
+which topic in a batch was rejected and why.
 -}
 module Kafka.Client.AdminClient
   ( -- * AdminClient Types
