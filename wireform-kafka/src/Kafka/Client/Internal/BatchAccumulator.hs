@@ -74,6 +74,7 @@ import Data.IORef
 import Data.Int
 import Data.Sequence (Seq, (|>))
 import qualified Data.Sequence as Seq
+import qualified Data.Vector as V
 import Data.Hashable (Hashable)
 import Data.Text (Text)
 import qualified Kafka.Time as KafkaTime
@@ -161,8 +162,17 @@ runRecordCallback (RecordCallback f) e = f e
 data ProducerBatch = ProducerBatch
   { batchTopicPartition :: !TopicPartition
     -- ^ Which topic-partition this batch is for
-  , batchRecords :: !(Seq RB.Record)
-    -- ^ Records in this batch
+  , batchRecords :: !(V.Vector RB.Record)
+    -- ^ Records in this batch.
+    --
+    -- Stored as a frozen 'V.Vector' rather than a 'Seq' so the
+    -- sender's 'buildRecordBatch' can hand it straight to the
+    -- wire encoder (which already wants a 'V.Vector RB.Record')
+    -- with no shape conversion. Pre-Vector this was @Seq Record@
+    -- and the sender did @V.fromList \. toList@ per batch — that
+    -- pass was visible in the heap profile as
+    -- @containers:Data.Sequence.Internal.Deep@ + @.Three@
+    -- residency dominating per-batch allocation.
   , batchSizeBytes :: !Int
     -- ^ Current size in bytes (approximate)
   , batchCreateTime :: !Int64
@@ -175,8 +185,11 @@ data ProducerBatch = ProducerBatch
     -- ^ Compression codec to use
   , batchCompressionLevel :: !Compression.CompressionLevel
     -- ^ Compression level (KIP-353/776/909)
-  , batchCallbacks :: !(Seq RecordCallback)
-    -- ^ Completion callbacks for each record, in order.
+  , batchCallbacks :: !(V.Vector RecordCallback)
+    -- ^ Completion callbacks for each record, in order. Same
+    -- 'V.Vector' shape as 'batchRecords' for the same reason
+    -- (the sender's ack dispatch walks both with the same
+    -- index).
   , batchAttempts :: !Int
     -- ^ Number of retry attempts already taken on this batch.
     --   Bumped each time the sender re-enqueues the batch after a
@@ -808,12 +821,19 @@ snapshotBatch BatchAccumulating{..} state = do
   -- the @st@ we just captured.
   st <- atomicModifyIORef' baHotState $ \s ->
     (s { bhSizeRaw = sealedSentinel }, s)
-  -- One pass each to reverse the cons'd lists into the right
-  -- forward order, then 'Seq.fromList'. Both passes are O(n)
-  -- once per sealed batch — negligible against the per-record
-  -- 'Seq.|>' allocations the prior shape paid for every append.
-  let !records   = Seq.fromList (reverse (bhRecordsRev st))
-      !callbacks = Seq.fromList (reverse (bhCallbacksRev st))
+  -- Reverse the cons'd lists into the right forward order, then
+  -- freeze them into immutable 'V.Vector's. We pre-count once
+  -- via 'length' on the records list and reuse it for the
+  -- callbacks list (they are guaranteed to be the same length
+  -- by every append site). 'V.fromListN' then walks the list
+  -- once with a known capacity so it allocates one boxed array
+  -- of exactly @n@ slots — no doubling, no Seq finger-tree
+  -- spine, no per-record snoc overhead.
+  let !nRec           = length (bhRecordsRev st)
+      !recordsListFwd = reverse (bhRecordsRev st)
+      !cbsListFwd     = reverse (bhCallbacksRev st)
+      !records        = V.fromListN nRec recordsListFwd
+      !callbacks      = V.fromListN nRec cbsListFwd
   pure ProducerBatch
     { batchTopicPartition   = baTopicPartition
     , batchRecords          = records
@@ -948,15 +968,15 @@ createBatch
 createBatch BatchAccumulatorConfig{..} tp currentTime =
   ProducerBatch
     { batchTopicPartition = tp
-    , batchRecords = Seq.empty
+    , batchRecords = V.empty
     , batchSizeBytes = 0
     , batchCreateTime = currentTime
     , batchBaseTimestamp = currentTime
     , batchState = Filling
     , batchCompression = accumulatorCompression
     , batchCompressionLevel = accumulatorCompressionLevel
-    , batchCallbacks = Seq.empty
-    , batchAttempts = 0
+  , batchCallbacks = V.empty
+  , batchAttempts = 0
     , batchProducerId = RB.noProducerId
     , batchProducerEpoch = RB.noProducerEpoch
     , batchBaseSequence = RB.noSequence

@@ -150,7 +150,7 @@ stamped_records_carry_stamp_into_new_batch = testCase
       BA.batchProducerEpoch   b @?= 3
       BA.batchBaseSequence    b @?= 17
       BA.batchIsTransactional b @?= True
-      length (toList (BA.batchRecords b)) @?= 1
+      V.length (BA.batchRecords b) @?= 1
     _ -> error $ "expected exactly one ready batch, got " <> show (length batches)
 
 stamped_records_share_existing_batch_stamp :: TestTree
@@ -174,7 +174,7 @@ stamped_records_share_existing_batch_stamp = testCase
       -- All three records ended up in the single filling batch;
       -- the batch's base_sequence is whatever the /first/ stamp
       -- carried.
-      length (toList (BA.batchRecords b)) @?= 3
+      V.length (BA.batchRecords b) @?= 3
       BA.batchBaseSequence b @?= 17
       BA.batchIsTransactional b @?= True
     other -> error $
@@ -217,7 +217,7 @@ distinct_partitions_get_distinct_stamps = testCase
 mkBatchWith :: Bool -> BA.ProducerBatch
 mkBatchWith isTxn = BA.ProducerBatch
   { BA.batchTopicPartition = BA.TopicPartition "t" 0
-  , BA.batchRecords        = Seq.fromList
+  , BA.batchRecords        = V.fromList
                                [RB.Record 0 0 Nothing "v" []]
   , BA.batchSizeBytes      = 1
   , BA.batchCreateTime     = 0
@@ -226,7 +226,7 @@ mkBatchWith isTxn = BA.ProducerBatch
   , BA.batchCompression    = Compression.NoCompression
   , BA.batchCompressionLevel =
       Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks      = Seq.empty
+  , BA.batchCallbacks      = V.empty
   , BA.batchAttempts       = 0
   , BA.batchProducerId     = if isTxn then 12345 else RB.noProducerId
   , BA.batchProducerEpoch  = if isTxn then 7     else RB.noProducerEpoch

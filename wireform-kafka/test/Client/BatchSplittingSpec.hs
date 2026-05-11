@@ -2,7 +2,7 @@
 
 module Client.BatchSplittingSpec (tests) where
 
-import qualified Data.Sequence as Seq
+import qualified Data.Vector as V
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
@@ -26,7 +26,7 @@ tests = testGroup "BatchSplitting (KIP-126)"
 mkBatch :: Bool -> Int -> BA.ProducerBatch
 mkBatch isTxn n = BA.ProducerBatch
   { BA.batchTopicPartition = BA.TopicPartition "t" 0
-  , BA.batchRecords        = Seq.fromList
+  , BA.batchRecords        = V.fromList
                                [ RB.Record 0 (fromIntegral i) Nothing "v" []
                                | i <- [0 .. n - 1]
                                ]
@@ -37,7 +37,7 @@ mkBatch isTxn n = BA.ProducerBatch
   , BA.batchCompression    = Compression.NoCompression
   , BA.batchCompressionLevel =
       Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks      = Seq.replicate n BA.NoRecordCallback
+  , BA.batchCallbacks      = V.replicate n BA.NoRecordCallback
   , BA.batchAttempts       = 0
   , BA.batchProducerId     = if isTxn then 12345 else RB.noProducerId
   , BA.batchProducerEpoch  = if isTxn then 7     else RB.noProducerEpoch
@@ -49,11 +49,11 @@ half_split :: IO ()
 half_split = case BS.splitBatch (mkBatch False 6) of
   Nothing -> error "expected split"
   Just (l, r) -> do
-    Seq.length (BA.batchRecords l) @?= 3
-    Seq.length (BA.batchRecords r) @?= 3
+    V.length (BA.batchRecords l) @?= 3
+    V.length (BA.batchRecords r) @?= 3
     -- Callbacks split on the same boundary.
-    Seq.length (BA.batchCallbacks l) @?= 3
-    Seq.length (BA.batchCallbacks r) @?= 3
+    V.length (BA.batchCallbacks l) @?= 3
+    V.length (BA.batchCallbacks r) @?= 3
 
 single :: IO ()
 single = case BS.splitBatch (mkBatch False 1) of

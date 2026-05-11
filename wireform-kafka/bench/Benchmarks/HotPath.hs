@@ -28,7 +28,7 @@ module Benchmarks.HotPath (benchmarks) where
 
 import Criterion (Benchmark, bench, bgroup, nf, whnfIO)
 import qualified Data.ByteString as BS
-import qualified Data.Sequence as Seq
+import qualified Data.Vector as V
 import GHC.IO (unsafePerformIO)
 
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
@@ -200,7 +200,7 @@ sampleRecord = RB.Record
 sampleBatch :: Int -> BA.ProducerBatch
 sampleBatch n = BA.ProducerBatch
   { BA.batchTopicPartition = BA.TopicPartition "topic" 0
-  , BA.batchRecords        = Seq.fromList
+  , BA.batchRecords        = V.fromList
       [ RB.Record 0 (fromIntegral i) (Just "k") payload100 []
       | i <- [0 .. n - 1]
       ]
@@ -211,7 +211,7 @@ sampleBatch n = BA.ProducerBatch
   , BA.batchCompression    = Compression.NoCompression
   , BA.batchCompressionLevel =
       Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks      = Seq.replicate n BA.NoRecordCallback
+  , BA.batchCallbacks      = V.replicate n BA.NoRecordCallback
   , BA.batchAttempts       = 0
   , BA.batchProducerId     = RB.noProducerId
   , BA.batchProducerEpoch  = RB.noProducerEpoch

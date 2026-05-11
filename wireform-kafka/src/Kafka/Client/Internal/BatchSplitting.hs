@@ -23,9 +23,7 @@ module Kafka.Client.Internal.BatchSplitting
   , isOversizedSingle
   ) where
 
-import qualified Data.Sequence as Seq
-import Data.Sequence (Seq)
-import qualified Data.Foldable as F
+import qualified Data.Vector as V
 
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
 
@@ -42,30 +40,30 @@ splitBatch b
   | not (canSplitBatch b) = Nothing
   | otherwise =
       let !records = BA.batchRecords b
-          !n       = Seq.length records
+          !cbs     = BA.batchCallbacks b
+          !n       = V.length records
           !mid     = n `div` 2
-          (left, right) = Seq.splitAt mid records
+          (!left, !right)         = V.splitAt mid records
+          (!leftCbs, !rightCbs)   = V.splitAt mid cbs
           !leftBatch  = b { BA.batchRecords = left
                           , BA.batchSizeBytes = approxSize left
-                          , BA.batchCallbacks =
-                              Seq.take (Seq.length left) (BA.batchCallbacks b)
+                          , BA.batchCallbacks = leftCbs
                           }
           !rightBatch = b { BA.batchRecords = right
                           , BA.batchSizeBytes = approxSize right
-                          , BA.batchCallbacks =
-                              Seq.drop (Seq.length left) (BA.batchCallbacks b)
+                          , BA.batchCallbacks = rightCbs
                           }
       in Just (leftBatch, rightBatch)
   where
-    approxSize sq = sum (map approxRecord (F.toList sq))
-    approxRecord _ = 50  -- rough; real size only matters for accumulator
-                         -- accounting, not for the split correctness.
+    approxSize v = V.length v * 50
+                   -- rough; real size only matters for accumulator
+                   -- accounting, not for the split correctness.
 
 canSplitBatch :: BA.ProducerBatch -> Bool
-canSplitBatch b = Seq.length (BA.batchRecords b) >= 2
+canSplitBatch b = V.length (BA.batchRecords b) >= 2
 
 -- | A batch with exactly one record that the broker refused as
 -- @MESSAGE_TOO_LARGE@. The producer should fail that record's
 -- callback with @RECORD_TOO_LARGE@; splitting can't help.
 isOversizedSingle :: BA.ProducerBatch -> Bool
-isOversizedSingle b = Seq.length (BA.batchRecords b) == 1
+isOversizedSingle b = V.length (BA.batchRecords b) == 1

@@ -6,8 +6,8 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, wait)
 import Control.Monad (replicateM, replicateM_, when, unless)
 import qualified Data.ByteString as BS
-import Data.Foldable (toList)
 import Data.Int
+import qualified Data.Vector as V
 import Data.IORef
   ( IORef
   , atomicModifyIORef'
@@ -166,7 +166,7 @@ prop_concurrentAppends = property $ do
     batches <- BA.drainReadyBatches accumulator
     
     -- Count total records across all batches
-    let totalRecords = sum $ map (length . BA.batchRecords) batches
+    let totalRecords = sum $ map (V.length . BA.batchRecords) batches
     
     -- Should have all records
     return $ totalRecords == numThreads * recordsPerThread
@@ -330,7 +330,7 @@ prop_appendAndSealRaceIsLossless = withTests 50 . property $ do
 
   collected <- evalIO $ readIORef drained
   let receivedRecords =
-        concatMap (toList . BA.batchRecords) collected
+        concatMap (V.toList . BA.batchRecords) collected
       receivedKeys =
         Set.fromList (map RB.recordOffsetDelta receivedRecords)
       expectedKeys =

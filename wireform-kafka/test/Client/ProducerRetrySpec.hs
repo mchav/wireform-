@@ -5,7 +5,7 @@
 -- 'Kafka.Client.Internal.ProducerSender'.
 module Client.ProducerRetrySpec (tests) where
 
-import qualified Data.Sequence as Seq
+import qualified Data.Vector as V
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
@@ -27,14 +27,14 @@ tests = testGroup "ProducerRetry"
 mkBatch :: BA.ProducerBatch
 mkBatch = BA.ProducerBatch
   { BA.batchTopicPartition = BA.TopicPartition "t" 0
-  , BA.batchRecords = Seq.empty
+  , BA.batchRecords = V.empty
   , BA.batchSizeBytes = 0
   , BA.batchCreateTime = 0
   , BA.batchBaseTimestamp = 0
   , BA.batchState = BA.Filling
   , BA.batchCompression = Compression.NoCompression
   , BA.batchCompressionLevel = Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks = Seq.empty
+  , BA.batchCallbacks = V.empty
   , BA.batchAttempts = 0
   , BA.batchProducerId = RB.noProducerId
   , BA.batchProducerEpoch = RB.noProducerEpoch

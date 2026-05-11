@@ -9,7 +9,7 @@ module Benchmarks.StatsAndStamping (benchmarks) where
 
 import Criterion (Benchmark, bench, bgroup, nf, whnf)
 import qualified Data.Map.Strict as Map
-import qualified Data.Sequence as Seq
+import qualified Data.Vector as V
 import qualified Data.Text as T
 
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
@@ -64,7 +64,7 @@ mediumSnapshot = smallSnapshot
 sampleBatch :: Bool -> Int -> BA.ProducerBatch
 sampleBatch isTxn n = BA.ProducerBatch
   { BA.batchTopicPartition = BA.TopicPartition "t" 0
-  , BA.batchRecords        = Seq.fromList
+  , BA.batchRecords        = V.fromList
                                [ RB.Record 0 (fromIntegral i) (Just "k") "v" []
                                | i <- [0 .. n - 1]
                                ]
@@ -75,7 +75,7 @@ sampleBatch isTxn n = BA.ProducerBatch
   , BA.batchCompression    = Compression.NoCompression
   , BA.batchCompressionLevel =
       Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks      = Seq.replicate n BA.NoRecordCallback
+  , BA.batchCallbacks      = V.replicate n BA.NoRecordCallback
   , BA.batchAttempts       = 0
   , BA.batchProducerId     = if isTxn then 12345 else RB.noProducerId
   , BA.batchProducerEpoch  = if isTxn then 7     else RB.noProducerEpoch

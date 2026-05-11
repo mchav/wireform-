@@ -934,8 +934,8 @@ buildPartitionProduceData batch = do
 -- or @producerTransactional@ is enabled, via 'BA.appendRecordStamped'.
 buildRecordBatch :: BA.ProducerBatch -> RB.RecordBatch
 buildRecordBatch batch =
-  let !recSeq = BA.batchRecords batch
-      !nRec = Seq.length recSeq
+  let !srcRecords = BA.batchRecords batch
+      !nRec       = V.length srcRecords
       -- The producer-side append path leaves 'recordOffsetDelta'
       -- at 0 because the offset within the batch is only known
       -- once the batch is sealed (the same record could in
@@ -946,9 +946,15 @@ buildRecordBatch batch =
       -- collapses them, which is the data-loss bug the
       -- 'PartitionProduceData' consolidation in
       -- 'buildTopicProduceData' was supposed to expose.
-      !records = V.generate nRec $ \i ->
-        let !r = Seq.index recSeq i
-        in r { RB.recordOffsetDelta = fromIntegral i }
+      --
+      -- 'V.imap' walks the source 'V.Vector' once with the slot
+      -- index inline; the prior 'V.generate' + 'Seq.index'
+      -- pattern paid an O(log n) tree walk per slot AND went
+      -- through the @Seq -> List -> Vector@ shape conversion
+      -- the heap profile flagged.
+      !records = V.imap
+        (\i r -> r { RB.recordOffsetDelta = fromIntegral i })
+        srcRecords
       attrs = RB.Attributes
         { RB.attrCompressionType = BA.batchCompression batch
         , RB.attrTimestampType = RB.CreateTime
@@ -1091,7 +1097,11 @@ processProduceResponse metaCacheM batches response = do
             -- UNPACK'd 'BA.BatchAck' (faster than the prior lazy
             -- tuple for callers that /actually consume/ the
             -- metadata), so this trade-off helps both shapes.
-            forM_ (Seq.mapWithIndex (,) callbacks) $ \(idx, callback) ->
+            -- 'V.iforM_' walks the 'V.Vector' with its index;
+            -- no per-record (idx, callback) tuple allocation
+            -- (the prior 'Seq.mapWithIndex (,) callbacks'
+            -- materialised a fresh 'Seq' of 2-tuples).
+            V.iforM_ callbacks $ \idx callback ->
               case callback of
                 BA.NoRecordCallback -> pure ()
                 BA.RecordCallback f -> do
