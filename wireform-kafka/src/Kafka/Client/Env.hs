@@ -86,20 +86,23 @@ module Kafka.Client.Env
   , emptyKafkaEnv
   , SecurityProtocol (..)
   , SaslMechanism (..)
+  , EnvAcks (..)
+  , EnvOffsetReset (..)
+  , EnvIsolationLevel (..)
+  , EnvAssignmentStrategy (..)
     -- * Parsing
   , parseKafkaEnv
   , parseKafkaEnvList
     -- * IO entry points
   , loadKafkaEnv
   , bootstrapServersFromEnv
-    -- * Overlay onto existing configs
+    -- * Overlay onto an existing connection config
+    -- (Producer- and Consumer-specific overlays live alongside
+    -- the corresponding config types in
+    -- "Kafka.Client.Producer" and "Kafka.Client.Consumer" to
+    -- keep this module free of an import cycle.)
   , applyKafkaEnvToConnectionConfig
-  , applyKafkaEnvToProducerConfig
-  , applyKafkaEnvToConsumerConfig
-    -- * IO convenience wrappers
   , connectionConfigFromEnv
-  , producerConfigFromEnv
-  , consumerConfigFromEnv
     -- * Internals exposed for tests
   , parseBool
   , parseAcks
@@ -123,8 +126,6 @@ import qualified Data.Text.Read as TR
 import qualified System.Environment as Env
 
 import Kafka.Client.ConfigValidation (ConfigError (..))
-import qualified Kafka.Client.Consumer as C
-import qualified Kafka.Client.Producer as P
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Network.Auth.SASL as SASL
 import qualified Kafka.Network.Auth.Scram as Scram
@@ -158,6 +159,42 @@ data SaslMechanism
   | MechGssapi
   deriving (Eq, Show)
 
+-- | Acks setting parsed from @KAFKA_ACKS@. Kept neutral (rather
+-- than as a 'Kafka.Client.Producer.DeliveryGuarantee') so the
+-- Env module doesn't pull the high-level Producer module into
+-- its import graph; the conversion to 'DeliveryGuarantee'
+-- happens in 'Kafka.Client.Producer.applyKafkaEnvToProducerConfig'.
+data EnvAcks
+  = EnvAcksZero        -- ^ acks=0 (fire-and-forget; 'AtMostOnce')
+  | EnvAcksOne         -- ^ acks=1 (leader ACK; 'AtLeastOnce')
+  | EnvAcksAll         -- ^ acks=-1\/all (all ISRs; 'ExactlyOnce')
+  deriving (Eq, Show)
+
+-- | @auto.offset.reset@ parsed value. Mirrors
+-- 'Kafka.Client.Consumer.OffsetResetStrategy' but lives here so
+-- Env stays consumer-agnostic.
+data EnvOffsetReset
+  = EnvOffsetEarliest
+  | EnvOffsetLatest
+  | EnvOffsetNone
+  deriving (Eq, Show)
+
+-- | @isolation.level@ parsed value.
+data EnvIsolationLevel
+  = EnvReadUncommitted
+  | EnvReadCommitted
+  deriving (Eq, Show)
+
+-- | @partition.assignment.strategy@ parsed value. The two
+-- JVM-only "cooperative-sticky" variants collapse onto
+-- 'EnvAssignSticky' since the underlying client supports a
+-- single sticky path.
+data EnvAssignmentStrategy
+  = EnvAssignRange
+  | EnvAssignRoundRobin
+  | EnvAssignSticky
+  deriving (Eq, Show)
+
 -- | A typed view of every env var this module recognises. All
 -- fields are 'Maybe': absent means "no override, keep the
 -- existing config value".
@@ -184,7 +221,7 @@ data KafkaEnv = KafkaEnv
   , envBrokerAddressFamily           :: !(Maybe Conn.BrokerAddressFamily)
   , envClientDnsLookup               :: !(Maybe Conn.DnsLookupMode)
     -- Producer
-  , envAcks                          :: !(Maybe P.DeliveryGuarantee)
+  , envAcks                          :: !(Maybe EnvAcks)
   , envCompressionType               :: !(Maybe Compression.CompressionCodec)
   , envCompressionLevel              :: !(Maybe Int)
   , envBatchSize                     :: !(Maybe Int)
@@ -203,18 +240,18 @@ data KafkaEnv = KafkaEnv
   , envGroupInstanceId               :: !(Maybe Text)
   , envEnableAutoCommit              :: !(Maybe Bool)
   , envAutoCommitIntervalMs          :: !(Maybe Int)
-  , envAutoOffsetReset               :: !(Maybe C.OffsetResetStrategy)
+  , envAutoOffsetReset               :: !(Maybe EnvOffsetReset)
   , envSessionTimeoutMs              :: !(Maybe Int)
   , envHeartbeatIntervalMs           :: !(Maybe Int)
   , envMaxPollRecords                :: !(Maybe Int)
   , envMaxPollIntervalMs             :: !(Maybe Int)
-  , envIsolationLevel                :: !(Maybe C.IsolationLevel)
+  , envIsolationLevel                :: !(Maybe EnvIsolationLevel)
   , envFetchMinBytes                 :: !(Maybe Int)
   , envFetchMaxBytes                 :: !(Maybe Int)
   , envFetchMaxWaitMs                :: !(Maybe Int)
   , envFetchMessageMaxBytes          :: !(Maybe Int)
   , envClientRack                    :: !(Maybe Text)
-  , envPartitionAssignmentStrategy   :: !(Maybe C.AssignmentStrategy)
+  , envPartitionAssignmentStrategy   :: !(Maybe EnvAssignmentStrategy)
   , envCheckCrcs                     :: !(Maybe Bool)
   } deriving (Eq, Show)
 
@@ -501,22 +538,16 @@ parseBool t = case map toLower (T.unpack (T.strip t)) of
   "off"   -> Right False
   s       -> Left ("expected a boolean (true|false|1|0|yes|no|on|off), got " ++ show s)
 
--- | Parse the @acks@ property. @0@ -> 'P.AtMostOnce',
--- @1@ -> 'P.AtLeastOnce', @-1@ or @all@ -> 'P.ExactlyOnce' (the
--- latter is what the JVM client maps "acks=all" to when
--- @enable.idempotence@ is true; for non-idempotent producers
--- "all" means "wait for every in-sync replica", which we model
--- as @AtLeastOnce@. To keep the env mapping deterministic and
--- explicit we always promote -1/all to 'P.ExactlyOnce', matching
--- the behaviour the Producer record exposes; users who want
--- "acks=all without idempotence" set the acks env var to "1"
--- and the broker-side ISR enforcement is unchanged.)
-parseAcks :: Text -> Either String P.DeliveryGuarantee
+-- | Parse the @acks@ property. @0@ -> 'EnvAcksZero',
+-- @1@ -> 'EnvAcksOne', @-1@ or @all@ -> 'EnvAcksAll'.
+-- The eventual mapping to a producer's 'DeliveryGuarantee'
+-- happens in 'Kafka.Client.Producer.applyKafkaEnvToProducerConfig'.
+parseAcks :: Text -> Either String EnvAcks
 parseAcks t = case map toLower (T.unpack (T.strip t)) of
-  "0"   -> Right P.AtMostOnce
-  "1"   -> Right P.AtLeastOnce
-  "-1"  -> Right P.ExactlyOnce
-  "all" -> Right P.ExactlyOnce
+  "0"   -> Right EnvAcksZero
+  "1"   -> Right EnvAcksOne
+  "-1"  -> Right EnvAcksAll
+  "all" -> Right EnvAcksAll
   s     -> Left ("expected one of 0/1/-1/all, got " ++ show s)
 
 -- | Parse @compression.type@. Delegates to
@@ -548,39 +579,39 @@ parseSaslMechanism t = case map toLower (T.unpack (T.strip t)) of
   "gssapi"         -> Right MechGssapi
   s -> Left ("expected one of PLAIN/SCRAM-SHA-256/SCRAM-SHA-512/OAUTHBEARER/AWS_MSK_IAM/GSSAPI, got " ++ show s)
 
-parseAutoOffsetReset :: Text -> Either String C.OffsetResetStrategy
+parseAutoOffsetReset :: Text -> Either String EnvOffsetReset
 parseAutoOffsetReset t = case map toLower (T.unpack (T.strip t)) of
-  "earliest" -> Right C.Earliest
-  "latest"   -> Right C.Latest
-  "none"     -> Right C.None
+  "earliest" -> Right EnvOffsetEarliest
+  "latest"   -> Right EnvOffsetLatest
+  "none"     -> Right EnvOffsetNone
   s -> Left ("expected one of earliest/latest/none, got " ++ show s)
 
-parseIsolationLevel :: Text -> Either String C.IsolationLevel
+parseIsolationLevel :: Text -> Either String EnvIsolationLevel
 parseIsolationLevel t = case map toLower (T.unpack (T.strip t)) of
-  "read_uncommitted" -> Right C.ReadUncommitted
-  "read_committed"   -> Right C.ReadCommitted
+  "read_uncommitted" -> Right EnvReadUncommitted
+  "read_committed"   -> Right EnvReadCommitted
   s -> Left ("expected one of read_uncommitted/read_committed, got " ++ show s)
 
 -- | Accept both the short names ('range', 'roundrobin', 'sticky')
 -- and the JVM-style class names ('org.apache.kafka.clients.consumer.RangeAssignor'
 -- etc.) so a config tuned for the JVM client transfers across
 -- unchanged.
-parseAssignmentStrategy :: Text -> Either String C.AssignmentStrategy
+parseAssignmentStrategy :: Text -> Either String EnvAssignmentStrategy
 parseAssignmentStrategy t =
   let lo = map toLower (T.unpack (T.strip t))
   in case lo of
-       "range"                                                 -> Right C.RangeAssignment
-       "org.apache.kafka.clients.consumer.rangeassignor"       -> Right C.RangeAssignment
-       "roundrobin"                                            -> Right C.RoundRobinAssignment
-       "round_robin"                                           -> Right C.RoundRobinAssignment
-       "round-robin"                                           -> Right C.RoundRobinAssignment
-       "org.apache.kafka.clients.consumer.roundrobinassignor"  -> Right C.RoundRobinAssignment
-       "sticky"                                                -> Right C.StickyAssignment
-       "org.apache.kafka.clients.consumer.stickyassignor"      -> Right C.StickyAssignment
-       "cooperative-sticky"                                    -> Right C.StickyAssignment
-       "cooperative_sticky"                                    -> Right C.StickyAssignment
+       "range"                                                 -> Right EnvAssignRange
+       "org.apache.kafka.clients.consumer.rangeassignor"       -> Right EnvAssignRange
+       "roundrobin"                                            -> Right EnvAssignRoundRobin
+       "round_robin"                                           -> Right EnvAssignRoundRobin
+       "round-robin"                                           -> Right EnvAssignRoundRobin
+       "org.apache.kafka.clients.consumer.roundrobinassignor"  -> Right EnvAssignRoundRobin
+       "sticky"                                                -> Right EnvAssignSticky
+       "org.apache.kafka.clients.consumer.stickyassignor"      -> Right EnvAssignSticky
+       "cooperative-sticky"                                    -> Right EnvAssignSticky
+       "cooperative_sticky"                                    -> Right EnvAssignSticky
        "org.apache.kafka.clients.consumer.cooperativestickyassignor"
-                                                               -> Right C.StickyAssignment
+                                                               -> Right EnvAssignSticky
        _ -> Left ("expected one of range/roundrobin/sticky, got " ++ show (T.unpack t))
 
 parseBrokerAddressFamily :: Text -> Either String Conn.BrokerAddressFamily
@@ -823,116 +854,7 @@ withTls KafkaEnv{..} cfg = cfg
     hostOf t = T.unpack (T.takeWhile (/= ':') t)
 
 ------------------------------------------------------------------------
--- Producer / Consumer overlays
-------------------------------------------------------------------------
-
--- | Apply a parsed 'KafkaEnv' onto a 'P.ProducerConfig'.
--- Cross-cutting connection-level overrides land on
--- 'P.producerConfig's connection config indirectly: this overlay
--- /does not/ touch a separate connection-config field, because
--- the producer doesn't carry one — the connection knobs go in
--- via 'createProducer''s explicit broker list and the producer
--- inherits 'Conn.defaultConnectionConfig'. Callers that want
--- connection-level env overrides should also call
--- 'applyKafkaEnvToConnectionConfig' on the
--- 'Conn.ConnectionConfig' they pass to the producer setup.
-applyKafkaEnvToProducerConfig
-  :: KafkaEnv
-  -> P.ProducerConfig
-  -> Either [ConfigError] P.ProducerConfig
-applyKafkaEnvToProducerConfig KafkaEnv{..} cfg = Right cfg
-  { P.producerClientId =
-      fromMaybe (P.producerClientId cfg) envClientId
-  , P.producerCompression =
-      fromMaybe (P.producerCompression cfg) envCompressionType
-  , P.producerCompressionLevel = case envCompressionLevel of
-      Just _  -> envCompressionLevel
-      Nothing -> P.producerCompressionLevel cfg
-  , P.producerBatchSize =
-      fromMaybe (P.producerBatchSize cfg) envBatchSize
-  , P.producerLingerMs =
-      fromMaybe (P.producerLingerMs cfg) envLingerMs
-  , P.producerMaxInFlight =
-      fromMaybe (P.producerMaxInFlight cfg) envMaxInFlightRequestsPerConn
-  , P.producerRetries =
-      fromMaybe (P.producerRetries cfg) envRetries
-  , P.producerRetryBackoffMs =
-      fromMaybe (P.producerRetryBackoffMs cfg) envRetryBackoffMs
-  , P.producerRetryBackoffMaxMs =
-      fromMaybe (P.producerRetryBackoffMaxMs cfg) envRetryBackoffMaxMs
-  , P.producerDeliveryTimeoutMs =
-      fromMaybe (P.producerDeliveryTimeoutMs cfg) envDeliveryTimeoutMs
-  , P.producerRequestTimeoutMs =
-      fromMaybe (P.producerRequestTimeoutMs cfg) envRequestTimeoutMs
-  , P.producerMaxRequestSize =
-      fromMaybe (P.producerMaxRequestSize cfg) envMaxRequestSize
-  , P.producerTransactionTimeoutMs =
-      fromMaybe (P.producerTransactionTimeoutMs cfg) envTransactionTimeoutMs
-  , P.producerDelivery =
-      fromMaybe (P.producerDelivery cfg) envAcks
-  , P.producerIdempotent =
-      fromMaybe (P.producerIdempotent cfg) envEnableIdempotence
-  , P.producerTransactional = case envTransactionalId of
-      Just _  -> envTransactionalId
-      Nothing -> P.producerTransactional cfg
-  }
-
--- | Apply a parsed 'KafkaEnv' onto a 'C.ConsumerConfig',
--- including the consumer's embedded 'C.consumerConnectionConfig'.
--- The connection-level fields piggy-back on
--- 'applyKafkaEnvToConnectionConfig' so SASL/TLS errors surface
--- here in exactly the same way.
-applyKafkaEnvToConsumerConfig
-  :: KafkaEnv
-  -> C.ConsumerConfig
-  -> Either [ConfigError] C.ConsumerConfig
-applyKafkaEnvToConsumerConfig env@KafkaEnv{..} cfg =
-  case applyKafkaEnvToConnectionConfig env (C.consumerConnectionConfig cfg) of
-    Left errs -> Left errs
-    Right cc  -> Right cfg
-      { C.consumerClientId =
-          fromMaybe (C.consumerClientId cfg) envClientId
-      , C.consumerGroupId =
-          fromMaybe (C.consumerGroupId cfg) envGroupId
-      , C.consumerGroupInstanceId = case envGroupInstanceId of
-          Just _  -> envGroupInstanceId
-          Nothing -> C.consumerGroupInstanceId cfg
-      , C.consumerAutoCommit =
-          fromMaybe (C.consumerAutoCommit cfg) envEnableAutoCommit
-      , C.consumerAutoCommitIntervalMs =
-          fromMaybe (C.consumerAutoCommitIntervalMs cfg) envAutoCommitIntervalMs
-      , C.consumerSessionTimeoutMs =
-          fromMaybe (C.consumerSessionTimeoutMs cfg) envSessionTimeoutMs
-      , C.consumerHeartbeatIntervalMs =
-          fromMaybe (C.consumerHeartbeatIntervalMs cfg) envHeartbeatIntervalMs
-      , C.consumerMaxPollRecords =
-          fromMaybe (C.consumerMaxPollRecords cfg) envMaxPollRecords
-      , C.consumerMaxPollIntervalMs =
-          fromMaybe (C.consumerMaxPollIntervalMs cfg) envMaxPollIntervalMs
-      , C.consumerAssignmentStrategy =
-          fromMaybe (C.consumerAssignmentStrategy cfg) envPartitionAssignmentStrategy
-      , C.consumerAutoOffsetReset =
-          fromMaybe (C.consumerAutoOffsetReset cfg) envAutoOffsetReset
-      , C.consumerIsolationLevel =
-          fromMaybe (C.consumerIsolationLevel cfg) envIsolationLevel
-      , C.consumerCheckCrcs =
-          fromMaybe (C.consumerCheckCrcs cfg) envCheckCrcs
-      , C.consumerFetchMinBytes =
-          fromMaybe (C.consumerFetchMinBytes cfg) envFetchMinBytes
-      , C.consumerFetchMaxBytes =
-          fromMaybe (C.consumerFetchMaxBytes cfg) envFetchMaxBytes
-      , C.consumerFetchMaxWaitMs =
-          fromMaybe (C.consumerFetchMaxWaitMs cfg) envFetchMaxWaitMs
-      , C.consumerFetchMessageMaxBytes =
-          fromMaybe (C.consumerFetchMessageMaxBytes cfg) envFetchMessageMaxBytes
-      , C.consumerRackId = case envClientRack of
-          Just _  -> envClientRack
-          Nothing -> C.consumerRackId cfg
-      , C.consumerConnectionConfig = cc
-      }
-
-------------------------------------------------------------------------
--- IO convenience wrappers
+-- ConnectionConfig overlay IO wrapper
 ------------------------------------------------------------------------
 
 -- | Read the process environment, parse it, and overlay it onto
@@ -946,25 +868,3 @@ connectionConfigFromEnv cfg = do
   case r of
     Left errs -> pure (Left errs)
     Right env -> pure (applyKafkaEnvToConnectionConfig env cfg)
-
--- | Read the process environment, parse it, and overlay it onto
--- the supplied 'P.ProducerConfig'.
-producerConfigFromEnv
-  :: P.ProducerConfig
-  -> IO (Either [ConfigError] P.ProducerConfig)
-producerConfigFromEnv cfg = do
-  r <- loadKafkaEnv
-  case r of
-    Left errs -> pure (Left errs)
-    Right env -> pure (applyKafkaEnvToProducerConfig env cfg)
-
--- | Read the process environment, parse it, and overlay it onto
--- the supplied 'C.ConsumerConfig'.
-consumerConfigFromEnv
-  :: C.ConsumerConfig
-  -> IO (Either [ConfigError] C.ConsumerConfig)
-consumerConfigFromEnv cfg = do
-  r <- loadKafkaEnv
-  case r of
-    Left errs -> pure (Left errs)
-    Right env -> pure (applyKafkaEnvToConsumerConfig env cfg)

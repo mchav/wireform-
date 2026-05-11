@@ -14,19 +14,22 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
 import qualified Data.Text as T
+import qualified System.Environment as SE
 
 import qualified Kafka.Client.Consumer as C
+import Kafka.Client.Consumer (applyKafkaEnvToConsumerConfig)
 import qualified Kafka.Client.Env as Env
 import Kafka.Client.Env
   ( KafkaEnv (..)
   , SecurityProtocol (..)
   , SaslMechanism (..)
+  , EnvAcks (..)
+  , EnvOffsetReset (..)
   , applyKafkaEnvToConnectionConfig
-  , applyKafkaEnvToConsumerConfig
-  , applyKafkaEnvToProducerConfig
   , parseKafkaEnvList
   )
 import qualified Kafka.Client.Producer as P
+import Kafka.Client.Producer (applyKafkaEnvToProducerConfig)
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Network.Auth.SASL as SASL
 import qualified Kafka.Network.Auth.Scram as Scram
@@ -97,6 +100,14 @@ tests = testGroup "Kafka.Client.Env"
       , testCase "consumer pulls connection-level env via embedded ConnectionConfig"
           prop_consInheritsConnection
       ]
+  , testGroup "createProducer / createConsumer"
+      [ testCase "createProducer reads KAFKA_BOOTSTRAP_SERVERS from the env"
+          prop_createProducerReadsBootstrap
+      , testCase "createConsumer reads KAFKA_BOOTSTRAP_SERVERS from the env"
+          prop_createConsumerReadsBootstrap
+      , testCase "createProducer surfaces malformed env-var values"
+          prop_createProducerMalformedEnv
+      ]
   ]
 
 ------------------------------------------------------------------
@@ -122,11 +133,11 @@ prop_parseBoolBad = case Env.parseBool "maybe" of
 
 prop_parseAcks :: Assertion
 prop_parseAcks = do
-  Env.parseAcks "0"   @?= Right P.AtMostOnce
-  Env.parseAcks "1"   @?= Right P.AtLeastOnce
-  Env.parseAcks "-1"  @?= Right P.ExactlyOnce
-  Env.parseAcks "all" @?= Right P.ExactlyOnce
-  Env.parseAcks "ALL" @?= Right P.ExactlyOnce
+  Env.parseAcks "0"   @?= Right EnvAcksZero
+  Env.parseAcks "1"   @?= Right EnvAcksOne
+  Env.parseAcks "-1"  @?= Right EnvAcksAll
+  Env.parseAcks "all" @?= Right EnvAcksAll
+  Env.parseAcks "ALL" @?= Right EnvAcksAll
 
 prop_parseCompression :: Assertion
 prop_parseCompression = do
@@ -227,10 +238,10 @@ prop_fullEnv = case parseKafkaEnvList
       envSaslMechanism    env @?= Just MechScramSha256
       envSaslUsername     env @?= Just "u"
       envSaslPassword     env @?= Just "p"
-      envAcks             env @?= Just P.ExactlyOnce
+      envAcks             env @?= Just EnvAcksAll
       envCompressionType  env @?= Just Compression.Zstd
       envGroupId          env @?= Just "grp"
-      envAutoOffsetReset  env @?= Just C.Earliest
+      envAutoOffsetReset  env @?= Just EnvOffsetEarliest
     Left e -> assertFailure ("expected Right, got " <> show e)
 
 ------------------------------------------------------------------
@@ -535,6 +546,72 @@ prop_consInheritsConnection =
         C.consumerClientId cfg @?= "consumer-a"
         Conn.connRequestTimeoutMs (C.consumerConnectionConfig cfg) @?= 12345
       Left e -> assertFailure ("expected Right, got " <> show e)
+
+------------------------------------------------------------------
+-- createProducer / createConsumer wiring
+------------------------------------------------------------------
+
+-- | Set a KAFKA_* env var for the body of the test, then unset
+-- it. Uses 'setEnv' / 'unsetEnv' from "System.Environment".
+withTempEnv :: [(String, String)] -> IO a -> IO a
+withTempEnv kvs body = do
+  old <- mapM (\(k, _) -> (,) k <$> SE.lookupEnv k) kvs
+  mapM_ (\(k, v) -> SE.setEnv k v) kvs
+  r <- body
+  mapM_ restore old
+  pure r
+  where
+    restore (k, Nothing) = SE.unsetEnv k
+    restore (k, Just v)  = SE.setEnv k v
+
+-- | createProducer should pick up @KAFKA_BOOTSTRAP_SERVERS@ when
+-- the positional arg is left empty. We point it at a port that
+-- nothing is listening on; the connect attempt fails, but the
+-- failure message contains the host:port the env var supplied,
+-- proving the env was consulted.
+prop_createProducerReadsBootstrap :: Assertion
+prop_createProducerReadsBootstrap =
+  withTempEnv [("KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:1")] $ do
+    r <- P.createProducer [] P.defaultProducerConfig
+    case r of
+      Left msg -> assertBool
+        ("expected error to mention 127.0.0.1, got " <> msg)
+        ("127.0.0.1" `isInfixOfS` msg)
+      Right _ -> assertFailure
+        "expected createProducer to fail connecting to 127.0.0.1:1"
+
+prop_createConsumerReadsBootstrap :: Assertion
+prop_createConsumerReadsBootstrap =
+  withTempEnv [("KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:1")] $ do
+    r <- C.createConsumer [] "" C.defaultConsumerConfig
+    case r of
+      Left msg -> assertBool
+        ("expected error to mention 127.0.0.1, got " <> msg)
+        ("127.0.0.1" `isInfixOfS` msg)
+      Right _ -> assertFailure
+        "expected createConsumer to fail connecting to 127.0.0.1:1"
+
+prop_createProducerMalformedEnv :: Assertion
+prop_createProducerMalformedEnv =
+  withTempEnv [("KAFKA_BATCH_SIZE", "not-a-number")] $ do
+    r <- P.createProducer ["127.0.0.1:1"] P.defaultProducerConfig
+    case r of
+      Left msg -> assertBool
+        ("expected the rendered error to mention batch.size, got " <> msg)
+        ("batch.size" `isInfixOfS` msg)
+      Right _ -> assertFailure
+        "expected createProducer to refuse the malformed env"
+
+-- | 'Data.List.isInfixOf' specialised for 'String'. Avoids
+-- pulling 'Text.isInfixOf' just for the literal substring match.
+isInfixOfS :: String -> String -> Bool
+isInfixOfS needle haystack = go haystack
+  where
+    n = length needle
+    go [] = False
+    go xs@(_:rest)
+      | take n xs == needle = True
+      | otherwise           = go rest
 
 ------------------------------------------------------------------
 -- Test helpers

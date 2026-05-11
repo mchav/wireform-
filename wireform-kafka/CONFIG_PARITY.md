@@ -116,11 +116,15 @@ reproduce the curve exactly because there's no PRNG.
 
 ## Environment-variable overrides
 
-The `Kafka.Client.Env` module lets a running process pick up the
+`createProducer` and `createConsumer` automatically read the
 standard `KAFKA_*` environment variables that the broader Kafka
 ecosystem (Confluent's Docker images, `kcat`, the various
 librdkafka-based language bindings, the JVM client when launched
-from the `kafka-console-*` scripts, …) has converged on.
+from the `kafka-console-*` scripts, …) has converged on. Anything
+the env supplies wins over the corresponding field on the config
+record you passed in; anything the env leaves unset keeps the
+code-supplied value. To opt out, ensure no `KAFKA_*` variables
+are set in the process environment.
 
 The convention is: take the librdkafka / JVM `CONFIGURATION.md`
 property name, uppercase it, replace each `.` with `_`, and prefix
@@ -171,19 +175,47 @@ with `KAFKA_`:
 | `partition.assignment.strategy`        | `KAFKA_PARTITION_ASSIGNMENT_STRATEGY`            |
 | `check.crcs`                           | `KAFKA_CHECK_CRCS`                               |
 
-To pick up the env vars, overlay them onto your existing config:
+The simplest path is to let `createProducer` / `createConsumer`
+read the env automatically:
+
+```haskell
+import qualified Kafka as Kafka
+
+main = do
+  -- Picks up KAFKA_BOOTSTRAP_SERVERS / KAFKA_CLIENT_ID /
+  -- KAFKA_SECURITY_PROTOCOL / KAFKA_SASL_* / KAFKA_ACKS / etc.
+  Right p <- Kafka.createProducer [] Kafka.defaultProducerConfig
+  ...
+```
+
+If the bootstrap-broker positional argument is empty and
+`KAFKA_BOOTSTRAP_SERVERS` is set, the env value is used; if both
+are set, the explicit positional value wins.
+
+For callers that want to inspect or pre-apply the overlay
+manually (e.g. to log the effective config), the same logic is
+exposed through:
 
 ```haskell
 import qualified Kafka.Client.Env as Env
 
-main = do
-  Right pc <- Env.producerConfigFromEnv Prod.defaultProducerConfig
-  Right cc <- Env.consumerConfigFromEnv Cons.defaultConsumerConfig
-  brokers  <- maybe (pure ["localhost:9092"]) pure =<< Env.bootstrapServersFromEnv
-  ...
+Env.bootstrapServersFromEnv :: IO (Maybe [Text])
+Env.loadKafkaEnv            :: IO (Either [ConfigError] KafkaEnv)
+Env.applyKafkaEnvToConnectionConfig
+                            :: KafkaEnv -> ConnectionConfig
+                            -> Either [ConfigError] ConnectionConfig
+
+-- Producer-/consumer-specific overlays live alongside their
+-- config types to keep Env import-cycle-free:
+Producer.applyKafkaEnvToProducerConfig
+                            :: KafkaEnv -> ProducerConfig
+                            -> Either [ConfigError] ProducerConfig
+Consumer.applyKafkaEnvToConsumerConfig
+                            :: KafkaEnv -> ConsumerConfig
+                            -> Either [ConfigError] ConsumerConfig
 ```
 
-`Env.parseKafkaEnvList` exposes the same logic against an
+`Env.parseKafkaEnvList` exposes the same parser against an
 explicit `[(Text, Text)]` table for testing or for callers that
 sniff the environment in a non-standard way.
 

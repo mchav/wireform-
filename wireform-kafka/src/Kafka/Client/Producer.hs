@@ -86,6 +86,15 @@ module Kafka.Client.Producer
   , DeliveryGuarantee(..)
     -- * Configuration validation (KIP-360)
   , validateProducerConfig
+    -- * Environment-variable overlay
+    --
+    -- | 'createProducer' already reads @KAFKA_*@ env vars and
+    -- layers them on top of the supplied 'ProducerConfig'
+    -- automatically. These helpers are exported for callers
+    -- that want to inspect or pre-apply the overlay manually
+    -- (e.g. to log the effective config before connecting).
+  , applyKafkaEnvToProducerConfig
+  , producerConfigFromEnv
     -- * Cluster info (KIP-78)
   , producerClusterId
   ) where
@@ -117,6 +126,7 @@ import Kafka.Compression.Types (CompressionCodec, defaultCodec)
 import Kafka.Client.ConfigValidation (ConfigError, renderConfigErrors)
 import qualified Kafka.Client.ConfigValidation as CV
 import qualified Kafka.Client.Consumer as KCC
+import qualified Kafka.Client.Env as Env
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
 import qualified Kafka.Client.Internal.Murmur2 as Murmur2
 import qualified Kafka.Client.Internal.ProducerSender as Sender
@@ -261,6 +271,73 @@ defaultProducerConfig = ProducerConfig
   , producerCompressionDictionary      = Nothing
   }
 
+-- | Overlay a parsed 'Env.KafkaEnv' onto a 'ProducerConfig'. Only
+-- fields whose corresponding @KAFKA_*@ variable was set get
+-- touched, so this composes cleanly on top of
+-- 'defaultProducerConfig' or any already-customised config.
+--
+-- Returns @Right@ in the current implementation; the result type
+-- is kept as 'Either' so future cross-field validation (e.g.
+-- @KAFKA_ENABLE_IDEMPOTENCE=true@ with @KAFKA_ACKS=0@) can be
+-- added without breaking callers.
+applyKafkaEnvToProducerConfig
+  :: Env.KafkaEnv
+  -> ProducerConfig
+  -> Either [ConfigError] ProducerConfig
+applyKafkaEnvToProducerConfig env cfg = Right cfg
+  { producerClientId =
+      maybe (producerClientId cfg) id (Env.envClientId env)
+  , producerCompression =
+      maybe (producerCompression cfg) id (Env.envCompressionType env)
+  , producerCompressionLevel = case Env.envCompressionLevel env of
+      Just _  -> Env.envCompressionLevel env
+      Nothing -> producerCompressionLevel cfg
+  , producerBatchSize =
+      maybe (producerBatchSize cfg) id (Env.envBatchSize env)
+  , producerLingerMs =
+      maybe (producerLingerMs cfg) id (Env.envLingerMs env)
+  , producerMaxInFlight =
+      maybe (producerMaxInFlight cfg) id (Env.envMaxInFlightRequestsPerConn env)
+  , producerRetries =
+      maybe (producerRetries cfg) id (Env.envRetries env)
+  , producerRetryBackoffMs =
+      maybe (producerRetryBackoffMs cfg) id (Env.envRetryBackoffMs env)
+  , producerRetryBackoffMaxMs =
+      maybe (producerRetryBackoffMaxMs cfg) id (Env.envRetryBackoffMaxMs env)
+  , producerDeliveryTimeoutMs =
+      maybe (producerDeliveryTimeoutMs cfg) id (Env.envDeliveryTimeoutMs env)
+  , producerRequestTimeoutMs =
+      maybe (producerRequestTimeoutMs cfg) id (Env.envRequestTimeoutMs env)
+  , producerMaxRequestSize =
+      maybe (producerMaxRequestSize cfg) id (Env.envMaxRequestSize env)
+  , producerTransactionTimeoutMs =
+      maybe (producerTransactionTimeoutMs cfg) id (Env.envTransactionTimeoutMs env)
+  , producerDelivery =
+      maybe (producerDelivery cfg) acksToDelivery (Env.envAcks env)
+  , producerIdempotent =
+      maybe (producerIdempotent cfg) id (Env.envEnableIdempotence env)
+  , producerTransactional = case Env.envTransactionalId env of
+      Just _  -> Env.envTransactionalId env
+      Nothing -> producerTransactional cfg
+  }
+  where
+    acksToDelivery Env.EnvAcksZero = AtMostOnce
+    acksToDelivery Env.EnvAcksOne  = AtLeastOnce
+    acksToDelivery Env.EnvAcksAll  = ExactlyOnce
+
+-- | Read every @KAFKA_*@ variable from the process environment
+-- and overlay them on top of the supplied 'ProducerConfig'.
+-- This is the @IO@ wrapper around 'applyKafkaEnvToProducerConfig'
+-- + 'Env.loadKafkaEnv'.
+producerConfigFromEnv
+  :: ProducerConfig
+  -> IO (Either [ConfigError] ProducerConfig)
+producerConfigFromEnv cfg = do
+  r <- Env.loadKafkaEnv
+  case r of
+    Left errs -> pure (Left errs)
+    Right env -> pure (applyKafkaEnvToProducerConfig env cfg)
+
 -- | A record to be sent to Kafka.
 data ProducerRecord = ProducerRecord
   { recordTopic :: !Text
@@ -349,6 +426,12 @@ data Producer = Producer
     -- ^ Batch accumulator for buffering records
   , producerConnManager :: !Conn.ConnectionManager
     -- ^ Connection manager for broker connections
+  , producerConnConfig :: !Conn.ConnectionConfig
+    -- ^ Connection-level configuration (TLS / SASL / socket
+    --   buffers / etc.) used for every broker connection this
+    --   producer opens. Populated by 'createProducer' from
+    --   'Conn.defaultConnectionConfig' with any
+    --   'Kafka.Client.Env' overrides applied on top.
   , producerSender :: !(Async ())
     -- ^ Background sender thread
   , producerSenderState :: !Sender.SenderState
@@ -484,30 +567,55 @@ validateProducerConfig ProducerConfig{..} = concat
     isJustNonEmpty Nothing  = False
 
 createProducer
-  :: [Text]          -- ^ Bootstrap broker addresses (host:port format)
-  -> ProducerConfig  -- ^ Configuration
+  :: [Text]          -- ^ Bootstrap broker addresses (host:port format).
+                     --   Falls back to @KAFKA_BOOTSTRAP_SERVERS@ when empty.
+  -> ProducerConfig  -- ^ Configuration. 'Kafka.Client.Env' env-var
+                     --   overrides are layered on top automatically;
+                     --   to opt out, ensure no @KAFKA_*@ variables
+                     --   are set in the process environment.
   -> IO (Either String Producer)
-createProducer brokerAddrs config
-  | configErrs <- validateProducerConfig config
-  , not (null configErrs)
-  = return $ Left $ renderConfigErrors configErrs
-createProducer brokerAddrs config = do
+createProducer brokerAddrs0 config0 = do
+  envR <- Env.loadKafkaEnv
+  case envR of
+    Left errs -> return $ Left $ renderConfigErrors errs
+    Right env -> case applyKafkaEnvToProducerConfig env config0 of
+      Left errs   -> return $ Left $ renderConfigErrors errs
+      Right cfg1  ->
+        case Env.applyKafkaEnvToConnectionConfig env
+               (Conn.defaultConnectionConfig
+                  { Conn.connClientId = producerClientId cfg1 }) of
+          Left errs       -> return $ Left $ renderConfigErrors errs
+          Right connConfig0 ->
+            let brokerAddrs = case Env.envBootstrapServers env of
+                  Just bs | null brokerAddrs0 -> bs
+                  _                           -> brokerAddrs0
+            in case validateProducerConfig cfg1 of
+                 errs@(_:_) -> return $ Left $ renderConfigErrors errs
+                 []         -> createProducer' brokerAddrs cfg1 connConfig0
+
+createProducer'
+  :: [Text]
+  -> ProducerConfig
+  -> Conn.ConnectionConfig
+  -> IO (Either String Producer)
+createProducer' brokerAddrs config connConfig = do
   -- Parse broker addresses
   let parsedBrokers = map parseBrokerAddress brokerAddrs
-  
+
   -- Validate all brokers parsed successfully
   case sequence parsedBrokers of
     Left err -> return $ Left $ "Failed to parse broker addresses: " ++ err
+    Right [] -> return $ Left
+      "createProducer: no bootstrap brokers (pass them as the first arg or set KAFKA_BOOTSTRAP_SERVERS)"
     Right brokers -> do
       -- Create metadata cache
       metadataCache <- Meta.createMetadataCache
-      
+
       -- Create connection manager
       connManager <- Conn.createConnectionManager
-      
+
       -- Fetch initial metadata from first bootstrap broker
       let firstBroker = head brokers
-          connConfig = Conn.defaultConnectionConfig
       connResult <- Conn.getOrCreateConnection connManager firstBroker connConfig
       case connResult of
         Left err -> return $ Left $ "Failed to connect to bootstrap broker: " ++ err
@@ -529,9 +637,9 @@ createProducer brokerAddrs config = do
           case fetchResult of
             Left err -> return $ Left $ "Failed to fetch initial metadata: " ++ err
             Right _ ->
-              setupProducer config metadataCache connManager versionCache
+              setupProducer config connConfig metadataCache connManager versionCache
   where
-    setupProducer config metadataCache connManager versionCache = do
+    setupProducer config connConfig' metadataCache connManager versionCache = do
       
       -- Create batch accumulator
       -- Determine compression level to use
@@ -564,6 +672,7 @@ createProducer brokerAddrs config = do
         accumulator
         metadataCache
         connManager
+        connConfig'
         retryConfig
         acks
         (producerDeliveryTimeoutMs config)  -- KIP-91: delivery timeout
@@ -600,6 +709,7 @@ createProducer brokerAddrs config = do
         , producerMetadata = metadataCache
         , producerAccumulator = accumulator
         , producerConnManager = connManager
+        , producerConnConfig = connConfig'
         , producerSender = senderThread
         , producerSenderState = senderState
         , producerStickyPartitions = stickyPartitions
@@ -1497,7 +1607,7 @@ refreshTopicOnDemand Producer{..} topic = do
     Just (b : _) -> do
       let addr = Meta.brokerMetaAddress b
       connRes <- Conn.getOrCreateConnection
-                   producerConnManager addr Conn.defaultConnectionConfig
+                   producerConnManager addr producerConnConfig
       case connRes of
         Right conn -> do
           -- Reuse the sender's correlation-id source so we
