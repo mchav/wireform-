@@ -2,11 +2,27 @@
 -- Module      : Kafka.Streams
 -- Description : Public API umbrella for the Kafka Streams port
 --
--- Re-exports the entire Streams DSL surface in one place so user code
--- only needs @import Kafka.Streams@.
+-- Re-exports the entire Streams DSL surface in one place so user
+-- code only needs @import Kafka.Streams@.
 --
--- The engine itself lives under "Kafka.Streams.Internal" — we don't
--- re-export those here; they are implementation details.
+-- The engine internals live under "Kafka.Streams.Internal" and the
+-- @Stores.@-namespaced factory helpers under "Kafka.Streams.Stores".
+-- Neither is re-exported here:
+--
+--   * @Kafka.Streams.Internal@ is an implementation detail.
+--   * @Kafka.Streams.Stores@ shadows each per-backend factory name
+--     (the @Stores.persistentKeyValueStore@ /
+--     @Stores.inMemoryWindowStore@ shape mirrors the JVM
+--     @org.apache.kafka.streams.state.Stores@ class). Import it
+--     qualified instead:
+--
+-- @
+-- import qualified Kafka.Streams.Stores as Stores
+-- @
+--
+-- For the idiomatic-Haskell façades (TopologyM, Pipeline,
+-- OfStream), see "Kafka.Streams.DSL.Topology",
+-- "Kafka.Streams.DSL.Pipeline", "Kafka.Streams.DSL.Mappable".
 module Kafka.Streams
   ( -- * Topology, Processor API
     module Kafka.Streams.Types
@@ -93,11 +109,6 @@ import Kafka.Streams.Topology
 import Kafka.Streams.Discovery
 import Kafka.Streams.Metrics
 import Kafka.Streams.Query
--- 'Kafka.Streams.Stores' is intentionally NOT re-exported from the
--- umbrella; it shadows every per-backend factory name. Users should
--- import it qualified:
---
---   import qualified Kafka.Streams.Stores as Stores
 import Kafka.Streams.TopologyDescription
 import Kafka.Streams.Types
 import Kafka.Streams.Window

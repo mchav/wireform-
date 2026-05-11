@@ -32,7 +32,13 @@ module Kafka.Client.Transaction
   , sendInTransaction
   , commitOffsetsInTransaction
     
-    -- * Internal State Management
+    -- * State management
+    --
+    -- | These low-level state-management primitives are used by
+    -- the integration tests and the OpenTelemetry instrumentation.
+    -- Most user code only needs 'initTransactions' /
+    -- 'beginTransaction' / 'commitTransaction' /
+    -- 'abortTransaction' / 'withTransaction'.
   , createTransaction
   , getTransactionState
   , transitionState
