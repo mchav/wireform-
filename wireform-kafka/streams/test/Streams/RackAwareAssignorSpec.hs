@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | KIP-925 rack-aware partition assignor.
@@ -43,13 +44,13 @@ same_rack_wins_among_lightest =
         -- starts at 0), so the rack tie-breaker decides.
         tasks = Set.fromList [t 0]
         ri = RackInfo
-              { riMemberRack = Map.fromList
+              { memberRack = Map.fromList
                   [ (m 0, "rack-a")
                   , (m 1, "rack-b")
                   , (m 2, "rack-b")
                   ]
-              , riTaskRacks = Map.singleton (t 0)
-                                (Set.singleton "rack-b")
+              , taskRacks = Map.singleton (t 0)
+                              (Set.singleton "rack-b")
               }
     let na = assignRackAware members tasks 0 Map.empty
                               ri defaultRackAwareCost
@@ -57,7 +58,7 @@ same_rack_wins_among_lightest =
     let owner = head
                   [ memb
                   | (memb, asg) <- Map.toList na
-                  , Set.member (t 0) (taActive asg)
+                  , Set.member (t 0) asg.active
                   ]
     assertBool
       ("task landed on " <> show owner <> " not a rack-b member")
@@ -80,7 +81,7 @@ rack_info_empty_equals_plain_assign =
     -- can differ (the rack-aware standby placement sorts by
     -- (load, cost, idx) which can pick a different
     -- deterministic order); we don't compare standbys here.
-    Map.map taActive a @?= Map.map taActive b
+    Map.map (\ta -> ta.active) a @?= Map.map (\ta -> ta.active) b
 
 ----------------------------------------------------------------------
 -- 3. Standbys prefer different rack
@@ -92,14 +93,14 @@ standbys_prefer_different_rack =
     let members = Set.fromList [m 0, m 1, m 2, m 3]
         tasks   = Set.fromList [t 0]
         ri = RackInfo
-              { riMemberRack = Map.fromList
+              { memberRack = Map.fromList
                   [ (m 0, "rack-a")
                   , (m 1, "rack-a")
                   , (m 2, "rack-b")
                   , (m 3, "rack-b")
                   ]
-              , riTaskRacks = Map.singleton (t 0)
-                                (Set.singleton "rack-a")
+              , taskRacks = Map.singleton (t 0)
+                              (Set.singleton "rack-a")
               }
     let na = assignRackAware members tasks 1 Map.empty
                               ri defaultRackAwareCost
@@ -108,8 +109,8 @@ standbys_prefer_different_rack =
           | (mem, asg) <- Map.toList na
           , Set.member (t 0) (field asg)
           ]
-        actives  = ownersOf taActive
-        standbys = ownersOf taStandby
+        actives  = ownersOf (\ta -> ta.active)
+        standbys = ownersOf (\ta -> ta.standby)
     -- Active should land in rack-a (cheapest traffic for the
     -- task's partitions in rack-a).
     actives @?= [m 0]

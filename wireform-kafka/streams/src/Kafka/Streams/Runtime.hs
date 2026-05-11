@@ -950,8 +950,8 @@ maybeIssueProbingRebalance ks drv = do
   warmups <- readTVarIO (ksWarmupLag ks)
   let !ws =
         [ ProbingRebalance.WarmupProgress
-            { ProbingRebalance.wpTask = t
-            , ProbingRebalance.wpLag  = lag
+            { ProbingRebalance.task = t
+            , ProbingRebalance.lag  = lag
             }
         | (t, lag) <- Map.toList warmups
         ]

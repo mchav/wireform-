@@ -1,6 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -73,8 +76,8 @@ newtype MemberId = MemberId { unMemberId :: Text }
 -- | The previous assignment for a single member (carried in the
 -- Subscription user-data blob in real Kafka).
 data TaskAssignment = TaskAssignment
-  { taActive   :: !(Set TaskId)
-  , taStandby  :: !(Set TaskId)
+  { active  :: !(Set TaskId)
+  , standby :: !(Set TaskId)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -122,7 +125,7 @@ assign members tasks numStandby prev =
       keptActive = Map.fromList
         [ ( m
           , maybe Set.empty
-              (Set.intersection tasks . taActive)
+              (Set.intersection tasks . (\ta -> ta.active))
               (Map.lookup m prev)
           )
         | m <- memberList
@@ -170,8 +173,8 @@ assign members tasks numStandby prev =
 -- as rack-unknown; tasks without rack entries are treated as
 -- partition-rack-unknown.
 data RackInfo = RackInfo
-  { riMemberRack    :: !(Map MemberId Text)
-  , riTaskRacks     :: !(Map TaskId (Set Text))
+  { memberRack :: !(Map MemberId Text)
+  , taskRacks  :: !(Map TaskId (Set Text))
     -- ^ Racks of the partitions a task processes.
   }
   deriving stock (Eq, Show, Generic)
@@ -180,11 +183,11 @@ data RackInfo = RackInfo
 -- @rack.aware.assignment.traffic.cost@ +
 -- @.non.overlap.cost@ config keys.
 data RackAwareCost = RackAwareCost
-  { rcTrafficCost     :: !Int
+  { trafficCost    :: !Int
     -- ^ Per-task cost charged for placing on a member whose
     --   rack does NOT overlap with any of the task's
     --   partition racks. The JVM default is 1.
-  , rcNonOverlapCost  :: !Int
+  , nonOverlapCost :: !Int
     -- ^ Cost charged for placing two replicas of the same
     --   task in the same rack (i.e. losing rack diversity for
     --   standbys). JVM default is 10.
@@ -193,8 +196,8 @@ data RackAwareCost = RackAwareCost
 
 defaultRackAwareCost :: RackAwareCost
 defaultRackAwareCost = RackAwareCost
-  { rcTrafficCost    = 1
-  , rcNonOverlapCost = 10
+  { trafficCost    = 1
+  , nonOverlapCost = 10
   }
 
 -- | Rack-aware variant of 'assign'. The algorithm is the same
@@ -203,9 +206,10 @@ defaultRackAwareCost = RackAwareCost
 -- to pick from, the one whose rack overlaps with the task's
 -- partition racks wins (so cross-rack traffic stays small).
 --
--- When 'rcTrafficCost' / 'rcNonOverlapCost' are both zero
--- the function is equivalent to 'assign'. When 'riMemberRack'
--- is empty the function is equivalent to 'assign'.
+-- When @cost.trafficCost@ / @cost.nonOverlapCost@ are both
+-- zero the function is equivalent to 'assign'. When
+-- @rackInfo.memberRack@ is empty the function is equivalent
+-- to 'assign'.
 assignRackAware
   :: Set MemberId
   -> Set TaskId
@@ -224,7 +228,7 @@ assignRackAware members tasks numStandby prev rackInfo cost =
       keptActive = Map.fromList
         [ ( m
           , maybe Set.empty
-              (Set.intersection tasks . taActive)
+              (Set.intersection tasks . (\ta -> ta.active))
               (Map.lookup m prev)
           )
         | m <- memberList
@@ -262,7 +266,7 @@ assignRackAware members tasks numStandby prev rackInfo cost =
 -- | Like 'placeOrphans' but the tie-breaker among
 -- lightest-loaded members prefers the member whose rack
 -- overlaps with the task's partition racks. Task is charged
--- 'rcTrafficCost' for each non-overlapping placement.
+-- @cost.trafficCost@ for each non-overlapping placement.
 placeOrphansRackAware
   :: [MemberId]
   -> RackInfo
@@ -274,15 +278,15 @@ placeOrphansRackAware members rackInfo cost orphans assigned0 =
   foldl place assigned0 orphans
   where
     place acc t =
-      let !taskRacks = Map.findWithDefault Set.empty t
-                         (riTaskRacks rackInfo)
+      let !taskRacksOf = Map.findWithDefault Set.empty t
+                          rackInfo.taskRacks
           -- (load, traffic-cost, member-order, MemberId) — the
           -- tuple ordering is the priority. We pick the
           -- minimum on load first, then traffic cost,
           -- then declaration order.
           scored =
             [ ( Set.size (Map.findWithDefault Set.empty m acc)
-              , trafficForMember m taskRacks
+              , trafficForMember m taskRacksOf
               , idx
               , m
               )
@@ -291,18 +295,18 @@ placeOrphansRackAware members rackInfo cost orphans assigned0 =
           (_, _, _, chosen) = minimum scored
        in Map.adjust (Set.insert t) chosen
             (Map.insertWith (\_ old -> old) chosen Set.empty acc)
-    trafficForMember m taskRacks
-      | rcTrafficCost cost == 0 = 0
-      | otherwise = case Map.lookup m (riMemberRack rackInfo) of
-          Nothing -> rcTrafficCost cost
+    trafficForMember m racks
+      | cost.trafficCost == 0 = 0
+      | otherwise = case Map.lookup m rackInfo.memberRack of
+          Nothing -> cost.trafficCost
           Just r  ->
-            if Set.member r taskRacks
+            if Set.member r racks
               then 0
-              else rcTrafficCost cost
+              else cost.trafficCost
 
 -- | Standby placement preferring members in /different/ racks
 -- from the active to keep failure-domain diversity. Charges
--- 'rcNonOverlapCost' when the only remaining candidates share
+-- @cost.nonOverlapCost@ when the only remaining candidates share
 -- the active's rack.
 computeStandbysRackAware
   :: Int
@@ -325,7 +329,7 @@ computeStandbysRackAware numStandby members rackInfo cost activeMap
       | (m, ts) <- Map.toAscList activeMap
       , Set.member t ts
       ]
-    rackOf m = Map.lookup m (riMemberRack rackInfo)
+    rackOf m = Map.lookup m rackInfo.memberRack
     addStandbysForTask t acc =
       let active = activeOf t
           activeRacks = Set.fromList
@@ -345,12 +349,12 @@ computeStandbysRackAware numStandby members rackInfo cost activeMap
        in foldl' (\m_ pick -> Map.adjust (Set.insert t) pick m_)
                 acc chosen
     standbyCost m activeRacks
-      | rcNonOverlapCost cost == 0 = 0
+      | cost.nonOverlapCost == 0 = 0
       | otherwise = case rackOf m of
           Nothing -> 0
           Just r  ->
             if Set.member r activeRacks
-              then rcNonOverlapCost cost
+              then cost.nonOverlapCost
               else 0
 
 -- | Place each orphan task on the first member (in order) that's
@@ -473,14 +477,14 @@ validateAssignment tasks numStandby asg =
     activeMap = Map.fromListWith (++)
       [ (t, [m])
       | (m, ta) <- Map.toList asg
-      , t <- Set.toList (taActive ta)
+      , t <- Set.toList ta.active
       ]
 
     standbyMap :: Map TaskId [MemberId]
     standbyMap = Map.fromListWith (++)
       [ (t, [m])
       | (m, ta) <- Map.toList asg
-      , t <- Set.toList (taStandby ta)
+      , t <- Set.toList ta.standby
       ]
 
     missing = [ MissingActiveTask t
@@ -495,6 +499,6 @@ validateAssignment tasks numStandby asg =
               ]
     overlap = [ OverlapActiveStandby t m
               | (m, ta) <- Map.toList asg
-              , t <- Set.toList (taActive ta `Set.intersection` taStandby ta)
+              , t <- Set.toList (ta.active `Set.intersection` ta.standby)
               ]
    in missing <> dups <> tooMany <> overlap

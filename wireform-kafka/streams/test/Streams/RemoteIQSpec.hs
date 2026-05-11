@@ -1,3 +1,5 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | KIP-535 cross-instance IQ: subscription metadata
@@ -39,14 +41,14 @@ tests = testGroup "Cross-instance IQ (KIP-535)"
 
 sampleSI :: SubscriptionInfo
 sampleSI = SubscriptionInfo
-  { siHost = HostInfo "instance-1.example.com" 9091
-  , siStoreNames = Set.fromList ["orders", "customers"]
-  , siSourceTopics = Set.fromList ["t1", "t2"]
-  , siActive = Set.fromList
+  { host = HostInfo "instance-1.example.com" 9091
+  , storeNames = Set.fromList ["orders", "customers"]
+  , sourceTopics = Set.fromList ["t1", "t2"]
+  , active = Set.fromList
       [ KC.TopicPartition "t1" 0
       , KC.TopicPartition "t1" 1
       ]
-  , siStandby = Set.singleton (KC.TopicPartition "t2" 0)
+  , standby = Set.singleton (KC.TopicPartition "t2" 0)
   }
 
 subscription_info_round_trip :: TestTree

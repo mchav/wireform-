@@ -1,5 +1,8 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -53,8 +56,8 @@ import qualified Kafka.Client.Consumer as KC
 -- subscription metadata. Mirrors Java's
 -- @org.apache.kafka.streams.state.HostInfo@.
 data HostInfo = HostInfo
-  { hostInfoHost :: !Text
-  , hostInfoPort :: !Int
+  { host :: !Text
+  , port :: !Int
   }
   deriving stock (Eq, Ord, Show, Generic)
 
@@ -70,12 +73,12 @@ parseHostInfo t = case T.splitOn ":" t of
 -- | What one instance of the streams app looks like to its
 -- peers. Mirrors Java's 'StreamsMetadata'.
 data StreamsMetadata = StreamsMetadata
-  { smHost           :: !HostInfo
-  , smStateStores    :: !(Set Text)
+  { host              :: !HostInfo
+  , stateStores       :: !(Set Text)
     -- ^ Every state-store name this instance has materialised.
-  , smTopicPartitions :: !(Set KC.TopicPartition)
+  , topicPartitions   :: !(Set KC.TopicPartition)
     -- ^ Active partitions this instance owns.
-  , smStandbyTopicPartitions :: !(Set KC.TopicPartition)
+  , standbyPartitions :: !(Set KC.TopicPartition)
     -- ^ Partitions held in standby.
   }
   deriving stock (Eq, Show, Generic)
@@ -85,9 +88,9 @@ data StreamsMetadata = StreamsMetadata
 -- standby. Used by external IQ proxies to decide where to
 -- send the user's query.
 data KeyQueryMetadata = KeyQueryMetadata
-  { kqmActiveHost   :: !HostInfo
-  , kqmStandbyHosts :: ![HostInfo]
-  , kqmPartition    :: !Int32
+  { activeHost   :: !HostInfo
+  , standbyHosts :: ![HostInfo]
+  , partition    :: !Int32
   }
   deriving stock (Eq, Show, Generic)
 
@@ -100,14 +103,14 @@ makeKeyQueryMetadata
   -> Maybe KeyQueryMetadata
 makeKeyQueryMetadata peers topic part =
   let tp = KC.TopicPartition topic part
-      activeOf m = Set.member tp (smTopicPartitions m)
-      standbyOf m = Set.member tp (smStandbyTopicPartitions m)
+      activeOf m = Set.member tp m.topicPartitions
+      standbyOf m = Set.member tp m.standbyPartitions
       activePeers  = filter activeOf  peers
       standbyPeers = filter standbyOf peers
   in case activePeers of
        (a : _) -> Just KeyQueryMetadata
-         { kqmActiveHost   = smHost a
-         , kqmStandbyHosts = map smHost standbyPeers
-         , kqmPartition    = part
+         { activeHost   = a.host
+         , standbyHosts = map (\m -> m.host) standbyPeers
+         , partition    = part
          }
        [] -> Nothing

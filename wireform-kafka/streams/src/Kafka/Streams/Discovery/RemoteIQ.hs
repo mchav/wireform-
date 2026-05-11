@@ -1,4 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 
@@ -24,10 +27,10 @@
 -- case metadata of
 --   Nothing  -> ...                 -- nobody owns it
 --   Just kqm ->
---     if kqmActiveHost kqm == myHost
+--     if kqm.activeHost == myHost
 --       then readLocal store key      -- local read
 --       else remoteIqFetch transport
---             (kqmActiveHost kqm) storeName key
+--             kqm.activeHost storeName key
 -- @
 module Kafka.Streams.Discovery.RemoteIQ
   ( RemoteIQ (..)
@@ -50,8 +53,8 @@ import Kafka.Streams.State.Store (StoreName)
 -- | One IQ request to a remote peer. Bytes-typed because the
 -- typed serde layer lives on the calling side.
 data RemoteIQRequest = RemoteIQRequest
-  { rqStore :: !StoreName
-  , rqKey   :: !ByteString
+  { store :: !StoreName
+  , key   :: !ByteString
   }
   deriving stock (Eq, Show)
 
@@ -93,8 +96,7 @@ routeQuery
   -> RouteDecision
 routeQuery _local Nothing  = RouteMissing
 routeQuery  local (Just kqm)
-  | kqmActiveHost kqm == local             = RouteLocal
-  | any (== local) (kqmStandbyHosts kqm)   = RouteLocal
-  | otherwise                              = RouteRemote
-                                               (kqmActiveHost kqm)
+  | kqm.activeHost == local           = RouteLocal
+  | any (== local) kqm.standbyHosts   = RouteLocal
+  | otherwise                         = RouteRemote kqm.activeHost
 

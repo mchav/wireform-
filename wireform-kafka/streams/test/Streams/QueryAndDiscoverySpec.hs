@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -113,7 +114,7 @@ key_query_metadata_picks_owner =
                (Set.fromList [tp0])  -- another standby for tp0
     case makeKeyQueryMetadata [m1, m2, m3] "in" 0 of
       Just kqm -> do
-        kqmActiveHost kqm @?= h1
-        Set.fromList (kqmStandbyHosts kqm) @?= Set.fromList [h2, h3]
-        kqmPartition kqm @?= 0
+        kqm.activeHost @?= h1
+        Set.fromList kqm.standbyHosts @?= Set.fromList [h2, h3]
+        kqm.partition @?= 0
       Nothing -> error "expected an active owner"

@@ -1,6 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -56,13 +59,13 @@ import Kafka.Streams.Discovery (HostInfo (..))
 
 -- | Per-member subscription userdata.
 data SubscriptionInfo = SubscriptionInfo
-  { siHost         :: !HostInfo
-  , siStoreNames   :: !(Set Text)
-  , siSourceTopics :: !(Set Text)
-  , siActive       :: !(Set KC.TopicPartition)
+  { host         :: !HostInfo
+  , storeNames   :: !(Set Text)
+  , sourceTopics :: !(Set Text)
+  , active       :: !(Set KC.TopicPartition)
     -- ^ Active partitions the member is /currently/ serving
     --   (carried so the assignor can compute stickiness).
-  , siStandby      :: !(Set KC.TopicPartition)
+  , standby      :: !(Set KC.TopicPartition)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -73,12 +76,12 @@ encodeSubscriptionInfo :: SubscriptionInfo -> ByteString
 encodeSubscriptionInfo si =
   BL.toStrict $ P.runPut $ do
     P.putInt8 currentVersion
-    putText (hostInfoHost (siHost si))
-    P.putInt32be (fromIntegral (hostInfoPort (siHost si)))
-    putTextSet (siStoreNames   si)
-    putTextSet (siSourceTopics si)
-    putTpSet   (siActive       si)
-    putTpSet   (siStandby      si)
+    putText si.host.host
+    P.putInt32be (fromIntegral si.host.port)
+    putTextSet si.storeNames
+    putTextSet si.sourceTopics
+    putTpSet   si.active
+    putTpSet   si.standby
   where
     putText t = do
       let bs = TE.encodeUtf8 t
@@ -111,18 +114,18 @@ decodeSubscriptionInfo bs =
       if v /= currentVersion
         then fail ("SubscriptionInfo: unknown version " <> show v)
         else do
-          host <- getText
-          port <- fromIntegral <$> G.getInt32be
-          stores <- getTextSet
+          h <- getText
+          prt <- fromIntegral <$> G.getInt32be
+          ss <- getTextSet
           topics <- getTextSet
           actives <- getTpSet
           standbys <- getTpSet
           pure SubscriptionInfo
-            { siHost = HostInfo host port
-            , siStoreNames = stores
-            , siSourceTopics = topics
-            , siActive  = actives
-            , siStandby = standbys
+            { host = HostInfo h prt
+            , storeNames = ss
+            , sourceTopics = topics
+            , active  = actives
+            , standby = standbys
             }
     getText = do
       !n <- fromIntegral <$> G.getInt16be

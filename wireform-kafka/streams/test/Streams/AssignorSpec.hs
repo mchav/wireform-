@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -44,7 +45,8 @@ assigns_total_coverage =
         asg = assign ms ts 0 Map.empty
     validateAssignment ts 0 asg @?= []
     -- Total active count == total tasks.
-    let allActive = foldr Set.union Set.empty (taActive <$> Map.elems asg)
+    let allActive = foldr Set.union Set.empty
+                      ((\ta -> ta.active) <$> Map.elems asg)
     Set.size allActive @?= 5
     allActive @?= ts
 
@@ -54,7 +56,7 @@ balances_evenly =
     let ms = Set.fromList [MemberId "a", MemberId "b", MemberId "c"]
         ts = mkTasks [0..6]   -- 7 tasks, 3 members → ceil = 3
         asg = assign ms ts 0 Map.empty
-    let loads = map (Set.size . taActive) (Map.elems asg)
+    let loads = map (\ta -> Set.size ta.active) (Map.elems asg)
     maximum loads @?= 3
 
 standby_does_not_overlap_active :: TestTree
@@ -68,11 +70,11 @@ standby_does_not_overlap_active =
     let pairs =
           [ (t, m)
           | (m, ta) <- Map.toList asg
-          , t <- Set.toList (taActive ta)
+          , t <- Set.toList ta.active
           ]
     sequence_
-      [ do let active = head [m | (m, ta) <- Map.toList asg, Set.member t (taActive ta)]
-               standbys = [m | (m, ta) <- Map.toList asg, Set.member t (taStandby ta)]
+      [ do let active = head [m | (m, ta) <- Map.toList asg, Set.member t ta.active]
+               standbys = [m | (m, ta) <- Map.toList asg, Set.member t ta.standby]
            assertNotElem active standbys
       | (t, _) <- pairs
       ]
@@ -114,7 +116,7 @@ properties = testGroup "properties"
       let ms = mkMembers [0 .. mCount - 1]
           ts = mkTasks [0 .. tCount - 1]
           asg = assign ms ts 0 Map.empty
-          loads = map (Set.size . taActive) (Map.elems asg)
+          loads = map (\ta -> Set.size ta.active) (Map.elems asg)
       assert (maximum loads - minimum loads <= 1)
   ]
 
