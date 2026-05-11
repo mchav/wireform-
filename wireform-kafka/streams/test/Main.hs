@@ -63,6 +63,7 @@ import qualified Streams.ProbingRebalanceRuntimeSpec
 import qualified Streams.StandbyTaskSpec
 import qualified Streams.StandbyDriverSpec
 import qualified Streams.RemoteIQSpec
+import qualified Streams.IdiomaticDSLSpec
 import qualified Streams.MultiInstanceHarnessSpec
 import qualified Streams.SchemaRegistryHttpSpec
 import qualified Streams.SchemaRegistryFormatsSpec
@@ -130,6 +131,7 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.StandbyTaskSpec.tests
   , Streams.StandbyDriverSpec.tests
   , Streams.RemoteIQSpec.tests
+  , Streams.IdiomaticDSLSpec.tests
   , Streams.MultiInstanceHarnessSpec.tests
   , Streams.SchemaRegistryHttpSpec.tests
   , Streams.SchemaRegistryFormatsSpec.tests
