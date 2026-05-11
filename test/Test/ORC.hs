@@ -203,12 +203,12 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
 stripeStreamTests :: TestTree
 stripeStreamTests = testGroup "Stripe stream slices"
   [ testCase "empty footer yields empty slices" $ do
-      let sf = StripeFooter V.empty
+      let sf = StripeFooter V.empty V.empty
       stripeStreamSlices (BS.pack [1, 2, 3]) sf @?= Right V.empty
   , testCase "two streams split blob" $ do
       let s0 = Stream {stKind = 1, stColumn = 0, stLength = 2}
           s1 = Stream {stKind = 2, stColumn = 0, stLength = 3}
-          sf = StripeFooter (V.fromList [s0, s1])
+          sf = StripeFooter (V.fromList [s0, s1]) V.empty
           blob = BS.pack [10, 11, 20, 21, 22]
       stripeStreamSlices blob sf
         @?= Right (V.fromList [(s0, BS.pack [10, 11]), (s1, BS.pack [20, 21, 22])])
@@ -795,7 +795,7 @@ encoderTests = testGroup "Encoders"
 stripeFooterEncodeTests :: TestTree
 stripeFooterEncodeTests = testGroup "Stripe footer encoding"
   [ testCase "Empty stripe footer roundtrip" $ do
-      let sf = StripeFooter V.empty
+      let sf = StripeFooter V.empty V.empty
           encoded = encodeStripeFooter sf
       decodeStripeFooter encoded @?= Right sf
 
@@ -803,7 +803,7 @@ stripeFooterEncodeTests = testGroup "Stripe footer encoding"
       let s0 = Stream {stKind = 0, stColumn = 1, stLength = 100}
           s1 = Stream {stKind = 1, stColumn = 1, stLength = 200}
           s2 = Stream {stKind = 0, stColumn = 2, stLength = 50}
-          sf = StripeFooter (V.fromList [s0, s1, s2])
+          sf = StripeFooter (V.fromList [s0, s1, s2]) V.empty
           encoded = encodeStripeFooter sf
       decodeStripeFooter encoded @?= Right sf
 
@@ -814,7 +814,7 @@ stripeFooterEncodeTests = testGroup "Stripe footer encoding"
         col  <- Gen.word64 (Range.linear 0 20)
         len  <- Gen.word64 (Range.linear 0 100000)
         pure (Stream kind col len)
-      let sf = StripeFooter streams
+      let sf = StripeFooter streams V.empty
           encoded = encodeStripeFooter sf
       decodeStripeFooter encoded === Right sf
   ]
