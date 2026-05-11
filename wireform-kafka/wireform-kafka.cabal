@@ -160,6 +160,7 @@ library
         Kafka.Network.Auth.SASL
         Kafka.Network.Auth.Scram
         Kafka.Network.Connection
+        Kafka.Network.TlsOffload
         Kafka.Network.Transport
         Kafka.Protocol.ApiVersions
         Kafka.Protocol.VersionNegotiation
@@ -724,6 +725,7 @@ test-suite wireform-kafka-test
         Network.AuthSpec
         Network.ConnectionRetrySpec
         Network.TlsHandshakeSpec
+        Network.TlsOffloadSpec
         Network.TransportSpec
         Network.SaslReauthSpec
         Network.ReauthDriverSpec
@@ -756,6 +758,7 @@ test-suite wireform-kafka-test
         bytestring,
         containers,
         directory                 >= 1.3   && < 1.4,
+        filepath                  >= 1.4   && < 1.6,
         memory                    >= 0.18  && < 0.19,
         time                      >= 1.11  && < 1.13,
         hedgehog                  >= 1.2   && < 2,
