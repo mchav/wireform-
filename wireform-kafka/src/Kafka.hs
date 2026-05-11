@@ -87,9 +87,10 @@ offsets, see "Kafka.Client.Transaction".
   * "Kafka.Network.Connection" / "Kafka.Network.Auth.*" — TLS,
     SASL\/PLAIN\/SCRAM\/OAUTHBEARER\/AWS-MSK-IAM, low-level
     connection control.
-  * "Kafka.Telemetry.OpenTelemetry" — W3C Trace Context
-    propagation across producer \/ consumer hops (SDK-independent;
-    bring your own tracer for span creation).
+  * "Kafka.Telemetry.OpenTelemetry" — OpenTelemetry
+    instrumentation (producer \/ consumer \/ transaction spans +
+    header trace-context propagation), built directly on
+    @hs-opentelemetry-api@.
   * "Kafka.Protocol.*" / @Kafka.Protocol.Generated.*@ — raw wire
     primitives and one module per Kafka request \/ response (for
     custom tooling).

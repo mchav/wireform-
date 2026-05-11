@@ -1,236 +1,350 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Kafka.Telemetry.OpenTelemetry
-Description : W3C trace context propagation across Kafka producer / consumer hops.
+Description : OpenTelemetry instrumentation for the Kafka client.
 Copyright   : (c) 2025
 License     : BSD-3-Clause
 
-W3C Trace Context (<https://www.w3.org/TR/trace-context/>) injection
-and extraction over Kafka record headers. This is the
-__SDK-independent half__ of OpenTelemetry: pass it a 'TC.SpanContext'
-you assembled yourself (or pulled out of your tracing SDK) and it
-will round-trip the trace through Kafka headers so consumers can
-continue the trace on the other side.
-
-This module deliberately does /not/ depend on any OpenTelemetry SDK.
-Span / metric creation through @hs-opentelemetry-api@ (or equivalent)
-is the application's responsibility — pull a 'TC.SpanContext' off
-your tracer, hand it to 'injectIntoProducerHeaders' /
-'tracingProducerInterceptor', and you are done.
+OpenTelemetry spans for Kafka producer / consumer / transaction
+operations, plus context propagation across producer →
+consumer hops over Kafka record headers. Built directly on top of
+[@hs-opentelemetry-api@](https://hackage.haskell.org/package/hs-opentelemetry-api):
+'Tracer's are real 'OTel.Tracer's, spans are real 'OTel.Span's,
+and the propagator that ships with whatever 'OTel.TracerProvider'
+you configure (W3C Trace Context by default in the SDK) is the
+one we delegate to for header inject / extract.
 
 = Producer side
 
 @
-let injectHdrs = 'tracingProducerInterceptor' Tracer.currentSpanContext
-    onSend rec = do
-      hs' <- injectHdrs (recordHeaders rec)
-      pure rec { recordHeaders = hs' }
-    cfg = 'defaultProducerConfig' { 'producerInterceptor' = onSend }
+import qualified OpenTelemetry.Trace.Core      as OTel
+import qualified Kafka.Telemetry.OpenTelemetry as KOTel
+import qualified Kafka.Client.Producer         as Producer
+
+main :: IO ()
+main = do
+  tp <- OTel.getGlobalTracerProvider
+  let tr = KOTel.kafkaTracer tp
+  Producer.withProducer [\"localhost:9092\"] Producer.defaultProducerConfig $ \\p -> do
+    KOTel.inProducerSpan tr \"events\" 0 $ \\sp -> do
+      hs <- KOTel.injectIntoProducerHeaders tr sp []
+      _  <- Producer.sendMessage p \"events\" Nothing \"hello\"
+      pure ()
 @
 
 = Consumer side
 
+The handler runs as a child of whatever span sent the record. Pull
+the parent context off the record's headers, attach it as the
+thread-local context, then open the consumer span — 'inConsumerSpan'
+will see it and use it as the parent:
+
 @
-case 'extractFromConsumerHeaders' (crHeaders rec) of
-  Nothing             -> -- untraced message, start a new root span
-  Just (Left  err)    -> -- malformed traceparent header, log + skip
-  Just (Right parent) -> -- continue the trace under @parent@
+import qualified OpenTelemetry.Context.ThreadLocal as OCtxTL
+
+forM_ records $ \\rec -> do
+  parent <- KOTel.extractFromConsumerHeaders tr (Consumer.crHeaders rec)
+  _ <- OCtxTL.attachContext parent
+  KOTel.inConsumerSpan tr (Consumer.crTopic rec)
+    (Consumer.crPartition rec) (Consumer.crOffset rec) \"my-group\" $ \\_sp ->
+      handle rec
+  _ <- OCtxTL.detachContext
+  pure ()
 @
 
 = Semantic conventions
 
-The following attributes are the right ones to set on whatever span
-you create around a Kafka operation, per the
-[messaging semantic conventions](https://opentelemetry.io/docs/specs/semconv/messaging/kafka/):
+Span attributes follow the
+[OTel messaging semantic conventions](https://opentelemetry.io/docs/specs/semconv/messaging/kafka/):
 
-  * @messaging.system@ = \"kafka\"
-  * @messaging.destination.name@ = topic name
-  * @messaging.operation@ = \"publish\" | \"receive\" | \"process\"
-  * @messaging.kafka.partition@ = partition number
-  * @messaging.kafka.offset@ = message offset
-  * @messaging.kafka.consumer.group@ = consumer group id
-  * @messaging.message.id@ = correlation id
+  * @messaging.system@               = @\"kafka\"@
+  * @messaging.destination.name@     = topic name
+  * @messaging.operation@            = @\"publish\"@ / @\"process\"@
+  * @messaging.kafka.partition@      = partition number
+  * @messaging.kafka.message.offset@ = offset (consumer side only)
+  * @messaging.kafka.consumer.group@ = consumer-group id (consumer side only)
+  * @messaging.kafka.transaction.id@ = transactional id (transaction spans)
 
-Suggested metrics: @messaging.kafka.producer.messages@,
-@messaging.kafka.consumer.messages@, @messaging.kafka.request.duration@,
-@messaging.kafka.batch.size@.
+= No-op behaviour without an SDK
 
-We deliberately do not provide span / metric helpers here — every
-SDK shapes those differently and a stub would be misleading.
+If the supplied 'OTel.TracerProvider' has no registered span
+processors (i.e. no SDK has been initialised), every span created
+through this module is a no-op — it costs roughly one allocation
+and zero exports. Safe to call unconditionally.
 -}
 module Kafka.Telemetry.OpenTelemetry
-  ( -- * Context Propagation
-    injectContextHeaders
-  , extractContextHeaders
-  , injectSpanContextHeaders
-  , extractSpanContextHeaders
-    -- * Producer + consumer header bridges
+  ( -- * Tracer
+    kafkaTracer
+  , kafkaInstrumentationLibrary
+
+    -- * Bracketed spans
+  , inProducerSpan
+  , inConsumerSpan
+  , inTransactionSpan
+
+    -- * SpanArguments builders
+    --
+    -- | Lower-level entry points for callers that want to assemble
+    -- their own 'OTel.inSpan'' wrapper. Each value is a
+    -- 'SpanArguments' pre-populated with the OTel messaging
+    -- semantic-convention attributes.
+  , producerSpanArguments
+  , consumerSpanArguments
+  , transactionSpanArguments
+
+    -- * Context propagation over Kafka record headers
   , injectIntoProducerHeaders
   , extractFromConsumerHeaders
   , tracingProducerInterceptor
-    -- * Telemetry Configuration
-  , TelemetryConfig(..)
+
+    -- * Configuration
+  , TelemetryConfig (..)
   , defaultTelemetryConfig
   ) where
 
-import           Data.ByteString    (ByteString)
-import           Data.Map.Strict    (Map)
-import qualified Data.Map.Strict    as Map
-import           Data.Text          (Text)
-import qualified Data.Text.Encoding as TE
-import qualified Kafka.Telemetry.TraceContext as TC
+import           Data.ByteString          (ByteString)
+import qualified Data.CaseInsensitive     as CI
+import qualified Data.HashMap.Strict      as HashMap
+import           Data.Int                 (Int32, Int64)
+import           Data.Text                (Text)
+import qualified Data.Text.Encoding       as TE
+import           GHC.Stack                (HasCallStack)
+import qualified Network.HTTP.Types       as HT
 
--- | Telemetry configuration.
+import qualified OpenTelemetry.Context             as OCtx
+import qualified OpenTelemetry.Context.ThreadLocal as OCtxTL
+import qualified OpenTelemetry.Propagator          as OProp
+import qualified OpenTelemetry.Trace.Core          as OTel
+import           OpenTelemetry.Trace.Core
+  ( Span
+  , SpanArguments (..)
+  , SpanKind (..)
+  , Tracer
+  , TracerProvider
+  , defaultSpanArguments
+  , tracerOptions
+  )
+
+----------------------------------------------------------------------
+-- Configuration
+----------------------------------------------------------------------
+
+-- | Side-channel configuration for telemetry emission. Not consulted
+-- by the @inXSpan@ helpers below — they always go through the
+-- 'TracerProvider''s configured processors — but exposed so callers
+-- can thread their own flags (e.g. @telemetryIncludePayload@) into
+-- interceptors that read it.
 data TelemetryConfig = TelemetryConfig
-  { telemetryEnabled :: !Bool
-    -- ^ Whether telemetry is enabled (default: True)
-  , telemetryServiceName :: !Text
-    -- ^ Service name for traces (default: "kafka-native")
+  { telemetryEnabled        :: !Bool
+    -- ^ Whether telemetry should be emitted at all. Defaults to 'True'.
+  , telemetryServiceName    :: !Text
+    -- ^ Service name reported on spans / metrics. Defaults to
+    --   @\"wireform-kafka\"@.
   , telemetryIncludePayload :: !Bool
-    -- ^ Whether to include message payload in spans (default: False for privacy)
+    -- ^ Whether to copy the record payload into the span as an
+    --   attribute. Defaults to 'False' (privacy-by-default).
   }
 
--- | Default telemetry configuration.
 defaultTelemetryConfig :: TelemetryConfig
 defaultTelemetryConfig = TelemetryConfig
-  { telemetryEnabled = True
-  , telemetryServiceName = "kafka-native"
+  { telemetryEnabled        = True
+  , telemetryServiceName    = "wireform-kafka"
   , telemetryIncludePayload = False
   }
 
--- | Inject the W3C Trace Context @traceparent@ + @tracestate@
--- headers (per
--- <https://www.w3.org/TR/trace-context/>) into a Kafka message
--- header map. The result includes (or replaces) the
--- @traceparent@ and @tracestate@ entries so consumers can
--- continue the trace.
---
--- This is the SDK-free path: pass in a 'TC.SpanContext' you've
--- assembled yourself (or that was extracted from an upstream
--- message). For the in-process / current-span case, plug your
--- tracing SDK in at the call site and translate its span context
--- to 'TC.SpanContext' before calling.
-injectSpanContextHeaders
-  :: TC.SpanContext
-  -> Map Text Text
-  -> Map Text Text
-injectSpanContextHeaders = TC.injectIntoHeaders
-
--- | Extract a W3C Trace Context 'TC.SpanContext' from a Kafka
--- message header map, returning:
---
---   * 'Nothing' when the @traceparent@ header is absent (untraced
---     message);
---   * @'Just' ('Left' err)@ when the header is present but
---     malformed (caller decides whether to drop or warn);
---   * @'Just' ('Right' ctx)@ when the message carries a valid
---     trace context to continue.
---
--- The companion @tracestate@ header is parsed automatically.
-extractSpanContextHeaders
-  :: Map Text Text
-  -> Maybe (Either TC.TraceContextError TC.SpanContext)
-extractSpanContextHeaders = TC.extractFromHeaders
-
--- | Backwards-compatible @IO@-flavoured shim over
--- 'injectSpanContextHeaders'. Returns the input headers
--- unchanged when no current-span integration is wired up.
---
--- TODO: when an OTel SDK is integrated, this should pull the
--- /current/ span context off the local thread-state and inject
--- it. For now it's a no-op so existing call sites compile.
-injectContextHeaders
-  :: Map Text Text
-  -> IO (Map Text Text)
-injectContextHeaders = pure
-
--- | Backwards-compatible @IO@-flavoured shim over
--- 'extractSpanContextHeaders'. Currently a no-op for symmetry
--- with 'injectContextHeaders'; once an OTel SDK is wired up this
--- should /set/ the current-span context to the extracted value.
-extractContextHeaders
-  :: Map Text Text
-  -> IO ()
-extractContextHeaders _ = pure ()
-
 ----------------------------------------------------------------------
--- Producer + consumer header bridges
---
--- Producer 'recordHeaders' / consumer 'crHeaders' are
--- @[(Text, ByteString)]@ pairs (UTF-8 strings on the value side
--- per the JVM client's idiom, even when the spec is bytes-only).
--- The helpers below sit between that shape and the
--- @Map<Text, Text>@ shape that 'TC.injectIntoHeaders' /
--- 'TC.extractFromHeaders' work with, and are the recommended way
--- to thread W3C Trace Context across producer → consumer hops.
+-- Tracer
 ----------------------------------------------------------------------
 
--- | Inject a 'TC.SpanContext' into a producer's @recordHeaders@
--- list (UTF-8-encoded). Existing @traceparent@ / @tracestate@
--- headers are replaced; unrelated headers are passed through
--- unchanged. The output preserves the original header ordering
--- (with non-trace headers first), then appends the freshly-
--- minted trace headers.
+-- | The 'OTel.InstrumentationLibrary' record used for the
+-- @wireform-kafka@ tracer. Exposed so callers can match against it
+-- in custom processor filters / samplers.
+kafkaInstrumentationLibrary :: OTel.InstrumentationLibrary
+kafkaInstrumentationLibrary = OTel.InstrumentationLibrary
+  { OTel.libraryName       = "wireform-kafka"
+  , OTel.libraryVersion    = "0.1.0.0"
+  , OTel.librarySchemaUrl  = ""
+  , OTel.libraryAttributes = mempty
+  }
+
+-- | Make a 'Tracer' for the @wireform-kafka@ instrumentation library
+-- from the supplied 'TracerProvider'. Pass the result to
+-- 'inProducerSpan', 'inConsumerSpan', and friends.
+--
+-- If the supplied 'TracerProvider' has no registered span
+-- processors every span this tracer creates is a no-op, so this
+-- call is safe to make unconditionally at service-start time even
+-- when no SDK is initialised.
+kafkaTracer :: TracerProvider -> Tracer
+kafkaTracer tp = OTel.makeTracer tp kafkaInstrumentationLibrary tracerOptions
+
+----------------------------------------------------------------------
+-- SpanArguments builders
+----------------------------------------------------------------------
+
+-- | 'SpanArguments' pre-populated with the OTel messaging
+-- semantic-convention attributes for a producer @publish@ span.
+producerSpanArguments :: Text -> Int32 -> SpanArguments
+producerSpanArguments topic partition = defaultSpanArguments
+  { kind       = Producer
+  , attributes = HashMap.fromList
+      [ ("messaging.system",           OTel.toAttribute @Text "kafka")
+      , ("messaging.destination.name", OTel.toAttribute topic)
+      , ("messaging.operation",        OTel.toAttribute @Text "publish")
+      , ("messaging.kafka.partition",  OTel.toAttribute (fromIntegral partition :: Int64))
+      ]
+  }
+
+-- | 'SpanArguments' for a consumer @process@ span.
+consumerSpanArguments :: Text -> Int32 -> Int64 -> Text -> SpanArguments
+consumerSpanArguments topic partition offset groupId = defaultSpanArguments
+  { kind       = Consumer
+  , attributes = HashMap.fromList
+      [ ("messaging.system",               OTel.toAttribute @Text "kafka")
+      , ("messaging.destination.name",     OTel.toAttribute topic)
+      , ("messaging.operation",            OTel.toAttribute @Text "process")
+      , ("messaging.kafka.partition",      OTel.toAttribute (fromIntegral partition :: Int64))
+      , ("messaging.kafka.message.offset", OTel.toAttribute offset)
+      , ("messaging.kafka.consumer.group", OTel.toAttribute groupId)
+      ]
+  }
+
+-- | 'SpanArguments' for a transactional operation. @operation@ is
+-- typically one of @\"init\"@, @\"begin\"@, @\"commit\"@, @\"abort\"@,
+-- @\"send_offsets\"@.
+transactionSpanArguments :: Text -> Text -> SpanArguments
+transactionSpanArguments operation txnId = defaultSpanArguments
+  { kind       = Client
+  , attributes = HashMap.fromList
+      [ ("messaging.system",               OTel.toAttribute @Text "kafka")
+      , ("messaging.operation",            OTel.toAttribute operation)
+      , ("messaging.kafka.transaction.id", OTel.toAttribute txnId)
+      ]
+  }
+
+----------------------------------------------------------------------
+-- inSpan wrappers
+----------------------------------------------------------------------
+
+-- | Wrap an 'IO' action in a producer @publish@ span. The span ends
+-- when the action returns (or throws). The body receives the live
+-- 'Span' so it can call 'OTel.addAttribute' / 'OTel.addEvent' /
+-- 'OTel.recordException' as needed.
+inProducerSpan
+  :: HasCallStack
+  => Tracer
+  -> Text       -- ^ topic
+  -> Int32      -- ^ partition
+  -> (Span -> IO a)
+  -> IO a
+inProducerSpan tr topic partition body =
+  OTel.inSpan' tr ("kafka.publish " <> topic)
+    (producerSpanArguments topic partition) body
+
+-- | Wrap an 'IO' action in a consumer @process@ span. The span is
+-- a child of the current thread-local 'OCtx.Context'; for a record
+-- that carries a parent trace, call 'extractFromConsumerHeaders'
+-- and 'OCtxTL.attachContext' before this so the parent shows up
+-- correctly.
+inConsumerSpan
+  :: HasCallStack
+  => Tracer
+  -> Text       -- ^ topic
+  -> Int32      -- ^ partition
+  -> Int64      -- ^ offset
+  -> Text       -- ^ consumer group id
+  -> (Span -> IO a)
+  -> IO a
+inConsumerSpan tr topic partition offset groupId body =
+  OTel.inSpan' tr ("kafka.process " <> topic)
+    (consumerSpanArguments topic partition offset groupId) body
+
+-- | Wrap an 'IO' action in a transactional-operation span. Use the
+-- @operation@ argument to distinguish init / begin / commit / abort
+-- / send-offsets.
+inTransactionSpan
+  :: HasCallStack
+  => Tracer
+  -> Text       -- ^ operation, e.g. @\"commit\"@
+  -> Text       -- ^ transactional id
+  -> (Span -> IO a)
+  -> IO a
+inTransactionSpan tr operation txnId body =
+  OTel.inSpan' tr ("kafka.txn." <> operation)
+    (transactionSpanArguments operation txnId) body
+
+----------------------------------------------------------------------
+-- Header propagation
+----------------------------------------------------------------------
+
+-- | Inject the supplied 'Span''s context into a Kafka producer's
+-- header list. Delegates to whichever propagator the
+-- 'TracerProvider' was configured with — the SDK defaults to W3C
+-- Trace Context.
+--
+-- Existing trace-context headers in the input list are overwritten;
+-- unrelated headers pass through unchanged.
 injectIntoProducerHeaders
-  :: TC.SpanContext
-  -> [(Text, ByteString)]
-  -> [(Text, ByteString)]
-injectIntoProducerHeaders sc headers =
-  let keepKey k     = k /= TC.traceparentHeader && k /= TC.tracestateHeader
-      preserved     = filter (keepKey . fst) headers
-      withInjected  = TC.injectIntoHeaders sc Map.empty
-      injectedPairs = [ (k, TE.encodeUtf8 v)
-                      | (k, v) <- Map.toList withInjected
-                      ]
-  in preserved <> injectedPairs
-
--- | Extract a 'TC.SpanContext' from a consumer record's
--- @[(Text, ByteString)]@ headers, or 'Nothing' if no
--- @traceparent@ is present.  Errors during parse are surfaced as
--- @Just (Left err)@ so the caller can decide whether to drop the
--- record, log, or treat it as an un-traced message.
-extractFromConsumerHeaders
-  :: [(Text, ByteString)]
-  -> Maybe (Either TC.TraceContextError TC.SpanContext)
-extractFromConsumerHeaders headers =
-  let asMap = Map.fromList
-        [ (k, t)
-        | (k, v) <- headers
-        , Right t <- [TE.decodeUtf8' v]
-        , k == TC.traceparentHeader || k == TC.tracestateHeader
-        ]
-  in TC.extractFromHeaders asMap
-
--- | Build a pre-send header interceptor that injects whatever
--- 'TC.SpanContext' the supplied callback returns. Callers wire
--- it into 'ProducerConfig.producerInterceptor' by threading the
--- result through their record:
---
--- @
--- let injectHdrs = tracingProducerInterceptor MyTracer.currentSpanContext
---     onSend rec = do
---       hs' <- injectHdrs (recordHeaders rec)
---       pure rec { recordHeaders = hs' }
---     cfg = defaultProducerConfig { producerInterceptor = onSend }
--- @
---
--- The callback runs once per record from the producer thread;
--- return 'Nothing' from it to skip injection (e.g. when no
--- current span exists).
---
--- This module deliberately does /not/ import
--- @Kafka.Client.Producer@ — that's a much heavier dependency
--- and would create a coupling between telemetry and the
--- producer surface. The trade-off is the small wrapper above
--- at the call site.
-tracingProducerInterceptor
-  :: IO (Maybe TC.SpanContext)
+  :: Tracer
+  -> Span
   -> [(Text, ByteString)]
   -> IO [(Text, ByteString)]
-tracingProducerInterceptor pull headers = do
-  ctxM <- pull
-  case ctxM of
-    Nothing -> pure headers
-    Just sc -> pure (injectIntoProducerHeaders sc headers)
+injectIntoProducerHeaders tr sp headers = do
+  let tp   = OTel.getTracerTracerProvider tr
+      prop = OTel.getTracerProviderPropagators tp
+      ctx  = OCtx.insertSpan sp OCtx.empty
+  hs <- OProp.inject prop ctx (toHttpHeaders headers)
+  pure (fromHttpHeaders hs)
 
+-- | Extract a parent 'OCtx.Context' from a Kafka consumer record's
+-- headers. The starting context is the current thread-local one so
+-- baggage and any running parent span are preserved when the record
+-- carries no @traceparent@.
+--
+-- Attach the result with 'OCtxTL.attachContext' before calling
+-- 'inConsumerSpan' to make the work performed under the record a
+-- child of the upstream producer span.
+extractFromConsumerHeaders
+  :: Tracer
+  -> [(Text, ByteString)]
+  -> IO OCtx.Context
+extractFromConsumerHeaders tr headers = do
+  let tp   = OTel.getTracerTracerProvider tr
+      prop = OTel.getTracerProviderPropagators tp
+  ctx0 <- OCtxTL.getContext
+  OProp.extract prop (toHttpHeaders headers) ctx0
+
+-- | Build a pre-send producer interceptor that opens a
+-- @kafka.enqueue@ span, stamps the record's headers with the
+-- resulting trace context, and ends the span before returning. The
+-- span represents the /enqueue/ event only — to instrument the
+-- broker round-trip too, wrap your
+-- 'Kafka.Client.Producer.sendMessage' call in 'inProducerSpan'
+-- yourself.
+tracingProducerInterceptor
+  :: Tracer
+  -> Text                  -- ^ topic
+  -> Int32                 -- ^ partition
+  -> [(Text, ByteString)]  -- ^ existing headers
+  -> IO [(Text, ByteString)]
+tracingProducerInterceptor tr topic partition headers =
+  OTel.inSpan' tr ("kafka.enqueue " <> topic)
+    (producerSpanArguments topic partition) $ \sp ->
+      injectIntoProducerHeaders tr sp headers
+
+----------------------------------------------------------------------
+-- Internal: Kafka header <-> http-types header conversion
+--
+-- Kafka record headers are @[(Text, ByteString)]@ pairs. The OTel
+-- propagator API expects 'HT.Header' = @(CI ByteString, ByteString)@.
+-- These two helpers are the only Kafka <-> propagator boundary.
+----------------------------------------------------------------------
+
+toHttpHeaders :: [(Text, ByteString)] -> [HT.Header]
+toHttpHeaders = map $ \(k, v) -> (CI.mk (TE.encodeUtf8 k), v)
+
+fromHttpHeaders :: [HT.Header] -> [(Text, ByteString)]
+fromHttpHeaders = map $ \(k, v) -> (TE.decodeUtf8 (CI.original k), v)

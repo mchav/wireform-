@@ -225,9 +225,13 @@ several brokers fan in to the same sidecar socket. See
 
 ## Observability
 
-- W3C Trace Context propagation across producer / consumer hops
-  via `Kafka.Telemetry.OpenTelemetry` (SDK-independent — bring your
-  own tracer for span creation).
+- OpenTelemetry instrumentation via `Kafka.Telemetry.OpenTelemetry`,
+  built on top of
+  [`hs-opentelemetry-api`](https://hackage.haskell.org/package/hs-opentelemetry-api).
+  Real producer / consumer / transaction spans with the
+  messaging semantic-convention attributes set, plus trace-context
+  propagation across producer → consumer hops over Kafka
+  record headers.
 - librdkafka-compatible JSON stats via `Kafka.Telemetry.StatsJson`.
 - Producer / consumer interceptors for per-record telemetry.
 

@@ -31,17 +31,32 @@ and this project adheres to the
 
 ### Removed
 
-- `Kafka.Telemetry.OpenTelemetry` no longer exports the seven
-  span/metric stubs (`createProducerSpan`, `createConsumerSpan`,
-  `createTransactionSpan`, `recordMessageSent`,
-  `recordMessageReceived`, `recordRequestDuration`,
-  `recordBatchSize`). They were `return ()` placeholders with no
-  implementation and zero callers anywhere in the repo; the
-  README and module docstring previously claimed
-  "OpenTelemetry spans + metrics" support that wasn't actually
-  there. The module's real purpose — SDK-independent W3C Trace
-  Context propagation over Kafka record headers — is unchanged
-  and now documented honestly.
+- `Kafka.Telemetry.TraceContext` is gone. It was a hand-rolled
+  W3C Trace Context codec that existed because the previous
+  `Kafka.Telemetry.OpenTelemetry` module didn't actually use the
+  OpenTelemetry SDK; that's been replaced by real
+  `hs-opentelemetry-api` usage (see *Changed* below), so the
+  hand-rolled codec is now redundant.
+- The earlier seven dead span / metric stubs on
+  `Kafka.Telemetry.OpenTelemetry` (`createProducerSpan`,
+  `createConsumerSpan`, `createTransactionSpan`,
+  `recordMessageSent`, `recordMessageReceived`,
+  `recordRequestDuration`, `recordBatchSize`) are gone with this
+  rewrite.
+
+### Changed
+
+- `Kafka.Telemetry.OpenTelemetry` is rewritten on top of
+  [`hs-opentelemetry-api`](https://hackage.haskell.org/package/hs-opentelemetry-api).
+  `Tracer`s are real `OTel.Tracer`s, spans are real `OTel.Span`s,
+  and the propagator that ships with the configured
+  `TracerProvider` (W3C Trace Context by default in the SDK) is
+  the one we delegate to for header inject / extract. New
+  exports: `kafkaTracer`, `kafkaInstrumentationLibrary`,
+  `inProducerSpan`, `inConsumerSpan`, `inTransactionSpan`,
+  `producerSpanArguments`, `consumerSpanArguments`,
+  `transactionSpanArguments`, `injectIntoProducerHeaders`,
+  `extractFromConsumerHeaders`, `tracingProducerInterceptor`.
 
 ### Changed
 
