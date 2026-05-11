@@ -76,7 +76,7 @@ runProduce broker topic n vsize acks batch lingerMs compression = do
       let go !i
             | i <= 0 = pure ()
             | otherwise = do
-                r <- WP.sendMessageDropUnsafe p topic Nothing payload
+                r <- WP.sendMessageDrop p topic Nothing payload
                 case r of
                   Left e -> die ("send: " ++ e)
                   Right _ -> go (i - 1)
