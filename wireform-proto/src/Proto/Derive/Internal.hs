@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
@@ -24,7 +25,10 @@ module Proto.Derive.Internal
   , ProtoFieldType (..)
   , Scalar (..)
   , RepeatedRep (..)
+  , RepeatedMode (..)
+  , scalarPackable
   , OneofVariant (..)
+  , oneofVariant
   , scalarOfMapKey
 
     -- * Message-level metadata
@@ -63,6 +67,7 @@ module Proto.Derive.Internal
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
 import Data.Int (Int32, Int64)
@@ -78,12 +83,15 @@ import Data.Word (Word32, Word64)
 import Language.Haskell.TH
 
 import qualified Proto.Decode as PD
+import qualified Proto.Wire.Decode as PWD
 import qualified Proto.Encode as PE
 import qualified Proto.Encode.Archetype as PA
 import qualified Proto.Message as PM
+import qualified Proto.Schema as PS
 import Proto.Repr (BytesRep (..), StringRep (..))
 import qualified Proto.Repr as PR
 import Proto.Wire (Tag (..))
+import qualified Proto.Wire as PWire
 import qualified Proto.Wire.Encode as PWE
 import Wireform.Derive.Modifier (MapKeyScalar (..))
 
@@ -100,10 +108,14 @@ data ProtoFieldKind
     FKBare
   | -- | @Maybe a@-wrapped singular field. Encode only when 'Just'.
     FKMaybe
-  | -- | A repeated field carried by a 'V.Vector' or list. The
+  |     -- | A repeated field carried by a 'V.Vector' or list. The
     -- 'RepeatedRep' picks the container shape; the element type
     -- lives in @pfInnerTy@ and the wire encoding in @pfType@.
-    FKRepeated !RepeatedRep
+    -- 'RepeatedMode' selects packed vs. unpacked on the encoder
+    -- side; the decoder always accepts both when the element is a
+    -- packable scalar (per the proto3 spec, a parser must accept
+    -- both encodings regardless of how the writer chose).
+    FKRepeated !RepeatedRep !RepeatedMode
   | -- | A proto3 @map<K, V>@ field carried by a strict
     -- 'Data.Map.Strict.Map'. The key's wire encoding is the
     -- supplied 'MapKeyScalar'; the value's wire encoding is in
@@ -126,6 +138,31 @@ data RepeatedRep
   | RepSeq
   deriving stock (Eq, Show)
 
+-- | Wire encoding shape for a repeated field on the encoder side.
+--
+-- * 'ModeUnpacked' — emit one tag+value record per element. Required
+--   for non-packable scalars ('SString', 'SBytes') and for
+--   submessages (which are not packable).
+-- * 'ModePacked' — emit a single length-delimited record containing
+--   the concatenated payloads. Proto3's default for packable
+--   scalars; legal but opt-in in proto2.
+--
+-- The decoder accepts both shapes regardless of which the writer
+-- picked, so this only affects the bytes the encoder emits.
+data RepeatedMode
+  = ModeUnpacked
+  | ModePacked
+  deriving stock (Eq, Show)
+
+-- | Whether a 'Scalar' may legally be packed on the wire. Strings
+-- and bytes are length-delimited and so cannot be packed; every
+-- other 'Scalar' the deriver tracks is packable.
+scalarPackable :: Scalar -> Bool
+scalarPackable = \case
+  SString -> False
+  SBytes  -> False
+  _       -> True
+
 -- | One arm of a proto @oneof@.
 data OneofVariant = OneofVariant
   { ovConstructor :: !Name
@@ -136,7 +173,29 @@ data OneofVariant = OneofVariant
     -- ^ The constructor's single argument type.
   , ovType        :: !ProtoFieldType
     -- ^ Wire encoding for the arm's payload.
+  , ovStringRep   :: !StringRep
+    -- ^ String representation for this variant when
+    -- @ovType = PFScalar SString@. Defaults to 'StrictTextRep'
+    -- (set via 'oneofVariant' if omitted by callers).
+  , ovBytesRep    :: !BytesRep
+    -- ^ Bytes representation for this variant when
+    -- @ovType = PFScalar SBytes@. Defaults to 'StrictBytesRep'.
   } deriving stock (Show)
+
+-- | Smart constructor for 'OneofVariant' that defaults the string/
+-- bytes representations to strict 'Text' / 'ByteString'. Bridges
+-- can override the rep slots after construction (record update
+-- syntax) for variants whose payloads need lazy / short
+-- representations.
+oneofVariant :: Name -> Int -> Type -> ProtoFieldType -> OneofVariant
+oneofVariant con tg innerTy ty = OneofVariant
+  { ovConstructor = con
+  , ovTag         = tg
+  , ovInnerTy     = innerTy
+  , ovType        = ty
+  , ovStringRep   = StrictTextRep
+  , ovBytesRep    = StrictBytesRep
+  }
 
 -- | What lives inside the field on the wire.
 data ProtoFieldType
@@ -462,14 +521,25 @@ encodeOne msg pf = do
         , match (conP 'Just [varP v])
             (normalB (encodeSingleE pf tagInt v)) []
         ]
-    FKRepeated rep -> do
-      v <- newName "v"
-      acc <- newName "acc"
-      perElement <- encodeSingleE pf tagInt v
-      let foldFnE = repeatedFoldlE rep
-          step = LamE [VarP acc, VarP v]
-                    (InfixE (Just (VarE acc)) (VarE '(<>)) (Just perElement))
-      pure (AppE (AppE (AppE foldFnE step) (VarE 'mempty)) getter)
+    FKRepeated rep mode ->
+      case (mode, pfType pf) of
+        -- Packed encoding only kicks in for packable scalars; the
+        -- caller is responsible for not setting 'ModePacked' on
+        -- 'PFSubmessage' / 'PFEnum' / 'PFScalar SString' /
+        -- 'PFScalar SBytes' (the deriver's bridges enforce this,
+        -- and 'scalarPackable' is the source of truth).
+        (ModePacked, PFScalar sc) | scalarPackable sc -> do
+          encodePackedScalarE pf sc getter
+        (ModePacked, PFEnum) -> do
+          encodePackedEnumE pf getter
+        _ -> do
+          v <- newName "v"
+          acc <- newName "acc"
+          perElement <- encodeSingleE pf tagInt v
+          let foldFnE = repeatedFoldlE rep
+              step = LamE [VarP acc, VarP v]
+                        (InfixE (Just (VarE acc)) (VarE '(<>)) (Just perElement))
+          pure (AppE (AppE (AppE foldFnE step) (VarE 'mempty)) getter)
     FKMap mks -> do
       kV <- newName "k"
       vV <- newName "v"
@@ -508,23 +578,59 @@ sizeOne msg pf = do
         , match (conP 'Just [varP v])
             (normalB (sizeSingleE pf v)) []
         ]
-    FKRepeated rep -> do
-      v   <- newName "v"
+    FKRepeated rep mode ->
+      case (mode, pfType pf) of
+        (ModePacked, PFScalar sc) | scalarPackable sc ->
+          sizePackedScalarE pf sc getter
+        (ModePacked, PFEnum) ->
+          sizePackedEnumE pf getter
+        _ -> do
+          v   <- newName "v"
+          acc <- newName "acc"
+          -- 'sizeSingleE' returns the FULL per-element wire size
+          -- (tag + payload), so accumulate it directly. The
+          -- previous version added 'tagSize' on top, which
+          -- overcounted by one tag width per element and broke
+          -- two-pass encoders for messages whose unpacked
+          -- repeated fields had multi-byte tags (e.g. field 89
+          -- in test_messages_proto3.TestAllTypesProto3 —
+          -- exercised by the conformance suite's
+          -- ValidDataOneof.MESSAGE.Merge tests).
+          per <- sizeSingleE pf v
+          let foldFnE = repeatedFoldlE rep
+              step    = LamE [VarP acc, VarP v]
+                           (InfixE (Just (VarE acc)) (VarE '(+)) (Just per))
+          pure (AppE (AppE (AppE foldFnE step) (LitE (IntegerL 0))) getter)
+    FKMap mks -> do
+      -- Exact map size: for each entry we sum
+      --   tag(2) + len(varint) + entryPayload
+      -- where entryPayload is keyPayload(tag1+key bytes)
+      --                   + valuePayload(tag2+value bytes).
+      -- This replaces the coarse 10-byte-per-entry upper bound the
+      -- old emitter shipped, which broke two-pass encoders for
+      -- maps whose entries exceeded 10 bytes (long string keys,
+      -- submessage values, etc.).
+      kV  <- newName "k"
+      vV  <- newName "v"
       acc <- newName "acc"
-      per <- sizeSingleE pf v
+      keySize <- mapKeyEntrySizeE mks kV
+      valSize <- mapValueEntrySizeE pf vV
       tagSz <- [| PWE.tagSize $(litE (integerL (fromIntegral (pfTag pf)))) |]
-      let foldFnE = repeatedFoldlE rep
-          step    = LamE [VarP acc, VarP v]
-                       (InfixE (Just (VarE acc)) (VarE '(+))
-                         (Just (InfixE (Just tagSz) (VarE '(+)) (Just per))))
-      pure (AppE (AppE (AppE foldFnE step) (LitE (IntegerL 0))) getter)
-    FKMap _mks ->
-      -- Map size estimation matches 'Proto.TH': 10 bytes per entry
-      -- as a coarse upper bound. Two-pass encoders need the size to
-      -- be ≥ the actual byte count, and 10 covers the common
-      -- (small key + small value) case for proto3 maps. Refining
-      -- this to the exact entry size is a follow-up.
-      [| if Map.null $(pure getter) then 0 else Map.size $(pure getter) * 10 |]
+      let entrySize =
+            InfixE (Just keySize) (VarE '(+)) (Just valSize)
+          step = LamE [VarP acc, VarP kV, VarP vV]
+            (InfixE (Just (VarE acc)) (VarE '(+))
+              (Just
+                (InfixE (Just tagSz) (VarE '(+))
+                  (Just
+                    (InfixE
+                      (Just (AppE (VarE 'PWE.varintSize)
+                                  (AppE (VarE 'fromIntegral) entrySize)))
+                      (VarE '(+))
+                      (Just entrySize))))))
+      pure (AppE (AppE (AppE (VarE 'Map.foldlWithKey') step)
+                       (LitE (IntegerL 0)))
+                 getter)
     FKOneof variants -> do
       inner <- newName "ov"
       arms <- traverse (oneofSizeArm inner) variants
@@ -537,8 +643,11 @@ sizeOne msg pf = do
 
 oneofEncodeArm :: Name -> OneofVariant -> Q Exp
 oneofEncodeArm v ov =
-  let pseudo = protoField (ovConstructor ov) (ovTag ov)
-                          FKBare (ovType ov) (ovInnerTy ov)
+  let pseudo = (protoField (ovConstructor ov) (ovTag ov)
+                           FKBare (ovType ov) (ovInnerTy ov))
+                 { pfStringRep = ovStringRep ov
+                 , pfBytesRep  = ovBytesRep  ov
+                 }
       tagInt = case ovType ov of
         PFScalar s   -> tagByteFor (ovTag ov) (scalarWireType s)
         PFSubmessage -> tagByteFor (ovTag ov) wireLengthDelimited
@@ -547,8 +656,11 @@ oneofEncodeArm v ov =
 
 oneofSizeArm :: Name -> OneofVariant -> Q Exp
 oneofSizeArm v ov =
-  let pseudo = protoField (ovConstructor ov) (ovTag ov)
-                          FKBare (ovType ov) (ovInnerTy ov)
+  let pseudo = (protoField (ovConstructor ov) (ovTag ov)
+                           FKBare (ovType ov) (ovInnerTy ov))
+                 { pfStringRep = ovStringRep ov
+                 , pfBytesRep  = ovBytesRep  ov
+                 }
   in [| PWE.tagSize $(litE (integerL (fromIntegral (ovTag ov))))
         + $(sizeSingleE pseudo v) |]
 
@@ -556,6 +668,12 @@ pfTagByte :: ProtoField -> Int
 pfTagByte pf = case pfKind pf of
   FKMap _      -> tagByteFor (pfTag pf) wireLengthDelimited
   FKOneof _    -> 0
+  -- Repeated packed scalars use a length-delimited block; the
+  -- tag-per-element shape only kicks in for unpacked encoding,
+  -- which 'encodeOne' handles via the legacy path. The packed
+  -- branch ignores @pfTagByte@ entirely (it builds the tag itself
+  -- via 'putTag').
+  FKRepeated _ ModePacked -> tagByteFor (pfTag pf) wireLengthDelimited
   _ -> case pfType pf of
     PFScalar s   -> tagByteFor (pfTag pf) (scalarWireType s)
     PFSubmessage -> tagByteFor (pfTag pf) wireLengthDelimited
@@ -569,6 +687,22 @@ encodeMapKeyE mks kVar =
                           (PFScalar (scalarOfMapKey mks)) (ConT ''Int)
       tagInt = tagByteFor 1 (scalarWireType (scalarOfMapKey mks))
   in encodeSingleE pseudo tagInt kVar
+
+-- | Bytes contributed by one map-key on the wire (1 entry-tag byte
+-- + the key payload). Used by the exact entry-size emitter for
+-- 'FKMap'.
+mapKeyEntrySizeE :: MapKeyScalar -> Name -> Q Exp
+mapKeyEntrySizeE mks kVar =
+  let pseudo = protoField kVar 1 FKBare
+                          (PFScalar (scalarOfMapKey mks)) (ConT ''Int)
+  in [| 1 + $(sizeSingleE pseudo kVar) |]
+
+-- | Bytes contributed by one map-value on the wire (1 entry-tag
+-- byte + the value payload).
+mapValueEntrySizeE :: ProtoField -> Name -> Q Exp
+mapValueEntrySizeE pf vVar =
+  let valueField = pf { pfTag = 2 }  -- inside the entry
+  in [| 1 + $(sizeSingleE valueField vVar) |]
 
 -- | Build the encoder for one map value at field number 2 inside
 -- the entry message.
@@ -633,7 +767,25 @@ bytesNullE rep v = case rep of
   ShortBytesRep  -> [| SBS.null $(varE v) |]
 
 encodeSingleE :: ProtoField -> Int -> Name -> Q Exp
-encodeSingleE pf tagInt v =
+encodeSingleE pf tagInt v
+    -- Field numbers > 31 produce tag bytes > 255 (since
+    -- @tag = (fn << 3) | wt@ — fn=32 with the smallest wire type
+    -- already gives 256). The 'PA.archXxx' family bakes the tag
+    -- into a single 'Word8'; we have to reach for the slower
+    -- @PE.encodeField*@ helpers in those cases (those varint-encode
+    -- the tag and so handle any field number).
+  | tagInt > 0x7F = encodeSingleSlowE pf v
+  | otherwise     = encodeSingleArchE pf tagInt v
+
+-- | Single-byte-tag fast path. Caller has verified
+-- @tagInt <= 0x7F@ (i.e. field number <= 15) so the
+-- 'PA.archXxx' bake-in is safe. (We keep the threshold at the
+-- one-byte varint boundary rather than 255 because that's the
+-- spec-correct boundary; anything above it would round-trip but
+-- the varint bookkeeping would silently differ from the
+-- pure-text codegen.)
+encodeSingleArchE :: ProtoField -> Int -> Name -> Q Exp
+encodeSingleArchE pf tagInt v =
   let tagWord = litE (integerL (fromIntegral tagInt))
       var     = varE v
   in case pfType pf of
@@ -662,6 +814,32 @@ encodeSingleE pf tagInt v =
            $(litE (integerL (fromIntegral (tagInt `quot` 8))))
            $var |]
 
+-- | Slow path: field number > 15, so the wire tag is two or more
+-- bytes. We dispatch through @Proto.Encode.encodeField*@, which
+-- takes a field number (Int) and varint-encodes the tag.
+encodeSingleSlowE :: ProtoField -> Name -> Q Exp
+encodeSingleSlowE pf v =
+  let var    = varE v
+      fieldN = litE (integerL (fromIntegral (pfTag pf)))
+  in case pfType pf of
+    PFScalar SInt32    -> [| PE.encodeFieldVarint   $fieldN (fromIntegral ($var :: Int32)) |]
+    PFScalar SInt64    -> [| PE.encodeFieldVarint   $fieldN (fromIntegral ($var :: Int64)) |]
+    PFScalar SUInt32   -> [| PE.encodeFieldVarint   $fieldN (fromIntegral ($var :: Word32)) |]
+    PFScalar SUInt64   -> [| PE.encodeFieldVarint   $fieldN ($var :: Word64) |]
+    PFScalar SSInt32   -> [| PE.encodeFieldSVarint32 $fieldN ($var :: Int32) |]
+    PFScalar SSInt64   -> [| PE.encodeFieldSVarint64 $fieldN ($var :: Int64) |]
+    PFScalar SFixed32  -> [| PE.encodeFieldFixed32  $fieldN ($var :: Word32) |]
+    PFScalar SFixed64  -> [| PE.encodeFieldFixed64  $fieldN ($var :: Word64) |]
+    PFScalar SSFixed32 -> [| PE.encodeFieldFixed32  $fieldN (fromIntegral ($var :: Int32)) |]
+    PFScalar SSFixed64 -> [| PE.encodeFieldFixed64  $fieldN (fromIntegral ($var :: Int64)) |]
+    PFScalar SBool     -> [| PE.encodeFieldBool     $fieldN ($var :: Bool) |]
+    PFScalar SFloat    -> [| PE.encodeFieldFloat    $fieldN ($var :: Float) |]
+    PFScalar SDouble   -> [| PE.encodeFieldDouble   $fieldN ($var :: Double) |]
+    PFScalar SString   -> [| PR.encodeStrictText    $fieldN ($var :: Text) |]
+    PFScalar SBytes    -> [| PR.encodeStrictBytes   $fieldN ($var :: ByteString) |]
+    PFSubmessage       -> [| PE.encodeFieldMessageSized $fieldN $var |]
+    PFEnum             -> [| PE.encodeFieldEnum     $fieldN $var |]
+
 -- | Per-'StringRep' encoder. Tag byte is supplied as an 'Int' for
 -- consistency with the strict-text path's @PA.archString@ shape;
 -- the alternate reps reach for the @Proto.Repr.encode*@ helpers
@@ -688,28 +866,238 @@ bytesEncodeE rep tagInt v =
        LazyBytesRep   -> [| PR.encodeLazyBytes $fieldN ($var :: BL.ByteString) |]
        ShortBytesRep  -> [| PR.encodeShortBytes $fieldN ($var :: SBS.ShortByteString) |]
 
-sizeSingleE :: ProtoField -> Name -> Q Exp
-sizeSingleE pf v =
+-- | Encode a packed repeated scalar field. Walks the (possibly
+-- boxed) container twice: once with 'sizeSingleE'-equivalent
+-- per-element sizing to compute the payload length, once to emit
+-- the per-element payload bytes. The on-wire shape is
+-- @tag(LengthDelimited) || varint(payloadLen) || elem ... || elem@.
+--
+-- Only called for packable scalars; non-packable elements
+-- (string / bytes / submessage / enum) are routed through
+-- 'encodeSingleE' per occurrence.
+encodePackedScalarE :: ProtoField -> Scalar -> Exp -> Q Exp
+encodePackedScalarE pf sc getter = do
+  let foldFnE = repeatedFoldlE rep
+      tagN    = fromIntegral (pfTag pf) :: Integer
+  v   <- newName "v"
+  acc <- newName "acc"
+  perSizeE <- packedElemSizeE sc v
+  perBytesE <- packedElemBytesE sc v
+  let sizeStep = LamE [VarP acc, VarP v]
+                  (InfixE (Just (VarE acc)) (VarE '(+)) (Just perSizeE))
+      bytesStep = LamE [VarP acc, VarP v]
+                  (InfixE (Just (VarE acc)) (VarE '(<>)) (Just perBytesE))
+      sizeE = AppE (AppE (AppE foldFnE sizeStep)
+                         (LitE (IntegerL 0))) getter
+      bytesE = AppE (AppE (AppE foldFnE bytesStep)
+                          (VarE 'mempty)) getter
+  [| if $(emptyContainerE rep getter)
+       then mempty
+       else
+         let !payloadSize = ($(pure sizeE)) :: Int
+         in PWE.putTag $(litE (IntegerL tagN)) PWire.WireLengthDelimited
+              <> PWE.putVarint (fromIntegral payloadSize)
+              <> $(pure bytesE) |]
+  where
+    rep = case pfKind pf of
+            FKRepeated r _ -> r
+            _              -> RepVector  -- never reached
+
+-- | Size of a packed repeated scalar field on the wire (tag +
+-- length-prefix + payload, or 0 when empty).
+sizePackedScalarE :: ProtoField -> Scalar -> Exp -> Q Exp
+sizePackedScalarE pf sc getter = do
+  let foldFnE = repeatedFoldlE rep
+      tagN    = fromIntegral (pfTag pf) :: Integer
+  v   <- newName "v"
+  acc <- newName "acc"
+  perSizeE <- packedElemSizeE sc v
+  let step = LamE [VarP acc, VarP v]
+              (InfixE (Just (VarE acc)) (VarE '(+)) (Just perSizeE))
+      foldedE = AppE (AppE (AppE foldFnE step)
+                           (LitE (IntegerL 0))) getter
+  [| if $(emptyContainerE rep getter)
+       then 0 :: Int
+       else
+         let !payloadSize = ($(pure foldedE)) :: Int
+         in PWE.tagSize $(litE (IntegerL tagN))
+              + PWE.varintSize (fromIntegral payloadSize)
+              + payloadSize |]
+  where
+    rep = case pfKind pf of
+            FKRepeated r _ -> r
+            _              -> RepVector
+
+-- | Per-element on-wire byte size for a packed scalar (no tag,
+-- no length prefix — payload bytes only).
+packedElemSizeE :: Scalar -> Name -> Q Exp
+packedElemSizeE sc v =
   let var = varE v
-  in case pfType pf of
-    PFScalar SInt32    -> [| PA.archVarintSize (fromIntegral ($var :: Int32)) |]
-    PFScalar SInt64    -> [| PA.archVarintSize (fromIntegral ($var :: Int64)) |]
-    PFScalar SUInt32   -> [| PA.archVarintSize (fromIntegral ($var :: Word32)) |]
-    PFScalar SUInt64   -> [| PA.archVarintSize ($var :: Word64) |]
-    PFScalar SSInt32   -> [| 1 + PWE.varintSize (fromIntegral (PWE.zigZag32 ($var :: Int32))) |]
-    PFScalar SSInt64   -> [| 1 + PWE.varintSize (PWE.zigZag64 ($var :: Int64)) |]
-    PFScalar SFixed32  -> [| PA.archFixed32Size |]
-    PFScalar SFixed64  -> [| PA.archFixed64Size |]
-    PFScalar SSFixed32 -> [| PA.archFixed32Size |]
-    PFScalar SSFixed64 -> [| PA.archFixed64Size |]
-    PFScalar SBool     -> [| PA.archBoolSize |]
-    PFScalar SFloat    -> [| PA.archFixed32Size |]
-    PFScalar SDouble   -> [| PA.archFixed64Size |]
-    PFScalar SString   -> stringSizeE (pfStringRep pf) v
-    PFScalar SBytes    -> bytesSizeE  (pfBytesRep pf)  v
-    PFSubmessage       -> [| PA.archSubmessageSize (PE.messageSize $var) |]
-    PFEnum             ->
-      [| PA.archVarintSize (fromIntegral (fromEnum $var) :: Word64) |]
+  in case sc of
+    SInt32    -> [| PWE.varintSize (fromIntegral ($var :: Int32)) |]
+    SInt64    -> [| PWE.varintSize (fromIntegral ($var :: Int64)) |]
+    SUInt32   -> [| PWE.varintSize (fromIntegral ($var :: Word32)) |]
+    SUInt64   -> [| PWE.varintSize ($var :: Word64) |]
+    SSInt32   -> [| PWE.varintSize (fromIntegral (PWE.zigZag32 ($var :: Int32))) |]
+    SSInt64   -> [| PWE.varintSize (PWE.zigZag64 ($var :: Int64)) |]
+    SFixed32  -> [| 4 :: Int |]
+    SFixed64  -> [| 8 :: Int |]
+    SSFixed32 -> [| 4 :: Int |]
+    SSFixed64 -> [| 8 :: Int |]
+    SBool     -> [| 1 :: Int |]
+    SFloat    -> [| 4 :: Int |]
+    SDouble   -> [| 8 :: Int |]
+    SString   -> error "Proto.Derive.Internal: SString is not packable"
+    SBytes    -> error "Proto.Derive.Internal: SBytes is not packable"
+
+-- | Per-element on-wire bytes for a packed scalar (just the
+-- payload — no tag, no length prefix).
+packedElemBytesE :: Scalar -> Name -> Q Exp
+packedElemBytesE sc v =
+  let var = varE v
+  in case sc of
+    SInt32    -> [| PWE.putVarint (fromIntegral ($var :: Int32)) |]
+    SInt64    -> [| PWE.putVarint (fromIntegral ($var :: Int64)) |]
+    SUInt32   -> [| PWE.putVarint (fromIntegral ($var :: Word32)) |]
+    SUInt64   -> [| PWE.putVarint ($var :: Word64) |]
+    SSInt32   -> [| PWE.putSVarint32 ($var :: Int32) |]
+    SSInt64   -> [| PWE.putSVarint64 ($var :: Int64) |]
+    SFixed32  -> [| PWE.putFixed32 ($var :: Word32) |]
+    SFixed64  -> [| PWE.putFixed64 ($var :: Word64) |]
+    SSFixed32 -> [| PWE.putFixed32 (fromIntegral ($var :: Int32)) |]
+    SSFixed64 -> [| PWE.putFixed64 (fromIntegral ($var :: Int64)) |]
+    SBool     -> [| PWE.putVarint (if ($var :: Bool) then 1 else 0) |]
+    SFloat    -> [| PWE.putFloat ($var :: Float) |]
+    SDouble   -> [| PWE.putDouble ($var :: Double) |]
+    SString   -> error "Proto.Derive.Internal: SString is not packable"
+    SBytes    -> error "Proto.Derive.Internal: SBytes is not packable"
+
+-- | Emptiness predicate for a repeated container.
+emptyContainerE :: RepeatedRep -> Exp -> Q Exp
+emptyContainerE rep getter = case rep of
+  RepVector -> [| V.null $(pure getter) |]
+  RepList   -> [| null $(pure getter) |]
+  RepSeq    -> [| Seq.null $(pure getter) |]
+
+-- | Packed encoder for a repeated enum field. Mirrors
+-- 'encodePackedScalarE' but uses @fromEnum@ to project the
+-- element to a varint-encoded int32.
+encodePackedEnumE :: ProtoField -> Exp -> Q Exp
+encodePackedEnumE pf getter = do
+  let foldFnE = repeatedFoldlE rep
+      tagN    = fromIntegral (pfTag pf) :: Integer
+  v   <- newName "v"
+  acc <- newName "acc"
+  let perSizeE  = AppE (VarE 'PWE.varintSize)
+                    (SigE (AppE (VarE 'fromIntegral)
+                              (AppE (VarE 'fromEnum) (VarE v)))
+                          (ConT ''Word64))
+      perBytesE = AppE (VarE 'PWE.putVarint)
+                    (SigE (AppE (VarE 'fromIntegral)
+                              (AppE (VarE 'fromEnum) (VarE v)))
+                          (ConT ''Word64))
+      sizeStep  = LamE [VarP acc, VarP v]
+                    (InfixE (Just (VarE acc)) (VarE '(+)) (Just perSizeE))
+      bytesStep = LamE [VarP acc, VarP v]
+                    (InfixE (Just (VarE acc)) (VarE '(<>)) (Just perBytesE))
+      sizeE  = AppE (AppE (AppE foldFnE sizeStep)
+                          (LitE (IntegerL 0))) getter
+      bytesE = AppE (AppE (AppE foldFnE bytesStep)
+                          (VarE 'mempty)) getter
+  [| if $(emptyContainerE rep getter)
+       then mempty
+       else
+         let !payloadSize = ($(pure sizeE)) :: Int
+         in PWE.putTag $(litE (IntegerL tagN)) PWire.WireLengthDelimited
+              <> PWE.putVarint (fromIntegral payloadSize)
+              <> $(pure bytesE) |]
+  where
+    rep = case pfKind pf of
+            FKRepeated r _ -> r
+            _              -> RepVector
+
+-- | Sizer for a repeated enum field in packed mode.
+sizePackedEnumE :: ProtoField -> Exp -> Q Exp
+sizePackedEnumE pf getter = do
+  let foldFnE = repeatedFoldlE rep
+      tagN    = fromIntegral (pfTag pf) :: Integer
+  v   <- newName "v"
+  acc <- newName "acc"
+  let perSizeE = AppE (VarE 'PWE.varintSize)
+                   (SigE (AppE (VarE 'fromIntegral)
+                             (AppE (VarE 'fromEnum) (VarE v)))
+                         (ConT ''Word64))
+      step = LamE [VarP acc, VarP v]
+              (InfixE (Just (VarE acc)) (VarE '(+)) (Just perSizeE))
+      foldedE = AppE (AppE (AppE foldFnE step)
+                           (LitE (IntegerL 0))) getter
+  [| if $(emptyContainerE rep getter)
+       then 0 :: Int
+       else
+         let !payloadSize = ($(pure foldedE)) :: Int
+         in PWE.tagSize $(litE (IntegerL tagN))
+              + PWE.varintSize (fromIntegral payloadSize)
+              + payloadSize |]
+  where
+    rep = case pfKind pf of
+            FKRepeated r _ -> r
+            _              -> RepVector
+
+-- | Size of one value's wire-form footprint (tag byte(s) +
+-- payload). Two paths: fields with field number ≤ 15 use the
+-- one-byte-tag @arch*Size@ family; fields with larger field
+-- numbers fall back to @PWE.tagSize@ + the payload size, which
+-- handles multi-byte varint tags correctly.
+sizeSingleE :: ProtoField -> Name -> Q Exp
+sizeSingleE pf v
+  | tag1Byte  = archSizeE
+  | otherwise = slowSizeE
+  where
+    tag1Byte = pfTag pf <= 15
+    tagSzE   = [| PWE.tagSize $(litE (integerL (fromIntegral (pfTag pf)))) |]
+    var      = varE v
+
+    archSizeE = case pfType pf of
+      PFScalar SInt32    -> [| PA.archVarintSize (fromIntegral ($var :: Int32)) |]
+      PFScalar SInt64    -> [| PA.archVarintSize (fromIntegral ($var :: Int64)) |]
+      PFScalar SUInt32   -> [| PA.archVarintSize (fromIntegral ($var :: Word32)) |]
+      PFScalar SUInt64   -> [| PA.archVarintSize ($var :: Word64) |]
+      PFScalar SSInt32   -> [| 1 + PWE.varintSize (fromIntegral (PWE.zigZag32 ($var :: Int32))) |]
+      PFScalar SSInt64   -> [| 1 + PWE.varintSize (PWE.zigZag64 ($var :: Int64)) |]
+      PFScalar SFixed32  -> [| PA.archFixed32Size |]
+      PFScalar SFixed64  -> [| PA.archFixed64Size |]
+      PFScalar SSFixed32 -> [| PA.archFixed32Size |]
+      PFScalar SSFixed64 -> [| PA.archFixed64Size |]
+      PFScalar SBool     -> [| PA.archBoolSize |]
+      PFScalar SFloat    -> [| PA.archFixed32Size |]
+      PFScalar SDouble   -> [| PA.archFixed64Size |]
+      PFScalar SString   -> stringSizeE (pfStringRep pf) v
+      PFScalar SBytes    -> bytesSizeE  (pfBytesRep pf)  v
+      PFSubmessage       -> [| PA.archSubmessageSize (PE.messageSize $var) |]
+      PFEnum             ->
+        [| PA.archVarintSize (fromIntegral (fromEnum $var) :: Word64) |]
+
+    -- payload-only sizes: tag byte(s) added separately.
+    payloadOnlyE = case pfType pf of
+      PFScalar SInt32    -> [| PWE.varintSize (fromIntegral ($var :: Int32)) |]
+      PFScalar SInt64    -> [| PWE.varintSize (fromIntegral ($var :: Int64)) |]
+      PFScalar SUInt32   -> [| PWE.varintSize (fromIntegral ($var :: Word32)) |]
+      PFScalar SUInt64   -> [| PWE.varintSize ($var :: Word64) |]
+      PFScalar SSInt32   -> [| PWE.varintSize (fromIntegral (PWE.zigZag32 ($var :: Int32))) |]
+      PFScalar SSInt64   -> [| PWE.varintSize (PWE.zigZag64 ($var :: Int64)) |]
+      PFScalar SFixed32  -> [| 4 :: Int |]
+      PFScalar SFixed64  -> [| 8 :: Int |]
+      PFScalar SSFixed32 -> [| 4 :: Int |]
+      PFScalar SSFixed64 -> [| 8 :: Int |]
+      PFScalar SBool     -> [| 1 :: Int |]
+      PFScalar SFloat    -> [| 4 :: Int |]
+      PFScalar SDouble   -> [| 8 :: Int |]
+      PFScalar SString   -> [| (let !sz = BS.length (TE.encodeUtf8 ($var :: Text)) in PWE.varintSize (fromIntegral sz) + sz) |]
+      PFScalar SBytes    -> [| (let !sz = BS.length ($var :: ByteString) in PWE.varintSize (fromIntegral sz) + sz) |]
+      PFSubmessage       -> [| (let !sz = PE.messageSize $var in PWE.varintSize (fromIntegral sz) + sz) |]
+      PFEnum             -> [| PWE.varintSize (fromIntegral (fromEnum $var) :: Word64) |]
+
+    slowSizeE = [| $tagSzE + $payloadOnlyE |]
 
 -- ---------------------------------------------------------------------------
 -- Decoder internals
@@ -718,7 +1106,7 @@ sizeSingleE pf v =
 initFor :: (ProtoField, Name) -> Q Exp
 initFor (pf, _) = case (pfKind pf, pfType pf) of
   (FKMaybe, _)                 -> [| Nothing |]
-  (FKRepeated rep, _)          -> repeatedEmptyE rep
+  (FKRepeated rep _, _)        -> repeatedEmptyE rep
   (FKMap _, _)                 -> [| Map.empty |]
   (FKOneof _, _)               -> [| Nothing |]
   (FKBare, PFScalar SBool)     -> [| False |]
@@ -806,6 +1194,94 @@ repeatedSnocE rep accE vName = case rep of
   RepSeq    -> InfixE (Just accE) (VarE '(Seq.|>))
                  (Just (VarE vName))
 
+-- | A two-argument @snoc@ /function/ for a repeated container, in
+-- the shape required by 'decodePackedInto'. Differs from
+-- 'repeatedSnocE', which inlines the snoc call against a specific
+-- accumulator name.
+repeatedSnocFnE :: RepeatedRep -> Q Exp
+repeatedSnocFnE = \case
+  RepVector -> [| V.snoc |]
+  RepList   -> [| (\xs x -> xs <> [x]) |]
+  RepSeq    -> [| (Seq.|>) |]
+
+-- | True iff this repeated field's element type is a packable
+-- scalar. Submessages, enums, strings, and bytes are non-packable
+-- under the proto3 wire spec.
+-- | True iff this repeated field's element type is packable on
+-- the wire. Submessages aren't (they're length-delimited per
+-- element); strings / bytes aren't either. Scalars and enums
+-- both are: enums are wire-type @varint@ on the singular path,
+-- and proto3 packs them by default.
+scalarPackableType :: ProtoField -> Bool
+scalarPackableType pf = case pfType pf of
+  PFScalar sc -> scalarPackable sc
+  PFEnum      -> True
+  _           -> False
+
+-- | Decode a packed length-delimited block of elements into the
+-- supplied accumulator using 'snocFn' to append each value.
+--
+-- This lives outside the deriver-emitted code so the inner loop
+-- compiles in one place rather than once per call site. The block
+-- length is consumed from the parent decoder; we then drive the
+-- inner element decoder directly against the slice via
+-- 'PD.runDecoder''. Termination is on offset reaching the slice
+-- length.
+decodePackedInto
+  :: PD.Decoder a
+  -> (acc -> a -> acc)
+  -> acc
+  -> PD.Decoder acc
+decodePackedInto elemDec snocFn acc0 = do
+  bs <- PD.getLengthDelimited
+  let total = BS.length bs
+      go !acc !off
+        | off >= total = pure acc
+        | otherwise =
+            case PWD.runDecoder' elemDec bs off of
+              PWD.DecodeOK v off' -> go (snocFn acc v) off'
+              PWD.DecodeFail e    -> PD.decodeFail e
+  go acc0 0
+{-# INLINE decodePackedInto #-}
+
+-- | Decode a singular submessage field that may appear multiple
+-- times on the wire, merging into any previous occurrence.
+--
+-- Proto3 spec: when the same singular submessage field appears
+-- multiple times, the parser must concatenate-and-decode rather
+-- than overwrite. By the proto3 catenation property
+-- (@concat(serialize(x), serialize(y)) == serialize(merge(x, y))@),
+-- we can implement this by re-encoding the previous value and
+-- prepending its bytes to the new occurrence's bytes.
+--
+-- Lives here (rather than in 'Proto.Decode') because the
+-- @MessageEncode@ constraint would otherwise create a cyclic
+-- dependency between 'Proto.Encode' and 'Proto.Decode'.
+decodeFieldMessageMerge
+  :: forall a. (PE.MessageEncode a, PD.MessageDecode a)
+  => Maybe a -> PD.Decoder (Maybe a)
+decodeFieldMessageMerge prev = do
+  newBytes <- PD.getLengthDelimited
+  let combined = case prev of
+        Nothing  -> newBytes
+        Just old ->
+          -- Encode the previous value to bytes (no length prefix
+          -- — that's what 'buildMessage' produces) and concat
+          -- with the new bytes. Decoding the result gives the
+          -- spec-mandated merge.
+          let !oldBytes = BL.toStrict (BB.toLazyByteString (PE.buildMessage old))
+          in oldBytes <> newBytes
+  case PD.decodeMessage combined of
+    Right merged -> pure (Just merged)
+    Left e       ->
+      -- Concatenation of two valid messages is always valid per
+      -- the proto3 catenation property. A decode failure here
+      -- means the new bytes themselves were malformed (truncated
+      -- submessage, etc.) — propagate the error rather than
+      -- silently drop the new occurrence.
+      PD.decodeFail (PD.SubMessageError e)
+{-# INLINE decodeFieldMessageMerge #-}
+
 decodeLoopBody
   :: MessageMeta
   -> Name           -- ^ Record constructor.
@@ -862,7 +1338,7 @@ decodeArm
   -> Maybe Name        -- ^ unknown-fields accumulator (when in scope)
   -> (ProtoField, Name)    -- ^ the one we're emitting arms for
   -> Q [Match]
-decodeArm meta loopName _wt allPairs ufAccM (pf, accForThis) = case pfKind pf of
+decodeArm meta loopName wtVar allPairs ufAccM (pf, accForThis) = case pfKind pf of
   FKBare -> singletonArm pf $ \vName -> do
     decoderE <- fieldDecoderE pf vName
     let recurse = updateAccsE loopName allPairs ufAccM (pfSelector pf) (VarE vName)
@@ -870,21 +1346,66 @@ decodeArm meta loopName _wt allPairs ufAccM (pf, accForThis) = case pfKind pf of
          $(varP vName) <- $(pure decoderE)
          $(pure recurse) |]
 
-  FKMaybe -> singletonArm pf $ \vName -> do
-    decoderE <- fieldDecoderE pf vName
-    let recurse = updateAccsE loopName allPairs ufAccM (pfSelector pf)
-                    (AppE (ConE 'Just) (VarE vName))
-    [| do
-         $(varP vName) <- $(pure decoderE)
-         $(pure recurse) |]
+  FKMaybe -> singletonArm pf $ \vName -> case pfType pf of
+    -- Submessage fields under @Maybe@ have a special wire-format
+    -- contract: the proto3 spec says "if the same singular
+    -- submessage field appears multiple times on the wire, the
+    -- parser must merge them" rather than overwrite. We honour
+    -- that by feeding the previous accumulator value into the
+    -- decoder, which re-encodes it and concatenates with the new
+    -- bytes (proto3 catenation property:
+    -- @concat(serialize(x), serialize(y)) == serialize(merge(x, y))@).
+    PFSubmessage -> do
+      let recurse = updateAccsE loopName allPairs ufAccM (pfSelector pf)
+                      (VarE vName)
+      [| do
+           $(varP vName) <- decodeFieldMessageMerge $(varE accForThis)
+           $(pure recurse) |]
+    _ -> do
+      decoderE <- fieldDecoderE pf vName
+      let recurse = updateAccsE loopName allPairs ufAccM (pfSelector pf)
+                      (AppE (ConE 'Just) (VarE vName))
+      [| do
+           $(varP vName) <- $(pure decoderE)
+           $(pure recurse) |]
 
-  FKRepeated rep -> singletonArm pf $ \vName -> do
+  FKRepeated rep _mode -> do
+    vName   <- newName "v"
     payload <- scalarDecoderE pf
     let snocE   = repeatedSnocE rep (VarE accForThis) vName
         recurse = updateAccsE loopName allPairs ufAccM (pfSelector pf) snocE
-    [| do
-         $(varP vName) <- $(pure payload)
-         $(pure recurse) |]
+        recurseAfterPack acc' =
+          updateAccsE loopName allPairs ufAccM (pfSelector pf) (VarE acc')
+    body <- if scalarPackableType pf
+      then do
+        -- A repeated packable element type (any packable scalar
+        -- OR an enum) accepts both wire encodings: wire-type 2
+        -- (LengthDelimited) means a packed block, anything else
+        -- (in practice the element's natural wire type =
+        -- varint / fixed32 / fixed64) means a single unpacked
+        -- element. Discriminate at runtime on @wt@ so the same
+        -- arm covers both shapes.
+        acc' <- newName "acc'"
+        elemDec   <- scalarDecoderE pf
+        elemSnocE <- repeatedSnocFnE rep
+        [| case $(varE wtVar) of
+             PWire.WireLengthDelimited -> do
+               $(varP acc') <- decodePackedInto $(pure elemDec)
+                                                 $(pure elemSnocE)
+                                                 $(varE accForThis)
+               $(pure (recurseAfterPack acc'))
+             _ -> do
+               $(varP vName) <- $(pure payload)
+               $(pure recurse) |]
+      else
+        -- Non-packable element type (string, bytes, submessage):
+        -- fall through to the original one-element-per-occurrence
+        -- shape.
+        [| do
+             $(varP vName) <- $(pure payload)
+             $(pure recurse) |]
+    pure [Match (LitP (IntegerL (fromIntegral (pfTag pf))))
+                (NormalB body) []]
 
   FKMap mks -> do
     let lit = LitP (IntegerL (fromIntegral (pfTag pf)))
@@ -929,17 +1450,64 @@ oneofDecodeArm
   -> Name             -- ^ parent field's selector
   -> OneofVariant
   -> Q Match
-oneofDecodeArm loopName allPairs ufAccM sel ov = do
-  vName <- newName "v"
-  payload <- variantDecoderE ov
-  let conApp   = AppE (ConE (ovConstructor ov)) (VarE vName)
-      newVal   = AppE (ConE 'Just) conApp
-      recurse  = updateAccsE loopName allPairs ufAccM sel newVal
-  body <-
-    [| do
-         $(varP vName) <- $(pure payload)
-         $(pure recurse) |]
-  pure (Match (LitP (IntegerL (fromIntegral (ovTag ov)))) (NormalB body) [])
+oneofDecodeArm loopName allPairs ufAccM sel ov = case ovType ov of
+  -- Submessage variants in a oneof have the same merge semantics
+  -- as singular submessage fields outside an oneof: when the same
+  -- variant is encountered twice on the wire, the parser must
+  -- merge both occurrences instead of overwriting. Look up the
+  -- previous accumulator value for the oneof carrier; if it
+  -- already holds the same variant, decode-and-merge with that
+  -- inner submessage; otherwise just decode fresh.
+  PFSubmessage -> do
+    vName    <- newName "v"
+    oldVar   <- newName "old"
+    let con      = ovConstructor ov
+        prevAcc  = lookupAccByName allPairs sel
+        newVal   = AppE (ConE 'Just) (AppE (ConE con) (VarE vName))
+        recurse  = updateAccsE loopName allPairs ufAccM sel newVal
+        -- @case acc of Just (Con old) -> Just old; _ -> Nothing@
+        prevExtractE =
+          CaseE (VarE prevAcc)
+            [ Match (ConP 'Just [] [ConP con [] [VarP oldVar]])
+                    (NormalB (AppE (ConE 'Just) (VarE oldVar))) []
+            , Match WildP (NormalB (ConE 'Nothing)) []
+            ]
+    body <- [| do
+                 mNew <- decodeFieldMessageMerge $(pure prevExtractE)
+                 case mNew of
+                   Just $(varP vName) -> $(pure recurse)
+                   Nothing            ->
+                     -- 'decodeFieldMessageMerge' only returns
+                     -- Nothing when its input bytes were empty
+                     -- AND the previous accumulator was Nothing,
+                     -- which can't happen here (the wire just
+                     -- delivered a length-delimited block for
+                     -- this variant, so newBytes is non-empty
+                     -- at minimum).
+                     PD.decodeFail (PD.CustomError
+                       "oneof submessage merge produced Nothing") |]
+    pure (Match (LitP (IntegerL (fromIntegral (ovTag ov)))) (NormalB body) [])
+  _ -> do
+    vName   <- newName "v"
+    payload <- variantDecoderE ov
+    let conApp   = AppE (ConE (ovConstructor ov)) (VarE vName)
+        newVal   = AppE (ConE 'Just) conApp
+        recurse  = updateAccsE loopName allPairs ufAccM sel newVal
+    body <-
+      [| do
+           $(varP vName) <- $(pure payload)
+           $(pure recurse) |]
+    pure (Match (LitP (IntegerL (fromIntegral (ovTag ov)))) (NormalB body) [])
+
+-- | Look up the accumulator name for a given record selector
+-- inside the loop's per-field pair list. Used by the oneof-merge
+-- splice; should always succeed (the oneof field is a member of
+-- 'allPairs').
+lookupAccByName :: [(ProtoField, Name)] -> Name -> Name
+lookupAccByName pairs sel = case [acc | (pf, acc) <- pairs, pfSelector pf == sel] of
+  (acc:_) -> acc
+  []      -> error ("Proto.Derive.Internal: no accumulator for "
+                       ++ show sel)
 
 -- | Build the recursive @loop a1 a2 ... aN [acc_unknown_]@
 -- application, with the named selector's accumulator replaced by
@@ -961,7 +1529,10 @@ fieldDecoderE pf _v = scalarDecoderE pf
 
 variantDecoderE :: OneofVariant -> Q Exp
 variantDecoderE ov = scalarDecoderE
-  (protoField (ovConstructor ov) (ovTag ov) FKBare (ovType ov) (ovInnerTy ov))
+  ((protoField (ovConstructor ov) (ovTag ov) FKBare (ovType ov) (ovInnerTy ov))
+     { pfStringRep = ovStringRep ov
+     , pfBytesRep  = ovBytesRep  ov
+     })
 
 scalarDecoderE :: ProtoField -> Q Exp
 scalarDecoderE pf = case pfType pf of
@@ -1036,12 +1607,12 @@ mapValueZeroE pf = case pfType pf of
   PFScalar SSFixed64 -> [| 0 :: Int64 |]
   PFEnum           -> [| toEnum 0 |]
   PFSubmessage     ->
-    -- Map value of submessage type: zero is a nonsense default
-    -- because the user's map should never contain a missing value
-    -- for an existing key. 'decodeMapEntry' uses this only when
-    -- the wire never delivered a value field, which is a malformed
-    -- entry.
-    [| error "Proto.Derive: map value missing on the wire" |]
+    -- Map value of submessage type: proto3 spec says a missing
+    -- value field defaults to the type's default empty message.
+    -- Route through 'protoDefaultValue' from the message type's
+    -- 'ProtoMessage' instance — GHC infers the type from the
+    -- decoder's return type at the use site.
+    [| PS.protoDefaultValue |]
 
 recurseLoopE :: Name -> [Name] -> Maybe Name -> Q Exp
 recurseLoopE loopName accs ufAccM =

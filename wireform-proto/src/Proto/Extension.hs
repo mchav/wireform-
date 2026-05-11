@@ -43,6 +43,14 @@ module Proto.Extension
   , setRepeatedExtension
   , appendRepeatedExtension
   , clearRepeatedExtension
+    -- * Internal helpers
+    -- | Reused by "Proto.JSON.Extension" to bridge the
+    -- bracket-quoted JSON @[FQN]@ extension key syntax through
+    -- the same encoder \/ decoder used for typed extension
+    -- accessors.
+  , encodeExtensionValue
+  , decodeExtensionValue
+  , unknownFieldNumber
   ) where
 
 import Data.Bits (shiftL, shiftR, xor, (.&.), (.|.))

@@ -1,0 +1,35 @@
+// Bench inputs for the wireform-proto loadProto micro-benchmarks.
+// Kept minimal so the splice cost doesn't drown out the
+// per-iteration timings.
+
+syntax = "proto3";
+
+package wireform.bench;
+
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_ACTIVE      = 1;
+  STATUS_BANNED      = 2;
+}
+
+message Person {
+  string name   = 1;
+  uint64 age    = 2;
+  string email  = 3;
+  double score  = 4;
+  bool   active = 5;
+  Status status = 6;
+}
+
+message Numbers {
+  repeated int32  ints    = 1;
+  repeated double doubles = 2;
+}
+
+message Choice {
+  oneof choice {
+    string string_value = 1;
+    int32  int_value    = 2;
+    bool   bool_value   = 3;
+  }
+}

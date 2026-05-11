@@ -249,12 +249,15 @@ deriver**, both of which feed the same body builders in
    `wireform-proto-derive-test` suite jumped from 27 to 34 tests when
    the oneof rewire landed earlier today.
 2. **`Proto.Derive.deriveProto`** — annotation-driven path on a Haskell
-   record where every field carries an explicit `tag N`. Field types
-   are picked from the Haskell type via `pickFieldType`. Convenient when
-   the canonical schema is the Haskell type rather than a `.proto`
-   file. Currently auto-detects scalars, submessages, and `Maybe`
-   wrappers; for `Vector` / `Map` / oneof / enum fields use the IDL
-   bridge instead (see Outstanding work below).
+   record where every field carries an explicit `tag N`. Auto-detects
+   the field's shape from the Haskell type: scalars / submessages /
+   `Maybe` wrappers, plus `Vector` / `[]` / `Seq` repeated containers,
+   `Map.Map` map fields, sum-of-tagged-singletons oneofs, and
+   `Enum`-shaped types (every constructor nullary). Repeated packable
+   scalars are encoded packed by default; the deriver accepts both
+   packed and unpacked on the read side regardless of which the
+   writer chose. The IDL bridge is now only required for cases the
+   reify graph can't see (e.g. types declared in the same splice).
 3. **`Proto.Derive.deriveProtoFromTranslated`** — explicit-shape entry
    used by IDL bridges that need to call the deriver from inside their
    own splice. Sidesteps the GHC TH stage restriction that prevents
@@ -306,11 +309,20 @@ build state separate from `dist-newstyle/`:
 cabal build all --builddir=dist-derive
 ```
 
-The Nix flake's package set has not yet been updated to include the
-per-format packages added during the recent split, so `nix develop`
-currently doesn't evaluate. `cabal` works directly against the system
-GHC (or against `NIX_GHC` if that env var is set). Re-wiring the flake
-is on the [outstanding-work list](#status--whats-incomplete).
+A Nix flake is provided. Every per-format `wireform-*` package
+plus the umbrella `wireform` is wired into the haskell-package
+overlay, so `nix develop` brings up a shell containing every
+workspace package's deps. Pick a GHC by name:
+
+```bash
+nix develop          # default (currently GHC 9.8)
+nix develop .#ghc96  # GHC 9.6
+nix develop .#ghc910 # GHC 9.10
+```
+
+Per-format packages are also reachable as `nix build
+.#wireform-proto`, `.#wireform-iceberg`, etc. The `wireform` umbrella
+is the default `nix build` output.
 
 ---
 
@@ -319,6 +331,82 @@ is on the [outstanding-work list](#status--whats-incomplete).
 ```bash
 cabal test all
 ```
+
+### Protobuf conformance suite
+
+`wireform-proto` ships an end-to-end harness that runs the official
+[upstream protobuf conformance suite](https://github.com/protocolbuffers/protobuf/tree/main/conformance)
+against `loadProto`-generated codecs. The harness skips cleanly
+when the upstream runner isn't built:
+
+```bash
+# One-time: clone + build the upstream runner (~10 min, requires
+# git, cmake, a C++17 toolchain).
+bash wireform-proto/test-conformance/scripts/build-conformance-runner.sh
+
+# Then:
+cabal test wireform-proto:protobuf-conformance-test
+```
+
+Today's baseline against `protocolbuffers/protobuf@v28.2`:
+**2675 successes, 0 skipped, 0 expected failures, 0 unexpected
+failures** across the proto3 + proto2 binary/json suite.
+
+Categories cleared this round (119 → 0 unexpected failures):
+
+- Strict JSON range + integrality validation for every scalar
+  width (`Int{32,64}Field{TooLarge,TooSmall,NotInteger}`,
+  `Uint{32,64}` siblings, `Float`/`Double` overflow).
+- Spec-correct `protoJsonName` (proto3 lower_snake_case →
+  lowerCamelCase per the upstream `ToJsonName` algorithm —
+  `FieldName10` and friends now round-trip), with the snake-
+  case fallback retained on input.
+- Enum aliasing (`option allow_alias = true`) collapsed to a
+  single Haskell constructor per number; the JSON parser
+  accepts every declared name (alias-different-case alike).
+- Lenient unknown-enum-string mode for the
+  `JSON_IGNORE_UNKNOWN_PARSING_TEST` category.
+- Spec-compliant Timestamp / Duration parsing + serialisation:
+  RFC 3339 lowercase-`z` rejection, `+HH:MM` / `-HH:MM` offsets,
+  canonical 0/3/6/9 fractional digits, range validation on
+  both directions (Duration±10000 years, Timestamp 0001…9999),
+  negative-nanos sign propagation.
+- FieldMask path conversion between `lower_snake_case` and
+  `lowerCamelCase` with round-trip rejection on uppercase /
+  embedded digits / repeated underscores.
+- `Value` / `Struct` / `NullValue`: NaN/Infinity rejection,
+  `null`-as-NullValue oneof handling, `null_value` enum wire
+  format fix.
+- A custom `parseStringMessageMapMaybe` for `map<K, message V>`
+  JSON parsing that surfaces inner failures cleanly.
+- A spec-correct google.protobuf.Any codec registry: WKT
+  envelope (`{"@type":...,"value":<canonical>}`) for WKTs and
+  inlined fields for regular messages, with recursive nesting
+  (`AnyNested`).
+- Per-variant JSON oneof input parser that scans the JSON
+  object for any of the variant keys, handles null per spec,
+  and rejects multiple non-null variants
+  (`OneofFieldDuplicate`).
+- A subtle two-pass-encoder bug fixed: `sizeOne` for unpacked
+  repeated fields was double-counting the tag width when the
+  field number used a multi-byte tag, breaking the
+  `ValidDataOneof.MESSAGE.Merge` family.
+
+Well-Known Types (`Timestamp`, `Duration`, `Wrappers`, `Empty`,
+`Any`, `FieldMask`, `Struct`, `Value`, `ListValue`, `NullValue`)
+are supported via a per-FQN registry in `Proto.TH.lookupWkt` that
+routes `loadProto` references to the pre-generated
+`Proto.Google.Protobuf.*` modules; the JSON encoder/parser uses
+the proto3-canonical helpers in `Proto.JSON.WellKnown` (RFC 3339
+for Timestamps, `"1.5s"` for Durations, base64 for Bytes wrappers,
+bare-value for the rest, etc.).
+
+TEXT_FORMAT output is supported via 'Proto.TextFormat.typedToTextPretty'
+(walks a typed message via its 'ProtoMessage' descriptors and
+emits pbtxt with field names).
+
+See [`wireform-proto/test-conformance/README.md`](wireform-proto/test-conformance/README.md)
+for the architecture and how to add expected failures.
 
 Annotation-driven deriver coverage spans 23 backends with hundreds of
 tests across the `wireform-*-derive-test` suites — every per-format
@@ -356,49 +444,70 @@ Runnable from the workspace root with `cabal run <name>`:
 
 ---
 
-## Status / what's incomplete
+## Status / what's recently landed
 
 This monorepo is under active development on
-[PR #18](https://github.com/iand675/wireform-/pull/18). Known gaps that
-are tracked but not yet landed:
+[PR #18](https://github.com/iand675/wireform-/pull/18). The Proto
+deriver work the README used to call out as incomplete has all
+landed; this section keeps the diff visible for context. New
+outstanding items will reappear here as they're discovered.
 
-- **Hand-coded golden bytes for the proto byte-equivalence regression.**
-  The four byte-equivalence tests in `Test.Proto.Derive` previously
-  compared two implementations (`loadProto` vs
-  `deriveProtoFromTranslated`); after the `loadProto` rewire both paths
-  go through the same body builders in `Proto.Derive.Internal`, so the
-  assertion has degraded to "the bridge agrees with itself". Adding
-  hand-computed reference bytes would restore the meaningful regression.
-- **Annotation-driven `deriveProto` doesn't auto-detect repeated /
-  map / enum / oneof yet.** The detection logic exists in the IDL
-  bridge as `tfRepeated` / `tfMapKey` / `tfIsEnum` / `tfOneofVariants`
-  shape hints; lifting it into `analyseField` (with type-shape detection
-  for outer `Vector` / `[]` / `Map` constructors and reify-driven enum
-  detection) is the next obvious step. Annotation users currently can't
-  say "this `Vector Foo` is a repeated submessage" without going
-  through the bridge.
-- **Packed encoding for repeated scalars.** Proto3's default for
-  packable repeated scalars is packed; the bridge currently emits
-  unpacked. The decoder already accepts both per the proto3 spec, so
-  this is encoder-side only.
-- **Per-variant string/bytes reps for oneof variants.** `loadProto`'s
-  `FieldRep` config doesn't apply to oneof variants today (the
-  `OneofField` AST node has no `FieldRep` slot). Oneof variants always
-  use strict `Text` / `ByteString` regardless of how the parent message
-  is configured.
-- **Top-level enum `loadProto`.** `Proto.TH` translates `FTNamed` as
-  `PFSubmessage`, which means top-level enum types still encode as
-  length-delimited submessages rather than varints. Routing `TLEnum`
-  through the bridge with `PFEnum` requires building an `Enum` instance
-  for the generated enum type and tracking which named types are
-  enums vs. messages at the call site.
-- **Other proto features.** `ProtoMessage` schema metadata, proto3 JSON
-  with the canonical camelCase + well-known-type rules, `Hashable`
-  derivation.
-- **Nix flake's package set.** The 18 newly added `wireform-*` packages
-  aren't wired into the flake yet, so `nix develop` doesn't evaluate.
-  `cabal build` works directly against the system / `NIX_GHC` toolchain
-  in the meantime.
+- **Hand-coded golden bytes for the proto byte-equivalence regression**
+  — added in `Test.Proto.Derive.Golden` (six fixtures asserting exact
+  wire bytes computed from the proto3 spec).
+- **Annotation-driven `deriveProto` auto-detect for repeated / map /
+  oneof / enum** — `analyseField` now sniffs `Vector` / `[]` / `Seq`
+  for repeated, `Map.Map` for map, sum-of-tagged-singletons for
+  oneof, and reify-driven `TypeShapeEnum` for enums. The
+  IDL bridge is still required for types declared in the same TH
+  splice (which can't be `qReify`'d).
+- **Packed encoding for repeated scalars** —
+  `Proto.Derive.Internal.RepeatedMode` now ships `ModePacked` /
+  `ModeUnpacked`; the proto3 default for packable scalars is packed.
+  Both the bridge and the annotation deriver pick this automatically
+  and the decoder accepts either shape per the proto3 spec.
+- **Per-variant string/bytes reps for oneof variants** — `OneofVariant`
+  carries `ovStringRep` / `ovBytesRep` slots and the `loadProto`
+  bridge wires the resolved `FieldRep` into them per variant.
+- **Top-level enum `loadProto`** — the `Proto.TH` bridge now consults
+  the file's `ScopeCtx` to distinguish enums from messages, routes
+  `FTNamed` enum references through `PFEnum`, and emits a
+  proto-faithful `Enum` instance for every generated enum type so
+  `fromEnum` / `toEnum` use the spec-mandated wire numbers rather
+  than declaration order.
+- **Tighter map size estimation** — `sizeOne` for `FKMap` now computes
+  the exact entry size (tag + length-prefix + key + value) instead of
+  the previous 10-byte upper bound; two-pass encoders now produce
+  spec-compliant lengths for maps with submessage values or long
+  string keys.
+- **`ProtoMessage` schema metadata** — every `loadProto`-generated
+  message now ships an instance with `protoMessageName`,
+  `protoPackageName`, `protoDefaultValue`, and `protoFieldDescriptors`
+  (one `FieldDescriptor` per field with name / number / type / label
+  and the get/set accessors). The pure-text codegen has emitted these
+  for years; `loadProto` now matches.
+- **Proto3 canonical JSON** (`Aeson.ToJSON` / `Aeson.FromJSON`) —
+  emitted for every `loadProto`-generated message with camelCase
+  keys (per the proto3 JSON spec, overridable with the `json_name`
+  option), base64 for `bytes`, string-encoded 64-bit integers, NaN /
+  Infinity sentinels for floats. Generated enums encode as their
+  primary name string and decode from either the name or the wire
+  number.
+- **`Hashable` derivation** — generated message types get a
+  recursive structural hash (per-shape combinator: `V.foldl'` for
+  vectors, `Map.foldlWithKey'` for maps, plain `hashWithSalt` for
+  the rest). Generated enum types hash by their proto wire number
+  via `ProtoEnum.toProtoEnumValue`. Oneof carrier sums hash the
+  variant index in front of the payload.
+- **`ProtoEnum` schema metadata** — generated enum types ship
+  `protoEnumName`, `protoEnumValues` (every declared value), plus
+  `toProtoEnumValue` / `fromProtoEnumValue` for round-tripping
+  through wire numbers.
+- **Nix flake's per-format package set** — every `wireform-*`
+  package in `cabal.project` is now wired into the flake's
+  haskell-package overlay via `callCabal2nix`, and exposed under
+  `packages.<system>.<name>`. `nix develop` evaluates and the
+  resulting shell carries every workspace package.
 
 ---
 

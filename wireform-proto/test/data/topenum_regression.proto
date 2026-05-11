@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+// Regression for the top-level enum loadProto fix.
+//
+// Before the fix, `loadProto` translated `FTNamed` references as
+// `PFSubmessage` unconditionally, so a top-level enum field
+// silently encoded as a length-delimited submessage instead of a
+// varint — producing bytes that no other proto implementation
+// could read. The fix routes named-type lookups through the
+// file's ScopeCtx so enums are recognised as such and emitted as
+// PFEnum (varint via fromEnum/toEnum).
+
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_ACTIVE      = 1;
+  STATUS_RETIRED     = 2;
+  STATUS_BANNED      = 3;
+}
+
+message Account {
+  string acct_name = 1;
+  Status acct_status = 2;          // top-level enum field
+}
+
+// Also cover packed scalars: proto3 default for packable scalars
+// is packed, so this should auto-emit a single length-delimited
+// block on the wire (not one record per element).
+message PackedBag {
+  repeated int32 bag_nums = 1;
+}

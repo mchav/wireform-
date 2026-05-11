@@ -26,6 +26,7 @@ module Proto.CodeGen
   , scopedEnumCon
   , snakeToCamel
   , snakeToPascal
+  , protoJsonName
   , lowerFirst
   , escapeReserved
 
@@ -1732,7 +1733,7 @@ extractAllFieldsJSON ctx scope = concatMap go
     go = \case
       MEField fd ->
         let accessor = scopedFieldName scope (fieldName fd)
-            jsonName = fromMaybe (snakeToCamel (fieldName fd)) (getJsonName (fieldOptions fd))
+            jsonName = fromMaybe (protoJsonName (fieldName fd)) (getJsonName (fieldOptions fd))
             kind = case fieldType fd of
               FTScalar SBytes -> case fieldLabel fd of
                 Just Optional -> JFKOptionalBytes
@@ -1741,12 +1742,12 @@ extractAllFieldsJSON ctx scope = concatMap go
         in [JSONFieldInfo accessor jsonName True kind]
       MEMapField mf ->
         let accessor = scopedFieldName scope (mapFieldName mf)
-            jsonName = fromMaybe (snakeToCamel (mapFieldName mf)) (getJsonName (mapOptions mf))
+            jsonName = fromMaybe (protoJsonName (mapFieldName mf)) (getJsonName (mapOptions mf))
             kind = case mapValueType mf of { FTScalar SBytes -> JFKBytesMap; _ -> JFKNormal }
         in [JSONFieldInfo accessor jsonName True kind]
       MEOneof od ->
         let accessor = scopedFieldName scope (oneofName od)
-            jsonName = snakeToCamel (oneofName od)
+            jsonName = protoJsonName (oneofName od)
         in [JSONFieldInfo accessor jsonName True JFKNormal]
       _ -> []
 
@@ -2209,6 +2210,30 @@ snakeToCamel t =
   in case parts of
     [] -> t
     (p:ps) -> T.concat (lowerFirst p : fmap titleCase ps)
+
+-- | Proto3 JSON name conversion per the canonical spec
+-- (mirror of @ToJsonName@ in the upstream protoc C++ source).
+--
+-- Differences vs. 'snakeToCamel' that the conformance suite
+-- (@FieldNameWithMixedCases@, @FieldNameWithDoubleUnderscores@,
+-- etc.) depends on:
+--
+-- * The case of every non-underscore character is preserved
+--   /as-is/, only the character /after/ an @_@ is upcased.
+--   So @FieldName8@ stays @FieldName8@ (we don't lowercase
+--   the leading @F@).
+-- * Repeated underscores collapse: @field__name15@ becomes
+--   @fieldName15@ (only the next non-underscore is upcased).
+-- * Trailing underscores are dropped: @Field_name18__@
+--   becomes @FieldName18@.
+protoJsonName :: Text -> Text
+protoJsonName = T.pack . go False . T.unpack
+  where
+    go _       []     = []
+    go capNext (c:cs)
+      | c == '_'  = go True cs
+      | capNext   = toUpper c : go False cs
+      | otherwise = c        : go False cs
 
 snakeToPascal :: Text -> Text
 snakeToPascal t =

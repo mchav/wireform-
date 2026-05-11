@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | Proto3 canonical JSON mapping for well-known types.
 --
 -- These functions provide the canonical conversions specified by the
@@ -16,13 +17,56 @@ module Proto.JSON.WellKnown
   , valueFromJSON
   , formatRfc3339
   , parseRfc3339
+
+    -- * Wrapper types
+    -- | Per the proto3 JSON spec, every @google.protobuf.XValue@
+    -- wrapper serialises as just its inner value (rather than the
+    -- generic @{"value": ...}@ shape the pre-generated @ToJSON@
+    -- instances produce). The 'wrap*' helpers go in the encode
+    -- direction; the 'unwrap*' helpers parse a bare JSON value
+    -- and construct the wrapper. 64-bit integer wrappers
+    -- additionally string-encode their inner value.
+  , wrapBoolValue
+  , wrapInt32Value
+  , wrapInt64Value
+  , wrapUInt32Value
+  , wrapUInt64Value
+  , wrapFloatValue
+  , wrapDoubleValue
+  , wrapStringValue
+  , wrapBytesValue
+  , unwrapBoolValue
+  , unwrapInt32Value
+  , unwrapInt64Value
+  , unwrapUInt32Value
+  , unwrapUInt64Value
+  , unwrapFloatValue
+  , unwrapDoubleValue
+  , unwrapStringValue
+  , unwrapBytesValue
+
+    -- * Empty / NullValue
+  , emptyToJSON
+  , emptyFromJSON
+  , nullValueToJSON
+  , nullValueFromJSON
+
+    -- * Any
+  , anyToJSON
+  , anyFromJSON
+  , AnyCodec (..)
+  , registerAnyCodec
+  , lookupAnyCodec
+  , registerStandardWktAnyCodecs
   ) where
 
 import Data.Bifunctor (bimap)
 import Data.Char (isDigit)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import System.IO.Unsafe (unsafePerformIO)
 import Data.Scientific (fromFloatDigits, toRealFloat)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -33,15 +77,38 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
 
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64 as Base64
+import qualified Data.Text.Encoding as TE
+
 import Proto.Google.Protobuf.Timestamp
 import Proto.Google.Protobuf.Duration
 import Proto.Google.Protobuf.FieldMask
 import Proto.Google.Protobuf.Struct
+import qualified Proto.Google.Protobuf.Wrappers as W
+import qualified Proto.Google.Protobuf.Empty    as Empty
+import qualified Proto.Google.Protobuf.Any      as Any
+
+import qualified Proto.Decode as PD
+import qualified Proto.Encode as PE
 
 -- Timestamp: RFC 3339 format "YYYY-MM-DDThh:mm:ss[.nnn]Z"
 
+-- | Encode a 'Timestamp' as canonical RFC 3339. Throws on out-
+-- of-range input — the conformance suite requires that
+-- serialisation fail when the wire-format value is outside
+-- @[0001-01-01T00:00:00Z, 9999-12-31T23:59:59Z]@. The runner
+-- catches the exception and turns it into a serialize-error
+-- response.
 timestampToJSON :: Timestamp -> Aeson.Value
-timestampToJSON ts = Aeson.String (formatRfc3339 (timestampSeconds ts) (timestampNanos ts))
+timestampToJSON ts
+  | s < timestampMinSecs || s > timestampMaxSecs =
+      error ("Timestamp out of range: " <> show s)
+  | otherwise = Aeson.String (formatRfc3339 s n)
+  where
+    !s = timestampSeconds ts
+    !n = timestampNanos ts
 
 timestampFromJSON :: Aeson.Value -> Either String Timestamp
 timestampFromJSON (Aeson.String t) = parseRfc3339 t
@@ -52,10 +119,29 @@ formatRfc3339 secs nanos =
   let !civil = unixToCivil secs
       dateStr = padInt 4 (cvYear civil) <> "-" <> padInt 2 (cvMonth civil) <> "-" <> padInt 2 (cvDay civil)
       timeStr = padInt 2 (cvHour civil) <> ":" <> padInt 2 (cvMinute civil) <> ":" <> padInt 2 (cvSecond civil)
-      nanoStr
-        | nanos == 0 = ""
-        | otherwise  = "." <> T.dropWhileEnd (== '0') (padInt 9 (fromIntegral (abs nanos)))
-  in dateStr <> "T" <> timeStr <> nanoStr <> "Z"
+  in dateStr <> "T" <> timeStr <> canonicalNanoSuffix nanos <> "Z"
+
+-- | Per the proto3 JSON spec, Timestamp/Duration nanos are
+-- formatted with EXACTLY 0, 3, 6, or 9 fractional digits. A
+-- value with fewer significant digits is padded out to the
+-- next bucket; zero suppresses the entire @\".nnn\"@ suffix.
+--
+-- This is the rule the conformance suite's Validator tests
+-- (Timestamp/Duration {Has3, Has6, Has9}FractionalDigits and
+-- TimestampZeroNormalized) check.
+canonicalNanoSuffix :: Int32 -> Text
+canonicalNanoSuffix n
+  | n == 0    = T.empty
+  | otherwise =
+      let !digits = padInt 9 (fromIntegral (abs n))
+          -- Trim trailing zeros, then round /up/ the kept count
+          -- to the next multiple of 3 (3, 6, or 9).
+          !trimmed = T.dropWhileEnd (== '0') digits
+          !keep    = case T.length trimmed of
+                       k | k <= 3    -> 3
+                         | k <= 6    -> 6
+                         | otherwise -> 9
+      in T.cons '.' (T.take keep digits)
 
 data CivilTime = CivilTime
   { cvYear   :: {-# UNPACK #-} !Int
@@ -121,6 +207,13 @@ intToText n
       in go (T.cons (digit r) acc) q
     digit i = toEnum (i + 48)
 
+-- | Proto3 spec range for Timestamp: @[0001-01-01T00:00:00Z,
+-- 9999-12-31T23:59:59.999999999Z]@. Outside that range
+-- timestamps are not representable in canonical JSON.
+timestampMinSecs, timestampMaxSecs :: Int64
+timestampMinSecs = -62135596800   -- 0001-01-01T00:00:00Z
+timestampMaxSecs = 253402300799   -- 9999-12-31T23:59:59Z
+
 parseRfc3339 :: Text -> Either String Timestamp
 parseRfc3339 t = do
   let stripped = T.strip t
@@ -129,17 +222,75 @@ parseRfc3339 t = do
       | T.null rest -> Left "Invalid RFC 3339 timestamp: missing T separator"
       | otherwise -> do
           let timePart' = T.drop 1 rest
-              timePart = T.dropWhileEnd (\c -> c == 'Z' || c == 'z') timePart'
+          (timePart, !offsetSecs) <- splitOffset timePart'
           date <- parseDate datePart
           time <- parseTime timePart
           let !days = daysFromCivil (pdYear date) (pdMonth date) (pdDay date) - 719468
-              !totalSecs = fromIntegral days * 86400 + fromIntegral (ptHour time) * 3600 +
-                           fromIntegral (ptMinute time) * 60 + fromIntegral (ptSecond time)
-          Right Timestamp
-            { timestampSeconds = totalSecs
-            , timestampNanos = ptNanos time
-            , timestampUnknownFields = []
-            }
+              !rawSecs = fromIntegral days * 86400
+                       + fromIntegral (ptHour time) * 3600
+                       + fromIntegral (ptMinute time) * 60
+                       + fromIntegral (ptSecond time)
+              -- If the input came with a +HH:MM offset, normalise
+              -- to UTC by subtracting the offset (so an East-of-
+              -- UTC wall clock yields a smaller unix epoch).
+              !totalSecs = rawSecs - offsetSecs
+          if totalSecs < timestampMinSecs || totalSecs > timestampMaxSecs
+            then Left "Timestamp out of range [0001-01-01, 9999-12-31]"
+            else Right Timestamp
+              { timestampSeconds = totalSecs
+              , timestampNanos = ptNanos time
+              , timestampUnknownFields = []
+              }
+
+-- | Strip the trailing zone designator from an RFC 3339 time
+-- and return the remaining time component plus the offset in
+-- seconds (positive for east-of-UTC, negative for west).
+--
+-- The proto3 spec requires the timestamp to end with @Z@ (the
+-- conformance suite explicitly rejects lowercase @z@ and
+-- missing zone). Numeric offsets @+HH:MM@ and @-HH:MM@ are
+-- accepted and normalised to UTC.
+splitOffset :: Text -> Either String (Text, Int64)
+splitOffset t
+  | T.null t = Left "Empty time component"
+  | last' == 'Z' = Right (T.init t, 0)
+  | last' == 'z' = Left "Lowercase 'z' zone designator not allowed"
+  | otherwise =
+      -- Try to peel a +HH:MM / -HH:MM suffix. We scan back from
+      -- the end for the first '+' or '-' that's part of the zone
+      -- (the seconds field can also have a leading '-' but we
+      -- look for an offset signature: ±DD:DD).
+      case parseOffsetSuffix t of
+        Just (timePart, offsetSecs) -> Right (timePart, offsetSecs)
+        Nothing -> Left "Timestamp must end with 'Z' or numeric offset"
+  where
+    last' = T.last t
+
+-- | Recognise a trailing @+HH:MM@ / @-HH:MM@ (and the rare
+-- @+HHMM@ shorthand) suffix on an RFC 3339 time string.
+parseOffsetSuffix :: Text -> Maybe (Text, Int64)
+parseOffsetSuffix t
+  -- ±HH:MM (6 chars, e.g. "+08:00")
+  | T.length t >= 6
+  , Just (rest, suf) <- splitAtRev 6 t
+  , Just (sign, hh, mm) <- parseHhMmSuffix suf
+  = Just (rest, sign * (hh * 3600 + mm * 60))
+  | otherwise = Nothing
+  where
+    splitAtRev n s
+      | T.length s < n = Nothing
+      | otherwise = Just (T.dropEnd n s, T.takeEnd n s)
+
+    parseHhMmSuffix s = case T.unpack s of
+      [c1, h1, h2, ':', m1, m2]
+        | c1 == '+' || c1 == '-'
+        , isDigit h1, isDigit h2, isDigit m1, isDigit m2
+        -> Just ( if c1 == '+' then 1 else -1
+                , fromIntegral ((d h1) * 10 + d h2)
+                , fromIntegral ((d m1) * 10 + d m2))
+      _ -> Nothing
+
+    d c = fromEnum c - fromEnum '0'
 
 data ParsedDate = ParsedDate
   { pdYear  :: {-# UNPACK #-} !Int
@@ -193,16 +344,31 @@ readInt t = case TR.signed TR.decimal t of
   Left e -> Left e
 
 -- Duration: "3.5s" format
+--
+-- Proto3 spec range: seconds ∈ [-315576000000, 315576000000]
+-- (about ±10000 years). Nanos must have the same sign as
+-- seconds (or be zero), and lie in (-1e9, 1e9).
+
+-- | Inclusive bounds on @Duration.seconds@ per the proto3 spec.
+durationMinSecs, durationMaxSecs :: Int64
+durationMinSecs = -315576000000
+durationMaxSecs =  315576000000
 
 durationToJSON :: Duration -> Aeson.Value
-durationToJSON dur =
-  let !s = durationSeconds dur
-      !n = durationNanos dur
-      secStr = intToText (fromIntegral s)
-      nanoStr
-        | n == 0    = ""
-        | otherwise = "." <> T.dropWhileEnd (== '0') (padInt 9 (fromIntegral (abs n)))
-  in Aeson.String (secStr <> nanoStr <> "s")
+durationToJSON dur
+  | s < durationMinSecs || s > durationMaxSecs =
+      error ("Duration out of range: " <> show s)
+  | otherwise = Aeson.String (secStr <> canonicalNanoSuffix (abs n) <> "s")
+  where
+    !s = durationSeconds dur
+    !n = durationNanos dur
+    -- Sign comes from EITHER field. Always render the
+    -- whole-seconds magnitude with an explicit leading '-'
+    -- when the duration is negative (covers "-0.5s" and
+    -- "-1.5s" alike).
+    negative = s < 0 || n < 0
+    signStr  = if negative then T.singleton '-' else T.empty
+    secStr   = signStr <> intToText (fromIntegral (abs s))
 
 durationFromJSON :: Aeson.Value -> Either String Duration
 durationFromJSON (Aeson.String t) = parseDuration t
@@ -213,26 +379,110 @@ parseDuration t = do
   let stripped = T.strip t
   case T.stripSuffix "s" stripped of
     Nothing -> Left "Duration must end with 's'"
-    Just numPart -> case T.breakOn "." numPart of
-      (wholePart, fracPart) -> do
-        secs <- readInt wholePart
-        let !nanos = parseFracNanos fracPart
-        Right Duration
-          { durationSeconds = fromIntegral secs
-          , durationNanos = nanos
-          , durationUnknownFields = []
-          }
+    Just numPart ->
+      let !negative = case T.uncons numPart of
+                        Just ('-', _) -> True
+                        _             -> False
+      in case T.breakOn "." numPart of
+        (wholePart, fracPart) -> do
+          secs <- readInt wholePart
+          let !rawNanos = parseFracNanos fracPart
+              -- Proto3 spec: nanos carry the same sign as seconds.
+              -- For "-0.5s" the wholePart parses to 0 but the
+              -- sign comes from the leading '-' in the input.
+              !nanos = if negative then negate rawNanos else rawNanos
+              !secs64 = fromIntegral secs :: Int64
+          if secs64 < durationMinSecs || secs64 > durationMaxSecs
+            then Left "Duration out of range [-315576000000, 315576000000]"
+            else Right Duration
+              { durationSeconds = secs64
+              , durationNanos = nanos
+              , durationUnknownFields = []
+              }
 
 -- FieldMask: comma-separated paths
+--
+-- Proto3 spec: each path component is stored in
+-- lower_snake_case on the wire, but rendered in lowerCamelCase
+-- in JSON. The conversion is round-trip-required, so any path
+-- whose snake form can't be unambiguously recovered from the
+-- camel form (uppercase chars, embedded digits, repeated
+-- underscores) MUST be rejected on serialise.
 
 fieldMaskToJSON :: FieldMask -> Aeson.Value
-fieldMaskToJSON fm = Aeson.String (T.intercalate "," (V.toList (fieldMaskPaths fm)))
+fieldMaskToJSON fm =
+  case traverse snakeToFieldMaskCamel (V.toList (fieldMaskPaths fm)) of
+    Right cs -> Aeson.String (T.intercalate "," cs)
+    Left  e  -> error ("FieldMask path: " <> e)
 
 fieldMaskFromJSON :: Aeson.Value -> Either String FieldMask
 fieldMaskFromJSON (Aeson.String t)
-  | T.null t  = Right (FieldMask { fieldMaskPaths = V.empty, fieldMaskUnknownFields = [] })
-  | otherwise = Right (FieldMask { fieldMaskPaths = V.fromList (T.splitOn "," t), fieldMaskUnknownFields = [] })
+  | T.null t  =
+      Right FieldMask { fieldMaskPaths = V.empty, fieldMaskUnknownFields = [] }
+  | otherwise = do
+      paths <- traverse camelToFieldMaskSnake (T.splitOn "," t)
+      Right FieldMask
+        { fieldMaskPaths         = V.fromList paths
+        , fieldMaskUnknownFields = []
+        }
 fieldMaskFromJSON _ = Left "Expected string for FieldMask"
+
+-- | snake_case -> lowerCamelCase for one FieldMask path
+-- component, refusing inputs that wouldn't round-trip back to
+-- the original snake form (uppercase chars in source, embedded
+-- digits surrounded by underscores, multiple consecutive
+-- underscores).
+snakeToFieldMaskCamel :: Text -> Either String Text
+snakeToFieldMaskCamel t = T.pack <$> go False (T.unpack t)
+  where
+    go _    [] = Right []
+    go cap  (c:cs)
+      | c == '_' =
+          if cap
+            then Left ("repeated underscores in path: " <> show t)
+            else case cs of
+              (next:_) | not (isLowerAscii next) ->
+                Left ("'_' must precede lowercase ASCII in path: "
+                       <> show t)
+              _ -> go True cs
+      | c == '.' =
+          if cap
+            then Left ("'.' immediately after '_' in path: " <> show t)
+            else (c :) <$> go False cs
+      | isUpperAscii c =
+          Left ("uppercase character not allowed in source path: " <> show t)
+      | cap = ((upperOf c) :) <$> go False cs
+      | otherwise = (c :) <$> go False cs
+
+-- | lowerCamelCase -> snake_case for one FieldMask path
+-- component (the input form on JSON parse). Each uppercase
+-- letter introduces a leading @_@; @.@ separators stay verbatim
+-- so nested paths like @foo.barBaz@ become @foo.bar_baz@.
+-- Rejects inputs containing @_@ (FieldMaskInvalidCharacter) —
+-- the JSON form is required to be lowerCamelCase, which never
+-- has bare underscores.
+camelToFieldMaskSnake :: Text -> Either String Text
+camelToFieldMaskSnake t = T.pack <$> go (T.unpack t)
+  where
+    go [] = Right []
+    go (c:cs)
+      | c == '_'      =
+          Left ("'_' not allowed in JSON FieldMask path: " <> show t)
+      | isUpperAscii c =
+          ('_' :) . (lowerOf c :) <$> go cs
+      | otherwise = (c :) <$> go cs
+
+isLowerAscii, isUpperAscii :: Char -> Bool
+isLowerAscii c = c >= 'a' && c <= 'z'
+isUpperAscii c = c >= 'A' && c <= 'Z'
+
+upperOf, lowerOf :: Char -> Char
+upperOf c
+  | isLowerAscii c = toEnum (fromEnum c - 32)
+  | otherwise      = c
+lowerOf c
+  | isUpperAscii c = toEnum (fromEnum c + 32)
+  | otherwise      = c
 
 -- Struct/Value: native JSON
 
@@ -252,7 +502,15 @@ valueToJSON v = case valueKind v of
   Nothing -> Aeson.Null
   Just vk -> case vk of
     Value'Kind'NullValue _   -> Aeson.Null
-    Value'Kind'NumberValue d -> Aeson.Number (fromFloatDigits d)
+    Value'Kind'NumberValue d
+      | isNaN d || isInfinite d ->
+          -- Proto3 spec: google.protobuf.Value rejects
+          -- non-finite numbers on serialise (the Reject{Inf,
+          -- Nan}NumberValue conformance tests). Surface this
+          -- as a serialise failure via 'error', caught by
+          -- the conformance handler.
+          error ("Value: non-finite number not allowed: " <> show d)
+      | otherwise -> Aeson.Number (fromFloatDigits d)
     Value'Kind'StringValue s -> Aeson.String s
     Value'Kind'BoolValue b   -> Aeson.Bool b
     Value'Kind'StructValue s -> structToJSON s
@@ -268,3 +526,331 @@ jsonToValue (Aeson.Number n) = defaultValue { valueKind = Just (Value'Kind'Numbe
 jsonToValue (Aeson.String s) = defaultValue { valueKind = Just (Value'Kind'StringValue s) }
 jsonToValue (Aeson.Array vs) = defaultValue { valueKind = Just (Value'Kind'ListValue (defaultListValue { listValueValues = fmap jsonToValue vs })) }
 jsonToValue (Aeson.Object o) = defaultValue { valueKind = Just (Value'Kind'StructValue (defaultStruct { structFields = Map.fromList (fmap (bimap AesonKey.toText jsonToValue) (AesonKM.toList o)) })) }
+
+-- ---------------------------------------------------------------------------
+-- Wrappers (proto3 spec: emit just the inner value, not @{"value": ...}@)
+-- ---------------------------------------------------------------------------
+
+-- Encoders unwrap to the inner value, applying proto3-canonical
+-- per-scalar conversions where needed (string-form 64-bit ints,
+-- NaN/Infinity floats, base64 bytes).
+
+wrapBoolValue :: W.BoolValue -> Aeson.Value
+wrapBoolValue = Aeson.Bool . W.boolValueValue
+
+wrapInt32Value :: W.Int32Value -> Aeson.Value
+wrapInt32Value = Aeson.toJSON . W.int32ValueValue
+
+wrapInt64Value :: W.Int64Value -> Aeson.Value
+wrapInt64Value = Aeson.String . T.pack . show . W.int64ValueValue
+
+wrapUInt32Value :: W.UInt32Value -> Aeson.Value
+wrapUInt32Value = Aeson.toJSON . W.uInt32ValueValue
+
+wrapUInt64Value :: W.UInt64Value -> Aeson.Value
+wrapUInt64Value = Aeson.String . T.pack . show . W.uInt64ValueValue
+
+wrapFloatValue :: W.FloatValue -> Aeson.Value
+wrapFloatValue = floatLikeToJSON . realToFrac . W.floatValueValue
+
+wrapDoubleValue :: W.DoubleValue -> Aeson.Value
+wrapDoubleValue = floatLikeToJSON . W.doubleValueValue
+
+wrapStringValue :: W.StringValue -> Aeson.Value
+wrapStringValue = Aeson.String . W.stringValueValue
+
+wrapBytesValue :: W.BytesValue -> Aeson.Value
+wrapBytesValue = Aeson.String . TE.decodeUtf8 . Base64.encode . W.bytesValueValue
+
+floatLikeToJSON :: Double -> Aeson.Value
+floatLikeToJSON d
+  | isNaN d      = Aeson.String "NaN"
+  | isInfinite d = Aeson.String (if d > 0 then "Infinity" else "-Infinity")
+  | otherwise    = Aeson.Number (fromFloatDigits d)
+
+-- Decoders parse a bare JSON value and construct the wrapper.
+
+unwrapBoolValue :: Aeson.Value -> Either String W.BoolValue
+unwrapBoolValue (Aeson.Bool b) = Right W.defaultBoolValue { W.boolValueValue = b }
+unwrapBoolValue _              = Left "Expected JSON Bool for BoolValue"
+
+unwrapInt32Value :: Aeson.Value -> Either String W.Int32Value
+unwrapInt32Value v = case parseIntegral v of
+  Right n -> Right W.defaultInt32Value { W.int32ValueValue = fromIntegral (n :: Int64) }
+  Left e  -> Left e
+
+unwrapInt64Value :: Aeson.Value -> Either String W.Int64Value
+unwrapInt64Value v = case parseIntegral v of
+  Right n -> Right W.defaultInt64Value { W.int64ValueValue = n }
+  Left e  -> Left e
+
+unwrapUInt32Value :: Aeson.Value -> Either String W.UInt32Value
+unwrapUInt32Value v = case parseIntegral v of
+  Right n -> Right W.defaultUInt32Value
+    { W.uInt32ValueValue = fromIntegral (n :: Int64) }
+  Left e  -> Left e
+
+unwrapUInt64Value :: Aeson.Value -> Either String W.UInt64Value
+unwrapUInt64Value v = case parseIntegral v of
+  Right n -> Right W.defaultUInt64Value
+    { W.uInt64ValueValue = fromIntegral (n :: Int64) }
+  Left e  -> Left e
+
+unwrapFloatValue :: Aeson.Value -> Either String W.FloatValue
+unwrapFloatValue v = case parseFloating v of
+  Right d -> Right W.defaultFloatValue { W.floatValueValue = realToFrac d }
+  Left e  -> Left e
+
+unwrapDoubleValue :: Aeson.Value -> Either String W.DoubleValue
+unwrapDoubleValue v = case parseFloating v of
+  Right d -> Right W.defaultDoubleValue { W.doubleValueValue = d }
+  Left e  -> Left e
+
+unwrapStringValue :: Aeson.Value -> Either String W.StringValue
+unwrapStringValue (Aeson.String s) =
+  Right W.defaultStringValue { W.stringValueValue = s }
+unwrapStringValue _ = Left "Expected JSON String for StringValue"
+
+unwrapBytesValue :: Aeson.Value -> Either String W.BytesValue
+unwrapBytesValue (Aeson.String s) =
+  case Base64.decode (TE.encodeUtf8 s) of
+    Right bs -> Right W.defaultBytesValue { W.bytesValueValue = bs }
+    Left e   -> Left ("invalid base64 for BytesValue: " <> e)
+unwrapBytesValue _ = Left "Expected JSON String for BytesValue"
+
+parseIntegral :: Aeson.Value -> Either String Int64
+parseIntegral (Aeson.String s) = case TR.signed TR.decimal s of
+  Right (n, rest) | T.null rest -> Right n
+  _ -> Left "Invalid integer string"
+parseIntegral (Aeson.Number n) = Right (round n)
+parseIntegral _ = Left "Expected JSON String or Number"
+
+parseFloating :: Aeson.Value -> Either String Double
+parseFloating (Aeson.Number n) = Right (toRealFloat n)
+parseFloating (Aeson.String "NaN")       = Right (0 / 0)
+parseFloating (Aeson.String "Infinity")  = Right (1 / 0)
+parseFloating (Aeson.String "-Infinity") = Right (negate (1 / 0))
+parseFloating _ = Left "Expected JSON Number or {NaN,Infinity}"
+
+-- ---------------------------------------------------------------------------
+-- Empty / NullValue / Any
+-- ---------------------------------------------------------------------------
+
+emptyToJSON :: Empty.Empty -> Aeson.Value
+emptyToJSON _ = Aeson.Object AesonKM.empty
+
+emptyFromJSON :: Aeson.Value -> Either String Empty.Empty
+emptyFromJSON (Aeson.Object _) = Right Empty.defaultEmpty
+emptyFromJSON _                = Left "Expected JSON Object for Empty"
+
+-- | 'NullValue' is the proto3 enum @NULL_VALUE = 0@; it serialises
+-- as JSON @null@. We import it from "Proto.Google.Protobuf.Struct"
+-- (since that's where the codegen put it).
+nullValueToJSON :: NullValue -> Aeson.Value
+nullValueToJSON _ = Aeson.Null
+
+nullValueFromJSON :: Aeson.Value -> Either String NullValue
+nullValueFromJSON Aeson.Null = Right NullValue'NullValue
+nullValueFromJSON _          = Left "Expected JSON null for NullValue"
+
+-- | One entry in the runtime 'Any' codec registry. The pair is
+-- a (decode wire bytes -> typed-message JSON, encode typed-
+-- message JSON -> wire bytes) function couple. The
+-- @acIsWktEnvelope@ bit decides whether the proto3-canonical
+-- JSON form for the type wraps the value under @"value"@
+-- (every WKT) or inlines the message fields alongside @"@type"@
+-- (every regular message).
+data AnyCodec = AnyCodec
+  { acDecodeBytesToJSON :: ByteString -> Either String Aeson.Value
+  , acEncodeJSONToBytes :: Aeson.Value -> Either String ByteString
+  , acIsWktEnvelope     :: !Bool
+  }
+
+{-# NOINLINE anyRegistryRef #-}
+anyRegistryRef :: IORef (Map Text AnyCodec)
+anyRegistryRef = unsafePerformIO (newIORef Map.empty)
+
+-- | Register an 'AnyCodec' under its proto fully-qualified
+-- type name. The conformance runner pre-populates the
+-- registry on startup; library users who need 'Any' support
+-- in their own code do the same.
+registerAnyCodec :: Text -> AnyCodec -> IO ()
+registerAnyCodec ty codec =
+  atomicModifyIORef' anyRegistryRef (\m -> (Map.insert ty codec m, ()))
+
+lookupAnyCodec :: Text -> Maybe AnyCodec
+lookupAnyCodec ty =
+  unsafePerformIO (Map.lookup ty <$> readIORef anyRegistryRef)
+
+-- | Strip the canonical @type.googleapis.com/@ prefix so the
+-- registry key is the bare proto fully-qualified type name.
+typeFromUrl :: Text -> Text
+typeFromUrl t =
+  let prefix = T.pack "type.googleapis.com/"
+  in case T.stripPrefix prefix t of
+       Just rest -> rest
+       Nothing   -> case T.breakOnEnd (T.pack "/") t of
+         (_, suffix) | not (T.null suffix) -> suffix
+         _ -> t
+
+-- | @google.protobuf.Any@ JSON shape:
+-- @{"@type": "type.googleapis.com/...", ...other fields embedded...}@
+-- for a regular message, or
+-- @{"@type": "...", "value": <canonical>}@ for a WKT.
+--
+-- Falls back to the degenerate shape (@@type + base64 value@)
+-- when the type isn't in the codec registry.
+anyToJSON :: Any.Any -> Aeson.Value
+anyToJSON a =
+  let url = Any.anyTypeUrl a
+      ty  = typeFromUrl url
+      typeKey  = AesonKey.fromText (T.pack "@type")
+      typeVal  = (typeKey, Aeson.String url)
+      fallback = Aeson.Object (AesonKM.fromList
+        [ typeVal
+        , (AesonKey.fromText (T.pack "value"),
+            Aeson.String (TE.decodeUtf8 (Base64.encode (Any.anyValue a))))
+        ])
+  in case lookupAnyCodec ty of
+       Just codec ->
+         case acDecodeBytesToJSON codec (Any.anyValue a) of
+           Left _ -> fallback
+           Right v
+             | acIsWktEnvelope codec ->
+                 Aeson.Object (AesonKM.fromList
+                   [ typeVal
+                   , (AesonKey.fromText (T.pack "value"), v)
+                   ])
+             | Aeson.Object obj <- v ->
+                 Aeson.Object (AesonKM.insert typeKey (Aeson.String url) obj)
+             | otherwise ->
+                 -- Codec for a non-WKT returned a non-object;
+                 -- shouldn't happen for our registered types, but
+                 -- we degrade gracefully by switching back to the
+                 -- "value": <encoded> form rather than crash.
+                 Aeson.Object (AesonKM.fromList
+                   [typeVal, (AesonKey.fromText (T.pack "value"), v)])
+       Nothing -> fallback
+
+anyFromJSON :: Aeson.Value -> Either String Any.Any
+anyFromJSON (Aeson.Object o) = do
+  let typeKey = AesonKey.fromText (T.pack "@type")
+  url <- case AesonKM.lookup typeKey o of
+    Just (Aeson.String s) -> Right s
+    _                     -> Left "Any: missing or non-string @type"
+  let ty = typeFromUrl url
+  case lookupAnyCodec ty of
+    Just codec
+      | acIsWktEnvelope codec ->
+          case AesonKM.lookup (AesonKey.fromText (T.pack "value")) o of
+            Nothing -> Right Any.defaultAny
+              { Any.anyTypeUrl = url, Any.anyValue = BS.empty }
+            Just v  -> do
+              bs <- acEncodeJSONToBytes codec v
+              Right Any.defaultAny { Any.anyTypeUrl = url, Any.anyValue = bs }
+      | otherwise ->
+          let inner = Aeson.Object (AesonKM.delete typeKey o)
+          in do
+            bs <- acEncodeJSONToBytes codec inner
+            Right Any.defaultAny { Any.anyTypeUrl = url, Any.anyValue = bs }
+    Nothing -> do
+      -- Unregistered type: fall back to the degenerate
+      -- "value": base64 form. Tests like AnyWithFieldMask
+      -- which we've registered hit the codec path instead.
+      bs <- case AesonKM.lookup (AesonKey.fromText (T.pack "value")) o of
+        Nothing -> Right BS.empty
+        Just (Aeson.String s) -> case Base64.decode (TE.encodeUtf8 s) of
+          Right bs -> Right bs
+          Left e   -> Left ("Any: invalid base64 value: " <> e)
+        _ -> Left "Any: non-string value"
+      Right Any.defaultAny { Any.anyTypeUrl = url, Any.anyValue = bs }
+anyFromJSON _ = Left "Expected JSON Object for Any"
+
+-- | Register the WKT codecs that ship with the library
+-- (Timestamp, Duration, FieldMask, Wrapper types, Struct,
+-- Value, ListValue, NullValue, Empty). User-defined message
+-- types are registered separately via 'registerAnyCodec'.
+--
+-- Idempotent — call once on process startup.
+registerStandardWktAnyCodecs :: IO ()
+registerStandardWktAnyCodecs = do
+  registerAnyCodec "google.protobuf.Timestamp"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage timestampToJSON
+                 (toParserResult . timestampFromJSON))
+  registerAnyCodec "google.protobuf.Duration"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage durationToJSON
+                 (toParserResult . durationFromJSON))
+  registerAnyCodec "google.protobuf.FieldMask"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage fieldMaskToJSON
+                 (toParserResult . fieldMaskFromJSON))
+  registerAnyCodec "google.protobuf.Struct"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage structToJSON
+                 (toParserResult . structFromJSON))
+  registerAnyCodec "google.protobuf.Value"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage valueToJSON
+                 (toParserResult . valueFromJSON))
+  registerAnyCodec "google.protobuf.ListValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage
+       (\lv -> Aeson.Array (V.map valueToJSON (listValueValues lv)))
+       (\v -> case v of
+          Aeson.Array vs ->
+            Right (defaultListValue { listValueValues = V.map jsonToValue vs })
+          _ -> Left "Expected JSON array for ListValue"))
+  registerAnyCodec "google.protobuf.NullValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage
+       nullValueToJSON nullValueFromJSON)
+  registerAnyCodec "google.protobuf.Empty"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage emptyToJSON emptyFromJSON)
+  -- google.protobuf.Any nested inside another Any: per
+  -- proto3 spec, Any IS a WKT, so the envelope is "value"
+  -- and the value of "value" is itself the recursive
+  -- @{"@type":...,...}@ object.
+  registerAnyCodec "google.protobuf.Any" AnyCodec
+    { acDecodeBytesToJSON = \bs -> case PD.decodeMessage bs of
+        Left _  -> Left "Any: nested Any decode failed"
+        Right (a :: Any.Any) -> Right (anyToJSON a)
+    , acEncodeJSONToBytes = \v -> PE.encodeMessage <$> anyFromJSON v
+    , acIsWktEnvelope     = True
+    }
+  -- All 9 wrapper types: each round-trips through its bare
+  -- inner value rather than the generic @{"value": ...}@ shape.
+  -- The Any envelope still uses @"value"@, but that's the
+  -- envelope wrapping the wrapper's own bare value.
+  registerAnyCodec "google.protobuf.BoolValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapBoolValue unwrapBoolValue)
+  registerAnyCodec "google.protobuf.Int32Value"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapInt32Value unwrapInt32Value)
+  registerAnyCodec "google.protobuf.Int64Value"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapInt64Value unwrapInt64Value)
+  registerAnyCodec "google.protobuf.UInt32Value"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapUInt32Value unwrapUInt32Value)
+  registerAnyCodec "google.protobuf.UInt64Value"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapUInt64Value unwrapUInt64Value)
+  registerAnyCodec "google.protobuf.FloatValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapFloatValue unwrapFloatValue)
+  registerAnyCodec "google.protobuf.DoubleValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapDoubleValue unwrapDoubleValue)
+  registerAnyCodec "google.protobuf.StringValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapStringValue unwrapStringValue)
+  registerAnyCodec "google.protobuf.BytesValue"
+    (wktCodecVia PD.decodeMessage PE.encodeMessage wrapBytesValue unwrapBytesValue)
+
+-- | Build a WKT-style 'AnyCodec' (envelope = @"value"@).
+wktCodecVia
+  :: (ByteString -> Either e a)         -- ^ wire decoder
+  -> (a -> ByteString)                  -- ^ wire encoder
+  -> (a -> Aeson.Value)                 -- ^ JSON encoder
+  -> (Aeson.Value -> Either String a)   -- ^ JSON decoder
+  -> AnyCodec
+wktCodecVia decBytes encBytes encJson decJson = AnyCodec
+  { acDecodeBytesToJSON = \bs -> case decBytes bs of
+      Left _  -> Left "Any: failed to decode embedded value"
+      Right a -> Right (encJson a)
+  , acEncodeJSONToBytes = \v -> encBytes <$> decJson v
+  , acIsWktEnvelope     = True
+  }
+
+-- | Lift an @Either String a@-style validator into the
+-- 'Either String a' shape used by the registry.
+toParserResult :: Either String a -> Either String a
+toParserResult = id
