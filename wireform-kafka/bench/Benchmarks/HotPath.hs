@@ -28,7 +28,7 @@ module Benchmarks.HotPath (benchmarks) where
 
 import Criterion (Benchmark, bench, bgroup, nf, whnfIO)
 import qualified Data.ByteString as BS
-import qualified Data.Sequence as Seq
+import qualified Data.Vector as V
 import GHC.IO (unsafePerformIO)
 
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
@@ -63,7 +63,7 @@ producerBench = bgroup "Producer"
       [ bench "single append (no-stamp)" $ whnfIO $
           BA.appendRecordStamped sharedAccumulator
             (BA.TopicPartition "topic" 0)
-            sampleRecord (\_ -> pure ()) BA.noStamp
+            sampleRecord BA.NoRecordCallback BA.noStamp
       , bench "100 appends" $ whnfIO $
           appendNRecords sharedAccumulator 100
       , bench "1000 appends" $ whnfIO $
@@ -200,7 +200,7 @@ sampleRecord = RB.Record
 sampleBatch :: Int -> BA.ProducerBatch
 sampleBatch n = BA.ProducerBatch
   { BA.batchTopicPartition = BA.TopicPartition "topic" 0
-  , BA.batchRecords        = Seq.fromList
+  , BA.batchRecords        = V.fromList
       [ RB.Record 0 (fromIntegral i) (Just "k") payload100 []
       | i <- [0 .. n - 1]
       ]
@@ -211,7 +211,7 @@ sampleBatch n = BA.ProducerBatch
   , BA.batchCompression    = Compression.NoCompression
   , BA.batchCompressionLevel =
       Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks      = Seq.replicate n (\_ -> pure ())
+  , BA.batchCallbacks      = V.replicate n BA.NoRecordCallback
   , BA.batchAttempts       = 0
   , BA.batchProducerId     = RB.noProducerId
   , BA.batchProducerEpoch  = RB.noProducerEpoch
@@ -283,5 +283,5 @@ appendNRecords acc !n = go n
     go 0 = pure ()
     go !k = do
       _ <- BA.appendRecordStamped acc (BA.TopicPartition "topic" 0)
-              sampleRecord (\_ -> pure ()) BA.noStamp
+              sampleRecord BA.NoRecordCallback BA.noStamp
       go (k - 1)

@@ -19,7 +19,7 @@ talking to a coordinator.
 -}
 module Conformance.T0103.TransactionsLocal (tests) where
 
-import qualified Control.Concurrent.STM as STM
+import Data.IORef (readIORef)
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -79,8 +79,8 @@ tests = testGroup "0103-transactions_local"
 
   , testCase "producer ID and epoch start unset" $ do
       txn <- mkLocalTransaction
-      pid <- STM.readTVarIO (Txn.txnProducerId txn)
-      ep  <- STM.readTVarIO (Txn.txnProducerEpoch txn)
+      pid <- readIORef (Txn.txnProducerId txn)
+      ep  <- readIORef (Txn.txnProducerEpoch txn)
       pid @?= Nothing
       ep  @?= Nothing
 

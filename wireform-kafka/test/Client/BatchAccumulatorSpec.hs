@@ -4,9 +4,17 @@ module Client.BatchAccumulatorSpec (tests) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, wait)
-import Control.Monad (replicateM, replicateM_, when)
+import Control.Monad (replicateM, replicateM_, when, unless)
 import qualified Data.ByteString as BS
 import Data.Int
+import qualified Data.Vector as V
+import Data.IORef
+  ( IORef
+  , atomicModifyIORef'
+  , newIORef
+  , readIORef
+  )
+import qualified Data.Set as Set
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -158,7 +166,7 @@ prop_concurrentAppends = property $ do
     batches <- BA.drainReadyBatches accumulator
     
     -- Count total records across all batches
-    let totalRecords = sum $ map (length . BA.batchRecords) batches
+    let totalRecords = sum $ map (V.length . BA.batchRecords) batches
     
     -- Should have all records
     return $ totalRecords == numThreads * recordsPerThread
@@ -223,6 +231,120 @@ prop_batchStateTransitions = property $ do
   
   evalIO $ BA.closeBatchAccumulator accumulator
 
+-- | Regression test for the seal-vs-append race.
+--
+-- Pre-fix shape: the producer would call @atomicModifyIORef'
+-- baHotState@ to incorporate its record /after/ a concurrent
+-- sealer had already swapped the partition's currentBatch to
+-- 'Nothing' AND read the hot state for the snapshot. The
+-- producer's CAS would succeed on the now-orphaned batch — the
+-- record reported as "appended" but never made it into any
+-- ready batch.
+--
+-- Post-fix shape ('bhSealed' interlock + 'casAppend' /
+-- 'snapshotBatch' contending on the same 'IORef'): every record
+-- whose append CAS reports success ('AppendedSize') /must/
+-- appear in some sealed batch, because either it landed before
+-- the seal CAS (included in the snapshot) or it landed on a
+-- fresh batch the slow path installed (included in some later
+-- snapshot).
+--
+-- The test:
+--   * tiny batch-size limit so each record triggers a seal-on-
+--     size in the producer thread;
+--   * a parallel "sealer" thread continuously calls
+--     'drainReadyBatches' (which also seals the in-progress
+--     batch on linger expiry) so it races the producer's
+--     seal-on-size on every iteration;
+--   * after both threads finish, drain the rest and assert the
+--     bag of recordValues we received from the accumulator is
+--     /exactly/ the bag of recordValues we asked it to accept.
+--     A silently dropped record would be in the asked-for bag
+--     but not the received-from bag.
+prop_appendAndSealRaceIsLossless :: Property
+prop_appendAndSealRaceIsLossless = withTests 50 . property $ do
+  -- Record count + batch-size limit are picked so we exercise the
+  -- race window many times per run: tiny limit -> nearly every
+  -- record seals; concurrent drain thread sees several sealed
+  -- batches per loop iteration.
+  let !nRecords      = 4000
+      !batchSizeCap  = 64           -- forces seal after ~1-2 records
+      !lingerMs      = 1            -- linger thread sees seals constantly
+      !payloadBytes  = 24
+      !tp            = BA.TopicPartition "race" 0
+
+  acc <- evalIO $ BA.createBatchAccumulator
+                    batchSizeCap
+                    lingerMs
+                    Compression.NoCompression
+                    (Compression.defaultLevel Compression.NoCompression)
+
+  -- Drained-batches accumulator and a "stop draining" flag the
+  -- producer flips when it's done appending. This avoids
+  -- 'threadDelay' in the test (per the project's no-flaky-test
+  -- rule).
+  drained <- evalIO $ newIORef ([] :: [BA.ProducerBatch])
+  done    <- evalIO $ newIORef False
+
+  evalIO $ do
+    drainAsync <- async $ do
+      let loop = do
+            bs <- BA.drainReadyBatches acc
+            unless (null bs) $
+              atomicModifyIORef' drained $ \xs -> (bs ++ xs, ())
+            isDone <- readIORef done
+            if isDone
+              then do
+                -- Final drain after producer signalled done.
+                final <- BA.drainReadyBatches acc
+                unless (null final) $
+                  atomicModifyIORef' drained $ \xs -> (final ++ xs, ())
+              else loop
+      loop
+
+    producerAsync <- async $ do
+      let payloadFor i = BS.pack (replicate payloadBytes (fromIntegral (i `mod` 251)))
+          appendOne i = do
+            let !record = RB.Record
+                  { RB.recordTimestampDelta = 0
+                  , RB.recordOffsetDelta    = fromIntegral i
+                  , RB.recordKey            = Nothing
+                  , RB.recordValue          = payloadFor i
+                  , RB.recordHeaders        = []
+                  }
+            ok <- BA.appendRecordStampedUnsafe acc tp record BA.NoRecordCallback BA.noStamp
+            unless ok $ error "append rejected mid-test"
+          go !i
+            | i >= nRecords = pure ()
+            | otherwise = do
+                appendOne i
+                go (i + 1)
+      go 0
+      atomicModifyIORef' done $ \_ -> (True, ())
+
+    wait producerAsync
+    wait drainAsync
+    BA.closeBatchAccumulator acc
+    finalBatches <- BA.drainReadyBatches acc
+    atomicModifyIORef' drained $ \xs -> (finalBatches ++ xs, ())
+
+  collected <- evalIO $ readIORef drained
+  let receivedRecords =
+        concatMap (V.toList . BA.batchRecords) collected
+      receivedKeys =
+        Set.fromList (map RB.recordOffsetDelta receivedRecords)
+      expectedKeys =
+        Set.fromList [ fromIntegral i | i <- [0 .. nRecords - 1] :: [Int32] ]
+      missing      = expectedKeys `Set.difference` receivedKeys
+      duplicates   = length receivedRecords - Set.size receivedKeys
+
+  annotate $ "drained " <> show (length collected) <> " batches"
+  annotate $ "received " <> show (length receivedRecords) <> " records"
+  annotate $ "missing offsets count: " <> show (Set.size missing)
+  annotate $ "duplicate count: " <> show duplicates
+  Set.size missing === 0
+  duplicates === 0
+
 -- | All tests for BatchAccumulator
 tests :: TestTree
 tests = testGroup "BatchAccumulator"
@@ -234,5 +356,6 @@ tests = testGroup "BatchAccumulator"
   , testProperty "Close marks all ready" prop_closeMarksAllReady
   , testProperty "Append after close returns false" prop_appendAfterCloseReturnsFalse
   , testProperty "Batch state transitions" prop_batchStateTransitions
+  , testProperty "Append-vs-seal race is lossless" prop_appendAndSealRaceIsLossless
   ]
 

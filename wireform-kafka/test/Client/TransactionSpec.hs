@@ -14,6 +14,7 @@ import Control.Concurrent.STM
 import Control.Concurrent.Async
 import Control.Exception (try, SomeException)
 import Control.Monad (replicateM_, forM_)
+import Data.IORef (readIORef)
 import qualified Data.HashMap.Strict as Map
 import qualified Data.HashSet as Set
 
@@ -100,10 +101,10 @@ unit_createTransaction = do
   state <- getTransactionState txn
   assertEqual "Initial state is Uninitialized" Uninitialized state
   
-  producerId <- readTVarIO (txnProducerId txn)
+  producerId <- readIORef (txnProducerId txn)
   assertEqual "No producer ID initially" Nothing producerId
   
-  producerEpoch <- readTVarIO (txnProducerEpoch txn)
+  producerEpoch <- readIORef (txnProducerEpoch txn)
   assertEqual "No producer epoch initially" Nothing producerEpoch
   
   partitions <- readTVarIO (txnPartitions txn)
@@ -198,10 +199,10 @@ unit_initTransactions = do
       state <- getTransactionState txn
       assertEqual "State is Ready after init" Ready state
       
-      producerId <- readTVarIO (txnProducerId txn)
+      producerId <- readIORef (txnProducerId txn)
       assertBool "Producer ID is set" (producerId /= Nothing)
       
-      producerEpoch <- readTVarIO (txnProducerEpoch txn)
+      producerEpoch <- readIORef (txnProducerEpoch txn)
       assertBool "Producer epoch is set" (producerEpoch /= Nothing)
 
 unit_beginTransaction :: Assertion

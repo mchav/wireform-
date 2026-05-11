@@ -19,7 +19,7 @@ the mock; we exercise it directly through the producer's internals.
 module Conformance.T0144.IdempotenceMock (tests) where
 
 import qualified Control.Concurrent.STM as STM
-import qualified Data.Map.Strict as Map
+import qualified Data.HashMap.Strict as HashMap
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -47,7 +47,7 @@ tests = testGroup "0144-idempotence_mock (partial)"
   [ testCase "fresh transaction has no per-partition sequence numbers" $ do
       txn <- mkTxn
       seqs <- STM.readTVarIO (Txn.txnSequenceNumbers txn)
-      Map.size seqs @?= 0
+      HashMap.size seqs @?= 0
 
   , testCase "fresh transaction has no tracked partitions" $ do
       txn <- mkTxn

@@ -37,6 +37,13 @@ import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import Control.Monad (void, when)
+import Data.IORef
+  ( IORef
+  , atomicModifyIORef'
+  , newIORef
+  , readIORef
+  , writeIORef
+  )
 import System.IO (hPutStrLn, stderr)
 import Data.Int (Int16, Int32)
 import Data.Text (Text)
@@ -56,18 +63,22 @@ import qualified Kafka.Protocol.Wire.Codec as WC
 data HeartbeatState = HeartbeatState
   { hbGroupId :: !Text
     -- ^ Consumer group ID
-  , hbMemberId :: !(TVar Text)
-    -- ^ Current member ID (updated after join)
-  , hbGenerationId :: !(TVar Int32)
-    -- ^ Current generation ID (updated after join)
-  , hbCoordinatorAddr :: !(TVar (Maybe BrokerAddress))
-    -- ^ Group coordinator address
+  , hbMemberId :: !(IORef Text)
+    -- ^ Current member ID (updated after join). Tier 3 of
+    --   STM-replacement: single-writer (the subscribe / heartbeat
+    --   loop) / multi-reader (poll, heartbeat) handoff slot;
+    --   'IORef' is sufficient.
+  , hbGenerationId :: !(IORef Int32)
+    -- ^ Current generation ID (updated after join). Same Tier 3
+    --   single-writer / multi-reader pattern.
+  , hbCoordinatorAddr :: !(IORef (Maybe BrokerAddress))
+    -- ^ Group coordinator address. Tier 3.
   , hbIntervalMs :: !Int
     -- ^ Heartbeat interval in milliseconds
   , hbConnManager :: !Conn.ConnectionManager
     -- ^ Connection manager (kept around for the lock map even
     --   though heartbeat owns its own dedicated socket below)
-  , hbDedicatedConn :: !(TVar (Maybe (BrokerAddress, Conn.Connection)))
+  , hbDedicatedConn :: !(IORef (Maybe (BrokerAddress, Conn.Connection)))
     -- ^ Heartbeat owns its own coordinator socket, separate
     --   from the cached connection the foreground subscribe /
     --   commit / poll path uses.  Sharing a single socket
@@ -81,8 +92,10 @@ data HeartbeatState = HeartbeatState
     -- ^ Version cache for API negotiation
   , hbClientId :: !Text
     -- ^ Client ID
-  , hbCorrelationId :: !(TVar Int32)
-    -- ^ Next correlation ID
+  , hbCorrelationId :: !(IORef Int32)
+    -- ^ Next correlation ID. SPSC counter (heartbeat thread is
+    --   sole reader/writer); 'IORef' + 'atomicModifyIORef\'' is
+    --   sufficient and avoids the per-tick STM commit overhead.
   , hbRunning :: !(TVar Bool)
     -- ^ Whether the heartbeat thread should keep running
   , hbNeedsRebalance :: !(TVar Bool)
@@ -98,11 +111,11 @@ createHeartbeatState
   -> Text                        -- ^ Client ID
   -> IO HeartbeatState
 createHeartbeatState groupId intervalMs connMgr versionCache clientId = do
-  memberId <- newTVarIO ""
-  genId <- newTVarIO (-1)
-  coordAddr <- newTVarIO Nothing
-  dedicatedConn <- newTVarIO Nothing
-  corrId <- newTVarIO 0
+  memberId <- newIORef ""
+  genId <- newIORef (-1)
+  coordAddr <- newIORef Nothing
+  dedicatedConn <- newIORef Nothing
+  corrId <- newIORef 0
   running <- newTVarIO True
   needsRebal <- newTVarIO False
 
@@ -131,10 +144,7 @@ stopHeartbeatThread :: HeartbeatState -> Async () -> IO ()
 stopHeartbeatThread state thread = do
   atomically $ writeTVar (hbRunning state) False
   cancel thread
-  cached <- atomically $ do
-    c <- readTVar (hbDedicatedConn state)
-    writeTVar (hbDedicatedConn state) Nothing
-    pure c
+  cached <- atomicModifyIORef' (hbDedicatedConn state) $ \c -> (Nothing, c)
   case cached of
     Just (_, conn) ->
       void (try (Conn.disconnect conn) :: IO (Either SomeException ()))
@@ -149,7 +159,7 @@ ensureHeartbeatConn
   -> BrokerAddress
   -> IO (Either String Conn.Connection)
 ensureHeartbeatConn HeartbeatState{..} coordAddr = do
-  cached <- readTVarIO hbDedicatedConn
+  cached <- readIORef hbDedicatedConn
   case cached of
     Just (cachedAddr, c) | cachedAddr == coordAddr -> pure (Right c)
     Just (_, oldConn) -> do
@@ -162,21 +172,26 @@ ensureHeartbeatConn HeartbeatState{..} coordAddr = do
       case r of
         Left err -> pure (Left err)
         Right c  -> do
-          atomically $ writeTVar hbDedicatedConn (Just (coordAddr, c))
+          writeIORef hbDedicatedConn (Just (coordAddr, c))
           pure (Right c)
 
 -- | Main heartbeat loop
 heartbeatLoop :: HeartbeatState -> IO ()
 heartbeatLoop state@HeartbeatState{..} = do
-  shouldRun <- atomically $ readTVar hbRunning
+  shouldRun <- readTVarIO hbRunning
   if not shouldRun
     then return ()
     else do
-      (memberId, genId, coordAddrM) <- atomically $ do
-        mid <- readTVar hbMemberId
-        gid <- readTVar hbGenerationId
-        caddr <- readTVar hbCoordinatorAddr
-        return (mid, gid, caddr)
+      -- Tier 3: hbMemberId / hbGenerationId / hbCoordinatorAddr
+      -- moved to IORef. Three independent reads instead of one
+      -- STM transaction; the only inconsistency that matters is
+      -- "did the subscribe path land a fresh memberId between
+      -- our reads?", and the worst case is that we fall through
+      -- the @Just coordAddr | not (T.null memberId) && genId >= 0@
+      -- guard once and try again on the next tick.
+      memberId <- readIORef hbMemberId
+      genId <- readIORef hbGenerationId
+      coordAddrM <- readIORef hbCoordinatorAddr
 
       case coordAddrM of
         Just coordAddr | not (T.null memberId) && genId >= 0 -> do
@@ -184,8 +199,7 @@ heartbeatLoop state@HeartbeatState{..} = do
           case result of
             Left (e :: SomeException) ->
               hPutStrLn stderr $ "Heartbeat error: " ++ show e
-            Right (Left outcome) -> do
-              atomically $ applyHeartbeatOutcome state outcome
+            Right (Left outcome) -> applyHeartbeatOutcome state outcome
             Right (Right needsRebalance) ->
               when needsRebalance $ atomically $ writeTVar hbNeedsRebalance True
         _ -> pure ()
@@ -232,19 +246,19 @@ describe (HeartbeatTransport msg)      = "transport: " <> msg
 -- rejoin goes out with an empty memberId (KIP-389 / KIP-345).
 -- Transport-level failures don't touch any state because the broker
 -- still considers us a member.
-applyHeartbeatOutcome :: HeartbeatState -> HeartbeatOutcome -> STM ()
+applyHeartbeatOutcome :: HeartbeatState -> HeartbeatOutcome -> IO ()
 applyHeartbeatOutcome HeartbeatState{..} outcome = case outcome of
   HeartbeatTransport _ -> pure ()
   HeartbeatUnknownMember -> do
-    writeTVar hbNeedsRebalance True
-    writeTVar hbMemberId ""
+    atomically $ writeTVar hbNeedsRebalance True
+    writeIORef hbMemberId ""
   HeartbeatFencedInstance -> do
-    writeTVar hbNeedsRebalance True
-    writeTVar hbMemberId ""
+    atomically $ writeTVar hbNeedsRebalance True
+    writeIORef hbMemberId ""
   HeartbeatIllegalGeneration ->
-    writeTVar hbNeedsRebalance True
+    atomically $ writeTVar hbNeedsRebalance True
   HeartbeatOtherError _ _ ->
-    writeTVar hbNeedsRebalance True
+    atomically $ writeTVar hbNeedsRebalance True
 
 -- | Send a single heartbeat to the coordinator. The 'Left' arm
 -- carries a typed 'HeartbeatOutcome' so the heartbeat loop can
@@ -266,11 +280,7 @@ sendHeartbeat hb@HeartbeatState{..} coordAddr memberId genId = do
     Left err -> return $ Left $ HeartbeatTransport $
       "Failed to open heartbeat conn: " ++ err
     Right conn -> do
-      -- Get correlation ID
-      corrId <- atomically $ do
-        cid <- readTVar hbCorrelationId
-        writeTVar hbCorrelationId (cid + 1)
-        return cid
+      corrId <- atomicModifyIORef' hbCorrelationId $ \cid -> (cid + 1, cid)
       
       let apiKey = 12  -- Heartbeat API key
           clientMaxVersion = 4  -- Max version we support
@@ -301,7 +311,7 @@ sendHeartbeat hb@HeartbeatState{..} coordAddr memberId genId = do
         Left err -> do
           -- Drop the cached dedicated socket on transport
           -- error; it'll be reopened on the next tick.
-          atomically $ writeTVar hbDedicatedConn Nothing
+          writeIORef hbDedicatedConn Nothing
           return $ Left $ HeartbeatTransport $
             "Heartbeat request failed: " ++ err
 

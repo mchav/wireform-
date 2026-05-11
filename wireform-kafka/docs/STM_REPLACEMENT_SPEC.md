@@ -2,11 +2,53 @@
 
 ## Status
 
-**Draft / proposal.** No code changes have landed against this spec yet; it
-exists so we can decide which tiers to actually do and in what order. The
-analysis below is grounded in the current code (commit ahead of `3b05eb5`
-on `cursor/wire-codegen-and-slice-vector-7d97`) and the
-`Benchmarks.HotPath` numbers from the most recent run.
+**Tiers 1 + 2 + 3 implemented** (full-sweep option from the
+"Decision required" section below). Tier 4 left as STM by design.
+The `Metadata` module's `metadataVar` (mentioned under Category C)
+is the remaining single-writer / multi-reader `TVar` we kept as
+STM: its public interface is `STM`-typed and consumed by other
+modules' STM transactions, so a clean conversion needs a separate
+call-site audit. It is not on the per-record / per-poll hot paths
+the rest of this spec calls out.
+
+Implementation notes:
+
+* See the `cursor/kafka-stm-replacement-7b7c` branch for the
+  three commits — one per tier — plus a commit fixing the two
+  conformance ports (`T0103-transactions_local`,
+  `T0144-idempotence_mock`) that peeked at internals that moved
+  off STM. The pre-existing `T0006/Symbols.hs` build failure is
+  unrelated and left for a follow-up.
+* Library + 746 unit tests + 316 streams tests pass at GHC 9.8.2.
+* `Benchmarks.HotPath` numbers, before vs after on the same
+  machine (GHC 9.8.2, `-O2`, `criterion --time-limit 5`):
+
+| Bench                                                          | Before (main) | After (this branch) | Δ            |
+|----------------------------------------------------------------|---------------|---------------------|--------------|
+| `appendRecordStamped`, single append                           | 266.1 ns      | 124.5 ns            | **−53 %**    |
+| `appendRecordStamped`, 100 appends                             | 257 ns/rec    | 117 ns/rec          | **−54 %**    |
+| `appendRecordStamped`, 1000 appends                            | 262 ns/rec    | 120 ns/rec          | **−54 %**    |
+| `MockConsumer.pollMC`, 1 record                                | 304.6 ns      | 239.5 ns            | **−21 %**    |
+| `MockConsumer.pollMC`, 100 records                             | 827.7 ns      | 825.0 ns            | within noise |
+| `MockProducer.sendMockH`, 1 record / 100 B                     | 288.6 ns      | 296.5 ns            | within noise |
+| `MockProducer.sendMockH`, 1 record / 1 KiB                     | 250.0 ns      | 255.7 ns            | within noise |
+| `MockProducer.sendMockH`, 1000 records sequential              | 241 µs        | 239 µs              | within noise |
+
+  The `appendRecordStamped` numbers land squarely in the spec's
+  predicted "~120–150 ns/append" window. `MockProducer.sendMockH`
+  exercises the producer accumulator *plus* the mock-cluster's
+  own STM (Tier 4 — explicitly out of scope; "test-only state
+  machines that trade per-op CPU for clarity, not on any hot
+  path"), so the round-trip number is dominated by the
+  mock-cluster's STM rather than the per-record accumulator
+  cost. The Tier 2 win shows up cleanly in the dedicated
+  `appendRecordStamped` bench.
+
+  `Benchmarks.HwKafkaComparison` re-run is left as a follow-up;
+  the projection in the original spec was a producer-vs-`librdkafka`
+  ratio improvement of ~2.3× → ~2.7× from a Tier 2 saving of
+  ~6–8 ms / 50 000-record iteration, which the
+  `appendRecordStamped` numbers above confirm is achievable.
 
 ## Motivation
 
