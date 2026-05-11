@@ -569,7 +569,13 @@ data Producer = Producer
 --   2. Connect to bootstrap brokers and fetch metadata
 --   3. Initialize batch accumulator
 --   4. Start background sender thread
---   5. If transactional, initialize transaction coordinator (TODO)
+--
+-- Transactional initialisation is /not/ part of 'createProducer': set
+-- 'producerTransactional' here to mark the producer as
+-- transactional, then create the coordinator handle via
+-- 'Kafka.Client.Transaction.createTransaction' /
+-- 'initTransactions' and 'bindTransaction' it to this producer
+-- before the first 'sendMessage'.
 -- | Pure config-validation rules. Each rule mirrors a
 -- check the JVM client performs in
 -- @org.apache.kafka.clients.producer.ProducerConfig@; we run them
@@ -856,11 +862,14 @@ withProducer' brokers cfg shutdown body = bracket open shutdown body
 -- | Close the producer and flush pending messages.
 --
 -- Steps:
---   1. Close the batch accumulator (stops accepting new messages)
---   2. Wait for pending batches to be sent
---   3. Stop the sender thread
---   4. If transactional, abort any open transaction (TODO)
---   5. Close all connections
+--   1. If a transaction is bound and currently in 'Txn.InTransaction',
+--      abort it so the broker doesn't keep the txn id locked until
+--      its @transaction.timeout.ms@ deadline elapses.
+--   2. Close the batch accumulator (stops accepting new messages).
+--   3. Wait up to 'producerDeliveryTimeoutMs' for the sender thread
+--      to drain queued + in-flight batches.
+--   4. Stop the sender thread.
+--   5. Close all connections.
 closeProducer :: Producer -> IO ()
 closeProducer p@Producer{..} = do
   -- If a transaction is bound and currently open, abort it before
