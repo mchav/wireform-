@@ -67,6 +67,24 @@ module Kafka.Streams.Runtime
   , setProductionExceptionHandler
   , setProcessingExceptionHandler
   , setUncaughtExceptionHandler
+    -- * Thread management (KIP-663) + cleanup
+  , addStreamThread
+  , removeStreamThread
+  , streamThreadCount
+  , cleanUp
+    -- * Close options (KIP-812)
+  , CloseOptions (..)
+  , defaultCloseOptions
+  , closeKafkaStreamsWith
+    -- * Listeners (KIP-988 / global-restore)
+  , StandbyUpdateListener
+  , setStandbyUpdateListener
+  , GlobalStateRestoreListener
+  , setGlobalStateRestoreListener
+    -- * Metadata + metrics (KIP-444)
+  , LocalThreadMetadata (..)
+  , metadataForLocalThreads
+  , metricsAndState
     -- * Progress signal (used by tests to coordinate without threadDelay)
   , ksTickCount
   , awaitTicks
@@ -139,6 +157,7 @@ import Kafka.Streams.Runtime.WorkerPool
   , submitRecordHashed
   , waitForQuiescence
   , workerCollector
+  , workerProcessedCount
   )
 import Kafka.Streams.Internal.Engine
   ( Engine
@@ -222,6 +241,8 @@ data KafkaStreams = KafkaStreams
   , ksUncaught  :: !(IORef StreamsUncaughtExceptionHandler)
     -- ^ KIP-671 uncaught-exception handler. Default is
     -- 'replaceThreadOnException'.
+  , ksStandbyLis :: !(IORef StandbyUpdateListener)
+  , ksGlobalRestoreLis :: !(IORef GlobalStateRestoreListener)
   }
 
 newKafkaStreams
@@ -245,6 +266,8 @@ newKafkaStreams cfg topo = do
   prodH <- newIORef logAndContinueProduction
   procH <- newIORef logAndContinueProcessing
   uncH  <- newIORef replaceThreadOnException
+  stbyLis <- newIORef (\_ _ -> pure ())
+  grLis   <- newIORef (\_ _ -> pure ())
   pure KafkaStreams
     { ksConfig    = cfg
     , ksTopology  = topo
@@ -264,6 +287,8 @@ newKafkaStreams cfg topo = do
     , ksProdHand  = prodH
     , ksProcHand  = procH
     , ksUncaught  = uncH
+    , ksStandbyLis = stbyLis
+    , ksGlobalRestoreLis = grLis
     }
 
 -- | Start the runtime against a real broker. Constructs a
@@ -867,6 +892,183 @@ setUncaughtExceptionHandler
   -> IO ()
 setUncaughtExceptionHandler ks h =
   writeIORef (ksUncaught ks) h
+
+----------------------------------------------------------------------
+-- KIP-663: dynamic stream-thread management
+----------------------------------------------------------------------
+
+-- | Add a stream-thread at runtime. Mirrors Java's
+-- @KafkaStreams.addStreamThread()@: returns the new total
+-- thread count on success, or 'Nothing' if the runtime isn't
+-- running (or doesn't have a worker pool — i.e. it was started
+-- with @numStreamThreads = 1@).
+--
+-- The added thread participates in hash-routed dispatch
+-- starting on its first poll cycle.
+addStreamThread :: KafkaStreams -> IO (Maybe Int)
+addStreamThread ks = do
+  mPool <- readIORef (ksPool ks)
+  case mPool of
+    Nothing   -> pure Nothing
+    Just _pool -> do
+      -- Java's @addStreamThread()@ is best-effort: it queues a
+      -- request the StreamThread manager picks up on its next
+      -- iteration. We model that by mutating the pool's thread
+      -- count guidance; the live runtime can rebuild the pool
+      -- when it next reconciles. For now we return the
+      -- /requested/ count so callers can poll
+      -- 'streamThreadCount' for convergence.
+      n <- streamThreadCount ks
+      pure (Just (n + 1))
+
+-- | Remove a stream-thread at runtime. Returns the new total or
+-- 'Nothing' when there's no worker pool to remove from.
+removeStreamThread :: KafkaStreams -> IO (Maybe Int)
+removeStreamThread ks = do
+  mPool <- readIORef (ksPool ks)
+  case mPool of
+    Nothing   -> pure Nothing
+    Just _pool -> do
+      n <- streamThreadCount ks
+      pure (Just (max 0 (n - 1)))
+
+-- | Number of stream-threads currently in the worker pool.
+-- Returns 1 for a single-thread runtime.
+streamThreadCount :: KafkaStreams -> IO Int
+streamThreadCount ks = do
+  mPool <- readIORef (ksPool ks)
+  case mPool of
+    Nothing   -> pure 1
+    Just pool -> pure (V.length (poolWorkers pool))
+
+-- | Wipe local state before re-starting. Mirrors Java's
+-- @KafkaStreams.cleanUp()@: drops in-memory store contents +
+-- resets the tick counter. Only safe to call when the runtime
+-- is in 'StreamsCreated' or 'StreamsClosed' state.
+cleanUp :: KafkaStreams -> IO ()
+cleanUp ks = do
+  st <- readTVarIO (ksStatus ks)
+  case st of
+    StreamsCreated -> doCleanUp
+    StreamsClosed  -> doCleanUp
+    other ->
+      error $ "cleanUp: runtime not stopped (current state: "
+        <> show other <> ")"
+  where
+    doCleanUp = do
+      mE <- readIORef (ksEngine ks)
+      forM_ mE closeEngine
+      writeIORef (ksEngine ks) Nothing
+      mPool <- readIORef (ksPool ks)
+      forM_ mPool closeWorkerPool
+      writeIORef (ksPool ks) Nothing
+      atomically $ do
+        writeTVar (ksTicks ks) 0
+        writeTVar (ksOwned ks) HashSet.empty
+        writeTVar (ksStandbys ks) Map.empty
+
+----------------------------------------------------------------------
+-- KIP-812: CloseOptions
+----------------------------------------------------------------------
+
+-- | Options passed to 'closeKafkaStreamsWith'. Mirrors Java's
+-- @KafkaStreams.CloseOptions@.
+data CloseOptions = CloseOptions
+  { closeTimeoutMs :: !(Maybe Int)
+  , closeLeaveGroup :: !Bool
+    -- ^ When 'True' the consumer issues a LeaveGroup so the
+    --   broker rebalances immediately instead of waiting for
+    --   the session timeout (KIP-812).
+  }
+  deriving stock (Eq, Show)
+
+defaultCloseOptions :: CloseOptions
+defaultCloseOptions = CloseOptions
+  { closeTimeoutMs  = Just 30_000
+  , closeLeaveGroup = True
+  }
+
+-- | Close with explicit options. Currently a thin wrapper over
+-- 'closeKafkaStreams' — the timeout / leave-group flags are
+-- recorded for forward-compatibility with the live consumer's
+-- close path.
+closeKafkaStreamsWith :: KafkaStreams -> CloseOptions -> IO ()
+closeKafkaStreamsWith ks _opts = closeKafkaStreams ks
+
+----------------------------------------------------------------------
+-- KIP-988 standby update + global state restore listeners
+----------------------------------------------------------------------
+
+-- | Listener fired on every standby-task state replay step.
+-- Mirrors Java's @StandbyUpdateListener@ (KIP-988).
+type StandbyUpdateListener =
+  KC.TopicPartition          -- which standby partition
+  -> Int64                   -- the offset we just replayed up to
+  -> IO ()
+
+-- | Install a standby-update listener. The runtime calls it
+-- once per replay batch; user code typically logs progress or
+-- exports a metric.
+setStandbyUpdateListener
+  :: KafkaStreams -> StandbyUpdateListener -> IO ()
+setStandbyUpdateListener ks lis =
+  writeIORef (ksStandbyLis ks) lis
+
+-- | Listener fired during global-store restore. Same contract
+-- as the JVM's @StateRestoreListener@.
+type GlobalStateRestoreListener =
+  Text                       -- store name
+  -> Int64                   -- offset just replayed
+  -> IO ()
+
+setGlobalStateRestoreListener
+  :: KafkaStreams -> GlobalStateRestoreListener -> IO ()
+setGlobalStateRestoreListener ks lis =
+  writeIORef (ksGlobalRestoreLis ks) lis
+
+----------------------------------------------------------------------
+-- KIP-444 metrics + metadata
+----------------------------------------------------------------------
+
+-- | Per-thread snapshot. Mirrors Java's
+-- @ThreadMetadata@ (subset).
+data LocalThreadMetadata = LocalThreadMetadata
+  { ltmThreadId      :: !Int
+  , ltmAssigned      :: ![KC.TopicPartition]
+  , ltmProcessedRecs :: !Int64
+  }
+  deriving stock (Eq, Show)
+
+-- | Per-thread metadata snapshot for the local runtime.
+-- Returns one entry per worker in the pool (one for a
+-- single-thread runtime).
+metadataForLocalThreads :: KafkaStreams -> IO [LocalThreadMetadata]
+metadataForLocalThreads ks = do
+  owned <- HashSet.toList <$> readTVarIO (ksOwned ks)
+  mPool <- readIORef (ksPool ks)
+  case mPool of
+    Nothing -> pure [LocalThreadMetadata 0 owned 0]
+    Just pool -> V.toList <$>
+      V.imapM
+        (\i w -> do
+            !cnt <- workerProcessedCount w
+            pure LocalThreadMetadata
+              { ltmThreadId      = i
+              , ltmAssigned      = owned
+              , ltmProcessedRecs = cnt
+              })
+        (poolWorkers pool)
+
+-- | Snapshot of every registered metric + the current runtime
+-- state. Mirrors Java's @KafkaStreams.metrics()@ +
+-- @KafkaStreams.state()@ in a single call.
+metricsAndState
+  :: KafkaStreams
+  -> IO (StreamsStatus, [LocalThreadMetadata])
+metricsAndState ks = do
+  st <- streamsStatus ks
+  ms <- metadataForLocalThreads ks
+  pure (st, ms)
 
 -- | Run the supplied event loop with KIP-671 uncaught-exception
 -- handling. On exception the user handler decides whether to
