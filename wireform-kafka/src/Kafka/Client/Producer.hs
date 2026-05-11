@@ -48,6 +48,7 @@ module Kafka.Client.Producer
   , sendMessage
   , sendMessageAsync
   , sendMessageDrop
+  , sendMessagesDrop
   , sendBatch
     -- * Transactions
     --
@@ -98,6 +99,7 @@ import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HashMap
 import Data.Hashable (hash)
 import qualified Data.Hashable as Hashable
+import qualified Data.Sequence as Seq
 import Data.Int
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -1229,6 +1231,7 @@ sendMessageDrop
   -> Maybe ByteString -- ^ Optional key (used by hash partitioner)
   -> ByteString       -- ^ Value
   -> IO (Either String ())
+{-# INLINE sendMessageDrop #-}
 sendMessageDrop p@Producer{..} topic key value = do
   partition <- selectPartition p topic key
   let !record = RB.Record
@@ -1243,25 +1246,100 @@ sendMessageDrop p@Producer{..} topic key value = do
                producerAccumulator
                tp
                record
-               (\_ -> pure ())
+               noOpRecordCallback
                BA.noStamp
   if success
     then return (Right ())
     else return (Left "Failed to append record (accumulator closed or full)")
 
+-- | Top-level shared no-op callback used by 'sendMessageDrop' /
+-- 'sendMessagesDrop'. Hoisting it out of the per-call lambda
+-- avoids one closure allocation per record (the previous shape
+-- allocated a fresh @\\_ -> pure ()@ on every send).
+{-# NOINLINE noOpRecordCallback #-}
+noOpRecordCallback :: BA.RecordCallback
+noOpRecordCallback = \_ -> pure ()
+
+-- | Bulk variant of 'sendMessageDrop' for high-throughput
+-- producers that already have a list of records to publish.
+--
+-- Amortises the per-record overhead 'sendMessageDrop' pays on
+-- its hot path (interceptor, partitioner lookup, accumulator
+-- closed check, partition map lookup, queue-current-batch
+-- swap): the partitioner runs once for the whole vector, the
+-- closed check + partition lookup happen once, and the
+-- accumulator's 'appendRecordsStamped' folds every record into
+-- the partition's filling batch in a single
+-- 'atomicModifyIORef\\\'' call. If the records overflow the
+-- configured batch size, multiple ready batches are emitted
+-- inside that one modify (no extra hot-path STM commits).
+--
+-- Same fire-and-forget semantics as 'sendMessageDrop': the
+-- 'producerInterceptor' / 'producerOnAcknowledgement' callback
+-- machinery is /not/ run; broker errors are silently dropped.
+-- Pair with 'flushProducer' before 'closeProducer' for
+-- at-most-one-loss durability.
+sendMessagesDrop
+  :: Producer
+  -> Text                                       -- ^ Topic
+  -> [(Maybe ByteString, ByteString)]           -- ^ (key, value) pairs in publish order
+  -> IO (Either String ())
+sendMessagesDrop _ _ [] = pure (Right ())
+sendMessagesDrop p@Producer{..} topic kvs = do
+  -- One partitioner call for the whole list. With the default
+  -- sticky partitioner this also costs ~10 ns regardless of
+  -- list length (cache hit on 'producerStickyPartitions');
+  -- with the round-robin partitioner the whole batch lands on
+  -- one partition which is what high-throughput callers want
+  -- anyway.
+  partition <- selectPartition p topic (fst (head kvs))
+  let !tp = BA.TopicPartition topic partition
+      !records = Seq.fromList
+        [ RB.Record
+            { RB.recordTimestampDelta = 0
+            , RB.recordOffsetDelta    = 0
+            , RB.recordKey            = k
+            , RB.recordValue          = v
+            , RB.recordHeaders        = []
+            }
+        | (k, v) <- kvs
+        ]
+      -- Fire-and-forget: one no-op callback shared across all
+      -- positions (the accumulator's 'appendRecordsStamped'
+      -- still asks for one callback per record so the response
+      -- handler can dispatch positionally).
+      !cbs = Seq.replicate (length kvs) noOpRecordCallback
+  success <- BA.appendRecordsStamped
+               producerAccumulator tp records cbs BA.noStamp
+  if success
+    then pure (Right ())
+    else pure (Left "Failed to append records (accumulator closed)")
+
 -- | Select partition for a message based on configured partitioner (KIP-480).
+{-# INLINE selectPartition #-}
 selectPartition
   :: Producer
   -> Text            -- ^ Topic
   -> Maybe ByteString  -- ^ Key (optional)
   -> IO Int32
 selectPartition producer@Producer{..} topic keyM = do
-  -- Fast path: per-topic partition count cached in
-  -- 'producerPartitionCount'. The previous shape did
-  -- @atomically $ Meta.getPartitionCount@ on /every/ record
-  -- send, paying a full STM transaction just to read a value
-  -- that effectively never changes. Cache miss falls through
-  -- to the metadata cache + refresh path.
+  -- Hottest path: the default sticky partitioner caches its
+  -- chosen partition per-topic in 'producerStickyPartitions',
+  -- so the steady-state call is one 'readIORef' +
+  -- 'HashMap.lookup' and we never need 'partitionCount' at all.
+  -- Fall through to the metadata-aware path on cache miss
+  -- (first record per topic, or non-sticky partitioner).
+  sticky <- readIORef producerStickyPartitions
+  case HashMap.lookup topic sticky of
+    Just partition -> pure partition
+    Nothing -> selectPartitionSlow producer topic keyM
+
+-- | Cold-path partition selection: consult the partition-count
+-- cache (avoids the per-call STM transaction against
+-- 'producerMetadata' the previous shape paid) and dispatch on
+-- the configured partitioner.
+selectPartitionSlow :: Producer -> Text -> Maybe ByteString -> IO Int32
+selectPartitionSlow producer@Producer{..} topic keyM = do
   cache <- readIORef producerPartitionCount
   partCount <- case HashMap.lookup topic cache of
     Just n  -> pure (Just n)

@@ -33,6 +33,7 @@ module Kafka.Client.Internal.BatchAccumulator
   , appendRecord
   , appendRecordWithCallback
   , appendRecordStamped
+  , appendRecordsStamped
   , BatchStamp (..)
   , noStamp
   , TopicPartition(..)
@@ -345,6 +346,7 @@ noStamp = BatchStamp
 -- 'stampBaseSequence' values across batches on the same
 -- (topic, partition) form a gapless sequence; the accumulator only
 -- records what it's given.
+{-# INLINE appendRecordStamped #-}
 appendRecordStamped
   :: BatchAccumulator
   -> TopicPartition
@@ -398,6 +400,89 @@ appendRecordStamped acc@BatchAccumulator{..} tp record callback stamp = do
               pure True
             FastAppendNeedsNewBatch ->
               slowAppendIO tp record callback stamp acc
+
+-- | Append a /sequence/ of records to one (topic, partition) in
+-- a single 'atomicModifyIORef\'' call on the partition's
+-- @queueCurrentBatch@. Amortises the per-call overhead the
+-- single-record 'appendRecordStamped' pays on its hot path
+-- (closed check, partition map lookup, queue-current swap) so
+-- high-throughput producers that already have a list of records
+-- to publish can hand them all over in one go.
+--
+-- Per-record work (size accounting, batch sealing on size limit,
+-- sequence promotion to the ready queue) is folded inside the
+-- one atomic-modify; if the records overflow the configured batch
+-- size we may emit multiple ready batches at once. Callbacks
+-- attach to the same record vector (the caller passes one
+-- callback list keyed by record position).
+--
+-- Returns 'False' if the accumulator is closed; 'True' on
+-- successful enqueue regardless of how many internal batches
+-- were sealed.
+appendRecordsStamped
+  :: BatchAccumulator
+  -> TopicPartition
+  -> Seq RB.Record       -- ^ records to append, in order
+  -> Seq RecordCallback  -- ^ one callback per record (same order; same length)
+  -> BatchStamp
+  -> IO Bool
+appendRecordsStamped acc@BatchAccumulator{..} tp recs cbs stamp = do
+  isClosed <- readTVarIO accumulatorClosed
+  if isClosed
+    then pure False
+    else do
+      currentTime <- getCurrentTimeMillis
+      queue       <- getOrCreatePartitionQueue acc tp
+      readyBatches <- atomicModifyIORef' (queueCurrentBatch queue) $ \mc ->
+        let !initial = case mc of
+              Just b  -> b
+              Nothing -> applyStamp stamp $
+                createBatch accumulatorConfig tp currentTime
+            (!fillingBatch, !sealed) =
+              absorbAll initial (Seq.zip recs cbs) []
+        in (Just fillingBatch, reverse sealed)
+      forM_ readyBatches $ \rb ->
+        atomicModifyIORef' (queueBatches queue) $ \s -> (s |> rb, ())
+      pure True
+  where
+    !batchSizeLimit = accumulatorBatchSize accumulatorConfig
+
+    -- Walk the input records folding them into 'current'. Whenever
+    -- 'current' would exceed the size limit, seal it as Ready and
+    -- start a fresh batch (carrying the same stamp). Returns
+    -- @(currentBatch, sealedReadyBatchesReversed)@.
+    absorbAll
+      :: ProducerBatch
+      -> Seq (RB.Record, RecordCallback)
+      -> [ProducerBatch]
+      -> (ProducerBatch, [ProducerBatch])
+    absorbAll !cur s !acc' = case Seq.viewl s of
+      Seq.EmptyL -> (cur, acc')
+      (r, cb) Seq.:< rest ->
+        let !rs = approximateRecordSize r
+            !ns = batchSizeBytes cur + rs
+            !cur' = cur
+              { batchRecords   = batchRecords cur |> r
+              , batchSizeBytes = ns
+              , batchCallbacks = batchCallbacks cur |> cb
+              }
+        in if ns >= batchSizeLimit
+             then
+               -- Seal cur' as ready; start a fresh batch for the
+               -- remaining records (same stamp, same partition,
+               -- new createTime — within ms-precision the same).
+               let !sealed   = cur' { batchState = Ready }
+                   !nextCur  = applyStamp stamp $
+                     createBatch accumulatorConfig tp (batchCreateTime cur)
+               in absorbAll nextCur rest (sealed : acc')
+             else absorbAll cur' rest acc'
+
+    applyStamp BatchStamp{..} b = b
+      { batchProducerId      = stampProducerId
+      , batchProducerEpoch   = stampProducerEpoch
+      , batchBaseSequence    = stampBaseSequence
+      , batchIsTransactional = stampIsTransactional
+      }
 
 -- | Outcome of the optimistic 'atomicModifyIORef\'' on
 -- 'queueCurrentBatch' inside 'appendRecordStamped'.

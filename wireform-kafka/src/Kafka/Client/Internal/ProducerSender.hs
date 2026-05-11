@@ -392,7 +392,7 @@ createSenderState accumulator metadata connManager retryConfig acks deliveryTime
     , senderRunning = running
     , senderBusy = busy
     , senderMaxInFlight = max 1 maxInFlight
-    , senderConnsPerBroker = 8
+    , senderConnsPerBroker = 16
     , senderBrokerPipes = brokerPipes
     , senderRoundRobin = rrCounter
     , senderAcks = acks
