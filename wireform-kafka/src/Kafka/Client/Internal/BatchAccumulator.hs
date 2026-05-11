@@ -213,10 +213,19 @@ data BatchAccumulating = BatchAccumulating
 -- | Hot mutable state of an in-progress batch. Held under a
 -- single 'IORef' so the per-record append is one CAS that
 -- updates all three fields atomically.
+--
+-- Records and callbacks are accumulated in /reversed/ singly-
+-- linked lists so the per-record append is one ':' cons (one
+-- cell allocation per record per list) rather than one 'Seq'
+-- snoc (one tree-node allocation per record per Seq, with
+-- internal rebalancing). The 'snapshotBatch' helper reverses
+-- and converts to the @Seq@ shape the rest of the producer
+-- expects; the O(n) reverse runs once per sealed batch and is
+-- negligible compared to the per-record win.
 data BatchHotState = BatchHotState
-  { bhRecords   :: !(Seq RB.Record)
-  , bhSizeBytes :: !Int
-  , bhCallbacks :: !(Seq RecordCallback)
+  { bhRecordsRev   :: ![RB.Record]
+  , bhSizeBytes    :: !Int
+  , bhCallbacksRev :: ![RecordCallback]
   }
 
 -- | Batch accumulator configuration
@@ -431,9 +440,9 @@ appendRecordStamped acc@BatchAccumulator{..} tp record callback stamp = do
               !sealNow <- atomicModifyIORef' (baHotState ba) $ \st ->
                 let !ns = bhSizeBytes st + rs
                     !st' = BatchHotState
-                      { bhRecords   = bhRecords st |> record
-                      , bhSizeBytes = ns
-                      , bhCallbacks = bhCallbacks st |> callback
+                      { bhRecordsRev   = record   : bhRecordsRev st
+                      , bhSizeBytes    = ns
+                      , bhCallbacksRev = callback : bhCallbacksRev st
                       }
                 in (st', ns >= accumulatorBatchSize accumulatorConfig)
               when sealNow $ sealCurrent acc queue ba
@@ -489,9 +498,9 @@ appendRecordStampedUnsafe acc@BatchAccumulator{..} tp record callback stamp = do
               let !rs = approximateRecordSize record
                   !ns = bhSizeBytes st + rs
                   !st' = BatchHotState
-                    { bhRecords   = bhRecords st |> record
-                    , bhSizeBytes = ns
-                    , bhCallbacks = bhCallbacks st |> callback
+                    { bhRecordsRev   = record   : bhRecordsRev st
+                    , bhSizeBytes    = ns
+                    , bhCallbacksRev = callback : bhCallbacksRev st
                     }
               writeIORef (baHotState ba) st'
               when (ns >= accumulatorBatchSize accumulatorConfig) $
@@ -550,9 +559,9 @@ appendRecordsStamped acc@BatchAccumulator{..} tp recs cbs stamp = do
         sealNow <- atomicModifyIORef' (baHotState ba) $ \st ->
           let !ns = bhSizeBytes st + rs
               !st' = BatchHotState
-                { bhRecords   = bhRecords st |> r
-                , bhSizeBytes = ns
-                , bhCallbacks = bhCallbacks st |> cb
+                { bhRecordsRev   = r  : bhRecordsRev st
+                , bhSizeBytes    = ns
+                , bhCallbacksRev = cb : bhCallbacksRev st
                 }
           in (st', ns >= batchSizeLimit)
         when sealNow $ sealCurrent acc queue ba
@@ -600,9 +609,9 @@ slowAppendIO tp record callback stamp acc@BatchAccumulator{..} = do
   !sealNow <- atomicModifyIORef' (baHotState installed) $ \st ->
     let !ns = bhSizeBytes st + rs
         !st' = BatchHotState
-          { bhRecords   = bhRecords st |> record
-          , bhSizeBytes = ns
-          , bhCallbacks = bhCallbacks st |> callback
+          { bhRecordsRev   = record   : bhRecordsRev st
+          , bhSizeBytes    = ns
+          , bhCallbacksRev = callback : bhCallbacksRev st
           }
     in (st', ns >= accumulatorBatchSize accumulatorConfig)
   when sealNow $ sealCurrent acc queue installed
@@ -639,9 +648,9 @@ newAccumulating
   -> IO BatchAccumulating
 newAccumulating BatchAccumulatorConfig{..} tp currentTime BatchStamp{..} = do
   hot <- newIORef BatchHotState
-    { bhRecords   = Seq.empty
-    , bhSizeBytes = 0
-    , bhCallbacks = Seq.empty
+    { bhRecordsRev   = []
+    , bhSizeBytes    = 0
+    , bhCallbacksRev = []
     }
   pure BatchAccumulating
     { baTopicPartition   = tp
@@ -662,16 +671,22 @@ newAccumulating BatchAccumulatorConfig{..} tp currentTime BatchStamp{..} = do
 snapshotBatch :: BatchAccumulating -> BatchState -> IO ProducerBatch
 snapshotBatch BatchAccumulating{..} state = do
   st <- readIORef baHotState
+  -- One pass each to reverse the cons'd lists into the right
+  -- forward order, then 'Seq.fromList'. Both passes are O(n)
+  -- once per sealed batch — negligible against the per-record
+  -- 'Seq.|>' allocations the prior shape paid for every append.
+  let !records   = Seq.fromList (reverse (bhRecordsRev st))
+      !callbacks = Seq.fromList (reverse (bhCallbacksRev st))
   pure ProducerBatch
     { batchTopicPartition   = baTopicPartition
-    , batchRecords          = bhRecords st
+    , batchRecords          = records
     , batchSizeBytes        = bhSizeBytes st
     , batchCreateTime       = baCreateTime
     , batchBaseTimestamp    = baBaseTimestamp
     , batchState            = state
     , batchCompression      = baCompression
     , batchCompressionLevel = baCompressionLevel
-    , batchCallbacks        = bhCallbacks st
+    , batchCallbacks        = callbacks
     , batchAttempts         = 0
     , batchProducerId       = baProducerId
     , batchProducerEpoch    = baProducerEpoch
