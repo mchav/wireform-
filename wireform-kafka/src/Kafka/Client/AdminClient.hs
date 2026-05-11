@@ -31,18 +31,17 @@ it across calls.
 import qualified Kafka.Client.AdminClient as Admin
 
 main :: IO ()
-main = do
-  Right adm <- Admin.'createAdminClient' [\"localhost:9092\"] Admin.'defaultAdminClientConfig'
-  Right results <- Admin.'createTopics' adm
-    [ Admin.NewTopic
-        { newTopicName              = \"events\"
-        , newTopicNumPartitions     = 3
-        , newTopicReplicationFactor = 1
-        , newTopicConfigs           = []
-        }
-    ]
-  print results
-  Admin.'closeAdminClient' adm
+main =
+  Admin.'withAdminClient' [\"localhost:9092\"] Admin.'defaultAdminClientConfig' $ \\adm -> do
+    Right results <- Admin.'createTopics' adm
+      [ Admin.NewTopic
+          { newTopicName              = \"events\"
+          , newTopicNumPartitions     = 3
+          , newTopicReplicationFactor = 1
+          , newTopicConfigs           = []
+          }
+      ]
+    print results
 @
 
 Every admin operation returns 'IO (Either String x)'. The
@@ -54,6 +53,7 @@ module Kafka.Client.AdminClient
     AdminClient
   , AdminClientConfig(..)
     -- * AdminClient Lifecycle
+  , withAdminClient
   , createAdminClient
   , closeAdminClient
     -- * Cluster info
@@ -102,7 +102,7 @@ module Kafka.Client.AdminClient
   ) where
 
 import Control.Concurrent.STM
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, bracket, throwIO, try)
 import Control.Monad (forM, forM_)
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import qualified Data.HashMap.Strict as HashMap
@@ -246,6 +246,30 @@ parseBrokerAddress addr =
         [(port, "")] -> Right $ Conn.BrokerAddress (T.unpack host) port
         _ -> Left $ "Invalid port: " ++ T.unpack portText
     _ -> Left $ "Invalid broker address format (expected host:port): " ++ T.unpack addr
+
+-- | Open an admin client, run an action with it, and close it on
+-- exit. The recommended bracket — guarantees connections are torn
+-- down even when the body throws, and raises an 'IOError' on
+-- startup failure so callers can use 'Control.Exception.try' /
+-- 'catch' to decide whether to retry.
+--
+-- @
+-- 'withAdminClient' [\"localhost:9092\"] 'defaultAdminClientConfig' $ \\adm -> do
+--   Right results <- 'createTopics' adm [..]
+--   print results
+-- @
+withAdminClient
+  :: [Text]
+  -> AdminClientConfig
+  -> (AdminClient -> IO a)
+  -> IO a
+withAdminClient brokers cfg = bracket open closeAdminClient
+  where
+    open = do
+      r <- createAdminClient brokers cfg
+      case r of
+        Left err -> throwIO (userError ("wireform-kafka: createAdminClient failed: " <> err))
+        Right c  -> pure c
 
 -- | Close the admin client and clean up resources
 closeAdminClient :: AdminClient -> IO ()
