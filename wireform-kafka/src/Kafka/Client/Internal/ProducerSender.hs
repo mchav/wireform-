@@ -288,6 +288,13 @@ data SenderState = SenderState
     -- ^ Metadata cache for broker lookup
   , senderConnManager :: !Conn.ConnectionManager
     -- ^ Connection manager for getting broker connections
+  , senderConnConfig :: !Conn.ConnectionConfig
+    -- ^ Connection-level knobs (TLS / SASL / socket buffers /
+    --   keepalive / etc.) the sender uses every time it opens a
+    --   per-broker pipe. Threaded in from the @createProducer@
+    --   caller so 'Kafka.Client.Env'-derived overrides (TLS,
+    --   SASL, request timeouts) take effect for all sender
+    --   connections, not just the bootstrap one.
   , senderRetryConfig :: !RetryConfig
     -- ^ Retry configuration
   , senderRunning :: !(TVar Bool)
@@ -383,6 +390,12 @@ createSenderState
   :: BA.BatchAccumulator
   -> Meta.MetadataCache
   -> Conn.ConnectionManager
+  -> Conn.ConnectionConfig
+                 -- ^ Per-broker connection-level config (TLS,
+                 --   SASL, socket buffers, …). Used every time
+                 --   the sender opens a new pipe so caller
+                 --   overrides (including 'Kafka.Client.Env'
+                 --   ones) apply to all sender connections.
   -> RetryConfig
   -> Int16        -- ^ Required acks
   -> Int           -- ^ Delivery timeout (ms) - KIP-91
@@ -397,7 +410,7 @@ createSenderState
                  --   wire before blocking the main sender loop on
                  --   the per-broker outbox bound.
   -> IO SenderState
-createSenderState accumulator metadata connManager retryConfig acks deliveryTimeoutMs compression clientId versionCache maxInFlight = do
+createSenderState accumulator metadata connManager connConfig retryConfig acks deliveryTimeoutMs compression clientId versionCache maxInFlight = do
   running <- newTVarIO True
   busy <- newIORef False
   correlationId <- newIORef 0
@@ -411,6 +424,7 @@ createSenderState accumulator metadata connManager retryConfig acks deliveryTime
     { senderAccumulator = accumulator
     , senderMetadata = metadata
     , senderConnManager = connManager
+    , senderConnConfig = connConfig
     , senderRetryConfig = retryConfig
     , senderRunning = running
     , senderBusy = busy
@@ -664,7 +678,7 @@ ensureBrokerPool state@SenderState{..} brokerMeta = do
 -- | Open + start one 'BrokerPipe'.
 openOnePipe :: SenderState -> Conn.BrokerAddress -> IO (Either String BrokerPipe)
 openOnePipe state@SenderState{..} addr = do
-  connR <- Conn.connect addr Conn.defaultConnectionConfig
+  connR <- Conn.connect addr senderConnConfig
   case connR of
     Left err -> pure (Left err)
     Right conn -> do

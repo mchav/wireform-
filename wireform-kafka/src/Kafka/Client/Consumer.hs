@@ -78,6 +78,14 @@ module Kafka.Client.Consumer
   , currentStaticMembershipState
     -- * Configuration validation (KIP-360)
   , validateConsumerConfig
+    -- * Environment-variable overlay
+    --
+    -- | 'createConsumer' already reads @KAFKA_*@ env vars and
+    -- layers them on top of the supplied 'ConsumerConfig'
+    -- automatically. These helpers are exported for callers
+    -- that want to inspect or pre-apply the overlay manually.
+  , applyKafkaEnvToConsumerConfig
+  , consumerConfigFromEnv
     -- * Cluster info (KIP-78)
   , consumerClusterId
   ) where
@@ -110,6 +118,7 @@ import qualified Kafka.Client.Internal.ConsumerGroup as CG
 import Kafka.Client.ConfigValidation
   ( ConfigError, renderConfigErrors )
 import qualified Kafka.Client.ConfigValidation as CV
+import qualified Kafka.Client.Env as Env
 import qualified Kafka.Client.Internal.Heartbeat as HB
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Client.Internal.Subscribe as Sub
@@ -301,6 +310,89 @@ defaultConsumerConfig = ConsumerConfig
   , consumerStaticMembershipResume  = Nothing
   }
 
+-- | Overlay a parsed 'Env.KafkaEnv' onto a 'ConsumerConfig',
+-- including the consumer's embedded
+-- 'consumerConnectionConfig'. Only fields whose corresponding
+-- @KAFKA_*@ variable was set are touched.
+--
+-- The connection-level fields piggy-back on
+-- 'Env.applyKafkaEnvToConnectionConfig', so SASL\/TLS mis-
+-- configuration (e.g. @KAFKA_SECURITY_PROTOCOL=SASL_SSL@ without
+-- a mechanism) surfaces as a 'ConfigError' here.
+applyKafkaEnvToConsumerConfig
+  :: Env.KafkaEnv
+  -> ConsumerConfig
+  -> Either [ConfigError] ConsumerConfig
+applyKafkaEnvToConsumerConfig env cfg =
+  case Env.applyKafkaEnvToConnectionConfig env (consumerConnectionConfig cfg) of
+    Left errs -> Left errs
+    Right cc  -> Right cfg
+      { consumerClientId =
+          maybe (consumerClientId cfg) id (Env.envClientId env)
+      , consumerGroupId =
+          maybe (consumerGroupId cfg) id (Env.envGroupId env)
+      , consumerGroupInstanceId = case Env.envGroupInstanceId env of
+          Just _  -> Env.envGroupInstanceId env
+          Nothing -> consumerGroupInstanceId cfg
+      , consumerAutoCommit =
+          maybe (consumerAutoCommit cfg) id (Env.envEnableAutoCommit env)
+      , consumerAutoCommitIntervalMs =
+          maybe (consumerAutoCommitIntervalMs cfg) id (Env.envAutoCommitIntervalMs env)
+      , consumerSessionTimeoutMs =
+          maybe (consumerSessionTimeoutMs cfg) id (Env.envSessionTimeoutMs env)
+      , consumerHeartbeatIntervalMs =
+          maybe (consumerHeartbeatIntervalMs cfg) id (Env.envHeartbeatIntervalMs env)
+      , consumerMaxPollRecords =
+          maybe (consumerMaxPollRecords cfg) id (Env.envMaxPollRecords env)
+      , consumerMaxPollIntervalMs =
+          maybe (consumerMaxPollIntervalMs cfg) id (Env.envMaxPollIntervalMs env)
+      , consumerAssignmentStrategy =
+          maybe (consumerAssignmentStrategy cfg) assignStrategy
+                (Env.envPartitionAssignmentStrategy env)
+      , consumerAutoOffsetReset =
+          maybe (consumerAutoOffsetReset cfg) offsetReset
+                (Env.envAutoOffsetReset env)
+      , consumerIsolationLevel =
+          maybe (consumerIsolationLevel cfg) isolation
+                (Env.envIsolationLevel env)
+      , consumerCheckCrcs =
+          maybe (consumerCheckCrcs cfg) id (Env.envCheckCrcs env)
+      , consumerFetchMinBytes =
+          maybe (consumerFetchMinBytes cfg) id (Env.envFetchMinBytes env)
+      , consumerFetchMaxBytes =
+          maybe (consumerFetchMaxBytes cfg) id (Env.envFetchMaxBytes env)
+      , consumerFetchMaxWaitMs =
+          maybe (consumerFetchMaxWaitMs cfg) id (Env.envFetchMaxWaitMs env)
+      , consumerFetchMessageMaxBytes =
+          maybe (consumerFetchMessageMaxBytes cfg) id (Env.envFetchMessageMaxBytes env)
+      , consumerRackId = case Env.envClientRack env of
+          Just _  -> Env.envClientRack env
+          Nothing -> consumerRackId cfg
+      , consumerConnectionConfig = cc
+      }
+  where
+    assignStrategy Env.EnvAssignRange      = RangeAssignment
+    assignStrategy Env.EnvAssignRoundRobin = RoundRobinAssignment
+    assignStrategy Env.EnvAssignSticky     = StickyAssignment
+
+    offsetReset Env.EnvOffsetEarliest = Earliest
+    offsetReset Env.EnvOffsetLatest   = Latest
+    offsetReset Env.EnvOffsetNone     = None
+
+    isolation Env.EnvReadUncommitted = ReadUncommitted
+    isolation Env.EnvReadCommitted   = ReadCommitted
+
+-- | Read every @KAFKA_*@ variable from the process environment
+-- and overlay them on top of the supplied 'ConsumerConfig'.
+consumerConfigFromEnv
+  :: ConsumerConfig
+  -> IO (Either [ConfigError] ConsumerConfig)
+consumerConfigFromEnv cfg = do
+  r <- Env.loadKafkaEnv
+  case r of
+    Left errs -> pure (Left errs)
+    Right env -> pure (applyKafkaEnvToConsumerConfig env cfg)
+
 -- | A topic-partition pair.
 data TopicPartition = TopicPartition
   { tpTopic :: !Text
@@ -446,15 +538,42 @@ validateConsumerConfig ConsumerConfig{..} = concat
   ]
 
 createConsumer
-  :: [Text]          -- ^ Bootstrap brokers
-  -> Text            -- ^ Consumer group ID
-  -> ConsumerConfig  -- ^ Configuration
+  :: [Text]          -- ^ Bootstrap brokers. Falls back to
+                     --   @KAFKA_BOOTSTRAP_SERVERS@ when empty.
+  -> Text            -- ^ Consumer group ID. Overridden by
+                     --   @KAFKA_GROUP_ID@ when set.
+  -> ConsumerConfig  -- ^ Configuration. 'Kafka.Client.Env'
+                     --   env-var overrides are layered on top
+                     --   automatically.
   -> IO (Either String Consumer)
-createConsumer _ _ config
-  | configErrs <- validateConsumerConfig config
-  , not (null configErrs)
-  = return $ Left $ renderConfigErrors configErrs
-createConsumer brokers groupId config = do
+createConsumer brokers0 groupId0 config0 = do
+  envR <- Env.loadKafkaEnv
+  case envR of
+    Left errs -> return $ Left $ renderConfigErrors errs
+    Right env -> case applyKafkaEnvToConsumerConfig env config0 of
+      Left errs -> return $ Left $ renderConfigErrors errs
+      Right cfg -> do
+        let brokers = case Env.envBootstrapServers env of
+              Just bs | null brokers0 -> bs
+              _                       -> brokers0
+            -- groupId precedence: explicit positional > env >
+            -- consumerGroupId on the supplied config. The
+            -- positional arg is more specific than a deployment-
+            -- wide env var, so it wins when set.
+            groupId
+              | not (T.null groupId0)         = groupId0
+              | Just g <- Env.envGroupId env  = g
+              | otherwise                     = consumerGroupId cfg
+        case validateConsumerConfig cfg of
+          errs@(_:_) -> return $ Left $ renderConfigErrors errs
+          []         -> createConsumer' brokers groupId cfg
+
+createConsumer'
+  :: [Text]
+  -> Text
+  -> ConsumerConfig
+  -> IO (Either String Consumer)
+createConsumer' brokers groupId config = do
   -- Parse broker addresses
   let parsedBrokers = map parseBrokerAddress brokers
   case sequence parsedBrokers of

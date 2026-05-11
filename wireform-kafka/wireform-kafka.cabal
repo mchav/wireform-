@@ -106,6 +106,7 @@ library
         Kafka.Client.AdminTimeouts
         Kafka.Client.ConfigValidation
         Kafka.Client.ConnectionExtras
+        Kafka.Client.Env
         Kafka.Client.Consumer
         Kafka.Client.ConsumerExtras
         Kafka.Client.DeleteRecords
@@ -730,6 +731,7 @@ test-suite wireform-kafka-test
         Client.MockBrokerProtoSpec
         Client.ConfigParitySpec
         Client.ConfigValidationSpec
+        Client.EnvSpec
         Client.HeartbeatRejoinSpec
         Codegen.WireGeneratorSpec
         Client.ProducerRetrySpec
