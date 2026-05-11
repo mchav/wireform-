@@ -205,8 +205,8 @@ driver). Combinators mirror the Java DSL one for one.
 
 ```haskell
 import qualified Kafka.Streams                       as S
-import qualified Kafka.Streams.DSL.StreamsBuilder    as SB
-import qualified Kafka.Streams.DSL.KStream           as KS
+import qualified Kafka.Streams.StreamsBuilder    as SB
+import qualified Kafka.Streams.KStream           as KS
 import qualified Kafka.Streams.Serde                 as Serde
 
 main :: IO ()
@@ -364,7 +364,7 @@ the librdkafka-shaped mirror of the same counters.
     that folder walks through every primitive.
   * **Streams reference**: `wireform-kafka-streams` mirrors the
     Java Streams DSL one combinator per name; the
-    `Kafka.Streams.DSL.*` modules each carry a header comment
+    `Kafka.Streams.*` modules each carry a header comment
     pointing at the upstream Java equivalent.
   * **Streams examples**: `wireform-kafka/streams/examples`
     has runnable demos for every operator family (passthrough,

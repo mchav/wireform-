@@ -32,7 +32,7 @@
 -- == Reusable transformation fragments
 --
 -- For transformations you want to /name/ and /reuse/ across
--- topologies, use 'Kafka.Streams.DSL.Pipeline'. A
+-- topologies, use 'Kafka.Streams.Pipeline'. A
 -- @Pipeline a b@ is a thin newtype over @a -\> IO b@ with a
 -- 'Control.Category.Category' instance, so fragments compose
 -- with @('Control.Category.>>>')@ exactly like ordinary
@@ -75,24 +75,24 @@ module Kafka.Streams
   , module Kafka.Streams.State.Window.InMemory
   , module Kafka.Streams.State.Session.InMemory
     -- * DSL
-  , module Kafka.Streams.DSL.Consumed
-  , module Kafka.Streams.DSL.Produced
-  , module Kafka.Streams.DSL.Repartitioned
-  , module Kafka.Streams.DSL.Grouped
-  , module Kafka.Streams.DSL.Joined
-  , module Kafka.Streams.DSL.Named
-  , module Kafka.Streams.DSL.Materialized
-  , module Kafka.Streams.DSL.StreamsBuilder
-  , module Kafka.Streams.DSL.KStream
-  , module Kafka.Streams.DSL.KGroupedStream
-  , module Kafka.Streams.DSL.KGroupedTable
-  , module Kafka.Streams.DSL.KTable
-  , module Kafka.Streams.DSL.TimeWindowedKStream
-  , module Kafka.Streams.DSL.SessionWindowedKStream
-  , module Kafka.Streams.DSL.GlobalKTable
-  , module Kafka.Streams.DSL.ForeignKeyJoin
-  , module Kafka.Streams.DSL.Cogroup
-  , module Kafka.Streams.DSL.Suppress
+  , module Kafka.Streams.Consumed
+  , module Kafka.Streams.Produced
+  , module Kafka.Streams.Repartitioned
+  , module Kafka.Streams.Grouped
+  , module Kafka.Streams.Joined
+  , module Kafka.Streams.Named
+  , module Kafka.Streams.Materialized
+  , module Kafka.Streams.StreamsBuilder
+  , module Kafka.Streams.KStream
+  , module Kafka.Streams.KGroupedStream
+  , module Kafka.Streams.KGroupedTable
+  , module Kafka.Streams.KTable
+  , module Kafka.Streams.TimeWindowedKStream
+  , module Kafka.Streams.SessionWindowedKStream
+  , module Kafka.Streams.GlobalKTable
+  , module Kafka.Streams.ForeignKeyJoin
+  , module Kafka.Streams.Cogroup
+  , module Kafka.Streams.Suppress
     -- * Driver / Runtime / IQ
   , module Kafka.Streams.Driver
   , module Kafka.Streams.Runtime
@@ -100,24 +100,24 @@ module Kafka.Streams
   ) where
 
 import Kafka.Streams.Config
-import Kafka.Streams.DSL.Consumed
-import Kafka.Streams.DSL.Grouped
-import Kafka.Streams.DSL.Joined
-import Kafka.Streams.DSL.Named
-import Kafka.Streams.DSL.KGroupedStream
-import Kafka.Streams.DSL.KGroupedTable
-import Kafka.Streams.DSL.KStream
-import Kafka.Streams.DSL.KTable
-import Kafka.Streams.DSL.Materialized
-import Kafka.Streams.DSL.Produced
-import Kafka.Streams.DSL.Repartitioned
-import Kafka.Streams.DSL.Cogroup
-import Kafka.Streams.DSL.Suppress
-import Kafka.Streams.DSL.ForeignKeyJoin
-import Kafka.Streams.DSL.GlobalKTable
-import Kafka.Streams.DSL.SessionWindowedKStream
-import Kafka.Streams.DSL.StreamsBuilder
-import Kafka.Streams.DSL.TimeWindowedKStream
+import Kafka.Streams.Consumed
+import Kafka.Streams.Grouped
+import Kafka.Streams.Joined
+import Kafka.Streams.Named
+import Kafka.Streams.KGroupedStream
+import Kafka.Streams.KGroupedTable
+import Kafka.Streams.KStream
+import Kafka.Streams.KTable
+import Kafka.Streams.Materialized
+import Kafka.Streams.Produced
+import Kafka.Streams.Repartitioned
+import Kafka.Streams.Cogroup
+import Kafka.Streams.Suppress
+import Kafka.Streams.ForeignKeyJoin
+import Kafka.Streams.GlobalKTable
+import Kafka.Streams.SessionWindowedKStream
+import Kafka.Streams.StreamsBuilder
+import Kafka.Streams.TimeWindowedKStream
 import Kafka.Streams.Driver
 import Kafka.Streams.Errors
 import Kafka.Streams.InteractiveQueries

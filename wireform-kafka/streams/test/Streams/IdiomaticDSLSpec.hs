@@ -18,7 +18,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
 import Kafka.Streams
-import Kafka.Streams.DSL.Pipeline
+import Kafka.Streams.Pipeline
 
 tests :: TestTree
 tests = testGroup "Pipeline (Haskell-native composable fragments)"

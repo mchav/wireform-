@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.Pipeline
+-- Module      : Kafka.Streams.Pipeline
 -- Description : First-class composable topology fragments
 --
 -- A 'Pipeline a b' is a /value/ that describes a topology
@@ -34,7 +34,7 @@
 -- This module sits alongside (not on top of) the existing
 -- imperative DSL — that API stays for users who prefer the
 -- Java-style fluent shape.
-module Kafka.Streams.DSL.Pipeline
+module Kafka.Streams.Pipeline
   ( -- * Pipeline
     Pipeline (..)
   , applyPipeline
@@ -54,7 +54,7 @@ import Control.Category (Category (..))
 import Control.Monad ((>=>))
 import Prelude hiding (id, (.))
 
-import qualified Kafka.Streams.DSL.KStream as KS
+import qualified Kafka.Streams.KStream as KS
 import Kafka.Streams.Types (Record)
 
 ----------------------------------------------------------------------

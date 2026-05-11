@@ -8,7 +8,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.ForeignKeyJoin
+-- Module      : Kafka.Streams.ForeignKeyJoin
 -- Description : KTable-KTable foreign-key join (KIP-213)
 --
 -- Joins a left 'KTable' on a /derived/ key — extracted from the
@@ -60,7 +60,7 @@
 --   * @last-fk@ — @k -> fk@: the foreign key the left key was
 --     last subscribed to. Used for unsubscribe-on-change.
 --   * Materialised output store: the join result.
-module Kafka.Streams.DSL.ForeignKeyJoin
+module Kafka.Streams.ForeignKeyJoin
   ( foreignKeyJoinKTable
   , leftForeignKeyJoinKTable
   ) where
@@ -72,17 +72,17 @@ import Data.Map.Strict (Map)
 import qualified Unsafe.Coerce as Unsafe
 import GHC.Generics (Generic)
 
-import Kafka.Streams.DSL.KTable
+import Kafka.Streams.KTable
   ( KTable (..)
   , ktableBuilder
   , ktableKeySerde
   , ktableNode
   , ktableStore
   )
-import Kafka.Streams.DSL.Materialized
+import Kafka.Streams.Materialized
   ( Materialized (..)
   )
-import Kafka.Streams.DSL.StreamsBuilder
+import Kafka.Streams.StreamsBuilder
   ( freshNodeName
   , freshStoreName
   , withTopology_

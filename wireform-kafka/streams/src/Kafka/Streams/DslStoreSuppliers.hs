@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.DslStoreSuppliers
+-- Module      : Kafka.Streams.DslStoreSuppliers
 -- Description : Default store backend selection (KIP-1247)
 --
 -- A 'DslStoreSuppliers' value tells the DSL which store backend
@@ -18,7 +18,7 @@
 -- The 'StreamsBuilder' carries one 'DslStoreSuppliers' that
 -- defaults to 'inMemoryDslStoreSuppliers'. Override it via
 -- 'setDefaultDslStoreSuppliers' before adding operators.
-module Kafka.Streams.DSL.DslStoreSuppliers
+module Kafka.Streams.DslStoreSuppliers
   ( DslStoreSuppliers (..)
   , inMemoryDslStoreSuppliers
   ) where

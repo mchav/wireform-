@@ -5,11 +5,11 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.Repartitioned
+-- Module      : Kafka.Streams.Repartitioned
 -- Description : @Repartitioned<K, V>@ config record
 --
 -- Carries the user-supplied options for an explicit
--- 'Kafka.Streams.DSL.KStream.repartition' call:
+-- 'Kafka.Streams.KStream.repartition' call:
 --
 --   * an internal-topic name override (otherwise the DSL
 --     synthesises one),
@@ -22,7 +22,7 @@
 -- Construct via 'repartitioned' and refine with @withX@
 -- combinators, mirroring Java's @Repartitioned.as(\"name\")
 -- .withNumberOfPartitions(n).withKeySerde(...).withValueSerde(...).withStreamPartitioner(...)@.
-module Kafka.Streams.DSL.Repartitioned
+module Kafka.Streams.Repartitioned
   ( Repartitioned (..)
   , repartitioned
   , withRepartitionName
@@ -36,7 +36,7 @@ import Data.Int (Int32)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
-import Kafka.Streams.DSL.Produced (StreamPartitioner)
+import Kafka.Streams.Produced (StreamPartitioner)
 import Kafka.Streams.Serde (Serde)
 
 data Repartitioned k v = Repartitioned

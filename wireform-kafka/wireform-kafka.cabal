@@ -445,26 +445,26 @@ library wireform-kafka-streams
         Kafka.Streams.Internal.RecordCollector
         Kafka.Streams.Internal.Engine
         Kafka.Streams.Driver
-        Kafka.Streams.DSL.Materialized
-        Kafka.Streams.DSL.Consumed
-        Kafka.Streams.DSL.Produced
-        Kafka.Streams.DSL.Repartitioned
-        Kafka.Streams.DSL.Pipeline
-        Kafka.Streams.DSL.Grouped
-        Kafka.Streams.DSL.Joined
-        Kafka.Streams.DSL.Named
-        Kafka.Streams.DSL.StreamsBuilder
-        Kafka.Streams.DSL.KStream
-        Kafka.Streams.DSL.KTable
-        Kafka.Streams.DSL.KGroupedStream
-        Kafka.Streams.DSL.KGroupedTable
-        Kafka.Streams.DSL.TimeWindowedKStream
-        Kafka.Streams.DSL.SessionWindowedKStream
-        Kafka.Streams.DSL.GlobalKTable
-        Kafka.Streams.DSL.ForeignKeyJoin
-        Kafka.Streams.DSL.Cogroup
-        Kafka.Streams.DSL.Suppress
-        Kafka.Streams.DSL.DslStoreSuppliers
+        Kafka.Streams.Materialized
+        Kafka.Streams.Consumed
+        Kafka.Streams.Produced
+        Kafka.Streams.Repartitioned
+        Kafka.Streams.Pipeline
+        Kafka.Streams.Grouped
+        Kafka.Streams.Joined
+        Kafka.Streams.Named
+        Kafka.Streams.StreamsBuilder
+        Kafka.Streams.KStream
+        Kafka.Streams.KTable
+        Kafka.Streams.KGroupedStream
+        Kafka.Streams.KGroupedTable
+        Kafka.Streams.TimeWindowedKStream
+        Kafka.Streams.SessionWindowedKStream
+        Kafka.Streams.GlobalKTable
+        Kafka.Streams.ForeignKeyJoin
+        Kafka.Streams.Cogroup
+        Kafka.Streams.Suppress
+        Kafka.Streams.DslStoreSuppliers
         Kafka.Streams.Runtime
         Kafka.Streams.Runtime.EOS
         Kafka.Streams.Runtime.Task

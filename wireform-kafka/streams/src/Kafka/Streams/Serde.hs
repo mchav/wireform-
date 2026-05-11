@@ -6,8 +6,8 @@
 -- Description : Pluggable serialiser / deserialiser pairs
 --
 -- Kafka's @Serde<T> = Serializer<T> + Deserializer<T>@. We collapse
--- that into a single record so that 'Kafka.Streams.DSL.Consumed',
--- 'Kafka.Streams.DSL.Produced' and 'Kafka.Streams.DSL.Materialized'
+-- that into a single record so that 'Kafka.Streams.Consumed',
+-- 'Kafka.Streams.Produced' and 'Kafka.Streams.Materialized'
 -- carry a single 'Serde'-pair value rather than two.
 --
 -- Built-ins cover the common cases the Java client ships in

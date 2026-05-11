@@ -1,7 +1,7 @@
 -- |
--- Module      : Kafka.Streams.DSL.Consumed
+-- Module      : Kafka.Streams.Consumed
 -- Description : @Consumed<K,V>@ DSL config — how to read a topic
-module Kafka.Streams.DSL.Consumed
+module Kafka.Streams.Consumed
   ( Consumed (..)
   , consumed
   , withTimestampExtractor

@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.Cogroup
+-- Module      : Kafka.Streams.Cogroup
 -- Description : Co-grouped aggregations across multiple streams
 --
 -- A 'CogroupedStream k a' captures a set of pre-grouped streams,
@@ -21,7 +21,7 @@
 --
 -- Mirrors @KGroupedStream.cogroup(...)@ +
 -- @CogroupedKStream.aggregate(...)@.
-module Kafka.Streams.DSL.Cogroup
+module Kafka.Streams.Cogroup
   ( CogroupedStream
   , cogroup
   , addCogrouped
@@ -34,16 +34,16 @@ module Kafka.Streams.DSL.Cogroup
 import Data.IORef
 import qualified Unsafe.Coerce as Unsafe
 
-import Kafka.Streams.DSL.KGroupedStream
+import Kafka.Streams.KGroupedStream
   ( CountedTableLocal (..)
   , KGroupedStream
   , kgsBuilder
   , kgsParent
   )
-import Kafka.Streams.DSL.Materialized
+import Kafka.Streams.Materialized
   ( Materialized (..)
   )
-import Kafka.Streams.DSL.StreamsBuilder
+import Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
   , freshNodeName
   , freshStoreName

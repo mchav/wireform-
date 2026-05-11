@@ -6,9 +6,9 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.SessionWindowedKStream
+-- Module      : Kafka.Streams.SessionWindowedKStream
 -- Description : SessionWindowedKStream + session aggregations
-module Kafka.Streams.DSL.SessionWindowedKStream
+module Kafka.Streams.SessionWindowedKStream
   ( SessionWindowedKStream
   , countSessionWindowed
   , aggregateSessionWindowed
@@ -20,11 +20,11 @@ import Data.Int (Int64)
 import qualified Unsafe.Coerce as Unsafe
 import qualified Kafka.Streams.Time as Time
 
-import Kafka.Streams.DSL.KGroupedStream
+import Kafka.Streams.KGroupedStream
   ( SessionWindowedKStream (..)
   )
-import Kafka.Streams.DSL.Materialized (Materialized (..))
-import Kafka.Streams.DSL.StreamsBuilder
+import Kafka.Streams.Materialized (Materialized (..))
+import Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
   , freshNodeName
   , freshStoreName

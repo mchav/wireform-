@@ -4,11 +4,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.TimeWindowedKStream
+-- Module      : Kafka.Streams.TimeWindowedKStream
 -- Description : TimeWindowedKStream + windowed aggregations
 --
 -- Mirrors @org.apache.kafka.streams.kstream.TimeWindowedKStream@.
-module Kafka.Streams.DSL.TimeWindowedKStream
+module Kafka.Streams.TimeWindowedKStream
   ( TimeWindowedKStream
   , twksParent
   , twksKey
@@ -30,11 +30,11 @@ import Data.IORef
 import Data.Int (Int64)
 import qualified Unsafe.Coerce as Unsafe
 
-import Kafka.Streams.DSL.KGroupedStream
+import Kafka.Streams.KGroupedStream
   ( TimeWindowedKStream (..)
   )
-import Kafka.Streams.DSL.Materialized (Materialized (..))
-import Kafka.Streams.DSL.StreamsBuilder
+import Kafka.Streams.Materialized (Materialized (..))
+import Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
   , freshNodeName
   , freshStoreName

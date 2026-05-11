@@ -10,11 +10,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.KGroupedTable
+-- Module      : Kafka.Streams.KGroupedTable
 -- Description : Aggregation over a KTable's change-log
 --
 -- Mirrors @org.apache.kafka.streams.kstream.KGroupedTable<K,V>@.
--- Where 'Kafka.Streams.DSL.KGroupedStream' aggregates an
+-- Where 'Kafka.Streams.KGroupedStream' aggregates an
 -- append-only stream, 'KGroupedTable' aggregates a /changelog/:
 -- every input record represents either an insertion, an update,
 -- or a delete (tombstone) for the same key, and the aggregator
@@ -38,7 +38,7 @@
 -- subtractor and apply them in subtractor-then-adder order on
 -- every input record that's a true update (i.e. the previous
 -- value for the same key was non-tombstone).
-module Kafka.Streams.DSL.KGroupedTable
+module Kafka.Streams.KGroupedTable
   ( KGroupedTable (..)
   , groupTableBy
     -- * Aggregations
@@ -51,21 +51,21 @@ import Data.Int (Int64)
 import Data.IORef
 import qualified Unsafe.Coerce as Unsafe
 
-import Kafka.Streams.DSL.Grouped (Grouped (..), grouped)
-import Kafka.Streams.DSL.KTable
+import Kafka.Streams.Grouped (Grouped (..), grouped)
+import Kafka.Streams.KTable
   ( KTable (..)
   , ktableBuilder
   , ktableKeySerde
   , ktableNode
   , ktableValueSerde
   )
-import Kafka.Streams.DSL.KGroupedStream
+import Kafka.Streams.KGroupedStream
   ( CountedTableLocal (..)
   )
-import Kafka.Streams.DSL.Materialized
+import Kafka.Streams.Materialized
   ( Materialized (..)
   )
-import Kafka.Streams.DSL.StreamsBuilder
+import Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
   , freshNodeName
   , freshStoreName
@@ -115,7 +115,7 @@ data KGroupedTable k v = KGroupedTable
 --
 -- Named 'groupTableBy' (rather than @groupBy@ or
 -- @groupByKTable@) to keep the namespace clean against the
--- existing 'Kafka.Streams.DSL.KStream.groupByKTable' which
+-- existing 'Kafka.Streams.KStream.groupByKTable' which
 -- performs a different operation (re-key a KTable into a
 -- KStream).
 groupTableBy

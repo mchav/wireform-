@@ -438,7 +438,7 @@ addStoreInternal sn ab owners t =
 --
 -- The @processorSupplier@ takes (k, v) records and updates the
 -- store; a typical implementation just does @kvsPut store k v@.
--- Use 'Kafka.Streams.DSL.GlobalKTable' for the high-level
+-- Use 'Kafka.Streams.GlobalKTable' for the high-level
 -- "global lookup table" API; this lower-level entry point lets
 -- you run arbitrary processor logic on the global side.
 addGlobalStore

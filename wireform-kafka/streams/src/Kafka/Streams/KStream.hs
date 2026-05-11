@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.KStream
+-- Module      : Kafka.Streams.KStream
 -- Description : The KStream DSL surface
 --
 -- @
@@ -41,7 +41,7 @@
 --   * 'groupByKey'              — @KStream.groupByKey@
 --   * 'groupByStream'           — @KStream.groupBy@
 --   * 'transformValuesStream'   — @KStream.transformValues@
-module Kafka.Streams.DSL.KStream
+module Kafka.Streams.KStream
   ( KStream (..)
   , kstreamParent
   , kstreamBuilder
@@ -110,21 +110,21 @@ import Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 
-import Kafka.Streams.DSL.Consumed
+import Kafka.Streams.Consumed
   ( Consumed (..)
   , consumed
   )
-import Kafka.Streams.DSL.Joined
+import Kafka.Streams.Joined
   ( JoinWindows (..)
   , Joined (..)
   )
-import qualified Kafka.Streams.DSL.Named
-import Kafka.Streams.DSL.Produced
+import qualified Kafka.Streams.Named
+import Kafka.Streams.Produced
   ( Produced (..)
   , produced
   )
-import qualified Kafka.Streams.DSL.Repartitioned as KafkaStreamsRepartitioned
-import Kafka.Streams.DSL.StreamsBuilder
+import qualified Kafka.Streams.Repartitioned as KafkaStreamsRepartitioned
+import Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
   , freshNodeName
   , freshStoreName
@@ -133,13 +133,13 @@ import Kafka.Streams.DSL.StreamsBuilder
 
 import qualified Unsafe.Coerce as Unsafe
 
-import qualified Kafka.Streams.DSL.KTable
-import Kafka.Streams.DSL.KTable
+import qualified Kafka.Streams.KTable
+import Kafka.Streams.KTable
   ( KTable (..)
   , ktableNode
   , ktableStore
   )
-import Kafka.Streams.DSL.Materialized
+import Kafka.Streams.Materialized
   ( Materialized (..)
   )
 import qualified Kafka.Streams.State.Store
@@ -1195,7 +1195,7 @@ mkKTableFromStream
 mkKTableFromStream nm sn b ks vs =
   -- KTable is a record with non-strict serde fields (we made them
   -- lazy so the builder can stitch deferred error placeholders).
-  Kafka.Streams.DSL.KTable.KTable nm sn b ks vs
+  Kafka.Streams.KTable.KTable nm sn b ks vs
 
 toTableProc
   :: forall k v
@@ -1418,13 +1418,13 @@ _unused_split = Map.empty
 -- | 'filterStream' with an explicit topology node name.
 filterStreamNamed
   :: forall k v
-   . Kafka.Streams.DSL.Named.Named
+   . Kafka.Streams.Named.Named
   -> (Record k v -> Bool)
   -> KStream k v
   -> IO (KStream k v)
 filterStreamNamed nm pred_ s = do
   let b = kstreamBuilder s
-  nodeNm <- Kafka.Streams.DSL.Named.namedOr b nm "KSTREAM-FILTER"
+  nodeNm <- Kafka.Streams.Named.namedOr b nm "KSTREAM-FILTER"
   withTopology_ b $
     Topo.addProcessor nodeNm [kstreamParent s]
       (filterProcessor (Topo.unNodeName nodeNm) pred_)
@@ -1438,13 +1438,13 @@ filterStreamNamed nm pred_ s = do
 -- | 'mapValues' with an explicit topology node name.
 mapValuesNamed
   :: forall k v v'
-   . Kafka.Streams.DSL.Named.Named
+   . Kafka.Streams.Named.Named
   -> (v -> v')
   -> KStream k v
   -> IO (KStream k v')
 mapValuesNamed nm f s = do
   let b = kstreamBuilder s
-  nodeNm <- Kafka.Streams.DSL.Named.namedOr b nm "KSTREAM-MAPVALUES"
+  nodeNm <- Kafka.Streams.Named.namedOr b nm "KSTREAM-MAPVALUES"
   withTopology_ b $
     Topo.addProcessor nodeNm [kstreamParent s] (mapValuesProc (pure . f))
   pure KStream
@@ -1458,13 +1458,13 @@ mapValuesNamed nm f s = do
 -- | 'mapKeyValue' with an explicit topology node name.
 mapKeyValueNamed
   :: forall k v k' v'
-   . Kafka.Streams.DSL.Named.Named
+   . Kafka.Streams.Named.Named
   -> (k -> v -> (k', v'))
   -> KStream k v
   -> IO (KStream k' v')
 mapKeyValueNamed nm f s = do
   let b = kstreamBuilder s
-  nodeNm <- Kafka.Streams.DSL.Named.namedOr b nm "KSTREAM-MAP"
+  nodeNm <- Kafka.Streams.Named.namedOr b nm "KSTREAM-MAP"
   withTopology_ b $
     Topo.addProcessor nodeNm [kstreamParent s]
       (mapKVProc (\k v -> pure (f k v)))
@@ -1478,13 +1478,13 @@ mapKeyValueNamed nm f s = do
 -- | 'peekStream' with an explicit topology node name.
 peekStreamNamed
   :: forall k v
-   . Kafka.Streams.DSL.Named.Named
+   . Kafka.Streams.Named.Named
   -> (Record k v -> IO ())
   -> KStream k v
   -> IO (KStream k v)
 peekStreamNamed nm act s = do
   let b = kstreamBuilder s
-  nodeNm <- Kafka.Streams.DSL.Named.namedOr b nm "KSTREAM-PEEK"
+  nodeNm <- Kafka.Streams.Named.namedOr b nm "KSTREAM-PEEK"
   withTopology_ b $
     Topo.addProcessor nodeNm [kstreamParent s] $ do
       ctxRef <- newIORef Nothing
@@ -1509,13 +1509,13 @@ peekStreamNamed nm act s = do
 -- | 'selectKey' with an explicit topology node name.
 selectKeyNamed
   :: forall k v k'
-   . Kafka.Streams.DSL.Named.Named
+   . Kafka.Streams.Named.Named
   -> (Record k v -> k')
   -> KStream k v
   -> IO (KStream k' v)
 selectKeyNamed nm f s = do
   let b = kstreamBuilder s
-  nodeNm <- Kafka.Streams.DSL.Named.namedOr b nm "KSTREAM-SELECTKEY"
+  nodeNm <- Kafka.Streams.Named.namedOr b nm "KSTREAM-SELECTKEY"
   withTopology_ b $
     Topo.addProcessor nodeNm [kstreamParent s] (selectKeyProc f)
   pure KStream
@@ -1528,14 +1528,14 @@ selectKeyNamed nm f s = do
 -- | 'toTopic' with an explicit topology node name.
 toTopicNamed
   :: forall k v
-   . Kafka.Streams.DSL.Named.Named
+   . Kafka.Streams.Named.Named
   -> TopicName
   -> Produced k v
   -> KStream k v
   -> IO ()
 toTopicNamed nm topic p s = do
   let b = kstreamBuilder s
-  nodeNm <- Kafka.Streams.DSL.Named.namedOr b nm "KSTREAM-SINK"
+  nodeNm <- Kafka.Streams.Named.namedOr b nm "KSTREAM-SINK"
   withTopology_ b $
     Topo.addSink nodeNm topic
                  (producedKeySerde p) (producedValueSerde p)
@@ -1611,16 +1611,16 @@ processValuesStream prefix stores supplier vs s = do
 -- Mirrors @KTable.toStream@.
 toKStreamFromKTable
   :: forall k v
-   . Kafka.Streams.DSL.KTable.KTable k v
+   . Kafka.Streams.KTable.KTable k v
   -> IO (KStream k v)
 toKStreamFromKTable kt = do
-  let b = Kafka.Streams.DSL.KTable.ktableBuilder kt
+  let b = Kafka.Streams.KTable.ktableBuilder kt
   nm <- freshNodeName b "KTABLE-TOSTREAM"
   withTopology_ b $ \t ->
     Topo.addProcessorWith
       Topo.ProcessorSpec
         { Topo.processorSpecName     = nm
-        , Topo.processorSpecParents  = [Kafka.Streams.DSL.KTable.ktableNode kt]
+        , Topo.processorSpecParents  = [Kafka.Streams.KTable.ktableNode kt]
         , Topo.processorSpecSupplier =
             Topo.AnyProcessor (mkPassThrough "KTABLE-TOSTREAM")
         , Topo.processorSpecStores   = []
@@ -1628,8 +1628,8 @@ toKStreamFromKTable kt = do
   pure KStream
     { kstreamBuilder    = b
     , kstreamParent     = nm
-    , kstreamKeySerde   = Kafka.Streams.DSL.KTable.ktableKeySerde kt
-    , kstreamValueSerde = Kafka.Streams.DSL.KTable.ktableValueSerde kt
+    , kstreamKeySerde   = Kafka.Streams.KTable.ktableKeySerde kt
+    , kstreamValueSerde = Kafka.Streams.KTable.ktableValueSerde kt
     }
 
 -- | Re-key a 'KTable'. The result is a 'KStream' on the new key
@@ -1643,7 +1643,7 @@ groupByKTable
   :: forall k v k'
    . (Ord k, Ord k')
   => (k -> v -> k')
-  -> Kafka.Streams.DSL.KTable.KTable k v
+  -> Kafka.Streams.KTable.KTable k v
   -> IO (KStream k' v)
 groupByKTable keyMap kt = do
   s <- toKStreamFromKTable kt

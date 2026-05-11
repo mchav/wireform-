@@ -1,7 +1,7 @@
 -- |
--- Module      : Kafka.Streams.DSL.Grouped
+-- Module      : Kafka.Streams.Grouped
 -- Description : @Grouped<K,V>@ DSL config
-module Kafka.Streams.DSL.Grouped
+module Kafka.Streams.Grouped
   ( Grouped (..)
   , grouped
   , withGroupedName

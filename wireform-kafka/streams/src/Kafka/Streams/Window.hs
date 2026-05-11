@@ -110,7 +110,7 @@ hoppingWindows size advance =
 
 -- | Set the grace period on any 'Windows' policy. Records whose
 -- right edge has been closed for longer than 'grace' are dropped
--- by 'Kafka.Streams.DSL.TimeWindowedKStream' (KIP-633).
+-- by 'Kafka.Streams.TimeWindowedKStream' (KIP-633).
 withGracePeriod :: Duration -> Windows -> Windows
 withGracePeriod g w = w { windowsGracePeriod = durationMillis g }
 

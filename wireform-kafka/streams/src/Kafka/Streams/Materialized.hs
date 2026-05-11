@@ -1,8 +1,8 @@
 -- |
--- Module      : Kafka.Streams.DSL.Materialized
+-- Module      : Kafka.Streams.Materialized
 -- Description : @Materialized<K,V,S>@ DSL config — how to materialize a
 --               KStream/KTable into a state store
-module Kafka.Streams.DSL.Materialized
+module Kafka.Streams.Materialized
   ( Materialized (..)
   , materialized
   , materializedAs

@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.KTable
+-- Module      : Kafka.Streams.KTable
 -- Description : KTable DSL surface
 --
 -- A 'KTable' is the changelog view of a 'KStream': for each key, only
@@ -14,7 +14,7 @@
 -- store, and the DSL operations preserve that invariant.
 --
 -- Mirrors @org.apache.kafka.streams.kstream.KTable<K,V>@.
-module Kafka.Streams.DSL.KTable
+module Kafka.Streams.KTable
   ( KTable (..)
   , ktableNode
   , ktableStore
@@ -43,9 +43,9 @@ import qualified Data.Text
 import qualified GHC.Exts
 import qualified Unsafe.Coerce as Unsafe
 
-import Kafka.Streams.DSL.Consumed (Consumed (..))
-import Kafka.Streams.DSL.Materialized (Materialized (..))
-import Kafka.Streams.DSL.StreamsBuilder
+import Kafka.Streams.Consumed (Consumed (..))
+import Kafka.Streams.Materialized (Materialized (..))
+import Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
   , freshNodeName
   , freshStoreName
@@ -423,7 +423,7 @@ mapValueTableProcessor sn f = do
 
 -- | Convert a 'KTable' to a 'KStream' carrying every change.
 --
--- The resulting stream is a 'Kafka.Streams.DSL.KStream.KStream' but
+-- The resulting stream is a 'Kafka.Streams.KStream.KStream' but
 -- we don't import that module here to avoid a cycle; the runtime
 -- 'Kafka.Streams' umbrella re-exports a sibling helper.
 toStreamTable :: KTable k v -> (Topo.NodeName, StreamsBuilder, Serde k, Serde v)

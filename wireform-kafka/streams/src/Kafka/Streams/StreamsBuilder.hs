@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.StreamsBuilder
+-- Module      : Kafka.Streams.StreamsBuilder
 -- Description : Mutable DSL builder
 --
 -- 'StreamsBuilder' is the stateful façade users construct topologies
@@ -12,7 +12,7 @@
 -- via 'IORef' and returns a fresh 'KStream' / 'KTable' value pinned
 -- to the new node. This trades a tiny amount of impurity for the
 -- ability to mirror the Java fluent API one-to-one.
-module Kafka.Streams.DSL.StreamsBuilder
+module Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
   , newStreamsBuilder
   , buildTopology

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.Named
+-- Module      : Kafka.Streams.Named
 -- Description : 'Named' configuration for DSL operators
 --
 -- Mirrors Java's @org.apache.kafka.streams.kstream.Named@. Every
@@ -12,7 +12,7 @@
 -- Named names show up in 'TopologyDescription' / 'pretty' output
 -- and in the metrics namespace, so they're useful for diagnostics
 -- when you want stable identifiers across topology builds.
-module Kafka.Streams.DSL.Named
+module Kafka.Streams.Named
   ( Named (..)
   , named
   , noName
@@ -21,7 +21,7 @@ module Kafka.Streams.DSL.Named
 
 import Data.Text (Text)
 
-import Kafka.Streams.DSL.StreamsBuilder
+import Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
   , freshNodeName
   )

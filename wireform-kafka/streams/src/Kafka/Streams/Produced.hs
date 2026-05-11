@@ -1,9 +1,9 @@
 {-# LANGUAGE RankNTypes #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.Produced
+-- Module      : Kafka.Streams.Produced
 -- Description : @Produced<K,V>@ DSL config — how to write a topic
-module Kafka.Streams.DSL.Produced
+module Kafka.Streams.Produced
   ( Produced (..)
   , produced
   , withProducedName

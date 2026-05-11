@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.Suppress
+-- Module      : Kafka.Streams.Suppress
 -- Description : Suppress operator
 --
 -- Buffers updates per (windowed) key and emits each key's final
@@ -38,7 +38,7 @@
 -- For non-windowed KTables, 'suppressUntilTimeLimit' offers a
 -- coarser per-key debounce: emit at most one update per key per
 -- time-limit window.
-module Kafka.Streams.DSL.Suppress
+module Kafka.Streams.Suppress
   ( suppressWindowed
   , suppressWindowedWith
   , suppressUntilTimeLimit
@@ -65,9 +65,9 @@ import Data.Int (Int64)
 import qualified Data.Text as T
 import qualified Unsafe.Coerce as Unsafe
 
-import qualified Kafka.Streams.DSL.KStream
-import Kafka.Streams.DSL.KStream (KStream (..))
-import Kafka.Streams.DSL.StreamsBuilder
+import qualified Kafka.Streams.KStream
+import Kafka.Streams.KStream (KStream (..))
+import Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
   , freshNodeName
   , freshStoreName
@@ -79,7 +79,7 @@ import GHC.Generics (Generic)
 
 import Kafka.Streams.Time (millis)
 import Kafka.Streams.Window (windowsGracePeriod, windowsSize)
-import Kafka.Streams.DSL.TimeWindowedKStream
+import Kafka.Streams.TimeWindowedKStream
   ( EmitStrategy (..)
   , WindowedTableHandle (..)
   )
@@ -529,8 +529,8 @@ suppressKStream
   :: forall k v
    . Ord k
   => Suppressed
-  -> Kafka.Streams.DSL.KStream.KStream k v
-  -> IO (Kafka.Streams.DSL.KStream.KStream k v)
+  -> Kafka.Streams.KStream.KStream k v
+  -> IO (Kafka.Streams.KStream.KStream k v)
 suppressKStream s =
   case s of
     SuppressUntilWindowCloses{} ->

@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.KGroupedStream
+-- Module      : Kafka.Streams.KGroupedStream
 -- Description : KGroupedStream + aggregation surface
 --
 -- @
@@ -19,7 +19,7 @@
 -- backed by a 'KeyValueStore'.
 --
 -- Mirrors @org.apache.kafka.streams.kstream.KGroupedStream<K,V>@.
-module Kafka.Streams.DSL.KGroupedStream
+module Kafka.Streams.KGroupedStream
   ( KGroupedStream
   , kgsParent
   , kgsKey
@@ -44,8 +44,8 @@ import Data.IORef
 import Data.Int (Int64)
 import qualified Unsafe.Coerce as Unsafe
 
-import Kafka.Streams.DSL.Grouped (Grouped (..))
-import Kafka.Streams.DSL.KStream
+import Kafka.Streams.Grouped (Grouped (..))
+import Kafka.Streams.KStream
   ( KStream
   , kstreamBuilder
   , kstreamKeySerde
@@ -53,10 +53,10 @@ import Kafka.Streams.DSL.KStream
   , kstreamValueSerde
   , selectKey
   )
-import Kafka.Streams.DSL.Materialized
+import Kafka.Streams.Materialized
   ( Materialized (..)
   )
-import Kafka.Streams.DSL.StreamsBuilder
+import Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
   , freshNodeName
   , freshStoreName
@@ -391,5 +391,5 @@ data CountedTableLocal k v = CountedTableLocal
   }
 
 -- We re-export the aggregation result as 'KTable' from the
--- 'Kafka.Streams.DSL.KTable' module; here we keep the local name so
+-- 'Kafka.Streams.KTable' module; here we keep the local name so
 -- the test driver can introspect.

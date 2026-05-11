@@ -36,7 +36,7 @@ import Data.Text (Text)
 import qualified Unsafe.Coerce as Unsafe
 
 import Kafka.Streams
-import Kafka.Streams.DSL.StreamsBuilder (withTopology_)
+import Kafka.Streams.StreamsBuilder (withTopology_)
 import Kafka.Streams.State.KeyValue.InMemory (inMemoryKeyValueStoreBuilder)
 import Kafka.Streams.State.Store (StoreBuilderKV)
 import qualified Kafka.Streams.Topology as Topo

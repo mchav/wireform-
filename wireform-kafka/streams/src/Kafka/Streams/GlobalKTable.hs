@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.GlobalKTable
+-- Module      : Kafka.Streams.GlobalKTable
 -- Description : 'GlobalKTable' — every-partition replicated lookup table
 --
 -- A 'GlobalKTable' is conceptually a regular 'KTable' but with two
@@ -26,7 +26,7 @@
 -- the API surface and the joiner-with-key-mapper for stream joins.
 --
 -- Mirrors @org.apache.kafka.streams.kstream.GlobalKTable@.
-module Kafka.Streams.DSL.GlobalKTable
+module Kafka.Streams.GlobalKTable
   ( GlobalKTable
   , globalTable
   , globalKTableStore
@@ -43,19 +43,19 @@ import Data.IORef
 import qualified Data.Text as T
 import qualified Unsafe.Coerce as Unsafe
 
-import Kafka.Streams.DSL.Consumed (Consumed (..))
-import Kafka.Streams.DSL.KStream
+import Kafka.Streams.Consumed (Consumed (..))
+import Kafka.Streams.KStream
   ( KStream (..)
   , kstreamBuilder
   , kstreamKeySerde
   , kstreamParent
   )
-import qualified Kafka.Streams.DSL.KStream as KS
-import Kafka.Streams.DSL.Materialized
+import qualified Kafka.Streams.KStream as KS
+import Kafka.Streams.Materialized
   ( Materialized (..)
   , materializedAs
   )
-import Kafka.Streams.DSL.StreamsBuilder
+import Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
   , freshNodeName
   , freshStoreName

@@ -3,9 +3,9 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 
 -- |
--- Module      : Kafka.Streams.DSL.Joined
+-- Module      : Kafka.Streams.Joined
 -- Description : @Joined<K,V1,V2>@ DSL config + window join configuration
-module Kafka.Streams.DSL.Joined
+module Kafka.Streams.Joined
   ( Joined (..)
   , joined
   , JoinWindows (..)
