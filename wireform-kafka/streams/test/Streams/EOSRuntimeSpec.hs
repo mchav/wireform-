@@ -25,12 +25,14 @@ recordingCoord = do
   buf <- newIORef ([] :: [Text])
   let log_ s = modifyIORef' buf (s :)
       coord = EOSCoordinator
-        { eosInit          = log_ "init"   *> pure (Right ())
-        , eosBegin         = log_ "begin"  *> pure (Right ())
-        , eosCommit        = log_ "commit" *> pure (Right ())
-        , eosAbort         = log_ "abort"  *> pure (Right ())
-        , eosCommitOffsets = \_ _ ->
+        { initTxn          = log_ "init"   *> pure (Right ())
+        , beginTxn         = log_ "begin"  *> pure (Right ())
+        , commitTxn        = log_ "commit" *> pure (Right ())
+        , abortTxn         = log_ "abort"  *> pure (Right ())
+        , commitOffsets = \_ _ ->
             log_ "commitOffsets" *> pure (Right ())
+        , storeCommit = log_ "storeCommit" *> pure (Right ())
+        , storeAbort  = log_ "storeAbort"  *> pure (Right ())
         }
   pure (coord, reverse <$> readIORef buf)
 
@@ -80,7 +82,7 @@ runtime_commit_cycle_calls_coordinator =
     (coord, drain) <- recordingCoord
     out <- runCommitCycle coord "g" (pure Map.empty) (pure ())
     out @?= CommitSucceeded
-    drain >>= (@?= ["begin", "commitOffsets", "commit"])
+    drain >>= (@?= ["begin", "commitOffsets", "commit", "storeCommit"])
 
 runtime_chooses_eos_v2_producer_config :: TestTree
 runtime_chooses_eos_v2_producer_config =

@@ -5,29 +5,30 @@
 
 {-|
 Module      : Kafka.Client.ShareGroupExtras
-Description : KIP-1119 / KIP-1129 — share-group pause/resume + DLQ
+Description : Share-group consumer extensions: per-partition
+              pause/resume + dead-letter-queue routing
 
-Builds on 'Kafka.Client.ShareConsumer' (KIP-932) with the two
-follow-up KIPs that fill in operationally-important gaps:
+Two operationally-important surfaces on top of
+'Kafka.Client.ShareConsumer':
 
-  * KIP-1119: pause / resume per-(topic, partition) on a share
-    consumer. Useful for bounded back-pressure.
-  * KIP-1129: dead-letter-queue (DLQ) support. Once a record
-    has hit @max.delivery.count@, the consumer can route it to
-    a DLQ topic with a typed reason instead of having the broker
+  * Per-(topic, partition) pause / resume — useful for bounded
+    back-pressure.
+  * Dead-letter-queue (DLQ) routing — once a record has hit
+    @max.delivery.count@ the consumer can route it to a DLQ
+    topic with a typed reason instead of letting the broker
     silently drop it.
 
-Both surfaces are pure decision layers + a tiny stateful piece
-on top of 'Kafka.Client.ShareConsumer.ShareConsumer'.
+Both surfaces are pure decision layers plus a small stateful
+piece on top of 'Kafka.Client.ShareConsumer.ShareConsumer'.
 -}
 module Kafka.Client.ShareGroupExtras
-  ( -- * Pause / resume (KIP-1119)
+  ( -- * Pause / resume
     PauseSet
   , newPauseSet
-  , pausePartitionsSG
-  , resumePartitionsSG
-  , isPausedSG
-    -- * Dead-letter queue (KIP-1129)
+  , pausePartitions
+  , resumePartitions
+  , isPaused
+    -- * Dead-letter queue
   , DlqDecision (..)
   , decideDlq
   , DlqRoute (..)
@@ -43,7 +44,7 @@ import GHC.Generics (Generic)
 import qualified Kafka.Client.ShareConsumer as SC
 
 ----------------------------------------------------------------------
--- Pause / resume (KIP-1119)
+-- Pause / resume
 ----------------------------------------------------------------------
 
 -- | Set of paused (topic, partition) pairs.
@@ -52,21 +53,21 @@ newtype PauseSet = PauseSet (TVar (HashSet (Text, Int32)))
 newPauseSet :: IO PauseSet
 newPauseSet = PauseSet <$> newTVarIO HashSet.empty
 
-pausePartitionsSG :: PauseSet -> [(Text, Int32)] -> IO ()
-pausePartitionsSG (PauseSet v) tps = atomically $
+pausePartitions :: PauseSet -> [(Text, Int32)] -> IO ()
+pausePartitions (PauseSet v) tps = atomically $
   modifyTVar' v (HashSet.union (HashSet.fromList tps))
 
-resumePartitionsSG :: PauseSet -> [(Text, Int32)] -> IO ()
-resumePartitionsSG (PauseSet v) tps = atomically $
+resumePartitions :: PauseSet -> [(Text, Int32)] -> IO ()
+resumePartitions (PauseSet v) tps = atomically $
   modifyTVar' v (\s -> HashSet.difference s (HashSet.fromList tps))
 
-isPausedSG :: PauseSet -> Text -> Int32 -> IO Bool
-isPausedSG (PauseSet v) topic part = do
+isPaused :: PauseSet -> Text -> Int32 -> IO Bool
+isPaused (PauseSet v) topic part = do
   s <- readTVarIO v
   pure (HashSet.member (topic, part) s)
 
 ----------------------------------------------------------------------
--- DLQ (KIP-1129)
+-- Dead-letter queue
 ----------------------------------------------------------------------
 
 data DlqRoute

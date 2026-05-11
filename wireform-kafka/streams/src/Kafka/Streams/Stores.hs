@@ -21,12 +21,15 @@ module Kafka.Streams.Stores
   ( -- * Key-value
     inMemoryKeyValueStore
   , inMemoryKeyValueStoreBuilder
+  , lruMap
+  , lruMapBuilder
   , persistentKeyValueStore
   , persistentKeyValueStoreBuilder
   , cachingKeyValueStore
     -- * Window
   , inMemoryWindowStore
   , inMemoryWindowStoreBuilder
+  , inMemoryTimestampedWindowStore
     -- * Session
   , inMemorySessionStore
   , inMemorySessionStoreBuilder
@@ -58,6 +61,7 @@ import qualified Kafka.Streams.State.KeyValue.Timestamped as KVTs
 import qualified Kafka.Streams.State.KeyValue.Versioned as KVVer
 import qualified Kafka.Streams.State.Session.InMemory as SSInMem
 import qualified Kafka.Streams.State.Window.InMemory as WSInMem
+import qualified Kafka.Streams.State.Window.Timestamped as WSTS
 import Kafka.Streams.State.Store
 
 ----------------------------------------------------------------------
@@ -69,6 +73,17 @@ inMemoryKeyValueStore = KVInMem.inMemoryKeyValueStore
 inMemoryKeyValueStoreBuilder
   :: Ord k => StoreName -> StoreBuilderKV k v
 inMemoryKeyValueStoreBuilder = KVInMem.inMemoryKeyValueStoreBuilder
+
+-- | JVM's @Stores.lruMap(name, maxCacheSize)@: a bounded LRU
+-- in-memory KV store. Logging is disabled by default (LRU
+-- eviction breaks the changelog replay assumption).
+lruMap
+  :: Ord k => StoreName -> Int -> IO (KeyValueStore k v)
+lruMap = KVInMem.inMemoryLruKeyValueStore
+
+lruMapBuilder
+  :: Ord k => StoreName -> Int -> StoreBuilderKV k v
+lruMapBuilder = KVInMem.inMemoryLruKeyValueStoreBuilder
 
 persistentKeyValueStore
   :: StoreName
@@ -99,6 +114,17 @@ inMemoryWindowStoreBuilder
   :: Ord k
   => StoreName -> Int64 -> Int64 -> StoreBuilderW k v
 inMemoryWindowStoreBuilder = WSInMem.inMemoryWindowStoreBuilder
+
+-- | JVM's @Stores.timestampedWindowStoreBuilder(...)@ as an
+-- in-memory store. Value type is 'WSTS.ValueAndTimestamp v'.
+inMemoryTimestampedWindowStore
+  :: Ord k
+  => StoreName
+  -> Int64
+  -> Int64
+  -> IO (WSTS.TimestampedWindowStore k v)
+inMemoryTimestampedWindowStore =
+  WSTS.inMemoryTimestampedWindowStore
 
 inMemorySessionStore
   :: Ord k => StoreName -> Int64 -> IO (SessionStore k v)

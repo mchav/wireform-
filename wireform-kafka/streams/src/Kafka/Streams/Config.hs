@@ -11,6 +11,8 @@
 module Kafka.Streams.Config
   ( -- * Config
     StreamsConfig (..)
+  , DslStore (..)
+  , RackAwareStrategy (..)
   , defaultStreamsConfig
     -- * Processing semantics
   , ProcessingGuarantee (..)
@@ -96,7 +98,42 @@ data StreamsConfig = StreamsConfig
     --   should use when computing assignments. 'Nothing' (the
     --   default) selects the built-in cooperative-sticky
     --   assignor.
+  , applicationServer        :: !(Maybe Text)
+    -- ^ KIP-67 @application.server@ — host:port advertised in
+    --   JoinGroup subscription metadata so peers can discover
+    --   this instance for cross-instance interactive queries.
+    --   'Nothing' disables advertisement.
+  , defaultDslStore          :: !DslStore
+    -- ^ KIP-591 @default.dsl.store@ — which backend the DSL
+    --   uses when 'Materialized' doesn't pin one (in-memory or
+    --   RocksDB). Today only 'DslInMemoryStore' is honoured.
+  , rackAwareAssignmentStrategy :: !RackAwareStrategy
+    -- ^ KIP-925 @rack.aware.assignment.strategy@.
+  , rackAwareTrafficCost     :: !Int
+    -- ^ KIP-925 @rack.aware.assignment.traffic.cost@.
+  , rackAwareNonOverlapCost  :: !Int
+    -- ^ KIP-925 @rack.aware.assignment.non.overlap.cost@.
+  , windowSizeMs             :: !(Maybe Int64)
+    -- ^ KIP-585 @window.size.ms@ — default window size used by
+    --   the windowed-serde auto-resolver when no explicit
+    --   serde is supplied.
+  , upgradeFrom              :: !(Maybe Text)
+    -- ^ @upgrade.from@ — multi-version upgrade compatibility
+    --   knob (read by the assignor on a rolling upgrade).
   }
+
+-- | KIP-591 @default.dsl.store@ enum.
+data DslStore
+  = DslInMemoryStore
+  | DslRocksDbStore
+  deriving stock (Eq, Show)
+
+-- | KIP-925 rack-aware assignment-strategy enum.
+data RackAwareStrategy
+  = RackAwareNone
+  | RackAwareMinTrafficCost
+  | RackAwareBalanceSubtopology
+  deriving stock (Eq, Show)
 
 defaultCommitIntervalMs :: Int
 defaultCommitIntervalMs = 30_000
@@ -130,6 +167,13 @@ defaultStreamsConfig = StreamsConfig
   , maxWarmupReplicas          = 2
   , probingRebalanceIntervalMs = 600_000
   , taskAssignorClass          = Nothing
+  , applicationServer          = Nothing
+  , defaultDslStore            = DslInMemoryStore
+  , rackAwareAssignmentStrategy = RackAwareNone
+  , rackAwareTrafficCost       = 1
+  , rackAwareNonOverlapCost    = 10
+  , windowSizeMs               = Nothing
+  , upgradeFrom                = Nothing
   }
 
 ----------------------------------------------------------------------
@@ -197,6 +241,28 @@ streamsConfigFromMap m = foldl' step defaultStreamsConfig (Map.toAscList m)
       "probing.rebalance.interval.ms" ->
         maybe cfg (\n -> cfg { probingRebalanceIntervalMs = n }) (readT v)
       "task.assignor.class"        -> cfg { taskAssignorClass = Just v }
+      "application.server"         -> cfg { applicationServer = Just v }
+      "default.dsl.store"          -> case v of
+        "in_memory" -> cfg { defaultDslStore = DslInMemoryStore }
+        "ROCKS_DB"  -> cfg { defaultDslStore = DslRocksDbStore }
+        "rocksdb"   -> cfg { defaultDslStore = DslRocksDbStore }
+        _           -> cfg
+      "rack.aware.assignment.strategy" -> case v of
+        "MIN_TRAFFIC"          -> cfg { rackAwareAssignmentStrategy = RackAwareMinTrafficCost }
+        "BALANCE_SUBTOPOLOGY"  -> cfg { rackAwareAssignmentStrategy = RackAwareBalanceSubtopology }
+        "NONE"                 -> cfg { rackAwareAssignmentStrategy = RackAwareNone }
+        _                      -> cfg
+      "rack.aware.assignment.traffic.cost" ->
+        maybe cfg (\n -> cfg { rackAwareTrafficCost = n }) (readT v)
+      "rack.aware.assignment.non.overlap.cost" ->
+        maybe cfg (\n -> cfg { rackAwareNonOverlapCost = n }) (readT v)
+      "statestore.cache.max.bytes" ->
+        -- Renamed-from cache.max.bytes.buffering in 3.4. We
+        -- accept both names; the field is the same.
+        maybe cfg (\n -> cfg { cacheMaxBytesBuffering = n }) (readT v)
+      "window.size.ms"             ->
+        maybe cfg (\n -> cfg { windowSizeMs = Just n }) (readT v)
+      "upgrade.from"               -> cfg { upgradeFrom = Just v }
       _                            -> cfg
 
 readT :: Read a => T.Text -> Maybe a

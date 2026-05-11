@@ -1,5 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -44,6 +47,10 @@ module Kafka.Streams.InteractiveQueries
     queryKVStore
   , queryWindowStore
   , querySessionStore
+    -- * StoreQueryParameters
+  , StoreQueryParameters (..)
+  , storeQueryParameters
+  , queryKVStoreWithParameters
     -- * Read-only handles
   , ReadOnlyKeyValueStore (..)
   , ReadOnlyWindowStore (..)
@@ -59,9 +66,9 @@ module Kafka.Streams.InteractiveQueries
   ) where
 
 import Control.Exception (Exception)
-import Data.IORef (readIORef)
+import qualified Data.Foldable as Foldable
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map
 import qualified Unsafe.Coerce as Unsafe
 
 import Kafka.Streams.Internal.Engine
@@ -71,11 +78,19 @@ import Kafka.Streams.Internal.Engine
   )
 import Kafka.Streams.Runtime
   ( KafkaStreams
+  , StreamsStatus (..)
   , ksEngine
+  , ksPool
+  , streamsStatus
+  )
+import qualified Kafka.Streams.Runtime.WorkerPool
+import Kafka.Streams.Runtime.WorkerPool
+  ( poolWorkers
+  , workerEngine
   )
 import Kafka.Streams.State.Store
   ( AnyStateStore (..)
-  , KeyValueIterator
+  , KeyValueIterator (..)
   , KeyValueStore (..)
   , SessionKey
   , SessionStore (..)
@@ -152,6 +167,91 @@ readOnlySession ss = ReadOnlySessionStore
 
 -- | Resolve a store from a 'KafkaStreams' by name. Returns 'Nothing'
 -- if the runtime is not yet running or the store doesn't exist.
+-- | @StoreQueryParameters@ — the parameter bag the JVM
+-- @KafkaStreams.store(...)@ entry-point takes. Mirrors the
+-- builder shape so call sites read like the Java original.
+data StoreQueryParameters = StoreQueryParameters
+  { storeName          :: !StoreName
+  , staleStoresEnabled :: !Bool
+    -- ^ When 'True', return state-store handles even when the
+    --   instance is still recovering / rebalancing. Mirrors
+    --   @withStaleStoresEnabled()@.
+  , partition          :: !(Maybe Int)
+    -- ^ When 'Just', restrict the query to a single
+    --   partition. Mirrors @withPartition(int)@.
+  }
+  deriving stock (Eq, Show)
+
+-- | Build a 'StoreQueryParameters' from a store name; defaults
+-- match Java's 'StoreQueryParameters.fromNameAndType' shape.
+storeQueryParameters :: StoreName -> StoreQueryParameters
+storeQueryParameters n = StoreQueryParameters
+  { storeName          = n
+  , staleStoresEnabled = False
+  , partition          = Nothing
+  }
+
+-- | Resolve a key-value store using the full
+-- 'StoreQueryParameters' bag.
+--
+--   * 'staleStoresEnabled': when 'False' the request fails
+--     with 'Nothing' unless the runtime is in 'StreamsRunning'.
+--     When 'True' we hand back a store handle in any state
+--     (including 'StreamsRebalancing' and 'StreamsCreated')
+--     so callers can read potentially-stale snapshots.
+--
+--   * 'partition': when 'Just p' the federated query is
+--     restricted to the single worker whose routing table
+--     owns @(_, p)@ — every other worker's store is excluded
+--     from 'roKvGet' / 'roKvAll'. When 'Nothing' the query
+--     federates across all workers (the existing behaviour).
+queryKVStoreWithParameters
+  :: forall k v
+   . KafkaStreams
+  -> StoreQueryParameters
+  -> IO (Maybe (ReadOnlyKeyValueStore k v))
+queryKVStoreWithParameters ks p = do
+  st <- streamsStatus ks
+  let !okState =
+        st == StreamsRunning
+          || p.staleStoresEnabled
+  if not okState
+    then pure Nothing
+    else case p.partition of
+      Nothing   -> queryKVStore @k @v ks p.storeName
+      Just part -> queryKVStoreRestricted @k @v ks part
+                     p.storeName
+
+-- | Federated IQ restricted to the worker that owns the
+-- supplied partition. Resolves the worker by reading the
+-- pool's routing table; if the routing has no entry for any
+-- @(_, part)@ tuple we return 'Nothing' (no live owner =
+-- nothing to query).
+queryKVStoreRestricted
+  :: forall k v
+   . KafkaStreams
+  -> Int
+  -> StoreName
+  -> IO (Maybe (ReadOnlyKeyValueStore k v))
+queryKVStoreRestricted ks part sn = do
+  mPool <- readIORef (ksPool ks)
+  case mPool of
+    Nothing -> do
+      -- Single-thread runtime owns every partition; just
+      -- delegate.
+      mEng <- readIORef (ksEngine ks)
+      case mEng of
+        Just eng -> queryEngineStore @k @v eng sn
+        Nothing  -> pure Nothing
+    Just pool -> do
+      mIdx <- Kafka.Streams.Runtime.WorkerPool.routingFor pool part
+      case mIdx of
+        Nothing -> pure Nothing
+        Just wid ->
+          case Kafka.Streams.Runtime.WorkerPool.workerById pool wid of
+            Nothing -> pure Nothing
+            Just w  -> queryEngineStore @k @v (workerEngine w) sn
+
 queryKVStore
   :: forall k v
    . KafkaStreams
@@ -160,8 +260,85 @@ queryKVStore
 queryKVStore ks sn = do
   mEng <- readIORef (ksEngine ks)
   case mEng of
-    Nothing  -> pure Nothing
     Just eng -> queryEngineStore @k @v eng sn
+    Nothing  -> do
+      -- No single-thread engine: must be a multi-thread runtime
+      -- with a worker pool. Federate across worker engines (same
+      -- shape as Java's @CompositeReadOnlyKeyValueStore@: a
+      -- 'roKvGet' tries each task in turn, a 'roKvAll' chains
+      -- iterators across tasks).
+      mPool <- readIORef (ksPool ks)
+      case mPool of
+        Nothing   -> pure Nothing
+        Just pool -> federatedKV @k @v pool sn
+
+-- | Build a federated 'ReadOnlyKeyValueStore' that delegates to
+-- every worker's engine. Keys live on exactly one worker (the
+-- one the corresponding partition hashes to), so 'roKvGet'
+-- finds at most one match. 'roKvAll' chains all workers'
+-- iterators in deterministic worker-id order, matching the JVM
+-- composite-store ordering across local tasks.
+federatedKV
+  :: forall k v
+   . Kafka.Streams.Runtime.WorkerPool.WorkerPool
+  -> StoreName
+  -> IO (Maybe (ReadOnlyKeyValueStore k v))
+federatedKV pool sn = do
+  let !ws = poolWorkers pool
+  perWorker <- traverse
+    (\w -> queryEngineStore @k @v (workerEngine w) sn)
+    (Foldable.toList ws)
+  case [ s | Just s <- perWorker ] of
+    []     -> pure Nothing
+    stores -> pure $ Just $ ReadOnlyKeyValueStore
+      { roKvGet   = \k -> firstHit (map (\s -> s.roKvGet k) stores)
+      , roKvRange = \lo hi -> do
+          its <- traverse (\s -> s.roKvRange lo hi) stores
+          chainIterators its
+      , roKvAll = do
+          its <- traverse (\s -> s.roKvAll) stores
+          chainIterators its
+      , roKvCount = sumCounts stores
+      }
+  where
+    sumCounts ss = do
+      cs <- traverse (\s -> s.roKvCount) ss
+      pure $! sum cs
+
+-- | First IO action that yields 'Just'.
+firstHit :: [IO (Maybe a)] -> IO (Maybe a)
+firstHit []       = pure Nothing
+firstHit (a : as) = do
+  r <- a
+  case r of
+    Just _  -> pure r
+    Nothing -> firstHit as
+
+-- | Sequence a list of iterators into one. Each iterator is
+-- consumed in turn; we close it when it's drained.
+chainIterators :: [KeyValueIterator k v] -> IO (KeyValueIterator k v)
+chainIterators its0 = do
+  ref <- newIORef its0
+  pure KeyValueIterator
+    { kvIterNext = pump ref
+    , kvIterClose = do
+        rs <- readIORef ref
+        mapM_ kvIterClose rs
+        writeIORef ref []
+    }
+  where
+    pump ref = do
+      rs <- readIORef ref
+      case rs of
+        []       -> pure Nothing
+        (it : rest) -> do
+          mNext <- kvIterNext it
+          case mNext of
+            Just _  -> pure mNext
+            Nothing -> do
+              kvIterClose it
+              writeIORef ref rest
+              pump ref
 
 queryWindowStore
   :: forall k v
@@ -209,8 +386,3 @@ queryEngineStore eng sn = do
     Just (AnyKeyValueStore kvs) ->
       pure (Just (readOnlyKV (Unsafe.unsafeCoerce kvs)))
     _ -> pure Nothing
-
--- 'Map.empty' touched so unused-imports stays quiet should we drop
--- one of the helpers above; trivial constant.
-_keepMap :: Map.Map () ()
-_keepMap = Map.empty

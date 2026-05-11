@@ -55,6 +55,8 @@ module Kafka.Streams.Driver
   , getKeyValueStore
   , getWindowStore
   , getSessionStore
+  , getTimestampedKeyValueStore
+  , getTimestampedWindowStore
     -- * Output decoding helpers
   , OutputRecord (..)
   , decodeOutput
@@ -126,6 +128,7 @@ import Kafka.Streams.State.Store
   , StoreName
   , WindowStore
   )
+import qualified Kafka.Streams.State.KeyValue.Timestamped
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Time (Timestamp (..))
 import qualified Kafka.Streams.Types
@@ -297,6 +300,24 @@ getSessionStore d sn = do
       AnySessionStore ss -> Just (Unsafe.unsafeCoerce ss)
       _                  -> Nothing
     Nothing -> Nothing
+
+-- | Like 'getKeyValueStore' but for stores parameterised by
+-- 'ValueAndTimestamp'. Mirrors Java's
+-- @TopologyTestDriver.getTimestampedKeyValueStore@.
+getTimestampedKeyValueStore
+  :: TopologyTestDriver
+  -> StoreName
+  -> IO (Maybe (KeyValueStore k (Kafka.Streams.State.KeyValue.Timestamped.ValueAndTimestamp v)))
+getTimestampedKeyValueStore = getKeyValueStore
+
+-- | Like 'getWindowStore' but for windowed stores
+-- parameterised by 'ValueAndTimestamp'. Mirrors Java's
+-- @TopologyTestDriver.getTimestampedWindowStore@.
+getTimestampedWindowStore
+  :: TopologyTestDriver
+  -> StoreName
+  -> IO (Maybe (WindowStore k (Kafka.Streams.State.KeyValue.Timestamped.ValueAndTimestamp v)))
+getTimestampedWindowStore = getWindowStore
 
 ----------------------------------------------------------------------
 -- Internal helpers

@@ -5,45 +5,44 @@
 
 {-|
 Module      : Kafka.Client.AdminExtras
-Description : KIP-464 / 484 / 524 / 967 / 1107 / 1153 / 1170 — AdminClient
-              ergonomics
+Description : AdminClient ergonomics: defaults, pluggable SSL /
+              DNS hooks, per-partition fetch knobs, topic-create
+              defaults, null-key compaction policy, metric names
 
-Adds the remaining JVM-AdminClient surfaces that
-'Kafka.Client.AdminClient' didn't yet expose:
+Typed configuration and pure helpers that complement the core
+'Kafka.Client.AdminClient'. Most entries are pure types / config
+records; the SSL and DNS factories are records-of-IO so callers
+can plug in their own implementations.
 
-  * KIP-464: Defaults for AdminClient / Consumer / Producer
-    when no overrides are provided. We surface it here as
-    'defaultAdminApiTimeoutMs' (the JVM client uses 60 s).
-  * KIP-484: pluggable 'SslEngineFactory' — exposed as a
-    record-of-IO so callers can plug in their own (matching
-    'Kafka.Network.Transport' and the OAuth fetcher).
-  * KIP-524: pluggable 'HostResolver' — surfaces the same
-    DNS-resolution hook the consumer / producer can override.
-  * KIP-967: per-partition fetch-min-bytes + min-timestamp.
-  * KIP-1107: enhanced AdminClient metrics (just the metric
-    names; the registry lives in 'Kafka.Telemetry.Metrics').
-  * KIP-1153: AdminClient's @TopicCreateOptions@ defaults knob.
-  * KIP-1170: configuration for null-key compaction behaviour.
-
-Most entries are pure types / config knobs; they slot into
-'Kafka.Client.AdminClient' in a follow-up wiring change.
+  * 'defaultAdminApiTimeoutMs' — request-timeout default
+    matching the JVM @AdminClient@ (60s).
+  * 'SslEngineFactory' / 'HostResolver' — pluggable hooks for
+    TLS engine construction and DNS resolution.
+  * 'PerPartitionFetchKnob' — per-partition fetch-min-bytes +
+    min-timestamp.
+  * 'TopicCreateDefaults' — defaults applied when creating a
+    topic without explicit knobs.
+  * 'NullKeyCompactionPolicy' — how the broker should treat
+    null-key records during log compaction.
+  * @admin*LatencyMs@ — telemetry metric names emitted from
+    @Kafka.Telemetry.Metrics@.
 -}
 module Kafka.Client.AdminExtras
-  ( -- * Defaults (KIP-464)
+  ( -- * Defaults
     defaultAdminApiTimeoutMs
-    -- * Pluggable SSL engine (KIP-484)
+    -- * Pluggable SSL engine
   , SslEngineFactory (..)
-    -- * Pluggable host resolver (KIP-524)
+    -- * Pluggable host resolver
   , HostResolver (..)
-    -- * Per-partition fetch knobs (KIP-967)
+    -- * Per-partition fetch knobs
   , PerPartitionFetchKnob (..)
-    -- * Topic-create defaults (KIP-1153)
+    -- * Topic-create defaults
   , TopicCreateDefaults (..)
   , defaultTopicCreateDefaults
-    -- * Null-key compaction policy (KIP-1170)
+    -- * Null-key compaction policy
   , NullKeyCompactionPolicy (..)
   , defaultNullKeyCompactionPolicy
-    -- * AdminClient metric names (KIP-1107)
+    -- * AdminClient metric names
   , adminListTopicsLatencyMs
   , adminCreateTopicsLatencyMs
   , adminDescribeGroupsLatencyMs
@@ -59,7 +58,7 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 
 ----------------------------------------------------------------------
--- KIP-464 default api timeout
+-- Default api timeout
 ----------------------------------------------------------------------
 
 -- | Mirrors @AdminClient.DEFAULT_API_TIMEOUT_MS@ in the JVM
@@ -68,7 +67,7 @@ defaultAdminApiTimeoutMs :: Int
 defaultAdminApiTimeoutMs = 60_000
 
 ----------------------------------------------------------------------
--- KIP-484 pluggable SSL engine
+-- Pluggable SSL engine
 ----------------------------------------------------------------------
 
 -- | A pluggable SSL-engine factory. The wireform-kafka library
@@ -82,7 +81,7 @@ newtype SslEngineFactory = SslEngineFactory
   }
 
 ----------------------------------------------------------------------
--- KIP-524 pluggable host resolver
+-- Pluggable host resolver
 ----------------------------------------------------------------------
 
 -- | A pluggable hostname resolver — useful for service-mesh /
@@ -94,7 +93,7 @@ newtype HostResolver = HostResolver
   }
 
 ----------------------------------------------------------------------
--- KIP-967 per-partition fetch min-bytes
+-- Per-partition fetch min-bytes
 ----------------------------------------------------------------------
 
 data PerPartitionFetchKnob = PerPartitionFetchKnob
@@ -103,13 +102,13 @@ data PerPartitionFetchKnob = PerPartitionFetchKnob
     -- ^ Per-partition @fetch.min.bytes@; the broker will not
     --   return less than this for this partition.
   , ppfkMinTimestampMs  :: !(Maybe Int64)
-    -- ^ KIP-968 — only return records whose timestamp is at or
-    --   above this value.
+    -- ^ Only return records whose timestamp is at or above
+    --   this value.
   }
   deriving stock (Eq, Show, Generic)
 
 ----------------------------------------------------------------------
--- KIP-1153 topic-create defaults
+-- Topic-create defaults
 ----------------------------------------------------------------------
 
 data TopicCreateDefaults = TopicCreateDefaults
@@ -134,13 +133,13 @@ defaultTopicCreateDefaults = TopicCreateDefaults
   }
 
 ----------------------------------------------------------------------
--- KIP-1170 null-key compaction policy
+-- Null-key compaction policy
 ----------------------------------------------------------------------
 
 -- | What to do when a producer sends a 'Nothing' key to a
 -- compacted topic. The default Kafka behaviour is to reject
--- with 'INVALID_RECORD'; KIP-1170 lets the broker treat
--- missing keys as tombstones / pass-through.
+-- with 'INVALID_RECORD'; newer brokers can treat missing keys
+-- as tombstones / pass-through.
 data NullKeyCompactionPolicy
   = NkcReject
   | NkcTombstone
@@ -151,7 +150,7 @@ defaultNullKeyCompactionPolicy :: NullKeyCompactionPolicy
 defaultNullKeyCompactionPolicy = NkcReject
 
 ----------------------------------------------------------------------
--- KIP-1107 admin metric names
+-- Admin metric names
 ----------------------------------------------------------------------
 
 adminListTopicsLatencyMs,

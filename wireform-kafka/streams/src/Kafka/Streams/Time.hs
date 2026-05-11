@@ -22,6 +22,7 @@ module Kafka.Streams.Time
   , diffMillis
   , timestampToUTCTime
   , utcTimeToTimestamp
+  , nowMillis
     -- * Durations
   , Duration (..)
   , durationMillis
@@ -156,6 +157,14 @@ wallClockTimestampExtractor :: TimestampExtractor k v
 wallClockTimestampExtractor = TimestampExtractor $ \_ _ _ _ ->
   utcTimeToTimestamp <$> getCurrentTime
 {-# INLINE wallClockTimestampExtractor #-}
+
+-- | Current wall-clock time as Unix epoch milliseconds. Used by
+-- the streams runtime for KIP-869 standby-grace deadlines and
+-- the KIP-441 probing-rebalance cadence.
+nowMillis :: IO Int64
+nowMillis = do
+  !pt <- utcTimeToPOSIXSeconds <$> getCurrentTime
+  pure (floor (pt * 1000 :: POSIXTime))
 
 -- | Use the embedded record timestamp.
 recordTimestampExtractor :: TimestampExtractor k v

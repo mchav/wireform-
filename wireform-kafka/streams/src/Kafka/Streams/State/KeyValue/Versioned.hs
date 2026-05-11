@@ -80,6 +80,12 @@ data VersionedRecord v = VersionedRecord
 data VersionedKeyValueStore k v = VersionedKeyValueStore
   { vkvBase    :: !StateStore
   , vkvPut     :: !(k -> v -> Timestamp -> IO ())
+  , vkvDelete  :: !(k -> Timestamp -> IO ())
+    -- ^ Tombstone the key at the supplied 'Timestamp' (KIP-889
+    -- @VersionedKeyValueStore.delete(key, validTo)@). Reads
+    -- with @validFrom <= ts < validTo@ continue to see the
+    -- pre-delete versions; reads at @ts >= validTo@ see no
+    -- value.
   , vkvGetLatest :: !(k -> IO (Maybe (VersionedRecord v)))
   , vkvGetAsOf  :: !(k -> Timestamp -> IO (Maybe (VersionedRecord v)))
   , vkvGetHistory
@@ -144,6 +150,21 @@ inMemoryVersionedKeyValueStore nm cfg = do
            in pure
                 $ map (\(ts, v) -> VersionedRecord v ts)
                       (Map.toAscList slice)
+    deleteImpl k ts = do
+      -- KIP-889 delete(key, validTo): drop every version whose
+      -- timestamp >= validTo. Versions before validTo stay
+      -- queryable via getAsOf.
+      atomicModifyIORef' obsRef
+        (\cur -> (max cur ts, ()))
+      atomicModifyIORef' ref $ \m ->
+        case Map.lookup k m of
+          Nothing    -> (m, ())
+          Just inner ->
+            let !kept = Map.takeWhileAntitone (< ts) inner
+                !m'   = if Map.null kept
+                          then Map.delete k m
+                          else Map.insert k kept m
+             in (m', ())
   pure VersionedKeyValueStore
     { vkvBase = StateStore
         { storeStoreName  = nm
@@ -152,6 +173,7 @@ inMemoryVersionedKeyValueStore nm cfg = do
         , storeClose      = writeIORef ref Map.empty
         }
     , vkvPut         = putImpl
+    , vkvDelete      = deleteImpl
     , vkvGetLatest   = latestImpl
     , vkvGetAsOf     = asOfImpl
     , vkvGetHistory  = historyImpl

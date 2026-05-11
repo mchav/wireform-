@@ -1,6 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -55,6 +57,7 @@ closePipeline pipe
 module Kafka.Client.Pipeline
   ( -- * Pipeline Types
     Pipeline
+  , pipelineConnection
   , PipelineConfig(..)
   , RequestId
   , ResponseSlot
@@ -70,12 +73,19 @@ module Kafka.Client.Pipeline
   , getPipelineStats
     -- * Default Configuration
   , defaultPipelineConfig
+    -- * KIP-368 mid-session re-authentication
+  , withPausedPipeline
+  , pausePipeline
+  , resumePipeline
+  , isPipelinePaused
+  , awaitPipelineDrained
+  , attachReauthDriver
   ) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, throwIO, try)
 import Control.Monad (forever, unless, when)
 import Data.Binary.Get (getInt32be, runGet)
 import qualified Data.Binary.Put as BP
@@ -86,10 +96,9 @@ import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntMap.Strict (IntMap)
 import Data.Int
-import qualified Data.IntSet as IntSet
-import Data.IntSet (IntSet)
 import GHC.Generics (Generic)
 import qualified Kafka.Time as KafkaTime
+import qualified Kafka.Client.ReauthDriver
 import Network.Connection
   ( Connection
   , connectionGetExact
@@ -155,6 +164,11 @@ data Pipeline = Pipeline
   , pipelineStats      :: !(TVar PipelineStats)
   , pipelineClosed     :: !(TVar Bool)
   , pipelineThreads    :: !(TVar [Async ()])
+  , pipelinePaused     :: !(TVar Bool)
+    -- ^ When 'True' the send loop blocks instead of draining
+    --   'pipelineSendQueue'. Used by 'withPausedPipeline' to
+    --   serialise the KIP-368 mid-session re-authentication
+    --   handshake against in-flight requests.
   }
 
 -- | Pipeline statistics for monitoring.
@@ -184,6 +198,7 @@ createPipeline conn config = do
   stats     <- newTVarIO emptyStats
   closed    <- newTVarIO False
   threads   <- newTVarIO []
+  paused    <- newTVarIO False
   let pipe = Pipeline
         { pipelineConnection = conn
         , pipelineConfig     = config
@@ -193,6 +208,7 @@ createPipeline conn config = do
         , pipelineStats      = stats
         , pipelineClosed     = closed
         , pipelineThreads    = threads
+        , pipelinePaused     = paused
         }
   sa <- async (sendLoop pipe)
   ra <- async (receiveLoop pipe)
@@ -381,6 +397,103 @@ getPipelineStats :: Pipeline -> IO PipelineStats
 getPipelineStats Pipeline{..} = readTVarIO pipelineStats
 
 ----------------------------------------------------------------------
+-- KIP-368 mid-session re-authentication
+----------------------------------------------------------------------
+
+-- | Pause the pipeline's send loop. New 'sendRequest' calls
+-- still accept work and queue it, but no bytes hit the wire
+-- until 'resumePipeline'. Used by KIP-368 mid-session
+-- re-authentication to gate the wire while a fresh SASL
+-- handshake runs.
+pausePipeline :: Pipeline -> IO ()
+pausePipeline Pipeline{..} = atomically (writeTVar pipelinePaused True)
+
+-- | Unpause the pipeline. The send thread wakes up and drains
+-- the accumulated 'pipelineSendQueue' immediately.
+resumePipeline :: Pipeline -> IO ()
+resumePipeline Pipeline{..} = atomically (writeTVar pipelinePaused False)
+
+isPipelinePaused :: Pipeline -> IO Bool
+isPipelinePaused Pipeline{..} = readTVarIO pipelinePaused
+
+-- | Block until 'pipelinePending' is empty (i.e. every
+-- previously-sent request has either resolved or timed out).
+-- Used by 'withPausedPipeline' as the second half of the
+-- drain barrier: pausing alone gates new sends, this blocks
+-- the caller until in-flight requests retire.
+awaitPipelineDrained :: Pipeline -> IO ()
+awaitPipelineDrained Pipeline{..} = atomically $ do
+  m <- readTVar pipelinePending
+  when (not (IntMap.null m)) retry
+
+-- | Run an action while the pipeline is paused and all
+-- previously-issued requests have completed. Mirrors the JVM
+-- client's KIP-368 contract: the caller pauses new sends,
+-- waits for the in-flight set to drain, runs the fresh
+-- @SaslHandshake@ + @SaslAuthenticate@ exchange directly on
+-- 'pipelineConnection', and resumes the pipeline so queued
+-- requests catch up.
+--
+-- Pausing is best-effort: if the pipeline is already closed
+-- when this is called, the action runs anyway against the
+-- (now-defunct) connection — callers that want to gate on
+-- closure should check 'isPipelinePaused' / pipeline status
+-- before invoking. We always 'resumePipeline' in the bracket
+-- finaliser so a thrown exception inside the action doesn't
+-- leave the pipeline permanently parked.
+withPausedPipeline
+  :: forall a
+   . Pipeline
+  -> (Connection -> IO a)
+  -> IO a
+withPausedPipeline pipe action = do
+  pausePipeline pipe
+  awaitPipelineDrained pipe
+  (result :: Either SomeException a)
+    <- try (action (pipelineConnection pipe))
+  resumePipeline pipe
+  case result of
+    Left e  -> throwIO e
+    Right a -> pure a
+
+-- | KIP-368: attach a 'ReauthState'-driven background thread to
+-- this pipeline. The pipeline's 'pipelinePaused' flag is
+-- toggled around every 'authenticate' call so the SASL
+-- handshake doesn't race against in-flight requests:
+--
+-- @
+-- attachReauthDriver pipe reauthState reauthRunner
+-- @
+--
+-- runs the user's 'authenticate' /inside/
+-- 'withPausedPipeline', which:
+--
+--   1. flips 'pipelinePaused' to 'True', preventing the send
+--      loop from queueing new bytes;
+--   2. blocks until 'awaitPipelineDrained' (no pending
+--      requests left in flight);
+--   3. invokes the user-supplied authenticator on the
+--      pipeline's connection;
+--   4. flips 'pipelinePaused' back to 'False' (or rethrows on
+--      failure, again flipping back).
+--
+-- After the wrap, 'startReauthThread' is invoked so the
+-- background driver wakes when the broker-advertised
+-- @session.lifetime.ms@ deadline is reached.
+attachReauthDriver
+  :: Pipeline
+  -> Kafka.Client.ReauthDriver.ReauthState
+  -> Kafka.Client.ReauthDriver.ReauthRunner
+  -> IO ()
+attachReauthDriver pipe st runner = do
+  let !wrapped = runner
+        { Kafka.Client.ReauthDriver.authenticate =
+            withPausedPipeline pipe $ \_conn ->
+              runner.authenticate
+        }
+  Kafka.Client.ReauthDriver.startReauthThread st wrapped
+
+----------------------------------------------------------------------
 -- Background loops
 ----------------------------------------------------------------------
 
@@ -398,7 +511,15 @@ sendLoop p@Pipeline{..} = loop
         c <- readTVar pipelineClosed
         if c
           then pure Nothing
-          else Just <$> readTQueue pipelineSendQueue
+          else do
+            -- Pause gate: while the caller has parked the
+            -- pipeline (e.g. running a mid-session SASL
+            -- re-auth), block here instead of draining the
+            -- send queue. Wakes up automatically when
+            -- 'pipelinePaused' flips back to 'False'.
+            p_ <- readTVar pipelinePaused
+            when p_ retry
+            Just <$> readTQueue pipelineSendQueue
       case mItem of
         Nothing -> pure ()
         Just (SendItem _cid bytes) -> do
@@ -543,7 +664,3 @@ failPipeline Pipeline{..} reason = do
 nowSeconds :: IO Int
 nowSeconds = (`div` 1000) . fromIntegral <$> KafkaTime.currentTimeMillis
 
--- 'IntSet' kept imported for future use (not currently required
--- but the timeout loop's cancel-set is a likely follow-up).
-_keepIntSet :: IntSet
-_keepIntSet = IntSet.empty

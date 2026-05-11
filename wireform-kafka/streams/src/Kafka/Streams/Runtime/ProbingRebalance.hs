@@ -1,6 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 {-|
 Module      : Kafka.Streams.Runtime.ProbingRebalance
@@ -38,12 +41,12 @@ import GHC.Generics (Generic)
 import Kafka.Streams.Processor (TaskId)
 
 -- | One warmup replica's progress: how far behind the active
--- task's changelog the warmup currently is. A 'wpLag' of 0 means
+-- task's changelog the warmup currently is. A lag of 0 means
 -- the replica is at the active's high-water mark and can take over
 -- immediately.
 data WarmupProgress = WarmupProgress
-  { wpTask :: !TaskId
-  , wpLag  :: !Int64
+  { task :: !TaskId
+  , lag  :: !Int64
     -- ^ Records remaining to apply before the warmup matches the
     --   active leader's offset.
   }
@@ -65,8 +68,8 @@ classifyWarmups lagThreshold = map step
   where
     !threshold = max 0 lagThreshold
     step w
-      | wpLag w <= threshold = (w, WarmupReady)
-      | otherwise            = (w, WarmupCatchingUp)
+      | w.lag <= threshold = (w, WarmupReady)
+      | otherwise          = (w, WarmupCatchingUp)
 
 readyWarmups :: Int64 -> [WarmupProgress] -> [WarmupProgress]
 readyWarmups lagThreshold ws =

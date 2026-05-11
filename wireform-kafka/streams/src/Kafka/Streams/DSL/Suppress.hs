@@ -1,6 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -8,7 +11,7 @@
 
 -- |
 -- Module      : Kafka.Streams.DSL.Suppress
--- Description : Suppress operator (KIP-328)
+-- Description : Suppress operator
 --
 -- Buffers updates per (windowed) key and emits each key's final
 -- value only after the window has closed (i.e. stream time has
@@ -37,25 +40,28 @@
 -- time-limit window.
 module Kafka.Streams.DSL.Suppress
   ( suppressWindowed
+  , suppressWindowedWith
   , suppressUntilTimeLimit
   , streamFromWindowedHandle
   , suppressWindowedHandle
-    -- * Suppressed builder (KIP-328 surface API)
+  , SuppressBufferFullException (..)
+    -- * Suppressed builder
   , Suppressed (..)
   , untilWindowCloses
   , untilTimeLimit
   , suppressKStream
     -- * Buffer config
   , BufferConfig (..)
+  , BufferOverflowPolicy (..)
   , unboundedBufferConfig
   , maxBytesBufferConfig
   , maxRecordsBufferConfig
+  , shutDownWhenFull
+  , emitEarlyWhenFull
   ) where
 
 import Data.IORef
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
 import qualified Data.Text as T
 import qualified Unsafe.Coerce as Unsafe
 
@@ -67,15 +73,19 @@ import Kafka.Streams.DSL.StreamsBuilder
   , freshStoreName
   , withTopology_
   )
+import Control.Exception (Exception, throwIO)
+import qualified Data.List as List
+import GHC.Generics (Generic)
+
+import Kafka.Streams.Time (millis)
+import Kafka.Streams.Window (windowsGracePeriod, windowsSize)
 import Kafka.Streams.DSL.TimeWindowedKStream
-  ( WindowedTableHandle (..)
+  ( EmitStrategy (..)
+  , WindowedTableHandle (..)
   )
 import Kafka.Streams.Processor
-  ( Cancellable
-  , Processor (..)
+  ( Processor (..)
   , ProcessorContext (..)
-  , Punctuator (..)
-  , PunctuationType (..)
   , forwardRecord
   , getStateStore
   , processorName
@@ -111,7 +121,32 @@ streamFromWindowedHandle
   -> Serde k                          -- ^ key serde for downstream
   -> Serde v                          -- ^ value serde for downstream
   -> IO (KStream (WindowedKey k) v)
-streamFromWindowedHandle h kserde vserde = do
+streamFromWindowedHandle h kserde vserde = case wthEmit h of
+  OnWindowClose ->
+    -- KIP-825: defer the (WindowedKey k, v) emission until the
+    -- window has fully closed. The existing
+    -- 'suppressWindowedHandle' helper already implements that
+    -- contract.
+    suppressWindowedHandle
+      (millis (windowsGracePeriod (wthWindows h)))
+      (windowsSize (wthWindows h))
+      kserde
+      vserde
+      h
+  OnWindowUpdate -> doStreamFromWindowedHandle h kserde vserde
+
+-- | Original behaviour — emit on every update to the window
+-- store. Kept as a separate helper so the
+-- 'streamFromWindowedHandle' dispatch above can route by
+-- 'wthEmit'.
+doStreamFromWindowedHandle
+  :: forall k v
+   . Ord k
+  => WindowedTableHandle k v
+  -> Serde k
+  -> Serde v
+  -> IO (KStream (WindowedKey k) v)
+doStreamFromWindowedHandle h kserde vserde = do
   let b = wthBuilder h
   -- The handle's @wthNode@ is the aggregation processor itself,
   -- which forwards the latest aggregate /value/ each time. It
@@ -200,7 +235,30 @@ suppressWindowed
   -> Int64                                 -- ^ window size (ms)
   -> KStream (WindowedKey k) v
   -> IO (KStream (WindowedKey k) v)
-suppressWindowed grace windowSize s = do
+suppressWindowed grace windowSize =
+  suppressWindowedWith grace windowSize unboundedBufferConfig
+
+-- | Bounded @suppress(untilWindowCloses(...))@. Like
+-- 'suppressWindowed' but enforces the supplied
+-- 'BufferConfig': when the buffer exceeds the configured
+-- record / byte limit the runtime either emits the oldest
+-- buffered windows early ('EmitEarlyWhenFull') or throws
+-- 'SuppressBufferFullException' which propagates to the
+-- KIP-1033 / 671 handlers ('ShutdownWhenFull').
+--
+-- Byte counting is approximate (per-record, not per-byte)
+-- because the processor doesn't see the serialised value;
+-- 'bufMaxBytes' and 'bufMaxRecords' are treated as the same
+-- soft cap. The cap is a count-of-buffered-windowed-keys.
+suppressWindowedWith
+  :: forall k v
+   . Ord k
+  => Duration                              -- ^ grace period
+  -> Int64                                 -- ^ window size (ms)
+  -> BufferConfig
+  -> KStream (WindowedKey k) v
+  -> IO (KStream (WindowedKey k) v)
+suppressWindowedWith grace windowSize bufCfg s = do
   let b = kstreamBuilder s
   bufNm <- freshStoreName b "SUPPRESS-BUFFER"
   procNm <- freshNodeName b "SUPPRESS"
@@ -214,7 +272,7 @@ suppressWindowed grace windowSize s = do
                   , Topo.processorSpecSupplier =
                       Topo.AnyProcessor
                         (suppressWindowedProc @k @v
-                           bufNm (durationMillis grace) windowSize)
+                           bufNm (durationMillis grace) windowSize bufCfg)
                   , Topo.processorSpecStores   = [bufNm]
                   } t
         !t2 = Topo.addStateStoreKV bufBuilder [procNm] t1
@@ -226,16 +284,35 @@ suppressWindowed grace windowSize s = do
     , kstreamValueSerde = kstreamValueSerde s
     }
 
+-- | Thrown when a 'ShutdownWhenFull' suppress buffer
+-- overflows. Caught by the streams runtime's KIP-1033 /
+-- KIP-671 handler stack and routed like any other processing
+-- exception.
+data SuppressBufferFullException = SuppressBufferFullException
+  { store :: !StoreName
+  , cap   :: !Int
+  , at    :: !Int
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Exception)
+
 suppressWindowedProc
   :: forall k v
    . Ord k
   => StoreName
   -> Int64                                 -- grace ms
   -> Int64                                 -- window size ms
+  -> BufferConfig
   -> IO (Processor (WindowedKey k) v)
-suppressWindowedProc sn graceMs winMs = do
+suppressWindowedProc sn graceMs winMs bufCfg = do
   ctxRef <- newIORef Nothing
   bufRef <- newIORef (Nothing :: Maybe (KeyValueStore (WindowedKey k) v))
+  -- Live count of records currently buffered. Bumped on
+  -- 'kvsPut', decremented on each flush. Used to enforce the
+  -- BufferConfig cap.
+  sizeRef <- newIORef (0 :: Int)
+  let !cap_ = bufferConfigCap bufCfg
+      !policy = bufCfg.overflow
   pure Processor
     { procName = processorName "SUPPRESS"
     , procInit = \ctx -> do
@@ -252,12 +329,23 @@ suppressWindowedProc sn graceMs winMs = do
           mbuf <- readIORef bufRef
           case (mctx, mbuf) of
             (Just ctx, Just buf_) -> do
+              -- If the key is already in the buffer the put
+              -- is an in-place update (no size growth).
+              existing <- kvsGet buf_ wk
               kvsPut buf_ wk (recordValue r)
-              flushDue ctx buf_
+              case existing of
+                Just _  -> pure ()
+                Nothing -> modifyIORef' sizeRef (+ 1)
+              -- Run the normal due-window flush first so
+              -- naturally-due windows leave before we have to
+              -- consider overflow.
+              flushDue ctx buf_ sizeRef
+              -- Now enforce the cap, if any.
+              enforceCap ctx buf_ sizeRef cap_ policy
             _ -> pure ()
     }
   where
-    flushDue ctx buf_ = do
+    flushDue ctx buf_ sizeRef = do
       Timestamp now <- ctxStreamTime ctx
       it <- kvsAll buf_
       entries <- kvIteratorToList it
@@ -267,11 +355,52 @@ suppressWindowedProc sn graceMs winMs = do
             if now > winEnd + graceMs
               then do
                 _ <- kvsDelete buf_ wk
+                modifyIORef' sizeRef (\n -> max 0 (n - 1))
                 forwardRecord ctx
                   (Record (Just wk) v (Timestamp winEnd) emptyHeaders
                     :: Record (WindowedKey k) v)
               else pure ())
         entries
+    enforceCap _ _ _ Nothing _ = pure ()
+    enforceCap ctx buf_ sizeRef (Just cap) policy = do
+      cur <- readIORef sizeRef
+      if cur <= cap
+        then pure ()
+        else case policy of
+          ShutdownWhenFull ->
+            throwIO (SuppressBufferFullException sn cap cur)
+          EmitEarlyWhenFull -> do
+            -- Flush oldest-window-first until we're back under
+            -- the cap. Sort by window-start since
+            -- WindowedKey contains the Timestamp.
+            it <- kvsAll buf_
+            entries <- kvIteratorToList it
+            let !ordered =
+                  List.sortOn (\(WindowedKey _ ts, _) -> ts) entries
+            evictUntil ctx buf_ sizeRef cap ordered
+    evictUntil _ _ _ _ [] = pure ()
+    evictUntil ctx buf_ sizeRef cap ((wk@(WindowedKey _ (Timestamp wstart)), v) : rest) = do
+      cur <- readIORef sizeRef
+      if cur <= cap
+        then pure ()
+        else do
+          let !winEnd = wstart + winMs
+          _ <- kvsDelete buf_ wk
+          modifyIORef' sizeRef (\n -> max 0 (n - 1))
+          forwardRecord ctx
+            (Record (Just wk) v (Timestamp winEnd) emptyHeaders
+              :: Record (WindowedKey k) v)
+          evictUntil ctx buf_ sizeRef cap rest
+
+-- | Effective record cap for a 'BufferConfig'. We treat
+-- 'bufMaxBytes' and 'bufMaxRecords' as the same approximate
+-- record-count limit; the user gets soft enforcement either
+-- way.
+bufferConfigCap :: BufferConfig -> Maybe Int
+bufferConfigCap b = case (b.maxRecords, b.maxBytes) of
+  (Just n, _)      -> Just n
+  (_,      Just n) -> Just n
+  _                -> Nothing
 
 ----------------------------------------------------------------------
 -- Suppress (until-time-limit)
@@ -366,12 +495,6 @@ suppressTimeLimitProc sn limitMs = do
              else pure ())
         entries
 
--- 'Map' / 'Cancellable' / 'Punctuator' / 'PunctuationType' / 'T.Text'
--- kept imported so future expansion (a wall-clock-driven flusher)
--- can plug in without churning imports.
-_keepImports
-  :: Map () () -> Cancellable -> Punctuator -> PunctuationType -> T.Text -> ()
-_keepImports _ _ _ _ _ = ()
 ----------------------------------------------------------------------
 -- Suppressed builder (Java's Suppressed.untilWindowCloses /
 -- .untilTimeLimit)
@@ -441,24 +564,45 @@ suppressWindowedHandle grace winMs ks vs h = do
 -- BufferConfig (KIP-328)
 ----------------------------------------------------------------------
 
--- | Buffer-size advisory for 'Suppressed.untilWindowCloses'. The
--- in-memory backend respects 'unboundedBufferConfig' faithfully;
--- size limits are tracked but not enforced — the Java behaviour
--- under buffer overflow is "shutdown the application", which is
--- aggressive for embedded workloads. Treat 'maxBytesBufferConfig'
--- and 'maxRecordsBufferConfig' as documentation hints; the
--- enforcement layer is a deferred refinement.
+-- | Buffer-size advisory for 'Suppressed.untilWindowCloses'.
+-- 'unboundedBufferConfig' is the only mode the suppress
+-- processor currently /enforces/ at runtime, but the bounded
+-- variants accept the same JVM Suppressed.BufferConfig
+-- vocabulary so callers can author topologies declaratively.
 data BufferConfig = BufferConfig
-  { bufMaxBytes   :: !(Maybe Int)
-  , bufMaxRecords :: !(Maybe Int)
+  { maxBytes   :: !(Maybe Int)
+  , maxRecords :: !(Maybe Int)
+  , overflow   :: !BufferOverflowPolicy
   }
   deriving (Eq, Show)
 
+-- | What to do when a bounded suppress buffer overflows. Mirrors
+-- Java's 'BufferConfig.shutDownWhenFull' /
+-- 'emitEarlyWhenFull' (KIP-328).
+data BufferOverflowPolicy
+  = ShutdownWhenFull
+    -- ^ JVM default for bounded buffers: tear the stream down
+    --   when the budget is exceeded.
+  | EmitEarlyWhenFull
+    -- ^ Emit the buffered windows even though grace hasn't
+    --   elapsed yet, freeing space for new entries. Trades
+    --   some correctness for liveness.
+  deriving (Eq, Show)
+
 unboundedBufferConfig :: BufferConfig
-unboundedBufferConfig = BufferConfig Nothing Nothing
+unboundedBufferConfig = BufferConfig Nothing Nothing EmitEarlyWhenFull
 
 maxBytesBufferConfig :: Int -> BufferConfig
-maxBytesBufferConfig n = BufferConfig (Just n) Nothing
+maxBytesBufferConfig n = BufferConfig (Just n) Nothing ShutdownWhenFull
 
 maxRecordsBufferConfig :: Int -> BufferConfig
-maxRecordsBufferConfig n = BufferConfig Nothing (Just n)
+maxRecordsBufferConfig n = BufferConfig Nothing (Just n) ShutdownWhenFull
+
+-- | Set the overflow policy on a 'BufferConfig'. Mirrors
+-- Java's @BufferConfig.shutDownWhenFull()@ /
+-- @emitEarlyWhenFull()@.
+shutDownWhenFull :: BufferConfig -> BufferConfig
+shutDownWhenFull b = b { overflow = ShutdownWhenFull }
+
+emitEarlyWhenFull :: BufferConfig -> BufferConfig
+emitEarlyWhenFull b = b { overflow = EmitEarlyWhenFull }

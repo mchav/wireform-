@@ -90,8 +90,12 @@ data KGroupedStream k v = KGroupedStream
   , kgsBuilder :: !StreamsBuilder
   }
 
--- | Group by the existing record key (no repartition needed in our
--- single-task model — 'TopologyTestDriver' is single-task).
+-- | Group records by their existing key. No repartition is
+-- needed in the single-task driver model; the broker-backed
+-- runtime emits a repartition node automatically when the key
+-- has been altered upstream.
+--
+-- /JVM equivalent:/ @KStream.groupByKey(Grouped)@.
 groupByKey :: Grouped k v -> KStream k v -> KGroupedStream k v
 groupByKey g s = KGroupedStream
   { kgsParent  = kstreamParent s
@@ -100,7 +104,10 @@ groupByKey g s = KGroupedStream
   , kgsBuilder = kstreamBuilder s
   }
 
--- | Group by a derived key.  Inserts a 'selectKey' processor.
+-- | Group by a key derived from each record. Inserts a
+-- 'selectKey' processor first.
+--
+-- /JVM equivalent:/ @KStream.groupBy(KeyValueMapper, Grouped)@.
 groupByStream
   :: (Record k v -> k')
   -> Grouped k' v
@@ -119,7 +126,9 @@ groupByStream f g s = do
 -- Aggregations (non-windowed → KTable)
 ----------------------------------------------------------------------
 
--- | Count the records per key. Mirrors @KGroupedStream.count@.
+-- | Count the records per key.
+--
+-- /JVM equivalent:/ @KGroupedStream.count(Materialized)@.
 --
 -- The result lives in a 'KeyValueStore' the runtime addresses by
 -- 'matName' (synthesised if absent).
@@ -154,7 +163,9 @@ countStream m kgs = do
     , ctlBuilder = kgsBuilder kgs
     }
 
--- | Combine values for the same key. Mirrors @KGroupedStream.reduce@.
+-- | Combine values for the same key with a binary reducer.
+--
+-- /JVM equivalent:/ @KGroupedStream.reduce(Reducer, Materialized)@.
 reduceStream
   :: forall k v
    . Ord k
@@ -186,7 +197,10 @@ reduceStream combine m kgs = do
     , ctlBuilder = kgsBuilder kgs
     }
 
--- | Stateful fold. Mirrors @KGroupedStream.aggregate@.
+-- | Stateful fold: seed an accumulator and update it per
+-- record using the supplied aggregator.
+--
+-- /JVM equivalent:/ @KGroupedStream.aggregate(Initializer, Aggregator, Materialized)@.
 aggregateStream
   :: forall k v a
    . Ord k
@@ -313,6 +327,10 @@ unsafeCastKV = Unsafe.unsafeCoerce
 -- Windowed grouping
 ----------------------------------------------------------------------
 
+-- | Window the grouped stream by time (tumbling / hopping /
+-- sliding — selected via the 'Windows' value).
+--
+-- /JVM equivalent:/ @KGroupedStream.windowedBy(Windows)@.
 windowedByTime
   :: Windows
   -> KGroupedStream k v
@@ -325,6 +343,9 @@ windowedByTime ws kgs = TimeWindowedKStream
   , twksWindows = ws
   }
 
+-- | Window the grouped stream by session (gap-based) windows.
+--
+-- /JVM equivalent:/ @KGroupedStream.windowedBy(SessionWindows)@.
 windowedBySession
   :: SessionWindows
   -> KGroupedStream k v

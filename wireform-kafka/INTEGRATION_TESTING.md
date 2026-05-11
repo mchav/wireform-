@@ -1,6 +1,6 @@
 # Integration Testing Guide
 
-This document describes how to run integration tests for the kafka-native library.
+This document describes how to run integration tests for the wireform-kafka library.
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ nix develop
 
 # Or, if you use direnv, just cd into the project:
 # direnv allow
-cd /path/to/kafka-native
+cd /path/to/wireform/wireform-kafka
 ```
 
 ## Starting Kafka
@@ -66,13 +66,13 @@ run-integration-tests
 
 ```bash
 # Build and run the integration test suite
-stack test kafka-native:test:kafka-native-integration
+cabal test wireform-kafka:wireform-kafka-integration
 
 # Run with verbose output
-stack test kafka-native:test:kafka-native-integration --test-arguments='--verbose'
+cabal test wireform-kafka:wireform-kafka-integration --test-arguments='--verbose'
 
 # Run only specific tests
-stack test kafka-native:test:kafka-native-integration --test-arguments='--pattern "Connection"'
+cabal test wireform-kafka:wireform-kafka-integration --test-arguments='--pattern "Connection"'
 ```
 
 ## Managing Test Topics
@@ -157,7 +157,7 @@ Integration tests involve real network I/O and Kafka operations, so they're natu
 
 - Check if Kafka logs show errors or warnings
 - Verify no other processes are overwhelming the system
-- Consider running unit tests separately: `stack test kafka-native:test:kafka-native-test`
+- Consider running unit tests separately: `cabal test wireform-kafka:wireform-kafka-test`
 
 ## Test Organization
 
@@ -196,7 +196,7 @@ start-kafka
 run-integration-tests
 
 # Or run in watch mode with ghcid:
-ghcid --command "stack ghci kafka-native:test:kafka-native-integration" \
+ghcid --command "stack ghci wireform-kafka:wireform-kafka-integration" \
       --test "main"
 
 # 4. When done, stop Kafka

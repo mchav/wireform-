@@ -54,7 +54,7 @@ module Kafka.Client.Producer
   , sendBatch
     -- * Transactions
     --
-    -- | The high-level KIP-98 / KIP-447 lifecycle (initTransactions /
+    -- | The high-level transaction lifecycle (initTransactions /
     -- beginTransaction / commitTransaction / abortTransaction /
     -- sendOffsetsToTransaction) lives in
     -- "Kafka.Client.Transaction". To make 'sendMessage' actually
@@ -84,7 +84,7 @@ module Kafka.Client.Producer
     -- * Configuration
   , defaultProducerConfig
   , DeliveryGuarantee(..)
-    -- * Configuration validation (KIP-360)
+    -- * Configuration validation
   , validateProducerConfig
     -- * Environment-variable overlay
     --
@@ -95,7 +95,7 @@ module Kafka.Client.Producer
     -- (e.g. to log the effective config before connecting).
   , applyKafkaEnvToProducerConfig
   , producerConfigFromEnv
-    -- * Cluster info (KIP-78)
+    -- * Cluster info
   , producerClusterId
   ) where
 
@@ -367,7 +367,8 @@ data RecordMetadata = RecordMetadata
   } deriving (Eq, Show, Generic)
 
 -- | Partitioning strategy for messages.
--- | Partitioner function type (KIP-480: Sticky partitioning).
+-- | Partitioner function type. The default partitioner uses
+-- sticky partitioning to maximise batching when no key is set.
 --
 -- A partitioner determines which partition a message goes to.
 -- This affects batching, ordering, and load distribution.
@@ -381,7 +382,8 @@ data RecordMetadata = RecordMetadata
 -- And returns the selected partition (0-indexed).
 type Partitioner = Producer -> Text -> Maybe ByteString -> Int32 -> IO Int32
 
--- | Default partitioner: hash-based if key present, sticky otherwise (KIP-480).
+-- | Default partitioner: hash-based when a key is present,
+-- sticky-per-batch otherwise.
 --
 -- This is the Kafka default behavior:
 --   - If a key is provided, use a hash of the key
@@ -408,7 +410,8 @@ hashPartitioner _producer _topic keyM partitionCount = case keyM of
   Just key -> return $ hashPartition key partitionCount
   Nothing -> return 0  -- Fallback if no key
 
--- | Sticky partitioner: maximize batching by sticking to same partition (KIP-480).
+-- | Sticky partitioner: maximise batching by sticking to the
+-- same partition until the current batch is ready.
 --
 -- Sticks to the same partition until the batch is full, then switches.
 -- This improves batching efficiency and throughput compared to round-robin.
@@ -502,7 +505,7 @@ data Producer = Producer
 --   3. Initialize batch accumulator
 --   4. Start background sender thread
 --   5. If transactional, initialize transaction coordinator (TODO)
--- | Pure config-validation rules (KIP-360). Each rule mirrors a
+-- | Pure config-validation rules. Each rule mirrors a
 -- check the JVM client performs in
 -- @org.apache.kafka.clients.producer.ProducerConfig@; we run them
 -- before opening any socket so an obviously broken config (e.g.
@@ -812,13 +815,11 @@ waitForDrain Producer{..} deadlineMs = do
     nowMillis :: IO Int64
     nowMillis = KafkaTime.currentTimeMillis
 
--- | Close the producer with a specified timeout (KIP-15).
+-- | Close the producer with a specified timeout.
 --
 -- Attempts to send all pending messages before closing, waiting up to
 -- the specified timeout in milliseconds. If the timeout expires, any
 -- remaining messages may be lost.
---
--- @since KIP-15
 closeProducerWithTimeout :: Producer -> Int -> IO ()
 closeProducerWithTimeout Producer{..} timeoutMs = do
   -- Close accumulator (marks all batches as ready)
@@ -849,15 +850,13 @@ closeProducerWithTimeout Producer{..} timeoutMs = do
           threadDelay 100000  -- 100ms
           waitForDrain (n - 1)
 
--- | Flush all pending producer records (KIP-8).
+-- | Flush all pending producer records.
 --
 -- Blocks until all buffered records have been sent to the broker and
 -- acknowledged, or until the delivery timeout expires. This is useful
 -- when you need to ensure all records are sent before proceeding.
 --
 -- Returns 'Right ()' on success, or 'Left error' if flush fails.
---
--- @since KIP-8
 flushProducer :: Producer -> IO (Either String ())
 flushProducer Producer{..} = do
   -- Mark all current batches as ready /without/ closing the
@@ -1046,7 +1045,7 @@ sendMessage p@Producer{..} topic key value = do
           runAckInterceptor producerConfig iceptedRecord (Left err)
           return (Left err)
 
--- | KIP-78: read the broker-supplied cluster id off this
+-- | Read the broker-supplied cluster id off this
 -- producer's metadata cache. Returns 'Nothing' until the first
 -- successful metadata refresh; afterwards reflects whatever the
 -- broker set in its @MetadataResponse@.

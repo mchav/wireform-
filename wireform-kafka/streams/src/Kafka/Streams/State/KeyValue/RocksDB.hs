@@ -34,8 +34,6 @@ module Kafka.Streams.State.KeyValue.RocksDB
   , rocksDBKeyValueStoreBuilder
   ) where
 
-import Control.Exception (bracket_)
-import Control.Monad (when)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Database.RocksDB as R
@@ -237,9 +235,3 @@ rocksReverseAllIter db = do
               _ -> pure Nothing
     , kvIterClose = RI.releaseIter it
     }
-
--- 'BS.length' / 'when' / 'bracket_' kept handy if we add batching
--- helpers below.
-_keepUtil :: ByteString -> IO ()
-_keepUtil bs =
-  bracket_ (pure ()) (pure ()) (when (BS.length bs >= 0) (pure ()))

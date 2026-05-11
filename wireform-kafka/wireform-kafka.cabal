@@ -26,7 +26,6 @@ build-type: Simple
 extra-doc-files:
     README.md
     CHANGELOG.md
-    KIP_TRACKING.md
     INTEGRATION_TESTING.md
 extra-source-files:
     cbits/crc32c.h
@@ -413,6 +412,9 @@ library wireform-kafka-streams
         Kafka.Streams
         Kafka.Streams.Config
         Kafka.Streams.Errors
+        Kafka.Streams.Discovery
+        Kafka.Streams.Discovery.RemoteIQ
+        Kafka.Streams.Discovery.Subscription
         Kafka.Streams.Time
         Kafka.Streams.Types
         Kafka.Streams.Serde
@@ -436,6 +438,7 @@ library wireform-kafka-streams
         Kafka.Streams.State.KeyValue.Timestamped
         Kafka.Streams.State.KeyValue.Versioned
         Kafka.Streams.State.Window.InMemory
+        Kafka.Streams.State.Window.Timestamped
         Kafka.Streams.State.Session.InMemory
         Kafka.Streams.Internal.RecordCollector
         Kafka.Streams.Internal.Engine
@@ -443,6 +446,8 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.Materialized
         Kafka.Streams.DSL.Consumed
         Kafka.Streams.DSL.Produced
+        Kafka.Streams.DSL.Repartitioned
+        Kafka.Streams.DSL.Pipeline
         Kafka.Streams.DSL.Grouped
         Kafka.Streams.DSL.Joined
         Kafka.Streams.DSL.Named
@@ -450,6 +455,7 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.KStream
         Kafka.Streams.DSL.KTable
         Kafka.Streams.DSL.KGroupedStream
+        Kafka.Streams.DSL.KGroupedTable
         Kafka.Streams.DSL.TimeWindowedKStream
         Kafka.Streams.DSL.SessionWindowedKStream
         Kafka.Streams.DSL.GlobalKTable
@@ -457,7 +463,6 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.Cogroup
         Kafka.Streams.DSL.Suppress
         Kafka.Streams.DSL.DslStoreSuppliers
-        Kafka.Streams.DSL.ForeignKeyJoinV2
         Kafka.Streams.Runtime
         Kafka.Streams.Runtime.EOS
         Kafka.Streams.Runtime.Task
@@ -465,6 +470,8 @@ library wireform-kafka-streams
         Kafka.Streams.Runtime.Assignor
         Kafka.Streams.Runtime.WorkerPool
         Kafka.Streams.Runtime.ProbingRebalance
+        Kafka.Streams.Runtime.StandbyTask
+        Kafka.Streams.Runtime.StandbyDriver
         Kafka.Streams.Runtime.RevocationGrace
         Kafka.Streams.Runtime.NativeDriver
         Kafka.Streams.Runtime.MultiInstanceHarness
@@ -481,6 +488,7 @@ library wireform-kafka-streams
         base                      >= 4.16  && < 5,
         aeson                     >= 2.0   && < 2.3,
         async                     >= 2.2   && < 3,
+        binary                    >= 0.8   && < 0.11,
         bytestring                >= 0.11  && < 0.13,
         containers                >= 0.6   && < 0.8,
         deepseq                   >= 1.4   && < 1.6,
@@ -559,7 +567,21 @@ test-suite wireform-kafka-streams-test
         Streams.SchemaRegistrySerdeSpec
         Streams.TransactionalStoreSpec
         Streams.StreamsConfigSurfaceSpec
-        Streams.ForeignKeyJoinV2Spec
+        Streams.ForeignKeyJoinDSLSpec
+        Streams.RuntimeDriverSpec
+        Streams.ExceptionHandlerSpec
+        Streams.KGroupedTableSpec
+        Streams.StoresExtraSpec
+        Streams.QueryAndDiscoverySpec
+        Streams.ProcessorAndStoreExtrasSpec
+        Streams.DynamicThreadsSpec
+        Streams.BoundedSuppressSpec
+        Streams.RackAwareAssignorSpec
+        Streams.ProbingRebalanceRuntimeSpec
+        Streams.StandbyTaskSpec
+        Streams.StandbyDriverSpec
+        Streams.RemoteIQSpec
+        Streams.IdiomaticDSLSpec
         Streams.MultiInstanceHarnessSpec
         Streams.SchemaRegistryHttpSpec
         Streams.SchemaRegistryFormatsSpec
@@ -600,6 +622,36 @@ test-suite wireform-kafka-streams-integration
         bytestring,
         tasty                     >= 1.4   && < 1.6,
         tasty-hunit               >= 0.10  && < 0.11,
+        text
+
+executable wireform-kafka-streams-examples
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: streams/examples
+    ghc-options: -threaded -rtsopts
+    other-modules:
+        Kafka.Streams.Examples.Branching
+        Kafka.Streams.Examples.Cogroup
+        Kafka.Streams.Examples.FraudDetection
+        Kafka.Streams.Examples.GlobalTable
+        Kafka.Streams.Examples.IdiomaticPipeline
+        Kafka.Streams.Examples.InteractiveQueries
+        Kafka.Streams.Examples.InventoryFKJoin
+        Kafka.Streams.Examples.LineSplit
+        Kafka.Streams.Examples.OrdersEnrichment
+        Kafka.Streams.Examples.PageViewRegion
+        Kafka.Streams.Examples.Pipe
+        Kafka.Streams.Examples.ProcessorAPI
+        Kafka.Streams.Examples.SideEffects
+        Kafka.Streams.Examples.Temperature
+        Kafka.Streams.Examples.TopArticles
+        Kafka.Streams.Examples.WordCount
+    build-depends:
+        base,
+        wireform-kafka:wireform-kafka-streams,
+        wireform-kafka,
+        bytestring,
+        containers,
         text
 
 library wireform-kafka-codegen
@@ -850,6 +902,20 @@ test-suite wireform-kafka-integration
         text,
         time                      >= 1.11  && < 1.13,
         unordered-containers      >= 0.2   && < 0.3
+
+benchmark wireform-kafka-streams-bench
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: streams/bench
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -O2
+    build-depends:
+        base,
+        wireform-kafka,
+        wireform-kafka-streams,
+        bytestring,
+        criterion                 >= 1.5   && < 1.7,
+        text
 
 benchmark wireform-kafka-bench
     import: defaults

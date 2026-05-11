@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -120,8 +121,8 @@ multi_task_separate_state_per_task =
     -- Read each task's store via interactive queries.
     Just ro0 <- queryEngineStore @Text @Int.Int64 (taskEngine t0) storeNm
     Just ro1 <- queryEngineStore @Text @Int.Int64 (taskEngine t1) storeNm
-    roKvGet ro0 "k" >>= (@?= Just 2)
-    roKvGet ro1 "k" >>= (@?= Just 1)
+    ro0.roKvGet "k" >>= (@?= Just 2)
+    ro1.roKvGet "k" >>= (@?= Just 1)
 
     closeAllTasks tm
 

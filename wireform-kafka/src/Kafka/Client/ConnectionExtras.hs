@@ -5,34 +5,36 @@
 
 {-|
 Module      : Kafka.Client.ConnectionExtras
-Description : KIP-612 / 974 / 1142 / 1182 / 1191 — connection ergonomics
+Description : Connection-layer ergonomics: quota throttling,
+              idle-expiry tracking, SASL timeouts, request QoS
 
-  * KIP-612: client-side awareness of broker connection-creation-rate
-    quotas; the client honours the broker's
-    @connection.creation.rate@ throttle response by backing off
+Helpers that complement the core 'Kafka.Network.Connection':
+
+  * Quota throttling — honour the broker's
+    @connection.creation.rate@ throttle response and back off
     before opening another connection.
-  * KIP-974: per-connection idle expiry — cap the time the
-    client keeps an idle connection open.
-  * KIP-1142: SASL connect-timeout config knob.
-  * KIP-1182: Quality-of-Service framework (priority class +
-    weight per request type).
-  * KIP-1191: configurable @max.idle.time.ms@ per SASL session.
+  * Idle-expiry tracking — cap the time the client keeps an
+    idle connection open.
+  * SASL connect timeouts — bound the time a SASL handshake
+    can block startup.
+  * Request QoS — priority class + weight per request type
+    for callers that want fair-share scheduling.
 -}
 module Kafka.Client.ConnectionExtras
-  ( -- * Connection quota throttling (KIP-612)
+  ( -- * Connection-quota throttling
     ConnectionQuotaState
   , newConnectionQuotaState
   , recordThrottle
   , shouldDelayConnect
-    -- * Idle expiry (KIP-974)
+    -- * Idle expiry
   , IdleConnTracker
   , newIdleConnTracker
   , recordActivity
   , isIdle
-    -- * SASL connect-timeout (KIP-1142 / KIP-1191)
+    -- * SASL connect timeouts
   , SaslTimeouts (..)
   , defaultSaslTimeouts
-    -- * QoS (KIP-1182)
+    -- * Request QoS
   , QosClass (..)
   , QosWeight (..)
   , prioritise
@@ -46,7 +48,7 @@ import qualified Data.List as L
 import GHC.Generics (Generic)
 
 ----------------------------------------------------------------------
--- KIP-612 connection quota
+-- Connection quota
 ----------------------------------------------------------------------
 
 newtype ConnectionQuotaState = ConnectionQuotaState
@@ -70,7 +72,7 @@ shouldDelayConnect st now = do
   pure $ if wait > 0 then Just (fromIntegral wait) else Nothing
 
 ----------------------------------------------------------------------
--- KIP-974 idle expiry
+-- Idle expiry
 ----------------------------------------------------------------------
 
 newtype IdleConnTracker key = IdleConnTracker
@@ -97,7 +99,7 @@ isIdle (IdleConnTracker v) k now thresholdMs = do
     Just ts  -> now - ts >= fromIntegral thresholdMs
 
 ----------------------------------------------------------------------
--- KIP-1142 / KIP-1191 SASL timeouts
+-- SASL timeouts
 ----------------------------------------------------------------------
 
 data SaslTimeouts = SaslTimeouts
@@ -116,7 +118,7 @@ defaultSaslTimeouts = SaslTimeouts
   }
 
 ----------------------------------------------------------------------
--- KIP-1182 quality of service
+-- Quality of service
 ----------------------------------------------------------------------
 
 data QosClass

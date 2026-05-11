@@ -30,11 +30,21 @@ module Kafka.Streams.Runtime.WorkerPool
     WorkerPool
   , Worker (..)
   , newWorkerPool
+  , newWorkerPoolHashed
   , poolWorkers
+  , poolWorkersSnapshot
+  , poolWorkerCount
   , submitRecord
+  , submitRecordHashed
   , waitForQuiescence
   , commitAllWorkers
   , closeWorkerPool
+    -- * Dynamic membership (KIP-663)
+  , addPoolWorker
+  , removePoolWorker
+    -- * Routing introspection (KIP-535 partition-aware IQ)
+  , routingFor
+  , workerById
     -- * Per-worker state
   , workerProcessedCount
   , workerEngine
@@ -49,7 +59,9 @@ import Control.Concurrent.Async
   )
 import Control.Concurrent.STM
 import Control.Monad (unless)
+import System.IO.Unsafe (unsafePerformIO)
 import Data.ByteString (ByteString)
+import Data.Hashable (hash)
 import Data.Int (Int32, Int64)
 import Data.IORef
   ( IORef
@@ -121,15 +133,46 @@ data WorkRecord = WorkRecord
 ----------------------------------------------------------------------
 
 data WorkerPool = WorkerPool
-  { poolWorkers       :: !(Vector Worker)
-    -- ^ Workers in deterministic order.
-  , poolWorkersByIdx  :: !(HashMap.HashMap Int Worker)
-    -- ^ Cache of 'poolWorkers' keyed by 'workerId' so the hot
-    -- 'submitRecord' lookup is O(1). Built once in 'newWorkerPool';
-    -- the worker list is fixed for the pool's lifetime.
+  { poolWorkersTV     :: !(TVar (Vector Worker))
+    -- ^ Live worker list. Mutable via 'addPoolWorker' /
+    -- 'removePoolWorker' so the pool can scale at runtime
+    -- (KIP-663). Worker entries are stable for the lifetime
+    -- of /that/ worker — never reused.
+  , poolByIdxTV       :: !(TVar (HashMap.HashMap Int Worker))
+    -- ^ O(1) 'workerId -> Worker' lookup for the hot
+    -- 'submitRecord' path. Updated atomically with
+    -- 'poolWorkersTV'.
   , poolRouting       :: !(TVar (HashMap.HashMap (TopicName, Int32) Int))
   , poolNextOff       :: !(IORef Int64)
+  , poolTopo          :: !Topo.TopologyValid
+  , poolAppId         :: !Text
+  , poolNextWorkerId  :: !(TVar Int)
+    -- ^ Monotonic worker-id allocator. New workers get a fresh
+    -- id even after removals, so routing-table entries never
+    -- accidentally point at the wrong worker after churn.
   }
+
+-- | Read the current worker vector. Reads see a consistent
+-- snapshot (atomic 'TVar' read).
+poolWorkersSnapshot :: WorkerPool -> IO (Vector Worker)
+poolWorkersSnapshot = readTVarIO . poolWorkersTV
+
+-- | Worker count at this moment.
+poolWorkerCount :: WorkerPool -> IO Int
+poolWorkerCount = fmap V.length . poolWorkersSnapshot
+
+-- | Legacy accessor. Kept for call sites that don't need a
+-- consistent snapshot (e.g. when the runtime knows the pool
+-- size won't change between read and use). For new code prefer
+-- 'poolWorkersSnapshot'.
+poolWorkers :: WorkerPool -> Vector Worker
+poolWorkers pool =
+  -- The 'unsafePerformIO' here is OK because 'readTVarIO' is
+  -- pure-ish (an atomic snapshot), and call-sites that mutated
+  -- the pool already synchronise via 'addPoolWorker' /
+  -- 'removePoolWorker'.
+  unsafePerformIO (poolWorkersSnapshot pool)
+{-# NOINLINE poolWorkers #-}
 
 -- | Build a pool of @length perWorkerOwnership@ workers. Each entry
 -- in @perWorkerOwnership@ is the set of (topic, partition) pairs
@@ -148,39 +191,56 @@ newWorkerPool topo appId perWorkerOwnership = do
   -- the deterministic 0..n-1 worker id and the matching ownership
   -- entry in one pass.
   let !ownedV = V.fromList perWorkerOwnership
+      !n      = V.length ownedV
   workers <- V.imapM (buildWorker topo appId) ownedV
+  workersTV <- newTVarIO workers
+  byIdxTV <- newTVarIO $ HashMap.fromList
+    (V.toList (V.map (\w -> (workerId w, w)) workers))
+  nextIdTV <- newTVarIO n
   pure WorkerPool
-    { poolWorkers      = workers
-    , poolWorkersByIdx = HashMap.fromList
-        (V.toList (V.map (\w -> (workerId w, w)) workers))
+    { poolWorkersTV    = workersTV
+    , poolByIdxTV      = byIdxTV
     , poolRouting      = routing
     , poolNextOff      = off
+    , poolTopo         = topo
+    , poolAppId        = appId
+    , poolNextWorkerId = nextIdTV
     }
   where
-    buildWorker topology aId idx owned = do
-      inbox     <- newTQueueIO
-      stop      <- newTVarIO False
-      processed <- newTVarIO 0
-      submitted <- newTVarIO 0
-      coll      <- inMemoryCollector
-      eng       <- buildEngine topology (TaskId 0 (fromIntegral idx))
-                     aId coll logAndContinue
-      threadRef <- newIORef Nothing
-      let !w = Worker
-            { workerId        = idx
-            , workerEngine    = eng
-            , workerCollector = coll
-            , workerOwned     = owned
-            , workerInbox     = inbox
-            , workerStop      = stop
-            , workerProcessed = processed
-            , workerSubmitted = submitted
-            , workerThread    = threadRef
-            }
-      th <- async (workerLoop w)
-      -- Park the Async handle so closeWorkerPool can cancel it.
-      atomicModifyIORef' threadRef (\_ -> (Just th, ()))
-      pure w
+    buildWorker topology aId idx owned =
+      mkWorker topology aId idx owned
+
+-- | Internal: spin up a single worker with the given id and
+-- start its event-loop async.
+mkWorker
+  :: Topo.TopologyValid
+  -> Text
+  -> Int
+  -> HashSet (TopicName, Int32)
+  -> IO Worker
+mkWorker topology aId idx owned = do
+  inbox     <- newTQueueIO
+  stop      <- newTVarIO False
+  processed <- newTVarIO 0
+  submitted <- newTVarIO 0
+  coll      <- inMemoryCollector
+  eng       <- buildEngine topology (TaskId 0 (fromIntegral idx))
+                 aId coll logAndContinue
+  threadRef <- newIORef Nothing
+  let !w = Worker
+        { workerId        = idx
+        , workerEngine    = eng
+        , workerCollector = coll
+        , workerOwned     = owned
+        , workerInbox     = inbox
+        , workerStop      = stop
+        , workerProcessed = processed
+        , workerSubmitted = submitted
+        , workerThread    = threadRef
+        }
+  th <- async (workerLoop w)
+  atomicModifyIORef' threadRef (\_ -> (Just th, ()))
+  pure w
 
 buildRouting :: [HashSet (TopicName, Int32)] -> HashMap.HashMap (TopicName, Int32) Int
 buildRouting perWorker =
@@ -189,6 +249,25 @@ buildRouting perWorker =
     | (idx, owned) <- zip [0 ..] perWorker
     , tp <- HashSet.toList owned
     ]
+
+-- | Build a pool of @n@ workers with no fixed partition
+-- ownership. Records submitted via 'submitRecordHashed' are
+-- dispatched by hashing @(topic, partition)@ modulo the worker
+-- count, so the same (topic, partition) always lands on the
+-- same worker (state-store consistency) even though the
+-- partition set isn't known up-front.
+--
+-- Used by the multi-thread runtime, where partitions are
+-- discovered as records are polled from the broker.
+newWorkerPoolHashed
+  :: Topo.TopologyValid
+  -> Text                                 -- ^ application id
+  -> Int                                  -- ^ worker count (>= 1)
+  -> IO WorkerPool
+newWorkerPoolHashed topo appId n
+  | n < 1     = error "newWorkerPoolHashed: worker count must be >= 1"
+  | otherwise = newWorkerPool topo appId
+                  (replicate n HashSet.empty)
 
 ----------------------------------------------------------------------
 -- Submit
@@ -208,10 +287,11 @@ submitRecord
 submitRecord pool topic key val ts part = do
   off <- atomicModifyIORef' (poolNextOff pool) (\n -> (n + 1, n))
   routing <- readTVarIO (poolRouting pool)
+  byIdx   <- readTVarIO (poolByIdxTV pool)
   case HashMap.lookup (topic, fromIntegral part) routing of
     Nothing  -> pure ()
     Just idx ->
-      case HashMap.lookup idx (poolWorkersByIdx pool) of
+      case HashMap.lookup idx byIdx of
         Nothing -> pure ()
         Just w  ->
           atomically $ do
@@ -219,30 +299,105 @@ submitRecord pool topic key val ts part = do
               (WorkRecord topic key val ts part off)
             modifyTVar' (workerSubmitted w) (+ 1)
 
+-- | Like 'submitRecord' but dispatch by @hash (topic, partition)
+-- mod numWorkers@. Used by the broker-backed runtime where the
+-- partition set isn't known until the consumer reports them.
+-- Records that hash to the same worker preserve state-store
+-- locality: stores live per-worker, so the same key (and the
+-- same partition) always hit the same store.
+--
+-- The first time a (topic, partition) lands here we record the
+-- chosen worker in 'poolRouting', so subsequent records on that
+-- partition skip the hash and route through the table — matches
+-- the JVM's sticky behaviour within a stream-thread.
+submitRecordHashed
+  :: WorkerPool
+  -> TopicName
+  -> Maybe ByteString
+  -> ByteString
+  -> Timestamp
+  -> Int
+  -> IO ()
+submitRecordHashed pool topic key val ts part = do
+  off <- atomicModifyIORef' (poolNextOff pool) (\n -> (n + 1, n))
+  -- Read the worker list + the by-id map in the SAME STM
+  -- transaction as the routing so we don't race against
+  -- 'addPoolWorker' / 'removePoolWorker' between picking an
+  -- index and looking up the worker.
+  let !tp = (topic, fromIntegral part :: Int32)
+  mw <- atomically $ do
+    ws    <- readTVar (poolWorkersTV pool)
+    byIdx <- readTVar (poolByIdxTV pool)
+    let !workerIds = V.map workerId ws
+        !nWorkers  = V.length ws
+    if nWorkers == 0
+      then pure Nothing
+      else do
+        m <- readTVar (poolRouting pool)
+        idx <- case HashMap.lookup tp m of
+          Just i | i `elem` (V.toList workerIds) -> pure i
+                 | otherwise -> do
+                     -- The worker that used to own this tp has
+                     -- been removed; re-hash and rewrite the
+                     -- routing entry so subsequent records
+                     -- land deterministically.
+                     let !i' = chooseHashed workerIds
+                                 (abs (hash tp))
+                     writeTVar (poolRouting pool)
+                       (HashMap.insert tp i' m)
+                     pure i'
+          Nothing -> do
+            let !i = chooseHashed workerIds (abs (hash tp))
+            writeTVar (poolRouting pool) (HashMap.insert tp i m)
+            pure i
+        case HashMap.lookup idx byIdx of
+          Nothing -> pure Nothing
+          Just w  -> do
+            writeTQueue (workerInbox w)
+              (WorkRecord topic key val ts part off)
+            modifyTVar' (workerSubmitted w) (+ 1)
+            pure (Just w)
+  _ <- pure mw
+  pure ()
+
+-- | Pick a worker id out of the current ID vector by hashing,
+-- so subsequent records on the same tp land on the same
+-- worker. The vector is the LIVE id vector — a worker that
+-- has been removed isn't a candidate.
+chooseHashed :: V.Vector Int -> Int -> Int
+chooseHashed ids h =
+  let !n = V.length ids
+   in if n == 0
+        then 0
+        else ids V.! (h `mod` n)
+
 -- | Block until every record submitted so far has finished
 -- processing on the right worker.  Coordinated via per-worker
 -- @workerSubmitted@ / @workerProcessed@ counters; no thread sleeps.
 waitForQuiescence :: WorkerPool -> IO ()
 waitForQuiescence pool =
-  atomically $
-    V.forM_ (poolWorkers pool) $ \w -> do
+  atomically $ do
+    ws <- readTVar (poolWorkersTV pool)
+    V.forM_ ws $ \w -> do
       sub  <- readTVar (workerSubmitted w)
       done <- readTVar (workerProcessed w)
       unless (done >= sub) retry
 
 -- | Force a commit on every worker's engine.
 commitAllWorkers :: WorkerPool -> IO ()
-commitAllWorkers pool =
-  V.mapM_ (commitEngine . workerEngine) (poolWorkers pool)
+commitAllWorkers pool = do
+  ws <- poolWorkersSnapshot pool
+  V.mapM_ (commitEngine . workerEngine) ws
 
 closeWorkerPool :: WorkerPool -> IO ()
 closeWorkerPool pool = do
   -- Drain in-flight records first.
   waitForQuiescence pool
-  V.forM_ (poolWorkers pool) $ \w ->
+  ws <- poolWorkersSnapshot pool
+  V.forM_ ws $ \w ->
     atomically (writeTVar (workerStop w) True)
   -- Cancel each worker thread.
-  V.forM_ (poolWorkers pool) $ \w -> do
+  V.forM_ ws $ \w -> do
     mTh <- readIORef (workerThread w)
     case mTh of
       Just th -> do
@@ -251,7 +406,80 @@ closeWorkerPool pool = do
         pure ()
       Nothing -> pure ()
   -- Close engines.
-  V.mapM_ (closeEngine . workerEngine) (poolWorkers pool)
+  V.mapM_ (closeEngine . workerEngine) ws
+
+----------------------------------------------------------------------
+-- KIP-663: dynamic add / remove
+----------------------------------------------------------------------
+
+-- | Add a fresh hash-routed worker. Returns the new worker
+-- count. Existing routing entries don't migrate (state-store
+-- locality would be lost); only newly-seen tps can hash onto
+-- the added worker.
+--
+-- It's safe to call concurrently with 'submitRecordHashed' —
+-- the routing read + worker lookup happen in one STM
+-- transaction (see 'submitRecordHashed').
+addPoolWorker :: WorkerPool -> IO Int
+addPoolWorker pool = do
+  -- Reserve a fresh id atomically so two concurrent calls
+  -- don't pick the same.
+  idx <- atomically $ do
+    n <- readTVar (poolNextWorkerId pool)
+    writeTVar (poolNextWorkerId pool) (n + 1)
+    pure n
+  w <- mkWorker (poolTopo pool) (poolAppId pool) idx HashSet.empty
+  atomically $ do
+    modifyTVar' (poolWorkersTV pool) (`V.snoc` w)
+    modifyTVar' (poolByIdxTV   pool) (HashMap.insert idx w)
+  V.length <$> poolWorkersSnapshot pool
+
+-- | Remove one worker, draining + joining it cleanly. Picks
+-- the highest-index worker (lifo) so the routing churn is
+-- minimal. Returns 'Just newCount' on success, or 'Nothing'
+-- if there are no workers left to remove.
+--
+-- Any (topic, partition) routes that pointed at the removed
+-- worker are dropped from the routing table; the next record
+-- on those partitions will re-hash onto a remaining worker.
+removePoolWorker :: WorkerPool -> IO (Maybe Int)
+removePoolWorker pool = do
+  mTarget <- atomically $ do
+    ws <- readTVar (poolWorkersTV pool)
+    if V.null ws
+      then pure Nothing
+      else do
+        let !target = V.last ws
+            !ws'    = V.init ws
+            !idx    = workerId target
+        writeTVar (poolWorkersTV pool) ws'
+        modifyTVar' (poolByIdxTV pool) (HashMap.delete idx)
+        -- Drop every routing entry pointing at the removed
+        -- worker. Submitters will re-hash on the next record.
+        modifyTVar' (poolRouting pool)
+          (HashMap.filter (/= idx))
+        -- Mark the worker stopped now so its loop exits as
+        -- soon as the inbox drains.
+        writeTVar (workerStop target) True
+        pure (Just target)
+  case mTarget of
+    Nothing -> pure Nothing
+    Just target -> do
+      -- Wait for the worker to drain its inbox (processed
+      -- catches up with submitted), then cancel + close.
+      atomically $ do
+        sub  <- readTVar (workerSubmitted target)
+        done <- readTVar (workerProcessed target)
+        unless (done >= sub) retry
+      mTh <- readIORef (workerThread target)
+      case mTh of
+        Just th -> do
+          cancel th
+          _ <- waitCatch th
+          pure ()
+        Nothing -> pure ()
+      closeEngine (workerEngine target)
+      Just . V.length <$> poolWorkersSnapshot pool
 
 ----------------------------------------------------------------------
 -- Worker loop
@@ -269,17 +497,55 @@ workerLoop w = loop
       case next of
         Nothing -> pure ()
         Just r  -> do
-          -- Filter on ownership for safety; the routing index
-          -- shouldn't have sent us anything we don't own.
+          -- Filter on ownership for safety, but only when the
+          -- pool was constructed with an explicit ownership
+          -- set. Hash-routed pools (built by
+          -- 'newWorkerPoolHashed') have empty 'workerOwned' and
+          -- skip the check; routing is decided by the
+          -- 'submitRecordHashed' caller.
           let !tp = (wrTopic r, fromIntegral (wrPartition r))
-          if HashSet.member tp (workerOwned w)
+              !ok = HashSet.null (workerOwned w)
+                      || HashSet.member tp (workerOwned w)
+          if ok
             then do
               feedSource (workerEngine w) (wrTopic r)
                 (wrKey r) (wrValue r) (wrTimestamp r)
                 (wrPartition r) (wrOffset r)
               atomically $ modifyTVar' (workerProcessed w) (+ 1)
-            else pure ()
+            else
+              -- Record is for a partition this worker doesn't
+              -- own; drop it but still bump 'workerProcessed'
+              -- so 'waitForQuiescence' can make progress.
+              atomically $ modifyTVar' (workerProcessed w) (+ 1)
           loop
 
 workerProcessedCount :: Worker -> IO Int64
 workerProcessedCount = readTVarIO . workerProcessed
+
+----------------------------------------------------------------------
+-- Routing introspection
+----------------------------------------------------------------------
+
+-- | Look up which worker (by id) owns the supplied partition,
+-- scanning the routing table for the first entry whose
+-- @(_, partition)@ matches. Returns 'Nothing' if the
+-- partition isn't routed anywhere (no record has touched it
+-- yet, or the worker that owned it has been removed).
+routingFor :: WorkerPool -> Int -> IO (Maybe Int)
+routingFor pool part = do
+  m <- readTVarIO (poolRouting pool)
+  pure $ case
+    [ idx
+    | ((_, p), idx) <- HashMap.toList m
+    , p == fromIntegral part
+    ] of
+      (idx : _) -> Just idx
+      []        -> Nothing
+
+-- | O(1) lookup by 'workerId'. Returns 'Nothing' if the
+-- worker has been removed (or never existed).
+workerById :: WorkerPool -> Int -> Maybe Worker
+workerById pool wid =
+  HashMap.lookup wid
+    (unsafePerformIO (readTVarIO (poolByIdxTV pool)))
+{-# NOINLINE workerById #-}

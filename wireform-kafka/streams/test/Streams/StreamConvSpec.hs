@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -48,7 +49,7 @@ to_table_basic =
 
     Just ro <- queryEngineStore @Text @Text (driverEngine driver)
                  (ktableStore table)
-    roKvGet ro "k" >>= (@?= Just "v")
+    ro.roKvGet "k" >>= (@?= Just "v")
     closeDriver driver
 
 to_table_keeps_latest_per_key :: TestTree
@@ -67,7 +68,7 @@ to_table_keeps_latest_per_key =
 
     Just ro <- queryEngineStore @Text @Text (driverEngine driver)
                  (ktableStore table)
-    roKvGet ro "k" >>= (@?= Just "v3")
+    ro.roKvGet "k" >>= (@?= Just "v3")
     closeDriver driver
 
 repartition_passes_records_through :: TestTree

@@ -40,7 +40,7 @@ module Kafka.Client.AdminClient
     -- * AdminClient Lifecycle
   , createAdminClient
   , closeAdminClient
-    -- * Cluster info (KIP-78)
+    -- * Cluster info
   , adminClusterId
     -- * Topic Operations
   , NewTopic(..)
@@ -67,14 +67,14 @@ module Kafka.Client.AdminClient
   , ConfigResourceResult(..)
   , describeConfigs
   , alterConfigs
-    -- * KIP-339 Incremental config alterations
+    -- * Incremental config alterations
   , AlterConfigOp(..)
   , AlterableConfigEntry(..)
   , incrementalAlterConfigs
-    -- * KIP-107 DeleteRecords
+    -- * DeleteRecords
   , deleteRecords
   , DeleteRecordsResultEntry(..)
-    -- * KIP-460 Leader election
+    -- * Leader election
   , ElectionType(..)
   , electLeaders
     -- * Configuration
@@ -933,16 +933,16 @@ unpackConfigEntry e =
         , ceSensitive = sen
         }
 
--- * KIP-78 Cluster info
+-- * Cluster info
 
--- | KIP-78: read the broker-supplied cluster id off the admin
+-- | Read the broker-supplied cluster id off the admin
 -- client's metadata cache. Returns 'Nothing' until the first
 -- successful refresh.
 adminClusterId :: AdminClient -> IO (Maybe Text)
 adminClusterId AdminClient{..} =
   atomically (Meta.getClusterId adminMetadata)
 
--- * KIP-444 list-topics filtering
+-- * List-topics filtering
 
 -- | Like 'listTopics' but skips Kafka-internal topics (those with
 -- the @isInternal@ flag set: @__consumer_offsets@,
@@ -984,13 +984,13 @@ listTopicsExcludeInternal client@AdminClient{..} = do
                   V.map (extractText . MResp.metadataResponseTopicName) $
                   V.filter keep topicsVec
 
--- * KIP-133 alterConfigs
+-- * alterConfigs
 
--- | KIP-133: replace the configuration for one or more resources.
+-- | Replace the configuration for one or more resources.
 -- /Note/: this is the legacy "AlterConfigs" call which replaces
 -- /every/ key for a resource — keys you don't include are reset
--- to their defaults. Prefer 'incrementalAlterConfigs' (KIP-339)
--- for new code.
+-- to their defaults. Prefer 'incrementalAlterConfigs' for new
+-- code.
 --
 -- Returns one entry per input resource: @Right ()@ on success,
 -- or @Left errorMessage@ for resources the broker rejected.
@@ -1052,9 +1052,9 @@ alterConfigs client@AdminClient{..} resources = do
              else Left ("Error " ++ show ec ++ ": " ++ T.unpack emsg)
          )
 
--- * KIP-339 incrementalAlterConfigs
+-- * incrementalAlterConfigs
 
--- | KIP-339 operation type for an individual configuration key.
+-- | Operation type for an individual configuration key.
 data AlterConfigOp
   = AlterConfigOpSet      -- ^ Set the key to the supplied value.
   | AlterConfigOpDelete   -- ^ Delete the key.
@@ -1062,7 +1062,7 @@ data AlterConfigOp
   | AlterConfigOpSubtract -- ^ Subtract from a list-valued key.
   deriving stock (Eq, Show, Generic)
 
--- | KIP-339 incremental config alteration entry.
+-- | Incremental config alteration entry.
 data AlterableConfigEntry = AlterableConfigEntry
   { aceName  :: !Text
   , aceOp    :: !AlterConfigOp
@@ -1070,7 +1070,7 @@ data AlterableConfigEntry = AlterableConfigEntry
     -- ^ 'Nothing' for 'AlterConfigOpDelete'; otherwise required.
   } deriving (Eq, Show, Generic)
 
--- | KIP-339: incremental (non-replacing) config alterations.
+-- | Incremental (non-replacing) config alterations.
 -- Set / Delete / Append / Subtract per key.
 --
 -- Strongly preferred over 'alterConfigs' for new code.
@@ -1154,7 +1154,7 @@ encodeResourceType = \case
   ConfigResourceBroker       -> 4
   ConfigResourceBrokerLogger -> 8
 
--- * KIP-107 deleteRecords (admin entry)
+-- * deleteRecords (admin entry)
 
 -- | One row of the result returned by 'deleteRecords': the new
 -- low-watermark for a partition (records strictly below it are
@@ -1166,7 +1166,7 @@ data DeleteRecordsResultEntry = DeleteRecordsResultEntry
   , dreErrorCode    :: !Int16
   } deriving (Eq, Show, Generic)
 
--- | KIP-107: trim the partition log up to (but not including) the
+-- | Trim the partition log up to (but not including) the
 -- supplied offset for each (topic, partition). Mirrors
 -- @AdminClient.deleteRecords(Map\<TopicPartition, RecordsToDelete\>)@.
 deleteRecords
@@ -1234,9 +1234,9 @@ deleteRecords client@AdminClient{..} entries = do
             , dreErrorCode    = DRResp.deleteRecordsPartitionResultErrorCode p
             }) parts
 
--- * KIP-460 ElectLeaders
+-- * ElectLeaders
 
--- | KIP-460 election type. 'PreferredElection' falls back to the
+-- | Election type. 'PreferredElection' falls back to the
 -- first replica in the assignment ("preferred"); 'UncleanElection'
 -- promotes any in-sync replica even if it would lose data.
 data ElectionType
@@ -1244,7 +1244,7 @@ data ElectionType
   | UncleanElection     -- ^ Wire code 1
   deriving stock (Eq, Show, Generic)
 
--- | KIP-460: ask the controller to (re-)elect leaders for the
+-- | Ask the controller to (re-)elect leaders for the
 -- supplied (topic, partition) list. An empty list elects every
 -- partition that currently needs election.
 --
@@ -1307,9 +1307,9 @@ electLeaders client@AdminClient{..} etype tps = do
            , ELResp.partitionResultErrorCode p
            )) parts
 
--- * KIP-503 / KIP-465 consumer-group offset management
+-- * Consumer-group offset management
 
--- | KIP-465: list every committed offset for a consumer group.
+-- | List every committed offset for a consumer group.
 --
 -- Returns a 'HashMap' keyed by @(topic, partition)@ containing
 -- the broker's committed offset. Partitions with no committed
@@ -1379,7 +1379,7 @@ listConsumerGroupOffsets client@AdminClient{..} groupId = do
                            acc partsVec
                 return $ Right $! V.foldl' go HashMap.empty topicsVec
 
--- | KIP-503: write committed offsets for a group from /outside/
+-- | Write committed offsets for a group from /outside/
 -- the consumer (e.g. a tool resetting a group). The group must
 -- not have an active member when called; the broker rejects the
 -- write otherwise.

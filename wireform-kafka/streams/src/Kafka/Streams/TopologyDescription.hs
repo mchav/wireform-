@@ -38,11 +38,9 @@ module Kafka.Streams.TopologyDescription
   , pretty
   ) where
 
-import Data.List (foldl', sort)
+import Data.List (sort)
 import qualified Data.Foldable as Foldable
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
-import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
@@ -252,12 +250,3 @@ pretty td =
       [ ""
       , "Stores:"
       ] <> [ "    " <> unStoreName s | s <- ss ]
-
--- 'Set' kept imported because future descriptions of GlobalStore
--- entries will use it for unique sets; trivial for now.
-_keepSet :: Set Int -> Int
-_keepSet = Set.size
-
--- 'foldl' imported above, used by orderNodes; alias to silence unused.
-_keepFold :: [a] -> [a]
-_keepFold = foldl' (flip (:)) []

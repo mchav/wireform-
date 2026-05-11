@@ -14,7 +14,9 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Mock.Cluster as MC
 import Kafka.Streams.Mock.Cluster
+  hiding (leaveGroup)
 import Kafka.Streams.Mock.Consumer
 import Kafka.Streams.Mock.Fault
 import Kafka.Streams.Mock.Producer
@@ -232,8 +234,8 @@ driver_picks_up_partitions_after_sibling_leaves =
     b <- newMockStreamsDriver cluster fp topo "shared" 4
     refreshAssignment (driverConsumer a)
     -- Both have a partition slice. B leaves the group; A refreshes.
-    leaveGroup cluster (GroupId "shared")
-               (consumerMemberId (driverConsumer b))
+    MC.leaveGroup cluster (GroupId "shared")
+                   (consumerMemberId (driverConsumer b))
     refreshAssignment (driverConsumer a)
     asg <- L.sort <$> assignedPartitions (driverConsumer a)
     map snd asg @?= [0, 1, 2, 3]

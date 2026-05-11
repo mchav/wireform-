@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -472,8 +473,8 @@ fk_join_inner_basic =
     pipeInput driver (topicName "orders") (Just (bytes "o2")) (bytes "u2|20") (t 1) 0
 
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    roKvGet rs "o1" >>= (@?= Just "alice:10")
-    roKvGet rs "o2" >>= (@?= Just "bob:20")
+    rs.roKvGet "o1" >>= (@?= Just "alice:10")
+    rs.roKvGet "o2" >>= (@?= Just "bob:20")
     closeDriver driver
 
 fk_join_changing_fk_unsubscribes :: TestTree
@@ -506,7 +507,7 @@ fk_join_changing_fk_unsubscribes =
     pipeInput driver (topicName "users")  (Just (bytes "u1")) (bytes "ALICE2") (t 3) 0
 
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    roKvGet rs "o1" >>= (@?= Just "bob:x")
+    rs.roKvGet "o1" >>= (@?= Just "bob:x")
     closeDriver driver
 
 fk_join_right_update_re_emits :: TestTree
@@ -536,8 +537,8 @@ fk_join_right_update_re_emits =
     pipeInput driver (topicName "users")  (Just (bytes "u1")) (bytes "ALICE") (t 2) 0
 
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    roKvGet rs "o1" >>= (@?= Just "ALICE:10")
-    roKvGet rs "o2" >>= (@?= Just "ALICE:20")
+    rs.roKvGet "o1" >>= (@?= Just "ALICE:10")
+    rs.roKvGet "o2" >>= (@?= Just "ALICE:20")
     closeDriver driver
 
 fk_left_join_emits_when_no_right :: TestTree
@@ -564,8 +565,8 @@ fk_left_join_emits_when_no_right =
     -- Left first, no right yet.
     pipeInput driver (topicName "orders") (Just (bytes "o1")) (bytes "u1|x") (t 0) 0
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    roKvGet rs "o1" >>= (@?= Just "<>:x")
+    rs.roKvGet "o1" >>= (@?= Just "<>:x")
     -- Now right arrives, re-emit.
     pipeInput driver (topicName "users") (Just (bytes "u1")) (bytes "alice") (t 1) 0
-    roKvGet rs "o1" >>= (@?= Just "alice:x")
+    rs.roKvGet "o1" >>= (@?= Just "alice:x")
     closeDriver driver

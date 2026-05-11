@@ -42,10 +42,17 @@ module Kafka.Client.Consumer
   , createConsumer
   , closeConsumer
   , closeConsumerWithTimeout
+  , closeConsumerWithoutLeavingGroup
+  , requestRejoin
+  , setSubscriptionUserDataHook
     -- * Subscription
   , subscribe
   , unsubscribe
   , assign
+    -- * Rebalance listener
+  , setRebalanceListener
+  , currentAssignment
+  , computeAssignmentDelta
     -- * Polling and Consumption
   , poll
   , seek
@@ -57,7 +64,7 @@ module Kafka.Client.Consumer
   , committed
   , committedAll
   , position
-    -- * Partition / time queries (KIP-41 / KIP-79)
+    -- * Partition / time queries
   , beginningOffsets
   , endOffsets
   , offsetsForTimes
@@ -76,7 +83,7 @@ module Kafka.Client.Consumer
   , ConsumerConfig(..)
   , StaticMembershipState(..)
   , currentStaticMembershipState
-    -- * Configuration validation (KIP-360)
+    -- * Configuration validation
   , validateConsumerConfig
     -- * Environment-variable overlay
     --
@@ -86,13 +93,15 @@ module Kafka.Client.Consumer
     -- that want to inspect or pre-apply the overlay manually.
   , applyKafkaEnvToConsumerConfig
   , consumerConfigFromEnv
-    -- * Cluster info (KIP-78)
+    -- * Cluster info
   , consumerClusterId
   ) where
 
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Exception
-import Control.Exception (try)
+import Control.Exception (SomeException, try)
+import qualified Data.List as List
+import qualified Data.Set as Set
 import qualified System.Timeout
 import Control.Concurrent.STM
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
@@ -100,7 +109,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable (Hashable)
 import Data.Int
-import Control.Monad (forM, forM_, when)
+import Control.Monad (forM, forM_, unless, when)
 import Data.List (foldl')
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
@@ -150,7 +159,7 @@ data AssignmentStrategy
   | StickyAssignment      -- ^ Sticky assignment (minimizes rebalance)
   deriving (Eq, Show, Generic)
 
--- | Isolation level for fetched records (KIP-98).
+-- | Isolation level for fetched records.
 data IsolationLevel
   = ReadUncommitted
     -- ^ Default. The fetcher returns every record, including
@@ -258,7 +267,7 @@ data ConsumerConfig = ConsumerConfig
     --   a generation-bump rebalance.
   } deriving (Generic)
 
--- | KIP-345 static-membership state to persist across restarts.
+-- | Static-membership state to persist across restarts.
 -- Mirrors the JVM client's behaviour where a static member sends
 -- its previously-assigned 'memberId' on JoinGroup and the broker
 -- avoids triggering a rebalance.
@@ -453,6 +462,24 @@ data Consumer = Consumer
     --   Single-writer (the 'subscribe' / 'unsubscribe' caller) /
     --   multi-reader ('poll' rebalance check) pattern; 'IORef'
     --   suffices.
+  , consumerOnAssigned :: !(TVar ([TopicPartition] -> IO ()))
+  , consumerOnRevoked  :: !(TVar ([TopicPartition] -> IO ()))
+  , consumerOnLost     :: !(TVar ([TopicPartition] -> IO ()))
+    -- ^ Per-event callbacks fired on assigned / revoked / lost
+    --   transitions. Default is the no-op; replace via
+    --   'setRebalanceListener'.
+  , consumerLastAssignment :: !(TVar [TopicPartition])
+    -- ^ The assignment as of the last fired callback. Used to
+    --   compute revoked / assigned deltas on the next rebalance.
+  , consumerSubscriptionUserData :: !(TVar (IO ByteString))
+    -- ^ Hook for cross-instance IQ: when 'subscribe' issues a
+    --   JoinGroup, the consumer calls this 'IO ByteString' and
+    --   stamps the result into the subscription-userdata blob.
+    --   Default: @pure BS.empty@ (no userdata). Replace via
+    --   'setSubscriptionUserDataHook'. Used by the streams
+    --   runtime to advertise the local instance's
+    --   host:port + owned stores so peers can route cross-
+    --   instance IQ queries here.
   }
 
 -- | Effective 'Conn.ConnectionConfig' for this consumer: takes the
@@ -490,7 +517,7 @@ consumerConnect c@Consumer{..} addr = do
 --
 -- Initializes the consumer with connection management, metadata caching,
 -- and optionally joins a consumer group for automatic partition assignment.
--- | Pure config-validation rules (KIP-360). Mirrors the JVM client's
+-- | Pure config-validation rules. Mirrors the JVM client's
 -- @org.apache.kafka.clients.consumer.ConsumerConfig@ checks: every
 -- rule we apply here is something the broker (or, worse, a runtime
 -- assertion deep in the fetch loop) would otherwise blow up on with
@@ -656,6 +683,12 @@ createConsumer' brokers groupId config = do
 
                   return $ Just (hbState, hbThread)
               
+              onA <- newTVarIO (\_ -> pure () :: IO ())
+              onR <- newTVarIO (\_ -> pure () :: IO ())
+              onL <- newTVarIO (\_ -> pure () :: IO ())
+              lastAsgn <- newTVarIO []
+              subUD    <- newTVarIO (pure BS.empty :: IO ByteString)
+
               let consumer = Consumer
                     { consumerConfig = config { consumerGroupId = groupId }
                     , consumerConnManager = connManager
@@ -666,6 +699,11 @@ createConsumer' brokers groupId config = do
                     , consumerCorrelationId = corrId
                     , consumerPaused = paused
                     , consumerSubscription = subscription
+                    , consumerOnAssigned = onA
+                    , consumerOnRevoked  = onR
+                    , consumerOnLost     = onL
+                    , consumerLastAssignment = lastAsgn
+                    , consumerSubscriptionUserData = subUD
                     }
 
               return $ Right consumer
@@ -814,7 +852,7 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
 closeConsumer :: Consumer -> IO ()
 closeConsumer consumer = closeConsumerWithTimeout consumer 30000
 
--- | Close the consumer with a specified timeout (KIP-102).
+-- | Close the consumer with a specified timeout.
 --
 -- Attempts to cleanly leave the consumer group and commit any pending offsets
 -- before closing, waiting up to the specified timeout in milliseconds.
@@ -822,7 +860,65 @@ closeConsumer consumer = closeConsumerWithTimeout consumer 30000
 --
 -- @since KIP-102
 closeConsumerWithTimeout :: Consumer -> Int -> IO ()
-closeConsumerWithTimeout c@Consumer{..} timeoutMs = do
+closeConsumerWithTimeout = closeConsumerImpl True
+
+-- | @CloseOptions.leaveGroup = false@: close the
+-- consumer /without/ sending a @LeaveGroup@ request. The
+-- broker keeps this member's assignment alive until the
+-- @session.timeout.ms@ expires, then rebalances. Use this
+-- when you're doing a fast restart of the same member id
+-- (e.g. rolling deploy with static membership) and want to
+-- avoid the rebalance churn.
+closeConsumerWithoutLeavingGroup :: Consumer -> Int -> IO ()
+closeConsumerWithoutLeavingGroup = closeConsumerImpl False
+
+-- | Programmatic rejoin trigger. Flips
+-- 'HB.hbNeedsRebalance' so the next 'poll' transparently
+-- re-runs JoinGroup \/ SyncGroup against the same
+-- subscription — equivalent to what happens when the broker
+-- replies @REBALANCE_IN_PROGRESS@ to a heartbeat.
+--
+-- Used by the streams runtime when its probing-rebalance
+-- machinery decides a warmup replica is ready to be
+-- promoted. Returns @False@ if the consumer has no
+-- heartbeat thread (manual-offset / unsubscribed mode); the
+-- caller can treat that as a no-op.
+requestRejoin :: Consumer -> IO Bool
+requestRejoin Consumer{..} = case consumerHeartbeat of
+  Nothing -> pure False
+  Just (hbState, _) -> do
+    atomically (writeTVar (HB.hbNeedsRebalance hbState) True)
+    pure True
+
+-- | Install a callback the consumer invokes whenever
+-- it issues a JoinGroup; the returned bytes become the
+-- subscription-userdata blob. Used by the streams runtime to
+-- advertise the local instance's @application.server@ +
+-- materialised store names + owned partitions so peers can
+-- compute 'KeyQueryMetadata' for cross-instance IQ routing.
+--
+-- The callback runs on every subscribe / re-join, so the
+-- bytes reflect the /current/ state of the instance — not a
+-- snapshot taken at consumer-creation time.
+setSubscriptionUserDataHook
+  :: Consumer -> IO ByteString -> IO ()
+setSubscriptionUserDataHook Consumer{..} f =
+  atomically (writeTVar consumerSubscriptionUserData f)
+
+-- | Shared implementation. @doLeaveGroup = False@ skips the
+-- @LeaveGroup@ RPC but still:
+--
+--   * fires onRevoked callbacks so applications can flush
+--     in-flight work / commit final offsets;
+--   * persists static-membership state via the user callback
+--     (so a restart can re-claim the same generation);
+--   * tears down the heartbeat thread + connections.
+closeConsumerImpl :: Bool -> Consumer -> Int -> IO ()
+closeConsumerImpl doLeaveGroup c@Consumer{..} timeoutMs = do
+  -- Fire onRevoked for any partitions we still own — graceful
+  -- close path so listeners can flush in-flight work and
+  -- commit final offsets.
+  dispatchAssignmentDelta c [] False
   case consumerHeartbeat of
     Nothing -> return ()
     Just (hbState, hbThread) -> do
@@ -846,9 +942,15 @@ closeConsumerWithTimeout c@Consumer{..} timeoutMs = do
       -- 'timeoutMs' so a misbehaving coordinator can't block
       -- shutdown indefinitely. Failures here are silent — the
       -- session-timeout fallback is still correct, just slower.
-      _ <- System.Timeout.timeout
-             (max 0 timeoutMs * 1000)
-             (sendLeaveGroup c hbState)
+      --
+      -- Skipped when the caller passed @doLeaveGroup = False@
+      -- (KIP-812 CloseOptions.leaveGroup = false), in which
+      -- case the session-timeout path handles reassignment.
+      when doLeaveGroup $ do
+        _ <- System.Timeout.timeout
+               (max 0 timeoutMs * 1000)
+               (sendLeaveGroup c hbState)
+        pure ()
       HB.stopHeartbeatThread hbState hbThread
   -- Close all connections.
   Conn.closeAllConnections consumerConnManager
@@ -867,7 +969,7 @@ currentStaticMembershipState Consumer{..} = case consumerHeartbeat of
     gen <- readIORef (HB.hbGenerationId hbState)
     pure (Just (StaticMembershipState mid gen))
 
--- | KIP-78: read the broker-supplied cluster id off the
+-- | Read the broker-supplied cluster id off the
 -- consumer's metadata cache. Returns 'Nothing' until the first
 -- successful metadata refresh; afterwards reflects whatever the
 -- broker set in its @MetadataResponse@.
@@ -946,6 +1048,7 @@ subscribe Consumer{..} topics = do
             StickyAssignment     -> Sub.AssignorSticky
           sessionTimeout   = fromIntegral (consumerSessionTimeoutMs   consumerConfig)
           rebalanceTimeout = fromIntegral (consumerMaxPollIntervalMs  consumerConfig)
+      fetchUD <- readTVarIO consumerSubscriptionUserData
       result <- Sub.subscribeFlow
                   consumerConnManager
                   (consumerConnConfig Consumer{..})
@@ -960,9 +1063,26 @@ subscribe Consumer{..} topics = do
                   resetPolicy
                   assignor
                   consumerCorrelationId
+                  fetchUD
       case result of
         Left err -> return $ Left ("subscribe: " ++ show err)
         Right tps -> do
+          let !newAssignment =
+                [ TopicPartition (Sub.tpTopic stp) (Sub.tpPartition stp)
+                | (stp, _) <- tps
+                ]
+              !newAssignmentSorted =
+                List.sortOn (\tp -> (tpTopic tp, tpPartition tp))
+                            newAssignment
+          -- Decide assigned-vs-revoked-vs-lost BEFORE we replace
+          -- the assignment: 'hbLost' tells us if the previous
+          -- assignment was fenced by the broker, in which case
+          -- the removed half routes to 'rlOnLost' rather than
+          -- 'rlOnRevoked'.
+          asLost <- atomically $ do
+            lost <- readTVar (HB.hbLost hbState)
+            writeTVar (HB.hbLost hbState) False
+            pure lost
           -- Replace the assignment with the new one, seed offsets,
           -- remember the subscription so 'poll' can transparently
           -- re-run the JoinGroup flow on rebalance.
@@ -985,13 +1105,117 @@ subscribe Consumer{..} topics = do
           -- check below reads it via 'readIORef' independently
           -- of the assignment-table swap above.
           writeIORef consumerSubscription (Just topics)
+          -- Fire the user listener with the new assignment.
+          dispatchAssignmentDelta Consumer{..} newAssignmentSorted asLost
           return $ Right ()
+
+-- | Install user callbacks fired on assigned / revoked / lost
+-- transitions. Mirrors Java's @ConsumerRebalanceListener@. The
+-- listener record comes from
+-- "Kafka.Client.RebalanceListener" — we accept three
+-- callbacks directly to avoid a module-import cycle between
+-- "Kafka.Client.Consumer" and "Kafka.Client.RebalanceListener"
+-- (the latter already imports 'TopicPartition' from here).
+--
+-- Callback semantics:
+--
+--   * @onAssigned@ fires for every partition newly added to
+--     this consumer's assignment.
+--   * @onRevoked@ fires for partitions removed via a normal
+--     (cooperative) rebalance — i.e. the broker accepted the
+--     handoff and we should flush in-flight work, commit
+--     offsets, etc.
+--   * @onLost@ fires when the broker fenced us
+--     (@UNKNOWN_MEMBER_ID@ / @FENCED_INSTANCE_ID@): any
+--     in-flight state is junk because we may not commit
+--     offsets to the broker any more.
+setRebalanceListener
+  :: Consumer
+  -> ([TopicPartition] -> IO ())     -- ^ onAssigned
+  -> ([TopicPartition] -> IO ())     -- ^ onRevoked
+  -> ([TopicPartition] -> IO ())     -- ^ onLost
+  -> IO ()
+setRebalanceListener Consumer{..} onA onR onL = atomically $ do
+  writeTVar consumerOnAssigned onA
+  writeTVar consumerOnRevoked  onR
+  writeTVar consumerOnLost     onL
+
+-- | Current partition assignment, in deterministic order
+-- (sorted by topic then partition).
+currentAssignment :: Consumer -> IO [TopicPartition]
+currentAssignment Consumer{..} = do
+  m <- readIORef consumerAssignment
+  pure $ List.sortOn (\tp -> (tpTopic tp, tpPartition tp))
+                     (HashMap.keys m)
+
+-- | Pure delta computation between two partition assignments.
+-- Returns @(revoked, added)@: revoked partitions are present
+-- in @prev@ but absent from @now@; added partitions are in
+-- @now@ but were not in @prev@. Both result lists are in
+-- ascending @(topic, partition)@ order so consumers can rely
+-- on deterministic ordering for log lines / metric labels.
+computeAssignmentDelta
+  :: [TopicPartition]        -- ^ previous assignment
+  -> [TopicPartition]        -- ^ new assignment
+  -> ([TopicPartition], [TopicPartition])
+computeAssignmentDelta prev now =
+  let !prevSet = Set.fromList prev
+      !nowSet  = Set.fromList now
+      !revoked = Set.toAscList (prevSet `Set.difference` nowSet)
+      !added   = Set.toAscList (nowSet  `Set.difference` prevSet)
+   in (revoked, added)
+
+-- | Compute the assigned / revoked deltas between @prev@ and
+-- @now@ and fire the appropriate user callbacks. Records the
+-- new assignment as 'consumerLastAssignment' for the next
+-- diff.
+--
+-- @asLost@ routes the "removed" side through 'consumerOnLost'
+-- instead of 'consumerOnRevoked'. The runtime determines that
+-- via the heartbeat's 'hbLost' flag, which is set by
+-- 'Kafka.Client.Internal.Heartbeat.applyHeartbeatOutcome' on
+-- @UNKNOWN_MEMBER_ID@ / @FENCED_INSTANCE_ID@.
+dispatchAssignmentDelta
+  :: Consumer
+  -> [TopicPartition]                 -- ^ new assignment
+  -> Bool                             -- ^ asLost
+  -> IO ()
+dispatchAssignmentDelta c@Consumer{..} now asLost = do
+  prev <- atomically (readTVar consumerLastAssignment)
+  let !(revoked, added) = computeAssignmentDelta prev now
+  -- Persist before firing callbacks so that a callback that
+  -- queries 'currentAssignment' sees the post-transition state.
+  atomically $ writeTVar consumerLastAssignment now
+  unless (null revoked) $ do
+    if asLost
+      then do
+        onL <- atomically (readTVar consumerOnLost)
+        catchIgnore (onL revoked)
+      else do
+        onR <- atomically (readTVar consumerOnRevoked)
+        catchIgnore (onR revoked)
+  unless (null added) $ do
+    onA <- atomically (readTVar consumerOnAssigned)
+    catchIgnore (onA added)
+  where
+    -- 'c' is only here to defeat the otherwise-unused warning
+    -- for the record-wildcard binding above; the actual access
+    -- happens through the TVars.
+    _ = c
+    catchIgnore m = do
+      r <- try m :: IO (Either SomeException ())
+      case r of
+        Right () -> pure ()
+        Left _   -> pure ()
 
 -- | Unsubscribe from all topics.
 --
--- Clears the subscription and partition assignment.
+-- Clears the subscription and partition assignment. Fires the
+-- rebalance listener's @onRevoked@ callback for every
+-- currently-assigned partition before clearing the assignment.
 unsubscribe :: Consumer -> IO ()
-unsubscribe Consumer{..} =
+unsubscribe c@Consumer{..} = do
+  dispatchAssignmentDelta c [] False
   atomicModifyIORef' consumerAssignment $ \_ -> (HashMap.empty, ())
 
 -- | Manually assign partitions (disables group management).
@@ -1228,7 +1452,7 @@ committed consumer tp = do
                                 ++ ":" ++ show (tpPartition tp)))
       Just off -> pure (Right off)
 
--- | KIP-211: Fetch committed offsets for many partitions in one
+-- | Fetch committed offsets for many partitions in one
 -- broker round-trip. The Java client's
 -- @KafkaConsumer.committed(Set\<TopicPartition\>)@ analogue.
 --
@@ -1246,7 +1470,7 @@ committedAll consumer@Consumer{..} tps =
     (consumerGroupId consumerConfig)
     tps
 
--- | KIP-41: current consumer position (the offset of the next
+-- | Current consumer position (the offset of the next
 -- record that will be returned by 'poll'). Read from the local
 -- assignment map, /not/ the broker; this is what the JVM client's
 -- @position(tp)@ returns.
@@ -1259,7 +1483,7 @@ position Consumer{..} tp = do
                               ++ ":" ++ show (tpPartition tp)))
     Just off -> pure (Right off)
 
--- | KIP-79: query the earliest offset available for each
+-- | Query the earliest offset available for each
 -- partition. Mirrors @KafkaConsumer.beginningOffsets(partitions)@.
 beginningOffsets
   :: Consumer
@@ -1269,7 +1493,7 @@ beginningOffsets consumer tps = do
   r <- queryPartitionOffsets consumer tps (-2)  -- earliest
   pure (fmap HashMap.fromList r)
 
--- | KIP-79: query the high-water-mark offset (i.e. one past the
+-- | Query the high-water-mark offset (i.e. one past the
 -- last produced record) for each partition. Mirrors
 -- @KafkaConsumer.endOffsets(partitions)@.
 endOffsets
@@ -1280,7 +1504,7 @@ endOffsets consumer tps = do
   r <- queryPartitionOffsets consumer tps (-1)  -- latest
   pure (fmap HashMap.fromList r)
 
--- | KIP-79: for each partition, return the earliest offset whose
+-- | For each partition, return the earliest offset whose
 -- timestamp is greater than or equal to the supplied timestamp.
 -- Partitions whose timestamp is past the broker's high water mark
 -- are returned with an offset of @-1@.

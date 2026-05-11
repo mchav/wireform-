@@ -49,7 +49,21 @@ import qualified Streams.TopologyOptimizationSpec
 import qualified Streams.SchemaRegistrySerdeSpec
 import qualified Streams.TransactionalStoreSpec
 import qualified Streams.StreamsConfigSurfaceSpec
-import qualified Streams.ForeignKeyJoinV2Spec
+import qualified Streams.ForeignKeyJoinDSLSpec
+import qualified Streams.RuntimeDriverSpec
+import qualified Streams.ExceptionHandlerSpec
+import qualified Streams.KGroupedTableSpec
+import qualified Streams.StoresExtraSpec
+import qualified Streams.QueryAndDiscoverySpec
+import qualified Streams.ProcessorAndStoreExtrasSpec
+import qualified Streams.DynamicThreadsSpec
+import qualified Streams.BoundedSuppressSpec
+import qualified Streams.RackAwareAssignorSpec
+import qualified Streams.ProbingRebalanceRuntimeSpec
+import qualified Streams.StandbyTaskSpec
+import qualified Streams.StandbyDriverSpec
+import qualified Streams.RemoteIQSpec
+import qualified Streams.IdiomaticDSLSpec
 import qualified Streams.MultiInstanceHarnessSpec
 import qualified Streams.SchemaRegistryHttpSpec
 import qualified Streams.SchemaRegistryFormatsSpec
@@ -103,7 +117,21 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.SchemaRegistrySerdeSpec.tests
   , Streams.TransactionalStoreSpec.tests
   , Streams.StreamsConfigSurfaceSpec.tests
-  , Streams.ForeignKeyJoinV2Spec.tests
+  , Streams.ForeignKeyJoinDSLSpec.tests
+  , Streams.RuntimeDriverSpec.tests
+  , Streams.ExceptionHandlerSpec.tests
+  , Streams.KGroupedTableSpec.tests
+  , Streams.StoresExtraSpec.tests
+  , Streams.QueryAndDiscoverySpec.tests
+  , Streams.ProcessorAndStoreExtrasSpec.tests
+  , Streams.DynamicThreadsSpec.tests
+  , Streams.BoundedSuppressSpec.tests
+  , Streams.RackAwareAssignorSpec.tests
+  , Streams.ProbingRebalanceRuntimeSpec.tests
+  , Streams.StandbyTaskSpec.tests
+  , Streams.StandbyDriverSpec.tests
+  , Streams.RemoteIQSpec.tests
+  , Streams.IdiomaticDSLSpec.tests
   , Streams.MultiInstanceHarnessSpec.tests
   , Streams.SchemaRegistryHttpSpec.tests
   , Streams.SchemaRegistryFormatsSpec.tests

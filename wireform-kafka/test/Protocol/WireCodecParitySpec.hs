@@ -7,7 +7,7 @@
 module Protocol.WireCodecParitySpec (tests) where
 
 import qualified Data.ByteString as BS
-import Data.Int (Int16, Int32)
+import Data.Int (Int16)
 import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
@@ -163,8 +163,3 @@ unit_metadataRequest_v9RoundTrip = do
     Left err -> error ("decodeMetadataRequest failed: " <> err)
     Right rt -> rt @?= msg
 
--- 'Int32' kept imported so the type annotations above stay tidy
--- without dragging in the full @Data.Int@ when cabal's import-pruner
--- gets aggressive about unused imports.
-_keepInt32 :: Int32
-_keepInt32 = 0

@@ -26,18 +26,6 @@ tests = testGroup "Metadata: KIP-466 leader cache patch"
       noopForUnknownPartition
   ]
 
-mkCacheWith :: Meta.ClusterMetadata -> IO Meta.MetadataCache
-mkCacheWith cm = do
-  cache <- Meta.createMetadataCache
-  -- The MetadataCache constructor isn't exported; populate via a
-  -- write through the internal TVar ... we don't expose that
-  -- directly. Instead use the public refresh path: we won't
-  -- exercise that here. Tests that need a populated cache write
-  -- via 'updatePartitionLeader' on a topic that's been seeded
-  -- through 'refreshMetadata' in real code; for the unit-level
-  -- assertions we stub by patching directly.
-  pure cache
-
 baseMetadata :: Meta.ClusterMetadata
 baseMetadata = Meta.ClusterMetadata
   { Meta.clusterBrokers = IntMap.fromList
@@ -103,6 +91,3 @@ noopForUnknownPartition = do
   m <- atomically (Meta.getPartitionLeader cache "t" 99)
   m @?= Nothing
 
--- Suppress unused warning for the helper.
-_keep :: IO ()
-_keep = mkCacheWith baseMetadata >>= \_ -> pure ()

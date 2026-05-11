@@ -9,7 +9,7 @@ import qualified Kafka.Client.ShareConsumer as SC
 import qualified Kafka.Client.ShareGroupExtras as SGE
 
 tests :: TestTree
-tests = testGroup "ShareGroupExtras (KIP-1119 / 1129)"
+tests = testGroup "ShareGroupExtras"
   [ testCase "pause + resume round-trip"
       pause_resume
   , testCase "decideDlq: under threshold -> Retry"
@@ -21,13 +21,13 @@ tests = testGroup "ShareGroupExtras (KIP-1119 / 1129)"
 pause_resume :: IO ()
 pause_resume = do
   ps <- SGE.newPauseSet
-  SGE.pausePartitionsSG ps [("t", 0), ("t", 1)]
-  paused <- SGE.isPausedSG ps "t" 0
+  SGE.pausePartitions ps [("t", 0), ("t", 1)]
+  paused <- SGE.isPaused ps "t" 0
   paused @?= True
-  SGE.resumePartitionsSG ps [("t", 0)]
-  notP <- SGE.isPausedSG ps "t" 0
+  SGE.resumePartitions ps [("t", 0)]
+  notP <- SGE.isPaused ps "t" 0
   notP @?= False
-  stillP <- SGE.isPausedSG ps "t" 1
+  stillP <- SGE.isPaused ps "t" 1
   stillP @?= True
 
 mkRec :: Int -> SC.ShareRecord

@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -85,10 +86,10 @@ consumed_with_offset_reset_policy =
 buffer_config_helpers :: TestTree
 buffer_config_helpers =
   testCase "BufferConfig helpers set the right limit" $ do
-    bufMaxBytes unboundedBufferConfig    @?= Nothing
-    bufMaxRecords unboundedBufferConfig  @?= Nothing
-    bufMaxBytes (maxBytesBufferConfig 1024) @?= Just 1024
-    bufMaxRecords (maxRecordsBufferConfig 100) @?= Just 100
+    unboundedBufferConfig.maxBytes    @?= Nothing
+    unboundedBufferConfig.maxRecords  @?= Nothing
+    (maxBytesBufferConfig 1024).maxBytes @?= Just 1024
+    (maxRecordsBufferConfig 100).maxRecords @?= Just 100
 
 partitioner_default_returns_nothing :: TestTree
 partitioner_default_returns_nothing =
