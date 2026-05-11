@@ -1,8 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -500,12 +502,12 @@ handleDeserError engine si keyR valR = do
         (_, Left e) -> "value: " <> T.pack e
         _           -> "unknown"
       ex = DeserializationException
-        { deserTopic     = unTopicName (siTopic si)
-        , deserPartition = fromIntegral (siPartition si)
-        , deserOffset    = fromIntegral (siOffset si)
-        , deserKey       = siKey si
-        , deserValue     = siValue si
-        , deserReason    = reason
+        { topic     = unTopicName (siTopic si)
+        , partition = fromIntegral (siPartition si)
+        , offset    = fromIntegral (siOffset si)
+        , key       = siKey si
+        , value     = siValue si
+        , reason    = reason
         }
   resp <- runDeserializationHandler (engineDeserHandler engine) ex
   case resp of

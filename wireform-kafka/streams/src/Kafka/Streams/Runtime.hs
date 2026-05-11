@@ -1,5 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -460,8 +462,8 @@ handleProdFail :: KafkaStreams -> Text -> String -> IO ()
 handleProdFail ks topic err = do
   h <- readIORef (ksProdHand ks)
   resp <- runProductionHandler h ProductionException
-            { prodTopic  = topic
-            , prodReason = Text.pack err
+            { topic  = topic
+            , reason = Text.pack err
             }
   case resp of
     ProdContinueProcessing -> pure ()
@@ -494,11 +496,11 @@ feedWithHandler ks node rec body = do
     Left  e  -> do
       h <- readIORef (ksProcHand ks)
       resp <- runProcessingExceptionHandler h ProcessingException
-                { processingTopic     = KC.crTopic rec
-                , processingPartition = KC.crPartition rec
-                , processingOffset    = fromIntegral (KC.crOffset rec)
-                , processingNode      = node
-                , processingReason    = Text.pack (show e)
+                { topic     = KC.crTopic rec
+                , partition = KC.crPartition rec
+                , offset    = fromIntegral (KC.crOffset rec)
+                , node      = node
+                , reason    = Text.pack (show e)
                 }
       case resp of
         ProcessingContinue -> pure ()

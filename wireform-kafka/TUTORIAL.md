@@ -185,10 +185,10 @@ import qualified Kafka.Streams.Processor as P
 
 vatProc :: P.FixedKeyProcessor Text Int Int
 vatProc = P.FixedKeyProcessor
-  { P.fkpName    = P.processorName "vat-transform"
-  , P.fkpInit    = \_ -> pure ()
-  , P.fkpProcess = \r -> pure (Just (P.recordValue r * 120 `div` 100))
-  , P.fkpClose   = pure ()
+  { P.name    = P.processorName "vat-transform"
+  , P.init    = \_ -> pure ()
+  , P.process = \r -> pure (Just (P.recordValue r * 120 `div` 100))
+  , P.close   = pure ()
   }
 ```
 
@@ -201,8 +201,8 @@ automatically:
 
 ```haskell
 P.ProcessorSupplier
-  { P.psSupply = P.liftFixedKeyProcessor vatProc
-  , P.psStores = [storeName "vat-cache"]
+  { P.supply = P.liftFixedKeyProcessor vatProc
+  , P.stores = [storeName "vat-cache"]
   }
 ```
 

@@ -1,6 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -47,7 +50,6 @@ module Kafka.Streams.Runtime.StandbyTask
   , addStandbyTask
   , removeStandbyTask
   , listStandbyTasks
-  , unStandbyManager
     -- * Replay
   , ChangelogRecord (..)
   , standbyReplay
@@ -75,17 +77,17 @@ import Kafka.Streams.State.Store
 -- pull from the changelog topic and apply each record to the
 -- local store.
 data StandbyTask = StandbyTask
-  { stTaskId         :: !TaskId
-  , stChangelogTopic :: !Text
-  , stPartition      :: !Int32
-  , stStoreName      :: !StoreName
-  , stReplayOffset   :: !(TVar Int64)
+  { taskId         :: !TaskId
+  , changelogTopic :: !Text
+  , partition      :: !Int32
+  , storeName      :: !StoreName
+  , replayOffset   :: !(TVar Int64)
     -- ^ Next changelog offset to read.
-  , stEndOffset      :: !(TVar Int64)
+  , endOffset      :: !(TVar Int64)
     -- ^ Last-seen high-water mark for the changelog
     --   partition. Updated by the changelog consumer (mock
-    --   harness or native driver). 'stEndOffset -
-    --   stReplayOffset' is the current lag.
+    --   harness or native driver). @endOffset - replayOffset@
+    --   is the current lag.
   }
 
 -- | Allocate a fresh 'StandbyTask' with replay offset 0 and
@@ -96,12 +98,12 @@ newStandbyTask tid topic part sn = do
   replay <- newTVarIO 0
   endOff <- newTVarIO 0
   pure StandbyTask
-    { stTaskId         = tid
-    , stChangelogTopic = topic
-    , stPartition      = part
-    , stStoreName      = sn
-    , stReplayOffset   = replay
-    , stEndOffset      = endOff
+    { taskId         = tid
+    , changelogTopic = topic
+    , partition      = part
+    , storeName      = sn
+    , replayOffset   = replay
+    , endOffset      = endOff
     }
 
 ----------------------------------------------------------------------
@@ -114,8 +116,7 @@ newStandbyTask tid topic part sn = do
 -- @TaskId@ doesn't distinguish them either; we encode the
 -- (topic, partition) explicitly).
 newtype StandbyManager = StandbyManager
-  { unStandbyManager
-      :: TVar (Map (TaskId, Text, Int32) StandbyTask)
+  { tasks :: TVar (Map (TaskId, Text, Int32) StandbyTask)
   }
 
 newStandbyManager :: IO StandbyManager
@@ -124,7 +125,7 @@ newStandbyManager = StandbyManager <$> newTVarIO Map.empty
 addStandbyTask :: StandbyManager -> StandbyTask -> IO ()
 addStandbyTask (StandbyManager tv) st =
   atomically $ modifyTVar' tv $
-    Map.insert (stTaskId st, stChangelogTopic st, stPartition st) st
+    Map.insert (st.taskId, st.changelogTopic, st.partition) st
 
 removeStandbyTask
   :: StandbyManager -> TaskId -> Text -> Int32 -> IO ()
@@ -143,13 +144,13 @@ listStandbyTasks (StandbyManager tv) =
 -- standby's local store via 'kvsPut' (delete is encoded as
 -- 'Nothing' value, matching Kafka's tombstone convention).
 data ChangelogRecord = ChangelogRecord
-  { clrOffset :: !Int64
-  , clrKey    :: !ByteString
-  , clrValue  :: !(Maybe ByteString)
-  , clrEnd    :: !Int64
+  { offset :: !Int64
+  , key    :: !ByteString
+  , value  :: !(Maybe ByteString)
+  , end    :: !Int64
     -- ^ End-of-log marker the consumer saw at fetch time;
-    --   used to refresh 'stEndOffset' so 'reportWarmupLag'
-    --   reflects the real lag.
+    --   used to refresh the standby's end-offset so
+    --   'reportWarmupLag' reflects the real lag.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -174,21 +175,21 @@ standbyReplay st kvs batch = do
   case batch of
     []   -> currentLag
     rs   -> do
-      let !lastOff = clrOffset (last rs)
-          !lastEnd = clrEnd    (last rs)
+      let !lastOff = (last rs).offset
+          !lastEnd = (last rs).end
       atomically $ do
-        writeTVar (stReplayOffset st) (lastOff + 1)
-        writeTVar (stEndOffset    st) (max lastEnd (lastOff + 1))
+        writeTVar st.replayOffset (lastOff + 1)
+        writeTVar st.endOffset    (max lastEnd (lastOff + 1))
       currentLag
   where
-    apply r = case clrValue r of
-      Just v  -> kvsPut    kvs (clrKey r) (Just v)
+    apply r = case r.value of
+      Just v  -> kvsPut kvs r.key (Just v)
       Nothing ->
         -- Tombstone: kvsPut with Nothing keeps the JVM
         -- changelog convention (the user-side serde wraps
         -- the actual delete).
-        kvsPut kvs (clrKey r) Nothing
+        kvsPut kvs r.key Nothing
     currentLag = do
-      next <- readTVarIO (stReplayOffset st)
-      end  <- readTVarIO (stEndOffset    st)
-      pure (max 0 (end - next))
+      next <- readTVarIO st.replayOffset
+      e    <- readTVarIO st.endOffset
+      pure (max 0 (e - next))

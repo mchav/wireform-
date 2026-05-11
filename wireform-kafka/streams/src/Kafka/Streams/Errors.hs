@@ -1,5 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 -- |
 -- Module      : Kafka.Streams.Errors
@@ -84,20 +86,20 @@ newtype InvalidStateStoreException = InvalidStateStoreException Text
 
 -- | Source-level deserialisation failed.
 data DeserializationException = DeserializationException
-  { deserTopic     :: !Text
-  , deserPartition :: !Int32
-  , deserOffset    :: !Int
-  , deserKey       :: !(Maybe ByteString)
-  , deserValue     :: !ByteString
-  , deserReason    :: !Text
+  { topic     :: !Text
+  , partition :: !Int32
+  , offset    :: !Int
+  , key       :: !(Maybe ByteString)
+  , value     :: !ByteString
+  , reason    :: !Text
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Exception)
 
 -- | Sink-level production failed.
 data ProductionException = ProductionException
-  { prodTopic  :: !Text
-  , prodReason :: !Text
+  { topic  :: !Text
+  , reason :: !Text
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Exception)
@@ -167,12 +169,12 @@ logAndFailProduction =
 -- production). Carries enough context for a handler to log /
 -- route to a DLQ / decide whether to fail the stream thread.
 data ProcessingException = ProcessingException
-  { processingTopic     :: !Text
-  , processingPartition :: !Int32
-  , processingOffset    :: !Int
-  , processingNode      :: !Text
+  { topic     :: !Text
+  , partition :: !Int32
+  , offset    :: !Int
+  , node      :: !Text
     -- ^ Topology node-name where the exception was raised.
-  , processingReason    :: !Text
+  , reason    :: !Text
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Exception)

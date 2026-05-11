@@ -1,7 +1,9 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RankNTypes #-}
 
 -- |
@@ -294,13 +296,13 @@ fixedKeyOf = id
 
 -- | A fixed-key processor: like 'Processor' but the input and
 -- output values share a key — the type makes that explicit.
--- @procFixedProcess@ only forwards 'FixedKeyRecord' values
+-- The process function only forwards 'FixedKeyRecord' values
 -- with the same key as the input.
 data FixedKeyProcessor k v v' = FixedKeyProcessor
-  { fkpName    :: !ProcessorName
-  , fkpInit    :: !(ProcessorContext -> IO ())
-  , fkpProcess :: !(FixedKeyRecord k v -> IO (Maybe v'))
-  , fkpClose   :: !(IO ())
+  { name    :: !ProcessorName
+  , init    :: !(ProcessorContext -> IO ())
+  , process :: !(FixedKeyRecord k v -> IO (Maybe v'))
+  , close   :: !(IO ())
   }
 
 -- | Convert a 'FixedKeyProcessor' into a regular 'Processor'
@@ -314,23 +316,23 @@ liftFixedKeyProcessor
 liftFixedKeyProcessor fkp = do
   ctxRef <- newIORef Nothing
   pure Processor
-    { procName    = fkpName fkp
+    { procName    = fkp.name
     , procInit    = \ctx -> do
         writeIORef ctxRef (Just ctx)
-        fkpInit fkp ctx
+        fkp.init ctx
     , procProcess = \r -> do
         mctx <- readIORef ctxRef
         case mctx of
           Nothing  -> pure ()
           Just ctx -> do
-            mOut <- fkpProcess fkp (fixedKeyOf r)
+            mOut <- fkp.process (fixedKeyOf r)
             case mOut of
               Nothing -> pure ()
               Just v' -> forwardRecord ctx
                 ((Record (recordKey r) v'
                     (recordTimestamp r) (recordHeaders r))
                   :: Record k v')
-    , procClose = fkpClose fkp
+    , procClose = fkp.close
     }
 
 ----------------------------------------------------------------------
@@ -342,8 +344,8 @@ liftFixedKeyProcessor fkp = do
 -- Java's @org.apache.kafka.streams.processor.api.ProcessorSupplier@
 -- (which extends @Supplier<Processor>@ + @ConnectedStoreProvider@).
 data ProcessorSupplier k v = ProcessorSupplier
-  { psSupply :: !(IO (Processor k v))
-  , psStores :: ![StoreName]
+  { supply :: !(IO (Processor k v))
+  , stores :: ![StoreName]
     -- ^ External state stores the processor declares it owns
     --   (or co-owns with a sibling). DSL helpers that accept
     --   a 'ProcessorSupplier' wire these into the topology
@@ -354,13 +356,13 @@ data ProcessorSupplier k v = ProcessorSupplier
 
 -- | Stateless supplier: lift an @IO Processor k v@.
 supplierOf :: IO (Processor k v) -> ProcessorSupplier k v
-supplierOf m = ProcessorSupplier { psSupply = m, psStores = [] }
+supplierOf m = ProcessorSupplier { supply = m, stores = [] }
 
 -- | Stateful supplier: lift an @IO Processor@ together with the
 -- store names it depends on.
 supplierWithStores
   :: IO (Processor k v) -> [StoreName] -> ProcessorSupplier k v
 supplierWithStores m ss = ProcessorSupplier
-  { psSupply = m
-  , psStores = ss
+  { supply = m
+  , stores = ss
   }

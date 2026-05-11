@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -101,13 +103,13 @@ type StandbyStoreLookup =
   StoreName -> IO (Maybe (KeyValueStore ByteString (Maybe ByteString)))
 
 data StandbyDriver = StandbyDriver
-  { sdMgr      :: !StandbyManager
-  , sdPoll     :: !StandbyPollFn
-  , sdStoreOf  :: !StandbyStoreLookup
-  , sdReport   :: !(TaskId -> Int64 -> IO ())
-  , sdPollMs   :: !Int
-  , sdRunning  :: !(TVar Bool)
-  , sdThread   :: !(IORef (Maybe (Async ())))
+  { manager   :: !StandbyManager
+  , poll      :: !StandbyPollFn
+  , storeOf   :: !StandbyStoreLookup
+  , report    :: !(TaskId -> Int64 -> IO ())
+  , pollMs    :: !Int
+  , running   :: !(TVar Bool)
+  , thread    :: !(IORef (Maybe (Async ())))
   }
 
 ----------------------------------------------------------------------
@@ -121,17 +123,17 @@ newStandbyDriver
   -> (TaskId -> Int64 -> IO ())   -- ^ warmup-lag reporter
   -> Int                          -- ^ poll timeout (ms)
   -> IO StandbyDriver
-newStandbyDriver mgr pollFn lookupFn reportFn pollMs = do
+newStandbyDriver mgr pollFn lookupFn reportFn pollMsArg = do
   run    <- newTVarIO True
-  thread <- newIORef Nothing
+  thrd   <- newIORef Nothing
   pure StandbyDriver
-    { sdMgr     = mgr
-    , sdPoll    = pollFn
-    , sdStoreOf = lookupFn
-    , sdReport  = reportFn
-    , sdPollMs  = pollMs
-    , sdRunning = run
-    , sdThread  = thread
+    { manager  = mgr
+    , poll     = pollFn
+    , storeOf  = lookupFn
+    , report   = reportFn
+    , pollMs   = pollMsArg
+    , running  = run
+    , thread   = thrd
     }
 
 ----------------------------------------------------------------------
@@ -140,29 +142,29 @@ newStandbyDriver mgr pollFn lookupFn reportFn pollMs = do
 
 startStandbyDriver :: StandbyDriver -> IO ()
 startStandbyDriver drv = do
-  existing <- readIORef (sdThread drv)
+  existing <- readIORef drv.thread
   case existing of
     Just _ -> pure ()
     Nothing -> do
       th <- async (driverLoop drv)
-      writeIORef (sdThread drv) (Just th)
+      writeIORef drv.thread (Just th)
 
 stopStandbyDriver :: StandbyDriver -> IO ()
 stopStandbyDriver drv = do
-  atomically (writeTVar (sdRunning drv) False)
-  m <- readIORef (sdThread drv)
+  atomically (writeTVar drv.running False)
+  m <- readIORef drv.thread
   case m of
     Nothing -> pure ()
     Just th -> do
       cancel th
       _ <- waitCatch th
-      writeIORef (sdThread drv) Nothing
+      writeIORef drv.thread Nothing
 
 driverLoop :: StandbyDriver -> IO ()
 driverLoop drv = loop
   where
     loop = do
-      keepGoing <- readTVarIO (sdRunning drv)
+      keepGoing <- readTVarIO drv.running
       if not keepGoing
         then pure ()
         else do
@@ -189,24 +191,24 @@ driverLoop drv = loop
 -- the loop without spawning the async.
 standbyDriverTick :: StandbyDriver -> IO ()
 standbyDriverTick drv = do
-  batches <- sdPoll drv (sdPollMs drv)
+  batches <- drv.poll drv.pollMs
   -- Index the active standbys by (topic, partition) so the
   -- dispatch is O(1) per batch.
-  tasks <- listStandbyTasks (sdMgr drv)
+  tasks <- listStandbyTasks drv.manager
   let taskIx :: Map (Text, Int32) StandbyTask
       taskIx = Map.fromList
-        [ ((stChangelogTopic t, stPartition t), t) | t <- tasks ]
+        [ ((t.changelogTopic, t.partition), t) | t <- tasks ]
   mapM_ (apply taskIx) batches
   where
     apply taskIx (key, records) = case Map.lookup key taskIx of
       Nothing -> pure ()          -- record for a partition we
                                    -- don't standby — drop.
       Just task -> do
-        mStore <- sdStoreOf drv (stStoreName task)
+        mStore <- drv.storeOf task.storeName
         case mStore of
           Nothing -> pure ()      -- store isn't materialised
                                    -- yet on this instance.
           Just kvs -> do
             lag <- standbyReplay task kvs records
-            sdReport drv (stTaskId task) lag
+            drv.report task.taskId lag
 
