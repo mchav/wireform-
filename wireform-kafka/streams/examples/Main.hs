@@ -33,6 +33,7 @@ import qualified Kafka.Streams.Examples.Branching         as Branching
 import qualified Kafka.Streams.Examples.Cogroup           as Cogroup
 import qualified Kafka.Streams.Examples.FraudDetection    as FraudDetection
 import qualified Kafka.Streams.Examples.GlobalTable       as GlobalTable
+import qualified Kafka.Streams.Examples.IdiomaticPipeline as IdiomaticPipeline
 import qualified Kafka.Streams.Examples.InteractiveQueries as InteractiveQueries
 import qualified Kafka.Streams.Examples.InventoryFKJoin   as InventoryFKJoin
 import qualified Kafka.Streams.Examples.LineSplit         as LineSplit
@@ -62,6 +63,7 @@ demos =
   , ("branching",   Branching.runDemo)
   , ("global",      GlobalTable.runDemo)
   , ("cogroup",     Cogroup.runDemo)
+  , ("idiomatic",   IdiomaticPipeline.runDemo)
   ]
 
 main :: IO ()

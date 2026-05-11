@@ -38,6 +38,7 @@ With no arguments the executable prints the index.
 | `processor`    | `Kafka.Streams.Examples.ProcessorAPI`           | low-level Processor API guide        | custom `Processor`, `ProcessorContext`, `Punctuator`  |
 | `side-effects` | `Kafka.Streams.Examples.SideEffects`            | Confluent "side effects" docs        | `peek` + `mapValuesM` + `foreach` + Punctuator        |
 | `branching`    | `Kafka.Streams.Examples.Branching`              | `split` demo                         | predicate-based stream branching                      |
+| `idiomatic`    | `Kafka.Streams.Examples.IdiomaticPipeline`      | n/a (Haskell-native shape)           | `TopologyM` `do`-block / `Pipeline` arrow / `OfStream` Functor — three façades over the same topology |
 | `global`       | `Kafka.Streams.Examples.GlobalTable`            | GlobalKTable docs                    | cluster-replicated lookup table join                  |
 | `cogroup`      | `Kafka.Streams.Examples.Cogroup`                | cogroup demo                         | cogroup of streams with distinct value types          |
 
