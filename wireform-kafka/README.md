@@ -225,9 +225,10 @@ several brokers fan in to the same sidecar socket. See
 
 ## Observability
 
-- OpenTelemetry spans + metrics via `Kafka.Telemetry.OpenTelemetry`.
-  Follows the messaging semantic conventions.
-- librdkafka-compatible JSON stats via `Kafka.Client.Stats`.
+- W3C Trace Context propagation across producer / consumer hops
+  via `Kafka.Telemetry.OpenTelemetry` (SDK-independent — bring your
+  own tracer for span creation).
+- librdkafka-compatible JSON stats via `Kafka.Telemetry.StatsJson`.
 - Producer / consumer interceptors for per-record telemetry.
 
 ## Testing

@@ -2,63 +2,66 @@
 
 {-|
 Module      : Kafka.Telemetry.OpenTelemetry
-Description : OpenTelemetry instrumentation for Kafka client
+Description : W3C trace context propagation across Kafka producer / consumer hops.
 Copyright   : (c) 2025
 License     : BSD-3-Clause
-Maintainer  : kafka-native
 
-This module provides OpenTelemetry instrumentation for the Kafka client,
-following the OpenTelemetry semantic conventions for messaging systems.
+W3C Trace Context (<https://www.w3.org/TR/trace-context/>) injection
+and extraction over Kafka record headers. This is the
+__SDK-independent half__ of OpenTelemetry: pass it a 'TC.SpanContext'
+you assembled yourself (or pulled out of your tracing SDK) and it
+will round-trip the trace through Kafka headers so consumers can
+continue the trace on the other side.
 
-= Instrumentation
+This module deliberately does /not/ depend on any OpenTelemetry SDK.
+Span / metric creation through @hs-opentelemetry-api@ (or equivalent)
+is the application's responsibility — pull a 'TC.SpanContext' off
+your tracer, hand it to 'injectIntoProducerHeaders' /
+'tracingProducerInterceptor', and you are done.
 
-The client automatically creates spans for:
+= Producer side
 
-* Producer operations (send, batch send)
-* Consumer operations (poll, commit)
-* Transactional operations (begin, commit, abort)
+@
+let injectHdrs = 'tracingProducerInterceptor' Tracer.currentSpanContext
+    onSend rec = do
+      hs' <- injectHdrs (recordHeaders rec)
+      pure rec { recordHeaders = hs' }
+    cfg = 'defaultProducerConfig' { 'producerInterceptor' = onSend }
+@
 
-= Semantic Conventions
+= Consumer side
 
-Following the OpenTelemetry semantic conventions for Kafka:
+@
+case 'extractFromConsumerHeaders' (crHeaders rec) of
+  Nothing             -> -- untraced message, start a new root span
+  Just (Left  err)    -> -- malformed traceparent header, log + skip
+  Just (Right parent) -> -- continue the trace under @parent@
+@
 
-__Span Attributes__:
+= Semantic conventions
 
-* @messaging.system@ = \"kafka\"
-* @messaging.destination.name@ = topic name
-* @messaging.operation@ = \"publish\" | \"receive\" | \"process\"
-* @messaging.kafka.partition@ = partition number
-* @messaging.kafka.offset@ = message offset
-* @messaging.kafka.consumer.group@ = consumer group ID
-* @messaging.message.id@ = correlation ID
+The following attributes are the right ones to set on whatever span
+you create around a Kafka operation, per the
+[messaging semantic conventions](https://opentelemetry.io/docs/specs/semconv/messaging/kafka/):
 
-__Metrics__:
+  * @messaging.system@ = \"kafka\"
+  * @messaging.destination.name@ = topic name
+  * @messaging.operation@ = \"publish\" | \"receive\" | \"process\"
+  * @messaging.kafka.partition@ = partition number
+  * @messaging.kafka.offset@ = message offset
+  * @messaging.kafka.consumer.group@ = consumer group id
+  * @messaging.message.id@ = correlation id
 
-* @messaging.kafka.producer.messages@ - Counter of produced messages
-* @messaging.kafka.consumer.messages@ - Counter of consumed messages
-* @messaging.kafka.request.duration@ - Histogram of request durations
-* @messaging.kafka.batch.size@ - Histogram of batch sizes
+Suggested metrics: @messaging.kafka.producer.messages@,
+@messaging.kafka.consumer.messages@, @messaging.kafka.request.duration@,
+@messaging.kafka.batch.size@.
 
-= Context Propagation
-
-The client supports automatic context propagation through Kafka headers,
-allowing distributed traces across producers and consumers.
-
-Reference: <https://opentelemetry.io/docs/specs/semconv/messaging/kafka/>
-
+We deliberately do not provide span / metric helpers here — every
+SDK shapes those differently and a stub would be misleading.
 -}
 module Kafka.Telemetry.OpenTelemetry
-  ( -- * Span Creation
-    createProducerSpan
-  , createConsumerSpan
-  , createTransactionSpan
-    -- * Metrics
-  , recordMessageSent
-  , recordMessageReceived
-  , recordRequestDuration
-  , recordBatchSize
-    -- * Context Propagation
-  , injectContextHeaders
+  ( -- * Context Propagation
+    injectContextHeaders
   , extractContextHeaders
   , injectSpanContextHeaders
   , extractSpanContextHeaders
@@ -72,19 +75,11 @@ module Kafka.Telemetry.OpenTelemetry
   ) where
 
 import           Data.ByteString    (ByteString)
-import qualified Data.ByteString    as BS
-import           Data.Int
 import           Data.Map.Strict    (Map)
 import qualified Data.Map.Strict    as Map
 import           Data.Text          (Text)
 import qualified Data.Text.Encoding as TE
 import qualified Kafka.Telemetry.TraceContext as TC
-
--- Note: hs-opentelemetry-api integration would go here for the
--- /span/ + /metric/ side; the W3C-Trace-Context propagation
--- below is fully implemented locally (see
--- "Kafka.Telemetry.TraceContext") and works without a tracing
--- SDK.
 
 -- | Telemetry configuration.
 data TelemetryConfig = TelemetryConfig
@@ -103,121 +98,6 @@ defaultTelemetryConfig = TelemetryConfig
   , telemetryServiceName = "kafka-native"
   , telemetryIncludePayload = False
   }
-
--- | Create a span for a producer operation.
---
--- Attributes:
--- * messaging.system = "kafka"
--- * messaging.destination.name = topic
--- * messaging.operation = "publish"
--- * messaging.kafka.partition = partition
---
--- TODO: Implement producer span creation
--- Requires:
---   - Integration with hs-opentelemetry-api
---   - Span creation with proper attributes
---   - Parent context handling
-createProducerSpan
-  :: Text      -- ^ Topic name
-  -> Int32     -- ^ Partition number
-  -> IO ()     -- ^ Returns span handle (TODO: proper type)
-createProducerSpan topic partition = do
-  -- TODO: Create OpenTelemetry span
-  -- Implementation steps:
-  --   1. Get tracer from global tracer provider
-  --   2. Start span with name "kafka.publish"
-  --   3. Set attributes:
-  --      - messaging.system = "kafka"
-  --      - messaging.destination.name = topic
-  --      - messaging.operation = "publish"
-  --      - messaging.kafka.partition = partition
-  --   4. Return span for ending later
-  return ()
-
--- | Create a span for a consumer operation.
---
--- Attributes:
--- * messaging.system = "kafka"
--- * messaging.destination.name = topic
--- * messaging.operation = "receive" or "process"
--- * messaging.kafka.partition = partition
--- * messaging.kafka.offset = offset
--- * messaging.kafka.consumer.group = consumer group
---
--- TODO: Implement consumer span creation
-createConsumerSpan
-  :: Text      -- ^ Topic name
-  -> Int32     -- ^ Partition number
-  -> Int64     -- ^ Offset
-  -> Text      -- ^ Consumer group
-  -> IO ()     -- ^ Returns span handle (TODO: proper type)
-createConsumerSpan topic partition offset consumerGroup = do
-  -- TODO: Create OpenTelemetry span
-  -- Similar to producer span but with consumer-specific attributes
-  return ()
-
--- | Create a span for a transactional operation.
---
--- Attributes:
--- * messaging.system = "kafka"
--- * messaging.operation = "begin" | "commit" | "abort"
--- * messaging.kafka.transaction.id = transaction ID
---
--- TODO: Implement transaction span creation
-createTransactionSpan
-  :: Text      -- ^ Operation ("begin", "commit", "abort")
-  -> Text      -- ^ Transaction ID
-  -> IO ()     -- ^ Returns span handle (TODO: proper type)
-createTransactionSpan operation txnId = do
-  -- TODO: Create OpenTelemetry span
-  return ()
-
--- | Record a metric for a message sent.
---
--- TODO: Implement metrics recording
-recordMessageSent
-  :: Text      -- ^ Topic name
-  -> Int       -- ^ Message size in bytes
-  -> IO ()
-recordMessageSent topic size = do
-  -- TODO: Increment counter metric
-  -- messaging.kafka.producer.messages
-  return ()
-
--- | Record a metric for a message received.
---
--- TODO: Implement metrics recording
-recordMessageReceived
-  :: Text      -- ^ Topic name
-  -> Int       -- ^ Message size in bytes
-  -> IO ()
-recordMessageReceived topic size = do
-  -- TODO: Increment counter metric
-  -- messaging.kafka.consumer.messages
-  return ()
-
--- | Record request duration metric.
---
--- TODO: Implement histogram recording
-recordRequestDuration
-  :: Text      -- ^ Request type (e.g., "produce", "fetch")
-  -> Double    -- ^ Duration in seconds
-  -> IO ()
-recordRequestDuration requestType duration = do
-  -- TODO: Record histogram value
-  -- messaging.kafka.request.duration
-  return ()
-
--- | Record batch size metric.
---
--- TODO: Implement histogram recording
-recordBatchSize
-  :: Int       -- ^ Batch size (number of messages)
-  -> IO ()
-recordBatchSize size = do
-  -- TODO: Record histogram value
-  -- messaging.kafka.batch.size
-  return ()
 
 -- | Inject the W3C Trace Context @traceparent@ + @tracestate@
 -- headers (per
