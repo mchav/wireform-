@@ -81,6 +81,7 @@ import Data.Int
 import Data.Sequence (Seq, (|>))
 import qualified Data.Sequence as Seq
 import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as MV
 import Data.Hashable (Hashable)
 import Data.Text (Text)
 import qualified Kafka.Time as KafkaTime
@@ -846,16 +847,26 @@ snapshotBatch BatchAccumulating{..} state = do
   -- per-batch CAS pays the @(state, result)@ tuple closure
   -- overhead.
   st <- sealCAS
-  -- Reverse the cons'd lists into the right forward order, then
-  -- freeze them into immutable 'V.Vector's. 'V.fromListN' walks
-  -- the list once with a known capacity so it allocates one
-  -- boxed array of exactly @n@ slots — no doubling, no Seq
-  -- finger-tree spine, no per-record snoc overhead.
-  let !nRec           = length (bhRecordsRev st)
-      !recordsListFwd = reverse (bhRecordsRev st)
-      !cbsListFwd     = reverse (bhCallbacksRev st)
-      !records        = V.fromListN nRec recordsListFwd
-      !callbacks      = V.fromListN nRec cbsListFwd
+  -- The hot-state lists are accumulated in REVERSE (cons-on-
+  -- left, O(1) per append). The forward-order 'V.Vector' is
+  -- written by walking the reversed list and storing each
+  -- element at a /descending/ slot index inside an 'MV.MVector'
+  -- via 'MV.unsafeWrite', then 'V.unsafeFreeze'-ing it.
+  --
+  -- Why this beats @V.fromListN nRec (reverse xs)@: 'reverse'
+  -- on a singly-linked list allocates one fresh cons cell per
+  -- element (~24 B / record) for the reversed spine that
+  -- 'V.fromListN' then walks once and discards. The
+  -- mutable-vector + 'unsafeFreeze' shape skips that
+  -- intermediate spine entirely — the only per-element
+  -- allocation is the slot in the final (immutable) 'V.Vector',
+  -- which both shapes already pay. Saves ~24 B / record at
+  -- seal time on top of dropping one full O(n) walk of the
+  -- list, which the heap profile flagged as a 'reverse' / cons
+  -- hotspot per sealed batch.
+  let !nRec    = length (bhRecordsRev st)
+  !records   <- vecFromRev nRec (bhRecordsRev   st)
+  !callbacks <- vecFromRev nRec (bhCallbacksRev st)
   pure ProducerBatch
     { batchTopicPartition   = baTopicPartition
     , batchRecords          = records
@@ -896,6 +907,27 @@ snapshotBatch BatchAccumulating{..} state = do
           let !s' = s { bhSizeRaw = sealedSentinel }
           (ok, !tkt') <- casIORef baHotState tkt s'
           if ok then pure s else sealLoop tkt'
+
+-- | Build an immutable 'V.Vector' of @n@ elements from a
+-- reversed singly-linked list, in /forward/ order, without
+-- materialising the reversed cons spine that
+-- @V.fromListN n (reverse xs)@ would produce.
+--
+-- Walks the list once, writing each element at a descending
+-- slot index inside an 'MV.MVector' allocated up-front at the
+-- known length. The final 'V.unsafeFreeze' is a constant-time
+-- handoff (no copy). Caller passes the precomputed length so
+-- we don't pay a separate O(n) 'length' walk.
+{-# INLINE vecFromRev #-}
+vecFromRev :: Int -> [a] -> IO (V.Vector a)
+vecFromRev !n xs = do
+  v <- MV.unsafeNew n
+  let go !_ []     = pure ()
+      go !i (y:ys) = do
+        MV.unsafeWrite v i y
+        go (i - 1) ys
+  go (n - 1) xs
+  V.unsafeFreeze v
 
 -- | Append a record with a completion callback
 -- Returns True if the record was added, False if accumulator is closed
