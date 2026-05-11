@@ -456,6 +456,7 @@ library wireform-kafka-streams
         Kafka.Streams.DSL.KStream
         Kafka.Streams.DSL.KTable
         Kafka.Streams.DSL.KGroupedStream
+        Kafka.Streams.DSL.KGroupedTable
         Kafka.Streams.DSL.TimeWindowedKStream
         Kafka.Streams.DSL.SessionWindowedKStream
         Kafka.Streams.DSL.GlobalKTable
@@ -567,6 +568,7 @@ test-suite wireform-kafka-streams-test
         Streams.ForeignKeyJoinDSLSpec
         Streams.RuntimeDriverSpec
         Streams.ExceptionHandlerSpec
+        Streams.KGroupedTableSpec
         Streams.MultiInstanceHarnessSpec
         Streams.SchemaRegistryHttpSpec
         Streams.SchemaRegistryFormatsSpec

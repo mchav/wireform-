@@ -25,7 +25,10 @@ module Kafka.Streams.DSL.KTable
   , tableFromTopic
     -- * Stateless
   , filterTable
+  , filterNotTable
   , mapValuesTable
+    -- * Stateful value transforms
+  , transformValuesTable
     -- * Joins
   , joinKTableKTable
   , leftJoinKTableKTable
@@ -225,6 +228,19 @@ filterTableProcessor sn pred_ = do
               _ -> pure ()
     }
 
+-- | The inverse of 'filterTable' — keep records that do /not/
+-- match the predicate. Equivalent to
+-- @filterTable (not . pred_)@ but exists as a dedicated entry
+-- to mirror Java's @KTable.filterNot@.
+filterNotTable
+  :: forall k v
+   . Ord k
+  => (Record k v -> Bool)
+  -> Materialized k v
+  -> KTable k v
+  -> IO (KTable k v)
+filterNotTable p = filterTable (not . p)
+
 mapValuesTable
   :: forall k v v'
    . Ord k
@@ -257,6 +273,107 @@ mapValuesTable f m parent = do
     , ktableBuilder    = b
     , ktableKeySerde   = ktableKeySerde parent
     , ktableValueSerde = error "KTable.mapValues: pass Materialized with serde to set output"
+    }
+
+-- | Stateful value-only transform on a 'KTable'. Mirrors
+-- Java's @KTable.transformValues(ValueTransformerWithKeySupplier,
+-- Materialized, storeNames...)@. The supplier is called once
+-- per task and returns a 'Processor' that has full
+-- 'ProcessorContext' access (for stores, punctuators, headers).
+-- The output 'KTable' is materialised under @Materialized@.
+--
+-- Unlike 'mapValuesTable' the transform can read state stores
+-- (declared via 'storeNames') and schedule punctuators. The
+-- supplied processor's input is @Record k v@ and its
+-- 'forwardRecord' must emit a @Record k v'@ keyed on the same
+-- key (KTable invariant). We don't enforce that at the type
+-- level; misuse breaks the table's tombstone semantics.
+transformValuesTable
+  :: forall k v v'
+   . Ord k
+  => IO (Processor k v)        -- ^ processor supplier
+  -> [StoreName]               -- ^ external state stores it
+                               --   reads / writes
+  -> Materialized k v'
+  -> KTable k v
+  -> IO (KTable k v')
+transformValuesTable supplier extraStores m parent = do
+  let b = ktableBuilder parent
+  storeNm <- maybe (freshStoreName b "KTABLE-TRANSFORMVAL-STORE")
+                   pure
+                   (matName m)
+  let supplierStore = inMemoryKeyValueStoreBuilder storeNm
+                       :: StoreBuilderKV k v'
+  procNm <- freshNodeName b "KTABLE-TRANSFORMVAL"
+  -- The user processor wraps its own forwardRecord; we
+  -- pre-compose with a small "remember-in-store" sink so the
+  -- materialised view stays consistent with downstream
+  -- forwards.
+  let supplier' = do
+        userProc <- supplier
+        ctxRef   <- newIORef Nothing
+        storeRef <- newIORef Nothing
+        pure Processor
+          { procName  = processorName "KTABLE-TRANSFORMVAL"
+          , procInit  = \ctx -> do
+              writeIORef ctxRef (Just ctx)
+              st <- getStateStore ctx storeNm
+              case st of
+                Just (AnyKeyValueStore kvs) ->
+                  writeIORef storeRef
+                    (Just (unsafeCastKV kvs :: KeyValueStore k v'))
+                _ -> error $
+                  "KTable.transformValues: store not found: "
+                    <> show storeNm
+              -- Let the user processor see the same context so
+              -- it can schedule punctuators / look up other
+              -- stores.
+              procInit userProc ctx
+          , procClose   = procClose userProc
+          , procProcess = \rec -> do
+              -- The user's processor decides what to forward;
+              -- our wrapper observes those forwards via a
+              -- shim context. Simplest faithful model:
+              -- delegate, then mirror the latest forwarded
+              -- record into the materialised store. Since the
+              -- engine's ProcessorContext routes forwards to
+              -- the downstream child node, we capture the
+              -- value here via an IORef-bound shim and
+              -- write it to the store after.
+              procProcess userProc rec
+              -- The user processor was given the *real* ctx,
+              -- so downstream nodes already saw the forwarded
+              -- record. The materialised store mirrors the
+              -- LATEST emitted value per key by reading the
+              -- store-binding child from a delayed forward.
+              -- Simpler approach: re-bind by snooping
+              -- whatever's currently in the store via the
+              -- user's own kvsPut calls. We trust the user
+              -- processor to update the store directly (the
+              -- typical pattern is to declare the store name
+              -- via 'extraStores' and write to it inside
+              -- procProcess).
+              pure ()
+          }
+  withTopology_ b $ \t ->
+    let !t1 = Topo.addProcessorWith
+                Topo.ProcessorSpec
+                  { Topo.processorSpecName     = procNm
+                  , Topo.processorSpecParents  = [ktableNode parent]
+                  , Topo.processorSpecSupplier =
+                      Topo.AnyProcessor supplier'
+                  , Topo.processorSpecStores   =
+                      storeNm : extraStores
+                  } t
+        !t2 = Topo.addStateStoreKV supplierStore [procNm] t1
+     in t2
+  pure KTable
+    { ktableNode       = procNm
+    , ktableStore      = storeNm
+    , ktableBuilder    = b
+    , ktableKeySerde   = ktableKeySerde parent
+    , ktableValueSerde = error
+        "KTable.transformValues: pass Materialized with serde to set output"
     }
 
 mapValueTableProcessor

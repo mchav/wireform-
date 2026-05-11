@@ -39,6 +39,7 @@ module Kafka.Streams
   , module Kafka.Streams.DSL.StreamsBuilder
   , module Kafka.Streams.DSL.KStream
   , module Kafka.Streams.DSL.KGroupedStream
+  , module Kafka.Streams.DSL.KGroupedTable
   , module Kafka.Streams.DSL.KTable
   , module Kafka.Streams.DSL.TimeWindowedKStream
   , module Kafka.Streams.DSL.SessionWindowedKStream
@@ -58,6 +59,7 @@ import Kafka.Streams.DSL.Grouped
 import Kafka.Streams.DSL.Joined
 import Kafka.Streams.DSL.Named
 import Kafka.Streams.DSL.KGroupedStream
+import Kafka.Streams.DSL.KGroupedTable
 import Kafka.Streams.DSL.KStream
 import Kafka.Streams.DSL.KTable
 import Kafka.Streams.DSL.Materialized
