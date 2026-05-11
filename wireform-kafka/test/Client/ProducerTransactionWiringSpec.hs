@@ -140,7 +140,7 @@ stamped_records_carry_stamp_into_new_batch = testCase
         , BA.stampIsTransactional = True
         }
       rec_ = RB.Record 0 0 Nothing "value" []
-  ok <- BA.appendRecordStamped acc tp rec_ (\_ -> pure ()) stamp
+  ok <- BA.appendRecordStamped acc tp rec_ BA.NoRecordCallback stamp
   ok @?= True
   BA.closeBatchAccumulator acc
   batches <- BA.drainReadyBatches acc
@@ -164,9 +164,9 @@ stamped_records_share_existing_batch_stamp = testCase
       stampB = BA.BatchStamp 999 3 18 True  -- next per-producer seq
       stampC = BA.BatchStamp 999 3 19 True
       rec_ = RB.Record 0 0 Nothing "v" []
-  _ <- BA.appendRecordStamped acc tp rec_ (\_ -> pure ()) stampA
-  _ <- BA.appendRecordStamped acc tp rec_ (\_ -> pure ()) stampB
-  _ <- BA.appendRecordStamped acc tp rec_ (\_ -> pure ()) stampC
+  _ <- BA.appendRecordStamped acc tp rec_ BA.NoRecordCallback stampA
+  _ <- BA.appendRecordStamped acc tp rec_ BA.NoRecordCallback stampB
+  _ <- BA.appendRecordStamped acc tp rec_ BA.NoRecordCallback stampC
   BA.closeBatchAccumulator acc
   batches <- BA.drainReadyBatches acc
   case batches of
@@ -197,8 +197,8 @@ distinct_partitions_get_distinct_stamps = testCase
       stamp1 = BA.BatchStamp 999 3  0 True
       stamp2 = BA.BatchStamp 999 3 17 True
       rec_ = RB.Record 0 0 Nothing "v" []
-  _ <- BA.appendRecordStamped acc tp1 rec_ (\_ -> pure ()) stamp1
-  _ <- BA.appendRecordStamped acc tp2 rec_ (\_ -> pure ()) stamp2
+  _ <- BA.appendRecordStamped acc tp1 rec_ BA.NoRecordCallback stamp1
+  _ <- BA.appendRecordStamped acc tp2 rec_ BA.NoRecordCallback stamp2
   BA.closeBatchAccumulator acc
   batches <- BA.drainReadyBatches acc
   -- One batch per partition; both should be transactional with their

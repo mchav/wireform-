@@ -490,7 +490,7 @@ sendBatches state@SenderState{..} batches = do
       Left err ->
         forM_ brokerBatches $ \batch ->
           forM_ (BA.batchCallbacks batch) $ \cb ->
-            cb (Left (T.pack ("Failed to open broker pipe: " <> err)))
+            BA.runRecordCallback cb (Left (T.pack ("Failed to open broker pipe: " <> err)))
       Right pool -> do
         forM_ (roundsPerPartition brokerBatches) $ \roundBatches -> do
           -- Round-robin across the pool's pipes so the writer
@@ -505,7 +505,7 @@ sendBatches state@SenderState{..} batches = do
             Left (e :: SomeException) ->
               forM_ roundBatches $ \batch ->
                 forM_ (BA.batchCallbacks batch) $ \cb ->
-                  cb (Left ("Exception enqueueing batch: " <> T.pack (show e)))
+                  BA.runRecordCallback cb (Left ("Exception enqueueing batch: " <> T.pack (show e)))
             Right () -> pure ()
   where
     -- Split batches into rounds such that every (topic, partition)
@@ -549,7 +549,7 @@ enqueueRound state@SenderState{..} pipe (_broker :: Meta.BrokerMetadata) batches
                 <> T.pack (show elapsed)
                 <> "ms ago, timeout is "
                 <> T.pack (show senderDeliveryTimeoutMs) <> "ms"
-    forM_ (BA.batchCallbacks batch) $ \cb -> cb (Left msg)
+    forM_ (BA.batchCallbacks batch) $ \cb -> BA.runRecordCallback cb (Left msg)
   when (not (null valid)) $ do
     -- The ApiVersions handshake was already run in
     -- 'ensureBrokerPipe' before the writer / reader threads
@@ -708,7 +708,7 @@ brokerWriterLoop PipeBootstrap{..} = forever $ do
       -- on this pipe will hit the broken socket and surface.
       let !errMsg = "Wire write failed: " <> T.pack (show (e :: SomeException))
       forM_ (ppBatches (opPending out)) $ \batch ->
-        forM_ (BA.batchCallbacks batch) $ \cb -> cb (Left errMsg)
+        forM_ (BA.batchCallbacks batch) $ \cb -> BA.runRecordCallback cb (Left errMsg)
       atomically $ modifyTVar' pbsCount (subtract 1)
     Right () ->
       atomically $ writeTBQueue pbsInFlight (opPending out)
@@ -731,7 +731,7 @@ brokerReaderLoop pbs@PipeBootstrap{..} = do
       forM_ drained $ \pp ->
         forM_ (ppBatches pp) $ \batch ->
           forM_ (BA.batchCallbacks batch) $ \cb ->
-            cb (Left ("Wire read failed: " <> T.pack (show (e :: SomeException))))
+            BA.runRecordCallback cb (Left ("Wire read failed: " <> T.pack (show (e :: SomeException))))
       atomically $ writeTVar pbsCount 0
       void (try (Conn.disconnect pbsConn) :: IO (Either SomeException ()))
     Right raw -> do
@@ -741,18 +741,18 @@ brokerReaderLoop pbs@PipeBootstrap{..} = do
         Left err ->
           forM_ (ppBatches pp) $ \batch ->
             forM_ (BA.batchCallbacks batch) $ \cb ->
-              cb (Left ("Response decode error: " <> T.pack err))
+              BA.runRecordCallback cb (Left ("Response decode error: " <> T.pack err))
         Right (responseCorrId, body)
           | responseCorrId /= ppCorrId pp ->
               forM_ (ppBatches pp) $ \batch ->
                 forM_ (BA.batchCallbacks batch) $ \cb ->
-                  cb (Left "Correlation ID mismatch")
+                  BA.runRecordCallback cb (Left "Correlation ID mismatch")
           | otherwise ->
               case WC.runDecodeVer @PResp.ProduceResponse (ppApiVersion pp) body of
                 Left err ->
                   forM_ (ppBatches pp) $ \batch ->
                     forM_ (BA.batchCallbacks batch) $ \cb ->
-                      cb (Left ("Failed to parse response: " <> T.pack err))
+                      BA.runRecordCallback cb (Left ("Failed to parse response: " <> T.pack err))
                 Right resp ->
                   processProduceResponse (Just (ppMetaCache pp)) (ppBatches pp) resp
       atomically $ modifyTVar' pbsCount (subtract 1)
@@ -808,7 +808,7 @@ groupBatchesByBroker metadata batches = do
         errorMsg = "Unknown leader for topic " <> BA.tpTopic tp <> 
                    " partition " <> T.pack (show (BA.tpPartition tp))
         callbacks = BA.batchCallbacks batch
-    forM_ callbacks $ \callback -> callback (Left errorMsg)
+    forM_ callbacks $ \callback -> BA.runRecordCallback callback (Left errorMsg)
   
   -- Group by broker, filtering out batches with unknown leaders
   let validBatches = [(broker, batch) | (Just broker, batch) <- batchesWithBroker]
@@ -1083,12 +1083,26 @@ processProduceResponse metaCacheM batches response = do
             -- only set when the topic is in @LogAppendTime@ mode,
             -- and we can't tell here, so we use the wall-clock
             -- timestamp as a reasonable fallback.)
-            -- 'callbacks' is a 'Seq', so we walk the sequence
-            -- with its index to assign each record's offset.
-            forM_ (Seq.mapWithIndex (,) callbacks) $ \(idx, callback) -> do
-              let recordOffset = baseOffset + fromIntegral (idx :: Int)
-                  metadata = (topicName, partitionId, recordOffset, timestamp)
-              callback (Right metadata)
+            -- Skip the entire per-record metadata construction
+            -- when the callback is 'NoRecordCallback'. That's the
+            -- shape every '*Drop*' send variant uses; it
+            -- dominates the bench harness traffic. The
+            -- 'RecordCallback' branch still pays for the strict
+            -- UNPACK'd 'BA.BatchAck' (faster than the prior lazy
+            -- tuple for callers that /actually consume/ the
+            -- metadata), so this trade-off helps both shapes.
+            forM_ (Seq.mapWithIndex (,) callbacks) $ \(idx, callback) ->
+              case callback of
+                BA.NoRecordCallback -> pure ()
+                BA.RecordCallback f -> do
+                  let !recordOffset = baseOffset + fromIntegral (idx :: Int)
+                      !meta = BA.BatchAck
+                        { BA.ackTopic     = topicName
+                        , BA.ackPartition = partitionId
+                        , BA.ackOffset    = recordOffset
+                        , BA.ackTimestamp = timestamp
+                        }
+                  f (Right meta)
           else do
             hPutStrLn stderr
               ("[error] producer: error sending batch to "
@@ -1098,7 +1112,7 @@ processProduceResponse metaCacheM batches response = do
             let callbacks = BA.batchCallbacks batch
                 errorMsg = "Kafka error: " <> T.pack (show errorCode)
             forM_ callbacks $ \callback -> do
-              callback (Left errorMsg)
+              BA.runRecordCallback callback (Left errorMsg)
 
 -- | Extract text from a KafkaString
 extractText :: P.KafkaString -> Text

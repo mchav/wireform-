@@ -51,7 +51,9 @@ module Kafka.Client.Internal.BatchAccumulator
     -- * Batch Types
   , ProducerBatch(..)
   , BatchState(..)
-  , RecordCallback
+  , RecordCallback (..)
+  , runRecordCallback
+  , BatchAck (..)
   , flushPendingBatches
   ) where
 
@@ -97,10 +99,63 @@ data BatchState
   | Failed !Text -- ^ Send failed with error
   deriving (Eq, Show, Generic)
 
--- | Callback for record completion
--- Takes Either an error message or the record metadata
--- Record metadata includes: topic, partition, offset, timestamp
-type RecordCallback = Either Text (Text, Int32, Int64, Int64) -> IO ()
+-- | Per-record acknowledgement metadata handed to the sender's
+-- ack-callback path. Replaces the previous
+-- @(Text, Int32, Int64, Int64)@ 4-tuple so that:
+--
+--   * the three machine-word fields ('ackPartition' / 'ackOffset'
+--     / 'ackTimestamp') are 'UNPACK'-pragma'd into the
+--     constructor, eliminating one boxed-'Int32' and two
+--     boxed-'Int64' allocations per acked record;
+--   * the strict-product representation lets the
+--     constructed-product-result optimiser elide the 'Right'
+--     wrapper when the immediate consumer is a 'case' on the
+--     'Either' (the producer's adapter callback).
+--
+-- Heap-profile note: the previous tuple shape showed up in
+-- @ghc-prim:GHC.Tuple.Prim.(,,,)@ allocations on the sender ack
+-- path; this 4-field strict record is allocated /and/ consumed
+-- inside the same case branch in 'processProduceResponse' so
+-- GHC can fuse the construction away on the no-op-callback path
+-- the bench harness uses.
+data BatchAck = BatchAck
+  { ackTopic     :: !Text
+  , ackPartition :: {-# UNPACK #-} !Int32
+  , ackOffset    :: {-# UNPACK #-} !Int64
+  , ackTimestamp :: {-# UNPACK #-} !Int64
+  } deriving (Eq, Show, Generic)
+
+-- | Callback for record completion. Either no-callback
+-- (sender skips per-record metadata construction entirely) or a
+-- real callback that receives 'Left' with an error message or
+-- 'Right' with the per-record 'BatchAck'.
+--
+-- Why a sum and not a function-only type:
+-- the perf-critical code paths ('sendMessageDropUnsafe',
+-- 'sendMessageDropFastest', 'sendMessagesDrop') pass the no-op
+-- callback. With a function-only type the sender would still
+-- have to /allocate/ and /strictly construct/ the per-record
+-- 'BatchAck' (UNPACK'd strict fields → all evaluated at
+-- construction) and then immediately throw it away. Tagging the
+-- "no callback" case lets the sender's dispatch skip the
+-- construction with one branch instead — preserves the strict
+-- 'BatchAck' shape for callers that /do/ use the metadata
+-- without burning cycles for callers that don't.
+data RecordCallback
+  = NoRecordCallback
+  | RecordCallback !(Either Text BatchAck -> IO ())
+
+-- | Invoke a 'RecordCallback'. The 'NoRecordCallback' branch is
+-- a one-instruction tag check (no allocation, no closure
+-- dispatch); the 'RecordCallback' branch is a single function
+-- application. Used by the sender's per-record dispatch on both
+-- the success and error paths so it can skip the per-record
+-- 'BatchAck' / error-message construction entirely when no
+-- caller cares.
+runRecordCallback :: RecordCallback -> Either Text BatchAck -> IO ()
+runRecordCallback NoRecordCallback   _ = pure ()
+runRecordCallback (RecordCallback f) e = f e
+{-# INLINE runRecordCallback #-}
 
 -- | A batch of records for a single partition
 data ProducerBatch = ProducerBatch
@@ -365,7 +420,7 @@ appendRecord
   -> IO Bool
 appendRecord accumulator tp record = do
   -- Use appendRecordWithCallback with a no-op callback
-  appendRecordWithCallback accumulator tp record (\_ -> return ())
+  appendRecordWithCallback accumulator tp record NoRecordCallback
 
 -- | Producer-id / epoch / sequence triple stamped onto each new
 -- batch when the producer is idempotent (KIP-98) or transactional

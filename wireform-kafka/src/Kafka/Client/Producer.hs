@@ -901,19 +901,19 @@ sendMessage p@Producer{..} topic key value = do
       let callback result =
             atomically $ putTMVar resultVar $ case result of
               Left err -> Left (T.unpack err)
-              Right (topic', part, offset, timestamp) ->
+              Right ack ->
                 Right RecordMetadata
-                  { metadataTopic     = topic'
-                  , metadataPartition = part
-                  , metadataOffset    = offset
-                  , metadataTimestamp = timestamp
+                  { metadataTopic     = BA.ackTopic     ack
+                  , metadataPartition = BA.ackPartition ack
+                  , metadataOffset    = BA.ackOffset    ack
+                  , metadataTimestamp = BA.ackTimestamp ack
                   }
 
       success <- BA.appendRecordStamped
                    producerAccumulator
                    topicPartition
                    record
-                   callback
+                   (BA.RecordCallback callback)
                    stamp
 
       if success
@@ -1189,12 +1189,12 @@ sendMessageAsync p@Producer{..} topic key value = do
           callback result = do
             let outcome = case result of
                   Left err -> Left (T.unpack err)
-                  Right (topic', part, offset, timestamp) ->
+                  Right ack ->
                     Right RecordMetadata
-                      { metadataTopic     = topic'
-                      , metadataPartition = part
-                      , metadataOffset    = offset
-                      , metadataTimestamp = timestamp
+                      { metadataTopic     = BA.ackTopic     ack
+                      , metadataPartition = BA.ackPartition ack
+                      , metadataOffset    = BA.ackOffset    ack
+                      , metadataTimestamp = BA.ackTimestamp ack
                       }
             runAckInterceptor producerConfig iceptedRecord outcome
 
@@ -1202,7 +1202,7 @@ sendMessageAsync p@Producer{..} topic key value = do
                    producerAccumulator
                    topicPartition
                    record
-                   callback
+                   (BA.RecordCallback callback)
                    stamp
 
       if success
@@ -1271,7 +1271,7 @@ sendMessageDrop p@Producer{..} topic key value = do
 -- allocated a fresh @\\_ -> pure ()@ on every send).
 {-# NOINLINE noOpRecordCallback #-}
 noOpRecordCallback :: BA.RecordCallback
-noOpRecordCallback = \_ -> pure ()
+noOpRecordCallback = BA.NoRecordCallback
 
 -- | Tightest-possible single-writer fast path. Caches the
 -- in-progress @(topic, partition, queue, batch)@ tuple in

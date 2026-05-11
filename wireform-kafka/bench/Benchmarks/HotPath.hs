@@ -63,7 +63,7 @@ producerBench = bgroup "Producer"
       [ bench "single append (no-stamp)" $ whnfIO $
           BA.appendRecordStamped sharedAccumulator
             (BA.TopicPartition "topic" 0)
-            sampleRecord (\_ -> pure ()) BA.noStamp
+            sampleRecord BA.NoRecordCallback BA.noStamp
       , bench "100 appends" $ whnfIO $
           appendNRecords sharedAccumulator 100
       , bench "1000 appends" $ whnfIO $
@@ -211,7 +211,7 @@ sampleBatch n = BA.ProducerBatch
   , BA.batchCompression    = Compression.NoCompression
   , BA.batchCompressionLevel =
       Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks      = Seq.replicate n (\_ -> pure ())
+  , BA.batchCallbacks      = Seq.replicate n BA.NoRecordCallback
   , BA.batchAttempts       = 0
   , BA.batchProducerId     = RB.noProducerId
   , BA.batchProducerEpoch  = RB.noProducerEpoch
@@ -283,5 +283,5 @@ appendNRecords acc !n = go n
     go 0 = pure ()
     go !k = do
       _ <- BA.appendRecordStamped acc (BA.TopicPartition "topic" 0)
-              sampleRecord (\_ -> pure ()) BA.noStamp
+              sampleRecord BA.NoRecordCallback BA.noStamp
       go (k - 1)
