@@ -158,9 +158,18 @@ subscribeFlow
   -> ResetPolicy                -- ^ what to do when no committed offset exists
   -> Assignor                   -- ^ partition assignor to advertise + run if elected leader
   -> TVar Int32                 -- ^ correlation id source
+  -> IO BS.ByteString           -- ^ KIP-535 subscription userData
+                                --   callback. Returns bytes to
+                                --   attach to the JoinGroup
+                                --   subscription-userdata blob
+                                --   (e.g. the encoded
+                                --   'SubscriptionInfo' for cross-
+                                --   instance IQ discovery).
+                                --   'pure BS.empty' disables.
   -> IO (Either SubscribeError [(TopicPartition, Int64)])
 subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId topics
-              sessionTimeoutMs rebalanceTimeoutMs resetPolicy assignor corrIdVar = do
+              sessionTimeoutMs rebalanceTimeoutMs resetPolicy assignor corrIdVar
+              fetchUserData = do
   -- 1. Make sure we have metadata for the topics we're about to subscribe
   --    to; we need the partition list locally so we (a) include accurate
   --    "what I want" subscriptions in JoinGroup metadata and (b) know how
@@ -218,7 +227,13 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
           -- 3. JoinGroup. Advertise the chosen assignor by name; the
           --    coordinator picks one assignor that every member of the
           --    group has in common.
-          let subMeta = encodeSubscription topics
+          --
+          -- KIP-535: stamp the user's subscription-userdata blob
+          -- (typically the streams 'SubscriptionInfo' carrying
+          -- host:port + owned stores + owned partitions) so the
+          -- assignor can use it for cross-instance IQ routing.
+          userData <- fetchUserData
+          let subMeta = encodeSubscriptionWithOwned topics userData []
               protocols = [(assignorName assignor, subMeta)]
           cid1 <- nextCorrId
           existingMember <- atomically $ readTVar (HB.hbMemberId hbState)

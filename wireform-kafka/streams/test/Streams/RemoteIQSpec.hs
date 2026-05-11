@@ -15,6 +15,10 @@ import Kafka.Streams.Discovery
   ( HostInfo (..)
   , KeyQueryMetadata (..)
   )
+import Kafka.Client.Internal.Subscribe
+  ( encodeSubscriptionWithOwned
+  , decodeSubscriptionFull
+  )
 import Kafka.Streams.Discovery.RemoteIQ
 import Kafka.Streams.Discovery.Subscription
 
@@ -26,6 +30,7 @@ tests = testGroup "Cross-instance IQ (KIP-535)"
   , route_query_local_when_standby
   , route_query_remote_otherwise
   , route_query_missing_when_nobody_owns
+  , subscription_info_userdata_round_trips_through_joingroup
   ]
 
 ----------------------------------------------------------------------
@@ -93,3 +98,38 @@ route_query_missing_when_nobody_owns :: TestTree
 route_query_missing_when_nobody_owns =
   testCase "routeQuery: no KeyQueryMetadata => RouteMissing" $ do
     routeQuery (HostInfo "self" 9099) Nothing @?= RouteMissing
+
+----------------------------------------------------------------------
+-- Subscription userdata flows end-to-end through the JoinGroup
+-- subscription codec.
+--
+-- Verifies the wire-shape we depend on for the assignor-side
+-- exchange: encode -> wrap-into-subscription -> decode back
+-- -> recover the SubscriptionInfo. This is the byte-level
+-- contract the streams assignor uses to pull peer metadata
+-- off the leader-side JoinGroup view.
+----------------------------------------------------------------------
+
+subscription_info_userdata_round_trips_through_joingroup :: TestTree
+subscription_info_userdata_round_trips_through_joingroup =
+  testCase "SubscriptionInfo embedded in JoinGroup userdata round-trips" $ do
+    -- Encode our streams 'SubscriptionInfo' to bytes.
+    let userdataBytes = encodeSubscriptionInfo sampleSI
+    -- Wrap into a full consumer-protocol subscription with
+    -- topic list + the userdata bytes (matches what
+    -- subscribeFlow now puts on the wire).
+    let topics = ["t1", "t2"]
+    let !wire = encodeSubscriptionWithOwned topics userdataBytes []
+    -- Decode the full subscription and pull out the userdata
+    -- bytes — they must match what we put in.
+    case decodeSubscriptionFull wire of
+      Right (decodedTopics, decodedUserdata, decodedOwned) -> do
+        decodedTopics @?= topics
+        decodedUserdata @?= userdataBytes
+        decodedOwned @?= []
+        -- And the userdata bytes still decode back to the
+        -- original SubscriptionInfo.
+        case decodeSubscriptionInfo decodedUserdata of
+          Right si -> si @?= sampleSI
+          Left e   -> error ("inner decode: " <> e)
+      Left e -> error ("outer decode: " <> e)

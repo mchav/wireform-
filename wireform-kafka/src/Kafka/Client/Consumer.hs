@@ -44,6 +44,7 @@ module Kafka.Client.Consumer
   , closeConsumerWithTimeout
   , closeConsumerWithoutLeavingGroup
   , requestRejoin
+  , setSubscriptionUserDataHook
     -- * Subscription
   , subscribe
   , unsubscribe
@@ -354,6 +355,15 @@ data Consumer = Consumer
   , consumerLastAssignment :: !(TVar [TopicPartition])
     -- ^ The assignment as of the last fired callback. Used to
     --   compute revoked / assigned deltas on the next rebalance.
+  , consumerSubscriptionUserData :: !(TVar (IO ByteString))
+    -- ^ KIP-535 hook: when 'subscribe' issues a JoinGroup, the
+    --   consumer calls this 'IO ByteString' and stamps the
+    --   result into the subscription-userdata blob. Default:
+    --   @pure BS.empty@ (no userdata). Replace via
+    --   'setSubscriptionUserDataHook'. Used by the streams
+    --   runtime to advertise the local instance's
+    --   host:port + owned stores so peers can route cross-
+    --   instance IQ queries here.
   }
 
 -- | Effective 'Conn.ConnectionConfig' for this consumer: takes the
@@ -540,6 +550,7 @@ createConsumer brokers groupId config = do
               onR <- newTVarIO (\_ -> pure () :: IO ())
               onL <- newTVarIO (\_ -> pure () :: IO ())
               lastAsgn <- newTVarIO []
+              subUD    <- newTVarIO (pure BS.empty :: IO ByteString)
 
               let consumer = Consumer
                     { consumerConfig = config { consumerGroupId = groupId }
@@ -555,6 +566,7 @@ createConsumer brokers groupId config = do
                     , consumerOnRevoked  = onR
                     , consumerOnLost     = onL
                     , consumerLastAssignment = lastAsgn
+                    , consumerSubscriptionUserData = subUD
                     }
 
               return $ Right consumer
@@ -744,6 +756,21 @@ requestRejoin Consumer{..} = case consumerHeartbeat of
     atomically (writeTVar (HB.hbNeedsRebalance hbState) True)
     pure True
 
+-- | KIP-535: install a callback the consumer invokes whenever
+-- it issues a JoinGroup; the returned bytes become the
+-- subscription-userdata blob. Used by the streams runtime to
+-- advertise the local instance's @application.server@ +
+-- materialised store names + owned partitions so peers can
+-- compute 'KeyQueryMetadata' for cross-instance IQ routing.
+--
+-- The callback runs on every subscribe / re-join, so the
+-- bytes reflect the /current/ state of the instance — not a
+-- snapshot taken at consumer-creation time.
+setSubscriptionUserDataHook
+  :: Consumer -> IO ByteString -> IO ()
+setSubscriptionUserDataHook Consumer{..} f =
+  atomically (writeTVar consumerSubscriptionUserData f)
+
 -- | Shared implementation. @doLeaveGroup = False@ skips the
 -- @LeaveGroup@ RPC but still:
 --
@@ -890,6 +917,7 @@ subscribe Consumer{..} topics = do
             StickyAssignment     -> Sub.AssignorSticky
           sessionTimeout   = fromIntegral (consumerSessionTimeoutMs   consumerConfig)
           rebalanceTimeout = fromIntegral (consumerMaxPollIntervalMs  consumerConfig)
+      fetchUD <- readTVarIO consumerSubscriptionUserData
       result <- Sub.subscribeFlow
                   consumerConnManager
                   (consumerConnConfig Consumer{..})
@@ -904,6 +932,7 @@ subscribe Consumer{..} topics = do
                   resetPolicy
                   assignor
                   consumerCorrelationId
+                  fetchUD
       case result of
         Left err -> return $ Left ("subscribe: " ++ show err)
         Right tps -> do
