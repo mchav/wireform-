@@ -420,6 +420,8 @@ library wireform-kafka-streams
         Kafka.Streams.Config
         Kafka.Streams.Errors
         Kafka.Streams.Discovery
+        Kafka.Streams.Discovery.RemoteIQ
+        Kafka.Streams.Discovery.Subscription
         Kafka.Streams.Time
         Kafka.Streams.Types
         Kafka.Streams.Serde
@@ -491,6 +493,7 @@ library wireform-kafka-streams
         base                      >= 4.16  && < 5,
         aeson                     >= 2.0   && < 2.3,
         async                     >= 2.2   && < 3,
+        binary                    >= 0.8   && < 0.11,
         bytestring                >= 0.11  && < 0.13,
         containers                >= 0.6   && < 0.8,
         deepseq                   >= 1.4   && < 1.6,
@@ -581,6 +584,7 @@ test-suite wireform-kafka-streams-test
         Streams.RackAwareAssignorSpec
         Streams.ProbingRebalanceRuntimeSpec
         Streams.StandbyTaskSpec
+        Streams.RemoteIQSpec
         Streams.MultiInstanceHarnessSpec
         Streams.SchemaRegistryHttpSpec
         Streams.SchemaRegistryFormatsSpec

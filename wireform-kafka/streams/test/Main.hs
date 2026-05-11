@@ -61,6 +61,7 @@ import qualified Streams.BoundedSuppressSpec
 import qualified Streams.RackAwareAssignorSpec
 import qualified Streams.ProbingRebalanceRuntimeSpec
 import qualified Streams.StandbyTaskSpec
+import qualified Streams.RemoteIQSpec
 import qualified Streams.MultiInstanceHarnessSpec
 import qualified Streams.SchemaRegistryHttpSpec
 import qualified Streams.SchemaRegistryFormatsSpec
@@ -126,6 +127,7 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.RackAwareAssignorSpec.tests
   , Streams.ProbingRebalanceRuntimeSpec.tests
   , Streams.StandbyTaskSpec.tests
+  , Streams.RemoteIQSpec.tests
   , Streams.MultiInstanceHarnessSpec.tests
   , Streams.SchemaRegistryHttpSpec.tests
   , Streams.SchemaRegistryFormatsSpec.tests
