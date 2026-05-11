@@ -63,6 +63,10 @@ module Kafka.Streams.Runtime
   , setRebalanceListener
   , ownedPartitions
   , standbyTasks
+    -- * Exception handlers (KIP-161/280/671/1033)
+  , setProductionExceptionHandler
+  , setProcessingExceptionHandler
+  , setUncaughtExceptionHandler
     -- * Progress signal (used by tests to coordinate without threadDelay)
   , ksTickCount
   , awaitTicks
@@ -90,7 +94,21 @@ import Kafka.Streams.Config
   ( ProcessingGuarantee (..)
   , StreamsConfig (..)
   )
-import Kafka.Streams.Errors (logAndContinue)
+import Kafka.Streams.Errors
+  ( ProcessingException (..)
+  , ProcessingExceptionHandler (..)
+  , ProcessingResponse (..)
+  , ProductionException (..)
+  , ProductionHandler (..)
+  , ProductionResponse (..)
+  , StreamsUncaughtExceptionHandler (..)
+  , UncaughtExceptionResponse (..)
+  , logAndContinue
+  , logAndContinueProcessing
+  , logAndContinueProduction
+  , replaceThreadOnException
+  )
+import Control.Exception (Exception, SomeException, throwIO, try)
 import Kafka.Streams.Runtime.EOS
   ( CommitOutcome (..)
   , EOSCoordinator (..)
@@ -195,6 +213,15 @@ data KafkaStreams = KafkaStreams
     -- event-loop iteration. Tests block on this via
     -- 'awaitTicks' to coordinate with engine progress
     -- without using 'threadDelay'.
+  , ksProdHand  :: !(IORef ProductionHandler)
+    -- ^ KIP-280 production handler. Default is
+    -- 'logAndContinueProduction'.
+  , ksProcHand  :: !(IORef ProcessingExceptionHandler)
+    -- ^ KIP-1033 processing handler. Default is
+    -- 'logAndContinueProcessing'.
+  , ksUncaught  :: !(IORef StreamsUncaughtExceptionHandler)
+    -- ^ KIP-671 uncaught-exception handler. Default is
+    -- 'replaceThreadOnException'.
   }
 
 newKafkaStreams
@@ -215,6 +242,9 @@ newKafkaStreams cfg topo = do
   stand <- newTVarIO Map.empty
   reb  <- newIORef noopRebalanceListener
   ticks <- newTVarIO 0
+  prodH <- newIORef logAndContinueProduction
+  procH <- newIORef logAndContinueProcessing
+  uncH  <- newIORef replaceThreadOnException
   pure KafkaStreams
     { ksConfig    = cfg
     , ksTopology  = topo
@@ -231,6 +261,9 @@ newKafkaStreams cfg topo = do
     , ksStandbys  = stand
     , ksRebLis    = reb
     , ksTicks     = ticks
+    , ksProdHand  = prodH
+    , ksProcHand  = procH
+    , ksUncaught  = uncH
     }
 
 -- | Start the runtime against a real broker. Constructs a
@@ -274,7 +307,7 @@ startKafkaStreamsWith ks driver = do
     else startMultiThreaded  ks driver topo n
   where
     startSingleThreaded ks_ drv topo = do
-      collector <- driverCollector drv
+      collector <- driverCollector ks_ drv
       engine <- buildEngine topo (TaskId 0 0)
                   (applicationId (ksConfig ks_))
                   collector
@@ -292,7 +325,7 @@ startKafkaStreamsWith ks driver = do
       case eSubs of
         Left err -> setError ks_ ("subscribe: " <> Text.pack err)
         Right () -> do
-          ah <- async (eventLoop ks_ drv engine)
+          ah <- async (supervisedLoop ks_ drv (eventLoop ks_ drv engine))
           writeIORef (ksThread ks_) (Just ah)
           transitionTo ks_ StreamsRunning
 
@@ -304,7 +337,7 @@ startKafkaStreamsWith ks driver = do
       case eSubs of
         Left err -> setError ks_ ("subscribe: " <> Text.pack err)
         Right () -> do
-          ah <- async (multiEventLoop ks_ drv pool)
+          ah <- async (supervisedLoop ks_ drv (multiEventLoop ks_ drv pool))
           writeIORef (ksThread ks_) (Just ah)
           transitionTo ks_ StreamsRunning
 
@@ -343,8 +376,8 @@ setError ks msg = transitionTo ks (StreamsError msg)
 -- memory and, on flush, hands them off to the driver's producer
 -- hooks. The buffering means a failed flush leaves the buffer
 -- intact for the next attempt instead of stranding records.
-driverCollector :: StreamDriver -> IO RecordCollector
-driverCollector drv = do
+driverCollector :: KafkaStreams -> StreamDriver -> IO RecordCollector
+driverCollector ks drv = do
   bufRef <- newIORef (Seq.empty :: Seq CollectedRecord)
   pure RecordCollector
     { collectorSend = \cr -> atomicModifyIORef' bufRef
@@ -352,14 +385,71 @@ driverCollector drv = do
     , collectorFlush = do
         buf <- atomicModifyIORef' bufRef (\s -> (Seq.empty, s))
         Foldable.for_ buf $ \cr -> do
-          _ <- sdProducerSend drv (unTopicName (crTopic cr)) (crKey cr) (crValue cr)
-          pure ()
-        _ <- sdProducerFlush drv
-        pure ()
+          r <- sdProducerSend drv
+                 (unTopicName (crTopic cr)) (crKey cr) (crValue cr)
+          case r of
+            Right _ -> pure ()
+            Left err -> handleProdFail ks (unTopicName (crTopic cr)) err
+        rF <- sdProducerFlush drv
+        case rF of
+          Right () -> pure ()
+          Left err -> handleProdFail ks "" err
     , collectorClose = pure ()
     , collectorPeek  = pure Map.empty
     , collectorTake  = \_ -> pure []
     }
+
+-- | Invoke the user's production handler. 'ProdFailFast' rethrows
+-- so the event loop's catch translates it into an uncaught
+-- exception event (per KIP-671).
+handleProdFail :: KafkaStreams -> Text -> String -> IO ()
+handleProdFail ks topic err = do
+  h <- readIORef (ksProdHand ks)
+  resp <- runProductionHandler h ProductionException
+            { prodTopic  = topic
+            , prodReason = Text.pack err
+            }
+  case resp of
+    ProdContinueProcessing -> pure ()
+    ProdFailFast           -> throwIO (ProductionFailFast topic (Text.pack err))
+
+-- | Thrown when 'ProdFailFast' / 'ProcessingFail' fires —
+-- caught by the event loop's bracket and routed to the
+-- KIP-671 uncaught-exception handler.
+data StreamsHandlerFail
+  = ProductionFailFast !Text !Text
+  | ProcessingFailFast !Text !Text
+  deriving stock (Eq, Show)
+
+instance Exception StreamsHandlerFail
+
+-- | Run the per-record feed wrapped in a 'try'; on exception
+-- consult the KIP-1033 processing handler and either continue
+-- or rethrow as 'ProcessingFailFast' so the uncaught-exception
+-- handler can act.
+feedWithHandler
+  :: KafkaStreams
+  -> Text                        -- ^ node name where the work runs
+  -> KC.ConsumerRecord
+  -> IO ()                       -- ^ the actual feed action
+  -> IO ()
+feedWithHandler ks node rec body = do
+  r <- try body :: IO (Either SomeException ())
+  case r of
+    Right () -> pure ()
+    Left  e  -> do
+      h <- readIORef (ksProcHand ks)
+      resp <- runProcessingExceptionHandler h ProcessingException
+                { processingTopic     = KC.crTopic rec
+                , processingPartition = KC.crPartition rec
+                , processingOffset    = fromIntegral (KC.crOffset rec)
+                , processingNode      = node
+                , processingReason    = Text.pack (show e)
+                }
+      case resp of
+        ProcessingContinue -> pure ()
+        ProcessingFail     -> throwIO
+          (ProcessingFailFast (KC.crTopic rec) (Text.pack (show e)))
 
 ----------------------------------------------------------------------
 -- Event loop
@@ -385,13 +475,14 @@ eventLoop ks driver engine = go
             -- offset commits to replay anything not committed.
             unless paused $
               forM_ recs $ \rec ->
-                feedSource engine
-                  (topicName (KC.crTopic rec))
-                  (KC.crKey rec)
-                  (KC.crValue rec)
-                  (Timestamp (KC.crTimestamp rec))
-                  (fromIntegral (KC.crPartition rec))
-                  (KC.crOffset rec)
+                feedWithHandler ks "<source>" rec $
+                  feedSource engine
+                    (topicName (KC.crTopic rec))
+                    (KC.crKey rec)
+                    (KC.crValue rec)
+                    (Timestamp (KC.crTimestamp rec))
+                    (fromIntegral (KC.crPartition rec))
+                    (KC.crOffset rec)
 
             -- Collect the highest (offset + 1) per (topic, partition)
             -- across the records we just fed; that's what the EOS
@@ -474,12 +565,13 @@ multiEventLoop ks driver pool = go
             paused <- readTVarIO (ksPaused ks)
             unless paused $
               forM_ recs $ \rec ->
-                submitRecordHashed pool
-                  (topicName (KC.crTopic rec))
-                  (KC.crKey rec)
-                  (KC.crValue rec)
-                  (Timestamp (KC.crTimestamp rec))
-                  (fromIntegral (KC.crPartition rec))
+                feedWithHandler ks "<source>" rec $
+                  submitRecordHashed pool
+                    (topicName (KC.crTopic rec))
+                    (KC.crKey rec)
+                    (KC.crValue rec)
+                    (Timestamp (KC.crTimestamp rec))
+                    (fromIntegral (KC.crPartition rec))
             -- Wait until every just-submitted record is processed.
             waitForQuiescence pool
 
@@ -500,7 +592,7 @@ multiEventLoop ks driver pool = go
               coord
               (applicationId (ksConfig ks))
               (pure commitOffsets)
-              (drainWorkersThroughDriver driver pool)
+              (drainWorkersThroughDriver ks driver pool)
             case outcome of
               CommitSucceeded -> do
                 _ <- sdConsumerCommit driver
@@ -520,17 +612,25 @@ multiEventLoop ks driver pool = go
 -- the producer once at the end. The producer flush is the
 -- single sync barrier guaranteeing every record made it to
 -- the broker before consumer offsets advance.
-drainWorkersThroughDriver :: StreamDriver -> WorkerPool -> IO ()
-drainWorkersThroughDriver driver pool = do
+drainWorkersThroughDriver
+  :: KafkaStreams
+  -> StreamDriver
+  -> WorkerPool
+  -> IO ()
+drainWorkersThroughDriver ks driver pool = do
   commitAllWorkers pool
   V.forM_ (poolWorkers pool) $ \w -> do
     pairs <- drainCollector (workerCollector w)
     forM_ pairs $ \(t, rs) ->
       forM_ rs $ \cr -> do
-        _ <- sdProducerSend driver (unTopicName t) (crKey cr) (crValue cr)
-        pure ()
-  _ <- sdProducerFlush driver
-  pure ()
+        r <- sdProducerSend driver (unTopicName t) (crKey cr) (crValue cr)
+        case r of
+          Right _ -> pure ()
+          Left err -> handleProdFail ks (unTopicName t) err
+  rF <- sdProducerFlush driver
+  case rF of
+    Right () -> pure ()
+    Left err -> handleProdFail ks "" err
 
 ----------------------------------------------------------------------
 -- Lifecycle
@@ -722,6 +822,82 @@ expireStandbys ks = do
   now <- nowMillis
   atomically $
     modifyTVar' (ksStandbys ks) (Map.filter (> now))
+
+----------------------------------------------------------------------
+-- Exception handlers (KIP-161 / 280 / 671 / 1033)
+----------------------------------------------------------------------
+
+-- | Install a KIP-280 production-exception handler. The
+-- runtime calls it whenever the driver's flush-through-producer
+-- step reports a send failure; if the handler returns
+-- 'ProdFailFast' the stream-thread is failed and routed to
+-- the uncaught-exception handler.
+setProductionExceptionHandler
+  :: KafkaStreams
+  -> ProductionHandler
+  -> IO ()
+setProductionExceptionHandler ks h =
+  writeIORef (ksProdHand ks) h
+
+-- | Install a KIP-1033 processing-exception handler. The
+-- runtime calls it when 'feedSource' / a processor throws.
+setProcessingExceptionHandler
+  :: KafkaStreams
+  -> ProcessingExceptionHandler
+  -> IO ()
+setProcessingExceptionHandler ks h =
+  writeIORef (ksProcHand ks) h
+
+-- | Install a KIP-671 uncaught-exception handler. The runtime
+-- calls it when the stream-thread async dies with an
+-- exception the per-record handlers didn't catch.
+--
+--   * 'ReplaceThread'       — respawn the worker async;
+--   * 'ShutdownClient'      — transition this instance to
+--                             'StreamsError' and close;
+--   * 'ShutdownApplication' — same as 'ShutdownClient' for
+--                             /this/ process; broadcasting to
+--                             other instances is the user's
+--                             responsibility (their handler
+--                             can publish a sentinel to a
+--                             coordination topic).
+setUncaughtExceptionHandler
+  :: KafkaStreams
+  -> StreamsUncaughtExceptionHandler
+  -> IO ()
+setUncaughtExceptionHandler ks h =
+  writeIORef (ksUncaught ks) h
+
+-- | Run the supplied event loop with KIP-671 uncaught-exception
+-- handling. On exception the user handler decides whether to
+-- respawn the loop, shut this instance down, or shut the whole
+-- application down. 'ReplaceThread' loops back to run the body
+-- again; the other two responses transition the runtime into
+-- 'StreamsError' / 'StreamsClosing' and return.
+supervisedLoop
+  :: KafkaStreams
+  -> StreamDriver
+  -> IO ()
+  -> IO ()
+supervisedLoop ks _drv body = go
+  where
+    go = do
+      r <- try body :: IO (Either SomeException ())
+      case r of
+        Right () -> pure ()
+        Left e -> do
+          h <- readIORef (ksUncaught ks)
+          resp <- runStreamsUncaughtExceptionHandler h e
+          case resp of
+            ReplaceThread       -> go
+            ShutdownClient      ->
+              transitionTo ks
+                (StreamsError ("uncaught (shutdown-client): "
+                                <> Text.pack (show e)))
+            ShutdownApplication ->
+              transitionTo ks
+                (StreamsError ("uncaught (shutdown-app): "
+                                <> Text.pack (show e)))
 
 ----------------------------------------------------------------------
 -- Progress signal (for tests)
