@@ -444,12 +444,12 @@ pipeline_attach_reauth_driver_pauses_during_handshake =
         observedPausedRef <- IORef.newIORef False
         ranRef            <- IORef.newIORef False
         let runner = Reauth.ReauthRunner
-              { Reauth.rrAuthenticate = do
+              { Reauth.authenticate = do
                   paused <- isPipelinePaused pipe
                   IORef.writeIORef observedPausedRef paused
                   IORef.writeIORef ranRef True
                   pure (Right 60_000)
-              , Reauth.rrLogger = \_ -> pure ()
+              , Reauth.logger = \_ -> pure ()
               }
 
         attachReauthDriver pipe state runner

@@ -43,10 +43,10 @@ force_now = do
   st <- RD.createReauthState 60_000
   callsRef <- newIORef (0 :: Int)
   let runner = RD.ReauthRunner
-        { RD.rrAuthenticate = do
+        { RD.authenticate = do
             modifyIORef' callsRef (+ 1)
             pure (Right 60_000)
-        , RD.rrLogger = \_ -> pure ()
+        , RD.logger = \_ -> pure ()
         }
   RD.startReauthThread st runner
   RD.forceReauthNow st
@@ -65,8 +65,8 @@ success_path :: IO ()
 success_path = do
   st <- RD.createReauthState 60_000
   let runner = RD.ReauthRunner
-        { RD.rrAuthenticate = pure (Right 30_000)
-        , RD.rrLogger       = \_ -> pure ()
+        { RD.authenticate = pure (Right 30_000)
+        , RD.logger       = \_ -> pure ()
         }
   RD.startReauthThread st runner
   RD.forceReauthNow st
@@ -89,8 +89,8 @@ failure_path = do
   st <- RD.createReauthState 60_000
   let theErr = SASL.AuthMechanism "stub failure"
       runner = RD.ReauthRunner
-        { RD.rrAuthenticate = pure (Left theErr)
-        , RD.rrLogger       = \_ -> pure ()
+        { RD.authenticate = pure (Left theErr)
+        , RD.logger       = \_ -> pure ()
         }
   RD.startReauthThread st runner
   RD.forceReauthNow st

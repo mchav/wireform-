@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -417,14 +418,14 @@ withPausedPipeline pipe action = do
 
 -- | KIP-368: attach a 'ReauthState'-driven background thread to
 -- this pipeline. The pipeline's 'pipelinePaused' flag is
--- toggled around every 'rrAuthenticate' call so the SASL
+-- toggled around every 'authenticate' call so the SASL
 -- handshake doesn't race against in-flight requests:
 --
 -- @
 -- attachReauthDriver pipe reauthState reauthRunner
 -- @
 --
--- runs the user's 'rrAuthenticate' /inside/
+-- runs the user's 'authenticate' /inside/
 -- 'withPausedPipeline', which:
 --
 --   1. flips 'pipelinePaused' to 'True', preventing the send
@@ -446,9 +447,9 @@ attachReauthDriver
   -> IO ()
 attachReauthDriver pipe st runner = do
   let !wrapped = runner
-        { Kafka.Client.ReauthDriver.rrAuthenticate =
+        { Kafka.Client.ReauthDriver.authenticate =
             withPausedPipeline pipe $ \_conn ->
-              Kafka.Client.ReauthDriver.rrAuthenticate runner
+              runner.authenticate
         }
   Kafka.Client.ReauthDriver.startReauthThread st wrapped
 

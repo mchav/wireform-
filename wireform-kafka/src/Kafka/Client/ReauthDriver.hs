@@ -1,6 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -70,32 +73,32 @@ import qualified Kafka.Time as KafkaTime
 -- driver writes the error into 'reauthLastError' so the
 -- pipeline can tear the connection down.
 data ReauthRunner = ReauthRunner
-  { rrAuthenticate :: IO (Either SASL.AuthError Int)
+  { authenticate :: IO (Either SASL.AuthError Int)
     -- ^ 'Right ms' on success — the broker's @session.lifetime.ms@.
-  , rrLogger :: SASL.AuthError -> IO ()
+  , logger :: SASL.AuthError -> IO ()
     -- ^ Optional callback for failure observability. The driver
-    --   already records the error in 'reauthLastError'; this
+    --   already records the error in 'lastError'; this
     --   gives the producer a chance to bump a metric / log.
   }
 
 -- | Per-connection re-auth state.
 data ReauthState = ReauthState
-  { reauthDeadline   :: !(TVar (Maybe Int64))
+  { deadline               :: !(TVar (Maybe Int64))
     -- ^ Next epoch-ms past which a fresh handshake must
     --   complete. 'Nothing' disables re-auth (e.g. plain TCP
     --   without SASL).
-  , reauthInFlight   :: !(TVar Bool)
+  , inFlight               :: !(TVar Bool)
     -- ^ 'True' between the moment the driver kicks off a
     --   handshake and the moment the handshake completes
     --   (success or fail). The pipeline's send loop blocks on
     --   this via 'awaitReauthQuiet'.
-  , reauthRunning    :: !(TVar Bool)
-  , reauthLastError  :: !(TVar (Maybe SASL.AuthError))
-  , reauthClientMaxMs :: !Int
+  , running                :: !(TVar Bool)
+  , lastError              :: !(TVar (Maybe SASL.AuthError))
+  , clientMaxMs            :: !Int
     -- ^ The configured @connections.max.reauth.ms@ value.
-  , reauthLastBrokerLifetimeMs :: !(TVar Int)
+  , lastBrokerLifetimeMs   :: !(TVar Int)
     -- ^ The broker's most recent @session.lifetime.ms@.
-  , reauthThread     :: !(TVar (Maybe ThreadId))
+  , thread                 :: !(TVar (Maybe ThreadId))
   }
 
 -- | Build a fresh state. The deadline is computed lazily on
@@ -105,7 +108,7 @@ data ReauthState = ReauthState
 createReauthState
   :: Int                  -- ^ client @connections.max.reauth.ms@
   -> IO ReauthState
-createReauthState clientMaxMs = do
+createReauthState maxMs = do
   d   <- newTVarIO Nothing
   inf <- newTVarIO False
   run <- newTVarIO True
@@ -113,30 +116,30 @@ createReauthState clientMaxMs = do
   bro <- newTVarIO 0
   thd <- newTVarIO Nothing
   pure ReauthState
-    { reauthDeadline             = d
-    , reauthInFlight             = inf
-    , reauthRunning              = run
-    , reauthLastError            = err
-    , reauthClientMaxMs          = clientMaxMs
-    , reauthLastBrokerLifetimeMs = bro
-    , reauthThread               = thd
+    { deadline             = d
+    , inFlight             = inf
+    , running              = run
+    , lastError            = err
+    , clientMaxMs          = maxMs
+    , lastBrokerLifetimeMs = bro
+    , thread               = thd
     }
 
 -- | Start the background thread. Idempotent; calling twice on
 -- the same state has no effect.
 startReauthThread :: ReauthState -> ReauthRunner -> IO ()
 startReauthThread st runner = do
-  existing <- readTVarIO (reauthThread st)
+  existing <- readTVarIO st.thread
   case existing of
     Just _ -> pure ()
     Nothing -> do
       tid <- forkIO (driverLoop st runner)
-      atomically $ writeTVar (reauthThread st) (Just tid)
+      atomically $ writeTVar st.thread (Just tid)
 
 stopReauthThread :: ReauthState -> IO ()
 stopReauthThread st = do
-  atomically (writeTVar (reauthRunning st) False)
-  m <- readTVarIO (reauthThread st)
+  atomically (writeTVar st.running False)
+  m <- readTVarIO st.thread
   case m of
     Nothing  -> pure ()
     Just tid -> killThread tid
@@ -146,14 +149,14 @@ stopReauthThread st = do
 ----------------------------------------------------------------------
 
 driverLoop :: ReauthState -> ReauthRunner -> IO ()
-driverLoop st@ReauthState{..} runner = loop
+driverLoop st runner = loop
   where
     loop = do
-      keepGoing <- readTVarIO reauthRunning
+      keepGoing <- readTVarIO st.running
       if not keepGoing
         then pure ()
         else do
-          mDeadline <- readTVarIO reauthDeadline
+          mDeadline <- readTVarIO st.deadline
           now <- nowMs
           let !nowI = fromIntegral now :: Int
           case mDeadline of
@@ -178,31 +181,31 @@ driverLoop st@ReauthState{..} runner = loop
 
 doHandshake :: ReauthState -> ReauthRunner -> IO ()
 doHandshake st runner = do
-  atomically $ writeTVar (reauthInFlight st) True
-  r <- try (rrAuthenticate runner) :: IO (Either SomeException (Either SASL.AuthError Int))
+  atomically $ writeTVar st.inFlight True
+  r <- try runner.authenticate :: IO (Either SomeException (Either SASL.AuthError Int))
   case r of
     Left e -> do
       let !err = SASL.AuthTransport ("reauth: " <> show e)
       atomically $ do
-        writeTVar (reauthLastError st) (Just err)
-        writeTVar (reauthInFlight st) False
-      rrLogger runner err
+        writeTVar st.lastError (Just err)
+        writeTVar st.inFlight False
+      runner.logger err
     Right (Left err) -> do
       atomically $ do
-        writeTVar (reauthLastError st) (Just err)
-        writeTVar (reauthInFlight st) False
-      rrLogger runner err
+        writeTVar st.lastError (Just err)
+        writeTVar st.inFlight False
+      runner.logger err
     Right (Right brokerLifetimeMs) -> do
       now <- nowMs
       atomically $ do
-        writeTVar (reauthLastBrokerLifetimeMs st) brokerLifetimeMs
+        writeTVar st.lastBrokerLifetimeMs brokerLifetimeMs
         let !d = SASL.effectiveReauthDeadlineMs
                    (fromIntegral now)
                    brokerLifetimeMs
-                   (reauthClientMaxMs st)
-        writeTVar (reauthDeadline st) (fmap fromIntegral d)
-        writeTVar (reauthInFlight st) False
-        writeTVar (reauthLastError st) Nothing
+                   st.clientMaxMs
+        writeTVar st.deadline (fmap fromIntegral d)
+        writeTVar st.inFlight False
+        writeTVar st.lastError Nothing
 
 ----------------------------------------------------------------------
 -- Pipeline interaction
@@ -214,7 +217,7 @@ doHandshake st runner = do
 -- pauses until the driver finishes.
 awaitReauthQuiet :: ReauthState -> IO ()
 awaitReauthQuiet st = atomically $ do
-  inf <- readTVar (reauthInFlight st)
+  inf <- readTVar st.inFlight
   check (not inf)
 
 -- | Trigger a handshake right now (e.g. on first connection
@@ -225,15 +228,15 @@ forceReauthNow :: ReauthState -> IO ()
 forceReauthNow st = atomically $
   -- Setting the deadline to "now - 1" forces the loop to fire
   -- on its next wakeup (within ~250 ms of idle wait).
-  writeTVar (reauthDeadline st) (Just 0)
+  writeTVar st.deadline (Just 0)
 
 -- | Inspect the current deadline. Useful for tests / metrics.
 currentDeadlineMs :: ReauthState -> IO (Maybe Int64)
-currentDeadlineMs = readTVarIO . reauthDeadline
+currentDeadlineMs st = readTVarIO st.deadline
 
 -- | Inspect whether a handshake is in flight right now.
 reauthInProgress :: ReauthState -> IO Bool
-reauthInProgress = readTVarIO . reauthInFlight
+reauthInProgress st = readTVarIO st.inFlight
 
 ----------------------------------------------------------------------
 -- Helpers
