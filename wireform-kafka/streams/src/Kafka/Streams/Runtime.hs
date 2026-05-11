@@ -150,10 +150,13 @@ import Kafka.Streams.Runtime.RevocationGrace
 import Kafka.Streams.Runtime.WorkerPool
   ( WorkerPool
   , Worker (..)
+  , addPoolWorker
   , closeWorkerPool
   , commitAllWorkers
   , newWorkerPoolHashed
   , poolWorkers
+  , poolWorkerCount
+  , removePoolWorker
   , submitRecordHashed
   , waitForQuiescence
   , workerCollector
@@ -903,34 +906,30 @@ setUncaughtExceptionHandler ks h =
 -- running (or doesn't have a worker pool — i.e. it was started
 -- with @numStreamThreads = 1@).
 --
--- The added thread participates in hash-routed dispatch
--- starting on its first poll cycle.
+-- The added thread participates in hash-routed dispatch from
+-- its first 'submitRecordHashed' call. Existing routing
+-- entries don't migrate to the new worker — state-store
+-- locality stays with the worker that already holds it.
 addStreamThread :: KafkaStreams -> IO (Maybe Int)
 addStreamThread ks = do
   mPool <- readIORef (ksPool ks)
   case mPool of
     Nothing   -> pure Nothing
-    Just _pool -> do
-      -- Java's @addStreamThread()@ is best-effort: it queues a
-      -- request the StreamThread manager picks up on its next
-      -- iteration. We model that by mutating the pool's thread
-      -- count guidance; the live runtime can rebuild the pool
-      -- when it next reconciles. For now we return the
-      -- /requested/ count so callers can poll
-      -- 'streamThreadCount' for convergence.
-      n <- streamThreadCount ks
-      pure (Just (n + 1))
+    Just pool -> Just <$> addPoolWorker pool
 
--- | Remove a stream-thread at runtime. Returns the new total or
--- 'Nothing' when there's no worker pool to remove from.
+-- | Remove a stream-thread at runtime. Drains the worker's
+-- inbox, cancels its async, closes its engine, and rebalances
+-- the routing table so subsequent records on the removed
+-- worker's partitions re-hash onto a remaining worker.
+--
+-- Returns 'Just newCount' on success, 'Nothing' when there's
+-- no worker pool to remove from (single-thread runtime).
 removeStreamThread :: KafkaStreams -> IO (Maybe Int)
 removeStreamThread ks = do
   mPool <- readIORef (ksPool ks)
   case mPool of
     Nothing   -> pure Nothing
-    Just _pool -> do
-      n <- streamThreadCount ks
-      pure (Just (max 0 (n - 1)))
+    Just pool -> removePoolWorker pool
 
 -- | Number of stream-threads currently in the worker pool.
 -- Returns 1 for a single-thread runtime.
@@ -939,7 +938,7 @@ streamThreadCount ks = do
   mPool <- readIORef (ksPool ks)
   case mPool of
     Nothing   -> pure 1
-    Just pool -> pure (V.length (poolWorkers pool))
+    Just pool -> poolWorkerCount pool
 
 -- | Wipe local state before re-starting. Mirrors Java's
 -- @KafkaStreams.cleanUp()@: drops in-memory store contents +
