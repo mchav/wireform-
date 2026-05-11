@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -73,12 +74,12 @@ runDemo = do
     Nothing  -> putStrLn "store missing"
     Just kvs -> do
       mapM_ (\k -> do
-              v <- roKvGet kvs k
+              v <- kvs.roKvGet k
               putStrLn ("  get " <> show k <> " = " <> show v))
         ["alice", "bob", "carol", "dave"]
 
       -- Range scan: iterate every (key, count) in lexical order.
-      it <- roKvAll kvs
+      it <- kvs.roKvAll
       pairs <- kvIteratorToList it
       putStrLn "  range(all):"
       mapM_ (\(k, v) -> putStrLn ("    " <> show k <> " = " <> show v)) pairs

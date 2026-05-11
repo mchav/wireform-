@@ -412,6 +412,63 @@ shipped operator end-to-end (375 cases in
 
 ---
 
+## Idiomatic Haskell façades
+
+The DSL mirrors the JVM fluent builder one-to-one — that's the
+shape most user docs are written for. If you'd rather build
+topologies with Haskell-native vocabulary (`do`-notation,
+`Category` composition, `Functor`), three opt-in modules sit
+on top of the same primitives:
+
+- `Kafka.Streams.DSL.Topology` — a `TopologyM` monad so the
+  topology becomes a single `do` block. No explicit
+  `StreamsBuilder` threading, no `IO` in user code:
+
+  ```haskell
+  topology :: TopologyM ()
+  topology = do
+    src <- streamFrom (topicName "in") (consumed textSerde textSerde)
+    src |> mapValuesM T.toUpper
+        >>= filterStreamM (\r -> recordValue r /= "")
+        >>= sinkTo (topicName "out") (produced textSerde textSerde)
+  ```
+
+  Run with `runTopologyM`. Operators live in
+  `Kafka.Streams.DSL.Monadic`.
+
+- `Kafka.Streams.DSL.Pipeline` — `Pipeline a b` is a
+  `Kleisli`-style arrow over `KStream`. It's a
+  `Control.Category` instance so transformations compose with
+  `(.)` / `(>>>)` like ordinary functions, and you can save a
+  pipeline as a top-level value and reuse it across topologies:
+
+  ```haskell
+  normalise :: Pipeline (KStream Text Text) (KStream Text Text)
+  normalise = pmapValues T.toUpper
+          >>> pfilter    (\r -> recordValue r /= "")
+  
+  out <- applyPipeline normalise src
+  ```
+
+- `Kafka.Streams.DSL.Mappable` — `OfStream k v` is a one-arg
+  newtype around `KStream` that's a `Functor` over the value
+  type. Lets `fmap` / `<$>` queue up `mapValues` operations,
+  flushed by `withStream`:
+
+  ```haskell
+  out <- withStream $ liftStream src
+       & fmap T.strip
+       & fmap T.toUpper
+  ```
+
+All three are opt-in — the existing imperative DSL stays.
+Pick the style that fits the topology; mixing more than one
+in the same module gets confusing. See
+[`IdiomaticPipeline`](examples/Kafka/Streams/Examples/IdiomaticPipeline.hs)
+for one topology written three different ways.
+
+---
+
 ## Examples
 
 `wireform-kafka/streams/examples/` ships fourteen demos
