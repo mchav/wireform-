@@ -1,24 +1,121 @@
 # wireform-kafka
 
-A Haskell Kafka client + Streams DSL with full wire-protocol
-coverage and operator-level parity with the Java reference.
+A pure-Haskell client for Apache Kafka. It lets your Haskell
+program publish records to a Kafka cluster and read records back
+out, with full support for everything the Kafka protocol does:
+consumer groups, transactions, TLS, SASL, idempotent producers,
+record compression, and a stream-processing DSL on top.
 
-`wireform-kafka` ships two layers behind one cabal package:
+> **Never used Kafka before?** See [`CONCEPTS.md`](./CONCEPTS.md)
+> for a plain-language primer (topics, partitions, offsets,
+> consumer groups, transactions). It's a five-minute read.
 
-- **Client** (`Kafka.Client.*`) — producer, consumer, admin,
-  pipelined I/O, SASL (PLAIN / SCRAM-SHA-256 / SCRAM-SHA-512 /
-  OAUTHBEARER), TLS, transactions with exactly-once semantics.
-- **Streams DSL** (`Kafka.Streams.*`) — `KStream` / `KTable` /
-  `KGroupedStream` / `KGroupedTable` (with subtractor) /
-  `GlobalKTable` / windowed aggregations / sessions / joins /
-  foreign-key joins / cogroup / suppress / interactive
-  queries / fixed-key processors. The runtime drives a real
-  broker through the same connection layer the client uses.
+## What's in the box
 
-The DSL is documented end-to-end in
-[`streams/README.md`](streams/README.md). A runnable
-introduction that walks from "hello world" to a transactional
-Streams pipeline lives in [`TUTORIAL.md`](TUTORIAL.md).
+The package is split into three layers. You pick the one that
+fits your job:
+
+| You want to… | Use this | Notes |
+|---|---|---|
+| Send records to a topic | `Kafka.Client.Producer` (or `Kafka` umbrella) | A long-lived `Producer` handle. Use `withProducer` for the bracket. |
+| Receive records, one handler per record | `Kafka.Client.Group.runConsumer` | Wraps the poll loop, the group join, and offset commits. Recommended starting point. |
+| Receive records and drive the poll loop yourself | `Kafka.Client.Consumer` | Lower level than `Group`. Use `withConsumer` for the bracket. |
+| Run a stream-processing topology | `Kafka.Streams` | KStream / KTable / joins / windowed aggregations. |
+| Manage topics, groups, ACLs, configs | `Kafka.Client.AdminClient` | The cluster's control plane. |
+| Drive a raw wire request | `Kafka.Protocol.Generated.*` | One module per Kafka API; for custom tooling. |
+
+The `Kafka` umbrella module re-exports the high-level producer,
+consumer, group runner, and transaction APIs in one place — for
+most apps you only need `import qualified Kafka`.
+
+## Hello world
+
+Publish a record and read it back. Requires a Kafka broker
+reachable at `localhost:9092` (the integration `docker-compose`
+in `test-integration/docker-compose.yml` spins one up).
+
+### Produce
+
+```haskell
+import qualified Kafka
+
+main :: IO ()
+main =
+  Kafka.withProducer ["localhost:9092"] Kafka.defaultProducerConfig $ \p -> do
+    md <- Kafka.sendMessage p "events" Nothing "hello"
+    print md
+```
+
+`withProducer` opens the connection, runs your body, and on the
+way out flushes anything buffered and closes connections — even
+if you throw.
+
+### Consume (high-level)
+
+```haskell
+import qualified Kafka
+import qualified Data.ByteString.Char8 as BS
+
+main :: IO ()
+main =
+  Kafka.runConsumer
+    Kafka.defaultGroupConfig
+      { Kafka.bootstrapBrokers = ["localhost:9092"]
+      , Kafka.groupId          = "my-service"
+      , Kafka.topics           = ["events"]
+      }
+    $ \rec ->
+        BS.putStrLn (Kafka.crValue rec)
+```
+
+`runConsumer` joins the consumer group, hands you records one at
+a time, commits offsets after each one, and leaves the group on a
+normal exit or an exception.
+
+For higher throughput, use `runBatchedConsumer` — same idea, but
+the handler receives a whole batch per call and one commit covers
+the whole batch.
+
+### Consume (custom poll loop)
+
+If you want to control when you poll and commit:
+
+```haskell
+import qualified Kafka.Client.Consumer as Consumer
+
+main :: IO ()
+main =
+  Consumer.withConsumer
+    ["localhost:9092"] "my-service"
+    Consumer.defaultConsumerConfig
+    ["events"]
+    $ \c -> do
+        Right recs <- Consumer.poll c 1000
+        mapM_ print recs
+        _ <- Consumer.commitSync c
+        pure ()
+```
+
+### Streams
+
+```haskell
+import qualified Kafka.Streams as S
+
+main :: IO ()
+main = do
+  builder <- S.newStreamsBuilder
+  src <- S.streamFromTopic builder (S.topicName "in")
+           (S.consumed S.textSerde S.textSerde)
+  _ <- S.mapValues (\v -> v <> "!") src
+       >>= S.toTopic (S.topicName "out") (S.produced S.textSerde S.textSerde)
+  topo <- S.buildTopology builder
+  print topo
+```
+
+See [`streams/README.md`](./streams/README.md) for the full DSL
+reference and [`TUTORIAL.md`](./TUTORIAL.md) for a guided
+walkthrough from "hello world" to a transactional Streams
+pipeline.
 
 ## Status
 
@@ -42,92 +139,45 @@ The package is part of the
 Clone the repo and `cabal build wireform-kafka` to compile
 locally.
 
-## Hello world
-
-### Producer
-
-```haskell
-import Kafka.Client.Producer
-
-main :: IO ()
-main = do
-  Right producer <- createProducer ["localhost:9092"]
-                      defaultProducerConfig
-  Right md <- sendMessage producer "my-topic" Nothing "hello"
-  print md
-  closeProducer producer
-```
-
-### Consumer
-
-```haskell
-import Kafka.Client.Consumer
-import Control.Monad (forever)
-
-main :: IO ()
-main = do
-  Right c <- createConsumer ["localhost:9092"]
-               "my-group" defaultConsumerConfig
-  subscribe c ["my-topic"]
-  forever $ do
-    Right recs <- poll c 1000
-    mapM_ (\r -> print (crValue r)) recs
-    commitSync c
-```
-
-### Streams
-
-```haskell
-import Kafka.Streams
-
-main :: IO ()
-main = do
-  b <- newStreamsBuilder
-  src <- streamFromTopic b (topicName "in")
-           (consumed textSerde textSerde)
-  out <- mapValues (\v -> v <> "!") src
-  toTopic (topicName "out") (produced textSerde textSerde) out
-  topo <- buildTopology b
-  -- For tests, run against the in-process driver:
-  -- driver <- newDriver topo "my-app"
-  -- pipeInput driver (topicName "in") Nothing "hi" (Timestamp 0) 0
-  -- For production, run against a live broker via
-  -- 'Kafka.Streams.Runtime.startKafkaStreams'.
-  print topo
-```
-
 ## Configuration
 
-Producer / consumer / connection configuration mirrors
-librdkafka's key names. The full mapping lives in
-[`CONFIG_PARITY.md`](CONFIG_PARITY.md). The most common knobs:
+`ProducerConfig`, `ConsumerConfig`, and `GroupConfig` are plain
+Haskell records — every knob has a field. Start from
+`defaultProducerConfig` / `defaultConsumerConfig` /
+`defaultGroupConfig` and override only the fields you care about:
 
 ```haskell
-producerConfig = defaultProducerConfig
-  { producerCompression = Zstd
-  , producerBatchSize   = 32768
-  , producerLingerMs    = 10
-  , producerIdempotent  = True
+producerConfig = Kafka.defaultProducerConfig
+  { Kafka.producerCompression = Kafka.Zstd
+  , Kafka.producerBatchSize   = 32768
+  , Kafka.producerLingerMs    = 10
+  , Kafka.producerIdempotent  = True
   }
 
-consumerConfig = defaultConsumerConfig
-  { consumerGroupId           = "my-group"
-  , consumerAutoCommit        = False
-  , consumerAssignmentStrategy = StickyAssignment
-  , consumerAutoOffsetReset   = Earliest
+groupConfig = Kafka.defaultGroupConfig
+  { Kafka.bootstrapBrokers   = ["broker-1:9092"]
+  , Kafka.groupId            = "my-service"
+  , Kafka.topics             = ["events"]
+  , Kafka.commitMode         = Kafka.CommitSync
+  , Kafka.autoOffsetReset    = Kafka.Earliest
   }
 
-connectionConfig = defaultConnectionConfig
-  { connUseTls = True
-  , connTlsSettings = Just (defaultTlsSettings "broker.example.com")
+connectionConfig = Conn.defaultConnectionConfig
+  { Conn.connUseTls = True
+  , Conn.connTlsSettings = Just (Conn.defaultTlsSettings "broker.example.com")
   }
 ```
 
-### TLS Offload (sidecar / kTLS / NLB)
+The field haddocks list the librdkafka name every knob mirrors;
+the full mapping lives in [`CONFIG_PARITY.md`](./CONFIG_PARITY.md).
+Setting any `KAFKA_*` environment variable layers an override on
+top of the supplied config automatically.
+
+### TLS offload (sidecar / kTLS / NLB)
 
 When a sidecar process (Envoy, linkerd2-proxy, stunnel,
-`kafka-proxy`), a Layer-4 TLS-terminating load balancer, or kernel
-TLS (`CONFIG_TLS`) is responsible for the cipher work, the
+`kafka-proxy`), a Layer-4 TLS-terminating load balancer, or
+kernel TLS (`CONFIG_TLS`) is responsible for the cipher work, the
 client can skip its own TLS handshake and route every broker
 connection through that endpoint:
 
@@ -151,8 +201,6 @@ viaPerBrokerStunnel = defaultConnectionConfig
          TlsOffloadTcp "127.0.0.1" 19094)
       , (OffloadBrokerKey "b-2.kafka.example.com" 9094,
          TlsOffloadTcp "127.0.0.1" 19095)
-      , (OffloadBrokerKey "b-3.kafka.example.com" 9094,
-         TlsOffloadTcp "127.0.0.1" 19096)
       ]
   }
 
@@ -163,24 +211,22 @@ viaKtls = defaultConnectionConfig
   { connTlsOffload = Just transparentTlsOffload }
 ```
 
-In every offload mode the connection pool is still keyed by the
-logical broker address — per-broker SASL state and request
-pipelining work normally when several brokers fan in to the same
-sidecar socket. See "Kafka.Network.TlsOffload" for the full
-configuration surface.
+The connection pool is still keyed by the logical broker address —
+per-broker SASL state and request pipelining work normally when
+several brokers fan in to the same sidecar socket. See
+"Kafka.Network.TlsOffload" for the full configuration surface.
 
 ## Security
 
-- SASL/PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER. Mid-session
+- **SASL** — PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER. Mid-session
   re-authentication is supported via
   `Kafka.Client.Pipeline.attachReauthDriver`.
-- TLS 1.2 + 1.3 via `tls-1.x`.
+- **TLS 1.2 + 1.3** via `tls-1.x`.
 
 ## Observability
 
-- OpenTelemetry spans + metrics via
-  `Kafka.Telemetry.OpenTelemetry`. Follows the messaging
-  semantic conventions.
+- OpenTelemetry spans + metrics via `Kafka.Telemetry.OpenTelemetry`.
+  Follows the messaging semantic conventions.
 - librdkafka-compatible JSON stats via `Kafka.Client.Stats`.
 - Producer / consumer interceptors for per-record telemetry.
 
@@ -200,21 +246,22 @@ WIREFORM_KAFKA_BROKER=localhost:9092 cabal test \
 
 The in-process suites run on every CI commit; the
 docker-compose suite runs on every PR (see
-[`INTEGRATION_TESTING.md`](INTEGRATION_TESTING.md) for the
+[`INTEGRATION_TESTING.md`](./INTEGRATION_TESTING.md) for the
 full guide).
 
-## Benchmarks
+## Where to look next
 
-The streams runtime micro-bench measures the per-record CPU
-envelope of representative topology shapes:
-
-```bash
-cabal bench wireform-kafka:wireform-kafka-streams-bench \
-  --benchmark-options="--time-limit 1.5"
-```
-
-Current numbers + reproduction recipe + librdkafka comparison:
-[`streams/bench/results/README.md`](streams/bench/results/README.md).
+- [`CONCEPTS.md`](./CONCEPTS.md) — Kafka primer in plain language.
+- [`TUTORIAL.md`](./TUTORIAL.md) — guided walkthrough from
+  `runConsumer` to a transactional Streams pipeline.
+- [`streams/README.md`](./streams/README.md) — full Streams DSL
+  reference.
+- [`CONFIG_PARITY.md`](./CONFIG_PARITY.md) — librdkafka
+  knob-by-knob configuration mapping.
+- [`INTEGRATION_TESTING.md`](./INTEGRATION_TESTING.md) —
+  docker-compose + integration suite walkthrough.
+- [`PERFORMANCE.md`](./PERFORMANCE.md) — performance numbers and
+  tuning guide.
 
 ## License
 
