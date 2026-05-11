@@ -17,7 +17,6 @@ module Proto.Internal.Either
   ) where
 
 import Prelude ()
-import Data.Function ((.))
 import qualified Data.Either as BaseEither
 
 data Either a b = Either (# a | b #)

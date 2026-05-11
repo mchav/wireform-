@@ -40,10 +40,10 @@ module Proto.CodeGen
   , module Proto.CodeGen.Hooks
   ) where
 
-import Data.Char (isAsciiUpper, toLower, toUpper, isUpper)
+import Data.Char (isAsciiUpper, toLower, toUpper)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 
@@ -71,24 +71,6 @@ wire32Bit = 5
 
 computeTagByte :: Int -> Int -> Int
 computeTagByte fieldNum wireType = fieldNum * 8 + wireType
-
-scalarWireType :: ScalarType -> Int
-scalarWireType = \case
-  SDouble   -> wire64Bit
-  SFloat    -> wire32Bit
-  SInt32    -> wireVarint
-  SInt64    -> wireVarint
-  SUInt32   -> wireVarint
-  SUInt64   -> wireVarint
-  SSInt32   -> wireVarint
-  SSInt64   -> wireVarint
-  SFixed32  -> wire32Bit
-  SFixed64  -> wire64Bit
-  SSFixed32 -> wire32Bit
-  SSFixed64 -> wire64Bit
-  SBool     -> wireVarint
-  SString   -> wireLengthDelimited
-  SBytes    -> wireLengthDelimited
 
 tagLit :: Text -> Int -> Doc ann
 tagLit fnText wt =
@@ -700,7 +682,7 @@ genMapFieldDecl ctx scope mf =
   hsFieldTypeInner ctx scope (mapValueType mf) <> txt ")"
 
 genOneofFieldRef :: GenCtx -> [Text] -> OneofDef -> Doc ann
-genOneofFieldRef ctx scope od =
+genOneofFieldRef _ctx scope od =
   pretty (scopedFieldName scope (oneofName od)) <+> txt "::" <+>
   txt "!(Maybe " <> pretty (scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)) <> txt ")"
 
@@ -720,7 +702,7 @@ genOneofDecl ctx scope od =
       hsOneofFieldType cx s (oneofFieldType f)
 
 genOneofToJSONInstance :: GenCtx -> [Text] -> OneofDef -> Doc ann
-genOneofToJSONInstance ctx scope od =
+genOneofToJSONInstance _ctx scope od =
   let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
   in vsep
     [ instanceHead "Aeson.ToJSON" tyN
@@ -728,7 +710,7 @@ genOneofToJSONInstance ctx scope od =
     ]
 
 genOneofFromJSONInstance :: GenCtx -> [Text] -> OneofDef -> Doc ann
-genOneofFromJSONInstance ctx scope od =
+genOneofFromJSONInstance _ctx scope od =
   let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
   in vsep
     [ instanceHead "Aeson.FromJSON" tyN
@@ -818,7 +800,7 @@ genBuildExprScalar fn accessor lbl st = case lbl of
   _ -> txt "(if " <> scalarDefaultCheck accessor st <> txt " then mempty else " <> genSingleScalarBuild fn accessor st <> txt ")"
 
 genBuildExprNamed :: GenCtx -> Text -> Text -> Maybe FieldLabel -> Text -> TypeKind -> Doc ann
-genBuildExprNamed ctx fn accessor lbl _name tk = case tk of
+genBuildExprNamed _ctx fn accessor lbl _name tk = case tk of
   TKEnum -> case lbl of
     Just Repeated -> txt "V.foldl' (\\acc v -> acc <> archVarint " <> tagLit fn wireVarint <+> txt "(fromIntegral (fromEnum v))) mempty " <> pretty accessor
     Just Optional -> txt "(maybe mempty (\\v -> archVarint " <> tagLit fn wireVarint <+> txt "(fromIntegral (fromEnum v))) " <> pretty accessor <> txt ")"
@@ -856,6 +838,7 @@ genMapValEncode ctx = \case
     Just ti | tiKind ti == TKEnum -> txt "(\\x -> encodeFieldVarint 2 (fromIntegral (fromEnum x)))"
     _ -> txt "encodeFieldMessage 2"
   where
+    genMapKeyEncode' :: Int -> ScalarType -> Doc ann
     genMapKeyEncode' fn st = case st of
       SString  -> txt "encodeFieldString " <> pretty (T.pack (show fn))
       SBytes   -> txt "encodeFieldBytes " <> pretty (T.pack (show fn))
@@ -869,7 +852,7 @@ genMapValEncode ctx = \case
       _ -> txt "encodeFieldVarint " <> pretty (T.pack (show fn)) <> txt " . fromIntegral"
 
 genBuildExprOneof :: GenCtx -> [Text] -> Text -> Text -> OneofDef -> Doc ann
-genBuildExprOneof ctx scope fn accessor ood =
+genBuildExprOneof ctx scope _fn accessor ood =
   txt "(case " <> pretty accessor <> txt " of" <> line <>
   indent 2 (vsep
     (txt "Nothing -> mempty" :
@@ -1009,7 +992,7 @@ genRepeatedSizeScalar fn accessor = \case
     txt "(let pl = VU.foldl' (\\a v -> a + varintSize (zigZag64 v)) 0 " <> pretty accessor <> txt " in if pl == 0 then 0 else tagSize " <> pretty fn <> txt " + varintSize (fromIntegral pl) + pl)"
 
 genSingleSizeScalar :: Text -> Text -> ScalarType -> Doc ann
-genSingleSizeScalar fn accessor = \case
+genSingleSizeScalar _fn accessor = \case
   SDouble   -> txt "archFixed64Size"
   SFloat    -> txt "archFixed32Size"
   SFixed32  -> txt "archFixed32Size"
@@ -1027,7 +1010,7 @@ genSingleSizeScalar fn accessor = \case
   SBytes    -> txt "archBytesSize " <> pretty accessor
 
 genSizeNamed :: GenCtx -> Text -> Text -> Maybe FieldLabel -> Text -> TypeKind -> Doc ann
-genSizeNamed ctx fn accessor lbl name tk = case tk of
+genSizeNamed _ctx _fn accessor lbl _name tk = case tk of
   TKEnum -> case lbl of
     Just Repeated -> txt "(V.foldl' (\\acc v -> acc + archVarintSize (fromIntegral (fromEnum v))) 0 " <> pretty accessor <> txt ")"
     Just Optional -> txt "(maybe 0 (\\v -> archVarintSize (fromIntegral (fromEnum v))) " <> pretty accessor <> txt ")"
@@ -1071,13 +1054,13 @@ mapValSizeExpr ctx = \case
   FTScalar SFixed64 -> txt "fieldFixed64Size 2"
   FTScalar SSFixed32 -> txt "fieldFixed32Size 2"
   FTScalar SSFixed64 -> txt "fieldFixed64Size 2"
-  FTScalar s -> txt "fieldVarintSize 2 (fromIntegral v)"
+  FTScalar _s -> txt "fieldVarintSize 2 (fromIntegral v)"
   FTNamed n -> case resolveType ctx n of
     Just ti | tiKind ti == TKEnum -> txt "fieldVarintSize 2 (fromIntegral (fromEnum v))"
     _ -> txt "fieldMessageSize 2 (messageSize v)"
 
 genSizeOneof :: GenCtx -> [Text] -> Text -> Text -> OneofDef -> Doc ann
-genSizeOneof ctx scope fn accessor ood =
+genSizeOneof ctx scope _fn accessor ood =
   txt "(case " <> pretty accessor <> txt " of { Nothing -> 0" <>
   vsep (fmap (\f ->
     let conName = oneofConName scope (oneofName ood) (oneofFieldName f)
@@ -1099,7 +1082,7 @@ genDecodeInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genDecodeInstance ctx scope msg =
   let tyN = scopedTypeName scope
       fields = extractAllFields ctx scope (msgElements msg)
-      allAccs = fmap (\(i, _) -> "acc_" <> T.pack (show i)) (zip [0..] fields)
+      allAccs = fmap (\(i, _) -> "acc_" <> T.pack (show i)) (zip ([0..] :: [Int]) fields)
       unknownAcc = "acc_unknown_"
       allAccsWithUnknown = allAccs <> [unknownAcc]
       unknownFieldName = unknownFieldAccessor scope
@@ -1217,7 +1200,7 @@ scalarPackedDecoderExpr = \case
   SBytes    -> "(decodeFail (CustomError \"repeated bytes is never packed\"))"
 
 genNamedDecodeCase :: GenCtx -> [Text] -> FieldInfoFull -> Maybe FieldLabel -> Text -> TypeKind -> Doc ann
-genNamedDecodeCase ctx allAccs fi lbl name tk =
+genNamedDecodeCase _ctx allAccs fi lbl _name tk =
   let fn = T.pack (show (fifFieldNum fi))
       idx = fifIndex fi
       accName = "acc_" <> T.pack (show idx)
@@ -1278,7 +1261,7 @@ genOneofDecodeCase ctx scope ooName allAccs fi oof =
      ]
 
 genDefaultDecodeCase :: [Text] -> [Text] -> Doc ann
-genDefaultDecodeCase scope allAccsWithUnknown =
+genDefaultDecodeCase _scope allAccsWithUnknown =
   let unknownAcc = last allAccsWithUnknown
       fieldAccs = init allAccsWithUnknown
       newAccs = fieldAccs <> ["(uf : " <> unknownAcc <> ")"]
@@ -1289,7 +1272,7 @@ genDefaultDecodeCase scope allAccsWithUnknown =
        ])
 
 fieldDefaultText :: GenCtx -> FieldInfoFull -> Text
-fieldDefaultText ctx fi = case fifKind fi of
+fieldDefaultText _ctx fi = case fifKind fi of
   FKScalar lbl ft -> case lbl of
     Just Repeated | isUnboxableScalar ft -> "VU.empty"
     Just Repeated -> "V.empty"
@@ -1355,7 +1338,7 @@ mapValDefaultLit ctx = \case
 -- ---------------------------------------------------------------------------
 
 genIsMessageInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
-genIsMessageInstance ctx scope msg =
+genIsMessageInstance ctx scope _msg =
   let tyN = scopedTypeName scope
       fqn = fqProtoName (gcPkg ctx) scope
   in vsep
@@ -1478,7 +1461,7 @@ genToJSONInstance ctx scope msg =
         ]
 
 genToJSONField :: GenCtx -> JSONFieldInfo -> Doc ann
-genToJSONField ctx jfi = case jfiKind jfi of
+genToJSONField _ctx jfi = case jfiKind jfi of
   JFKBytes ->
     txt "bytesFieldToJSON " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text) <+> txt "msg." <> pretty (jfiAccessor jfi)
   JFKOptionalBytes ->
@@ -1601,7 +1584,7 @@ genFieldHashApp acc fi =
       txt "hashWithSalt (" <> acc <> txt ") " <> fld
 
 genOneofHashableInstance :: GenCtx -> [Text] -> OneofDef -> Doc ann
-genOneofHashableInstance ctx scope od =
+genOneofHashableInstance _ctx scope od =
   let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
       arms = zipWith (genOneofHashArm scope (oneofName od)) [0 :: Int ..] (oneofFields od)
   in vsep
@@ -1616,7 +1599,7 @@ genOneofHashArm scope ooName tag f =
   in txt "hashWithSalt salt (" <> pretty conName <+> txt "v) = salt `hashWithSalt` (" <> pretty tagStr <> txt " :: Int) `hashWithSalt` v"
 
 genEnumHashableInstance :: [Text] -> EnumDef -> Doc ann
-genEnumHashableInstance scope ed =
+genEnumHashableInstance scope _ed =
   let tyN = scopedTypeName scope
   in vsep
     [ instanceHead "Hashable" tyN
@@ -1702,9 +1685,6 @@ extractAllFields ctx scope elems =
         in [FieldInfoFull accessor fn 0 (FKOneof scope od)]
       _ -> []
 
-resolveTypeKind :: GenCtx -> Text -> TypeKind
-resolveTypeKind ctx name = maybe TKMessage tiKind (resolveType ctx name)
-
 resolveTypeKindScoped :: GenCtx -> [Text] -> Text -> TypeKind
 resolveTypeKindScoped ctx scope name = maybe TKMessage tiKind (resolveTypeWithScope ctx scope name)
 
@@ -1728,7 +1708,7 @@ data JSONFieldInfo = JSONFieldInfo
   } deriving stock (Show, Eq)
 
 extractAllFieldsJSON :: GenCtx -> [Text] -> [MessageElement] -> [JSONFieldInfo]
-extractAllFieldsJSON ctx scope = concatMap go
+extractAllFieldsJSON _ctx scope = concatMap go
   where
     go = \case
       MEField fd ->
@@ -2033,7 +2013,7 @@ canonicalNameForNumber ed num =
     []     -> "UNKNOWN"
 
 genEnumEncodeInstance :: [Text] -> EnumDef -> Doc ann
-genEnumEncodeInstance scope ed =
+genEnumEncodeInstance scope _ed =
   let tyN = scopedTypeName scope
   in vsep
     [ instanceHead "MessageEncode" tyN
@@ -2110,9 +2090,6 @@ hsRepeatedType ctx scope = \case
 -- | Resolve a proto type name to its Haskell reference.
 -- Returns a qualified name like @PB_Timestamp.Timestamp@ for external types,
 -- or an unqualified name like @Payload@ for local types.
-resolveHsTypeName :: GenCtx -> Text -> Text
-resolveHsTypeName ctx name = qualifyTypeRef ctx (resolveType ctx name) name
-
 resolveHsTypeNameScoped :: GenCtx -> [Text] -> Text -> Text
 resolveHsTypeNameScoped ctx scope name = qualifyTypeRef ctx (resolveTypeWithScope ctx scope name) name
 

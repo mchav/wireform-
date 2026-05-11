@@ -42,25 +42,15 @@ module Proto.Decode.Fast
 
 import Data.Bits ((.&.), (.|.), shiftL, shiftR)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
-import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8, Word32, Word64)
-import GHC.Exts
-  ( Addr#, Int#, Int(..)
-  , indexWord8OffAddr#
-  , (+#), (>=#), isTrue#
-  , touch#, realWorld#
-  )
-import GHC.ForeignPtr (ForeignPtr(..), ForeignPtrContents)
-import GHC.Word (Word8(..))
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import Foreign.ForeignPtr (withForeignPtr)
-import Foreign.Ptr (Ptr, plusPtr, castPtr)
-import Foreign.Storable (peek, peekByteOff)
+import Foreign.Ptr (Ptr, castPtr)
+import Foreign.Storable (peekByteOff)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import Proto.Wire.Decode (DecodeError(..))

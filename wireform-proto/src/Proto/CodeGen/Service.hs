@@ -190,7 +190,7 @@ genServerTypeQ scope qualify svc =
     ]
 
 genServerFieldQ :: [Text] -> (Text -> Text) -> RpcDef -> Doc ann
-genServerFieldQ scope qualify rpc =
+genServerFieldQ _scope qualify rpc =
   let fname = lowerFirst' (snakeToCamel' (rpcName rpc)) <> "Handler"
   in pretty (escapeReserved' fname) <+> txt "::" <+> genRpcTypeQ qualify rpc
 
@@ -221,7 +221,7 @@ genClientTypeQ scope qualify svc =
     ]
 
 genClientFieldQ :: [Text] -> (Text -> Text) -> RpcDef -> Doc ann
-genClientFieldQ scope qualify rpc =
+genClientFieldQ _scope qualify rpc =
   let fname = lowerFirst' (snakeToCamel' (rpcName rpc))
   in pretty (escapeReserved' fname) <+> txt "::" <+> genRpcTypeQ qualify rpc
 

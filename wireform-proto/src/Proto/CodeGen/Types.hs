@@ -16,7 +16,7 @@ import Data.Text (Text)
 import Prettyprinter (Doc)
 import Proto.AST (MessageDef, EnumDef, OneofDef)
 import Proto.CodeGen (hsTypeName, hsModuleName, scopedTypeName, scopedFieldName,
-                      scopedEnumCon, snakeToCamel, snakeToPascal)
+                      snakeToCamel, snakeToPascal)
 
 hsFieldName :: Text -> Text
 hsFieldName = snakeToCamel

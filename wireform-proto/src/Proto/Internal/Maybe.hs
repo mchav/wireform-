@@ -20,7 +20,7 @@ module Proto.Internal.Maybe
   ) where
 
 import Prelude ()
-import Data.Function (const, id, (.))
+import Data.Function (const)
 import GHC.Base (Bool(True, False))
 import qualified Data.Maybe as BaseMaybe
 

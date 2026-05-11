@@ -70,13 +70,11 @@ import qualified Data.Scientific as Sci
 import Data.Sequence (Seq)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
 import Data.Word (Word32, Word64)
 
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import GHC.IO.Unsafe (unsafePerformIO)
-import qualified System.IO
 import qualified Data.Aeson as Aeson
 import qualified Proto.JSON.Extension as PJExt
 import qualified Proto.Decode as PD

@@ -84,14 +84,7 @@ module Proto.TH
 
 import Control.Applicative ((<|>))
 import Data.ByteString (ByteString)
-import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.Types as AesonT
-import qualified Data.Scientific as Sci
-import qualified Data.Text.Encoding as TE
-import qualified Proto.JSON as PJ
 import qualified Proto.JSON.Extension as PJExt
-import qualified Proto.Wire.Decode as PWDec
-import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
