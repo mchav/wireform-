@@ -358,6 +358,14 @@ data Producer = Producer
   , producerRoundRobinCounters :: !(IORef (HashMap.HashMap Text Int32))
     -- ^ Round-robin counters per topic. Same hot-path
     --   conversion as 'producerStickyPartitions'.
+  , producerPartitionCount :: !(IORef (HashMap.HashMap Text Int32))
+    -- ^ Per-topic cached partition count. Populated lazily on
+    --   first send to a topic from the metadata cache. Without
+    --   this cache, every 'selectPartition' call paid an STM
+    --   transaction against 'producerMetadata' just to read a
+    --   value that almost never changes. The cache is a strict
+    --   superset of the sticky-partition state; the sticky map
+    --   only kicks in for the partitioner's choice.
   , producerIdempotentId :: !(TVar Int64)
     -- ^ Producer id (KIP-98). 'noProducerId' (= -1) for
     --   non-idempotent / non-transactional producers; otherwise
@@ -557,6 +565,7 @@ createProducer brokerAddrs config = do
       -- Initialize sticky partition and round-robin state (KIP-480)
       stickyPartitions <- newIORef HashMap.empty
       roundRobinCounters <- newIORef HashMap.empty
+      partitionCounts <- newIORef HashMap.empty
 
       -- Idempotent / transactional producer state (KIP-98). The
       -- producer id + epoch are populated by 'InitProducerId' on
@@ -581,6 +590,7 @@ createProducer brokerAddrs config = do
         , producerSenderState = senderState
         , producerStickyPartitions = stickyPartitions
         , producerRoundRobinCounters = roundRobinCounters
+        , producerPartitionCount = partitionCounts
         , producerIdempotentId = idempotentPid
         , producerIdempotentEpoch = idempotentEpoch
         , producerSequenceNumbers = sequenceNumbers
@@ -1246,12 +1256,28 @@ selectPartition
   -> Maybe ByteString  -- ^ Key (optional)
   -> IO Int32
 selectPartition producer@Producer{..} topic keyM = do
-  partCountM <- atomically $ Meta.getPartitionCount producerMetadata topic
-  partCount  <- case partCountM of
+  -- Fast path: per-topic partition count cached in
+  -- 'producerPartitionCount'. The previous shape did
+  -- @atomically $ Meta.getPartitionCount@ on /every/ record
+  -- send, paying a full STM transaction just to read a value
+  -- that effectively never changes. Cache miss falls through
+  -- to the metadata cache + refresh path.
+  cache <- readIORef producerPartitionCount
+  partCount <- case HashMap.lookup topic cache of
     Just n  -> pure (Just n)
     Nothing -> do
-      refreshTopicOnDemand producer topic
-      atomically $ Meta.getPartitionCount producerMetadata topic
+      partCountM <- atomically $ Meta.getPartitionCount producerMetadata topic
+      mn <- case partCountM of
+        Just n  -> pure (Just n)
+        Nothing -> do
+          refreshTopicOnDemand producer topic
+          atomically $ Meta.getPartitionCount producerMetadata topic
+      case mn of
+        Just n -> do
+          atomicModifyIORef' producerPartitionCount $ \m ->
+            (HashMap.insertWith (\_ old -> old) topic n m, ())
+          pure (Just n)
+        Nothing -> pure Nothing
   case partCount of
     Nothing -> return 0  -- Refresh didn't help; sender will error.
     Just partitionCount -> do
