@@ -49,6 +49,7 @@ module Kafka.Client.Producer
   , sendMessageAsync
   , sendMessageDrop
   , sendMessageDropUnsafe
+  , sendMessageDropFastest
   , sendMessagesDrop
   , sendBatch
     -- * Transactions
@@ -94,6 +95,7 @@ import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
+import Control.Monad (when)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -369,6 +371,14 @@ data Producer = Producer
     --   value that almost never changes. The cache is a strict
     --   superset of the sticky-partition state; the sticky map
     --   only kicks in for the partitioner's choice.
+  , producerLastBatch :: !(IORef (Maybe (Text, Int32, BA.PartitionQueue, BA.BatchAccumulating)))
+    -- ^ Producer-local cache of the last-touched
+    --   @(topic, partition, queue, batch)@ tuple for
+    --   'sendMessageDropFastest'. Saves the per-record sticky
+    --   lookup, partition-map lookup, and 'queueCurrentBatch'
+    --   read on the hot path; invalidated when the cached
+    --   batch seals or the topic / partition changes. Cache
+    --   miss falls through to 'sendMessageDropUnsafe'.
   , producerIdempotentId :: !(TVar Int64)
     -- ^ Producer id (KIP-98). 'noProducerId' (= -1) for
     --   non-idempotent / non-transactional producers; otherwise
@@ -569,6 +579,7 @@ createProducer brokerAddrs config = do
       stickyPartitions <- newIORef HashMap.empty
       roundRobinCounters <- newIORef HashMap.empty
       partitionCounts <- newIORef HashMap.empty
+      lastBatchCache <- newIORef Nothing
 
       -- Idempotent / transactional producer state (KIP-98). The
       -- producer id + epoch are populated by 'InitProducerId' on
@@ -594,6 +605,7 @@ createProducer brokerAddrs config = do
         , producerStickyPartitions = stickyPartitions
         , producerRoundRobinCounters = roundRobinCounters
         , producerPartitionCount = partitionCounts
+        , producerLastBatch = lastBatchCache
         , producerIdempotentId = idempotentPid
         , producerIdempotentEpoch = idempotentEpoch
         , producerSequenceNumbers = sequenceNumbers
@@ -1260,6 +1272,77 @@ sendMessageDrop p@Producer{..} topic key value = do
 {-# NOINLINE noOpRecordCallback #-}
 noOpRecordCallback :: BA.RecordCallback
 noOpRecordCallback = \_ -> pure ()
+
+-- | Tightest-possible single-writer fast path. Caches the
+-- in-progress @(topic, partition, queue, batch)@ tuple in
+-- producer-local state ('producerLastBatch') so the steady-
+-- state per-record cost is one 'readIORef' + one direct
+-- 'appendDirect' on the cached 'BatchAccumulating'.
+--
+-- Cache invalidation: the cache is invalidated when the cached
+-- batch fills + seals, or when the supplied topic differs from
+-- the cached topic; in either case we fall through to
+-- 'sendMessageDropUnsafe' to refresh.
+--
+-- Same safety contract as 'sendMessageDropUnsafe' — caller must
+-- guarantee no concurrent sends on the same (topic, partition).
+-- For multi-partition workloads, use 'sendMessageDrop' /
+-- 'sendMessageDropUnsafe' instead.
+{-# INLINE sendMessageDropFastest #-}
+sendMessageDropFastest
+  :: Producer
+  -> Text             -- ^ Topic
+  -> Maybe ByteString -- ^ Optional key
+  -> ByteString       -- ^ Value
+  -> IO (Either String ())
+sendMessageDropFastest p@Producer{..} topic key value = do
+  cache <- readIORef producerLastBatch
+  case cache of
+    Just (cachedTopic, _cachedPart, queue, ba)
+      | cachedTopic == topic -> do
+          let !record = RB.Record
+                { RB.recordTimestampDelta = 0
+                , RB.recordOffsetDelta    = 0
+                , RB.recordKey            = key
+                , RB.recordValue          = value
+                , RB.recordHeaders        = []
+                }
+          stillCurrent <- BA.appendDirect
+                            producerAccumulator
+                            queue
+                            ba
+                            record
+                            noOpRecordCallback
+          when (not stillCurrent) $
+            -- Sealed: invalidate the cache so the next call
+            -- refreshes via 'sendMessageDropUnsafe'.
+            writeIORef producerLastBatch Nothing
+          pure (Right ())
+    _ -> refreshAndSend p topic key value
+
+-- | Cache miss path for 'sendMessageDropFastest': call
+-- 'sendMessageDropUnsafe' (which lazily creates the
+-- 'BatchAccumulating' if needed via 'slowAppendIO') and then
+-- repopulate 'producerLastBatch' with the new handle.
+refreshAndSend
+  :: Producer
+  -> Text
+  -> Maybe ByteString
+  -> ByteString
+  -> IO (Either String ())
+refreshAndSend p@Producer{..} topic key value = do
+  res <- sendMessageDropUnsafe p topic key value
+  case res of
+    Left e -> pure (Left e)
+    Right () -> do
+      partition <- selectPartition p topic key
+      let !tp = BA.TopicPartition topic partition
+      cur <- BA.currentBatchOf producerAccumulator tp
+      case cur of
+        Just (ba, queue) ->
+          writeIORef producerLastBatch (Just (topic, partition, queue, ba))
+        Nothing -> writeIORef producerLastBatch Nothing
+      pure (Right ())
 
 -- | Single-writer-per-partition variant of 'sendMessageDrop'
 -- that swaps the per-partition CAS in the accumulator for a

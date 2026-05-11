@@ -35,6 +35,13 @@ module Kafka.Client.Internal.BatchAccumulator
   , appendRecordStamped
   , appendRecordStampedUnsafe
   , appendRecordsStamped
+    -- * Direct-mode hot path (skip partition lookups)
+  , BatchAccumulating
+  , PartitionQueue
+  , baHotState
+  , baTopicPartition
+  , currentBatchOf
+  , appendDirect
   , BatchStamp (..)
   , noStamp
   , TopicPartition(..)
@@ -826,6 +833,62 @@ createBatch BatchAccumulatorConfig{..} tp currentTime =
     , batchBaseSequence = RB.noSequence
     , batchIsTransactional = False
     }
+
+-- | Look up the partition's currently-in-progress
+-- 'BatchAccumulating' (or 'Nothing' if there isn't one yet).
+-- Used by 'Kafka.Client.Producer.sendMessageDropFastest' to
+-- cache the in-progress batch handle in producer-local state and
+-- skip the per-record partition-map + queue-current lookups.
+currentBatchOf
+  :: BatchAccumulator
+  -> TopicPartition
+  -> IO (Maybe (BatchAccumulating, PartitionQueue))
+currentBatchOf BatchAccumulator{..} tp = do
+  mq <- HashMap.lookup tp <$> readIORef accumulatorPartitions
+  case mq of
+    Nothing -> pure Nothing
+    Just queue -> do
+      mba <- readIORef (queueCurrentBatch queue)
+      case mba of
+        Nothing -> pure Nothing
+        Just ba -> pure (Just (ba, queue))
+
+-- | Append a record directly to a known 'BatchAccumulating',
+-- skipping the closed-flag check, the partition-map lookup, and
+-- the 'queueCurrentBatch' read 'appendRecordStamped' would do.
+-- Returns 'True' if the batch is still the partition's current
+-- batch after the append; 'False' if this append filled the
+-- batch and triggered a seal (so the caller should refresh its
+-- cached handle).
+--
+-- /Safety/: caller must ensure no other thread concurrently
+-- appends to this same 'BatchAccumulating'. The default sticky
+-- partitioner + single producer thread is the canonical safe
+-- shape.
+{-# INLINE appendDirect #-}
+appendDirect
+  :: BatchAccumulator
+  -> PartitionQueue
+  -> BatchAccumulating
+  -> RB.Record
+  -> RecordCallback
+  -> IO Bool
+appendDirect acc@BatchAccumulator{..} queue ba record callback = do
+  let !rs    = approximateRecordSize record
+      !limit = accumulatorBatchSize accumulatorConfig
+  !st <- readIORef (baHotState ba)
+  let !ns = bhSizeBytes st + rs
+      !st' = BatchHotState
+        { bhRecordsRev   = record   : bhRecordsRev st
+        , bhSizeBytes    = ns
+        , bhCallbacksRev = callback : bhCallbacksRev st
+        }
+  writeIORef (baHotState ba) st'
+  if ns >= limit
+    then do
+      sealCurrent acc queue ba
+      pure False
+    else pure True
 
 -- | Get current time in milliseconds.
 --
