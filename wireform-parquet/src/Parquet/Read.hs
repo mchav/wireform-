@@ -90,6 +90,12 @@ module Parquet.Read
   , readGenericDoubleOptionalColumnChunk
   , readGenericBoolOptionalColumnChunk
   , readGenericByteArrayOptionalColumnChunk
+    -- * Repeated readers (rep > 0 columns: lists, maps)
+  , readGenericByteArrayRepeatedColumnChunk
+  , readGenericByteArrayRepeatedColumnChunkWith
+  , readGenericInt32RepeatedColumnChunk
+  , readGenericInt64RepeatedColumnChunk
+  , readGenericRepeatedColumnChunkWith
     -- * Page-index-driven page skipping
   , readGenericInt32SelectedPages
   , readGenericInt64SelectedPages
@@ -1383,6 +1389,243 @@ readGenericByteArrayOptionalColumnChunk
   -> Either String (V.Vector (Maybe ByteString))
 readGenericByteArrayOptionalColumnChunk =
   readGenericOptionalColumnChunk dispatchByteArray id
+
+-- ============================================================
+-- Public generic readers (repeated)
+-- ============================================================
+--
+-- For columns where the schema path passes through a repeated
+-- group (a Parquet list or map). 'readGenericXxxRepeatedColumnChunk'
+-- returns one outer element per top-level row, each holding the
+-- inner sequence of @Maybe a@s (one per @max_repetition_level@
+-- boundary in the rep stream).
+--
+-- The values payload is decoded in any encoding the underlying
+-- 'PerPage' supports (PLAIN, RLE_DICTIONARY, …); the rep + def
+-- streams come from the standard data-page level layout.
+
+readGenericByteArrayRepeatedColumnChunk
+  :: Compression -> Int -> Int -> ByteString
+  -> Either String (V.Vector (V.Vector (Maybe ByteString)))
+readGenericByteArrayRepeatedColumnChunk codec maxRep maxDef =
+  -- Default: assume the list element is required, so any
+  -- def < maxDef on a rep=0 boundary collapses to "empty/absent
+  -- list". Callers that need to surface element-level nulls
+  -- inside a non-empty list (a Parquet 'optional' element)
+  -- should pass an explicit 'parentEmptyDef' via
+  -- 'readGenericByteArrayRepeatedColumnChunkWith'.
+  readGenericRepeatedColumnChunkWith dispatchByteArray id
+    codec maxRep maxDef (maxDef - 1)
+
+-- | Like 'readGenericByteArrayRepeatedColumnChunk' but the
+-- caller picks @parent_empty_def@ explicitly — typically
+-- @maxDef - 2@ for an optional-element list / map-of-optional-
+-- value.
+readGenericByteArrayRepeatedColumnChunkWith
+  :: Compression -> Int -> Int -> Int -> ByteString
+  -> Either String (V.Vector (V.Vector (Maybe ByteString)))
+readGenericByteArrayRepeatedColumnChunkWith =
+  readGenericRepeatedColumnChunkWith dispatchByteArray id
+
+readGenericInt32RepeatedColumnChunk
+  :: Compression -> Int -> Int -> ByteString
+  -> Either String (V.Vector (V.Vector (Maybe Int32)))
+readGenericInt32RepeatedColumnChunk codec maxRep maxDef =
+  readGenericRepeatedColumnChunkWith dispatchInt32 vpToBoxed
+    codec maxRep maxDef (maxDef - 1)
+
+readGenericInt64RepeatedColumnChunk
+  :: Compression -> Int -> Int -> ByteString
+  -> Either String (V.Vector (V.Vector (Maybe Int64)))
+readGenericInt64RepeatedColumnChunk codec maxRep maxDef =
+  readGenericRepeatedColumnChunkWith dispatchInt64 vpToBoxed
+    codec maxRep maxDef (maxDef - 1)
+
+-- | Walk every page in a column chunk that has @max_rep > 0@,
+-- accumulate (rep level, def level, defined value) triples, and
+-- group consecutive entries by the rep-level boundaries
+-- (@rep == 0@ marks the start of a new top-level row).
+--
+-- Per-element interpretation:
+--
+--   * @def == maxDef@                         → @Just <value>@
+--   * @parentEmptyDef < def < maxDef@         → @Nothing@ (a
+--     null element inside a present list / map; only possible
+--     when the list element itself is Parquet-optional, hence
+--     the explicit @parentEmptyDef@ split here)
+--   * @def <= parentEmptyDef@                 → no entry (the
+--     parent list / map group is empty or absent on this row)
+--
+-- The @rep == 0@ boundary marks the start of a new row;
+-- empty-list rows still produce an empty inner @V.Vector@ so
+-- the output's outer length always equals the number of
+-- top-level rows in the column.
+--
+-- For required-element lists pass @parentEmptyDef = maxDef - 1@
+-- (which is what the public 'readGeneric*RepeatedColumnChunk'
+-- helpers do).
+readGenericRepeatedColumnChunkWith
+  :: forall vec a.
+     PerPage vec
+  -> (vec -> V.Vector a)
+  -> Compression
+  -> Int  -- ^ max_repetition_level
+  -> Int  -- ^ max_definition_level
+  -> Int  -- ^ parent_empty_def (any def at-or-below this means
+          --   the list / map is empty or absent on that row)
+  -> ByteString
+  -> Either String (V.Vector (V.Vector (Maybe a)))
+readGenericRepeatedColumnChunkWith pp toBoxed codec maxRep maxDef parentEmptyDef chunk0 = do
+  (reps, defs, defined) <- collectPages 0 Nothing
+                             VP.empty VP.empty V.empty
+  Right (groupByRows reps defs defined)
+  where
+    !maxD = fromIntegral maxDef :: Int32
+
+    collectPages
+      :: Int -> Maybe vec -> VP.Vector Int32 -> VP.Vector Int32
+      -> V.Vector a
+      -> Either String (VP.Vector Int32, VP.Vector Int32, V.Vector a)
+    collectPages !off !mDict !accReps !accDefs !accVals
+      | off >= BS.length chunk0 = Right (accReps, accDefs, accVals)
+      | otherwise = do
+          (hdr, afterHdr) <- readPageHeaderAt chunk0 off
+          compSz <- case phCompressedPageSize hdr of
+            Nothing -> Left "Parquet.Read: missing compressed_page_size"
+            Just s -> Right (fromIntegral s :: Int)
+          let !bodyStart = afterHdr
+          if bodyStart + compSz > BS.length chunk0
+            then Left "Parquet.Read: truncated page body"
+            else do
+              let !compBody = BS.take compSz (BS.drop bodyStart chunk0)
+                  !nextOff = bodyStart + compSz
+              case phType hdr of
+                PtDictionaryPage dk
+                  | not (dictEncoding dk == encPlain
+                      || dictEncoding dk == encPlainDictionary) ->
+                      Left "Parquet.Read: dictionary page encoding is neither PLAIN (0) nor PLAIN_DICTIONARY (2)"
+                  | otherwise -> do
+                      raw <- decompressPageData codec
+                               (phUncompressedPageSize hdr) compBody
+                      let !nDict = fromIntegral (dictNumValues dk) :: Int
+                      dict <- ppDecodePlain pp nDict raw
+                      collectPages nextOff (Just dict) accReps accDefs accVals
+                PtDataPage dph -> do
+                  raw <- decompressPageData codec
+                           (phUncompressedPageSize hdr) compBody
+                  let !nVals = fromIntegral (dphNumValues dph) :: Int
+                  (rep, def, valBytes) <-
+                    parseDataPageV1Levels maxRep maxDef nVals raw
+                  defined <- decodeDefinedValues pp mDict
+                               (dphEncoding dph) maxD def valBytes
+                  let !definedBoxed = toBoxed defined
+                  collectPages nextOff mDict
+                    (accReps VP.++ rep)
+                    (accDefs VP.++ def)
+                    (accVals V.++ definedBoxed)
+                PtDataPageV2 dph2 -> do
+                  let !repLen = fromIntegral (dph2RepLevelsLen dph2) :: Int
+                      !defLen = fromIntegral (dph2DefLevelsLen dph2) :: Int
+                      !levelsLen = repLen + defLen
+                      !body = compBody
+                  if levelsLen > BS.length body
+                    then Left "Parquet.Read: V2 levels exceed body size"
+                    else do
+                      let !repBs = BS.take repLen body
+                          !defBs = BS.take defLen (BS.drop repLen body)
+                          !valuesSection = BS.drop levelsLen body
+                          !nVals = fromIntegral (dph2NumValues dph2) :: Int
+                          !bwRep = levelBitWidth maxRep
+                          !bwDef = levelBitWidth maxDef
+                      values <- if dph2IsCompressed dph2
+                        then decompressPageData codec
+                               (phUncompressedPageSize hdr) valuesSection
+                        else Right valuesSection
+                      rep <- if repLen == 0
+                        then Right (VP.replicate nVals 0)
+                        else decodeHybridRleUnsigned32 bwRep nVals repBs
+                      def <- if defLen == 0
+                        then Right (VP.replicate nVals 0)
+                        else decodeHybridRleUnsigned32 bwDef nVals defBs
+                      defined <- decodeDefinedValues pp mDict
+                                   (dph2Encoding dph2) maxD def values
+                      let !definedBoxed = toBoxed defined
+                      collectPages nextOff mDict
+                        (accReps VP.++ rep)
+                        (accDefs VP.++ def)
+                        (accVals V.++ definedBoxed)
+                _ -> Left "Parquet.Read: expected DATA_PAGE / DATA_PAGE_V2 / DICTIONARY_PAGE"
+
+    -- | Group the (rep, def, defined-values) triple into per-row
+    -- inner vectors. Every @rep == 0@ boundary starts a new
+    -- top-level row; the row built so far gets pushed even if
+    -- it's empty.
+    --
+    -- Note we always push exactly one outer row per @rep == 0@
+    -- boundary, including empty-row cases, so the resulting
+    -- vector has the same length as the number of top-level
+    -- rows in the column.
+    groupByRows
+      :: VP.Vector Int32
+      -> VP.Vector Int32
+      -> V.Vector a
+      -> V.Vector (V.Vector (Maybe a))
+    groupByRows reps defs defined
+      | VP.length reps == 0 = V.empty
+      | otherwise =
+          let !n = VP.length reps
+              go !rows !curRow !inRow !i !defIx
+                | i >= n =
+                    let !rows' = if inRow then curRow : rows else rows
+                     in V.fromList (reverse (map finalise rows'))
+                | otherwise =
+                    let !r = VP.unsafeIndex reps i
+                        !d = VP.unsafeIndex defs i
+                        -- On a 'rep == 0' boundary we flush the
+                        -- previous row (if any) and start a new
+                        -- one. The very first entry has no row
+                        -- to flush, hence the 'inRow' guard.
+                        (!rows', !row0) =
+                          if r == 0
+                            then (if inRow then curRow : rows else rows, [])
+                            else (rows, curRow)
+                     in if d == maxD
+                          then go rows'
+                                  (Just (V.unsafeIndex defined defIx) : row0)
+                                  True (i + 1) (defIx + 1)
+                          else if d <= parentEmptyDef'
+                            then go rows' row0 True (i + 1) defIx
+                            else go rows' (Nothing : row0) True (i + 1) defIx
+           in go [] [] False 0 0
+
+    finalise xs = V.fromList (reverse xs)
+
+    -- | Floor for "list / map is empty or absent on this row".
+    -- Caller-supplied (see the 'parentEmptyDef' parameter on
+    -- the public entry).
+    parentEmptyDef' :: Int32
+    parentEmptyDef' = fromIntegral parentEmptyDef
+
+decodeDefinedValues
+  :: PerPage vec
+  -> Maybe vec
+  -> Int32      -- ^ encoding
+  -> Int32      -- ^ maxDef (as level value)
+  -> VP.Vector Int32
+  -> ByteString
+  -> Either String vec
+decodeDefinedValues pp mDict !enc !maxD !def !valBytes =
+  let !nDef = VP.foldl' (\a d -> if d == maxD then a + 1 else a) 0 def
+   in if enc == encPlain
+        then ppDecodePlain pp nDef valBytes
+        else if isDictionaryEncoding enc
+          then case mDict of
+            Nothing ->
+              Left "Parquet.Read: RLE_DICTIONARY page before dictionary page"
+            Just dict -> do
+              indices <- decodeDictionaryIndices nDef valBytes
+              ppDecodeDictIndices pp nDef valBytes dict indices
+          else ppExtended pp enc nDef valBytes
 
 -- | Walk every page in a column chunk and interleave a
 -- definition-level stream per page so the result is

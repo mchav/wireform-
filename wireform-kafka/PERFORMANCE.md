@@ -156,7 +156,7 @@ end-to-end producer throughput against a live broker. Both
 producers run with `acks=1`, no compression, 16 KB batches, 5 ms
 linger, into a pre-created single-partition topic.
 
-### Live-broker measurement (this VM, Kafka 3.7 KRaft, localhost)
+### Live-broker measurement (this VM, Kafka 4.0 KRaft, localhost)
 
 ```
 hw-kafka       (librdkafka, baseline)   1.287 s / 50 000 records
@@ -273,13 +273,13 @@ Deferred (would benefit from broker-driven measurement first):
 ## Reproducing the hw-kafka comparison
 
 The harness is `bench/Benchmarks/HwKafkaComparison.hs`, gated by
-`WIREFORM_KAFKA_BROKER`. It requires a running Kafka 3.7+ broker
+`WIREFORM_KAFKA_BROKER`. It requires a running Kafka 4.0+ broker
 with the topic `wireform-bench-cmp` pre-created (1 partition).
 
 On this VM the broker was launched directly (no Docker):
 
 ```bash
-# from a checkout of kafka_2.13-3.7.0:
+# from a checkout of kafka_2.13-4.0.0:
 bin/kafka-storage.sh format -t $(bin/kafka-storage.sh random-uuid) \
   -c config/kraft/server.properties --ignore-formatted
 bin/kafka-server-start.sh config/kraft/server.properties &

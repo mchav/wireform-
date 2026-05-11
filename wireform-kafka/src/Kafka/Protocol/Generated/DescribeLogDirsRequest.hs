@@ -12,7 +12,7 @@ Kafka request for API key 35.
 
 
 
-Valid versions: 1-5
+Valid versions: 1-4
 Flexible versions: 2+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -80,13 +80,13 @@ data DescribeLogDirsRequest = DescribeLogDirsRequest
 
 -- | Maximum supported version for DescribeLogDirsRequest.
 maxDescribeLogDirsRequestVersion :: Int16
-maxDescribeLogDirsRequestVersion = 5
+maxDescribeLogDirsRequestVersion = 4
 
 -- | KafkaMessage instance for DescribeLogDirsRequest.
 instance KafkaMessage DescribeLogDirsRequest where
   messageApiKey = 35
   messageMinVersion = 1
-  messageMaxVersion = 5
+  messageMaxVersion = 4
   messageFlexibleVersion = Just 2
 
 -- | Worst-case wire size of a DescribableLogDirTopic.
@@ -132,7 +132,7 @@ wirePokeDescribeLogDirsRequest version basePtr msg
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeDescribableLogDirTopic version p x) p0 (describeLogDirsRequestTopics msg)
     pure p1
-  | version >= 2 && version <= 5 = do
+  | version >= 2 && version <= 4 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedNullableArray version 2 (\p x -> wirePokeDescribableLogDirTopic version p x) p0 (describeLogDirsRequestTopics msg)
     WP.pokeEmptyTaggedFields p1
@@ -144,7 +144,7 @@ wirePeekDescribeLogDirsRequest version _fp _basePtr p0 endPtr
   | version == 1 = do
     (f0_topics, p1) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekDescribableLogDirTopic version _fp _basePtr p e) p0 endPtr
     pure (DescribeLogDirsRequest { describeLogDirsRequestTopics = f0_topics }, p1)
-  | version >= 2 && version <= 5 = do
+  | version >= 2 && version <= 4 = do
     (f0_topics, p1) <- WP.peekVersionedNullableArray version 2 (\p e -> wirePeekDescribableLogDirTopic version _fp _basePtr p e) p0 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
     pure (DescribeLogDirsRequest { describeLogDirsRequestTopics = f0_topics }, pTagsEnd)
@@ -153,7 +153,7 @@ wirePeekDescribeLogDirsRequest version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec DescribeLogDirsRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeLogDirsRequest (fromIntegral v) msg

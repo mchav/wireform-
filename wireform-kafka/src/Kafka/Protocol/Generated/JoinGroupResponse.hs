@@ -12,7 +12,7 @@ Kafka response for API key 11.
 
 
 
-Valid versions: 0-9
+Valid versions: 2-9
 Flexible versions: 6+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -139,7 +139,7 @@ maxJoinGroupResponseVersion = 9
 -- | KafkaMessage instance for JoinGroupResponse.
 instance KafkaMessage JoinGroupResponse where
   messageApiKey = 11
-  messageMinVersion = 0
+  messageMinVersion = 2
   messageMaxVersion = 9
   messageFlexibleVersion = Just 6
 
@@ -215,15 +215,6 @@ wirePokeJoinGroupResponse version basePtr msg
     p8 <- (if version >= 6 then WP.pokeCompactString p7 (P.toCompactString (joinGroupResponseMemberId msg)) else WP.pokeKafkaString p7 (joinGroupResponseMemberId msg))
     p9 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeJoinGroupResponseMember version p x) p8 (joinGroupResponseMembers msg)
     WP.pokeEmptyTaggedFields p9
-  | version >= 0 && version <= 1 = do
-    p0 <- pure basePtr
-    p1 <- W.pokeInt16BE p0 (joinGroupResponseErrorCode msg)
-    p2 <- W.pokeInt32BE p1 (joinGroupResponseGenerationId msg)
-    p3 <- (if version >= 6 then WP.pokeCompactString p2 (P.toCompactString (joinGroupResponseProtocolName msg)) else WP.pokeKafkaString p2 (joinGroupResponseProtocolName msg))
-    p4 <- (if version >= 6 then WP.pokeCompactString p3 (P.toCompactString (joinGroupResponseLeader msg)) else WP.pokeKafkaString p3 (joinGroupResponseLeader msg))
-    p5 <- (if version >= 6 then WP.pokeCompactString p4 (P.toCompactString (joinGroupResponseMemberId msg)) else WP.pokeKafkaString p4 (joinGroupResponseMemberId msg))
-    p6 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeJoinGroupResponseMember version p x) p5 (joinGroupResponseMembers msg)
-    pure p6
   | version >= 7 && version <= 8 = do
     p0 <- pure basePtr
     p1 <- (if version >= 2 then W.pokeInt32BE p0 (joinGroupResponseThrottleTimeMs msg) else pure p0)
@@ -272,14 +263,6 @@ wirePeekJoinGroupResponse version _fp _basePtr p0 endPtr
     (f8_members, p9) <- WP.peekVersionedArray version 6 (\p e -> wirePeekJoinGroupResponseMember version _fp _basePtr p e) p8 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p9 endPtr
     pure (JoinGroupResponse { joinGroupResponseThrottleTimeMs = f0_throttletimems, joinGroupResponseErrorCode = f1_errorcode, joinGroupResponseGenerationId = f2_generationid, joinGroupResponseProtocolType = f3_protocoltype, joinGroupResponseProtocolName = f4_protocolname, joinGroupResponseLeader = f5_leader, joinGroupResponseSkipAssignment = f6_skipassignment, joinGroupResponseMemberId = f7_memberid, joinGroupResponseMembers = f8_members }, pTagsEnd)
-  | version >= 0 && version <= 1 = do
-    (f0_errorcode, p1) <- W.peekInt16BE p0 endPtr
-    (f1_generationid, p2) <- W.peekInt32BE p1 endPtr
-    (f2_protocolname, p3) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
-    (f3_leader, p4) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
-    (f4_memberid, p5) <- (if version >= 6 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p4 endPtr else WP.peekKafkaString p4 endPtr)
-    (f5_members, p6) <- WP.peekVersionedArray version 6 (\p e -> wirePeekJoinGroupResponseMember version _fp _basePtr p e) p5 endPtr
-    pure (JoinGroupResponse { joinGroupResponseThrottleTimeMs = 0, joinGroupResponseErrorCode = f0_errorcode, joinGroupResponseGenerationId = f1_generationid, joinGroupResponseProtocolType = P.KafkaString Null, joinGroupResponseProtocolName = f2_protocolname, joinGroupResponseLeader = f3_leader, joinGroupResponseSkipAssignment = False, joinGroupResponseMemberId = f4_memberid, joinGroupResponseMembers = f5_members }, p6)
   | version >= 7 && version <= 8 = do
     (f0_throttletimems, p1) <- (if version >= 2 then W.peekInt32BE p0 endPtr else pure (0, p0))
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
@@ -305,7 +288,7 @@ wirePeekJoinGroupResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec JoinGroupResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeJoinGroupResponse (fromIntegral v) msg

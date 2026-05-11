@@ -14,12 +14,12 @@ version: "3.8"
 
 services:
   kafka:
-    # Default to Kafka 3.7 for local 'docker compose up'; CI
-    # overrides KAFKA_IMAGE_TAG to test against multiple
-    # versions (3.7 + 4.0 today). The wire format is
+    # Default to Kafka 4.0 for local 'docker compose up'; CI
+    # overrides KAFKA_IMAGE_TAG to test against the supported
+    # version matrix (3.7 + 4.0 today). The wire format is
     # compatible across these so the same test suite runs
     # against both.
-    image: apache/kafka:${KAFKA_IMAGE_TAG:-3.7.0}
+    image: apache/kafka:${KAFKA_IMAGE_TAG:-4.0.0}
     container_name: wireform-kafka-it
     ports:
       - "9092:9092"
@@ -50,5 +50,5 @@ services:
   # Optional second broker so multi-instance / rebalance tests
   # can exercise actual cross-broker moves.  Uncomment if needed.
   # kafka2:
-  #   image: apache/kafka:3.7.0
+  #   image: apache/kafka:4.0.0
   #   ...

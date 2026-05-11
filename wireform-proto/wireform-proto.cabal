@@ -80,6 +80,7 @@ library
     Proto.Internal.Either
     Proto.Internal.Maybe
     Proto.JSON
+    Proto.JSON.Extension
     Proto.JSON.WellKnown
     Proto.Lens
     Proto.Merge
@@ -100,6 +101,7 @@ library
     Proto.SizedBuilder
     Proto.TDP
     Proto.TH
+    Proto.TH.Metadata
     Proto.TextFormat
     Proto.VectorBuilder
     Proto.Wire
@@ -132,6 +134,84 @@ library
     cryptohash-md5 >= 0.11 && < 0.12,
     stm >= 2.5 && < 2.6
 
+-- ===========================================================
+-- Conformance suite: drives the upstream protobuf
+-- conformance_test_runner against a wireform-conformance binary.
+-- See `test-conformance/README.md` for setup.
+-- ===========================================================
+
+benchmark loadproto-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: LoadProtoBench.hs
+  -- The bench splice is small (one schema, ~20 lines), so -O2
+  -- is fine here.
+  ghc-options: -O2 -rtsopts -threaded
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-proto,
+    aeson,
+    bytestring,
+    deepseq,
+    template-haskell,
+    text,
+    vector
+
+executable wireform-conformance-runner
+  import: defaults
+  hs-source-dirs: test-conformance
+  main-is: Runner.hs
+  -- The TestAllTypesProto3 splice generates ~90 record fields,
+  -- each contributing wire-codec + JSON + ProtoMessage +
+  -- Hashable + ProtoEnum stub clauses. At -O2 the per-module
+  -- optimization peaks well over what a 15 GB VM can swallow.
+  -- The conformance runner is an IO loop, not a perf hot path,
+  -- so -O0 is fine and keeps the splice headroom comfortable.
+  ghc-options: -O0
+  other-modules:
+    Test.Conformance.Schema
+    Test.Conformance.Handler
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-proto,
+    aeson,
+    bytestring,
+    containers,
+    deepseq,
+    hashable,
+    template-haskell,
+    text,
+    vector
+
+test-suite protobuf-conformance-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test-conformance
+  main-is: Driver.hs
+  -- Match the runner exec (same TestAllTypesProto3 splice; see
+  -- the wireform-conformance-runner stanza above for why -O0).
+  ghc-options: -O0
+  other-modules:
+    Test.Conformance.Schema
+    Test.Conformance.Handler
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-proto,
+    aeson,
+    bytestring,
+    containers,
+    deepseq,
+    directory,
+    filepath,
+    hashable,
+    process,
+    template-haskell,
+    text,
+    vector,
+    tasty,
+    tasty-hunit
+
 test-suite wireform-proto-derive-test
   import: defaults
   type: exitcode-stdio-1.0
@@ -149,12 +229,21 @@ test-suite wireform-proto-derive-test
     Test.Proto.Derive.RegressionInstances
     Test.Proto.Derive.Oneof
     Test.Proto.Derive.OneofInstances
+    Test.Proto.Derive.AutoTypes
+    Test.Proto.Derive.AutoInstances
+    Test.Proto.Derive.Auto
+    Test.Proto.Derive.Golden
+    Test.Proto.Derive.TopEnumInstances
+    Test.Proto.Derive.TopEnum
+    Test.Proto.Derive.Metadata
   build-depends:
     base,
     wireform-proto,
     wireform-derive,
+    aeson,
     bytestring,
     containers,
+    hashable,
     text,
     template-haskell,
     vector,

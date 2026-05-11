@@ -277,7 +277,7 @@ tests = testGroup "Proto.Derive"
             { briName = T.pack "warehouse-7"
             , briItems = V.empty
             }
-          pProto = defaultRegInventory { reginvName = T.pack "warehouse-7" }
+          pProto = defaultRegInventory { regInventoryReginvName = T.pack "warehouse-7" }
       PE.encodeMessage pBridge @?= PE.encodeMessage pProto
 
   , testCase "regression: repeated submessages produce identical bytes" $ do
@@ -287,23 +287,23 @@ tests = testGroup "Proto.Derive"
             , BridgeRegItem (T.pack "gamma") 3
             ]
           protoItems  = V.fromList
-            [ defaultRegItem { regiName = T.pack "alpha", regiCount = 1 }
-            , defaultRegItem { regiName = T.pack "beta",  regiCount = 2 }
-            , defaultRegItem { regiName = T.pack "gamma", regiCount = 3 }
+            [ defaultRegItem { regItemRegiName = T.pack "alpha", regItemRegiCount = 1 }
+            , defaultRegItem { regItemRegiName = T.pack "beta",  regItemRegiCount = 2 }
+            , defaultRegItem { regItemRegiName = T.pack "gamma", regItemRegiCount = 3 }
             ]
           pBridge = BridgeRegInventory
             { briName  = T.pack "depot"
             , briItems = bridgeItems
             }
           pProto = defaultRegInventory
-            { reginvName  = T.pack "depot"
-            , reginvItems = protoItems
+            { regInventoryReginvName  = T.pack "depot"
+            , regInventoryReginvItems = protoItems
             }
       PE.encodeMessage pBridge @?= PE.encodeMessage pProto
 
   , testCase "regression: single RegItem matches BridgeRegItem bytes" $ do
       let pBridge = BridgeRegItem (T.pack "widget") 99
-          pProto  = defaultRegItem { regiName = T.pack "widget", regiCount = 99 }
+          pProto  = defaultRegItem { regItemRegiName = T.pack "widget", regItemRegiCount = 99 }
       PE.encodeMessage pBridge @?= PE.encodeMessage pProto
   ]
 

@@ -12,6 +12,7 @@
 module Client.HeartbeatRejoinSpec (tests) where
 
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
+import Data.IORef (readIORef, writeIORef)
 import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, testCase, (@?=))
@@ -46,7 +47,7 @@ freshHb = do
     "test-group" 3000 connMgr versionCache "test-client"
 
 seedMember :: HB.HeartbeatState -> T.Text -> IO ()
-seedMember st m = atomically $ writeTVar (HB.hbMemberId st) m
+seedMember st m = writeIORef (HB.hbMemberId st) m
 
 resetRebalance :: HB.HeartbeatState -> IO ()
 resetRebalance st = atomically $ writeTVar (HB.hbNeedsRebalance st) False
@@ -59,8 +60,8 @@ unit_unknownMemberClearsMemberId :: Assertion
 unit_unknownMemberClearsMemberId = do
   st <- freshHb
   seedMember st "consumer-1-uuid"
-  atomically $ HB.applyHeartbeatOutcome st HB.HeartbeatUnknownMember
-  mid  <- readTVarIO (HB.hbMemberId st)
+  HB.applyHeartbeatOutcome st HB.HeartbeatUnknownMember
+  mid  <- readIORef (HB.hbMemberId st)
   flag <- readTVarIO (HB.hbNeedsRebalance st)
   mid  @?= ""
   flag @?= True
@@ -69,8 +70,8 @@ unit_fencedInstanceClearsMemberId :: Assertion
 unit_fencedInstanceClearsMemberId = do
   st <- freshHb
   seedMember st "static-member-7"
-  atomically $ HB.applyHeartbeatOutcome st HB.HeartbeatFencedInstance
-  mid  <- readTVarIO (HB.hbMemberId st)
+  HB.applyHeartbeatOutcome st HB.HeartbeatFencedInstance
+  mid  <- readIORef (HB.hbMemberId st)
   flag <- readTVarIO (HB.hbNeedsRebalance st)
   mid  @?= ""
   flag @?= True
@@ -79,8 +80,8 @@ unit_illegalGenerationKeepsMemberId :: Assertion
 unit_illegalGenerationKeepsMemberId = do
   st <- freshHb
   seedMember st "consumer-9"
-  atomically $ HB.applyHeartbeatOutcome st HB.HeartbeatIllegalGeneration
-  mid  <- readTVarIO (HB.hbMemberId st)
+  HB.applyHeartbeatOutcome st HB.HeartbeatIllegalGeneration
+  mid  <- readIORef (HB.hbMemberId st)
   flag <- readTVarIO (HB.hbNeedsRebalance st)
   -- ILLEGAL_GENERATION only invalidates the generation counter.
   -- The memberId stays so the rejoin can be a no-op.
@@ -92,8 +93,8 @@ unit_otherErrorKeepsMemberId :: Assertion
 unit_otherErrorKeepsMemberId = do
   st <- freshHb
   seedMember st "consumer-x"
-  atomically $ HB.applyHeartbeatOutcome st (HB.HeartbeatOtherError 42 "x")
-  mid  <- readTVarIO (HB.hbMemberId st)
+  HB.applyHeartbeatOutcome st (HB.HeartbeatOtherError 42 "x")
+  mid  <- readIORef (HB.hbMemberId st)
   flag <- readTVarIO (HB.hbNeedsRebalance st)
   assertBool "memberId preserved" (not (T.null mid))
   flag @?= True
@@ -103,8 +104,8 @@ unit_transportFailureNoOp = do
   st <- freshHb
   seedMember st "consumer-z"
   resetRebalance st
-  atomically $ HB.applyHeartbeatOutcome st (HB.HeartbeatTransport "net")
-  mid  <- readTVarIO (HB.hbMemberId st)
+  HB.applyHeartbeatOutcome st (HB.HeartbeatTransport "net")
+  mid  <- readIORef (HB.hbMemberId st)
   flag <- readTVarIO (HB.hbNeedsRebalance st)
   assertBool "memberId preserved" (not (T.null mid))
   flag @?= False

@@ -48,6 +48,13 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import Control.Exception (Exception, try, SomeException)
 import Control.Monad (unless)
+import Data.IORef
+  ( IORef
+  , atomicModifyIORef'
+  , newIORef
+  , readIORef
+  , writeIORef
+  )
 import Data.Int (Int16, Int32, Int64)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
@@ -96,24 +103,37 @@ data TransactionState
   -- ^ Fatal error state
   deriving (Show, Eq)
 
--- | Transaction handle with thread-safe state management
+-- | Transaction handle with thread-safe state management.
+--
+-- Tier 3 of the STM-replacement work moves the per-transaction
+-- handoff slots ('txnProducerId', 'txnProducerEpoch', 'txnState',
+-- 'txnCoordinator') to 'IORef': they are all single-writer (the
+-- transaction-coordinator-driven state machine) / multi-reader
+-- (sender thread + close path) handoffs that never composed
+-- transactionally with anything else. 'txnPartitions' and
+-- 'txnSequenceNumbers' stay 'TVar' because the producer's
+-- partition-registration path uses STM to compose
+-- check-then-insert atomically with the transactional state.
 data Transaction = Transaction
   { txnTransactionalId :: !TransactionalId
-  , txnProducerId :: !(TVar (Maybe ProducerId))
-  , txnProducerEpoch :: !(TVar (Maybe ProducerEpoch))
-  , txnState :: !(TVar TransactionState)
+  , txnProducerId :: !(IORef (Maybe ProducerId))
+  , txnProducerEpoch :: !(IORef (Maybe ProducerEpoch))
+  , txnState :: !(IORef TransactionState)
   , txnPartitions :: !(TVar (HashSet TopicPartition))
   -- ^ Partitions involved in the current transaction.
   , txnSequenceNumbers :: !(TVar (HashMap TopicPartition Int32))
   -- ^ Sequence numbers per partition for idempotency.
-  , txnCoordinator :: !(TVar (Maybe TransactionCoordinator))
+  , txnCoordinator :: !(IORef (Maybe TransactionCoordinator))
   -- ^ Cached transaction coordinator
   , txnConnectionManager :: !ConnectionManager
   -- ^ Connection manager for network operations
   , txnVersionCache :: !ApiVersionCache
   -- ^ API version cache for version negotiation
-  , txnCorrelationId :: !(TVar Int32)
-  -- ^ Correlation ID generator
+  , txnCorrelationId :: !(IORef Int32)
+  -- ^ Correlation ID generator. Single source of monotonically
+  --   increasing correlation IDs handed to TransactionCoordinator
+  --   requests; never composed transactionally with anything else,
+  --   so 'IORef' + 'atomicModifyIORef\'' suffices.
   , txnClientId :: !Text
   -- ^ Client ID for requests
   , txnBootstrapBroker :: !BrokerAddress
@@ -146,13 +166,13 @@ createTransaction :: TransactionalId
                   -> Int32  -- ^ Transaction timeout (ms)
                   -> IO Transaction
 createTransaction transactionalId connMgr versionCache clientId bootstrapBroker timeoutMs = do
-  producerId <- newTVarIO Nothing
-  producerEpoch <- newTVarIO Nothing
-  state <- newTVarIO Uninitialized
+  producerId <- newIORef Nothing
+  producerEpoch <- newIORef Nothing
+  state <- newIORef Uninitialized
   partitions <- newTVarIO HashSet.empty
   sequences <- newTVarIO HashMap.empty
-  coordinator <- newTVarIO Nothing
-  correlationId <- newTVarIO 0
+  coordinator <- newIORef Nothing
+  correlationId <- newIORef 0
   return Transaction
     { txnTransactionalId = transactionalId
     , txnProducerId = producerId
@@ -171,17 +191,15 @@ createTransaction transactionalId connMgr versionCache clientId bootstrapBroker 
 
 -- | Get current transaction state
 getTransactionState :: Transaction -> IO TransactionState
-getTransactionState txn = readTVarIO (txnState txn)
+getTransactionState txn = readIORef (txnState txn)
 
 -- | Attempt to transition to a new state, returns False if transition is invalid
 transitionState :: Transaction -> TransactionState -> IO Bool
-transitionState txn newState = atomically $ do
-  currentState <- readTVar (txnState txn)
-  if isValidTransition currentState newState
-    then do
-      writeTVar (txnState txn) newState
-      return True
-    else return False
+transitionState txn newState =
+  atomicModifyIORef' (txnState txn) $ \currentState ->
+    if isValidTransition currentState newState
+      then (newState, True)
+      else (currentState, False)
 
 -- | Check if state transition is valid
 isValidTransition :: TransactionState -> TransactionState -> Bool
@@ -232,7 +250,7 @@ initTransactions txn = do
         Left err -> return $ Left $ CoordinatorNotAvailable $ T.pack $ show err
         Right coordinator -> do
           -- Cache the coordinator
-          atomically $ writeTVar (txnCoordinator txn) (Just coordinator)
+          writeIORef (txnCoordinator txn) (Just coordinator)
 
           -- Initialize producer ID, with retry for the broker's
           -- mid-transition error codes:
@@ -258,11 +276,21 @@ initTransactions txn = do
           case pidResult of
             Left err -> return $ Left $ CoordinatorNotAvailable $ T.pack $ show err
             Right (pid, epoch) -> do
-              -- Store producer ID and epoch
-              atomically $ do
-                writeTVar (txnProducerId txn) (Just $ ProducerId pid)
-                writeTVar (txnProducerEpoch txn) (Just $ ProducerEpoch epoch)
-                writeTVar (txnState txn) Ready
+              -- Store producer ID and epoch.
+              -- Tier 3 of the STM-replacement work: 'txnProducerId',
+              -- 'txnProducerEpoch' and 'txnState' moved to 'IORef';
+              -- the cross-ref atomicity used to be provided by the
+              -- enclosing 'atomically' block. The producer reads
+              -- these three together via three independent
+              -- 'readIORef's; an interleaved sender that observes
+              -- (Just pid, Nothing epoch, Ready) for one
+              -- instruction is harmless because the sender only
+              -- consults these when the state is already Ready and
+              -- it has its own pid/epoch snapshot via
+              -- @senderTransactionalId@.
+              writeIORef (txnProducerId txn) (Just $ ProducerId pid)
+              writeIORef (txnProducerEpoch txn) (Just $ ProducerEpoch epoch)
+              writeIORef (txnState txn) Ready
 
               return $ Right ()
     
@@ -356,9 +384,9 @@ commitTransaction txn = do
       if success
         then do
           -- Get coordinator, producer ID, and epoch
-          coordM <- readTVarIO (txnCoordinator txn)
-          pidM <- readTVarIO (txnProducerId txn)
-          epochM <- readTVarIO (txnProducerEpoch txn)
+          coordM <- readIORef (txnCoordinator txn)
+          pidM <- readIORef (txnProducerId txn)
+          epochM <- readIORef (txnProducerEpoch txn)
           partitions <- readTVarIO (txnPartitions txn)
           
           case (coordM, pidM, epochM) of
@@ -393,10 +421,10 @@ commitTransaction txn = do
               
               case endResult of
                 Left err -> do
-                  atomically $ writeTVar (txnState txn) (Error $ T.pack $ show err)
+                  writeIORef (txnState txn) (Error $ T.pack $ show err)
                   return $ Left $ UnknownTransactionError $ T.pack $ show err
                 Right () -> do
-                  atomically $ writeTVar (txnState txn) Ready
+                  writeIORef (txnState txn) Ready
                   return $ Right ()
             
             _ -> return $ Left $ TransactionNotInitialized "Missing producer ID or coordinator"
@@ -426,9 +454,9 @@ abortTransaction txn = do
       if success
         then do
           -- Get coordinator, producer ID, and epoch
-          coordM <- readTVarIO (txnCoordinator txn)
-          pidM <- readTVarIO (txnProducerId txn)
-          epochM <- readTVarIO (txnProducerEpoch txn)
+          coordM <- readIORef (txnCoordinator txn)
+          pidM <- readIORef (txnProducerId txn)
+          epochM <- readIORef (txnProducerEpoch txn)
           partitions <- readTVarIO (txnPartitions txn)
           
           case (coordM, pidM, epochM) of
@@ -463,12 +491,11 @@ abortTransaction txn = do
               
               case endResult of
                 Left err -> do
-                  atomically $ writeTVar (txnState txn) (Error $ T.pack $ show err)
+                  writeIORef (txnState txn) (Error $ T.pack $ show err)
                   return $ Left $ UnknownTransactionError $ T.pack $ show err
                 Right () -> do
-                  atomically $ do
-                    writeTVar (txnState txn) Aborted
-                    writeTVar (txnState txn) Ready
+                  writeIORef (txnState txn) Aborted
+                  writeIORef (txnState txn) Ready
                   return $ Right ()
             
             _ -> return $ Left $ TransactionNotInitialized "Missing producer ID or coordinator"

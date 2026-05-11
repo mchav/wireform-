@@ -12,7 +12,7 @@ Kafka response for API key 80.
 
 
 
-Valid versions: 0-1
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -74,13 +74,13 @@ data AddRaftVoterResponse = AddRaftVoterResponse
 
 -- | Maximum supported version for AddRaftVoterResponse.
 maxAddRaftVoterResponseVersion :: Int16
-maxAddRaftVoterResponseVersion = 1
+maxAddRaftVoterResponseVersion = 0
 
 -- | KafkaMessage instance for AddRaftVoterResponse.
 instance KafkaMessage AddRaftVoterResponse where
   messageApiKey = 80
   messageMinVersion = 0
-  messageMaxVersion = 1
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 
@@ -96,7 +96,7 @@ wireMaxSizeAddRaftVoterResponse _version msg =
 -- | Direct-poke encoder for AddRaftVoterResponse.
 wirePokeAddRaftVoterResponse :: Int -> Ptr Word8 -> AddRaftVoterResponse -> IO (Ptr Word8)
 wirePokeAddRaftVoterResponse version basePtr msg
-  | version >= 0 && version <= 1 = do
+  | version == 0 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (addRaftVoterResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (addRaftVoterResponseErrorCode msg)
@@ -107,7 +107,7 @@ wirePokeAddRaftVoterResponse version basePtr msg
 -- | Direct-poke decoder for AddRaftVoterResponse.
 wirePeekAddRaftVoterResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (AddRaftVoterResponse, Ptr Word8)
 wirePeekAddRaftVoterResponse version _fp _basePtr p0 endPtr
-  | version >= 0 && version <= 1 = do
+  | version == 0 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
@@ -118,7 +118,7 @@ wirePeekAddRaftVoterResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec AddRaftVoterResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeAddRaftVoterResponse (fromIntegral v) msg

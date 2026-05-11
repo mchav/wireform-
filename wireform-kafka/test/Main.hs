@@ -87,6 +87,7 @@ import qualified Client.MockBrokerStoreSpec
 import qualified Client.MockBrokerProtoSpec
 import qualified Client.ConfigParitySpec
 import qualified Client.ConfigValidationSpec
+import qualified Client.EnvSpec
 import qualified Client.HeartbeatRejoinSpec
 import qualified Codegen.WireGeneratorSpec
 import qualified Protocol.WireCodecParitySpec
@@ -99,6 +100,7 @@ import qualified Network.ConnectionRetrySpec
 import qualified Network.TlsHandshakeSpec
 import qualified Network.TransportSpec
 import qualified Network.SaslReauthSpec
+import qualified Network.TlsOffloadSpec
 
 main :: IO ()
 main = do
@@ -194,6 +196,7 @@ clientTests = testGroup "Client"
   , Client.MockBrokerProtoSpec.tests
   , Client.ConfigParitySpec.tests
   , Client.ConfigValidationSpec.tests
+  , Client.EnvSpec.tests
   , Client.HeartbeatRejoinSpec.tests
   , Codegen.WireGeneratorSpec.tests
   , Protocol.WireCodecParitySpec.tests
@@ -209,6 +212,7 @@ networkTests = testGroup "Network"
   , Network.AuthSpec.authSpec
   , Network.TlsHandshakeSpec.tests
   , Network.TransportSpec.tests
+  , Network.TlsOffloadSpec.tests
   , Network.SaslReauthSpec.tests
   , Network.OAuthOidcSpec.tests
   , Network.BootstrapSpec.tests

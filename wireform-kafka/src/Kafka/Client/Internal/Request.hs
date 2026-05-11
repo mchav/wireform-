@@ -253,7 +253,7 @@ flexibleVersionTable =
   , (71, 0)   -- GetTelemetrySubscriptions
   , (72, 0)   -- PushTelemetry
   , (73, 0)   -- AssignReplicasToDirs
-  , (74, 0)   -- ListConfigResources
+  , (74, 0)   -- ListClientMetricsResources
   , (75, 0)   -- DescribeTopicPartitions
   ]
 

@@ -37,6 +37,8 @@ module Kafka.Client.Internal.ProducerSender
   , bumpBatchAttempts
   , batchBackoffMs
   , shouldRetry
+    -- * Pipelined sender (per-broker in-flight tracking)
+  , senderTotalInFlight
     -- * Pure batch construction (exposed for testing)
   , buildRecordBatch
     -- * Timeout Checking (KIP-91)
@@ -55,9 +57,14 @@ module Kafka.Client.Internal.ProducerSender
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
+import qualified Control.Concurrent.Chan.Unagi as U
+import qualified Control.Concurrent.Chan.Unagi.Bounded as UB
 import Control.Exception (SomeException, try)
-import Control.Monad (when, forM, forM_)
+import Control.Monad (forever, void, when, forM, forM_)
+import qualified Data.ByteString as BS
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int
+import qualified Data.List
 import Data.List (groupBy, sortBy, partition)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
@@ -163,6 +170,116 @@ nextRetryBackoffMs RetryConfig{..} attempt =
       !jit     = sin (fromIntegral attempt) * retryBackoffJitter
    in max 0 (round (capped * (1 + jit)))
 
+-- | Per-broker pipelined-send state.
+--
+-- The sender holds one 'BrokerPipe' per (broker, connection)
+-- pair. Each pipe owns:
+--
+--   * A dedicated 'Connection' (separate from
+--     'producerConnManager' so the pipelined writer doesn't race
+--     against the on-demand metadata refresh path that uses the
+--     shared cache).
+--
+--   * A bounded outbox 'TBQueue OutboundProduce' that the sender
+--     main loop pushes encoded ProduceRequests into; the bound
+--     equals 'producerMaxInFlight' so the producer-side back-
+--     pressures naturally without an extra semaphore.
+--
+--   * An unbounded in-flight FIFO 'TBQueue PendingProduce'
+--     coordinating writer → reader hand-off. Kafka guarantees
+--     responses come back in request order on a given
+--     connection, so a FIFO is sufficient (no correlation-ID
+--     map needed).
+--
+--   * A single writer 'Async' that pulls outbox items, frames
+--     and writes the bytes, and pushes the matching pending
+--     entry onto the in-flight FIFO.
+--
+--   * A single reader 'Async' that reads framed responses,
+--     pulls the head of the in-flight FIFO, parses the body, and
+--     dispatches per-batch callbacks via 'processProduceResponse'.
+--
+-- Together the writer + reader unlock pipelining: the producer
+-- can stream up to 'senderMaxInFlight' ProduceRequests onto the
+-- wire before any of their responses come back. Without
+-- pipelining the sender pays a full broker round-trip per
+-- ProduceRequest; with pipelining it pays one round-trip per
+-- 'senderMaxInFlight' requests, which is what librdkafka and
+-- the JVM client do via @max.in.flight.requests.per.connection@.
+-- | Pool of 'BrokerPipe's targeting one broker. The sender
+-- round-robins outbound work across the pipes; each pipe owns
+-- its own TCP socket + writer + reader so multiple
+-- ProduceRequests can be in flight on different sockets in
+-- parallel. This breaks the single-writer bottleneck a single
+-- per-broker pipe imposes, which is the main thing keeping us
+-- below librdkafka's per-broker throughput on small-record
+-- workloads.
+newtype BrokerPool = BrokerPool { bpPipes :: V.Vector BrokerPipe }
+
+data BrokerPipe = BrokerPipe
+  { bpAddr     :: !Conn.BrokerAddress
+  , bpConn     :: !Conn.Connection
+  , bpOutboxIn  :: !(UB.InChan  OutboundProduce)
+  , bpOutboxOut :: !(UB.OutChan OutboundProduce)
+    -- ^ Bounded MPMC channel from
+    --   "Control.Concurrent.Chan.Unagi.Bounded" carrying the
+    --   round of work the main sender loop hands off to this
+    --   pipe's writer thread. The bound is
+    --   'senderMaxInFlight'; @writeChan@ blocks once that many
+    --   requests are queued + in-flight, providing the same
+    --   producer-side backpressure the prior 'TBQueue' shape
+    --   gave us. Replaces 'TBQueue' on this hot path because
+    --   @writeChan@ / @readChan@ are CAS-loop based with no
+    --   STM commit overhead — at the per-record append rate
+    --   (~12 K writes/sec at 3 M rec/s, single batch-per-
+    --   round), STM's per-transaction allocation was visible.
+  , bpInFlightIn  :: !(U.InChan  PendingProduce)
+  , bpInFlightOut :: !(U.OutChan PendingProduce)
+    -- ^ Unbounded MPMC channel from
+    --   "Control.Concurrent.Chan.Unagi" carrying the in-flight
+    --   FIFO from writer to reader. Unbounded because depth is
+    --   already capped by 'bpOutboxIn's bound (a request can
+    --   only land in-flight after the outbox releases it).
+  , bpWriter   :: !(Async ())
+  , bpReader   :: !(Async ())
+  , bpInFlightCount :: !(TVar Int)
+    -- ^ Mirrors @length(outbox) + length(inFlight)@ for the
+    --   'flushProducer' / 'closeProducer' drain check; kept
+    --   separate (a 'TVar' rather than peeked from the chans
+    --   themselves) because unagi-chan doesn't expose a length
+    --   primitive — the count is updated atomically by the
+    --   sender on enqueue + the reader on ack.
+  }
+
+-- | Outbound work item written to a 'BrokerPipe' outbox by the
+-- main sender loop. Carries the unencoded inputs; the per-broker
+-- writer thread builds the ProduceRequest, runs the wire
+-- encoder, and writes to the socket. Pushing the encoding off
+-- the main sender loop frees the loop to fan more rounds out to
+-- the writer in parallel.
+data OutboundProduce = OutboundProduce
+  { opCorrId          :: !Int32
+  , opApiKey          :: !Int16
+  , opApiVersion      :: !Int16
+  , opClientId        :: !P.KafkaString
+  , opTransactionalId :: !(Maybe Text)
+  , opAcks            :: !Int16
+  , opTimeoutMs       :: !Int32
+  , opMetadata        :: !Meta.MetadataCache
+  , opBatches         :: ![BA.ProducerBatch]
+  , opPending         :: !PendingProduce
+  }
+
+-- | In-flight pending entry handed off from writer to reader.
+-- Holds the per-batch context the response handler needs to
+-- dispatch callbacks.
+data PendingProduce = PendingProduce
+  { ppCorrId     :: !Int32
+  , ppApiVersion :: !Int16
+  , ppBatches    :: ![BA.ProducerBatch]
+  , ppMetaCache  :: !Meta.MetadataCache
+  }
+
 -- | State for the sender thread
 data SenderState = SenderState
   { senderAccumulator :: !BA.BatchAccumulator
@@ -171,10 +288,53 @@ data SenderState = SenderState
     -- ^ Metadata cache for broker lookup
   , senderConnManager :: !Conn.ConnectionManager
     -- ^ Connection manager for getting broker connections
+  , senderConnConfig :: !Conn.ConnectionConfig
+    -- ^ Connection-level knobs (TLS / SASL / socket buffers /
+    --   keepalive / etc.) the sender uses every time it opens a
+    --   per-broker pipe. Threaded in from the @createProducer@
+    --   caller so 'Kafka.Client.Env'-derived overrides (TLS,
+    --   SASL, request timeouts) take effect for all sender
+    --   connections, not just the bootstrap one.
   , senderRetryConfig :: !RetryConfig
     -- ^ Retry configuration
   , senderRunning :: !(TVar Bool)
     -- ^ Whether the sender thread should keep running
+  , senderBusy :: !(IORef Bool)
+    -- ^ True while the sender loop is mid-iteration on a drained
+    --   batch (i.e. has called 'drainReadyBatches' but the broker
+    --   reply for those records has not yet landed).
+    --
+    --   Required for correctness of 'flushProducer' /
+    --   'closeProducer'\'s drain check: polling
+    --   'BA.hasReadyBatches' alone races the in-flight window in
+    --   which the sender has /pulled/ the batches off the
+    --   accumulator but is still waiting for a 'ProduceResponse'.
+    --   Without this flag a producer that 'flushProducer' +
+    --   'closeProducer' immediately can lose every record that
+    --   was on the wire at the time of the flush. Plain 'IORef'
+    --   is sufficient because the sender thread is the only
+    --   writer.
+  , senderMaxInFlight :: !Int
+    -- ^ Maximum concurrent ProduceRequests in flight per broker
+    --   pipe. Mirrors @max.in.flight.requests.per.connection@.
+  , senderConnsPerBroker :: !Int
+    -- ^ Number of parallel TCP connections per broker. Each
+    --   connection has its own writer + reader thread, so
+    --   throughput scales roughly linearly with this for
+    --   broker-bound workloads. librdkafka uses 1 by default but
+    --   benchmarks frequently bump it; the JVM client does not
+    --   expose this knob (always 1).
+  , senderBrokerPipes :: !(IORef (HashMap Conn.BrokerAddress BrokerPool))
+    -- ^ Per-broker pool of pipelined-send pipes. Lazily
+    --   populated on first send to a broker. Each pipe in the
+    --   pool owns its own 'Connection' (so the writer / reader
+    --   threads don't race against each other or against the
+    --   on-demand metadata refresh path that uses the shared
+    --   'producerConnManager').
+  , senderRoundRobin :: !(IORef Int)
+    -- ^ Counter the sender uses to round-robin enqueueing
+    --   across the per-broker pipes. Single 'IORef' is fine —
+    --   the only writer is the sender main thread.
   , senderAcks :: !Int16
     -- ^ Required acks: 0 = none, 1 = leader, -1 = all ISRs
   , senderTimeoutMs :: !Int32
@@ -185,8 +345,11 @@ data SenderState = SenderState
     -- ^ Compression codec to use
   , senderClientId :: !Text
     -- ^ Client ID for requests
-  , senderCorrelationId :: !(TVar Int32)
-    -- ^ Next correlation ID to use
+  , senderCorrelationId :: !(IORef Int32)
+    -- ^ Next correlation ID to use. Single sender thread per
+    --   producer is the sole writer; SPSC counter served by
+    --   'IORef' + 'atomicModifyIORef\'' instead of an STM
+    --   transaction on every Produce request.
   , senderLogger :: !Logger
     -- ^ Structured logger callback; invoked on retriable / fatal
     --   produce errors. Defaults to 'defaultLogger'.
@@ -197,8 +360,12 @@ data SenderState = SenderState
     --   selection ('VN.pickApiVersion') matches what the broker
     --   actually accepts (rather than the hardcoded v3 the
     --   sender used to emit unconditionally).
-  , senderTransactionalId :: !(TVar (Maybe Text))
+  , senderTransactionalId :: !(IORef (Maybe Text))
     -- ^ Transactional id the producer is bound to.
+    --
+    --   Tier 3 of the STM-replacement work: single-writer (the
+    --   producer's @bindTransaction@ path) / single-reader (the
+    --   sender thread on every produce); 'IORef' is sufficient.
     --
     -- For transactional sends ('attrIsTransactional == True' on
     -- the batch) the broker requires the @transactionalId@
@@ -223,6 +390,12 @@ createSenderState
   :: BA.BatchAccumulator
   -> Meta.MetadataCache
   -> Conn.ConnectionManager
+  -> Conn.ConnectionConfig
+                 -- ^ Per-broker connection-level config (TLS,
+                 --   SASL, socket buffers, …). Used every time
+                 --   the sender opens a new pipe so caller
+                 --   overrides (including 'Kafka.Client.Env'
+                 --   ones) apply to all sender connections.
   -> RetryConfig
   -> Int16        -- ^ Required acks
   -> Int           -- ^ Delivery timeout (ms) - KIP-91
@@ -231,11 +404,19 @@ createSenderState
   -> AV.ApiVersionCache
                  -- ^ Per-broker negotiated API-version cache (shared
                  --   with the producer's bootstrap handshake)
+  -> Int          -- ^ Max in-flight ProduceRequests per broker pipe
+                 --   ('producerMaxInFlight'). The pipelined sender
+                 --   keeps up to this many ProduceRequests on the
+                 --   wire before blocking the main sender loop on
+                 --   the per-broker outbox bound.
   -> IO SenderState
-createSenderState accumulator metadata connManager retryConfig acks deliveryTimeoutMs compression clientId versionCache = do
+createSenderState accumulator metadata connManager connConfig retryConfig acks deliveryTimeoutMs compression clientId versionCache maxInFlight = do
   running <- newTVarIO True
-  correlationId <- newTVarIO 0
-  txnIdVar <- newTVarIO Nothing
+  busy <- newIORef False
+  correlationId <- newIORef 0
+  txnIdVar <- newIORef Nothing
+  brokerPipes <- newIORef HashMap.empty
+  rrCounter <- newIORef 0
   -- Use the smaller of delivery timeout and 30 seconds for individual request timeout
   -- The delivery timeout covers all retries, while request timeout is per-request
   let requestTimeoutMs = min 30000 (fromIntegral deliveryTimeoutMs)
@@ -243,8 +424,14 @@ createSenderState accumulator metadata connManager retryConfig acks deliveryTime
     { senderAccumulator = accumulator
     , senderMetadata = metadata
     , senderConnManager = connManager
+    , senderConnConfig = connConfig
     , senderRetryConfig = retryConfig
     , senderRunning = running
+    , senderBusy = busy
+    , senderMaxInFlight = max 1 maxInFlight
+    , senderConnsPerBroker = 16
+    , senderBrokerPipes = brokerPipes
+    , senderRoundRobin = rrCounter
     , senderAcks = acks
     , senderTimeoutMs = requestTimeoutMs
     , senderDeliveryTimeoutMs = fromIntegral deliveryTimeoutMs
@@ -260,11 +447,20 @@ createSenderState accumulator metadata connManager retryConfig acks deliveryTime
 startSenderThread :: SenderState -> IO (Async ())
 startSenderThread state = async $ senderLoop state
 
--- | Stop the sender thread gracefully
+-- | Stop the sender thread gracefully and tear down every
+-- per-broker pipelined send pipe (cancel writer + reader,
+-- disconnect the dedicated socket).
 stopSenderThread :: SenderState -> Async () -> IO ()
 stopSenderThread state thread = do
   atomically $ writeTVar (senderRunning state) False
   cancel thread
+  pools <- readIORef (senderBrokerPipes state)
+  forM_ (HashMap.elems pools) $ \BrokerPool{..} ->
+    forM_ (V.toList bpPipes) $ \BrokerPipe{..} -> do
+      cancel bpWriter
+      cancel bpReader
+      void (try (Conn.disconnect bpConn) :: IO (Either SomeException ()))
+  atomicModifyIORef' (senderBrokerPipes state) $ \_ -> (HashMap.empty, ())
 
 -- | Main sender loop
 senderLoop :: SenderState -> IO ()
@@ -280,44 +476,374 @@ senderLoop state@SenderState{..} = do
       
       if hasReady
         then do
-          -- Drain ready batches
+          -- Mark the sender busy /before/ draining; the drain
+          -- removes batches from the accumulator queue but the
+          -- 'ProduceResponse' for them only lands inside
+          -- 'sendBatches' below. 'flushProducer' /
+          -- 'closeProducer' wait on (not hasReady) AND (not
+          -- senderBusy) so they don't return mid-flight.
+          writeIORef senderBusy True
           batches <- BA.drainReadyBatches senderAccumulator
-          
-          -- Group batches by topic-partition, then by leader broker
           result <- try $ sendBatches state batches
-          
+          writeIORef senderBusy False
           case result of
             Left (e :: SomeException) ->
               senderLogger
                 LogError
                 (T.pack ("Sender loop error: " <> show e))
             Right () -> return ()
-          
-          -- Continue immediately if there might be more batches
           senderLoop state
         else do
-          -- No ready batches, sleep briefly
           threadDelay 10000  -- 10ms
           senderLoop state
 
--- | Send a collection of batches to their respective brokers
+-- | Send a collection of batches to their respective brokers via
+-- the per-broker pipelined send pipe (see 'BrokerPipe').
+--
+-- Batches are first grouped by broker (the partition leader) and
+-- then split into rounds where every (topic, partition) appears
+-- at most once per round; each round becomes one ProduceRequest
+-- (the Kafka wire spec requires one 'PartitionProduceData' per
+-- partition per request).
+--
+-- For each round, the sender:
+--   1. Builds the ProduceRequest record + serialised body.
+--   2. Pushes it to the broker pipe's outbox (blocks if the
+--      pipe is at 'senderMaxInFlight').
+--   3. Returns immediately — the writer thread takes over and
+--      hands the pending entry to the reader thread which
+--      dispatches per-batch callbacks once the broker replies.
+--
+-- Net effect: the sender main loop can drain and queue many
+-- ProduceRequests without paying a full broker round-trip per
+-- request, which is the librdkafka /
+-- @max.in.flight.requests.per.connection@ model.
 sendBatches :: SenderState -> [BA.ProducerBatch] -> IO ()
 sendBatches state@SenderState{..} batches = do
-  -- Group batches by broker (based on partition leader)
   batchesByBroker <- groupBatchesByBroker senderMetadata batches
-  
-  -- Send to each broker
   forM_ (Map.toList batchesByBroker) $ \(broker, brokerBatches) -> do
-    result <- try $ sendToBroker state broker brokerBatches
-    
-    case result of
-      Left (e :: SomeException) -> do
-        -- Invoke error callbacks for all batches
-        forM_ brokerBatches $ \batch -> do
-          let callbacks = BA.batchCallbacks batch
-              errorMsg = "Exception sending to broker: " <> T.pack (show e)
-          forM_ callbacks $ \callback -> callback (Left errorMsg)
-      Right () -> return ()
+    poolR <- ensureBrokerPool state broker
+    case poolR of
+      Left err ->
+        forM_ brokerBatches $ \batch ->
+          forM_ (BA.batchCallbacks batch) $ \cb ->
+            BA.runRecordCallback cb (Left (T.pack ("Failed to open broker pipe: " <> err)))
+      Right pool -> do
+        forM_ (roundsPerPartition brokerBatches) $ \roundBatches -> do
+          -- Round-robin across the pool's pipes so the writer
+          -- threads run in parallel on different sockets.
+          rr <- atomicModifyIORef' senderRoundRobin $
+                  \k -> (k + 1, k)
+          let !pipes  = bpPipes pool
+              !nPipes = V.length pipes
+              !pipe   = pipes V.! (rr `mod` nPipes)
+          result <- try $ enqueueRound state pipe broker roundBatches
+          case result of
+            Left (e :: SomeException) ->
+              forM_ roundBatches $ \batch ->
+                forM_ (BA.batchCallbacks batch) $ \cb ->
+                  BA.runRecordCallback cb (Left ("Exception enqueueing batch: " <> T.pack (show e)))
+            Right () -> pure ()
+  where
+    -- Split batches into rounds such that every (topic, partition)
+    -- appears at most once per round. The k-th round contains the
+    -- k-th batch (in arrival order) for every partition that had
+    -- at least k queued.
+    roundsPerPartition :: [BA.ProducerBatch] -> [[BA.ProducerBatch]]
+    roundsPerPartition bs =
+      let groups :: [[BA.ProducerBatch]]
+          groups = groupBy (\a b -> tpKey a == tpKey b)
+                 $ sortBy (comparing tpKey) bs
+          tpKey :: BA.ProducerBatch -> BA.TopicPartition
+          tpKey = BA.batchTopicPartition
+      in transposeNonEmpty groups
+
+    transposeNonEmpty :: [[a]] -> [[a]]
+    transposeNonEmpty xss =
+      case [ (h, t) | (h:t) <- xss ] of
+        []   -> []
+        hts  -> map fst hts : transposeNonEmpty (map snd hts)
+
+-- | Build the ProduceRequest for one round of batches, encode it,
+-- and push it to the broker's outbox. Blocks on
+-- 'senderMaxInFlight' backpressure (the outbox is a bounded
+-- 'TBQueue').
+enqueueRound
+  :: SenderState
+  -> BrokerPipe
+  -> Meta.BrokerMetadata
+  -> [BA.ProducerBatch]
+  -> IO ()
+enqueueRound state@SenderState{..} pipe (_broker :: Meta.BrokerMetadata) batches = do
+  -- Drop any batches that have exceeded the per-batch delivery
+  -- timeout (KIP-91) before we hit the wire.
+  currentTime <- KafkaTime.currentTimeMillis
+  let (timedOut, valid) = partition (isBatchTimedOut currentTime senderDeliveryTimeoutMs) batches
+  forM_ timedOut $ \batch -> do
+    let createTime = BA.batchCreateTime batch
+        elapsed    = currentTime - createTime
+        msg = "Delivery timeout exceeded: batch created "
+                <> T.pack (show elapsed)
+                <> "ms ago, timeout is "
+                <> T.pack (show senderDeliveryTimeoutMs) <> "ms"
+    forM_ (BA.batchCallbacks batch) $ \cb -> BA.runRecordCallback cb (Left msg)
+  when (not (null valid)) $ do
+    -- The ApiVersions handshake was already run in
+    -- 'ensureBrokerPipe' before the writer / reader threads
+    -- started.
+    txnIdM <- readIORef senderTransactionalId
+    verR <- VN.pickApiVersionForRange @PR.ProduceRequest
+              3 13 senderVersionCache (bpAddr pipe) 3
+    let !apiVersion = case verR of
+          Right v -> v
+          Left  _ -> 3
+        !apiKey      = 0
+        !clientId    = P.mkKafkaString senderClientId
+    cid <- atomicModifyIORef' senderCorrelationId $ \k -> (k + 1, k)
+    let !pending = PendingProduce
+          { ppCorrId     = cid
+          , ppApiVersion = apiVersion
+          , ppBatches    = valid
+          , ppMetaCache  = senderMetadata
+          }
+        !out = OutboundProduce
+          { opCorrId          = cid
+          , opApiKey          = apiKey
+          , opApiVersion      = apiVersion
+          , opClientId        = clientId
+          , opTransactionalId = txnIdM
+          , opAcks            = senderAcks
+          , opTimeoutMs       = senderTimeoutMs
+          , opMetadata        = senderMetadata
+          , opBatches         = valid
+          , opPending         = pending
+          }
+    -- Bound on outbox depth = senderMaxInFlight provides
+    -- producer-side backpressure: 'UB.writeChan' blocks once
+    -- the pipe has 'senderMaxInFlight' requests queued + in
+    -- flight, matching the librdkafka /
+    -- 'max.in.flight.requests.per.connection' semantics.
+    --
+    -- The counter and the chan write are no longer one STM
+    -- transaction (unagi-chan isn't STM-aware). Bumping the
+    -- counter /before/ the chan write keeps the
+    -- 'flushProducer' poll conservative — the count can read
+    -- high for a brief window while the writeChan is in
+    -- progress, but never low.
+    atomically $ modifyTVar' (bpInFlightCount pipe) (+ 1)
+    UB.writeChan (bpOutboxIn pipe) out
+
+-- | Look up (or lazily open) the pool of pipelined-send pipes
+-- for a broker. The pool size is 'senderConnsPerBroker'; each
+-- pipe opens its own dedicated TCP connection and starts a
+-- writer + reader async pair.
+ensureBrokerPool
+  :: SenderState
+  -> Meta.BrokerMetadata
+  -> IO (Either String BrokerPool)
+ensureBrokerPool state@SenderState{..} brokerMeta = do
+  let !addr = Meta.brokerMetaAddress brokerMeta
+  existing <- HashMap.lookup addr <$> readIORef senderBrokerPipes
+  case existing of
+    Just pool -> pure (Right pool)
+    Nothing -> do
+      let !n = max 1 senderConnsPerBroker
+      pipesE <- mapM (const (openOnePipe state addr))
+                     [1 .. n]
+      case sequence pipesE of
+        Left err -> do
+          -- Tear down the pipes that did open before failing.
+          forM_ pipesE $ \case
+            Right p -> do
+              cancel (bpWriter p); cancel (bpReader p)
+              void (try (Conn.disconnect (bpConn p)) :: IO (Either SomeException ()))
+            Left _ -> pure ()
+          pure (Left err)
+        Right pipes -> do
+          let !pool = BrokerPool { bpPipes = V.fromList pipes }
+          inserted <- atomicModifyIORef' senderBrokerPipes $ \m ->
+            case HashMap.lookup addr m of
+              Just existingPool -> (m, Right existingPool)
+              Nothing -> (HashMap.insert addr pool m, Left pool)
+          case inserted of
+            Right p -> do
+              -- A racing caller already populated the entry;
+              -- tear down our just-built pool and use theirs.
+              forM_ pipes $ \pp -> do
+                cancel (bpWriter pp); cancel (bpReader pp)
+                void (try (Conn.disconnect (bpConn pp)) :: IO (Either SomeException ()))
+              pure (Right p)
+            Left p -> pure (Right p)
+
+-- | Open + start one 'BrokerPipe'.
+openOnePipe :: SenderState -> Conn.BrokerAddress -> IO (Either String BrokerPipe)
+openOnePipe state@SenderState{..} addr = do
+  connR <- Conn.connect addr senderConnConfig
+  case connR of
+    Left err -> pure (Left err)
+    Right conn -> do
+      let nextCid = atomicModifyIORef' senderCorrelationId $ \cid -> (cid + 1, cid)
+      _ <- VN.ensureVersionsNegotiated conn addr senderVersionCache nextCid
+      (outboxIn, outboxOut)     <- UB.newChan (max 1 senderMaxInFlight)
+      (inflightIn, inflightOut) <- U.newChan
+      counter                   <- newTVarIO 0
+      let !pipeStub = PipeBootstrap
+            { pbsAddr        = addr
+            , pbsConn        = conn
+            , pbsOutboxOut   = outboxOut
+            , pbsInFlightIn  = inflightIn
+            , pbsInFlightOut = inflightOut
+            , pbsCount       = counter
+            , pbsState       = state
+            }
+      writerA <- async (brokerWriterLoop pipeStub)
+      readerA <- async (brokerReaderLoop pipeStub)
+      pure $ Right BrokerPipe
+        { bpAddr          = addr
+        , bpConn          = conn
+        , bpOutboxIn      = outboxIn
+        , bpOutboxOut     = outboxOut
+        , bpInFlightIn    = inflightIn
+        , bpInFlightOut   = inflightOut
+        , bpWriter        = writerA
+        , bpReader        = readerA
+        , bpInFlightCount = counter
+        }
+
+-- | Bootstrap helper for the writer / reader threads.
+data PipeBootstrap = PipeBootstrap
+  { pbsAddr        :: !Conn.BrokerAddress
+  , pbsConn        :: !Conn.Connection
+  , pbsOutboxOut   :: !(UB.OutChan OutboundProduce)
+  , pbsInFlightIn  :: !(U.InChan  PendingProduce)
+  , pbsInFlightOut :: !(U.OutChan PendingProduce)
+  , pbsCount       :: !(TVar Int)
+  , pbsState       :: !SenderState
+  }
+
+-- | Per-broker writer loop. Pulls outbox items, frames + writes
+-- the request bytes to the wire, and pushes the matching pending
+-- entry onto the in-flight FIFO so the reader knows what
+-- batches the next response corresponds to.
+brokerWriterLoop :: PipeBootstrap -> IO ()
+brokerWriterLoop PipeBootstrap{..} = forever $ do
+  out <- UB.readChan pbsOutboxOut
+  -- Encoding lives here (in the writer thread) rather than in
+  -- the main sender loop so the main loop can fan more rounds
+  -- out to this thread in parallel with us hitting the wire.
+  request <- buildProduceRequest
+               (opMetadata out)
+               (opTransactionalId out)
+               (opAcks out)
+               (opTimeoutMs out)
+               (opBatches out)
+  let !requestBody = WC.runEncodeVer @PR.ProduceRequest (opApiVersion out) request
+      !framed      = Req.frameRequest
+                       (opApiKey out)
+                       (opApiVersion out)
+                       (opCorrId out)
+                       (opClientId out)
+                       requestBody
+  result <- try (Req.sendRawRequest pbsConn framed)
+              :: IO (Either SomeException ())
+  case result of
+    Left e -> do
+      -- Wire write failed; surface to all the round's batches
+      -- and don't enqueue a pending entry (no response will
+      -- ever come). The reader thread keeps going against
+      -- whatever is already in flight; a subsequent request
+      -- on this pipe will hit the broken socket and surface.
+      let !errMsg = "Wire write failed: " <> T.pack (show (e :: SomeException))
+      forM_ (ppBatches (opPending out)) $ \batch ->
+        forM_ (BA.batchCallbacks batch) $ \cb -> BA.runRecordCallback cb (Left errMsg)
+      atomically $ modifyTVar' pbsCount (subtract 1)
+    Right () ->
+      -- Single-producer-single-consumer hand-off from this
+      -- writer to the matching reader; unagi's @writeChan@ is
+      -- a CAS-loop on a segmented array, no STM commit.
+      U.writeChan pbsInFlightIn (opPending out)
+
+-- | Per-broker reader loop. Reads framed responses off the wire,
+-- pulls the head of the in-flight FIFO (Kafka guarantees
+-- per-connection in-order responses), parses the body, and
+-- dispatches per-batch callbacks via 'processProduceResponse'.
+brokerReaderLoop :: PipeBootstrap -> IO ()
+brokerReaderLoop pbs@PipeBootstrap{..} = do
+  rawR <- try (Req.receiveRawResponse pbsConn) :: IO (Either SomeException BS.ByteString)
+  case rawR of
+    Left e -> do
+      -- Drain in-flight: surface a transport error to whatever
+      -- is left waiting. Then exit the loop (the broken
+      -- connection means the writer's next write will also
+      -- fail and the user will see an error from the next
+      -- send).
+      drained <- drainUnagi pbsInFlightOut
+      forM_ drained $ \pp ->
+        forM_ (ppBatches pp) $ \batch ->
+          forM_ (BA.batchCallbacks batch) $ \cb ->
+            BA.runRecordCallback cb (Left ("Wire read failed: " <> T.pack (show (e :: SomeException))))
+      atomically $ writeTVar pbsCount 0
+      void (try (Conn.disconnect pbsConn) :: IO (Either SomeException ()))
+    Right raw -> do
+      pp <- U.readChan pbsInFlightOut
+      let parsed = Req.parseResponseFrame 0 (ppApiVersion pp) raw
+      case parsed of
+        Left err ->
+          forM_ (ppBatches pp) $ \batch ->
+            forM_ (BA.batchCallbacks batch) $ \cb ->
+              BA.runRecordCallback cb (Left ("Response decode error: " <> T.pack err))
+        Right (responseCorrId, body)
+          | responseCorrId /= ppCorrId pp ->
+              forM_ (ppBatches pp) $ \batch ->
+                forM_ (BA.batchCallbacks batch) $ \cb ->
+                  BA.runRecordCallback cb (Left "Correlation ID mismatch")
+          | otherwise ->
+              case WC.runDecodeVer @PResp.ProduceResponse (ppApiVersion pp) body of
+                Left err ->
+                  forM_ (ppBatches pp) $ \batch ->
+                    forM_ (BA.batchCallbacks batch) $ \cb ->
+                      BA.runRecordCallback cb (Left ("Failed to parse response: " <> T.pack err))
+                Right resp ->
+                  processProduceResponse (Just (ppMetaCache pp)) (ppBatches pp) resp
+      atomically $ modifyTVar' pbsCount (subtract 1)
+      brokerReaderLoop pbs
+
+-- | Best-effort drain of a 'U.OutChan' to a list of items
+-- currently sitting in the chan. Used by the broker reader's
+-- error path to surface a transport failure to every batch
+-- still in-flight.
+--
+-- /Not atomic/: a writer that lands a new item between two
+-- 'U.tryReadChan' iterations would have its item missed by
+-- this drain. That's the same window the prior STM-based
+-- 'flushTBQueueAll' had against any non-STM writer; in our
+-- protocol the writer that fed this in-flight chan is dead
+-- (the connection is broken), so no new writes are coming.
+drainUnagi :: U.OutChan a -> IO [a]
+drainUnagi out = go []
+  where
+    go !acc = do
+      (element, _) <- U.tryReadChan out
+      m <- U.tryRead element
+      case m of
+        Nothing -> pure (reverse acc)
+        Just x  -> go (x : acc)
+
+-- | Total number of ProduceRequests currently queued or in-flight
+-- across every broker pipe. The producer's
+-- 'Kafka.Client.Producer.flushProducer' /
+-- 'Kafka.Client.Producer.closeProducer' wait paths consult this
+-- to know when every record has been acked by the broker (the
+-- pipelined writer / reader hand-off makes 'BA.hasReadyBatches'
+-- false the moment the sender pulls batches off the accumulator,
+-- so we need a separate signal that the broker has finished
+-- replying for them).
+senderTotalInFlight :: SenderState -> IO Int
+senderTotalInFlight SenderState{..} = do
+  pools <- readIORef senderBrokerPipes
+  fmap sum $ forM (HashMap.elems pools) $ \BrokerPool{..} ->
+    fmap sum $ forM (V.toList bpPipes) $ \BrokerPipe{..} ->
+      atomically (readTVar bpInFlightCount)
 
 -- | Group batches by their target broker
 groupBatchesByBroker
@@ -341,7 +867,7 @@ groupBatchesByBroker metadata batches = do
         errorMsg = "Unknown leader for topic " <> BA.tpTopic tp <> 
                    " partition " <> T.pack (show (BA.tpPartition tp))
         callbacks = BA.batchCallbacks batch
-    forM_ callbacks $ \callback -> callback (Left errorMsg)
+    forM_ callbacks $ \callback -> BA.runRecordCallback callback (Left errorMsg)
   
   -- Group by broker, filtering out batches with unknown leaders
   let validBatches = [(broker, batch) | (Just broker, batch) <- batchesWithBroker]
@@ -356,134 +882,6 @@ isBatchTimedOut currentTime deliveryTimeoutMs batch =
   let createTime = BA.batchCreateTime batch
       elapsed = currentTime - createTime
   in elapsed > fromIntegral deliveryTimeoutMs
-
--- | Send batches to a specific broker
-sendToBroker :: SenderState -> Meta.BrokerMetadata -> [BA.ProducerBatch] -> IO ()
-sendToBroker state@SenderState{..} broker batches = do
-  -- Get current time to check delivery timeout (KIP-91).
-  -- 'KafkaTime.currentTimeMillis' is the fast vDSO-coarse clock
-  -- (~8 ns on Linux), called once per send-loop iteration.
-  currentTime <- KafkaTime.currentTimeMillis
-  
-  -- Partition batches into those that have exceeded delivery timeout and those that haven't
-  let (timedOutBatches, validBatches) = partition (isBatchTimedOut currentTime senderDeliveryTimeoutMs) batches
-  
-  -- Fail timed-out batches immediately
-  forM_ timedOutBatches $ \batch -> do
-    let callbacks = BA.batchCallbacks batch
-        createTime = BA.batchCreateTime batch
-        elapsed = currentTime - createTime
-        errorMsg = "Delivery timeout exceeded: batch created " <> T.pack (show elapsed) <> 
-                   "ms ago, timeout is " <> T.pack (show senderDeliveryTimeoutMs) <> "ms"
-    forM_ callbacks $ \callback -> callback (Left errorMsg)
-  
-  -- Continue with valid batches only
-  when (not $ null validBatches) $ do
-    -- Get or create connection to the broker
-    let brokerAddr = Meta.brokerMetaAddress broker
-        nextCid = atomically $ do
-          cid <- readTVar senderCorrelationId
-          writeTVar senderCorrelationId (cid + 1)
-          pure cid
-    connResult <- Conn.getOrCreateConnection senderConnManager brokerAddr Conn.defaultConnectionConfig
-    case connResult of
-      Left err -> do
-        senderLogger LogError
-          (T.pack ("Failed to connect to broker: " <> err))
-        forM_ validBatches $ \batch -> do
-          let callbacks = BA.batchCallbacks batch
-              errorMsg = "Connection failed: " <> T.pack err
-          forM_ callbacks $ \callback -> callback (Left errorMsg)
-    
-      Right conn -> do
-        -- Negotiate ApiVersions for this broker if we haven't yet;
-        -- idempotent, single round-trip per (sender, broker) pair.
-        _ <- VN.ensureVersionsNegotiated conn brokerAddr senderVersionCache nextCid
-        corrId <- nextCid
-
-        -- Build and encode the request (compression is IO).
-        -- Threads the metadata cache through so v13+ requests
-        -- can populate the KIP-516 TopicId on each
-        -- TopicProduceData entry; the cache maintains
-        -- 'topicMetaTopicId' from the v10+ MetadataResponse.
-        --
-        -- Reads 'senderTransactionalId' so transactional
-        -- batches ship with the configured txn id on the
-        -- request envelope (otherwise the broker rejects with
-        -- @TRANSACTIONAL_ID_AUTHORIZATION_FAILED@).
-        txnIdM <- readTVarIO senderTransactionalId
-        request <- buildProduceRequest
-                     senderMetadata
-                     txnIdM
-                     senderAcks
-                     senderTimeoutMs
-                     validBatches
-        -- ProduceRequest: codegen handles up to v13. The request
-        -- shape is stable from v3 onwards (v3 added the
-        -- transactional id, which we send as Null on the
-        -- non-transactional path). v9 went flexible (the broker
-        -- expects compact strings + tagged-fields trailer); v10+
-        -- added per-partition response fields (KIP-467
-        -- 'RecordErrors' + 'ErrorMessage') that our decoder
-        -- handles via the codegen, and the codegen-flexible-
-        -- tagged-string fix in this branch unblocks v12 against
-        -- Kafka 3.7.
-        --
-        -- v13 swapped the per-topic name field for a KIP-516
-        -- TopicId; we plumb the id through the metadata cache
-        -- ('Meta.getTopicId') and 'buildTopicProduceData' fills
-        -- in 'topicProduceDataTopicId' for v13+, or leaves it
-        -- nullUuid for v0-v12 (which expect the name).
-        --
-        -- Cap at v13. The api key + cache lookup come from the
-        -- 'KafkaMessage PR.ProduceRequest' instance via
-        -- 'pickApiVersionForRange'; the (3, 13) range overrides
-        -- the codegen's full schema range to keep us off versions
-        -- we haven't validated end-to-end yet (v0-v2 don't carry
-        -- a transactional id, v14+ doesn't exist in the schema
-        -- we ship).
-        verR <- VN.pickApiVersionForRange @PR.ProduceRequest
-                  3 13 senderVersionCache brokerAddr 3
-        let apiVersion = case verR of
-              Right v -> v
-              Left  _ -> 3
-            apiKey = 0
-            clientId = P.mkKafkaString senderClientId
-            requestBody = WC.runEncodeVer @PR.ProduceRequest apiVersion request
-        
-        -- Send the request and receive response
-        result <- Req.sendRequestReceiveResponse conn apiKey apiVersion corrId clientId requestBody
-        
-        case result of
-          Left err -> do
-            -- Invoke error callbacks
-            forM_ validBatches $ \batch -> do
-              let callbacks = BA.batchCallbacks batch
-                  errorMsg = "Request failed: " <> T.pack err
-              forM_ callbacks $ \callback -> callback (Left errorMsg)
-          
-          Right (responseCorrId, responseBody) -> do
-            -- Verify correlation ID matches
-            if responseCorrId /= corrId
-              then do
-                -- Invoke error callbacks
-                forM_ validBatches $ \batch -> do
-                  let callbacks = BA.batchCallbacks batch
-                      errorMsg = "Correlation ID mismatch"
-                  forM_ callbacks $ \callback -> callback (Left errorMsg)
-              else do
-                -- Parse the response
-                case WC.runDecodeVer @PResp.ProduceResponse apiVersion responseBody of
-                  Left err -> do
-                    -- Invoke error callbacks
-                    forM_ validBatches $ \batch -> do
-                      let callbacks = BA.batchCallbacks batch
-                          errorMsg = "Failed to parse response: " <> T.pack err
-                      forM_ callbacks $ \callback -> callback (Left errorMsg)
-                  
-                  Right response -> do
-                    -- Process the response and update batch states
-                    processProduceResponse (Just senderMetadata) validBatches response
 
 -- | Build a ProduceRequest from a list of batches.
 -- Compression happens here, so this is an IO operation.
@@ -524,57 +922,53 @@ buildProduceRequest metaCache transactionalIdM acks timeoutMs batches = do
     }
 
 -- | Build TopicProduceData for a group of batches from the same topic.
--- Compression happens here, so this is an IO operation. Populates
--- the KIP-516 'topicProduceDataTopicId' from the metadata cache
--- when known; falls back to 'P.nullUuid' otherwise (which is
--- what every Produce version through v12 expects in the field).
+-- Compression happens here, so this is an IO operation. Kafka 4.0.0
+-- still keys produce requests by topic name; KIP-516 topic-id
+-- support arrived in later schema revisions.
 buildTopicProduceData
   :: Meta.MetadataCache -> [BA.ProducerBatch] -> IO PR.TopicProduceData
-buildTopicProduceData metaCache batches = do
+buildTopicProduceData _metaCache batches = do
   let topic = BA.tpTopic $ BA.batchTopicPartition $ head batches
-  topicIdM <- atomically (Meta.getTopicId metaCache topic)
+  -- 'sendBatches' upstream guarantees that each (topic,
+  -- partition) appears at most once in this batch list, so a
+  -- straight per-batch mapM produces one PartitionProduceData
+  -- per partition.
+  --
+  -- Kafka 4.0.0 still keys produce requests by topic name (the
+  -- KIP-516 topic-id field went away in this schema revision),
+  -- so the previous 'Meta.getTopicId' lookup here is no longer
+  -- needed and 'metaCache' is unused — see commit cc058b76 on
+  -- main for the schema bump that removed the field.
   partitionData <- mapM buildPartitionProduceData batches
   return $ PR.TopicProduceData
     { PR.topicProduceDataName = P.mkKafkaString topic
-    , PR.topicProduceDataTopicId =
-        -- 'getTopicId' returns 'Nothing' before the cache is
-        -- populated; that path keeps the field at nullUuid
-        -- which is what v0-v12 expect anyway.
-        case topicIdM of
-          Just tid -> tid
-          Nothing  -> P.nullUuid
     , PR.topicProduceDataPartitionData = P.mkKafkaArray (V.fromList partitionData)
     }
 
--- | Build PartitionProduceData for a single batch
--- Applies compression using the batch's compression codec and level
+-- | Build PartitionProduceData for a single batch.
+-- Applies compression using the batch's compression codec and level.
+--
+-- 'sendBatches' upstream guarantees that each round contains at
+-- most one batch per (topic, partition), so the pre-fix shape of
+-- "one PartitionProduceData per ProducerBatch" is now safe — the
+-- protocol's "one PartitionProduceData per partition per request"
+-- invariant is upheld by the round splitter rather than by
+-- coalescing here.
 buildPartitionProduceData :: BA.ProducerBatch -> IO PR.PartitionProduceData
 buildPartitionProduceData batch = do
   let partition = BA.tpPartition $ BA.batchTopicPartition batch
       recordBatch = buildRecordBatch batch
       compressionLevel = BA.batchCompressionLevel batch
       codec = RB.attrCompressionType (RB.batchAttributes recordBatch)
-
-  -- Fast path for the uncompressed common case: skip the
-  -- compression layer entirely (it's a no-op for NoCompression).
-  -- The direct-poke Wire encoder writes the whole batch in a
-  -- single pass.
   if codec == NoCompression
     then pure $ PR.PartitionProduceData
       { PR.partitionProduceDataIndex   = partition
       , PR.partitionProduceDataRecords = P.mkKafkaBytes (RBW.encodeRecordBatchWire recordBatch)
       }
     else do
-      -- Compressed path: build the records section once via
-      -- 'encodeRecordsWire' and back-patch the batch envelope in
-      -- place.
       encodeResult <- RBW.encodeRecordBatchWireCompressedWithLevel recordBatch compressionLevel
       case encodeResult of
         Left err -> do
-          -- Compression failed; fall back to uncompressed
-          -- encoding via the direct-poke Wire encoder. Rare,
-          -- so we log to stderr rather than thread a 'Logger'
-          -- through this otherwise pure-ish helper.
           hPutStrLn stderr
             ("[warn] producer: compression failed for batch, "
               <> "sending uncompressed: " <> err)
@@ -596,9 +990,27 @@ buildPartitionProduceData batch = do
 -- or @producerTransactional@ is enabled, via 'BA.appendRecordStamped'.
 buildRecordBatch :: BA.ProducerBatch -> RB.RecordBatch
 buildRecordBatch batch =
-  let !recSeq = BA.batchRecords batch
-      !nRec = Seq.length recSeq
-      !records = V.generate nRec (Seq.index recSeq)
+  let !srcRecords = BA.batchRecords batch
+      !nRec       = V.length srcRecords
+      -- The producer-side append path leaves 'recordOffsetDelta'
+      -- at 0 because the offset within the batch is only known
+      -- once the batch is sealed (the same record could in
+      -- principle live in different positions across retries).
+      -- Stamp the per-record delta here, immediately before
+      -- handing the records to the wire encoder; without it the
+      -- broker sees N records all claiming delta 0 and silently
+      -- collapses them, which is the data-loss bug the
+      -- 'PartitionProduceData' consolidation in
+      -- 'buildTopicProduceData' was supposed to expose.
+      --
+      -- 'V.imap' walks the source 'V.Vector' once with the slot
+      -- index inline; the prior 'V.generate' + 'Seq.index'
+      -- pattern paid an O(log n) tree walk per slot AND went
+      -- through the @Seq -> List -> Vector@ shape conversion
+      -- the heap profile flagged.
+      !records = V.imap
+        (\i r -> r { RB.recordOffsetDelta = fromIntegral i })
+        srcRecords
       attrs = RB.Attributes
         { RB.attrCompressionType = BA.batchCompression batch
         , RB.attrTimestampType = RB.CreateTime
@@ -733,12 +1145,30 @@ processProduceResponse metaCacheM batches response = do
             -- only set when the topic is in @LogAppendTime@ mode,
             -- and we can't tell here, so we use the wall-clock
             -- timestamp as a reasonable fallback.)
-            -- 'callbacks' is a 'Seq', so we walk the sequence
-            -- with its index to assign each record's offset.
-            forM_ (Seq.mapWithIndex (,) callbacks) $ \(idx, callback) -> do
-              let recordOffset = baseOffset + fromIntegral (idx :: Int)
-                  metadata = (topicName, partitionId, recordOffset, timestamp)
-              callback (Right metadata)
+            -- Skip the entire per-record metadata construction
+            -- when the callback is 'NoRecordCallback'. That's the
+            -- shape every '*Drop*' send variant uses; it
+            -- dominates the bench harness traffic. The
+            -- 'RecordCallback' branch still pays for the strict
+            -- UNPACK'd 'BA.BatchAck' (faster than the prior lazy
+            -- tuple for callers that /actually consume/ the
+            -- metadata), so this trade-off helps both shapes.
+            -- 'V.iforM_' walks the 'V.Vector' with its index;
+            -- no per-record (idx, callback) tuple allocation
+            -- (the prior 'Seq.mapWithIndex (,) callbacks'
+            -- materialised a fresh 'Seq' of 2-tuples).
+            V.iforM_ callbacks $ \idx callback ->
+              case callback of
+                BA.NoRecordCallback -> pure ()
+                BA.RecordCallback f -> do
+                  let !recordOffset = baseOffset + fromIntegral (idx :: Int)
+                      !meta = BA.BatchAck
+                        { BA.ackTopic     = topicName
+                        , BA.ackPartition = partitionId
+                        , BA.ackOffset    = recordOffset
+                        , BA.ackTimestamp = timestamp
+                        }
+                  f (Right meta)
           else do
             hPutStrLn stderr
               ("[error] producer: error sending batch to "
@@ -748,7 +1178,7 @@ processProduceResponse metaCacheM batches response = do
             let callbacks = BA.batchCallbacks batch
                 errorMsg = "Kafka error: " <> T.pack (show errorCode)
             forM_ callbacks $ \callback -> do
-              callback (Left errorMsg)
+              BA.runRecordCallback callback (Left errorMsg)
 
 -- | Extract text from a KafkaString
 extractText :: P.KafkaString -> Text

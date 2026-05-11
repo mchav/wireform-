@@ -12,7 +12,7 @@ Kafka request for API key 2.
 
 
 
-Valid versions: 1-11
+Valid versions: 1-10
 Flexible versions: 6+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -123,13 +123,13 @@ data ListOffsetsRequest = ListOffsetsRequest
 
 -- | Maximum supported version for ListOffsetsRequest.
 maxListOffsetsRequestVersion :: Int16
-maxListOffsetsRequestVersion = 11
+maxListOffsetsRequestVersion = 10
 
 -- | KafkaMessage instance for ListOffsetsRequest.
 instance KafkaMessage ListOffsetsRequest where
   messageApiKey = 2
   messageMinVersion = 1
-  messageMaxVersion = 11
+  messageMaxVersion = 10
   messageFlexibleVersion = Just 6
 
 -- | Worst-case wire size of a ListOffsetsPartition.
@@ -211,7 +211,7 @@ wirePokeListOffsetsRequest version basePtr msg
     p1 <- W.pokeInt32BE p0 (listOffsetsRequestReplicaId msg)
     p2 <- WP.pokeVersionedArray version 6 (\p x -> wirePokeListOffsetsTopic version p x) p1 (listOffsetsRequestTopics msg)
     pure p2
-  | version >= 10 && version <= 11 = do
+  | version == 10 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (listOffsetsRequestReplicaId msg)
     p2 <- (if version >= 2 then W.pokeWord8 p1 (fromIntegral (listOffsetsRequestIsolationLevel msg)) else pure p1)
@@ -239,7 +239,7 @@ wirePeekListOffsetsRequest version _fp _basePtr p0 endPtr
     (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
     (f1_topics, p2) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopic version _fp _basePtr p e) p1 endPtr
     pure (ListOffsetsRequest { listOffsetsRequestReplicaId = f0_replicaid, listOffsetsRequestIsolationLevel = 0, listOffsetsRequestTopics = f1_topics, listOffsetsRequestTimeoutMs = 0 }, p2)
-  | version >= 10 && version <= 11 = do
+  | version == 10 = do
     (f0_replicaid, p1) <- W.peekInt32BE p0 endPtr
     (f1_isolationlevel, p2) <- (if version >= 2 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p1 endPtr else pure (0, p1))
     (f2_topics, p3) <- WP.peekVersionedArray version 6 (\p e -> wirePeekListOffsetsTopic version _fp _basePtr p e) p2 endPtr
@@ -262,7 +262,7 @@ wirePeekListOffsetsRequest version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ListOffsetsRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeListOffsetsRequest (fromIntegral v) msg

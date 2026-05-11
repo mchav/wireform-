@@ -223,8 +223,18 @@ decodeFail e = Decoder $ \_ _ -> (# | e #)
 {-# INLINE decodeFail #-}
 
 -- | Decode an enum field (as varint, then fromEnum).
+--
+-- Per the proto3 wire spec, enum values are 32-bit on the wire
+-- even though varints can carry larger values: a sender that
+-- writes @kInt64Max@ for an enum field is expected to be parsed
+-- as the int32 truncation of that value (low 32 bits, sign-
+-- extended). We honour that by casting the decoded 'Word64'
+-- through 'Int32' before handing it to 'toEnum', so a generated
+-- enum with @NEG = -1@ correctly reconstitutes from a 10-byte
+-- varint of @0xFF...FF7F@.
 decodeFieldEnum :: Enum a => Decoder a
-decodeFieldEnum = toEnum . fromIntegral <$> getVarint
+decodeFieldEnum = (toEnum . fromIntegral . (fromIntegral :: Word64 -> Int32))
+                  <$> getVarint
 {-# INLINE decodeFieldEnum #-}
 
 -- | Decode a submessage from raw bytes.

@@ -12,7 +12,7 @@ Kafka response for API key 87.
 
 
 
-Valid versions: 0-1
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -77,22 +77,10 @@ data PartitionResult = PartitionResult
   partitionResultStateEpoch :: !(Int32)
 ,
 
-  -- | The leader epoch of the share-partition.
-
-  -- Versions: 0+
-  partitionResultLeaderEpoch :: !(Int32)
-,
-
   -- | The share-partition start offset.
 
   -- Versions: 0+
   partitionResultStartOffset :: !(Int64)
-,
-
-  -- | The number of offsets greater than or equal to share-partition start offset for which delivery has b
-
-  -- Versions: 1+
-  partitionResultDeliveryCompleteCount :: !(Int32)
 
   }
   deriving (Eq, Show, Generic)
@@ -129,13 +117,13 @@ data ReadShareGroupStateSummaryResponse = ReadShareGroupStateSummaryResponse
 
 -- | Maximum supported version for ReadShareGroupStateSummaryResponse.
 maxReadShareGroupStateSummaryResponseVersion :: Int16
-maxReadShareGroupStateSummaryResponseVersion = 1
+maxReadShareGroupStateSummaryResponseVersion = 0
 
 -- | KafkaMessage instance for ReadShareGroupStateSummaryResponse.
 instance KafkaMessage ReadShareGroupStateSummaryResponse where
   messageApiKey = 87
   messageMinVersion = 0
-  messageMaxVersion = 1
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a PartitionResult.
@@ -146,9 +134,7 @@ wireMaxSizePartitionResult _version msg =
   + 2
   + WP.dualStringMaxSize (partitionResultErrorMessage msg)
   + 4
-  + 4
   + 8
-  + 4
   + 1
 
 -- | Direct-poke encoder for PartitionResult.
@@ -159,10 +145,8 @@ wirePokePartitionResult version basePtr msg = do
   p2 <- W.pokeInt16BE p1 (partitionResultErrorCode msg)
   p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (partitionResultErrorMessage msg)) else WP.pokeKafkaString p2 (partitionResultErrorMessage msg))
   p4 <- W.pokeInt32BE p3 (partitionResultStateEpoch msg)
-  p5 <- W.pokeInt32BE p4 (partitionResultLeaderEpoch msg)
-  p6 <- W.pokeInt64BE p5 (partitionResultStartOffset msg)
-  p7 <- (if version >= 1 then W.pokeInt32BE p6 (partitionResultDeliveryCompleteCount msg) else pure p6)
-  if version >= 0 then WP.pokeEmptyTaggedFields p7 else pure p7
+  p5 <- W.pokeInt64BE p4 (partitionResultStartOffset msg)
+  if version >= 0 then WP.pokeEmptyTaggedFields p5 else pure p5
 
 -- | Direct-poke decoder for PartitionResult.
 wirePeekPartitionResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (PartitionResult, Ptr Word8)
@@ -171,16 +155,14 @@ wirePeekPartitionResult version _fp _basePtr p0 endPtr = do
   (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
   (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
   (f3_stateepoch, p4) <- W.peekInt32BE p3 endPtr
-  (f4_leaderepoch, p5) <- W.peekInt32BE p4 endPtr
-  (f5_startoffset, p6) <- W.peekInt64BE p5 endPtr
-  (f6_deliverycompletecount, p7) <- (if version >= 1 then W.peekInt32BE p6 endPtr else pure (-1, p6))
-  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p7 endPtr else pure p7
-  pure (PartitionResult { partitionResultPartition = f0_partition, partitionResultErrorCode = f1_errorcode, partitionResultErrorMessage = f2_errormessage, partitionResultStateEpoch = f3_stateepoch, partitionResultLeaderEpoch = f4_leaderepoch, partitionResultStartOffset = f5_startoffset, partitionResultDeliveryCompleteCount = f6_deliverycompletecount }, pTagsEnd)
+  (f4_startoffset, p5) <- W.peekInt64BE p4 endPtr
+  pTagsEnd <- if version >= 0 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (PartitionResult { partitionResultPartition = f0_partition, partitionResultErrorCode = f1_errorcode, partitionResultErrorMessage = f2_errormessage, partitionResultStateEpoch = f3_stateepoch, partitionResultStartOffset = f4_startoffset }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultPartitionResult :: PartitionResult
-defaultPartitionResult = PartitionResult { partitionResultPartition = 0, partitionResultErrorCode = 0, partitionResultErrorMessage = P.KafkaString Null, partitionResultStateEpoch = 0, partitionResultLeaderEpoch = 0, partitionResultStartOffset = 0, partitionResultDeliveryCompleteCount = -1 }
+defaultPartitionResult = PartitionResult { partitionResultPartition = 0, partitionResultErrorCode = 0, partitionResultErrorMessage = P.KafkaString Null, partitionResultStateEpoch = 0, partitionResultStartOffset = 0 }
 
 -- | Worst-case wire size of a ReadStateSummaryResult.
 wireMaxSizeReadStateSummaryResult :: Int -> ReadStateSummaryResult -> Int
@@ -221,7 +203,7 @@ wireMaxSizeReadShareGroupStateSummaryResponse _version msg =
 -- | Direct-poke encoder for ReadShareGroupStateSummaryResponse.
 wirePokeReadShareGroupStateSummaryResponse :: Int -> Ptr Word8 -> ReadShareGroupStateSummaryResponse -> IO (Ptr Word8)
 wirePokeReadShareGroupStateSummaryResponse version basePtr msg
-  | version >= 0 && version <= 1 = do
+  | version == 0 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeReadStateSummaryResult version p x) p0 (readShareGroupStateSummaryResponseResults msg)
     WP.pokeEmptyTaggedFields p1
@@ -230,7 +212,7 @@ wirePokeReadShareGroupStateSummaryResponse version basePtr msg
 -- | Direct-poke decoder for ReadShareGroupStateSummaryResponse.
 wirePeekReadShareGroupStateSummaryResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ReadShareGroupStateSummaryResponse, Ptr Word8)
 wirePeekReadShareGroupStateSummaryResponse version _fp _basePtr p0 endPtr
-  | version >= 0 && version <= 1 = do
+  | version == 0 = do
     (f0_results, p1) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReadStateSummaryResult version _fp _basePtr p e) p0 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
     pure (ReadShareGroupStateSummaryResponse { readShareGroupStateSummaryResponseResults = f0_results }, pTagsEnd)
@@ -239,7 +221,7 @@ wirePeekReadShareGroupStateSummaryResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ReadShareGroupStateSummaryResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeReadShareGroupStateSummaryResponse (fromIntegral v) msg

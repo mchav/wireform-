@@ -74,7 +74,7 @@ metadataToJSON tm = Aeson.Object $ KM.fromList $
   , ("properties",           mapToJSON (tmProperties tm))
   , ("snapshot-log",         Aeson.Array (V.map snapshotLogEntryToJSON (tmSnapshotLog tm)))
   , ("metadata-log",         Aeson.Array (V.map metadataLogEntryToJSON (tmMetadataLog tm)))
-  , ("snapshot-refs",        snapshotRefsToJSON (tmSnapshotRefs tm))
+  , ("refs",                 snapshotRefsToJSON (tmSnapshotRefs tm))
   ]
   ++ optArrayField "statistics"           statisticsFileToJSON (tmStatistics tm)
   ++ optArrayField "partition-statistics" partitionStatisticsFileToJSON (tmPartitionStatistics tm)
@@ -704,7 +704,7 @@ snapshotRefsToJSON m = Aeson.Object $ KM.fromList $
   map (\(k, v) -> (Key.fromText k, snapshotRefToJSON v)) (Map.toList m)
 
 snapshotRefsFromJSON :: KM.KeyMap Aeson.Value -> Either String (Map.Map Text SnapshotRef)
-snapshotRefsFromJSON obj = case KM.lookup "snapshot-refs" obj of
+snapshotRefsFromJSON obj = case lookupRefs obj of
   Just (Aeson.Object m) ->
     Map.fromList <$> mapM (\(k, v) -> do
       ref <- snapshotRefFromJSON v
@@ -712,7 +712,16 @@ snapshotRefsFromJSON obj = case KM.lookup "snapshot-refs" obj of
     ) (KM.toList m)
   Just Aeson.Null -> Right Map.empty
   Nothing         -> Right Map.empty
-  _               -> Left "snapshot-refs must be an object"
+  _               -> Left "refs must be an object"
+
+-- | Look up the snapshot-refs map under the spec-required key
+-- @"refs"@, but accept the legacy @"snapshot-refs"@ key as a
+-- fallback so any metadata files written by an older wireform
+-- (which used the wrong key) still round-trip cleanly.
+lookupRefs :: KM.KeyMap Aeson.Value -> Maybe Aeson.Value
+lookupRefs obj = case KM.lookup "refs" obj of
+  Just v  -> Just v
+  Nothing -> KM.lookup "snapshot-refs" obj
 
 -- ============================================================
 -- Name mapping

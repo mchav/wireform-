@@ -39,9 +39,9 @@ start-kafka
 If not using Nix, you'll need to manually install and start Kafka:
 
 ```bash
-# Download Kafka 3.0+ from https://kafka.apache.org/downloads
+# Download Kafka 4.0+ from https://kafka.apache.org/downloads
 # Extract and run in KRaft mode:
-cd kafka_2.13-3.x.x
+cd kafka_2.13-4.x.x
 
 # Generate a cluster ID
 KAFKA_CLUSTER_ID="$(bin/kafka-storage.sh random-uuid)"

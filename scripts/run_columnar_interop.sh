@@ -7,6 +7,9 @@
 # Requires:
 #   - cabal + ghc available on $PATH
 #   - python3 with pyarrow, duckdb, polars installed
+#   - python3 with pyiceberg + fastavro (Iceberg metadata)
+#   - python3 with deltalake (Delta log), hudi (Apache Hudi
+#     hudi-rs Python bindings), pylance (Lance file)
 #   - liblz4-dev, libsnappy-dev, libzstd-dev (system packages)
 #   - cargo (for the Rust portion); skipped if missing
 
@@ -17,13 +20,16 @@ ROOT="$(pwd)"
 
 echo "== build wireform-{arrow,parquet,orc,columnar} + probes"
 cabal build wireform-arrow wireform-parquet wireform-orc wireform-columnar \
-            wireform-iceberg \
+            wireform-iceberg wireform-delta wireform-hudi wireform-lance \
             wireform-parquet:wireform-parquet-interop-probe \
             wireform-parquet:wireform-parquet-reverse-probe \
             wireform-orc:wireform-orc-interop-probe \
             wireform-orc:wireform-orc-reverse-probe \
             wireform-arrow:wireform-arrow-pyarrow-probe \
             wireform-iceberg:wireform-iceberg-interop-probe \
+            wireform-delta:wireform-delta-interop-probe \
+            wireform-hudi:wireform-hudi-interop-probe \
+            wireform-lance:wireform-lance-interop-probe \
   > /dev/null
 
 PASS=0
@@ -54,6 +60,12 @@ run "Arrow IPC (pyarrow)" \
   python3 wireform-arrow/scripts/pyarrow_interop.py
 run "Iceberg metadata (pyiceberg + fastavro)" \
   python3 wireform-iceberg/scripts/iceberg_interop.py
+run "Delta log (deltalake)" \
+  python3 wireform-delta/scripts/delta_interop.py
+run "Hudi timeline (hudi-rs)" \
+  python3 wireform-hudi/scripts/hudi_interop.py
+run "Lance footer (pylance)" \
+  python3 wireform-lance/scripts/lance_interop.py
 
 if command -v cargo >/dev/null 2>&1; then
   echo
@@ -69,23 +81,12 @@ if command -v cargo >/dev/null 2>&1; then
   run "Rust arrow-rs (Parquet)" \
     "$ROOT/interop/arrow-rs/target/release/read_parquet" "$TMPPQ"
 
-  # arrow-rs 53 doesn't implement ListView in its IPC convert
-  # module; we emit a known-failing 'ours_listview.arrows' that
-  # we expect the Rust reader to reject. Filter that out before
-  # deciding pass/fail.
-  echo
-  echo "== Rust arrow-rs (Arrow IPC) [skipping known ListView upstream gap]"
-  out=$("$ROOT/interop/arrow-rs/target/release/read_arrow_ipc" "$TMPAR" 2>&1 || true)
-  echo "$out"
-  unexpected=$(echo "$out" | grep "FAIL" | grep -v "ListView" | grep -v "listview" || true)
-  if [ -z "$unexpected" ]; then
-    PASS=$((PASS + 1))
-    echo "  -> Rust arrow-rs (Arrow IPC) PASS (only known ListView failure)"
-  else
-    FAIL=$((FAIL + 1))
-    echo "  -> Rust arrow-rs (Arrow IPC) FAIL with unexpected errors:"
-    echo "$unexpected"
-  fi
+  # arrow-rs >= 58 supports ListView/LargeListView through the
+  # IPC reader, so we now expect every file (including
+  # 'ours_listview.arrows') to round-trip cleanly. If something
+  # regresses, the run helper will surface it as a real failure.
+  run "Rust arrow-rs (Arrow IPC)" \
+    "$ROOT/interop/arrow-rs/target/release/read_arrow_ipc" "$TMPAR"
 else
   echo "(cargo not found; skipping Rust interop probes)"
 fi

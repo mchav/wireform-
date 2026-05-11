@@ -1,0 +1,19 @@
+# Expected-failure list for the protobuf-conformance suite.
+# Covers BOTH the proto3 and the proto2 binary/json suites
+# (despite the legacy filename) — the conformance runner
+# applies a single failure list to whichever suite it's
+# currently running.
+#
+# Status: 0 expected failures / 2675 successes / 0 skipped /
+# 0 unexpected failures.
+#
+# Add an entry below when a test is intentionally not supported
+# (open issues should be tracked separately). The runner emits
+# every test under a unique '<level>.<edition>.<input>.<test
+# name>.<output>' identifier — paste the full identifier on its
+# own line to suppress it.
+#
+# Re-run procedure:
+#   cabal test wireform-proto:protobuf-conformance-test \
+#     2>&1 | tee /tmp/conformance.log
+# then mine /tmp/conformance.log for new failure names.

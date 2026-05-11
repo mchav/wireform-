@@ -76,9 +76,9 @@ Drivers:
 
 ## Apache Arrow IPC
 
-|                              | pyarrow 24 | arrow-rs 53 |
+|                              | pyarrow 24 | arrow-rs 58 |
 | ---------------------------- | :--------: | :---------: |
-| **wireform → engine** (26)   |   ✓ 26/26  |   ✓ 25/26   |
+| **wireform → engine** (26)   |   ✓ 26/26  |   ✓ 26/26   |
 
 The 26 files cover every primitive integer width
 (int8/16/32/64, uint8/16/32/64), Float / Double, Binary /
@@ -87,16 +87,128 @@ Decimal128, List<int32>, Struct, dictionary-encoded UTF-8,
 view types (Utf8View / ListView), RunEndEncoded, ZSTD body
 compression, and the file-format (.arrow) variant.
 
-The 1 arrow-rs failure is its own missing `Type ListView not
-supported` for IPC schemas. arrow-rs reads everything else,
-including the recently-added utf8view (which had a wireform
-alignment bug arrow-rs caught — see commit
-"FlatBuffers / Arrow IPC: fix i64 vector alignment for arrow-rs").
+ListView / LargeListView used to fail against arrow-rs 53 with
+`Type ListView not supported` in `arrow-ipc/src/convert.rs`; that
+gap was closed in arrow-rs by [PR
+\#9006](https://github.com/apache/arrow-rs/pull/9006) (merged
+2025-12-18, shipped in the 57.x cycle and round-tripped through
+the Parquet writer in [\#9344](https://github.com/apache/arrow-rs/pull/9344)
+in the 58.0 release, 2026-02-19). The interop pin is now
+`arrow = "58"` and the columnar harness expects every file —
+including `ours_listview.arrows` — to read clean.
+
+(History note: `utf8view` flushed out a wireform alignment bug
+arrow-rs caught — see commit "FlatBuffers / Arrow IPC: fix i64
+vector alignment for arrow-rs".)
 
 Drivers:
 
 - `wireform-arrow/scripts/pyarrow_interop.py`
 - `interop/arrow-rs/target/release/read_arrow_ipc`
+
+## Apache Delta Lake (table format)
+
+|                                          | deltalake (delta-rs) |
+| ---------------------------------------- | :------------------: |
+| **wireform → engine** (commit JSON)      |       ✓ 5/5          |
+| **wireform → engine** (checkpoint Parquet) |     ✓ 2/2          |
+| **time travel + history**                |       ✓ 1/1          |
+
+The wireform-delta probe opens a Delta table via
+`Delta.IO.openDeltaTable`. When a `*.checkpoint.parquet`
+file is present the snapshot at that version is decoded
+directly via `Delta.Checkpoint.decodeCheckpointFile` (no
+JSON walk through every prior commit), then JSON commits
+with version > checkpoint version are replayed on top.
+
+The Python driver builds four real Delta tables with
+`deltalake.write_deltalake`:
+
+  * an **unpartitioned** table with a write / append /
+    overwrite history (only one add survives);
+  * a **partitioned-by-region** table with two writes;
+  * a **checkpointed** table — 12 appends + an explicit
+    `DeltaTable.create_checkpoint()` at v11, then APPEND v12
+    + OVERWRITE v13. This forces both code paths: the
+    checkpoint Parquet seeds the snapshot at v11, then the
+    post-checkpoint commits replay through the JSON walker.
+  * a **partitioned + checkpointed** table — 12 appends to a
+    region-partitioned table + checkpoint at v11. Verifies
+    the typed `map<string, string>` partitionValues leaf and
+    the `list<string>` `metaData.partitionColumns` leaf out of
+    the checkpoint Parquet match what `DeltaTable.metadata()`
+    reports.
+
+For every case the probe's `version`, `active_files`,
+`protocol`, `metadata.partition_columns`,
+`metadata.schema_field_names`, `last_checkpoint.version`,
+and `checkpoint_parquet_version` are cross-checked against
+`DeltaTable.*`. For the checkpointed cases the probe
+additionally surfaces the *standalone* checkpoint-Parquet
+snapshot (`checkpoint_active_files`, `checkpoint_protocol`,
+`checkpoint_metadata`) and the driver verifies it produces
+the same view of the table at v11 that the JSON walker
+would, including the partitionValues map per active file
+and the partitionColumns list on the metaData row.
+
+Driver: `wireform-delta/scripts/delta_interop.py`.
+
+## Apache Hudi (timeline)
+
+|                                       | hudi-rs (Python)     |
+| ------------------------------------- | :------------------: |
+| **wireform → engine** (commit JSON)   |       ✓ 2/2          |
+
+The wireform-hudi probe parses every completed
+`<instantTime>.commit` JSON under `.hoodie/`, folds it into a
+per-partition / per-fileId `FileSlice` map, and writes a JSON
+summary. The Python driver hand-builds two `COPY_ON_WRITE`
+tables on disk (one unpartitioned with two commits where the
+second supersedes the first's base file; one partitioned by
+`region` with a UPSERT in one partition), then asserts that
+hudi-rs's `HudiTable.get_file_slices()` and wireform's view
+agree on every `(partition_path, file_id, base_file)` tuple.
+
+Hudi-rs is read-only — writing real Hudi tables requires
+Spark / hudi-java — so the driver constructs the on-disk layout
+directly. The point of the round-trip is to verify wireform's
+JSON commit decoder and `tableStateFromCommits` fold produce the
+same active set the canonical reader does.
+
+Driver: `wireform-hudi/scripts/hudi_interop.py`.
+
+## Apache Lance (file footer + dataset)
+
+|                                       | pylance              |
+| ------------------------------------- | :------------------: |
+| **engine → wireform** (file footer)   |       ✓ 1/1          |
+| **engine → wireform** (dataset)       |       ✓ 1/1          |
+
+Two interop modes:
+
+* `--file`: probe a single `.lance` data file. Emits the typed
+  `LanceFooter` (CMO offset, GBO offset, num columns, num
+  global buffers, version, plus the per-column /
+  per-global-buffer (position, size) tables). The driver
+  asserts every field matches an independent struct-unpack
+  decode of the trailing 40 bytes, that `num_columns` matches
+  `len(LanceDataset.schema)`, and that the column slice table
+  is in-range.
+
+* `--dataset`: probe a `.lance/` directory.
+  `Lance.IO.openLanceDataset` enumerates every
+  `_versions/<n>.manifest` (decoding the `2^64 − 1 − v`
+  filename convention back to the user-visible version),
+  parses the active manifest's distinct 16-byte
+  `LanceManifestFooter`, and lists every `data/*.lance`
+  fragment. The driver writes two append commits with pylance
+  and asserts the probe's `latest_version`, `versions[]`,
+  `latest_manifest_footer.{manifest_position, major_version,
+  minor_version}`, and `data_file_names` all match what
+  `lance.dataset(...).versions()` and a directory listing
+  report.
+
+Driver: `wireform-lance/scripts/lance_interop.py`.
 
 ## Replication
 
@@ -105,6 +217,8 @@ Drivers:
 apt install liblz4-dev libsnappy-dev libzstd-dev   # ubuntu
 brew install lz4 snappy zstd                       # macos
 pip install pyarrow duckdb polars
+pip install pyiceberg fastavro                     # Iceberg
+pip install deltalake hudi pylance                 # Delta / Hudi / Lance
 
 # build
 cabal build all
@@ -120,6 +234,12 @@ python3 wireform-orc/scripts/orc_reverse_interop.py
 
 # Arrow IPC
 python3 wireform-arrow/scripts/pyarrow_interop.py
+
+# Iceberg / Delta / Hudi / Lance (table-format readers)
+python3 wireform-iceberg/scripts/iceberg_interop.py
+python3 wireform-delta/scripts/delta_interop.py
+python3 wireform-hudi/scripts/hudi_interop.py
+python3 wireform-lance/scripts/lance_interop.py
 
 # Rust side: feed the wireform probe outputs to arrow-rs / parquet-rs
 mkdir -p /tmp/wf-pq /tmp/wf-arrow

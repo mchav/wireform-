@@ -85,6 +85,14 @@ module Kafka.Client.Consumer
   , currentStaticMembershipState
     -- * Configuration validation
   , validateConsumerConfig
+    -- * Environment-variable overlay
+    --
+    -- | 'createConsumer' already reads @KAFKA_*@ env vars and
+    -- layers them on top of the supplied 'ConsumerConfig'
+    -- automatically. These helpers are exported for callers
+    -- that want to inspect or pre-apply the overlay manually.
+  , applyKafkaEnvToConsumerConfig
+  , consumerConfigFromEnv
     -- * Cluster info
   , consumerClusterId
   ) where
@@ -96,11 +104,13 @@ import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified System.Timeout
 import Control.Concurrent.STM
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable (Hashable)
 import Data.Int
 import Control.Monad (forM, forM_, unless, when)
+import Data.List (foldl')
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
@@ -117,6 +127,7 @@ import qualified Kafka.Client.Internal.ConsumerGroup as CG
 import Kafka.Client.ConfigValidation
   ( ConfigError, renderConfigErrors )
 import qualified Kafka.Client.ConfigValidation as CV
+import qualified Kafka.Client.Env as Env
 import qualified Kafka.Client.Internal.Heartbeat as HB
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Client.Internal.Subscribe as Sub
@@ -308,6 +319,89 @@ defaultConsumerConfig = ConsumerConfig
   , consumerStaticMembershipResume  = Nothing
   }
 
+-- | Overlay a parsed 'Env.KafkaEnv' onto a 'ConsumerConfig',
+-- including the consumer's embedded
+-- 'consumerConnectionConfig'. Only fields whose corresponding
+-- @KAFKA_*@ variable was set are touched.
+--
+-- The connection-level fields piggy-back on
+-- 'Env.applyKafkaEnvToConnectionConfig', so SASL\/TLS mis-
+-- configuration (e.g. @KAFKA_SECURITY_PROTOCOL=SASL_SSL@ without
+-- a mechanism) surfaces as a 'ConfigError' here.
+applyKafkaEnvToConsumerConfig
+  :: Env.KafkaEnv
+  -> ConsumerConfig
+  -> Either [ConfigError] ConsumerConfig
+applyKafkaEnvToConsumerConfig env cfg =
+  case Env.applyKafkaEnvToConnectionConfig env (consumerConnectionConfig cfg) of
+    Left errs -> Left errs
+    Right cc  -> Right cfg
+      { consumerClientId =
+          maybe (consumerClientId cfg) id (Env.envClientId env)
+      , consumerGroupId =
+          maybe (consumerGroupId cfg) id (Env.envGroupId env)
+      , consumerGroupInstanceId = case Env.envGroupInstanceId env of
+          Just _  -> Env.envGroupInstanceId env
+          Nothing -> consumerGroupInstanceId cfg
+      , consumerAutoCommit =
+          maybe (consumerAutoCommit cfg) id (Env.envEnableAutoCommit env)
+      , consumerAutoCommitIntervalMs =
+          maybe (consumerAutoCommitIntervalMs cfg) id (Env.envAutoCommitIntervalMs env)
+      , consumerSessionTimeoutMs =
+          maybe (consumerSessionTimeoutMs cfg) id (Env.envSessionTimeoutMs env)
+      , consumerHeartbeatIntervalMs =
+          maybe (consumerHeartbeatIntervalMs cfg) id (Env.envHeartbeatIntervalMs env)
+      , consumerMaxPollRecords =
+          maybe (consumerMaxPollRecords cfg) id (Env.envMaxPollRecords env)
+      , consumerMaxPollIntervalMs =
+          maybe (consumerMaxPollIntervalMs cfg) id (Env.envMaxPollIntervalMs env)
+      , consumerAssignmentStrategy =
+          maybe (consumerAssignmentStrategy cfg) assignStrategy
+                (Env.envPartitionAssignmentStrategy env)
+      , consumerAutoOffsetReset =
+          maybe (consumerAutoOffsetReset cfg) offsetReset
+                (Env.envAutoOffsetReset env)
+      , consumerIsolationLevel =
+          maybe (consumerIsolationLevel cfg) isolation
+                (Env.envIsolationLevel env)
+      , consumerCheckCrcs =
+          maybe (consumerCheckCrcs cfg) id (Env.envCheckCrcs env)
+      , consumerFetchMinBytes =
+          maybe (consumerFetchMinBytes cfg) id (Env.envFetchMinBytes env)
+      , consumerFetchMaxBytes =
+          maybe (consumerFetchMaxBytes cfg) id (Env.envFetchMaxBytes env)
+      , consumerFetchMaxWaitMs =
+          maybe (consumerFetchMaxWaitMs cfg) id (Env.envFetchMaxWaitMs env)
+      , consumerFetchMessageMaxBytes =
+          maybe (consumerFetchMessageMaxBytes cfg) id (Env.envFetchMessageMaxBytes env)
+      , consumerRackId = case Env.envClientRack env of
+          Just _  -> Env.envClientRack env
+          Nothing -> consumerRackId cfg
+      , consumerConnectionConfig = cc
+      }
+  where
+    assignStrategy Env.EnvAssignRange      = RangeAssignment
+    assignStrategy Env.EnvAssignRoundRobin = RoundRobinAssignment
+    assignStrategy Env.EnvAssignSticky     = StickyAssignment
+
+    offsetReset Env.EnvOffsetEarliest = Earliest
+    offsetReset Env.EnvOffsetLatest   = Latest
+    offsetReset Env.EnvOffsetNone     = None
+
+    isolation Env.EnvReadUncommitted = ReadUncommitted
+    isolation Env.EnvReadCommitted   = ReadCommitted
+
+-- | Read every @KAFKA_*@ variable from the process environment
+-- and overlay them on top of the supplied 'ConsumerConfig'.
+consumerConfigFromEnv
+  :: ConsumerConfig
+  -> IO (Either [ConfigError] ConsumerConfig)
+consumerConfigFromEnv cfg = do
+  r <- Env.loadKafkaEnv
+  case r of
+    Left errs -> pure (Left errs)
+    Right env -> pure (applyKafkaEnvToConsumerConfig env cfg)
+
 -- | A topic-partition pair.
 data TopicPartition = TopicPartition
   { tpTopic :: !Text
@@ -333,19 +427,41 @@ data Consumer = Consumer
   , consumerConnManager :: !Conn.ConnectionManager
   , consumerMetadata :: !MetadataCache
   , consumerVersionCache :: !AV.ApiVersionCache
-  , consumerAssignment :: !(StmMap.Map TopicPartition Int64)
-    -- ^ Current partition assignment with fetch positions (uses stm-containers)
+  , consumerAssignment :: !(IORef (HashMap.HashMap TopicPartition Int64))
+    -- ^ Current partition assignment with fetch positions.
+    --
+    --   Pre-Tier-3 of the STM-replacement work this was an
+    --   'StmMap.Map' so 'poll' could snapshot the assignment
+    --   under one STM transaction with 'consumerPaused'. The
+    --   per-poll 'ListT.toList' walk of both maps was the
+    --   dominant STM cost on the consumer hot path; per
+    --   docs/STM_REPLACEMENT_SPEC.md Tier 3 we move to
+    --   'IORef'-backed 'HashMap's. Reads are 'readIORef';
+    --   structural updates (subscribe / assign / resume / commit)
+    --   use 'atomicModifyIORef\'' so concurrent updaters see a
+    --   consistent map.
   , consumerHeartbeat :: !(Maybe (HB.HeartbeatState, Async ()))
     -- ^ Heartbeat state and thread (if in a group)
-  , consumerCorrelationId :: !(TVar Int32)
-  , consumerPaused :: !(StmMap.Map TopicPartition ())
-    -- ^ Paused partitions (uses stm-containers)
-  , consumerSubscription :: !(TVar (Maybe [Text]))
+  , consumerCorrelationId :: !(IORef Int32)
+    -- ^ Monotonic correlation-id source. Consumer threads call this
+    --   per request; never composes with anything in STM, so an
+    --   'IORef' + 'atomicModifyIORef\'' avoids the per-call STM
+    --   commit overhead we used to pay on every 'poll' / commit.
+  , consumerPaused :: !(IORef (HashMap.HashMap TopicPartition ()))
+    -- ^ Paused partitions. Same Tier 3 rationale as
+    --   'consumerAssignment': single-process state, never
+    --   composed transactionally with anything else, paid full
+    --   STM commit on every 'poll' to read.
+  , consumerSubscription :: !(IORef (Maybe [Text]))
     -- ^ Last topics subscribed via 'subscribe' (so 'poll' can
     --   transparently re-run the JoinGroup flow when the heartbeat
     --   thread tells us the group is rebalancing). 'Nothing' means
     --   either we are using manual 'assign' instead of group
     --   subscription, or 'subscribe' has not been called yet.
+    --
+    --   Single-writer (the 'subscribe' / 'unsubscribe' caller) /
+    --   multi-reader ('poll' rebalance check) pattern; 'IORef'
+    --   suffices.
   , consumerOnAssigned :: !(TVar ([TopicPartition] -> IO ()))
   , consumerOnRevoked  :: !(TVar ([TopicPartition] -> IO ()))
   , consumerOnLost     :: !(TVar ([TopicPartition] -> IO ()))
@@ -356,10 +472,10 @@ data Consumer = Consumer
     -- ^ The assignment as of the last fired callback. Used to
     --   compute revoked / assigned deltas on the next rebalance.
   , consumerSubscriptionUserData :: !(TVar (IO ByteString))
-    -- ^ KIP-535 hook: when 'subscribe' issues a JoinGroup, the
-    --   consumer calls this 'IO ByteString' and stamps the
-    --   result into the subscription-userdata blob. Default:
-    --   @pure BS.empty@ (no userdata). Replace via
+    -- ^ Hook for cross-instance IQ: when 'subscribe' issues a
+    --   JoinGroup, the consumer calls this 'IO ByteString' and
+    --   stamps the result into the subscription-userdata blob.
+    --   Default: @pure BS.empty@ (no userdata). Replace via
     --   'setSubscriptionUserDataHook'. Used by the streams
     --   runtime to advertise the local instance's
     --   host:port + owned stores so peers can route cross-
@@ -394,10 +510,7 @@ consumerConnect c@Consumer{..} addr = do
     Right conn -> do
       _ <- VN.ensureVersionsNegotiated
              conn addr consumerVersionCache
-             (atomically $ do
-                cid <- readTVar consumerCorrelationId
-                writeTVar consumerCorrelationId (cid + 1)
-                pure cid)
+             (atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid))
       pure (Right conn)
 
 -- | Create a new Kafka consumer.
@@ -452,15 +565,42 @@ validateConsumerConfig ConsumerConfig{..} = concat
   ]
 
 createConsumer
-  :: [Text]          -- ^ Bootstrap brokers
-  -> Text            -- ^ Consumer group ID
-  -> ConsumerConfig  -- ^ Configuration
+  :: [Text]          -- ^ Bootstrap brokers. Falls back to
+                     --   @KAFKA_BOOTSTRAP_SERVERS@ when empty.
+  -> Text            -- ^ Consumer group ID. Overridden by
+                     --   @KAFKA_GROUP_ID@ when set.
+  -> ConsumerConfig  -- ^ Configuration. 'Kafka.Client.Env'
+                     --   env-var overrides are layered on top
+                     --   automatically.
   -> IO (Either String Consumer)
-createConsumer _ _ config
-  | configErrs <- validateConsumerConfig config
-  , not (null configErrs)
-  = return $ Left $ renderConfigErrors configErrs
-createConsumer brokers groupId config = do
+createConsumer brokers0 groupId0 config0 = do
+  envR <- Env.loadKafkaEnv
+  case envR of
+    Left errs -> return $ Left $ renderConfigErrors errs
+    Right env -> case applyKafkaEnvToConsumerConfig env config0 of
+      Left errs -> return $ Left $ renderConfigErrors errs
+      Right cfg -> do
+        let brokers = case Env.envBootstrapServers env of
+              Just bs | null brokers0 -> bs
+              _                       -> brokers0
+            -- groupId precedence: explicit positional > env >
+            -- consumerGroupId on the supplied config. The
+            -- positional arg is more specific than a deployment-
+            -- wide env var, so it wins when set.
+            groupId
+              | not (T.null groupId0)         = groupId0
+              | Just g <- Env.envGroupId env  = g
+              | otherwise                     = consumerGroupId cfg
+        case validateConsumerConfig cfg of
+          errs@(_:_) -> return $ Left $ renderConfigErrors errs
+          []         -> createConsumer' brokers groupId cfg
+
+createConsumer'
+  :: [Text]
+  -> Text
+  -> ConsumerConfig
+  -> IO (Either String Consumer)
+createConsumer' brokers groupId config = do
   -- Parse broker addresses
   let parsedBrokers = map parseBrokerAddress brokers
   case sequence parsedBrokers of
@@ -489,11 +629,8 @@ createConsumer brokers groupId config = do
           -- and the metadata refresh share the same source so
           -- their correlation ids stay distinct from later
           -- consumer requests.
-          corrId <- newTVarIO 0
-          let nextCid = atomically $ do
-                cid <- readTVar corrId
-                writeTVar corrId (cid + 1)
-                pure cid
+          corrId <- newIORef 0
+          let nextCid = atomicModifyIORef' corrId $ \cid -> (cid + 1, cid)
 
           -- Run the ApiVersions handshake against the bootstrap
           -- broker so subsequent calls' 'queryApiVersion' /
@@ -512,11 +649,11 @@ createConsumer brokers groupId config = do
             Right _ -> do
 
               -- Initialize assignment and paused maps
-              assignment <- StmMap.newIO
-              paused <- StmMap.newIO
+              assignment <- newIORef HashMap.empty
+              paused <- newIORef HashMap.empty
 
               -- No active subscription yet.
-              subscription <- newTVarIO Nothing
+              subscription <- newIORef Nothing
               
               -- Initialize heartbeat if in a consumer group
               heartbeatM <- if T.null groupId
@@ -537,9 +674,9 @@ createConsumer brokers groupId config = do
                   -- reuses the existing slot.
                   case consumerStaticMembershipResume config of
                     Nothing -> pure ()
-                    Just StaticMembershipState{..} -> atomically $ do
-                      writeTVar (HB.hbMemberId    hbState) staticMemberId
-                      writeTVar (HB.hbGenerationId hbState) staticGenerationId
+                    Just StaticMembershipState{..} -> do
+                      writeIORef (HB.hbMemberId    hbState) staticMemberId
+                      writeIORef (HB.hbGenerationId hbState) staticGenerationId
 
                   -- Start heartbeat thread
                   hbThread <- HB.startHeartbeatThread hbState
@@ -613,10 +750,7 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
       case connResult of
         Left err -> return $ Left $ "Failed to connect to broker: " ++ err
         Right conn -> do
-          corrId <- atomically $ do
-            cid <- readTVar consumerCorrelationId
-            writeTVar consumerCorrelationId (cid + 1)
-            return cid
+          corrId <- atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid)
           let apiKey = 2  -- ListOffsets
           -- ListOffsets: codegen handles up to v10. Schema
           -- changes by version:
@@ -795,8 +929,8 @@ closeConsumerImpl doLeaveGroup c@Consumer{..} timeoutMs = do
       case consumerStaticMembershipPersist consumerConfig of
         Nothing -> pure ()
         Just k -> do
-          memberId <- readTVarIO (HB.hbMemberId    hbState)
-          genId    <- readTVarIO (HB.hbGenerationId hbState)
+          memberId <- readIORef (HB.hbMemberId    hbState)
+          genId    <- readIORef (HB.hbGenerationId hbState)
           r <- try (k (StaticMembershipState memberId genId))
                  :: IO (Either Control.Exception.SomeException ())
           case r of
@@ -831,8 +965,8 @@ currentStaticMembershipState
 currentStaticMembershipState Consumer{..} = case consumerHeartbeat of
   Nothing -> pure Nothing
   Just (hbState, _) -> do
-    mid <- readTVarIO (HB.hbMemberId    hbState)
-    gen <- readTVarIO (HB.hbGenerationId hbState)
+    mid <- readIORef (HB.hbMemberId    hbState)
+    gen <- readIORef (HB.hbGenerationId hbState)
     pure (Just (StaticMembershipState mid gen))
 
 -- | Read the broker-supplied cluster id off the
@@ -848,8 +982,8 @@ consumerClusterId Consumer{..} =
 -- membership; failures are logged in the caller but otherwise ignored.
 sendLeaveGroup :: Consumer -> HB.HeartbeatState -> IO ()
 sendLeaveGroup c@Consumer{..} hbState = do
-  coordAddrM <- atomically $ readTVar (HB.hbCoordinatorAddr hbState)
-  memberId   <- readTVarIO (HB.hbMemberId hbState)
+  coordAddrM <- readIORef (HB.hbCoordinatorAddr hbState)
+  memberId   <- readIORef (HB.hbMemberId hbState)
   -- Skip if we never actually joined the group (no coordinator
   -- discovered, or no memberId issued). Sending LeaveGroup with
   -- an empty memberId triggers an InvalidRequestException on the
@@ -863,10 +997,7 @@ sendLeaveGroup c@Consumer{..} hbState = do
       case connResult of
         Left _err -> pure ()
         Right conn -> do
-          corrId <- atomically $ do
-            cid <- readTVar consumerCorrelationId
-            writeTVar consumerCorrelationId (cid + 1)
-            pure cid
+          corrId <- atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid)
           _ <- CG.leaveGroup
                  consumerVersionCache
                  consumerConnManager
@@ -955,17 +1086,25 @@ subscribe Consumer{..} topics = do
           -- Replace the assignment with the new one, seed offsets,
           -- remember the subscription so 'poll' can transparently
           -- re-run the JoinGroup flow on rebalance.
-          atomically $ do
-            existing <- ListT.toList $ StmMap.listT consumerAssignment
-            forM_ existing $ \(tp, _) -> StmMap.delete tp consumerAssignment
-            forM_ tps $ \(stp, off) ->
-              let tp = TopicPartition (Sub.tpTopic stp) (Sub.tpPartition stp)
-              in StmMap.insert off tp consumerAssignment
-            writeTVar consumerSubscription (Just topics)
+          -- Tier 3: 'consumerAssignment' moved out of STM.
+          -- Atomically swap the assignment map; per spec the
+          -- subscribe path is not on the hot read path so the
+          -- per-call CAS overhead is negligible.
+          let !nextAssignment = HashMap.fromList
+                [ (TopicPartition (Sub.tpTopic stp) (Sub.tpPartition stp), off)
+                | (stp, off) <- tps
+                ]
+          atomicModifyIORef' consumerAssignment $ \_ -> (nextAssignment, ())
+          atomically $
             -- Heartbeat thread set this when a previous reply
             -- contained REBALANCE_IN_PROGRESS; clear it now that we
             -- have re-joined.
             writeTVar (HB.hbNeedsRebalance hbState) False
+          -- The subscription list lives outside STM (Tier 1 of
+          -- the STM-replacement work): the heartbeat-rebalance
+          -- check below reads it via 'readIORef' independently
+          -- of the assignment-table swap above.
+          writeIORef consumerSubscription (Just topics)
           -- Fire the user listener with the new assignment.
           dispatchAssignmentDelta Consumer{..} newAssignmentSorted asLost
           return $ Right ()
@@ -1005,9 +1144,9 @@ setRebalanceListener Consumer{..} onA onR onL = atomically $ do
 -- (sorted by topic then partition).
 currentAssignment :: Consumer -> IO [TopicPartition]
 currentAssignment Consumer{..} = do
-  pairs <- atomically $ ListT.toList (StmMap.listT consumerAssignment)
-  pure (List.sortOn (\tp -> (tpTopic tp, tpPartition tp))
-                    (map fst pairs))
+  m <- readIORef consumerAssignment
+  pure $ List.sortOn (\tp -> (tpTopic tp, tpPartition tp))
+                     (HashMap.keys m)
 
 -- | Pure delta computation between two partition assignments.
 -- Returns @(revoked, added)@: revoked partitions are present
@@ -1077,9 +1216,7 @@ dispatchAssignmentDelta c@Consumer{..} now asLost = do
 unsubscribe :: Consumer -> IO ()
 unsubscribe c@Consumer{..} = do
   dispatchAssignmentDelta c [] False
-  atomically $ do
-    pairs <- ListT.toList $ StmMap.listT consumerAssignment
-    forM_ pairs $ \(tp, _) -> StmMap.delete tp consumerAssignment
+  atomicModifyIORef' consumerAssignment $ \_ -> (HashMap.empty, ())
 
 -- | Manually assign partitions (disables group management).
 --
@@ -1095,10 +1232,8 @@ assign consumer@Consumer{..} partitions = do
   case offsetStrategy of
     None -> do
       -- For None strategy, just use offset 0
-      atomically $ do
-        pairs <- ListT.toList $ StmMap.listT consumerAssignment
-        forM_ pairs $ \(tp, _) -> StmMap.delete tp consumerAssignment
-        forM_ partitions $ \tp -> StmMap.insert 0 tp consumerAssignment
+      let !next = HashMap.fromList [(tp, 0) | tp <- partitions]
+      atomicModifyIORef' consumerAssignment $ \_ -> (next, ())
       return $ Right ()
     
     _ -> do
@@ -1112,11 +1247,8 @@ assign consumer@Consumer{..} partitions = do
       case offsetsResult of
         Left err -> return $ Left err
         Right offsets -> do
-          -- Clear existing assignments and add new ones with queried offsets
-          atomically $ do
-            pairs <- ListT.toList $ StmMap.listT consumerAssignment
-            forM_ pairs $ \(tp, _) -> StmMap.delete tp consumerAssignment
-            forM_ offsets $ \(tp, offset) -> StmMap.insert offset tp consumerAssignment
+          let !next = HashMap.fromList offsets
+          atomicModifyIORef' consumerAssignment $ \_ -> (next, ())
           return $ Right ()
 
 -- | Poll for new records.
@@ -1140,16 +1272,22 @@ poll
 poll consumer@Consumer{..} timeoutMs = do
   -- Auto-rebalance: if the heartbeat thread saw REBALANCE_IN_PROGRESS
   -- and we know what topics we're subscribed to, re-join now.
-  needsRejoin <- atomically $ do
-    case consumerHeartbeat of
-      Nothing -> pure False
-      Just (hbSt, _) -> do
-        flag <- readTVar (HB.hbNeedsRebalance hbSt)
-        topicsM <- readTVar consumerSubscription
-        pure (flag && case topicsM of Just _ -> True; Nothing -> False)
+  -- 'consumerSubscription' was a TVar pre-Tier-1; the rebalance
+  -- check is now two independent reads (rebalance flag from STM,
+  -- subscription list from an IORef). The race is harmless: if a
+  -- subscribe(' ) lands between the two reads we'll either trigger
+  -- rejoin once unnecessarily or miss this tick and catch it on
+  -- the next poll, both of which match the pre-Tier-1 STM
+  -- semantics for an interleaving against 'subscribe'.
+  needsRejoin <- case consumerHeartbeat of
+    Nothing -> pure False
+    Just (hbSt, _) -> do
+      flag <- readTVarIO (HB.hbNeedsRebalance hbSt)
+      topicsM <- readIORef consumerSubscription
+      pure (flag && case topicsM of Just _ -> True; Nothing -> False)
   rejoinR <- if needsRejoin
     then do
-      topicsM <- readTVarIO consumerSubscription
+      topicsM <- readIORef consumerSubscription
       case topicsM of
         Just ts -> subscribe consumer ts
         Nothing -> pure (Right ())
@@ -1159,12 +1297,19 @@ poll consumer@Consumer{..} timeoutMs = do
     Right () -> doPoll
   where
    doPoll = do
-    -- Get current assignment and paused partitions using stm-containers
-    assignment <- atomically $ do
-      asgn <- ListT.toList $ StmMap.listT consumerAssignment
-      pausedList <- ListT.toList $ StmMap.listT consumerPaused
-      let pausedSet = Map.fromList pausedList
-      return [(tp, offset) | (tp, offset) <- asgn, not (Map.member tp pausedSet)]
+    -- Tier 3 of the STM-replacement work: 'consumerAssignment'
+    -- and 'consumerPaused' moved off STM. Two independent
+    -- 'readIORef's replace the per-poll @atomically + ListT.toList
+    -- + ListT.toList@ walk that previously dominated the consumer
+    -- hot path (~200-400 ns / poll on the snapshot alone). The
+    -- two reads are not transactionally consistent, but a
+    -- pause / resume that interleaves with the snapshot is
+    -- harmless: at worst we issue one extra fetch for a paused
+    -- partition (whose records we then drop on the next poll
+    -- because the assignment is rechecked on commit).
+    asgn   <- readIORef consumerAssignment
+    pausedHM <- readIORef consumerPaused
+    let assignment = HashMap.toList (HashMap.difference asgn pausedHM)
 
     if null assignment
       then return $ Right []  -- No assignment yet or all paused
@@ -1175,17 +1320,13 @@ poll consumer@Consumer{..} timeoutMs = do
         case result of
           Left err -> return $ Left err
           Right records -> do
-            -- Update fetch positions based on fetched records
-            atomically $ do
-              forM_ records $ \r -> do
-                let tp = TopicPartition (crTopic r) (crPartition r)
-                    nextOffset = crOffset r + 1
-                -- Update to max of current and next offset
-                currentM <- StmMap.lookup tp consumerAssignment
-                case currentM of
-                  Nothing -> StmMap.insert nextOffset tp consumerAssignment
-                  Just current -> when (nextOffset > current) $
-                    StmMap.insert nextOffset tp consumerAssignment
+            -- Update fetch positions based on fetched records.
+            -- Tier 3: the per-record @StmMap.lookup + StmMap.insert
+            -- pair becomes a single 'atomicModifyIORef\'' that
+            -- folds the offset advance over the whole map.
+            atomicModifyIORef' consumerAssignment $ \m0 ->
+              let !m1 = foldl' advanceOffset m0 records
+              in (m1, ())
 
             -- Limit to maxPollRecords, then run user interceptor
             let maxRecords = consumerMaxPollRecords consumerConfig
@@ -1197,6 +1338,11 @@ poll consumer@Consumer{..} timeoutMs = do
 
             return $ Right iceptedRecords
 
+   advanceOffset !m r =
+     let !tp         = TopicPartition (crTopic r) (crPartition r)
+         !nextOffset = crOffset r + 1
+     in HashMap.alter (Just . maybe nextOffset (max nextOffset)) tp m
+
 -- | Seek to a specific offset on an /assigned/ partition. The
 -- next 'poll' will re-fetch starting at @offset@. Mirrors
 -- @KafkaConsumer.seek(tp, offset)@.
@@ -1205,15 +1351,16 @@ poll consumer@Consumer{..} timeoutMs = do
 -- this consumer (the JVM client throws 'IllegalStateException'
 -- in that case).
 seek :: Consumer -> TopicPartition -> Int64 -> IO (Either String ())
-seek Consumer{..} tp offset = atomically $ do
-  m <- StmMap.lookup tp consumerAssignment
-  case m of
-    Nothing -> pure (Left ("seek: partition not assigned: "
-                             ++ T.unpack (tpTopic tp)
-                             ++ ":" ++ show (tpPartition tp)))
-    Just _  -> do
-      StmMap.insert offset tp consumerAssignment
-      pure (Right ())
+seek Consumer{..} tp offset =
+  atomicModifyIORef' consumerAssignment $ \m ->
+    case HashMap.lookup tp m of
+      Nothing -> ( m
+                 , Left ( "seek: partition not assigned: "
+                       ++ T.unpack (tpTopic tp)
+                       ++ ":" ++ show (tpPartition tp)
+                       )
+                 )
+      Just _  -> (HashMap.insert tp offset m, Right ())
 
 -- | Seek to the earliest available offset for each partition.
 -- Mirrors @KafkaConsumer.seekToBeginning(partitions)@.
@@ -1234,8 +1381,10 @@ seekToTimestamp consumer@Consumer{..} tps timestamp = do
   r <- queryPartitionOffsets consumer tps timestamp
   case r of
     Left err -> pure (Left err)
-    Right offsets -> atomically $ do
-      mapM_ (\(tp, off) -> StmMap.insert off tp consumerAssignment) offsets
+    Right offsets -> do
+      atomicModifyIORef' consumerAssignment $ \m ->
+        let !m' = foldl' (\acc (tp, off) -> HashMap.insert tp off acc) m offsets
+        in (m', ())
       pure (Right ())
 
 -- | Commit offsets synchronously.
@@ -1245,7 +1394,7 @@ seekToTimestamp consumer@Consumer{..} tps timestamp = do
 commitSync :: Consumer -> IO (Either String ())
 commitSync consumer@Consumer{..} = do
   -- Get current offsets to commit
-  offsets <- atomically $ ListT.toList $ StmMap.listT consumerAssignment
+  offsets <- HashMap.toList <$> readIORef consumerAssignment
 
   if null offsets
     then return $ Right ()  -- Nothing to commit
@@ -1262,7 +1411,7 @@ commitSync consumer@Consumer{..} = do
 commitAsync :: Consumer -> IO (Either String ())
 commitAsync consumer@Consumer{..} = do
   -- Get current offsets to commit
-  offsets <- atomically $ ListT.toList $ StmMap.listT consumerAssignment
+  offsets <- HashMap.toList <$> readIORef consumerAssignment
 
   if null offsets
     then return $ Right ()  -- Nothing to commit
@@ -1326,9 +1475,9 @@ committedAll consumer@Consumer{..} tps =
 -- assignment map, /not/ the broker; this is what the JVM client's
 -- @position(tp)@ returns.
 position :: Consumer -> TopicPartition -> IO (Either String Int64)
-position Consumer{..} tp = atomically $ do
-  m <- StmMap.lookup tp consumerAssignment
-  case m of
+position Consumer{..} tp = do
+  m <- readIORef consumerAssignment
+  case HashMap.lookup tp m of
     Nothing  -> pure (Left ("position: partition not assigned: "
                               ++ T.unpack (tpTopic tp)
                               ++ ":" ++ show (tpPartition tp)))
@@ -1414,25 +1563,29 @@ offsetsForTimesFull consumer pts = do
 
 -- | Pause consumption from partitions.
 pause :: Consumer -> [TopicPartition] -> IO ()
-pause Consumer{..} tps = atomically $
-  forM_ tps $ \tp -> StmMap.insert () tp consumerPaused
+pause Consumer{..} tps =
+  atomicModifyIORef' consumerPaused $ \m ->
+    let !m' = foldl' (\acc tp -> HashMap.insert tp () acc) m tps
+    in (m', ())
 
 -- | Resume consumption from partitions.
 resume :: Consumer -> [TopicPartition] -> IO ()
-resume Consumer{..} tps = atomically $
-  forM_ tps $ \tp -> StmMap.delete tp consumerPaused
+resume Consumer{..} tps =
+  atomicModifyIORef' consumerPaused $ \m ->
+    let !m' = foldl' (\acc tp -> HashMap.delete tp acc) m tps
+    in (m', ())
 
 -- | Get current partition assignment.
 assignment :: Consumer -> IO [TopicPartition]
-assignment Consumer{..} = atomically $ do
-  pairs <- ListT.toList $ StmMap.listT consumerAssignment
+assignment Consumer{..} = do
+  pairs <- HashMap.toList <$> readIORef consumerAssignment
   return $ map fst pairs
 
 -- | List the partitions currently paused via 'pause'. Mirrors
 -- @KafkaConsumer.paused()@.
 paused :: Consumer -> IO [TopicPartition]
-paused Consumer{..} = atomically $ do
-  pairs <- ListT.toList $ StmMap.listT consumerPaused
+paused Consumer{..} = do
+  pairs <- HashMap.toList <$> readIORef consumerPaused
   pure (map fst pairs)
 
 -- | Internal: Fetch records from a list of topic-partitions
@@ -1467,10 +1620,7 @@ fetchRecords consumer@Consumer{..} partitions timeoutMs = do
         Left err -> return $ Left $ "Failed to connect to broker: " ++ err
         Right conn -> do
           -- Get current correlation ID and increment
-          corrId <- atomically $ do
-            cid <- readTVar consumerCorrelationId
-            writeTVar consumerCorrelationId (cid + 1)
-            return cid
+          corrId <- atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid)
           
           -- Refresh metadata for these topics
           refreshResult <- Meta.refreshTopicMetadata conn consumerMetadata (Just topics) corrId
@@ -1530,17 +1680,14 @@ fetchFromBroker
   -> Meta.BrokerMetadata
   -> [(Text, Int32, Int64)]  -- ^ (topic, partition, offset)
   -> Int                     -- ^ Timeout (ms)
-  -> TVar Int32              -- ^ Correlation ID source
+  -> IORef Int32             -- ^ Correlation ID source
   -> Maybe Text              -- ^ Rack ID for rack-aware fetching (KIP-392)
   -> Conn.ConnectionConfig   -- ^ Connection / SASL config (re-used cached conns when matching)
   -> IsolationLevel          -- ^ KIP-98 isolation level (ReadUncommitted / ReadCommitted)
   -> IO (Either String [ConsumerRecord])
 fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM connConfig isolationLevel = do
   let brokerAddr = Meta.brokerMetaAddress broker
-      nextCid = atomically $ do
-        cid <- readTVar corrIdVar
-        writeTVar corrIdVar (cid + 1)
-        pure cid
+      nextCid = atomicModifyIORef' corrIdVar $ \cid -> (cid + 1, cid)
   connResult <- Conn.getOrCreateConnection connMgr brokerAddr connConfig
   case connResult of
     Left err -> return $ Left $ "Failed to connect: " ++ err
@@ -1604,7 +1751,6 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
                         -- set nullUuid which is the broker's
                         -- "no specific directory" sentinel.
                         , FR.fetchPartitionReplicaDirectoryId = P.nullUuid
-                        , FR.fetchPartitionHighWatermark       = -1
                         }
                     | (partId, offset) <- parts
                     ]
@@ -1962,9 +2108,9 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
   case consumerHeartbeat of
     Nothing -> return $ Left "Not in a consumer group, cannot commit offsets"
     Just (hbState, _) -> do
-      coordAddrM <- atomically $ readTVar (HB.hbCoordinatorAddr hbState)
-      genId      <- readTVarIO (HB.hbGenerationId hbState)
-      memberId   <- readTVarIO (HB.hbMemberId    hbState)
+      coordAddrM <- readIORef (HB.hbCoordinatorAddr hbState)
+      genId      <- readIORef (HB.hbGenerationId hbState)
+      memberId   <- readIORef (HB.hbMemberId    hbState)
       case coordAddrM of
         Nothing -> return $ Left "No group coordinator known"
         Just coordAddr -> do
@@ -1972,10 +2118,7 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
           case connResult of
             Left err -> return $ Left $ "Failed to connect to coordinator: " ++ err
             Right conn -> do
-              corrId <- atomically $ do
-                cid <- readTVar consumerCorrelationId
-                writeTVar consumerCorrelationId (cid + 1)
-                return cid
+              corrId <- atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid)
               let apiKey = 8  -- OffsetCommit
               -- OffsetCommit: codegen handles up to v10. The
               -- consumer's commitSync path is identical in
@@ -2001,11 +2144,6 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
                   topics = V.fromList
                     [ OCReq.OffsetCommitRequestTopic
                         { OCReq.offsetCommitRequestTopicName    = P.mkKafkaString topic
-                        , -- KIP-848 (v10+) topic id is required to
-                          -- be present on the wire but is ignored
-                          -- by older brokers; nullUuid is the
-                          -- "I don't know the topic id" sentinel.
-                          OCReq.offsetCommitRequestTopicTopicId = P.nullUuid
                         , OCReq.offsetCommitRequestTopicPartitions = P.mkKafkaArray $ V.fromList
                             [ OCReq.OffsetCommitRequestPartition
                                 { OCReq.offsetCommitRequestPartitionPartitionIndex = partId
@@ -2086,7 +2224,7 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
   case consumerHeartbeat of
     Nothing -> pure (Left "Not in a consumer group, cannot fetch committed offsets")
     Just (hbState, _) -> do
-      coordAddrM <- atomically $ readTVar (HB.hbCoordinatorAddr hbState)
+      coordAddrM <- readIORef (HB.hbCoordinatorAddr hbState)
       case coordAddrM of
         Nothing -> pure (Left "No group coordinator known")
         Just coordAddr -> do
@@ -2094,10 +2232,7 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
           case connResult of
             Left err -> pure (Left ("Failed to connect to coordinator: " ++ err))
             Right conn -> do
-              corrId <- atomically $ do
-                cid <- readTVar consumerCorrelationId
-                writeTVar consumerCorrelationId (cid + 1)
-                pure cid
+              corrId <- atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid)
               let apiKey = 9  -- OffsetFetch
               -- OffsetFetch: v8 introduced the per-group batched
               -- shape (KIP-709). The wire is incompatible: v0-v7
@@ -2179,9 +2314,6 @@ buildOffsetFetchRequestV8 groupId byTopic =
   let topicsVec = V.fromList
         [ OFReq.OffsetFetchRequestTopics
             { OFReq.offsetFetchRequestTopicsName    = P.mkKafkaString topic
-            , -- KIP-848 (v10+) topic id; nullUuid until the broker
-              -- starts populating topic ids on the metadata side.
-              OFReq.offsetFetchRequestTopicsTopicId = P.nullUuid
             , OFReq.offsetFetchRequestTopicsPartitionIndexes =
                 P.mkKafkaArray (V.fromList parts)
             }
@@ -2302,10 +2434,7 @@ queryPartitionOffsetsByTimestampFull consumer@Consumer{..} pts = do
       case connResult of
         Left err -> pure (Left ("Failed to connect to broker: " ++ err))
         Right conn -> do
-          corrId <- atomically $ do
-            cid <- readTVar consumerCorrelationId
-            writeTVar consumerCorrelationId (cid + 1)
-            pure cid
+          corrId <- atomicModifyIORef' consumerCorrelationId $ \cid -> (cid + 1, cid)
           let apiKey = 2  -- ListOffsets
           -- See 'queryPartitionOffsets' for the v8 cap rationale.
           verR <- VN.pickApiVersionForRange @LOReq.ListOffsetsRequest

@@ -92,6 +92,7 @@ import qualified Data.Binary.Put as BP
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntMap.Strict (IntMap)
 import Data.Int
@@ -148,7 +149,14 @@ data SendItem = SendItem
 data Pipeline = Pipeline
   { pipelineConnection :: !Connection
   , pipelineConfig     :: !PipelineConfig
-  , pipelineNextId     :: !(TVar RequestId)
+  , pipelineNextId     :: !(IORef RequestId)
+    -- ^ Monotonic correlation-id source. Pre-Tier-1 this lived in
+    --   STM so 'allocateAndQueue' could allocate the next id and
+    --   register the pending entry under one transaction. Allocation
+    --   moved to IO ('atomicModifyIORef\'') with a snapshot-based
+    --   collision check inside 'sendRequest'; the 32-bit id space
+    --   against a bounded inflight count makes the residual race
+    --   negligible (and 'sendRequest' retries on the lookup miss).
   , pipelinePending    :: !(TVar (IntMap PendingRequest))
     -- ^ Outstanding requests keyed on correlation id; every
     -- response from the broker triggers a 'lookup' + 'delete'.
@@ -184,7 +192,7 @@ createPipeline
   -> PipelineConfig
   -> IO Pipeline
 createPipeline conn config = do
-  nextId    <- newTVarIO 0
+  nextId    <- newIORef 0
   pending   <- newTVarIO IntMap.empty
   sendQueue <- newTQueueIO
   stats     <- newTVarIO emptyStats
@@ -267,14 +275,37 @@ sendRequest pipe@Pipeline{..} builder = do
     then pure (Left "pipeline closed")
     else do
       now <- nowSeconds
-      atomically (allocateAndQueue pipe builder now)
+      -- Allocate the correlation id outside STM. The collision
+      -- check that 'nextFreeCorrelationId' used to do inside the
+      -- transaction has moved to a snapshot read of 'pipelinePending'
+      -- here; in the (practically unreachable) event a concurrent
+      -- request inserted the same id between the snapshot and the
+      -- STM commit, 'allocateAndQueue' aborts with
+      -- 'CidCollision' and we retry from the top.
+      sendRequestRetry pipe builder now (32 :: Int)
 
-allocateAndQueue
+sendRequestRetry
   :: Pipeline
   -> (RequestId -> ByteString)
   -> Int
+  -> Int
+  -> IO (Either String (RequestId, ResponseSlot))
+sendRequestRetry _    _       _   0 = pure (Left "no free correlation ids")
+sendRequestRetry pipe@Pipeline{..} builder now n = do
+  pendingSnap <- readTVarIO pipelinePending
+  cid <- nextFreeCorrelationIdIO pipelineNextId pendingSnap
+  res <- atomically (allocateAndQueue pipe cid builder now)
+  case res of
+    Left "cid collision" -> sendRequestRetry pipe builder now (n - 1)
+    other                -> pure other
+
+allocateAndQueue
+  :: Pipeline
+  -> RequestId
+  -> (RequestId -> ByteString)
+  -> Int
   -> STM (Either String (RequestId, ResponseSlot))
-allocateAndQueue Pipeline{..} builder now = do
+allocateAndQueue Pipeline{..} cid builder now = do
   c <- readTVar pipelineClosed
   if c
     then pure (Left "pipeline closed")
@@ -285,26 +316,25 @@ allocateAndQueue Pipeline{..} builder now = do
       let !inFlight = IntMap.size pendingMap
       check (qSize <  pipelineMaxQueueSize pipelineConfig)
       check (inFlight < pipelineMaxInFlight pipelineConfig)
-      -- Allocate a fresh correlation id. We loop until we find
-      -- one that isn't already pending — practically unreachable
-      -- (correlation ids are 32-bit) but defensive.
-      cid <- nextFreeCorrelationId pipelineNextId pendingMap
-      slot <- newEmptyTMVar
-      let !req = PendingRequest
-            { pendingRequestId = cid
-            , pendingResponse  = slot
-            , pendingTimestamp = now
+      if IntMap.member (fromIntegral cid) pendingMap
+        then pure (Left "cid collision")
+        else do
+          slot <- newEmptyTMVar
+          let !req = PendingRequest
+                { pendingRequestId = cid
+                , pendingResponse  = slot
+                , pendingTimestamp = now
+                }
+          writeTVar pipelinePending
+            (IntMap.insert (fromIntegral cid) req pendingMap)
+          let !bytes = builder cid
+          writeTQueue pipelineSendQueue (SendItem cid bytes)
+          modifyTVar' pipelineStats $ \s -> s
+            { statsRequestsSent  = statsRequestsSent s + 1
+            , statsCurrentInFlight = inFlight + 1
+            , statsQueueSize     = qSize + 1
             }
-      writeTVar pipelinePending
-        (IntMap.insert (fromIntegral cid) req pendingMap)
-      let !bytes = builder cid
-      writeTQueue pipelineSendQueue (SendItem cid bytes)
-      modifyTVar' pipelineStats $ \s -> s
-        { statsRequestsSent  = statsRequestsSent s + 1
-        , statsCurrentInFlight = inFlight + 1
-        , statsQueueSize     = qSize + 1
-        }
-      pure (Right (cid, slot))
+          pure (Right (cid, slot))
 
 queueSize :: TQueue a -> STM Int
 queueSize q = go 0 []
@@ -319,17 +349,27 @@ queueSize q = go 0 []
           pure n
         Just h -> go (n + 1) (h : acc)
 
-nextFreeCorrelationId
-  :: TVar RequestId -> IntMap a -> STM RequestId
-nextFreeCorrelationId ref m = go (32 :: Int)
+-- | IO sibling of the (now-removed) STM 'nextFreeCorrelationId'.
+-- Walks the counter forward via 'atomicModifyIORef\'' until either
+-- (a) it lands on an id not currently in the supplied pending
+-- snapshot or (b) it has skipped 32 ids without finding one
+-- (practically impossible: 32-bit space against a bounded
+-- 'pipelineMaxInFlight'). The lookup is against a snapshot, not
+-- the live STM 'pipelinePending'; 'allocateAndQueue' rechecks the
+-- live map under STM and reports 'CidCollision' so 'sendRequest'
+-- can retry, keeping the externally observable behaviour
+-- equivalent to the pre-Tier-1 STM allocator.
+nextFreeCorrelationIdIO
+  :: IORef RequestId -> IntMap a -> IO RequestId
+nextFreeCorrelationIdIO ref m = go (32 :: Int)
   where
-    go 0 = pure 0  -- gave up (every id pending — practically impossible)
-    go n = do
-      cid <- readTVar ref
-      let !next = if cid == maxBound then 0 else cid + 1
-      writeTVar ref next
+    go 0 = pure 0
+    go k = do
+      cid <- atomicModifyIORef' ref $ \c ->
+        let !next = if c == maxBound then 0 else c + 1
+        in (next, c)
       if IntMap.member (fromIntegral cid) m
-        then go (n - 1)
+        then go (k - 1)
         else pure cid
 
 -- | Wait for a response on the given slot. Blocks until the

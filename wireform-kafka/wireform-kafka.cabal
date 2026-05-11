@@ -105,6 +105,7 @@ library
         Kafka.Client.AdminTimeouts
         Kafka.Client.ConfigValidation
         Kafka.Client.ConnectionExtras
+        Kafka.Client.Env
         Kafka.Client.Consumer
         Kafka.Client.ConsumerExtras
         Kafka.Client.DeleteRecords
@@ -159,6 +160,7 @@ library
         Kafka.Network.Auth.SASL
         Kafka.Network.Auth.Scram
         Kafka.Network.Connection
+        Kafka.Network.TlsOffload
         Kafka.Network.Transport
         Kafka.Protocol.ApiVersions
         Kafka.Protocol.VersionNegotiation
@@ -181,8 +183,6 @@ library
         Kafka.Protocol.Generated.AlterPartitionResponse
         Kafka.Protocol.Generated.AlterReplicaLogDirsRequest
         Kafka.Protocol.Generated.AlterReplicaLogDirsResponse
-        Kafka.Protocol.Generated.AlterShareGroupOffsetsRequest
-        Kafka.Protocol.Generated.AlterShareGroupOffsetsResponse
         Kafka.Protocol.Generated.AlterUserScramCredentialsRequest
         Kafka.Protocol.Generated.AlterUserScramCredentialsResponse
         Kafka.Protocol.Generated.ApiVersionsRequest
@@ -220,8 +220,6 @@ library
         Kafka.Protocol.Generated.DeleteGroupsResponse
         Kafka.Protocol.Generated.DeleteRecordsRequest
         Kafka.Protocol.Generated.DeleteRecordsResponse
-        Kafka.Protocol.Generated.DeleteShareGroupOffsetsRequest
-        Kafka.Protocol.Generated.DeleteShareGroupOffsetsResponse
         Kafka.Protocol.Generated.DeleteShareGroupStateRequest
         Kafka.Protocol.Generated.DeleteShareGroupStateResponse
         Kafka.Protocol.Generated.DeleteTopicsRequest
@@ -244,8 +242,6 @@ library
         Kafka.Protocol.Generated.DescribeProducersResponse
         Kafka.Protocol.Generated.DescribeQuorumRequest
         Kafka.Protocol.Generated.DescribeQuorumResponse
-        Kafka.Protocol.Generated.DescribeShareGroupOffsetsRequest
-        Kafka.Protocol.Generated.DescribeShareGroupOffsetsResponse
         Kafka.Protocol.Generated.DescribeTopicPartitionsRequest
         Kafka.Protocol.Generated.DescribeTopicPartitionsResponse
         Kafka.Protocol.Generated.DescribeTransactionsRequest
@@ -287,8 +283,8 @@ library
         Kafka.Protocol.Generated.LeaderChangeMessage
         Kafka.Protocol.Generated.LeaveGroupRequest
         Kafka.Protocol.Generated.LeaveGroupResponse
-        Kafka.Protocol.Generated.ListConfigResourcesRequest
-        Kafka.Protocol.Generated.ListConfigResourcesResponse
+        Kafka.Protocol.Generated.ListClientMetricsResourcesRequest
+        Kafka.Protocol.Generated.ListClientMetricsResourcesResponse
         Kafka.Protocol.Generated.ListGroupsRequest
         Kafka.Protocol.Generated.ListGroupsResponse
         Kafka.Protocol.Generated.ListOffsetsRequest
@@ -337,10 +333,6 @@ library
         Kafka.Protocol.Generated.SnapshotHeaderRecord
         Kafka.Protocol.Generated.StopReplicaRequest
         Kafka.Protocol.Generated.StopReplicaResponse
-        Kafka.Protocol.Generated.StreamsGroupDescribeRequest
-        Kafka.Protocol.Generated.StreamsGroupDescribeResponse
-        Kafka.Protocol.Generated.StreamsGroupHeartbeatRequest
-        Kafka.Protocol.Generated.StreamsGroupHeartbeatResponse
         Kafka.Protocol.Generated.SyncGroupRequest
         Kafka.Protocol.Generated.SyncGroupResponse
         Kafka.Protocol.Generated.TxnOffsetCommitRequest
@@ -378,6 +370,7 @@ library
         base                      >= 4.16  && < 5,
         aeson                     >= 2.0   && < 2.3,
         async                     >= 2.2   && < 3,
+        atomic-primops            >= 0.8   && < 0.9,
         base64-bytestring         >= 1.2   && < 1.3,
         binary                    >= 0.8   && < 0.11,
         bytestring                >= 0.11  && < 0.13,
@@ -404,6 +397,7 @@ library
         text                      >= 2.0   && < 2.2,
         time                      >= 1.11  && < 1.13,
         tls                       >= 1.7   && < 2.2,
+        unagi-chan                >= 0.4   && < 0.5,
         unordered-containers      >= 0.2   && < 0.3,
         uuid                      >= 1.3   && < 1.4,
         vector                    >= 0.13  && < 0.14,
@@ -680,6 +674,18 @@ library wireform-kafka-codegen
         scientific                >= 0.3   && < 0.4,
         text                      >= 2.0   && < 2.2
 
+executable wireform-kafka-perf
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: bench/perf-tool
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -O2
+    build-depends:
+        base,
+        wireform-kafka,
+        bytestring,
+        text,
+        time
+
 executable gen-test-vectors
     import: defaults
     main-is: Main.hs
@@ -777,6 +783,7 @@ test-suite wireform-kafka-test
         Client.MockBrokerProtoSpec
         Client.ConfigParitySpec
         Client.ConfigValidationSpec
+        Client.EnvSpec
         Client.HeartbeatRejoinSpec
         Codegen.WireGeneratorSpec
         Client.ProducerRetrySpec
@@ -786,6 +793,7 @@ test-suite wireform-kafka-test
         Network.AuthSpec
         Network.ConnectionRetrySpec
         Network.TlsHandshakeSpec
+        Network.TlsOffloadSpec
         Network.TransportSpec
         Network.SaslReauthSpec
         Network.ReauthDriverSpec
@@ -818,6 +826,7 @@ test-suite wireform-kafka-test
         bytestring,
         containers,
         directory                 >= 1.3   && < 1.4,
+        filepath                  >= 1.4   && < 1.6,
         memory                    >= 0.18  && < 0.19,
         time                      >= 1.11  && < 1.13,
         hedgehog                  >= 1.2   && < 2,
@@ -868,7 +877,8 @@ test-suite wireform-kafka-conformance
         tasty                     >= 1.4   && < 1.6,
         tasty-hunit               >= 0.10  && < 0.11,
         text,
-        time
+        time,
+        unordered-containers      >= 0.2   && < 0.3
 
 test-suite wireform-kafka-integration
     import: defaults

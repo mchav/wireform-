@@ -48,6 +48,17 @@ module Kafka.Network.Connection
     -- * Default Configuration
   , defaultConnectionConfig
   , defaultTlsSettings
+    -- * TLS offload (sidecar / kTLS / NLB)
+    -- $tlsoffload
+  , TlsOffloadConfig (..)
+  , TlsOffloadEndpoint (..)
+  , OffloadBrokerKey (..)
+  , transparentTlsOffload
+  , staticTlsOffload
+  , perBrokerTlsOffload
+  , customTlsOffload
+  , brokerAddressToOffloadKey
+  , connectOffload
     -- * Backoff Utilities
   , calculateBackoffDelay
   ) where
@@ -74,6 +85,17 @@ import qualified StmContainers.Map as StmMap
 import System.Random (randomRIO)
 
 import qualified Kafka.Network.Auth.SASL as SASL
+import qualified Kafka.Network.TlsOffload as TlsOffload
+import Kafka.Network.TlsOffload
+  ( OffloadBrokerKey (..)
+  , TlsOffloadConfig (..)
+  , TlsOffloadEndpoint (..)
+  , describeOffloadEndpoint
+  , transparentTlsOffload
+  , staticTlsOffload
+  , perBrokerTlsOffload
+  , customTlsOffload
+  )
 
 -- | Broker address (host and port).
 data BrokerAddress = BrokerAddress
@@ -202,6 +224,20 @@ data ConnectionConfig = ConnectionConfig
     -- ^ Client id used in the SASL request headers (defaults to
     --   \"wireform-kafka\"). Has no effect on connections without a
     --   'connSasl' value.
+  , connTlsOffload :: !(Maybe TlsOffloadConfig)
+    -- ^ TLS offload to a sidecar / Unix socket / kTLS path.
+    --   When 'Just', the client side TLS handshake is skipped
+    --   regardless of 'connUseTls' (the offload target is
+    --   responsible for the upstream cipher work) and every
+    --   broker connection is routed through the physical
+    --   endpoint returned by 'TlsOffload.resolveOffloadEndpoint'.
+    --   See "Kafka.Network.TlsOffload" for the supported
+    --   deployment shapes (sidecar / kTLS / NLB / stunnel).
+    --
+    --   The connection pool is still keyed by the logical
+    --   'BrokerAddress', so per-broker SASL state and request
+    --   pipelining are preserved when several brokers fan in
+    --   to the same physical socket destination.
   } deriving (Generic)
 
 -- | Default connection configuration. Defaults follow librdkafka's
@@ -252,7 +288,31 @@ defaultConnectionConfig = ConnectionConfig
   , connTlsSettings                     = Nothing
   , connSasl                            = Nothing
   , connClientId                        = T.pack "wireform-kafka"
+  , connTlsOffload                      = Nothing
   }
+
+-- $tlsoffload
+--
+-- The fields and constructors re-exported below let a caller
+-- delegate the actual TLS handshake to a sidecar proxy, a
+-- TLS-terminating load balancer, or kernel-level TLS (Linux
+-- @CONFIG_TLS@). When 'connTlsOffload' is 'Just',
+-- 'getOrCreateConnection':
+--
+--   * skips the @crypton-connection@ TLS handshake, regardless
+--     of the value of 'connUseTls';
+--   * resolves each broker via
+--     'TlsOffload.resolveOffloadEndpoint' to find the physical
+--     destination — falling back to the broker's advertised
+--     address when the resolver returns 'Nothing' (transparent
+--     mode);
+--   * opens either a plain TCP connection or a Unix-domain
+--     stream socket depending on the endpoint variant.
+--
+-- The connection pool is still keyed by logical
+-- 'BrokerAddress', so several brokers can fan in to the same
+-- sidecar listener while keeping independent SASL state and
+-- request pipelining.
 
 -- | Default TLS settings for secure connections.
 -- Uses a reasonable set of cipher suites and TLS 1.2+.
@@ -335,10 +395,16 @@ getOrCreateConnection cm@(ConnectionManager connMap _) addr config = do
              -- duplicate the SASL bootstrap logic.
              getOrCreateConnection cm addr config)
     Nothing -> do
-      -- No existing connection, create a new one
-      connResult <- if connUseTls config
-        then connectTls addr config
-        else connect addr config
+      -- No existing connection, create a new one. The offload
+      -- path takes priority over both 'connUseTls' and the
+      -- plain TCP path: when offload is configured, all
+      -- broker traffic flows through the sidecar / kTLS path
+      -- regardless of what the in-process TLS knobs say.
+      connResult <- case connTlsOffload config of
+        Just offload -> connectOffload addr config offload
+        Nothing
+          | connUseTls config -> connectTls addr config
+          | otherwise         -> connect addr config
       case connResult of
         Left err -> return $ Left err
         Right newConn -> do
@@ -505,6 +571,125 @@ applyTcpTuning cfg sock = do
       _ <- try act :: IO (Either SomeException ())
       pure ()
 
+-- | Open a connected Unix-domain stream socket at @path@.
+--
+-- We avoid 'Conn.connectTo' for the same reason 'openTunedSocket'
+-- does: we want to apply our socket options before connecting,
+-- and the TCP tuning ('NoDelay', send/receive buffers,
+-- keepalive) doesn't apply to a UDS anyway. The result socket
+-- is handed to 'Conn.connectFromSocket' so the rest of the
+-- pipeline keeps the same 'Conn.Connection' shape.
+{-# INLINE openUnixSocket #-}
+openUnixSocket :: FilePath -> IO NS.Socket
+openUnixSocket path = bracketOnError
+  (NS.socket NS.AF_UNIX NS.Stream 0)
+  NS.close
+  (\sock -> do
+      NS.connect sock (NS.SockAddrUnix path)
+      pure sock)
+
+-- | Translate a logical 'BrokerAddress' into the
+-- 'OffloadBrokerKey' the offload resolver expects.
+brokerAddressToOffloadKey :: BrokerAddress -> OffloadBrokerKey
+brokerAddressToOffloadKey BrokerAddress{..} =
+  OffloadBrokerKey { offloadBrokerHost = brokerHost
+                   , offloadBrokerPort = brokerPort
+                   }
+
+-- | Open a plain (non-TLS) connection through the configured
+-- offload endpoint, falling back to the broker's advertised
+-- address when the offload resolver declines (the
+-- \"transparent\" case).
+--
+-- This is the per-attempt body for offloaded connections; the
+-- caller adds retry / backoff via 'connectOffload'.
+{-# INLINE openOffloadOnce #-}
+openOffloadOnce
+  :: BrokerAddress
+  -> ConnectionConfig
+  -> TlsOffloadConfig
+  -> IO (Either String (Connection, String))
+openOffloadOnce addr cfg offload = do
+  let key = brokerAddressToOffloadKey addr
+  mEndpoint <- TlsOffload.resolveOffloadEndpoint offload key
+  result <- try $ do
+    ctx <- Conn.initConnectionContext
+    case mEndpoint of
+      Just (TlsOffload.TlsOffloadUnix path) -> do
+        sock <- openUnixSocket path
+        conn <- Conn.connectFromSocket ctx sock Conn.ConnectionParams
+          { Conn.connectionHostname  = brokerHost addr
+          , Conn.connectionPort      = fromIntegral (brokerPort addr)
+          , Conn.connectionUseSecure = Nothing
+          , Conn.connectionUseSocks  = Nothing
+          }
+        pure (conn, describeOffloadEndpoint (TlsOffload.TlsOffloadUnix path))
+      Just (TlsOffload.TlsOffloadTcp h p) -> do
+        sock <- openTunedSocket cfg h p
+        conn <- Conn.connectFromSocket ctx sock Conn.ConnectionParams
+          { Conn.connectionHostname  = h
+          , Conn.connectionPort      = fromIntegral p
+          , Conn.connectionUseSecure = Nothing
+          , Conn.connectionUseSocks  = Nothing
+          }
+        pure (conn, describeOffloadEndpoint (TlsOffload.TlsOffloadTcp h p))
+      Nothing -> do
+        -- Transparent offload: open plain TCP to the broker's
+        -- own address. The cipher work happens out-of-band
+        -- (iptables redirect, kTLS, NLB) so we don't run our
+        -- own TLS handshake.
+        sock <- openTunedSocket cfg (brokerHost addr) (brokerPort addr)
+        conn <- Conn.connectFromSocket ctx sock Conn.ConnectionParams
+          { Conn.connectionHostname  = brokerHost addr
+          , Conn.connectionPort      = fromIntegral (brokerPort addr)
+          , Conn.connectionUseSecure = Nothing
+          , Conn.connectionUseSocks  = Nothing
+          }
+        pure (conn, "transparent:" <> brokerHost addr <> ":" <> show (brokerPort addr))
+  case result of
+    Right ok                  -> pure (Right ok)
+    Left (e :: SomeException) -> pure (Left (show e))
+
+-- | Establish a TLS-offloaded connection to a broker with the
+-- standard retry / backoff loop. The bytes leaving the client
+-- are plain Kafka wire; the endpoint at the other side
+-- (sidecar / NLB / kTLS) is responsible for upstream TLS.
+--
+-- This is the public form of the offload code path —
+-- 'getOrCreateConnection' uses it internally, but it's
+-- exported so callers that just need a one-off offloaded
+-- broker socket can avoid wiring up a 'ConnectionManager'.
+connectOffload
+  :: BrokerAddress
+  -> ConnectionConfig
+  -> TlsOffloadConfig
+  -> IO (Either String Connection)
+connectOffload addr config offload = go 0
+  where
+    go attemptNum = do
+      r <- openOffloadOnce addr config offload
+      case r of
+        Right (conn, _label) -> pure (Right conn)
+        Left err ->
+          if attemptNum < connMaxRetries config
+            then do
+              delayMicros <- calculateBackoffDelay attemptNum config
+              putStrLn $ "TLS-offload connection attempt "
+                        ++ show (attemptNum + 1)
+                        ++ " to " ++ brokerHost addr ++ ":"
+                        ++ show (brokerPort addr)
+                        ++ " (offload=" ++ T.unpack (TlsOffload.tlsOffloadLabel offload) ++ ")"
+                        ++ " failed: " ++ err
+                        ++ ". Retrying in " ++ show (delayMicros `div` 1000) ++ "ms..."
+              threadDelay delayMicros
+              go (attemptNum + 1)
+            else
+              pure $ Left $
+                "Failed to connect (TLS-offload " ++ T.unpack (TlsOffload.tlsOffloadLabel offload)
+                ++ ") to " ++ brokerHost addr ++ ":" ++ show (brokerPort addr)
+                ++ " after " ++ show (attemptNum + 1)
+                ++ " attempts: " ++ err
+
 -- | Establish a plain TCP connection to a Kafka broker with retry logic.
 connect
   :: BrokerAddress
@@ -606,9 +791,11 @@ withConnection
   -> (Connection -> IO a)
   -> IO (Either String a)
 withConnection addr config action = do
-  connResult <- if connUseTls config
-    then connectTls addr config
-    else connect addr config
+  connResult <- case connTlsOffload config of
+    Just offload -> connectOffload addr config offload
+    Nothing
+      | connUseTls config -> connectTls addr config
+      | otherwise         -> connect addr config
   case connResult of
     Left err -> return $ Left err
     Right conn -> do

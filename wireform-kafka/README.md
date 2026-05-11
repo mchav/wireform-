@@ -123,6 +123,52 @@ connectionConfig = defaultConnectionConfig
   }
 ```
 
+### TLS Offload (sidecar / kTLS / NLB)
+
+When a sidecar process (Envoy, linkerd2-proxy, stunnel,
+`kafka-proxy`), a Layer-4 TLS-terminating load balancer, or kernel
+TLS (`CONFIG_TLS`) is responsible for the cipher work, the
+client can skip its own TLS handshake and route every broker
+connection through that endpoint:
+
+```haskell
+import qualified Data.Map.Strict as Map
+import Kafka.Network.Connection
+import Kafka.Network.TlsOffload
+
+-- One Unix-domain socket sidecar terminating mTLS upstream.
+viaSidecarUds :: ConnectionConfig
+viaSidecarUds = defaultConnectionConfig
+  { connTlsOffload = Just $
+      staticTlsOffload (TlsOffloadUnix "/var/run/kafka-proxy.sock")
+  }
+
+-- Per-broker stunnel listeners on different localhost ports.
+viaPerBrokerStunnel :: ConnectionConfig
+viaPerBrokerStunnel = defaultConnectionConfig
+  { connTlsOffload = Just $ perBrokerTlsOffload $ Map.fromList
+      [ (OffloadBrokerKey "b-1.kafka.example.com" 9094,
+         TlsOffloadTcp "127.0.0.1" 19094)
+      , (OffloadBrokerKey "b-2.kafka.example.com" 9094,
+         TlsOffloadTcp "127.0.0.1" 19095)
+      , (OffloadBrokerKey "b-3.kafka.example.com" 9094,
+         TlsOffloadTcp "127.0.0.1" 19096)
+      ]
+  }
+
+-- Kernel TLS / Layer-4 LB: routing is unchanged, just disable
+-- the in-process handshake.
+viaKtls :: ConnectionConfig
+viaKtls = defaultConnectionConfig
+  { connTlsOffload = Just transparentTlsOffload }
+```
+
+In every offload mode the connection pool is still keyed by the
+logical broker address — per-broker SASL state and request
+pipelining work normally when several brokers fan in to the same
+sidecar socket. See "Kafka.Network.TlsOffload" for the full
+configuration surface.
+
 ## Security
 
 - SASL/PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER. Mid-session

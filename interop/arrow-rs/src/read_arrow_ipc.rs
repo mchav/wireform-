@@ -1,6 +1,13 @@
 // Read every .arrows / .arrow file in a directory using
 // arrow-rs's IPC reader. Stream files (.arrows) go through
 // StreamReader; file-format (.arrow) through FileReader.
+//
+// As of arrow-rs 58 (Feb 2026), ListView / LargeListView are
+// supported by the IPC convert + reader (apache/arrow-rs#9006).
+// Earlier versions panicked on the ListView type tag; we used to
+// run each file under catch_unwind to survive that. Now that the
+// pin is 58.x we let errors flow through naturally and treat any
+// failure as a real failure.
 
 use std::env;
 use std::fs::{self, File};
@@ -33,52 +40,40 @@ fn main() -> ExitCode {
         total += 1;
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
 
-        // Run the per-file decode under catch_unwind so an
-        // arrow-rs internal panic on an unsupported type
-        // (e.g. ListView in arrow-rs <= 53 yields a
-        // 'not implemented: Type ListView not supported'
-        // panic, not an Err) doesn't kill the whole probe.
-        let result: Result<(usize, usize), String> =
-            std::panic::catch_unwind(|| -> Result<(usize, usize), Box<dyn std::error::Error>> {
-                match ext {
-                    Some("arrows") => {
-                        let file = File::open(&path)?;
-                        let reader = StreamReader::try_new(file, None)?;
-                        let n_cols = reader.schema().fields().len();
-                        let mut n_rows = 0usize;
-                        for batch in reader {
-                            let batch = batch?;
-                            n_rows += batch.num_rows();
-                        }
-                        Ok((n_rows, n_cols))
+        let result: Result<(usize, usize), Box<dyn std::error::Error>> = (|| {
+            match ext {
+                Some("arrows") => {
+                    let file = File::open(&path)?;
+                    let reader = StreamReader::try_new(file, None)?;
+                    let n_cols = reader.schema().fields().len();
+                    let mut n_rows = 0usize;
+                    for batch in reader {
+                        let batch = batch?;
+                        n_rows += batch.num_rows();
                     }
-                    Some("arrow") => {
-                        let file = File::open(&path)?;
-                        let reader = FileReader::try_new(file, None)?;
-                        let n_cols = reader.schema().fields().len();
-                        let mut n_rows = 0usize;
-                        for batch in reader {
-                            let batch = batch?;
-                            n_rows += batch.num_rows();
-                        }
-                        Ok((n_rows, n_cols))
-                    }
-                    _ => unreachable!(),
+                    Ok((n_rows, n_cols))
                 }
-            })
-            .map_err(|payload| {
-                if let Some(s) = payload.downcast_ref::<String>() { s.clone() }
-                else if let Some(s) = payload.downcast_ref::<&'static str>() { s.to_string() }
-                else { "panic with unknown payload".to_string() }
-            })
-            .and_then(|inner| inner.map_err(|e| e.to_string()));
+                Some("arrow") => {
+                    let file = File::open(&path)?;
+                    let reader = FileReader::try_new(file, None)?;
+                    let n_cols = reader.schema().fields().len();
+                    let mut n_rows = 0usize;
+                    for batch in reader {
+                        let batch = batch?;
+                        n_rows += batch.num_rows();
+                    }
+                    Ok((n_rows, n_cols))
+                }
+                _ => unreachable!(),
+            }
+        })();
 
         match result {
             Ok((rows, cols)) => {
                 println!("  OK   {} ({} rows x {} col)", name, rows, cols);
             }
             Err(e) => {
-                println!("  FAIL {}: {}", name, e);
+                println!("  FAIL {}: {}", name, e.to_string());
                 failures += 1;
             }
         }
@@ -87,11 +82,6 @@ fn main() -> ExitCode {
     println!("{}", "-".repeat(60));
     println!("{} files, {} ok, {} failed", total, total - failures, failures);
 
-    // arrow-rs <= 53 doesn't implement ListView IPC convert
-    // (see https://github.com/apache/arrow-rs/blob/53.4.1/arrow-ipc/src/convert.rs).
-    // That's an upstream limitation, not a wireform bug; if every
-    // observed failure was the ListView panic, exit clean so CI
-    // can use this binary directly.
     if failures == 0 {
         ExitCode::SUCCESS
     } else {

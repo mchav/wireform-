@@ -26,6 +26,7 @@ module Proto.CodeGen
   , scopedEnumCon
   , snakeToCamel
   , snakeToPascal
+  , protoJsonName
   , lowerFirst
   , escapeReserved
 
@@ -517,7 +518,7 @@ genImports externalModules = vsep $
   , txt "import qualified Data.Aeson.Types as Aeson"
   , txt "import qualified Data.Aeson.Key as AesonKey"
   , txt "import qualified Data.Aeson.KeyMap as AesonKM"
-  , txt "import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)"
+  , txt "import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)"
   , txt "import Data.Proxy (Proxy(..))"
   , txt "import Proto.Message (IsMessage(..))"
   , txt "import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))"
@@ -1145,14 +1146,75 @@ genScalarDecodeCase allAccs fi lbl st =
       idx = fifIndex fi
       accName = "acc_" <> T.pack (show idx)
       singletonFn = if isUnboxableScalar st then "VU.singleton" else "V.singleton"
-      newAccs = case lbl of
-        Just Repeated -> replaceAt idx ("(" <> accName <> " <> " <> singletonFn <> " v)") allAccs
-        _ -> replaceAt idx "v" allAccs
-  in pretty fn <+> txt "-> do" <> line <>
-     indent 2 (vsep
-       [ txt "v <- " <> pretty (scalarDecoderExpr st)
-       , txt "loop " <> hsep (fmap pretty newAccs)
-       ])
+   in case lbl of
+        Just Repeated ->
+          -- proto3 says a 'repeated <scalar>' field can appear on the
+          -- wire either as a sequence of unpacked entries (one tag per
+          -- value, wire-type 0/1/5 depending on the scalar) or as a
+          -- single packed length-delimited blob (wire-type 2). Readers
+          -- must accept both. We branch on 'wt' here so the generated
+          -- decoder handles whichever form the writer used.
+          let appendOne =
+                replaceAt idx ("(" <> accName <> " <> " <> singletonFn <> " v)") allAccs
+              appendMany =
+                replaceAt idx ("(" <> accName <> " <> vs)") allAccs
+              packedDecoderE = scalarPackedDecoderExpr st
+              unpackedDecoderE = scalarDecoderExpr st
+           in pretty fn <+> txt "-> case wt of" <> line <>
+              indent 2 (vsep
+                [ txt "WireLengthDelimited -> do"
+                , indent 2 (vsep
+                    [ txt "vs <- " <> pretty packedDecoderE
+                    , txt "loop " <> hsep (fmap pretty appendMany)
+                    ])
+                , txt "_ -> do"
+                , indent 2 (vsep
+                    [ txt "v <- " <> pretty unpackedDecoderE
+                    , txt "loop " <> hsep (fmap pretty appendOne)
+                    ])
+                ])
+        Just Optional ->
+          -- proto3 'optional <scalar>' fields synthesise a oneof-style
+          -- presence bit; the field's record slot is 'Maybe T' (see
+          -- 'fieldDefaultText'), so the decoded value has to be
+          -- wrapped with 'Just' here.
+          let newAccs = replaceAt idx "(Just v)" allAccs
+           in pretty fn <+> txt "-> do" <> line <>
+              indent 2 (vsep
+                [ txt "v <- " <> pretty (scalarDecoderExpr st)
+                , txt "loop " <> hsep (fmap pretty newAccs)
+                ])
+        _ ->
+          let newAccs = replaceAt idx "v" allAccs
+           in pretty fn <+> txt "-> do" <> line <>
+              indent 2 (vsep
+                [ txt "v <- " <> pretty (scalarDecoderExpr st)
+                , txt "loop " <> hsep (fmap pretty newAccs)
+                ])
+
+-- | Decoder expression for a 'repeated <scalar>' encoded as a
+-- single packed length-delimited blob.
+scalarPackedDecoderExpr :: ScalarType -> Text
+scalarPackedDecoderExpr = \case
+  SDouble   -> "decodePackedDouble"
+  SFloat    -> "decodePackedFloat"
+  SInt32    -> "(VU.map fromIntegral <$> decodePackedVarint)"
+  SInt64    -> "(VU.map fromIntegral <$> decodePackedVarint)"
+  SUInt32   -> "(VU.map fromIntegral <$> decodePackedVarint)"
+  SUInt64   -> "decodePackedVarint"
+  SSInt32   -> "decodePackedSVarint32"
+  SSInt64   -> "decodePackedSVarint64"
+  SFixed32  -> "decodePackedFixed32"
+  SFixed64  -> "decodePackedFixed64"
+  SSFixed32 -> "(VU.map fromIntegral <$> decodePackedFixed32)"
+  SSFixed64 -> "(VU.map fromIntegral <$> decodePackedFixed64)"
+  SBool     -> "(VU.map (/= 0) <$> decodePackedVarint)"
+  -- 'repeated string' / 'repeated bytes' aren't packable per the
+  -- proto spec; they always come as one-tag-per-entry. Calling this
+  -- helper for them is a codegen bug; emit a runtime fail to surface
+  -- it loudly rather than silently mis-decoding.
+  SString   -> "(decodeFail (CustomError \"repeated string is never packed\"))"
+  SBytes    -> "(decodeFail (CustomError \"repeated bytes is never packed\"))"
 
 genNamedDecodeCase :: GenCtx -> [Text] -> FieldInfoFull -> Maybe FieldLabel -> Text -> TypeKind -> Doc ann
 genNamedDecodeCase ctx allAccs fi lbl name tk =
@@ -1419,6 +1481,11 @@ genToJSONField :: GenCtx -> JSONFieldInfo -> Doc ann
 genToJSONField ctx jfi = case jfiKind jfi of
   JFKBytes ->
     txt "bytesFieldToJSON " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text) <+> txt "msg." <> pretty (jfiAccessor jfi)
+  JFKOptionalBytes ->
+    -- proto3 'optional bytes' fields are 'Maybe ByteString' on
+    -- the record. Lift through 'Maybe' before calling the
+    -- base64-encoding helper so each slot stays well-typed.
+    pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\" .=: (fmap protoBytesToJSON msg." :: Text) <> pretty (jfiAccessor jfi) <> txt ")"
   JFKBytesMap ->
     txt "bytesMapFieldToJSON " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text) <+> txt "msg." <> pretty (jfiAccessor jfi)
   JFKNormal ->
@@ -1460,14 +1527,24 @@ genFromJSONFieldBind :: JSONFieldInfo -> Doc ann
 genFromJSONFieldBind jfi = case jfiKind jfi of
   JFKBytes ->
     txt "fld_" <> pretty (jfiAccessor jfi) <+> txt "<- parseBytesFieldMaybe obj " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
+  JFKOptionalBytes ->
+    -- 'parseBytesFieldMaybe' already returns @Maybe ByteString@,
+    -- which is the slot type; no second 'Just' wrap needed.
+    txt "fld_" <> pretty (jfiAccessor jfi) <+> txt "<- parseBytesFieldMaybe obj " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
   JFKBytesMap ->
     txt "fld_" <> pretty (jfiAccessor jfi) <+> txt "<- parseBytesMapFieldMaybe obj " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
   JFKNormal ->
     txt "fld_" <> pretty (jfiAccessor jfi) <+> txt "<- parseFieldMaybe obj " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
 
 genFromJSONFieldAssign :: Text -> JSONFieldInfo -> Doc ann
-genFromJSONFieldAssign tyN jfi =
-  pretty (jfiAccessor jfi) <+> txt "= maybe (" <> pretty (jfiAccessor jfi) <+> txt "default" <> pretty tyN <> txt ") id fld_" <> pretty (jfiAccessor jfi)
+genFromJSONFieldAssign tyN jfi = case jfiKind jfi of
+  JFKOptionalBytes ->
+    -- The slot is already 'Maybe ByteString'; the parse helper
+    -- returned 'Maybe ByteString' too, so just plug it in
+    -- directly instead of stripping the wrapper.
+    pretty (jfiAccessor jfi) <+> txt "= fld_" <> pretty (jfiAccessor jfi)
+  _ ->
+    pretty (jfiAccessor jfi) <+> txt "= maybe (" <> pretty (jfiAccessor jfi) <+> txt "default" <> pretty tyN <> txt ") id fld_" <> pretty (jfiAccessor jfi)
 
 -- ---------------------------------------------------------------------------
 -- Hashable instances
@@ -1632,7 +1709,15 @@ resolveTypeKindScoped :: GenCtx -> [Text] -> Text -> TypeKind
 resolveTypeKindScoped ctx scope name = maybe TKMessage tiKind (resolveTypeWithScope ctx scope name)
 
 -- JSON field info
-data JSONFieldKind = JFKNormal | JFKBytes | JFKBytesMap
+--
+-- 'JFKBytes' is split into bare-bytes and optional-bytes shapes
+-- so the bytes ToJSON / FromJSON helpers (which require a
+-- 'ByteString' / 'Maybe ByteString' argument respectively) line
+-- up with the actual record-slot type. Without the split,
+-- proto3 'optional bytes' fields generate code that takes a
+-- 'Maybe ByteString' where 'bytesFieldToJSON' wants 'ByteString',
+-- which doesn't type-check.
+data JSONFieldKind = JFKNormal | JFKBytes | JFKOptionalBytes | JFKBytesMap
   deriving stock (Show, Eq)
 
 data JSONFieldInfo = JSONFieldInfo
@@ -1648,17 +1733,21 @@ extractAllFieldsJSON ctx scope = concatMap go
     go = \case
       MEField fd ->
         let accessor = scopedFieldName scope (fieldName fd)
-            jsonName = fromMaybe (snakeToCamel (fieldName fd)) (getJsonName (fieldOptions fd))
-            kind = case fieldType fd of { FTScalar SBytes -> JFKBytes; _ -> JFKNormal }
+            jsonName = fromMaybe (protoJsonName (fieldName fd)) (getJsonName (fieldOptions fd))
+            kind = case fieldType fd of
+              FTScalar SBytes -> case fieldLabel fd of
+                Just Optional -> JFKOptionalBytes
+                _             -> JFKBytes
+              _ -> JFKNormal
         in [JSONFieldInfo accessor jsonName True kind]
       MEMapField mf ->
         let accessor = scopedFieldName scope (mapFieldName mf)
-            jsonName = fromMaybe (snakeToCamel (mapFieldName mf)) (getJsonName (mapOptions mf))
+            jsonName = fromMaybe (protoJsonName (mapFieldName mf)) (getJsonName (mapOptions mf))
             kind = case mapValueType mf of { FTScalar SBytes -> JFKBytesMap; _ -> JFKNormal }
         in [JSONFieldInfo accessor jsonName True kind]
       MEOneof od ->
         let accessor = scopedFieldName scope (oneofName od)
-            jsonName = snakeToCamel (oneofName od)
+            jsonName = protoJsonName (oneofName od)
         in [JSONFieldInfo accessor jsonName True JFKNormal]
       _ -> []
 
@@ -2121,6 +2210,30 @@ snakeToCamel t =
   in case parts of
     [] -> t
     (p:ps) -> T.concat (lowerFirst p : fmap titleCase ps)
+
+-- | Proto3 JSON name conversion per the canonical spec
+-- (mirror of @ToJsonName@ in the upstream protoc C++ source).
+--
+-- Differences vs. 'snakeToCamel' that the conformance suite
+-- (@FieldNameWithMixedCases@, @FieldNameWithDoubleUnderscores@,
+-- etc.) depends on:
+--
+-- * The case of every non-underscore character is preserved
+--   /as-is/, only the character /after/ an @_@ is upcased.
+--   So @FieldName8@ stays @FieldName8@ (we don't lowercase
+--   the leading @F@).
+-- * Repeated underscores collapse: @field__name15@ becomes
+--   @fieldName15@ (only the next non-underscore is upcased).
+-- * Trailing underscores are dropped: @Field_name18__@
+--   becomes @FieldName18@.
+protoJsonName :: Text -> Text
+protoJsonName = T.pack . go False . T.unpack
+  where
+    go _       []     = []
+    go capNext (c:cs)
+      | c == '_'  = go True cs
+      | capNext   = toUpper c : go False cs
+      | otherwise = c        : go False cs
 
 snakeToPascal :: Text -> Text
 snakeToPascal t =

@@ -53,6 +53,17 @@ jobs:
       - name: Run temporal codegen compilation test
         run: cabal test temporal-codegen-test --test-show-details=streaming
 
+      - name: Run per-package format test suites
+        # Each format package owns its own test-suite; the umbrella
+        # wireform-test doesn't include them. Run them explicitly so
+        # CI catches regressions in the table-format readers.
+        run: |
+          cabal test wireform-iceberg:iceberg-test       --test-show-details=streaming
+          cabal test wireform-iceberg:wireform-iceberg-derive-test --test-show-details=streaming
+          cabal test wireform-delta:delta-test           --test-show-details=streaming
+          cabal test wireform-hudi:hudi-test             --test-show-details=streaming
+          cabal test wireform-lance:lance-test           --test-show-details=streaming
+
   hlint:
     name: HLint
     runs-on: ubuntu-latest

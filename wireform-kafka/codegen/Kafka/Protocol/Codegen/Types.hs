@@ -25,6 +25,7 @@ module Kafka.Protocol.Codegen.Types
 
 import Data.Aeson
 import Data.Int
+import Data.Scientific (toBoundedInteger)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
@@ -111,9 +112,23 @@ instance FromJSON FieldSpec where
       (Just t, _) -> pure t
       (Nothing, Just _) -> pure $ StructType name
       (Nothing, Nothing) -> fail "Field must have either 'type' or 'fields'"
+    -- The Apache Kafka schema set ships @"tag"@ as either a JSON
+    -- number (older trunk style) or a numeric string (Kafka 4.0.0+
+    -- consistently quotes it). Accept both so the codegen is
+    -- agnostic to the upstream encoding choice.
+    rawTag <- v .:? "tag"
+    tagParsed <- case rawTag of
+      Nothing -> pure Nothing
+      Just (Number n) -> case toBoundedInteger n :: Maybe Int of
+        Just i  -> pure (Just i)
+        Nothing -> fail $ "tag is not an Int: " <> show n
+      Just (String s) -> case reads (T.unpack s) of
+        [(i, "")] -> pure (Just i)
+        _         -> fail $ "tag string is not numeric: " <> T.unpack s
+      Just other -> fail $ "tag must be a number or numeric string, got: " <> show other
     FieldSpec name fieldType
       <$> v .: "versions"
-      <*> v .:? "tag"
+      <*> pure tagParsed
       <*> v .:? "taggedVersions"
       <*> v .:? "nullableVersions"
       <*> v .:? "flexibleVersions"

@@ -12,7 +12,7 @@ Kafka request for API key 45.
 
 
 
-Valid versions: 0-1
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -95,12 +95,6 @@ data AlterPartitionReassignmentsRequest = AlterPartitionReassignmentsRequest
   alterPartitionReassignmentsRequestTimeoutMs :: !(Int32)
 ,
 
-  -- | The option indicating whether changing the replication factor of any given partition as part of this
-
-  -- Versions: 1+
-  alterPartitionReassignmentsRequestAllowReplicationFactorChange :: !(Bool)
-,
-
   -- | The topics to reassign.
 
   -- Versions: 0+
@@ -111,13 +105,13 @@ data AlterPartitionReassignmentsRequest = AlterPartitionReassignmentsRequest
 
 -- | Maximum supported version for AlterPartitionReassignmentsRequest.
 maxAlterPartitionReassignmentsRequestVersion :: Int16
-maxAlterPartitionReassignmentsRequestVersion = 1
+maxAlterPartitionReassignmentsRequestVersion = 0
 
 -- | KafkaMessage instance for AlterPartitionReassignmentsRequest.
 instance KafkaMessage AlterPartitionReassignmentsRequest where
   messageApiKey = 45
   messageMinVersion = 0
-  messageMaxVersion = 1
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a ReassignablePartition.
@@ -183,7 +177,6 @@ wireMaxSizeAlterPartitionReassignmentsRequest :: Int -> AlterPartitionReassignme
 wireMaxSizeAlterPartitionReassignmentsRequest _version msg =
   0
   + 4
-  + 1
   + (5 + (case P.unKafkaArray (alterPartitionReassignmentsRequestTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeReassignableTopic _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -195,12 +188,6 @@ wirePokeAlterPartitionReassignmentsRequest version basePtr msg
     p1 <- W.pokeInt32BE p0 (alterPartitionReassignmentsRequestTimeoutMs msg)
     p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeReassignableTopic version p x) p1 (alterPartitionReassignmentsRequestTopics msg)
     WP.pokeEmptyTaggedFields p2
-  | version == 1 = do
-    p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (alterPartitionReassignmentsRequestTimeoutMs msg)
-    p2 <- (if version >= 1 then W.pokeWord8 p1 (if (alterPartitionReassignmentsRequestAllowReplicationFactorChange msg) then 1 else 0) else pure p1)
-    p3 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeReassignableTopic version p x) p2 (alterPartitionReassignmentsRequestTopics msg)
-    WP.pokeEmptyTaggedFields p3
   | otherwise = error $ "wirePoke AlterPartitionReassignmentsRequest : unsupported version: " ++ show version
 
 -- | Direct-poke decoder for AlterPartitionReassignmentsRequest.
@@ -210,19 +197,13 @@ wirePeekAlterPartitionReassignmentsRequest version _fp _basePtr p0 endPtr
     (f0_timeoutms, p1) <- W.peekInt32BE p0 endPtr
     (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReassignableTopic version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
-    pure (AlterPartitionReassignmentsRequest { alterPartitionReassignmentsRequestTimeoutMs = f0_timeoutms, alterPartitionReassignmentsRequestAllowReplicationFactorChange = True, alterPartitionReassignmentsRequestTopics = f1_topics }, pTagsEnd)
-  | version == 1 = do
-    (f0_timeoutms, p1) <- W.peekInt32BE p0 endPtr
-    (f1_allowreplicationfactorchange, p2) <- (if version >= 1 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr else pure (True, p1))
-    (f2_topics, p3) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReassignableTopic version _fp _basePtr p e) p2 endPtr
-    pTagsEnd <- WP.peekAndSkipTaggedFields p3 endPtr
-    pure (AlterPartitionReassignmentsRequest { alterPartitionReassignmentsRequestTimeoutMs = f0_timeoutms, alterPartitionReassignmentsRequestAllowReplicationFactorChange = f1_allowreplicationfactorchange, alterPartitionReassignmentsRequestTopics = f2_topics }, pTagsEnd)
+    pure (AlterPartitionReassignmentsRequest { alterPartitionReassignmentsRequestTimeoutMs = f0_timeoutms, alterPartitionReassignmentsRequestTopics = f1_topics }, pTagsEnd)
   | otherwise = error $ "wirePeek AlterPartitionReassignmentsRequest : unsupported version: " ++ show version
 
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec AlterPartitionReassignmentsRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeAlterPartitionReassignmentsRequest (fromIntegral v) msg

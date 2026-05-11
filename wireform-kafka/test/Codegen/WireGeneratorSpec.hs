@@ -136,7 +136,7 @@ render :: Doc ann -> Text
 render = renderStrict . layoutPretty defaultLayoutOptions
 
 ----------------------------------------------------------------------
--- Hand-built ProtocolSchema fixtures matching the Kafka 3.7 JSON
+-- Hand-built ProtocolSchema fixtures matching the Kafka 4.0 JSON
 ----------------------------------------------------------------------
 
 mkField

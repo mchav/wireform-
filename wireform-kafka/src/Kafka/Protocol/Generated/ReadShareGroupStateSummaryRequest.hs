@@ -12,7 +12,7 @@ Kafka request for API key 87.
 
 
 
-Valid versions: 0-1
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -105,13 +105,13 @@ data ReadShareGroupStateSummaryRequest = ReadShareGroupStateSummaryRequest
 
 -- | Maximum supported version for ReadShareGroupStateSummaryRequest.
 maxReadShareGroupStateSummaryRequestVersion :: Int16
-maxReadShareGroupStateSummaryRequestVersion = 1
+maxReadShareGroupStateSummaryRequestVersion = 0
 
 -- | KafkaMessage instance for ReadShareGroupStateSummaryRequest.
 instance KafkaMessage ReadShareGroupStateSummaryRequest where
   messageApiKey = 87
   messageMinVersion = 0
-  messageMaxVersion = 1
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a PartitionData.
@@ -183,7 +183,7 @@ wireMaxSizeReadShareGroupStateSummaryRequest _version msg =
 -- | Direct-poke encoder for ReadShareGroupStateSummaryRequest.
 wirePokeReadShareGroupStateSummaryRequest :: Int -> Ptr Word8 -> ReadShareGroupStateSummaryRequest -> IO (Ptr Word8)
 wirePokeReadShareGroupStateSummaryRequest version basePtr msg
-  | version >= 0 && version <= 1 = do
+  | version == 0 = do
     p0 <- pure basePtr
     p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (readShareGroupStateSummaryRequestGroupId msg)) else WP.pokeKafkaString p0 (readShareGroupStateSummaryRequestGroupId msg))
     p2 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeReadStateSummaryData version p x) p1 (readShareGroupStateSummaryRequestTopics msg)
@@ -193,7 +193,7 @@ wirePokeReadShareGroupStateSummaryRequest version basePtr msg
 -- | Direct-poke decoder for ReadShareGroupStateSummaryRequest.
 wirePeekReadShareGroupStateSummaryRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ReadShareGroupStateSummaryRequest, Ptr Word8)
 wirePeekReadShareGroupStateSummaryRequest version _fp _basePtr p0 endPtr
-  | version >= 0 && version <= 1 = do
+  | version == 0 = do
     (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
     (f1_topics, p2) <- WP.peekVersionedArray version 0 (\p e -> wirePeekReadStateSummaryData version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
@@ -203,7 +203,7 @@ wirePeekReadShareGroupStateSummaryRequest version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ReadShareGroupStateSummaryRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeReadShareGroupStateSummaryRequest (fromIntegral v) msg

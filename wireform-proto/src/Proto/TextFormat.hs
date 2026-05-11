@@ -18,6 +18,7 @@ module Proto.TextFormat
   ( -- * Rendering
     dynamicToText
   , dynamicToTextPretty
+  , typedToTextPretty
 
     -- * Parsing
   , textToDynamic
@@ -40,7 +41,13 @@ import qualified Data.Text.Read as TR
 import Data.Int (Int64)
 import Data.Word (Word64)
 
+import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.Lazy as BL
+import Data.Proxy (Proxy)
+
 import Proto.Dynamic
+import qualified Proto.Encode as PE
+import qualified Proto.Schema as PS
 
 -- | A text format field.
 data TextField = TextField
@@ -65,6 +72,37 @@ dynamicToText = renderDyn 0 False
 -- | Render a dynamic message in text format (pretty-printed).
 dynamicToTextPretty :: DynamicMessage -> Text
 dynamicToTextPretty = renderDyn 0 True
+
+-- | Render a typed message in proto text format (pbtxt) with
+-- field-name keys (rather than the field-number keys
+-- 'dynamicToTextPretty' produces). Resolves the names from the
+-- message's 'PS.ProtoMessage' descriptor.
+--
+-- Implementation: re-encodes the typed value to bytes (so we
+-- have a single source of truth for the wire shape), decodes
+-- those bytes as a 'DynamicMessage', and walks the result with
+-- the descriptor-supplied field names.
+typedToTextPretty
+  :: forall a. (PE.MessageEncode a, PS.ProtoMessage a)
+  => Proxy a -> a -> Text
+typedToTextPretty p msg =
+  let !bytes = BL.toStrict (BB.toLazyByteString (PE.buildMessage msg))
+  in case decodeDynamic bytes of
+    Left _    -> ""  -- shouldn't happen: we just re-encoded a valid value
+    Right dyn ->
+      let descriptors = PS.protoFieldDescriptors p
+          nameOf fn = case Map.lookup fn descriptors of
+            Just (PS.SomeField fd) -> PS.fdName fd
+            Nothing                -> intToText fn
+      in renderDynNamed nameOf 0 dyn
+
+renderDynNamed :: (Int -> Text) -> Int -> DynamicMessage -> Text
+renderDynNamed nameOf depth (DynamicMessage fs _) =
+  Map.foldlWithKey'
+    (\acc fn val ->
+       acc <> renderDynField depth True (nameOf fn) val <> "\n")
+    ""
+    fs
 
 renderDyn :: Int -> Bool -> DynamicMessage -> Text
 renderDyn depth pretty (DynamicMessage fs _) =

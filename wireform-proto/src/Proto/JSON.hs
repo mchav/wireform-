@@ -76,6 +76,7 @@ import Data.Bifunctor (bimap, first)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as Base64
+import qualified Data.ByteString.Base64.URL as Base64URL
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
 import Data.Hashable (Hashable)
@@ -83,7 +84,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Scientific (fromFloatDigits, toRealFloat)
+import Data.Scientific (Scientific, fromFloatDigits, toRealFloat, toBoundedInteger)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -145,19 +146,50 @@ protoInt64ToJSON n = Aeson.String (int64ToText n)
 protoWord64ToJSON :: Word64 -> Aeson.Value
 protoWord64ToJSON n = Aeson.String (word64ToText n)
 
+-- Proto3 spec, "JSON Mapping": int64 / uint64 are encoded as
+-- decimal strings on output, but accepted as either string or
+-- number on input. The conformance suite verifies range +
+-- integrality, so we route both shapes through 'boundedFromSci'
+-- which rejects fractional and out-of-range values.
 protoInt64FromJSON :: Aeson.Value -> Aeson.Parser Int64
-protoInt64FromJSON (Aeson.String s) = case TR.signed TR.decimal s of
-  Right (n, rest) | T.null rest -> pure n
-  _ -> fail "Invalid int64 string"
-protoInt64FromJSON (Aeson.Number n) = pure (round n)
+protoInt64FromJSON (Aeson.String s) = sciFromText s >>= boundedFromSci "int64"
+protoInt64FromJSON (Aeson.Number n) = boundedFromSci "int64" n
 protoInt64FromJSON _ = fail "Expected int64 string or number"
 
 protoWord64FromJSON :: Aeson.Value -> Aeson.Parser Word64
-protoWord64FromJSON (Aeson.String s) = case TR.decimal s of
-  Right (n, rest) | T.null rest -> pure n
-  _ -> fail "Invalid uint64 string"
-protoWord64FromJSON (Aeson.Number n) = pure (round n)
+protoWord64FromJSON (Aeson.String s) = sciFromText s >>= boundedFromSci "uint64"
+protoWord64FromJSON (Aeson.Number n) = boundedFromSci "uint64" n
 protoWord64FromJSON _ = fail "Expected uint64 string or number"
+
+-- | Parse a 'Scientific' from a textual JSON value. Used for
+-- the 64-bit-int code path (proto3 spec encodes them as strings
+-- on output, accepts both shapes on input).
+--
+-- @reads@ is unfortunate but @Data.Text.Read@ doesn't export a
+-- 'Scientific' parser, and pulling in @attoparsec@ here just
+-- for one helper isn't worth it.
+sciFromText :: Text -> Aeson.Parser Scientific
+sciFromText t
+  | hasLeadingSpace t = fail ("Invalid numeric string (leading whitespace): " <> show t)
+  | otherwise = case reads (T.unpack t) :: [(Scientific, String)] of
+      [(s, "")] -> pure s
+      _         -> fail ("Invalid numeric string: " <> show t)
+  where
+    hasLeadingSpace s = case T.uncons s of
+      Just (c, _) -> c == ' ' || c == '\t' || c == '\n' || c == '\r'
+      Nothing     -> True
+
+-- | Coerce a 'Scientific' to a bounded integral type, failing
+-- both when the value falls outside the type's range and when
+-- it has a fractional part. This is what the conformance
+-- @Int*Field{TooLarge,TooSmall,NotInteger}@ tests assert on.
+boundedFromSci
+  :: forall i
+   . (Integral i, Bounded i)
+  => String -> Scientific -> Aeson.Parser i
+boundedFromSci ty s = case toBoundedInteger s of
+  Just n  -> pure n
+  Nothing -> fail (ty <> " value out of range or non-integer: " <> show s)
 
 -- Proto3 canonical JSON: floats with NaN/Infinity as strings.
 
@@ -185,11 +217,43 @@ protoFloatFromJSON v = realToFrac <$> protoDoubleFromJSON v
 protoBytesToJSON :: ByteString -> Aeson.Value
 protoBytesToJSON bs = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
 
+-- Proto3 canonical-JSON spec: bytes use standard base64, but
+-- the receiver MUST also accept the URL-safe variant
+-- (BytesFieldBase64Url conformance test). We try standard
+-- first, then URL-safe. URL.decode pads if needed but only
+-- when input length is already a multiple of 4 internally;
+-- for \"-_\"-style 2-char inputs we manually pad first so the
+-- @decode@ entrypoint accepts them.
 protoBytesFromJSON :: Aeson.Value -> Aeson.Parser ByteString
-protoBytesFromJSON (Aeson.String s) = case Base64.decode (TE.encodeUtf8 s) of
-  Right bs -> pure bs
-  Left err -> fail ("Invalid base64 bytes: " <> err)
+protoBytesFromJSON (Aeson.String s) =
+  let bs = TE.encodeUtf8 s
+  in case Base64.decode bs of
+       Right out -> pure out
+       -- Standard base64 failed; if the input is plausibly
+       -- base64url (no '+' or '/'), retry via the lenient
+       -- URL decoder which tolerates unpadded inputs and
+       -- the non-canonical trailing pad bits the conformance
+       -- BytesFieldBase64Url test sends ("-_").
+       Left err
+         | looksLikeBase64Url bs ->
+             pure (Base64URL.decodeLenient bs)
+         | otherwise -> fail ("Invalid base64 bytes: " <> err)
 protoBytesFromJSON _ = fail "Expected base64 string for bytes"
+
+-- | Quick sniff: a string that contains no @+@\/@/@ chars
+-- and includes either @-@ or @_@ (or is short enough that
+-- standard base64 already failed) is plausibly base64url.
+looksLikeBase64Url :: ByteString -> Bool
+looksLikeBase64Url bs =
+  not (BS.any (\c -> c == 0x2B || c == 0x2F) bs)  -- no '+' '/'
+  &&  BS.all isUrlChar bs
+  where
+    isUrlChar c =
+         (c >= 0x41 && c <= 0x5A)  -- A-Z
+      || (c >= 0x61 && c <= 0x7A)  -- a-z
+      || (c >= 0x30 && c <= 0x39)  -- 0-9
+      || c == 0x2D || c == 0x5F    -- '-' '_'
+      || c == 0x3D                 -- '='
 
 -- ---------------------------------------------------------------------------
 -- Lazy ByteString (base64)

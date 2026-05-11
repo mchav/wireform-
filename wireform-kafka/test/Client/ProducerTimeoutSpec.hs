@@ -5,7 +5,7 @@ module Client.ProducerTimeoutSpec (tests) where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import Data.Int
-import qualified Data.Sequence as Seq
+import qualified Data.Vector as V
 import qualified Data.Time.Clock.POSIX as Time
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
@@ -48,14 +48,14 @@ unit_batchTimeoutDetection = testCase "Batch timeout detection" $ do
       record = RB.Record 0 0 Nothing "value" []
       batch = BA.ProducerBatch
         { BA.batchTopicPartition = tp
-        , BA.batchRecords = Seq.singleton record
+        , BA.batchRecords = V.singleton record
         , BA.batchSizeBytes = 100
         , BA.batchCreateTime = batchCreateTime
         , BA.batchBaseTimestamp = batchCreateTime
         , BA.batchState = BA.Ready
         , BA.batchCompression = Compression.NoCompression
         , BA.batchCompressionLevel = Compression.defaultLevel Compression.NoCompression
-        , BA.batchCallbacks = Seq.empty
+        , BA.batchCallbacks = V.empty
         , BA.batchAttempts = 0
         , BA.batchProducerId = RB.noProducerId
         , BA.batchProducerEpoch = RB.noProducerEpoch
@@ -83,14 +83,14 @@ unit_batchNotTimedOut = testCase "Batch not timed out when within timeout" $ do
       record = RB.Record 0 0 Nothing "value" []
       batch = BA.ProducerBatch
         { BA.batchTopicPartition = tp
-        , BA.batchRecords = Seq.singleton record
+        , BA.batchRecords = V.singleton record
         , BA.batchSizeBytes = 100
         , BA.batchCreateTime = batchCreateTime
         , BA.batchBaseTimestamp = batchCreateTime
         , BA.batchState = BA.Ready
         , BA.batchCompression = Compression.NoCompression
         , BA.batchCompressionLevel = Compression.defaultLevel Compression.NoCompression
-        , BA.batchCallbacks = Seq.empty
+        , BA.batchCallbacks = V.empty
         , BA.batchAttempts = 0
         , BA.batchProducerId = RB.noProducerId
         , BA.batchProducerEpoch = RB.noProducerEpoch
@@ -119,14 +119,14 @@ prop_timeoutDetectionCorrectness = property $ do
       record = RB.Record 0 0 Nothing "value" []
       batch = BA.ProducerBatch
         { BA.batchTopicPartition = tp
-        , BA.batchRecords = Seq.singleton record
+        , BA.batchRecords = V.singleton record
         , BA.batchSizeBytes = 100
         , BA.batchCreateTime = batchCreateTime
         , BA.batchBaseTimestamp = batchCreateTime
         , BA.batchState = BA.Ready
         , BA.batchCompression = Compression.NoCompression
         , BA.batchCompressionLevel = Compression.defaultLevel Compression.NoCompression
-        , BA.batchCallbacks = Seq.empty
+        , BA.batchCallbacks = V.empty
         , BA.batchAttempts = 0
         , BA.batchProducerId = RB.noProducerId
         , BA.batchProducerEpoch = RB.noProducerEpoch
@@ -158,14 +158,14 @@ prop_veryOldBatchesTimeout = property $ do
       record = RB.Record 0 0 Nothing "value" []
       batch = BA.ProducerBatch
         { BA.batchTopicPartition = tp
-        , BA.batchRecords = Seq.singleton record
+        , BA.batchRecords = V.singleton record
         , BA.batchSizeBytes = 100
         , BA.batchCreateTime = batchCreateTime
         , BA.batchBaseTimestamp = batchCreateTime
         , BA.batchState = BA.Ready
         , BA.batchCompression = Compression.NoCompression
         , BA.batchCompressionLevel = Compression.defaultLevel Compression.NoCompression
-        , BA.batchCallbacks = Seq.empty
+        , BA.batchCallbacks = V.empty
         , BA.batchAttempts = 0
         , BA.batchProducerId = RB.noProducerId
         , BA.batchProducerEpoch = RB.noProducerEpoch
@@ -192,14 +192,14 @@ prop_freshBatchesNeverTimeout = property $ do
       record = RB.Record 0 0 Nothing "value" []
       batch = BA.ProducerBatch
         { BA.batchTopicPartition = tp
-        , BA.batchRecords = Seq.singleton record
+        , BA.batchRecords = V.singleton record
         , BA.batchSizeBytes = 100
         , BA.batchCreateTime = batchCreateTime
         , BA.batchBaseTimestamp = batchCreateTime
         , BA.batchState = BA.Ready
         , BA.batchCompression = Compression.NoCompression
         , BA.batchCompressionLevel = Compression.defaultLevel Compression.NoCompression
-        , BA.batchCallbacks = Seq.empty
+        , BA.batchCallbacks = V.empty
         , BA.batchAttempts = 0
         , BA.batchProducerId = RB.noProducerId
         , BA.batchProducerEpoch = RB.noProducerEpoch

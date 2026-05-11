@@ -12,7 +12,7 @@ Kafka response for API key 79.
 
 
 
-Valid versions: 1-2
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -169,12 +169,6 @@ data ShareAcknowledgeResponse = ShareAcknowledgeResponse
   shareAcknowledgeResponseErrorMessage :: !(KafkaString)
 ,
 
-  -- | The time in milliseconds for which the acquired records are locked.
-
-  -- Versions: 2+
-  shareAcknowledgeResponseAcquisitionLockTimeoutMs :: !(Int32)
-,
-
   -- | The response topics.
 
   -- Versions: 0+
@@ -191,13 +185,13 @@ data ShareAcknowledgeResponse = ShareAcknowledgeResponse
 
 -- | Maximum supported version for ShareAcknowledgeResponse.
 maxShareAcknowledgeResponseVersion :: Int16
-maxShareAcknowledgeResponseVersion = 2
+maxShareAcknowledgeResponseVersion = 0
 
 -- | KafkaMessage instance for ShareAcknowledgeResponse.
 instance KafkaMessage ShareAcknowledgeResponse where
   messageApiKey = 79
-  messageMinVersion = 1
-  messageMaxVersion = 2
+  messageMinVersion = 0
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a LeaderIdAndEpoch.
@@ -335,7 +329,6 @@ wireMaxSizeShareAcknowledgeResponse _version msg =
   + 4
   + 2
   + WP.dualStringMaxSize (shareAcknowledgeResponseErrorMessage msg)
-  + 4
   + (5 + (case P.unKafkaArray (shareAcknowledgeResponseResponses msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeShareAcknowledgeTopicResponse _version x ) v); P.Null -> 0 }))
   + (5 + (case P.unKafkaArray (shareAcknowledgeResponseNodeEndpoints msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeNodeEndpoint _version x ) v); P.Null -> 0 }))
   + 1
@@ -343,7 +336,7 @@ wireMaxSizeShareAcknowledgeResponse _version msg =
 -- | Direct-poke encoder for ShareAcknowledgeResponse.
 wirePokeShareAcknowledgeResponse :: Int -> Ptr Word8 -> ShareAcknowledgeResponse -> IO (Ptr Word8)
 wirePokeShareAcknowledgeResponse version basePtr msg
-  | version == 1 = do
+  | version == 0 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (shareAcknowledgeResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (shareAcknowledgeResponseErrorCode msg)
@@ -351,43 +344,25 @@ wirePokeShareAcknowledgeResponse version basePtr msg
     p4 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeShareAcknowledgeTopicResponse version p x) p3 (shareAcknowledgeResponseResponses msg)
     p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeNodeEndpoint version p x) p4 (shareAcknowledgeResponseNodeEndpoints msg)
     WP.pokeEmptyTaggedFields p5
-  | version == 2 = do
-    p0 <- pure basePtr
-    p1 <- W.pokeInt32BE p0 (shareAcknowledgeResponseThrottleTimeMs msg)
-    p2 <- W.pokeInt16BE p1 (shareAcknowledgeResponseErrorCode msg)
-    p3 <- (if version >= 0 then WP.pokeCompactString p2 (P.toCompactString (shareAcknowledgeResponseErrorMessage msg)) else WP.pokeKafkaString p2 (shareAcknowledgeResponseErrorMessage msg))
-    p4 <- (if version >= 2 then W.pokeInt32BE p3 (shareAcknowledgeResponseAcquisitionLockTimeoutMs msg) else pure p3)
-    p5 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeShareAcknowledgeTopicResponse version p x) p4 (shareAcknowledgeResponseResponses msg)
-    p6 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeNodeEndpoint version p x) p5 (shareAcknowledgeResponseNodeEndpoints msg)
-    WP.pokeEmptyTaggedFields p6
   | otherwise = error $ "wirePoke ShareAcknowledgeResponse : unsupported version: " ++ show version
 
 -- | Direct-poke decoder for ShareAcknowledgeResponse.
 wirePeekShareAcknowledgeResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ShareAcknowledgeResponse, Ptr Word8)
 wirePeekShareAcknowledgeResponse version _fp _basePtr p0 endPtr
-  | version == 1 = do
+  | version == 0 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
     (f3_responses, p4) <- WP.peekVersionedArray version 0 (\p e -> wirePeekShareAcknowledgeTopicResponse version _fp _basePtr p e) p3 endPtr
     (f4_nodeendpoints, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekNodeEndpoint version _fp _basePtr p e) p4 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
-    pure (ShareAcknowledgeResponse { shareAcknowledgeResponseThrottleTimeMs = f0_throttletimems, shareAcknowledgeResponseErrorCode = f1_errorcode, shareAcknowledgeResponseErrorMessage = f2_errormessage, shareAcknowledgeResponseAcquisitionLockTimeoutMs = 0, shareAcknowledgeResponseResponses = f3_responses, shareAcknowledgeResponseNodeEndpoints = f4_nodeendpoints }, pTagsEnd)
-  | version == 2 = do
-    (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
-    (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
-    (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
-    (f3_acquisitionlocktimeoutms, p4) <- (if version >= 2 then W.peekInt32BE p3 endPtr else pure (0, p3))
-    (f4_responses, p5) <- WP.peekVersionedArray version 0 (\p e -> wirePeekShareAcknowledgeTopicResponse version _fp _basePtr p e) p4 endPtr
-    (f5_nodeendpoints, p6) <- WP.peekVersionedArray version 0 (\p e -> wirePeekNodeEndpoint version _fp _basePtr p e) p5 endPtr
-    pTagsEnd <- WP.peekAndSkipTaggedFields p6 endPtr
-    pure (ShareAcknowledgeResponse { shareAcknowledgeResponseThrottleTimeMs = f0_throttletimems, shareAcknowledgeResponseErrorCode = f1_errorcode, shareAcknowledgeResponseErrorMessage = f2_errormessage, shareAcknowledgeResponseAcquisitionLockTimeoutMs = f3_acquisitionlocktimeoutms, shareAcknowledgeResponseResponses = f4_responses, shareAcknowledgeResponseNodeEndpoints = f5_nodeendpoints }, pTagsEnd)
+    pure (ShareAcknowledgeResponse { shareAcknowledgeResponseThrottleTimeMs = f0_throttletimems, shareAcknowledgeResponseErrorCode = f1_errorcode, shareAcknowledgeResponseErrorMessage = f2_errormessage, shareAcknowledgeResponseResponses = f3_responses, shareAcknowledgeResponseNodeEndpoints = f4_nodeendpoints }, pTagsEnd)
   | otherwise = error $ "wirePeek ShareAcknowledgeResponse : unsupported version: " ++ show version
 
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ShareAcknowledgeResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeShareAcknowledgeResponse (fromIntegral v) msg

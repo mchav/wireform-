@@ -139,7 +139,7 @@ stamped_records_carry_stamp_into_new_batch = testCase
         , BA.stampIsTransactional = True
         }
       rec_ = RB.Record 0 0 Nothing "value" []
-  ok <- BA.appendRecordStamped acc tp rec_ (\_ -> pure ()) stamp
+  ok <- BA.appendRecordStamped acc tp rec_ BA.NoRecordCallback stamp
   ok @?= True
   BA.closeBatchAccumulator acc
   batches <- BA.drainReadyBatches acc
@@ -149,7 +149,7 @@ stamped_records_carry_stamp_into_new_batch = testCase
       BA.batchProducerEpoch   b @?= 3
       BA.batchBaseSequence    b @?= 17
       BA.batchIsTransactional b @?= True
-      length (toList (BA.batchRecords b)) @?= 1
+      V.length (BA.batchRecords b) @?= 1
     _ -> error $ "expected exactly one ready batch, got " <> show (length batches)
 
 stamped_records_share_existing_batch_stamp :: TestTree
@@ -163,9 +163,9 @@ stamped_records_share_existing_batch_stamp = testCase
       stampB = BA.BatchStamp 999 3 18 True  -- next per-producer seq
       stampC = BA.BatchStamp 999 3 19 True
       rec_ = RB.Record 0 0 Nothing "v" []
-  _ <- BA.appendRecordStamped acc tp rec_ (\_ -> pure ()) stampA
-  _ <- BA.appendRecordStamped acc tp rec_ (\_ -> pure ()) stampB
-  _ <- BA.appendRecordStamped acc tp rec_ (\_ -> pure ()) stampC
+  _ <- BA.appendRecordStamped acc tp rec_ BA.NoRecordCallback stampA
+  _ <- BA.appendRecordStamped acc tp rec_ BA.NoRecordCallback stampB
+  _ <- BA.appendRecordStamped acc tp rec_ BA.NoRecordCallback stampC
   BA.closeBatchAccumulator acc
   batches <- BA.drainReadyBatches acc
   case batches of
@@ -173,7 +173,7 @@ stamped_records_share_existing_batch_stamp = testCase
       -- All three records ended up in the single filling batch;
       -- the batch's base_sequence is whatever the /first/ stamp
       -- carried.
-      length (toList (BA.batchRecords b)) @?= 3
+      V.length (BA.batchRecords b) @?= 3
       BA.batchBaseSequence b @?= 17
       BA.batchIsTransactional b @?= True
     other -> error $
@@ -196,8 +196,8 @@ distinct_partitions_get_distinct_stamps = testCase
       stamp1 = BA.BatchStamp 999 3  0 True
       stamp2 = BA.BatchStamp 999 3 17 True
       rec_ = RB.Record 0 0 Nothing "v" []
-  _ <- BA.appendRecordStamped acc tp1 rec_ (\_ -> pure ()) stamp1
-  _ <- BA.appendRecordStamped acc tp2 rec_ (\_ -> pure ()) stamp2
+  _ <- BA.appendRecordStamped acc tp1 rec_ BA.NoRecordCallback stamp1
+  _ <- BA.appendRecordStamped acc tp2 rec_ BA.NoRecordCallback stamp2
   BA.closeBatchAccumulator acc
   batches <- BA.drainReadyBatches acc
   -- One batch per partition; both should be transactional with their
@@ -216,7 +216,7 @@ distinct_partitions_get_distinct_stamps = testCase
 mkBatchWith :: Bool -> BA.ProducerBatch
 mkBatchWith isTxn = BA.ProducerBatch
   { BA.batchTopicPartition = BA.TopicPartition "t" 0
-  , BA.batchRecords        = Seq.fromList
+  , BA.batchRecords        = V.fromList
                                [RB.Record 0 0 Nothing "v" []]
   , BA.batchSizeBytes      = 1
   , BA.batchCreateTime     = 0
@@ -225,7 +225,7 @@ mkBatchWith isTxn = BA.ProducerBatch
   , BA.batchCompression    = Compression.NoCompression
   , BA.batchCompressionLevel =
       Compression.defaultLevel Compression.NoCompression
-  , BA.batchCallbacks      = Seq.empty
+  , BA.batchCallbacks      = V.empty
   , BA.batchAttempts       = 0
   , BA.batchProducerId     = if isTxn then 12345 else RB.noProducerId
   , BA.batchProducerEpoch  = if isTxn then 7     else RB.noProducerEpoch
