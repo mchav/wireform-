@@ -29,17 +29,17 @@ With no arguments the executable prints the index.
 | `line-split`   | `Kafka.Streams.Examples.LineSplit`              | `LineSplitDemo`                      | `flatMapValues`                                       |
 | `word-count`   | `Kafka.Streams.Examples.WordCount`              | `WordCountDemo`                      | `flatMapValues` + `groupBy` + `count` + `toStream`    |
 | `page-views`   | `Kafka.Streams.Examples.PageViewRegion`         | `PageViewTypedDemo`                  | KStream-KTable inner join                             |
-| `temperature`  | `Kafka.Streams.Examples.Temperature`            | `TemperatureDemo`                    | tumbling window + `reduce` + KIP-328 `suppress`       |
+| `temperature`  | `Kafka.Streams.Examples.Temperature`            | `TemperatureDemo`                    | tumbling window + `reduce` + `suppress`               |
 | `top-articles` | `Kafka.Streams.Examples.TopArticles`            | `TopArticlesDemo`                    | hopping window + `count`                              |
 | `orders`       | `Kafka.Streams.Examples.OrdersEnrichment`       | microservices/Orders                 | KStream-KTable join with mid-stream profile updates   |
 | `fraud`        | `Kafka.Streams.Examples.FraudDetection`         | session-window guide                 | session windows + filter                              |
-| `fk-join`      | `Kafka.Streams.Examples.InventoryFKJoin`        | KIP-213 demo                         | KTable-KTable foreign-key join (token verification)   |
-| `iq`           | `Kafka.Streams.Examples.InteractiveQueries`     | KIP-67 / KIP-796                     | reading state stores from outside the topology        |
+| `fk-join`      | `Kafka.Streams.Examples.InventoryFKJoin`        | FK-join demo                         | KTable-KTable foreign-key join (token verification)   |
+| `iq`           | `Kafka.Streams.Examples.InteractiveQueries`     | IQ demo                              | reading state stores from outside the topology        |
 | `processor`    | `Kafka.Streams.Examples.ProcessorAPI`           | low-level Processor API guide        | custom `Processor`, `ProcessorContext`, `Punctuator`  |
 | `side-effects` | `Kafka.Streams.Examples.SideEffects`            | Confluent "side effects" docs        | `peek` + `mapValuesM` + `foreach` + Punctuator        |
-| `branching`    | `Kafka.Streams.Examples.Branching`              | KIP-418 `split`                      | predicate-based stream branching                      |
+| `branching`    | `Kafka.Streams.Examples.Branching`              | `split` demo                         | predicate-based stream branching                      |
 | `global`       | `Kafka.Streams.Examples.GlobalTable`            | GlobalKTable docs                    | cluster-replicated lookup table join                  |
-| `cogroup`      | `Kafka.Streams.Examples.Cogroup`                | KIP-150                              | cogroup of streams with distinct value types          |
+| `cogroup`      | `Kafka.Streams.Examples.Cogroup`                | cogroup demo                         | cogroup of streams with distinct value types          |
 
 Each module starts with a docblock that shows the equivalent
 Java/Scala code from upstream Kafka Streams alongside the Haskell

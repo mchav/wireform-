@@ -7,7 +7,7 @@ field has its librdkafka name in a comment in the source as well.
 
 The defaults track librdkafka's where the JVM client agrees with
 them; where they diverge (most notably `session.timeout.ms`, which
-the JVM client widened to 45000 in Kafka 3.0 via KIP-735), we
+the JVM client widened to 45000 in Kafka 3.0), we
 follow the JVM-Kafka 3.x default so application behaviour matches
 what users see in `kafka-console-consumer` / `kafka-console-producer`.
 
@@ -56,7 +56,7 @@ what users see in `kafka-console-consumer` / `kafka-console-producer`.
 | `retry.backoff.max.ms`                       | `producerRetryBackoffMaxMs`                | 1000                 |
 | (multiplier; librdkafka-internal)            | `producerRetryBackoffMultiplier`           | 2.0                  |
 | (jitter; librdkafka-internal)                | `producerRetryBackoffJitter`               | 0.2                  |
-| `delivery.timeout.ms` (KIP-91)               | `producerDeliveryTimeoutMs`                | 120000 (2 min)       |
+| `delivery.timeout.ms`                        | `producerDeliveryTimeoutMs`                | 120000 (2 min)       |
 | `request.timeout.ms`                         | `producerRequestTimeoutMs`                 | 30000                |
 | `max.request.size` / `message.max.bytes`     | `producerMaxRequestSize`                   | 1048576 (1 MiB)      |
 | `queue.buffering.max.messages`               | `producerQueueBufferingMaxMessages`        | 100000               |
@@ -64,7 +64,7 @@ what users see in `kafka-console-consumer` / `kafka-console-producer`.
 | `transaction.timeout.ms`                     | `producerTransactionTimeoutMs`             | 60000                |
 | `enable.gapless.guarantee`                   | `producerEnableGaplessGuarantee`           | False                |
 | `sticky.partitioning.linger.ms`              | `producerStickyPartitioningLingerMs`       | 10                   |
-| `partitioner`                                | `producerPartitioner`                      | `defaultPartitioner` (KIP-480 sticky) |
+| `partitioner`                                | `producerPartitioner`                      | `defaultPartitioner` (sticky)        |
 | `enable.idempotence`                         | `producerIdempotent`                       | False                |
 | `transactional.id`                           | `producerTransactional`                    | Nothing              |
 
@@ -74,16 +74,16 @@ what users see in `kafka-console-consumer` / `kafka-console-producer`.
 |----------------------------------------------|--------------------------------------------|----------------------|
 | `client.id`                                  | `consumerClientId`                         | `"kafka-native-consumer"` |
 | `group.id`                                   | `consumerGroupId`                          | `"default-group"`    |
-| `group.instance.id` (KIP-345)                | `consumerGroupInstanceId`                  | Nothing              |
+| `group.instance.id`                          | `consumerGroupInstanceId`                  | Nothing              |
 | `partition.assignment.strategy`              | `consumerAssignmentStrategy`               | `RangeAssignment`    |
-| `session.timeout.ms`                         | `consumerSessionTimeoutMs`                 | 45000 (KIP-735)      |
+| `session.timeout.ms`                         | `consumerSessionTimeoutMs`                 | 45000                |
 | `heartbeat.interval.ms`                      | `consumerHeartbeatIntervalMs`              | 3000                 |
 | `enable.auto.commit`                         | `consumerAutoCommit`                       | True                 |
 | `auto.commit.interval.ms`                    | `consumerAutoCommitIntervalMs`             | 5000                 |
 | `enable.auto.offset.store`                   | `consumerEnableAutoOffsetStore`            | True                 |
 | `auto.offset.reset`                          | `consumerAutoOffsetReset`                  | `Latest`             |
 | `max.poll.records`                           | `consumerMaxPollRecords`                   | 500                  |
-| `max.poll.interval.ms` (KIP-256)             | `consumerMaxPollIntervalMs`                | 300000 (5 min)       |
+| `max.poll.interval.ms`                       | `consumerMaxPollIntervalMs`                | 300000 (5 min)       |
 | `isolation.level`                            | `consumerIsolationLevel`                   | `ReadUncommitted`    |
 | `enable.partition.eof`                       | `consumerEnablePartitionEof`               | False                |
 | `check.crcs`                                 | `consumerCheckCrcs`                        | True                 |
@@ -93,7 +93,7 @@ what users see in `kafka-console-consumer` / `kafka-console-producer`.
 | `max.partition.fetch.bytes` / `fetch.message.max.bytes` | `consumerFetchMessageMaxBytes` | 1048576              |
 | `fetch.error.backoff.ms`                     | `consumerFetchErrorBackoffMs`              | 500                  |
 | `queued.max.messages.kbytes`                 | `consumerQueuedMaxMessagesKbytes`          | 65536                |
-| `client.rack` (KIP-392)                      | `consumerRackId`                           | Nothing              |
+| `client.rack`                                | `consumerRackId`                           | Nothing              |
 | (connection-level knobs)                     | `consumerConnectionConfig`                 | `defaultConnectionConfig` |
 
 ## Retry / backoff curve

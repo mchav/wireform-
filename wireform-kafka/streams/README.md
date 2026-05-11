@@ -24,21 +24,21 @@ whether the library fits your use case before writing code.
 | Area                          | Status                                                                                                     |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | Stateless DSL                 | **Full parity.** `filter` / `map` / `flatMap` / `selectKey` / `peek` / `branch` (`Branched.withFunction` / `withConsumer`) / `merge` / `to` / `print`. |
-| Stateful DSL                  | **Full parity.** `groupBy` / `count` / `reduce` / `aggregate` / `cogroup` (incl. `KGroupedTable` with subtractor — KIP-150). |
-| Windowing                     | **Full parity.** Tumbling / hopping / sliding (KIP-450) / session windows; `suppress` (KIP-328 — incl. `shutDownWhenFull` / `emitEarlyWhenFull`); `EmitStrategy` (KIP-825). |
-| Joins                         | **Full parity.** Stream-stream (windowed) with `StreamJoined` (KIP-479); stream-table; table-table; foreign-key (KIP-213) with `TableJoined` (KIP-545); GlobalKTable; modern `JoinWindows.ofTimeDifferenceWithNoGrace` / `ofTimeDifferenceAndGrace` (KIP-633). |
-| Processor API                 | **Full parity.** `Processor`, `FixedKeyProcessor` (KIP-820), `ProcessorSupplier` with declared stores, `ProcessorContext` (incl. `appendHeader` / `requestCommit`), `Punctuator` (wall-clock + stream-time). |
-| State stores                  | **Full parity.** KV (in-mem + RocksDB + LRU — `Stores.lruMap`), Window (incl. `TimestampedWindowStore`), Session, Timestamped (KIP-258), Versioned (KIP-889/960; `vkvDelete` included). |
+| Stateful DSL                  | **Full parity.** `groupBy` / `count` / `reduce` / `aggregate` / `cogroup` (incl. `KGroupedTable` with subtractor). |
+| Windowing                     | **Full parity.** Tumbling / hopping / sliding / session windows; `suppress` (incl. `shutDownWhenFull` / `emitEarlyWhenFull`); `EmitStrategy`. |
+| Joins                         | **Full parity.** Stream-stream (windowed) with `StreamJoined`; stream-table; table-table; foreign-key with `TableJoined`; GlobalKTable; modern `JoinWindows.ofTimeDifferenceWithNoGrace` / `ofTimeDifferenceAndGrace`. |
+| Processor API                 | **Full parity.** `Processor`, `FixedKeyProcessor`, `ProcessorSupplier` with declared stores, `ProcessorContext` (incl. `appendHeader` / `requestCommit`), `Punctuator` (wall-clock + stream-time). |
+| State stores                  | **Full parity.** KV (in-mem + RocksDB + LRU — `Stores.lruMap`), Window (incl. `TimestampedWindowStore`), Session, Timestamped, Versioned (incl. `vkvDelete`). |
 | Side effects                  | **Full parity, plus typed IO variants.** Blocking `foreachStream` + non-blocking `foreachStreamAsync`. See the [SideEffects](#side-effects) section. |
-| Interactive Queries           | **Full parity.** KIP-67 + KIP-796 typed `Query` API; KIP-805 `WindowKeyQuery` / `WindowRangeQuery`; KIP-889/960 `VersionedKeyQuery` / `MultiVersionedKeyQuery`; KIP-535 `StreamsMetadata` / `KeyQueryMetadata` + `StoreQueryParameters`. |
-| Exception handlers            | **Full parity.** KIP-280 production, KIP-671 uncaught (REPLACE_THREAD / SHUTDOWN_CLIENT / SHUTDOWN_APPLICATION), KIP-1033 processing. |
-| Dynamic runtime               | **Full parity.** KIP-663 `addStreamThread` / `removeStreamThread`; KIP-812 `CloseOptions`; KIP-988 standby + global-restore listeners; `cleanUp()`; `metadataForLocalThreads` / `metricsAndState`. |
-| EOS-V2                        | **Wire-level path is in place.** Bound transactional producer + `EOSCoordinator` + KIP-892 buffer.          |
+| Interactive Queries           | **Full parity.** Typed `Query` API; `WindowKeyQuery` / `WindowRangeQuery`; `VersionedKeyQuery` / `MultiVersionedKeyQuery`; `StreamsMetadata` / `KeyQueryMetadata` + `StoreQueryParameters` for cross-instance routing. |
+| Exception handlers            | **Full parity.** Production / processing / uncaught (REPLACE_THREAD / SHUTDOWN_CLIENT / SHUTDOWN_APPLICATION) handlers. |
+| Dynamic runtime               | **Full parity.** `addStreamThread` / `removeStreamThread`; `CloseOptions`; standby + global-restore listeners; `cleanUp()`; `metadataForLocalThreads` / `metricsAndState`. |
+| Exactly-once                  | **Wire-level path is in place.** Bound transactional producer + `EOSCoordinator` + transactional-store buffer that drains atomically with the producer commit. |
 | Schema Registry serdes        | **In place.** Avro / JSON-Schema / Protobuf payload serdes + Confluent envelope + transport-agnostic HTTP.  |
-| Standby tasks                 | **Live.** `Kafka.Streams.Runtime.StandbyTask` + `StandbyDriver`: the second-consumer changelog poll-loop dispatches into per-task replay; lag flows into the KIP-441 warmup map. |
-| KIP-441 probing rebalance     | **Live.** The event loop calls `Consumer.requestRejoin` on the configured cadence when warmups are ready.   |
+| Standby tasks                 | **Live.** `Kafka.Streams.Runtime.StandbyTask` + `StandbyDriver`: the second-consumer changelog poll-loop dispatches into per-task replay; lag flows into the warmup-readiness map. |
+| Probing rebalance             | **Live.** The event loop calls `Consumer.requestRejoin` on the configured cadence when warmups are ready.   |
 | Multi-thread runtime          | **Yes.** `numStreamThreads > 1` spins up an N-worker pool; one consumer dispatches by `hash (topic, partition) mod N` so per-partition state stays coherent. |
-| Multi-instance rebalance      | **Yes.** `setRebalanceListener` + `ownedPartitions` + `standbyTasks` on `KafkaStreams` track partition transitions via the driver's `RebalanceEvent` channel. The native driver wires those events from `Kafka.Client.Consumer.setRebalanceListener`, which fires on every `subscribe` / re-subscribe / fenced-heartbeat (UNKNOWN_MEMBER_ID, FENCED_INSTANCE_ID = lost; everything else graceful = revoked). KIP-869 standby-grace state machine runs end-to-end. |
+| Multi-instance rebalance      | **Yes.** `setRebalanceListener` + `ownedPartitions` + `standbyTasks` on `KafkaStreams` track partition transitions via the driver's `RebalanceEvent` channel. The native driver wires those events from `Kafka.Client.Consumer.setRebalanceListener`, which fires on every `subscribe` / re-subscribe / fenced-heartbeat (UNKNOWN_MEMBER_ID, FENCED_INSTANCE_ID = lost; everything else graceful = revoked). The standby-grace state machine runs end-to-end. |
 | Live-broker integration tests | `.github/workflows/wireform-kafka-integration.yml` spins up an `apache/kafka` KRaft broker (3.7 + 4.0) via docker compose and runs the live suite on every PR. |
 | GHC                           | **9.6.4 / 9.8.4 / 9.10.1 / 9.12.1** in CI.                                                                  |
 
@@ -58,12 +58,12 @@ list of what isn't there yet.
 | `StreamsBuilder.table(topic, Materialized)` | `tableFromTopic`                                                     |
 | `StreamsBuilder.globalTable(topic, Materialized)` | `globalTable`                                                  |
 | `KStream.to(topic, Produced)`               | `toTopic`                                                            |
-| `KStream.to(TopicNameExtractor, Produced)`  | `toExtracted` + `TopicNameExtractor` (KIP-303)                       |
+| `KStream.to(TopicNameExtractor, Produced)`  | `toExtracted` + `TopicNameExtractor`                       |
 | `KStream.through(topic)`                    | `throughTopic`                                                       |
 | `KStream.repartition(...)`                  | `repartition`                                                        |
-| `KStream.toTable(...)`                      | `toTable` (KIP-523)                                                  |
+| `KStream.toTable(...)`                      | `toTable`                                                  |
 | `KTable.toStream(...)`                      | `toKStreamFromKTable`                                                |
-| `KTable.suppress(...)` (KIP-328)            | `suppressKStream` / `suppressWindowed` / `suppressUntilTimeLimit`    |
+| `KTable.suppress(...)`            | `suppressKStream` / `suppressWindowed` / `suppressUntilTimeLimit`    |
 
 ### Stateless transforms
 
@@ -77,7 +77,7 @@ list of what isn't there yet.
 | `KStream.foreach`            | `foreachStream`                                    |
 | `KStream.print(Printed)`     | `printStream` / `printToHandle`                    |
 | `KStream.merge`              | `mergeStreams` / `mergeStreamsN`                   |
-| `KStream.split` (KIP-418)    | `splitStream` + `Branched` / `branchedFrom`         |
+| `KStream.split`    | `splitStream` + `Branched` / `branchedFrom`         |
 | `KStream.transformValues`    | `transformValuesStream` / `processValuesStream`    |
 | `KStream.process`            | `processStream` (returns `IO ()`; for typed downstream use `processValuesStream`) |
 | `KStream.values`             | `valuesStream`                                     |
@@ -88,9 +88,9 @@ list of what isn't there yet.
 | --------------------------------------- | ---------------------------------------- |
 | `KTable.filter` / `filterNot`           | `filterTable`                            |
 | `KTable.mapValues`                      | `mapValuesTable`                         |
-| `KTable.suppress(Suppressed)` (KIP-328) | `suppressKStream` etc.                   |
+| `KTable.suppress(Suppressed)` | `suppressKStream` etc.                   |
 | `KTable.join` / `leftJoin` / `outerJoin` | `joinKTableKTable` / `leftJoinKTableKTable` / `outerJoinKTableKTable` |
-| `KTable.join(KTable, fkExtractor, joiner, Materialized)` (KIP-213) | `foreignKeyJoinKTable` / `leftForeignKeyJoinKTable`. Subscription-token verification baked in. |
+| `KTable.join(KTable, fkExtractor, joiner, Materialized)` | `foreignKeyJoinKTable` / `leftForeignKeyJoinKTable`. Subscription-token verification baked in. |
 | `KTable.groupBy(KeyValueMapper)`        | `groupByKTable`                          |
 | `KTable.toStream`                       | `toKStreamFromKTable`                    |
 
@@ -103,7 +103,7 @@ list of what isn't there yet.
 | `KGroupedStream.windowedBy(SessionWindows)` | `windowedBySession`                    |
 | `TimeWindowedKStream.count` / `reduce` / `aggregate` | `countWindowed` / `reduceWindowed` / `aggregateWindowed` |
 | `SessionWindowedKStream.count` / `aggregate` | `countSessionWindowed` / `aggregateSessionWindowed` |
-| `KGroupedStream.cogroup(Aggregator)` (KIP-150) | `cogroup` / `addCogrouped` / `aggregateCogrouped` |
+| `KGroupedStream.cogroup(Aggregator)` | `cogroup` / `addCogrouped` / `aggregateCogrouped` |
 
 ### Joins
 
@@ -113,7 +113,7 @@ list of what isn't there yet.
 | `KStream.join(KTable, ValueJoiner, Joined)`               | `joinKStreamKTable` (+ `leftJoinKStreamKTable`)                          |
 | `KTable.join(KTable, ValueJoiner, Materialized)`          | `joinKTableKTable` etc.                                                  |
 | `KStream.join(GlobalKTable, KeyValueMapper, ValueJoiner)` | `joinKStreamGlobalKTable` (+ `leftJoinKStreamGlobalKTable`)              |
-| `KTable.join(KTable, fkExtractor, joiner, Materialized)`  | `foreignKeyJoinKTable` (KIP-213, with token verification)                |
+| `KTable.join(KTable, fkExtractor, joiner, Materialized)`  | `foreignKeyJoinKTable` (with token verification)                |
 
 ### Windowing
 
@@ -121,27 +121,28 @@ list of what isn't there yet.
 | ---------------------------------- | ---------------------------------- |
 | `TimeWindows.of(Duration)`         | `tumblingWindows`                  |
 | `TimeWindows.of(...).advanceBy(...)` | `hoppingWindows`                 |
-| `SlidingWindows.ofTimeDifferenceWithNoGrace(...)` (KIP-450) | `slidingWindows` |
+| `SlidingWindows.ofTimeDifferenceWithNoGrace(...)` | `slidingWindows` |
 | `SessionWindows.with(...)`         | `sessionWindows`                   |
 | `Windows.grace(...)`               | `withGracePeriod` / `withSessionGracePeriod` |
-| `Suppressed.untilWindowCloses(BufferConfig)` (KIP-328) | `suppressWindowed` / `suppressWindowedHandle` |
+| `Suppressed.untilWindowCloses(BufferConfig)` | `suppressWindowed` / `suppressWindowedHandle` |
 | `Suppressed.untilTimeLimit(...)`   | `suppressUntilTimeLimit`           |
 
 ### State stores
 
-All four shapes the JVM ships, plus the modern KIP additions:
+All four shapes the JVM ships, plus the modern timestamped /
+versioned / transactional variants:
 
 | JVM                                        | Haskell                                |
 | ------------------------------------------ | -------------------------------------- |
 | `KeyValueStore` (in-memory + RocksDB)      | `Kafka.Streams.State.KeyValue.{InMemory, RocksDB, Persistent}` |
 | `WindowStore`                              | `Kafka.Streams.State.Window.InMemory`  |
 | `SessionStore`                             | `Kafka.Streams.State.Session.InMemory` |
-| `TimestampedKeyValueStore` (KIP-258)       | `Kafka.Streams.State.KeyValue.Timestamped` |
-| `VersionedKeyValueStore` (KIP-889 / 960)   | `Kafka.Streams.State.KeyValue.Versioned` |
+| `TimestampedKeyValueStore`       | `Kafka.Streams.State.KeyValue.Timestamped` |
+| `VersionedKeyValueStore`   | `Kafka.Streams.State.KeyValue.Versioned` |
 | `CachingKeyValueStore`                     | `Kafka.Streams.State.KeyValue.Caching` |
-| Transactional store (KIP-892, EOS-V3)      | `Kafka.Streams.State.Transactional`    |
-| `DslStoreSuppliers` (KIP-1247)             | `Kafka.Streams.DSL.DslStoreSuppliers`  |
-| `addReadOnlyStateStore` (KIP-813)          | `addReadOnlyStateStore`                |
+| Transactional store (EOS-V3)      | `Kafka.Streams.State.Transactional`    |
+| `DslStoreSuppliers`             | `Kafka.Streams.DSL.DslStoreSuppliers`  |
+| `addReadOnlyStateStore`          | `addReadOnlyStateStore`                |
 
 The RocksDB backend is gated behind the `rocksdb` cabal flag
 and uses `rocksdb-haskell-kadena`.
@@ -167,9 +168,9 @@ Everything that's reachable via `org.apache.kafka.streams.processor.api`:
 - `StreamsBuilder` mutable builder mirroring Java's fluent API.
 - `Topology` data type with full description (`TopologyDescription`,
   pretty-printer matches the JVM output shape).
-- KIP-295 optimisation toggles (`OptimizationConfig`,
+- optimisation toggles (`OptimizationConfig`,
   `optimizeTopology`).
-- KIP-307 stable processor names.
+- stable processor names.
 - `StreamsConfig` covering `application.id`, `bootstrap.servers`,
   `num.stream.threads`, `commit.interval.ms`, `cache.max.bytes.buffering`,
   `processing.guarantee`, `default.deserialization.exception.handler`,
@@ -185,9 +186,8 @@ Everything that's reachable via `org.apache.kafka.streams.processor.api`:
   `KafkaStreams` lifecycle: `newKafkaStreams`, `startKafkaStreams`,
   `closeKafkaStreams`, `streamsStatus`, `setStateListener`,
   `awaitState`.
-- `pauseKafkaStreams` / `resumeKafkaStreams` / `isPausedKafkaStreams`
-  (KIP-834).
-- `LagListener` / `LagInfo` / `publishLag` (KIP-647).
+- `pauseKafkaStreams` / `resumeKafkaStreams` / `isPausedKafkaStreams`.
+- `LagListener` / `LagInfo` / `publishLag`.
 - `applyEOSCoordinator` to plug in a transactional commit
   driver (`newRealEOSCoordinator` wraps a real
   `Kafka.Client.Transaction`).
@@ -201,9 +201,10 @@ Everything that's reachable via `org.apache.kafka.streams.processor.api`:
 
 ### Interactive Queries
 
-- KIP-67: `queryEngineStore`, `ReadOnlyKeyValueStore`,
-  `roKvGet`, `roKvAll`, `roKvRange`.
-- KIP-796: typed `Query` API (key-range, count, all).
+- `queryEngineStore`, `ReadOnlyKeyValueStore`,
+  `roKvGet`, `roKvAll`, `roKvRange` — direct read access to
+  materialised state stores from outside the stream thread.
+- Typed `Query` API for key-range, count, all.
 - Works against every store backend (in-memory + RocksDB).
 
 ### Schema Registry serdes
@@ -234,8 +235,7 @@ and the `TimestampExtractor` types `recordTimestampExtractor`,
 
 `Kafka.Streams.Metrics` is the in-process registry — counters,
 gauges, duration stats. Plus the librdkafka-shaped
-`Kafka.Telemetry.StatsJson` and the OTel push state machine
-(KIP-714).
+`Kafka.Telemetry.StatsJson` and the OTel push state machine.
 
 ---
 
@@ -357,7 +357,7 @@ just haven't landed yet.
   Single-process multi-thread works (`numStreamThreads > 1`),
   the cross-instance rebalance code path is wired
   (`setRebalanceListener` + `ownedPartitions` + `standbyTasks`
-  + the KIP-869 grace state-machine + KIP-535 JoinGroup
+  + the standby-grace state-machine + JoinGroup subscription-
   metadata exchange). What's still pending is a multi-process
   CI test that joins two instances to the same consumer group
   and observes assignment migration. The single-instance Docker
@@ -392,7 +392,8 @@ shipped operator end-to-end (375 cases in
   driver, and you don't strictly need a multi-thread live
   runtime today.
 - You want typed state stores (in-memory or RocksDB) with the
-  full KIP-258 / KIP-889 / KIP-960 surface.
+  full timestamped + versioned-store surface (including
+  point-in-time and range-by-time queries).
 - You want Confluent Schema Registry interop without forcing
   an `http-client` dep on the world.
 

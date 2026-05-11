@@ -66,7 +66,7 @@ The `Kafka.Client.Producer.ProducerConfig` record mirrors
 [librdkafka's CONFIGURATION.md](./CONFIG_PARITY.md) one field per
 knob; defaults follow Kafka 3.x JVM where the two diverge.
 
-## 3. Transactions (KIP-98 / KIP-447)
+## 3. Transactions
 
 The transaction lifecycle is split between
 `Kafka.Client.Transaction` (state machine + coordinator wire)
@@ -138,9 +138,9 @@ toTable`, plus `reduce / aggregate / count` on
 foreign-key, windowed) all live under
 `Kafka.Streams.DSL.*`. See
 `Kafka.Streams.Topology.Optimization` for the
-KIP-295 toggles.
+topology-optimisation toggles.
 
-### 4.1 KTable-driven aggregation (`KGroupedTable`, KIP-150)
+### 4.1 KTable-driven aggregation (`KGroupedTable`)
 
 `KStream.groupByKey + count / reduce` works on append-only
 streams. For a /changelog/ — where every input record updates
@@ -174,7 +174,7 @@ When `o1` migrates from customer `A` to customer `B` the
 runtime emits `A=-1, B=+1` — both records — so downstream
 sinks stay consistent.
 
-### 4.2 Stateful value-only transforms (`FixedKeyProcessor`, KIP-820)
+### 4.2 Stateful value-only transforms (`FixedKeyProcessor`)
 
 When you want the full `ProcessorContext` (state stores,
 punctuators, header access) but the type system to /prevent/
@@ -224,7 +224,7 @@ KS.foreachStreamAsync
 Each callback forks via `Control.Concurrent.Async` so a slow
 sink can't back-pressure the worker.
 
-## 5. State stores and EOS-V3 (KIP-892)
+## 5. State stores and exactly-once transactional writes
 
 `Kafka.Streams.State.Transactional` wraps any
 `KeyValueStore` so that puts and deletes are buffered until the
@@ -285,15 +285,15 @@ pod owns the key.
 ```haskell
 import Kafka.Streams.Runtime
 
--- Programmatic rebalance triggers (KIP-441 probing rebalance):
+-- Probing rebalance: tell the runtime a standby is caught up:
 reportWarmupLag    ks tid 0   -- this standby is caught up
 maybeIssueProbe <- streamThreadCount ks
 
--- Dynamic thread management (KIP-663):
+-- Dynamic thread management:
 n  <- addStreamThread    ks   -- grow the pool
 n' <- removeStreamThread ks   -- and shrink it
 
--- Graceful close with leaveGroup=False (KIP-812):
+-- Graceful close with leaveGroup=False:
 closeKafkaStreamsWith ks
   defaultCloseOptions { leaveGroup = False }
 ```
@@ -303,7 +303,7 @@ broker waits out the session timeout — useful for fast rolling
 restarts with static membership where you don't want the
 churn.
 
-### Standby tasks (KIP-441)
+### Standby tasks
 
 `Kafka.Streams.Runtime.StandbyTask` ships the data model;
 `Kafka.Streams.Runtime.StandbyDriver` ships the changelog
@@ -328,11 +328,11 @@ setupStandby ks consumer storeLookup = do
   SD.startStandbyDriver drv
 ```
 
-`reportWarmupLag` feeds the KIP-441 probing-rebalance loop —
-when a standby's lag reaches `acceptableRecoveryLag` the
-runtime fires a `JoinGroup` so the leader can promote it.
+`reportWarmupLag` feeds the probing-rebalance loop — when a
+standby's lag reaches `acceptableRecoveryLag` the runtime
+fires a `JoinGroup` so the leader can promote it.
 
-### Cross-instance IQ (KIP-535)
+### Cross-instance interactive queries
 
 Each instance advertises its `application.server` + owned
 stores in the JoinGroup subscription-userdata. The streams
@@ -443,7 +443,7 @@ mirror of the same counters.
     `wireform-kafka:wireform-kafka-streams-bench` measures
     the runtime hot paths in-process; numbers + reproduction
     recipe live in `streams/bench/results/README.md`.
-  * **Exception handlers**: every KIP-280 / 671 / 1033
-    handler is wired into the runtime; see the spec in
-    `streams/test/Streams/ExceptionHandlerSpec.hs` for the
+  * **Exception handlers**: every production / processing /
+    uncaught handler is wired into the runtime; see the spec
+    in `streams/test/Streams/ExceptionHandlerSpec.hs` for the
     public API + contract.

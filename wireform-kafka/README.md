@@ -7,7 +7,7 @@ coverage and operator-level parity with the Java reference.
 
 - **Client** (`Kafka.Client.*`) — producer, consumer, admin,
   pipelined I/O, SASL (PLAIN / SCRAM-SHA-256 / SCRAM-SHA-512 /
-  OAUTHBEARER), TLS, transactions (KIP-98 / KIP-447 / EOS-V2).
+  OAUTHBEARER), TLS, transactions with exactly-once semantics.
 - **Streams DSL** (`Kafka.Streams.*`) — `KStream` / `KTable` /
   `KGroupedStream` / `KGroupedTable` (with subtractor) /
   `GlobalKTable` / windowed aggregations / sessions / joins /
@@ -125,9 +125,9 @@ connectionConfig = defaultConnectionConfig
 
 ## Security
 
-- SASL/PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER
-  (KIP-368 re-authentication is supported via
-  `Kafka.Client.Pipeline.attachReauthDriver`).
+- SASL/PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER. Mid-session
+  re-authentication is supported via
+  `Kafka.Client.Pipeline.attachReauthDriver`.
 - TLS 1.2 + 1.3 via `tls-1.x`.
 
 ## Observability

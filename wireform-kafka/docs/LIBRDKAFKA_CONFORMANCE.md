@@ -54,7 +54,7 @@ Total: 168.
 | `0086-purge_local.c`         | `Conformance.T0086.PurgeLocal`                                 | BatchAccumulator: enqueue / close / drain semantics. |
 | `0095-all_brokers_down.c`    | `Conformance.T0095.AllBrokersDown`                             | Bounded-time failure when every broker is unreachable. |
 | `0103-transactions_local.c`  | `Conformance.T0103.TransactionsLocal`                          | Transaction state machine: legal/illegal transitions without a coordinator. |
-| `0142-reauthentication.c`    | `Conformance.T0142.Reauthentication`                           | Per-mechanism re-auth payload determinism (KIP-368 session-re-auth scheduling is a TODO; documented). |
+| `0142-reauthentication.c`    | `Conformance.T0142.Reauthentication`                           | Per-mechanism re-auth payload determinism (session-re-auth scheduling is a TODO; documented). |
 | `0144-idempotence_mock.c`    | `Conformance.T0144.IdempotenceMock` (partial)                  | Per-partition sequence-number bookkeeping; mock-cluster half is gated on the missing infra. |
 
 Run with:
@@ -142,7 +142,7 @@ Examples:
 | `0075-retry.c` | Real broker; injected mid-flight failure (needs trivup hooks). |
 | `0083-cb_event.c` | Real broker; event callback wiring (NOT_APPLICABLE_API for us). |
 | `0099-commit_metadata.c` | Real broker; consumer offsets topic. |
-| `0104-fetch_from_follower.c` | Real broker; rack-aware-fetch enabled (KIP-392). |
+| `0104-fetch_from_follower.c` | Real broker; rack-aware-fetch enabled.       |
 | `0113-cooperative_rebalance.c` | Real broker; cooperative-sticky support. |
 | `0119-consumer_auth.c` | Real broker; ACLs configured. |
 | `0123-connections_max_idle.c` | Real broker; `connections.max.idle.ms` short. |
