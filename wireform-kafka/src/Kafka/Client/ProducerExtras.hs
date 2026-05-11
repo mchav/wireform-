@@ -5,39 +5,39 @@
 
 {-|
 Module      : Kafka.Client.ProducerExtras
-Description : KIP-185 / 588 / 691 / 732 / 849 / 1044 / 1166 / 1199 — producer ergonomics
+Description : Producer ergonomics: transactional-id helpers,
+              txn-error classification, bounded txn deadlines,
+              enhanced ack callbacks
 
-A grab-bag of small producer-side surfaces that round out the
-core 'Kafka.Client.Producer'. Each entry is either a typed knob
-or a pure decision helper.
+Pure helpers and small typed knobs that round out the core
+'Kafka.Client.Producer'. Each entry is either a configuration
+type or a decision helper that user code can consume without
+touching the producer's mutable state:
 
-  * KIP-185: 'transactionalIdOptional' helper for upgrades
-    where the @transactional.id@ is generated lazily.
-  * KIP-588: 'recoverFromTxnError' classifier — distinguishes
-    "abort the txn but the producer can keep going" from
-    "kill the producer".
-  * KIP-691 / KIP-1199: enhanced configurable callback record
-    surfaces.
-  * KIP-732 / KIP-849: bounded
-    @commitTransaction(Duration)@ /
-    @abortTransaction(Duration)@ surfaces.
-  * KIP-1044: producer recovery from transaction abortable
-    errors (the broker now distinguishes abortable vs. fatal
-    txn errors via error code 104).
-  * KIP-1166: consistent error callback shape — every
-    onAcknowledgement now sees the same 'Either ProducerError
-    RecordMetadata' regardless of the failure point.
+  * 'transactionalIdOptional' — pick a @transactional.id@ from
+    an optional override + an application prefix + a per-process
+    suffix. Useful for rolling deployments where the
+    transactional id is generated lazily.
+  * 'TxnErrorRecovery' / 'classifyTxnError' — classify a
+    broker error code into abort-the-txn, retry, or fatal. Lets
+    callers do recovery without a hand-written switch.
+  * 'TxnDeadline' / 'effectiveTxnDeadlineMs' — bounded
+    commit/abort deadlines so a stuck coordinator can't pin the
+    producer open during shutdown.
+  * 'EnhancedCallback' — consistent ack-callback record
+    (success + failure paths), with a dispatcher and a no-op
+    constructor.
 -}
 module Kafka.Client.ProducerExtras
-  ( -- * KIP-185
+  ( -- * Optional transactional id
     transactionalIdOptional
-    -- * KIP-588 / 1044
+    -- * Transactional-error classification
   , TxnErrorRecovery (..)
   , classifyTxnError
-    -- * KIP-732 / 849 — bounded txn ops
+    -- * Bounded transactional-op deadlines
   , TxnDeadline (..)
   , effectiveTxnDeadlineMs
-    -- * KIP-691 / 1199 callbacks
+    -- * Enhanced ack callbacks
   , EnhancedCallback (..)
   , noopEnhancedCallback
   , dispatchEnhanced
@@ -54,7 +54,7 @@ import qualified Kafka.Client.RecordMetadata as RM
 import qualified Kafka.Client.RetryClassifier as RC
 
 ----------------------------------------------------------------------
--- KIP-185
+-- Optional transactional id
 ----------------------------------------------------------------------
 
 -- | Optionally derive a @transactional.id@ from a base prefix +
@@ -70,7 +70,7 @@ transactionalIdOptional (Just t) _ _      = t
 transactionalIdOptional Nothing prefix sf = prefix <> "-" <> sf
 
 ----------------------------------------------------------------------
--- KIP-588 / KIP-1044 txn-error recovery
+-- Txn-error recovery
 ----------------------------------------------------------------------
 
 data TxnErrorRecovery
@@ -91,12 +91,13 @@ classifyTxnError code = case RC.classify code of
   RC.ECFatal      -> TxnRecoverFatal
 
 ----------------------------------------------------------------------
--- KIP-732 / KIP-849 deadlines for txn ops
+-- Bounded txn-op deadlines
 ----------------------------------------------------------------------
 
 -- | A deadline supplied to @commitTransaction@ /
--- @abortTransaction@. KIP-849 lets callers bound the wait so a
--- misbehaving coordinator can't block shutdown indefinitely.
+-- @abortTransaction@. Callers can bound the wait so a
+-- misbehaving coordinator can't pin the producer open during
+-- shutdown.
 data TxnDeadline
   = TxnUseProducerDefault       -- ^ Fall back to the producer's @transaction.timeout.ms@.
   | TxnDeadlineMs !Int          -- ^ Hard upper bound in ms.
@@ -112,11 +113,13 @@ effectiveTxnDeadlineMs now defaultMs = \case
   TxnDeadlineMs ms      -> now + fromIntegral ms
 
 ----------------------------------------------------------------------
--- KIP-691 / 1199 enhanced callbacks
+-- Enhanced ack callbacks
 ----------------------------------------------------------------------
 
--- | The /enhanced/ callback shape. Every JVM 3.x producer hook
--- now receives the same outcome shape.
+-- | The enhanced producer-callback shape. Each JVM 3.x producer
+-- hook receives the same @Either ProducerError RecordMetadata@
+-- outcome at every stage of the send pipeline (enqueue, send,
+-- ack, retry, delivered).
 data EnhancedCallback = EnhancedCallback
   { ecOnEnqueue   :: !(KP.ProducerRecord -> IO ())
   , ecOnSend      :: !(KP.ProducerRecord -> IO ())

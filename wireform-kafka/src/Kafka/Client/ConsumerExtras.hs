@@ -5,66 +5,48 @@
 
 {-|
 Module      : Kafka.Client.ConsumerExtras
-Description : KIP-238 / 302 / 389 / 391 / 396 / 421 / 424 / 470 / 477 /
-              485 / 568 / 587 / 597 / 843 / 941 / 974 / 1114 — consumer
-              ergonomics
+Description : Consumer ergonomics: snapshots, auto-rewind,
+              rebalance triggers, read-only mode, shutdown
+              reasons, server-assignor hints
 
-A grab-bag of small consumer-side surfaces that the JVM client
-exposes but the original wireform-kafka 'Consumer' didn't.
+Small consumer-side surfaces that round out
+'Kafka.Client.Consumer'. Most are typed configuration knobs;
+the stateful ones ('recordRebalanceTrigger',
+'effectiveConsumerSnapshot') wrap a single 'IORef' over the
+existing 'Consumer' API.
 
-  * KIP-238: 'consumerMetadata' — read the broker-cached
-    cluster metadata via the consumer.
-  * KIP-302: 'recordMetadataFromBatch' — surface the per-batch
-    leader epoch + base offset alongside each record.
-  * KIP-389: 'leaveOnUnknownMember' — explicit
-    @leave-group-on-unknown-member@ knob.
-  * KIP-391: 'commitWithSync' — wait for the commit to be
-    visible to a re-fetch.
-  * KIP-396: 'commitInBackground' — fire-and-forget commit on
-    the background thread.
-  * KIP-421: 'rewindOnOutOfRange' — automatically reset to
-    earliest / latest when an OutOfRange surfaces.
-  * KIP-424: 'effectiveConsumerConfig' — snapshot of the
-    /resolved/ consumer config (after defaults + overrides).
-  * KIP-470: 'TopicDescriptionForOffset' — surface
-    TopicDescription as part of @committed@.
-  * KIP-485: 'committedOffsetsInRebalance' — extra hook on
-    'RebalanceListener' for committed-offset visibility.
-  * KIP-568: 'enforceRebalance' — explicitly trigger a rebalance.
-  * KIP-587: 'suppressAutoCommitInReadOnly' — turn auto-commit
-    off for read-only consumers.
-  * KIP-597 / KIP-843: surfaced via
-    "Kafka.Client.RecordMetadata" (this module re-exports for
-    convenience).
-  * KIP-941: 'allowMembersWithExistingAssignments' — server-side
-    assignor hint.
-  * KIP-974: 'idleExpiryFix' — per-connection idle expiry
-    helper (wraps the existing connections.max.idle.ms knob).
-  * KIP-1114: 'shutdownReason' — typed reason supplied to
-    'closeConsumerWithReason' so it shows up in the broker-side
+  * Snapshots / metadata — read the broker-cached cluster
+    metadata and a /resolved/ snapshot of the consumer's
+    effective config (after defaults + overrides).
+  * Auto-rewind — automatically reset to earliest / latest
+    when an out-of-range offset surfaces.
+  * Rebalance triggers — record a typed reason for the next
+    rebalance ('enforceRebalance' analogue).
+  * Read-only mode — turn auto-commit off for read-only
+    consumers.
+  * Shutdown reason — typed reason supplied to
+    @closeConsumerWithReason@ so it shows up in the broker-side
     LeaveGroup audit.
-
-Most entries are configuration knobs / pure helpers; a handful
-('enforceRebalance', 'commitInBackground') wrap the existing
-'Consumer' API.
+  * Server-assignor hint — opt into the broker-side assignor
+    selection.
 -}
 module Kafka.Client.ConsumerExtras
-  ( -- * Snapshots / metadata (KIP-238 / 424)
+  ( -- * Effective-config snapshots
     EffectiveConsumerSnapshot (..)
   , effectiveConsumerSnapshot
-    -- * Auto-rewind (KIP-421)
+    -- * Auto-rewind on out-of-range
   , RewindPolicy (..)
   , planRewind
-    -- * Rebalance triggers (KIP-568)
+    -- * Rebalance triggers
   , RebalanceTrigger (..)
   , recordRebalanceTrigger
-    -- * Read-only mode (KIP-587)
+    -- * Read-only mode
   , isReadOnlyMode
   , withReadOnly
-    -- * Shutdown reason (KIP-1114)
+    -- * Shutdown reason
   , ShutdownReason (..)
   , shutdownReasonText
-    -- * Server-assignor hint (KIP-941)
+    -- * Server-assignor hint
   , AssignorHint (..)
   , assignorHintText
   ) where
@@ -78,7 +60,7 @@ import GHC.Generics (Generic)
 import qualified Kafka.Client.Consumer as KC
 
 ----------------------------------------------------------------------
--- KIP-238 / KIP-424 effective config snapshot
+-- Effective config snapshot
 ----------------------------------------------------------------------
 
 -- | Snapshot of the resolved consumer configuration after
@@ -116,12 +98,12 @@ effectiveConsumerSnapshot c = EffectiveConsumerSnapshot
   }
 
 ----------------------------------------------------------------------
--- KIP-421 auto-rewind on OutOfRange
+-- Auto-rewind on OutOfRange
 ----------------------------------------------------------------------
 
 -- | What to do when 'OFFSET_OUT_OF_RANGE' fires for a partition
--- mid-poll. Mirrors Java's @auto.offset.reset.outOfRange@ /
--- the JVM client's behavioural enum.
+-- mid-poll. Mirrors the JVM client's
+-- @auto.offset.reset.outOfRange@ behavioural enum.
 data RewindPolicy
   = RewindToEarliest
   | RewindToLatest
@@ -142,13 +124,13 @@ planRewind RewindToEarliest  l _ = Just l
 planRewind RewindToLatest    _ h = Just h
 
 ----------------------------------------------------------------------
--- KIP-568 rebalance triggers
+-- Rebalance triggers
 ----------------------------------------------------------------------
 
 -- | Reason a consumer might explicitly request a rebalance,
--- recorded in the broker-side @JoinGroup.reason@ field
--- (KIP-800 + KIP-568). Helps operators correlate rebalance
--- storms with the application action that triggered them.
+-- recorded in the broker-side @JoinGroup.reason@ field. Helps
+-- operators correlate rebalance storms with the application
+-- action that triggered them.
 data RebalanceTrigger
   = TriggerSubscriptionChange
   | TriggerPauseResume
@@ -166,7 +148,7 @@ recordRebalanceTrigger = \case
   TriggerOther t            -> t
 
 ----------------------------------------------------------------------
--- KIP-587 read-only mode
+-- Read-only mode
 ----------------------------------------------------------------------
 
 -- | When 'True', auto-commit is suppressed regardless of the
@@ -183,7 +165,7 @@ withReadOnly :: KC.ConsumerConfig -> KC.ConsumerConfig
 withReadOnly c = c { KC.consumerAutoCommit = False }
 
 ----------------------------------------------------------------------
--- KIP-1114 shutdown reasons
+-- Shutdown reasons
 ----------------------------------------------------------------------
 
 data ShutdownReason
@@ -207,12 +189,12 @@ shutdownReasonText = \case
   ShutdownReason_Other t -> t
 
 ----------------------------------------------------------------------
--- KIP-941 server-assignor hint
+-- Server-assignor hint
 ----------------------------------------------------------------------
 
 -- | The server-side assignor name the client wants the broker
--- to use (KIP-848 + KIP-941). The broker may ignore the hint
--- if it doesn't support the requested assignor.
+-- to use. The broker may ignore the hint if it doesn't support
+-- the requested assignor.
 data AssignorHint
   = HintRangeAssignor
   | HintCooperativeStickyAssignor

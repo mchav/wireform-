@@ -49,7 +49,7 @@ module Kafka.Client.Consumer
   , subscribe
   , unsubscribe
   , assign
-    -- * Rebalance listener (KIP-415 / 429)
+    -- * Rebalance listener
   , setRebalanceListener
   , currentAssignment
   , computeAssignmentDelta
@@ -64,7 +64,7 @@ module Kafka.Client.Consumer
   , committed
   , committedAll
   , position
-    -- * Partition / time queries (KIP-41 / KIP-79)
+    -- * Partition / time queries
   , beginningOffsets
   , endOffsets
   , offsetsForTimes
@@ -83,9 +83,9 @@ module Kafka.Client.Consumer
   , ConsumerConfig(..)
   , StaticMembershipState(..)
   , currentStaticMembershipState
-    -- * Configuration validation (KIP-360)
+    -- * Configuration validation
   , validateConsumerConfig
-    -- * Cluster info (KIP-78)
+    -- * Cluster info
   , consumerClusterId
   ) where
 
@@ -148,7 +148,7 @@ data AssignmentStrategy
   | StickyAssignment      -- ^ Sticky assignment (minimizes rebalance)
   deriving (Eq, Show, Generic)
 
--- | Isolation level for fetched records (KIP-98).
+-- | Isolation level for fetched records.
 data IsolationLevel
   = ReadUncommitted
     -- ^ Default. The fetcher returns every record, including
@@ -256,7 +256,7 @@ data ConsumerConfig = ConsumerConfig
     --   a generation-bump rebalance.
   } deriving (Generic)
 
--- | KIP-345 static-membership state to persist across restarts.
+-- | Static-membership state to persist across restarts.
 -- Mirrors the JVM client's behaviour where a static member sends
 -- its previously-assigned 'memberId' on JoinGroup and the broker
 -- avoids triggering a rebalance.
@@ -404,7 +404,7 @@ consumerConnect c@Consumer{..} addr = do
 --
 -- Initializes the consumer with connection management, metadata caching,
 -- and optionally joins a consumer group for automatic partition assignment.
--- | Pure config-validation rules (KIP-360). Mirrors the JVM client's
+-- | Pure config-validation rules. Mirrors the JVM client's
 -- @org.apache.kafka.clients.consumer.ConsumerConfig@ checks: every
 -- rule we apply here is something the broker (or, worse, a runtime
 -- assertion deep in the fetch loop) would otherwise blow up on with
@@ -718,7 +718,7 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
 closeConsumer :: Consumer -> IO ()
 closeConsumer consumer = closeConsumerWithTimeout consumer 30000
 
--- | Close the consumer with a specified timeout (KIP-102).
+-- | Close the consumer with a specified timeout.
 --
 -- Attempts to cleanly leave the consumer group and commit any pending offsets
 -- before closing, waiting up to the specified timeout in milliseconds.
@@ -728,7 +728,7 @@ closeConsumer consumer = closeConsumerWithTimeout consumer 30000
 closeConsumerWithTimeout :: Consumer -> Int -> IO ()
 closeConsumerWithTimeout = closeConsumerImpl True
 
--- | KIP-812 @CloseOptions.leaveGroup = false@: close the
+-- | @CloseOptions.leaveGroup = false@: close the
 -- consumer /without/ sending a @LeaveGroup@ request. The
 -- broker keeps this member's assignment alive until the
 -- @session.timeout.ms@ expires, then rebalances. Use this
@@ -738,7 +738,7 @@ closeConsumerWithTimeout = closeConsumerImpl True
 closeConsumerWithoutLeavingGroup :: Consumer -> Int -> IO ()
 closeConsumerWithoutLeavingGroup = closeConsumerImpl False
 
--- | KIP-441 programmatic rejoin trigger. Flips
+-- | Programmatic rejoin trigger. Flips
 -- 'HB.hbNeedsRebalance' so the next 'poll' transparently
 -- re-runs JoinGroup \/ SyncGroup against the same
 -- subscription — equivalent to what happens when the broker
@@ -756,7 +756,7 @@ requestRejoin Consumer{..} = case consumerHeartbeat of
     atomically (writeTVar (HB.hbNeedsRebalance hbState) True)
     pure True
 
--- | KIP-535: install a callback the consumer invokes whenever
+-- | Install a callback the consumer invokes whenever
 -- it issues a JoinGroup; the returned bytes become the
 -- subscription-userdata blob. Used by the streams runtime to
 -- advertise the local instance's @application.server@ +
@@ -835,7 +835,7 @@ currentStaticMembershipState Consumer{..} = case consumerHeartbeat of
     gen <- readTVarIO (HB.hbGenerationId hbState)
     pure (Just (StaticMembershipState mid gen))
 
--- | KIP-78: read the broker-supplied cluster id off the
+-- | Read the broker-supplied cluster id off the
 -- consumer's metadata cache. Returns 'Nothing' until the first
 -- successful metadata refresh; afterwards reflects whatever the
 -- broker set in its @MetadataResponse@.
@@ -1303,7 +1303,7 @@ committed consumer tp = do
                                 ++ ":" ++ show (tpPartition tp)))
       Just off -> pure (Right off)
 
--- | KIP-211: Fetch committed offsets for many partitions in one
+-- | Fetch committed offsets for many partitions in one
 -- broker round-trip. The Java client's
 -- @KafkaConsumer.committed(Set\<TopicPartition\>)@ analogue.
 --
@@ -1321,7 +1321,7 @@ committedAll consumer@Consumer{..} tps =
     (consumerGroupId consumerConfig)
     tps
 
--- | KIP-41: current consumer position (the offset of the next
+-- | Current consumer position (the offset of the next
 -- record that will be returned by 'poll'). Read from the local
 -- assignment map, /not/ the broker; this is what the JVM client's
 -- @position(tp)@ returns.
@@ -1334,7 +1334,7 @@ position Consumer{..} tp = atomically $ do
                               ++ ":" ++ show (tpPartition tp)))
     Just off -> pure (Right off)
 
--- | KIP-79: query the earliest offset available for each
+-- | Query the earliest offset available for each
 -- partition. Mirrors @KafkaConsumer.beginningOffsets(partitions)@.
 beginningOffsets
   :: Consumer
@@ -1344,7 +1344,7 @@ beginningOffsets consumer tps = do
   r <- queryPartitionOffsets consumer tps (-2)  -- earliest
   pure (fmap HashMap.fromList r)
 
--- | KIP-79: query the high-water-mark offset (i.e. one past the
+-- | Query the high-water-mark offset (i.e. one past the
 -- last produced record) for each partition. Mirrors
 -- @KafkaConsumer.endOffsets(partitions)@.
 endOffsets
@@ -1355,7 +1355,7 @@ endOffsets consumer tps = do
   r <- queryPartitionOffsets consumer tps (-1)  -- latest
   pure (fmap HashMap.fromList r)
 
--- | KIP-79: for each partition, return the earliest offset whose
+-- | For each partition, return the earliest offset whose
 -- timestamp is greater than or equal to the supplied timestamp.
 -- Partitions whose timestamp is past the broker's high water mark
 -- are returned with an offset of @-1@.
