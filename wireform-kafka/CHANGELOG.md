@@ -29,6 +29,20 @@ and this project adheres to the
   `defaultGroupConfig` are reachable as `Kafka.*` without a
   separate import.
 
+### Removed
+
+- `Kafka.Telemetry.OpenTelemetry` no longer exports the seven
+  span/metric stubs (`createProducerSpan`, `createConsumerSpan`,
+  `createTransactionSpan`, `recordMessageSent`,
+  `recordMessageReceived`, `recordRequestDuration`,
+  `recordBatchSize`). They were `return ()` placeholders with no
+  implementation and zero callers anywhere in the repo; the
+  README and module docstring previously claimed
+  "OpenTelemetry spans + metrics" support that wasn't actually
+  there. The module's real purpose — SDK-independent W3C Trace
+  Context propagation over Kafka record headers — is unchanged
+  and now documented honestly.
+
 ### Changed
 
 - `Kafka.Client.Group.GroupConfig` and `GroupConsumer` field
