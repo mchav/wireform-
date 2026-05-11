@@ -5,6 +5,27 @@ synopsis: Apache ORC metadata, stripes, and read/write
 license: BSD-3-Clause
 build-type: Simple
 
+-- Compression codec flags. Defaults are ON so wireform-orc
+-- out-of-the-box can read what every other ORC writer
+-- (Hive / Spark / Trino / DuckDB / arrow-rs) emits — the only
+-- common compression an ORC file in the wild has /not/ seen
+-- is 'no compression'. Disable individually with @-f-snappy@,
+-- @-f-zstd@, @-f-lz4@ if you want a smaller dep tree.
+flag snappy
+  description: Snappy decompression for ORC streams
+  manual: True
+  default: True
+
+flag zstd
+  description: Zstandard decompression for ORC streams
+  manual: True
+  default: True
+
+flag lz4
+  description: LZ4 (block-format) decompression for ORC stripes
+  manual: True
+  default: True
+
 common defaults
   ghc-options:
     -Wall
@@ -29,14 +50,17 @@ library
   hs-source-dirs: src
   exposed-modules:
     ORC
+    ORC.Aggregate
     ORC.Arrow
     ORC.BloomFilter
+    ORC.Compress
     ORC.Derive
     ORC.Encryption
     ORC.Footer
     ORC.Proto.Schema
     ORC.Read
     ORC.RowIndex
+    ORC.Statistics
     ORC.Stripe
     ORC.Types
     ORC.Write
@@ -46,6 +70,7 @@ library
     base >= 4.16 && < 5,
     wireform-core,
     wireform-arrow,
+    wireform-columnar,
     wireform-derive,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
@@ -57,6 +82,45 @@ library
     deepseq >= 1.4 && < 1.6,
     template-haskell >= 2.18 && < 2.24
 
+  if flag(snappy)
+    cpp-options: -DHAVE_SNAPPY
+    build-depends: snappy >= 0.2 && < 0.3
+  if flag(zstd)
+    cpp-options: -DHAVE_ZSTD
+    build-depends: zstd >= 0.1 && < 0.2
+  -- LZ4 support is provided by Columnar.LZ4 (FFI bindings to
+  -- system liblz4 from wireform-columnar). See the Parquet
+  -- cabal for the same comment.
+  if flag(lz4)
+    cpp-options: -DHAVE_LZ4
+
+executable wireform-orc-interop-probe
+  import: defaults
+  hs-source-dirs: probe
+  main-is: Probe.hs
+  ghc-options: -O1
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-arrow,
+    wireform-orc,
+    bytestring >= 0.11 && < 0.13,
+    filepath >= 1.4 && < 1.6,
+    vector >= 0.13 && < 0.14
+
+executable wireform-orc-reverse-probe
+  import: defaults
+  hs-source-dirs: probe
+  main-is: Reverse.hs
+  ghc-options: -O1
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-arrow,
+    wireform-orc,
+    bytestring >= 0.11 && < 0.13,
+    directory >= 1.3 && < 1.4,
+    filepath >= 1.4 && < 1.6,
+    vector >= 0.13 && < 0.14
+
 test-suite wireform-orc-test
   import: defaults
   type: exitcode-stdio-1.0
@@ -64,6 +128,7 @@ test-suite wireform-orc-test
   main-is: Main.hs
   build-depends:
     base >= 4.16 && < 5,
+    wireform-columnar,
     wireform-orc,
     bytestring >= 0.11 && < 0.13,
     vector >= 0.13 && < 0.14,

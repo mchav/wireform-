@@ -5,20 +5,25 @@ synopsis: Apache Parquet metadata, column pages, and read/write
 license: BSD-3-Clause
 build-type: Simple
 
+-- Compression codec flags. Defaults are ON so out-of-the-box
+-- wireform can read what every other Parquet engine writes by
+-- default (pyarrow + duckdb default to Snappy; polars defaults
+-- to ZSTD; LZ4 / brotli are common enough on modern files).
+-- Disable with @-f-snappy@ etc. if you want a smaller dep tree.
 flag snappy
   description: Snappy decompression for Parquet column chunks
   manual: True
-  default: False
+  default: True
 
 flag zstd
   description: Zstandard decompression for Parquet column chunks
   manual: True
-  default: False
+  default: True
 
 flag lz4
   description: LZ4_RAW decompression for Parquet column chunks
   manual: True
-  default: False
+  default: True
 
 flag brotli
   description: Brotli (codec 4) decompression for Parquet column chunks
@@ -48,6 +53,7 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    Parquet.Aggregate
     Parquet.BloomFilter
     Parquet.Compress
     Parquet.Delta
@@ -64,6 +70,7 @@ library
     Parquet.NullPagesBitmap
     Parquet.Page
     Parquet.PageIndex
+    Parquet.Predicate
     Parquet.Read
     Parquet.Thrift.Schema
     Parquet.Types
@@ -95,9 +102,14 @@ library
   if flag(zstd)
     cpp-options: -DHAVE_ZSTD
     build-depends: zstd >= 0.1 && < 0.2
+  -- LZ4 support is provided by Columnar.LZ4 (FFI bindings to
+  -- system liblz4 from wireform-columnar). The Cabal flag
+  -- still gates the codec at compile time so callers can drop
+  -- it; the package dep stays via wireform-columnar regardless,
+  -- so the only thing this controls is whether 'tryLZ4Raw' is
+  -- compiled in.
   if flag(lz4)
     cpp-options: -DHAVE_LZ4
-    build-depends: lz4 >= 0.2 && < 0.3
   if flag(brotli)
     cpp-options: -DHAVE_BROTLI
     build-depends: brotli >= 0.0.0.3 && < 0.0.1
@@ -107,10 +119,13 @@ test-suite wireform-parquet-test
   type: exitcode-stdio-1.0
   main-is: Main.hs
   hs-source-dirs: test
+  other-modules:
+    Aggregate
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
     wireform-arrow,
+    wireform-columnar,
     wireform-parquet,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
@@ -145,6 +160,33 @@ test-suite wireform-parquet-derive-test
     tasty,
     tasty-hunit
 
+executable wireform-parquet-interop-probe
+  import: defaults
+  hs-source-dirs: probe
+  main-is: Probe.hs
+  ghc-options: -O1
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-parquet,
+    bytestring >= 0.11 && < 0.13,
+    filepath >= 1.4 && < 1.6,
+    text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14
+
+executable wireform-parquet-reverse-probe
+  import: defaults
+  hs-source-dirs: probe
+  main-is: Reverse.hs
+  ghc-options: -O1
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-arrow,
+    wireform-parquet,
+    bytestring >= 0.11 && < 0.13,
+    directory >= 1.3 && < 1.4,
+    filepath >= 1.4 && < 1.6,
+    vector >= 0.13 && < 0.14
+
 benchmark parquet-bench
   import: defaults
   type: exitcode-stdio-1.0
@@ -158,3 +200,19 @@ benchmark parquet-bench
     wireform-parquet,
     bytestring >= 0.11 && < 0.13,
     criterion >= 1.5 && < 1.7
+
+benchmark parquet-throughput
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Throughput.hs
+  ghc-options: -O2
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-arrow,
+    wireform-parquet,
+    bytestring >= 0.11 && < 0.13,
+    criterion >= 1.5 && < 1.7,
+    deepseq >= 1.4 && < 1.6,
+    text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14

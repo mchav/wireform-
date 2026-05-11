@@ -1,0 +1,146 @@
+[
+    {
+        "api_key": 18,
+        "description": "ApiVersionsRequest v3 (default client name + version)",
+        "hex": "0f77697265666f726d2d6b61666b6106302e312e3000",
+        "message_type": "ApiVersionsRequest",
+        "test_case": "default",
+        "version": 3
+    },
+    {
+        "api_key": 18,
+        "description": "ApiVersionsResponse v3 (no error, no API entries)",
+        "hex": "00000100000000040001010108ffffffffffffffff020101030100",
+        "message_type": "ApiVersionsResponse",
+        "test_case": "ok",
+        "version": 3
+    },
+    {
+        "api_key": 12,
+        "description": "HeartbeatRequest v4 (group=wf-test-group, member=consumer-1, gen=7)",
+        "hex": "0e77662d746573742d67726f7570000000070b636f6e73756d65722d310000",
+        "message_type": "HeartbeatRequest",
+        "test_case": "ok",
+        "version": 4
+    },
+    {
+        "api_key": 12,
+        "description": "HeartbeatResponse v4 (success)",
+        "hex": "00000000000000",
+        "message_type": "HeartbeatResponse",
+        "test_case": "ok",
+        "version": 4
+    },
+    {
+        "api_key": 13,
+        "description": "LeaveGroupRequest v4 (single member, reason=shutdown)",
+        "hex": "0e77662d746573742d67726f7570020b636f6e73756d65722d31000000",
+        "message_type": "LeaveGroupRequest",
+        "test_case": "single-member",
+        "version": 4
+    },
+    {
+        "api_key": 13,
+        "description": "LeaveGroupResponse v4 (no error)",
+        "hex": "0000000000000100",
+        "message_type": "LeaveGroupResponse",
+        "test_case": "ok",
+        "version": 4
+    },
+    {
+        "api_key": 3,
+        "description": "MetadataRequest v9 (single topic 'events', auto-create on)",
+        "hex": "02076576656e74730001000000",
+        "message_type": "MetadataRequest",
+        "test_case": "single-topic",
+        "version": 9
+    },
+    {
+        "api_key": 3,
+        "description": "MetadataResponse v9 (no brokers, no topics)",
+        "hex": "000000000100ffffffff018000000000",
+        "message_type": "MetadataResponse",
+        "test_case": "empty-cluster",
+        "version": 9
+    },
+    {
+        "api_key": 17,
+        "description": "SaslHandshakeRequest v1 (mechanism=SCRAM-SHA-512)",
+        "hex": "000d534352414d2d5348412d353132",
+        "message_type": "SaslHandshakeRequest",
+        "test_case": "scram-sha-512",
+        "version": 1
+    },
+    {
+        "api_key": 17,
+        "description": "SaslHandshakeResponse v1 (PLAIN/SCRAM-256/SCRAM-512/OAUTHBEARER/AWS_MSK_IAM)",
+        "hex": "0000000000050005504c41494e000d534352414d2d5348412d323536000d534352414d2d5348412d353132000b4f41555448424541524552000b4157535f4d534b5f49414d",
+        "message_type": "SaslHandshakeResponse",
+        "test_case": "five-mechanisms",
+        "version": 1
+    },
+    {
+        "api_key": 36,
+        "description": "SaslAuthenticateRequest v1 (PLAIN: \\0alice\\0pw)",
+        "hex": "0000000900616c696365007077",
+        "message_type": "SaslAuthenticateRequest",
+        "test_case": "plain",
+        "version": 1
+    },
+    {
+        "api_key": 36,
+        "description": "SaslAuthenticateResponse v1 (success, no payload)",
+        "hex": "0000ffff000000000000000000000000",
+        "message_type": "SaslAuthenticateResponse",
+        "test_case": "ok",
+        "version": 1
+    },
+    {
+        "api_key": 10,
+        "description": "FindCoordinatorRequest v3 (group=wf-test-group, type=group)",
+        "hex": "0e77662d746573742d67726f75700000",
+        "message_type": "FindCoordinatorRequest",
+        "test_case": "consumer-group",
+        "version": 3
+    },
+    {
+        "api_key": 10,
+        "description": "FindCoordinatorResponse v3 (broker-1:9092, node 1)",
+        "hex": "00000000000000000000010962726f6b65722d310000238400",
+        "message_type": "FindCoordinatorResponse",
+        "test_case": "ok",
+        "version": 3
+    },
+    {
+        "api_key": 8,
+        "description": "OffsetCommitRequest v2 (group=wf-test-group, no topics)",
+        "hex": "000d77662d746573742d67726f757000000007000a636f6e73756d65722d31ffffffffffffffff00000000",
+        "message_type": "OffsetCommitRequest",
+        "test_case": "no-topics",
+        "version": 2
+    },
+    {
+        "api_key": 8,
+        "description": "OffsetCommitResponse v2 (no per-topic responses)",
+        "hex": "00000000",
+        "message_type": "OffsetCommitResponse",
+        "test_case": "ok",
+        "version": 2
+    },
+    {
+        "api_key": 9,
+        "description": "OffsetFetchRequest v5 (no topics, require_stable=false)",
+        "hex": "000d77662d746573742d67726f757000000000",
+        "message_type": "OffsetFetchRequest",
+        "test_case": "no-topics",
+        "version": 5
+    },
+    {
+        "api_key": 9,
+        "description": "OffsetFetchResponse v5 (no topics, no error)",
+        "hex": "00000000000000000000",
+        "message_type": "OffsetFetchResponse",
+        "test_case": "ok",
+        "version": 5
+    }
+]

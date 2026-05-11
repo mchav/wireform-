@@ -13,11 +13,21 @@ import System.Exit (exitFailure)
 
 import Data.Word (Word64)
 
+import qualified Columnar.Predicate as Pred
+import qualified ORC.Aggregate as Agg
 import qualified ORC.BloomFilter as BF
 import qualified ORC.Encryption as Enc
 import qualified ORC.Read
 import qualified ORC.RowIndex as RI
 import qualified ORC.Write
+import ORC.Types
+
+import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.Text as T
+
+import ORC.Footer (encodeColStats, decodeColStats)
+import qualified ORC.Statistics as Stats
 import ORC.Read
   ( ORCTimestamp (..)
   , decodeDateColumn
@@ -26,8 +36,18 @@ import ORC.Read
   , decodeTimestampColumn
   )
 import ORC.Types
-  ( FooterEncryption (..)
+  ( BinaryStatistics (..)
+  , BucketStatistics (..)
+  , ColumnStatistics (..)
+  , DateStatistics (..)
+  , DecimalStatistics (..)
+  , DoubleStatistics (..)
+  , FooterEncryption (..)
+  , IntegerStatistics (..)
   , ORCType (..)
+  , StatsKind (..)
+  , StringStatistics (..)
+  , TimestampStatistics (..)
   , TypeKind (..)
   , orcEncryption
   )
@@ -237,6 +257,111 @@ main = do
   expect "RowIndex non-empty"   (BS.length idx > 0)
   expect "RowIndex starts with field-1 length-delimited tag"
     (BS.head idx == 0x0A)
+  -- ORC.Statistics: predicate evaluator using the new sub-stats.
+  do
+    let !names = V.fromList ["n", "name"]
+        !stats = V.fromList
+          [ ColumnStatistics (Just 5) (Just False) (Just 40)
+              (Just (SkInt (IntegerStatistics (Just 10) (Just 50) (Just 150))))
+          , ColumnStatistics (Just 5) (Just False) Nothing
+              (Just (SkString (StringStatistics
+                                 (Just (T.pack "alpha"))
+                                 (Just (T.pack "delta"))
+                                 (Just 30)
+                                 (Just (T.pack "alpha"))
+                                 (Just (T.pack "delta")))))
+          ]
+        !pInRange  = Stats.PCol "n" (Stats.PEq (Stats.PVInt64 25))
+        !pBelow    = Stats.PCol "n" (Stats.PEq (Stats.PVInt64 5))
+        !pAbove    = Stats.PCol "n" (Stats.PEq (Stats.PVInt64 100))
+        !pStrIn    = Stats.PCol "name" (Stats.PEq (Stats.PVText (T.pack "beta")))
+        !pStrAfter = Stats.PCol "name" (Stats.PEq (Stats.PVText (T.pack "zeta")))
+    expect "ORC.Statistics: PEq inside int range -> MaybeKeep"
+      (Stats.evalStripe names stats pInRange == Stats.PMaybeKeep)
+    expect "ORC.Statistics: PEq below int min -> Skip"
+      (Stats.evalStripe names stats pBelow == Stats.PSkip)
+    expect "ORC.Statistics: PEq above int max -> Skip"
+      (Stats.evalStripe names stats pAbove == Stats.PSkip)
+    expect "ORC.Statistics: PEq inside string range -> MaybeKeep"
+      (Stats.evalStripe names stats pStrIn == Stats.PMaybeKeep)
+    expect "ORC.Statistics: PEq above string max -> Skip"
+      (Stats.evalStripe names stats pStrAfter == Stats.PSkip)
+
+  -- ColumnStatistics round-trip: cover the int / double /
+  -- string / date / timestamp / decimal / binary / bucket
+  -- variants that the new ColumnStatistics decoder handles.
+  do
+    let cases =
+          [ ("int",    ColumnStatistics
+                          (Just 5) (Just False) (Just 40)
+                          (Just (SkInt (IntegerStatistics
+                                          (Just (-100))
+                                          (Just 200)
+                                          (Just 100)))))
+          , ("double", ColumnStatistics
+                          (Just 3) (Just True) (Just 24)
+                          (Just (SkDouble (DoubleStatistics
+                                             (Just (-2.5))
+                                             (Just 99.99)
+                                             (Just 99.0)))))
+          , ("string", ColumnStatistics
+                          (Just 2) (Just False) Nothing
+                          (Just (SkString (StringStatistics
+                                             (Just (T.pack "alpha"))
+                                             (Just (T.pack "zeta"))
+                                             (Just 9)
+                                             (Just (T.pack "alpha"))
+                                             (Just (T.pack "zeta"))))))
+          , ("date",   ColumnStatistics
+                          (Just 4) (Just False) Nothing
+                          (Just (SkDate (DateStatistics
+                                           (Just 19000) (Just 19365)))))
+          , ("ts",     ColumnStatistics
+                          (Just 1) (Just False) Nothing
+                          (Just (SkTimestamp (TimestampStatistics
+                                                (Just 1700000000)
+                                                (Just 1700000005)
+                                                (Just 1700000000)
+                                                (Just 1700000005)))))
+          , ("dec",    ColumnStatistics
+                          (Just 2) (Just False) Nothing
+                          (Just (SkDecimal (DecimalStatistics
+                                              (Just (T.pack "1.23"))
+                                              (Just (T.pack "456.78"))
+                                              (Just (T.pack "458.01"))))))
+          , ("bin",    ColumnStatistics
+                          (Just 3) (Just False) (Just 99)
+                          (Just (SkBinary (BinaryStatistics (Just 99)))))
+          , ("bool",   ColumnStatistics
+                          (Just 5) (Just True) Nothing
+                          (Just (SkBucket (BucketStatistics
+                                             (V.fromList [3, 2])))))
+          ]
+    flip mapM_ cases $ \(name, cs) -> do
+      let !bytes = BL.toStrict (B.toLazyByteString (encodeColStats cs))
+      case decodeColStats bytes of
+        Right got | got == cs ->
+          expect ("ColumnStatistics " ++ name ++ " round-trip") True
+        Right got ->
+          failTest $ "ColumnStatistics " ++ name
+                      ++ " mismatch:\n got " ++ show got
+                      ++ "\n exp " ++ show cs
+        Left e -> failTest $ "ColumnStatistics " ++ name ++ ": " ++ e
+
+  -- Inverse: decode the encoded payload and confirm we get back
+  -- the same entries (positions + statistics blob).
+  case RI.decodeRowIndex idx of
+    Left e -> failTest ("RI.decodeRowIndex: " ++ e)
+    Right [d1, d2] -> do
+      expect "decodeRowIndex: positions[0] roundtrips"
+        (RI.riePositions d1 == RI.riePositions rie1)
+      expect "decodeRowIndex: positions[1] roundtrips"
+        (RI.riePositions d2 == RI.riePositions rie2)
+      expect "decodeRowIndex: statistics[1] roundtrips"
+        (RI.rieStatistics d2 == RI.rieStatistics rie2)
+    Right other ->
+      failTest $ "decodeRowIndex: expected 2 entries, got "
+                  ++ show (length other)
 
   -- DECIMAL128 round-trip via encodeDecimalRawColumn / decodeDecimal128Stream
   -- with values that overflow Int64 to exercise the Integer path.
@@ -290,6 +415,165 @@ main = do
     (BS.head (Enc.encodeEncryptionKey ek) == 0x0A)
   expect "encodeEncryptionVariant first field is root (tag 1, varint)"
     (BS.head (Enc.encodeEncryptionVariant ev) == 0x08)
+
+  -- Bloom filter encode -> decode -> probe round-trip.
+  --
+  -- The property we want to pin: encoding a bloom and then
+  -- decoding the bytes produces a structurally-identical
+  -- bloom (same bitset, same numHashFunctions). That gives
+  -- the read-side membership probes exactly the same answers
+  -- as the writer's original. We deliberately do NOT assert
+  -- "non-members reject" because bloom filters are allowed to
+  -- false-positive; what we assert is that whatever answer
+  -- the writer's bloom gave, the decoded one gives too.
+  do
+    let !members  = ["alpha", "beta", "gamma"] :: [BS.ByteString]
+        !ints     = [1, 2, 3, 100, -5] :: [Int64]
+        !probes   = members ++ ["delta", "epsilon", "zeta"]  -- mix
+        !intProbes = ints ++ [42, 99, -1000]
+        !bf0      = BF.emptyBloom 1024 4
+        !bfBytes  = foldr BF.insertBytes bf0 members
+        !bfFull   = foldr BF.insertInt64 bfBytes ints
+
+    -- Modern (UTF8) variant
+    let !encUtf8 = BF.encodeBloomFilterAs BF.BloomFilterUtf8 bfFull
+    case BF.decodeBloomFilter encUtf8 of
+      Left e -> failTest $ "decodeBloomFilter (utf8): " ++ e
+      Right bfBack -> do
+        expect "ORC bloom: utf8 encode/decode preserves numHashFunctions"
+          (BF.bfNumHashFunctions bfBack == BF.bfNumHashFunctions bfFull)
+        expect "ORC bloom: utf8 encode/decode preserves bitset"
+          (BF.bfBits bfBack == BF.bfBits bfFull)
+        expect "ORC bloom: bfCheckBytes agrees with original on every probe"
+          (all (\b -> BF.bfCheckBytes b bfBack == BF.bfCheckBytes b bfFull)
+               probes)
+        expect "ORC bloom: bfCheckLong agrees with original on every probe"
+          (all (\i -> BF.bfCheckLong i bfBack == BF.bfCheckLong i bfFull)
+               intProbes)
+        expect "ORC bloom: every inserted member is reported present"
+          (all (`BF.bfCheckBytes` bfBack) members)
+        expect "ORC bloom: every inserted integer is reported present"
+          (all (`BF.bfCheckLong` bfBack) ints)
+
+    -- Legacy variant: same data, different on-the-wire slot.
+    let !encLegacy = BF.encodeBloomFilterAs BF.BloomFilterLegacy bfFull
+    case BF.decodeBloomFilter encLegacy of
+      Left e -> failTest $ "decodeBloomFilter (legacy): " ++ e
+      Right bfBack ->
+        expect "ORC bloom: legacy encode/decode round-trips bitset"
+          (BF.bfBits bfBack == BF.bfBits bfFull)
+
+    -- BloomFilterIndex of 3 entries
+    let !idx       = [bfFull, bf0, bfFull]
+        !idxBytes  = BF.encodeBloomFilterIndexAs BF.BloomFilterUtf8 idx
+    case BF.decodeBloomFilterIndex idxBytes of
+      Left e -> failTest $ "decodeBloomFilterIndex: " ++ e
+      Right back -> do
+        expect "ORC bloom: index entry count"
+          (length back == length idx)
+        expect "ORC bloom: index entries round-trip"
+          (and (zipWith
+                 (\a b -> BF.bfBits a == BF.bfBits b
+                       && BF.bfNumHashFunctions a == BF.bfNumHashFunctions b)
+                 back idx))
+
+  -- ORC RLE v2 sub-encoding decoder: hand-craft each
+  -- sub-encoding's wire bytes and verify the decoder
+  -- produces the expected values. The DIRECT path is the
+  -- only one our writer emits today; the other three
+  -- (SHORT_REPEAT / DELTA / PATCHED_BASE) are
+  -- read-side-only, exercised when consuming files written
+  -- by the Java/C++/Rust ORC writers.
+  do
+    -- SHORT_REPEAT: encoding=0, widthBytes 1, count=5 -> emit 0x42 5 times.
+    --   first byte = 0b00_000_010 (encoding=0, widthBytes-1=0, count-3=2)
+    --              = 0x02
+    let !shortRepeatBytes = BS.pack [0x02, 0x42]
+    case ORC.Read.decodeRLEv2Int False 5 shortRepeatBytes of
+      Right vs ->
+        expect "RLEv2 SHORT_REPEAT decodes 5x 0x42"
+               (VP.toList vs == [0x42, 0x42, 0x42, 0x42, 0x42])
+      Left e -> failTest $ "SHORT_REPEAT decode: " ++ e
+
+    -- DIRECT: encoded width=8 (8 bits), len=5, values [1,2,3,4,5].
+    --   encodedW for w=8: lookup table maps 8 -> 7 (per ORC v2 spec)
+    --   first byte  = 0b01_xxxxx_L where xxxxx = encodedW (7), L = lenHigh
+    --     w=8 -> encodedW=7. lenHigh=0. firstByte = 0b01_00111_0 = 0x4E
+    --   second byte = (len-1) low 8 bits = 4
+    --   data: 1 2 3 4 5 packed at 8 bits each = 5 bytes
+    let !directBytes = BS.pack
+          [ 0x4E    -- 0100_1110  -> encoding=01, encodedW=7 (w=8), lenHigh=0
+          , 0x04    -- len-1 = 4
+          , 1, 2, 3, 4, 5
+          ]
+    case ORC.Read.decodeRLEv2Int False 5 directBytes of
+      Right vs ->
+        expect "RLEv2 DIRECT decodes 5 byte-wide values"
+               (VP.toList vs == [1, 2, 3, 4, 5])
+      Left e -> failTest $ "DIRECT decode: " ++ e
+
+    -- DELTA: simplest case — base value 100, fixed delta 1,
+    --   length 5 -> sequence [100, 101, 102, 103, 104].
+    -- Header (2 bytes): encoding=11, deltaWidth=0 (no varying-deltas),
+    --   length-1 = 4 (lo bits 8). first byte = 0b11_00000_0 = 0xC0,
+    --   second byte = 4.
+    -- Then base value as zigzag varint (signed=False so plain varint),
+    --   then delta as zigzag varint.
+    let !deltaBytes = BS.pack
+          [ 0xC0    -- encoding=11, deltaWidth=0, lenHigh=0
+          , 0x04    -- len-1 = 4
+          , 100     -- base = 100 (varint)
+          , 1       -- delta = 1 (signed varint -> zigzag 2)... ORC spec says delta is signed varint
+          ]
+    -- The delta is encoded as a zigzag varint: zigzag(1)=2.
+    let !deltaBytes' = BS.pack [0xC0, 0x04, 100, 2]
+    -- The unused 'deltaBytes' above kept for documentation;
+    -- silence the warning by binding it to ().
+    let !_ = deltaBytes
+    case ORC.Read.decodeRLEv2Int False 5 deltaBytes' of
+      Right vs ->
+        expect "RLEv2 DELTA decodes monotonic +1 sequence"
+               (VP.toList vs == [100, 101, 102, 103, 104])
+      Left e -> failTest $ "DELTA decode: " ++ e
+
+  -- ORC.Aggregate: pure stats arithmetic on a synthetic footer.
+  -- The footer carries one stripe of 100 rows and per-leaf
+  -- column statistics for one Int64 column with min=1, max=99,
+  -- sum=1000, num_values=98 (2 nulls).
+  do
+    let !intStats = IntegerStatistics
+          { isMinimum = Just 1
+          , isMaximum = Just 99
+          , isSum     = Just 1000
+          }
+        !cs = ColumnStatistics
+          { csNumberOfValues = Just 98
+          , csHasNull        = Just True
+          , csBytesOnDisk    = Nothing
+          , csKind           = Just (SkInt intStats)
+          }
+        !footer = ORCFooter
+          { orcHeaderLength  = 0
+          , orcContentLength = 0
+          , orcStripes       = V.empty
+          , orcTypes         = V.empty
+          , orcMetadata      = V.empty
+          , orcNumberOfRows  = 100
+          , orcStatistics    = V.singleton cs
+          , orcEncryption    = Nothing
+          }
+    expect "ORC fileRowCount returns orcNumberOfRows"
+      (Agg.fileRowCount footer == 100)
+    expect "ORC columnNonNullCount reads csNumberOfValues"
+      (Agg.columnNonNullCount footer 0 == Just 98)
+    expect "ORC columnMin reads IntegerStatistics.minimum"
+      (Agg.columnMin footer 0 == Just (Pred.PVInt64 1))
+    expect "ORC columnMax reads IntegerStatistics.maximum"
+      (Agg.columnMax footer 0 == Just (Pred.PVInt64 99))
+    expect "ORC columnSum reads IntegerStatistics.sum"
+      (Agg.columnSum footer 0 == Just (Pred.PVInt64 1000))
+    expect "ORC columnSum returns Nothing for absent stats"
+      (Agg.columnSum footer 1 == Nothing)
 
   putStrLn "All ORC writer tests passed."
 

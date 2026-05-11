@@ -322,37 +322,50 @@ footerRoundtrips = testGroup "Footer roundtrips"
             , fmNumRows = 100
             , fmRowGroups = V.empty
             , fmCreatedBy = Just "wireform"
+            , fmColumnOrders = Nothing
             }
       readFooter (writeFooter fm) @?= Right fm
   , testCase "File metadata with row group" $ do
       let cm = ColumnMetadata PTInt64 (V.fromList [Plain, RLE])
-                 (V.fromList ["value"]) Snappy 1000 8000 4000 4 Nothing Nothing Nothing
+                 (V.fromList ["value"]) Snappy 1000 8000 4000 4 Nothing Nothing Nothing Nothing
           cc = ColumnChunk Nothing 4 (Just cm) Nothing Nothing Nothing Nothing
-          rg = RowGroup (V.singleton cc) 4000 1000
+          rg = RowGroup (V.singleton cc) 4000 1000 Nothing
           fm = FileMetadata 2
                  (V.fromList
                    [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
                    , SchemaElement "value" (Just Optional) (Just PTInt64) Nothing Nothing Nothing Nothing
                    ])
-                 1000 (V.singleton rg) Nothing
+                 1000 (V.singleton rg) Nothing Nothing
       readFooter (writeFooter fm) @?= Right fm
   , testCase "Multiple row groups" $ do
-      let mkRG n = RowGroup V.empty (n * 1000) n
+      let mkRG n = RowGroup V.empty (n * 1000) n Nothing
           fm = FileMetadata 1
                  (V.singleton (SchemaElement "root" Nothing Nothing (Just 0) Nothing Nothing Nothing))
-                 3000 (V.fromList [mkRG 1000, mkRG 1000, mkRG 1000]) (Just "test-writer v1.0")
+                 3000 (V.fromList [mkRG 1000, mkRG 1000, mkRG 1000]) (Just "test-writer v1.0") Nothing
       readFooter (writeFooter fm) @?= Right fm
   , testCase "All parquet types" $ do
       let types = [PTBoolean, PTInt32, PTInt64, PTInt96, PTFloat, PTDouble, PTByteArray, PTFixedLenByteArray]
           mkSchema t = SchemaElement (T.pack (show t)) (Just Required) (Just t) Nothing Nothing Nothing Nothing
-          fm = FileMetadata 2 (V.fromList (map mkSchema types)) 0 V.empty Nothing
+          fm = FileMetadata 2 (V.fromList (map mkSchema types)) 0 V.empty Nothing Nothing
+      readFooter (writeFooter fm) @?= Right fm
+  , testCase "fmColumnOrders round-trips" $ do
+      let orders = V.fromList [TypeDefinedOrder, TypeDefinedOrder, TypeDefinedOrder]
+          fm = FileMetadata 2 V.empty 0 V.empty (Just "wireform")
+                 (Just orders)
+      readFooter (writeFooter fm) @?= Right fm
+  , testCase "rgSortingColumns round-trips" $ do
+      let sc1 = SortingColumn 0 False True
+          sc2 = SortingColumn 1 True  False
+          rg  = RowGroup V.empty 0 100 (Just (V.fromList [sc1, sc2]))
+          fm  = FileMetadata 2 V.empty 100 (V.singleton rg)
+                  Nothing Nothing
       readFooter (writeFooter fm) @?= Right fm
   ]
 
 magicTests :: TestTree
 magicTests = testGroup "Magic"
   [ testCase "Footer ends with PAR1" $ do
-      let fm = FileMetadata 2 V.empty 0 V.empty Nothing
+      let fm = FileMetadata 2 V.empty 0 V.empty Nothing Nothing
           bs = writeFooter fm
           magic = BS.drop (BS.length bs - 4) bs
       magic @?= parquetMagic
@@ -377,10 +390,10 @@ edgeCases = testGroup "Edge cases"
   , testCase "All encodings round-trip" $ do
       let encs = [Plain, PlainDictionary, RLE, BitPacked, DeltaBinaryPacked,
                   DeltaLengthByteArray, DeltaByteArray, RLEDictionary, ByteStreamSplit]
-          cm = ColumnMetadata PTInt32 (V.fromList encs) (V.singleton "x") Uncompressed 0 0 0 0 Nothing Nothing Nothing
+          cm = ColumnMetadata PTInt32 (V.fromList encs) (V.singleton "x") Uncompressed 0 0 0 0 Nothing Nothing Nothing Nothing
           cc = ColumnChunk Nothing 0 (Just cm) Nothing Nothing Nothing Nothing
-          rg = RowGroup (V.singleton cc) 0 0
-          fm = FileMetadata 2 V.empty 0 (V.singleton rg) Nothing
+          rg = RowGroup (V.singleton cc) 0 0 Nothing
+          fm = FileMetadata 2 V.empty 0 (V.singleton rg) Nothing Nothing
       readFooter (writeFooter fm) @?= Right fm
   ]
 
@@ -390,7 +403,7 @@ propertyRoundtrips = testGroup "Property roundtrips"
       ver <- forAll $ Gen.int32 (Range.linear 1 3)
       nRows <- forAll $ Gen.int64 (Range.linear 0 1000000)
       createdBy <- forAll $ Gen.maybe (Gen.text (Range.linear 1 32) Gen.alphaNum)
-      let fm = FileMetadata ver V.empty nRows V.empty createdBy
+      let fm = FileMetadata ver V.empty nRows V.empty createdBy Nothing
       readFooter (writeFooter fm) === Right fm
   , testProperty "FileMetadata with random schema elements" $ property $ do
       nFields <- forAll $ Gen.int (Range.linear 0 5)
@@ -400,16 +413,16 @@ propertyRoundtrips = testGroup "Property roundtrips"
           pt <- Gen.maybe (Gen.element [PTBoolean, PTInt32, PTInt64, PTFloat, PTDouble, PTByteArray])
           pure (SchemaElement name rep pt Nothing Nothing Nothing Nothing)
         ) [1..nFields]
-      let fm = FileMetadata 2 (V.fromList fields) 0 V.empty Nothing
+      let fm = FileMetadata 2 (V.fromList fields) 0 V.empty Nothing Nothing
       readFooter (writeFooter fm) === Right fm
   , testProperty "FileMetadata with random row groups" $ property $ do
       nGroups <- forAll $ Gen.int (Range.linear 0 3)
       rgs <- forAll $ traverse (\_ -> do
           nRows <- Gen.int64 (Range.linear 0 100000)
           totalBytes <- Gen.int64 (Range.linear 0 1000000)
-          pure (RowGroup V.empty totalBytes nRows)
+          pure (RowGroup V.empty totalBytes nRows Nothing)
         ) [1..nGroups]
-      let fm = FileMetadata 2 V.empty (sum (map rgNumRows rgs)) (V.fromList rgs) Nothing
+      let fm = FileMetadata 2 V.empty (sum (map rgNumRows rgs)) (V.fromList rgs) Nothing Nothing
       readFooter (writeFooter fm) === Right fm
   ]
 
@@ -679,16 +692,16 @@ pageIndexTests = testGroup "Page index (OffsetIndex / ColumnIndex)"
   , testCase "ColumnChunk carries page-index and bloom offsets" $ do
       let cm = ColumnMetadata PTInt32 (V.singleton Plain)
                  (V.singleton "x") Uncompressed 100 1000 1000 4
-                 Nothing (Just 5000) (Just 256)
+                 Nothing Nothing (Just 5000) (Just 256)
           cc = ColumnChunk Nothing 4 (Just cm)
                  (Just 6000) (Just 80) (Just 6080) (Just 200)
-          rg = RowGroup (V.singleton cc) 1000 100
+          rg = RowGroup (V.singleton cc) 1000 100 Nothing
           fm = FileMetadata 2
                  (V.fromList
                    [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
                    , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
                    ])
-                 100 (V.singleton rg) Nothing
+                 100 (V.singleton rg) Nothing Nothing
       readFooter (writeFooter fm) @?= Right fm
   ]
 

@@ -1,0 +1,245 @@
+{
+   "namespace":"org.apache.hudi.avro.model",
+   "type":"record",
+   "name":"HoodieCommitMetadata",
+   "fields":[
+      {
+         "name":"partitionToWriteStats",
+         "type":["null", {
+            "type":"map",
+            "values":{
+               "type":"array",
+               "items":{
+                  "name":"HoodieWriteStat",
+                  "type":"record",
+                  "fields":[
+                     {
+                        "name":"fileId",
+                        "type":["null","string"],
+                        "default" : null
+                     },
+                     {
+                        "name":"path",
+                        "type":["null","string"],
+                        "default" : null
+                     },
+                     {
+                        "name":"prevCommit",
+                        "type":["null","string"],
+                        "default" : null
+                     },
+                     {
+                        "name":"numWrites",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"numDeletes",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"numUpdateWrites",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"totalWriteBytes",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"totalWriteErrors",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"partitionPath",
+                        "type":["null","string"],
+                        "default" : null
+                     },
+                     {
+                        "name":"totalLogRecords",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"totalLogFiles",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"totalUpdatedRecordsCompacted",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"numInserts",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"totalLogBlocks",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"totalCorruptLogBlock",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"totalRollbackBlocks",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"fileSizeInBytes",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name": "logVersion",
+                        "type": [
+                           "null",
+                           "int"
+                        ],
+                        "default": null
+                     },
+                     {
+                        "name": "logOffset",
+                        "type": [
+                           "null",
+                           "long"
+                        ],
+                        "default": null
+                     },
+                     {
+                        "name": "baseFile",
+                        "type": [
+                           "null",
+                           "string"
+                        ],
+                        "default": null
+                     },
+                     {
+                        "name": "logFiles",
+                        "type": [
+                           "null",
+                           {
+                              "type": "array",
+                              "items": "string",
+                              "default": null
+                           }
+                        ],
+                        "default": null
+                     },
+                     {
+                        "name": "cdcStats",
+                        "type": [
+                           "null",
+                           {
+                              "type": "map",
+                              "values": "long",
+                              "default": null
+                           }
+                        ],
+                        "default": null
+                     },
+                     {
+                        "name":"prevBaseFile",
+                        "type":["null","string"],
+                        "default": null
+                     },
+                     {
+                        "name":"minEventTime",
+                        "type":["null","long"],
+                        "default": null
+                     },
+                     {
+                        "name":"maxEventTime", 
+                        "type":["null","long"],
+                        "default": null
+                     },
+                     {
+                        "name":"runtimeStats",
+                        "type":["null", {
+                           "type": "record",
+                           "name": "HoodieRuntimeStats",
+                           "fields": [
+                              {
+                                 "name": "totalScanTime",
+                                 "type": ["null", "long"],
+                                 "default": null
+                              },
+                              {
+                                 "name": "totalCreateTime",
+                                 "type": ["null", "long"],
+                                 "default": null
+                              },
+                              {
+                                 "name": "totalUpsertTime",
+                                 "type": ["null", "long"],
+                                 "default": null
+                              }
+                           ]
+                        }],
+                        "default": null
+                     },
+                     {
+                        "name":"totalLogFilesCompacted",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"totalLogReadTimeMs",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"totalLogSizeCompacted",
+                        "type":["null","long"],
+                        "default" : null
+                     },
+                     {
+                        "name":"tempPath",
+                        "type":["null","string"],
+                        "default" : null
+                     },
+                     {
+                        "name":"numUpdates",
+                        "type":["null","long"],
+                        "default" : null
+                     }
+                  ]
+               }
+            }
+         }],
+         "default": null
+      },
+      {
+         "name":"compacted",
+         "type":["null", "boolean"],
+         "default": null
+      },
+      {
+         "name":"extraMetadata",
+         "type":["null", {
+            "type":"map",
+            "values":"string",
+            "default": null
+         }],
+         "default": null
+      },
+      {
+         "name":"version",
+         "type":["int", "null"],
+         "default": 1
+      },
+      {
+         "name":"operationType",
+         "type": ["null","string"],
+         "default":null
+      }
+   ]
+}

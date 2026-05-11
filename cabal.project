@@ -20,13 +20,18 @@ packages:
   wireform-orc/
   wireform-arrow/
   wireform-iceberg/
+  wireform-delta/
+  wireform-lance/
+  wireform-hudi/
   wireform-edn/
   wireform-bencode/
   wireform-toml/
   wireform-yaml/
   wireform-csv/
   wireform-ndjson/
+  wireform-fory/
   wireform-grpc/
+  wireform-kafka/
 
 package *
   optimization: 1
@@ -48,3 +53,10 @@ package wireform-arrow
 
 package grpc-spec
   flags: -snappy
+
+-- The Kafka protocol primitives + RecordBatch decoder/encoder live on
+-- the per-record hot path. Build the library at -O2 so SPECIALISE /
+-- INLINE actually fire and the dictionary indirection in the
+-- Serial instances disappears.
+package wireform-kafka
+  optimization: 2

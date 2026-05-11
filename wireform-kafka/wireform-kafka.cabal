@@ -1,0 +1,883 @@
+cabal-version: 3.0
+name: wireform-kafka
+version: 0.1.0.0
+synopsis: Pure-Haskell native Apache Kafka client (wire protocol, producer, consumer, transactions)
+description:
+    Pure-Haskell native client for the Apache Kafka wire protocol.
+    Includes:
+    .
+    * @Kafka.Protocol.*@: hand-tuned wire primitives (varints, compact
+      strings, tagged fields), record-batch framing, hardware-accelerated
+      CRC32C and a complete @Kafka.Protocol.Generated.*@ surface emitted
+      from the upstream JSON message definitions by the
+      @kafka-codegen@ executable.
+    * @Kafka.Network.*@: TCP / TLS / SASL (PLAIN, SCRAM-SHA-256/512).
+    * @Kafka.Compression.*@: gzip, snappy, lz4, zstd record-batch codecs.
+    * @Kafka.Client.*@: high-level Producer / Consumer / AdminClient /
+      Transaction APIs.
+    * "Kafka.Telemetry.OpenTelemetry": semantic-convention instrumentation.
+license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: (c) 2025 Ian Duncan
+category: Network, Database, Streaming
+build-type: Simple
+extra-doc-files:
+    README.md
+    CHANGELOG.md
+    KIP_TRACKING.md
+    INTEGRATION_TESTING.md
+extra-source-files:
+    cbits/crc32c.h
+    cbits/snappy_ffi.h
+    cbits/lz4_ffi.h
+    cbits/wireform_time.h
+    data/message-inventory.json
+    test-data/test-vectors.json
+    test/Network/TLS/server.crt
+    test/Network/TLS/server.key
+    test/Network/TLS/client.crt
+    test/Network/TLS/client.key
+    test/Network/TLS/README.md
+
+flag rocksdb
+    description:
+        Enable the Kafka.Streams.State.KeyValue.RocksDB backend
+        (requires librocksdb at link time).
+    default: False
+    manual: True
+
+source-repository head
+    type: git
+    location: https://github.com/iand675/wireform-
+
+common defaults
+    ghc-options:
+        -Wall
+        -Wcompat
+        -Widentities
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wmissing-export-lists
+        -Wpartial-fields
+        -Wredundant-constraints
+    default-language: GHC2021
+    default-extensions:
+        OverloadedStrings
+        StrictData
+        DerivingStrategies
+        DeriveAnyClass
+        LambdaCase
+
+library
+    import: defaults
+    hs-source-dirs: src
+    include-dirs:
+        cbits
+        cbits/simde
+    install-includes:
+        crc32c.h
+        snappy_ffi.h
+        lz4_ffi.h
+        wireform_time.h
+    c-sources:
+        cbits/crc32c.c
+        cbits/snappy_ffi.c
+        cbits/lz4_ffi.c
+    -- The fast-clock C shim is gated to non-Windows. On Windows
+    -- 'Kafka.Time' falls back to 'Data.Time.Clock.POSIX.getPOSIXTime'
+    -- which itself uses 'GetSystemTimeAsFileTime' (also a fast
+    -- vDSO-style page read; no syscall).
+    if !os(windows)
+      c-sources: cbits/wireform_time.c
+    -- -O3 lets the compiler inline simde_mm_crc32_u* into the CRC32C
+    -- inner loop. -march=native picks up SSE4.2 / ARMv8.1 CRC32 on the
+    -- build host so SIMDe emits the hardware instruction; for portable
+    -- binaries override with cc-options: -msse4.2 or -march=armv8.1-a.
+    cc-options: -O3 -march=native
+    pkgconfig-depends:
+        snappy,
+        liblz4
+    exposed-modules:
+        Kafka
+        Kafka.Client.AdminClient
+        Kafka.Client.AdminExtras
+        Kafka.Client.AdminTimeouts
+        Kafka.Client.ConfigValidation
+        Kafka.Client.ConnectionExtras
+        Kafka.Client.Consumer
+        Kafka.Client.ConsumerExtras
+        Kafka.Client.DeleteRecords
+        Kafka.Client.ConsumerGroupV2
+        Kafka.Client.Filter
+        Kafka.Client.Future
+        Kafka.Client.Group
+        Kafka.Client.MetadataCacheControl
+        Kafka.Client.ProducerExtras
+        Kafka.Client.RackAware
+        Kafka.Client.RebalanceListener
+        Kafka.Client.RecordMetadata
+        Kafka.Client.RetryClassifier
+        Kafka.Client.SerdeContext
+        Kafka.Client.ShareConsumer
+        Kafka.Client.ShareGroupExtras
+        Kafka.Client.StatsEmitter
+        Kafka.Client.TopicId
+        Kafka.Client.Internal.BatchSplitting
+        Kafka.Client.Internal.BatchAccumulator
+        Kafka.Client.Internal.Murmur2
+        Kafka.Client.Internal.ConsumerGroup
+        Kafka.Client.Internal.Heartbeat
+        Kafka.Client.Internal.ProducerSender
+        Kafka.Client.Internal.Request
+        Kafka.Client.Internal.Subscribe
+        Kafka.Client.Internal.TransactionCoordinator
+        Kafka.Client.Metadata
+        Kafka.Client.Mock.Cluster
+        Kafka.Client.Mock.Fault
+        Kafka.Client.Mock.Producer
+        Kafka.Client.Mock.Consumer
+        Kafka.Client.Mock.Admin
+        Kafka.Client.Mock.Idempotent
+        Kafka.Client.Mock.Backoff
+        Kafka.Client.Mock.Telemetry
+        Kafka.Client.Pipeline
+        Kafka.Client.Producer
+        Kafka.Client.ReauthDriver
+        Kafka.Client.Simple
+        Kafka.Client.Transaction
+        Kafka.Compression.Gzip
+        Kafka.Compression.Lz4
+        Kafka.Compression.Snappy
+        Kafka.Compression.Types
+        Kafka.Compression.Zstd
+        Kafka.Network.Auth.AwsMskIam
+        Kafka.Network.Auth.OAuthBearer
+        Kafka.Network.Auth.OAuthOidc
+        Kafka.Network.Bootstrap
+        Kafka.Network.Auth.Plain
+        Kafka.Network.Auth.SASL
+        Kafka.Network.Auth.Scram
+        Kafka.Network.Connection
+        Kafka.Network.TlsOffload
+        Kafka.Network.Transport
+        Kafka.Protocol.ApiVersions
+        Kafka.Protocol.VersionNegotiation
+        Kafka.Protocol.CRC32C
+        Kafka.Protocol.Generated.AddOffsetsToTxnRequest
+        Kafka.Protocol.Generated.AddOffsetsToTxnResponse
+        Kafka.Protocol.Generated.AddPartitionsToTxnRequest
+        Kafka.Protocol.Generated.AddPartitionsToTxnResponse
+        Kafka.Protocol.Generated.AddRaftVoterRequest
+        Kafka.Protocol.Generated.AddRaftVoterResponse
+        Kafka.Protocol.Generated.AllocateProducerIdsRequest
+        Kafka.Protocol.Generated.AllocateProducerIdsResponse
+        Kafka.Protocol.Generated.AlterClientQuotasRequest
+        Kafka.Protocol.Generated.AlterClientQuotasResponse
+        Kafka.Protocol.Generated.AlterConfigsRequest
+        Kafka.Protocol.Generated.AlterConfigsResponse
+        Kafka.Protocol.Generated.AlterPartitionReassignmentsRequest
+        Kafka.Protocol.Generated.AlterPartitionReassignmentsResponse
+        Kafka.Protocol.Generated.AlterPartitionRequest
+        Kafka.Protocol.Generated.AlterPartitionResponse
+        Kafka.Protocol.Generated.AlterReplicaLogDirsRequest
+        Kafka.Protocol.Generated.AlterReplicaLogDirsResponse
+        Kafka.Protocol.Generated.AlterUserScramCredentialsRequest
+        Kafka.Protocol.Generated.AlterUserScramCredentialsResponse
+        Kafka.Protocol.Generated.ApiVersionsRequest
+        Kafka.Protocol.Generated.ApiVersionsResponse
+        Kafka.Protocol.Generated.AssignReplicasToDirsRequest
+        Kafka.Protocol.Generated.AssignReplicasToDirsResponse
+        Kafka.Protocol.Generated.BeginQuorumEpochRequest
+        Kafka.Protocol.Generated.BeginQuorumEpochResponse
+        Kafka.Protocol.Generated.BrokerHeartbeatRequest
+        Kafka.Protocol.Generated.BrokerHeartbeatResponse
+        Kafka.Protocol.Generated.BrokerRegistrationRequest
+        Kafka.Protocol.Generated.BrokerRegistrationResponse
+        Kafka.Protocol.Generated.ConsumerGroupDescribeRequest
+        Kafka.Protocol.Generated.ConsumerGroupDescribeResponse
+        Kafka.Protocol.Generated.ConsumerGroupHeartbeatRequest
+        Kafka.Protocol.Generated.ConsumerGroupHeartbeatResponse
+        Kafka.Protocol.Generated.ConsumerProtocolAssignment
+        Kafka.Protocol.Generated.ConsumerProtocolSubscription
+        Kafka.Protocol.Generated.ControlledShutdownRequest
+        Kafka.Protocol.Generated.ControlledShutdownResponse
+        Kafka.Protocol.Generated.ControllerRegistrationRequest
+        Kafka.Protocol.Generated.ControllerRegistrationResponse
+        Kafka.Protocol.Generated.CreateAclsRequest
+        Kafka.Protocol.Generated.CreateAclsResponse
+        Kafka.Protocol.Generated.CreateDelegationTokenRequest
+        Kafka.Protocol.Generated.CreateDelegationTokenResponse
+        Kafka.Protocol.Generated.CreatePartitionsRequest
+        Kafka.Protocol.Generated.CreatePartitionsResponse
+        Kafka.Protocol.Generated.CreateTopicsRequest
+        Kafka.Protocol.Generated.CreateTopicsResponse
+        Kafka.Protocol.Generated.DefaultPrincipalData
+        Kafka.Protocol.Generated.DeleteAclsRequest
+        Kafka.Protocol.Generated.DeleteAclsResponse
+        Kafka.Protocol.Generated.DeleteGroupsRequest
+        Kafka.Protocol.Generated.DeleteGroupsResponse
+        Kafka.Protocol.Generated.DeleteRecordsRequest
+        Kafka.Protocol.Generated.DeleteRecordsResponse
+        Kafka.Protocol.Generated.DeleteShareGroupStateRequest
+        Kafka.Protocol.Generated.DeleteShareGroupStateResponse
+        Kafka.Protocol.Generated.DeleteTopicsRequest
+        Kafka.Protocol.Generated.DeleteTopicsResponse
+        Kafka.Protocol.Generated.DescribeAclsRequest
+        Kafka.Protocol.Generated.DescribeAclsResponse
+        Kafka.Protocol.Generated.DescribeClientQuotasRequest
+        Kafka.Protocol.Generated.DescribeClientQuotasResponse
+        Kafka.Protocol.Generated.DescribeClusterRequest
+        Kafka.Protocol.Generated.DescribeClusterResponse
+        Kafka.Protocol.Generated.DescribeConfigsRequest
+        Kafka.Protocol.Generated.DescribeConfigsResponse
+        Kafka.Protocol.Generated.DescribeDelegationTokenRequest
+        Kafka.Protocol.Generated.DescribeDelegationTokenResponse
+        Kafka.Protocol.Generated.DescribeGroupsRequest
+        Kafka.Protocol.Generated.DescribeGroupsResponse
+        Kafka.Protocol.Generated.DescribeLogDirsRequest
+        Kafka.Protocol.Generated.DescribeLogDirsResponse
+        Kafka.Protocol.Generated.DescribeProducersRequest
+        Kafka.Protocol.Generated.DescribeProducersResponse
+        Kafka.Protocol.Generated.DescribeQuorumRequest
+        Kafka.Protocol.Generated.DescribeQuorumResponse
+        Kafka.Protocol.Generated.DescribeTopicPartitionsRequest
+        Kafka.Protocol.Generated.DescribeTopicPartitionsResponse
+        Kafka.Protocol.Generated.DescribeTransactionsRequest
+        Kafka.Protocol.Generated.DescribeTransactionsResponse
+        Kafka.Protocol.Generated.DescribeUserScramCredentialsRequest
+        Kafka.Protocol.Generated.DescribeUserScramCredentialsResponse
+        Kafka.Protocol.Generated.ElectLeadersRequest
+        Kafka.Protocol.Generated.ElectLeadersResponse
+        Kafka.Protocol.Generated.EndQuorumEpochRequest
+        Kafka.Protocol.Generated.EndQuorumEpochResponse
+        Kafka.Protocol.Generated.EndTxnMarker
+        Kafka.Protocol.Generated.EndTxnRequest
+        Kafka.Protocol.Generated.EndTxnResponse
+        Kafka.Protocol.Generated.EnvelopeRequest
+        Kafka.Protocol.Generated.EnvelopeResponse
+        Kafka.Protocol.Generated.ExpireDelegationTokenRequest
+        Kafka.Protocol.Generated.ExpireDelegationTokenResponse
+        Kafka.Protocol.Generated.FetchRequest
+        Kafka.Protocol.Generated.FetchResponse
+        Kafka.Protocol.Generated.FetchSnapshotRequest
+        Kafka.Protocol.Generated.FetchSnapshotResponse
+        Kafka.Protocol.Generated.FindCoordinatorRequest
+        Kafka.Protocol.Generated.FindCoordinatorResponse
+        Kafka.Protocol.Generated.GetTelemetrySubscriptionsRequest
+        Kafka.Protocol.Generated.GetTelemetrySubscriptionsResponse
+        Kafka.Protocol.Generated.HeartbeatRequest
+        Kafka.Protocol.Generated.HeartbeatResponse
+        Kafka.Protocol.Generated.IncrementalAlterConfigsRequest
+        Kafka.Protocol.Generated.IncrementalAlterConfigsResponse
+        Kafka.Protocol.Generated.InitializeShareGroupStateRequest
+        Kafka.Protocol.Generated.InitializeShareGroupStateResponse
+        Kafka.Protocol.Generated.InitProducerIdRequest
+        Kafka.Protocol.Generated.InitProducerIdResponse
+        Kafka.Protocol.Generated.JoinGroupRequest
+        Kafka.Protocol.Generated.JoinGroupResponse
+        Kafka.Protocol.Generated.KRaftVersionRecord
+        Kafka.Protocol.Generated.LeaderAndIsrRequest
+        Kafka.Protocol.Generated.LeaderAndIsrResponse
+        Kafka.Protocol.Generated.LeaderChangeMessage
+        Kafka.Protocol.Generated.LeaveGroupRequest
+        Kafka.Protocol.Generated.LeaveGroupResponse
+        Kafka.Protocol.Generated.ListClientMetricsResourcesRequest
+        Kafka.Protocol.Generated.ListClientMetricsResourcesResponse
+        Kafka.Protocol.Generated.ListGroupsRequest
+        Kafka.Protocol.Generated.ListGroupsResponse
+        Kafka.Protocol.Generated.ListOffsetsRequest
+        Kafka.Protocol.Generated.ListOffsetsResponse
+        Kafka.Protocol.Generated.ListPartitionReassignmentsRequest
+        Kafka.Protocol.Generated.ListPartitionReassignmentsResponse
+        Kafka.Protocol.Generated.ListTransactionsRequest
+        Kafka.Protocol.Generated.ListTransactionsResponse
+        Kafka.Protocol.Generated.MetadataRequest
+        Kafka.Protocol.Generated.MetadataResponse
+        Kafka.Protocol.Generated.OffsetCommitRequest
+        Kafka.Protocol.Generated.OffsetCommitResponse
+        Kafka.Protocol.Generated.OffsetDeleteRequest
+        Kafka.Protocol.Generated.OffsetDeleteResponse
+        Kafka.Protocol.Generated.OffsetFetchRequest
+        Kafka.Protocol.Generated.OffsetFetchResponse
+        Kafka.Protocol.Generated.OffsetForLeaderEpochRequest
+        Kafka.Protocol.Generated.OffsetForLeaderEpochResponse
+        Kafka.Protocol.Generated.ProduceRequest
+        Kafka.Protocol.Generated.ProduceResponse
+        Kafka.Protocol.Generated.PushTelemetryRequest
+        Kafka.Protocol.Generated.PushTelemetryResponse
+        Kafka.Protocol.Generated.ReadShareGroupStateRequest
+        Kafka.Protocol.Generated.ReadShareGroupStateResponse
+        Kafka.Protocol.Generated.ReadShareGroupStateSummaryRequest
+        Kafka.Protocol.Generated.ReadShareGroupStateSummaryResponse
+        Kafka.Protocol.Generated.RemoveRaftVoterRequest
+        Kafka.Protocol.Generated.RemoveRaftVoterResponse
+        Kafka.Protocol.Generated.RenewDelegationTokenRequest
+        Kafka.Protocol.Generated.RenewDelegationTokenResponse
+        Kafka.Protocol.Generated.RequestHeader
+        Kafka.Protocol.Generated.ResponseHeader
+        Kafka.Protocol.Generated.SaslAuthenticateRequest
+        Kafka.Protocol.Generated.SaslAuthenticateResponse
+        Kafka.Protocol.Generated.SaslHandshakeRequest
+        Kafka.Protocol.Generated.SaslHandshakeResponse
+        Kafka.Protocol.Generated.ShareAcknowledgeRequest
+        Kafka.Protocol.Generated.ShareAcknowledgeResponse
+        Kafka.Protocol.Generated.ShareFetchRequest
+        Kafka.Protocol.Generated.ShareFetchResponse
+        Kafka.Protocol.Generated.ShareGroupDescribeRequest
+        Kafka.Protocol.Generated.ShareGroupDescribeResponse
+        Kafka.Protocol.Generated.ShareGroupHeartbeatRequest
+        Kafka.Protocol.Generated.ShareGroupHeartbeatResponse
+        Kafka.Protocol.Generated.SnapshotFooterRecord
+        Kafka.Protocol.Generated.SnapshotHeaderRecord
+        Kafka.Protocol.Generated.StopReplicaRequest
+        Kafka.Protocol.Generated.StopReplicaResponse
+        Kafka.Protocol.Generated.SyncGroupRequest
+        Kafka.Protocol.Generated.SyncGroupResponse
+        Kafka.Protocol.Generated.TxnOffsetCommitRequest
+        Kafka.Protocol.Generated.TxnOffsetCommitResponse
+        Kafka.Protocol.Generated.UnregisterBrokerRequest
+        Kafka.Protocol.Generated.UnregisterBrokerResponse
+        Kafka.Protocol.Generated.UpdateFeaturesRequest
+        Kafka.Protocol.Generated.UpdateFeaturesResponse
+        Kafka.Protocol.Generated.UpdateMetadataRequest
+        Kafka.Protocol.Generated.UpdateMetadataResponse
+        Kafka.Protocol.Generated.UpdateRaftVoterRequest
+        Kafka.Protocol.Generated.UpdateRaftVoterResponse
+        Kafka.Protocol.Generated.VoteRequest
+        Kafka.Protocol.Generated.VoteResponse
+        Kafka.Protocol.Generated.VotersRecord
+        Kafka.Protocol.Generated.WriteShareGroupStateRequest
+        Kafka.Protocol.Generated.WriteShareGroupStateResponse
+        Kafka.Protocol.Generated.WriteTxnMarkersRequest
+        Kafka.Protocol.Generated.WriteTxnMarkersResponse
+        Kafka.Protocol.Message
+        Kafka.Protocol.Primitives
+        Kafka.Protocol.RecordBatch
+        Kafka.Protocol.RecordBatchWire
+        Kafka.Protocol.Wire
+        Kafka.Protocol.Wire.Codec
+        Kafka.Protocol.Wire.Primitives
+        Kafka.Protocol.Wire.SliceVector
+        Kafka.Telemetry.Metrics
+        Kafka.Telemetry.OpenTelemetry
+        Kafka.Telemetry.Push
+        Kafka.Telemetry.StatsJson
+        Kafka.Telemetry.TraceContext
+        Kafka.Time
+    build-depends:
+        base                      >= 4.16  && < 5,
+        aeson                     >= 2.0   && < 2.3,
+        async                     >= 2.2   && < 3,
+        atomic-primops            >= 0.8   && < 0.9,
+        base64-bytestring         >= 1.2   && < 1.3,
+        binary                    >= 0.8   && < 0.11,
+        bytestring                >= 0.11  && < 0.13,
+        containers                >= 0.6   && < 0.8,
+        crypton                   >= 1.0   && < 1.1,
+        crypton-connection        >= 0.4   && < 0.5,
+        crypton-x509              >= 1.7   && < 1.8,
+        crypton-x509-store        >= 1.6   && < 1.7,
+        crypton-x509-system       >= 1.6   && < 1.7,
+        crypton-x509-validation   >= 1.6   && < 1.7,
+        data-default-class        >= 0.1   && < 0.3,
+        deepseq                   >= 1.4   && < 1.6,
+        directory                 >= 1.3   && < 1.4,
+        filepath                  >= 1.4   && < 1.6,
+        hashable                  >= 1.3   && < 1.6,
+        hs-opentelemetry-api      >= 0.2   && < 1,
+        list-t                    >= 1.0   && < 1.1,
+        memory                    >= 0.18  && < 0.19,
+        network                   >= 3.1   && < 3.3,
+        prettyprinter             >= 1.7   && < 1.8,
+        random                    >= 1.2   && < 1.4,
+        stm                       >= 2.5   && < 2.6,
+        stm-containers            >= 1.2   && < 1.3,
+        text                      >= 2.0   && < 2.2,
+        time                      >= 1.11  && < 1.13,
+        tls                       >= 1.7   && < 2.2,
+        unagi-chan                >= 0.4   && < 0.5,
+        unordered-containers      >= 0.2   && < 0.3,
+        uuid                      >= 1.3   && < 1.4,
+        vector                    >= 0.13  && < 0.14,
+        zlib                      >= 0.6   && < 0.8,
+        zstd                      >= 0.1   && < 0.2
+
+library wireform-kafka-streams
+    import: defaults
+    visibility: public
+    hs-source-dirs: streams/src
+    exposed-modules:
+        Kafka.Streams
+        Kafka.Streams.Config
+        Kafka.Streams.Errors
+        Kafka.Streams.Time
+        Kafka.Streams.Types
+        Kafka.Streams.Serde
+        Kafka.Streams.Serde.Windowed
+        Kafka.Streams.Window
+        Kafka.Streams.Processor
+        Kafka.Streams.Topology
+        Kafka.Streams.TopologyDescription
+        Kafka.Streams.Metrics
+        Kafka.Streams.Stores
+        Kafka.Streams.Query
+        Kafka.Streams.Mock.Cluster
+        Kafka.Streams.Mock.Fault
+        Kafka.Streams.Mock.Producer
+        Kafka.Streams.Mock.Consumer
+        Kafka.Streams.Mock.StreamsDriver
+        Kafka.Streams.State.Store
+        Kafka.Streams.State.KeyValue.InMemory
+        Kafka.Streams.State.KeyValue.Persistent
+        Kafka.Streams.State.KeyValue.Caching
+        Kafka.Streams.State.KeyValue.Timestamped
+        Kafka.Streams.State.KeyValue.Versioned
+        Kafka.Streams.State.Window.InMemory
+        Kafka.Streams.State.Session.InMemory
+        Kafka.Streams.Internal.RecordCollector
+        Kafka.Streams.Internal.Engine
+        Kafka.Streams.Driver
+        Kafka.Streams.DSL.Materialized
+        Kafka.Streams.DSL.Consumed
+        Kafka.Streams.DSL.Produced
+        Kafka.Streams.DSL.Grouped
+        Kafka.Streams.DSL.Joined
+        Kafka.Streams.DSL.Named
+        Kafka.Streams.DSL.StreamsBuilder
+        Kafka.Streams.DSL.KStream
+        Kafka.Streams.DSL.KTable
+        Kafka.Streams.DSL.KGroupedStream
+        Kafka.Streams.DSL.TimeWindowedKStream
+        Kafka.Streams.DSL.SessionWindowedKStream
+        Kafka.Streams.DSL.GlobalKTable
+        Kafka.Streams.DSL.ForeignKeyJoin
+        Kafka.Streams.DSL.Cogroup
+        Kafka.Streams.DSL.Suppress
+        Kafka.Streams.DSL.DslStoreSuppliers
+        Kafka.Streams.DSL.ForeignKeyJoinV2
+        Kafka.Streams.Runtime
+        Kafka.Streams.Runtime.EOS
+        Kafka.Streams.Runtime.Task
+        Kafka.Streams.Runtime.Standby
+        Kafka.Streams.Runtime.Assignor
+        Kafka.Streams.Runtime.WorkerPool
+        Kafka.Streams.Runtime.ProbingRebalance
+        Kafka.Streams.Runtime.RevocationGrace
+        Kafka.Streams.Runtime.NativeDriver
+        Kafka.Streams.Runtime.MultiInstanceHarness
+        Kafka.Streams.State.Transactional
+        Kafka.Streams.Topology.Optimization
+        Kafka.Streams.Topology.StableNames
+        Kafka.Streams.Serde.Avro
+        Kafka.Streams.Serde.JsonSchema
+        Kafka.Streams.Serde.Protobuf
+        Kafka.Streams.Serde.SchemaRegistry
+        Kafka.Streams.Serde.SchemaRegistry.Http
+        Kafka.Streams.InteractiveQueries
+    build-depends:
+        base                      >= 4.16  && < 5,
+        aeson                     >= 2.0   && < 2.3,
+        async                     >= 2.2   && < 3,
+        bytestring                >= 0.11  && < 0.13,
+        containers                >= 0.6   && < 0.8,
+        deepseq                   >= 1.4   && < 1.6,
+        directory                 >= 1.3   && < 1.4,
+        filepath                  >= 1.4   && < 1.6,
+        hashable                  >= 1.3   && < 1.6,
+        list-t                    >= 1.0   && < 1.1,
+        stm                       >= 2.5   && < 2.6,
+        stm-containers            >= 1.2   && < 1.3,
+        text                      >= 2.0   && < 2.2,
+        time                      >= 1.11  && < 1.13,
+        unordered-containers      >= 0.2   && < 0.3,
+        uuid                      >= 1.3   && < 1.4,
+        vector                    >= 0.13  && < 0.14,
+        wireform-kafka
+    if flag(rocksdb)
+        exposed-modules: Kafka.Streams.State.KeyValue.RocksDB
+        build-depends:   rocksdb-haskell-kadena >= 1.1 && < 2
+
+test-suite wireform-kafka-streams-test
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: streams/test
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    if flag(rocksdb)
+        other-modules: Streams.RocksDBSpec
+        build-depends:
+            rocksdb-haskell-kadena >= 1.1 && < 2
+        cpp-options: -DENABLE_ROCKSDB
+    other-modules:
+        Streams.SerdeSpec
+        Streams.TimeSpec
+        Streams.StateStoreSpec
+        Streams.WindowSpec
+        Streams.TopologySpec
+        Streams.DriverSpec
+        Streams.DSLSpec
+        Streams.PunctuatorSpec
+        Streams.PersistentStoreSpec
+        Streams.JoinSpec
+        Streams.AggregationSpec
+        Streams.InteractiveQueriesSpec
+        Streams.CacheSpec
+        Streams.EOSSpec
+        Streams.MultiTaskSpec
+        Streams.StandbySpec
+        Streams.AssignorSpec
+        Streams.StreamConvSpec
+        Streams.CogroupSpec
+        Streams.SuppressSpec
+        Streams.TimestampedSpec
+        Streams.VersionedSpec
+        Streams.TopologyDescriptionSpec
+        Streams.MetricsSpec
+        Streams.NamedSpec
+        Streams.WorkerPoolSpec
+        Streams.EOSRuntimeSpec
+        Streams.ExtensionsSpec
+        Streams.TestUtilsSpec
+        Streams.StateListenerSpec
+        Streams.QuerySpec
+        Streams.ParityBatchSpec
+        Streams.MoreParitySpec
+        Streams.EndToEndChainSpec
+        Streams.MorePartiyTwoSpec
+        Streams.MoreParityThreeSpec
+        Streams.MockClusterSpec
+        Streams.MockFailureModesSpec
+        Streams.MockAdvancedSpec
+        Streams.MockDriverModesSpec
+        Streams.ProbingRebalanceSpec
+        Streams.RevocationGraceSpec
+        Streams.StableNamesSpec
+        Streams.TopologyOptimizationSpec
+        Streams.SchemaRegistrySerdeSpec
+        Streams.TransactionalStoreSpec
+        Streams.StreamsConfigSurfaceSpec
+        Streams.ForeignKeyJoinV2Spec
+        Streams.MultiInstanceHarnessSpec
+        Streams.SchemaRegistryHttpSpec
+        Streams.SchemaRegistryFormatsSpec
+    build-depends:
+        base,
+        wireform-kafka:wireform-kafka-streams,
+        wireform-kafka,
+        async                     >= 2.2   && < 3,
+        bytestring,
+        containers,
+        directory,
+        filepath,
+        hedgehog                  >= 1.2   && < 2,
+        stm,
+        tasty                     >= 1.4   && < 1.6,
+        tasty-hedgehog            >= 1.4   && < 1.5,
+        tasty-hunit               >= 0.10  && < 0.11,
+        temporary                 >= 1.3   && < 1.4,
+        text,
+        time,
+        unordered-containers      >= 0.2   && < 0.3,
+        uuid                      >= 1.3   && < 1.4,
+        vector                    >= 0.13  && < 0.14
+
+test-suite wireform-kafka-streams-integration
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: streams/test-integration
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    other-modules:
+        Streams.Integration.RoundTrip
+    -- Skipped at run time unless WIREFORM_KAFKA_BROKER=host:port is set.
+    build-depends:
+        base,
+        wireform-kafka:wireform-kafka-streams,
+        wireform-kafka,
+        bytestring,
+        tasty                     >= 1.4   && < 1.6,
+        tasty-hunit               >= 0.10  && < 0.11,
+        text
+
+library wireform-kafka-codegen
+    import: defaults
+    visibility: public
+    hs-source-dirs: codegen
+    exposed-modules:
+        Kafka.Protocol.Codegen.Parser
+        Kafka.Protocol.Codegen.Types
+        Kafka.Protocol.Codegen.Generator
+        Kafka.Protocol.Codegen.WireGenerator
+    build-depends:
+        base                      >= 4.16  && < 5,
+        aeson                     >= 2.0   && < 2.3,
+        bytestring                >= 0.11  && < 0.13,
+        containers                >= 0.6   && < 0.8,
+        directory                 >= 1.3   && < 1.4,
+        filepath                  >= 1.4   && < 1.6,
+        prettyprinter             >= 1.7   && < 1.8,
+        scientific                >= 0.3   && < 0.4,
+        text                      >= 2.0   && < 2.2
+
+executable wireform-kafka-perf
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: bench/perf-tool
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -O2
+    build-depends:
+        base,
+        wireform-kafka,
+        bytestring,
+        text,
+        time
+
+executable gen-test-vectors
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: test-data/gen-test-vectors
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    build-depends:
+        base,
+        wireform-kafka,
+        aeson,
+        aeson-pretty             >= 0.8   && < 0.9,
+        bytestring,
+        memory                   >= 0.18  && < 0.19,
+        text,
+        vector
+
+executable kafka-codegen-emit-snapshot
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: codegen-emit-snapshot
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    build-depends:
+        base,
+        wireform-kafka:wireform-kafka-codegen,
+        prettyprinter             >= 1.7   && < 1.8,
+        text                      >= 2.0   && < 2.2
+
+executable kafka-codegen
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: codegen-exe
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    build-depends:
+        base,
+        wireform-kafka:wireform-kafka-codegen,
+        directory                 >= 1.3   && < 1.4,
+        filepath                  >= 1.4   && < 1.6,
+        prettyprinter             >= 1.7   && < 1.8,
+        text                      >= 2.0   && < 2.2
+
+test-suite wireform-kafka-test
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    other-modules:
+        Client.AdminClientSpec
+        Client.BatchAccumulatorSpec
+        Client.ConsumerConfigSpec
+        Client.GroupSpec
+        Client.MetadataSpec
+        Client.PartitionerSpec
+        Client.ProducerConsumerLifecycleSpec
+        Client.ProducerTimeoutSpec
+        Client.TransactionCoordinatorSpec
+        Client.TransactionSpec
+        Client.ProducerTransactionWiringSpec
+        Client.InterceptorSpec
+        Client.MetadataLeaderUpdateSpec
+        Client.MetricsRegistrySpec
+        Client.Murmur2Spec
+        Client.StatsJsonSpec
+        Client.ConsumerGroupV2Spec
+        Client.ShareConsumerSpec
+        Client.TelemetryPushSpec
+        Client.TraceContextSpec
+        Client.RecordMetadataSpec
+        Client.FilterSpec
+        Client.FutureSpec
+        Client.TopicIdSpec
+        Client.RebalanceListenerSpec
+        Client.AdminTimeoutsSpec
+        Client.RetryClassifierSpec
+        Client.BatchSplittingSpec
+        Client.ResponseFrameSpec
+        Network.OAuthOidcSpec
+        Network.BootstrapSpec
+        Client.ConsumerExtrasSpec
+        Client.MetadataCacheControlSpec
+        Client.RackAwareSpec
+        Client.ProducerExtrasSpec
+        Client.ConnectionExtrasSpec
+        Client.AdminExtrasSpec
+        Client.SerdeContextSpec
+        Client.ShareGroupExtrasSpec
+        Client.MockBrokerSpec
+        Client.MockBrokerFailureModesSpec
+        Client.MockBrokerAdvancedSpec
+        Client.MockBrokerExtSpec
+        Client.MockBrokerIdempotentSpec
+        Client.MockBrokerAdminSpec
+        Client.MockBrokerCoopSpec
+        Client.MockBrokerNetSpec
+        Client.MockBrokerStoreSpec
+        Client.MockBrokerProtoSpec
+        Client.ConfigParitySpec
+        Client.ConfigValidationSpec
+        Client.HeartbeatRejoinSpec
+        Codegen.WireGeneratorSpec
+        Client.ProducerRetrySpec
+        Client.PipelineSpec
+        Client.SubscribeSpec
+        Network.ConnectionLivenessSpec
+        Network.AuthSpec
+        Network.ConnectionRetrySpec
+        Network.TlsHandshakeSpec
+        Network.TlsOffloadSpec
+        Network.TransportSpec
+        Network.SaslReauthSpec
+        Network.ReauthDriverSpec
+        Protocol.ApiVersionsSpec
+        Protocol.CompressionSpec
+        Protocol.CRC32CSpec
+        Protocol.Generated.ComprehensiveSpec
+        Protocol.Generated.KnownGoodSpec
+        Protocol.Generated.SimpleRoundTripSpec
+        Protocol.PrimitivesSpec
+        Protocol.RecordBatchAttributesSpec
+        Protocol.WireCodecParitySpec
+        Protocol.RecordBatchSpec
+        Protocol.RoundTripSpec
+        Protocol.VersionHandlingSpec
+        Protocol.WireSpec
+        Protocol.RecordBatchWireSpec
+        Protocol.SliceVectorSpec
+        Protocol.VersionNegotiationSpec
+        TestUtil.BrokerGate
+    build-depends:
+        base,
+        wireform-kafka,
+        wireform-kafka:wireform-kafka-codegen,
+        prettyprinter             >= 1.7   && < 1.8,
+        aeson,
+        async,
+        base64-bytestring,
+        binary,
+        bytestring,
+        containers,
+        directory                 >= 1.3   && < 1.4,
+        filepath                  >= 1.4   && < 1.6,
+        memory                    >= 0.18  && < 0.19,
+        time                      >= 1.11  && < 1.13,
+        hedgehog                  >= 1.2   && < 2,
+        binary,
+        crypton-connection,
+        crypton-x509,
+        crypton-x509-store,
+        data-default-class,
+        hashable,
+        network                   >= 3.1   && < 3.3,
+        tls,
+        random,
+        stm,
+        tasty                     >= 1.4   && < 1.6,
+        tasty-hedgehog            >= 1.4   && < 1.5,
+        tasty-hunit               >= 0.10  && < 0.11,
+        text,
+        time,
+        unordered-containers,
+        uuid,
+        vector
+
+test-suite wireform-kafka-conformance
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test-conformance
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    other-modules:
+        Conformance.T0000.Unittests
+        Conformance.T0004.Conf
+        Conformance.T0006.Symbols
+        Conformance.T0017.Compression
+        Conformance.T0043.NoConnection
+        Conformance.T0072.Headers
+        Conformance.T0080.AdminUt
+        Conformance.T0086.PurgeLocal
+        Conformance.T0095.AllBrokersDown
+        Conformance.T0103.TransactionsLocal
+        Conformance.T0142.Reauthentication
+        Conformance.T0144.IdempotenceMock
+    build-depends:
+        base,
+        wireform-kafka,
+        bytestring,
+        containers,
+        stm,
+        tasty                     >= 1.4   && < 1.6,
+        tasty-hunit               >= 0.10  && < 0.11,
+        text,
+        time,
+        unordered-containers      >= 0.2   && < 0.3
+
+test-suite wireform-kafka-integration
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test-integration
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    other-modules:
+        Integration.AdminClientExtendedSpec
+        Integration.BasicSpec
+        Integration.ConsumerOffsetsSpec
+        Integration.TransactionalSpec
+    -- Skipped at run time unless WIREFORM_KAFKA_BROKER=host:port is set.
+    build-depends:
+        base,
+        wireform-kafka,
+        bytestring,
+        containers,
+        tasty                     >= 1.4   && < 1.6,
+        tasty-hunit               >= 0.10  && < 0.11,
+        text,
+        time                      >= 1.11  && < 1.13,
+        unordered-containers      >= 0.2   && < 0.3
+
+benchmark wireform-kafka-bench
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: bench
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -O2
+    other-modules:
+        Benchmarks.ClientOps
+        Benchmarks.CRC32C
+        Benchmarks.Serialization
+        Benchmarks.StatsAndStamping
+        Benchmarks.HotPath
+        Benchmarks.HwKafkaComparison
+        Benchmarks.Util
+    build-depends:
+        base,
+        wireform-kafka,
+        async,
+        binary,
+        bytestring,
+        containers,
+        criterion                 >= 1.5   && < 1.7,
+        deepseq,
+        directory,
+        filepath,
+        process,
+        random,
+        stm,
+        text,
+        time,
+        vector,
+        hw-kafka-client

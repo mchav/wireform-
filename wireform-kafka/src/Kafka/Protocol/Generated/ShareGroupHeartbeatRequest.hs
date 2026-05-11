@@ -1,0 +1,147 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StrictData #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
+
+{-|
+Module      : Kafka.Protocol.Generated.ShareGroupHeartbeatRequest
+Description : Kafka ShareGroupHeartbeatRequest message
+Copyright   : (c) 2025
+License     : BSD-3-Clause
+
+Kafka request for API key 76.
+
+
+
+Valid versions: 0
+Flexible versions: 0+
+
+This code is auto-generated from Kafka protocol definitions.
+-}
+
+module Kafka.Protocol.Generated.ShareGroupHeartbeatRequest
+  (
+    ShareGroupHeartbeatRequest(..),
+    maxShareGroupHeartbeatRequestVersion
+  ) where
+
+import Data.Int (Int8, Int16, Int32, Int64)
+import Data.Word (Word16, Word32)
+import GHC.Generics (Generic)
+import qualified Data.Vector as V
+import qualified Data.ByteString as BS
+import qualified Kafka.Protocol.Primitives as P
+import Kafka.Protocol.Primitives
+  ( KafkaString, KafkaBytes, KafkaArray, KafkaUuid
+  , Nullable(..)
+  )
+import Kafka.Protocol.Message (KafkaMessage(..))
+import qualified Kafka.Protocol.Wire.Codec as WC
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
+import qualified Data.ByteString
+import qualified Data.Int
+import qualified Data.Map.Strict
+import qualified Data.Word
+import qualified Kafka.Protocol.Wire as W
+import qualified Kafka.Protocol.Wire.Primitives as WP
+
+
+
+
+data ShareGroupHeartbeatRequest = ShareGroupHeartbeatRequest
+  {
+
+  -- | The group identifier.
+
+  -- Versions: 0+
+  shareGroupHeartbeatRequestGroupId :: !(KafkaString)
+,
+
+  -- | The member id.
+
+  -- Versions: 0+
+  shareGroupHeartbeatRequestMemberId :: !(KafkaString)
+,
+
+  -- | The current member epoch; 0 to join the group; -1 to leave the group.
+
+  -- Versions: 0+
+  shareGroupHeartbeatRequestMemberEpoch :: !(Int32)
+,
+
+  -- | null if not provided or if it didn't change since the last heartbeat; the rack ID of consumer otherw
+
+  -- Versions: 0+
+  shareGroupHeartbeatRequestRackId :: !(KafkaString)
+,
+
+  -- | null if it didn't change since the last heartbeat; the subscribed topic names otherwise.
+
+  -- Versions: 0+
+  shareGroupHeartbeatRequestSubscribedTopicNames :: !(KafkaArray (KafkaString))
+
+  }
+  deriving (Eq, Show, Generic)
+
+-- | Maximum supported version for ShareGroupHeartbeatRequest.
+maxShareGroupHeartbeatRequestVersion :: Int16
+maxShareGroupHeartbeatRequestVersion = 0
+
+-- | KafkaMessage instance for ShareGroupHeartbeatRequest.
+instance KafkaMessage ShareGroupHeartbeatRequest where
+  messageApiKey = 76
+  messageMinVersion = 0
+  messageMaxVersion = 0
+  messageFlexibleVersion = Just 0
+
+
+-- | Worst-case wire size of a ShareGroupHeartbeatRequest.
+wireMaxSizeShareGroupHeartbeatRequest :: Int -> ShareGroupHeartbeatRequest -> Int
+wireMaxSizeShareGroupHeartbeatRequest _version msg =
+  0
+  + WP.dualStringMaxSize (shareGroupHeartbeatRequestGroupId msg)
+  + WP.dualStringMaxSize (shareGroupHeartbeatRequestMemberId msg)
+  + 4
+  + WP.dualStringMaxSize (shareGroupHeartbeatRequestRackId msg)
+  + (5 + (case P.unKafkaArray (shareGroupHeartbeatRequestSubscribedTopicNames msg) of { P.NotNull v -> sum (fmap (\x -> WP.compactStringMaxSize (P.toCompactString x) ) v); P.Null -> 0 }))
+  + 1
+
+-- | Direct-poke encoder for ShareGroupHeartbeatRequest.
+wirePokeShareGroupHeartbeatRequest :: Int -> Ptr Word8 -> ShareGroupHeartbeatRequest -> IO (Ptr Word8)
+wirePokeShareGroupHeartbeatRequest version basePtr msg
+  | version == 0 = do
+    p0 <- pure basePtr
+    p1 <- (if version >= 0 then WP.pokeCompactString p0 (P.toCompactString (shareGroupHeartbeatRequestGroupId msg)) else WP.pokeKafkaString p0 (shareGroupHeartbeatRequestGroupId msg))
+    p2 <- (if version >= 0 then WP.pokeCompactString p1 (P.toCompactString (shareGroupHeartbeatRequestMemberId msg)) else WP.pokeKafkaString p1 (shareGroupHeartbeatRequestMemberId msg))
+    p3 <- W.pokeInt32BE p2 (shareGroupHeartbeatRequestMemberEpoch msg)
+    p4 <- (if version >= 0 then WP.pokeCompactString p3 (P.toCompactString (shareGroupHeartbeatRequestRackId msg)) else WP.pokeKafkaString p3 (shareGroupHeartbeatRequestRackId msg))
+    p5 <- WP.pokeVersionedNullableArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p4 (shareGroupHeartbeatRequestSubscribedTopicNames msg)
+    WP.pokeEmptyTaggedFields p5
+  | otherwise = error $ "wirePoke ShareGroupHeartbeatRequest : unsupported version: " ++ show version
+
+-- | Direct-poke decoder for ShareGroupHeartbeatRequest.
+wirePeekShareGroupHeartbeatRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ShareGroupHeartbeatRequest, Ptr Word8)
+wirePeekShareGroupHeartbeatRequest version _fp _basePtr p0 endPtr
+  | version == 0 = do
+    (f0_groupid, p1) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+    (f1_memberid, p2) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p1 endPtr else WP.peekKafkaString p1 endPtr)
+    (f2_memberepoch, p3) <- W.peekInt32BE p2 endPtr
+    (f3_rackid, p4) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p3 endPtr else WP.peekKafkaString p3 endPtr)
+    (f4_subscribedtopicnames, p5) <- WP.peekVersionedNullableArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p4 endPtr
+    pTagsEnd <- WP.peekAndSkipTaggedFields p5 endPtr
+    pure (ShareGroupHeartbeatRequest { shareGroupHeartbeatRequestGroupId = f0_groupid, shareGroupHeartbeatRequestMemberId = f1_memberid, shareGroupHeartbeatRequestMemberEpoch = f2_memberepoch, shareGroupHeartbeatRequestRackId = f3_rackid, shareGroupHeartbeatRequestSubscribedTopicNames = f4_subscribedtopicnames }, pTagsEnd)
+  | otherwise = error $ "wirePeek ShareGroupHeartbeatRequest : unsupported version: " ++ show version
+
+
+-- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
+-- 'WC.runDecodeVer' dispatch into the direct-poke functions
+-- generated above.
+instance WC.WireCodec ShareGroupHeartbeatRequest where
+  wireCodec = WC.WireCodecImpl
+    { WC.wireMaxSizeFor = \v msg -> wireMaxSizeShareGroupHeartbeatRequest (fromIntegral v) msg
+    , WC.wirePokeFor    = \v p msg -> wirePokeShareGroupHeartbeatRequest (fromIntegral v) p msg
+    , WC.wirePeekFor    = \v fp basePtr p endPtr ->
+        wirePeekShareGroupHeartbeatRequest (fromIntegral v) fp basePtr p endPtr
+    }
+  {-# INLINE wireCodec #-}

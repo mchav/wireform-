@@ -7,6 +7,8 @@ module Parquet.Types
   ( FileMetadata(..)
   , SchemaElement(..)
   , RowGroup(..)
+  , SortingColumn(..)
+  , ColumnOrder(..)
   , ColumnChunk(..)
   , ColumnMetadata(..)
   , ParquetType(..)
@@ -15,6 +17,7 @@ module Parquet.Types
   , Compression(..)
   , ConvertedType(..)
   , LogicalType(..)
+  , LtTimeUnit(..)
   , Statistics(..)
   , PageLocation(..)
   , OffsetIndex(..)
@@ -123,20 +126,53 @@ data ConvertedType
   deriving stock (Show, Eq, Enum, Bounded, Generic)
   deriving anyclass (NFData)
 
+-- | LogicalType time/timestamp unit (parquet.thrift @TimeUnit@).
+data LtTimeUnit = LtMillis | LtMicros | LtNanos
+  deriving stock (Show, Eq, Enum, Bounded, Generic)
+  deriving anyclass (NFData)
+
+-- | Modern Parquet logical-type annotation. Mirrors the
+-- @LogicalType@ union in @parquet.thrift@. Each constructor
+-- corresponds to a single field of the union.
+--
+-- This ADT is the modern annotation slot ('seLogicalType');
+-- 'ConvertedType' is the legacy slot kept around for older
+-- readers. Writers should populate /both/ slots when possible.
 data LogicalType
   = LTString
   | LTMap
   | LTList
   | LTEnum
   | LTDecimal !Int32 !Int32
+    -- ^ @(precision, scale)@.
   | LTDate
-  | LTTime !Bool !Bool
-  | LTTimestamp !Bool !Bool
-  | LTInteger !Int32 !Bool
+  | LTTime
+      !Bool       -- ^ @isAdjustedToUTC@
+      !LtTimeUnit -- ^ unit (millis / micros / nanos)
+  | LTTimestamp
+      !Bool       -- ^ @isAdjustedToUTC@
+      !LtTimeUnit -- ^ unit
+  | LTInteger
+      !Int32      -- ^ bit width (8, 16, 32, 64)
+      !Bool       -- ^ is signed
   | LTNull
   | LTJson
   | LTBson
   | LTUUID
+  | LTFloat16
+    -- ^ Parquet IEEE 754 half-precision; physical type is
+    -- @FIXED_LEN_BYTE_ARRAY(2)@.
+  | LTGeometry
+    -- ^ Parquet geospatial geometry (parquet-format 2.11+);
+    -- physical type is @BYTE_ARRAY@ holding WKB.
+  | LTGeography
+    -- ^ Parquet geospatial geography (parquet-format 2.11+);
+    -- physical type is @BYTE_ARRAY@ holding WKB.
+  | LTVariant !Int32
+    -- ^ Parquet 'Variant' (semi-structured) annotation. The
+    -- payload column is itself a struct of (metadata, value)
+    -- BYTE_ARRAY columns; the carried Int32 is the
+    -- @specification_version@ field.
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 
@@ -165,6 +201,13 @@ data ColumnMetadata = ColumnMetadata
   , cmTotalUncompressedSize :: !Int64
   , cmTotalCompressedSize   :: !Int64
   , cmDataPageOffset        :: !Int64
+  -- | Byte offset of the (optional) dictionary page (parquet.thrift
+  -- field 10). When present this is /before/ 'cmDataPageOffset' and
+  -- callers reading raw column-chunk bytes must start their slice
+  -- here, not at 'cmDataPageOffset'. Modern writers (pyarrow, polars,
+  -- duckdb) always populate this when the column uses dictionary
+  -- encoding.
+  , cmDictionaryPageOffset  :: !(Maybe Int64)
   , cmStatistics            :: !(Maybe Statistics)
   -- | Byte offset from beginning of file to the bloom filter for this
   -- column chunk, if a bloom filter is written. Field 14.
@@ -192,12 +235,41 @@ data ColumnChunk = ColumnChunk
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
+-- | One entry of @RowGroup.sorting_columns@. Tells readers
+-- (DuckDB, Trino, parquet-mr) which leaf columns the row
+-- group is sorted on so they can skip ORDER BY scans.
+data SortingColumn = SortingColumn
+  { scColumnIdx  :: !Int32
+    -- ^ Leaf-column index in the row group (0-based, parallel
+    -- to @rgColumns@).
+  , scDescending :: !Bool
+    -- ^ Sort direction. @False@ = ascending.
+  , scNullsFirst :: !Bool
+    -- ^ Whether nulls sort before non-nulls.
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
 data RowGroup = RowGroup
   { rgColumns       :: !(Vector ColumnChunk)
   , rgTotalByteSize :: !Int64
   , rgNumRows       :: !Int64
+  , rgSortingColumns :: !(Maybe (Vector SortingColumn))
+    -- ^ Per-row-group sort metadata. 'Nothing' for unsorted
+    -- row groups (the common case); populated by writers that
+    -- want to advertise an ordering. Readers use this to skip
+    -- an ORDER BY when scanning a sorted file.
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
+
+-- | Per-leaf-column ordering rule. parquet-format defines this
+-- as a union with a single variant 'TypeDefinedOrder' meaning
+-- \"use the type's natural ordering\". Without it, statistics
+-- on BYTE_ARRAY columns can be reported but readers may refuse
+-- to use them for pushdown.
+data ColumnOrder
+  = TypeDefinedOrder
+  deriving stock (Show, Eq, Enum, Bounded, Generic)
+  deriving anyclass (NFData)
 
 data FileMetadata = FileMetadata
   { fmVersion   :: !Int32
@@ -205,6 +277,11 @@ data FileMetadata = FileMetadata
   , fmNumRows   :: !Int64
   , fmRowGroups :: !(Vector RowGroup)
   , fmCreatedBy :: !(Maybe Text)
+  , fmColumnOrders :: !(Maybe (Vector ColumnOrder))
+    -- ^ Per-leaf-column ordering rules (parquet-format field 7).
+    -- Length must match the leaf-column count when populated.
+    -- 'Nothing' means readers fall back to legacy ordering;
+    -- modern writers always emit this.
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
