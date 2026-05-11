@@ -114,6 +114,95 @@ reproduce the curve exactly because there's no PRNG.
 | `retryBackoffMultiplier`         | (internal)                 | 2.0                         |
 | `retryBackoffJitter`             | (internal)                 | 0.2 (deterministic)         |
 
+## Environment-variable overrides
+
+The `Kafka.Client.Env` module lets a running process pick up the
+standard `KAFKA_*` environment variables that the broader Kafka
+ecosystem (Confluent's Docker images, `kcat`, the various
+librdkafka-based language bindings, the JVM client when launched
+from the `kafka-console-*` scripts, …) has converged on.
+
+The convention is: take the librdkafka / JVM `CONFIGURATION.md`
+property name, uppercase it, replace each `.` with `_`, and prefix
+with `KAFKA_`:
+
+| librdkafka                             | Env var                                          |
+|----------------------------------------|--------------------------------------------------|
+| `bootstrap.servers`                    | `KAFKA_BOOTSTRAP_SERVERS`                        |
+| `client.id`                            | `KAFKA_CLIENT_ID`                                |
+| `security.protocol`                    | `KAFKA_SECURITY_PROTOCOL`                        |
+| `sasl.mechanism`                       | `KAFKA_SASL_MECHANISM`                           |
+| `sasl.username` / `sasl.password`      | `KAFKA_SASL_USERNAME` / `KAFKA_SASL_PASSWORD`    |
+| (JVM-style alias)                      | `KAFKA_SASL_PLAIN_USERNAME` / `_PASSWORD`        |
+| `request.timeout.ms`                   | `KAFKA_REQUEST_TIMEOUT_MS`                       |
+| `socket.timeout.ms`                    | `KAFKA_SOCKET_TIMEOUT_MS`                        |
+| `socket.keepalive.enable`              | `KAFKA_SOCKET_KEEPALIVE_ENABLE`                  |
+| `reconnect.backoff.ms`                 | `KAFKA_RECONNECT_BACKOFF_MS`                     |
+| `reconnect.backoff.max.ms`             | `KAFKA_RECONNECT_BACKOFF_MAX_MS`                 |
+| `connections.max.idle.ms`              | `KAFKA_CONNECTIONS_MAX_IDLE_MS`                  |
+| `message.max.bytes`                    | `KAFKA_MESSAGE_MAX_BYTES`                        |
+| `receive.message.max.bytes`            | `KAFKA_RECEIVE_MESSAGE_MAX_BYTES`                |
+| `broker.address.family`                | `KAFKA_BROKER_ADDRESS_FAMILY`                    |
+| `client.dns.lookup`                    | `KAFKA_CLIENT_DNS_LOOKUP`                        |
+| `acks`                                 | `KAFKA_ACKS`                                     |
+| `compression.type` / `level`           | `KAFKA_COMPRESSION_TYPE` / `KAFKA_COMPRESSION_LEVEL` |
+| `batch.size`                           | `KAFKA_BATCH_SIZE`                               |
+| `linger.ms`                            | `KAFKA_LINGER_MS`                                |
+| `max.in.flight.requests.per.connection`| `KAFKA_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION`    |
+| `retries` / `retry.backoff.{ms,max.ms}`| `KAFKA_RETRIES` / `KAFKA_RETRY_BACKOFF_{MS,MAX_MS}` |
+| `delivery.timeout.ms`                  | `KAFKA_DELIVERY_TIMEOUT_MS`                      |
+| `max.request.size`                     | `KAFKA_MAX_REQUEST_SIZE`                         |
+| `enable.idempotence`                   | `KAFKA_ENABLE_IDEMPOTENCE`                       |
+| `transactional.id`                     | `KAFKA_TRANSACTIONAL_ID`                         |
+| `transaction.timeout.ms`               | `KAFKA_TRANSACTION_TIMEOUT_MS`                   |
+| `group.id` / `group.instance.id`       | `KAFKA_GROUP_ID` / `KAFKA_GROUP_INSTANCE_ID`     |
+| `enable.auto.commit`                   | `KAFKA_ENABLE_AUTO_COMMIT`                       |
+| `auto.commit.interval.ms`              | `KAFKA_AUTO_COMMIT_INTERVAL_MS`                  |
+| `auto.offset.reset`                    | `KAFKA_AUTO_OFFSET_RESET`                        |
+| `session.timeout.ms`                   | `KAFKA_SESSION_TIMEOUT_MS`                       |
+| `heartbeat.interval.ms`                | `KAFKA_HEARTBEAT_INTERVAL_MS`                    |
+| `max.poll.records`                     | `KAFKA_MAX_POLL_RECORDS`                         |
+| `max.poll.interval.ms`                 | `KAFKA_MAX_POLL_INTERVAL_MS`                     |
+| `isolation.level`                      | `KAFKA_ISOLATION_LEVEL`                          |
+| `fetch.min.bytes` / `max.bytes`        | `KAFKA_FETCH_MIN_BYTES` / `KAFKA_FETCH_MAX_BYTES` |
+| `fetch.wait.max.ms`                    | `KAFKA_FETCH_MAX_WAIT_MS` (also `KAFKA_FETCH_WAIT_MAX_MS`) |
+| `max.partition.fetch.bytes`            | `KAFKA_MAX_PARTITION_FETCH_BYTES`                |
+| `client.rack`                          | `KAFKA_CLIENT_RACK`                              |
+| `partition.assignment.strategy`        | `KAFKA_PARTITION_ASSIGNMENT_STRATEGY`            |
+| `check.crcs`                           | `KAFKA_CHECK_CRCS`                               |
+
+To pick up the env vars, overlay them onto your existing config:
+
+```haskell
+import qualified Kafka.Client.Env as Env
+
+main = do
+  Right pc <- Env.producerConfigFromEnv Prod.defaultProducerConfig
+  Right cc <- Env.consumerConfigFromEnv Cons.defaultConsumerConfig
+  brokers  <- maybe (pure ["localhost:9092"]) pure =<< Env.bootstrapServersFromEnv
+  ...
+```
+
+`Env.parseKafkaEnvList` exposes the same logic against an
+explicit `[(Text, Text)]` table for testing or for callers that
+sniff the environment in a non-standard way.
+
+Notes on the credential mechanisms:
+
+* `KAFKA_SECURITY_PROTOCOL=SASL_PLAINTEXT` or `SASL_SSL` combined
+  with `KAFKA_SASL_MECHANISM=PLAIN` / `SCRAM-SHA-256` /
+  `SCRAM-SHA-512` plus `KAFKA_SASL_USERNAME` /
+  `KAFKA_SASL_PASSWORD` constructs a `Conn.connSasl` for you.
+* `OAUTHBEARER`, `AWS_MSK_IAM`, and `GSSAPI` need callbacks or
+  out-of-band credentials, so we reject those env-var combos
+  with a clear error and ask the caller to populate
+  `Conn.connSasl` programmatically.
+* When `KAFKA_SECURITY_PROTOCOL` requests TLS and the caller has
+  not pre-populated `Conn.connTlsSettings`, the loader installs
+  `Conn.defaultTlsSettings` keyed off the first
+  `KAFKA_BOOTSTRAP_SERVERS` host so SNI / hostname verification
+  has the right name to check.
+
 ## What's deliberately not exposed
 
 These librdkafka knobs target wire/protocol behaviour we don't
