@@ -40,6 +40,7 @@ module Kafka.Streams.Runtime.NativeDriver
   , newMockDriver
   , mockDriverInjectPoll
   , mockDriverInjectRebalance
+  , mockDriverProbeRequests
   , mockDriverDrainSends
   , mockDriverTxnLog
   , mockDriverCommittedOffsets
@@ -127,6 +128,15 @@ data StreamDriver = StreamDriver
     --   one is pending.
   , sdRebalanceEvent
       :: !(IO (Maybe RebalanceEvent))
+    -- | KIP-441: ask the consumer-group protocol to issue a
+    --   fresh JoinGroup so the leader can re-evaluate whether
+    --   any warmup replicas are ready for promotion. The
+    --   native driver delegates to the consumer's rejoin
+    --   hook; the mock driver records the request in
+    --   'mockDriverProbeRequests' so tests can observe the
+    --   runtime's probing cadence.
+  , sdRequestProbingRebalance
+      :: !(IO ())
   }
 
 -- | Build a 'StreamDriver' that delegates to a live 'Producer' +
@@ -191,6 +201,16 @@ newNativeDriver producer consumer mTxn = do
             Left e   -> Left (show e)
             Right () -> Right ()
     , sdRebalanceEvent = atomically (tryReadTQueue rebalanceQ)
+    , sdRequestProbingRebalance =
+        -- The live consumer doesn't yet expose a public
+        -- 'requestRejoin' entry point (that's the
+        -- consumer-group protocol piece tracked in the
+        -- top-level FEATURE_PARITY.md). For now this is a
+        -- documented no-op: the runtime calls it on cadence,
+        -- but no JoinGroup is issued until the consumer-side
+        -- piece lands. Behaviour falls back to the broker's
+        -- normal heartbeat-driven rebalance.
+        pure ()
     }
 
 -- | Translate a 'KC.OffsetResetStrategy' into the value the
@@ -244,6 +264,10 @@ data MockDriverHandle = MockDriverHandle
   , mdhTxn        :: !(TVar (Seq MockTxnEvent))
   , mdhSentOffs   :: !(IORef (Seq (Text, HashMap KC.TopicPartition Int64)))
   , mdhRebalances :: !(TQueue RebalanceEvent)
+  , mdhProbeRequests :: !(TVar Int)
+    -- ^ Count of 'sdRequestProbingRebalance' invocations the
+    --   runtime has issued; used by tests to verify the
+    --   probing cadence.
   }
 
 -- | Build a fresh mock driver. The driver starts out idle: every
@@ -259,7 +283,8 @@ newMockDriver = do
   txn    <- newTVarIO Seq.empty
   offs   <- newIORef Seq.empty
   reb    <- newTQueueIO
-  let h = MockDriverHandle pollQ sends flushd closed subs cmts txn offs reb
+  probes <- newTVarIO 0
+  let h = MockDriverHandle pollQ sends flushd closed subs cmts txn offs reb probes
       drv = StreamDriver
         { sdConsumerSubscribe = \topics -> do
             atomically (writeTVar subs topics)
@@ -306,6 +331,8 @@ newMockDriver = do
             modifyIORef' offs (\s -> s |> (gid, o))
             pure (Right ())
         , sdRebalanceEvent = atomically (tryReadTQueue reb)
+        , sdRequestProbingRebalance =
+            atomically (modifyTVar' probes (+ 1))
         }
   pure (drv, h)
 
@@ -316,6 +343,11 @@ newMockDriver = do
 mockDriverInjectRebalance :: MockDriverHandle -> RebalanceEvent -> IO ()
 mockDriverInjectRebalance h ev =
   atomically $ writeTQueue (mdhRebalances h) ev
+
+-- | Number of times the runtime has called
+-- 'sdRequestProbingRebalance' on this mock driver.
+mockDriverProbeRequests :: MockDriverHandle -> IO Int
+mockDriverProbeRequests = readTVarIO . mdhProbeRequests
 
 -- | Push a batch of consumer records the runtime will receive on
 -- the next 'sdConsumerPoll'.

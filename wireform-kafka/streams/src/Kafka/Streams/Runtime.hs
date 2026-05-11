@@ -63,6 +63,10 @@ module Kafka.Streams.Runtime
   , setRebalanceListener
   , ownedPartitions
   , standbyTasks
+    -- * Probing rebalance (KIP-441)
+  , reportWarmupLag
+  , clearWarmupLag
+  , warmupSnapshot
     -- * Exception handlers (KIP-161/280/671/1033)
   , setProductionExceptionHandler
   , setProcessingExceptionHandler
@@ -138,6 +142,7 @@ import Kafka.Client.RebalanceListener
   ( RebalanceListener
   , noopRebalanceListener
   )
+import qualified Kafka.Streams.Runtime.ProbingRebalance as ProbingRebalance
 import Kafka.Streams.Runtime.NativeDriver
   ( RebalanceEvent (..)
   , StreamDriver (..)
@@ -246,6 +251,14 @@ data KafkaStreams = KafkaStreams
     -- 'replaceThreadOnException'.
   , ksStandbyLis :: !(IORef StandbyUpdateListener)
   , ksGlobalRestoreLis :: !(IORef GlobalStateRestoreListener)
+  , ksWarmupLag :: !(TVar (Map.Map TaskId Int64))
+    -- ^ KIP-441 warmup-replica progress map: 'TaskId ->
+    -- changelog-lag'. Updated by user code (typically a
+    -- standby-task replay loop) via 'reportWarmupLag'; the
+    -- event-loop consults this map together with
+    -- 'probingRebalanceIntervalMs' / 'acceptableRecoveryLag'
+    -- to decide whether to fire 'sdRequestProbingRebalance'.
+  , ksLastProbeAt :: !(TVar Int64)
   }
 
 newKafkaStreams
@@ -271,6 +284,8 @@ newKafkaStreams cfg topo = do
   uncH  <- newIORef replaceThreadOnException
   stbyLis <- newIORef (\_ _ -> pure ())
   grLis   <- newIORef (\_ _ -> pure ())
+  warmup  <- newTVarIO Map.empty
+  lastPr  <- newTVarIO 0
   pure KafkaStreams
     { ksConfig    = cfg
     , ksTopology  = topo
@@ -292,6 +307,8 @@ newKafkaStreams cfg topo = do
     , ksUncaught  = uncH
     , ksStandbyLis = stbyLis
     , ksGlobalRestoreLis = grLis
+    , ksWarmupLag = warmup
+    , ksLastProbeAt = lastPr
     }
 
 -- | Start the runtime against a real broker. Constructs a
@@ -490,6 +507,7 @@ eventLoop ks driver engine = go
       status <- readTVarIO (ksStatus ks)
       unless (status == StreamsClosing || status == StreamsClosed) $ do
         drainRebalances ks driver
+        maybeIssueProbingRebalance ks driver
         expireStandbys ks
         eRecs <- sdConsumerPoll driver (pollMs (ksConfig ks))
         case eRecs of
@@ -584,6 +602,7 @@ multiEventLoop ks driver pool = go
       status <- readTVarIO (ksStatus ks)
       unless (status == StreamsClosing || status == StreamsClosed) $ do
         drainRebalances ks driver
+        maybeIssueProbingRebalance ks driver
         expireStandbys ks
         eRecs <- sdConsumerPoll driver (pollMs (ksConfig ks))
         case eRecs of
@@ -878,6 +897,59 @@ setUncaughtExceptionHandler
   -> IO ()
 setUncaughtExceptionHandler ks h =
   writeIORef (ksUncaught ks) h
+
+----------------------------------------------------------------------
+-- KIP-441 probing rebalance
+----------------------------------------------------------------------
+
+-- | Report the current changelog lag for a warmup replica.
+-- Called from a standby-task replay loop after each batch is
+-- applied so the runtime knows how close the replica is to
+-- the active leader.
+--
+-- A lag of @0@ means the replica is caught up and a probing
+-- rebalance would promote it.
+reportWarmupLag :: KafkaStreams -> TaskId -> Int64 -> IO ()
+reportWarmupLag ks tid !lag =
+  atomically $ modifyTVar' (ksWarmupLag ks) (Map.insert tid lag)
+
+-- | Drop a task from the warmup-lag map (typically called
+-- when the replica has been promoted or the standby is
+-- closed).
+clearWarmupLag :: KafkaStreams -> TaskId -> IO ()
+clearWarmupLag ks tid =
+  atomically $ modifyTVar' (ksWarmupLag ks) (Map.delete tid)
+
+-- | Snapshot of the current warmup-lag map. Used by metrics
+-- and by the runtime's probe-cadence tick.
+warmupSnapshot :: KafkaStreams -> IO (Map.Map TaskId Int64)
+warmupSnapshot = readTVarIO . ksWarmupLag
+
+-- | Internal: evaluate 'shouldProbe' against the runtime's
+-- current state and, if it returns 'True', invoke the
+-- driver's 'sdRequestProbingRebalance' hook. Called once per
+-- event-loop iteration.
+maybeIssueProbingRebalance :: KafkaStreams -> StreamDriver -> IO ()
+maybeIssueProbingRebalance ks drv = do
+  let cfg = ksConfig ks
+      !intervalMs = probingRebalanceIntervalMs cfg
+      !lagThresh  = acceptableRecoveryLag cfg
+  now <- nowMillis
+  lastAt <- readTVarIO (ksLastProbeAt ks)
+  warmups <- readTVarIO (ksWarmupLag ks)
+  let !ws =
+        [ ProbingRebalance.WarmupProgress
+            { ProbingRebalance.wpTask = t
+            , ProbingRebalance.wpLag  = lag
+            }
+        | (t, lag) <- Map.toList warmups
+        ]
+  if ProbingRebalance.shouldProbe
+       now lastAt intervalMs ws lagThresh
+    then do
+      atomically $ writeTVar (ksLastProbeAt ks) now
+      sdRequestProbingRebalance drv
+    else pure ()
 
 ----------------------------------------------------------------------
 -- KIP-663: dynamic stream-thread management
