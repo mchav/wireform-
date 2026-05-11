@@ -57,6 +57,8 @@ module Kafka.Client.Internal.ProducerSender
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
+import qualified Control.Concurrent.Chan.Unagi as U
+import qualified Control.Concurrent.Chan.Unagi.Bounded as UB
 import Control.Exception (SomeException, try)
 import Control.Monad (forever, void, when, forM, forM_)
 import qualified Data.ByteString as BS
@@ -217,15 +219,36 @@ newtype BrokerPool = BrokerPool { bpPipes :: V.Vector BrokerPipe }
 data BrokerPipe = BrokerPipe
   { bpAddr     :: !Conn.BrokerAddress
   , bpConn     :: !Conn.Connection
-  , bpOutbox   :: !(TBQueue OutboundProduce)
-  , bpInFlight :: !(TBQueue PendingProduce)
+  , bpOutboxIn  :: !(UB.InChan  OutboundProduce)
+  , bpOutboxOut :: !(UB.OutChan OutboundProduce)
+    -- ^ Bounded MPMC channel from
+    --   "Control.Concurrent.Chan.Unagi.Bounded" carrying the
+    --   round of work the main sender loop hands off to this
+    --   pipe's writer thread. The bound is
+    --   'senderMaxInFlight'; @writeChan@ blocks once that many
+    --   requests are queued + in-flight, providing the same
+    --   producer-side backpressure the prior 'TBQueue' shape
+    --   gave us. Replaces 'TBQueue' on this hot path because
+    --   @writeChan@ / @readChan@ are CAS-loop based with no
+    --   STM commit overhead — at the per-record append rate
+    --   (~12 K writes/sec at 3 M rec/s, single batch-per-
+    --   round), STM's per-transaction allocation was visible.
+  , bpInFlightIn  :: !(U.InChan  PendingProduce)
+  , bpInFlightOut :: !(U.OutChan PendingProduce)
+    -- ^ Unbounded MPMC channel from
+    --   "Control.Concurrent.Chan.Unagi" carrying the in-flight
+    --   FIFO from writer to reader. Unbounded because depth is
+    --   already capped by 'bpOutboxIn's bound (a request can
+    --   only land in-flight after the outbox releases it).
   , bpWriter   :: !(Async ())
   , bpReader   :: !(Async ())
   , bpInFlightCount :: !(TVar Int)
-    -- ^ Mirrors @length(bpInFlight) + (in-write items)@ for the
-    --   'flushProducer' / 'closeProducer' drain check; kept on
-    --   the writer side so the main sender loop can poll it
-    --   without taking the FIFO out of order.
+    -- ^ Mirrors @length(outbox) + length(inFlight)@ for the
+    --   'flushProducer' / 'closeProducer' drain check; kept
+    --   separate (a 'TVar' rather than peeked from the chans
+    --   themselves) because unagi-chan doesn't expose a length
+    --   primitive — the count is updated atomically by the
+    --   sender on enqueue + the reader on ack.
   }
 
 -- | Outbound work item written to a 'BrokerPipe' outbox by the
@@ -582,13 +605,19 @@ enqueueRound state@SenderState{..} pipe (_broker :: Meta.BrokerMetadata) batches
           , opPending         = pending
           }
     -- Bound on outbox depth = senderMaxInFlight provides
-    -- producer-side backpressure: the writeTBQueue blocks once
-    -- the pipe has 'senderMaxInFlight' requests queued or in
+    -- producer-side backpressure: 'UB.writeChan' blocks once
+    -- the pipe has 'senderMaxInFlight' requests queued + in
     -- flight, matching the librdkafka /
     -- 'max.in.flight.requests.per.connection' semantics.
-    atomically $ do
-      modifyTVar' (bpInFlightCount pipe) (+ 1)
-      writeTBQueue (bpOutbox pipe) out
+    --
+    -- The counter and the chan write are no longer one STM
+    -- transaction (unagi-chan isn't STM-aware). Bumping the
+    -- counter /before/ the chan write keeps the
+    -- 'flushProducer' poll conservative — the count can read
+    -- high for a brief window while the writeChan is in
+    -- progress, but never low.
+    atomically $ modifyTVar' (bpInFlightCount pipe) (+ 1)
+    UB.writeChan (bpOutboxIn pipe) out
 
 -- | Look up (or lazily open) the pool of pipelined-send pipes
 -- for a broker. The pool size is 'senderConnsPerBroker'; each
@@ -641,24 +670,27 @@ openOnePipe state@SenderState{..} addr = do
     Right conn -> do
       let nextCid = atomicModifyIORef' senderCorrelationId $ \cid -> (cid + 1, cid)
       _ <- VN.ensureVersionsNegotiated conn addr senderVersionCache nextCid
-      outbox    <- newTBQueueIO (fromIntegral senderMaxInFlight)
-      inflight  <- newTBQueueIO 65536
-      counter   <- newTVarIO 0
+      (outboxIn, outboxOut)     <- UB.newChan (max 1 senderMaxInFlight)
+      (inflightIn, inflightOut) <- U.newChan
+      counter                   <- newTVarIO 0
       let !pipeStub = PipeBootstrap
-            { pbsAddr     = addr
-            , pbsConn     = conn
-            , pbsOutbox   = outbox
-            , pbsInFlight = inflight
-            , pbsCount    = counter
-            , pbsState    = state
+            { pbsAddr        = addr
+            , pbsConn        = conn
+            , pbsOutboxOut   = outboxOut
+            , pbsInFlightIn  = inflightIn
+            , pbsInFlightOut = inflightOut
+            , pbsCount       = counter
+            , pbsState       = state
             }
       writerA <- async (brokerWriterLoop pipeStub)
       readerA <- async (brokerReaderLoop pipeStub)
       pure $ Right BrokerPipe
         { bpAddr          = addr
         , bpConn          = conn
-        , bpOutbox        = outbox
-        , bpInFlight      = inflight
+        , bpOutboxIn      = outboxIn
+        , bpOutboxOut     = outboxOut
+        , bpInFlightIn    = inflightIn
+        , bpInFlightOut   = inflightOut
         , bpWriter        = writerA
         , bpReader        = readerA
         , bpInFlightCount = counter
@@ -666,12 +698,13 @@ openOnePipe state@SenderState{..} addr = do
 
 -- | Bootstrap helper for the writer / reader threads.
 data PipeBootstrap = PipeBootstrap
-  { pbsAddr     :: !Conn.BrokerAddress
-  , pbsConn     :: !Conn.Connection
-  , pbsOutbox   :: !(TBQueue OutboundProduce)
-  , pbsInFlight :: !(TBQueue PendingProduce)
-  , pbsCount    :: !(TVar Int)
-  , pbsState    :: !SenderState
+  { pbsAddr        :: !Conn.BrokerAddress
+  , pbsConn        :: !Conn.Connection
+  , pbsOutboxOut   :: !(UB.OutChan OutboundProduce)
+  , pbsInFlightIn  :: !(U.InChan  PendingProduce)
+  , pbsInFlightOut :: !(U.OutChan PendingProduce)
+  , pbsCount       :: !(TVar Int)
+  , pbsState       :: !SenderState
   }
 
 -- | Per-broker writer loop. Pulls outbox items, frames + writes
@@ -680,7 +713,7 @@ data PipeBootstrap = PipeBootstrap
 -- batches the next response corresponds to.
 brokerWriterLoop :: PipeBootstrap -> IO ()
 brokerWriterLoop PipeBootstrap{..} = forever $ do
-  out <- atomically $ readTBQueue pbsOutbox
+  out <- UB.readChan pbsOutboxOut
   -- Encoding lives here (in the writer thread) rather than in
   -- the main sender loop so the main loop can fan more rounds
   -- out to this thread in parallel with us hitting the wire.
@@ -711,7 +744,10 @@ brokerWriterLoop PipeBootstrap{..} = forever $ do
         forM_ (BA.batchCallbacks batch) $ \cb -> BA.runRecordCallback cb (Left errMsg)
       atomically $ modifyTVar' pbsCount (subtract 1)
     Right () ->
-      atomically $ writeTBQueue pbsInFlight (opPending out)
+      -- Single-producer-single-consumer hand-off from this
+      -- writer to the matching reader; unagi's @writeChan@ is
+      -- a CAS-loop on a segmented array, no STM commit.
+      U.writeChan pbsInFlightIn (opPending out)
 
 -- | Per-broker reader loop. Reads framed responses off the wire,
 -- pulls the head of the in-flight FIFO (Kafka guarantees
@@ -727,7 +763,7 @@ brokerReaderLoop pbs@PipeBootstrap{..} = do
       -- connection means the writer's next write will also
       -- fail and the user will see an error from the next
       -- send).
-      drained <- atomically $ flushTBQueueAll pbsInFlight
+      drained <- drainUnagi pbsInFlightOut
       forM_ drained $ \pp ->
         forM_ (ppBatches pp) $ \batch ->
           forM_ (BA.batchCallbacks batch) $ \cb ->
@@ -735,7 +771,7 @@ brokerReaderLoop pbs@PipeBootstrap{..} = do
       atomically $ writeTVar pbsCount 0
       void (try (Conn.disconnect pbsConn) :: IO (Either SomeException ()))
     Right raw -> do
-      pp <- atomically $ readTBQueue pbsInFlight
+      pp <- U.readChan pbsInFlightOut
       let parsed = Req.parseResponseFrame 0 (ppApiVersion pp) raw
       case parsed of
         Left err ->
@@ -758,17 +794,26 @@ brokerReaderLoop pbs@PipeBootstrap{..} = do
       atomically $ modifyTVar' pbsCount (subtract 1)
       brokerReaderLoop pbs
 
--- | Atomically drain a 'TBQueue' to a list (returning items in
--- FIFO order). Used by the broker reader's error path.
-flushTBQueueAll :: TBQueue a -> STM [a]
-flushTBQueueAll q = do
-  empty <- isEmptyTBQueue q
-  if empty
-    then pure []
-    else do
-      x <- readTBQueue q
-      xs <- flushTBQueueAll q
-      pure (x : xs)
+-- | Best-effort drain of a 'U.OutChan' to a list of items
+-- currently sitting in the chan. Used by the broker reader's
+-- error path to surface a transport failure to every batch
+-- still in-flight.
+--
+-- /Not atomic/: a writer that lands a new item between two
+-- 'U.tryReadChan' iterations would have its item missed by
+-- this drain. That's the same window the prior STM-based
+-- 'flushTBQueueAll' had against any non-STM writer; in our
+-- protocol the writer that fed this in-flight chan is dead
+-- (the connection is broken), so no new writes are coming.
+drainUnagi :: U.OutChan a -> IO [a]
+drainUnagi out = go []
+  where
+    go !acc = do
+      (element, _) <- U.tryReadChan out
+      m <- U.tryRead element
+      case m of
+        Nothing -> pure (reverse acc)
+        Just x  -> go (x : acc)
 
 -- | Total number of ProduceRequests currently queued or in-flight
 -- across every broker pipe. The producer's
