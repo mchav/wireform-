@@ -21,7 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         ghc: ['9.6.4', '9.8.4', '9.10.1']
-        kafka: ['3.7.0']
+        kafka: ['3.7.0', '4.0.0']
     steps:
       - uses: actions/checkout@v4
 
@@ -61,6 +61,8 @@ jobs:
             --test-show-details=streaming
 
       - name: Spin up Kafka ${{ matrix.kafka }}
+        env:
+          KAFKA_IMAGE_TAG: ${{ matrix.kafka }}
         run: |
           docker compose -f wireform-kafka/test-integration/docker-compose.yml up -d
           # Wait for the broker to become ready.
