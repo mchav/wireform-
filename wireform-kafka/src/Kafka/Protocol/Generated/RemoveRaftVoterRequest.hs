@@ -118,7 +118,7 @@ wirePeekRemoveRaftVoterRequest version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec RemoveRaftVoterRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeRemoveRaftVoterRequest (fromIntegral v) msg

@@ -54,7 +54,7 @@ import qualified Kafka.Protocol.Wire.Primitives as WP
 data StateBatch = StateBatch
   {
 
-  -- | The first offset of this state batch.
+  -- | The base offset of this state batch.
 
   -- Versions: 0+
   stateBatchFirstOffset :: !(Int64)
@@ -66,7 +66,7 @@ data StateBatch = StateBatch
   stateBatchLastOffset :: !(Int64)
 ,
 
-  -- | The delivery state - 0:Available,2:Acked,4:Archived.
+  -- | The state - 0:Available,2:Acked,4:Archived.
 
   -- Versions: 0+
   stateBatchDeliveryState :: !(Int8)
@@ -102,7 +102,7 @@ data PartitionResult = PartitionResult
   partitionResultErrorMessage :: !(KafkaString)
 ,
 
-  -- | The state epoch of the share-partition.
+  -- | The state epoch for this share-partition.
 
   -- Versions: 0+
   partitionResultStateEpoch :: !(Int32)
@@ -296,7 +296,7 @@ wirePeekReadShareGroupStateResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ReadShareGroupStateResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeReadShareGroupStateResponse (fromIntegral v) msg

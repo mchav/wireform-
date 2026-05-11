@@ -85,7 +85,7 @@ wirePeekStopReplicaRequest _version _fp _basePtr _p _endPtr =
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec StopReplicaRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeStopReplicaRequest (fromIntegral v) msg

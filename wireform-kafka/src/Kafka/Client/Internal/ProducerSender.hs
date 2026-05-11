@@ -908,29 +908,26 @@ buildProduceRequest metaCache transactionalIdM acks timeoutMs batches = do
     }
 
 -- | Build TopicProduceData for a group of batches from the same topic.
--- Compression happens here, so this is an IO operation. Populates
--- the KIP-516 'topicProduceDataTopicId' from the metadata cache
--- when known; falls back to 'P.nullUuid' otherwise (which is
--- what every Produce version through v12 expects in the field).
+-- Compression happens here, so this is an IO operation. Kafka 4.0.0
+-- still keys produce requests by topic name; KIP-516 topic-id
+-- support arrived in later schema revisions.
 buildTopicProduceData
   :: Meta.MetadataCache -> [BA.ProducerBatch] -> IO PR.TopicProduceData
-buildTopicProduceData metaCache batches = do
+buildTopicProduceData _metaCache batches = do
   let topic = BA.tpTopic $ BA.batchTopicPartition $ head batches
-  topicIdM <- atomically (Meta.getTopicId metaCache topic)
   -- 'sendBatches' upstream guarantees that each (topic,
   -- partition) appears at most once in this batch list, so a
-  -- straight per-batch mapM produces one PartitionProduceData per
-  -- partition.
+  -- straight per-batch mapM produces one PartitionProduceData
+  -- per partition.
+  --
+  -- Kafka 4.0.0 still keys produce requests by topic name (the
+  -- KIP-516 topic-id field went away in this schema revision),
+  -- so the previous 'Meta.getTopicId' lookup here is no longer
+  -- needed and 'metaCache' is unused — see commit cc058b76 on
+  -- main for the schema bump that removed the field.
   partitionData <- mapM buildPartitionProduceData batches
   return $ PR.TopicProduceData
     { PR.topicProduceDataName = P.mkKafkaString topic
-    , PR.topicProduceDataTopicId =
-        -- 'getTopicId' returns 'Nothing' before the cache is
-        -- populated; that path keeps the field at nullUuid
-        -- which is what v0-v12 expect anyway.
-        case topicIdM of
-          Just tid -> tid
-          Nothing  -> P.nullUuid
     , PR.topicProduceDataPartitionData = P.mkKafkaArray (V.fromList partitionData)
     }
 

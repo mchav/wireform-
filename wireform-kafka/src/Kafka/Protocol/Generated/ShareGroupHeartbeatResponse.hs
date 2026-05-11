@@ -12,7 +12,7 @@ Kafka response for API key 76.
 
 
 
-Valid versions: 1
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -128,13 +128,13 @@ data ShareGroupHeartbeatResponse = ShareGroupHeartbeatResponse
 
 -- | Maximum supported version for ShareGroupHeartbeatResponse.
 maxShareGroupHeartbeatResponseVersion :: Int16
-maxShareGroupHeartbeatResponseVersion = 1
+maxShareGroupHeartbeatResponseVersion = 0
 
 -- | KafkaMessage instance for ShareGroupHeartbeatResponse.
 instance KafkaMessage ShareGroupHeartbeatResponse where
   messageApiKey = 76
-  messageMinVersion = 1
-  messageMaxVersion = 1
+  messageMinVersion = 0
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a TopicPartitions.
@@ -208,7 +208,7 @@ wireMaxSizeShareGroupHeartbeatResponse _version msg =
 -- | Direct-poke encoder for ShareGroupHeartbeatResponse.
 wirePokeShareGroupHeartbeatResponse :: Int -> Ptr Word8 -> ShareGroupHeartbeatResponse -> IO (Ptr Word8)
 wirePokeShareGroupHeartbeatResponse version basePtr msg
-  | version == 1 = do
+  | version == 0 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (shareGroupHeartbeatResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (shareGroupHeartbeatResponseErrorCode msg)
@@ -223,7 +223,7 @@ wirePokeShareGroupHeartbeatResponse version basePtr msg
 -- | Direct-poke decoder for ShareGroupHeartbeatResponse.
 wirePeekShareGroupHeartbeatResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ShareGroupHeartbeatResponse, Ptr Word8)
 wirePeekShareGroupHeartbeatResponse version _fp _basePtr p0 endPtr
-  | version == 1 = do
+  | version == 0 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_errormessage, p3) <- (if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p2 endPtr else WP.peekKafkaString p2 endPtr)
@@ -238,7 +238,7 @@ wirePeekShareGroupHeartbeatResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ShareGroupHeartbeatResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeShareGroupHeartbeatResponse (fromIntegral v) msg

@@ -1408,7 +1408,6 @@ fetchFromBroker connMgr versionCache broker requests timeoutMs corrIdVar rackIdM
                         -- set nullUuid which is the broker's
                         -- "no specific directory" sentinel.
                         , FR.fetchPartitionReplicaDirectoryId = P.nullUuid
-                        , FR.fetchPartitionHighWatermark       = -1
                         }
                     | (partId, offset) <- parts
                     ]
@@ -1802,11 +1801,6 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
                   topics = V.fromList
                     [ OCReq.OffsetCommitRequestTopic
                         { OCReq.offsetCommitRequestTopicName    = P.mkKafkaString topic
-                        , -- KIP-848 (v10+) topic id is required to
-                          -- be present on the wire but is ignored
-                          -- by older brokers; nullUuid is the
-                          -- "I don't know the topic id" sentinel.
-                          OCReq.offsetCommitRequestTopicTopicId = P.nullUuid
                         , OCReq.offsetCommitRequestTopicPartitions = P.mkKafkaArray $ V.fromList
                             [ OCReq.OffsetCommitRequestPartition
                                 { OCReq.offsetCommitRequestPartitionPartitionIndex = partId
@@ -1977,9 +1971,6 @@ buildOffsetFetchRequestV8 groupId byTopic =
   let topicsVec = V.fromList
         [ OFReq.OffsetFetchRequestTopics
             { OFReq.offsetFetchRequestTopicsName    = P.mkKafkaString topic
-            , -- KIP-848 (v10+) topic id; nullUuid until the broker
-              -- starts populating topic ids on the metadata side.
-              OFReq.offsetFetchRequestTopicsTopicId = P.nullUuid
             , OFReq.offsetFetchRequestTopicsPartitionIndexes =
                 P.mkKafkaArray (V.fromList parts)
             }

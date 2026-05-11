@@ -58,7 +58,7 @@ data DeleteAclsFilter = DeleteAclsFilter
   deleteAclsFilterResourceTypeFilter :: !(Int8)
 ,
 
-  -- | The resource name, or null to match any resource name.
+  -- | The resource name.
 
   -- Versions: 0+
   deleteAclsFilterResourceNameFilter :: !(KafkaString)
@@ -198,7 +198,7 @@ wirePeekDeleteAclsRequest version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec DeleteAclsRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDeleteAclsRequest (fromIntegral v) msg

@@ -12,7 +12,7 @@ Kafka response for API key 35.
 
 
 
-Valid versions: 1-5
+Valid versions: 1-4
 Flexible versions: 2+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -120,22 +120,16 @@ data DescribeLogDirsResult = DescribeLogDirsResult
   describeLogDirsResultTopics :: !(KafkaArray (DescribeLogDirsTopic))
 ,
 
-  -- | The total size in bytes of the volume the log directory is in. This value does not include the size 
+  -- | The total size in bytes of the volume the log directory is in.
 
   -- Versions: 4+
   describeLogDirsResultTotalBytes :: !(Int64)
 ,
 
-  -- | The usable size in bytes of the volume the log directory is in. This value does not include the size
+  -- | The usable size in bytes of the volume the log directory is in.
 
   -- Versions: 4+
   describeLogDirsResultUsableBytes :: !(Int64)
-,
-
-  -- | True if this log directory is cordoned.
-
-  -- Versions: 5+
-  describeLogDirsResultIsCordoned :: !(Bool)
 
   }
   deriving (Eq, Show, Generic)
@@ -166,13 +160,13 @@ data DescribeLogDirsResponse = DescribeLogDirsResponse
 
 -- | Maximum supported version for DescribeLogDirsResponse.
 maxDescribeLogDirsResponseVersion :: Int16
-maxDescribeLogDirsResponseVersion = 5
+maxDescribeLogDirsResponseVersion = 4
 
 -- | KafkaMessage instance for DescribeLogDirsResponse.
 instance KafkaMessage DescribeLogDirsResponse where
   messageApiKey = 35
   messageMinVersion = 1
-  messageMaxVersion = 5
+  messageMaxVersion = 4
   messageFlexibleVersion = Just 2
 
 -- | Worst-case wire size of a DescribeLogDirsPartition.
@@ -249,7 +243,6 @@ wireMaxSizeDescribeLogDirsResult _version msg =
   + 8
   + 8
   + 1
-  + 1
 
 -- | Direct-poke encoder for DescribeLogDirsResult.
 wirePokeDescribeLogDirsResult :: Int -> Ptr Word8 -> DescribeLogDirsResult -> IO (Ptr Word8)
@@ -260,8 +253,7 @@ wirePokeDescribeLogDirsResult version basePtr msg = do
   p3 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribeLogDirsTopic version p x) p2 (describeLogDirsResultTopics msg)
   p4 <- (if version >= 4 then W.pokeInt64BE p3 (describeLogDirsResultTotalBytes msg) else pure p3)
   p5 <- (if version >= 4 then W.pokeInt64BE p4 (describeLogDirsResultUsableBytes msg) else pure p4)
-  p6 <- (if version >= 5 then W.pokeWord8 p5 (if (describeLogDirsResultIsCordoned msg) then 1 else 0) else pure p5)
-  if version >= 2 then WP.pokeEmptyTaggedFields p6 else pure p6
+  if version >= 2 then WP.pokeEmptyTaggedFields p5 else pure p5
 
 -- | Direct-poke decoder for DescribeLogDirsResult.
 wirePeekDescribeLogDirsResult :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (DescribeLogDirsResult, Ptr Word8)
@@ -271,14 +263,13 @@ wirePeekDescribeLogDirsResult version _fp _basePtr p0 endPtr = do
   (f2_topics, p3) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeLogDirsTopic version _fp _basePtr p e) p2 endPtr
   (f3_totalbytes, p4) <- (if version >= 4 then W.peekInt64BE p3 endPtr else pure (-1, p3))
   (f4_usablebytes, p5) <- (if version >= 4 then W.peekInt64BE p4 endPtr else pure (-1, p4))
-  (f5_iscordoned, p6) <- (if version >= 5 then (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p5 endPtr else pure (False, p5))
-  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
-  pure (DescribeLogDirsResult { describeLogDirsResultErrorCode = f0_errorcode, describeLogDirsResultLogDir = f1_logdir, describeLogDirsResultTopics = f2_topics, describeLogDirsResultTotalBytes = f3_totalbytes, describeLogDirsResultUsableBytes = f4_usablebytes, describeLogDirsResultIsCordoned = f5_iscordoned }, pTagsEnd)
+  pTagsEnd <- if version >= 2 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (DescribeLogDirsResult { describeLogDirsResultErrorCode = f0_errorcode, describeLogDirsResultLogDir = f1_logdir, describeLogDirsResultTopics = f2_topics, describeLogDirsResultTotalBytes = f3_totalbytes, describeLogDirsResultUsableBytes = f4_usablebytes }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultDescribeLogDirsResult :: DescribeLogDirsResult
-defaultDescribeLogDirsResult = DescribeLogDirsResult { describeLogDirsResultErrorCode = 0, describeLogDirsResultLogDir = P.KafkaString Null, describeLogDirsResultTopics = P.mkKafkaArray V.empty, describeLogDirsResultTotalBytes = -1, describeLogDirsResultUsableBytes = -1, describeLogDirsResultIsCordoned = False }
+defaultDescribeLogDirsResult = DescribeLogDirsResult { describeLogDirsResultErrorCode = 0, describeLogDirsResultLogDir = P.KafkaString Null, describeLogDirsResultTopics = P.mkKafkaArray V.empty, describeLogDirsResultTotalBytes = -1, describeLogDirsResultUsableBytes = -1 }
 
 -- | Worst-case wire size of a DescribeLogDirsResponse.
 wireMaxSizeDescribeLogDirsResponse :: Int -> DescribeLogDirsResponse -> Int
@@ -302,7 +293,7 @@ wirePokeDescribeLogDirsResponse version basePtr msg
     p1 <- W.pokeInt32BE p0 (describeLogDirsResponseThrottleTimeMs msg)
     p2 <- WP.pokeVersionedArray version 2 (\p x -> wirePokeDescribeLogDirsResult version p x) p1 (describeLogDirsResponseResults msg)
     WP.pokeEmptyTaggedFields p2
-  | version >= 3 && version <= 5 = do
+  | version >= 3 && version <= 4 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (describeLogDirsResponseThrottleTimeMs msg)
     p2 <- (if version >= 3 then W.pokeInt16BE p1 (describeLogDirsResponseErrorCode msg) else pure p1)
@@ -322,7 +313,7 @@ wirePeekDescribeLogDirsResponse version _fp _basePtr p0 endPtr
     (f1_results, p2) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeLogDirsResult version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
     pure (DescribeLogDirsResponse { describeLogDirsResponseThrottleTimeMs = f0_throttletimems, describeLogDirsResponseErrorCode = 0, describeLogDirsResponseResults = f1_results }, pTagsEnd)
-  | version >= 3 && version <= 5 = do
+  | version >= 3 && version <= 4 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- (if version >= 3 then W.peekInt16BE p1 endPtr else pure (0, p1))
     (f2_results, p3) <- WP.peekVersionedArray version 2 (\p e -> wirePeekDescribeLogDirsResult version _fp _basePtr p e) p2 endPtr
@@ -333,7 +324,7 @@ wirePeekDescribeLogDirsResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec DescribeLogDirsResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeLogDirsResponse (fromIntegral v) msg

@@ -12,7 +12,7 @@ Kafka request for API key 27.
 
 
 
-Valid versions: 1-2
+Valid versions: 1
 Flexible versions: 1+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -99,12 +99,6 @@ data WritableTxnMarker = WritableTxnMarker
 
   -- Versions: 0+
   writableTxnMarkerCoordinatorEpoch :: !(Int32)
-,
-
-  -- | Transaction version of the marker. Ex: 0/1 = legacy (TV0/TV1), 2 = TV2 etc.
-
-  -- Versions: 2+
-  writableTxnMarkerTransactionVersion :: !(Int8)
 
   }
   deriving (Eq, Show, Generic)
@@ -123,13 +117,13 @@ data WriteTxnMarkersRequest = WriteTxnMarkersRequest
 
 -- | Maximum supported version for WriteTxnMarkersRequest.
 maxWriteTxnMarkersRequestVersion :: Int16
-maxWriteTxnMarkersRequestVersion = 2
+maxWriteTxnMarkersRequestVersion = 1
 
 -- | KafkaMessage instance for WriteTxnMarkersRequest.
 instance KafkaMessage WriteTxnMarkersRequest where
   messageApiKey = 27
   messageMinVersion = 1
-  messageMaxVersion = 2
+  messageMaxVersion = 1
   messageFlexibleVersion = Just 1
 
 -- | Worst-case wire size of a WritableTxnMarkerTopic.
@@ -171,7 +165,6 @@ wireMaxSizeWritableTxnMarker _version msg =
   + (5 + (case P.unKafkaArray (writableTxnMarkerTopics msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeWritableTxnMarkerTopic _version x ) v); P.Null -> 0 }))
   + 4
   + 1
-  + 1
 
 -- | Direct-poke encoder for WritableTxnMarker.
 wirePokeWritableTxnMarker :: Int -> Ptr Word8 -> WritableTxnMarker -> IO (Ptr Word8)
@@ -182,8 +175,7 @@ wirePokeWritableTxnMarker version basePtr msg = do
   p3 <- W.pokeWord8 p2 (if (writableTxnMarkerTransactionResult msg) then 1 else 0)
   p4 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeWritableTxnMarkerTopic version p x) p3 (writableTxnMarkerTopics msg)
   p5 <- W.pokeInt32BE p4 (writableTxnMarkerCoordinatorEpoch msg)
-  p6 <- (if version >= 2 then W.pokeWord8 p5 (fromIntegral (writableTxnMarkerTransactionVersion msg)) else pure p5)
-  if version >= 1 then WP.pokeEmptyTaggedFields p6 else pure p6
+  if version >= 1 then WP.pokeEmptyTaggedFields p5 else pure p5
 
 -- | Direct-poke decoder for WritableTxnMarker.
 wirePeekWritableTxnMarker :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (WritableTxnMarker, Ptr Word8)
@@ -193,14 +185,13 @@ wirePeekWritableTxnMarker version _fp _basePtr p0 endPtr = do
   (f2_transactionresult, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
   (f3_topics, p4) <- WP.peekVersionedArray version 1 (\p e -> wirePeekWritableTxnMarkerTopic version _fp _basePtr p e) p3 endPtr
   (f4_coordinatorepoch, p5) <- W.peekInt32BE p4 endPtr
-  (f5_transactionversion, p6) <- (if version >= 2 then (\(w, p') -> (fromIntegral w :: Int8, p')) <$> W.peekWord8 p5 endPtr else pure (0, p5))
-  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p6 endPtr else pure p6
-  pure (WritableTxnMarker { writableTxnMarkerProducerId = f0_producerid, writableTxnMarkerProducerEpoch = f1_producerepoch, writableTxnMarkerTransactionResult = f2_transactionresult, writableTxnMarkerTopics = f3_topics, writableTxnMarkerCoordinatorEpoch = f4_coordinatorepoch, writableTxnMarkerTransactionVersion = f5_transactionversion }, pTagsEnd)
+  pTagsEnd <- if version >= 1 then WP.peekAndSkipTaggedFields p5 endPtr else pure p5
+  pure (WritableTxnMarker { writableTxnMarkerProducerId = f0_producerid, writableTxnMarkerProducerEpoch = f1_producerepoch, writableTxnMarkerTransactionResult = f2_transactionresult, writableTxnMarkerTopics = f3_topics, writableTxnMarkerCoordinatorEpoch = f4_coordinatorepoch }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultWritableTxnMarker :: WritableTxnMarker
-defaultWritableTxnMarker = WritableTxnMarker { writableTxnMarkerProducerId = 0, writableTxnMarkerProducerEpoch = 0, writableTxnMarkerTransactionResult = False, writableTxnMarkerTopics = P.mkKafkaArray V.empty, writableTxnMarkerCoordinatorEpoch = 0, writableTxnMarkerTransactionVersion = 0 }
+defaultWritableTxnMarker = WritableTxnMarker { writableTxnMarkerProducerId = 0, writableTxnMarkerProducerEpoch = 0, writableTxnMarkerTransactionResult = False, writableTxnMarkerTopics = P.mkKafkaArray V.empty, writableTxnMarkerCoordinatorEpoch = 0 }
 
 -- | Worst-case wire size of a WriteTxnMarkersRequest.
 wireMaxSizeWriteTxnMarkersRequest :: Int -> WriteTxnMarkersRequest -> Int
@@ -212,7 +203,7 @@ wireMaxSizeWriteTxnMarkersRequest _version msg =
 -- | Direct-poke encoder for WriteTxnMarkersRequest.
 wirePokeWriteTxnMarkersRequest :: Int -> Ptr Word8 -> WriteTxnMarkersRequest -> IO (Ptr Word8)
 wirePokeWriteTxnMarkersRequest version basePtr msg
-  | version >= 1 && version <= 2 = do
+  | version == 1 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedArray version 1 (\p x -> wirePokeWritableTxnMarker version p x) p0 (writeTxnMarkersRequestMarkers msg)
     WP.pokeEmptyTaggedFields p1
@@ -221,7 +212,7 @@ wirePokeWriteTxnMarkersRequest version basePtr msg
 -- | Direct-poke decoder for WriteTxnMarkersRequest.
 wirePeekWriteTxnMarkersRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (WriteTxnMarkersRequest, Ptr Word8)
 wirePeekWriteTxnMarkersRequest version _fp _basePtr p0 endPtr
-  | version >= 1 && version <= 2 = do
+  | version == 1 = do
     (f0_markers, p1) <- WP.peekVersionedArray version 1 (\p e -> wirePeekWritableTxnMarker version _fp _basePtr p e) p0 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
     pure (WriteTxnMarkersRequest { writeTxnMarkersRequestMarkers = f0_markers }, pTagsEnd)
@@ -230,7 +221,7 @@ wirePeekWriteTxnMarkersRequest version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec WriteTxnMarkersRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeWriteTxnMarkersRequest (fromIntegral v) msg

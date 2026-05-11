@@ -85,7 +85,7 @@ wirePeekUpdateMetadataRequest _version _fp _basePtr _p _endPtr =
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec UpdateMetadataRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeUpdateMetadataRequest (fromIntegral v) msg

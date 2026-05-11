@@ -12,7 +12,7 @@ Kafka response for API key 63.
 
 
 
-Valid versions: 0-2
+Valid versions: 0-1
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -86,13 +86,13 @@ data BrokerHeartbeatResponse = BrokerHeartbeatResponse
 
 -- | Maximum supported version for BrokerHeartbeatResponse.
 maxBrokerHeartbeatResponseVersion :: Int16
-maxBrokerHeartbeatResponseVersion = 2
+maxBrokerHeartbeatResponseVersion = 1
 
 -- | KafkaMessage instance for BrokerHeartbeatResponse.
 instance KafkaMessage BrokerHeartbeatResponse where
   messageApiKey = 63
   messageMinVersion = 0
-  messageMaxVersion = 2
+  messageMaxVersion = 1
   messageFlexibleVersion = Just 0
 
 
@@ -110,7 +110,7 @@ wireMaxSizeBrokerHeartbeatResponse _version msg =
 -- | Direct-poke encoder for BrokerHeartbeatResponse.
 wirePokeBrokerHeartbeatResponse :: Int -> Ptr Word8 -> BrokerHeartbeatResponse -> IO (Ptr Word8)
 wirePokeBrokerHeartbeatResponse version basePtr msg
-  | version >= 0 && version <= 2 = do
+  | version >= 0 && version <= 1 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (brokerHeartbeatResponseThrottleTimeMs msg)
     p2 <- W.pokeInt16BE p1 (brokerHeartbeatResponseErrorCode msg)
@@ -123,7 +123,7 @@ wirePokeBrokerHeartbeatResponse version basePtr msg
 -- | Direct-poke decoder for BrokerHeartbeatResponse.
 wirePeekBrokerHeartbeatResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (BrokerHeartbeatResponse, Ptr Word8)
 wirePeekBrokerHeartbeatResponse version _fp _basePtr p0 endPtr
-  | version >= 0 && version <= 2 = do
+  | version >= 0 && version <= 1 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_errorcode, p2) <- W.peekInt16BE p1 endPtr
     (f2_iscaughtup, p3) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p2 endPtr
@@ -136,7 +136,7 @@ wirePeekBrokerHeartbeatResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec BrokerHeartbeatResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeBrokerHeartbeatResponse (fromIntegral v) msg

@@ -74,7 +74,9 @@ createProduceRequest numTopics numPartitions =
     mkTopicData topicNum =
       Produce.TopicProduceData
         { Produce.topicProduceDataName = mkTopicName topicNum
-        , Produce.topicProduceDataTopicId = P.nullUuid
+        -- 'topicProduceDataTopicId' was removed by the Kafka
+        -- 4.0.0 schema bump (commit cc058b76 on main); the
+        -- field's gone from the generated struct.
         , Produce.topicProduceDataPartitionData = P.mkKafkaArray $ V.fromList $ map mkPartitionData [0..numPartitions-1]
         }
     
@@ -128,7 +130,9 @@ createFetchRequest numTopics numPartitions =
         , Fetch.fetchPartitionLogStartOffset = -1
         , Fetch.fetchPartitionPartitionMaxBytes = 1048576
         , Fetch.fetchPartitionReplicaDirectoryId = P.nullUuid
-        , Fetch.fetchPartitionHighWatermark      = -1
+        -- 'fetchPartitionHighWatermark' was removed by the
+        -- Kafka 4.0.0 schema bump (commit cc058b76 on main);
+        -- the field's gone from the generated struct.
         }
     
     mkTopicName :: Int -> P.KafkaString

@@ -277,8 +277,6 @@ initProducerId connMgr versionCache corrIdVar clientId coordinator transactional
             , IPReq.initProducerIdRequestTransactionTimeoutMs = timeoutMs
             , IPReq.initProducerIdRequestProducerId = maybe (-1) id maybeProducerId
             , IPReq.initProducerIdRequestProducerEpoch = maybe (-1) id maybeEpoch
-            , IPReq.initProducerIdRequestEnable2Pc = False  -- v6+ only
-            , IPReq.initProducerIdRequestKeepPreparedTxn = False  -- v6+ only
             }
           
           requestBody = WC.runEncodeVer @IPReq.InitProducerIdRequest apiVersion request
@@ -695,9 +693,6 @@ buildTxnOffsetCommitRequest groupId producerId epoch offsets =
       !topicVec = V.fromList
         [ TOCReq.TxnOffsetCommitRequestTopic
             { TOCReq.txnOffsetCommitRequestTopicName    = P.mkKafkaString topic
-            , -- KIP-848 (v6+): topic id; nullUuid is the
-              -- "I don't know the topic id" sentinel.
-              TOCReq.txnOffsetCommitRequestTopicTopicId = P.nullUuid
             , TOCReq.txnOffsetCommitRequestTopicPartitions = P.mkKafkaArray $ V.fromList
                 [ TOCReq.TxnOffsetCommitRequestPartition
                     { TOCReq.txnOffsetCommitRequestPartitionPartitionIndex   = pid
@@ -715,9 +710,7 @@ buildTxnOffsetCommitRequest groupId producerId epoch offsets =
         , TOCReq.txnOffsetCommitRequestGroupId         = P.mkKafkaString groupId
         , TOCReq.txnOffsetCommitRequestProducerId      = producerId
         , TOCReq.txnOffsetCommitRequestProducerEpoch   = epoch
-        , -- KIP-848 renamed this from GenerationId to
-          -- GenerationIdOrMemberEpoch. -1 still means "no generation".
-          TOCReq.txnOffsetCommitRequestGenerationIdOrMemberEpoch = -1
+        , TOCReq.txnOffsetCommitRequestGenerationId    = -1
         , TOCReq.txnOffsetCommitRequestMemberId        = P.KafkaString P.Null
         , TOCReq.txnOffsetCommitRequestGroupInstanceId = P.KafkaString P.Null
         , TOCReq.txnOffsetCommitRequestTopics          = P.mkKafkaArray topicVec

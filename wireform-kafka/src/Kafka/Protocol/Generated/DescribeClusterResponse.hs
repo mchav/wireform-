@@ -118,7 +118,7 @@ data DescribeClusterResponse = DescribeClusterResponse
   describeClusterResponseClusterId :: !(KafkaString)
 ,
 
-  -- | The ID of the controller. When handled by a controller, returns the current voter leader ID. When ha
+  -- | The ID of the controller broker.
 
   -- Versions: 0+
   describeClusterResponseControllerId :: !(Int32)
@@ -256,7 +256,7 @@ wirePeekDescribeClusterResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec DescribeClusterResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeDescribeClusterResponse (fromIntegral v) msg

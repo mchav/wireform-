@@ -12,7 +12,7 @@ Kafka response for API key 28.
 
 
 
-Valid versions: 0-6
+Valid versions: 0-5
 Flexible versions: 3+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -73,14 +73,8 @@ data TxnOffsetCommitResponseTopic = TxnOffsetCommitResponseTopic
 
   -- | The topic name.
 
-  -- Versions: 0-5
+  -- Versions: 0+
   txnOffsetCommitResponseTopicName :: !(KafkaString)
-,
-
-  -- | The topic ID.
-
-  -- Versions: 6+
-  txnOffsetCommitResponseTopicTopicId :: !(KafkaUuid)
 ,
 
   -- | The responses for each partition in the topic.
@@ -111,13 +105,13 @@ data TxnOffsetCommitResponse = TxnOffsetCommitResponse
 
 -- | Maximum supported version for TxnOffsetCommitResponse.
 maxTxnOffsetCommitResponseVersion :: Int16
-maxTxnOffsetCommitResponseVersion = 6
+maxTxnOffsetCommitResponseVersion = 5
 
 -- | KafkaMessage instance for TxnOffsetCommitResponse.
 instance KafkaMessage TxnOffsetCommitResponse where
   messageApiKey = 28
   messageMinVersion = 0
-  messageMaxVersion = 6
+  messageMaxVersion = 5
   messageFlexibleVersion = Just 3
 
 -- | Worst-case wire size of a TxnOffsetCommitResponsePartition.
@@ -154,7 +148,6 @@ wireMaxSizeTxnOffsetCommitResponseTopic :: Int -> TxnOffsetCommitResponseTopic -
 wireMaxSizeTxnOffsetCommitResponseTopic _version msg =
   0
   + WP.dualStringMaxSize (txnOffsetCommitResponseTopicName msg)
-  + 16
   + (5 + (case P.unKafkaArray (txnOffsetCommitResponseTopicPartitions msg) of { P.NotNull v -> sum (fmap (\x -> wireMaxSizeTxnOffsetCommitResponsePartition _version x ) v); P.Null -> 0 }))
   + 1
 
@@ -162,24 +155,22 @@ wireMaxSizeTxnOffsetCommitResponseTopic _version msg =
 wirePokeTxnOffsetCommitResponseTopic :: Int -> Ptr Word8 -> TxnOffsetCommitResponseTopic -> IO (Ptr Word8)
 wirePokeTxnOffsetCommitResponseTopic version basePtr msg = do
   p0 <- pure basePtr
-  p1 <- (if version <= 5 then (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (txnOffsetCommitResponseTopicName msg)) else WP.pokeKafkaString p0 (txnOffsetCommitResponseTopicName msg)) else pure p0)
-  p2 <- (if version >= 6 then WP.pokeKafkaUuid p1 (txnOffsetCommitResponseTopicTopicId msg) else pure p1)
-  p3 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeTxnOffsetCommitResponsePartition version p x) p2 (txnOffsetCommitResponseTopicPartitions msg)
-  if version >= 3 then WP.pokeEmptyTaggedFields p3 else pure p3
+  p1 <- (if version >= 3 then WP.pokeCompactString p0 (P.toCompactString (txnOffsetCommitResponseTopicName msg)) else WP.pokeKafkaString p0 (txnOffsetCommitResponseTopicName msg))
+  p2 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeTxnOffsetCommitResponsePartition version p x) p1 (txnOffsetCommitResponseTopicPartitions msg)
+  if version >= 3 then WP.pokeEmptyTaggedFields p2 else pure p2
 
 -- | Direct-poke decoder for TxnOffsetCommitResponseTopic.
 wirePeekTxnOffsetCommitResponseTopic :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (TxnOffsetCommitResponseTopic, Ptr Word8)
 wirePeekTxnOffsetCommitResponseTopic version _fp _basePtr p0 endPtr = do
-  (f0_name, p1) <- (if version <= 5 then (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr) else pure (P.KafkaString Null, p0))
-  (f1_topicid, p2) <- (if version >= 6 then WP.peekKafkaUuid p1 endPtr else pure (P.nullUuid, p1))
-  (f2_partitions, p3) <- WP.peekVersionedArray version 3 (\p e -> wirePeekTxnOffsetCommitResponsePartition version _fp _basePtr p e) p2 endPtr
-  pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p3 endPtr else pure p3
-  pure (TxnOffsetCommitResponseTopic { txnOffsetCommitResponseTopicName = f0_name, txnOffsetCommitResponseTopicTopicId = f1_topicid, txnOffsetCommitResponseTopicPartitions = f2_partitions }, pTagsEnd)
+  (f0_name, p1) <- (if version >= 3 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p0 endPtr else WP.peekKafkaString p0 endPtr)
+  (f1_partitions, p2) <- WP.peekVersionedArray version 3 (\p e -> wirePeekTxnOffsetCommitResponsePartition version _fp _basePtr p e) p1 endPtr
+  pTagsEnd <- if version >= 3 then WP.peekAndSkipTaggedFields p2 endPtr else pure p2
+  pure (TxnOffsetCommitResponseTopic { txnOffsetCommitResponseTopicName = f0_name, txnOffsetCommitResponseTopicPartitions = f1_partitions }, pTagsEnd)
 
 -- | Per-struct default value referenced by 'generateFieldDefaultDoc'
 -- when an absent-version field elsewhere needs a placeholder.
 defaultTxnOffsetCommitResponseTopic :: TxnOffsetCommitResponseTopic
-defaultTxnOffsetCommitResponseTopic = TxnOffsetCommitResponseTopic { txnOffsetCommitResponseTopicName = P.KafkaString Null, txnOffsetCommitResponseTopicTopicId = P.nullUuid, txnOffsetCommitResponseTopicPartitions = P.mkKafkaArray V.empty }
+defaultTxnOffsetCommitResponseTopic = TxnOffsetCommitResponseTopic { txnOffsetCommitResponseTopicName = P.KafkaString Null, txnOffsetCommitResponseTopicPartitions = P.mkKafkaArray V.empty }
 
 -- | Worst-case wire size of a TxnOffsetCommitResponse.
 wireMaxSizeTxnOffsetCommitResponse :: Int -> TxnOffsetCommitResponse -> Int
@@ -197,7 +188,7 @@ wirePokeTxnOffsetCommitResponse version basePtr msg
     p1 <- W.pokeInt32BE p0 (txnOffsetCommitResponseThrottleTimeMs msg)
     p2 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeTxnOffsetCommitResponseTopic version p x) p1 (txnOffsetCommitResponseTopics msg)
     pure p2
-  | version >= 3 && version <= 6 = do
+  | version >= 3 && version <= 5 = do
     p0 <- pure basePtr
     p1 <- W.pokeInt32BE p0 (txnOffsetCommitResponseThrottleTimeMs msg)
     p2 <- WP.pokeVersionedArray version 3 (\p x -> wirePokeTxnOffsetCommitResponseTopic version p x) p1 (txnOffsetCommitResponseTopics msg)
@@ -211,7 +202,7 @@ wirePeekTxnOffsetCommitResponse version _fp _basePtr p0 endPtr
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_topics, p2) <- WP.peekVersionedArray version 3 (\p e -> wirePeekTxnOffsetCommitResponseTopic version _fp _basePtr p e) p1 endPtr
     pure (TxnOffsetCommitResponse { txnOffsetCommitResponseThrottleTimeMs = f0_throttletimems, txnOffsetCommitResponseTopics = f1_topics }, p2)
-  | version >= 3 && version <= 6 = do
+  | version >= 3 && version <= 5 = do
     (f0_throttletimems, p1) <- W.peekInt32BE p0 endPtr
     (f1_topics, p2) <- WP.peekVersionedArray version 3 (\p e -> wirePeekTxnOffsetCommitResponseTopic version _fp _basePtr p e) p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
@@ -221,7 +212,7 @@ wirePeekTxnOffsetCommitResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec TxnOffsetCommitResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeTxnOffsetCommitResponse (fromIntegral v) msg

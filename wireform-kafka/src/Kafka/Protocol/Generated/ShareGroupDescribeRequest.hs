@@ -12,7 +12,7 @@ Kafka request for API key 77.
 
 
 
-Valid versions: 1
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -68,13 +68,13 @@ data ShareGroupDescribeRequest = ShareGroupDescribeRequest
 
 -- | Maximum supported version for ShareGroupDescribeRequest.
 maxShareGroupDescribeRequestVersion :: Int16
-maxShareGroupDescribeRequestVersion = 1
+maxShareGroupDescribeRequestVersion = 0
 
 -- | KafkaMessage instance for ShareGroupDescribeRequest.
 instance KafkaMessage ShareGroupDescribeRequest where
   messageApiKey = 77
-  messageMinVersion = 1
-  messageMaxVersion = 1
+  messageMinVersion = 0
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 
@@ -89,7 +89,7 @@ wireMaxSizeShareGroupDescribeRequest _version msg =
 -- | Direct-poke encoder for ShareGroupDescribeRequest.
 wirePokeShareGroupDescribeRequest :: Int -> Ptr Word8 -> ShareGroupDescribeRequest -> IO (Ptr Word8)
 wirePokeShareGroupDescribeRequest version basePtr msg
-  | version == 1 = do
+  | version == 0 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedArray version 0 (\p s -> if version >= 0 then WP.pokeCompactString p (P.toCompactString s) else WP.pokeKafkaString p s) p0 (shareGroupDescribeRequestGroupIds msg)
     p2 <- W.pokeWord8 p1 (if (shareGroupDescribeRequestIncludeAuthorizedOperations msg) then 1 else 0)
@@ -99,7 +99,7 @@ wirePokeShareGroupDescribeRequest version basePtr msg
 -- | Direct-poke decoder for ShareGroupDescribeRequest.
 wirePeekShareGroupDescribeRequest :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (ShareGroupDescribeRequest, Ptr Word8)
 wirePeekShareGroupDescribeRequest version _fp _basePtr p0 endPtr
-  | version == 1 = do
+  | version == 0 = do
     (f0_groupids, p1) <- WP.peekVersionedArray version 0 (\p e -> if version >= 0 then (\(cs, p') -> (P.fromCompactString cs, p')) <$> WP.peekCompactString p e else WP.peekKafkaString p e) p0 endPtr
     (f1_includeauthorizedoperations, p2) <- (\(w, p') -> (w /= 0, p')) <$> W.peekWord8 p1 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p2 endPtr
@@ -109,7 +109,7 @@ wirePeekShareGroupDescribeRequest version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec ShareGroupDescribeRequest where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeShareGroupDescribeRequest (fromIntegral v) msg

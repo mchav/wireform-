@@ -12,7 +12,7 @@ Kafka response for API key 85.
 
 
 
-Valid versions: 0-1
+Valid versions: 0
 Flexible versions: 0+
 
 This code is auto-generated from Kafka protocol definitions.
@@ -105,13 +105,13 @@ data WriteShareGroupStateResponse = WriteShareGroupStateResponse
 
 -- | Maximum supported version for WriteShareGroupStateResponse.
 maxWriteShareGroupStateResponseVersion :: Int16
-maxWriteShareGroupStateResponseVersion = 1
+maxWriteShareGroupStateResponseVersion = 0
 
 -- | KafkaMessage instance for WriteShareGroupStateResponse.
 instance KafkaMessage WriteShareGroupStateResponse where
   messageApiKey = 85
   messageMinVersion = 0
-  messageMaxVersion = 1
+  messageMaxVersion = 0
   messageFlexibleVersion = Just 0
 
 -- | Worst-case wire size of a PartitionResult.
@@ -185,7 +185,7 @@ wireMaxSizeWriteShareGroupStateResponse _version msg =
 -- | Direct-poke encoder for WriteShareGroupStateResponse.
 wirePokeWriteShareGroupStateResponse :: Int -> Ptr Word8 -> WriteShareGroupStateResponse -> IO (Ptr Word8)
 wirePokeWriteShareGroupStateResponse version basePtr msg
-  | version >= 0 && version <= 1 = do
+  | version == 0 = do
     p0 <- pure basePtr
     p1 <- WP.pokeVersionedArray version 0 (\p x -> wirePokeWriteStateResult version p x) p0 (writeShareGroupStateResponseResults msg)
     WP.pokeEmptyTaggedFields p1
@@ -194,7 +194,7 @@ wirePokeWriteShareGroupStateResponse version basePtr msg
 -- | Direct-poke decoder for WriteShareGroupStateResponse.
 wirePeekWriteShareGroupStateResponse :: Int -> ForeignPtr Word8 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO (WriteShareGroupStateResponse, Ptr Word8)
 wirePeekWriteShareGroupStateResponse version _fp _basePtr p0 endPtr
-  | version >= 0 && version <= 1 = do
+  | version == 0 = do
     (f0_results, p1) <- WP.peekVersionedArray version 0 (\p e -> wirePeekWriteStateResult version _fp _basePtr p e) p0 endPtr
     pTagsEnd <- WP.peekAndSkipTaggedFields p1 endPtr
     pure (WriteShareGroupStateResponse { writeShareGroupStateResponseResults = f0_results }, pTagsEnd)
@@ -203,7 +203,7 @@ wirePeekWriteShareGroupStateResponse version _fp _basePtr p0 endPtr
 
 -- | Native 'WC.WireCodec' instance: 'WC.runEncodeVer' /
 -- 'WC.runDecodeVer' dispatch into the direct-poke functions
--- generated above. There is no Serial fallback path.
+-- generated above.
 instance WC.WireCodec WriteShareGroupStateResponse where
   wireCodec = WC.WireCodecImpl
     { WC.wireMaxSizeFor = \v msg -> wireMaxSizeWriteShareGroupStateResponse (fromIntegral v) msg

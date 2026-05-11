@@ -32,9 +32,7 @@ main = do
             case generateWireFunctions sch of
               Just docs -> mapM_ renderD docs
               Nothing   -> putStrLn "wire-unsupported"
-            case generateWireCodecOverride sch of
-              Just d  -> renderD d >> putStrLn ""
-              Nothing -> pure ()
+            renderD (generateWireCodecOverride sch) >> putStrLn ""
             putStrLn "")
         schemas
 
