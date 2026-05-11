@@ -43,6 +43,7 @@ module Kafka.Client.Consumer
   , closeConsumer
   , closeConsumerWithTimeout
   , closeConsumerWithoutLeavingGroup
+  , requestRejoin
     -- * Subscription
   , subscribe
   , unsubscribe
@@ -724,6 +725,24 @@ closeConsumerWithTimeout = closeConsumerImpl True
 -- avoid the rebalance churn.
 closeConsumerWithoutLeavingGroup :: Consumer -> Int -> IO ()
 closeConsumerWithoutLeavingGroup = closeConsumerImpl False
+
+-- | KIP-441 programmatic rejoin trigger. Flips
+-- 'HB.hbNeedsRebalance' so the next 'poll' transparently
+-- re-runs JoinGroup \/ SyncGroup against the same
+-- subscription — equivalent to what happens when the broker
+-- replies @REBALANCE_IN_PROGRESS@ to a heartbeat.
+--
+-- Used by the streams runtime when its probing-rebalance
+-- machinery decides a warmup replica is ready to be
+-- promoted. Returns @False@ if the consumer has no
+-- heartbeat thread (manual-offset / unsubscribed mode); the
+-- caller can treat that as a no-op.
+requestRejoin :: Consumer -> IO Bool
+requestRejoin Consumer{..} = case consumerHeartbeat of
+  Nothing -> pure False
+  Just (hbState, _) -> do
+    atomically (writeTVar (HB.hbNeedsRebalance hbState) True)
+    pure True
 
 -- | Shared implementation. @doLeaveGroup = False@ skips the
 -- @LeaveGroup@ RPC but still:

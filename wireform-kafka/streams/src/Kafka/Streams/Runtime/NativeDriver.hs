@@ -201,15 +201,14 @@ newNativeDriver producer consumer mTxn = do
             Left e   -> Left (show e)
             Right () -> Right ()
     , sdRebalanceEvent = atomically (tryReadTQueue rebalanceQ)
-    , sdRequestProbingRebalance =
-        -- The live consumer doesn't yet expose a public
-        -- 'requestRejoin' entry point (that's the
-        -- consumer-group protocol piece tracked in the
-        -- top-level FEATURE_PARITY.md). For now this is a
-        -- documented no-op: the runtime calls it on cadence,
-        -- but no JoinGroup is issued until the consumer-side
-        -- piece lands. Behaviour falls back to the broker's
-        -- normal heartbeat-driven rebalance.
+    , sdRequestProbingRebalance = do
+        -- KIP-441: trigger a fresh JoinGroup so the leader
+        -- can promote ready warmup replicas. 'requestRejoin'
+        -- flips HB.hbNeedsRebalance so the next 'poll'
+        -- transparently re-runs JoinGroup / SyncGroup.
+        -- Returns False for unsubscribed consumers — treat
+        -- as a no-op.
+        _ <- KC.requestRejoin consumer
         pure ()
     }
 
