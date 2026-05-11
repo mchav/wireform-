@@ -192,7 +192,6 @@ executable wireform-iceberg-interop-probe
   import: defaults
   hs-source-dirs: probe
   main-is: Probe.hs
-  ghc-options: -O1
   build-depends:
     base >= 4.16 && < 5,
     wireform-iceberg,

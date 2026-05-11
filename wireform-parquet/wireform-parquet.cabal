@@ -168,7 +168,6 @@ executable wireform-parquet-interop-probe
   import: defaults
   hs-source-dirs: probe
   main-is: Probe.hs
-  ghc-options: -O1
   build-depends:
     base >= 4.16 && < 5,
     wireform-parquet,
@@ -181,7 +180,6 @@ executable wireform-parquet-reverse-probe
   import: defaults
   hs-source-dirs: probe
   main-is: Reverse.hs
-  ghc-options: -O1
   build-depends:
     base >= 4.16 && < 5,
     wireform-arrow,

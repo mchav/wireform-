@@ -30,7 +30,6 @@ common defaults
     -Wincomplete-uni-patterns
     -Wpartial-fields
     -Wredundant-constraints
-    -O1
   default-language: GHC2021
   default-extensions:
     StrictData

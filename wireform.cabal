@@ -22,8 +22,8 @@ homepage:           https://github.com/iand675/wireform-
 bug-reports:        https://github.com/iand675/wireform-/issues
 build-type:         Simple
 tested-with:        GHC == 9.6.4, GHC == 9.8.4
-extra-source-files: CHANGELOG.md
 extra-doc-files:
+  CHANGELOG.md
   docs/README.md
   docs/getting-started.md
 
@@ -47,21 +47,6 @@ source-repository head
 
 flag python-interop
   description: Enable Python interop conformance tests (requires python3, protobuf pip package, protoc)
-  manual: True
-  default: False
-
-flag snappy
-  description: Enable snappy compression for Avro containers
-  manual: True
-  default: False
-
-flag zstd
-  description: Enable Zstandard decompression for Parquet column chunks (links libzstd)
-  manual: True
-  default: False
-
-flag lz4
-  description: Enable LZ4 raw block decompression for Parquet column chunks (links liblz4)
   manual: True
   default: False
 
@@ -592,7 +577,7 @@ benchmark html-bench
     , primitive
     , text
   hs-source-dirs: bench
-  ghc-options: -O1 -rtsopts
+  ghc-options: -rtsopts
 
 executable profile-rewriter
   import: defaults
@@ -603,7 +588,7 @@ executable profile-rewriter
     , bytestring
     , text
   hs-source-dirs: bench
-  ghc-options: -O1 -rtsopts
+  ghc-options: -rtsopts
   -- The +profile flag re-enables cost-centre generation so
   -- @+RTS -p@ produces useful output. Build with
   --
@@ -612,8 +597,13 @@ executable profile-rewriter
   -- Default-off so @cabal build all@ in CI stays green
   -- (--enable-profiling requires the entire dep closure to be
   -- built with profiling libs too).
+  --
+  -- 'ghc-options: -prof' would be wrong here: --enable-profiling
+  -- already injects -prof for us, and adding it manually trips
+  -- cabal-check's portability error. -fprof-late is the only
+  -- knob we actually need on top.
   if flag(profile)
-    ghc-options: -fprof-late -prof
+    ghc-options: -fprof-late
 
 benchmark yaml-bench
   import: defaults
