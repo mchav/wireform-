@@ -189,7 +189,7 @@ uncaught_replace_thread_respawns_loop =
 
     -- Wait until the handler has been called at least twice
     -- (proves the respawn fired and then was shut down).
-    waitFor 5000 $ do
+    waitForKs ks 5000 $ do
       n <- readIORef invsRef
       pure (n >= 2)
 
@@ -223,7 +223,7 @@ uncaught_shutdown_client_transitions_error =
     awaitState ks StreamsRunning
 
     -- Status must end up in StreamsError after the handler fires.
-    waitFor 5000 $ do
+    waitForKs ks 5000 $ do
       st <- streamsStatus ks
       pure $ case st of
         StreamsError _ -> True
@@ -250,9 +250,21 @@ handler_defaults_are_continue_and_replace =
     awaitState ks StreamsClosed
 
 ----------------------------------------------------------------------
--- Local waitFor (mirrors the helper in RuntimeDriverSpec)
+-- Wait helper coordinated with the runtime's tick signal
 ----------------------------------------------------------------------
 
+waitForKs :: KafkaStreams -> Int -> IO Bool -> IO ()
+waitForKs _  0 _ = error "waitForKs: timed out"
+waitForKs ks n act = do
+  ok <- act
+  if ok
+    then pure ()
+    else do
+      _ <- awaitTicks ks 1
+      waitForKs ks (n - 1) act
+
+-- Local yield-based wait for tests that don't have a
+-- KafkaStreams handle yet (kept for future use).
 waitFor :: Int -> IO Bool -> IO ()
 waitFor 0 _ = error "waitFor: timed out"
 waitFor n act = do

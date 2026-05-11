@@ -419,6 +419,7 @@ library wireform-kafka-streams
         Kafka.Streams
         Kafka.Streams.Config
         Kafka.Streams.Errors
+        Kafka.Streams.Discovery
         Kafka.Streams.Time
         Kafka.Streams.Types
         Kafka.Streams.Serde
@@ -571,6 +572,7 @@ test-suite wireform-kafka-streams-test
         Streams.ExceptionHandlerSpec
         Streams.KGroupedTableSpec
         Streams.StoresExtraSpec
+        Streams.QueryAndDiscoverySpec
         Streams.MultiInstanceHarnessSpec
         Streams.SchemaRegistryHttpSpec
         Streams.SchemaRegistryFormatsSpec

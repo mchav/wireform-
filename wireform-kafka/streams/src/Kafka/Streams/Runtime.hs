@@ -1114,14 +1114,23 @@ ksTickCount :: KafkaStreams -> IO Int
 ksTickCount ks = readTVarIO (ksTicks ks)
 
 -- | Block until 'ksTicks' has advanced by at least @n@ since
--- the call. Returns the new tick count. Used by tests to
--- wait for "the engine ran at least @n@ more times".
+-- the call /or/ the runtime hits a terminal state
+-- ('StreamsClosing' / 'StreamsClosed' / 'StreamsError'),
+-- whichever happens first. Returns the new tick count. Used
+-- by tests to wait for "the engine ran at least @n@ more
+-- times" without deadlocking when the loop has died.
 awaitTicks :: KafkaStreams -> Int -> IO Int
 awaitTicks ks n = do
   start <- readTVarIO (ksTicks ks)
   atomically $ do
     cur <- readTVar (ksTicks ks)
-    if cur >= start + n
+    st  <- readTVar (ksStatus ks)
+    let !terminal = case st of
+          StreamsClosing -> True
+          StreamsClosed  -> True
+          StreamsError _ -> True
+          _              -> False
+    if terminal || cur >= start + n
       then pure cur
       else retry
 

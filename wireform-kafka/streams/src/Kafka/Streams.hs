@@ -19,6 +19,7 @@ module Kafka.Streams
   , module Kafka.Streams.TopologyDescription
   , module Kafka.Streams.Metrics
   , module Kafka.Streams.Query
+  , module Kafka.Streams.Discovery
   , module Kafka.Streams.Config
     -- * State stores
   , module Kafka.Streams.State.Store
@@ -89,6 +90,7 @@ import Kafka.Streams.State.Store
 import Kafka.Streams.State.Window.InMemory
 import Kafka.Streams.Time
 import Kafka.Streams.Topology
+import Kafka.Streams.Discovery
 import Kafka.Streams.Metrics
 import Kafka.Streams.Query
 -- 'Kafka.Streams.Stores' is intentionally NOT re-exported from the
