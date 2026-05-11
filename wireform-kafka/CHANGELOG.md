@@ -8,6 +8,37 @@ and this project adheres to the
 
 ## Unreleased
 
+### Added
+
+- **TLS offload support** for the broker connection layer
+  (`Kafka.Network.TlsOffload`, new field
+  `Kafka.Network.Connection.connTlsOffload`). When set, the
+  client skips its own `crypton-connection` TLS handshake and
+  routes every broker socket through a sidecar / Unix-domain
+  socket / kTLS-style endpoint, regardless of the value of
+  `connUseTls`. Four deployment shapes are supported out of the
+  box:
+  - `transparentTlsOffload` (kTLS / NLB / TPROXY — connect to
+    the broker's advertised address, cipher work happens
+    out-of-band);
+  - `staticTlsOffload` (every broker connection routes to one
+    fixed TCP or Unix-domain endpoint — the standard Envoy /
+    `kafka-proxy` shape);
+  - `perBrokerTlsOffload` (per-broker endpoint map — the
+    standard stunnel-with-port-per-broker shape used against
+    MSK);
+  - `customTlsOffload` (arbitrary `OffloadBrokerKey -> IO
+    (Maybe TlsOffloadEndpoint)` resolver — for service-mesh /
+    control-plane-discovered sidecars).
+  The connection pool is still keyed by the logical broker
+  address so per-broker SASL state and request pipelining are
+  preserved when several brokers fan in to the same sidecar
+  socket. New test suite `Network.TlsOffloadSpec` covers each
+  mode end-to-end with in-process TCP and UDS sidecars.
+- `Kafka.Network.Connection.connectOffload`: public,
+  retry-aware single-broker form of the offload path for
+  callers that don't need a `ConnectionManager`.
+
 ### Changed
 
 - Vendored Apache Kafka **4.0.0** protocol JSON schemas

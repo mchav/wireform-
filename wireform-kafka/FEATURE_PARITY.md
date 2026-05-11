@@ -143,6 +143,14 @@ with the implementation.
   - Socket buffer / Nagle / keepalive / max-idle / max-fails knobs.
   - Best-effort `isConnected` liveness probe (alive-idle case fixed in
     this branch).
+  - **TLS offload** (`Kafka.Network.TlsOffload`,
+    `connTlsOffload`): bypass the in-client TLS handshake and
+    route every broker connection through a sidecar /
+    Unix-domain socket / kTLS endpoint. Supports transparent
+    (kTLS / NLB), static, per-broker, and custom resolution
+    modes; the connection pool stays keyed by logical broker
+    address so SASL state and request pipelining survive the
+    fan-in.
 - API version negotiation:
   - `ApiVersionsRequest` on connect, `ApiVersionCache` per broker,
     `selectVersion` picks the highest version both sides understand.
