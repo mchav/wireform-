@@ -436,7 +436,8 @@ appendRecordStamped acc@BatchAccumulator{..} tp record callback stamp = do
               -- per-record allocation drop translates into
               -- ~25-30% main-thread enqueue throughput on the
               -- hot path.
-              let !rs = approximateRecordSize record
+              let !rs    = approximateRecordSize record
+                  !limit = accumulatorBatchSize accumulatorConfig
               !sealNow <- atomicModifyIORef' (baHotState ba) $ \st ->
                 let !ns = bhSizeBytes st + rs
                     !st' = BatchHotState
@@ -444,7 +445,7 @@ appendRecordStamped acc@BatchAccumulator{..} tp record callback stamp = do
                       , bhSizeBytes    = ns
                       , bhCallbacksRev = callback : bhCallbacksRev st
                       }
-                in (st', ns >= accumulatorBatchSize accumulatorConfig)
+                in (st', ns >= limit)
               when sealNow $ sealCurrent acc queue ba
               pure True
 
@@ -495,16 +496,16 @@ appendRecordStampedUnsafe acc@BatchAccumulator{..} tp record callback stamp = do
               -- concurrent appends on this partition (see the
               -- haddock above).
               !st <- readIORef (baHotState ba)
-              let !rs = approximateRecordSize record
-                  !ns = bhSizeBytes st + rs
+              let !rs    = approximateRecordSize record
+                  !ns    = bhSizeBytes st + rs
+                  !limit = accumulatorBatchSize accumulatorConfig
                   !st' = BatchHotState
                     { bhRecordsRev   = record   : bhRecordsRev st
                     , bhSizeBytes    = ns
                     , bhCallbacksRev = callback : bhCallbacksRev st
                     }
               writeIORef (baHotState ba) st'
-              when (ns >= accumulatorBatchSize accumulatorConfig) $
-                sealCurrent acc queue ba
+              when (ns >= limit) $ sealCurrent acc queue ba
               pure True
 
 -- | Append a /sequence/ of records to one (topic, partition) in
