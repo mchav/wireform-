@@ -67,6 +67,8 @@ module Kafka.Streams.Runtime
   , reportWarmupLag
   , clearWarmupLag
   , warmupSnapshot
+    -- * Standby tasks
+  , ksStandbyManager
     -- * Exception handlers (KIP-161/280/671/1033)
   , setProductionExceptionHandler
   , setProcessingExceptionHandler
@@ -143,6 +145,10 @@ import Kafka.Client.RebalanceListener
   , noopRebalanceListener
   )
 import qualified Kafka.Streams.Runtime.ProbingRebalance as ProbingRebalance
+import Kafka.Streams.Runtime.StandbyTask
+  ( StandbyManager
+  , newStandbyManager
+  )
 import Kafka.Streams.Runtime.NativeDriver
   ( RebalanceEvent (..)
   , StreamDriver (..)
@@ -259,6 +265,7 @@ data KafkaStreams = KafkaStreams
     -- 'probingRebalanceIntervalMs' / 'acceptableRecoveryLag'
     -- to decide whether to fire 'sdRequestProbingRebalance'.
   , ksLastProbeAt :: !(TVar Int64)
+  , ksStandbyManager :: !StandbyManager
   }
 
 newKafkaStreams
@@ -286,6 +293,7 @@ newKafkaStreams cfg topo = do
   grLis   <- newIORef (\_ _ -> pure ())
   warmup  <- newTVarIO Map.empty
   lastPr  <- newTVarIO 0
+  stbyMgr <- newStandbyManager
   pure KafkaStreams
     { ksConfig    = cfg
     , ksTopology  = topo
@@ -309,6 +317,7 @@ newKafkaStreams cfg topo = do
     , ksGlobalRestoreLis = grLis
     , ksWarmupLag = warmup
     , ksLastProbeAt = lastPr
+    , ksStandbyManager = stbyMgr
     }
 
 -- | Start the runtime against a real broker. Constructs a
