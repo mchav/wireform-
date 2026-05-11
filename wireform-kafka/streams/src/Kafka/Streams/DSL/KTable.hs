@@ -84,8 +84,10 @@ data KTable k v = KTable
   , ktableValueSerde :: ~(Serde v)
   }
 
--- | Materialise a topic as a 'KTable'. Each (key,value) updates the
--- store; tombstones (null value) delete the key.
+-- | Materialise a topic as a 'KTable'. Each (key,value)
+-- updates the store; tombstones (null value) delete the key.
+--
+-- /JVM equivalent:/ @StreamsBuilder.table(topic, Consumed, Materialized)@.
 tableFromTopic
   :: forall k v
    . Ord k
@@ -156,6 +158,11 @@ sourceTableProcessor sn = do
 -- Stateless
 ----------------------------------------------------------------------
 
+-- | Drop entries for which the predicate returns 'False'.
+-- A 'Nothing' result is forwarded so downstream tables can
+-- represent the absence of the key explicitly.
+--
+-- /JVM equivalent:/ @KTable.filter(Predicate, Materialized)@.
 filterTable
   :: forall k v
    . Ord k
@@ -241,6 +248,10 @@ filterNotTable
   -> IO (KTable k v)
 filterNotTable p = filterTable (not . p)
 
+-- | Apply a function to every value in the table. The new
+-- 'Materialized' becomes the result table's backing store.
+--
+-- /JVM equivalent:/ @KTable.mapValues(ValueMapper, Materialized)@.
 mapValuesTable
   :: forall k v v'
    . Ord k

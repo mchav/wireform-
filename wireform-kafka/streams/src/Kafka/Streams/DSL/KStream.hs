@@ -197,6 +197,11 @@ data KStream k v = KStream
 -- Sources
 ----------------------------------------------------------------------
 
+-- | Build a 'KStream' that subscribes to records from the
+-- given topic. The 'Consumed' record carries the key / value
+-- serdes and an optional explicit source node name.
+--
+-- /JVM equivalent:/ @StreamsBuilder.stream(topic, Consumed)@.
 streamFromTopic
   :: StreamsBuilder
   -> TopicName
@@ -272,12 +277,19 @@ statelessProcessorM nm f = do
 -- Stateless transforms
 ----------------------------------------------------------------------
 
+-- | Keep records for which the predicate returns 'True'.
+--
+-- /JVM equivalent:/ @KStream.filter(Predicate)@.
 filterStream :: (Record k v -> Bool) -> KStream k v -> IO (KStream k v)
 filterStream pred_ s =
   attachProcessor s "KSTREAM-FILTER"
     (filterProcessor "KSTREAM-FILTER" pred_)
     (kstreamKeySerde s) (kstreamValueSerde s)
 
+-- | Drop records for which the predicate returns 'True'; the
+-- inverse of 'filterStream'.
+--
+-- /JVM equivalent:/ @KStream.filterNot(Predicate)@.
 filterNotStream :: (Record k v -> Bool) -> KStream k v -> IO (KStream k v)
 filterNotStream pred_ = filterStream (not . pred_)
 
@@ -296,9 +308,20 @@ filterProcessor nm p = do
           Just ctx -> if p r then forwardRecord ctx r else pure ()
     }
 
+-- | Apply a pure function to every record's value.
+--
+-- /JVM equivalent:/ @KStream.mapValues(ValueMapper)@.
 mapValues :: forall k v v'. (v -> v') -> KStream k v -> IO (KStream k v')
 mapValues f s = mapValuesM (pure . f) s
 
+-- | Apply an effectful function to every record's value. The
+-- 'IO' action runs once per record on the stream thread; it
+-- mustn't block on external systems for long, since that
+-- stalls the partition.
+--
+-- /JVM equivalent:/ no direct match — closest is the
+-- @ValueMapper@ + a separate side-effect channel. We model
+-- the @IO@ in the type signature so the cost is visible.
 mapValuesM :: forall k v v'. (v -> IO v') -> KStream k v -> IO (KStream k v')
 mapValuesM f s =
   attachProcessor s "KSTREAM-MAPVALUES"
@@ -333,6 +356,12 @@ mapValuesProc f = do
             forwardRecord ctx out
     }
 
+-- | Re-key + re-value every record with a pure function. The
+-- new key feeds into downstream partitioning, so if you intend
+-- to consume the result with a stateful op you usually want to
+-- 'repartition' afterwards.
+--
+-- /JVM equivalent:/ @KStream.map(KeyValueMapper)@.
 mapKeyValue
   :: forall k v k' v'
    . (k -> v -> (k', v'))
@@ -340,6 +369,7 @@ mapKeyValue
   -> IO (KStream k' v')
 mapKeyValue f = mapKeyValueM (\k v -> pure (f k v))
 
+-- | Effectful version of 'mapKeyValue'.
 mapKeyValueM
   :: forall k v k' v'
    . (k -> v -> IO (k', v'))
@@ -375,6 +405,10 @@ mapKVProc f = do
           _ -> pure ()
     }
 
+-- | Expand each record into zero or more output records,
+-- changing only the value.
+--
+-- /JVM equivalent:/ @KStream.flatMapValues(ValueMapper)@.
 flatMapValues
   :: forall k v v'
    . (v -> [v'])
@@ -412,6 +446,11 @@ flatMapValuesProc f = do
               (f (recordValue r))
     }
 
+-- | Expand each record into zero or more output records,
+-- changing both key and value. As with 'mapKeyValue', the new
+-- key feeds downstream partitioning.
+--
+-- /JVM equivalent:/ @KStream.flatMap(KeyValueMapper)@.
 flatMapKeyValue
   :: forall k v k' v'
    . (k -> v -> [(k', v')])
@@ -450,6 +489,11 @@ flatMapKVProc f = do
           _ -> pure ()
     }
 
+-- | Run a side-effecting action on every record without
+-- changing the stream. Useful for metrics / logging / debug
+-- output.
+--
+-- /JVM equivalent:/ @KStream.peek(ForeachAction)@.
 peekStream
   :: (Record k v -> IO ())
   -> KStream k v
@@ -489,6 +533,11 @@ foreachStreamAsync act s =
        pure ())
     s
 
+-- | Terminal sink for side effects: every record runs through
+-- the supplied action and is then dropped (no downstream
+-- stream).
+--
+-- /JVM equivalent:/ @KStream.foreach(ForeachAction)@.
 foreachStream :: (Record k v -> IO ()) -> KStream k v -> IO ()
 foreachStream act s = do
   let b = kstreamBuilder s
@@ -502,6 +551,12 @@ foreachStream act s = do
         , procProcess = act
         }
 
+-- | Re-key the stream by deriving a new key from the record
+-- (key, value, timestamp, headers). Use 'repartition' after
+-- this if a stateful op consumes the result, otherwise the
+-- new key won't drive partitioning correctly.
+--
+-- /JVM equivalent:/ @KStream.selectKey(KeyValueMapper)@.
 selectKey
   :: forall k v k'
    . (Record k v -> k')
@@ -574,9 +629,11 @@ mkPassThrough nm = do
           Just ctx -> forwardRecord ctx r
     }
 
--- | Branch a stream into N substreams using the supplied predicates.
--- Records are routed to the first matching predicate; non-matching
--- records are dropped.
+-- | Branch a stream into N substreams using the supplied
+-- predicates. Records are routed to the first matching
+-- predicate; non-matching records are dropped.
+--
+-- /JVM equivalent:/ @KStream.split().branch(Predicate, ...)@.
 branchStream
   :: [(Record k v -> Bool)]
   -> KStream k v
@@ -648,6 +705,11 @@ mkRouter preds branches = do
 -- Sinks
 ----------------------------------------------------------------------
 
+-- | Publish every record on the stream to the given topic.
+-- The 'Produced' record carries the key / value serdes and an
+-- optional explicit sink node name.
+--
+-- /JVM equivalent:/ @KStream.to(topic, Produced)@.
 toTopic
   :: TopicName
   -> Produced k v
@@ -684,9 +746,11 @@ throughTopic topic p s = do
 -- KStream-KTable join
 ----------------------------------------------------------------------
 
--- | Inner join: for each stream record whose key matches an entry in
--- the table, emit @joiner v_stream v_table@. Stream records that
--- find no match are dropped. Mirrors @KStream.join(KTable, ValueJoiner)@.
+-- | Inner join: for each stream record whose key matches an
+-- entry in the table, emit @joiner v_stream v_table@. Stream
+-- records that find no match are dropped.
+--
+-- /JVM equivalent:/ @KStream.join(KTable, ValueJoiner)@.
 joinKStreamKTable
   :: forall k v vt v'
    . Ord k
@@ -721,8 +785,10 @@ joinKStreamKTable joiner _j s tab = do
     , kstreamValueSerde = error "KStream.join: downstream value Serde unset"
     }
 
--- | Left join: stream records always emit, with @Nothing@ on the
--- right side when the table has no entry. Mirrors @KStream.leftJoin@.
+-- | Left join: stream records always emit, with @Nothing@ on
+-- the right side when the table has no entry.
+--
+-- /JVM equivalent:/ @KStream.leftJoin(KTable, ValueJoiner)@.
 leftJoinKStreamKTable
   :: forall k v vt v'
    . Ord k
@@ -1164,12 +1230,13 @@ toTableProc sn = do
 -- Repartition
 ----------------------------------------------------------------------
 
--- | Force a repartition. In a single-task driver this is a no-op
--- pass-through; in a multi-task / broker-backed runtime the
--- generated topology routes the records through an internal
--- repartition topic, which is what triggers the actual partitioning.
+-- | Force a repartition. In a single-task driver this is a
+-- no-op pass-through; in a multi-task / broker-backed runtime
+-- the generated topology routes the records through an
+-- internal repartition topic, which is what triggers the
+-- actual partitioning.
 --
--- Mirrors @KStream.repartition()@ (KIP-221).
+-- /JVM equivalent:/ @KStream.repartition()@.
 repartition
   :: forall k v
    . T.Text                              -- ^ topic name prefix

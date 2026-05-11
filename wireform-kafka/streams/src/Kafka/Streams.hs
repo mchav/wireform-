@@ -5,24 +5,52 @@
 -- Re-exports the entire Streams DSL surface in one place so user
 -- code only needs @import Kafka.Streams@.
 --
--- The engine internals live under "Kafka.Streams.Internal" and the
--- @Stores.@-namespaced factory helpers under "Kafka.Streams.Stores".
--- Neither is re-exported here:
+-- = Shape of the DSL
+--
+-- The DSL is plain Haskell IO. You build a topology by
+-- creating a 'StreamsBuilder', threading 'KStream' / 'KTable'
+-- values through the combinators, and finishing with
+-- 'buildTopology'. The 'KStream' value carries its builder
+-- internally, so only the source operations (@streamFromTopic@,
+-- @tableFromTopic@) need the builder threaded explicitly:
+--
+-- @
+-- topology :: IO Topology
+-- topology = do
+--   b   <- newStreamsBuilder
+--   src <- streamFromTopic b (topicName \"in\")
+--             (consumed textSerde textSerde)
+--   out <- mapValues T.toUpper src
+--      >>= filterStream (\\r -> recordValue r /\= \"\")
+--   toTopic (topicName \"out\") (produced textSerde textSerde) out
+--   buildTopology b
+-- @
+--
+-- Each combinator's Haddock lists the JVM-DSL method it
+-- mirrors so the cross-reference is one click away.
+--
+-- == Reusable transformation fragments
+--
+-- For transformations you want to /name/ and /reuse/ across
+-- topologies, use 'Kafka.Streams.DSL.Pipeline'. A
+-- @Pipeline a b@ is a thin newtype over @a -\> IO b@ with a
+-- 'Control.Category.Category' instance, so fragments compose
+-- with @('Control.Category.>>>')@ exactly like ordinary
+-- functions. Equivalent JVM idiom: extracting a helper method
+-- that takes a @KStream@ and returns a transformed @KStream@.
+--
+-- == Modules not re-exported here
 --
 --   * @Kafka.Streams.Internal@ is an implementation detail.
---   * @Kafka.Streams.Stores@ shadows each per-backend factory name
---     (the @Stores.persistentKeyValueStore@ /
+--   * @Kafka.Streams.Stores@ shadows each per-backend factory
+--     name (the @Stores.persistentKeyValueStore@ /
 --     @Stores.inMemoryWindowStore@ shape mirrors the JVM
---     @org.apache.kafka.streams.state.Stores@ class). Import it
---     qualified instead:
+--     @org.apache.kafka.streams.state.Stores@ class). Import
+--     it qualified instead:
 --
 -- @
 -- import qualified Kafka.Streams.Stores as Stores
 -- @
---
--- For the idiomatic-Haskell façades (TopologyM, Pipeline,
--- OfStream), see "Kafka.Streams.DSL.Topology",
--- "Kafka.Streams.DSL.Pipeline", "Kafka.Streams.DSL.Mappable".
 module Kafka.Streams
   ( -- * Topology, Processor API
     module Kafka.Streams.Types
