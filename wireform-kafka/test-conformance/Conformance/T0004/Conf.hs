@@ -29,30 +29,30 @@ tests :: TestTree
 tests = testGroup "0004-conf"
   [ testCase "empty bootstrap brokers rejected" $ rejects
       G.defaultGroupConfig
-        { G.gcBootstrapBrokers = []
-        , G.gcGroupId = "g"
-        , G.gcTopics  = ["t"]
+        { G.bootstrapBrokers = []
+        , G.groupId = "g"
+        , G.topics  = ["t"]
         }
 
   , testCase "empty group id rejected" $ rejects
       G.defaultGroupConfig
-        { G.gcGroupId = ""
-        , G.gcTopics  = ["t"]
+        { G.groupId = ""
+        , G.topics  = ["t"]
         }
 
   , testCase "empty topics list rejected" $ rejects
       G.defaultGroupConfig
-        { G.gcGroupId = "g"
-        , G.gcTopics  = []
+        { G.groupId = "g"
+        , G.topics  = []
         }
 
   , testCase "default knobs round-trip" $ do
       let cfg = G.defaultGroupConfig
-      G.gcSessionTimeoutMs   cfg @?= 10000
-      G.gcMaxPollIntervalMs  cfg @?= 300000
-      G.gcMaxPollRecords     cfg @?= 500
-      G.gcPollTimeoutMs      cfg @?= 1000
-      G.gcCloseTimeoutMs     cfg @?= 30000
+      G.sessionTimeoutMs   cfg @?= 10000
+      G.maxPollIntervalMs  cfg @?= 300000
+      G.maxPollRecords     cfg @?= 500
+      G.pollTimeoutMs      cfg @?= 1000
+      G.closeTimeoutMs     cfg @?= 30000
   ]
   where
     rejects cfg = do

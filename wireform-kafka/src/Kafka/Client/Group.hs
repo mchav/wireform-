@@ -4,83 +4,79 @@
 
 {-|
 Module      : Kafka.Client.Group
-Description : High-level consumer-group API ("just give me my records")
+Description : Receive records, one handler per record, with offsets managed for you
 
-The producer side of Kafka has always been the easy half — pick a
-topic, hand it bytes, get an ack. The consumer side is harder because
-of consumer-group coordination, rebalancing, offset management, and
-the fact that "process every record once" is a surprisingly load-
-bearing promise. This module hides all of that behind a small set of
-high-level entry points.
+Reading from Kafka is harder than writing because of three concerns
+that have nothing to do with your business logic: joining a consumer
+group, riding out rebalances, and committing offsets so that crash
+recovery picks up where you left off. This module folds all three
+into a single bracket.
 
-= The five-second tour
+= The 30-second tour
 
-The shortest-possible Kafka consumer in this library:
+Use 'runConsumer' when you want \"call this handler once per record,
+forever\":
 
 @
-import qualified Wireform.Kafka.Group as Kafka
+import qualified Kafka.Client.Group as Kafka
 
 main :: IO ()
 main =
   Kafka.runConsumer
-    Kafka.defaultGroupConfig
-      { Kafka.gcBootstrapBrokers = [\"broker-1:9092\", \"broker-2:9092\"]
-      , Kafka.gcGroupId          = \"my-service\"
-      , Kafka.gcTopics           = [\"events\"]
+    Kafka.'defaultGroupConfig'
+      { Kafka.'bootstrapBrokers' = [\"broker-1:9092\"]
+      , Kafka.'groupId'          = \"my-service\"
+      , Kafka.'topics'           = [\"events\"]
       }
-    $ \\rec -> do
-        putStrLn $ \"got \" <> show (Kafka.crKey rec) <> \" -> \" <> show (Kafka.crValue rec)
+    $ \\record -> do
+        putStrLn $ \"got \" <> show ('crKey' record) <> \" -> \" <> show ('crValue' record)
 @
 
-That's the whole API surface needed for the common case:
+That is the whole API for the common case. The bracket:
 
-* connect to the cluster,
-* join the group as a member of @my-service@,
-* receive partition assignments and resume from the last committed
-  offsets,
-* fan records into the handler one at a time,
-* commit offsets after each successful handler invocation,
-* gracefully leave the group on @SIGINT@ / exception / clean exit.
+  1. opens a connection and joins the group as a member of @my-service@,
+  2. asks the group coordinator for partition assignments,
+  3. resumes from the last committed offsets,
+  4. invokes @handler@ once per record,
+  5. commits after each record (or batch, see 'runBatchedConsumer'),
+  6. leaves the group cleanly on a normal exit or exception.
 
-If you want batch-at-a-time delivery (almost always the right choice
-for throughput), use 'runBatchedConsumer'. If you want to drive the
-loop yourself, use 'withGroupConsumer' and call 'pollOnce' / 'commit'
-in your own monad.
+= Batches and custom loops
 
-= Configuration
-
-'GroupConfig' wraps the underlying 'ConsumerConfig' and adds the
-high-level options the bracket needs (which brokers to bootstrap from,
-which topics to subscribe to, error-handling policy). 'defaultGroupConfig'
-is a sensible starting point — a 5-second auto-commit interval, range
-assignment, latest @auto.offset.reset@.
+For throughput, use 'runBatchedConsumer' — your handler receives a
+whole 'V.Vector' of records and commits run once per batch. For
+custom control flow, drop to 'withGroupConsumer' and call 'pollOnce'
++ 'commit' from your own loop.
 
 = Error handling
 
-Each handler invocation runs inside a SomeException catch. The
-default 'gcOnError' logs the exception to @stderr@ and re-raises it,
-which terminates the loop cleanly. To keep going past a failing
-record (skip-and-log semantics), set 'gcOnError = SkipRecord'. To
-shut the loop down on the first error, set 'gcOnError = StopLoop'.
+Each handler invocation runs inside a 'SomeException' catch. Pick a
+policy by setting 'onError':
+
+  * 'LogAndRaise' (default) — print and re-raise, terminating the loop.
+  * 'SkipRecord' — log and continue with the next record.
+  * 'StopLoop' — log and exit the loop cleanly.
+  * 'CustomError' — your own predicate.
 
 = Offsets
 
-By default we commit offsets synchronously after each handler call
-(i.e. after each batch in the batched API). This trades a little
-throughput for "at least once with no duplicates on a clean shutdown"
-semantics. Set 'gcCommitMode' to 'CommitAsync' for higher throughput
-(at-least-once with no on-shutdown commit guarantee), or 'CommitManual'
-to take ownership yourself.
+By default we commit synchronously after each handler call (i.e.
+after each batch in the batched API). This trades a little
+throughput for "at least once with the smallest possible duplicate
+window on a crash". Set 'commitMode' to 'CommitAsync' for higher
+throughput, or 'CommitManual' to take ownership yourself.
 -}
 module Kafka.Client.Group
-  ( -- * Configuration
-    GroupConfig(..)
+  ( -- * Run a consumer loop
+    runConsumer
+  , runBatchedConsumer
+
+    -- * Configuration
+  , GroupConfig(..)
   , defaultGroupConfig
   , ErrorPolicy(..)
   , CommitMode(..)
-    -- * High-level handlers
-  , runConsumer
-  , runBatchedConsumer
+
     -- * Bracket-style API for custom loops
   , GroupConsumer
   , withGroupConsumer
@@ -88,11 +84,13 @@ module Kafka.Client.Group
   , commit
   , currentAssignment
   , underlyingConsumer
+
     -- * Convenience re-exports
   , C.ConsumerRecord(..)
   , C.TopicPartition(..)
   , C.AssignmentStrategy(..)
   , C.OffsetResetStrategy(..)
+
     -- * Auth helpers (re-exported)
   , SASL.SaslConfig(..)
   , Scram.ScramAlgo(..)
@@ -157,82 +155,104 @@ data CommitMode
     --   commits via 'commit' or via the configured auto-commit timer.
     CommitManual
 
--- | High-level consumer configuration.
+-- | What 'runConsumer' / 'withGroupConsumer' needs to know. Construct
+-- with @'defaultGroupConfig' { 'bootstrapBrokers' = .., 'groupId' = .., 'topics' = .. }@.
 data GroupConfig = GroupConfig
-  { gcBootstrapBrokers   :: ![Text]
-  , gcGroupId            :: !Text
-  , gcTopics             :: ![Text]
-  , gcClientId           :: !Text
-  , gcSessionTimeoutMs   :: !Int
-  , gcMaxPollIntervalMs  :: !Int
-  , gcMaxPollRecords     :: !Int
-  , gcPollTimeoutMs      :: !Int
+  { bootstrapBrokers   :: ![Text]
+    -- ^ The Kafka cluster's bootstrap servers, e.g. @[\"broker-1:9092\"]@.
+  , groupId            :: !Text
+    -- ^ Consumer group id. Members of the same group share the
+    --   partitions of the subscribed topics; members of different
+    --   groups each get their own copy of the stream.
+  , topics             :: ![Text]
+    -- ^ Topics to subscribe to. Non-empty for 'runConsumer' /
+    --   'runBatchedConsumer'; 'withGroupConsumer' will skip the
+    --   subscription if empty so you can call 'C.subscribe' yourself.
+  , clientId           :: !Text
+    -- ^ Identifier sent to the broker on every request. Useful for
+    --   broker-side audit logs.
+  , sessionTimeoutMs   :: !Int
+    -- ^ Group session timeout — the broker fences this member if it
+    --   doesn't see a heartbeat for this long.
+  , maxPollIntervalMs  :: !Int
+    -- ^ Maximum gap between successive 'pollOnce' calls before the
+    --   broker considers this member dead.
+  , maxPollRecords     :: !Int
+    -- ^ Cap on records returned per 'pollOnce'.
+  , pollTimeoutMs      :: !Int
     -- ^ How long a single 'C.poll' is allowed to block server-side
     --   when there are no records yet. Defaults to 1000 ms.
-  , gcAutoOffsetReset    :: !C.OffsetResetStrategy
-  , gcAssignmentStrategy :: !C.AssignmentStrategy
-  , gcCommitMode         :: !CommitMode
-  , gcOnError            :: !ErrorPolicy
-  , gcOnPollError        :: !(String -> IO ())
+  , autoOffsetReset    :: !C.OffsetResetStrategy
+    -- ^ Where to start a brand-new group — 'C.Earliest' (replay
+    --   from the start), 'C.Latest' (only see future records), or
+    --   'C.None' (refuse to consume without a committed offset).
+  , assignmentStrategy :: !C.AssignmentStrategy
+    -- ^ How the group leader distributes partitions among members.
+  , commitMode         :: !CommitMode
+    -- ^ When to write offsets back to the broker.
+  , onError            :: !ErrorPolicy
+    -- ^ What happens when your handler throws.
+  , onPollError        :: !(String -> IO ())
     -- ^ What to do when the underlying poll itself fails (network
     --   blip, broker rejection, etc.). Default: 'TIO.hPutStrLn'
     --   stderr and back off briefly. Returning normally signals
     --   "retry"; throw to stop the loop.
-  , gcCloseTimeoutMs     :: !Int
-  , gcUseTls             :: !Bool
+  , closeTimeoutMs     :: !Int
+    -- ^ How long to wait for in-flight work to drain on shutdown.
+  , useTls             :: !Bool
     -- ^ Whether to wrap the broker connection in TLS. Defaults to
     --   'False' for local development; flip to 'True' for any
     --   production / cloud broker. AWS MSK IAM (and Confluent
     --   Cloud's PLAIN \/ OAUTHBEARER) /require/ TLS.
-  , gcTlsParams          :: !(Maybe TLS.ClientParams)
-    -- ^ Custom TLS parameters. When 'Nothing' but 'gcUseTls' is
+  , tlsParams          :: !(Maybe TLS.ClientParams)
+    -- ^ Custom TLS parameters. When 'Nothing' but 'useTls' is
     --   'True' we fall back to 'Conn.defaultTlsSettings' against the
     --   first bootstrap broker hostname (system trust store, strong
     --   ciphers, hostname verification on).
-  , gcSasl               :: !(Maybe SASL.SaslConfig)
+  , sasl               :: !(Maybe SASL.SaslConfig)
     -- ^ SASL mechanism to use after the connection is up. 'Nothing'
     --   means \"no SASL\" (i.e. the broker is configured for
     --   PLAINTEXT or SSL-only auth).
   }
 
 -- | Sensible defaults: localhost broker, no topics yet (the caller is
--- expected to fill at least 'gcGroupId' and 'gcTopics'), 5-second
--- session timeout, sync commits.
+-- expected to fill at least 'groupId' and 'topics'), 10-second
+-- session timeout, sync commits, plaintext.
 defaultGroupConfig :: GroupConfig
 defaultGroupConfig = GroupConfig
-  { gcBootstrapBrokers   = ["localhost:9092"]
-  , gcGroupId            = ""
-  , gcTopics             = []
-  , gcClientId           = "wireform-kafka"
-  , gcSessionTimeoutMs   = 10000
-  , gcMaxPollIntervalMs  = 300000
-  , gcMaxPollRecords     = 500
-  , gcPollTimeoutMs      = 1000
-  , gcAutoOffsetReset    = C.Latest
-  , gcAssignmentStrategy = C.RangeAssignment
-  , gcCommitMode         = CommitSync
-  , gcOnError            = LogAndRaise
-  , gcOnPollError        = \msg -> do
+  { bootstrapBrokers   = ["localhost:9092"]
+  , groupId            = ""
+  , topics             = []
+  , clientId           = "wireform-kafka"
+  , sessionTimeoutMs   = 10000
+  , maxPollIntervalMs  = 300000
+  , maxPollRecords     = 500
+  , pollTimeoutMs      = 1000
+  , autoOffsetReset    = C.Latest
+  , assignmentStrategy = C.RangeAssignment
+  , commitMode         = CommitSync
+  , onError            = LogAndRaise
+  , onPollError        = \msg -> do
       TIO.hPutStrLn IO.stderr (T.pack ("[wireform-kafka] poll error: " <> msg))
       threadDelay 250000  -- back off 250ms
-  , gcCloseTimeoutMs     = 30000
-  , gcUseTls             = False
-  , gcTlsParams          = Nothing
-  , gcSasl               = Nothing
+  , closeTimeoutMs     = 30000
+  , useTls             = False
+  , tlsParams          = Nothing
+  , sasl               = Nothing
   }
 
 -- | Opaque handle for the bracket-style API. Wraps the raw
--- 'C.Consumer' along with the user's 'GroupConfig' so the
--- helper functions can read the right policies.
+-- 'C.Consumer' along with the user's 'GroupConfig' so the helper
+-- functions can read the right policies.
 data GroupConsumer = GroupConsumer
-  { gcConsumer :: !C.Consumer
-  , gcConfig   :: !GroupConfig
+  { groupConsumer :: !C.Consumer
+  , groupConfig   :: !GroupConfig
   }
 
 -- | Get the underlying low-level consumer for advanced use cases
 -- (manual seeking, pausing partitions, etc.).
 underlyingConsumer :: GroupConsumer -> C.Consumer
-underlyingConsumer = gcConsumer
+underlyingConsumer = groupConsumer
 
 -- | Bracket: open the consumer, join the group, run the body, leave
 -- the group + close on the way out (commits a final batch on
@@ -248,79 +268,79 @@ withGroupConsumer
 withGroupConsumer cfg@GroupConfig{..} body = do
   validateConfig cfg
   bracket open close $ \gc -> do
-    subResult <- C.subscribe (gcConsumer gc) gcTopics
+    subResult <- C.subscribe (groupConsumer gc) topics
     case subResult of
       Left err -> throwIO $ userError ("wireform-kafka: subscribe failed: " <> err)
       Right () -> body gc
   where
     open = do
       let connBase = Conn.defaultConnectionConfig
-            { Conn.connUseTls      = gcUseTls
-            , Conn.connTlsSettings = case gcTlsParams of
+            { Conn.connUseTls      = useTls
+            , Conn.connTlsSettings = case tlsParams of
                 Just p  -> Just p
-                Nothing -> case gcBootstrapBrokers of
+                Nothing -> case bootstrapBrokers of
                   -- Fall back to a sensible default keyed off the
                   -- first bootstrap broker hostname. We strip the
                   -- ":port" if present.
-                  (b:_) | gcUseTls ->
+                  (b:_) | useTls ->
                     let hostOnly = T.unpack (T.takeWhile (/= ':') b)
                     in Just (Conn.defaultTlsSettings hostOnly)
                   _ -> Nothing
-            , Conn.connSasl        = gcSasl
-            , Conn.connClientId    = gcClientId
+            , Conn.connSasl        = sasl
+            , Conn.connClientId    = clientId
             }
           ccfg = C.defaultConsumerConfig
-            { C.consumerClientId            = gcClientId
-            , C.consumerGroupId             = gcGroupId
-            , C.consumerSessionTimeoutMs    = gcSessionTimeoutMs
-            , C.consumerMaxPollIntervalMs   = gcMaxPollIntervalMs
-            , C.consumerMaxPollRecords      = gcMaxPollRecords
-            , C.consumerAutoOffsetReset     = gcAutoOffsetReset
-            , C.consumerAssignmentStrategy  = gcAssignmentStrategy
-            , C.consumerAutoCommit          = case gcCommitMode of
+            { C.consumerClientId            = clientId
+            , C.consumerGroupId             = groupId
+            , C.consumerSessionTimeoutMs    = sessionTimeoutMs
+            , C.consumerMaxPollIntervalMs   = maxPollIntervalMs
+            , C.consumerMaxPollRecords      = maxPollRecords
+            , C.consumerAutoOffsetReset     = autoOffsetReset
+            , C.consumerAssignmentStrategy  = assignmentStrategy
+            , C.consumerAutoCommit          = case commitMode of
                 CommitManual -> True   -- let the broker-side timer drive it
                 _            -> False  -- the loop owns commits
             , C.consumerConnectionConfig    = connBase
             }
-      r <- C.createConsumer gcBootstrapBrokers gcGroupId ccfg
+      r <- C.createConsumer bootstrapBrokers groupId ccfg
       case r of
         Left err  -> throwIO $ userError ("wireform-kafka: createConsumer failed: " <> err)
-        Right con -> pure GroupConsumer { gcConsumer = con, gcConfig = cfg }
+        Right con -> pure GroupConsumer { groupConsumer = con, groupConfig = cfg }
 
-    close gc = C.closeConsumerWithTimeout (gcConsumer gc) gcCloseTimeoutMs
+    close gc = C.closeConsumerWithTimeout (groupConsumer gc) (closeTimeoutMs (groupConfig gc))
 
 -- | A single 'C.poll' against the underlying consumer.
 pollOnce :: GroupConsumer -> IO [C.ConsumerRecord]
 pollOnce GroupConsumer{..} = do
-  r <- C.poll gcConsumer (gcPollTimeoutMs gcConfig)
+  r <- C.poll groupConsumer (pollTimeoutMs groupConfig)
   case r of
     Right xs -> pure xs
     Left err -> do
-      gcOnPollError gcConfig err
+      onPollError groupConfig err
       pure []
 
 -- | Commit current offsets according to the configured 'CommitMode'.
 -- 'CommitManual' is a no-op (the caller is expected to drive their
 -- own commits).
 commit :: GroupConsumer -> IO ()
-commit gc@GroupConsumer{gcConfig = GroupConfig{..}} =
-  case gcCommitMode of
+commit gc@GroupConsumer{groupConfig = GroupConfig{..}} =
+  case commitMode of
     CommitManual -> pure ()
     CommitAsync  -> do
-      r <- C.commitAsync (gcConsumer gc)
+      r <- C.commitAsync (groupConsumer gc)
       case r of
         Right () -> pure ()
-        Left err -> gcOnPollError ("commitAsync: " <> err)
+        Left err -> onPollError ("commitAsync: " <> err)
     CommitSync -> do
-      r <- C.commitSync (gcConsumer gc)
+      r <- C.commitSync (groupConsumer gc)
       case r of
         Right () -> pure ()
-        Left err -> gcOnPollError ("commitSync: " <> err)
+        Left err -> onPollError ("commitSync: " <> err)
 
 -- | Currently-assigned partitions for this consumer. Useful for
 -- rebalance-aware logging.
 currentAssignment :: GroupConsumer -> IO [C.TopicPartition]
-currentAssignment GroupConsumer{..} = C.assignment gcConsumer
+currentAssignment GroupConsumer{..} = C.assignment groupConsumer
 
 -- | Run a consumer loop: call the handler once per record, commit
 -- after each (per the configured 'CommitMode'), back off briefly when
@@ -350,7 +370,7 @@ runConsumer cfg handler =
           rs -> do
             anyHandled <- newIORef False
             forM_ rs $ \rec -> do
-              keep <- runHandler (gcConfig gc) handler rec
+              keep <- runHandler (groupConfig gc) handler rec
               writeIORef anyHandled True
               unless keep $ writeIORef keepGoing False
             commit gc
@@ -386,7 +406,7 @@ runBatchedConsumer cfg handler =
             case outcome of
               Right () -> commit gc >> loop gc keepGoing
               Left e   -> do
-                keep <- handleError (gcConfig gc) e
+                keep <- handleError (groupConfig gc) e
                 if keep
                   then loop gc keepGoing
                   else pure ()
@@ -396,12 +416,12 @@ runHandler
   -> (C.ConsumerRecord -> IO ())
   -> C.ConsumerRecord
   -> IO Bool
-runHandler GroupConfig{gcOnError = policy} h rec =
+runHandler GroupConfig{onError = policy} h rec =
   (h rec >> pure True) `catch` \(e :: SomeException) ->
     handlePolicy policy e
 
 handleError :: GroupConfig -> SomeException -> IO Bool
-handleError GroupConfig{gcOnError = policy} = handlePolicy policy
+handleError GroupConfig{onError = policy} = handlePolicy policy
 
 handlePolicy :: ErrorPolicy -> SomeException -> IO Bool
 handlePolicy policy e = case policy of
@@ -422,9 +442,9 @@ handlePolicy policy e = case policy of
 -- | Cheap sanity checks before we even open a network connection.
 validateConfig :: GroupConfig -> IO ()
 validateConfig GroupConfig{..} = do
-  when (null gcBootstrapBrokers) $
-    throwIO $ userError "wireform-kafka: gcBootstrapBrokers must be non-empty"
-  when (T.null gcGroupId) $
-    throwIO $ userError "wireform-kafka: gcGroupId must be non-empty"
-  when (null gcTopics) $
-    throwIO $ userError "wireform-kafka: gcTopics must be non-empty"
+  when (null bootstrapBrokers) $
+    throwIO $ userError "wireform-kafka: bootstrapBrokers must be non-empty"
+  when (T.null groupId) $
+    throwIO $ userError "wireform-kafka: groupId must be non-empty"
+  when (null topics) $
+    throwIO $ userError "wireform-kafka: topics must be non-empty"

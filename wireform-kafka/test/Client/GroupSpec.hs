@@ -232,9 +232,9 @@ configValidationTests = testGroup "GroupConfig validation"
   [ testCase "empty bootstrap brokers is rejected" $ do
       r <- try $ Group.runConsumer
               Group.defaultGroupConfig
-                { Group.gcBootstrapBrokers = []
-                , Group.gcGroupId          = "g"
-                , Group.gcTopics           = ["t"]
+                { Group.bootstrapBrokers = []
+                , Group.groupId          = "g"
+                , Group.topics           = ["t"]
                 }
               (\_ -> pure ())
       case (r :: Either IOException ()) of
@@ -244,8 +244,8 @@ configValidationTests = testGroup "GroupConfig validation"
   , testCase "empty group id is rejected" $ do
       r <- try $ Group.runConsumer
               Group.defaultGroupConfig
-                { Group.gcGroupId = ""
-                , Group.gcTopics  = ["t"]
+                { Group.groupId = ""
+                , Group.topics  = ["t"]
                 }
               (\_ -> pure ())
       case (r :: Either IOException ()) of
@@ -255,8 +255,8 @@ configValidationTests = testGroup "GroupConfig validation"
   , testCase "empty topics list is rejected" $ do
       r <- try $ Group.runConsumer
               Group.defaultGroupConfig
-                { Group.gcGroupId = "g"
-                , Group.gcTopics  = []
+                { Group.groupId = "g"
+                , Group.topics  = []
                 }
               (\_ -> pure ())
       case (r :: Either IOException ()) of
@@ -265,9 +265,9 @@ configValidationTests = testGroup "GroupConfig validation"
 
   , testCase "default config has non-trivial defaults" $ do
       let cfg = Group.defaultGroupConfig
-      Group.gcSessionTimeoutMs   cfg @?= 10000
-      Group.gcMaxPollIntervalMs  cfg @?= 300000
-      Group.gcMaxPollRecords     cfg @?= 500
-      Group.gcPollTimeoutMs      cfg @?= 1000
-      Group.gcCloseTimeoutMs     cfg @?= 30000
+      Group.sessionTimeoutMs   cfg @?= 10000
+      Group.maxPollIntervalMs  cfg @?= 300000
+      Group.maxPollRecords     cfg @?= 500
+      Group.pollTimeoutMs      cfg @?= 1000
+      Group.closeTimeoutMs     cfg @?= 30000
   ]
