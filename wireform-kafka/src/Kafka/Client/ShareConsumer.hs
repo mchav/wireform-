@@ -58,10 +58,24 @@ module Kafka.Client.ShareConsumer
   , RecordLockState (..)
   , lockExpiresAt
   , shouldRedeliver
+
+    -- * Per-partition pause / resume
+  , PauseSet
+  , newPauseSet
+  , pausePartitions
+  , resumePartitions
+  , isPaused
+
+    -- * Dead-letter-queue routing
+  , DlqRoute (..)
+  , DlqDecision (..)
+  , decideDlq
   ) where
 
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
+import qualified Data.HashSet as HashSet
+import Data.HashSet (HashSet)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Int (Int32, Int64)
@@ -213,3 +227,59 @@ shouldRedeliver now maxAttempts rls =
   let !expired = now >= lockExpiresAt rls
       !poison  = rlsDeliveryCount rls >= maxAttempts
   in expired && not poison
+
+----------------------------------------------------------------------
+-- Per-partition pause / resume
+--
+-- Previously lived in @Kafka.Client.ShareGroupExtras@.
+----------------------------------------------------------------------
+
+-- | Set of paused @(topic, partition)@ pairs. The share consumer
+-- consults it before issuing the next 'pollShareRecords' fetch.
+newtype PauseSet = PauseSet (TVar (HashSet (Text, Int32)))
+
+newPauseSet :: IO PauseSet
+newPauseSet = PauseSet <$> newTVarIO HashSet.empty
+
+pausePartitions :: PauseSet -> [(Text, Int32)] -> IO ()
+pausePartitions (PauseSet v) tps = atomically $
+  modifyTVar' v (HashSet.union (HashSet.fromList tps))
+
+resumePartitions :: PauseSet -> [(Text, Int32)] -> IO ()
+resumePartitions (PauseSet v) tps = atomically $
+  modifyTVar' v (\s -> HashSet.difference s (HashSet.fromList tps))
+
+isPaused :: PauseSet -> Text -> Int32 -> IO Bool
+isPaused (PauseSet v) topic part = do
+  s <- readTVarIO v
+  pure (HashSet.member (topic, part) s)
+
+----------------------------------------------------------------------
+-- Dead-letter-queue routing
+----------------------------------------------------------------------
+
+-- | What to do with a record that's exhausted its delivery
+-- attempts.
+data DlqRoute
+  = DlqDrop                     -- ^ silently discard
+  | DlqRouteTo !Text            -- ^ route to a specific DLQ topic
+  | DlqDelegate                 -- ^ defer to a user-supplied callback
+  deriving stock (Eq, Show, Generic)
+
+-- | Whether a record should be retried or shipped to the DLQ.
+data DlqDecision
+  = DlqDecisionRetry            -- ^ keep retrying (delivery count below threshold)
+  | DlqDecisionDeliver !DlqRoute
+  deriving stock (Eq, Show, Generic)
+
+-- | Pure DLQ decision: given the configured max-delivery-count and
+-- a record's current delivery attempt count, return whether the
+-- record should be retried or shoved into the DLQ.
+decideDlq
+  :: Int32          -- ^ max delivery count
+  -> ShareRecord
+  -> DlqRoute
+  -> DlqDecision
+decideDlq maxDeliveries rec route
+  | srDeliveryCount rec >= maxDeliveries = DlqDecisionDeliver route
+  | otherwise                            = DlqDecisionRetry

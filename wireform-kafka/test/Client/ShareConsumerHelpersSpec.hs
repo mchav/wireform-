@@ -1,15 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Client.ShareGroupExtrasSpec (tests) where
+module Client.ShareConsumerHelpersSpec (tests) where
 
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
 import qualified Kafka.Client.ShareConsumer as SC
-import qualified Kafka.Client.ShareGroupExtras as SGE
+import qualified Kafka.Client.ShareConsumer as SGE
 
 tests :: TestTree
-tests = testGroup "ShareGroupExtras"
+tests = testGroup "ShareConsumer helpers"
   [ testCase "pause + resume round-trip"
       pause_resume
   , testCase "decideDlq: under threshold -> Retry"

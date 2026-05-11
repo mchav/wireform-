@@ -94,6 +94,17 @@ module Kafka.Client.Transaction
   , createTransaction
   , getTransactionState
   , transitionState
+
+    -- * Transactional-id helpers
+  , transactionalIdOptional
+
+    -- * Transactional-error classification
+  , TxnErrorRecovery (..)
+  , classifyTxnError
+
+    -- * Bounded txn-op deadlines
+  , TxnDeadline (..)
+  , effectiveTxnDeadlineMs
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -118,6 +129,7 @@ import qualified Data.Text as T
 import Kafka.Client.Consumer (TopicPartition(..))
 import Kafka.Client.Internal.TransactionCoordinator (TransactionCoordinator)
 import qualified Kafka.Client.Internal.TransactionCoordinator as TC
+import qualified Kafka.Client.RetryClassifier as RC
 import Kafka.Network.Connection (BrokerAddress, ConnectionManager)
 import qualified Kafka.Network.Connection as Conn
 import Kafka.Protocol.ApiVersions (ApiVersionCache)
@@ -643,3 +655,62 @@ commitOffsetsInTransaction txn groupId offsets = do
       pure (Right ())
 
     _ -> return $ Left $ TransactionNotInProgress "Must be in a transaction to commit offsets"
+
+----------------------------------------------------------------------
+-- Additional transactional ergonomics
+--
+-- Previously lived in @Kafka.Client.ProducerExtras@.
+----------------------------------------------------------------------
+
+-- | Optionally derive a @transactional.id@ from a base prefix +
+-- a per-process suffix. Keeps the user-facing API symmetric with
+-- the JVM client, where @transactional.id@ may be left blank and
+-- the client picks one based on host/process ids.
+transactionalIdOptional
+  :: Maybe Text         -- ^ explicit override (matches the JVM client's @transactional.id@ property)
+  -> Text               -- ^ application prefix
+  -> Text               -- ^ per-process suffix (e.g. host\@pid)
+  -> Text
+transactionalIdOptional (Just t) _ _      = t
+transactionalIdOptional Nothing prefix sf = prefix <> "-" <> sf
+
+-- | Recovery action for a non-zero error code returned by the
+-- transaction coordinator. Mirrors the abort / retry / fatal
+-- partitioning the JVM client uses.
+data TxnErrorRecovery
+  = TxnRecoverByAbort
+    -- ^ Abort the current transaction and let the producer continue.
+  | TxnRecoverByRetry
+    -- ^ Re-issue the same operation after a short backoff.
+  | TxnRecoverFatal
+    -- ^ The producer must close.
+  deriving stock (Eq, Show)
+
+-- | Classify a Kafka error code into a 'TxnErrorRecovery' bucket.
+-- Backed by 'Kafka.Client.RetryClassifier.classify' so the
+-- mapping stays in sync with the producer's retry logic.
+classifyTxnError :: Int16 -> TxnErrorRecovery
+classifyTxnError code = case RC.classify code of
+  RC.ECNoError   -> TxnRecoverByRetry
+  RC.ECRetriable -> TxnRecoverByRetry
+  RC.ECAbortable -> TxnRecoverByAbort
+  RC.ECFatal     -> TxnRecoverFatal
+
+-- | Deadline supplied to @commitTransaction@ / @abortTransaction@.
+-- Callers can bound the wait so a misbehaving coordinator can't
+-- pin the producer open during shutdown.
+data TxnDeadline
+  = TxnUseProducerDefault
+    -- ^ Fall back to the producer's @transaction.timeout.ms@.
+  | TxnDeadlineMs !Int
+    -- ^ Hard upper bound in ms.
+  deriving stock (Eq, Show)
+
+effectiveTxnDeadlineMs
+  :: Int64        -- ^ now (ms)
+  -> Int          -- ^ producer's @transaction.timeout.ms@
+  -> TxnDeadline
+  -> Int64
+effectiveTxnDeadlineMs now defaultMs = \case
+  TxnUseProducerDefault -> now + fromIntegral defaultMs
+  TxnDeadlineMs ms      -> now + fromIntegral ms

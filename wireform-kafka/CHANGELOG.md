@@ -31,6 +31,36 @@ and this project adheres to the
 
 ### Removed
 
+- The five `Kafka.Client.*Extras` modules are gone. Every utility
+  they exposed is consolidated into the module it naturally
+  belongs in. No functional change; just a cleaner module
+  structure.
+
+  | from | to |
+  |---|---|
+  | `Kafka.Client.AdminExtras.defaultAdminApiTimeoutMs` | `Kafka.Client.AdminClient` |
+  | `Kafka.Client.AdminExtras.TopicCreateDefaults` (+ `defaultTopicCreateDefaults`) | `Kafka.Client.AdminClient` |
+  | `Kafka.Client.AdminExtras.NullKeyCompactionPolicy` (+ `defaultNullKeyCompactionPolicy`) | `Kafka.Client.AdminClient` |
+  | `Kafka.Client.AdminExtras.admin*LatencyMs` constants | `Kafka.Client.AdminClient` |
+  | `Kafka.Client.AdminExtras.HostResolver` | `Kafka.Network.Connection` |
+  | `Kafka.Client.AdminExtras.PerPartitionFetchKnob` | `Kafka.Client.Consumer` |
+  | `Kafka.Client.AdminExtras.SslEngineFactory` | dropped (was a degenerate `newtype` wrapping `IO ()` with no callers) |
+  | `Kafka.Client.ConsumerExtras` (all of it) | `Kafka.Client.Consumer` |
+  | `Kafka.Client.ConnectionExtras` (all of it) | `Kafka.Network.Connection` |
+  | `Kafka.Client.ProducerExtras.EnhancedCallback` (+ `noopEnhancedCallback` / `dispatchEnhanced`) | `Kafka.Client.Producer` |
+  | `Kafka.Client.ProducerExtras.transactionalIdOptional` | `Kafka.Client.Transaction` |
+  | `Kafka.Client.ProducerExtras.TxnErrorRecovery` (+ `classifyTxnError`) | `Kafka.Client.Transaction` |
+  | `Kafka.Client.ProducerExtras.TxnDeadline` (+ `effectiveTxnDeadlineMs`) | `Kafka.Client.Transaction` |
+  | `Kafka.Client.ShareGroupExtras` (all of it) | `Kafka.Client.ShareConsumer` |
+
+  The five unit-test specs that exercised them are renamed to
+  reflect what they're actually testing:
+  `Client.AdminExtrasSpec` → `Client.AdminClientConfigSpec`,
+  `Client.ConsumerExtrasSpec` → `Client.ConsumerSnapshotsSpec`,
+  `Client.ConnectionExtrasSpec` → `Network.ConnectionHelpersSpec`,
+  `Client.ProducerExtrasSpec` → `Client.TransactionHelpersSpec`,
+  `Client.ShareGroupExtrasSpec` → `Client.ShareConsumerHelpersSpec`.
+
 - `Kafka.Client.Simple` is gone. It was a single-broker,
   single-record helper used as a low-level reference for the
   protocol; everything it did is already covered by the

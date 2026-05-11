@@ -1,15 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Client.AdminExtrasSpec (tests) where
+module Client.AdminClientConfigSpec (tests) where
 
 import qualified Data.Map.Strict as Map
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import qualified Kafka.Client.AdminExtras as AE
+import qualified Kafka.Client.AdminClient as AE
 
 tests :: TestTree
-tests = testGroup "AdminExtras (KIP-464 / 484 / 524 / 967 / 1107 / 1153 / 1170)"
+tests = testGroup "AdminClient configuration helpers"
   [ testCase "defaultAdminApiTimeoutMs matches the JVM client (60s)"
       timeout_default
   , testCase "defaultTopicCreateDefaults: 1 partition, 1 replica, no overrides"

@@ -154,6 +154,25 @@ module Kafka.Client.Consumer
     -- that want to inspect or pre-apply the overlay manually.
   , applyKafkaEnvToConsumerConfig
   , consumerConfigFromEnv
+
+    -- * Additional ergonomics
+    --
+    -- | Smaller helpers that round out the consumer surface.
+    -- Each is a pure decision layer or a typed configuration
+    -- knob; none of them touch the consumer's mutable state.
+  , EffectiveConsumerSnapshot (..)
+  , effectiveConsumerSnapshot
+  , RewindPolicy (..)
+  , planRewind
+  , RebalanceTrigger (..)
+  , recordRebalanceTrigger
+  , isReadOnlyMode
+  , withReadOnly
+  , ShutdownReason (..)
+  , shutdownReasonText
+  , AssignorHint (..)
+  , assignorHintText
+  , PerPartitionFetchKnob (..)
   ) where
 
 import Control.Concurrent.Async (Async, async)
@@ -2623,3 +2642,155 @@ queryPartitionOffsetsByTimestampFull consumer@Consumer{..} pts = do
                           else Nothing)
                   (V.toList partsVec))
           (V.toList tvec)
+
+----------------------------------------------------------------------
+-- Additional ergonomics
+--
+-- Small typed-config / pure-decision helpers that previously lived
+-- in @Kafka.Client.ConsumerExtras@ and (for 'PerPartitionFetchKnob')
+-- @Kafka.Client.AdminExtras@. Folded in here so the consumer-side
+-- surface is in one place.
+----------------------------------------------------------------------
+
+-- | Snapshot of the resolved consumer configuration after defaults
+-- + the user's overrides have been applied. Mirrors Java's
+-- @KafkaConsumer.metrics()@-shaped report users grep when debugging
+-- "is this knob actually set?" issues.
+data EffectiveConsumerSnapshot = EffectiveConsumerSnapshot
+  { ecsClientId             :: !Text
+  , ecsGroupId              :: !Text
+  , ecsGroupInstanceId      :: !(Maybe Text)
+  , ecsAutoOffsetReset      :: !OffsetResetStrategy
+  , ecsIsolationLevel       :: !IsolationLevel
+  , ecsMaxPollRecords       :: !Int
+  , ecsMaxPollIntervalMs    :: !Int
+  , ecsSessionTimeoutMs     :: !Int
+  , ecsHeartbeatIntervalMs  :: !Int
+  , ecsAutoCommit           :: !Bool
+  , ecsAutoCommitIntervalMs :: !Int
+  }
+  deriving stock (Eq, Show, Generic)
+
+effectiveConsumerSnapshot :: ConsumerConfig -> EffectiveConsumerSnapshot
+effectiveConsumerSnapshot c = EffectiveConsumerSnapshot
+  { ecsClientId             = consumerClientId c
+  , ecsGroupId              = consumerGroupId c
+  , ecsGroupInstanceId      = consumerGroupInstanceId c
+  , ecsAutoOffsetReset      = consumerAutoOffsetReset c
+  , ecsIsolationLevel       = consumerIsolationLevel c
+  , ecsMaxPollRecords       = consumerMaxPollRecords c
+  , ecsMaxPollIntervalMs    = consumerMaxPollIntervalMs c
+  , ecsSessionTimeoutMs     = consumerSessionTimeoutMs c
+  , ecsHeartbeatIntervalMs  = consumerHeartbeatIntervalMs c
+  , ecsAutoCommit           = consumerAutoCommit c
+  , ecsAutoCommitIntervalMs = consumerAutoCommitIntervalMs c
+  }
+
+-- | What to do when @OFFSET_OUT_OF_RANGE@ fires for a partition
+-- mid-poll. Mirrors the JVM client's
+-- @auto.offset.reset.outOfRange@ behavioural enum.
+data RewindPolicy
+  = RewindToEarliest
+  | RewindToLatest
+  | RewindFail
+  deriving stock (Eq, Show, Generic)
+
+-- | Pure decision: given the configured policy, the partition's
+-- current low- / high-water marks, return the offset the consumer
+-- should reset to (or 'Nothing' for "fail / let the user decide").
+planRewind
+  :: RewindPolicy
+  -> Int64        -- ^ low water mark (earliest)
+  -> Int64        -- ^ high water mark (latest)
+  -> Maybe Int64
+planRewind RewindFail        _ _ = Nothing
+planRewind RewindToEarliest  l _ = Just l
+planRewind RewindToLatest    _ h = Just h
+
+-- | Reason a consumer might explicitly request a rebalance,
+-- recorded in the broker-side @JoinGroup.reason@ field. Helps
+-- operators correlate rebalance storms with the application
+-- action that triggered them.
+data RebalanceTrigger
+  = TriggerSubscriptionChange
+  | TriggerPauseResume
+  | TriggerExplicitEnforce
+  | TriggerStaleAssignment
+  | TriggerOther !Text
+  deriving stock (Eq, Show, Generic)
+
+recordRebalanceTrigger :: RebalanceTrigger -> Text
+recordRebalanceTrigger = \case
+  TriggerSubscriptionChange -> "subscription-changed"
+  TriggerPauseResume        -> "pause-resume"
+  TriggerExplicitEnforce    -> "enforce-rebalance-called"
+  TriggerStaleAssignment    -> "stale-assignment"
+  TriggerOther t            -> t
+
+-- | When 'True', auto-commit is suppressed regardless of the
+-- configured 'consumerAutoCommit'. Useful for query / replay /
+-- DR consumers that mustn't perturb the production offsets.
+isReadOnlyMode :: ConsumerConfig -> Bool
+isReadOnlyMode = not . consumerAutoCommit
+
+-- | Return a 'ConsumerConfig' with auto-commit disabled. The
+-- wrapper preserves every other config field. Mirrors Java's
+-- @KafkaConsumer(props.put(\"enable.auto.commit\", \"false\"))@
+-- pattern but type-safe.
+withReadOnly :: ConsumerConfig -> ConsumerConfig
+withReadOnly c = c { consumerAutoCommit = False }
+
+-- | Typed reason supplied to a graceful close, surfaced on the
+-- broker-side @LeaveGroup@ audit log.
+data ShutdownReason
+  = ShutdownExplicit
+  | ShutdownLost
+  | ShutdownFenced
+  | ShutdownConfigReload
+  | ShutdownProcessExit
+  | ShutdownUserSignal
+  | ShutdownReason_Other !Text
+  deriving stock (Eq, Show, Generic)
+
+shutdownReasonText :: ShutdownReason -> Text
+shutdownReasonText = \case
+  ShutdownExplicit       -> "explicit-close"
+  ShutdownLost           -> "consumer-lost-partitions"
+  ShutdownFenced         -> "consumer-fenced-by-coordinator"
+  ShutdownConfigReload   -> "config-reload"
+  ShutdownProcessExit    -> "process-exit"
+  ShutdownUserSignal     -> "user-signal"
+  ShutdownReason_Other t -> t
+
+-- | The server-side assignor name the client wants the broker to
+-- use. The broker may ignore the hint if it doesn't support the
+-- requested assignor.
+data AssignorHint
+  = HintRangeAssignor
+  | HintCooperativeStickyAssignor
+  | HintRoundRobinAssignor
+  | HintUniformAssignor
+  | HintCustomAssignor !Text
+  deriving stock (Eq, Show, Generic)
+
+assignorHintText :: AssignorHint -> Text
+assignorHintText = \case
+  HintRangeAssignor              -> "range"
+  HintCooperativeStickyAssignor  -> "cooperative-sticky"
+  HintRoundRobinAssignor         -> "roundrobin"
+  HintUniformAssignor            -> "uniform"
+  HintCustomAssignor n           -> n
+
+-- | Per-partition fetch knobs: minimum bytes the broker must
+-- accumulate before replying, plus an optional minimum-timestamp
+-- floor.
+data PerPartitionFetchKnob = PerPartitionFetchKnob
+  { ppfkPartition       :: !Int32
+  , ppfkMinBytes        :: !Int
+    -- ^ Per-partition @fetch.min.bytes@; the broker will not
+    --   return less than this for this partition.
+  , ppfkMinTimestampMs  :: !(Maybe Int64)
+    -- ^ Only return records whose timestamp is at or above
+    --   this value.
+  }
+  deriving stock (Eq, Show, Generic)

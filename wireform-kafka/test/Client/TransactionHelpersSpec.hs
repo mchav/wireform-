@@ -1,14 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Client.ProducerExtrasSpec (tests) where
+module Client.TransactionHelpersSpec (tests) where
 
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import qualified Kafka.Client.ProducerExtras as PE
+import qualified Kafka.Client.Transaction as PE
 
 tests :: TestTree
-tests = testGroup "ProducerExtras"
+tests = testGroup "Transaction helpers"
   [ testCase "transactionalIdOptional override wins"
       txn_override
   , testCase "transactionalIdOptional defaults to prefix-suffix"

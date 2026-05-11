@@ -95,6 +95,23 @@ module Kafka.Client.AdminClient
   , electLeaders
     -- * Configuration
   , defaultAdminClientConfig
+  , defaultAdminApiTimeoutMs
+    -- * Topic-create defaults
+  , TopicCreateDefaults (..)
+  , defaultTopicCreateDefaults
+    -- * Null-key compaction policy
+  , NullKeyCompactionPolicy (..)
+  , defaultNullKeyCompactionPolicy
+    -- * Metric names
+    --
+    -- | Canonical metric names emitted by 'Kafka.Telemetry.Metrics'
+    -- for the admin-client operations. Useful when wiring custom
+    -- exporters.
+  , adminListTopicsLatencyMs
+  , adminCreateTopicsLatencyMs
+  , adminDescribeGroupsLatencyMs
+  , adminAlterConfigsLatencyMs
+  , adminDeleteRecordsLatencyMs
     -- * Internal helpers (exposed for testing)
   , decodeResourceTypeCode
   , unpackResourceResult
@@ -109,6 +126,7 @@ import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 import Data.Int
 import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -1514,4 +1532,56 @@ alterConsumerGroupOffsets client@AdminClient{..} groupId entries = do
 extractText :: P.KafkaString -> Text
 extractText (P.KafkaString P.Null) = ""
 extractText (P.KafkaString (P.NotNull t)) = t
+
+----------------------------------------------------------------------
+-- Additional ergonomics
+--
+-- Previously lived in @Kafka.Client.AdminExtras@.
+----------------------------------------------------------------------
+
+-- | Mirrors @AdminClient.DEFAULT_API_TIMEOUT_MS@ in the JVM client.
+defaultAdminApiTimeoutMs :: Int
+defaultAdminApiTimeoutMs = 60_000
+
+-- | Defaults applied when creating a topic without explicit knobs.
+data TopicCreateDefaults = TopicCreateDefaults
+  { tcdReplicationFactor :: !Int
+  , tcdNumPartitions     :: !Int32
+  , tcdConfigOverrides   :: !(Map Text Text)
+    -- ^ Topic-level config overrides applied to every newly
+    --   created topic when the caller doesn't override them.
+  }
+  deriving stock (Eq, Show, Generic)
+
+defaultTopicCreateDefaults :: TopicCreateDefaults
+defaultTopicCreateDefaults = TopicCreateDefaults
+  { tcdReplicationFactor = 1
+  , tcdNumPartitions     = 1
+  , tcdConfigOverrides   = Map.empty
+  }
+
+-- | What to do when a producer sends a 'Nothing' key to a
+-- compacted topic. The default Kafka behaviour is to reject
+-- with @INVALID_RECORD@; newer brokers can treat missing keys as
+-- tombstones / pass-through.
+data NullKeyCompactionPolicy
+  = NkcReject
+  | NkcTombstone
+  | NkcPassThrough
+  deriving stock (Eq, Show, Generic)
+
+defaultNullKeyCompactionPolicy :: NullKeyCompactionPolicy
+defaultNullKeyCompactionPolicy = NkcReject
+
+-- Canonical telemetry metric names for the admin-client operations.
+adminListTopicsLatencyMs
+  , adminCreateTopicsLatencyMs
+  , adminDescribeGroupsLatencyMs
+  , adminAlterConfigsLatencyMs
+  , adminDeleteRecordsLatencyMs :: Text
+adminListTopicsLatencyMs     = "kafka.admin.list-topics.latency.ms"
+adminCreateTopicsLatencyMs   = "kafka.admin.create-topics.latency.ms"
+adminDescribeGroupsLatencyMs = "kafka.admin.describe-groups.latency.ms"
+adminAlterConfigsLatencyMs   = "kafka.admin.alter-configs.latency.ms"
+adminDeleteRecordsLatencyMs  = "kafka.admin.delete-records.latency.ms"
 

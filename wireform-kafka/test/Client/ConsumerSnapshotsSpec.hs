@@ -1,15 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Client.ConsumerExtrasSpec (tests) where
+module Client.ConsumerSnapshotsSpec (tests) where
 
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
 import qualified Kafka.Client.Consumer as KC
-import qualified Kafka.Client.ConsumerExtras as CE
+import qualified Kafka.Client.Consumer as CE
 
 tests :: TestTree
-tests = testGroup "ConsumerExtras"
+tests = testGroup "Consumer snapshots + helpers"
   [ testCase "effectiveConsumerSnapshot reflects defaults"
       snapshot
   , testCase "withReadOnly clears auto-commit"

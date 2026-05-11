@@ -162,6 +162,17 @@ module Kafka.Client.Producer
   , sendMessageDropFastest
   , sendMessagesDrop
   , sendBatch
+
+    -- * Enhanced ack callbacks
+    --
+    -- | 'EnhancedCallback' is the per-stage producer hook shape
+    -- (enqueue, send, ack, retry, delivered). Use it when you want
+    -- a single bundle of observability hooks instead of wiring
+    -- 'producerInterceptor' / 'producerOnAcknowledgement'
+    -- separately.
+  , EnhancedCallback (..)
+  , noopEnhancedCallback
+  , dispatchEnhanced
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -197,6 +208,7 @@ import qualified Kafka.Client.Internal.Murmur2 as Murmur2
 import qualified Kafka.Client.Internal.ProducerSender as Sender
 import qualified Kafka.Client.Internal.TransactionCoordinator as TC
 import qualified Kafka.Client.Metadata as Meta
+import qualified Kafka.Client.RecordMetadata as RM
 import qualified Kafka.Client.Transaction as Txn
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.ApiVersions as AV
@@ -1827,4 +1839,50 @@ sendBatch producer records = do
       where
         left  a (l, r) = (a:l, r)
         right b (l, r) = (l, b:r)
+
+----------------------------------------------------------------------
+-- Enhanced ack callbacks
+--
+-- Previously lived in @Kafka.Client.ProducerExtras@. Folded in here
+-- so the producer-side observability hooks are in one place.
+----------------------------------------------------------------------
+
+-- | Per-stage producer hooks. Each JVM 3.x producer callback
+-- receives the same @Either ProducerError RecordMetadata@ outcome
+-- at every stage of the send pipeline; this record bundles the
+-- five hook points into a single value.
+data EnhancedCallback = EnhancedCallback
+  { ecOnEnqueue   :: !(ProducerRecord -> IO ())
+  , ecOnSend      :: !(ProducerRecord -> IO ())
+  , ecOnAck       :: !(ProducerRecord
+                        -> Either RM.ProducerError RecordMetadata
+                        -> IO ())
+  , ecOnRetry     :: !(ProducerRecord -> Int -> IO ())
+  , ecOnDelivered :: !(RecordMetadata -> IO ())
+  }
+
+-- | A no-op 'EnhancedCallback'. Override individual fields with
+-- record-update syntax for the subset of hooks you actually want.
+noopEnhancedCallback :: EnhancedCallback
+noopEnhancedCallback = EnhancedCallback
+  { ecOnEnqueue   = \_   -> pure ()
+  , ecOnSend      = \_   -> pure ()
+  , ecOnAck       = \_ _ -> pure ()
+  , ecOnRetry     = \_ _ -> pure ()
+  , ecOnDelivered = \_   -> pure ()
+  }
+
+-- | Dispatch a single ack outcome through the enhanced callback,
+-- swallowing any exception so a buggy hook can't tear down the
+-- sender thread.
+dispatchEnhanced
+  :: EnhancedCallback
+  -> ProducerRecord
+  -> Either RM.ProducerError RecordMetadata
+  -> IO ()
+dispatchEnhanced ec rec_ outcome = do
+  r <- try (ecOnAck ec rec_ outcome) :: IO (Either SomeException ())
+  case r of
+    Right () -> pure ()
+    Left  _  -> pure ()
 

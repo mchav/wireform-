@@ -1,14 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Client.ConnectionExtrasSpec (tests) where
+module Network.ConnectionHelpersSpec (tests) where
 
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
-import qualified Kafka.Client.ConnectionExtras as CX
+import qualified Kafka.Network.Connection as CX
 
 tests :: TestTree
-tests = testGroup "ConnectionExtras"
+tests = testGroup "Connection helpers"
   [ testCase "shouldDelayConnect = Nothing when no throttle recorded"
       no_throttle
   , testCase "shouldDelayConnect returns remaining wait after recordThrottle"
