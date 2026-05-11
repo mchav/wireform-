@@ -4,87 +4,148 @@
 
 {-|
 Module      : Kafka.Client.Consumer
-Description : High-level Kafka consumer API
+Description : Receive records from a Kafka topic
 Copyright   : (c) 2025
 License     : BSD-3-Clause
-Maintainer  : kafka-native
 
-This module provides a high-level consumer API for receiving messages from Kafka.
+Open a connection to a Kafka cluster, subscribe to topics, and pull
+records from the broker in a loop.
 
-Features:
+This module is the lower-level consumer surface: you own the poll
+loop, you commit offsets when you want, you handle rebalances. If
+all you want is \"call this handler for each record\", use
+"Kafka.Client.Group" instead — it wraps this module in a bracket
+and a managed loop.
 
-* Consumer group coordination and rebalancing
-* Automatic or manual offset management
-* Multiple partition assignment strategies
-* At-least-once and at-most-once semantics
-* Seek operations for replay
-* Pause/resume per-partition consumption
-
-= Usage Example
+= Quick start
 
 @
-consumer <- createConsumer brokers "my-group" defaultConsumerConfig
-subscribe consumer ["my-topic"]
-forever $ do
-  records <- poll consumer 1000
-  mapM_ processRecord records
-  commitSync consumer
+import qualified Kafka.Client.Consumer as Consumer
+
+main :: IO ()
+main =
+  Consumer.'withConsumer' [\"localhost:9092\"] \"my-group\"
+    Consumer.'defaultConsumerConfig' [\"events\"] $ \\c -> do
+      Right recs <- 'poll' c 1000
+      mapM_ (\\r -> print ('crKey' r, 'crValue' r)) recs
+      _ <- 'commitSync' c
+      pure ()
 @
 
+'withConsumer' is the recommended way to manage the lifecycle:
+it joins the group, subscribes to the topics you list, and on the
+way out commits a final batch and leaves the group cleanly. To
+keep a long-running poll loop, see 'Kafka.Client.Group.runConsumer'.
+
+= Configuration
+
+'ConsumerConfig' mirrors the librdkafka @CONFIGURATION.md@ knobs;
+the field haddocks list the equivalent librdkafka name. Start from
+'defaultConsumerConfig' and only override fields you care about.
+The most common ones:
+
+  * 'consumerGroupId' — which consumer group this consumer joins.
+  * 'consumerAutoOffsetReset' — start at 'Earliest' or 'Latest'
+    when the group has no committed offsets for a partition.
+  * 'consumerAutoCommit' — let the consumer commit on its own
+    timer ('True') or commit yourself ('False'). Manual commits
+    give the smallest duplicate window on a crash.
+  * 'consumerIsolationLevel' — 'ReadCommitted' to skip records
+    from in-flight transactions.
+
+Environment variables of the form @KAFKA_*@ are layered on top of
+your config automatically by 'createConsumer'; see
+'applyKafkaEnvToConsumerConfig'.
 -}
 module Kafka.Client.Consumer
-  ( -- * Consumer Types
+  ( -- * Consumer lifecycle
+    --
+    -- | The consumer keeps a connection pool, a heartbeat thread
+    -- (when joined to a group), and per-partition fetch state.
+    -- 'withConsumer' is the recommended bracket: it joins, subscribes,
+    -- and on the way out leaves the group, commits, and closes.
     Consumer
-  , ConsumerConfig(..)
-  , ConsumerRecord(..)
-  , TopicPartition(..)
-    -- * Consumer Creation
+  , withConsumer
+  , withConsumer'
   , createConsumer
   , closeConsumer
   , closeConsumerWithTimeout
   , closeConsumerWithoutLeavingGroup
-  , requestRejoin
-  , setSubscriptionUserDataHook
-    -- * Subscription
-  , subscribe
-  , unsubscribe
-  , assign
-    -- * Rebalance listener
-  , setRebalanceListener
-  , currentAssignment
-  , computeAssignmentDelta
-    -- * Polling and Consumption
+
+    -- * Records
+  , ConsumerRecord(..)
+  , TopicPartition(..)
+
+    -- * Polling
+    --
+    -- | 'poll' returns the next batch of records (up to
+    -- 'consumerMaxPollRecords'); 'commitSync' / 'commitAsync'
+    -- persists where you got to. For an automatic per-record
+    -- loop with built-in commit + error handling, see
+    -- "Kafka.Client.Group".
   , poll
-  , seek
-  , seekToBeginning
-  , seekToEnd
-    -- * Offset Management
   , commitSync
   , commitAsync
   , committed
   , committedAll
   , position
-    -- * Partition / time queries
+
+    -- * Subscription
+    --
+    -- | Subscribe to topics (group-managed) or 'assign' specific
+    -- partitions yourself (group-free).
+  , subscribe
+  , unsubscribe
+  , assign
+
+    -- * Replay
+    --
+    -- | Move the fetch position around — by offset, by time, or
+    -- to the bounds of the partition.
+  , seek
+  , seekToBeginning
+  , seekToEnd
   , beginningOffsets
   , endOffsets
   , offsetsForTimes
   , offsetsForTimesFull
   , OffsetAndTimestamp(..)
-    -- * Partition Control
+
+    -- * Partition control
+    --
+    -- | Pause / resume per-partition consumption, or inspect the
+    -- current assignment.
   , pause
   , resume
   , assignment
   , paused
+
+    -- * Rebalance listener
+    --
+    -- | Callbacks fired when the group rebalances. The default
+    -- is the no-op; install your own with 'setRebalanceListener'
+    -- to do warm-up, cache invalidation, etc.
+  , setRebalanceListener
+  , currentAssignment
+  , computeAssignmentDelta
+
+    -- * Static membership and rejoin
+  , requestRejoin
+  , setSubscriptionUserDataHook
+  , StaticMembershipState(..)
+  , currentStaticMembershipState
+
     -- * Configuration
+  , ConsumerConfig(..)
   , defaultConsumerConfig
   , AssignmentStrategy(..)
   , OffsetResetStrategy(..)
   , IsolationLevel(..)
-  , ConsumerConfig(..)
-  , StaticMembershipState(..)
-  , currentStaticMembershipState
-    -- * Configuration validation
   , validateConsumerConfig
+
+    -- * Cluster info
+  , consumerClusterId
+
     -- * Environment-variable overlay
     --
     -- | 'createConsumer' already reads @KAFKA_*@ env vars and
@@ -93,13 +154,11 @@ module Kafka.Client.Consumer
     -- that want to inspect or pre-apply the overlay manually.
   , applyKafkaEnvToConsumerConfig
   , consumerConfigFromEnv
-    -- * Cluster info
-  , consumerClusterId
   ) where
 
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Exception
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, bracket, throwIO, try)
 import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified System.Timeout
@@ -563,6 +622,71 @@ validateConsumerConfig ConsumerConfig{..} = concat
       "auto.commit.interval.ms"
       "must be > 0 when enable.auto.commit=true"
   ]
+
+-- | Open a consumer, subscribe to topics, run an action with it,
+-- and tear it down safely.
+--
+-- This is the recommended bracket for short-lived consumer scripts
+-- and for any code where you control the body's scope. The body
+-- runs after the consumer has joined the group and subscribed to
+-- @topics@; on exit (clean or exceptional) 'closeConsumerWithTimeout'
+-- is called, which commits any pending offsets, sends @LeaveGroup@,
+-- and closes connections.
+--
+-- @
+-- 'withConsumer' [\"localhost:9092\"] \"my-group\" 'defaultConsumerConfig' [\"events\"] $ \\c -> do
+--   Right recs \<- 'poll' c 1000
+--   mapM_ ('processRecord' c) recs
+--   _ <- 'commitSync' c
+--   pure ()
+-- @
+--
+-- 'withConsumer' is the low-level bracket for hand-rolled poll
+-- loops. If you just want \"call this handler for each record\",
+-- reach for 'Kafka.Client.Group.runConsumer' instead — it brackets
+-- /and/ drives the loop.
+--
+-- If the consumer fails to start (broker unreachable, group join
+-- rejected, etc.) the call raises an 'IOError'.
+withConsumer
+  :: [Text]            -- ^ Bootstrap brokers, e.g. @[\"localhost:9092\"]@.
+  -> Text              -- ^ Consumer group id.
+  -> ConsumerConfig    -- ^ Configuration; start from 'defaultConsumerConfig'.
+  -> [Text]            -- ^ Topics to subscribe to. May be empty if you
+                       --   plan to call 'assign' yourself.
+  -> (Consumer -> IO a)
+  -> IO a
+withConsumer brokers groupId cfg topics body =
+  withConsumer' brokers groupId cfg topics
+    (\c -> closeConsumerWithTimeout c 30000)
+    body
+
+-- | Same as 'withConsumer' but lets you swap in a custom
+-- shutdown function. Use 'closeConsumerWithoutLeavingGroup' to
+-- keep the broker session alive across a rolling restart.
+withConsumer'
+  :: [Text]
+  -> Text
+  -> ConsumerConfig
+  -> [Text]
+  -> (Consumer -> IO ())
+  -> (Consumer -> IO a)
+  -> IO a
+withConsumer' brokers groupId cfg topics shutdown body =
+  bracket open shutdown $ \c -> do
+    case topics of
+      [] -> body c
+      _  -> do
+        r <- subscribe c topics
+        case r of
+          Left err -> throwIO (userError ("wireform-kafka: subscribe failed: " <> err))
+          Right () -> body c
+  where
+    open = do
+      r <- createConsumer brokers groupId cfg
+      case r of
+        Left err -> throwIO (userError ("wireform-kafka: createConsumer failed: " <> err))
+        Right c  -> pure c
 
 createConsumer
   :: [Text]          -- ^ Bootstrap brokers. Falls back to
