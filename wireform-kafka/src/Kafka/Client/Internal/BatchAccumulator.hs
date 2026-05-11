@@ -59,6 +59,12 @@ module Kafka.Client.Internal.BatchAccumulator
 
 import Control.Concurrent.STM
 import Control.Monad (forM, forM_, when)
+import Data.Atomics
+  ( Ticket
+  , casIORef
+  , peekTicket
+  , readForCAS
+  )
 import qualified Data.ByteString as BS
 import Data.Foldable (toList)
 import Data.HashMap.Strict (HashMap)
@@ -533,11 +539,20 @@ noStamp = BatchStamp
 -- (the seal sentinel that can never appear as a real size) if
 -- the seal CAS in 'snapshotBatch' got there first.
 --
--- The 'Int' return shape (instead of a boxed sum like
--- @AppendOutcome@) is deliberate: it lets GHC unbox the result
--- through @atomicModifyIORef'@'s @(a, Int)@ closure return all
--- the way down to @Int#@, so the per-record CAS doesn't allocate
--- a constructor on the success path.
+-- /Implementation/: hand-rolled @readForCAS \/ casIORef@ from
+-- 'Data.Atomics' instead of 'atomicModifyIORef\''. The two
+-- buy us the same atomicity guarantee (sequenced-consistent
+-- CAS on the 'IORef') but @casIORef@ doesn't go through the
+-- @(state, result)@ tuple closure that 'atomicModifyIORef\''
+-- allocates per call. With ~3 M records/sec that's
+-- ~24 B × 3 M = ~72 MB/s of pure-overhead allocation removed
+-- from the steady-state heap profile.
+--
+-- The retry loop is the standard ticket-then-CAS pattern:
+-- read the current ticket, build the candidate state, attempt
+-- the CAS; on failure ('peekTicket' on the returned ticket
+-- gives us the current value without re-reading the 'IORef')
+-- recompute against the new value and retry.
 {-# INLINE casAppend #-}
 casAppend
   :: BatchAccumulating
@@ -545,23 +560,30 @@ casAppend
   -> RecordCallback
   -> Int                 -- ^ approximate record size
   -> IO Int
-casAppend ba record callback rs =
-  atomicModifyIORef' (baHotState ba) $ \st ->
-    let !raw = bhSizeRaw st
-    in if raw < 0
-         -- Sealed: leave state untouched, signal race. We
-         -- specifically return the same negative value rather
-         -- than computing anything, so the closure path is
-         -- branch-free of allocation on the race side too.
-         then (st, raw)
-         else
-           let !ns  = raw + rs
-               !st' = BatchHotState
-                 { bhRecordsRev   = record   : bhRecordsRev st
-                 , bhSizeRaw      = ns
-                 , bhCallbacksRev = callback : bhCallbacksRev st
-                 }
-           in (st', ns)
+casAppend ba record callback rs = do
+  tkt <- readForCAS (baHotState ba)
+  go tkt
+  where
+    {-# INLINE go #-}
+    go !tkt = do
+      let !st  = peekTicket tkt
+          !raw = bhSizeRaw st
+      if raw < 0
+        -- Sealed: nothing to update. Return the negative
+        -- sentinel so the caller routes the record through
+        -- 'slowAppendIO'.
+        then pure raw
+        else do
+          let !ns  = raw + rs
+              !st' = BatchHotState
+                { bhRecordsRev   = record   : bhRecordsRev st
+                , bhSizeRaw      = ns
+                , bhCallbacksRev = callback : bhCallbacksRev st
+                }
+          (ok, !tkt') <- casIORef (baHotState ba) tkt st'
+          if ok
+            then pure ns
+            else go tkt'
 
 {-# INLINE appendRecordStamped #-}
 appendRecordStamped
@@ -812,23 +834,23 @@ newAccumulating BatchAccumulatorConfig{..} tp currentTime BatchStamp{..} = do
 -- property keeps the protocol robust against future callers.)
 snapshotBatch :: BatchAccumulating -> BatchState -> IO ProducerBatch
 snapshotBatch BatchAccumulating{..} state = do
-  -- The seal CAS: capture the pre-seal state, write back a state
-  -- that has the same lists (so a re-snapshot would produce the
-  -- same records) but with 'bhSizeRaw' flipped to the negative
-  -- 'sealedSentinel'. Any append CAS that arrives after this
-  -- one observes the negative size and bails to 'slowAppendIO';
-  -- any append CAS that landed before this one is included in
-  -- the @st@ we just captured.
-  st <- atomicModifyIORef' baHotState $ \s ->
-    (s { bhSizeRaw = sealedSentinel }, s)
+  -- Seal CAS via 'Data.Atomics.casIORef': flip 'bhSizeRaw' to
+  -- the negative 'sealedSentinel' and capture the pre-seal
+  -- state in one CAS. Any append CAS that arrives after this
+  -- one observes the negative sentinel and bails to
+  -- 'slowAppendIO'; any append CAS that landed before this one
+  -- is included in the captured state.
+  --
+  -- The 'casIORef' (rather than 'atomicModifyIORef\'') matches
+  -- the append-side hot path so neither the per-record nor the
+  -- per-batch CAS pays the @(state, result)@ tuple closure
+  -- overhead.
+  st <- sealCAS
   -- Reverse the cons'd lists into the right forward order, then
-  -- freeze them into immutable 'V.Vector's. We pre-count once
-  -- via 'length' on the records list and reuse it for the
-  -- callbacks list (they are guaranteed to be the same length
-  -- by every append site). 'V.fromListN' then walks the list
-  -- once with a known capacity so it allocates one boxed array
-  -- of exactly @n@ slots — no doubling, no Seq finger-tree
-  -- spine, no per-record snoc overhead.
+  -- freeze them into immutable 'V.Vector's. 'V.fromListN' walks
+  -- the list once with a known capacity so it allocates one
+  -- boxed array of exactly @n@ slots — no doubling, no Seq
+  -- finger-tree spine, no per-record snoc overhead.
   let !nRec           = length (bhRecordsRev st)
       !recordsListFwd = reverse (bhRecordsRev st)
       !cbsListFwd     = reverse (bhCallbacksRev st)
@@ -850,6 +872,30 @@ snapshotBatch BatchAccumulating{..} state = do
     , batchBaseSequence     = baBaseSequence
     , batchIsTransactional  = baIsTransactional
     }
+  where
+    -- Loop a 'casIORef' that flips 'bhSizeRaw' to the seal
+    -- sentinel and returns the captured /pre-seal/ state. On
+    -- collision (concurrent appender or concurrent sealer), use
+    -- the ticket's view of the current state to retry without
+    -- a second 'IORef' read.
+    --
+    -- Idempotent on already-sealed batches: if the captured
+    -- state already has @bhSizeRaw < 0@, we just hand it back
+    -- without writing — so two concurrent seals produce the
+    -- same 'ProducerBatch'.
+    sealCAS :: IO BatchHotState
+    sealCAS = do
+      tkt <- readForCAS baHotState
+      sealLoop tkt
+    sealLoop :: Ticket BatchHotState -> IO BatchHotState
+    sealLoop !tkt = do
+      let !s = peekTicket tkt
+      if bhSizeRaw s < 0
+        then pure s
+        else do
+          let !s' = s { bhSizeRaw = sealedSentinel }
+          (ok, !tkt') <- casIORef baHotState tkt s'
+          if ok then pure s else sealLoop tkt'
 
 -- | Append a record with a completion callback
 -- Returns True if the record was added, False if accumulator is closed
