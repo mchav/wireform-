@@ -147,7 +147,6 @@ library
         Kafka.Client.Pipeline
         Kafka.Client.Producer
         Kafka.Client.ReauthDriver
-        Kafka.Client.Simple
         Kafka.Client.Transaction
         Kafka.Compression.Gzip
         Kafka.Compression.Lz4

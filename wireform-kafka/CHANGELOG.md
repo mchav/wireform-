@@ -31,6 +31,25 @@ and this project adheres to the
 
 ### Removed
 
+- `Kafka.Client.Simple` is gone. It was a single-broker,
+  single-record helper used as a low-level reference for the
+  protocol; everything it did is already covered by the
+  higher-level modules:
+  - `Simple.createSimpleClient` / `closeSimpleClient` —
+    use `Kafka.Network.Connection.connect` /
+    `Kafka.Network.Connection.disconnect` (or
+    `Conn.withConnection`).
+  - `Simple.getMetadata` — use `Kafka.Client.AdminClient.listTopics`
+    or `Kafka.Client.AdminClient.describeTopics` (and the
+    `MetadataCache` is automatically populated by
+    `createProducer` / `createConsumer`).
+  - `Simple.produceSimple` — use `Kafka.Client.Producer.sendMessage`.
+  - `Simple.fetchSimple` — use `Kafka.Client.Consumer.assign` +
+    `Kafka.Client.Consumer.poll`.
+  The integration suite has been migrated; only one orphan unit
+  test in the old `test/Integration/BasicSpec.hs` referenced it,
+  and that file wasn't wired into any test target — it has been
+  removed too.
 - `Kafka.Telemetry.TraceContext` is gone. It was a hand-rolled
   W3C Trace Context codec that existed because the previous
   `Kafka.Telemetry.OpenTelemetry` module didn't actually use the

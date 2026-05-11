@@ -93,10 +93,9 @@ offsets, see "Kafka.Client.Transaction".
     @hs-opentelemetry-api@.
   * "Kafka.Protocol.*" / @Kafka.Protocol.Generated.*@ — raw wire
     primitives and one module per Kafka request \/ response (for
-    custom tooling).
-  * "Kafka.Client.Simple" — a single-broker, single-record client
-    intended for debugging and unit-test scaffolding, not for
-    production.
+    custom tooling). Pair these with
+    "Kafka.Network.Connection" if you need to send a one-shot
+    request without the producer \/ consumer infrastructure.
 
 The full guided tour lives in @TUTORIAL.md@; a plain-language Kafka
 primer is in @CONCEPTS.md@.
