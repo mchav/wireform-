@@ -53,6 +53,7 @@ import qualified Streams.ForeignKeyJoinDSLSpec
 import qualified Streams.RuntimeDriverSpec
 import qualified Streams.ExceptionHandlerSpec
 import qualified Streams.KGroupedTableSpec
+import qualified Streams.StoresExtraSpec
 import qualified Streams.MultiInstanceHarnessSpec
 import qualified Streams.SchemaRegistryHttpSpec
 import qualified Streams.SchemaRegistryFormatsSpec
@@ -110,6 +111,7 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.RuntimeDriverSpec.tests
   , Streams.ExceptionHandlerSpec.tests
   , Streams.KGroupedTableSpec.tests
+  , Streams.StoresExtraSpec.tests
   , Streams.MultiInstanceHarnessSpec.tests
   , Streams.SchemaRegistryHttpSpec.tests
   , Streams.SchemaRegistryFormatsSpec.tests

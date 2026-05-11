@@ -30,6 +30,7 @@ module Kafka.Streams.State.Store
   , StateStore (..)
     -- * Key-value store
   , KeyValueStore (..)
+  , kvsPutAll
   , KeyValueIterator (..)
   , kvIteratorFromList
   , kvIteratorToList
@@ -48,6 +49,13 @@ module Kafka.Streams.State.Store
   , StoreBuilderS (..)
   , LoggingConfig (..)
   , defaultLoggingConfig
+    -- * Builder logging knobs (KIP-258 / KIP-150 surface)
+  , withLoggingEnabledKV
+  , withLoggingDisabledKV
+  , withLoggingEnabledW
+  , withLoggingDisabledW
+  , withLoggingEnabledS
+  , withLoggingDisabledS
     -- * Anonymous wrapper
   , AnyStateStore (..)
   , anyStoreName
@@ -141,6 +149,12 @@ data KeyValueStore k v = KeyValueStore
   , kvsReverseAll      :: !(IO (KeyValueIterator k v))
     -- ^ Like 'kvsAll' but in descending key order.
   }
+
+-- | Bulk insert. Mirrors @KeyValueStore.putAll(List<KeyValue<K, V>>)@.
+-- A default backend can override this for batching; the generic
+-- helper just folds 'kvsPut'.
+kvsPutAll :: KeyValueStore k v -> [(k, v)] -> IO ()
+kvsPutAll kvs = mapM_ (\(k, v) -> kvsPut kvs k v)
 
 -- | Window-keyed value: @(key, windowStart)@. Window length is
 -- implicit and held by the store.
@@ -254,3 +268,65 @@ anyStoreName = \case
 data StoreTypeMismatch = StoreTypeMismatch !StoreName !Text
   deriving stock (Show, Generic)
   deriving anyclass (Exception)
+
+----------------------------------------------------------------------
+-- Builder logging knobs
+----------------------------------------------------------------------
+
+-- Mirror Java's @StoreBuilder.withLoggingEnabled(Map<String,String>)@
+-- / @withLoggingDisabled@ for each typed builder. Mutates the
+-- 'sbXLogging' field; for builders with cached 'sbBuild' this
+-- doesn't re-run the build, the topology consults
+-- 'sbXLogging' separately when emitting changelog config.
+
+-- | Enable changelog with optional topic-config overrides.
+withLoggingEnabledKV
+  :: [(Text, Text)] -> StoreBuilderKV k v -> StoreBuilderKV k v
+withLoggingEnabledKV cfg b = b
+  { sbKvLogging = LoggingConfig
+      { loggingEnabled = True
+      , loggingTopicCfg = cfg
+      }
+  }
+
+withLoggingDisabledKV :: StoreBuilderKV k v -> StoreBuilderKV k v
+withLoggingDisabledKV b = b
+  { sbKvLogging = LoggingConfig
+      { loggingEnabled = False
+      , loggingTopicCfg = []
+      }
+  }
+
+withLoggingEnabledW
+  :: [(Text, Text)] -> StoreBuilderW k v -> StoreBuilderW k v
+withLoggingEnabledW cfg b = b
+  { sbWLogging = LoggingConfig
+      { loggingEnabled = True
+      , loggingTopicCfg = cfg
+      }
+  }
+
+withLoggingDisabledW :: StoreBuilderW k v -> StoreBuilderW k v
+withLoggingDisabledW b = b
+  { sbWLogging = LoggingConfig
+      { loggingEnabled = False
+      , loggingTopicCfg = []
+      }
+  }
+
+withLoggingEnabledS
+  :: [(Text, Text)] -> StoreBuilderS k v -> StoreBuilderS k v
+withLoggingEnabledS cfg b = b
+  { sbSLogging = LoggingConfig
+      { loggingEnabled = True
+      , loggingTopicCfg = cfg
+      }
+  }
+
+withLoggingDisabledS :: StoreBuilderS k v -> StoreBuilderS k v
+withLoggingDisabledS b = b
+  { sbSLogging = LoggingConfig
+      { loggingEnabled = False
+      , loggingTopicCfg = []
+      }
+  }

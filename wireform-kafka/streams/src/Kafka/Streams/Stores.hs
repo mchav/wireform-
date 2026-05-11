@@ -21,6 +21,8 @@ module Kafka.Streams.Stores
   ( -- * Key-value
     inMemoryKeyValueStore
   , inMemoryKeyValueStoreBuilder
+  , lruMap
+  , lruMapBuilder
   , persistentKeyValueStore
   , persistentKeyValueStoreBuilder
   , cachingKeyValueStore
@@ -69,6 +71,17 @@ inMemoryKeyValueStore = KVInMem.inMemoryKeyValueStore
 inMemoryKeyValueStoreBuilder
   :: Ord k => StoreName -> StoreBuilderKV k v
 inMemoryKeyValueStoreBuilder = KVInMem.inMemoryKeyValueStoreBuilder
+
+-- | JVM's @Stores.lruMap(name, maxCacheSize)@: a bounded LRU
+-- in-memory KV store. Logging is disabled by default (LRU
+-- eviction breaks the changelog replay assumption).
+lruMap
+  :: Ord k => StoreName -> Int -> IO (KeyValueStore k v)
+lruMap = KVInMem.inMemoryLruKeyValueStore
+
+lruMapBuilder
+  :: Ord k => StoreName -> Int -> StoreBuilderKV k v
+lruMapBuilder = KVInMem.inMemoryLruKeyValueStoreBuilder
 
 persistentKeyValueStore
   :: StoreName
