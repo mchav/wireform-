@@ -5,10 +5,10 @@ producer + consumer + transactional pipeline + Streams topology
 against the in-process mock broker. Every step is runnable from
 the same Haskell file; no Docker required.
 
-> **Where this fits in the docs.** The README is the catalogue
-> of features; [`FEATURE_PARITY.md`](./FEATURE_PARITY.md) is the
-> running plan against the JVM client + librdkafka; this file is
-> the "first 30 minutes" walkthrough.
+> **Where this fits in the docs.** The [README](./README.md)
+> is the catalogue of features; [`streams/README.md`](./streams/README.md)
+> is the Streams DSL reference; this file is the
+> "first 30 minutes" walkthrough.
 
 ## 1. Hello, mock broker
 
@@ -420,8 +420,7 @@ mirror of the same counters.
 ## 8. Where to look next
 
   * **Configuration**: [`CONFIG_PARITY.md`](./CONFIG_PARITY.md)
-    is the librdkafka mapping; [`FEATURE_PARITY.md`](./FEATURE_PARITY.md)
-    is the running KIP-by-KIP plan.
+    is the librdkafka knob-by-knob mapping.
   * **Live broker tests**: `WIREFORM_KAFKA_BROKER=host:port cabal test
     wireform-kafka:wireform-kafka-integration` runs the full
     transactional + produce/consume integration suite.

@@ -1,8 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Tests for the @Kafka.Client.Transaction@ ↔
--- @Kafka.Client.Producer@ wiring landed alongside FEATURE_PARITY's
--- top-of-queue S0 item ("Wire @Transaction@ into @Producer@").
+-- @Kafka.Client.Producer@ wiring.
 --
 -- The end-to-end story (transactional records become visible to a
 -- read-committed consumer iff the producer commits) requires a

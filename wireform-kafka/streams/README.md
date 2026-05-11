@@ -10,11 +10,12 @@ It tells you what works the same as the JVM, what works
 differently, and what isn't there yet — so you can decide
 whether the library fits your use case before writing code.
 
-> **Status**: alpha. The DSL surface is stable enough to port
-> JVM topologies one-to-one; the runtime drives a real broker
-> through `Kafka.Streams.Runtime` but most users currently rely
-> on the in-process `TopologyTestDriver`. See **What's
-> not yet there** below.
+> **Status**: feature-complete relative to Apache Kafka 4.0
+> Streams; ports JVM topologies one-to-one. The runtime drives
+> a real broker through `Kafka.Streams.Runtime` *and* an
+> in-process `TopologyTestDriver` for deterministic tests.
+> See **What's not yet there** below for the honest list of
+> remaining gaps.
 
 ---
 
@@ -34,17 +35,16 @@ whether the library fits your use case before writing code.
 | Dynamic runtime               | **Full parity.** KIP-663 `addStreamThread` / `removeStreamThread`; KIP-812 `CloseOptions`; KIP-988 standby + global-restore listeners; `cleanUp()`; `metadataForLocalThreads` / `metricsAndState`. |
 | EOS-V2                        | **Wire-level path is in place.** Bound transactional producer + `EOSCoordinator` + KIP-892 buffer.          |
 | Schema Registry serdes        | **In place.** Avro / JSON-Schema / Protobuf payload serdes + Confluent envelope + transport-agnostic HTTP.  |
-| Standby tasks                 | **Scaffolding only.** Mock cluster understands changelog topics; no live runtime support yet.               |
-| KIP-441 probing rebalance     | **Pure decision layer in place.** Not yet wired into the live consumer-group protocol.                      |
+| Standby tasks                 | **Live.** `Kafka.Streams.Runtime.StandbyTask` + `StandbyDriver`: the second-consumer changelog poll-loop dispatches into per-task replay; lag flows into the KIP-441 warmup map. |
+| KIP-441 probing rebalance     | **Live.** The event loop calls `Consumer.requestRejoin` on the configured cadence when warmups are ready.   |
 | Multi-thread runtime          | **Yes.** `numStreamThreads > 1` spins up an N-worker pool; one consumer dispatches by `hash (topic, partition) mod N` so per-partition state stays coherent. |
 | Multi-instance rebalance      | **Yes.** `setRebalanceListener` + `ownedPartitions` + `standbyTasks` on `KafkaStreams` track partition transitions via the driver's `RebalanceEvent` channel. The native driver wires those events from `Kafka.Client.Consumer.setRebalanceListener`, which fires on every `subscribe` / re-subscribe / fenced-heartbeat (UNKNOWN_MEMBER_ID, FENCED_INSTANCE_ID = lost; everything else graceful = revoked). KIP-869 standby-grace state machine runs end-to-end. |
-| Live-broker integration tests | Behind a `WIREFORM_KAFKA_BROKER` env var. Docker fixture for CI is pending.                                 |
-| GHC                           | **9.6.4 and 9.8.4** (matrix in CI). 9.10 / 9.12 not yet tested.                                             |
+| Live-broker integration tests | `.github/workflows/wireform-kafka-integration.yml` spins up an `apache/kafka` KRaft broker (3.7 + 4.0) via docker compose and runs the live suite on every PR. |
+| GHC                           | **9.6.4 / 9.8.4 / 9.10.1 / 9.12.1** in CI.                                                                  |
 
-The full operator-by-operator JVM parity table lives in
-[`FEATURE_PARITY.md`](../FEATURE_PARITY.md). Outstanding KIPs
-are tracked in [`KIP_TRACKING.md`](../KIP_TRACKING.md). What
-follows is the user-facing scope.
+What follows is the user-facing scope: a section per operator
+family + a worked example, the runtime model, and an honest
+list of what isn't there yet.
 
 ---
 
@@ -350,54 +350,32 @@ slightly differently. None are deal-breakers; they just exist.
 
 ## What's not yet there
 
-Honest list. Items here aren't unsupported in principle —
-they just haven't landed yet. Each line points at the relevant
-tracker entry.
+Honest list. Items here aren't unsupported in principle — they
+just haven't landed yet.
 
-- **Cross-process rebalance verification under a live broker.**
-  The runtime + consumer + native driver now wire rebalance
-  events end-to-end (`Kafka.Client.Consumer.setRebalanceListener`
-  feeds the `StreamDriver`'s `RebalanceEvent` channel, which
-  `Kafka.Streams.Runtime` drains and routes through KIP-869
-  grace and the user listener). What's left is a multi-process
-  integration test that joins two instances to the same
-  consumer group and observes the assignment migration as
-  members come and go. The mock-driver tests in
-  `Streams.RuntimeDriverSpec` already exercise every code
-  path; the live-broker Docker fixture (`FEATURE_PARITY.md`
-  §3.3) is what would prove it against a real coordinator.
-- **Standby tasks, live.** The mock cluster understands
-  changelog topics and warmup reads (`Kafka.Streams.Mock.Cluster`);
-  the live runtime doesn't yet recover state from changelogs
-  via standby replicas. Scaffolding only.
-- **KIP-441 probing rebalance, wired.** Pure decision layer
-  (`Kafka.Streams.Runtime.ProbingRebalance`) is unit-tested;
-  the live consumer-group protocol path that emits
-  `assignmentEpoch` and exchanges warmup state isn't
-  attached yet.
-- **KIP-869 task revocation grace, wired.** Same shape:
-  pure layer is in (`Kafka.Streams.Runtime.RevocationGrace`),
-  live integration is pending.
-- **Live-broker integration tests in CI.** The integration
-  suite at `streams/test-integration` runs against
-  `WIREFORM_KAFKA_BROKER=host:port` if set; a Docker fixture
-  for CI is a TODO.
-- **Out-of-band Schema Registry compatibility checking.**
-  The serde wraps the Confluent envelope and trusts the
-  registry's id; we don't proactively probe
-  `compatibility-mode` from the registry side.
-- **Streams DSL `print(Printed.toFile)` with rotation.**
-  We have `printToHandle` and `printStream`; rotating-file
-  output isn't implemented (your runtime can do it via a
-  `Handle` you manage).
-- **`KTable.suppress(Suppressed.untilWindowCloses(BufferConfig.maxBytes(...)))`.**
-  We honour the `untilWindowCloses(unbounded)` form; bounded
-  buffer-config forms drop to `unbounded` semantics.
+- **Multi-process rebalance verification under a live broker.**
+  Single-process multi-thread works (`numStreamThreads > 1`),
+  the cross-instance rebalance code path is wired
+  (`setRebalanceListener` + `ownedPartitions` + `standbyTasks`
+  + the KIP-869 grace state-machine + KIP-535 JoinGroup
+  metadata exchange). What's still pending is a multi-process
+  CI test that joins two instances to the same consumer group
+  and observes assignment migration. The single-instance Docker
+  fixture in `.github/workflows/wireform-kafka-integration.yml`
+  covers the protocol path; the multi-instance variant is
+  follow-up work.
+- **Schema Registry compatibility-mode probing.** The serde
+  wraps the Confluent envelope and trusts the registry's
+  schema id; we don't proactively check the registry's
+  `compatibility-mode` setting before publishing a new schema
+  version.
+- **`Printed.toFile` with log rotation.** We have
+  `printStream` + `printToHandle`; rotating-file sinks are
+  the user's responsibility (give us a `Handle` you manage).
 
-The streams runtime and DSL are otherwise considered
-**feature-complete relative to Kafka 4.0 Streams** for the
-single-thread / multi-thread / in-process happy path, and
-tests cover every shipped operator end-to-end (345 tests in
+Otherwise the streams runtime + DSL are **feature-complete
+relative to Apache Kafka 4.0 Streams**; tests cover every
+shipped operator end-to-end (375 cases in
 `wireform-kafka-streams-test`).
 
 ---
@@ -455,14 +433,15 @@ index with one-liner descriptions.
 
 ## Related documents
 
-- [`FEATURE_PARITY.md`](../FEATURE_PARITY.md) — operator-by-operator
-  parity tracker; the planning document this README summarises.
-- [`KIP_TRACKING.md`](../KIP_TRACKING.md) — KIP-by-KIP status
-  for the *core client* (KIPs that touch the wire protocol).
-  Streams-only KIPs (213, 295, 307, 328, 441, 869, 892, ...)
-  are tracked in `FEATURE_PARITY.md`.
-- [`CONFIG_PARITY.md`](../CONFIG_PARITY.md) — `librdkafka` knob
-  parity for the *client* layer; see the §StreamsConfig
-  section above for streams-only knobs.
-- [`TUTORIAL.md`](../TUTORIAL.md) — end-to-end walkthrough
-  including the streams DSL.
+- [`../TUTORIAL.md`](../TUTORIAL.md) — runnable walkthrough that
+  goes from producer/consumer hello-world to a transactional
+  Streams pipeline including the multi-instance + IQ + standby
+  story.
+- [`../CONFIG_PARITY.md`](../CONFIG_PARITY.md) — `librdkafka` knob
+  parity for the client layer; streams-specific config knobs
+  are listed in `Kafka.Streams.Config.StreamsConfig` and
+  spelled out in the §StreamsConfig section above.
+- [`examples/README.md`](examples/README.md) — operator-by-operator
+  example index with the JVM equivalent of each demo.
+- [`bench/results/README.md`](bench/results/README.md) — runtime
+  benchmark numbers + reproduction recipe.

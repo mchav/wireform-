@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Tests for the producer / consumer interceptor APIs added in
--- the FEATURE_PARITY S1 batch. The functional cases run against
--- the in-process accumulator + record-batch encoder; the network
+-- | Tests for the producer / consumer interceptor APIs. The
+-- functional cases run against the in-process accumulator +
+-- record-batch encoder; the network
 -- side is exercised by 'producerOnAcknowledgement' through the
 -- broker-rejection path of @sendMessage@ (already covered by
 -- the lifecycle tests).

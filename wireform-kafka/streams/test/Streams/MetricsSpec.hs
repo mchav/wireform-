@@ -4,7 +4,6 @@
 module Streams.MetricsSpec (tests) where
 
 import qualified Data.ByteString.Char8 as BSC
-import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
@@ -119,6 +118,3 @@ engine_increments_punctuateTotal =
     readCounter met punctuateTotal >>= (@?= 2)
     closeDriver driver
 
--- 'Map' kept imported for future expansion of dumpMetrics tests.
-_keep :: Map.Map Text Int -> Bool
-_keep = Map.null

@@ -41,6 +41,9 @@ module Kafka.Streams.Runtime.NativeDriver
   , mockDriverInjectPoll
   , mockDriverInjectRebalance
   , mockDriverProbeRequests
+  , mockDriverFlushCount
+  , mockDriverClosed
+  , mockDriverSubscribed
   , mockDriverDrainSends
   , mockDriverTxnLog
   , mockDriverCommittedOffsets
@@ -347,6 +350,19 @@ mockDriverInjectRebalance h ev =
 -- 'sdRequestProbingRebalance' on this mock driver.
 mockDriverProbeRequests :: MockDriverHandle -> IO Int
 mockDriverProbeRequests = readTVarIO . mdhProbeRequests
+
+-- | How many times the runtime has called 'sdProducerFlush'.
+mockDriverFlushCount :: MockDriverHandle -> IO Int
+mockDriverFlushCount = readTVarIO . mdhFlushed
+
+-- | @(consumerClosed, producerClosed)@ — whether the runtime
+-- has torn down each side of the driver.
+mockDriverClosed :: MockDriverHandle -> IO (Bool, Bool)
+mockDriverClosed = readTVarIO . mdhClosed
+
+-- | Most recent topics the runtime subscribed the consumer to.
+mockDriverSubscribed :: MockDriverHandle -> IO [Text]
+mockDriverSubscribed = readTVarIO . mdhSubscribed
 
 -- | Push a batch of consumer records the runtime will receive on
 -- the next 'sdConsumerPoll'.

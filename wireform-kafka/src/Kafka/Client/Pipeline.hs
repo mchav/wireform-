@@ -94,8 +94,6 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntMap.Strict (IntMap)
 import Data.Int
-import qualified Data.IntSet as IntSet
-import Data.IntSet (IntSet)
 import GHC.Generics (Generic)
 import qualified Kafka.Time as KafkaTime
 import qualified Kafka.Client.ReauthDriver
@@ -625,7 +623,3 @@ failPipeline Pipeline{..} reason = do
 nowSeconds :: IO Int
 nowSeconds = (`div` 1000) . fromIntegral <$> KafkaTime.currentTimeMillis
 
--- 'IntSet' kept imported for future use (not currently required
--- but the timeout loop's cancel-set is a likely follow-up).
-_keepIntSet :: IntSet
-_keepIntSet = IntSet.empty

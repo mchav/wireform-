@@ -59,8 +59,6 @@ module Kafka.Streams.DSL.Suppress
 
 import Data.IORef
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
 import qualified Data.Text as T
 import qualified Unsafe.Coerce as Unsafe
 
@@ -83,11 +81,8 @@ import Kafka.Streams.DSL.TimeWindowedKStream
   , WindowedTableHandle (..)
   )
 import Kafka.Streams.Processor
-  ( Cancellable
-  , Processor (..)
+  ( Processor (..)
   , ProcessorContext (..)
-  , Punctuator (..)
-  , PunctuationType (..)
   , forwardRecord
   , getStateStore
   , processorName
@@ -497,12 +492,6 @@ suppressTimeLimitProc sn limitMs = do
              else pure ())
         entries
 
--- 'Map' / 'Cancellable' / 'Punctuator' / 'PunctuationType' / 'T.Text'
--- kept imported so future expansion (a wall-clock-driven flusher)
--- can plug in without churning imports.
-_keepImports
-  :: Map () () -> Cancellable -> Punctuator -> PunctuationType -> T.Text -> ()
-_keepImports _ _ _ _ _ = ()
 ----------------------------------------------------------------------
 -- Suppressed builder (Java's Suppressed.untilWindowCloses /
 -- .untilTimeLimit)

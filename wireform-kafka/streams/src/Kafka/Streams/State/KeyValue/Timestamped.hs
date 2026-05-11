@@ -26,7 +26,6 @@ module Kafka.Streams.State.KeyValue.Timestamped
   , latestTimestamp
   ) where
 
-import Data.IORef
 import GHC.Generics (Generic)
 
 import Kafka.Streams.State.Store
@@ -71,8 +70,3 @@ getT s k = (fmap unwrapVT) <$> kvsGet s k
 latestTimestamp
   :: TimestampedKeyValueStore k v -> k -> IO (Maybe Timestamp)
 latestTimestamp s k = (fmap snd) <$> getT s k
-
--- 'IORef' kept imported in case future helpers want to lift this
--- into a stateful per-store 'maxTimestamp' counter.
-_keepIORef :: IORef Int -> IO ()
-_keepIORef r = readIORef r >>= writeIORef r

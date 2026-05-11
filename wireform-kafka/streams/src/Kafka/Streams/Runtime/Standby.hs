@@ -49,7 +49,6 @@ module Kafka.Streams.Runtime.Standby
 
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 import Data.IORef
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
@@ -57,7 +56,6 @@ import qualified Data.Map.Strict as Map
 import Kafka.Streams.Serde (Serde, deserialize, serialize)
 import Kafka.Streams.State.Store
   ( KeyValueStore (..)
-  , StateStore (..)
   , StoreName
   )
 
@@ -242,13 +240,3 @@ advanceStandby sb = do
                 Left _  -> pure ()
                 Right v -> kvsPut (sbStore sb) k v
               Nothing -> () <$ kvsDelete (sbStore sb) k
-
--- 'StateStore' kept imported so the wrapper above compiles even
--- after the field-record refactor expands the lifecycle.
-_keepStateStore :: StateStore -> StateStore
-_keepStateStore = id
-
--- 'BS.length' touched here so unused-imports stays quiet should we
--- gain a different ByteString helper later. Trivial.
-_keepBS :: BS.ByteString -> Int
-_keepBS = BS.length

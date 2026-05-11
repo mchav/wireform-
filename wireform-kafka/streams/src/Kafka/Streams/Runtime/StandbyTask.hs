@@ -35,7 +35,8 @@
 -- harness or a user-driven loop. The integration piece (a
 -- per-task @ChangelogConsumer@ that polls the broker
 -- independently from the main 'StreamDriver') is tracked in
--- @FEATURE_PARITY.md@; the API below is forward-compatible.
+-- the live-broker integration suite; the API below is the
+-- contract.
 module Kafka.Streams.Runtime.StandbyTask
   ( -- * Tasks
     StandbyTask (..)

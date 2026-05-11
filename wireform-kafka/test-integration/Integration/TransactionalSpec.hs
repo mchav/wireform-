@@ -5,8 +5,8 @@ Module      : Integration.TransactionalSpec
 Description : Live-broker transactional integration tests (KIP-98 / KIP-447)
 
 End-to-end tests for the producer ↔ transaction wiring landed
-in this branch. They cover the four scenarios called out in
-@FEATURE_PARITY.md@:
+in this branch. They cover the four canonical transactional
+scenarios:
 
   1. @initTransactions → beginTransaction → produce →
      commitTransaction@ — records visible to a read-committed

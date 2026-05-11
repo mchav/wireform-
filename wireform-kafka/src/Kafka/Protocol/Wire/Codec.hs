@@ -43,7 +43,6 @@ module Kafka.Protocol.Wire.Codec
 import Control.Exception (SomeException)
 import qualified Control.Exception as Exc
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int16)
 import Foreign.ForeignPtr
@@ -186,8 +185,3 @@ runWireDecode impl version bs =
           Left e         -> Left (show e)
           Right (v, _)   -> Right v
 
--- 'BS.ByteString' / 'BS.length' kept imported in case future
--- helpers want to surface size up-front — keeps the warning
--- noise out of @-Wall@.
-_keepBSLength :: ByteString -> Int
-_keepBSLength = BS.length

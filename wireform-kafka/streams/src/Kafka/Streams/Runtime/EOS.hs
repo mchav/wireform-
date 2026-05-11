@@ -37,7 +37,6 @@ module Kafka.Streams.Runtime.EOS
   ) where
 
 import Control.Exception (SomeException, try)
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
@@ -195,13 +194,3 @@ withTransactionalStores base commits aborts = base
       case r of
         Right () -> pure (Right ())
         Left e   -> pure (Left (label <> ": " <> T.pack (show e)))
-
--- 'IORef' / 'readIORef' / 'writeIORef' / 'newIORef' kept here as
--- they're commonly used by tests that attach a recording
--- coordinator (see 'Streams.EOSSpec' in the test suite).
-_keepIO :: IORef Int -> IO Int
-_keepIO r = do
-  _ <- newIORef (0 :: Int)
-  v <- readIORef r
-  writeIORef r v
-  pure v

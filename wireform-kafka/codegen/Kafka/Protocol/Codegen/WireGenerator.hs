@@ -62,7 +62,7 @@ module Kafka.Protocol.Codegen.WireGenerator
 import Data.Char (toLower, toUpper)
 import Data.Int (Int16)
 import Data.List (groupBy, sortBy)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (isJust)
 import Data.Ord (comparing)
 import qualified Data.Aeson as Aeson
 import Data.Text (Text)
@@ -1309,6 +1309,3 @@ generateNestedWireDefault structName fields =
     , ""
     ]
 
--- 'fromMaybe' kept around for future per-version compact dispatch.
-_keepFromMaybe :: a -> Maybe a -> a
-_keepFromMaybe = fromMaybe

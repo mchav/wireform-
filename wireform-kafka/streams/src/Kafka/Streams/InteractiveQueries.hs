@@ -66,7 +66,6 @@ import Control.Exception (Exception)
 import qualified Data.Foldable as Foldable
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map
 import qualified Unsafe.Coerce as Unsafe
 
 import Kafka.Streams.Internal.Engine
@@ -384,8 +383,3 @@ queryEngineStore eng sn = do
     Just (AnyKeyValueStore kvs) ->
       pure (Just (readOnlyKV (Unsafe.unsafeCoerce kvs)))
     _ -> pure Nothing
-
--- 'Map.empty' touched so unused-imports stays quiet should we drop
--- one of the helpers above; trivial constant.
-_keepMap :: Map.Map () ()
-_keepMap = Map.empty
