@@ -9,7 +9,7 @@
 
 -- |
 -- Module      : Kafka.Streams.Query
--- Description : Structured 'Query' API (KIP-796 + KIP-805 + KIP-889 + KIP-960)
+-- Description : Structured 'Query' API for state stores
 --
 -- A typed query language over state stores. Mirrors Java's
 -- @org.apache.kafka.streams.query.{Query,KeyQuery,RangeQuery,
@@ -28,13 +28,13 @@ module Kafka.Streams.Query
   , isSuccess
   , queryValue
   , queryFailureReason
-    -- * Window-store queries (KIP-805)
+    -- * Window-store queries
   , executeWindowKeyQuery
   , executeWindowRangeQuery
-    -- * Versioned-store queries (KIP-889 / KIP-960)
+    -- * Versioned-store queries
   , executeVersionedKeyQuery
   , executeMultiVersionedKeyQuery
-    -- * Position (KIP-796)
+    -- * Position
   , Position
   , emptyPosition
   , positionAdvance

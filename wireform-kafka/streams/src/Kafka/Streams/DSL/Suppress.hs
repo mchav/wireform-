@@ -11,7 +11,7 @@
 
 -- |
 -- Module      : Kafka.Streams.DSL.Suppress
--- Description : Suppress operator (KIP-328)
+-- Description : Suppress operator
 --
 -- Buffers updates per (windowed) key and emits each key's final
 -- value only after the window has closed (i.e. stream time has
@@ -45,7 +45,7 @@ module Kafka.Streams.DSL.Suppress
   , streamFromWindowedHandle
   , suppressWindowedHandle
   , SuppressBufferFullException (..)
-    -- * Suppressed builder (KIP-328 surface API)
+    -- * Suppressed builder
   , Suppressed (..)
   , untilWindowCloses
   , untilTimeLimit
@@ -238,7 +238,7 @@ suppressWindowed
 suppressWindowed grace windowSize =
   suppressWindowedWith grace windowSize unboundedBufferConfig
 
--- | KIP-328 bounded @suppress(untilWindowCloses(...))@. Like
+-- | Bounded @suppress(untilWindowCloses(...))@. Like
 -- 'suppressWindowed' but enforces the supplied
 -- 'BufferConfig': when the buffer exceeds the configured
 -- record / byte limit the runtime either emits the oldest

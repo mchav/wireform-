@@ -46,7 +46,7 @@ module Kafka.Streams.Runtime.Assignor
     -- * Pure assignor
   , assign
   , balanceLoad
-    -- * Rack-aware (KIP-925)
+    -- * Rack-aware
   , RackInfo (..)
   , RackAwareCost (..)
   , defaultRackAwareCost

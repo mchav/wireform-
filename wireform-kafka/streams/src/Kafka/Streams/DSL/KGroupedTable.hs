@@ -11,7 +11,7 @@
 
 -- |
 -- Module      : Kafka.Streams.DSL.KGroupedTable
--- Description : Aggregation over a KTable's change-log (KIP-150)
+-- Description : Aggregation over a KTable's change-log
 --
 -- Mirrors @org.apache.kafka.streams.kstream.KGroupedTable<K,V>@.
 -- Where 'Kafka.Streams.DSL.KGroupedStream' aggregates an

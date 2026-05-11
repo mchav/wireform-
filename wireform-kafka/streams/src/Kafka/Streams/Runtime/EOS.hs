@@ -172,7 +172,7 @@ newRealEOSCoordinator txn = EOSCoordinator
   where
     wrapTE = either (Left . T.pack . show) Right
 
--- | KIP-892 wiring helper: take an existing coordinator and a
+-- | Transactional-store wiring helper: take an existing coordinator and a
 -- list of 'TransactionalStore'-like commit/abort actions and
 -- thread them through 'eosStoreCommit' / 'eosStoreAbort'. The
 -- callbacks are run in declaration order on commit; the first

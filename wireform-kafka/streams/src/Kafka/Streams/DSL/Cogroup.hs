@@ -11,7 +11,7 @@
 
 -- |
 -- Module      : Kafka.Streams.DSL.Cogroup
--- Description : Co-grouped aggregations across multiple streams (KIP-150)
+-- Description : Co-grouped aggregations across multiple streams
 --
 -- A 'CogroupedStream k a' captures a set of pre-grouped streams,
 -- each with their own value type, all feeding the same aggregator
@@ -26,7 +26,7 @@ module Kafka.Streams.DSL.Cogroup
   , cogroup
   , addCogrouped
   , aggregateCogrouped
-    -- * Windowed cogroup (KIP-150)
+    -- * Windowed cogroup
   , TimeWindowedCogroupedStream (..)
   , windowedByCogroup
   ) where

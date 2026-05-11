@@ -13,17 +13,17 @@ module Kafka.Streams.DSL.Joined
   , joinWindowsAfter
   , symmetricJoinWindows
   , withJoinWindowsGrace
-    -- * Modern builders (KIP-633)
+    -- * Modern builders
   , ofTimeDifferenceWithNoGrace
   , ofTimeDifferenceAndGrace
-    -- * Sliding windows (KIP-450)
+    -- * Sliding windows
   , slidingWindowsOf
   , slidingWindowsWithGrace
-    -- * StreamJoined (KIP-479)
+    -- * StreamJoined
   , StreamJoined (..)
   , streamJoined
   , withStreamJoinedName
-    -- * TableJoined (KIP-545)
+    -- * TableJoined
   , TableJoined (..)
   , tableJoined
   , withTableJoinedName
@@ -168,7 +168,7 @@ withStreamJoinedName n s = s { name = Just n }
 -- TableJoined (KIP-545)
 ----------------------------------------------------------------------
 
--- | KIP-545 @TableJoined<K, KO>@ — partitioner override for
+-- | @TableJoined<K, KO>@ — partitioner override for
 -- KTable-KTable foreign-key joins. The partitioner functions
 -- decide which partition a join-side record routes to on the
 -- internal subscription / response topics.

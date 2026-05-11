@@ -47,7 +47,7 @@ module Kafka.Streams.InteractiveQueries
     queryKVStore
   , queryWindowStore
   , querySessionStore
-    -- * StoreQueryParameters (KIP-535)
+    -- * StoreQueryParameters
   , StoreQueryParameters (..)
   , storeQueryParameters
   , queryKVStoreWithParameters
@@ -167,7 +167,7 @@ readOnlySession ss = ReadOnlySessionStore
 
 -- | Resolve a store from a 'KafkaStreams' by name. Returns 'Nothing'
 -- if the runtime is not yet running or the store doesn't exist.
--- | KIP-535 @StoreQueryParameters@ — the parameter bag the JVM
+-- | @StoreQueryParameters@ — the parameter bag the JVM
 -- @KafkaStreams.store(...)@ entry-point takes. Mirrors the
 -- builder shape so call sites read like the Java original.
 data StoreQueryParameters = StoreQueryParameters

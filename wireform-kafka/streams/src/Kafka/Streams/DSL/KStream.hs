@@ -1187,7 +1187,7 @@ repartition topicPrefix s = do
     , kstreamValueSerde = kstreamValueSerde s
     }
 
--- | KIP-559 @KStream.repartition(Repartitioned)@. Wires every
+-- | @KStream.repartition(Repartitioned)@. Wires every
 -- override the 'Repartitioned' record carries: explicit
 -- internal-topic name, partition count, key/value serdes, and
 -- an optional 'StreamPartitioner'.
@@ -1245,7 +1245,7 @@ branchedFrom n p = Branched
   , branchedAct  = \_ -> pure ()
   }
 
--- | KIP-418 @Branched.withFunction(stream -> stream')@. Attach
+-- | @Branched.withFunction(stream -> stream')@. Attach
 -- a transform function that runs once on the branched stream;
 -- the returned 'KStream' replaces the original in the result
 -- map. Use this when each branch needs a different
@@ -1261,7 +1261,7 @@ withFunction n p act = Branched
   , branchedAct  = act
   }
 
--- | KIP-418 @Branched.withConsumer(stream -> Unit)@. Consume
+-- | @Branched.withConsumer(stream -> Unit)@. Consume
 -- the branch's stream in place (for example: sink to a topic);
 -- the branch doesn't appear in the result map. Same as
 -- 'withFunction' but the type spelling-out makes intent
@@ -1273,7 +1273,7 @@ withConsumer
   -> Branched k v
 withConsumer = withFunction
 
--- | KIP-418-style split: each input record is routed to the first
+-- | Predicate-routed split: each input record is routed to the first
 -- branch whose predicate matches. Records that match none are sent
 -- to the optional default branch ('Nothing' drops them).
 --

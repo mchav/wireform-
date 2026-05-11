@@ -6,7 +6,7 @@
 
 -- |
 -- Module      : Kafka.Streams.DSL.Repartitioned
--- Description : KIP-559 @Repartitioned<K, V>@ config record
+-- Description : @Repartitioned<K, V>@ config record
 --
 -- Carries the user-supplied options for an explicit
 -- 'Kafka.Streams.DSL.KStream.repartition' call:

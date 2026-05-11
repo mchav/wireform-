@@ -52,44 +52,44 @@ module Kafka.Streams.Runtime
   , setStateListener
     -- * EOS
   , applyEOSCoordinator
-    -- * Pause / resume (KIP-834)
+    -- * Pause / resume
   , pauseKafkaStreams
   , resumeKafkaStreams
   , isPausedKafkaStreams
-    -- * Task lag (KIP-647)
+    -- * Task lag
   , LagInfo (..)
   , LagListener
   , setLagListener
   , publishLag
-    -- * Multi-instance rebalance (KIP-415/429/441/869)
+    -- * Multi-instance rebalance
   , setRebalanceListener
   , ownedPartitions
   , standbyTasks
-    -- * Probing rebalance (KIP-441)
+    -- * Probing rebalance
   , reportWarmupLag
   , clearWarmupLag
   , warmupSnapshot
     -- * Standby tasks
   , ksStandbyManager
-    -- * Exception handlers (KIP-161/280/671/1033)
+    -- * Exception handlers
   , setProductionExceptionHandler
   , setProcessingExceptionHandler
   , setUncaughtExceptionHandler
-    -- * Thread management (KIP-663) + cleanup
+    -- * Thread management + cleanup
   , addStreamThread
   , removeStreamThread
   , streamThreadCount
   , cleanUp
-    -- * Close options (KIP-812)
+    -- * Close options
   , CloseOptions (..)
   , defaultCloseOptions
   , closeKafkaStreamsWith
-    -- * Listeners (KIP-988 / global-restore)
+    -- * Listeners (global-restore)
   , StandbyUpdateListener
   , setStandbyUpdateListener
   , GlobalStateRestoreListener
   , setGlobalStateRestoreListener
-    -- * Metadata + metrics (KIP-444)
+    -- * Metadata + metrics
   , LocalThreadMetadata (..)
   , metadataForLocalThreads
   , metricsAndState
@@ -726,7 +726,7 @@ transitionTo ks new_ = do
   lis <- readIORef (ksListener ks)
   lis old new_
 
--- | Pause record processing (KIP-834). The runtime keeps polling
+-- | Pause record processing. The runtime keeps polling
 -- the consumer (so heartbeats stay alive and the coordinator
 -- doesn't kick the member) but does not feed the engine. Call
 -- 'resumeKafkaStreams' to continue.
@@ -799,7 +799,7 @@ setRebalanceListener ks l = writeIORef (ksRebLis ks) l
 ownedPartitions :: KafkaStreams -> IO [KC.TopicPartition]
 ownedPartitions ks = HashSet.toList <$> readTVarIO (ksOwned ks)
 
--- | Snapshot of partitions held in KIP-869 standby grace. Each
+-- | Snapshot of partitions held in standby-revocation grace. Each
 -- entry maps the (topic, partition) to its grace-expiry
 -- deadline in epoch milliseconds. After the deadline the
 -- partition is dropped from this map on the next event-loop
@@ -868,7 +868,7 @@ expireStandbys ks = do
 -- Exception handlers (KIP-161 / 280 / 671 / 1033)
 ----------------------------------------------------------------------
 
--- | Install a KIP-280 production-exception handler. The
+-- | Install a production-exception handler. The
 -- runtime calls it whenever the driver's flush-through-producer
 -- step reports a send failure; if the handler returns
 -- 'ProdFailFast' the stream-thread is failed and routed to
@@ -880,7 +880,7 @@ setProductionExceptionHandler
 setProductionExceptionHandler ks h =
   writeIORef (ksProdHand ks) h
 
--- | Install a KIP-1033 processing-exception handler. The
+-- | Install a processing-exception handler. The
 -- runtime calls it when 'feedSource' / a processor throws.
 setProcessingExceptionHandler
   :: KafkaStreams
@@ -889,7 +889,7 @@ setProcessingExceptionHandler
 setProcessingExceptionHandler ks h =
   writeIORef (ksProcHand ks) h
 
--- | Install a KIP-671 uncaught-exception handler. The runtime
+-- | Install an uncaught-exception handler. The runtime
 -- calls it when the stream-thread async dies with an
 -- exception the per-record handlers didn't catch.
 --
@@ -1053,7 +1053,7 @@ defaultCloseOptions = CloseOptions
   , leaveGroup = True
   }
 
--- | Close with explicit options (KIP-812). Threads the
+-- | Close with explicit options. Threads the
 -- @leaveGroup@ flag into the consumer's close path via the
 -- driver's 'sdConsumerCloseWith': when @opts.leaveGroup@ is
 -- 'True' (the default) the consumer sends a @LeaveGroup@ so
@@ -1158,7 +1158,7 @@ metricsAndState ks = do
   ms <- metadataForLocalThreads ks
   pure (st, ms)
 
--- | Run the supplied event loop with KIP-671 uncaught-exception
+-- | Run the supplied event loop with the configured uncaught-exception
 -- handling. On exception the user handler decides whether to
 -- respawn the loop, shut this instance down, or shut the whole
 -- application down. 'ReplaceThread' loops back to run the body
