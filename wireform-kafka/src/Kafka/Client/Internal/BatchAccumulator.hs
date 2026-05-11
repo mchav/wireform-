@@ -274,21 +274,60 @@ data BatchAccumulating = BatchAccumulating
 
 -- | Hot mutable state of an in-progress batch. Held under a
 -- single 'IORef' so the per-record append is one CAS that
--- updates all three fields atomically.
+-- updates the entire state atomically.
 --
 -- Records and callbacks are accumulated in /reversed/ singly-
 -- linked lists so the per-record append is one ':' cons (one
 -- cell allocation per record per list) rather than one 'Seq'
--- snoc (one tree-node allocation per record per Seq, with
--- internal rebalancing). The 'snapshotBatch' helper reverses
--- and converts to the @Seq@ shape the rest of the producer
--- expects; the O(n) reverse runs once per sealed batch and is
--- negligible compared to the per-record win.
+-- snoc. The 'snapshotBatch' helper reverses and converts to the
+-- @Seq@ shape the rest of the producer expects; the O(n)
+-- reverse runs once per sealed batch and is negligible compared
+-- to the per-record win.
+--
+-- /Seal interlock/: the seal bit is packed into the sign of
+-- 'bhSizeRaw' — non-negative is "open, accumulated size = N",
+-- 'sealedSentinel' (a fixed negative value) is "sealed". Packing
+-- the bit instead of carrying a separate @!Bool@ field keeps
+-- 'BatchHotState' at three pointer-sized slots, so the per-CAS
+-- struct rebuild on the append hot path stays at the same
+-- allocation footprint as the pre-fix shape.
+--
+-- The append CAS reads @bhSizeRaw@ as part of every
+-- 'atomicModifyIORef\'' on this 'IORef' and bails to the slow
+-- path if it's negative; the sealer flips it inside its own
+-- 'atomicModifyIORef\'' that simultaneously captures the final
+-- state for the snapshot. Because both sides contend on the
+-- /same/ 'IORef', the CAS protocol is total: any append whose
+-- CAS lands /before/ the seal CAS is incorporated into the
+-- snapshot; any append whose CAS lands /after/ the seal CAS
+-- sees the negative sentinel and routes itself to a fresh
+-- batch via 'slowAppendIO'. There is no window in which a
+-- successful append can be silently dropped.
 data BatchHotState = BatchHotState
   { bhRecordsRev   :: ![RB.Record]
-  , bhSizeBytes    :: !Int
+  , bhSizeRaw      :: !Int
   , bhCallbacksRev :: ![RecordCallback]
   }
+
+-- | Sentinel value of 'bhSizeRaw' meaning "this batch has been
+-- sealed; no more appends will be accepted." Negative so it can
+-- never collide with a real accumulated size (which is always
+-- >= 0). 'minBound :: Int' is used so any append that races and
+-- adds its record size to it stays negative — defensive belt &
+-- braces in case a CAS reads the sentinel and tries to add to
+-- it before the @< 0@ guard short-circuits.
+sealedSentinel :: Int
+sealedSentinel = minBound
+{-# INLINE sealedSentinel #-}
+
+-- | The accumulated size in bytes of the records observed by
+-- this hot state. Returns 0 for the sealed sentinel — callers
+-- that need the real size on a sealed batch should keep the
+-- pre-seal value separately (see 'snapshotBatch', which captures
+-- the size /before/ flipping to the sentinel).
+sizeOf :: BatchHotState -> Int
+sizeOf st = let !n = bhSizeRaw st in if n < 0 then 0 else n
+{-# INLINE sizeOf #-}
 
 -- | Batch accumulator configuration
 data BatchAccumulatorConfig = BatchAccumulatorConfig
@@ -463,6 +502,54 @@ noStamp = BatchStamp
 -- 'stampBaseSequence' values across batches on the same
 -- (topic, partition) form a gapless sequence; the accumulator only
 -- records what it's given.
+-- | One CAS attempt on a batch's hot state. Either
+-- 'AppendedSize' (record went in; new accumulated size returned
+-- so the caller can decide whether to seal) or 'SealedRace'
+-- (sealer's CAS landed first; record did /not/ go in, caller
+-- must retry on a fresh batch).
+--
+-- This is the single point where every append site contends
+-- with the sealer, and it's the reason late appends can no
+-- longer be silently dropped: the seal CAS in 'snapshotBatch'
+-- contends on the /same/ 'baHotState' 'IORef', so any append
+-- whose CAS lands before the seal CAS is observed by the
+-- snapshot, and any append whose CAS lands after sees
+-- @bhSizeRaw < 0@ and bails here.
+-- | One CAS attempt on a batch's hot state. Returns the new
+-- accumulated size in bytes on success, or a negative value
+-- (the seal sentinel that can never appear as a real size) if
+-- the seal CAS in 'snapshotBatch' got there first.
+--
+-- The 'Int' return shape (instead of a boxed sum like
+-- @AppendOutcome@) is deliberate: it lets GHC unbox the result
+-- through @atomicModifyIORef'@'s @(a, Int)@ closure return all
+-- the way down to @Int#@, so the per-record CAS doesn't allocate
+-- a constructor on the success path.
+{-# INLINE casAppend #-}
+casAppend
+  :: BatchAccumulating
+  -> RB.Record
+  -> RecordCallback
+  -> Int                 -- ^ approximate record size
+  -> IO Int
+casAppend ba record callback rs =
+  atomicModifyIORef' (baHotState ba) $ \st ->
+    let !raw = bhSizeRaw st
+    in if raw < 0
+         -- Sealed: leave state untouched, signal race. We
+         -- specifically return the same negative value rather
+         -- than computing anything, so the closure path is
+         -- branch-free of allocation on the race side too.
+         then (st, raw)
+         else
+           let !ns  = raw + rs
+               !st' = BatchHotState
+                 { bhRecordsRev   = record   : bhRecordsRev st
+                 , bhSizeRaw      = ns
+                 , bhCallbacksRev = callback : bhCallbacksRev st
+                 }
+           in (st', ns)
+
 {-# INLINE appendRecordStamped #-}
 appendRecordStamped
   :: BatchAccumulator
@@ -491,46 +578,36 @@ appendRecordStamped acc@BatchAccumulator{..} tp record callback stamp = do
           case mba of
             Nothing -> slowAppendIO tp record callback stamp acc
             Just ba -> do
-              -- One 'atomicModifyIORef\'' on the small inner
-              -- 'BatchHotState' (3 fields = 24 B allocation per
-              -- call) replaces the pre-refactor full-struct
-              -- rebuild on the 12-field 'ProducerBatch'. The
-              -- per-record allocation drop translates into
-              -- ~25-30% main-thread enqueue throughput on the
-              -- hot path.
               let !rs    = approximateRecordSize record
                   !limit = accumulatorBatchSize accumulatorConfig
-              !sealNow <- atomicModifyIORef' (baHotState ba) $ \st ->
-                let !ns = bhSizeBytes st + rs
-                    !st' = BatchHotState
-                      { bhRecordsRev   = record   : bhRecordsRev st
-                      , bhSizeBytes    = ns
-                      , bhCallbacksRev = callback : bhCallbacksRev st
-                      }
-                in (st', ns >= limit)
-              when sealNow $ sealCurrent acc queue ba
-              pure True
+              !ns <- casAppend ba record callback rs
+              if ns < 0
+                -- Sealer's CAS landed first. The append did
+                -- NOT go in; route to 'slowAppendIO' so the
+                -- record lands in a fresh batch (which the
+                -- sealer just left @queueCurrentBatch@ empty
+                -- for, or which the slow path will install).
+                then slowAppendIO tp record callback stamp acc
+                else do
+                  when (ns >= limit) $ sealCurrent acc queue ba
+                  pure True
 
--- | Single-writer-per-partition variant of 'appendRecordStamped'
--- that swaps 'atomicModifyIORef\'' for a plain 'readIORef' +
--- 'writeIORef' pair on the partition's @queueCurrentBatch@. The
--- CAS-loop overhead 'atomicModifyIORef\'' pays per call is
--- replaced with one read + one write — about a 2x throughput lift
--- on the producer's hot path on 4-core hardware.
+-- | Variant of 'appendRecordStamped' kept around for callers
+-- that hold the single-producer-per-partition contract.
 --
--- /Safety/: the caller must guarantee that no other thread
--- concurrently calls 'appendRecordStamped' /
--- 'appendRecordStampedUnsafe' /
--- 'appendRecordsStamped' for the same 'TopicPartition'. The
--- accumulator's other operations ('drainReadyBatches',
--- 'closeBatchAccumulator', 'flushPendingBatches') are still
--- thread-safe; only the per-partition append path is non-atomic.
+-- /History/: this used to bypass 'atomicModifyIORef\'' on
+-- 'baHotState' for a one-read-one-write fast path. That was
+-- /unsound/: the sender thread (which is /not/ a producer
+-- thread) runs 'drainReadyBatches' \/ 'sealCurrent' concurrently
+-- with the producer, so the seal's snapshot read could land
+-- between the producer's 'readIORef' and 'writeIORef' and miss
+-- the about-to-be-written record entirely. 'appendRecordStamped'
+-- now uses the seal-race-safe CAS protocol, and this function
+-- is just an alias so existing call sites keep building.
 --
--- Suitable for the canonical single-producer-thread shape every
--- 'librdkafka' /
--- @KafkaProducer@-on-the-JVM workload uses; for multi-thread
--- producers writing to the /same/ partition, stay on
--- 'appendRecordStamped'.
+-- The single-producer-per-partition contract is still useful for
+-- partitioner-state lock-freeness in the producer above us; we
+-- just don't get the @readIORef + writeIORef@ shortcut here.
 {-# INLINE appendRecordStampedUnsafe #-}
 appendRecordStampedUnsafe
   :: BatchAccumulator
@@ -539,36 +616,7 @@ appendRecordStampedUnsafe
   -> RecordCallback
   -> BatchStamp
   -> IO Bool
-appendRecordStampedUnsafe acc@BatchAccumulator{..} tp record callback stamp = do
-  isClosed <- readTVarIO accumulatorClosed
-  if isClosed
-    then pure False
-    else do
-      mq <- HashMap.lookup tp <$> readIORef accumulatorPartitions
-      case mq of
-        Nothing -> slowAppendIO tp record callback stamp acc
-        Just queue -> do
-          mba <- readIORef (queueCurrentBatch queue)
-          case mba of
-            Nothing -> slowAppendIO tp record callback stamp acc
-            Just ba -> do
-              -- Single-writer fast path: 'readIORef' +
-              -- 'writeIORef' on 'baHotState' instead of
-              -- 'atomicModifyIORef\''. Caller guarantees no
-              -- concurrent appends on this partition (see the
-              -- haddock above).
-              !st <- readIORef (baHotState ba)
-              let !rs    = approximateRecordSize record
-                  !ns    = bhSizeBytes st + rs
-                  !limit = accumulatorBatchSize accumulatorConfig
-                  !st' = BatchHotState
-                    { bhRecordsRev   = record   : bhRecordsRev st
-                    , bhSizeBytes    = ns
-                    , bhCallbacksRev = callback : bhCallbacksRev st
-                    }
-              writeIORef (baHotState ba) st'
-              when (ns >= limit) $ sealCurrent acc queue ba
-              pure True
+appendRecordStampedUnsafe = appendRecordStamped
 
 -- | Append a /sequence/ of records to one (topic, partition) in
 -- a single 'atomicModifyIORef\'' call on the partition's
@@ -619,16 +667,18 @@ appendRecordsStamped acc@BatchAccumulator{..} tp recs cbs stamp = do
       (r, cb) Seq.:< rest -> do
         ba <- ensureCurrent queue
         let !rs = approximateRecordSize r
-        sealNow <- atomicModifyIORef' (baHotState ba) $ \st ->
-          let !ns = bhSizeBytes st + rs
-              !st' = BatchHotState
-                { bhRecordsRev   = r  : bhRecordsRev st
-                , bhSizeBytes    = ns
-                , bhCallbacksRev = cb : bhCallbacksRev st
-                }
-          in (st', ns >= batchSizeLimit)
-        when sealNow $ sealCurrent acc queue ba
-        go queue rest
+        !ns <- casAppend ba r cb rs
+        if ns < 0
+          -- Sealer raced us; route this single record through
+          -- the slow path (which will install a fresh batch if
+          -- needed) and continue the bulk fold against the
+          -- partition's now-current batch.
+          then do
+            _ <- slowAppendIO tp r cb stamp acc
+            go queue rest
+          else do
+            when (ns >= batchSizeLimit) $ sealCurrent acc queue ba
+            go queue rest
 
     ensureCurrent :: PartitionQueue -> IO BatchAccumulating
     ensureCurrent queue = do
@@ -667,18 +717,19 @@ slowAppendIO tp record callback stamp acc@BatchAccumulator{..} = do
     case mc of
       Just b  -> (Just b, b)
       Nothing -> (Just candidate, candidate)
-  -- Now do the regular append via the inner 'baHotState' ref.
-  let !rs = approximateRecordSize record
-  !sealNow <- atomicModifyIORef' (baHotState installed) $ \st ->
-    let !ns = bhSizeBytes st + rs
-        !st' = BatchHotState
-          { bhRecordsRev   = record   : bhRecordsRev st
-          , bhSizeBytes    = ns
-          , bhCallbacksRev = callback : bhCallbacksRev st
-          }
-    in (st', ns >= accumulatorBatchSize accumulatorConfig)
-  when sealNow $ sealCurrent acc queue installed
-  pure True
+  -- The regular CAS-with-sealed-check append. Even on the slow
+  -- path 'installed' might race a sealer (rare, but possible if
+  -- the sealer fires on linger between our 'queueCurrentBatch'
+  -- swap and this CAS). On 'SealedRace' we recurse to install
+  -- another fresh candidate.
+  let !rs    = approximateRecordSize record
+      !limit = accumulatorBatchSize accumulatorConfig
+  !ns <- casAppend installed record callback rs
+  if ns < 0
+    then slowAppendIO tp record callback stamp acc
+    else do
+      when (ns >= limit) $ sealCurrent acc queue installed
+      pure True
 
 -- | Snapshot the in-progress 'BatchAccumulating' into an
 -- immutable 'ProducerBatch' marked 'Ready', swap
@@ -712,7 +763,7 @@ newAccumulating
 newAccumulating BatchAccumulatorConfig{..} tp currentTime BatchStamp{..} = do
   hot <- newIORef BatchHotState
     { bhRecordsRev   = []
-    , bhSizeBytes    = 0
+    , bhSizeRaw      = 0
     , bhCallbacksRev = []
     }
   pure BatchAccumulating
@@ -729,11 +780,34 @@ newAccumulating BatchAccumulatorConfig{..} tp currentTime BatchStamp{..} = do
     }
 
 -- | Snapshot a 'BatchAccumulating' into an immutable
--- 'ProducerBatch' with the supplied 'BatchState'. Reads the
--- inner hot ref once.
+-- 'ProducerBatch' with the supplied 'BatchState'.
+--
+-- The read of the hot state is the /seal CAS/: it atomically
+-- flips @bhSizeRaw@ to 'sealedSentinel' and captures the final hot-state
+-- value. Because every append goes through 'casAppend' on the
+-- same 'IORef', the protocol is total — see 'BatchHotState'\'s
+-- haddock for the linearisation argument. The snapshot we
+-- return contains exactly the records whose append CAS landed
+-- before this seal CAS; any append CAS that lands later sees
+-- @bhSizeRaw < 0@ and routes itself to a fresh batch.
+--
+-- The CAS is idempotent on already-sealed batches (the closure
+-- returns the same state with the seal bit re-set), so calling
+-- 'snapshotBatch' twice on the same 'BatchAccumulating' is
+-- safe — both calls produce the same 'ProducerBatch'. (The
+-- seal-then-snapshot sites in this module never do that, but the
+-- property keeps the protocol robust against future callers.)
 snapshotBatch :: BatchAccumulating -> BatchState -> IO ProducerBatch
 snapshotBatch BatchAccumulating{..} state = do
-  st <- readIORef baHotState
+  -- The seal CAS: capture the pre-seal state, write back a state
+  -- that has the same lists (so a re-snapshot would produce the
+  -- same records) but with 'bhSizeRaw' flipped to the negative
+  -- 'sealedSentinel'. Any append CAS that arrives after this
+  -- one observes the negative size and bails to 'slowAppendIO';
+  -- any append CAS that landed before this one is included in
+  -- the @st@ we just captured.
+  st <- atomicModifyIORef' baHotState $ \s ->
+    (s { bhSizeRaw = sealedSentinel }, s)
   -- One pass each to reverse the cons'd lists into the right
   -- forward order, then 'Seq.fromList'. Both passes are O(n)
   -- once per sealed batch — negligible against the per-record
@@ -743,7 +817,7 @@ snapshotBatch BatchAccumulating{..} state = do
   pure ProducerBatch
     { batchTopicPartition   = baTopicPartition
     , batchRecords          = records
-    , batchSizeBytes        = bhSizeBytes st
+    , batchSizeBytes        = sizeOf st
     , batchCreateTime       = baCreateTime
     , batchBaseTimestamp    = baBaseTimestamp
     , batchState            = state
@@ -931,19 +1005,40 @@ appendDirect
 appendDirect acc@BatchAccumulator{..} queue ba record callback = do
   let !rs    = approximateRecordSize record
       !limit = accumulatorBatchSize accumulatorConfig
-  !st <- readIORef (baHotState ba)
-  let !ns = bhSizeBytes st + rs
-      !st' = BatchHotState
-        { bhRecordsRev   = record   : bhRecordsRev st
-        , bhSizeBytes    = ns
-        , bhCallbacksRev = callback : bhCallbacksRev st
-        }
-  writeIORef (baHotState ba) st'
-  if ns >= limit
+  !ns <- casAppend ba record callback rs
+  if ns < 0
+    -- The cached 'BatchAccumulating' was sealed by another
+    -- thread between the producer's cache lookup and our CAS.
+    -- Route the record through 'slowAppendIO' so it lands in the
+    -- partition's now-current (or about-to-be-installed) batch,
+    -- and signal the caller to invalidate its cached handle by
+    -- returning 'False'.
     then do
-      sealCurrent acc queue ba
+      _ <- slowAppendIO (baTopicPartition ba) record callback (stampOf ba) acc
       pure False
-    else pure True
+    else if ns >= limit
+      then do
+        sealCurrent acc queue ba
+        pure False
+      else pure True
+
+-- | Reconstruct the 'BatchStamp' a 'BatchAccumulating' was born
+-- with so 'appendDirect' can hand it to 'slowAppendIO' on the
+-- seal-race retry path. We can't reach back to the producer for
+-- a fresh stamp from inside the accumulator, so we reuse the
+-- in-progress batch's stamp; for the non-idempotent / non-
+-- transactional case this is just 'noStamp', and for the
+-- idempotent / transactional case the next sequence number is
+-- already assigned to this batch so reusing the stamp is what
+-- the producer would have done anyway.
+{-# INLINE stampOf #-}
+stampOf :: BatchAccumulating -> BatchStamp
+stampOf BatchAccumulating{..} = BatchStamp
+  { stampProducerId      = baProducerId
+  , stampProducerEpoch   = baProducerEpoch
+  , stampBaseSequence    = baBaseSequence
+  , stampIsTransactional = baIsTransactional
+  }
 
 -- | Get current time in milliseconds.
 --
