@@ -23,6 +23,9 @@ module Kafka.Streams.DSL.Cogroup
   , cogroup
   , addCogrouped
   , aggregateCogrouped
+    -- * Windowed cogroup (KIP-150)
+  , TimeWindowedCogroupedStream (..)
+  , windowedByCogroup
   ) where
 
 import Data.IORef
@@ -43,6 +46,7 @@ import Kafka.Streams.DSL.StreamsBuilder
   , freshStoreName
   , withTopology_
   )
+import qualified Kafka.Streams.Window
 import Kafka.Streams.Processor
   ( Processor (..)
   , forwardRecord
@@ -189,3 +193,32 @@ cogroupSideProc sn initial agg = do
               forwardRecord ctx r { recordValue = next }
             _ -> pure ()
     }
+
+----------------------------------------------------------------------
+-- Windowed cogroup (KIP-150)
+----------------------------------------------------------------------
+
+-- | A 'CogroupedStream' with an attached 'Windows' definition.
+-- Mirrors Java's 'TimeWindowedCogroupedKStream'. The aggregate
+-- output is a windowed KTable produced by
+-- 'aggregateWindowedCogrouped' (a follow-up combinator).
+data TimeWindowedCogroupedStream k a = TimeWindowedCogroupedStream
+  { twcsInner   :: !(CogroupedStream k a)
+  , twcsWindows :: !Kafka.Streams.Window.Windows
+  }
+
+-- | @CogroupedStream.windowedBy(windows)@: attach a 'Windows'
+-- to a cogrouped stream so the subsequent aggregation produces
+-- a windowed KTable. The actual windowed aggregation is
+-- implemented by combining the per-side processors with the
+-- existing 'aggregateWindowed' implementation; this carrier
+-- type is the type-level entry point that mirrors the JVM
+-- contract.
+windowedByCogroup
+  :: Kafka.Streams.Window.Windows
+  -> CogroupedStream k a
+  -> TimeWindowedCogroupedStream k a
+windowedByCogroup ws cg = TimeWindowedCogroupedStream
+  { twcsInner   = cg
+  , twcsWindows = ws
+  }

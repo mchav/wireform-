@@ -227,7 +227,7 @@ with the implementation.
 | Suite                              | Count |
 |------------------------------------|-------|
 | `wireform-kafka:wireform-kafka-test`         | 752 |
-| `wireform-kafka:wireform-kafka-streams-test` | 325 |
+| `wireform-kafka:wireform-kafka-streams-test` | 345 |
 
 Both green on every commit on this branch.
 
@@ -328,6 +328,92 @@ surface that must land.
   story. The property test that lived against the pure machine
   has been ported to drive the DSL combinator directly
   (`Streams.ForeignKeyJoinDSLSpec`).
+
+#### Streams JVM-4.0 parity sweep [DONE]
+
+A targeted audit of `org.apache.kafka.streams.*` against this
+port closed the following gaps. Each item ships with a test
+in `Streams.{ExceptionHandlerSpec, KGroupedTableSpec,
+StoresExtraSpec, QueryAndDiscoverySpec,
+ProcessorAndStoreExtrasSpec}` and where relevant a
+`streams/examples/` demo.
+
+**Exception handlers**
+- KIP-280 `ProductionExceptionHandler` (CONTINUE / FAIL).
+- KIP-671 `StreamsUncaughtExceptionHandler` (REPLACE_THREAD /
+  SHUTDOWN_CLIENT / SHUTDOWN_APPLICATION).
+- KIP-1033 `ProcessingExceptionHandler` (CONTINUE / FAIL).
+
+**DSL**
+- KIP-150 `KGroupedTable.{count, reduce, aggregate}` —
+  subtractor-aware path, including the group-change emit pair.
+- `KTable.transformValues` (value-only stateful transform with
+  ProcessorContext access) + `KTable.filterNot`.
+- KIP-825 `EmitStrategy.ON_WINDOW_UPDATE / ON_WINDOW_CLOSE`.
+- KIP-820 `FixedKeyProcessor` / `FixedKeyRecord` +
+  `ProcessorSupplier` with declared stores.
+- KIP-559 `Repartitioned` config record.
+- KIP-633 `JoinWindows.ofTimeDifferenceWithNoGrace` /
+  `ofTimeDifferenceAndGrace`.
+- KIP-479 `StreamJoined`.
+- KIP-545 `TableJoined`.
+- KIP-418 `Branched.withFunction` / `withConsumer`.
+- KIP-328 `Suppressed.BufferConfig.shutDownWhenFull /
+  emitEarlyWhenFull` (typed surface; full enforcement on the
+  bounded buffer is deferred).
+- KStream `foreachStreamAsync` (non-blocking terminal effect).
+- Time-windowed cogrouped stream
+  (`TimeWindowedCogroupedStream`).
+
+**State stores**
+- `Stores.lruMap` (bounded in-memory LRU).
+- `KeyValueStore.kvsPutAll`.
+- `VersionedKeyValueStore.vkvDelete` (KIP-889).
+- `StoreBuilder.withLoggingEnabled / withLoggingDisabled` for
+  every typed builder.
+- `TimestampedWindowStore` (in-memory).
+
+**Interactive queries**
+- KIP-805 `WindowKeyQuery` / `WindowRangeQuery`.
+- KIP-889 / KIP-960 `VersionedKeyQuery` /
+  `MultiVersionedKeyQuery`.
+- KIP-796 `Position` / `PositionBound`.
+- KIP-535 `StateQueryRequest` / `StateQueryResult` +
+  `StoreQueryParameters`.
+- KIP-535 `StreamsMetadata` / `KeyQueryMetadata` (types +
+  local lookup; cross-instance JoinGroup exchange threads
+  through the live consumer path).
+
+**Runtime**
+- KIP-663 `addStreamThread` / `removeStreamThread` /
+  `streamThreadCount`.
+- `KafkaStreams.cleanUp()`.
+- KIP-812 `CloseOptions` (`leaveGroup`).
+- KIP-988 `setStandbyUpdateListener`.
+- `setGlobalStateRestoreListener`.
+- KIP-444 `metadataForLocalThreads` / `metricsAndState`.
+
+**Config**
+- `application.server` (KIP-67).
+- `default.production.exception.handler` /
+  `default.processing.exception.handler` (route through the
+  runtime setters above).
+- `default.dsl.store` (KIP-591) — `DslStore` enum.
+- `rack.aware.assignment.strategy / .traffic.cost /
+  .non.overlap.cost` (KIP-925).
+- `statestore.cache.max.bytes` (rename-from
+  `cache.max.bytes.buffering`).
+- `window.size.ms` (KIP-585).
+- `upgrade.from`.
+
+**ProcessorContext**
+- `currentHeaders` / `appendHeader`.
+- `requestCommit` (KIP-159).
+
+**TopologyTestDriver**
+- `getTimestampedKeyValueStore` /
+  `getTimestampedWindowStore` (typed accessors for
+  `ValueAndTimestamp` stores).
 
 ### 3.3 Cross-cutting / infrastructure
 

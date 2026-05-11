@@ -22,14 +22,16 @@ whether the library fits your use case before writing code.
 
 | Area                          | Status                                                                                                     |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Stateless DSL                 | **Full parity.** `filter` / `map` / `flatMap` / `selectKey` / `peek` / `branch` / `merge` / `to` / `print`. |
-| Stateful DSL                  | **Full parity.** `groupBy` / `count` / `reduce` / `aggregate` / `cogroup`.                                  |
-| Windowing                     | **Full parity.** Tumbling / hopping / sliding (KIP-450) / session windows; `suppress` (KIP-328).            |
-| Joins                         | **Full parity.** Stream-stream (windowed), stream-table, table-table, foreign-key (KIP-213), GlobalKTable. |
-| Processor API                 | **Full parity.** `Processor`, `ProcessorContext`, `Punctuator` (wall-clock + stream-time).                  |
-| State stores                  | **Full parity.** KV (in-mem + RocksDB), Window, Session, Timestamped (KIP-258), Versioned (KIP-889/960). |
-| Side effects                  | **Full parity, plus typed IO variants.** See the [SideEffects](#side-effects) section.                      |
-| Interactive Queries           | **Full parity.** KIP-67 + KIP-796 typed `Query` API.                                                        |
+| Stateless DSL                 | **Full parity.** `filter` / `map` / `flatMap` / `selectKey` / `peek` / `branch` (`Branched.withFunction` / `withConsumer`) / `merge` / `to` / `print`. |
+| Stateful DSL                  | **Full parity.** `groupBy` / `count` / `reduce` / `aggregate` / `cogroup` (incl. `KGroupedTable` with subtractor — KIP-150). |
+| Windowing                     | **Full parity.** Tumbling / hopping / sliding (KIP-450) / session windows; `suppress` (KIP-328 — incl. `shutDownWhenFull` / `emitEarlyWhenFull`); `EmitStrategy` (KIP-825). |
+| Joins                         | **Full parity.** Stream-stream (windowed) with `StreamJoined` (KIP-479); stream-table; table-table; foreign-key (KIP-213) with `TableJoined` (KIP-545); GlobalKTable; modern `JoinWindows.ofTimeDifferenceWithNoGrace` / `ofTimeDifferenceAndGrace` (KIP-633). |
+| Processor API                 | **Full parity.** `Processor`, `FixedKeyProcessor` (KIP-820), `ProcessorSupplier` with declared stores, `ProcessorContext` (incl. `appendHeader` / `requestCommit`), `Punctuator` (wall-clock + stream-time). |
+| State stores                  | **Full parity.** KV (in-mem + RocksDB + LRU — `Stores.lruMap`), Window (incl. `TimestampedWindowStore`), Session, Timestamped (KIP-258), Versioned (KIP-889/960; `vkvDelete` included). |
+| Side effects                  | **Full parity, plus typed IO variants.** Blocking `foreachStream` + non-blocking `foreachStreamAsync`. See the [SideEffects](#side-effects) section. |
+| Interactive Queries           | **Full parity.** KIP-67 + KIP-796 typed `Query` API; KIP-805 `WindowKeyQuery` / `WindowRangeQuery`; KIP-889/960 `VersionedKeyQuery` / `MultiVersionedKeyQuery`; KIP-535 `StreamsMetadata` / `KeyQueryMetadata` + `StoreQueryParameters`. |
+| Exception handlers            | **Full parity.** KIP-280 production, KIP-671 uncaught (REPLACE_THREAD / SHUTDOWN_CLIENT / SHUTDOWN_APPLICATION), KIP-1033 processing. |
+| Dynamic runtime               | **Full parity.** KIP-663 `addStreamThread` / `removeStreamThread`; KIP-812 `CloseOptions`; KIP-988 standby + global-restore listeners; `cleanUp()`; `metadataForLocalThreads` / `metricsAndState`. |
 | EOS-V2                        | **Wire-level path is in place.** Bound transactional producer + `EOSCoordinator` + KIP-892 buffer.          |
 | Schema Registry serdes        | **In place.** Avro / JSON-Schema / Protobuf payload serdes + Confluent envelope + transport-agnostic HTTP.  |
 | Standby tasks                 | **Scaffolding only.** Mock cluster understands changelog topics; no live runtime support yet.               |
@@ -395,7 +397,7 @@ tracker entry.
 The streams runtime and DSL are otherwise considered
 **feature-complete relative to Kafka 4.0 Streams** for the
 single-thread / multi-thread / in-process happy path, and
-tests cover every shipped operator end-to-end (325 tests in
+tests cover every shipped operator end-to-end (345 tests in
 `wireform-kafka-streams-test`).
 
 ---
