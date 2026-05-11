@@ -31,6 +31,8 @@ recordingCoord = do
         , eosAbort         = log_ "abort"  *> pure (Right ())
         , eosCommitOffsets = \_ _ ->
             log_ "commitOffsets" *> pure (Right ())
+        , eosStoreCommit = log_ "storeCommit" *> pure (Right ())
+        , eosStoreAbort  = log_ "storeAbort"  *> pure (Right ())
         }
   pure (coord, reverse <$> readIORef buf)
 
@@ -80,7 +82,7 @@ runtime_commit_cycle_calls_coordinator =
     (coord, drain) <- recordingCoord
     out <- runCommitCycle coord "g" (pure Map.empty) (pure ())
     out @?= CommitSucceeded
-    drain >>= (@?= ["begin", "commitOffsets", "commit"])
+    drain >>= (@?= ["begin", "commitOffsets", "commit", "storeCommit"])
 
 runtime_chooses_eos_v2_producer_config :: TestTree
 runtime_chooses_eos_v2_producer_config =

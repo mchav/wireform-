@@ -220,6 +220,8 @@ commit_cycle_invokes_eos_coordinator =
           , eosAbort         = log_ "abort"  *> pure (Right ())
           , eosCommitOffsets = \_ _ ->
               log_ "commitOffsets" *> pure (Right ())
+          , eosStoreCommit = log_ "storeCommit" *> pure (Right ())
+          , eosStoreAbort  = log_ "storeAbort"  *> pure (Right ())
           }
     applyEOSCoordinator ks coord
 
@@ -233,8 +235,7 @@ commit_cycle_invokes_eos_coordinator =
     -- cycle to fire by observing the coordinator log.
     waitForKs ks 5000 $ do
       cs <- reverse <$> readIORef callsRef
-      pure (cs == ["begin", "commitOffsets", "commit"]
-             || take 3 cs == ["begin", "commitOffsets", "commit"])
+      pure (take 3 cs == ["begin", "commitOffsets", "commit"])
 
     closeKafkaStreams ks
     awaitState ks StreamsClosed

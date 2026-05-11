@@ -33,6 +33,7 @@ module Kafka.Streams.Runtime.EOS
   , runCommitCycle
   , CommitOutcome (..)
   , newRealEOSCoordinator
+  , withTransactionalStores
   ) where
 
 import Control.Exception (SomeException, try)
@@ -61,6 +62,17 @@ data EOSCoordinator = EOSCoordinator
   , eosCommitOffsets   :: !(Text                                  -- consumer group id
                             -> HashMap KC.TopicPartition Int64
                             -> IO (Either Text ()))
+  , eosStoreCommit     :: !(IO (Either Text ()))
+    -- ^ KIP-892: drain every transactional state store onto its
+    --   underlying store. Called by 'runCommitCycle' AFTER the
+    --   producer transaction commit succeeds, so the store
+    --   write happens iff the wire-side commit was durable.
+    --   Default ('noopEOSCoordinator'): pure (Right ()).
+  , eosStoreAbort      :: !(IO (Either Text ()))
+    -- ^ KIP-892: discard every transactional state store's
+    --   buffered writes. Called when the producer transaction
+    --   aborts so the store and the broker-side log stay
+    --   consistent.
   }
 
 -- | The do-nothing coordinator: every step succeeds without side
@@ -72,6 +84,8 @@ noopEOSCoordinator = EOSCoordinator
   , eosCommit        = pure (Right ())
   , eosAbort         = pure (Right ())
   , eosCommitOffsets = \_ _ -> pure (Right ())
+  , eosStoreCommit   = pure (Right ())
+  , eosStoreAbort    = pure (Right ())
   }
 
 -- | Result of one commit cycle.
@@ -108,10 +122,28 @@ runCommitCycle coord groupId getOffsets flushBody = do
               step3 <- eosCommit coord
               case step3 of
                 Left err -> doAbort ("commit: " <> err)
-                Right () -> pure CommitSucceeded
+                Right () -> do
+                  -- KIP-892: the producer commit succeeded, so
+                  -- the changelog records are durable; only now
+                  -- is it safe to drain the per-task
+                  -- TransactionalStore buffers onto their
+                  -- underlying stores.
+                  step4 <- eosStoreCommit coord
+                  case step4 of
+                    Left err ->
+                      -- The wire commit succeeded but the
+                      -- store commit failed: log the runtime
+                      -- as fatal (no clean recovery — the
+                      -- store and the log are now permanently
+                      -- inconsistent for this task).
+                      pure (CommitFatal ("storeCommit: " <> err))
+                    Right () -> pure CommitSucceeded
   where
     doAbort reason = do
       _ <- eosAbort coord
+      -- KIP-892: matching abort on the store side discards
+      -- buffered writes so a retry starts from a clean slate.
+      _ <- eosStoreAbort coord
       pure (CommitAborted reason)
 
 ----------------------------------------------------------------------
@@ -129,9 +161,40 @@ newRealEOSCoordinator txn = EOSCoordinator
   , eosAbort = wrapTE <$> KT.abortTransaction txn
   , eosCommitOffsets = \gid offs ->
       wrapTE <$> KT.commitOffsetsInTransaction txn gid offs
+  , eosStoreCommit = pure (Right ())
+    -- No transactional stores registered with this coordinator
+    -- by default. Callers that materialise stores wrap the
+    -- coordinator with 'withTransactionalStores' below.
+  , eosStoreAbort  = pure (Right ())
   }
   where
     wrapTE = either (Left . T.pack . show) Right
+
+-- | KIP-892 wiring helper: take an existing coordinator and a
+-- list of 'TransactionalStore'-like commit/abort actions and
+-- thread them through 'eosStoreCommit' / 'eosStoreAbort'. The
+-- callbacks are run in declaration order on commit; the first
+-- 'Left' short-circuits and the runtime promotes the cycle to
+-- 'CommitFatal'.
+--
+-- Callers typically build the list once at engine
+-- construction time and reuse the coordinator across every
+-- commit cycle.
+withTransactionalStores
+  :: EOSCoordinator
+  -> [IO ()]                  -- per-store commit actions
+  -> [IO ()]                  -- per-store abort actions
+  -> EOSCoordinator
+withTransactionalStores base commits aborts = base
+  { eosStoreCommit = runActions commits "store-commit"
+  , eosStoreAbort  = runActions aborts  "store-abort"
+  }
+  where
+    runActions xs label = do
+      r <- try (sequence_ xs) :: IO (Either SomeException ())
+      case r of
+        Right () -> pure (Right ())
+        Left e   -> pure (Left (label <> ": " <> T.pack (show e)))
 
 -- 'IORef' / 'readIORef' / 'writeIORef' / 'newIORef' kept here as
 -- they're commonly used by tests that attach a recording
