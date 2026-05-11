@@ -412,60 +412,37 @@ shipped operator end-to-end (375 cases in
 
 ---
 
-## Idiomatic Haskell façades
+## Reusable transformation fragments
 
-The DSL mirrors the JVM fluent builder one-to-one — that's the
-shape most user docs are written for. If you'd rather build
-topologies with Haskell-native vocabulary (`do`-notation,
-`Category` composition, `Functor`), three opt-in modules sit
-on top of the same primitives:
+The core DSL is plain Haskell IO with a `StreamsBuilder` you
+thread through source / sink operations — that's the shape
+most user docs and examples are written for, and it mirrors
+the JVM fluent builder one-to-one.
 
-- `Kafka.Streams.DSL.Topology` — a `TopologyM` monad so the
-  topology becomes a single `do` block. No explicit
-  `StreamsBuilder` threading, no `IO` in user code:
+For transformations you want to *name* and *reuse* across
+topologies, `Kafka.Streams.DSL.Pipeline` provides
+`Pipeline a b`: a thin newtype over `a -> IO b` with a
+`Control.Category` instance. Fragments compose with `(>>>)`
+exactly like ordinary functions:
 
-  ```haskell
-  topology :: TopologyM ()
-  topology = do
-    src <- streamFrom (topicName "in") (consumed textSerde textSerde)
-    src |> mapValuesM T.toUpper
-        >>= filterStreamM (\r -> recordValue r /= "")
-        >>= sinkTo (topicName "out") (produced textSerde textSerde)
-  ```
+```haskell
+import Control.Category ((>>>))
+import Kafka.Streams.DSL.Pipeline
 
-  Run with `runTopologyM`. Operators live in
-  `Kafka.Streams.DSL.Monadic`.
+normalise :: Pipeline (KStream Text Text) (KStream Text Text)
+normalise = pmapValues T.toUpper
+        >>> pfilter    (\r -> recordValue r /= "")
 
-- `Kafka.Streams.DSL.Pipeline` — `Pipeline a b` is a
-  `Kleisli`-style arrow over `KStream`. It's a
-  `Control.Category` instance so transformations compose with
-  `(.)` / `(>>>)` like ordinary functions, and you can save a
-  pipeline as a top-level value and reuse it across topologies:
+-- ...later, inside any topology that has a `KStream Text Text`:
+out <- applyPipeline normalise src
+```
 
-  ```haskell
-  normalise :: Pipeline (KStream Text Text) (KStream Text Text)
-  normalise = pmapValues T.toUpper
-          >>> pfilter    (\r -> recordValue r /= "")
-  
-  out <- applyPipeline normalise src
-  ```
-
-- `Kafka.Streams.DSL.Mappable` — `OfStream k v` is a one-arg
-  newtype around `KStream` that's a `Functor` over the value
-  type. Lets `fmap` / `<$>` queue up `mapValues` operations,
-  flushed by `withStream`:
-
-  ```haskell
-  out <- withStream $ liftStream src
-       & fmap T.strip
-       & fmap T.toUpper
-  ```
-
-All three are opt-in — the existing imperative DSL stays.
-Pick the style that fits the topology; mixing more than one
-in the same module gets confusing. See
-[`IdiomaticPipeline`](examples/Kafka/Streams/Examples/IdiomaticPipeline.hs)
-for one topology written three different ways.
+The equivalent JVM idiom is extracting a helper method that
+takes a `KStream` and returns a transformed `KStream`.
+`Pipeline` is purely additive — you can reach for it when you
+have a transformation worth naming, and ignore it otherwise.
+See [`IdiomaticPipeline`](examples/Kafka/Streams/Examples/IdiomaticPipeline.hs)
+for a worked example.
 
 ---
 
