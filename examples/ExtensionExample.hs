@@ -9,7 +9,6 @@
 module Main where
 
 import qualified Data.ByteString as BS
-import qualified Data.Text as T
 
 import Proto.Encode
 import Proto.Decode
@@ -24,12 +23,15 @@ main = do
 
   -- Start with a plain Account; attach two extensions via the
   -- generated Extension descriptors.
-  let a0 = defaultAccount { name = Just "alice" }
+  -- 'loadProto' scopes record selectors by the lowerCamelCase of
+  -- the owning message; @optional string name@ on @message Account@
+  -- becomes @accountName :: Maybe Text@.
+  let a0 = defaultAccount { accountName = Just "alice" }
       a1 = Ext.setExtension accountLevel   42            a0
       a2 = Ext.setExtension accountTag     "gold-member" a1
       a3 = Ext.setExtension accountDisabled False        a2
 
-  putStrLn $ "Account name:   " <> show (name a3)
+  putStrLn $ "Account name:   " <> show (accountName a3)
   putStrLn $ "level ext:      " <> show (Ext.getExtension accountLevel   a3)
   putStrLn $ "tag ext:        " <> show (Ext.getExtension accountTag     a3)
   putStrLn $ "disabled ext:   " <> show (Ext.getExtension accountDisabled a3)
@@ -43,7 +45,7 @@ main = do
       putStrLn ""
       putStrLn $ "After wire round-trip (" <>
         show (BS.length bytes) <> " bytes):"
-      putStrLn $ "  name:         " <> show (name recovered)
+      putStrLn $ "  name:         " <> show (accountName recovered)
       putStrLn $ "  level ext:    " <> show (Ext.getExtension accountLevel recovered)
       putStrLn $ "  tag ext:      " <> show (Ext.getExtension accountTag recovered)
       putStrLn $ "  disabled ext: " <> show (Ext.getExtension accountDisabled recovered)

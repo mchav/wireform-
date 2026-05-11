@@ -683,6 +683,17 @@ executable example-custom-repr
   import: defaults
   main-is: CustomReprExample.hs
   hs-source-dirs: examples
+  -- The non-default frBytes / frRepeated reps that this example
+  -- demonstrates aren't fully wired through Proto.CodeGen yet: even
+  -- with the rep override in scope, the generated default-record
+  -- builder and the JSON ToJSON helper still close over the strict
+  -- ByteString helpers, which doesn't type-check against
+  -- BL.ByteString / SBS.ShortByteString / [a] field slots.
+  --
+  -- The example is preserved in source so the loadProtoWith /
+  -- LoadOpts surface stays documented, but is gated out of
+  -- 'cabal build all' until the codegen catches up.
+  buildable: False
   build-depends: base, wireform-proto, bytestring, text, containers
 
 executable example-extensions
