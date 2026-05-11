@@ -1,3 +1,5 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -256,17 +258,17 @@ data MockTxnEvent
 --   * inspect the offsets the runtime committed
 --     ('mockDriverCommittedOffsets').
 data MockDriverHandle = MockDriverHandle
-  { mdhPollQueue  :: !(TVar (Seq [KC.ConsumerRecord]))
-  , mdhSendsOut   :: !(TVar (Seq MockSend))
-  , mdhFlushed    :: !(TVar Int)
-  , mdhClosed     :: !(TVar (Bool, Bool))
+  { pollQueue     :: !(TVar (Seq [KC.ConsumerRecord]))
+  , sendsOut      :: !(TVar (Seq MockSend))
+  , flushed       :: !(TVar Int)
+  , closed        :: !(TVar (Bool, Bool))
     -- ^ (consumerClosed, producerClosed)
-  , mdhSubscribed :: !(TVar [Text])
-  , mdhCommits    :: !(TVar Int)
-  , mdhTxn        :: !(TVar (Seq MockTxnEvent))
-  , mdhSentOffs   :: !(IORef (Seq (Text, HashMap KC.TopicPartition Int64)))
-  , mdhRebalances :: !(TQueue RebalanceEvent)
-  , mdhProbeRequests :: !(TVar Int)
+  , subscribed    :: !(TVar [Text])
+  , commits       :: !(TVar Int)
+  , txnLog        :: !(TVar (Seq MockTxnEvent))
+  , sentOffsets   :: !(IORef (Seq (Text, HashMap KC.TopicPartition Int64)))
+  , rebalances    :: !(TQueue RebalanceEvent)
+  , probeRequests :: !(TVar Int)
     -- ^ Count of 'sdRequestProbingRebalance' invocations the
     --   runtime has issued; used by tests to verify the
     --   probing cadence.
@@ -344,44 +346,44 @@ newMockDriver = do
 -- spinning up a real broker.
 mockDriverInjectRebalance :: MockDriverHandle -> RebalanceEvent -> IO ()
 mockDriverInjectRebalance h ev =
-  atomically $ writeTQueue (mdhRebalances h) ev
+  atomically $ writeTQueue (h.rebalances) ev
 
 -- | Number of times the runtime has called
 -- 'sdRequestProbingRebalance' on this mock driver.
 mockDriverProbeRequests :: MockDriverHandle -> IO Int
-mockDriverProbeRequests = readTVarIO . mdhProbeRequests
+mockDriverProbeRequests h = readTVarIO h.probeRequests
 
 -- | How many times the runtime has called 'sdProducerFlush'.
 mockDriverFlushCount :: MockDriverHandle -> IO Int
-mockDriverFlushCount = readTVarIO . mdhFlushed
+mockDriverFlushCount h = readTVarIO h.flushed
 
 -- | @(consumerClosed, producerClosed)@ — whether the runtime
 -- has torn down each side of the driver.
 mockDriverClosed :: MockDriverHandle -> IO (Bool, Bool)
-mockDriverClosed = readTVarIO . mdhClosed
+mockDriverClosed h = readTVarIO h.closed
 
 -- | Most recent topics the runtime subscribed the consumer to.
 mockDriverSubscribed :: MockDriverHandle -> IO [Text]
-mockDriverSubscribed = readTVarIO . mdhSubscribed
+mockDriverSubscribed h = readTVarIO h.subscribed
 
 -- | Push a batch of consumer records the runtime will receive on
 -- the next 'sdConsumerPoll'.
 mockDriverInjectPoll :: MockDriverHandle -> [KC.ConsumerRecord] -> IO ()
 mockDriverInjectPoll h batch =
-  atomically $ modifyTVar' (mdhPollQueue h) (\s -> s |> batch)
+  atomically $ modifyTVar' (h.pollQueue) (\s -> s |> batch)
 
 -- | Drain everything the runtime has sent so far. Subsequent
 -- calls only see records produced after the previous drain.
 mockDriverDrainSends :: MockDriverHandle -> IO [MockSend]
 mockDriverDrainSends h = atomically $ do
-  s <- readTVar (mdhSendsOut h)
-  writeTVar (mdhSendsOut h) Seq.empty
+  s <- readTVar (h.sendsOut)
+  writeTVar (h.sendsOut) Seq.empty
   pure (Foldable.toList s)
 
 -- | Read the captured EOS-V2 call sequence in order.
 mockDriverTxnLog :: MockDriverHandle -> IO [MockTxnEvent]
 mockDriverTxnLog h =
-  Foldable.toList <$> atomically (readTVar (mdhTxn h))
+  Foldable.toList <$> atomically (readTVar (h.txnLog))
 
 -- | List every (groupId, offsets) pair that was committed inside
 -- a transaction, in order.
@@ -389,8 +391,8 @@ mockDriverCommittedOffsets
   :: MockDriverHandle
   -> IO [(Text, HashMap KC.TopicPartition Int64)]
 mockDriverCommittedOffsets h =
-  Foldable.toList <$> readIORef (mdhSentOffs h)
+  Foldable.toList <$> readIORef (h.sentOffsets)
 
 -- | Number of times 'sdConsumerCommit' fired (non-EOS path).
 mockDriverCommitCount :: MockDriverHandle -> IO Int
-mockDriverCommitCount h = atomically $ readTVar (mdhCommits h)
+mockDriverCommitCount h = atomically $ readTVar (h.commits)
