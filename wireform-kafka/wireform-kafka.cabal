@@ -26,6 +26,8 @@ build-type: Simple
 extra-doc-files:
     README.md
     CHANGELOG.md
+    CONCEPTS.md
+    TUTORIAL.md
     INTEGRATION_TESTING.md
 extra-source-files:
     cbits/crc32c.h

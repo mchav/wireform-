@@ -10,6 +10,53 @@ and this project adheres to the
 
 ### Added
 
+- **`Kafka.Client.Producer.withProducer`** and `withProducer'` —
+  `Control.Exception.bracket` wrappers that open a producer, run a
+  body, and flush + close on exit even when the body throws. Setup
+  failures surface as `IOError` so they participate in the usual
+  bracket / catch / restart idioms instead of being a returned
+  `Either`.
+- **`Kafka.Client.Consumer.withConsumer`** and `withConsumer'` — the
+  consumer analogue. Optionally subscribes to a topic list as part
+  of the bracket; on exit calls `closeConsumerWithTimeout` (or a
+  user-supplied shutdown).
+- New **`CONCEPTS.md`** — a five-minute, plain-language Kafka
+  primer covering topics, partitions, brokers, producers,
+  consumers, consumer groups, offsets, transactions, and streams,
+  each mapped to the type / function in this library.
+- The `Kafka` umbrella module now re-exports `Kafka.Client.Group`
+  so `runConsumer` / `runBatchedConsumer` / `withGroupConsumer` /
+  `defaultGroupConfig` are reachable as `Kafka.*` without a
+  separate import.
+
+### Changed
+
+- `Kafka.Client.Group.GroupConfig` and `GroupConsumer` field
+  selectors lose the `gc` prefix — `gcBootstrapBrokers` →
+  `bootstrapBrokers`, `gcGroupId` → `groupId`, `gcTopics` →
+  `topics`, and so on through every field. This is a breaking
+  change for code that constructs `GroupConfig` by record-update
+  syntax; the fix is a straight find-and-replace.
+- `Kafka.Client.Producer` and `Kafka.Client.Consumer` module
+  docstrings have been rewritten as a friendly orientation:
+  what's in the module, the recommended starting point, how to
+  pick between near-duplicate variants, where the config knobs
+  live. Their export lists are reorganised into labelled sections
+  so the everyday calls float above the more advanced surface.
+- `Kafka.Client.Simple`'s docstring now opens with an explicit
+  "this is not the module beginners should reach for, despite the
+  name" callout — that module is a single-broker single-record
+  reference for conformance / protocol tooling, not a
+  high-throughput client.
+- README is rewritten as a beginner-aimed on-ramp: what the package
+  does in two sentences, a "pick the layer you need" table, and
+  concrete recipes for produce / consume (high level) / consume
+  (custom poll loop) / streams.
+- TUTORIAL.md is re-ordered to start from `withProducer` +
+  `runConsumer` against a live broker and progressively reveal the
+  mock cluster, transactions, streams, state stores, multi-instance
+  routing, schema registry, and observability.
+
 - **TLS offload support** for the broker connection layer
   (`Kafka.Network.TlsOffload`, new field
   `Kafka.Network.Connection.connTlsOffload`). When set, the
