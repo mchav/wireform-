@@ -136,5 +136,5 @@ discipline, module map) lives in
 
 ## License
 
-BSD-3-Clause.  See [`NOTICE`](NOTICE) for third-party attributions
-(unpacked-maybe, unpacked-either).
+BSD-3-Clause.  See [`LICENSE`](LICENSE) for the full license text and
+third-party attributions (unpacked-maybe, unpacked-either).

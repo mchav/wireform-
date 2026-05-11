@@ -31,14 +31,13 @@ description:
 homepage: https://github.com/iand675/wireform-
 bug-reports: https://github.com/iand675/wireform-/issues
 license: BSD-3-Clause
+license-file: LICENSE
 author: Ian Duncan
 maintainer: ian@iankduncan.com
 copyright: 2026 Ian Duncan
 category: Data, Codec, Network, Serialization
 build-type: Simple
 tested-with: GHC == 9.6.4, GHC == 9.8.4
-extra-source-files:
-  NOTICE
 extra-doc-files:
   CHANGELOG.md
   README.md

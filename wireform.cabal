@@ -13,6 +13,7 @@ description:
   can be depended on directly when you only need one format.
 
 license:            BSD-3-Clause
+license-file:       LICENSE
 author:             Ian Duncan
 maintainer:         ian@iankduncan.com
 copyright:          2026 Ian Duncan

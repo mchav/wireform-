@@ -3,6 +3,7 @@ name: wireform-lance
 version: 0.0.1.0
 synopsis: Lance columnar format reader (skeleton)
 license: BSD-3-Clause
+license-file: LICENSE
 author: Ian Duncan
 maintainer: ian@iankduncan.com
 copyright: 2026 Ian Duncan

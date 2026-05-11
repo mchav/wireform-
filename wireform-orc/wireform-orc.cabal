@@ -3,6 +3,7 @@ name: wireform-orc
 version: 0.1.0.0
 synopsis: Apache ORC metadata, stripes, and read/write
 license: BSD-3-Clause
+license-file: LICENSE
 author: Ian Duncan
 maintainer: ian@iankduncan.com
 copyright: 2026 Ian Duncan

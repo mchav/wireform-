@@ -1,5 +1,5 @@
 -- Copyright © 2018 chessai
--- BSD-3-Clause license (see NOTICE for full text)
+-- BSD-3-Clause license (see LICENSE for full text)
 
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE UnboxedSums     #-}

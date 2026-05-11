@@ -15,6 +15,7 @@ description:
   cache are intentionally not enabled in this initial release; see
   the @Fory.Encode@ haddock for the exact subset.
 license: BSD-3-Clause
+license-file: LICENSE
 author: Ian Duncan
 maintainer: ian@iankduncan.com
 copyright: 2026 Ian Duncan

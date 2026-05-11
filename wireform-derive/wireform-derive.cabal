@@ -30,6 +30,7 @@ description:
 homepage: https://github.com/iand675/wireform-
 bug-reports: https://github.com/iand675/wireform-/issues
 license: BSD-3-Clause
+license-file: LICENSE
 author: Ian Duncan
 maintainer: ian@iankduncan.com
 copyright: 2026 Ian Duncan

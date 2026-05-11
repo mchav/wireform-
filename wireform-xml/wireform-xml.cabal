@@ -3,6 +3,7 @@ name: wireform-xml
 version: 0.1.0.0
 synopsis: High-performance XML SAX/DOM parser, serializer, XPath, XSLT, and code generation
 license: BSD-3-Clause
+license-file: LICENSE
 author: Ian Duncan
 maintainer: ian@iankduncan.com
 copyright: 2026 Ian Duncan

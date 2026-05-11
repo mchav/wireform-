@@ -1,6 +1,6 @@
 -- Copyright © 2016 Kyle McKean
 -- Copyright © 2018 Daniel Cartwright
--- BSD-3-Clause license (see NOTICE for full text)
+-- BSD-3-Clause license (see LICENSE for full text)
 
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE UnboxedTuples   #-}

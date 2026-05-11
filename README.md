@@ -525,4 +525,5 @@ rules, and per-package conventions live in
 
 ## License
 
-BSD-3-Clause. See [NOTICE](NOTICE) for third-party attributions.
+BSD-3-Clause. See [LICENSE](LICENSE) for the full license text and
+third-party attributions.
