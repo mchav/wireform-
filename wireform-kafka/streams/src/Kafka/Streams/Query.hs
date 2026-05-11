@@ -51,7 +51,6 @@ module Kafka.Streams.Query
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
-import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
 import GHC.Generics (Generic)
@@ -60,9 +59,7 @@ import Kafka.Streams.State.Store
   ( KeyValueIterator (..)
   , KeyValueStore (..)
   , StoreName
-  , WindowedKey (..)
   , WindowStore (..)
-  , kvIteratorClose
   , kvIteratorToList
   )
 import Kafka.Streams.State.KeyValue.Versioned
@@ -272,11 +269,3 @@ data StateQueryResult r = StateQueryResult
 -- when federating per-partition results.
 noStateQueryResult :: StateQueryResult r
 noStateQueryResult = StateQueryResult Map.empty emptyPosition
-
--- Silence the unused-import warning for kvIteratorClose; it's
--- here for callers who want to terminate iterators early.
-_keepClose :: KeyValueIterator k v -> IO ()
-_keepClose = kvIteratorClose
-
-_keepSet :: Set ()
-_keepSet = Set.empty

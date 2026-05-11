@@ -45,7 +45,7 @@ import Kafka.Streams.Discovery
   ( HostInfo (..)
   , KeyQueryMetadata (..)
   )
-import Kafka.Streams.State.Store (StoreName, unStoreName)
+import Kafka.Streams.State.Store (StoreName)
 
 -- | One IQ request to a remote peer. Bytes-typed because the
 -- typed serde layer lives on the calling side.
@@ -98,7 +98,3 @@ routeQuery  local (Just kqm)
   | otherwise                              = RouteRemote
                                                (kqmActiveHost kqm)
 
--- Silence the otherwise-unused 'unStoreName' import; callers
--- typically use it when building the transport URL.
-_keep :: StoreName -> Text
-_keep = unStoreName

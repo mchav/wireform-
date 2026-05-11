@@ -550,7 +550,7 @@ eventLoop ks driver engine = go
                     else HashMap.fromListWith max
                            [ ( KC.TopicPartition
                                  (KC.crTopic rec)
-                                 (fromIntegral (KC.crPartition rec))
+                                 (KC.crPartition rec)
                              , KC.crOffset rec + 1
                              )
                            | rec <- recs
@@ -637,7 +637,7 @@ multiEventLoop ks driver pool = go
                     else HashMap.fromListWith max
                            [ ( KC.TopicPartition
                                  (KC.crTopic rec)
-                                 (fromIntegral (KC.crPartition rec))
+                                 (KC.crPartition rec)
                              , KC.crOffset rec + 1
                              )
                            | rec <- recs

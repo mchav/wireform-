@@ -1,6 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
 
 -- |
 -- Module      : Kafka.Streams.State.Window.Timestamped
@@ -28,7 +26,6 @@ module Kafka.Streams.State.Window.Timestamped
   ) where
 
 import Data.Int (Int64)
-import GHC.Generics (Generic)
 
 import Kafka.Streams.State.KeyValue.Timestamped
   ( ValueAndTimestamp (..)
@@ -86,6 +83,3 @@ twsFetchRange
   -> IO (KeyValueIterator Timestamp (ValueAndTimestamp v))
 twsFetchRange (TimestampedWindowStore ws) = wsFetchRange ws
 
--- Quiet the otherwise-unused 'Generic' deriving stuck above.
-_keepGen :: Generic () => ()
-_keepGen = ()

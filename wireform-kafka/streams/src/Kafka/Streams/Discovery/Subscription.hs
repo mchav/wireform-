@@ -44,7 +44,7 @@ import qualified Data.Binary.Get as G
 import qualified Data.Binary.Put as P
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
-import Data.Int (Int16, Int32, Int8)
+import Data.Int (Int8)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
@@ -144,7 +144,3 @@ decodeSubscriptionInfo bs =
         ]
       pure (Set.fromList pairs)
 
--- Silence unused-import warning for Int16; kept available for
--- forward-compat fields.
-_keepInt16 :: Int16
-_keepInt16 = 0

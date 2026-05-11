@@ -46,6 +46,7 @@ module Kafka.Streams.Runtime.StandbyTask
   , addStandbyTask
   , removeStandbyTask
   , listStandbyTasks
+  , unStandbyManager
     -- * Replay
   , ChangelogRecord (..)
   , standbyReplay

@@ -29,7 +29,6 @@ module Kafka.Streams.DSL.Repartitioned
   , withRepartitionStreamPartitioner
   ) where
 
-import Data.ByteString (ByteString)
 import Data.Int (Int32)
 import Data.Text (Text)
 import GHC.Generics (Generic)
@@ -73,6 +72,3 @@ withRepartitionStreamPartitioner
   :: StreamPartitioner k v -> Repartitioned k v -> Repartitioned k v
 withRepartitionStreamPartitioner p r = r { rpStreamPartitioner = Just p }
 
--- Silence the otherwise-unused 'ByteString' bring-in.
-_keep :: ByteString -> ByteString
-_keep = id
