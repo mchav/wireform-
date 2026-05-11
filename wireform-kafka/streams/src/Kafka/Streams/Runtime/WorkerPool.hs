@@ -42,6 +42,9 @@ module Kafka.Streams.Runtime.WorkerPool
     -- * Dynamic membership (KIP-663)
   , addPoolWorker
   , removePoolWorker
+    -- * Routing introspection (KIP-535 partition-aware IQ)
+  , routingFor
+  , workerById
     -- * Per-worker state
   , workerProcessedCount
   , workerEngine
@@ -518,3 +521,31 @@ workerLoop w = loop
 
 workerProcessedCount :: Worker -> IO Int64
 workerProcessedCount = readTVarIO . workerProcessed
+
+----------------------------------------------------------------------
+-- Routing introspection
+----------------------------------------------------------------------
+
+-- | Look up which worker (by id) owns the supplied partition,
+-- scanning the routing table for the first entry whose
+-- @(_, partition)@ matches. Returns 'Nothing' if the
+-- partition isn't routed anywhere (no record has touched it
+-- yet, or the worker that owned it has been removed).
+routingFor :: WorkerPool -> Int -> IO (Maybe Int)
+routingFor pool part = do
+  m <- readTVarIO (poolRouting pool)
+  pure $ case
+    [ idx
+    | ((_, p), idx) <- HashMap.toList m
+    , p == fromIntegral part
+    ] of
+      (idx : _) -> Just idx
+      []        -> Nothing
+
+-- | O(1) lookup by 'workerId'. Returns 'Nothing' if the
+-- worker has been removed (or never existed).
+workerById :: WorkerPool -> Int -> Maybe Worker
+workerById pool wid =
+  HashMap.lookup wid
+    (unsafePerformIO (readTVarIO (poolByIdxTV pool)))
+{-# NOINLINE workerById #-}

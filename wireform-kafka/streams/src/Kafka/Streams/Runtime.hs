@@ -665,24 +665,7 @@ drainWorkersThroughDriver ks driver pool = do
 ----------------------------------------------------------------------
 
 closeKafkaStreams :: KafkaStreams -> IO ()
-closeKafkaStreams ks = do
-  transitionTo ks StreamsClosing
-  mAh <- readIORef (ksThread ks)
-  case mAh of
-    Just ah -> do
-      cancel ah
-      _ <- waitCatch ah
-      pure ()
-    Nothing -> pure ()
-  mE <- readIORef (ksEngine ks)
-  forM_ mE closeEngine
-  mPool <- readIORef (ksPool ks)
-  forM_ mPool closeWorkerPool
-  mD <- readIORef (ksDriver ks)
-  forM_ mD $ \drv -> do
-    sdConsumerClose drv
-    sdProducerClose drv
-  transitionTo ks StreamsClosed
+closeKafkaStreams ks = closeKafkaStreamsWith ks defaultCloseOptions
 
 streamsStatus :: KafkaStreams -> IO StreamsStatus
 streamsStatus = readTVarIO . ksStatus
@@ -987,12 +970,35 @@ defaultCloseOptions = CloseOptions
   , closeLeaveGroup = True
   }
 
--- | Close with explicit options. Currently a thin wrapper over
--- 'closeKafkaStreams' — the timeout / leave-group flags are
--- recorded for forward-compatibility with the live consumer's
--- close path.
+-- | Close with explicit options (KIP-812). Threads the
+-- @leaveGroup@ flag into the consumer's close path via the
+-- driver's 'sdConsumerCloseWith': when 'closeLeaveGroup' is
+-- 'True' (the default) the consumer sends a @LeaveGroup@ so
+-- the broker rebalances immediately; when 'False' it skips
+-- the RPC and relies on the session-timeout reassignment.
+-- 'closeTimeoutMs' bounds how long the consumer waits for the
+-- leave-group ack.
 closeKafkaStreamsWith :: KafkaStreams -> CloseOptions -> IO ()
-closeKafkaStreamsWith ks _opts = closeKafkaStreams ks
+closeKafkaStreamsWith ks opts = do
+  transitionTo ks StreamsClosing
+  mAh <- readIORef (ksThread ks)
+  case mAh of
+    Just ah -> do
+      cancel ah
+      _ <- waitCatch ah
+      pure ()
+    Nothing -> pure ()
+  mE <- readIORef (ksEngine ks)
+  forM_ mE closeEngine
+  mPool <- readIORef (ksPool ks)
+  forM_ mPool closeWorkerPool
+  mD <- readIORef (ksDriver ks)
+  forM_ mD $ \drv -> do
+    sdConsumerCloseWith drv
+      (closeLeaveGroup opts)
+      (maybe 30_000 id (closeTimeoutMs opts))
+    sdProducerClose drv
+  transitionTo ks StreamsClosed
 
 ----------------------------------------------------------------------
 -- KIP-988 standby update + global state restore listeners

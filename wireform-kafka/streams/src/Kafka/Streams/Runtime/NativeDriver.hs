@@ -89,6 +89,15 @@ data StreamDriver = StreamDriver
     -- | Tear down the consumer.
   , sdConsumerClose
       :: !(IO ())
+    -- | Tear down the consumer with caller-supplied options.
+    --   KIP-812: when @leaveGroup = True@ (the default) the
+    --   client sends a @LeaveGroup@ request so the broker can
+    --   trigger a rebalance immediately; when @False@ we close
+    --   silently and let the session timeout reassign the
+    --   partitions. The @timeoutMs@ bounds how long we wait
+    --   for the leave-group ack before forcing the close.
+  , sdConsumerCloseWith
+      :: !(Bool -> Int -> IO ())
     -- | Send a record. Returns Right metadata on success.
   , sdProducerSend
       :: !(Text -> Maybe ByteString -> ByteString
@@ -145,6 +154,10 @@ newNativeDriver producer consumer mTxn = do
     , sdConsumerPoll      = \timeoutMs -> KC.poll consumer timeoutMs
     , sdConsumerCommit    = KC.commitSync consumer
     , sdConsumerClose     = KC.closeConsumer consumer
+    , sdConsumerCloseWith = \leaveGroup tmoMs ->
+        if leaveGroup
+          then KC.closeConsumerWithTimeout consumer tmoMs
+          else KC.closeConsumerWithoutLeavingGroup consumer tmoMs
     , sdProducerSend      = \topic key value ->
         KP.sendMessage producer topic key value
     , sdProducerFlush     = KP.flushProducer producer
@@ -262,6 +275,8 @@ newMockDriver = do
             atomically $ modifyTVar' cmts (+ 1)
             pure (Right ())
         , sdConsumerClose = atomically $
+            modifyTVar' closed (\(_, p) -> (True, p))
+        , sdConsumerCloseWith = \_leaveGroup _tmoMs -> atomically $
             modifyTVar' closed (\(_, p) -> (True, p))
         , sdProducerSend = \topic key value -> do
             atomically $ modifyTVar' sends

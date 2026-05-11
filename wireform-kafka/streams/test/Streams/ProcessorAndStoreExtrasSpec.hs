@@ -87,10 +87,40 @@ foreach_async_does_not_block =
 
 store_query_parameters_round_trip :: TestTree
 store_query_parameters_round_trip =
-  testCase "storeQueryParameters defaults / queryKVStoreWithParameters" $ do
-    -- We just check the data record contract — the IQ entry
-    -- point shares its impl with queryKVStore.
+  testCase "storeQueryParameters: defaults + sqpStaleStoresEnabled / sqpPartition gates" $ do
     let p = storeQueryParameters (storeName "x")
     sqpStoreName p          @?= storeName "x"
     sqpStaleStoresEnabled p @?= False
     sqpPartition p          @?= Nothing
+
+    -- The strict-mode gate is the testable bit: when the
+    -- runtime isn't Running, defaults must yield 'Nothing'.
+    -- (Pre-start the engine isn't even built, so a Just
+    -- response can't happen — making 'staleStoresEnabled =
+    -- True' indistinguishable from False in that window. The
+    -- assertion below is the one that matters: defaults
+    -- short-circuit when status /= StreamsRunning, so the
+    -- caller knows the store isn't authoritative.)
+    b <- newStreamsBuilder
+    _ <- tableFromTopic b (topicName "iq-in")
+           (consumed textSerde textSerde)
+           (materializedAs (storeName "iq-store"))
+    topo <- buildTopology b
+    let topo' = case validateTopology topo of
+          Left e  -> error (show e)
+          Right v -> v
+    ks <- newKafkaStreams
+            (defaultStreamsConfig
+              { applicationId    = "iq-params"
+              , bootstrapServers = ["mock:0"]
+              , numStreamThreads = 1
+              , pollMs           = 0
+              })
+            topo'
+
+    let pStrict = p { sqpStoreName = storeName "iq-store" }
+    rStrict <- queryKVStoreWithParameters @Text @Text ks pStrict
+    case rStrict of
+      Nothing -> pure ()
+      Just _  -> error
+        "expected Nothing when staleStoresEnabled=False and runtime not Running"

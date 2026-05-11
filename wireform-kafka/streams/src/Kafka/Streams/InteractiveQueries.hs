@@ -76,8 +76,10 @@ import Kafka.Streams.Internal.Engine
   )
 import Kafka.Streams.Runtime
   ( KafkaStreams
+  , StreamsStatus (..)
   , ksEngine
   , ksPool
+  , streamsStatus
   )
 import qualified Kafka.Streams.Runtime.WorkerPool
 import Kafka.Streams.Runtime.WorkerPool
@@ -188,18 +190,65 @@ storeQueryParameters n = StoreQueryParameters
   }
 
 -- | Resolve a key-value store using the full
--- 'StoreQueryParameters' bag. Currently we ignore the
--- partition selector (the local-instance store is partition-
--- agnostic in our model) and 'sqpStaleStoresEnabled' (we don't
--- gate IQ on the instance's state), but the call site is
--- forward-compatible with both knobs once the underlying
--- runtime grows partition-aware IQ.
+-- 'StoreQueryParameters' bag.
+--
+--   * 'sqpStaleStoresEnabled': when 'False' the request fails
+--     with 'Nothing' unless the runtime is in 'StreamsRunning'.
+--     When 'True' we hand back a store handle in any state
+--     (including 'StreamsRebalancing' and 'StreamsCreated')
+--     so callers can read potentially-stale snapshots.
+--
+--   * 'sqpPartition': when 'Just p' the federated query is
+--     restricted to the single worker whose routing table
+--     owns @(_, p)@ — every other worker's store is excluded
+--     from 'roKvGet' / 'roKvAll'. When 'Nothing' the query
+--     federates across all workers (the existing behaviour).
 queryKVStoreWithParameters
   :: forall k v
    . KafkaStreams
   -> StoreQueryParameters
   -> IO (Maybe (ReadOnlyKeyValueStore k v))
-queryKVStoreWithParameters ks p = queryKVStore @k @v ks (sqpStoreName p)
+queryKVStoreWithParameters ks p = do
+  st <- streamsStatus ks
+  let !okState =
+        st == StreamsRunning
+          || sqpStaleStoresEnabled p
+  if not okState
+    then pure Nothing
+    else case sqpPartition p of
+      Nothing   -> queryKVStore @k @v ks (sqpStoreName p)
+      Just part -> queryKVStoreRestricted @k @v ks part
+                     (sqpStoreName p)
+
+-- | Federated IQ restricted to the worker that owns the
+-- supplied partition. Resolves the worker by reading the
+-- pool's routing table; if the routing has no entry for any
+-- @(_, part)@ tuple we return 'Nothing' (no live owner =
+-- nothing to query).
+queryKVStoreRestricted
+  :: forall k v
+   . KafkaStreams
+  -> Int
+  -> StoreName
+  -> IO (Maybe (ReadOnlyKeyValueStore k v))
+queryKVStoreRestricted ks part sn = do
+  mPool <- readIORef (ksPool ks)
+  case mPool of
+    Nothing -> do
+      -- Single-thread runtime owns every partition; just
+      -- delegate.
+      mEng <- readIORef (ksEngine ks)
+      case mEng of
+        Just eng -> queryEngineStore @k @v eng sn
+        Nothing  -> pure Nothing
+    Just pool -> do
+      mIdx <- Kafka.Streams.Runtime.WorkerPool.routingFor pool part
+      case mIdx of
+        Nothing -> pure Nothing
+        Just wid ->
+          case Kafka.Streams.Runtime.WorkerPool.workerById pool wid of
+            Nothing -> pure Nothing
+            Just w  -> queryEngineStore @k @v (workerEngine w) sn
 
 queryKVStore
   :: forall k v

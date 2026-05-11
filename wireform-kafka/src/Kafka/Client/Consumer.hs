@@ -42,6 +42,7 @@ module Kafka.Client.Consumer
   , createConsumer
   , closeConsumer
   , closeConsumerWithTimeout
+  , closeConsumerWithoutLeavingGroup
     -- * Subscription
   , subscribe
   , unsubscribe
@@ -712,7 +713,28 @@ closeConsumer consumer = closeConsumerWithTimeout consumer 30000
 --
 -- @since KIP-102
 closeConsumerWithTimeout :: Consumer -> Int -> IO ()
-closeConsumerWithTimeout c@Consumer{..} timeoutMs = do
+closeConsumerWithTimeout = closeConsumerImpl True
+
+-- | KIP-812 @CloseOptions.leaveGroup = false@: close the
+-- consumer /without/ sending a @LeaveGroup@ request. The
+-- broker keeps this member's assignment alive until the
+-- @session.timeout.ms@ expires, then rebalances. Use this
+-- when you're doing a fast restart of the same member id
+-- (e.g. rolling deploy with static membership) and want to
+-- avoid the rebalance churn.
+closeConsumerWithoutLeavingGroup :: Consumer -> Int -> IO ()
+closeConsumerWithoutLeavingGroup = closeConsumerImpl False
+
+-- | Shared implementation. @doLeaveGroup = False@ skips the
+-- @LeaveGroup@ RPC but still:
+--
+--   * fires onRevoked callbacks so applications can flush
+--     in-flight work / commit final offsets;
+--   * persists static-membership state via the user callback
+--     (so a restart can re-claim the same generation);
+--   * tears down the heartbeat thread + connections.
+closeConsumerImpl :: Bool -> Consumer -> Int -> IO ()
+closeConsumerImpl doLeaveGroup c@Consumer{..} timeoutMs = do
   -- Fire onRevoked for any partitions we still own — graceful
   -- close path so listeners can flush in-flight work and
   -- commit final offsets.
@@ -740,9 +762,15 @@ closeConsumerWithTimeout c@Consumer{..} timeoutMs = do
       -- 'timeoutMs' so a misbehaving coordinator can't block
       -- shutdown indefinitely. Failures here are silent — the
       -- session-timeout fallback is still correct, just slower.
-      _ <- System.Timeout.timeout
-             (max 0 timeoutMs * 1000)
-             (sendLeaveGroup c hbState)
+      --
+      -- Skipped when the caller passed @doLeaveGroup = False@
+      -- (KIP-812 CloseOptions.leaveGroup = false), in which
+      -- case the session-timeout path handles reassignment.
+      when doLeaveGroup $ do
+        _ <- System.Timeout.timeout
+               (max 0 timeoutMs * 1000)
+               (sendLeaveGroup c hbState)
+        pure ()
       HB.stopHeartbeatThread hbState hbThread
   -- Close all connections.
   Conn.closeAllConnections consumerConnManager

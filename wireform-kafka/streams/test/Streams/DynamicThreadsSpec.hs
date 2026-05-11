@@ -18,11 +18,12 @@ import Kafka.Streams
 import Kafka.Streams.Runtime.NativeDriver
 
 tests :: TestTree
-tests = testGroup "Dynamic thread management (KIP-663)"
+tests = testGroup "Dynamic thread management (KIP-663) + CloseOptions (KIP-812)"
   [ add_stream_thread_grows_pool
   , remove_stream_thread_shrinks_pool
   , add_then_remove_returns_to_baseline
   , single_thread_runtime_returns_nothing
+  , close_with_leave_group_false_skips_leave_group
   ]
 
 bytes :: Text -> BSC.ByteString
@@ -159,4 +160,26 @@ single_thread_runtime_returns_nothing =
     streamThreadCount ks  >>= (@?= 1)
 
     closeKafkaStreams ks
+    awaitState ks StreamsClosed
+
+----------------------------------------------------------------------
+-- CloseOptions threading (KIP-812)
+----------------------------------------------------------------------
+
+close_with_leave_group_false_skips_leave_group :: TestTree
+close_with_leave_group_false_skips_leave_group =
+  testCase "closeKafkaStreamsWith leaveGroup=False reaches Closed cleanly" $ do
+    topo <- buildPassthrough
+    ks <- newKafkaStreams (multiThreadCfg 1) topo
+    (drv, _h) <- newMockDriver
+    startKafkaStreamsWith ks drv
+    awaitState ks StreamsRunning
+
+    -- Drive the leaveGroup=False path. The mock driver's
+    -- sdConsumerCloseWith records the close regardless of the
+    -- flag; the assertion is that the runtime still reaches
+    -- StreamsClosed (i.e. the new code-path is wired up and
+    -- doesn't get stuck waiting for a phantom LeaveGroup ack).
+    closeKafkaStreamsWith ks
+      (defaultCloseOptions { closeLeaveGroup = False })
     awaitState ks StreamsClosed
