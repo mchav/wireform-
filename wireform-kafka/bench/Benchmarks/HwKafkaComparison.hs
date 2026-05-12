@@ -174,16 +174,16 @@ wireformSetupAndRun = do
     Left err -> error ("wireform-kafka createProducer failed: " ++ err)
     Right p  -> do
       -- Mirror the hw-kafka loop: enqueue + return
-      -- ('produceMessage' / 'sendMessageAsync'), then 'flushProducer'
+      -- ('produceMessage' / 'sendMessage_'), then 'flushProducer'
       -- to wait for every record to be acked.  The previous shape
       -- used the synchronous 'sendMessage', which serialised the
       -- entire workload to one record per broker round-trip and
       -- showed wireform-kafka as ~80x slower than hw-kafka for
       -- reasons that had nothing to do with the codec.
       replicateM_ recordsPerRun $ do
-        r <- WP.sendMessageAsync p topic Nothing payload
+        r <- WP.sendMessage_ p topic Nothing payload
         case r of
-          Left e  -> error ("wireform-kafka sendMessageAsync failed: " ++ e)
+          Left e  -> error ("wireform-kafka sendMessage_ failed: " ++ e)
           Right _ -> pure ()
       flushRes <- WP.flushProducer p
       case flushRes of
@@ -210,9 +210,9 @@ wireformSetupAndRunLargeBatch = do
     Left err -> error ("wireform-kafka createProducer failed: " ++ err)
     Right p  -> do
       replicateM_ recordsPerRun $ do
-        r <- WP.sendMessageAsync p topic Nothing payload
+        r <- WP.sendMessage_ p topic Nothing payload
         case r of
-          Left e  -> error ("sendMessageAsync (1MiB batch) failed: " ++ e)
+          Left e  -> error ("sendMessage_ (1MiB batch) failed: " ++ e)
           Right _ -> pure ()
       flushRes <- WP.flushProducer p
       case flushRes of
@@ -221,7 +221,7 @@ wireformSetupAndRunLargeBatch = do
       WP.closeProducer p
 
 -- | Bare-minimum-overhead fire-and-forget variant.  Calls the
--- new 'WP.sendMessageDrop', which skips the user-installed
+-- new 'WP.sendMessage_', which skips the user-installed
 -- interceptor + ack hooks, the transactional / idempotent
 -- stamping path, and the per-record 'ProducerRecord' struct
 -- allocation.  Same workload + same flush + close as the other
@@ -240,9 +240,9 @@ wireformSetupAndRunDrop = do
     Left err -> error ("wireform-kafka createProducer failed: " ++ err)
     Right p  -> do
       replicateM_ recordsPerRun $ do
-        r <- WP.sendMessageDrop p topic Nothing payload
+        r <- WP.sendMessage_ p topic Nothing payload
         case r of
-          Left e  -> error ("sendMessageDrop failed: " ++ e)
+          Left e  -> error ("sendMessage_ failed: " ++ e)
           Right _ -> pure ()
       flushRes <- WP.flushProducer p
       case flushRes of
@@ -380,9 +380,9 @@ doSeed = do
     Left err -> error ("ensureSeeded createProducer failed: " ++ err)
     Right p  -> do
       replicateM_ recordsPerRun $ do
-        r <- WP.sendMessageAsync p consumerTopic Nothing payload
+        r <- WP.sendMessage_ p consumerTopic Nothing payload
         case r of
-          Left e  -> error ("ensureSeeded sendMessageAsync failed: " ++ e)
+          Left e  -> error ("ensureSeeded sendMessage_ failed: " ++ e)
           Right _ -> pure ()
       flushRes <- WP.flushProducer p
       case flushRes of

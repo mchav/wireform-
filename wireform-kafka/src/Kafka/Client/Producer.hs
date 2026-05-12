@@ -71,12 +71,11 @@ module Kafka.Client.Producer
     --
     -- | 'sendMessage' is the everyday choice: it waits for the
     -- broker to acknowledge and returns the assigned offset.
-    -- 'sendMessage_' is the same call but discards the result
-    -- (matching the @_@ convention of 'Control.Monad.forM_').
-    -- 'sendMessageAsync' returns an awaitable handle so the
-    -- caller can fan out work without blocking.
+    -- 'sendMessageAsync' hands back an 'MVar' you can take on
+    -- later — same record, no blocking. The
+    -- 'Performance-tuned send variants' section below covers the
+    -- fire-and-forget @_@-suffixed variants.
   , sendMessage
-  , sendMessage_
   , sendMessageAsync
   , ProducerRecord(..)
   , RecordMetadata(..)
@@ -160,23 +159,23 @@ module Kafka.Client.Producer
     -- below trade safety or feedback for throughput; reach for
     -- them only when a benchmark shows you need them.
     --
-    --   * 'sendMessageDrop' — fire-and-forget, no future, no
+    --   * 'sendMessage_' — fire-and-forget, no future, no
     --     wait. Still uses the partitioner and accumulator.
-    --   * 'sendMessageDropUnsafe' — same as 'sendMessageDrop' but
+    --   * 'sendMessageUnsafe_' — same as 'sendMessage_' but
     --     skips the txn / idempotence guard rails. Only safe on a
     --     plain non-transactional producer.
-    --   * 'sendMessageDropFastest' — caches the last touched
+    --   * 'sendMessageFastest_' — caches the last touched
     --     batch so repeated sends to the same (topic, partition)
     --     skip the per-record map lookup. Use in tight inner
     --     loops that fan-in to one partition.
-    --   * 'sendMessagesDrop' — bulk variant of
-    --     'sendMessageDropUnsafe' for a list of records.
+    --   * 'sendMessages_' — bulk variant of
+    --     'sendMessageUnsafe_' for a list of records.
     --   * 'sendBatch' — bypasses the accumulator entirely and
     --     ships an explicit batch. Used by the perf tool.
-  , sendMessageDrop
-  , sendMessageDropUnsafe
-  , sendMessageDropFastest
-  , sendMessagesDrop
+  , sendMessage_
+  , sendMessageUnsafe_
+  , sendMessageFastest_
+  , sendMessages_
   , sendBatch
 
     -- * Enhanced ack callbacks
@@ -193,6 +192,7 @@ module Kafka.Client.Producer
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar)
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
 import Control.Exception (SomeException, bracket, throwIO, try)
@@ -571,7 +571,7 @@ data Producer = Producer
     -- ^ State for the sender thread
   , producerStickyPartitions :: !(IORef (HashMap.HashMap Text Int32))
     -- ^ Sticky partition state per topic (KIP-480). Consulted on
-    --   every 'sendMessageAsync' / 'sendMessageDrop' call, so
+    --   every 'sendMessageAsync' / 'sendMessage_' call, so
     --   moving from 'StmMap' to 'IORef HashMap' (single
     --   'readIORef' per call instead of an STM transaction) is
     --   worth a measurable ~80-100 ns per record on the
@@ -590,11 +590,11 @@ data Producer = Producer
   , producerLastBatch :: !(IORef (Maybe (Text, Int32, BA.PartitionQueue, BA.BatchAccumulating)))
     -- ^ Producer-local cache of the last-touched
     --   @(topic, partition, queue, batch)@ tuple for
-    --   'sendMessageDropFastest'. Saves the per-record sticky
+    --   'sendMessageFastest_'. Saves the per-record sticky
     --   lookup, partition-map lookup, and 'queueCurrentBatch'
     --   read on the hot path; invalidated when the cached
     --   batch seals or the topic / partition changes. Cache
-    --   miss falls through to 'sendMessageDropUnsafe'.
+    --   miss falls through to 'sendMessageUnsafe_'.
   , producerIdempotentId :: !(TVar Int64)
     -- ^ Producer id (KIP-98). 'noProducerId' (= -1) for
     --   non-idempotent / non-transactional producers; otherwise
@@ -1237,21 +1237,6 @@ sendMessage p@Producer{..} topic key value = do
           runAckInterceptor producerConfig iceptedRecord (Left err)
           return (Left err)
 
--- | Like 'sendMessage' but discards the resulting 'RecordMetadata'
--- (matching the @_@ convention of 'Control.Monad.forM_'). On
--- failure the producer's ack interceptor still sees the 'Left' so
--- observability isn't lost; the caller just doesn't get a value
--- back.
-sendMessage_
-  :: Producer
-  -> Text
-  -> Maybe ByteString
-  -> ByteString
-  -> IO ()
-sendMessage_ p t k v = do
-  _ <- sendMessage p t k v
-  pure ()
-
 -- | Typed send. Encodes the key (when present) and value through
 -- the topic's 'Kafka.Topic.Topic' serdes and forwards to
 -- 'sendMessage'. Returns a 'Left' if the serde encoding never
@@ -1335,7 +1320,7 @@ producerPreSendCheck p@Producer{..} topic key = do
   -- Fast path for the common-case non-transactional /
   -- non-idempotent producer: skip the entire STM transaction
   -- below for sequence tracking and just call the partitioner +
-  -- return the no-stamp sentinel. This is what 'sendMessageDrop'
+  -- return the no-stamp sentinel. This is what 'sendMessage_'
   -- does inline and what 'sendMessageAsync' should do too —
   -- pre-fix the per-record STM commit was the dominant
   -- 'sendMessageAsync' cost (~150 ns / record on the bench).
@@ -1509,13 +1494,30 @@ producerTxnGate st mPid mEpoch = case st of
 --
 -- For at-least-once semantics, pair with 'flushProducer' before
 -- 'closeProducer' so the queue drains.
+-- | Non-blocking send. Hands back an 'MVar' that will be filled
+-- with the broker's reply (or the delivery error) when the ack
+-- arrives. Callers wait on the result with 'Control.Concurrent.MVar.takeMVar'
+-- whenever they're ready:
+--
+-- @
+-- handle <- 'sendMessageAsync' p \"events\" Nothing \"hello\"
+-- ... do other work ...
+-- md <- 'Control.Concurrent.MVar.takeMVar' handle
+-- @
+--
+-- The 'producerInterceptor' / 'producerOnAcknowledgement' hooks
+-- still fire on the sender thread — they're the right place to
+-- observe every send, regardless of whether the caller ever
+-- reads the 'MVar'. If the caller never reads it, the 'MVar' is
+-- garbage-collected with the rest of the closure.
 sendMessageAsync
   :: Producer
   -> Text
   -> Maybe ByteString
   -> ByteString
-  -> IO (Either String ())
+  -> IO (MVar (Either String RecordMetadata))
 sendMessageAsync p@Producer{..} topic key value = do
+  resultVar <- newEmptyMVar
   let preInterceptRecord = ProducerRecord
         { recordTopic     = topic
         , recordKey       = key
@@ -1533,7 +1535,8 @@ sendMessageAsync p@Producer{..} topic key value = do
   case preCheck of
     Left err -> do
       runAckInterceptor producerConfig iceptedRecord (Left err)
-      return (Left err)
+      putMVar resultVar (Left err)
+      pure resultVar
     Right (partition, stamp) -> do
       let record = RB.Record
             { RB.recordTimestampDelta = 0
@@ -1544,11 +1547,6 @@ sendMessageAsync p@Producer{..} topic key value = do
                 map (\(k, v) -> RB.RecordHeader (TE.encodeUtf8 k) (Just v)) icHdrs
             }
           topicPartition = BA.TopicPartition icTopic partition
-          -- The async path doesn't need a result-bearing TMVar:
-          -- we just hand the broker outcome straight to the
-          -- caller's ack interceptor.  This is the usual
-          -- librdkafka shape — synchronous backpressure happens
-          -- at 'flushProducer', not at the per-record send.
           callback result = do
             let outcome = case result of
                   Left err -> Left (T.unpack err)
@@ -1560,6 +1558,7 @@ sendMessageAsync p@Producer{..} topic key value = do
                       , metadataTimestamp = BA.ackTimestamp ack
                       }
             runAckInterceptor producerConfig iceptedRecord outcome
+            putMVar resultVar outcome
 
       success <- BA.appendRecordStamped
                    producerAccumulator
@@ -1569,11 +1568,12 @@ sendMessageAsync p@Producer{..} topic key value = do
                    stamp
 
       if success
-        then return (Right ())
+        then pure resultVar
         else do
           let err = "Failed to append record (accumulator closed or full)"
           runAckInterceptor producerConfig iceptedRecord (Left err)
-          return (Left err)
+          putMVar resultVar (Left err)
+          pure resultVar
 
 -- | Bare-minimum-overhead async send: skips the user-installed
 -- 'producerInterceptor' / 'producerOnAcknowledgement' hooks, the
@@ -1601,14 +1601,14 @@ sendMessageAsync p@Producer{..} topic key value = do
 --
 -- This is the path the producer benchmark uses for the head-to-
 -- head against librdkafka's @rd_kafka_produce@ + flush combo.
-sendMessageDrop
+sendMessage_
   :: Producer
   -> Text             -- ^ Topic
   -> Maybe ByteString -- ^ Optional key (used by hash partitioner)
   -> ByteString       -- ^ Value
   -> IO (Either String ())
-{-# INLINE sendMessageDrop #-}
-sendMessageDrop p@Producer{..} topic key value = do
+{-# INLINE sendMessage_ #-}
+sendMessage_ p@Producer{..} topic key value = do
   partition <- selectPartition p topic key
   let !record = RB.Record
         { RB.recordTimestampDelta = 0
@@ -1628,8 +1628,8 @@ sendMessageDrop p@Producer{..} topic key value = do
     then return (Right ())
     else return (Left "Failed to append record (accumulator closed or full)")
 
--- | Top-level shared no-op callback used by 'sendMessageDrop' /
--- 'sendMessagesDrop'. Hoisting it out of the per-call lambda
+-- | Top-level shared no-op callback used by 'sendMessage_' /
+-- 'sendMessages_'. Hoisting it out of the per-call lambda
 -- avoids one closure allocation per record (the previous shape
 -- allocated a fresh @\\_ -> pure ()@ on every send).
 {-# NOINLINE noOpRecordCallback #-}
@@ -1645,20 +1645,20 @@ noOpRecordCallback = BA.NoRecordCallback
 -- Cache invalidation: the cache is invalidated when the cached
 -- batch fills + seals, or when the supplied topic differs from
 -- the cached topic; in either case we fall through to
--- 'sendMessageDropUnsafe' to refresh.
+-- 'sendMessageUnsafe_' to refresh.
 --
--- Same safety contract as 'sendMessageDropUnsafe' — caller must
+-- Same safety contract as 'sendMessageUnsafe_' — caller must
 -- guarantee no concurrent sends on the same (topic, partition).
--- For multi-partition workloads, use 'sendMessageDrop' /
--- 'sendMessageDropUnsafe' instead.
-{-# INLINE sendMessageDropFastest #-}
-sendMessageDropFastest
+-- For multi-partition workloads, use 'sendMessage_' /
+-- 'sendMessageUnsafe_' instead.
+{-# INLINE sendMessageFastest_ #-}
+sendMessageFastest_
   :: Producer
   -> Text             -- ^ Topic
   -> Maybe ByteString -- ^ Optional key
   -> ByteString       -- ^ Value
   -> IO (Either String ())
-sendMessageDropFastest p@Producer{..} topic key value = do
+sendMessageFastest_ p@Producer{..} topic key value = do
   cache <- readIORef producerLastBatch
   case cache of
     Just (cachedTopic, _cachedPart, queue, ba)
@@ -1678,13 +1678,13 @@ sendMessageDropFastest p@Producer{..} topic key value = do
                             noOpRecordCallback
           when (not stillCurrent) $
             -- Sealed: invalidate the cache so the next call
-            -- refreshes via 'sendMessageDropUnsafe'.
+            -- refreshes via 'sendMessageUnsafe_'.
             writeIORef producerLastBatch Nothing
           pure (Right ())
     _ -> refreshAndSend p topic key value
 
--- | Cache miss path for 'sendMessageDropFastest': call
--- 'sendMessageDropUnsafe' (which lazily creates the
+-- | Cache miss path for 'sendMessageFastest_': call
+-- 'sendMessageUnsafe_' (which lazily creates the
 -- 'BatchAccumulating' if needed via 'slowAppendIO') and then
 -- repopulate 'producerLastBatch' with the new handle.
 refreshAndSend
@@ -1694,7 +1694,7 @@ refreshAndSend
   -> ByteString
   -> IO (Either String ())
 refreshAndSend p@Producer{..} topic key value = do
-  res <- sendMessageDropUnsafe p topic key value
+  res <- sendMessageUnsafe_ p topic key value
   case res of
     Left e -> pure (Left e)
     Right () -> do
@@ -1707,25 +1707,25 @@ refreshAndSend p@Producer{..} topic key value = do
         Nothing -> writeIORef producerLastBatch Nothing
       pure (Right ())
 
--- | Single-writer-per-partition variant of 'sendMessageDrop'
+-- | Single-writer-per-partition variant of 'sendMessage_'
 -- that swaps the per-partition CAS in the accumulator for a
 -- plain read + write. /Caller must guarantee no concurrent
--- 'sendMessage' / 'sendMessageAsync' / 'sendMessageDrop' calls
+-- 'sendMessage' / 'sendMessageAsync' / 'sendMessage_' calls
 -- target the same (topic, partition)./ The single-producer-
 -- thread workload every librdkafka and JVM @KafkaProducer@
 -- benchmark uses is the canonical safe shape.
 --
--- Same fire-and-forget semantics as 'sendMessageDrop'; ~25-35 %
+-- Same fire-and-forget semantics as 'sendMessage_'; ~25-35 %
 -- faster on hot 4-core hardware because the producer's main
 -- thread no longer pays the CAS-loop overhead per record.
-{-# INLINE sendMessageDropUnsafe #-}
-sendMessageDropUnsafe
+{-# INLINE sendMessageUnsafe_ #-}
+sendMessageUnsafe_
   :: Producer
   -> Text             -- ^ Topic
   -> Maybe ByteString -- ^ Optional key
   -> ByteString       -- ^ Value
   -> IO (Either String ())
-sendMessageDropUnsafe p@Producer{..} topic key value = do
+sendMessageUnsafe_ p@Producer{..} topic key value = do
   partition <- selectPartition p topic key
   let !record = RB.Record
         { RB.recordTimestampDelta = 0
@@ -1745,10 +1745,10 @@ sendMessageDropUnsafe p@Producer{..} topic key value = do
     then pure (Right ())
     else pure (Left "Failed to append record (accumulator closed)")
 
--- | Bulk variant of 'sendMessageDrop' for high-throughput
+-- | Bulk variant of 'sendMessage_' for high-throughput
 -- producers that already have a list of records to publish.
 --
--- Amortises the per-record overhead 'sendMessageDrop' pays on
+-- Amortises the per-record overhead 'sendMessage_' pays on
 -- its hot path (interceptor, partitioner lookup, accumulator
 -- closed check, partition map lookup, queue-current-batch
 -- swap): the partitioner runs once for the whole vector, the
@@ -1759,18 +1759,18 @@ sendMessageDropUnsafe p@Producer{..} topic key value = do
 -- configured batch size, multiple ready batches are emitted
 -- inside that one modify (no extra hot-path STM commits).
 --
--- Same fire-and-forget semantics as 'sendMessageDrop': the
+-- Same fire-and-forget semantics as 'sendMessage_': the
 -- 'producerInterceptor' / 'producerOnAcknowledgement' callback
 -- machinery is /not/ run; broker errors are silently dropped.
 -- Pair with 'flushProducer' before 'closeProducer' for
 -- at-most-one-loss durability.
-sendMessagesDrop
+sendMessages_
   :: Producer
   -> Text                                       -- ^ Topic
   -> [(Maybe ByteString, ByteString)]           -- ^ (key, value) pairs in publish order
   -> IO (Either String ())
-sendMessagesDrop _ _ [] = pure (Right ())
-sendMessagesDrop p@Producer{..} topic kvs = do
+sendMessages_ _ _ [] = pure (Right ())
+sendMessages_ p@Producer{..} topic kvs = do
   -- One partitioner call for the whole list. With the default
   -- sticky partitioner this also costs ~10 ns regardless of
   -- list length (cache hit on 'producerStickyPartitions');

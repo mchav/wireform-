@@ -32,7 +32,9 @@ buffered and closes the connection — even if you throw.
 `sendMessage` returns `IO (Either String RecordMetadata)`. The
 `Right` carries the assigned partition and offset; the `Left`
 is a typed error message ready to log. For fire-and-forget,
-use `sendMessageAsync` instead (returns a future).
+use `sendMessage_`. For non-blocking with a result you read
+later, use `sendMessageAsync` (returns an `MVar` you take when
+ready).
 
 ## 2. Receive records (`runConsumer`)
 
