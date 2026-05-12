@@ -1,3 +1,6 @@
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+
 -- | Low-level, high-performance wire format encoding primitives.
 --
 -- All encoding is done via 'Data.ByteString.Builder' for zero-copy
@@ -55,12 +58,19 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Builder.Internal as BI
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
+import qualified Data.Text.Array as TA
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Foreign as TF
+import qualified Data.Text.Internal as TI
 import Data.Word (Word32, Word64)
+import GHC.Ptr (Ptr(..))
+import Foreign.Ptr (plusPtr)
+import GHC.Exts (ByteArray#, Int#, Int(..), copyByteArrayToAddr#, (+#))
+import GHC.IO (IO(..))
 
 import Proto.Wire (WireType, fieldTag)
 
@@ -171,13 +181,60 @@ putByteString :: ByteString -> Builder
 putByteString = putLengthDelimited
 {-# INLINE putByteString #-}
 
+-- | Write a slice of an unpinned 'ByteArray#' directly into the
+-- builder's current buffer chunk.
+--
+-- This is the inner copy primitive used by 'putText' (and any other
+-- caller that has a 'Data.Text.Internal.Text' or
+-- 'Data.Text.Array.ByteArray' on hand). The off-the-shelf path --
+-- @'B.byteString' . 'TE.encodeUtf8'@ -- forces 'TE.encodeUtf8' to
+-- materialise a fresh /pinned/ 'BS.ByteString' (text-2.x stores its
+-- bytes in an /unpinned/ 'ByteArray#', and 'BS.ByteString' is
+-- pinned-only). The resulting cost is one fresh pinned 'newPinnedByteArray#'
+-- + one full copy of the text payload + a second copy from the pinned
+-- 'ByteString' into the builder buffer.
+--
+-- This combinator skips the intermediate pinned allocation. It
+-- reserves @len@ bytes in the builder buffer with 'BI.ensureFree',
+-- then issues a single 'copyByteArrayToAddr#' straight from the
+-- text's unpinned backing store into the builder's pinned buffer.
+-- Net cost is one buffer write, no heap allocation, and the result
+-- is bit-identical to the naive path.
+--
+-- Precondition: @len <= sizeofByteArray arr - off@. Callers must
+-- pass a valid slice (text-2.x's 'Text' constructor guarantees this).
+byteArraySliceBuilder :: ByteArray# -> Int# -> Int# -> Builder
+byteArraySliceBuilder arr# off# len# =
+  -- Two-step plan: ensure the chunk has room, then write. Wrapping
+  -- this in a single 'BI.builder' that calls 'BI.ensureFree' inline
+  -- lets GHC fuse it with neighbouring writes in the surrounding
+  -- builder chain (per Data.ByteString.Builder.Internal idioms).
+  BI.ensureFree (I# len#) `mappend` BI.builder writeStep
+  where
+    writeStep :: BI.BuildStep r -> BI.BuildStep r
+    writeStep k (BI.BufferRange op@(Ptr opA#) opEnd) =
+      IO (\s ->
+        case copyByteArrayToAddr# arr# off# opA# len# s of
+          s' -> case k (BI.BufferRange (op `plusPtr` (I# len#)) opEnd) of
+                  IO f -> f s')
+{-# INLINE byteArraySliceBuilder #-}
+
 -- | Encode a string field (UTF-8).
--- On text >= 2.0, encodeUtf8 is O(1) (no copy, just wraps the internal
--- ByteArray# in a ByteString ForeignPtr).
+--
+-- Avoids the intermediate pinned 'BS.ByteString' allocation that the
+-- naive @'putVarint' (length bs) <> 'B.byteString' bs@ form forces
+-- via 'TE.encodeUtf8'. Instead, the length prefix is read from the
+-- 'Text' record's length slot in O(1) and the payload bytes are
+-- streamed straight from the 'Text' 's underlying 'ByteArray#' into
+-- the builder buffer via 'byteArraySliceBuilder'.
+--
+-- On 'Person'-style messages (two short 'Text' fields) this saves
+-- two 'newPinnedByteArray#' allocations and two full payload copies
+-- per encode call. The wire format is bit-identical to the naive
+-- path.
 putText :: Text -> Builder
-putText t =
-  let !bs = TE.encodeUtf8 t
-  in putVarint (fromIntegral (BS.length bs)) <> B.byteString bs
+putText (TI.Text (TA.ByteArray arr#) (I# off#) lenI@(I# len#)) =
+  putVarint (fromIntegral lenI) <> byteArraySliceBuilder arr# off# len#
 {-# INLINE putText #-}
 
 -- | Encode a field tag (field number + wire type) as a varint.
