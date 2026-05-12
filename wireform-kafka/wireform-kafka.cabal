@@ -102,6 +102,10 @@ library
         liblz4
     exposed-modules:
         Kafka
+        Kafka.Errors
+        Kafka.Headers
+        Kafka.Serde
+        Kafka.Topic
         Kafka.Client.AdminClient
         Kafka.Client.AdminTimeouts
         Kafka.Client.ConfigValidation
