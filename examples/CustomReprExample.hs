@@ -11,8 +11,10 @@
 -- Run with: cabal run example-custom-repr
 module Main where
 
+import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Short as SBS
 import qualified Data.Map.Strict as Map
 
 import Proto.Encode
@@ -20,19 +22,18 @@ import Proto.Decode
 import Proto.TH
 import Proto.Repr
 
--- Override the BlobMsg.data field to use lazy ByteString instead of the
--- default strict ByteString -- handy when the payload is large and you
--- want to stream it without materialising the full bytes in memory.
---
--- ShortBytesRep and ListRep overrides are intentionally not exercised
--- in this example: the codegen path that honours them still emits
--- code typed against the default Vector / strict ByteString reps in a
--- few helper sites, which we plan to fix before declaring the field-rep
--- API stable.
+-- Generate types where:
+--   - BlobMsg.data uses lazy ByteString (good for large payloads)
+--   - IdMsg.identifier uses ShortByteString (compact for short IDs)
+--   - ConfigEntry.tags uses a list instead of Vector (small collections)
 $(loadProtoWith (defaultLoadOpts
     { loRepConfig = defaultRepConfig
         { rcFieldOverrides = Map.fromList
-            [ (("BlobMsg","data"), defaultFieldRep { frBytes = LazyBytesRep })
+            [ (("BlobMsg","data"),       defaultFieldRep { frBytes = LazyBytesRep  })
+            , (("IdMsg","identifier"),   defaultFieldRep { frBytes = ShortBytesRep })
+            ]
+        , rcMessageOverrides = Map.fromList
+            [ ("ConfigEntry", defaultFieldRep { frRepeated = ListRep })
             ]
         }
     })
@@ -60,12 +61,10 @@ main = do
     Right (decoded :: BlobMsg) -> do
       putStrLn $ "  roundtrip: " <> show (decoded == blob)
 
-  -- IdMsg: default StrictBytesRep for 'identifier'. The
-  -- ShortBytesRep override that this example used to demonstrate is
-  -- temporarily off; see the loadProtoWith comment above.
+  -- IdMsg: identifier field is ShortByteString (unpinned, GC-friendly).
   putStrLn ""
   let idMsg = defaultIdMsg
-        { idMsgIdentifier = BS.pack [0xDE, 0xAD, 0xBE, 0xEF]
+        { idMsgIdentifier = SBS.toShort (BS.pack [0xDE, 0xAD, 0xBE, 0xEF])
         , idMsgLabel      = "test-id"
         }
   putStrLn $ "IdMsg: " <> show idMsg
@@ -75,5 +74,41 @@ main = do
     Left err -> putStrLn $ "  ERROR: " <> show err
     Right (decoded :: IdMsg) ->
       putStrLn $ "  roundtrip: " <> show (decoded == idMsg)
+
+  -- ConfigEntry: repeated 'tags' field is a list rather than a Vector.
+  putStrLn ""
+  let cfg = defaultConfigEntry
+        { configEntryKey   = "log_level"
+        , configEntryValue = "info"
+        , configEntryTags  = ["staging", "verbose"]
+        }
+  putStrLn $ "ConfigEntry: " <> show cfg
+  let cfgEnc = encodeMessage cfg
+  putStrLn $ "  encoded: " <> show (BS.length cfgEnc) <> " bytes"
+  case decodeMessage cfgEnc of
+    Left err -> putStrLn $ "  ERROR: " <> show err
+    Right (decoded :: ConfigEntry) ->
+      putStrLn $ "  roundtrip: " <> show (decoded == cfg)
+
+  -- JSON round-trip exercises all three reps through the
+  -- representation-aware ToJSON / FromJSON helpers.
+  putStrLn ""
+  putStrLn "JSON round-trip (LazyBytesRep / ShortBytesRep / ListRep):"
+  let jsBlob = Aeson.toJSON blob
+      jsIdMs = Aeson.toJSON idMsg
+      jsCfg  = Aeson.toJSON cfg
+  putStrLn $ "  BlobMsg     -> " <> show jsBlob
+  putStrLn $ "  IdMsg       -> " <> show jsIdMs
+  putStrLn $ "  ConfigEntry -> " <> show jsCfg
+  case ( Aeson.fromJSON jsBlob :: Aeson.Result BlobMsg
+       , Aeson.fromJSON jsIdMs :: Aeson.Result IdMsg
+       , Aeson.fromJSON jsCfg  :: Aeson.Result ConfigEntry
+       ) of
+    (Aeson.Success b, Aeson.Success i, Aeson.Success c) ->
+      putStrLn $ "  round-trip equal: "
+              <> show (b == blob && i == idMsg && c == cfg)
+    (rb, ri, rc) ->
+      putStrLn $ "  JSON decode failed: "
+              <> show (rb, ri, rc)
 
   putStrLn "\nDone."
