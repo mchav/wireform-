@@ -26,11 +26,15 @@ import Proto.Repr
 --   - BlobMsg.data uses lazy ByteString (good for large payloads)
 --   - IdMsg.identifier uses ShortByteString (compact for short IDs)
 --   - ConfigEntry.tags uses a list instead of Vector (small collections)
+--   - Attachments.lazy_blobs / short_blobs use lazy / short bytes
+--     for their map values (per-field override on a map<K, bytes>)
 $(loadProtoWith (defaultLoadOpts
     { loRepConfig = defaultRepConfig
         { rcFieldOverrides = Map.fromList
-            [ (("BlobMsg","data"),       defaultFieldRep { frBytes = LazyBytesRep  })
-            , (("IdMsg","identifier"),   defaultFieldRep { frBytes = ShortBytesRep })
+            [ (("BlobMsg","data"),         defaultFieldRep { frBytes = LazyBytesRep  })
+            , (("IdMsg","identifier"),     defaultFieldRep { frBytes = ShortBytesRep })
+            , (("Attachments","lazy_blobs"),  defaultFieldRep { frBytes = LazyBytesRep  })
+            , (("Attachments","short_blobs"), defaultFieldRep { frBytes = ShortBytesRep })
             ]
         , rcMessageOverrides = Map.fromList
             [ ("ConfigEntry", defaultFieldRep { frRepeated = ListRep })
@@ -90,25 +94,48 @@ main = do
     Right (decoded :: ConfigEntry) ->
       putStrLn $ "  roundtrip: " <> show (decoded == cfg)
 
-  -- JSON round-trip exercises all three reps through the
-  -- representation-aware ToJSON / FromJSON helpers.
+  -- Attachments: map<string, bytes> exercised across all three
+  -- BytesRep choices on the *value* side of a proto map.
   putStrLn ""
-  putStrLn "JSON round-trip (LazyBytesRep / ShortBytesRep / ListRep):"
+  let att = defaultAttachments
+        { attachmentsStrictBlobs = Map.fromList
+            [ ("readme", BS.pack [0x52, 0x6D]) ]
+        , attachmentsLazyBlobs   = Map.fromList
+            [ ("payload", BL.pack [0x4C, 0x5A]) ]
+        , attachmentsShortBlobs  = Map.fromList
+            [ ("hash", SBS.toShort (BS.pack [0xAB, 0xCD])) ]
+        }
+  putStrLn $ "Attachments: " <> show att
+  let attEnc = encodeMessage att
+  putStrLn $ "  encoded: " <> show (BS.length attEnc) <> " bytes"
+  case decodeMessage attEnc of
+    Left err -> putStrLn $ "  ERROR: " <> show err
+    Right (decoded :: Attachments) ->
+      putStrLn $ "  roundtrip: " <> show (decoded == att)
+
+  -- JSON round-trip exercises every rep through the
+  -- representation-aware ToJSON / FromJSON helpers, including the
+  -- new map<K, bytes> path.
+  putStrLn ""
+  putStrLn "JSON round-trip (LazyBytesRep / ShortBytesRep / ListRep / map<K,bytes>):"
   let jsBlob = Aeson.toJSON blob
       jsIdMs = Aeson.toJSON idMsg
       jsCfg  = Aeson.toJSON cfg
+      jsAtt  = Aeson.toJSON att
   putStrLn $ "  BlobMsg     -> " <> show jsBlob
   putStrLn $ "  IdMsg       -> " <> show jsIdMs
   putStrLn $ "  ConfigEntry -> " <> show jsCfg
+  putStrLn $ "  Attachments -> " <> show jsAtt
   case ( Aeson.fromJSON jsBlob :: Aeson.Result BlobMsg
        , Aeson.fromJSON jsIdMs :: Aeson.Result IdMsg
        , Aeson.fromJSON jsCfg  :: Aeson.Result ConfigEntry
+       , Aeson.fromJSON jsAtt  :: Aeson.Result Attachments
        ) of
-    (Aeson.Success b, Aeson.Success i, Aeson.Success c) ->
+    (Aeson.Success b, Aeson.Success i, Aeson.Success c, Aeson.Success a) ->
       putStrLn $ "  round-trip equal: "
-              <> show (b == blob && i == idMsg && c == cfg)
-    (rb, ri, rc) ->
+              <> show (b == blob && i == idMsg && c == cfg && a == att)
+    (rb, ri, rc, ra) ->
       putStrLn $ "  JSON decode failed: "
-              <> show (rb, ri, rc)
+              <> show (rb, ri, rc, ra)
 
   putStrLn "\nDone."

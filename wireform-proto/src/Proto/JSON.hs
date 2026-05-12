@@ -70,6 +70,10 @@ module Proto.JSON
     -- * Bytes map helpers (maps with ByteString values)
   , bytesMapFieldToJSON
   , parseBytesMapFieldMaybe
+  , lazyBytesMapFieldToJSON
+  , parseLazyBytesMapFieldMaybe
+  , shortBytesMapFieldToJSON
+  , parseShortBytesMapFieldMaybe
   ) where
 
 import Data.Bifunctor (bimap, first)
@@ -396,6 +400,42 @@ parseBytesMapFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) ob
     pairs <- traverse (\(k, v) -> (,) (AesonKey.toText k) <$> protoBytesFromJSON v) (AesonKM.toList o)
     pure (Just (Map.fromList pairs))
   Just _ -> fail ("Expected object for bytes map field: " <> T.unpack key)
+
+-- | 'bytesMapFieldToJSON' specialised to 'BL.ByteString' values --
+-- used by the codegen when @frBytes = LazyBytesRep@ on a
+-- @map<K, bytes>@ field.
+lazyBytesMapFieldToJSON :: Text -> Map Text BL.ByteString -> (Text, Aeson.Value)
+lazyBytesMapFieldToJSON key m =
+  (key, Aeson.Object (AesonKM.fromList
+    (fmap (bimap AesonKey.fromText protoLazyBytesToJSON) (Map.toList m))))
+
+parseLazyBytesMapFieldMaybe
+  :: Aeson.Object -> Text -> Aeson.Parser (Maybe (Map Text BL.ByteString))
+parseLazyBytesMapFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just (Aeson.Object o) -> do
+    pairs <- traverse (\(k, v) -> (,) (AesonKey.toText k) <$> protoLazyBytesFromJSON v) (AesonKM.toList o)
+    pure (Just (Map.fromList pairs))
+  Just _ -> fail ("Expected object for lazy-bytes map field: " <> T.unpack key)
+
+-- | 'bytesMapFieldToJSON' specialised to 'SBS.ShortByteString' values --
+-- used by the codegen when @frBytes = ShortBytesRep@ on a
+-- @map<K, bytes>@ field.
+shortBytesMapFieldToJSON :: Text -> Map Text SBS.ShortByteString -> (Text, Aeson.Value)
+shortBytesMapFieldToJSON key m =
+  (key, Aeson.Object (AesonKM.fromList
+    (fmap (bimap AesonKey.fromText protoShortBytesToJSON) (Map.toList m))))
+
+parseShortBytesMapFieldMaybe
+  :: Aeson.Object -> Text -> Aeson.Parser (Maybe (Map Text SBS.ShortByteString))
+parseShortBytesMapFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just (Aeson.Object o) -> do
+    pairs <- traverse (\(k, v) -> (,) (AesonKey.toText k) <$> protoShortBytesFromJSON v) (AesonKM.toList o)
+    pure (Just (Map.fromList pairs))
+  Just _ -> fail ("Expected object for short-bytes map field: " <> T.unpack key)
 
 -- ---------------------------------------------------------------------------
 -- Internal numeric helpers

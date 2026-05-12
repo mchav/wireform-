@@ -484,7 +484,7 @@ fieldHaddock (FSField name num lbl ft _ _) =
   <> labelStr lbl
   <> fieldTypeStr ft <> ", field "
   <> show num <> ")\n"
-fieldHaddock (FSMap name num kt vt) =
+fieldHaddock (FSMap name num kt vt _) =
   "* @" <> T.unpack name <> "@ (map<"
   <> scalarStr kt <> ", " <> fieldTypeStr vt <> ">, field "
   <> show num <> ")\n"
@@ -526,6 +526,10 @@ data FieldSpec
     , fsNum     :: Int
     , fsMapKey  :: ScalarType
     , fsMapVal  :: FieldType
+    , fsMapRep  :: FieldRep
+      -- ^ Resolved per-field 'FieldRep'. Drives the bytes / string
+      -- rep of the value type and the JSON helper choice, the
+      -- same way 'fsRep' does for 'FSField'.
     }
   | FSOneof
     { fsName    :: Text
@@ -540,7 +544,7 @@ data FieldSpec
 
 fsFieldName :: FieldSpec -> Text
 fsFieldName (FSField n _ _ _ _ _) = n
-fsFieldName (FSMap n _ _ _) = n
+fsFieldName (FSMap n _ _ _ _) = n
 fsFieldName (FSOneof n _) = n
 
 extractMessageFields :: RepConfig -> Text -> [MessageElement] -> [FieldSpec]
@@ -559,6 +563,7 @@ extractMessageFields cfg msgN = concatMap go
       , fsNum    = unFieldNumber (mapFieldNum mf)
       , fsMapKey = mapKeyType mf
       , fsMapVal = mapValueType mf
+      , fsMapRep = lookupFieldRep msgN (mapFieldName mf) cfg
       }]
     go (MEOneof od) = [FSOneof
       { fsName        = oneofName od
@@ -584,10 +589,10 @@ mkDataDec scope tyName fields = do
       let fname = mkName (T.unpack (scopedHsFieldName parentName name))
       ty <- fieldTypeToTH scope lbl ft rep
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
-    mkField (FSMap name _ kt vt) = do
+    mkField (FSMap name _ kt vt rep) = do
       let fname = mkName (T.unpack (scopedHsFieldName parentName name))
       kty <- scalarToTH kt
-      vty <- fieldTypeInnerScopedQ scope defaultFieldRep vt
+      vty <- fieldTypeInnerScopedQ scope rep vt
       t <- appT (appT (conT ''Map) (pure kty)) (pure vty)
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, t)]
     mkField (FSOneof name _ofs) = do
@@ -1302,7 +1307,7 @@ fieldSpecToProtoField scope parentTy (FSField name num lbl ft rep opts) = do
     { PDI.pfStringRep = frString rep
     , PDI.pfBytesRep  = frBytes rep
     }
-fieldSpecToProtoField scope parentTy (FSMap name num kt vt) =
+fieldSpecToProtoField scope parentTy (FSMap name num kt vt rep) =
   case scalarToBridgeMapKey kt of
     Nothing  -> fail
       ("Proto.TH: map field '" <> T.unpack name
@@ -1312,8 +1317,12 @@ fieldSpecToProtoField scope parentTy (FSMap name num kt vt) =
       let parentName = T.pack (nameBase parentTy)
           sel   = mkName (T.unpack (scopedHsFieldName parentName name))
           pft   = fieldTypeToBridge scope vt
-          inner = innerHsType scope vt defaultFieldRep
-      in pure (PDI.protoField sel num (PDI.FKMap mks) pft inner)
+          inner = innerHsType scope vt rep
+          base  = PDI.protoField sel num (PDI.FKMap mks) pft inner
+      in pure base
+           { PDI.pfStringRep = frString rep
+           , PDI.pfBytesRep  = frBytes rep
+           }
 fieldSpecToProtoField scope parentTy (FSOneof name ofs) = do
   let parentName = T.pack (nameBase parentTy)
       sel       = mkName (T.unpack (scopedHsFieldName parentName name))
@@ -1529,9 +1538,13 @@ fieldSpecToMetaField scope parentTy fs = case fs of
          , PTM.mfBytesShape = bytesShape
          , PTM.mfJsonShape  = jsonShape
          }
-  FSMap name num kt vt ->
+  FSMap name num kt vt rep ->
     let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
         jsonNm   = protoJsonName name
+        bytesShape = case frBytes rep of
+          StrictBytesRep -> PTM.SBStrict
+          LazyBytesRep   -> PTM.SBLazy
+          ShortBytesRep  -> PTM.SBShort
         jsonKind = case vt of
           FTScalar SBytes -> PTM.JKBytesMap
           _               -> PTM.JKNormal
@@ -1549,7 +1562,7 @@ fieldSpecToMetaField scope parentTy fs = case fs of
          , PTM.mfLabel      = [| PS.LabelOptional |]
          , PTM.mfKind       = PTM.MFKMap
          , PTM.mfJsonKind   = jsonKind
-         , PTM.mfBytesShape = PTM.SBStrict
+         , PTM.mfBytesShape = bytesShape
          , PTM.mfJsonShape  = jsonShape
          }
   FSOneof name ofs ->

@@ -490,9 +490,13 @@ toJSONEntry msgVar mf =
          then []
          else $(pure (one (AppE toJSONHelper fieldExpr))) |]
     JKBytesMap ->
-      [| if Map.null $(pure fieldExpr)
+      let mapHelper = case shape of
+            SBStrict -> VarE 'PJI.bytesMapFieldToJSON
+            SBLazy   -> VarE 'PJ.lazyBytesMapFieldToJSON
+            SBShort  -> VarE 'PJ.shortBytesMapFieldToJSON
+      in [| if Map.null $(pure fieldExpr)
          then []
-         else [PJI.bytesMapFieldToJSON $(pure jsonKey) $(pure fieldExpr)] |]
+         else [$(pure (AppE (AppE mapHelper jsonKey) fieldExpr))] |]
     JKNormal -> jsonShapeEntry msgVar mf fieldExpr jsonKey one
 
 -- | The @JKNormal@ arm of 'toJSONEntry' factored out so the
@@ -908,7 +912,10 @@ oldParseFnFor mf =
           (_,        SBStrict) -> VarE 'PJ.parseBytesFieldMaybe
           (_,        SBLazy)   -> VarE 'PJ.parseLazyBytesFieldMaybe
           (_,        SBShort)  -> VarE 'PJ.parseShortBytesFieldMaybe
-        JKBytesMap    -> VarE 'PJ.parseBytesMapFieldMaybe
+        JKBytesMap    -> case mfBytesShape mf of
+          SBStrict -> VarE 'PJ.parseBytesMapFieldMaybe
+          SBLazy   -> VarE 'PJ.parseLazyBytesMapFieldMaybe
+          SBShort  -> VarE 'PJ.parseShortBytesMapFieldMaybe
         JKBytesVector -> case mfBytesShape mf of
           SBStrict -> VarE 'parseBytesVectorMaybe
           SBLazy   -> VarE 'parseLazyBytesVectorMaybe

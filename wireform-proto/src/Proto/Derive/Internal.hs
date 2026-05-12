@@ -1591,8 +1591,13 @@ mapKeyZeroE = \case
 mapValueZeroE :: ProtoField -> Q Exp
 mapValueZeroE pf = case pfType pf of
   PFScalar SBool   -> [| False |]
-  PFScalar SString -> [| T.empty |]
-  PFScalar SBytes  -> [| BS.empty |]
+  -- For SString / SBytes the per-rep empty value lines up with what
+  -- 'stringEmptyE' / 'bytesEmptyE' produce for a regular field; the
+  -- 'ProtoField' carries 'pfStringRep' / 'pfBytesRep' for exactly
+  -- this reason, so 'map<K, bytes>' with @frBytes = LazyBytesRep@
+  -- gets @BL.empty@ here (not @BS.empty@).
+  PFScalar SString -> stringEmptyE (pfStringRep pf)
+  PFScalar SBytes  -> bytesEmptyE  (pfBytesRep  pf)
   PFScalar SFloat  -> [| 0 :: Float |]
   PFScalar SDouble -> [| 0 :: Double |]
   PFScalar SInt32  -> [| 0 :: Int32 |]
