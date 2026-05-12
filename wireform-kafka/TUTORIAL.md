@@ -300,13 +300,9 @@ closeKafkaStreamsWith ks
 
 Standby tasks (`Kafka.Streams.Runtime.StandbyTask` /
 `StandbyDriver`) shadow active state; the changelog poll loop
-keeps them caught up. Cross-instance interactive queries are
-served over gRPC via
-[`wireform-grpc`](https://hackage.haskell.org/package/wireform-grpc):
-`Kafka.Streams.Discovery.RemoteIQ.grpcRemoteIq` opens the
-client side, `remoteIqGrpcHandler` plugs the server side into
-your existing `mkGrpcServer`. Use `disabledRemoteIq` for
-single-instance deployments and `mockRemoteIq` from tests.
+keeps them caught up. Cross-instance IQ
+(`Kafka.Streams.Discovery.RemoteIQ`) routes user queries to
+whichever instance owns the key.
 
 ## 9. Schema Registry serdes
 
