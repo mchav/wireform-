@@ -147,6 +147,10 @@ library
         Kafka.Client.ReauthDriver
         Kafka.Client.Simple
         Kafka.Client.Transaction
+        Kafka.Compression.BuilderGzip
+        Kafka.Compression.BuilderLz4
+        Kafka.Compression.BuilderSnappy
+        Kafka.Compression.BuilderZstd
         Kafka.Compression.Gzip
         Kafka.Compression.Lz4
         Kafka.Compression.Snappy
@@ -375,6 +379,7 @@ library
         binary                    >= 0.8   && < 0.11,
         bytestring                >= 0.11  && < 0.13,
         containers                >= 0.6   && < 0.8,
+        wireform-core             == 0.1.*,
         crypton                   >= 1.0   && < 1.1,
         crypton-connection        >= 0.4   && < 0.5,
         crypton-x509              >= 1.7   && < 1.8,
@@ -799,6 +804,7 @@ test-suite wireform-kafka-test
         Network.ReauthDriverSpec
         Protocol.ApiVersionsSpec
         Protocol.CompressionSpec
+        Protocol.StreamingSinkSpec
         Protocol.CRC32CSpec
         Protocol.Generated.ComprehensiveSpec
         Protocol.Generated.KnownGoodSpec
@@ -816,6 +822,7 @@ test-suite wireform-kafka-test
         TestUtil.BrokerGate
     build-depends:
         base,
+        wireform-core,
         wireform-kafka,
         wireform-kafka:wireform-kafka-codegen,
         prettyprinter             >= 1.7   && < 1.8,
@@ -829,6 +836,8 @@ test-suite wireform-kafka-test
         filepath                  >= 1.4   && < 1.6,
         memory                    >= 0.18  && < 0.19,
         time                      >= 1.11  && < 1.13,
+        zstd                      >= 0.1   && < 0.2,
+        zlib                      >= 0.6   && < 0.8,
         hedgehog                  >= 1.2   && < 2,
         binary,
         crypton-connection,

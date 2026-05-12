@@ -17,7 +17,7 @@ message ConfigEntry {
 }
 
 // A bundle of map<string, bytes> fields used to demonstrate that
-// the @frBytes@ override threads through to the value type of a
+// the @fieldBytes@ override threads through to the value type of a
 // proto map. Each field is independent of the others so the same
 // fixture exercises all three BytesRep choices in one round-trip.
 message Attachments {

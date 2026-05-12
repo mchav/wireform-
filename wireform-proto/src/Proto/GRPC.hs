@@ -1,29 +1,35 @@
 {-# LANGUAGE BangPatterns #-}
--- | gRPC message framing for HTTP\/2.
---
--- The gRPC wire format wraps each serialized protobuf message in a 5-byte
--- header: 1 byte compression flag + 4 bytes big-endian message length.
--- This module provides framing and unframing for both single and streaming
--- messages.
-module Proto.GRPC
-  ( grpcFrame
-  , grpcUnframe
-  , grpcFrameMany
-  , grpcUnframeMany
-  ) where
+
+{- | gRPC message framing for HTTP\/2.
+
+The gRPC wire format wraps each serialized protobuf message in a 5-byte
+header: 1 byte compression flag + 4 bytes big-endian message length.
+This module provides framing and unframing for both single and streaming
+messages.
+-}
+module Proto.GRPC (
+  grpcFrame,
+  grpcUnframe,
+  grpcFrameMany,
+  grpcUnframeMany,
+) where
 
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as B
-import qualified Data.ByteString.Lazy as BL
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BL
 import Data.Word (Word32)
+import Wireform.Builder qualified as B
+
 
 -- | Wrap a serialized message in a gRPC frame (compression=0).
 grpcFrame :: ByteString -> ByteString
-grpcFrame !msg = BL.toStrict $ B.toLazyByteString $
-  B.word8 0x00 <> putBE32 (fromIntegral (BS.length msg)) <> B.byteString msg
+grpcFrame !msg =
+  BL.toStrict $
+    B.toLazyByteString $
+      B.word8 0x00 <> putBE32 (fromIntegral (BS.length msg)) <> B.byteString msg
 {-# INLINE grpcFrame #-}
+
 
 -- | Extract the payload from a single gRPC frame.
 grpcUnframe :: ByteString -> Either String ByteString
@@ -35,21 +41,29 @@ grpcUnframe !bs
           !len = decodeBE32 bs 1
           !totalLen = 5 + fromIntegral len
       in if compFlag > 1
-         then Left $ "grpcUnframe: invalid compression flag: " ++ show compFlag
-         else if compFlag == 1
-         then Left "grpcUnframe: compressed frames not supported"
-         else if BS.length bs < totalLen
-         then Left "grpcUnframe: payload shorter than declared length"
-         else if BS.length bs > totalLen
-         then Left "grpcUnframe: trailing data after frame"
-         else Right (BS.take (fromIntegral len) (BS.drop 5 bs))
+          then Left $ "grpcUnframe: invalid compression flag: " ++ show compFlag
+          else
+            if compFlag == 1
+              then Left "grpcUnframe: compressed frames not supported"
+              else
+                if BS.length bs < totalLen
+                  then Left "grpcUnframe: payload shorter than declared length"
+                  else
+                    if BS.length bs > totalLen
+                      then Left "grpcUnframe: trailing data after frame"
+                      else Right (BS.take (fromIntegral len) (BS.drop 5 bs))
+
 
 -- | Frame multiple messages (for streaming).
 grpcFrameMany :: [ByteString] -> ByteString
-grpcFrameMany !msgs = BL.toStrict $ B.toLazyByteString $ mconcat
-  [ B.word8 0x00 <> putBE32 (fromIntegral (BS.length m)) <> B.byteString m
-  | m <- msgs
-  ]
+grpcFrameMany !msgs =
+  BL.toStrict $
+    B.toLazyByteString $
+      mconcat
+        [ B.word8 0x00 <> putBE32 (fromIntegral (BS.length m)) <> B.byteString m
+        | m <- msgs
+        ]
+
 
 -- | Extract multiple messages from a concatenated gRPC frame stream.
 grpcUnframeMany :: ByteString -> Either String [ByteString]
@@ -67,13 +81,19 @@ grpcUnframeMany !bs = go bs 0 []
               !payloadStart = off + 5
               !payloadEnd = payloadStart + fromIntegral len
           in if compFlag > 1
-             then Left $ "grpcUnframeMany: invalid compression flag: " ++ show compFlag
-             else if compFlag == 1
-             then Left "grpcUnframeMany: compressed frames not supported"
-             else if payloadEnd > bsLen
-             then Left "grpcUnframeMany: payload shorter than declared length"
-             else go bs payloadEnd
-                    (BS.take (fromIntegral len) (BS.drop payloadStart bs) : acc)
+              then Left $ "grpcUnframeMany: invalid compression flag: " ++ show compFlag
+              else
+                if compFlag == 1
+                  then Left "grpcUnframeMany: compressed frames not supported"
+                  else
+                    if payloadEnd > bsLen
+                      then Left "grpcUnframeMany: payload shorter than declared length"
+                      else
+                        go
+                          bs
+                          payloadEnd
+                          (BS.take (fromIntegral len) (BS.drop payloadStart bs) : acc)
+
 
 --------------------------------------------------------------------------------
 -- Internal helpers
@@ -81,11 +101,12 @@ grpcUnframeMany !bs = go bs 0 []
 
 putBE32 :: Word32 -> B.Builder
 putBE32 !w =
-  B.word8 (fromIntegral (w `shiftR` 24)) <>
-  B.word8 (fromIntegral ((w `shiftR` 16) .&. 0xFF)) <>
-  B.word8 (fromIntegral ((w `shiftR` 8) .&. 0xFF)) <>
-  B.word8 (fromIntegral (w .&. 0xFF))
+  B.word8 (fromIntegral (w `shiftR` 24))
+    <> B.word8 (fromIntegral ((w `shiftR` 16) .&. 0xFF))
+    <> B.word8 (fromIntegral ((w `shiftR` 8) .&. 0xFF))
+    <> B.word8 (fromIntegral (w .&. 0xFF))
 {-# INLINE putBE32 #-}
+
 
 decodeBE32 :: ByteString -> Int -> Word32
 decodeBE32 !bs !off =

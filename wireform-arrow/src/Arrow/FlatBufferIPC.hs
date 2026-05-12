@@ -84,7 +84,7 @@ module Arrow.FlatBufferIPC
 import Data.Bits ((.&.), (.|.), complement, shiftL)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as B
+import qualified Wireform.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int16, Int32, Int64)
 import qualified Data.Text as T

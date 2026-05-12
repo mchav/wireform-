@@ -40,7 +40,8 @@ build-depends:
 The package is part of the
 [wireform monorepo](https://github.com/iand675/wireform).
 Clone the repo and `cabal build wireform-kafka` to compile
-locally.
+locally. Compiling with the LLVM backend (`-fllvm`) adds compile
+time but measurably improves runtime performance.
 
 ## Hello world
 

@@ -522,6 +522,7 @@ benchmark compare-bench
     Proto.Bench_Fields
   build-depends:
       base               >= 4.16 && < 5
+    , wireform-core
     , wireform-proto
     , bytestring
     , text
@@ -818,7 +819,7 @@ executable example-protobuf
   import: defaults
   main-is: ProtobufExample.hs
   hs-source-dirs: examples
-  build-depends: base, wireform-proto, bytestring
+  build-depends: base, wireform-core, wireform-proto, bytestring
 
 executable example-xml
   import: defaults
@@ -852,7 +853,7 @@ executable wireform-bench
   import: defaults
   main-is: Main.hs
   hs-source-dirs: bench
-  build-depends: base, wireform-proto, bytestring, text, vector
+  build-depends: base, wireform-core, wireform-proto, bytestring, text, vector
 
 executable avro-thrift-bench
   import: defaults

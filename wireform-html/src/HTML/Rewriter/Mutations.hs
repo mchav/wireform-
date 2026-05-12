@@ -8,23 +8,24 @@ module HTML.Rewriter.Mutations where
 
 import Control.Exception (Exception, throwIO)
 import Control.Monad (unless, when)
+import Data.Array.Byte (ByteArray (ByteArray))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Internal (ByteString (BS))
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.Primitive.PrimArray (MutablePrimArray, readPrimArray, writePrimArray)
-import Data.Primitive.SmallArray (SmallArray, indexSmallArray, newSmallArray, sizeofSmallArray, runSmallArray, thawSmallArray, copySmallArray, writeSmallArray)
+import Data.Primitive.SmallArray (SmallArray, copySmallArray, indexSmallArray, newSmallArray, runSmallArray, sizeofSmallArray, thawSmallArray, writeSmallArray)
 import Data.Text (Text)
 import Data.Text.Encoding qualified as TE
-import Data.Array.Byte (ByteArray (ByteArray))
 import Data.Text.Internal (Text (..))
 import GHC.Exts (ByteArray#, Int (..), RealWorld, indexWord8Array#)
 import GHC.ForeignPtr (ForeignPtr (ForeignPtr))
 import GHC.Word (Word8 (W8#))
 import HTML.Parse (isWSByte, readByteOff, readTagAttrsBS)
 import HTML.Value (HTMLAttribute (..))
-import Data.ByteString.Builder qualified as BB
+import Wireform.Builder qualified as BB
+
 
 data ContentType = AsText | AsHTML
   deriving (Show, Eq)
@@ -34,14 +35,16 @@ data ContentType = AsText | AsHTML
 -- Mutations – intrusive sum, no extra Maybe box
 -- ---------------------------------------------------------------------------
 
--- | Shared mutation state for before/after/replace/remove.
--- 'MutNone' is the unmodified state; checking is a single pattern match.
+{- | Shared mutation state for before/after/replace/remove.
+'MutNone' is the unmodified state; checking is a single pattern match.
+-}
 data Mutations
   = MutNone
-  | Mut !BB.Builder !BB.Builder !(Maybe BB.Builder) !Bool
-  -- ^ before, after, replacement (builder), removed
-  | MutText !(Maybe BB.Builder) !(Maybe BB.Builder) !Text !ContentType !Bool
-  -- ^ before, after, replacement text, content type, removed
+  | -- | before, after, replacement (builder), removed
+    Mut !BB.Builder !BB.Builder !(Maybe BB.Builder) !Bool
+  | -- | before, after, replacement text, content type, removed
+    MutText !(Maybe BB.Builder) !(Maybe BB.Builder) !Text !ContentType !Bool
+
 
 -- | Apply f to the before/after/repl/removed fields. Allocates on first use.
 withMut :: IORef Mutations -> (BB.Builder -> BB.Builder -> Maybe BB.Builder -> Bool -> Mutations) -> IO ()
@@ -70,18 +73,22 @@ data ElemMut = ElemMut
   , emEndTagHandler :: !(Maybe (EndTagRef -> IO ()))
   }
 
+
 emptyElemMut :: ElemMut
 emptyElemMut = ElemMut Nothing Nothing [] Nothing Nothing False Nothing Nothing
 {-# INLINE emptyElemMut #-}
 
--- | Compact representation of element modifications.
--- Common cases (tag rename, new attrs) avoid the 72-byte ElemMut allocation.
+
+{- | Compact representation of element modifications.
+Common cases (tag rename, new attrs) avoid the 72-byte ElemMut allocation.
+-}
 data ElemMod
   = EMNone
   | EMTag !Text
   | EMNewAttrs ![(Text, Text)]
   | EMTagAndAttrs !Text ![(Text, Text)]
   | EMFull !ElemMut
+
 
 elemModToMut :: ElemMod -> Maybe ElemMut
 elemModToMut EMNone = Nothing
@@ -91,12 +98,14 @@ elemModToMut (EMTagAndAttrs t as) = Just (emptyElemMut {emTag = Just t, emNewAtt
 elemModToMut (EMFull m) = Just m
 {-# INLINE elemModToMut #-}
 
+
 elemModTag :: ElemMod -> Maybe Text
 elemModTag (EMTag t) = Just t
 elemModTag (EMTagAndAttrs t _) = Just t
 elemModTag (EMFull m) = emTag m
 elemModTag _ = Nothing
 {-# INLINE elemModTag #-}
+
 
 modifyElemMut :: ElementRef -> (ElemMut -> ElemMut) -> IO ()
 modifyElemMut er f = do
@@ -110,6 +119,7 @@ modifyElemMut er f = do
   writeIORef (_erElem er) $! EMFull $! f base
 {-# INLINE modifyElemMut #-}
 
+
 data ElementRef = ElementRef
   { _erOrigTag :: !(IORef Text)
   , _erOrigAttrs :: !(IORef (SmallArray HTMLAttribute))
@@ -117,7 +127,7 @@ data ElementRef = ElementRef
   , _erMut :: !(IORef Mutations)
   , _erElem :: !(IORef ElemMod)
   , _erInts :: !(MutablePrimArray RealWorld Int)
-    -- ^ slot 0 = valid (0/1), slot 1 = attrOff, slot 2 = srcLen
+  -- ^ slot 0 = valid (0/1), slot 1 = attrOff, slot 2 = srcLen
   , _erSharedBA :: !(IORef ByteArray)
   , _erSrcBS :: !(IORef ByteString)
   }
@@ -166,11 +176,13 @@ checkValidER er = do
   when ((v :: Int) == 0) $ throwIO (ExpiredRefError "ElementRef used outside its callback scope")
 {-# INLINE checkValidER #-}
 
+
 checkValid :: IORef Bool -> Text -> IO ()
 checkValid ref what = do
   v <- readIORef ref
   unless v $ throwIO (ExpiredRefError (what <> " used outside its callback scope"))
 {-# INLINE checkValid #-}
+
 
 encodeContent :: Text -> ContentType -> BB.Builder
 encodeContent text AsHTML = BB.byteString (TE.encodeUtf8 text)
@@ -208,6 +220,8 @@ escapeTextBuilder t =
                   <> BB.byteString "&amp;"
                   <> scanClean bs (off + 1) (off + 1) len
               _ -> scanClean bs start (off + 1) len
+
+
 lookupAttrArr :: Text -> SmallArray HTMLAttribute -> Maybe Text
 lookupAttrArr name arr = go 0
   where
@@ -237,14 +251,14 @@ setAttrArr name val arr =
   let !n = sizeofSmallArray arr
       !idx = findAttrIdx name arr
   in if idx >= 0
-    then runSmallArray $ do
-      ma <- thawSmallArray arr 0 n
-      writeSmallArray ma idx (HTMLAttribute name val)
-      pure ma
-    else runSmallArray $ do
-      ma <- newSmallArray (n + 1) (HTMLAttribute name val)
-      copySmallArray ma 0 arr 0 n
-      pure ma
+      then runSmallArray $ do
+        ma <- thawSmallArray arr 0 n
+        writeSmallArray ma idx (HTMLAttribute name val)
+        pure ma
+      else runSmallArray $ do
+        ma <- newSmallArray (n + 1) (HTMLAttribute name val)
+        copySmallArray ma 0 arr 0 n
+        pure ma
 {-# INLINE setAttrArr #-}
 
 
@@ -253,12 +267,12 @@ removeAttrArr name arr =
   let !n = sizeofSmallArray arr
       !idx = findAttrIdx name arr
   in if idx < 0
-    then arr
-    else runSmallArray $ do
-      ma <- newSmallArray (n - 1) (HTMLAttribute "" "")
-      copySmallArray ma 0 arr 0 idx
-      copySmallArray ma idx arr (idx + 1) (n - idx - 1)
-      pure ma
+      then arr
+      else runSmallArray $ do
+        ma <- newSmallArray (n - 1) (HTMLAttribute "" "")
+        copySmallArray ma 0 arr 0 idx
+        copySmallArray ma idx arr (idx + 1) (n - idx - 1)
+        pure ma
 {-# INLINE removeAttrArr #-}
 
 
@@ -268,8 +282,9 @@ findAttrIdx name arr = go 0
     !n = sizeofSmallArray arr
     go !i
       | i >= n = -1
-      | otherwise = let !(HTMLAttribute k _) = indexSmallArray arr i
-                    in if k == name then i else go (i + 1)
+      | otherwise =
+          let !(HTMLAttribute k _) = indexSmallArray arr i
+          in if k == name then i else go (i + 1)
 {-# INLINE findAttrIdx #-}
 
 
@@ -350,14 +365,15 @@ hasAttrNameInTag (BS (ForeignPtr addr# _) _) !off !end name = go off
       | otherwise =
           let !j1 = skipWS j
           in if j1 >= end || rd j1 /= 0x3D
-               then go j1
-               else
-                 let !j2 = skipWS (j1 + 1)
-                 in if j2 >= end then go j2
+              then go j1
+              else
+                let !j2 = skipWS (j1 + 1)
+                in if j2 >= end
+                    then go j2
                     else case rd j2 of
                       0x22 -> go (scanPast 0x22 (j2 + 1))
                       0x27 -> go (scanPast 0x27 (j2 + 1))
-                      _    -> go (scanUnq j2)
+                      _ -> go (scanUnq j2)
 
     scanPast !delim !j
       | j >= end = j
@@ -374,6 +390,8 @@ hasAttrNameInTag (BS (ForeignPtr addr# _) _) !off !end name = go off
       | isWSByte (rd j) = skipWS (j + 1)
       | otherwise = j
 {-# INLINE hasAttrNameInTag #-}
+
+
 getTagName :: ElementRef -> IO Text
 getTagName er = do
   checkValidER er
@@ -419,8 +437,9 @@ setElemAttr er name val = do
   case em of
     EMFull e@(ElemMut {emAttrs = Just attrs}) ->
       writeIORef (_erElem er) $! EMFull $! e {emAttrs = Just (setAttrArr name val attrs)}
-    EMFull e@(ElemMut {emNewAttrs = pending}) | not (null pending) ->
-      writeIORef (_erElem er) $! EMFull $! e {emNewAttrs = (name, val) : pending}
+    EMFull e@(ElemMut {emNewAttrs = pending})
+      | not (null pending) ->
+          writeIORef (_erElem er) $! EMFull $! e {emNewAttrs = (name, val) : pending}
     _ -> do
       attrOff <- readPrimArray (_erInts er) 1
       if (attrOff :: Int) >= 0
@@ -474,12 +493,13 @@ getElemAttrs er = do
   checkValidER er
   em <- readIORef (_erElem er)
   case em of
-    EMFull (ElemMut {emAttrs = Just a}) -> pure $
-      let !sz = sizeofSmallArray a
-          go !i acc
-            | i < 0 = acc
-            | otherwise = let !(HTMLAttribute n v) = indexSmallArray a i in go (i - 1) ((n, v) : acc)
-      in go (sz - 1) []
+    EMFull (ElemMut {emAttrs = Just a}) ->
+      pure $
+        let !sz = sizeofSmallArray a
+            go !i acc
+              | i < 0 = acc
+              | otherwise = let !(HTMLAttribute n v) = indexSmallArray a i in go (i - 1) ((n, v) : acc)
+        in go (sz - 1) []
     _ -> do
       origArr <- forceAttrs er
       let !sz = sizeofSmallArray origArr

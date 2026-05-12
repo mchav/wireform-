@@ -12,16 +12,30 @@ sources live in `cbits/` and the vendored [simde][simde] headers in
 
 ## What's in here
 
-| Module                  | Role                                                              |
-|-------------------------|-------------------------------------------------------------------|
-| `Wireform.FFI`          | C FFI surface (varints, UTF-8 / ASCII / NUL / JSON scanners, …). |
-| `Wireform.Encode.Direct`| Shared direct-write encode buffer.                                |
-| `Wireform.Hash`         | SIMD-accelerated hashing helpers.                                 |
+| Module                      | Role                                                              |
+|-----------------------------|-------------------------------------------------------------------|
+| `Wireform.Builder`          | High-performance byte builder (vendored fast-builder engine).     |
+| `Wireform.Builder.FastBuilder` | Builder internals: `DataSink`, `StreamSink`, `BuildM`, etc.    |
+| `Wireform.FFI`              | C FFI surface (varints, UTF-8 / ASCII / NUL / JSON scanners, …). |
+| `Wireform.Encode.Direct`    | Shared direct-write encode buffer.                                |
+| `Wireform.Hash`             | SIMD-accelerated hashing helpers.                                 |
 
-This package is intentionally tiny; it exists so the per-format
-packages can share their hottest C kernels (e.g. `validateUtf8SWAR`,
-`countPackedVarints`, `findByte`) without duplicating the
-`__attribute__((target(...)))` / `simde-features.h` plumbing.
+### Builder
+
+`Wireform.Builder` is the shared byte builder used by all wireform
+format packages. It supports O(1) concatenation, direct `Handle`
+output without intermediate `ByteString` allocation, and streaming
+transforms (compression, encryption) that process chunks as the
+builder produces them.
+
+Based on [fast-builder](https://github.com/takano-akio/fast-builder)
+by Takano Akio (public domain).
+
+This package is intentionally small; it exists so the per-format
+packages can share the builder engine and the hottest C kernels
+(e.g. `validateUtf8SWAR`, `countPackedVarints`, `findByte`) without
+duplicating the `__attribute__((target(...)))` / `simde-features.h`
+plumbing.
 
 ## License
 

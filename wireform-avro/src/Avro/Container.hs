@@ -30,7 +30,7 @@ import qualified Codec.Compression.Snappy as Snappy
 import qualified Data.Aeson as Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as B
+import qualified Wireform.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import qualified Data.Text as T

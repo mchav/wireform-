@@ -296,7 +296,9 @@ cabal build all
 
 `cabal build all` builds the whole workspace. LLVM is OFF
 workspace-wide (`-fasm` set in `cabal.project`), so a vanilla GHC
-toolchain is sufficient.
+toolchain is sufficient. Compiling with the LLVM backend (`-fllvm`)
+adds significant compile time but measurably improves runtime
+performance across the board -- worth it for production builds.
 
 The deriver-related work uses `--builddir=dist-derive` to keep its
 build state separate from `dist-newstyle/`:

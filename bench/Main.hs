@@ -1,20 +1,21 @@
 {-# LANGUAGE BangPatterns #-}
+
 module Main where
 
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as B
-import qualified Data.ByteString.Lazy as BL
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BL
 import Data.Text (Text)
-import qualified Data.Vector.Unboxed as VU
+import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word64)
-import System.CPUTime
-
-import Proto.Wire (Tag (..))
-import Proto.Wire.Encode
-import Proto.Wire.Decode
-import Proto.Encode
 import Proto.Decode
-import qualified Proto.SizedBuilder as SB
+import Proto.Encode
+import Proto.SizedBuilder qualified as SB
+import Proto.Wire (Tag (..))
+import Proto.Wire.Decode
+import Proto.Wire.Encode
+import System.CPUTime
+import Wireform.Builder qualified as B
+
 
 main :: IO ()
 main = do
@@ -29,6 +30,7 @@ main = do
   benchPackedDecode
   benchSizeCalculation
   benchSizedBuilderEncode
+
 
 benchVarintEncode :: IO ()
 benchVarintEncode = do
@@ -45,11 +47,14 @@ benchVarintEncode = do
     go 0 !acc = acc
     go !i !acc = go (i - 1) (acc <> putVarint (fromIntegral i))
 
+
 benchVarintDecode :: IO ()
 benchVarintDecode = do
   let n = 100000 :: Int
-      encoded = BL.toStrict $ B.toLazyByteString $
-        foldMap (\i -> putVarint (fromIntegral (i :: Int))) [1..n]
+      encoded =
+        BL.toStrict $
+          B.toLazyByteString $
+            foldMap (\i -> putVarint (fromIntegral (i :: Int))) [1 .. n]
 
   putStrLn "\nVarint decode (100k varints):"
 
@@ -67,7 +72,8 @@ benchVarintDecode = do
           | off >= len = count
           | otherwise = case runDecoder' getVarint bs off of
               DecodeOK _ off' -> go (count + 1) off'
-              DecodeFail _    -> count
+              DecodeFail _ -> count
+
 
 benchMessageEncode :: IO ()
 benchMessageEncode = do
@@ -86,6 +92,7 @@ benchMessageEncode = do
     go 0 !acc = acc
     go !i !acc = go (i - 1) (acc + BS.length (encodeMessage msg))
 
+
 benchMessageDecode :: IO ()
 benchMessageDecode = do
   let n = 10000 :: Int
@@ -103,11 +110,12 @@ benchMessageDecode = do
     go _ 0 !acc = acc
     go enc !i !acc = case decodeMessage enc :: Either DecodeError BenchMsg of
       Right _ -> go enc (i - 1) (acc + 1)
-      Left _  -> go enc (i - 1) acc
+      Left _ -> go enc (i - 1) acc
+
 
 benchPackedEncode :: IO ()
 benchPackedEncode = do
-  let vals = VU.fromList [1..10000 :: Word64]
+  let vals = VU.fromList [1 .. 10000 :: Word64]
 
   putStrLn "\nPacked varint encode (10k values):"
 
@@ -118,9 +126,10 @@ benchPackedEncode = do
   putStrLn $ "  Time: " <> show ((t2 - t1) `div` 1000000000) <> " ms"
   putStrLn $ "  Output size: " <> show (BS.length bs) <> " bytes"
 
+
 benchPackedDecode :: IO ()
 benchPackedDecode = do
-  let vals = VU.fromList [1..10000 :: Word64]
+  let vals = VU.fromList [1 .. 10000 :: Word64]
       encoded = BL.toStrict $ B.toLazyByteString $ encodePackedVarint 1 vals
 
   putStrLn "\nPacked varint decode (10k values):"
@@ -132,6 +141,7 @@ benchPackedDecode = do
       putStrLn $ "  Time: " <> show ((t2 - t1) `div` 1000000000) <> " ms"
       putStrLn $ "  Decoded: " <> show (VU.length decoded) <> " values"
     Left e -> putStrLn $ "  Error: " <> show e
+
 
 benchSizeCalculation :: IO ()
 benchSizeCalculation = do
@@ -150,31 +160,37 @@ benchSizeCalculation = do
     go 0 !acc = acc
     go !i !acc = go (i - 1) (acc + messageSize msg)
 
+
 -- Benchmark message type
 
 data BenchMsg = BenchMsg
-  { bmValue  :: {-# UNPACK #-} !Word64
-  , bmName   :: !Text
+  { bmValue :: {-# UNPACK #-} !Word64
+  , bmName :: !Text
   , bmActive :: !Bool
-  } deriving stock (Show, Eq)
+  }
+  deriving stock (Show, Eq)
+
 
 instance MessageEncode BenchMsg where
   buildMessage msg =
-    (if bmValue msg /= 0 then encodeFieldVarint 1 (bmValue msg) else mempty) <>
-    (if bmName msg /= "" then encodeFieldString 2 (bmName msg) else mempty) <>
-    (if bmActive msg then encodeFieldBool 3 True else mempty)
+    (if bmValue msg /= 0 then encodeFieldVarint 1 (bmValue msg) else mempty)
+      <> (if bmName msg /= "" then encodeFieldString 2 (bmName msg) else mempty)
+      <> (if bmActive msg then encodeFieldBool 3 True else mempty)
+
 
 instance MessageSize BenchMsg where
   messageSize msg =
-    (if bmValue msg /= 0 then fieldVarintSize 1 (bmValue msg) else 0) +
-    (if bmName msg /= "" then fieldTextSize 2 (bmName msg) else 0) +
-    (if bmActive msg then fieldBoolSize 3 else 0)
+    (if bmValue msg /= 0 then fieldVarintSize 1 (bmValue msg) else 0)
+      + (if bmName msg /= "" then fieldTextSize 2 (bmName msg) else 0)
+      + (if bmActive msg then fieldBoolSize 3 else 0)
+
 
 buildSizedBenchMsg :: BenchMsg -> SB.SizedBuilder
 buildSizedBenchMsg msg =
-  (if bmValue msg /= 0 then sizedFieldVarint 1 (bmValue msg) else mempty) <>
-  (if bmName msg /= "" then sizedFieldString 2 (bmName msg) else mempty) <>
-  (if bmActive msg then sizedFieldBool 3 True else mempty)
+  (if bmValue msg /= 0 then sizedFieldVarint 1 (bmValue msg) else mempty)
+    <> (if bmName msg /= "" then sizedFieldString 2 (bmName msg) else mempty)
+    <> (if bmActive msg then sizedFieldBool 3 True else mempty)
+
 
 benchSizedBuilderEncode :: IO ()
 benchSizedBuilderEncode = do
@@ -192,6 +208,7 @@ benchSizedBuilderEncode = do
     msg = BenchMsg 42 "hello world benchmark" True
     go 0 !acc = acc
     go !i !acc = go (i - 1) (acc + BS.length (SB.toByteString (buildSizedBenchMsg msg)))
+
 
 instance MessageDecode BenchMsg where
   messageDecoder = loop 0 "" False

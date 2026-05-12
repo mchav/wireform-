@@ -1,43 +1,46 @@
 {-# LANGUAGE BangPatterns #-}
 
--- | ORC Run-Length Encoding for integer and boolean streams.
---
--- ORC uses two generations of integer RLE:
---
--- * __RLE v1__ (older files): run/literal with signed varints and byte deltas
--- * __RLE v2__ (modern files): four sub-encodings selected by the top 2 bits
---   of the header byte — Short Repeat, Direct, Patched Base, Delta
---
--- Boolean columns use byte-level RLE followed by MSB-first bit extraction.
-module ORC.RLE
-  ( decodeRLEv1Int
-  , decodeRLEv2Int
-  , decodeRLEv2IntAll
-  , decodeBooleanRLE
-  , decodePresentStream
-    -- * Encoding helpers (used by ORC.Write)
-  , zigzagEncode
-  , putVulong
-  , encodeWidth
-  , bitWidth
-  , closestWidth
-  , packBitsMSB
-  , encodeByteRLE
-  ) where
+{- | ORC Run-Length Encoding for integer and boolean streams.
+
+ORC uses two generations of integer RLE:
+
+* __RLE v1__ (older files): run/literal with signed varints and byte deltas
+* __RLE v2__ (modern files): four sub-encodings selected by the top 2 bits
+  of the header byte — Short Repeat, Direct, Patched Base, Delta
+
+Boolean columns use byte-level RLE followed by MSB-first bit extraction.
+-}
+module ORC.RLE (
+  decodeRLEv1Int,
+  decodeRLEv2Int,
+  decodeRLEv2IntAll,
+  decodeBooleanRLE,
+  decodePresentStream,
+
+  -- * Encoding helpers (used by ORC.Write)
+  zigzagEncode,
+  putVulong,
+  encodeWidth,
+  bitWidth,
+  closestWidth,
+  packBitsMSB,
+  encodeByteRLE,
+) where
 
 import Control.Monad (when)
 import Control.Monad.ST (ST, runST)
 import Data.Bits (complement, shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as B
-import qualified Data.ByteString.Lazy as BL
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64, Int8)
 import Data.STRef ()
+import Data.Vector qualified as V
+import Data.Vector.Primitive qualified as VP
+import Data.Vector.Primitive.Mutable qualified as MVP
 import Data.Word (Word64, Word8)
-import qualified Data.Vector as V
-import qualified Data.Vector.Primitive as VP
-import qualified Data.Vector.Primitive.Mutable as MVP
+import Wireform.Builder qualified as B
+
 
 ------------------------------------------------------------------------
 -- Public API
@@ -48,9 +51,11 @@ import qualified Data.Vector.Primitive.Mutable as MVP
 decodePresentStream :: Int -> ByteString -> Either String (V.Vector Bool)
 decodePresentStream = decodeBooleanRLE
 
--- | Decode ORC boolean column data.
---
--- Byte-level RLE produces raw bytes, then each bit is extracted MSB-first.
+
+{- | Decode ORC boolean column data.
+
+Byte-level RLE produces raw bytes, then each bit is extracted MSB-first.
+-}
 decodeBooleanRLE :: Int -> ByteString -> Either String (V.Vector Bool)
 decodeBooleanRLE numValues bs = do
   bytes <- decodeByteRLE bs
@@ -58,10 +63,11 @@ decodeBooleanRLE numValues bs = do
   if numValues > nbits
     then Left "ORC.RLE: boolean stream too short for requested values"
     else Right $! V.generate numValues $ \i ->
-           let !byteIdx = i `quot` 8
-               !bitIdx  = 7 - (i `rem` 8)
-               !b       = VP.unsafeIndex bytes byteIdx
-           in b .&. (1 `shiftL` bitIdx) /= 0
+      let !byteIdx = i `quot` 8
+          !bitIdx = 7 - (i `rem` 8)
+          !b = VP.unsafeIndex bytes byteIdx
+      in b .&. (1 `shiftL` bitIdx) /= 0
+
 
 -- | Decode ORC RLE v1 signed integers.
 decodeRLEv1Int :: Int -> ByteString -> Either String (VP.Vector Int64)
@@ -71,13 +77,15 @@ decodeRLEv1Int numValues bs
       out <- MVP.unsafeNew numValues
       result <- rleV1Loop bs 0 out 0 numValues
       case result of
-        Left e  -> return (Left e)
+        Left e -> return (Left e)
         Right _ -> Right <$> VP.unsafeFreeze out
 
--- | Decode ORC RLE v2 integers.
---
--- When @signed@ is 'True', values are zigzag-decoded.
--- Supports Short Repeat, Direct, and Delta sub-encodings.
+
+{- | Decode ORC RLE v2 integers.
+
+When @signed@ is 'True', values are zigzag-decoded.
+Supports Short Repeat, Direct, and Delta sub-encodings.
+-}
 decodeRLEv2Int :: Bool -> Int -> ByteString -> Either String (VP.Vector Int64)
 decodeRLEv2Int _signed numValues bs
   | numValues <= 0 = Right VP.empty
@@ -85,21 +93,23 @@ decodeRLEv2Int _signed numValues bs
       out <- MVP.unsafeNew numValues
       result <- rleV2Loop _signed bs 0 out 0 numValues
       case result of
-        Left e  -> return (Left e)
+        Left e -> return (Left e)
         Right _ -> Right <$> VP.unsafeFreeze out
 
--- | Decode an ORC RLE v2 stream to end-of-stream. Unlike
--- 'decodeRLEv2Int', the caller does not have to know the number of
--- values up front — we keep decoding runs until the byte string is
--- exhausted. Used by the DICTIONARY_V2 string reader, where the
--- dictionary length stream has one value per unique entry and that
--- count isn't recorded anywhere in the column metadata.
---
--- We implement this by giving the bulk decoder a generous upper bound
--- (one value per input byte is always safe — every RLE-v2 run header
--- is at least one byte) and then trimming the output. The bulk loop
--- signals end-of-stream with a specific error tag that we recover as
--- a normal termination.
+
+{- | Decode an ORC RLE v2 stream to end-of-stream. Unlike
+'decodeRLEv2Int', the caller does not have to know the number of
+values up front — we keep decoding runs until the byte string is
+exhausted. Used by the DICTIONARY_V2 string reader, where the
+dictionary length stream has one value per unique entry and that
+count isn't recorded anywhere in the column metadata.
+
+We implement this by giving the bulk decoder a generous upper bound
+(one value per input byte is always safe — every RLE-v2 run header
+is at least one byte) and then trimming the output. The bulk loop
+signals end-of-stream with a specific error tag that we recover as
+a normal termination.
+-}
 decodeRLEv2IntAll :: Bool -> ByteString -> Either String (VP.Vector Int64)
 decodeRLEv2IntAll signed bs
   | BS.null bs = Right VP.empty
@@ -114,36 +124,43 @@ decodeRLEv2IntAll signed bs
       -- by stepping one run at a time.
       result <- rleV2LoopCounting signed bs 0 out 0 cap
       case result of
-        Left e          -> return (Left e)
-        Right written   -> do
+        Left e -> return (Left e)
+        Right written -> do
           frozen <- VP.unsafeFreeze out
           return (Right $! VP.take written frozen)
 
--- | Like 'rleV2Loop' but returns the number of values actually
--- written when the byte stream is exhausted. Distinguishes
--- "requested more than the stream encodes" (natural EOF — return
--- the written count) from "run header indexed past the end of its
--- own payload" (genuine corruption — surface the error).
+
+{- | Like 'rleV2Loop' but returns the number of values actually
+written when the byte stream is exhausted. Distinguishes
+"requested more than the stream encodes" (natural EOF — return
+the written count) from "run header indexed past the end of its
+own payload" (genuine corruption — surface the error).
+-}
 rleV2LoopCounting
-  :: Bool -> ByteString -> Int
-  -> MVP.MVector s Int64 -> Int -> Int
+  :: Bool
+  -> ByteString
+  -> Int
+  -> MVP.MVector s Int64
+  -> Int
+  -> Int
   -> ST s (Either String Int)
 rleV2LoopCounting signed bs !off out !written !need
   | written >= need = return (Right written)
   | off >= BS.length bs = return (Right written)
   | otherwise = do
       let !firstByte = fromIntegral (BS.index bs off) :: Int
-          !enc       = (firstByte `shiftR` 6) .&. 3
+          !enc = (firstByte `shiftR` 6) .&. 3
       step <- case enc of
         0 -> rleV2ShortRepeatStep signed firstByte bs off out written (need - written)
-        1 -> rleV2DirectStep      signed firstByte bs off out written (need - written)
+        1 -> rleV2DirectStep signed firstByte bs off out written (need - written)
         2 -> rleV2PatchedBaseStep signed firstByte bs off out written (need - written)
-        3 -> rleV2DeltaStep       signed firstByte bs off out written (need - written)
+        3 -> rleV2DeltaStep signed firstByte bs off out written (need - written)
         _ -> return (Left "ORC.RLE: invalid RLE v2 encoding")
       case step of
-        Left e               -> return (Left e)
+        Left e -> return (Left e)
         Right (off', written') ->
           rleV2LoopCounting signed bs off' out written' need
+
 
 ------------------------------------------------------------------------
 -- Byte RLE (used by boolean streams)
@@ -160,7 +177,7 @@ decodeByteRLE bs = do
     go !off !acc
       | off >= bsLen = Right acc
       | otherwise = do
-          let !ctrl    = fromIntegral (BS.index bs off) :: Int8
+          let !ctrl = fromIntegral (BS.index bs off) :: Int8
               !ctrlInt = fromIntegral ctrl :: Int
           if ctrl >= 0
             then do
@@ -168,7 +185,7 @@ decodeByteRLE bs = do
               if off + 1 >= bsLen
                 then Left "ORC.RLE: truncated byte RLE run"
                 else do
-                  let !val   = BS.index bs (off + 1)
+                  let !val = BS.index bs (off + 1)
                       !chunk = BS.replicate runLen val
                   go (off + 2) (chunk : acc)
             else do
@@ -179,20 +196,24 @@ decodeByteRLE bs = do
                   let !chunk = BS.take litLen (BS.drop (off + 1) bs)
                   go (off + 1 + litLen) (chunk : acc)
 
+
 ------------------------------------------------------------------------
 -- RLE v1
 ------------------------------------------------------------------------
 
 rleV1Loop
-  :: ByteString -> Int
-  -> MVP.MVector s Int64 -> Int -> Int
+  :: ByteString
+  -> Int
+  -> MVP.MVector s Int64
+  -> Int
+  -> Int
   -> ST s (Either String ())
 rleV1Loop bs !off out !written !need
   | written >= need = return (Right ())
   | off >= BS.length bs =
       return (Left "ORC.RLE: truncated RLE v1 stream")
   | otherwise = do
-      let !ctrl    = fromIntegral (BS.index bs off) :: Int8
+      let !ctrl = fromIntegral (BS.index bs off) :: Int8
           !ctrlInt = fromIntegral ctrl :: Int
       if ctrl >= 0
         then do
@@ -214,33 +235,42 @@ rleV1Loop bs !off out !written !need
                   rleV1Loop bs off' out (written + emit) need
         else do
           let !litLen = negate ctrlInt
-              !emit   = min litLen (need - written)
+              !emit = min litLen (need - written)
           result <- readLits bs (off + 1) out written emit
           case result of
-            Left e       -> return (Left e)
+            Left e -> return (Left e)
             Right off' -> rleV1Loop bs off' out (written + emit) need
 
+
 readLits
-  :: ByteString -> Int
-  -> MVP.MVector s Int64 -> Int -> Int
+  :: ByteString
+  -> Int
+  -> MVP.MVector s Int64
+  -> Int
+  -> Int
   -> ST s (Either String Int)
 readLits bs !off out !written !n = go 0 off
   where
     go !i !o
       | i >= n = return (Right o)
       | otherwise = case readVslong bs o of
-          Left e        -> return (Left e)
+          Left e -> return (Left e)
           Right (val, o') -> do
             MVP.unsafeWrite out (written + i) val
             go (i + 1) o'
+
 
 ------------------------------------------------------------------------
 -- RLE v2
 ------------------------------------------------------------------------
 
 rleV2Loop
-  :: Bool -> ByteString -> Int
-  -> MVP.MVector s Int64 -> Int -> Int
+  :: Bool
+  -> ByteString
+  -> Int
+  -> MVP.MVector s Int64
+  -> Int
+  -> Int
   -> ST s (Either String ())
 rleV2Loop signed bs !off out !written !need
   | written >= need = return (Right ())
@@ -249,45 +279,58 @@ rleV2Loop signed bs !off out !written !need
   | otherwise = do
       step <- rleV2Step signed bs off out written (need - written)
       case step of
-        Left e               -> return (Left e)
+        Left e -> return (Left e)
         Right (off', written') ->
           rleV2Loop signed bs off' out written' need
 
--- | Decode exactly one RLE-v2 run and return @(nextOffset, newWritten)@.
--- Shared by the fixed-count decoder ('rleV2Loop', via 'decodeRLEv2Int')
--- and the EOF decoder ('rleV2LoopCounting', via 'decodeRLEv2IntAll').
+
+{- | Decode exactly one RLE-v2 run and return @(nextOffset, newWritten)@.
+Shared by the fixed-count decoder ('rleV2Loop', via 'decodeRLEv2Int')
+and the EOF decoder ('rleV2LoopCounting', via 'decodeRLEv2IntAll').
+-}
 rleV2Step
-  :: Bool -> ByteString -> Int
-  -> MVP.MVector s Int64 -> Int -> Int
+  :: Bool
+  -> ByteString
+  -> Int
+  -> MVP.MVector s Int64
+  -> Int
+  -> Int
   -> ST s (Either String (Int, Int))
 rleV2Step signed bs !off out !written !cap
-  | cap <= 0           = return (Right (off, written))
+  | cap <= 0 = return (Right (off, written))
   | off >= BS.length bs = return (Left "ORC.RLE: truncated RLE v2 stream")
   | otherwise = do
       let !firstByte = fromIntegral (BS.index bs off) :: Int
-          !enc       = (firstByte `shiftR` 6) .&. 3
+          !enc = (firstByte `shiftR` 6) .&. 3
       case enc of
         0 -> rleV2ShortRepeatStep signed firstByte bs off out written cap
-        1 -> rleV2DirectStep      signed firstByte bs off out written cap
+        1 -> rleV2DirectStep signed firstByte bs off out written cap
         2 -> rleV2PatchedBaseStep signed firstByte bs off out written cap
-        3 -> rleV2DeltaStep       signed firstByte bs off out written cap
+        3 -> rleV2DeltaStep signed firstByte bs off out written cap
         _ -> return (Left "ORC.RLE: invalid RLE v2 encoding")
 
--- | Short Repeat: value repeated 3-10 times. Step variant — decodes
--- one run and returns @(newOffset, newWritten)@.
+
+{- | Short Repeat: value repeated 3-10 times. Step variant — decodes
+one run and returns @(newOffset, newWritten)@.
+-}
 rleV2ShortRepeatStep
-  :: Bool -> Int -> ByteString -> Int
-  -> MVP.MVector s Int64 -> Int -> Int
+  :: Bool
+  -> Int
+  -> ByteString
+  -> Int
+  -> MVP.MVector s Int64
+  -> Int
+  -> Int
   -> ST s (Either String (Int, Int))
 rleV2ShortRepeatStep signed firstByte bs !off out !written !cap = do
   let !widthBytes = ((firstByte `shiftR` 3) .&. 7) + 1
-      !count      = (firstByte .&. 7) + 3
+      !count = (firstByte .&. 7) + 3
   if off + 1 + widthBytes > BS.length bs
     then return (Left "ORC.RLE: truncated SHORT_REPEAT value")
     else do
       let !rawVal = readBigEndian bs (off + 1) widthBytes
-          !val    = if signed then zigzagDecode rawVal else fromIntegral rawVal
-          !emit   = min count cap
+          !val = if signed then zigzagDecode rawVal else fromIntegral rawVal
+          !emit = min count cap
           fill !i
             | i >= emit = pure ()
             | otherwise = do
@@ -296,23 +339,29 @@ rleV2ShortRepeatStep signed firstByte bs !off out !written !cap = do
       fill 0
       return (Right (off + 1 + widthBytes, written + emit))
 
+
 -- | Direct: bit-packed values at a fixed width. Step variant.
 rleV2DirectStep
-  :: Bool -> Int -> ByteString -> Int
-  -> MVP.MVector s Int64 -> Int -> Int
+  :: Bool
+  -> Int
+  -> ByteString
+  -> Int
+  -> MVP.MVector s Int64
+  -> Int
+  -> Int
   -> ST s (Either String (Int, Int))
 rleV2DirectStep signed firstByte bs !off out !written !cap = do
   if off + 1 >= BS.length bs
     then return (Left "ORC.RLE: truncated DIRECT header")
     else do
-      let !encodedW   = (firstByte `shiftR` 1) .&. 0x1F
-          !w          = decodeWidth encodedW
-          !lenHigh    = firstByte .&. 1
+      let !encodedW = (firstByte `shiftR` 1) .&. 0x1F
+          !w = decodeWidth encodedW
+          !lenHigh = firstByte .&. 1
           !secondByte = fromIntegral (BS.index bs (off + 1)) :: Int
-          !len        = (lenHigh `shiftL` 8) .|. secondByte + 1
-          !totalBits  = len * w
+          !len = (lenHigh `shiftL` 8) .|. secondByte + 1
+          !totalBits = len * w
           !totalBytes = (totalBits + 7) `quot` 8
-          !dataOff    = off + 2
+          !dataOff = off + 2
       if dataOff + totalBytes > BS.length bs
         then return (Left "ORC.RLE: truncated DIRECT data")
         else do
@@ -321,35 +370,42 @@ rleV2DirectStep signed firstByte bs !off out !written !cap = do
                 | i >= emit = pure ()
                 | otherwise = do
                     let !rawVal = extractBitsMSB (i * w) w bs dataOff
-                        !val    = if signed
-                                    then zigzagDecode rawVal
-                                    else fromIntegral rawVal
+                        !val =
+                          if signed
+                            then zigzagDecode rawVal
+                            else fromIntegral rawVal
                     MVP.unsafeWrite out (written + i) val
                     unpack (i + 1)
           unpack 0
           return (Right (dataOff + totalBytes, written + emit))
 
+
 -- | Delta: base value + incremental deltas. Step variant.
 rleV2DeltaStep
-  :: Bool -> Int -> ByteString -> Int
-  -> MVP.MVector s Int64 -> Int -> Int
+  :: Bool
+  -> Int
+  -> ByteString
+  -> Int
+  -> MVP.MVector s Int64
+  -> Int
+  -> Int
   -> ST s (Either String (Int, Int))
 rleV2DeltaStep signed firstByte bs !off out !written !cap = do
   if off + 1 >= BS.length bs
     then return (Left "ORC.RLE: truncated DELTA header")
     else do
-      let !encodedW   = (firstByte `shiftR` 1) .&. 0x1F
+      let !encodedW = (firstByte `shiftR` 1) .&. 0x1F
           -- ORC v2 spec: in DELTA the bit-width field's special
           -- value 0 means "delta is constant" — the per-delta
           -- packed payload is omitted and every value is
           -- @prev + deltaBase@. Outside DELTA, decodeWidth's
           -- usual table maps 0 -> 1 (one-bit width); we override
           -- here so the constant-delta path below fires.
-          !w          = if encodedW == 0 then 0 else decodeWidth encodedW
-          !lenHigh    = firstByte .&. 1
+          !w = if encodedW == 0 then 0 else decodeWidth encodedW
+          !lenHigh = firstByte .&. 1
           !secondByte = fromIntegral (BS.index bs (off + 1)) :: Int
-          !headerLen  = (lenHigh `shiftL` 8) .|. secondByte
-          !len        = headerLen + 1
+          !headerLen = (lenHigh `shiftL` 8) .|. secondByte
+          !len = headerLen + 1
 
       let readBase = if signed then readVslong bs (off + 2) else readVulongAsInt64 bs (off + 2)
       case readBase of
@@ -388,34 +444,41 @@ rleV2DeltaStep signed firstByte bs !off out !written !cap = do
                               | i >= numDeltas || 2 + i >= cap = pure ()
                               | otherwise = do
                                   let !adj = fromIntegral (extractBitsMSB (i * w) w bs off2) :: Int64
-                                      !val = if deltaBase >= 0
-                                               then prevVal + adj
-                                               else prevVal - adj
+                                      !val =
+                                        if deltaBase >= 0
+                                          then prevVal + adj
+                                          else prevVal - adj
                                   MVP.unsafeWrite out (written + 2 + i) val
                                   emitDeltas (i + 1) val
                         emitDeltas 0 secondVal
                         return (Right (off2 + deltaBytes, written + min len cap))
 
+
 -- | Patched Base: base value + packed values + sparse patches. Step variant.
 rleV2PatchedBaseStep
-  :: Bool -> Int -> ByteString -> Int
-  -> MVP.MVector s Int64 -> Int -> Int
+  :: Bool
+  -> Int
+  -> ByteString
+  -> Int
+  -> MVP.MVector s Int64
+  -> Int
+  -> Int
   -> ST s (Either String (Int, Int))
 rleV2PatchedBaseStep signed firstByte bs !off out !written !cap = do
   if off + 3 >= BS.length bs
     then return (Left "ORC.RLE: truncated PATCHED_BASE header")
     else do
-      let !encodedW    = (firstByte `shiftR` 1) .&. 0x1F
-          !w           = decodeWidth encodedW
-          !lenHigh     = firstByte .&. 1
-          !secondByte  = fromIntegral (BS.index bs (off + 1)) :: Int
-          !len         = (lenHigh `shiftL` 8) .|. secondByte + 1
-          !thirdByte   = fromIntegral (BS.index bs (off + 2)) :: Int
-          !fourthByte  = fromIntegral (BS.index bs (off + 3)) :: Int
-          !baseWidth   = ((thirdByte `shiftR` 5) .&. 7) + 1
-          !patchWidth  = decodeWidth (thirdByte .&. 0x1F)
+      let !encodedW = (firstByte `shiftR` 1) .&. 0x1F
+          !w = decodeWidth encodedW
+          !lenHigh = firstByte .&. 1
+          !secondByte = fromIntegral (BS.index bs (off + 1)) :: Int
+          !len = (lenHigh `shiftL` 8) .|. secondByte + 1
+          !thirdByte = fromIntegral (BS.index bs (off + 2)) :: Int
+          !fourthByte = fromIntegral (BS.index bs (off + 3)) :: Int
+          !baseWidth = ((thirdByte `shiftR` 5) .&. 7) + 1
+          !patchWidth = decodeWidth (thirdByte .&. 0x1F)
           !patchGapWidth = ((fourthByte `shiftR` 5) .&. 7) + 1
-          !patchListLen  = fourthByte .&. 0x1F
+          !patchListLen = fourthByte .&. 0x1F
       let !baseOff = off + 4
           !baseBytes = (baseWidth * 8 + 7) `quot` 8
       if baseOff + baseBytes > BS.length bs
@@ -424,9 +487,10 @@ rleV2PatchedBaseStep signed firstByte bs !off out !written !cap = do
           let !rawBase = readBigEndian bs baseOff baseBytes
               -- Sign-extend the base value: if MSB of baseWidth*8 bits is set, it's negative
               !baseBits = baseWidth * 8
-              !baseVal = if baseBits < 64 && rawBase .&. (1 `shiftL` (baseBits - 1)) /= 0
-                           then fromIntegral (rawBase .|. (complement ((1 `shiftL` baseBits) - 1))) :: Int64
-                           else fromIntegral rawBase :: Int64
+              !baseVal =
+                if baseBits < 64 && rawBase .&. (1 `shiftL` (baseBits - 1)) /= 0
+                  then fromIntegral (rawBase .|. (complement ((1 `shiftL` baseBits) - 1))) :: Int64
+                  else fromIntegral rawBase :: Int64
 
               !dataOff = baseOff + baseBytes
               !totalBits = len * w
@@ -456,9 +520,9 @@ rleV2PatchedBaseStep signed firstByte bs !off out !written !cap = do
                         | p >= patchListLen = pure ()
                         | otherwise = do
                             let !entry = extractBitsMSB (p * patchEntryWidth) patchEntryWidth bs patchOff
-                                !gap   = fromIntegral (entry `shiftR` patchWidth) :: Int
+                                !gap = fromIntegral (entry `shiftR` patchWidth) :: Int
                                 !patch = fromIntegral (entry .&. ((1 `shiftL` patchWidth) - 1)) :: Int64
-                                !pos'  = pos + gap
+                                !pos' = pos + gap
                             when (pos' < emit) $ do
                               !cur <- MVP.unsafeRead out (written + pos')
                               let !adjusted = cur + (patch `shiftL` w)
@@ -479,6 +543,7 @@ rleV2PatchedBaseStep signed firstByte bs !off out !written !cap = do
                   let !nextOff = patchOff + patchTotalBytes
                   return (Right (nextOff, written + emit))
 
+
 ------------------------------------------------------------------------
 -- Varint primitives
 ------------------------------------------------------------------------
@@ -490,13 +555,14 @@ readVulong bs !off = go off 0 0
     !bsLen = BS.length bs
     go !pos !val !shift
       | pos >= bsLen = Left "ORC.RLE: truncated varint"
-      | shift >= 64  = Left "ORC.RLE: varint overflow"
-      | otherwise    =
-          let !b    = fromIntegral (BS.index bs pos) :: Word64
+      | shift >= 64 = Left "ORC.RLE: varint overflow"
+      | otherwise =
+          let !b = fromIntegral (BS.index bs pos) :: Word64
               !val' = val .|. ((b .&. 0x7F) `shiftL` shift)
           in if b .&. 0x80 == 0
-               then Right (val', pos + 1)
-               else go (pos + 1) val' (shift + 7)
+              then Right (val', pos + 1)
+              else go (pos + 1) val' (shift + 7)
+
 
 {-# INLINE readVslong #-}
 readVslong :: ByteString -> Int -> Either String (Int64, Int)
@@ -504,15 +570,18 @@ readVslong bs !off = do
   (n, off') <- readVulong bs off
   Right (zigzagDecode n, off')
 
+
 {-# INLINE readVulongAsInt64 #-}
 readVulongAsInt64 :: ByteString -> Int -> Either String (Int64, Int)
 readVulongAsInt64 bs !off = do
   (v, off') <- readVulong bs off
   Right (fromIntegral v :: Int64, off')
 
+
 {-# INLINE zigzagDecode #-}
 zigzagDecode :: Word64 -> Int64
 zigzagDecode !n = fromIntegral ((n `shiftR` 1) `xor` negate (n .&. 1))
+
 
 ------------------------------------------------------------------------
 -- Bit-packing helpers
@@ -522,11 +591,18 @@ zigzagDecode !n = fromIntegral ((n `shiftR` 1) `xor` negate (n .&. 1))
 {-# INLINE decodeWidth #-}
 decodeWidth :: Int -> Int
 decodeWidth !n
-  | n <= 23   = n + 1
+  | n <= 23 = n + 1
   | otherwise = case n of
-      24 -> 26;  25 -> 28;  26 -> 30;  27 -> 32
-      28 -> 40;  29 -> 48;  30 -> 56;  31 -> 64
-      _  -> 1
+      24 -> 26
+      25 -> 28
+      26 -> 30
+      27 -> 32
+      28 -> 40
+      29 -> 48
+      30 -> 56
+      31 -> 64
+      _ -> 1
+
 
 -- | Read @nbytes@ in big-endian order as a 'Word64'.
 {-# INLINE readBigEndian #-}
@@ -535,23 +611,25 @@ readBigEndian bs !off !nbytes = go 0 0
   where
     go !i !acc
       | i >= nbytes = acc
-      | otherwise   =
+      | otherwise =
           let !b = fromIntegral (BS.index bs (off + i)) :: Word64
           in go (i + 1) ((acc `shiftL` 8) .|. b)
+
 
 -- | Extract a @w@-bit value from an MSB-first packed bit stream.
 {-# INLINE extractBitsMSB #-}
 extractBitsMSB :: Int -> Int -> ByteString -> Int -> Word64
 extractBitsMSB !startBit !w bs !dataOff
-  | w == 0    = 0
+  | w == 0 = 0
   | otherwise =
-      let !byteIdx     = startBit `quot` 8
-          !bitOff      = startBit `rem` 8
+      let !byteIdx = startBit `quot` 8
+          !bitOff = startBit `rem` 8
           !bytesNeeded = (bitOff + w + 7) `quot` 8
-          !raw         = readBigEndian bs (dataOff + byteIdx) bytesNeeded
-          !shift       = bytesNeeded * 8 - bitOff - w
-          !mask        = if w >= 64 then maxBound else (1 `shiftL` w) - 1
+          !raw = readBigEndian bs (dataOff + byteIdx) bytesNeeded
+          !shift = bytesNeeded * 8 - bitOff - w
+          !mask = if w >= 64 then maxBound else (1 `shiftL` w) - 1
       in (raw `shiftR` shift) .&. mask
+
 
 ------------------------------------------------------------------------
 -- Encoding helpers (used by ORC.Write)
@@ -561,27 +639,37 @@ extractBitsMSB !startBit !w bs !dataOff
 zigzagEncode :: Int64 -> Word64
 zigzagEncode !n = fromIntegral ((n `shiftL` 1) `xor` (n `shiftR` 63))
 
+
 -- | Encode a Word64 as a protobuf-style varint.
 putVulong :: Word64 -> B.Builder
 putVulong = go
   where
     go !v
-      | v < 0x80  = B.word8 (fromIntegral v)
+      | v < 0x80 = B.word8 (fromIntegral v)
       | otherwise = B.word8 (fromIntegral (v .&. 0x7F) .|. 0x80) <> go (v `shiftR` 7)
+
 
 -- | Inverse of 'decodeWidth': map actual bit width to the 5-bit encoded value.
 encodeWidth :: Int -> Int
 encodeWidth !w
   | w >= 1 && w <= 24 = w - 1
   | otherwise = case w of
-      26 -> 24;  28 -> 25;  30 -> 26;  32 -> 27
-      40 -> 28;  48 -> 29;  56 -> 30;  64 -> 31
-      _  -> 0
+      26 -> 24
+      28 -> 25
+      30 -> 26
+      32 -> 27
+      40 -> 28
+      48 -> 29
+      56 -> 30
+      64 -> 31
+      _ -> 0
+
 
 -- | Compute the minimum bit-width to represent a Word64 value.
 bitWidth :: Word64 -> Int
 bitWidth 0 = 1
 bitWidth !v = 64 - countLeadingZeros64 v
+
 
 countLeadingZeros64 :: Word64 -> Int
 countLeadingZeros64 !v = go 0 63
@@ -591,18 +679,20 @@ countLeadingZeros64 !v = go 0 63
       | v .&. (1 `shiftL` bit) /= 0 = cnt
       | otherwise = go (cnt + 1) (bit - 1)
 
+
 -- | Find the nearest ORC-valid width >= the given width.
 closestWidth :: Int -> Int
 closestWidth !w
-  | w <= 24   = w
-  | w <= 26   = 26
-  | w <= 28   = 28
-  | w <= 30   = 30
-  | w <= 32   = 32
-  | w <= 40   = 40
-  | w <= 48   = 48
-  | w <= 56   = 56
+  | w <= 24 = w
+  | w <= 26 = 26
+  | w <= 28 = 28
+  | w <= 30 = 30
+  | w <= 32 = 32
+  | w <= 40 = 40
+  | w <= 48 = 48
+  | w <= 56 = 56
   | otherwise = 64
+
 
 -- | Pack values MSB-first into bytes at a given bit width.
 packBitsMSB :: VP.Vector Word64 -> Int -> ByteString
@@ -628,16 +718,17 @@ packBitsMSB vals !w =
     packVal !val !bitsLeft !valIdx !bitPos !curByte !bytesLeft
       | bitsLeft <= 0 = go (valIdx + 1) bitPos curByte bytesLeft
       | otherwise =
-          let !avail    = 8 - bitPos
-              !take_    = min avail bitsLeft
-              !shifted  = fromIntegral (val `shiftR` (bitsLeft - take_)) :: Word8
-              !mask     = (1 `shiftL` take_) - 1
-              !bits     = shifted .&. mask
+          let !avail = 8 - bitPos
+              !take_ = min avail bitsLeft
+              !shifted = fromIntegral (val `shiftR` (bitsLeft - take_)) :: Word8
+              !mask = (1 `shiftL` take_) - 1
+              !bits = shifted .&. mask
               !curByte' = curByte .|. (bits `shiftL` (avail - take_))
-              !bitPos'  = bitPos + take_
+              !bitPos' = bitPos + take_
           in if bitPos' >= 8
-               then B.word8 curByte' <> packVal val (bitsLeft - take_) valIdx 0 0 (bytesLeft - 1)
-               else packVal val (bitsLeft - take_) valIdx bitPos' curByte' bytesLeft
+              then B.word8 curByte' <> packVal val (bitsLeft - take_) valIdx 0 0 (bytesLeft - 1)
+              else packVal val (bitsLeft - take_) valIdx bitPos' curByte' bytesLeft
+
 
 -- | Byte-level RLE encoder. Groups bytes into runs and literals.
 encodeByteRLE :: VP.Vector Word8 -> ByteString
@@ -650,17 +741,19 @@ encodeByteRLE vals = BL.toStrict $ B.toLazyByteString $ goRLE 0
       | otherwise =
           let !runLen = countRun i
           in if runLen >= 3
-               then let !emitLen = min runLen 130
-                        !ctrl = fromIntegral (emitLen - 3) :: Word8
-                    in B.word8 ctrl
-                       <> B.word8 (VP.unsafeIndex vals i)
-                       <> goRLE (i + emitLen)
-               else let !litLen = countLiterals i
-                        !emitLen = min litLen 128
-                        !ctrl = fromIntegral (negate (fromIntegral emitLen :: Int8)) :: Word8
-                    in B.word8 ctrl
-                       <> mconcat (fmap (\j -> B.word8 (VP.unsafeIndex vals (i + j))) [0 .. emitLen - 1])
-                       <> goRLE (i + emitLen)
+              then
+                let !emitLen = min runLen 130
+                    !ctrl = fromIntegral (emitLen - 3) :: Word8
+                in B.word8 ctrl
+                    <> B.word8 (VP.unsafeIndex vals i)
+                    <> goRLE (i + emitLen)
+              else
+                let !litLen = countLiterals i
+                    !emitLen = min litLen 128
+                    !ctrl = fromIntegral (negate (fromIntegral emitLen :: Int8)) :: Word8
+                in B.word8 ctrl
+                    <> mconcat (fmap (\j -> B.word8 (VP.unsafeIndex vals (i + j))) [0 .. emitLen - 1])
+                    <> goRLE (i + emitLen)
 
     countRun :: Int -> Int
     countRun !start
@@ -680,5 +773,6 @@ encodeByteRLE vals = BL.toStrict $ B.toLazyByteString $ goRLE 0
           | j >= n = j - start
           | j + 2 < n
           , VP.unsafeIndex vals j == VP.unsafeIndex vals (j + 1)
-          , VP.unsafeIndex vals j == VP.unsafeIndex vals (j + 2) = j - start
+          , VP.unsafeIndex vals j == VP.unsafeIndex vals (j + 2) =
+              j - start
           | otherwise = go_ (j + 1)

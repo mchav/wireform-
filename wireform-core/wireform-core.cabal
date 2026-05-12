@@ -63,6 +63,10 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    Wireform.Builder
+    Wireform.Builder.FastBuilder
+    Wireform.Builder.Internal.Prim
+    Wireform.Builder.Unsafe
     Wireform.FFI
     Wireform.Encode.Direct
     Wireform.Hash
@@ -74,5 +78,6 @@ library
   build-depends:
     base >= 4.16 && < 5,
     bytestring >= 0.11 && < 0.13,
+    ghc-prim,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14
