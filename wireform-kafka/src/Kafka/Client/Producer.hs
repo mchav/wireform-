@@ -193,6 +193,8 @@ module Kafka.Client.Producer
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
 import Control.Exception (SomeException, bracket, throwIO, try)
@@ -441,9 +443,10 @@ applyKafkaEnvToProducerConfig env cfg = Right cfg
 -- This is the @IO@ wrapper around 'applyKafkaEnvToProducerConfig'
 -- + 'Env.loadKafkaEnv'.
 producerConfigFromEnv
-  :: ProducerConfig
-  -> IO (Either [ConfigError] ProducerConfig)
-producerConfigFromEnv cfg = do
+  :: MonadIO m
+  => ProducerConfig
+  -> m (Either [ConfigError] ProducerConfig)
+producerConfigFromEnv cfg = liftIO $ do
   r <- Env.loadKafkaEnv
   case r of
     Left errs -> pure (Left errs)
@@ -706,14 +709,15 @@ validateProducerConfig ProducerConfig{..} = concat
     isJustNonEmpty Nothing  = False
 
 createProducer
-  :: [Text]          -- ^ Bootstrap broker addresses (host:port format).
+  :: MonadIO m
+  => [Text]          -- ^ Bootstrap broker addresses (host:port format).
                      --   Falls back to @KAFKA_BOOTSTRAP_SERVERS@ when empty.
   -> ProducerConfig  -- ^ Configuration. 'Kafka.Client.Env' env-var
                      --   overrides are layered on top automatically;
                      --   to opt out, ensure no @KAFKA_*@ variables
                      --   are set in the process environment.
-  -> IO (Either String Producer)
-createProducer brokerAddrs0 config0 = do
+  -> m (Either String Producer)
+createProducer brokerAddrs0 config0 = liftIO $ do
   envR <- Env.loadKafkaEnv
   case envR of
     Left errs -> return $ Left $ renderConfigErrors errs
@@ -894,12 +898,15 @@ parseBrokerAddress addr =
 -- 'createProducer' and 'closeProducer' and own the lifetime
 -- explicitly.
 withProducer
-  :: [Text]          -- ^ Bootstrap brokers, e.g. @[\"localhost:9092\"]@.
+  :: MonadUnliftIO m
+  => [Text]          -- ^ Bootstrap brokers, e.g. @[\"localhost:9092\"]@.
                      --   Empty list falls back to @KAFKA_BOOTSTRAP_SERVERS@.
   -> ProducerConfig  -- ^ Configuration; start from 'defaultProducerConfig'.
-  -> (Producer -> IO a)
-  -> IO a
+  -> (Producer -> m a)
+  -> m a
 withProducer brokers cfg = withProducer' brokers cfg closeProducer
+{-# INLINABLE withProducer #-}
+{-# SPECIALIZE withProducer :: [Text] -> ProducerConfig -> (Producer -> IO a) -> IO a #-}
 
 -- | Same as 'withProducer' but lets you swap in a custom
 -- shutdown function. Use 'closeProducerWithTimeout' when you
@@ -911,19 +918,27 @@ withProducer brokers cfg = withProducer' brokers cfg closeProducer
 --   pump p
 -- @
 withProducer'
-  :: [Text]
+  :: MonadUnliftIO m
+  => [Text]
   -> ProducerConfig
-  -> (Producer -> IO ())   -- ^ Shutdown function applied on exit.
-  -> (Producer -> IO a)
-  -> IO a
-withProducer' brokers cfg shutdown body = bracket open shutdown body
+  -> (Producer -> IO ())   -- ^ Shutdown function applied on exit; in 'IO'
+                           --   so the typical 'closeProducer' fits without
+                           --   ceremony, even when the body is in a custom
+                           --   monad stack.
+  -> (Producer -> m a)
+  -> m a
+withProducer' brokers cfg shutdown body =
+  withRunInIO $ \run -> bracket open shutdown (run . body)
   where
+    open :: IO Producer
     open = do
       r <- createProducer brokers cfg
       case r of
         Left err -> throwIO $ Errors.connectError
           (T.pack ("wireform-kafka: createProducer failed: " <> err))
         Right p  -> pure p
+{-# INLINABLE withProducer' #-}
+{-# SPECIALIZE withProducer' :: [Text] -> ProducerConfig -> (Producer -> IO ()) -> (Producer -> IO a) -> IO a #-}
 
 -- | Close the producer and flush pending messages.
 --
@@ -936,8 +951,8 @@ withProducer' brokers cfg shutdown body = bracket open shutdown body
 --      to drain queued + in-flight batches.
 --   4. Stop the sender thread.
 --   5. Close all connections.
-closeProducer :: Producer -> IO ()
-closeProducer p@Producer{..} = do
+closeProducer :: MonadIO m => Producer -> m ()
+closeProducer p@Producer{..} = liftIO $ do
   -- If a transaction is bound and currently open, abort it before
   -- shutdown. Mirrors the JVM client's @KafkaProducer.close@
   -- behaviour: an open transaction at close time is rolled back
@@ -1012,8 +1027,8 @@ waitForDrain Producer{..} deadlineMs = do
 -- Attempts to send all pending messages before closing, waiting up to
 -- the specified timeout in milliseconds. If the timeout expires, any
 -- remaining messages may be lost.
-closeProducerWithTimeout :: Producer -> Int -> IO ()
-closeProducerWithTimeout Producer{..} timeoutMs = do
+closeProducerWithTimeout :: MonadIO m => Producer -> Int -> m ()
+closeProducerWithTimeout Producer{..} timeoutMs = liftIO $ do
   -- Close accumulator (marks all batches as ready)
   BA.closeBatchAccumulator producerAccumulator
   
@@ -1049,8 +1064,8 @@ closeProducerWithTimeout Producer{..} timeoutMs = do
 -- when you need to ensure all records are sent before proceeding.
 --
 -- Returns 'Right ()' on success, or 'Left error' if flush fails.
-flushProducer :: Producer -> IO (Either String ())
-flushProducer Producer{..} = do
+flushProducer :: MonadIO m => Producer -> m (Either String ())
+flushProducer Producer{..} = liftIO $ do
   -- Mark all current batches as ready /without/ closing the
   -- accumulator: this is a drain-checkpoint and the producer
   -- must remain usable for subsequent sends.  (The pre-fix code
@@ -1109,8 +1124,8 @@ flushProducer Producer{..} = do
 -- It is safe to call 'bindTransaction' /before/
 -- 'Txn.initTransactions': sends will simply be rejected (the
 -- transaction's state is 'Txn.Uninitialized' until init runs).
-bindTransaction :: Producer -> Txn.Transaction -> IO ()
-bindTransaction Producer{..} txn = do
+bindTransaction :: MonadIO m => Producer -> Txn.Transaction -> m ()
+bindTransaction Producer{..} txn = liftIO $ do
   -- 'senderTransactionalId' moved to IORef in Tier 3 of the
   -- STM-replacement work; the previous shape did the txn id
   -- mirror, the producerTransaction swap, and the
@@ -1133,8 +1148,8 @@ bindTransaction Producer{..} txn = do
 -- | The currently bound transaction, if any. Mostly useful for
 -- test scaffolding and observability; production code should hold
 -- onto its 'Txn.Transaction' explicitly.
-producerBoundTransaction :: Producer -> IO (Maybe Txn.Transaction)
-producerBoundTransaction p = readTVarIO (producerTransaction p)
+producerBoundTransaction :: MonadIO m => Producer -> m (Maybe Txn.Transaction)
+producerBoundTransaction p = liftIO $ readTVarIO (producerTransaction p)
 
 -- | Send a message synchronously (blocks until acknowledged).
 --
@@ -1151,12 +1166,13 @@ producerBoundTransaction p = readTVarIO (producerTransaction p)
 --      appropriate stamp and completion callback.
 --   6. Wait for acknowledgment from broker.
 sendMessage
-  :: Producer
+  :: MonadIO m
+  => Producer
   -> Text            -- ^ Topic
   -> Maybe ByteString  -- ^ Key (optional)
   -> ByteString      -- ^ Value
-  -> IO (Either String RecordMetadata)
-sendMessage p@Producer{..} topic key value = do
+  -> m (Either String RecordMetadata)
+sendMessage p@Producer{..} topic key value = liftIO $ do
   -- 1. Run the user-supplied interceptor first (KIP-388 / JVM
   --    ProducerInterceptor.onSend). This is allowed to rewrite
   --    the record (e.g. attach trace headers, drop a field, …).
@@ -1248,33 +1264,39 @@ sendMessage p@Producer{..} topic key value = do
 -- _ <- 'publish' p events (Just \"k1\") \"hello\"
 -- @
 publish
-  :: Producer
+  :: MonadIO m
+  => Producer
   -> Topic.Topic k v
   -> Maybe k
   -> v
-  -> IO (Either String RecordMetadata)
+  -> m (Either String RecordMetadata)
 publish p t mk v =
   sendMessage p (Topic.topicName t)
     (Serde.serialize (Topic.topicKeySerde t) <$> mk)
     (Serde.serialize (Topic.topicValueSerde t) v)
+{-# INLINABLE publish #-}
+{-# SPECIALIZE publish :: Producer -> Topic.Topic k v -> Maybe k -> v -> IO (Either String RecordMetadata) #-}
 
 -- | Discarding variant of 'publish'.
 publish_
-  :: Producer
+  :: MonadIO m
+  => Producer
   -> Topic.Topic k v
   -> Maybe k
   -> v
-  -> IO ()
+  -> m ()
 publish_ p t mk v = do
   _ <- publish p t mk v
   pure ()
+{-# INLINABLE publish_ #-}
+{-# SPECIALIZE publish_ :: Producer -> Topic.Topic k v -> Maybe k -> v -> IO () #-}
 
 -- | Read the broker-supplied cluster id off this
 -- producer's metadata cache. Returns 'Nothing' until the first
 -- successful metadata refresh; afterwards reflects whatever the
 -- broker set in its @MetadataResponse@.
-producerClusterId :: Producer -> IO (Maybe Text)
-producerClusterId Producer{..} =
+producerClusterId :: MonadIO m => Producer -> m (Maybe Text)
+producerClusterId Producer{..} = liftIO $
   atomically (Meta.getClusterId producerMetadata)
 
 -- | Cheap health probe: returns 'True' iff the background sender
@@ -1285,8 +1307,8 @@ producerClusterId Producer{..} =
 -- Suitable for a Kubernetes @livenessProbe@. Does not contact
 -- the broker — it only checks in-process state — so it is safe
 -- to call at high frequency.
-producerHealthy :: Producer -> IO Bool
-producerHealthy Producer{..} = do
+producerHealthy :: MonadIO m => Producer -> m Bool
+producerHealthy Producer{..} = liftIO $ do
   status <- Async.poll producerSender
   pure $ case status of
     Nothing -> True
@@ -1511,12 +1533,13 @@ producerTxnGate st mPid mEpoch = case st of
 -- reads the 'MVar'. If the caller never reads it, the 'MVar' is
 -- garbage-collected with the rest of the closure.
 sendMessageAsync
-  :: Producer
+  :: MonadIO m
+  => Producer
   -> Text
   -> Maybe ByteString
   -> ByteString
-  -> IO (MVar (Either String RecordMetadata))
-sendMessageAsync p@Producer{..} topic key value = do
+  -> m (MVar (Either String RecordMetadata))
+sendMessageAsync p@Producer{..} topic key value = liftIO $ do
   resultVar <- newEmptyMVar
   let preInterceptRecord = ProducerRecord
         { recordTopic     = topic
@@ -1602,13 +1625,14 @@ sendMessageAsync p@Producer{..} topic key value = do
 -- This is the path the producer benchmark uses for the head-to-
 -- head against librdkafka's @rd_kafka_produce@ + flush combo.
 sendMessage_
-  :: Producer
+  :: MonadIO m
+  => Producer
   -> Text             -- ^ Topic
   -> Maybe ByteString -- ^ Optional key (used by hash partitioner)
   -> ByteString       -- ^ Value
-  -> IO (Either String ())
+  -> m (Either String ())
 {-# INLINE sendMessage_ #-}
-sendMessage_ p@Producer{..} topic key value = do
+sendMessage_ p@Producer{..} topic key value = liftIO $ do
   partition <- selectPartition p topic key
   let !record = RB.Record
         { RB.recordTimestampDelta = 0
@@ -1653,12 +1677,13 @@ noOpRecordCallback = BA.NoRecordCallback
 -- 'sendMessageUnsafe_' instead.
 {-# INLINE sendMessageFastest_ #-}
 sendMessageFastest_
-  :: Producer
+  :: MonadIO m
+  => Producer
   -> Text             -- ^ Topic
   -> Maybe ByteString -- ^ Optional key
   -> ByteString       -- ^ Value
-  -> IO (Either String ())
-sendMessageFastest_ p@Producer{..} topic key value = do
+  -> m (Either String ())
+sendMessageFastest_ p@Producer{..} topic key value = liftIO $ do
   cache <- readIORef producerLastBatch
   case cache of
     Just (cachedTopic, _cachedPart, queue, ba)
@@ -1720,12 +1745,13 @@ refreshAndSend p@Producer{..} topic key value = do
 -- thread no longer pays the CAS-loop overhead per record.
 {-# INLINE sendMessageUnsafe_ #-}
 sendMessageUnsafe_
-  :: Producer
+  :: MonadIO m
+  => Producer
   -> Text             -- ^ Topic
   -> Maybe ByteString -- ^ Optional key
   -> ByteString       -- ^ Value
-  -> IO (Either String ())
-sendMessageUnsafe_ p@Producer{..} topic key value = do
+  -> m (Either String ())
+sendMessageUnsafe_ p@Producer{..} topic key value = liftIO $ do
   partition <- selectPartition p topic key
   let !record = RB.Record
         { RB.recordTimestampDelta = 0
@@ -1765,12 +1791,13 @@ sendMessageUnsafe_ p@Producer{..} topic key value = do
 -- Pair with 'flushProducer' before 'closeProducer' for
 -- at-most-one-loss durability.
 sendMessages_
-  :: Producer
+  :: MonadIO m
+  => Producer
   -> Text                                       -- ^ Topic
   -> [(Maybe ByteString, ByteString)]           -- ^ (key, value) pairs in publish order
-  -> IO (Either String ())
+  -> m (Either String ())
 sendMessages_ _ _ [] = pure (Right ())
-sendMessages_ p@Producer{..} topic kvs = do
+sendMessages_ p@Producer{..} topic kvs = liftIO $ do
   -- One partitioner call for the whole list. With the default
   -- sticky partitioner this also costs ~10 ns regardless of
   -- list length (cache hit on 'producerStickyPartitions');
@@ -1928,10 +1955,11 @@ getRoundRobinPartition Producer{..} topic partCount =
 --
 -- Sends multiple messages as a batch. More efficient than multiple individual sends.
 sendBatch
-  :: Producer
+  :: MonadIO m
+  => Producer
   -> [ProducerRecord]
-  -> IO (Either String [RecordMetadata])
-sendBatch producer records = do
+  -> m (Either String [RecordMetadata])
+sendBatch producer records = liftIO $ do
   -- Fire each enqueue in its own async so the accumulator can
   -- coalesce records targeting the same (topic, partition) into
   -- the same RecordBatch on the wire. Sequencing them via plain

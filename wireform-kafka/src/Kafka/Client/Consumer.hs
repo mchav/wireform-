@@ -181,6 +181,8 @@ module Kafka.Client.Consumer
 
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.Async as Async
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import qualified Control.Exception
 import Control.Exception (SomeException, bracket, throwIO, try)
 import qualified Data.List as List
@@ -479,9 +481,10 @@ applyKafkaEnvToConsumerConfig env cfg =
 -- | Read every @KAFKA_*@ variable from the process environment
 -- and overlay them on top of the supplied 'ConsumerConfig'.
 consumerConfigFromEnv
-  :: ConsumerConfig
-  -> IO (Either [ConfigError] ConsumerConfig)
-consumerConfigFromEnv cfg = do
+  :: MonadIO m
+  => ConsumerConfig
+  -> m (Either [ConfigError] ConsumerConfig)
+consumerConfigFromEnv cfg = liftIO $ do
   r <- Env.loadKafkaEnv
   case r of
     Left errs -> pure (Left errs)
@@ -695,57 +698,66 @@ validateConsumerConfig ConsumerConfig{..} = concat
 -- If the consumer fails to start (broker unreachable, group join
 -- rejected, etc.) the call raises an 'IOError'.
 withConsumer
-  :: [Text]            -- ^ Bootstrap brokers, e.g. @[\"localhost:9092\"]@.
+  :: MonadUnliftIO m
+  => [Text]            -- ^ Bootstrap brokers, e.g. @[\"localhost:9092\"]@.
   -> Text              -- ^ Consumer group id.
   -> ConsumerConfig    -- ^ Configuration; start from 'defaultConsumerConfig'.
   -> [Text]            -- ^ Topics to subscribe to. May be empty if you
                        --   plan to call 'assign' yourself.
-  -> (Consumer -> IO a)
-  -> IO a
+  -> (Consumer -> m a)
+  -> m a
 withConsumer brokers groupId cfg topics body =
   withConsumer' brokers groupId cfg topics
     (\c -> closeConsumerWithTimeout c 30000)
     body
+{-# INLINABLE withConsumer #-}
+{-# SPECIALIZE withConsumer :: [Text] -> Text -> ConsumerConfig -> [Text] -> (Consumer -> IO a) -> IO a #-}
 
 -- | Same as 'withConsumer' but lets you swap in a custom
 -- shutdown function. Use 'closeConsumerWithoutLeavingGroup' to
 -- keep the broker session alive across a rolling restart.
 withConsumer'
-  :: [Text]
+  :: MonadUnliftIO m
+  => [Text]
   -> Text
   -> ConsumerConfig
   -> [Text]
-  -> (Consumer -> IO ())
-  -> (Consumer -> IO a)
-  -> IO a
+  -> (Consumer -> IO ())   -- ^ Shutdown function applied on exit.
+  -> (Consumer -> m a)
+  -> m a
 withConsumer' brokers groupId cfg topics shutdown body =
-  bracket open shutdown $ \c -> do
-    case topics of
-      [] -> body c
-      _  -> do
-        r <- subscribe c topics
-        case r of
-          Left err -> throwIO $ Errors.connectError
-            (T.pack ("wireform-kafka: subscribe failed: " <> err))
-          Right () -> body c
+  withRunInIO $ \run ->
+    bracket open shutdown $ \c -> do
+      case topics of
+        [] -> run (body c)
+        _  -> do
+          r <- subscribe c topics
+          case r of
+            Left err -> throwIO $ Errors.connectError
+              (T.pack ("wireform-kafka: subscribe failed: " <> err))
+            Right () -> run (body c)
   where
+    open :: IO Consumer
     open = do
       r <- createConsumer brokers groupId cfg
       case r of
         Left err -> throwIO $ Errors.connectError
           (T.pack ("wireform-kafka: createConsumer failed: " <> err))
         Right c  -> pure c
+{-# INLINABLE withConsumer' #-}
+{-# SPECIALIZE withConsumer' :: [Text] -> Text -> ConsumerConfig -> [Text] -> (Consumer -> IO ()) -> (Consumer -> IO a) -> IO a #-}
 
 createConsumer
-  :: [Text]          -- ^ Bootstrap brokers. Falls back to
+  :: MonadIO m
+  => [Text]          -- ^ Bootstrap brokers. Falls back to
                      --   @KAFKA_BOOTSTRAP_SERVERS@ when empty.
   -> Text            -- ^ Consumer group ID. Overridden by
                      --   @KAFKA_GROUP_ID@ when set.
   -> ConsumerConfig  -- ^ Configuration. 'Kafka.Client.Env'
                      --   env-var overrides are layered on top
                      --   automatically.
-  -> IO (Either String Consumer)
-createConsumer brokers0 groupId0 config0 = do
+  -> m (Either String Consumer)
+createConsumer brokers0 groupId0 config0 = liftIO $ do
   envR <- Env.loadKafkaEnv
   case envR of
     Left errs -> return $ Left $ renderConfigErrors errs
@@ -1021,7 +1033,7 @@ queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
 -- | Close the consumer.
 --
 -- Leaves the consumer group, stops heartbeat thread, and closes all connections.
-closeConsumer :: Consumer -> IO ()
+closeConsumer :: MonadIO m => Consumer -> m ()
 closeConsumer consumer = closeConsumerWithTimeout consumer 30000
 
 -- | Close the consumer with a specified timeout.
@@ -1031,7 +1043,7 @@ closeConsumer consumer = closeConsumerWithTimeout consumer 30000
 -- If the timeout expires, the consumer is forcibly closed.
 --
 -- @since KIP-102
-closeConsumerWithTimeout :: Consumer -> Int -> IO ()
+closeConsumerWithTimeout :: MonadIO m => Consumer -> Int -> m ()
 closeConsumerWithTimeout = closeConsumerImpl True
 
 -- | @CloseOptions.leaveGroup = false@: close the
@@ -1041,7 +1053,7 @@ closeConsumerWithTimeout = closeConsumerImpl True
 -- when you're doing a fast restart of the same member id
 -- (e.g. rolling deploy with static membership) and want to
 -- avoid the rebalance churn.
-closeConsumerWithoutLeavingGroup :: Consumer -> Int -> IO ()
+closeConsumerWithoutLeavingGroup :: MonadIO m => Consumer -> Int -> m ()
 closeConsumerWithoutLeavingGroup = closeConsumerImpl False
 
 -- | Programmatic rejoin trigger. Flips
@@ -1055,8 +1067,8 @@ closeConsumerWithoutLeavingGroup = closeConsumerImpl False
 -- promoted. Returns @False@ if the consumer has no
 -- heartbeat thread (manual-offset / unsubscribed mode); the
 -- caller can treat that as a no-op.
-requestRejoin :: Consumer -> IO Bool
-requestRejoin Consumer{..} = case consumerHeartbeat of
+requestRejoin :: MonadIO m => Consumer -> m Bool
+requestRejoin Consumer{..} = liftIO $ case consumerHeartbeat of
   Nothing -> pure False
   Just (hbState, _) -> do
     atomically (writeTVar (HB.hbNeedsRebalance hbState) True)
@@ -1145,8 +1157,8 @@ currentStaticMembershipState Consumer{..} = case consumerHeartbeat of
 -- consumer's metadata cache. Returns 'Nothing' until the first
 -- successful metadata refresh; afterwards reflects whatever the
 -- broker set in its @MetadataResponse@.
-consumerClusterId :: Consumer -> IO (Maybe Text)
-consumerClusterId Consumer{..} =
+consumerClusterId :: MonadIO m => Consumer -> m (Maybe Text)
+consumerClusterId Consumer{..} = liftIO $
   atomically (Meta.getClusterId consumerMetadata)
 
 -- | Cheap health probe: returns 'True' iff the heartbeat thread
@@ -1161,8 +1173,8 @@ consumerClusterId Consumer{..} =
 --
 -- Suitable for a Kubernetes @livenessProbe@: it does not contact
 -- the broker, only inspects in-process state.
-consumerHealthy :: Consumer -> IO Bool
-consumerHealthy Consumer{..} =
+consumerHealthy :: MonadIO m => Consumer -> m Bool
+consumerHealthy Consumer{..} = liftIO $
   case consumerHeartbeat of
     Nothing -> pure True
     Just (_, hbAsync) -> do
@@ -1227,8 +1239,8 @@ sendLeaveGroup c@Consumer{..} hbState = do
 -- Calling 'subscribe' a second time with a different topic set
 -- re-runs the whole flow (i.e. is the equivalent of an explicit
 -- rebalance request).
-subscribe :: Consumer -> [Text] -> IO (Either String ())
-subscribe Consumer{..} topics = do
+subscribe :: MonadIO m => Consumer -> [Text] -> m (Either String ())
+subscribe Consumer{..} topics = liftIO $ do
   case consumerHeartbeat of
     Nothing -> return $ Left "Cannot subscribe: consumer not in a group (groupId was empty)"
     Just (hbState, _) -> do
@@ -1336,8 +1348,8 @@ setRebalanceListener Consumer{..} onA onR onL = atomically $ do
 
 -- | Current partition assignment, in deterministic order
 -- (sorted by topic then partition).
-currentAssignment :: Consumer -> IO [TopicPartition]
-currentAssignment Consumer{..} = do
+currentAssignment :: MonadIO m => Consumer -> m [TopicPartition]
+currentAssignment Consumer{..} = liftIO $ do
   m <- readIORef consumerAssignment
   pure $ List.sortOn (\tp -> (tpTopic tp, tpPartition tp))
                      (HashMap.keys m)
@@ -1407,8 +1419,8 @@ dispatchAssignmentDelta c@Consumer{..} now asLost = do
 -- Clears the subscription and partition assignment. Fires the
 -- rebalance listener's @onRevoked@ callback for every
 -- currently-assigned partition before clearing the assignment.
-unsubscribe :: Consumer -> IO ()
-unsubscribe c@Consumer{..} = do
+unsubscribe :: MonadIO m => Consumer -> m ()
+unsubscribe c@Consumer{..} = liftIO $ do
   dispatchAssignmentDelta c [] False
   atomicModifyIORef' consumerAssignment $ \_ -> (HashMap.empty, ())
 
@@ -1416,8 +1428,8 @@ unsubscribe c@Consumer{..} = do
 --
 -- Assigns specific partitions to this consumer without using consumer groups.
 -- Useful for fine-grained control or when not using consumer groups.
-assign :: Consumer -> [TopicPartition] -> IO (Either String ())
-assign consumer@Consumer{..} partitions = do
+assign :: MonadIO m => Consumer -> [TopicPartition] -> m (Either String ())
+assign consumer@Consumer{..} partitions = liftIO $ do
   -- Determine initial fetch offsets for each partition
   -- Strategy depends on consumerAutoOffsetReset
   let offsetStrategy = consumerAutoOffsetReset consumerConfig
@@ -1460,10 +1472,11 @@ assign consumer@Consumer{..} partitions = do
 -- call 'subscribe' again on rebalance — they only do that the first
 -- time, to declare what topics they want.
 poll
-  :: Consumer
+  :: MonadIO m
+  => Consumer
   -> Int  -- ^ Timeout in milliseconds
-  -> IO (Either String [ConsumerRecord])
-poll consumer@Consumer{..} timeoutMs = do
+  -> m (Either String [ConsumerRecord])
+poll consumer@Consumer{..} timeoutMs = liftIO $ do
   -- Auto-rebalance: if the heartbeat thread saw REBALANCE_IN_PROGRESS
   -- and we know what topics we're subscribed to, re-join now.
   -- 'consumerSubscription' was a TVar pre-Tier-1; the rebalance
@@ -1544,8 +1557,8 @@ poll consumer@Consumer{..} timeoutMs = do
 -- Returns 'Left' if the partition isn't currently assigned to
 -- this consumer (the JVM client throws 'IllegalStateException'
 -- in that case).
-seek :: Consumer -> TopicPartition -> Int64 -> IO (Either String ())
-seek Consumer{..} tp offset =
+seek :: MonadIO m => Consumer -> TopicPartition -> Int64 -> m (Either String ())
+seek Consumer{..} tp offset = liftIO $
   atomicModifyIORef' consumerAssignment $ \m ->
     case HashMap.lookup tp m of
       Nothing -> ( m
@@ -1558,20 +1571,20 @@ seek Consumer{..} tp offset =
 
 -- | Seek to the earliest available offset for each partition.
 -- Mirrors @KafkaConsumer.seekToBeginning(partitions)@.
-seekToBeginning :: Consumer -> [TopicPartition] -> IO (Either String ())
+seekToBeginning :: MonadIO m => Consumer -> [TopicPartition] -> m (Either String ())
 seekToBeginning consumer tps = seekToTimestamp consumer tps (-2)
 
 -- | Seek to the latest available offset (i.e. the high water
 -- mark). Mirrors @KafkaConsumer.seekToEnd(partitions)@.
-seekToEnd :: Consumer -> [TopicPartition] -> IO (Either String ())
+seekToEnd :: MonadIO m => Consumer -> [TopicPartition] -> m (Either String ())
 seekToEnd consumer tps = seekToTimestamp consumer tps (-1)
 
 -- | Helper: query the broker for the offset at the supplied
 -- timestamp (-1 = latest, -2 = earliest, otherwise milliseconds
 -- since epoch) and seek every partition to it.
-seekToTimestamp :: Consumer -> [TopicPartition] -> Int64 -> IO (Either String ())
+seekToTimestamp :: MonadIO m => Consumer -> [TopicPartition] -> Int64 -> m (Either String ())
 seekToTimestamp _ [] _ = pure (Right ())
-seekToTimestamp consumer@Consumer{..} tps timestamp = do
+seekToTimestamp consumer@Consumer{..} tps timestamp = liftIO $ do
   r <- queryPartitionOffsets consumer tps timestamp
   case r of
     Left err -> pure (Left err)
@@ -1585,8 +1598,8 @@ seekToTimestamp consumer@Consumer{..} tps timestamp = do
 --
 -- Commits the current fetch positions for all assigned partitions.
 -- Blocks until the broker acknowledges the commit.
-commitSync :: Consumer -> IO (Either String ())
-commitSync consumer@Consumer{..} = do
+commitSync :: MonadIO m => Consumer -> m (Either String ())
+commitSync consumer@Consumer{..} = liftIO $ do
   -- Get current offsets to commit
   offsets <- HashMap.toList <$> readIORef consumerAssignment
 
@@ -1602,8 +1615,8 @@ commitSync consumer@Consumer{..} = do
 --
 -- Commits the current fetch positions for all assigned partitions.
 -- Returns immediately without waiting for broker acknowledgment.
-commitAsync :: Consumer -> IO (Either String ())
-commitAsync consumer@Consumer{..} = do
+commitAsync :: MonadIO m => Consumer -> m (Either String ())
+commitAsync consumer@Consumer{..} = liftIO $ do
   -- Get current offsets to commit
   offsets <- HashMap.toList <$> readIORef consumerAssignment
 
@@ -1635,8 +1648,8 @@ dispatchOnCommit Consumer{..} offsets = do
 -- | Get the committed offset for a single partition. Mirrors
 -- @KafkaConsumer.committed(tp)@. Convenience wrapper around
 -- 'committedAll'.
-committed :: Consumer -> TopicPartition -> IO (Either String Int64)
-committed consumer tp = do
+committed :: MonadIO m => Consumer -> TopicPartition -> m (Either String Int64)
+committed consumer tp = liftIO $ do
   r <- committedAll consumer [tp]
   case r of
     Left err -> pure (Left err)
@@ -1655,11 +1668,12 @@ committed consumer tp = do
 -- absent from the result map (rather than aliased to 0 — that's
 -- consistent with the JVM client semantics).
 committedAll
-  :: Consumer
+  :: MonadIO m
+  => Consumer
   -> [TopicPartition]
-  -> IO (Either String (HashMap.HashMap TopicPartition Int64))
+  -> m (Either String (HashMap.HashMap TopicPartition Int64))
 committedAll _ [] = pure (Right HashMap.empty)
-committedAll consumer@Consumer{..} tps =
+committedAll consumer@Consumer{..} tps = liftIO $
   fetchCommittedOffsetsBatch consumer
     (consumerGroupId consumerConfig)
     tps
@@ -1668,8 +1682,8 @@ committedAll consumer@Consumer{..} tps =
 -- record that will be returned by 'poll'). Read from the local
 -- assignment map, /not/ the broker; this is what the JVM client's
 -- @position(tp)@ returns.
-position :: Consumer -> TopicPartition -> IO (Either String Int64)
-position Consumer{..} tp = do
+position :: MonadIO m => Consumer -> TopicPartition -> m (Either String Int64)
+position Consumer{..} tp = liftIO $ do
   m <- readIORef consumerAssignment
   case HashMap.lookup tp m of
     Nothing  -> pure (Left ("position: partition not assigned: "
@@ -1680,10 +1694,11 @@ position Consumer{..} tp = do
 -- | Query the earliest offset available for each
 -- partition. Mirrors @KafkaConsumer.beginningOffsets(partitions)@.
 beginningOffsets
-  :: Consumer
+  :: MonadIO m
+  => Consumer
   -> [TopicPartition]
-  -> IO (Either String (HashMap.HashMap TopicPartition Int64))
-beginningOffsets consumer tps = do
+  -> m (Either String (HashMap.HashMap TopicPartition Int64))
+beginningOffsets consumer tps = liftIO $ do
   r <- queryPartitionOffsets consumer tps (-2)  -- earliest
   pure (fmap HashMap.fromList r)
 
@@ -1691,10 +1706,11 @@ beginningOffsets consumer tps = do
 -- last produced record) for each partition. Mirrors
 -- @KafkaConsumer.endOffsets(partitions)@.
 endOffsets
-  :: Consumer
+  :: MonadIO m
+  => Consumer
   -> [TopicPartition]
-  -> IO (Either String (HashMap.HashMap TopicPartition Int64))
-endOffsets consumer tps = do
+  -> m (Either String (HashMap.HashMap TopicPartition Int64))
+endOffsets consumer tps = liftIO $ do
   r <- queryPartitionOffsets consumer tps (-1)  -- latest
   pure (fmap HashMap.fromList r)
 
@@ -1703,9 +1719,10 @@ endOffsets consumer tps = do
 -- Partitions whose timestamp is past the broker's high water mark
 -- are returned with an offset of @-1@.
 offsetsForTimes
-  :: Consumer
+  :: MonadIO m
+  => Consumer
   -> [(TopicPartition, Int64)]      -- ^ (partition, target timestamp ms)
-  -> IO (Either String (HashMap.HashMap TopicPartition Int64))
+  -> m (Either String (HashMap.HashMap TopicPartition Int64))
 offsetsForTimes _ [] = pure (Right HashMap.empty)
 offsetsForTimes consumer pts = do
   r <- offsetsForTimesFull consumer pts
@@ -1747,38 +1764,39 @@ data OffsetAndTimestamp = OffsetAndTimestamp
 -- the simple offset-only case, 'offsetsForTimes' is the existing
 -- (Int64-only) façade.
 offsetsForTimesFull
-  :: Consumer
+  :: MonadIO m
+  => Consumer
   -> [(TopicPartition, Int64)]
-  -> IO (Either String (HashMap.HashMap TopicPartition OffsetAndTimestamp))
+  -> m (Either String (HashMap.HashMap TopicPartition OffsetAndTimestamp))
 offsetsForTimesFull _ [] = pure (Right HashMap.empty)
-offsetsForTimesFull consumer pts = do
+offsetsForTimesFull consumer pts = liftIO $ do
   r <- queryPartitionOffsetsByTimestampFull consumer pts
   pure (fmap HashMap.fromList r)
 
 -- | Pause consumption from partitions.
-pause :: Consumer -> [TopicPartition] -> IO ()
-pause Consumer{..} tps =
+pause :: MonadIO m => Consumer -> [TopicPartition] -> m ()
+pause Consumer{..} tps = liftIO $
   atomicModifyIORef' consumerPaused $ \m ->
     let !m' = foldl' (\acc tp -> HashMap.insert tp () acc) m tps
     in (m', ())
 
 -- | Resume consumption from partitions.
-resume :: Consumer -> [TopicPartition] -> IO ()
-resume Consumer{..} tps =
+resume :: MonadIO m => Consumer -> [TopicPartition] -> m ()
+resume Consumer{..} tps = liftIO $
   atomicModifyIORef' consumerPaused $ \m ->
     let !m' = foldl' (\acc tp -> HashMap.delete tp acc) m tps
     in (m', ())
 
 -- | Get current partition assignment.
-assignment :: Consumer -> IO [TopicPartition]
-assignment Consumer{..} = do
+assignment :: MonadIO m => Consumer -> m [TopicPartition]
+assignment Consumer{..} = liftIO $ do
   pairs <- HashMap.toList <$> readIORef consumerAssignment
   return $ map fst pairs
 
 -- | List the partitions currently paused via 'pause'. Mirrors
 -- @KafkaConsumer.paused()@.
-paused :: Consumer -> IO [TopicPartition]
-paused Consumer{..} = do
+paused :: MonadIO m => Consumer -> m [TopicPartition]
+paused Consumer{..} = liftIO $ do
   pairs <- HashMap.toList <$> readIORef consumerPaused
   pure (map fst pairs)
 
