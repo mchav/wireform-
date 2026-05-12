@@ -27,10 +27,32 @@ and this project adheres to the
   insertion order, supports O(n) lookup / O(1) append / O(n)
   replace, and has a `Semigroup`/`Monoid` instance.
 - **`Kafka.Serde`** — `Serde a` plus the standard built-ins
-  (`textSerde`, `int32Serde`, `int64Serde`, `doubleSerde`,
-  `voidSerde`, `uuidSerde`, `jsonSerde`, …). Moved here from
-  `Kafka.Streams.Serde`, which is now a thin re-export so
-  existing `import Kafka.Streams.Serde` call sites keep working.
+  (`textSerde`, `int16Serde`, `int32Serde`, `int64Serde`,
+  `word16Serde`, `word32Serde`, `word64Serde`, `doubleSerde`,
+  `floatSerde`, `voidSerde`, `uuidSerde`, `jsonSerde`, …). Moved
+  here from `Kafka.Streams.Serde`, which is now a thin re-export
+  so existing `import Kafka.Streams.Serde` call sites keep
+  working. Numeric serdes use the GHC `byteSwap16` /
+  `byteSwap32` / `byteSwap64` primops (one `MOV` + one `BSWAP`
+  on x86-64; one `STR` + one `REV` on ARM64) — the same pattern
+  `Kafka.Protocol.Wire` already uses for the protocol layer.
+  Replaces the hand-rolled four-shift-OR sequence the previous
+  encoder / decoder used.
+- **`Kafka.Serde.Proto`** — `protoSerde :: (MessageEncode a,
+  MessageDecode a) => Serde a` for any `wireform-proto`
+  message. Hard dependency on the `wireform-proto` package;
+  encodes via `Proto.Encode.encodeMessage`, decodes via
+  `Proto.Decode.decodeMessage`. Threads the structured
+  `Proto.Wire.Decode.DecodeError` through `show` to fit the
+  `Serde`'s `String` error channel.
+- **`Kafka.Serde.Avro`** — `avroSerde :: (ToAvro a, FromAvro a)
+  => AvroType -> Serde a` for any `wireform-avro`-typed
+  payload, plus an `avroValueSerde :: AvroType -> Serde
+  Avro.Value.Value` for callers that work in the dynamic
+  representation. Hard dependency on the `wireform-avro`
+  package. Schema is passed at call-site, so the same `Serde`
+  shape composes cleanly with the Confluent
+  `Kafka.Streams.Serde.SchemaRegistry` envelope wrapper.
 - **`Kafka.Topic`** — typed topic reference. `Topic k v` bundles
   a name + key serde + value serde. Smart constructors `topic`,
   `topicAny`, `bytesTopic`, `textTopic`.
