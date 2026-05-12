@@ -22,9 +22,13 @@ main :: IO ()
 main = do
   putStrLn "=== Template Haskell Example ===\n"
 
-  -- The types are generated at compile time from person.proto.
-  -- GetPersonRequest has an id field.
-  let req = defaultGetPersonRequest { personId = 42 }
+  -- 'loadProto' scopes each generated record field by lowerCamelCasing
+  -- the owning message's type name, mirroring 'Proto.CodeGen.scopedFieldName'.
+  -- So @int32 person_id = 1@ inside @message GetPersonRequest@ becomes
+  -- @getPersonRequestPersonId :: Int32@, not @personId@. Two messages
+  -- declaring the same field name in the same file would otherwise
+  -- collide on the same record selector at the module level.
+  let req = defaultGetPersonRequest { getPersonRequestPersonId = 42 }
   putStrLn $ "GetPersonRequest: " <> show req
 
   let encoded = encodeMessage req
@@ -38,8 +42,8 @@ main = do
 
   -- ListPeopleRequest
   let listReq = defaultListPeopleRequest
-        { pageSize = 10
-        , pageToken = "token123"
+        { listPeopleRequestPageSize  = 10
+        , listPeopleRequestPageToken = "token123"
         }
   putStrLn $ "\nListPeopleRequest: " <> show listReq
 
@@ -54,8 +58,8 @@ main = do
 
   -- AddPersonResponse
   let resp = defaultAddPersonResponse
-        { success = True
-        , errorMessage = ""
+        { addPersonResponseSuccess      = True
+        , addPersonResponseErrorMessage = ""
         }
   putStrLn $ "\nAddPersonResponse: " <> show resp
 

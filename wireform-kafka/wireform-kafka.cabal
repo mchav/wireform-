@@ -20,7 +20,7 @@ license: BSD-3-Clause
 license-file: LICENSE
 author: Ian Duncan
 maintainer: ian@iankduncan.com
-copyright: (c) 2025 Ian Duncan
+copyright: 2026 Ian Duncan
 category: Network, Database, Streaming
 build-type: Simple
 extra-doc-files:

@@ -32,11 +32,12 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
+import qualified Proto.Extension
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -82,14 +83,12 @@ instance MessageDecode Empty where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop  []
     where
-      loop acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Empty {emptyUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop (uf : acc_unknown_)
+      loop acc_unknown_ = withTagM
+        (pure (Empty {emptyUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop (uf : acc_unknown_))
 
 instance IsMessage Empty where
   messageTypeName _ = "google.protobuf.Empty"
@@ -111,6 +110,10 @@ instance Aeson.FromJSON Empty where
 
 instance Hashable Empty where
   hashWithSalt salt _ = salt
+
+instance Proto.Extension.HasExtensions Empty where
+  messageUnknownFields = emptyUnknownFields
+  setMessageUnknownFields !ufs msg = msg { emptyUnknownFields = ufs }
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

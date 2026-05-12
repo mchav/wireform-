@@ -3,14 +3,47 @@ name: wireform-derive
 version: 0.2.0.0
 synopsis: Annotation-driven Template Haskell deriver core for wireform
 description:
-  Shared `Modifier` annotation vocabulary and TH-reflection machinery used
-  by per-format wireform deriver packages (`wireform-proto`,
-  `wireform-cbor`, `wireform-msgpack`, `wireform-thrift`, ...).
+  Shared @Modifier@ annotation vocabulary and Template Haskell
+  reflection machinery used by per-format @wireform-*@ deriver
+  packages (@wireform-proto@, @wireform-cbor@, @wireform-msgpack@,
+  @wireform-thrift@, @wireform-avro@, @wireform-bson@, …).
   .
-  Inspired by riz0id's `serde-th` / `aeson-th`.
+  A single @{-\# ANN ... \#-}@ pragma on a Haskell record drives
+  instance generation for every wire format the user opts into.
+  The vocabulary lives in @Wireform.Derive.Modifier@:
+  .
+  * @rename@, @renameStyle@, @renameWith@, @renameIdiomatic@ --
+    wire-key text overrides.
+  * @tag N@ -- explicit field number / Thrift field ID / Bond ID /
+    Iceberg field ID.
+  * @skip@, @defaults@, @required@, @optional@, @coerced@,
+    @flatten@, @wireOverride@ -- standard knobs.
+  * @forBackend@ / @forBackends@ / @disableFor@ -- per-backend
+    overrides that shadow globals without conflicting.
+  * @mapKey@, @oneof@ -- format-specific shape hints.
+  * @extension@ -- typed per-backend payloads via the
+    @BackendModifier@ typeclass.
+  .
+  See the umbrella @wireform@ package for the full multi-format
+  story.  Inspired by riz0id's @serde-th@ and Aeson's @aeson-th@.
 
+homepage: https://github.com/iand675/wireform-
+bug-reports: https://github.com/iand675/wireform-/issues
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
+category: Data, Codec, Serialization
 build-type: Simple
+tested-with: GHC == 9.6.4, GHC == 9.8.4
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+
+source-repository head
+  type:     git
+  location: https://github.com/iand675/wireform-
 
 common defaults
   ghc-options:

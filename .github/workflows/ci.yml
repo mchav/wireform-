@@ -36,7 +36,25 @@ jobs:
         # picks up at configure time via proto-lens-setup. Without it
         # 'cabal build all' aborts before any wireform-* package
         # gets compiled.
-        run: sudo apt-get update && sudo apt-get install -y libgmp-dev protobuf-compiler
+        #
+        # libsnappy-dev / liblz4-dev / libzstd-dev are the C libraries
+        # behind wireform-kafka's compression codecs and wireform-arrow's
+        # ZSTD / LZ4 column-chunk decompression. wireform-kafka declares
+        # them as pkg-config-depends, so cabal's dependency solver
+        # refuses to resolve 'cabal build all' until they're installed.
+        #
+        # librdkafka-dev is required by hw-kafka-client, which the
+        # wireform-kafka benchmark suite uses as a cross-check oracle.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgmp-dev \
+            libsnappy-dev \
+            liblz4-dev \
+            libzstd-dev \
+            libbrotli-dev \
+            librdkafka-dev \
+            protobuf-compiler
 
       - name: Configure
         run: cabal configure --enable-tests --enable-benchmarks
@@ -104,7 +122,17 @@ jobs:
             ${{ runner.os }}-bench-cabal-
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+        # librdkafka-dev is needed for wireform-kafka-bench's
+        # hw-kafka-client comparison oracle.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgmp-dev \
+            libsnappy-dev \
+            liblz4-dev \
+            libzstd-dev \
+            libbrotli-dev \
+            librdkafka-dev
 
       - name: Build all benchmarks
         run: |
@@ -135,7 +163,14 @@ jobs:
             ${{ runner.os }}-codegen-cabal-
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgmp-dev \
+            libsnappy-dev \
+            liblz4-dev \
+            libzstd-dev \
+            libbrotli-dev
 
       - name: Build code generator
         run: |

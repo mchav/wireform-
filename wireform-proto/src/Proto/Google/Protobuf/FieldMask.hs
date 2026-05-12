@@ -32,11 +32,12 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
+import qualified Proto.Extension
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -79,24 +80,22 @@ instance MessageEncode FieldMask where
 
 instance MessageSize FieldMask where
   messageSize msg =
-    (V.foldl' (\acc v -> acc + archStringSize v) 0 msg.fieldMaskPaths)
+    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.fieldMaskPaths)
     + unknownFieldsSize msg.fieldMaskUnknownFields
 
 instance MessageDecode FieldMask where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop V.empty []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (FieldMask {fieldMaskPaths = acc_0, fieldMaskUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldString
-              loop (acc_0 <> V.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (FieldMask {fieldMaskPaths = acc_0, fieldMaskUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- decodeFieldString
+            loop (acc_0 <> V.singleton v) acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage FieldMask where
   messageTypeName _ = "google.protobuf.FieldMask"
@@ -132,6 +131,10 @@ instance Aeson.FromJSON FieldMask where
 
 instance Hashable FieldMask where
   hashWithSalt salt msg = V.foldl' hashWithSalt (salt) msg.fieldMaskPaths
+
+instance Proto.Extension.HasExtensions FieldMask where
+  messageUnknownFields = fieldMaskUnknownFields
+  setMessageUnknownFields !ufs msg = msg { fieldMaskUnknownFields = ufs }
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

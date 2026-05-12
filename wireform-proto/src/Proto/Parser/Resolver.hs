@@ -26,7 +26,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import System.Directory (doesFileExist)
-import System.FilePath ((</>), takeDirectory, takeFileName)
+import System.FilePath ((</>), takeDirectory)
 
 import Proto.AST
 import Proto.Parser (parseProtoFile, renderParseError)

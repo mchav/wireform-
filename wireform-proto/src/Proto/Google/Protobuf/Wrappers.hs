@@ -32,11 +32,12 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
+import qualified Proto.Extension
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -86,17 +87,15 @@ instance MessageDecode DoubleValue where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (DoubleValue {doubleValueValue = acc_0, doubleValueUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldDouble
-              loop v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (DoubleValue {doubleValueValue = acc_0, doubleValueUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- decodeFieldDouble
+            loop v acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage DoubleValue where
   messageTypeName _ = "google.protobuf.DoubleValue"
@@ -133,6 +132,10 @@ instance Aeson.FromJSON DoubleValue where
 instance Hashable DoubleValue where
   hashWithSalt salt msg = hashWithSalt (salt) msg.doubleValueValue
 
+instance Proto.Extension.HasExtensions DoubleValue where
+  messageUnknownFields = doubleValueUnknownFields
+  setMessageUnknownFields !ufs msg = msg { doubleValueUnknownFields = ufs }
+
 data FloatValue = FloatValue
   { floatValueValue :: {-# UNPACK #-} !Float
   , floatValueUnknownFields :: ![UnknownField]
@@ -160,17 +163,15 @@ instance MessageDecode FloatValue where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (FloatValue {floatValueValue = acc_0, floatValueUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldFloat
-              loop v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (FloatValue {floatValueValue = acc_0, floatValueUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- decodeFieldFloat
+            loop v acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage FloatValue where
   messageTypeName _ = "google.protobuf.FloatValue"
@@ -207,6 +208,10 @@ instance Aeson.FromJSON FloatValue where
 instance Hashable FloatValue where
   hashWithSalt salt msg = hashWithSalt (salt) msg.floatValueValue
 
+instance Proto.Extension.HasExtensions FloatValue where
+  messageUnknownFields = floatValueUnknownFields
+  setMessageUnknownFields !ufs msg = msg { floatValueUnknownFields = ufs }
+
 data Int64Value = Int64Value
   { int64ValueValue :: {-# UNPACK #-} !Int64
   , int64ValueUnknownFields :: ![UnknownField]
@@ -234,17 +239,15 @@ instance MessageDecode Int64Value where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Int64Value {int64ValueValue = acc_0, int64ValueUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (Int64Value {int64ValueValue = acc_0, int64ValueUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- (fromIntegral <$> decodeFieldVarint)
+            loop v acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage Int64Value where
   messageTypeName _ = "google.protobuf.Int64Value"
@@ -281,6 +284,10 @@ instance Aeson.FromJSON Int64Value where
 instance Hashable Int64Value where
   hashWithSalt salt msg = hashWithSalt (salt) msg.int64ValueValue
 
+instance Proto.Extension.HasExtensions Int64Value where
+  messageUnknownFields = int64ValueUnknownFields
+  setMessageUnknownFields !ufs msg = msg { int64ValueUnknownFields = ufs }
+
 data UInt64Value = UInt64Value
   { uInt64ValueValue :: {-# UNPACK #-} !Word64
   , uInt64ValueUnknownFields :: ![UnknownField]
@@ -308,17 +315,15 @@ instance MessageDecode UInt64Value where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (UInt64Value {uInt64ValueValue = acc_0, uInt64ValueUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldVarint
-              loop v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (UInt64Value {uInt64ValueValue = acc_0, uInt64ValueUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- decodeFieldVarint
+            loop v acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage UInt64Value where
   messageTypeName _ = "google.protobuf.UInt64Value"
@@ -355,6 +360,10 @@ instance Aeson.FromJSON UInt64Value where
 instance Hashable UInt64Value where
   hashWithSalt salt msg = hashWithSalt (salt) msg.uInt64ValueValue
 
+instance Proto.Extension.HasExtensions UInt64Value where
+  messageUnknownFields = uInt64ValueUnknownFields
+  setMessageUnknownFields !ufs msg = msg { uInt64ValueUnknownFields = ufs }
+
 data Int32Value = Int32Value
   { int32ValueValue :: {-# UNPACK #-} !Int32
   , int32ValueUnknownFields :: ![UnknownField]
@@ -382,17 +391,15 @@ instance MessageDecode Int32Value where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Int32Value {int32ValueValue = acc_0, int32ValueUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (Int32Value {int32ValueValue = acc_0, int32ValueUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- (fromIntegral <$> decodeFieldVarint)
+            loop v acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage Int32Value where
   messageTypeName _ = "google.protobuf.Int32Value"
@@ -429,6 +436,10 @@ instance Aeson.FromJSON Int32Value where
 instance Hashable Int32Value where
   hashWithSalt salt msg = hashWithSalt (salt) msg.int32ValueValue
 
+instance Proto.Extension.HasExtensions Int32Value where
+  messageUnknownFields = int32ValueUnknownFields
+  setMessageUnknownFields !ufs msg = msg { int32ValueUnknownFields = ufs }
+
 data UInt32Value = UInt32Value
   { uInt32ValueValue :: {-# UNPACK #-} !Word32
   , uInt32ValueUnknownFields :: ![UnknownField]
@@ -456,17 +467,15 @@ instance MessageDecode UInt32Value where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (UInt32Value {uInt32ValueValue = acc_0, uInt32ValueUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (UInt32Value {uInt32ValueValue = acc_0, uInt32ValueUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- (fromIntegral <$> decodeFieldVarint)
+            loop v acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage UInt32Value where
   messageTypeName _ = "google.protobuf.UInt32Value"
@@ -503,6 +512,10 @@ instance Aeson.FromJSON UInt32Value where
 instance Hashable UInt32Value where
   hashWithSalt salt msg = hashWithSalt (salt) msg.uInt32ValueValue
 
+instance Proto.Extension.HasExtensions UInt32Value where
+  messageUnknownFields = uInt32ValueUnknownFields
+  setMessageUnknownFields !ufs msg = msg { uInt32ValueUnknownFields = ufs }
+
 data BoolValue = BoolValue
   { boolValueValue :: {-# UNPACK #-} !Bool
   , boolValueUnknownFields :: ![UnknownField]
@@ -530,17 +543,15 @@ instance MessageDecode BoolValue where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop False []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (BoolValue {boolValueValue = acc_0, boolValueUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldBool
-              loop v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (BoolValue {boolValueValue = acc_0, boolValueUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- decodeFieldBool
+            loop v acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage BoolValue where
   messageTypeName _ = "google.protobuf.BoolValue"
@@ -577,6 +588,10 @@ instance Aeson.FromJSON BoolValue where
 instance Hashable BoolValue where
   hashWithSalt salt msg = hashWithSalt (salt) msg.boolValueValue
 
+instance Proto.Extension.HasExtensions BoolValue where
+  messageUnknownFields = boolValueUnknownFields
+  setMessageUnknownFields !ufs msg = msg { boolValueUnknownFields = ufs }
+
 data StringValue = StringValue
   { stringValueValue :: !Text
   , stringValueUnknownFields :: ![UnknownField]
@@ -604,17 +619,15 @@ instance MessageDecode StringValue where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (StringValue {stringValueValue = acc_0, stringValueUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldString
-              loop v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (StringValue {stringValueValue = acc_0, stringValueUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- decodeFieldString
+            loop v acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage StringValue where
   messageTypeName _ = "google.protobuf.StringValue"
@@ -651,6 +664,10 @@ instance Aeson.FromJSON StringValue where
 instance Hashable StringValue where
   hashWithSalt salt msg = hashWithSalt (salt) msg.stringValueValue
 
+instance Proto.Extension.HasExtensions StringValue where
+  messageUnknownFields = stringValueUnknownFields
+  setMessageUnknownFields !ufs msg = msg { stringValueUnknownFields = ufs }
+
 data BytesValue = BytesValue
   { bytesValueValue :: !ByteString
   , bytesValueUnknownFields :: ![UnknownField]
@@ -678,17 +695,15 @@ instance MessageDecode BytesValue where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (BytesValue {bytesValueValue = acc_0, bytesValueUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldBytes
-              loop v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (BytesValue {bytesValueValue = acc_0, bytesValueUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- decodeFieldBytes
+            loop v acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage BytesValue where
   messageTypeName _ = "google.protobuf.BytesValue"
@@ -724,6 +739,10 @@ instance Aeson.FromJSON BytesValue where
 
 instance Hashable BytesValue where
   hashWithSalt salt msg = hashWithSalt (salt) msg.bytesValueValue
+
+instance Proto.Extension.HasExtensions BytesValue where
+  messageUnknownFields = bytesValueUnknownFields
+  setMessageUnknownFields !ufs msg = msg { bytesValueUnknownFields = ufs }
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

@@ -13,10 +13,6 @@ core primitives (unboxed sums, `Int#`-threaded decoders, sized two-pass
 encoding, SIMD-accelerated XML/HTML, C FFI for hot paths) so generated
 code is competitive with hand-written codecs.
 
-> **Active development.** The annotation-driven deriver and the proto
-> IDL bridge that ties `loadProto` to it are landing in
-> [PR #18](https://github.com/iand675/wireform-/pull/18).
-
 ---
 
 ## Table of contents
@@ -28,7 +24,7 @@ code is competitive with hand-written codecs.
 - [Building](#building)
 - [Testing](#testing)
 - [Examples](#examples)
-- [Status / what's incomplete](#status--whats-incomplete)
+- [Status / what's recently landed](#status--whats-recently-landed)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -104,7 +100,7 @@ its format actually needs.
 ### Module conventions inside each format package
 
 Every per-format package follows the same internal layout, so once you
-know one you know them all. See [AGENTS.md](AGENTS.md) for the full
+know one you know them all. See [`agents.md`](agents.md) for the full
 contributor guide.
 
 ```
@@ -119,7 +115,7 @@ contributor guide.
 The `Proto.*` package predates the per-format split and keeps its
 historical `Proto.AST` / `Proto.Parser.*` / `Proto.Wire.*` /
 `Proto.CodeGen.*` / `Proto.TH` / `Proto.Derive.*` /
-`Proto.Google.Protobuf.*` layout — see [AGENTS.md](AGENTS.md) for the
+`Proto.Google.Protobuf.*` layout — see [`agents.md`](agents.md) for the
 full Proto map.
 
 ---
@@ -446,11 +442,9 @@ Runnable from the workspace root with `cabal run <name>`:
 
 ## Status / what's recently landed
 
-This monorepo is under active development on
-[PR #18](https://github.com/iand675/wireform-/pull/18). The Proto
-deriver work the README used to call out as incomplete has all
-landed; this section keeps the diff visible for context. New
-outstanding items will reappear here as they're discovered.
+The Proto deriver work the README used to call out as incomplete has all
+landed; this section keeps the diff visible for context. New outstanding
+items will reappear here as they're discovered.
 
 - **Hand-coded golden bytes for the proto byte-equivalence regression**
   — added in `Test.Proto.Derive.Golden` (six fixtures asserting exact
@@ -515,7 +509,7 @@ outstanding items will reappear here as they're discovered.
 
 Contributor notes, code-generation principles, allocation discipline
 rules, and per-package conventions live in
-[**AGENTS.md**](AGENTS.md). Highlights:
+[**`agents.md`**](agents.md). Highlights:
 
 - Every message type comes from the code generator. Hand-written wire
   encode/decode instances are not permitted because they drift from
@@ -525,10 +519,11 @@ rules, and per-package conventions live in
 - Never round-trip through `String`. No list comprehensions. No
   `threadDelay` in tests. Property-based tests via Hedgehog.
 - The four-step recipe for adding a new constructor to
-  `Wireform.Derive.Modifier.Modifier` is in AGENTS.md.
+  `Wireform.Derive.Modifier.Modifier` is in `agents.md`.
 
 ---
 
 ## License
 
-BSD-3-Clause. See [NOTICE](NOTICE) for third-party attributions.
+BSD-3-Clause. See [LICENSE](LICENSE) for the full license text and
+third-party attributions.

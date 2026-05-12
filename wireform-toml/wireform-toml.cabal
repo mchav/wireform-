@@ -3,6 +3,10 @@ name: wireform-toml
 version: 0.1.0.0
 synopsis: TOML encoding/decoding
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 common defaults

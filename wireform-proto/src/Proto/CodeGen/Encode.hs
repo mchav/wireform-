@@ -31,24 +31,6 @@ wire32Bit = 5
 computeTagByte :: Int -> Int -> Int
 computeTagByte fieldNum wireType = fieldNum * 8 + wireType
 
-scalarWireType :: ScalarType -> Int
-scalarWireType = \case
-  SDouble   -> wire64Bit
-  SFloat    -> wire32Bit
-  SInt32    -> wireVarint
-  SInt64    -> wireVarint
-  SUInt32   -> wireVarint
-  SUInt64   -> wireVarint
-  SSInt32   -> wireVarint
-  SSInt64   -> wireVarint
-  SFixed32  -> wire32Bit
-  SFixed64  -> wire64Bit
-  SSFixed32 -> wire32Bit
-  SSFixed64 -> wire64Bit
-  SBool     -> wireVarint
-  SString   -> wireLengthDelimited
-  SBytes    -> wireLengthDelimited
-
 -- | Generate a MessageEncode instance for a message.
 genEncodeInstance :: MessageDef -> Doc ann
 genEncodeInstance msg =

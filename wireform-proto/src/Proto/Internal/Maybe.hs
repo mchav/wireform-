@@ -1,6 +1,6 @@
 -- Copyright © 2016 Kyle McKean
 -- Copyright © 2018 Daniel Cartwright
--- BSD-3-Clause license (see NOTICE for full text)
+-- BSD-3-Clause license (see LICENSE for full text)
 
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE UnboxedTuples   #-}
@@ -20,7 +20,7 @@ module Proto.Internal.Maybe
   ) where
 
 import Prelude ()
-import Data.Function (const, id, (.))
+import Data.Function (const)
 import GHC.Base (Bool(True, False))
 import qualified Data.Maybe as BaseMaybe
 

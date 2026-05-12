@@ -2,8 +2,30 @@ cabal-version: 3.0
 name: wireform-columnar
 version: 0.1.0.0
 synopsis: SIMD-accelerated columnar primitives (bit-unpacking, etc.)
+description:
+  Format-agnostic columnar primitives shared by the wireform Arrow,
+  Parquet, ORC, and Iceberg packages: a pull-based iterator surface
+  ('Columnar.Stream'), a pushdown predicate vocabulary
+  ('Columnar.Predicate'), an mmap-aware file loader ('Columnar.IO'),
+  an LZ4 codec wrapper ('Columnar.LZ4'), and SIMD-accelerated
+  bit-unpacking / popcount kernels ('Columnar.SIMD').
+homepage: https://github.com/iand675/wireform-
+bug-reports: https://github.com/iand675/wireform-/issues
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
+category: Data, Codec, Serialization
 build-type: Simple
+tested-with: GHC == 9.6.4, GHC == 9.8.4
+extra-source-files:
+  cbits/*.c
+  include/**/*.h
+
+source-repository head
+  type:     git
+  location: https://github.com/iand675/wireform-
 
 common defaults
   default-language: GHC2021
@@ -34,8 +56,15 @@ library
     Columnar.SIMD
     Columnar.Stream
   c-sources: cbits/columnar_simd.c
-  include-dirs: ../wireform-core/include/simde
-  cc-options: -O3 -march=native
+  -- simde headers are vendored under include/simde/ so the package
+  -- is self-contained at sdist time. The same headers also live in
+  -- wireform-core, but cabal-check (correctly) rejects a relative
+  -- include-dirs path that walks outside the per-package source
+  -- tree. cbits/columnar_simd.c does '#include <simde/x86/sse2.h>',
+  -- so the include search path needs to land one level above the
+  -- 'simde/' subdirectory.
+  include-dirs: include
+  cc-options: -march=native
   -- liblz4 is the system C library that backs Columnar.LZ4.
   -- On Debian / Ubuntu install with `apt install liblz4-dev`;
   -- on macOS `brew install lz4`. The library is light enough

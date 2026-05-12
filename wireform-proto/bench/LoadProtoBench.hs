@@ -28,6 +28,7 @@ import Proto.TH (loadProto)
 import qualified Proto.Decode as PD
 import qualified Proto.Encode as PE
 import qualified Proto.Extension as Ext
+import Proto.Google.Protobuf.Timestamp (Timestamp(..), defaultTimestamp)
 
 -- A small inline schema covering the common shapes.
 $(loadProto "bench/Bench.proto")
@@ -199,4 +200,20 @@ main = do
              Right v -> v
              Left _  -> defaultPerson)
     (\v -> fromEnum (personStatus v))
+  putStrLn ""
+
+  -- Direct Timestamp bench. The checked-in
+  -- Proto.Google.Protobuf.Timestamp uses a hand-edited
+  -- 'loop_dispatch + loop_after_N + withTagM' state-machine shape
+  -- that this benchmark measures against the codegen-emitted
+  -- shape after regen.
+  let !ts      = defaultTimestamp { timestampSeconds = 1234567890, timestampNanos = 999999 }
+      !tsBytes = PE.encodeMessage ts
+  printf "Timestamp (2 varint scalars, encoded size = %d bytes):\n" (BS.length tsBytes)
+  bench "wire encode" (\_ -> PE.encodeMessage ts) BS.length
+  bench "wire decode"
+    (\_ -> case PD.decodeMessage tsBytes :: Either PD.DecodeError Timestamp of
+             Right v -> v
+             Left _  -> defaultTimestamp)
+    (\v -> fromIntegral (timestampSeconds v))
   putStrLn ""

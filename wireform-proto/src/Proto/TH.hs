@@ -84,14 +84,7 @@ module Proto.TH
 
 import Control.Applicative ((<|>))
 import Data.ByteString (ByteString)
-import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.Types as AesonT
-import qualified Data.Scientific as Sci
-import qualified Data.Text.Encoding as TE
-import qualified Proto.JSON as PJ
 import qualified Proto.JSON.Extension as PJExt
-import qualified Proto.Wire.Decode as PWDec
-import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
@@ -491,7 +484,7 @@ fieldHaddock (FSField name num lbl ft _ _) =
   <> labelStr lbl
   <> fieldTypeStr ft <> ", field "
   <> show num <> ")\n"
-fieldHaddock (FSMap name num kt vt) =
+fieldHaddock (FSMap name num kt vt _) =
   "* @" <> T.unpack name <> "@ (map<"
   <> scalarStr kt <> ", " <> fieldTypeStr vt <> ">, field "
   <> show num <> ")\n"
@@ -533,6 +526,10 @@ data FieldSpec
     , fsNum     :: Int
     , fsMapKey  :: ScalarType
     , fsMapVal  :: FieldType
+    , fsMapRep  :: FieldRep
+      -- ^ Resolved per-field 'FieldRep'. Drives the bytes / string
+      -- rep of the value type and the JSON helper choice, the
+      -- same way 'fsRep' does for 'FSField'.
     }
   | FSOneof
     { fsName    :: Text
@@ -547,7 +544,7 @@ data FieldSpec
 
 fsFieldName :: FieldSpec -> Text
 fsFieldName (FSField n _ _ _ _ _) = n
-fsFieldName (FSMap n _ _ _) = n
+fsFieldName (FSMap n _ _ _ _) = n
 fsFieldName (FSOneof n _) = n
 
 extractMessageFields :: RepConfig -> Text -> [MessageElement] -> [FieldSpec]
@@ -566,6 +563,7 @@ extractMessageFields cfg msgN = concatMap go
       , fsNum    = unFieldNumber (mapFieldNum mf)
       , fsMapKey = mapKeyType mf
       , fsMapVal = mapValueType mf
+      , fsMapRep = lookupFieldRep msgN (mapFieldName mf) cfg
       }]
     go (MEOneof od) = [FSOneof
       { fsName        = oneofName od
@@ -591,10 +589,10 @@ mkDataDec scope tyName fields = do
       let fname = mkName (T.unpack (scopedHsFieldName parentName name))
       ty <- fieldTypeToTH scope lbl ft rep
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
-    mkField (FSMap name _ kt vt) = do
+    mkField (FSMap name _ kt vt rep) = do
       let fname = mkName (T.unpack (scopedHsFieldName parentName name))
       kty <- scalarToTH kt
-      vty <- fieldTypeInnerScopedQ scope defaultFieldRep vt
+      vty <- fieldTypeInnerScopedQ scope rep vt
       t <- appT (appT (conT ''Map) (pure kty)) (pure vty)
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, t)]
     mkField (FSOneof name _ofs) = do
@@ -1309,7 +1307,7 @@ fieldSpecToProtoField scope parentTy (FSField name num lbl ft rep opts) = do
     { PDI.pfStringRep = frString rep
     , PDI.pfBytesRep  = frBytes rep
     }
-fieldSpecToProtoField scope parentTy (FSMap name num kt vt) =
+fieldSpecToProtoField scope parentTy (FSMap name num kt vt rep) =
   case scalarToBridgeMapKey kt of
     Nothing  -> fail
       ("Proto.TH: map field '" <> T.unpack name
@@ -1319,8 +1317,12 @@ fieldSpecToProtoField scope parentTy (FSMap name num kt vt) =
       let parentName = T.pack (nameBase parentTy)
           sel   = mkName (T.unpack (scopedHsFieldName parentName name))
           pft   = fieldTypeToBridge scope vt
-          inner = innerHsType scope vt defaultFieldRep
-      in pure (PDI.protoField sel num (PDI.FKMap mks) pft inner)
+          inner = innerHsType scope vt rep
+          base  = PDI.protoField sel num (PDI.FKMap mks) pft inner
+      in pure base
+           { PDI.pfStringRep = frString rep
+           , PDI.pfBytesRep  = frBytes rep
+           }
 fieldSpecToProtoField scope parentTy (FSOneof name ofs) = do
   let parentName = T.pack (nameBase parentTy)
       sel       = mkName (T.unpack (scopedHsFieldName parentName name))
@@ -1483,18 +1485,29 @@ scalarToBridgeMapKey = \case
 -- emitters in "Proto.TH.Metadata".
 fieldSpecToMetaField :: ScopeCtx -> Name -> FieldSpec -> PTM.MetaField
 fieldSpecToMetaField scope parentTy fs = case fs of
-  FSField name num lbl ft _rep opts ->
+  FSField name num lbl ft rep opts ->
     let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
         jsonNm   = jsonNameFromOpts opts (protoJsonName name)
+        repeatedKind = case frRepeated rep of
+          VectorRep -> PTM.MFKVector
+          ListRep   -> PTM.MFKList
+          SeqRep    -> PTM.MFKSeq
         kind     = case lbl of
-          Just Repeated -> PTM.MFKVector
+          Just Repeated -> repeatedKind
           Just Optional -> PTM.MFKMaybe
           _             -> case ft of
             FTNamed n
               | not (isEnumName scope n) -> PTM.MFKMaybe
             _ -> PTM.MFKBare
+        bytesShape = case frBytes rep of
+          StrictBytesRep -> PTM.SBStrict
+          LazyBytesRep   -> PTM.SBLazy
+          ShortBytesRep  -> PTM.SBShort
         jsonKind = case (lbl, ft) of
-          (Just Repeated, FTScalar SBytes) -> PTM.JKBytesVector
+          (Just Repeated, FTScalar SBytes) -> case frRepeated rep of
+            VectorRep -> PTM.JKBytesVector
+            ListRep   -> PTM.JKBytesList
+            SeqRep    -> PTM.JKBytesSeq
           (_,             FTScalar SBytes) -> PTM.JKBytes
           _                                -> PTM.JKNormal
         jsonShape = case (lbl, ft) of
@@ -1514,19 +1527,24 @@ fieldSpecToMetaField scope parentTy fs = case fs of
             | isEnumName scope n              -> PTM.JSEnum
             | otherwise                       -> PTM.JSMessage
     in PTM.MetaField
-         { PTM.mfSelector  = sel
-         , PTM.mfProtoName = name
-         , PTM.mfJsonName  = jsonNm
-         , PTM.mfNumber    = num
-         , PTM.mfTypeDesc  = fieldTypeDescE scope ft
-         , PTM.mfLabel     = protoLabelE lbl
-         , PTM.mfKind      = kind
-         , PTM.mfJsonKind  = jsonKind
-         , PTM.mfJsonShape = jsonShape
+         { PTM.mfSelector   = sel
+         , PTM.mfProtoName  = name
+         , PTM.mfJsonName   = jsonNm
+         , PTM.mfNumber     = num
+         , PTM.mfTypeDesc   = fieldTypeDescE scope ft
+         , PTM.mfLabel      = protoLabelE lbl
+         , PTM.mfKind       = kind
+         , PTM.mfJsonKind   = jsonKind
+         , PTM.mfBytesShape = bytesShape
+         , PTM.mfJsonShape  = jsonShape
          }
-  FSMap name num kt vt ->
+  FSMap name num kt vt rep ->
     let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
         jsonNm   = protoJsonName name
+        bytesShape = case frBytes rep of
+          StrictBytesRep -> PTM.SBStrict
+          LazyBytesRep   -> PTM.SBLazy
+          ShortBytesRep  -> PTM.SBShort
         jsonKind = case vt of
           FTScalar SBytes -> PTM.JKBytesMap
           _               -> PTM.JKNormal
@@ -1536,30 +1554,32 @@ fieldSpecToMetaField scope parentTy fs = case fs of
             | isEnumName scope n -> PTM.JSMapEnum    (jsScalarOf kt)
             | otherwise          -> PTM.JSMapMessage (jsScalarOf kt)
     in PTM.MetaField
-         { PTM.mfSelector  = sel
-         , PTM.mfProtoName = name
-         , PTM.mfJsonName  = jsonNm
-         , PTM.mfNumber    = num
-         , PTM.mfTypeDesc  = mapTypeDescE scope kt vt
-         , PTM.mfLabel     = [| PS.LabelOptional |]
-         , PTM.mfKind      = PTM.MFKMap
-         , PTM.mfJsonKind  = jsonKind
-         , PTM.mfJsonShape = jsonShape
+         { PTM.mfSelector   = sel
+         , PTM.mfProtoName  = name
+         , PTM.mfJsonName   = jsonNm
+         , PTM.mfNumber     = num
+         , PTM.mfTypeDesc   = mapTypeDescE scope kt vt
+         , PTM.mfLabel      = [| PS.LabelOptional |]
+         , PTM.mfKind       = PTM.MFKMap
+         , PTM.mfJsonKind   = jsonKind
+         , PTM.mfBytesShape = bytesShape
+         , PTM.mfJsonShape  = jsonShape
          }
   FSOneof name ofs ->
     let sel      = mkName (T.unpack (scopedHsFieldName parentName name))
         jsonNm   = protoJsonName name
         variants = fmap (oneofVariantJson scope parentTy name) ofs
     in PTM.MetaField
-         { PTM.mfSelector  = sel
-         , PTM.mfProtoName = name
-         , PTM.mfJsonName  = jsonNm
-         , PTM.mfNumber    = 0
-         , PTM.mfTypeDesc  = [| PS.MessageType $(textLitE name) |]
-         , PTM.mfLabel     = [| PS.LabelOptional |]
-         , PTM.mfKind      = PTM.MFKOneof
-         , PTM.mfJsonKind  = PTM.JKNormal
-         , PTM.mfJsonShape = PTM.JSOneof variants
+         { PTM.mfSelector   = sel
+         , PTM.mfProtoName  = name
+         , PTM.mfJsonName   = jsonNm
+         , PTM.mfNumber     = 0
+         , PTM.mfTypeDesc   = [| PS.MessageType $(textLitE name) |]
+         , PTM.mfLabel      = [| PS.LabelOptional |]
+         , PTM.mfKind       = PTM.MFKOneof
+         , PTM.mfJsonKind   = PTM.JKNormal
+         , PTM.mfBytesShape = PTM.SBStrict
+         , PTM.mfJsonShape  = PTM.JSOneof variants
          }
   where
     parentName = T.pack (nameBase parentTy)

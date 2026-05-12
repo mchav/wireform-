@@ -53,13 +53,11 @@ import System.IO.Unsafe (unsafeDupablePerformIO, unsafePerformIO)
 
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AesonKey
-import qualified Data.Aeson.KeyMap as AesonKM
 import qualified Data.Aeson.Types as AesonT
 import qualified Data.ByteString as BS
 
 import Data.Int (Int32, Int64)
 import qualified Data.Scientific as Sci
-import qualified Data.Text.Encoding as TE
 import Data.Word (Word32, Word64)
 
 import Proto.Decode (UnknownField (..))

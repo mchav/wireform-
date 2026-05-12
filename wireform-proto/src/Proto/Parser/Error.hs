@@ -16,7 +16,6 @@ module Proto.Parser.Error
   ) where
 
 import Data.List (intercalate)
-import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe (catMaybes)
 import Data.Set (Set)
@@ -25,7 +24,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
 import Text.Megaparsec
-import Text.Megaparsec.Error (ErrorItem(..), ErrorFancy(..))
 
 -- | Render all errors in a ParseErrorBundle to a single Rust-style diagnostic string.
 renderParseErrors :: ParseErrorBundle Text Void -> String
@@ -176,8 +174,8 @@ showToken [c] | c == ';'  = "';'"
 showToken s = "\"" <> s <> "\""
 
 formatExpectedGroups :: ExpectedGroup -> String
-formatExpectedGroups (ExpectedGroup labels tokens eoi) =
-  let allParts = labels <> tokens <> ["end of input" | eoi]
+formatExpectedGroups (ExpectedGroup labels toks eoi) =
+  let allParts = labels <> toks <> (if eoi then ["end of input"] else [])
   in case allParts of
     []  -> "something"
     [x] -> x

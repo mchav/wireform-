@@ -4,12 +4,15 @@ version: 0.1.0.0
 synopsis:
   High-performance HTML5 tokenizer, tree builder, DOM, CSS selectors, and streaming rewriter
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 common defaults
   default-language: GHC2021
   ghc-options:
-    -O1
     -Wall
     -Wcompat
     -Widentities
@@ -89,47 +92,9 @@ test-suite wireform-html-derive-test
     tasty,
     tasty-hunit
 
-test-suite html5lib-test
-  import: defaults
-  type: exitcode-stdio-1.0
-  hs-source-dirs: ../test-interop
-  main-is: HTML5LibTest.hs
-  build-depends:
-    base,
-    wireform-html,
-    bytestring,
-    text,
-    vector,
-    directory,
-    filepath,
-    tasty,
-    tasty-hunit
-
-test-suite html-dom-test
-  import: defaults
-  type: exitcode-stdio-1.0
-  hs-source-dirs: ../test-interop
-  main-is: HTMLDOMTest.hs
-  build-depends:
-    base,
-    wireform-html,
-    bytestring,
-    text,
-    tasty,
-    tasty-hunit
-
-test-suite html-rewriter-test
-  import: defaults
-  type: exitcode-stdio-1.0
-  hs-source-dirs: ../test-interop
-  main-is: HTMLRewriterTest.hs
-  build-depends:
-    base,
-    wireform-html,
-    bytestring,
-    text,
-    aeson,
-    tasty,
-    tasty-hunit,
-    directory,
-    filepath
+-- The html5lib-test / html-dom-test / html-rewriter-test test suites
+-- live in the umbrella wireform.cabal at the workspace root. They drive
+-- shared corpora out of `test-interop/` and need to be invoked from
+-- there, so duplicating them here with `hs-source-dirs: ../test-interop`
+-- would break `cabal sdist` for wireform-html (relative paths outside
+-- the package source tree are not portable).

@@ -2,8 +2,43 @@ cabal-version: 3.0
 name: wireform-core
 version: 0.1.0.0
 synopsis: Shared FFI primitives for wireform format packages
+description:
+  Cross-format SWAR / SIMD-accelerated primitives used by every
+  @wireform-*@ format package.
+  .
+  Modules:
+  .
+  * @Wireform.FFI@ -- C FFI surface: packed-varint pre-scan + decode,
+    SWAR UTF-8 validation, SIMD NUL / byte / ASCII / whitespace
+    scanners, SIMD JSON escape scanner, SIMD Iceberg bounds compare,
+    Arrow IPC buffer validation, endianness helpers.
+  * @Wireform.Encode.Direct@ -- shared direct-write encode buffer
+    used by the per-format encoders.
+  * @Wireform.Hash@ -- SIMD-accelerated hashing helpers.
+  .
+  Pulls in C sources (@cbits\/fast_decode.c@, @cbits\/fast_scan.c@,
+  @cbits\/wireform_hash_simd.c@) and the vendored @simde@ headers.
+  Contains no format-specific code.
+homepage: https://github.com/iand675/wireform-
+bug-reports: https://github.com/iand675/wireform-/issues
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
+category: Data, Codec, FFI
 build-type: Simple
+tested-with: GHC == 9.6.4, GHC == 9.8.4
+extra-source-files:
+  cbits/*.c
+  include/**/*.h
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+
+source-repository head
+  type:     git
+  location: https://github.com/iand675/wireform-
 
 common defaults
   default-language: GHC2021

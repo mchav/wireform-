@@ -3,6 +3,10 @@ name: wireform-arrow
 version: 0.1.0.0
 synopsis: Apache Arrow IPC schema framing and record batch materialization
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 flag zstd

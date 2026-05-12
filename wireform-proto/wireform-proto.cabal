@@ -2,10 +2,51 @@ cabal-version: 3.0
 name: wireform-proto
 version: 0.1.0.0
 synopsis: Protocol Buffers (proto2/proto3) with IDL parser, code generation, JSON mapping
+description:
+  A high-performance Protocol Buffers implementation for Haskell.
+  .
+  Features:
+  .
+  * @.proto@ IDL parser (proto2 + proto3) and pure-text Haskell code generator
+  * Annotation-driven Template Haskell deriver (@Proto.Derive@) that emits
+    wire codecs directly from a hand-written Haskell record
+  * @loadProto@ Template Haskell splice that pairs the IDL parser with the
+    deriver for in-place type and instance generation
+  * Allocation-disciplined hot path: unboxed-sum decoder, two-pass sized
+    encoder, pre-computed tags, packed repeated fields, lazy submessage
+    decoding
+  * @protoc@ plugin (@protoc-gen-wireform@), Cabal @Setup.hs@ hook
+    (@Proto.Setup@), and an inline @[proto|...|]@ quasi-quoter
+  * Proto3 canonical JSON mapping, well-known types
+    (@Timestamp@, @Duration@, @Any@, @FieldMask@, @Struct@, @Wrappers@, …),
+    @.pbtxt@ text format, proto2 typed extensions, dynamic / untyped
+    messages, and a runtime @TypeRegistry@
+  * gRPC service-method codegen (the wire framing lives in
+    @wireform-grpc@)
+  * Conformance suite driver that runs the upstream
+    @conformance_test_runner@ end-to-end
+  .
+  See the umbrella package @wireform@ for the multi-format facade and the
+  @wireform-gen@ codegen CLI.
+homepage: https://github.com/iand675/wireform-
+bug-reports: https://github.com/iand675/wireform-/issues
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
+category: Data, Codec, Network, Serialization
 build-type: Simple
+tested-with: GHC == 9.6.4, GHC == 9.8.4
+extra-doc-files:
+  CHANGELOG.md
+  README.md
 data-dir: data
 data-files: proto/google/protobuf/*.proto
+
+source-repository head
+  type:     git
+  location: https://github.com/iand675/wireform-
 
 common defaults
   ghc-options:
@@ -107,11 +148,10 @@ library
     Proto.Wire
     Proto.Wire.Decode
     Proto.Wire.Encode
-    Proto.Wire.Result
   build-depends:
     base >= 4.16 && < 5,
-    wireform-core,
-    wireform-derive,
+    wireform-core == 0.1.*,
+    wireform-derive == 0.2.*,
     bytestring >= 0.11 && < 0.13,
     containers >= 0.6 && < 0.8,
     megaparsec >= 9.0 && < 10,

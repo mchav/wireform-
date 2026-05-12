@@ -44,7 +44,6 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
-import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.IORef
 import Data.Text (Text)

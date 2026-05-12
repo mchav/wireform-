@@ -61,7 +61,8 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word8, Word32, Word64)
 
-import Proto.Wire.Encode (putVarint, putSVarint32, putSVarint64,
+import qualified Data.Text.Foreign as TF
+import Proto.Wire.Encode (putVarint, putSVarint32, putSVarint64, putText,
   varintSize, zigZag32, zigZag64)
 import Proto.SizedBuilder (SizedBuilder, sized, withSubMessage)
 
@@ -102,11 +103,15 @@ archBool !tag False = B.word8 tag <> B.word8 0
 {-# INLINE archBool #-}
 
 -- | String archetype: tag + length varint + UTF-8 bytes.
--- On text >= 2.0, encodeUtf8 is O(1).
+--
+-- Delegates to 'putText', which streams the 'Text' 's bytes directly
+-- from its unpinned 'ByteArray#' into the builder buffer. This
+-- avoids the per-call pinned 'BS.ByteString' allocation and second
+-- copy that the naive @'B.byteString' . 'TE.encodeUtf8'@ form
+-- forces. See 'Proto.Wire.Encode.byteArraySliceBuilder' for the
+-- underlying primitive and rationale.
 archString :: Word8 -> Text -> B.Builder
-archString !tag !val =
-  let !bs = TE.encodeUtf8 val
-  in B.word8 tag <> putVarint (fromIntegral (BS.length bs)) <> B.byteString bs
+archString !tag !val = B.word8 tag <> putText val
 {-# INLINE archString #-}
 
 archBytes :: Word8 -> ByteString -> B.Builder
@@ -137,9 +142,18 @@ archVarintSize :: Word64 -> Int
 archVarintSize !val = 1 + varintSize val
 {-# INLINE archVarintSize #-}
 
+-- | Encoded size of a text field with baked tag.
+--
+-- The naive shape (used here previously) called
+-- @'BS.length' ('TE.encodeUtf8' val)@, which materialises a fresh
+-- pinned 'BS.ByteString' every time the size pass runs purely to read its
+-- length slot. 'TF.lengthWord8' returns the same number in O(1) by
+-- reading the 'Text' record's length field directly, with no heap
+-- allocation. Saves one pinned 'ByteString' allocation per text
+-- field per encode call.
 archStringSize :: Text -> Int
 archStringSize !val =
-  let !len = BS.length (TE.encodeUtf8 val)
+  let !len = TF.lengthWord8 val
   in 1 + varintSize (fromIntegral len) + len
 {-# INLINE archStringSize #-}
 
@@ -203,13 +217,18 @@ sbArchDouble !tag !val =
   sized 9 (B.word8 tag <> B.doubleLE val)
 {-# INLINE sbArchDouble #-}
 
--- | Fused string field: encodeUtf8 ONCE, use for both size and builder.
+-- | Fused string field: size pass reads the 'Text' length slot
+-- directly via 'TF.lengthWord8' (no allocation), build pass streams
+-- the bytes through 'putText' which writes straight to the builder
+-- buffer (no intermediate pinned 'BS.ByteString'). The previous
+-- implementation forced 'TE.encodeUtf8' to materialise a pinned
+-- 'BS.ByteString' just to read its length on every encode call --
+-- with this version both passes touch zero heap.
 sbArchString :: Word8 -> Text -> SizedBuilder
 sbArchString !tag !val =
-  let !bs = TE.encodeUtf8 val
-      !len = BS.length bs
+  let !len = TF.lengthWord8 val
       !sz = 1 + varintSize (fromIntegral len) + len
-  in sized sz (B.word8 tag <> putVarint (fromIntegral len) <> B.byteString bs)
+  in sized sz (B.word8 tag <> putText val)
 {-# INLINE sbArchString #-}
 
 sbArchBytes :: Word8 -> ByteString -> SizedBuilder

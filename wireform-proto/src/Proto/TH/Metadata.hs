@@ -40,6 +40,7 @@ module Proto.TH.Metadata
   , MetaField (..)
   , MetaFieldKind (..)
   , JsonKind (..)
+  , BytesShape (..)
   , JsonShape (..)
   , JsonScalar (..)
   , OneofVariantJson (..)
@@ -63,20 +64,22 @@ module Proto.TH.Metadata
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Short as SBS
+import qualified Data.Foldable as F
 import Data.Hashable (Hashable, hashWithSalt)
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Scientific as Sci
 import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
 import Data.Word (Word32, Word64)
 
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import GHC.IO.Unsafe (unsafePerformIO)
-import qualified System.IO
 import qualified Data.Aeson as Aeson
 import qualified Proto.JSON.Extension as PJExt
 import qualified Proto.Decode as PD
@@ -133,6 +136,14 @@ data MetaField = MetaField
     -- ^ Whether the field needs the bytes-aware JSON helpers from
     -- "Proto.JSON" (because either the value type or the map value
     -- type is @bytes@).
+  , mfBytesShape :: !BytesShape
+    -- ^ When the field carries proto @bytes@ (either directly or as
+    -- the value of a @repeated bytes@ \/ @map\<K, bytes\>@), which
+    -- physical 'Proto.Repr.BytesRep' it uses on the Haskell side.
+    -- Drives the default-skip predicate, the toJSON helper, and
+    -- the parseFieldMaybe helper picked by the JSON splice.
+    -- Defaults to 'SBStrict' (and is ignored entirely for
+    -- 'JKNormal' fields).
   , mfJsonShape :: !JsonShape
     -- ^ Proto3-canonical-JSON encoding shape for this field. Drives
     -- default-skip, the per-scalar @toJSON@ \/ @parseJSON@ helper,
@@ -264,13 +275,32 @@ data JsonKind
   | JKBytes
     -- ^ A @bytes@-typed field. JSON wants base64 via the
     -- 'PJ.bytesFieldToJSON' / 'PJ.parseBytesFieldMaybe' helpers.
+    -- Pair with 'mfBytesShape' to pick the right rep-aware helper
+    -- ('protoBytesToJSON' vs. 'protoLazyBytesToJSON' vs.
+    -- 'protoShortBytesToJSON').
   | JKBytesMap
     -- ^ A @map\<K, bytes\>@ — values must base64.
+    -- Currently always strict bytes; per-element rep overrides
+    -- aren't honoured for map values.
   | JKBytesVector
     -- ^ A @repeated bytes@ field carried as @Vector ByteString@.
     -- JSON shape is an array of base64 strings.
   | JKBytesList
     -- ^ A @repeated bytes@ field carried as @[ByteString]@.
+  | JKBytesSeq
+    -- ^ A @repeated bytes@ field carried as @Seq ByteString@.
+
+-- | Physical Haskell representation of a proto @bytes@ field. Lines
+-- up 1-1 with 'Proto.Repr.BytesRep' but lives here so this module
+-- doesn't have to depend on the @Proto.Repr@ surface.
+data BytesShape
+  = SBStrict
+    -- ^ @Data.ByteString.ByteString@ (the proto default).
+  | SBLazy
+    -- ^ @Data.ByteString.Lazy.ByteString@.
+  | SBShort
+    -- ^ @Data.ByteString.Short.ShortByteString@.
+  deriving stock (Eq, Show)
 
 -- ---------------------------------------------------------------------------
 -- ProtoMessage
@@ -404,37 +434,69 @@ toJSONEntry msgVar mf =
   let fieldExpr = AppE (VarE (mfSelector mf)) (VarE msgVar)
       jsonKey   = textLit (mfJsonName mf)
       one valE  = ListE [TupE [Just jsonKey, Just valE]]
+      shape     = mfBytesShape mf
       -- Bytes-shaped fields don't have an Aeson.ToJSON instance,
       -- so they short-circuit through the dedicated bytes
       -- helpers in "Proto.JSON". Empty containers / default
       -- ByteString are still skipped per proto3 canonical-JSON.
+      bytesIsNullE :: Q Exp
+      bytesIsNullE = case shape of
+        SBStrict -> [| BS.null  $(pure fieldExpr) |]
+        SBLazy   -> [| BL.null  $(pure fieldExpr) |]
+        SBShort  -> [| SBS.null $(pure fieldExpr) |]
+      bytesToJSONN :: Name
+      bytesToJSONN = case shape of
+        SBStrict -> 'PJI.protoBytesToJSON
+        SBLazy   -> 'PJ.protoLazyBytesToJSON
+        SBShort  -> 'PJ.protoShortBytesToJSON
   in case mfJsonKind mf of
     JKBytes -> case mfKind mf of
       MFKMaybe ->
-        -- @Maybe ByteString@ carrier (proto2 optional bytes,
-        -- proto3 explicit-optional bytes): emit when @Just@,
-        -- skip on @Nothing@.
+        -- @Maybe <Bytes>@ carrier (proto2 optional bytes, proto3
+        -- explicit-optional bytes): emit when @Just@, skip on
+        -- @Nothing@. The bytes shape picks the rep-aware
+        -- 'proto*BytesToJSON' helper.
         [| case $(pure fieldExpr) of
              Nothing -> []
              Just bs ->
-               [($(pure jsonKey), PJI.protoBytesToJSON bs)] |]
+               [($(pure jsonKey), $(varE bytesToJSONN) bs)] |]
       _ ->
-        [| if BS.null $(pure fieldExpr)
+        [| if $(bytesIsNullE)
            then []
            else $(pure (one
-                         (AppE (VarE 'PJI.protoBytesToJSON) fieldExpr))) |]
+                         (AppE (VarE bytesToJSONN) fieldExpr))) |]
     JKBytesVector ->
-      [| if V.null $(pure fieldExpr)
+      let toJSONHelper = case shape of
+            SBStrict -> VarE 'bytesVectorToJSON
+            SBLazy   -> VarE 'lazyBytesVectorToJSON
+            SBShort  -> VarE 'shortBytesVectorToJSON
+      in [| if V.null $(pure fieldExpr)
          then []
-         else $(pure (one (AppE (VarE 'bytesVectorToJSON) fieldExpr))) |]
+         else $(pure (one (AppE toJSONHelper fieldExpr))) |]
     JKBytesList ->
-      [| if null $(pure fieldExpr)
+      let toJSONHelper = case shape of
+            SBStrict -> VarE 'bytesListToJSON
+            SBLazy   -> VarE 'lazyBytesListToJSON
+            SBShort  -> VarE 'shortBytesListToJSON
+      in [| if null $(pure fieldExpr)
          then []
-         else $(pure (one (AppE (VarE 'bytesListToJSON) fieldExpr))) |]
+         else $(pure (one (AppE toJSONHelper fieldExpr))) |]
+    JKBytesSeq ->
+      let toJSONHelper = case shape of
+            SBStrict -> VarE 'bytesSeqToJSON
+            SBLazy   -> VarE 'lazyBytesSeqToJSON
+            SBShort  -> VarE 'shortBytesSeqToJSON
+      in [| if Seq.null $(pure fieldExpr)
+         then []
+         else $(pure (one (AppE toJSONHelper fieldExpr))) |]
     JKBytesMap ->
-      [| if Map.null $(pure fieldExpr)
+      let mapHelper = case shape of
+            SBStrict -> VarE 'PJI.bytesMapFieldToJSON
+            SBLazy   -> VarE 'PJ.lazyBytesMapFieldToJSON
+            SBShort  -> VarE 'PJ.shortBytesMapFieldToJSON
+      in [| if Map.null $(pure fieldExpr)
          then []
-         else [PJI.bytesMapFieldToJSON $(pure jsonKey) $(pure fieldExpr)] |]
+         else [$(pure (AppE (AppE mapHelper jsonKey) fieldExpr))] |]
     JKNormal -> jsonShapeEntry msgVar mf fieldExpr jsonKey one
 
 -- | The @JKNormal@ arm of 'toJSONEntry' factored out so the
@@ -471,20 +533,51 @@ jsonShapeEntry _msgVar mf fieldExpr jsonKey one = case mfJsonShape mf of
          Nothing -> []
          Just $(varP vName) ->
            $(pure (one (AppE (VarE 'Aeson.toJSON) (VarE vName)))) |]
-  JSRepeatedScalar sc ->
-    [| if V.null $(pure fieldExpr)
-       then []
-       else $(pure (one (AppE (AppE (VarE 'scalarVectorToJSON)
-                                     (scalarTagE sc))
-                             fieldExpr))) |]
-  JSRepeatedMessage ->
-    [| if V.null $(pure fieldExpr)
-       then []
-       else [($(pure jsonKey), Aeson.toJSON $(pure fieldExpr))] |]
-  JSRepeatedEnum ->
-    [| if V.null $(pure fieldExpr)
-       then []
-       else [($(pure jsonKey), Aeson.toJSON $(pure fieldExpr))] |]
+  JSRepeatedScalar sc -> case mfKind mf of
+    MFKList ->
+      [| if null $(pure fieldExpr)
+         then []
+         else $(pure (one (AppE (AppE (VarE 'scalarListToJSON)
+                                       (scalarTagE sc))
+                               fieldExpr))) |]
+    MFKSeq ->
+      [| if Seq.null $(pure fieldExpr)
+         then []
+         else $(pure (one (AppE (AppE (VarE 'scalarSeqToJSON)
+                                       (scalarTagE sc))
+                               fieldExpr))) |]
+    _ ->
+      [| if V.null $(pure fieldExpr)
+         then []
+         else $(pure (one (AppE (AppE (VarE 'scalarVectorToJSON)
+                                       (scalarTagE sc))
+                               fieldExpr))) |]
+  JSRepeatedMessage -> case mfKind mf of
+    MFKList ->
+      [| if null $(pure fieldExpr)
+         then []
+         else [($(pure jsonKey), Aeson.toJSON $(pure fieldExpr))] |]
+    MFKSeq ->
+      [| if Seq.null $(pure fieldExpr)
+         then []
+         else [($(pure jsonKey), Aeson.toJSON $(pure fieldExpr))] |]
+    _ ->
+      [| if V.null $(pure fieldExpr)
+         then []
+         else [($(pure jsonKey), Aeson.toJSON $(pure fieldExpr))] |]
+  JSRepeatedEnum -> case mfKind mf of
+    MFKList ->
+      [| if null $(pure fieldExpr)
+         then []
+         else [($(pure jsonKey), Aeson.toJSON $(pure fieldExpr))] |]
+    MFKSeq ->
+      [| if Seq.null $(pure fieldExpr)
+         then []
+         else [($(pure jsonKey), Aeson.toJSON $(pure fieldExpr))] |]
+    _ ->
+      [| if V.null $(pure fieldExpr)
+         then []
+         else [($(pure jsonKey), Aeson.toJSON $(pure fieldExpr))] |]
   JSMapScalar kSc vSc ->
     [| if Map.null $(pure fieldExpr)
        then []
@@ -607,6 +700,13 @@ oneofVariantArm OneofVariantJson{ovjConstructor=con, ovjJsonKey=key, ovjShape=sh
 
 -- | Default predicate per scalar kind. Used to suppress fields at
 -- their proto3 default value from JSON output.
+--
+-- 'JSBytes' is special: the codegen never actually goes through
+-- here for bytes-typed singular fields ('toJSONEntry' bypasses
+-- 'jsonShapeEntry' for those), so the 'BS.null' here only matters
+-- for the (unreachable) catch-all path. The real bytes
+-- default-skip dispatch lives in 'toJSONEntry' and uses
+-- 'mfBytesShape' to pick between 'BS.null' / 'BL.null' / 'SBS.null'.
 scalarIsDefaultE :: JsonScalar -> Exp -> Q Exp
 scalarIsDefaultE sc e = case sc of
   JSBool      -> [| not $(pure e) |]
@@ -805,12 +905,29 @@ parseFnFor mf = oldParseFnFor mf
 oldParseFnFor :: MetaField -> Exp
 oldParseFnFor mf =
   case mfJsonKind mf of
-        JKBytes -> case mfKind mf of
-          MFKMaybe -> VarE 'parseBytesMaybeFieldMaybe
-          _        -> VarE 'PJ.parseBytesFieldMaybe
-        JKBytesMap    -> VarE 'PJ.parseBytesMapFieldMaybe
-        JKBytesVector -> VarE 'parseBytesVectorMaybe
-        JKBytesList   -> VarE 'parseBytesListMaybe
+        JKBytes -> case (mfKind mf, mfBytesShape mf) of
+          (MFKMaybe, SBStrict) -> VarE 'parseBytesMaybeFieldMaybe
+          (MFKMaybe, SBLazy)   -> VarE 'parseLazyBytesMaybeFieldMaybe
+          (MFKMaybe, SBShort)  -> VarE 'parseShortBytesMaybeFieldMaybe
+          (_,        SBStrict) -> VarE 'PJ.parseBytesFieldMaybe
+          (_,        SBLazy)   -> VarE 'PJ.parseLazyBytesFieldMaybe
+          (_,        SBShort)  -> VarE 'PJ.parseShortBytesFieldMaybe
+        JKBytesMap    -> case mfBytesShape mf of
+          SBStrict -> VarE 'PJ.parseBytesMapFieldMaybe
+          SBLazy   -> VarE 'PJ.parseLazyBytesMapFieldMaybe
+          SBShort  -> VarE 'PJ.parseShortBytesMapFieldMaybe
+        JKBytesVector -> case mfBytesShape mf of
+          SBStrict -> VarE 'parseBytesVectorMaybe
+          SBLazy   -> VarE 'parseLazyBytesVectorMaybe
+          SBShort  -> VarE 'parseShortBytesVectorMaybe
+        JKBytesList   -> case mfBytesShape mf of
+          SBStrict -> VarE 'parseBytesListMaybe
+          SBLazy   -> VarE 'parseLazyBytesListMaybe
+          SBShort  -> VarE 'parseShortBytesListMaybe
+        JKBytesSeq    -> case mfBytesShape mf of
+          SBStrict -> VarE 'parseBytesSeqMaybe
+          SBLazy   -> VarE 'parseLazyBytesSeqMaybe
+          SBShort  -> VarE 'parseShortBytesSeqMaybe
         JKNormal      -> case mfJsonShape mf of
           -- WKT singular: dispatch through proto3-canonical
           -- parser (RFC 3339 timestamps, "1.5s" durations,
@@ -1442,9 +1559,43 @@ bytesVectorToJSON :: V.Vector ByteString -> Aeson.Value
 bytesVectorToJSON =
   Aeson.toJSON . fmap PJI.protoBytesToJSON . V.toList
 
+-- | A vector-backed @repeated bytes@ field whose payload is
+-- 'BL.ByteString'.
+lazyBytesVectorToJSON :: V.Vector BL.ByteString -> Aeson.Value
+lazyBytesVectorToJSON =
+  Aeson.toJSON . fmap PJI.protoLazyBytesToJSON . V.toList
+
+-- | A vector-backed @repeated bytes@ field whose payload is
+-- 'SBS.ShortByteString'.
+shortBytesVectorToJSON :: V.Vector SBS.ShortByteString -> Aeson.Value
+shortBytesVectorToJSON =
+  Aeson.toJSON . fmap PJI.protoShortBytesToJSON . V.toList
+
 -- | A list-backed @repeated bytes@ field as a JSON array.
 bytesListToJSON :: [ByteString] -> Aeson.Value
 bytesListToJSON = Aeson.toJSON . fmap PJI.protoBytesToJSON
+
+-- | A list-backed @repeated bytes@ field whose payload is 'BL.ByteString'.
+lazyBytesListToJSON :: [BL.ByteString] -> Aeson.Value
+lazyBytesListToJSON = Aeson.toJSON . fmap PJI.protoLazyBytesToJSON
+
+-- | A list-backed @repeated bytes@ field whose payload is
+-- 'SBS.ShortByteString'.
+shortBytesListToJSON :: [SBS.ShortByteString] -> Aeson.Value
+shortBytesListToJSON = Aeson.toJSON . fmap PJI.protoShortBytesToJSON
+
+-- | A Seq-backed @repeated bytes@ field as a JSON array.
+bytesSeqToJSON :: Seq ByteString -> Aeson.Value
+bytesSeqToJSON = Aeson.toJSON . fmap PJI.protoBytesToJSON . F.toList
+
+-- | A Seq-backed @repeated bytes@ field whose payload is 'BL.ByteString'.
+lazyBytesSeqToJSON :: Seq BL.ByteString -> Aeson.Value
+lazyBytesSeqToJSON = Aeson.toJSON . fmap PJI.protoLazyBytesToJSON . F.toList
+
+-- | A Seq-backed @repeated bytes@ field whose payload is
+-- 'SBS.ShortByteString'.
+shortBytesSeqToJSON :: Seq SBS.ShortByteString -> Aeson.Value
+shortBytesSeqToJSON = Aeson.toJSON . fmap PJI.protoShortBytesToJSON . F.toList
 
 -- | Parse @Maybe (Vector ByteString)@ from a JSON object key.
 parseBytesVectorMaybe
@@ -1455,6 +1606,22 @@ parseBytesVectorMaybe obj key = do
     Nothing -> pure Nothing
     Just vs -> Just . V.fromList <$> traverse PJI.protoBytesFromJSON (vs :: [Aeson.Value])
 
+parseLazyBytesVectorMaybe
+  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector BL.ByteString))
+parseLazyBytesVectorMaybe obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing -> pure Nothing
+    Just vs -> Just . V.fromList <$> traverse PJ.protoLazyBytesFromJSON (vs :: [Aeson.Value])
+
+parseShortBytesVectorMaybe
+  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector SBS.ShortByteString))
+parseShortBytesVectorMaybe obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing -> pure Nothing
+    Just vs -> Just . V.fromList <$> traverse PJ.protoShortBytesFromJSON (vs :: [Aeson.Value])
+
 -- | Parse @Maybe [ByteString]@ from a JSON object key.
 parseBytesListMaybe
   :: Aeson.Object -> Text -> AesonT.Parser (Maybe [ByteString])
@@ -1463,6 +1630,58 @@ parseBytesListMaybe obj key = do
   case mv of
     Nothing -> pure Nothing
     Just vs -> Just <$> traverse PJI.protoBytesFromJSON (vs :: [Aeson.Value])
+
+parseLazyBytesListMaybe
+  :: Aeson.Object -> Text -> AesonT.Parser (Maybe [BL.ByteString])
+parseLazyBytesListMaybe obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing -> pure Nothing
+    Just vs -> Just <$> traverse PJ.protoLazyBytesFromJSON (vs :: [Aeson.Value])
+
+parseShortBytesListMaybe
+  :: Aeson.Object -> Text -> AesonT.Parser (Maybe [SBS.ShortByteString])
+parseShortBytesListMaybe obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing -> pure Nothing
+    Just vs -> Just <$> traverse PJ.protoShortBytesFromJSON (vs :: [Aeson.Value])
+
+parseBytesSeqMaybe
+  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Seq ByteString))
+parseBytesSeqMaybe obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing -> pure Nothing
+    Just vs -> Just . Seq.fromList <$> traverse PJI.protoBytesFromJSON (vs :: [Aeson.Value])
+
+parseLazyBytesSeqMaybe
+  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Seq BL.ByteString))
+parseLazyBytesSeqMaybe obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing -> pure Nothing
+    Just vs -> Just . Seq.fromList <$> traverse PJ.protoLazyBytesFromJSON (vs :: [Aeson.Value])
+
+parseShortBytesSeqMaybe
+  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Seq SBS.ShortByteString))
+parseShortBytesSeqMaybe obj key = do
+  mv <- PJI.parseFieldMaybe obj key
+  case mv of
+    Nothing -> pure Nothing
+    Just vs -> Just . Seq.fromList <$> traverse PJ.protoShortBytesFromJSON (vs :: [Aeson.Value])
+
+-- | Per-shape @parseBytesMaybeFieldMaybe@ for @Maybe \<Bytes>@ fields
+-- (proto2 optional bytes, proto3 explicit-optional bytes). Returns
+-- @Maybe (Maybe a)@ so 'fromJSONAssign' can distinguish "key absent"
+-- from "key present, value null".
+parseLazyBytesMaybeFieldMaybe
+  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe BL.ByteString))
+parseLazyBytesMaybeFieldMaybe = parseScalarMaybeMaybe PJ.protoLazyBytesFromJSON
+
+parseShortBytesMaybeFieldMaybe
+  :: Aeson.Object -> Text -> AesonT.Parser (Maybe (Maybe SBS.ShortByteString))
+parseShortBytesMaybeFieldMaybe = parseScalarMaybeMaybe PJ.protoShortBytesFromJSON
 
 -- ---------------------------------------------------------------------------
 -- Scalar runtime helpers (consumed by the spliced JSON encoder)
@@ -1490,15 +1709,31 @@ scalarValueToJSON _ _ =
 scalarVectorToJSON
   :: forall a. (Aeson.ToJSON a)
   => JsonScalar -> V.Vector a -> Aeson.Value
-scalarVectorToJSON sc xs = Aeson.toJSON (V.toList (V.map (encodeOne sc) xs))
-  where
-    encodeOne :: JsonScalar -> a -> Aeson.Value
-    encodeOne JSBytes  _ =
-      -- 'JSBytes' is handled by the dedicated 'bytesVectorToJSON'
-      -- elsewhere; reaching here means the splice picked the wrong
-      -- helper.
-      Aeson.Null
-    encodeOne _ x = Aeson.toJSON x
+scalarVectorToJSON sc xs = Aeson.toJSON (V.toList (V.map (encodeOneScalar sc) xs))
+
+-- | List-backed counterpart of 'scalarVectorToJSON', dispatched
+-- when the field's 'frRepeated' override is 'ListRep'.
+scalarListToJSON
+  :: forall a. (Aeson.ToJSON a)
+  => JsonScalar -> [a] -> Aeson.Value
+scalarListToJSON sc xs = Aeson.toJSON (fmap (encodeOneScalar sc) xs)
+
+-- | Seq-backed counterpart of 'scalarVectorToJSON', dispatched
+-- when the field's 'frRepeated' override is 'SeqRep'.
+scalarSeqToJSON
+  :: forall a. (Aeson.ToJSON a)
+  => JsonScalar -> Seq a -> Aeson.Value
+scalarSeqToJSON sc xs = Aeson.toJSON (fmap (encodeOneScalar sc) (F.toList xs))
+
+-- | Per-element encoder shared by 'scalarVectorToJSON',
+-- 'scalarListToJSON', 'scalarSeqToJSON'. 'JSBytes' is handled by
+-- the dedicated @*BytesVectorToJSON@ / @*BytesListToJSON@ /
+-- @*BytesSeqToJSON@ helpers, so a 'JSBytes' tag reaching this
+-- function means the splice picked the wrong helper -- emit
+-- @null@ rather than silently base64-encoding via the wrong path.
+encodeOneScalar :: Aeson.ToJSON a => JsonScalar -> a -> Aeson.Value
+encodeOneScalar JSBytes _ = Aeson.Null
+encodeOneScalar _       x = Aeson.toJSON x
 
 -- | A scalar-keyed scalar-valued map as a JSON object. Keys are
 -- always stringified per the proto3 JSON spec; values use the

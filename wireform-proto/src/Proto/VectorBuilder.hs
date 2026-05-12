@@ -40,7 +40,6 @@ module Proto.VectorBuilder
   , growListLength
   ) where
 
-import Control.Monad.ST (ST, runST)
 import Data.IORef
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV

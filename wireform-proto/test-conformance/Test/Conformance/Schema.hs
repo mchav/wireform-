@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -Wno-unused-imports -Wno-orphans -Wno-missing-signatures #-}
+{-# OPTIONS_GHC -Wno-unused-imports -Wno-unused-matches -Wno-unused-top-binds -Wno-orphans -Wno-missing-signatures #-}
 
 -- | All splice sites for the protobuf conformance harness.
 --

@@ -3,6 +3,10 @@ name: wireform-avro
 version: 0.1.0.0
 synopsis: Apache Avro schema resolution, JSON conversion, and protocol/IPC
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 common defaults

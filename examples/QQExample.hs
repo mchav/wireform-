@@ -44,9 +44,9 @@ main = do
   putStrLn "=== QuasiQuoter Example ===\n"
 
   let req = defaultSearchRequest
-        { query = "haskell protobuf"
-        , pageNumber = 1
-        , resultPerPage = 20
+        { searchRequestQuery         = "haskell protobuf"
+        , searchRequestPageNumber    = 1
+        , searchRequestResultPerPage = 20
         }
   putStrLn $ "SearchRequest: " <> show req
 

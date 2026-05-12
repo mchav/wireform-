@@ -26,7 +26,6 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int (Int32)
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Bits ((.&.), shiftR)
 import Data.Word (Word32)
 import GHC.Generics (Generic)

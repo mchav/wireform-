@@ -3,6 +3,10 @@ name: wireform-orc
 version: 0.1.0.0
 synopsis: Apache ORC metadata, stripes, and read/write
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 -- Compression codec flags. Defaults are ON so wireform-orc
@@ -98,7 +102,6 @@ executable wireform-orc-interop-probe
   import: defaults
   hs-source-dirs: probe
   main-is: Probe.hs
-  ghc-options: -O1
   build-depends:
     base >= 4.16 && < 5,
     wireform-arrow,
@@ -111,7 +114,6 @@ executable wireform-orc-reverse-probe
   import: defaults
   hs-source-dirs: probe
   main-is: Reverse.hs
-  ghc-options: -O1
   build-depends:
     base >= 4.16 && < 5,
     wireform-arrow,

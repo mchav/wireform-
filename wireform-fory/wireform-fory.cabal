@@ -15,6 +15,10 @@ description:
   cache are intentionally not enabled in this initial release; see
   the @Fory.Encode@ haddock for the exact subset.
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 common defaults
@@ -26,7 +30,6 @@ common defaults
     -Wincomplete-uni-patterns
     -Wpartial-fields
     -Wredundant-constraints
-    -O1
   default-language: GHC2021
   default-extensions:
     StrictData

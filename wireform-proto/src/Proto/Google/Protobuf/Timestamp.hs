@@ -32,11 +32,12 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
+import qualified Proto.Extension
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -88,46 +89,20 @@ instance MessageSize Timestamp where
 
 instance MessageDecode Timestamp where
   {-# INLINE messageDecoder #-}
-  messageDecoder = loop_dispatch 0 0 []
+  messageDecoder = loop 0 0 []
     where
-      loop_dispatch acc_0 acc_1 acc_unknown_ = withTagM
+      loop acc_0 acc_1 acc_unknown_ = withTagM
         (pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownFields = reverse acc_unknown_}))
         (\fn wt -> case fn of
           1 -> do
             v <- (fromIntegral <$> decodeFieldVarint)
-            loop_after_0 v acc_1 acc_unknown_
+            loop v acc_1 acc_unknown_
           2 -> do
             v <- (fromIntegral <$> decodeFieldVarint)
-            loop_after_1 acc_0 v acc_unknown_
+            loop acc_0 v acc_unknown_
           _ -> do
             uf <- captureUnknownField fn (toEnum wt)
-            loop_dispatch acc_0 acc_1 (uf : acc_unknown_))
-      loop_after_0 acc_0 acc_1 acc_unknown_ = withTagM
-        (pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownFields = reverse acc_unknown_}))
-        (\fn wt -> if fn == 2
-          then do
-            v <- (fromIntegral <$> decodeFieldVarint)
-            loop_after_1 acc_0 v acc_unknown_
-          else case fn of
-            1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop_after_0 v acc_1 acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn (toEnum wt)
-              loop_dispatch acc_0 acc_1 (uf : acc_unknown_))
-      loop_after_1 acc_0 acc_1 acc_unknown_ = withTagM
-        (pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownFields = reverse acc_unknown_}))
-        (\fn wt -> if fn == 1
-          then do
-            v <- (fromIntegral <$> decodeFieldVarint)
-            loop_after_0 v acc_1 acc_unknown_
-          else case fn of
-            2 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop_after_1 acc_0 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn (toEnum wt)
-              loop_dispatch acc_0 acc_1 (uf : acc_unknown_))
+            loop acc_0 acc_1 (uf : acc_unknown_))
 
 instance IsMessage Timestamp where
   messageTypeName _ = "google.protobuf.Timestamp"
@@ -189,6 +164,10 @@ instance Aeson.FromJSON Timestamp where
 
 instance Hashable Timestamp where
   hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.timestampSeconds) msg.timestampNanos
+
+instance Proto.Extension.HasExtensions Timestamp where
+  messageUnknownFields = timestampUnknownFields
+  setMessageUnknownFields !ufs msg = msg { timestampUnknownFields = ufs }
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

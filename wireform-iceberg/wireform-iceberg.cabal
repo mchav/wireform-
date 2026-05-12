@@ -3,6 +3,10 @@ name: wireform-iceberg
 version: 0.1.0.0
 synopsis: Apache Iceberg table metadata, manifest, and schema evolution
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 flag rest-client
@@ -188,7 +192,6 @@ executable wireform-iceberg-interop-probe
   import: defaults
   hs-source-dirs: probe
   main-is: Probe.hs
-  ghc-options: -O1
   build-depends:
     base >= 4.16 && < 5,
     wireform-iceberg,
