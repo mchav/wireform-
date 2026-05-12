@@ -626,6 +626,23 @@ test-suite wireform-kafka-streams-integration
         tasty-hunit               >= 0.10  && < 0.11,
         text
 
+executable wireform-kafka-client-examples
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: examples
+    ghc-options: -threaded -rtsopts
+    other-modules:
+        Kafka.Client.Examples.Consume
+        Kafka.Client.Examples.Group
+        Kafka.Client.Examples.Produce
+        Kafka.Client.Examples.ProduceTyped
+        Kafka.Client.Examples.Transaction
+    build-depends:
+        base,
+        wireform-kafka,
+        bytestring,
+        text
+
 executable wireform-kafka-streams-examples
     import: defaults
     main-is: Main.hs
