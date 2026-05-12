@@ -109,6 +109,40 @@ and this project adheres to the
 
 ### Changed
 
+- `Kafka.Streams.Discovery.RemoteIQ` is rewritten on top of
+  [`wireform-grpc`](https://hackage.haskell.org/package/wireform-grpc).
+  The old "transport-agnostic newtype of `HostInfo ->
+  RemoteIQRequest -> IO RemoteIQResponse`" framing was an
+  awkward "pluggable transport" abstraction that obscured the
+  fact that gRPC is the only realistic answer for cross-instance
+  IQ between Haskell streams pods. The new `RemoteIQ` is a sum
+  type with three concrete cases:
+
+  - `RemoteIqOverGrpc !GrpcRemoteIqConfig` (production; the
+    `executeRemoteIq` dispatcher opens a wireform-grpc connection
+    to the peer and issues the `RemoteIQ/Fetch` RPC).
+  - `RemoteIqDisabled` (no cross-instance proxying; returns
+    `RIQAbsent`).
+  - `RemoteIqMock !(HostInfo -> RemoteIQRequest -> IO RemoteIQResponse)`
+    (test-only escape hatch).
+
+  Construct one of these and pass it to `executeRemoteIq`. The
+  on-the-wire RPC is identified by the type alias
+  `RemoteIqRpc = RawRpc "wireform.kafka.streams.RemoteIQ" "Fetch"`;
+  the request / response payloads are serialised via `Data.Binary`
+  and the server-side handler factory `remoteIqGrpcHandler` returns
+  a `SomeRpcHandler` for `Network.GRPC.Server.mkGrpcServer`.
+
+  The pure routing helper (`routeQuery`, `RouteDecision`) and the
+  bytes-typed request / response records (`RemoteIQRequest`,
+  `RemoteIQResponse`) are unchanged.
+
+  Breaking: anyone constructing the old `RemoteIQ` newtype by hand
+  must switch to one of the sum-type constructors above;
+  `noopRemoteIQ` is renamed `disabledRemoteIq`. The streams
+  sub-library now depends on `wireform-grpc` (transitively pulling
+  in `http2-tls`, `tls`, `data-default-class`).
+
 - The 20 `Kafka.Streams.DSL.*` modules are renamed to
   `Kafka.Streams.*` — `Kafka.Streams.DSL.KStream` →
   `Kafka.Streams.KStream`, etc. The `DSL` segment was a
