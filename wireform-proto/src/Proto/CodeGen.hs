@@ -1094,22 +1094,29 @@ genDecodeInstance ctx scope msg =
           hsep (fmap (pretty . fieldDefaultText ctx) fields) <+> txt "[]"
         , indent 2 $ txt "where"
         , indent 4 $ vsep
-            [ txt "loop " <> hsep (fmap pretty allAccsWithUnknown) <+> txt "= do"
+            [ txt "loop " <> hsep (fmap pretty allAccsWithUnknown) <+> txt "= withTagM"
+              -- withTagM (Proto.Wire.Decode) is the CPS form of
+              -- 'getTagOrU': the EOI continuation produces the
+              -- final message, the tag continuation takes the
+              -- field number and wire type as raw 'Int' values
+              -- (no 'Tag' record allocation, no 'UMaybe' wrapper).
+              -- This avoids one boxing step per field on every
+              -- generated decoder. The previous shape
+              -- (@mTag <- getTagOrU; case mTag of ...@) is still
+              -- correct but pays for an unboxed-sum case-split
+              -- per field that this form fuses through the
+              -- continuation.
             , indent 2 $ vsep
-                [ txt "mTag <- getTagOrU"
-                , txt "case mTag of"
-                , indent 2 $ vsep
-                    [ txt "UNothing -> pure (" <> pretty tyN <+>
-                      braces (hsep (punctuate comma (
-                        fmap (\fi ->
-                          pretty (fifAccessor fi) <+> txt "=" <+> txt "acc_" <> pretty (T.pack (show (fifIndex fi)))
-                        ) fields
-                        <> [pretty unknownFieldName <+> txt "= reverse " <> pretty unknownAcc]
-                      ))) <>
-                      txt ")"
-                    , txt "UJust (Tag fn wt) -> case fn of"
-                    , indent 2 $ vsep (concatMap (genFieldDecodeCase ctx allAccsWithUnknown) fields <> [genDefaultDecodeCase scope allAccsWithUnknown])
-                    ]
+                [ txt "(pure (" <> pretty tyN <+>
+                  braces (hsep (punctuate comma (
+                    fmap (\fi ->
+                      pretty (fifAccessor fi) <+> txt "=" <+> txt "acc_" <> pretty (T.pack (show (fifIndex fi)))
+                    ) fields
+                    <> [pretty unknownFieldName <+> txt "= reverse " <> pretty unknownAcc]
+                  ))) <>
+                  txt "))"
+                , txt "(\\fn wt -> case fn of"
+                , indent 2 $ vsep (concatMap (genFieldDecodeCase ctx allAccsWithUnknown) fields <> [genDefaultDecodeCase scope allAccsWithUnknown]) <> txt ")"
                 ]
             ]
         ]
@@ -1131,31 +1138,50 @@ genScalarDecodeCase allAccs fi lbl st =
       singletonFn = if isUnboxableScalar st then "VU.singleton" else "V.singleton"
    in case lbl of
         Just Repeated ->
-          -- proto3 says a 'repeated <scalar>' field can appear on the
-          -- wire either as a sequence of unpacked entries (one tag per
-          -- value, wire-type 0/1/5 depending on the scalar) or as a
-          -- single packed length-delimited blob (wire-type 2). Readers
-          -- must accept both. We branch on 'wt' here so the generated
-          -- decoder handles whichever form the writer used.
+          -- proto3 says a 'repeated <packable scalar>' field can appear
+          -- on the wire either as a sequence of unpacked entries (one
+          -- tag per value, wire-type 0/1/5 depending on the scalar)
+          -- or as a single packed length-delimited blob (wire-type
+          -- 2). Readers must accept both. Branching on 'wt' covers
+          -- both shapes -- but only for packable scalars. Strings
+          -- and bytes are NEVER packable (each element is
+          -- self-delimiting on the wire), so their tag already
+          -- carries wire-type 2 for every element; treating wire-type
+          -- 2 as "packed mode" there would mis-decode every repeated
+          -- string field (and previously did, until 'isPackable'
+          -- below started gating the dispatch).
           let appendOne =
                 replaceAt idx ("(" <> accName <> " <> " <> singletonFn <> " v)") allAccs
               appendMany =
                 replaceAt idx ("(" <> accName <> " <> vs)") allAccs
               packedDecoderE = scalarPackedDecoderExpr st
               unpackedDecoderE = scalarDecoderExpr st
-           in pretty fn <+> txt "-> case wt of" <> line <>
-              indent 2 (vsep
-                [ txt "WireLengthDelimited -> do"
-                , indent 2 (vsep
-                    [ txt "vs <- " <> pretty packedDecoderE
-                    , txt "loop " <> hsep (fmap pretty appendMany)
-                    ])
-                , txt "_ -> do"
-                , indent 2 (vsep
-                    [ txt "v <- " <> pretty unpackedDecoderE
-                    , txt "loop " <> hsep (fmap pretty appendOne)
-                    ])
-                ])
+              isPackable = case st of
+                SString -> False
+                SBytes  -> False
+                _       -> True
+           in if isPackable
+              then pretty fn <+> txt "-> case wt of" <> line <>
+                indent 2 (vsep
+                  -- 'wt' is an 'Int' under 'withTagM'; literal 2 is
+                  -- 'WireLengthDelimited' per the proto wire-format
+                  -- spec (the wire-type encoding @len = 2@).
+                  [ txt "2 -> do"
+                  , indent 2 (vsep
+                      [ txt "vs <- " <> pretty packedDecoderE
+                      , txt "loop " <> hsep (fmap pretty appendMany)
+                      ])
+                  , txt "_ -> do"
+                  , indent 2 (vsep
+                      [ txt "v <- " <> pretty unpackedDecoderE
+                      , txt "loop " <> hsep (fmap pretty appendOne)
+                      ])
+                  ])
+              else pretty fn <+> txt "-> do" <> line <>
+                indent 2 (vsep
+                  [ txt "v <- " <> pretty unpackedDecoderE
+                  , txt "loop " <> hsep (fmap pretty appendOne)
+                  ])
         Just Optional ->
           -- proto3 'optional <scalar>' fields synthesise a oneof-style
           -- presence bit; the field's record slot is 'Maybe T' (see
@@ -1267,7 +1293,10 @@ genDefaultDecodeCase _scope allAccsWithUnknown =
       newAccs = fieldAccs <> ["(uf : " <> unknownAcc <> ")"]
   in txt "_ -> do" <> line <>
      indent 2 (vsep
-       [ txt "uf <- captureUnknownField fn wt"
+       -- 'wt' comes through as an 'Int' (withTagM's continuation
+       -- takes raw Ints), so 'toEnum' it back into a 'WireType'
+       -- before handing it to 'captureUnknownField'.
+       [ txt "uf <- captureUnknownField fn (toEnum wt)"
        , txt "loop " <> hsep (fmap pretty newAccs)
        ])
 

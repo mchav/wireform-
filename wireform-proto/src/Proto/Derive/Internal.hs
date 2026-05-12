@@ -1293,7 +1293,6 @@ decodeLoopBody
 decodeLoopBody meta conName loopName pairs ufAccM = do
   fnVar    <- newName "fn"
   wtVar    <- newName "wt"
-  mTagName <- newName "mTag"
   let declaredAssigns = map (\(pf, acc) -> (pfSelector pf, VarE acc)) pairs
       ufAssigns = case (mmUnknownFieldsSel meta, ufAccM) of
         (Just sel, Just ufAcc) ->
@@ -1307,25 +1306,30 @@ decodeLoopBody meta conName loopName pairs ufAccM = do
     (Just _, Just ufAcc) -> do
       ufVar <- newName "uf"
       [| do
-           $(varP ufVar) <- PD.captureUnknownField $(varE fnVar) $(varE wtVar)
+           -- 'withTagM' passes 'wt' as a raw 'Int'; 'captureUnknownField'
+           -- and 'skipField' both want a 'WireType'. 'toEnum' bridges
+           -- the two without paying for a 'Tag' record allocation on
+           -- the hot path (which the old 'getTagOrU' + pattern match
+           -- forced even when the field was an unknown).
+           $(varP ufVar) <- PD.captureUnknownField $(varE fnVar) (toEnum $(varE wtVar))
            $(recurseLoopWithUFE loopName allAccs ufAcc (VarE ufVar)) |]
     _ ->
       [| do
-           _ <- PD.skipField $(varE wtVar)
+           _ <- PD.skipField (toEnum $(varE wtVar))
            $(recurseLoopE loopName allAccs ufAccM) |]
   let defaultMatch = Match WildP (NormalB defaultBody) []
       dispatchE    = CaseE (VarE fnVar) (fieldMatches ++ [defaultMatch])
 
-      eofMatch     = Match (ConP 'PD.UNothing [] [])
-                       (NormalB (AppE (VarE 'pure) recE))
-                       []
-      tagPat       = ConP 'PD.UJust [] [ConP 'Tag [] [VarP fnVar, VarP wtVar]]
-      tagMatch     = Match tagPat (NormalB dispatchE) []
-
-  pure $ DoE Nothing
-    [ BindS (VarP mTagName) (VarE 'PD.getTagOrU)
-    , NoBindS (CaseE (VarE mTagName) [eofMatch, tagMatch])
-    ]
+  -- 'withTagM' is the CPS counterpart to 'getTagOrU' + Tag pattern
+  -- match: it threads the field number and wire type into the
+  -- continuation as raw 'Int' values, never allocating the 'Tag'
+  -- record or the 'UMaybe Tag' wrapper. On hot decoders (the small
+  -- WKTs and any user message under heavy traffic) this saves one
+  -- unboxed-sum case-split and one constructor-tag dispatch per
+  -- field, which adds up over millions of messages per second.
+  let eofK = AppE (VarE 'pure) recE
+      tagK = LamE [VarP fnVar, VarP wtVar] dispatchE
+  pure $ AppE (AppE (VarE 'PD.withTagM) eofK) tagK
 
 -- | Build the dispatch arms for one logical field. Most kinds emit
 -- a single arm; oneofs emit one per variant; repeated/map share
@@ -1388,8 +1392,12 @@ decodeArm meta loopName wtVar allPairs ufAccM (pf, accForThis) = case pfKind pf 
         acc' <- newName "acc'"
         elemDec   <- scalarDecoderE pf
         elemSnocE <- repeatedSnocFnE rep
+        -- 'wt' is now a raw 'Int' (from 'withTagM'), so dispatch on
+        -- the numeric wire-type constant directly. 2 is
+        -- 'PWire.WireLengthDelimited' (packed wire type per the
+        -- proto spec).
         [| case $(varE wtVar) of
-             PWire.WireLengthDelimited -> do
+             2 -> do
                $(varP acc') <- decodePackedInto $(pure elemDec)
                                                  $(pure elemSnocE)
                                                  $(varE accForThis)

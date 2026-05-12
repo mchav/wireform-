@@ -32,11 +32,12 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
+import qualified Proto.Extension
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -74,32 +75,30 @@ defaultStruct = Struct
 
 instance MessageEncode Struct where
   buildMessage msg =
-    Map.foldlWithKey' (\acc k v -> let kEnc = archString 10 k; vSz = messageSize v; vEnc = archSubmessage 18 vSz (buildMessage v); entrySz = archStringSize k + archSubmessageSize vSz in acc <> archSubmessage 10 entrySz (kEnc <> vEnc)) mempty msg.structFields
+    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.structFields
     <> encodeUnknownFields msg.structUnknownFields
 
 instance MessageSize Struct where
   messageSize msg =
-    (Map.foldlWithKey' (\acc k v -> let entrySz = archStringSize k + archSubmessageSize (messageSize v) in acc + archSubmessageSize entrySz) 0 msg.structFields)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.structFields)
     + unknownFieldsSize msg.structUnknownFields
 
 instance MessageDecode Struct where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop Map.empty []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Struct {structFields = acc_0, structUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              bs' <- getLengthDelimited
-              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" protoDefaultValue) bs'
-              case decodeEntry of
-                Left _ -> loop acc_0 acc_unknown_
-                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (Struct {structFields = acc_0, structUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            bs' <- getLengthDelimited
+            let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
+            case decodeEntry of
+              Left _ -> loop acc_0 acc_unknown_
+              Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage Struct where
   messageTypeName _ = "google.protobuf.Struct"
@@ -135,6 +134,10 @@ instance Aeson.FromJSON Struct where
 
 instance Hashable Struct where
   hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.structFields
+
+instance Proto.Extension.HasExtensions Struct where
+  messageUnknownFields = structUnknownFields
+  setMessageUnknownFields !ufs msg = msg { structUnknownFields = ufs }
 
 data Value = Value
   { valueKind :: !(Maybe Value'Kind)
@@ -173,20 +176,17 @@ instance MessageEncode Value where
   buildMessage msg =
     (case msg.valueKind of
       Nothing -> mempty
-      -- NullValue is an enum (NULL_VALUE = 0), not a submessage —
-      -- emit as a varint with wire type 0 (tag 0x08 = field 1
-      -- wire type 0).
-      Just (Value'Kind'NullValue v) -> archVarint 8 (fromIntegral (fromEnum v))
+      Just (Value'Kind'NullValue v) -> (let sz = messageSize v in archSubmessage 10 sz (buildMessage v))
       Just (Value'Kind'NumberValue v) -> archDouble 17 v
       Just (Value'Kind'StringValue v) -> archString 26 v
       Just (Value'Kind'BoolValue v) -> archBool 32 v
-      Just (Value'Kind'StructValue v) -> let sz = messageSize v in archSubmessage 42 sz (buildMessage v)
-      Just (Value'Kind'ListValue v) -> let sz = messageSize v in archSubmessage 50 sz (buildMessage v))
+      Just (Value'Kind'StructValue v) -> (let sz = messageSize v in archSubmessage 42 sz (buildMessage v))
+      Just (Value'Kind'ListValue v) -> (let sz = messageSize v in archSubmessage 50 sz (buildMessage v)))
     <> encodeUnknownFields msg.valueUnknownFields
 
 instance MessageSize Value where
   messageSize msg =
-    (case msg.valueKind of { Nothing -> 0; Just (Value'Kind'NullValue v) -> archVarintSize (fromIntegral (fromEnum v))
+    (case msg.valueKind of { Nothing -> 0; Just (Value'Kind'NullValue v) -> archSubmessageSize (messageSize v)
     ; Just (Value'Kind'NumberValue v) -> archFixed64Size
     ; Just (Value'Kind'StringValue v) -> archStringSize v
     ; Just (Value'Kind'BoolValue v) -> archBoolSize
@@ -198,32 +198,30 @@ instance MessageDecode Value where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop Nothing []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Value {valueKind = acc_0, valueUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldEnum
-              loop (Just (Value'Kind'NullValue v)) acc_unknown_
-            2 -> do
-              v <- decodeFieldDouble
-              loop (Just (Value'Kind'NumberValue v)) acc_unknown_
-            3 -> do
-              v <- decodeFieldString
-              loop (Just (Value'Kind'StringValue v)) acc_unknown_
-            4 -> do
-              v <- decodeFieldBool
-              loop (Just (Value'Kind'BoolValue v)) acc_unknown_
-            5 -> do
-              v <- decodeFieldMessage
-              loop (Just (Value'Kind'StructValue v)) acc_unknown_
-            6 -> do
-              v <- decodeFieldMessage
-              loop (Just (Value'Kind'ListValue v)) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (Value {valueKind = acc_0, valueUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- decodeFieldMessage
+            loop (Just (Value'Kind'NullValue v)) acc_unknown_
+          2 -> do
+            v <- decodeFieldDouble
+            loop (Just (Value'Kind'NumberValue v)) acc_unknown_
+          3 -> do
+            v <- decodeFieldString
+            loop (Just (Value'Kind'StringValue v)) acc_unknown_
+          4 -> do
+            v <- decodeFieldBool
+            loop (Just (Value'Kind'BoolValue v)) acc_unknown_
+          5 -> do
+            v <- decodeFieldMessage
+            loop (Just (Value'Kind'StructValue v)) acc_unknown_
+          6 -> do
+            v <- decodeFieldMessage
+            loop (Just (Value'Kind'ListValue v)) acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage Value where
   messageTypeName _ = "google.protobuf.Value"
@@ -259,6 +257,10 @@ instance Aeson.FromJSON Value where
 
 instance Hashable Value where
   hashWithSalt salt msg = hashWithSalt (salt) msg.valueKind
+
+instance Proto.Extension.HasExtensions Value where
+  messageUnknownFields = valueUnknownFields
+  setMessageUnknownFields !ufs msg = msg { valueUnknownFields = ufs }
 
 data NullValue
   = NullValue'NullValue
@@ -318,17 +320,15 @@ instance MessageDecode ListValue where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop V.empty []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (ListValue {listValueValues = acc_0, listValueUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldMessage
-              loop (acc_0 <> V.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (ListValue {listValueValues = acc_0, listValueUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- decodeFieldMessage
+            loop (acc_0 <> V.singleton v) acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
 instance IsMessage ListValue where
   messageTypeName _ = "google.protobuf.ListValue"
@@ -364,6 +364,10 @@ instance Aeson.FromJSON ListValue where
 
 instance Hashable ListValue where
   hashWithSalt salt msg = V.foldl' hashWithSalt (salt) msg.listValueValues
+
+instance Proto.Extension.HasExtensions ListValue where
+  messageUnknownFields = listValueUnknownFields
+  setMessageUnknownFields !ufs msg = msg { listValueUnknownFields = ufs }
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

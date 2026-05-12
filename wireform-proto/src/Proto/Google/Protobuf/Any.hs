@@ -32,11 +32,12 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
+import qualified Proto.Extension
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -90,20 +91,18 @@ instance MessageDecode Any where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" "" []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Any {anyTypeUrl = acc_0, anyValue = acc_1, anyUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldString
-              loop v acc_1 acc_unknown_
-            2 -> do
-              v <- decodeFieldBytes
-              loop acc_0 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
+      loop acc_0 acc_1 acc_unknown_ = withTagM
+        (pure (Any {anyTypeUrl = acc_0, anyValue = acc_1, anyUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- decodeFieldString
+            loop v acc_1 acc_unknown_
+          2 -> do
+            v <- decodeFieldBytes
+            loop acc_0 v acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 acc_1 (uf : acc_unknown_))
 
 instance IsMessage Any where
   messageTypeName _ = "google.protobuf.Any"
@@ -148,6 +147,10 @@ instance Aeson.FromJSON Any where
 
 instance Hashable Any where
   hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.anyTypeUrl) msg.anyValue
+
+instance Proto.Extension.HasExtensions Any where
+  messageUnknownFields = anyUnknownFields
+  setMessageUnknownFields !ufs msg = msg { anyUnknownFields = ufs }
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
