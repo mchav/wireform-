@@ -64,16 +64,28 @@ module Kafka.Client.Producer
   , closeProducer
   , closeProducerWithTimeout
 
-    -- * Sending records
+    -- * Sending records (untyped)
     --
     -- | 'sendMessage' is the everyday choice: it waits for the
     -- broker to acknowledge and returns the assigned offset.
-    -- 'sendMessageAsync' is the same call without the wait —
-    -- you get a future you can poll later.
+    -- 'sendMessage_' is the same call but discards the result
+    -- (matching the @_@ convention of 'Control.Monad.forM_').
+    -- 'sendMessageAsync' returns an awaitable handle so the
+    -- caller can fan out work without blocking.
   , sendMessage
+  , sendMessage_
   , sendMessageAsync
   , ProducerRecord(..)
   , RecordMetadata(..)
+
+    -- * Sending records (typed)
+    --
+    -- | The 'publish' family takes a 'Kafka.Topic.Topic' that
+    -- bundles the topic name with its key and value serdes, so
+    -- callers don't have to round-trip every send through
+    -- 'Data.Text.Encoding.encodeUtf8' \/ JSON encoders by hand.
+  , publish
+  , publish_
 
     -- * Flushing
     --
@@ -126,6 +138,7 @@ module Kafka.Client.Producer
 
     -- * Cluster info
   , producerClusterId
+  , producerHealthy
 
     -- * Environment-variable overlay
     --
@@ -210,6 +223,9 @@ import qualified Kafka.Client.Internal.TransactionCoordinator as TC
 import qualified Kafka.Client.Metadata as Meta
 import qualified Kafka.Client.RecordMetadata as RM
 import qualified Kafka.Client.Transaction as Txn
+import qualified Kafka.Errors as Errors
+import qualified Kafka.Serde as Serde
+import qualified Kafka.Topic as Topic
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Protocol.RecordBatch as RB
@@ -318,15 +334,29 @@ data ProducerConfig = ProducerConfig
   } deriving (Generic)
 
 -- | Default producer configuration.
+--
+-- Defaults track the Java 3.x client one-for-one, which means
+-- __idempotent + acks=all out of the box__. In our typed enum:
+--
+--   * 'producerIdempotent' = 'True'  (Java @enable.idempotence=true@)
+--   * 'producerDelivery'   = 'ExactlyOnce' (Java @acks=all@)
+--   * 'producerMaxInFlight' = 5      (Java @max.in.flight.requests.per.connection@)
+--
+-- These three together give the strongest single-producer
+-- delivery guarantees Kafka offers (no duplicates, no
+-- reordering) and are the right default for almost every
+-- application. Override to 'AtLeastOnce' \/ 'AtMostOnce' if you
+-- specifically need lower latency or want to skip the
+-- @InitProducerId@ round-trip.
 defaultProducerConfig :: ProducerConfig
 defaultProducerConfig = ProducerConfig
   { producerClientId = "kafka-native-producer"
   , producerCompression = defaultCodec
   , producerCompressionLevel = Nothing  -- Use codec default
   , producerBatchSize = 16384
-  , producerLingerMs = 0
+  , producerLingerMs = 0                                   -- Java @linger.ms=0@
   , producerMaxInFlight = 5
-  , producerRetries                    = 2_147_483_647   -- librdkafka default
+  , producerRetries                    = 2_147_483_647   -- Java @retries=MAX_VALUE@
   , producerRetryBackoffMs             = 100
   , producerRetryBackoffMaxMs          = 1000
   , producerRetryBackoffMultiplier     = 2.0
@@ -340,8 +370,8 @@ defaultProducerConfig = ProducerConfig
   , producerEnableGaplessGuarantee     = False
   , producerStickyPartitioningLingerMs = 10
   , producerPartitioner                = defaultPartitioner
-  , producerDelivery                   = AtLeastOnce
-  , producerIdempotent                 = False
+  , producerDelivery                   = ExactlyOnce       -- Java @acks=all@
+  , producerIdempotent                 = True              -- Java @enable.idempotence=true@
   , producerTransactional              = Nothing
   , producerInterceptor                = pure
   , producerOnAcknowledgement          = \_ _ -> pure ()
@@ -868,7 +898,8 @@ withProducer' brokers cfg shutdown body = bracket open shutdown body
     open = do
       r <- createProducer brokers cfg
       case r of
-        Left err -> throwIO (userError ("wireform-kafka: createProducer failed: " <> err))
+        Left err -> throwIO $ Errors.connectError
+          (T.pack ("wireform-kafka: createProducer failed: " <> err))
         Right p  -> pure p
 
 -- | Close the producer and flush pending messages.
@@ -1183,6 +1214,53 @@ sendMessage p@Producer{..} topic key value = do
           runAckInterceptor producerConfig iceptedRecord (Left err)
           return (Left err)
 
+-- | Like 'sendMessage' but discards the resulting 'RecordMetadata'
+-- (matching the @_@ convention of 'Control.Monad.forM_'). On
+-- failure the producer's ack interceptor still sees the 'Left' so
+-- observability isn't lost; the caller just doesn't get a value
+-- back.
+sendMessage_
+  :: Producer
+  -> Text
+  -> Maybe ByteString
+  -> ByteString
+  -> IO ()
+sendMessage_ p t k v = do
+  _ <- sendMessage p t k v
+  pure ()
+
+-- | Typed send. Encodes the key (when present) and value through
+-- the topic's 'Kafka.Topic.Topic' serdes and forwards to
+-- 'sendMessage'. Returns a 'Left' if the serde encoding never
+-- fails (in practice never — serialisers in 'Kafka.Serde' are
+-- total) but the broker rejects the record.
+--
+-- @
+-- let events = Kafka.'Kafka.Topic.textTopic' \"events\"
+-- _ <- 'publish' p events (Just \"k1\") \"hello\"
+-- @
+publish
+  :: Producer
+  -> Topic.Topic k v
+  -> Maybe k
+  -> v
+  -> IO (Either String RecordMetadata)
+publish p t mk v =
+  sendMessage p (Topic.topicName t)
+    (Serde.serialize (Topic.topicKeySerde t) <$> mk)
+    (Serde.serialize (Topic.topicValueSerde t) v)
+
+-- | Discarding variant of 'publish'.
+publish_
+  :: Producer
+  -> Topic.Topic k v
+  -> Maybe k
+  -> v
+  -> IO ()
+publish_ p t mk v = do
+  _ <- publish p t mk v
+  pure ()
+
 -- | Read the broker-supplied cluster id off this
 -- producer's metadata cache. Returns 'Nothing' until the first
 -- successful metadata refresh; afterwards reflects whatever the
@@ -1190,6 +1268,21 @@ sendMessage p@Producer{..} topic key value = do
 producerClusterId :: Producer -> IO (Maybe Text)
 producerClusterId Producer{..} =
   atomically (Meta.getClusterId producerMetadata)
+
+-- | Cheap health probe: returns 'True' iff the background sender
+-- thread is still running. A 'False' return means the sender
+-- terminated (typically due to an unrecoverable error in a worker
+-- callback) and the producer should be recreated.
+--
+-- Suitable for a Kubernetes @livenessProbe@. Does not contact
+-- the broker — it only checks in-process state — so it is safe
+-- to call at high frequency.
+producerHealthy :: Producer -> IO Bool
+producerHealthy Producer{..} = do
+  status <- Async.poll producerSender
+  pure $ case status of
+    Nothing -> True
+    Just _  -> False
 
 -- | Best-effort dispatch of the ack interceptor. Wraps in 'try' so
 -- a buggy interceptor can't take down the sender thread / caller.

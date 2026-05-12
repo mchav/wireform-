@@ -12,7 +12,8 @@ in the broker-gated integration suite.
 -}
 module Client.GroupSpec (groupSpec) where
 
-import Control.Exception (try, IOException)
+import Control.Exception (try)
+import Kafka.Errors (KafkaException)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, maybeToList)
 import qualified Data.Text as T
@@ -237,7 +238,7 @@ configValidationTests = testGroup "GroupConfig validation"
                 , Group.topics           = ["t"]
                 }
               (\_ -> pure ())
-      case (r :: Either IOException ()) of
+      case (r :: Either KafkaException ()) of
         Left _  -> pure ()
         Right _ -> assertFailure "expected validation failure"
 
@@ -248,7 +249,7 @@ configValidationTests = testGroup "GroupConfig validation"
                 , Group.topics  = ["t"]
                 }
               (\_ -> pure ())
-      case (r :: Either IOException ()) of
+      case (r :: Either KafkaException ()) of
         Left _  -> pure ()
         Right _ -> assertFailure "expected validation failure"
 
@@ -259,7 +260,7 @@ configValidationTests = testGroup "GroupConfig validation"
                 , Group.topics  = []
                 }
               (\_ -> pure ())
-      case (r :: Either IOException ()) of
+      case (r :: Either KafkaException ()) of
         Left _  -> pure ()
         Right _ -> assertFailure "expected validation failure"
 

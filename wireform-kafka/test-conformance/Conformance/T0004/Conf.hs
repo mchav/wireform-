@@ -18,7 +18,8 @@ type errors are compile-time. The runtime checks that survive are:
 -}
 module Conformance.T0004.Conf (tests) where
 
-import Control.Exception (try, IOException)
+import Control.Exception (try)
+import Kafka.Errors (KafkaException)
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -57,6 +58,6 @@ tests = testGroup "0004-conf"
   where
     rejects cfg = do
       r <- try (G.runConsumer cfg (\_ -> pure ()))
-      case (r :: Either IOException ()) of
+      case (r :: Either KafkaException ()) of
         Left _  -> pure ()
         Right _ -> assertFailure "expected validation failure, got success"

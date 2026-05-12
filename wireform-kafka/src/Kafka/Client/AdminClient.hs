@@ -63,6 +63,7 @@ module Kafka.Client.AdminClient
   , TopicDescription(..)
   , PartitionInfo(..)
   , createTopics
+  , ensureTopic
   , deleteTopics
   , listTopics
   , listTopicsExcludeInternal
@@ -125,6 +126,7 @@ import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 import Data.Int
+import qualified Data.List
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Text (Text)
@@ -134,6 +136,7 @@ import GHC.Generics (Generic)
 import Network.Connection (Connection)
 
 import qualified Kafka.Client.Metadata as Meta
+import qualified Kafka.Errors as Errors
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.ApiVersions as AV
@@ -286,7 +289,8 @@ withAdminClient brokers cfg = bracket open closeAdminClient
     open = do
       r <- createAdminClient brokers cfg
       case r of
-        Left err -> throwIO (userError ("wireform-kafka: createAdminClient failed: " <> err))
+        Left err -> throwIO $ Errors.connectError
+          (T.pack ("wireform-kafka: createAdminClient failed: " <> err))
         Right c  -> pure c
 
 -- | Close the admin client and clean up resources
@@ -488,6 +492,33 @@ createTopics client@AdminClient{..} topics = do
       in if errorCode == 0
            then (topicName, Right ())
            else (topicName, Left $ "Error " ++ show errorCode ++ ": " ++ T.unpack errorMsg)
+
+-- | Idempotent topic creation. Calls 'createTopics' for the
+-- single supplied topic and treats the broker-side
+-- @TOPIC_ALREADY_EXISTS@ (error code 36) as a success: the topic
+-- ends up created either way.
+--
+-- Returns:
+--
+--   * @Right ()@ when the topic is now present (newly created or
+--     already there).
+--   * @Left msg@ for every other broker error (authorisation,
+--     invalid name, request-level transport failure).
+--
+-- This is the right helper for service-startup code that wants
+-- to assert "my topic exists with these settings" without caring
+-- whether it created it or inherited it.
+ensureTopic :: AdminClient -> NewTopic -> IO (Either String ())
+ensureTopic adm t = do
+  r <- createTopics adm [t]
+  case r of
+    Left err      -> pure (Left err)
+    Right results -> case lookup (ntName t) results of
+      Nothing                                       -> pure (Right ())
+      Just (Right ())                               -> pure (Right ())
+      Just (Left err)
+        | "Error 36" `Data.List.isPrefixOf` err     -> pure (Right ())
+        | otherwise                                 -> pure (Left err)
 
 -- | Delete one or more topics
 -- Returns a list of (topic name, result) pairs

@@ -145,6 +145,7 @@ module Kafka.Client.Consumer
 
     -- * Cluster info
   , consumerClusterId
+  , consumerHealthy
 
     -- * Environment-variable overlay
     --
@@ -176,6 +177,7 @@ module Kafka.Client.Consumer
   ) where
 
 import Control.Concurrent.Async (Async, async)
+import qualified Control.Concurrent.Async as Async
 import qualified Control.Exception
 import Control.Exception (SomeException, bracket, throwIO, try)
 import qualified Data.List as List
@@ -211,6 +213,7 @@ import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Client.Internal.Subscribe as Sub
 import Kafka.Client.Metadata (MetadataCache)
 import qualified Kafka.Client.Metadata as Meta
+import qualified Kafka.Errors as Errors
 import qualified Kafka.Network.Connection as Conn
 import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.ApiVersions as AV
@@ -698,13 +701,15 @@ withConsumer' brokers groupId cfg topics shutdown body =
       _  -> do
         r <- subscribe c topics
         case r of
-          Left err -> throwIO (userError ("wireform-kafka: subscribe failed: " <> err))
+          Left err -> throwIO $ Errors.connectError
+            (T.pack ("wireform-kafka: subscribe failed: " <> err))
           Right () -> body c
   where
     open = do
       r <- createConsumer brokers groupId cfg
       case r of
-        Left err -> throwIO (userError ("wireform-kafka: createConsumer failed: " <> err))
+        Left err -> throwIO $ Errors.connectError
+          (T.pack ("wireform-kafka: createConsumer failed: " <> err))
         Right c  -> pure c
 
 createConsumer
@@ -1119,6 +1124,28 @@ currentStaticMembershipState Consumer{..} = case consumerHeartbeat of
 consumerClusterId :: Consumer -> IO (Maybe Text)
 consumerClusterId Consumer{..} =
   atomically (Meta.getClusterId consumerMetadata)
+
+-- | Cheap health probe: returns 'True' iff the heartbeat thread
+-- (when this consumer joined a group) is still running, and the
+-- consumer hasn't been closed. A 'False' result means the broker
+-- has fenced this consumer or the heartbeat task died — recreate
+-- the consumer to recover.
+--
+-- For a non-group consumer (one created with an empty group id and
+-- used with manual 'assign') this always returns 'True'; the
+-- runtime doesn't maintain a heartbeat to fail over.
+--
+-- Suitable for a Kubernetes @livenessProbe@: it does not contact
+-- the broker, only inspects in-process state.
+consumerHealthy :: Consumer -> IO Bool
+consumerHealthy Consumer{..} =
+  case consumerHeartbeat of
+    Nothing -> pure True
+    Just (_, hbAsync) -> do
+      status <- Async.poll hbAsync
+      pure $ case status of
+        Nothing -> True
+        Just _  -> False
 
 -- | Synchronously issue a LeaveGroup against the group coordinator.
 -- Used by 'closeConsumerWithTimeout' to clean-shutdown the group

@@ -116,6 +116,7 @@ import qualified Data.Vector as V
 import qualified System.IO as IO
 
 import qualified Kafka.Client.Consumer as C
+import qualified Kafka.Errors as Errors
 import qualified Kafka.Network.Auth.AwsMskIam as Iam
 import qualified Kafka.Network.Auth.OAuthBearer as OAuth
 import qualified Kafka.Network.Auth.SASL as SASL
@@ -270,7 +271,8 @@ withGroupConsumer cfg@GroupConfig{..} body = do
   bracket open close $ \gc -> do
     subResult <- C.subscribe (groupConsumer gc) topics
     case subResult of
-      Left err -> throwIO $ userError ("wireform-kafka: subscribe failed: " <> err)
+      Left err -> throwIO $ Errors.connectError
+        (T.pack ("wireform-kafka: subscribe failed: " <> err))
       Right () -> body gc
   where
     open = do
@@ -304,7 +306,8 @@ withGroupConsumer cfg@GroupConfig{..} body = do
             }
       r <- C.createConsumer bootstrapBrokers groupId ccfg
       case r of
-        Left err  -> throwIO $ userError ("wireform-kafka: createConsumer failed: " <> err)
+        Left err  -> throwIO $ Errors.connectError
+          (T.pack ("wireform-kafka: createConsumer failed: " <> err))
         Right con -> pure GroupConsumer { groupConsumer = con, groupConfig = cfg }
 
     close gc = C.closeConsumerWithTimeout (groupConsumer gc) (closeTimeoutMs (groupConfig gc))
@@ -440,9 +443,10 @@ handlePolicy policy e = case policy of
 -- | Cheap sanity checks before we even open a network connection.
 validateConfig :: GroupConfig -> IO ()
 validateConfig GroupConfig{..} = do
+  let cfgErr msg = throwIO $ Errors.configurationError [msg]
   when (null bootstrapBrokers) $
-    throwIO $ userError "wireform-kafka: bootstrapBrokers must be non-empty"
+    cfgErr "bootstrapBrokers must be non-empty"
   when (T.null groupId) $
-    throwIO $ userError "wireform-kafka: groupId must be non-empty"
+    cfgErr "groupId must be non-empty"
   when (null topics) $
-    throwIO $ userError "wireform-kafka: topics must be non-empty"
+    cfgErr "topics must be non-empty"
