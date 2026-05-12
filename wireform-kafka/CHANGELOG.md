@@ -10,16 +10,106 @@ and this project adheres to the
 
 ### Added
 
+- **`Kafka.Errors`** — the exception hierarchy every public Kafka
+  operation throws on failure. `KafkaException` carries a
+  structured `KafkaErrorKind` (`ConnectError`,
+  `AuthenticationError`, `TimeoutError`, `RecordTooLargeError !Int
+  !Int`, `ProducerFencedError`, `ConfigurationError ![Text]`,
+  `OffsetOutOfRangeError !Text !Int32 !Int64`, …) plus an optional
+  underlying `SomeException` cause. Includes `isRetriable` /
+  `isFatal` classifiers (KIP-487 shape) and an `orThrow :: IO
+  (Either String a) -> IO a` bridge for migrating internal
+  helpers. Mirrors `org.apache.kafka.common.errors.*` on the JVM.
+- **`Kafka.Headers`** — typed wrapper around `Vector (Text,
+  ByteString)`. Headers are a list on the wire but at the
+  application level you almost always want random-access lookup
+  and structured construction. The new `Headers` newtype preserves
+  insertion order, supports O(n) lookup / O(1) append / O(n)
+  replace, and has a `Semigroup`/`Monoid` instance.
+- **`Kafka.Serde`** — `Serde a` plus the standard built-ins
+  (`textSerde`, `int32Serde`, `int64Serde`, `doubleSerde`,
+  `voidSerde`, `uuidSerde`, `jsonSerde`, …). Moved here from
+  `Kafka.Streams.Serde`, which is now a thin re-export so
+  existing `import Kafka.Streams.Serde` call sites keep working.
+- **`Kafka.Topic`** — typed topic reference. `Topic k v` bundles
+  a name + key serde + value serde. Smart constructors `topic`,
+  `topicAny`, `bytesTopic`, `textTopic`.
+- **`Kafka.Client.Producer.publish` / `publish_`** — typed sends
+  that take a `Topic k v` and apply the topic's serdes
+  automatically. Saves the typical `encodeUtf8` boilerplate at
+  every send site.
+- **`Kafka.Client.Producer.producerHealthy`** and
+  **`Kafka.Client.Consumer.consumerHealthy`** — cheap in-process
+  health probes suitable for a Kubernetes `livenessProbe`.
+  `producerHealthy` returns `False` if the sender thread died;
+  `consumerHealthy` returns `False` if the group's heartbeat
+  thread died. Neither call contacts the broker.
+- **`Kafka.Client.AdminClient.ensureTopic`** — idempotent topic
+  creation. Calls `createTopics` for the supplied topic and
+  treats the broker-side `TOPIC_ALREADY_EXISTS` (error code 36)
+  as success.
+- Runnable client examples under **`examples/Kafka/Client/Examples/`**:
+  `Produce`, `ProduceTyped`, `Consume`, `Group`, `Transaction`.
+  All wired to a `wireform-kafka-client-examples` cabal
+  executable: `cabal run wireform-kafka-client-examples produce`.
+- `OverloadedRecordDot` is now in the cabal common-defaults, with
+  hand-written `HasField` instances on `ConsumerRecord`,
+  `ProducerRecord`, `RecordMetadata`, `TopicPartition` that map
+  the prefixed selectors (`crKey`, `recordValue`, `metadataTopic`,
+  `tpTopic`, …) to bare-name dot accessors. Callers can now write
+  `rec.key` / `rec.value` / `rec.partition` / `md.offset` without
+  any new imports; the original prefixed selectors continue to
+  work unchanged.
+
+### Changed
+
+- **`defaultProducerConfig` now matches the Java 3.x producer
+  defaults out of the box: idempotent producer is **ON**, acks
+  are **all** (`producerDelivery = ExactlyOnce`), and
+  `max.in.flight.requests.per.connection` is 5. Strongest
+  single-producer delivery guarantees (no duplicates, no
+  reordering) are the default; callers who specifically need
+  lower latency can downgrade to `AtLeastOnce` / `AtMostOnce`
+  explicitly. **Behavioural caveat:** creating a producer now
+  triggers an additional `InitProducerId` round-trip with the
+  coordinator.
+- **`withProducer` / `withConsumer` / `withAdminClient` /
+  `withGroupConsumer`** throw `Kafka.Errors.KafkaException` on
+  setup failure instead of the previous generic `IOError`. The
+  structured error kind lets callers pattern-match on
+  `ConnectError` / `ConfigurationError` / etc. instead of
+  grepping error strings.
+- **`Kafka.Client.Producer.sendMessageAsync`** now returns `IO
+  (MVar (Either String RecordMetadata))` instead of `IO (Either
+  String ())`. Callers wait on the broker result by taking the
+  `MVar` whenever they're ready:
+
+  ```haskell
+  handle <- sendMessageAsync p "events" Nothing "hello"
+  ... do other work ...
+  md <- takeMVar handle
+  ```
+
+  The producer's interceptor + onAcknowledgement hooks still fire
+  on the sender thread.
+- **`Kafka.Client.Producer` fire-and-forget rename**: the `Drop`
+  family now uses the trailing-underscore convention idiomatic
+  with `Control.Monad.forM_`:
+  `sendMessageDrop` → `sendMessage_`,
+  `sendMessageDropUnsafe` → `sendMessageUnsafe_`,
+  `sendMessageDropFastest` → `sendMessageFastest_`,
+  `sendMessagesDrop` → `sendMessages_`.
 - **`Kafka.Client.Producer.withProducer`** and `withProducer'` —
   `Control.Exception.bracket` wrappers that open a producer, run a
-  body, and flush + close on exit even when the body throws. Setup
-  failures surface as `IOError` so they participate in the usual
-  bracket / catch / restart idioms instead of being a returned
-  `Either`.
+  body, and flush + close on exit even when the body throws.
+  Setup failures surface as `KafkaException` so they participate
+  in the usual bracket / catch / restart idioms instead of being
+  a returned `Either`.
 - **`Kafka.Client.Consumer.withConsumer`** and `withConsumer'` — the
   consumer analogue. Optionally subscribes to a topic list as part
   of the bracket; on exit calls `closeConsumerWithTimeout` (or a
-  user-supplied shutdown).
+  user-supplied shutdown). Setup failures surface as
+  `KafkaException`.
 - New **`CONCEPTS.md`** — a five-minute, plain-language Kafka
   primer covering topics, partitions, brokers, producers,
   consumers, consumer groups, offsets, transactions, and streams,

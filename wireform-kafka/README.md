@@ -28,6 +28,58 @@ The `Kafka` umbrella module re-exports the high-level producer,
 consumer, group runner, and transaction APIs in one place — for
 most apps you only need `import qualified Kafka`.
 
+### Typed sends and reads
+
+For applications that already model their domain in Haskell
+types, `Kafka.Topic.Topic k v` bundles the topic name with the
+key and value serdes so the producer / consumer don't have to
+shuttle `ByteString` around:
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+import           Data.Text      (Text)
+import qualified Kafka
+import qualified Kafka.Topic   as Topic
+import qualified Kafka.Serde   as Serde
+
+events :: Topic.Topic Text Text
+events = Topic.textTopic "events"
+
+main =
+  Kafka.withProducer ["localhost:9092"] Kafka.defaultProducerConfig $ \p ->
+    Kafka.publish p events (Just "k1") "hello"
+```
+
+`Kafka.Serde` ships the JVM-equivalent built-ins —
+`textSerde`, `int32Serde`, `int64Serde`, `doubleSerde`,
+`uuidSerde`, `jsonSerde`, … — and `Topic.topic`, `topicAny`,
+`bytesTopic`, `textTopic` smart constructors cover the common
+key/value combinations.
+
+### Error handling
+
+Every public Kafka operation throws `Kafka.Errors.KafkaException`
+on failure. The exception carries a structured `KafkaErrorKind`
+so you can pattern-match on the failure category
+(`ConnectError`, `AuthenticationError`, `TimeoutError`,
+`ProducerFencedError`, `ConfigurationError [Text]`, …) instead
+of grepping error strings, plus an `isRetriable` /
+`isFatal` classifier for retry-loop bookkeeping.
+
+### Runnable examples
+
+Five end-to-end demos live under
+[`examples/`](./examples/README.md):
+
+```bash
+cabal run wireform-kafka-client-examples produce
+cabal run wireform-kafka-client-examples produce-typed
+cabal run wireform-kafka-client-examples consume
+cabal run wireform-kafka-client-examples group
+cabal run wireform-kafka-client-examples transaction
+```
+
 ## Hello world
 
 Publish a record and read it back. Requires a Kafka broker
@@ -53,6 +105,8 @@ if you throw.
 ### Consume (high-level)
 
 ```haskell
+{-# LANGUAGE OverloadedRecordDot #-}
+
 import qualified Kafka
 import qualified Data.ByteString.Char8 as BS
 
@@ -65,8 +119,14 @@ main =
       , Kafka.topics           = ["events"]
       }
     $ \rec ->
-        BS.putStrLn (Kafka.crValue rec)
+        BS.putStrLn rec.value
 ```
+
+The `OverloadedRecordDot` extension lets you read `ConsumerRecord`
+fields without prefixes — `rec.key`, `rec.value`, `rec.topic`,
+`rec.partition`, `rec.offset`, `rec.timestamp`, `rec.headers`. The
+backing selectors (`Kafka.crKey`, `Kafka.crValue`, …) still exist
+for callers that prefer the function-style.
 
 `runConsumer` joins the consumer group, hands you records one at
 a time, commits offsets after each one, and leaves the group on a
