@@ -1,4 +1,7 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -199,6 +202,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
+import GHC.Records (HasField (..))
 import Network.Connection (Connection)
 import qualified StmContainers.Map as StmMap
 import qualified ListT
@@ -491,6 +495,13 @@ data TopicPartition = TopicPartition
 
 instance Hashable TopicPartition
 
+-- | OverloadedRecordDot accessors for 'TopicPartition'. The
+-- backing field selectors keep their @tp@ prefix to avoid
+-- ambiguity at top-level call sites, but @tp.topic@ /
+-- @tp.partition@ syntax works.
+instance HasField "topic"     TopicPartition Text  where getField = tpTopic
+instance HasField "partition" TopicPartition Int32 where getField = tpPartition
+
 -- | A consumed record from Kafka.
 data ConsumerRecord = ConsumerRecord
   { crTopic :: !Text
@@ -501,6 +512,19 @@ data ConsumerRecord = ConsumerRecord
   , crValue :: !ByteString
   , crHeaders :: ![(Text, ByteString)]
   } deriving (Eq, Show, Generic)
+
+-- | OverloadedRecordDot accessors for 'ConsumerRecord'. The
+-- backing field selectors keep their @cr@ prefix so existing
+-- @crKey rec@ call sites keep compiling, but @rec.key@ /
+-- @rec.value@ / etc. read more naturally and are the
+-- recommended style for new code.
+instance HasField "topic"     ConsumerRecord Text                 where getField = crTopic
+instance HasField "partition" ConsumerRecord Int32                where getField = crPartition
+instance HasField "offset"    ConsumerRecord Int64                where getField = crOffset
+instance HasField "timestamp" ConsumerRecord Int64                where getField = crTimestamp
+instance HasField "key"       ConsumerRecord (Maybe ByteString)   where getField = crKey
+instance HasField "value"     ConsumerRecord ByteString           where getField = crValue
+instance HasField "headers"   ConsumerRecord [(Text, ByteString)] where getField = crHeaders
 
 -- | Kafka consumer handle.
 data Consumer = Consumer

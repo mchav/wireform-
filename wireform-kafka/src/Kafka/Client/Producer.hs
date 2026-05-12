@@ -1,4 +1,7 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards #-}
 
 {-|
@@ -206,6 +209,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import GHC.Generics (Generic)
+import GHC.Records (HasField (..))
 import qualified ListT
 import qualified StmContainers.Map as StmMap
 import System.Timeout (timeout)
@@ -472,6 +476,25 @@ data RecordMetadata = RecordMetadata
   , metadataTimestamp :: !Int64
     -- ^ Broker-assigned timestamp
   } deriving (Eq, Show, Generic)
+
+-- | OverloadedRecordDot accessors for 'ProducerRecord'. Backing
+-- field selectors keep their @record@ prefix so existing
+-- @recordKey rec@ call sites compile; @rec.key@ / @rec.value@ /
+-- etc. is the recommended style for new code.
+instance HasField "topic"     ProducerRecord Text                 where getField = recordTopic
+instance HasField "key"       ProducerRecord (Maybe ByteString)   where getField = recordKey
+instance HasField "value"     ProducerRecord ByteString           where getField = recordValue
+instance HasField "headers"   ProducerRecord [(Text, ByteString)] where getField = recordHeaders
+instance HasField "partition" ProducerRecord (Maybe Int32)        where getField = recordPartition
+instance HasField "timestamp" ProducerRecord (Maybe Int64)        where getField = recordTimestamp
+
+-- | OverloadedRecordDot accessors for 'RecordMetadata'. Same
+-- story: backing @metadata@-prefixed selectors stay; @md.topic@ /
+-- @md.partition@ / @md.offset@ / @md.timestamp@ read better.
+instance HasField "topic"     RecordMetadata Text  where getField = metadataTopic
+instance HasField "partition" RecordMetadata Int32 where getField = metadataPartition
+instance HasField "offset"    RecordMetadata Int64 where getField = metadataOffset
+instance HasField "timestamp" RecordMetadata Int64 where getField = metadataTimestamp
 
 -- | Partitioning strategy for messages.
 -- | Partitioner function type. The default partitioner uses
