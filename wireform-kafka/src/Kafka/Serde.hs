@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 
@@ -19,12 +20,24 @@ Built-ins cover the common cases the Java client ships under
   * 'byteStringSerde' — opaque bytes (identity)
   * 'textSerde' — UTF-8 'Text'
   * 'utf8Serde' — UTF-8 'String' (allocates; prefer 'textSerde')
-  * 'int32Serde' / 'int64Serde' \/ 'longSerde'
+  * 'int16Serde' / 'int32Serde' / 'int64Serde' \/ 'longSerde'
+  * 'word16Serde' / 'word32Serde' / 'word64Serde'
   * 'doubleSerde' / 'floatSerde'
   * 'voidSerde' — for keyless records
   * 'uuidSerde'
   * 'byteArraySerde'
   * 'jsonSerde' — Aeson 'ToJSON' \/ 'FromJSON' bridge
+
+The numeric serdes use the GHC 'Data.Word.byteSwap16' /
+'Data.Word.byteSwap32' \/ 'Data.Word.byteSwap64' primops paired
+with a single unaligned word load / store — same shape the
+protocol layer ("Kafka.Protocol.Wire") uses — so a 4-byte big-endian
+write compiles to one @MOV@ + one @BSWAP@ on x86-64 (and one
+@STR@ + one @REV@ on ARM64). On a big-endian host the byte-swap
+is the identity, which 'targetByteOrder' constant-folds away.
+
+For schema-driven typed serdes, see "Kafka.Serde.Proto" and
+"Kafka.Serde.Avro".
 
 Constructors:
 
@@ -48,9 +61,13 @@ module Kafka.Serde
   , byteStringSerde
   , textSerde
   , utf8Serde
+  , int16Serde
   , int32Serde
   , int64Serde
   , longSerde
+  , word16Serde
+  , word32Serde
+  , word64Serde
   , doubleSerde
   , floatSerde
   , voidSerde
@@ -66,20 +83,24 @@ module Kafka.Serde
   ) where
 
 import qualified Data.Aeson           as Aeson
-import           Data.Bits            (shiftL, shiftR, (.|.))
 import           Data.ByteString      (ByteString)
 import qualified Data.ByteString      as BS
-import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Lazy as BL
-import           Data.Int             (Int32, Int64)
+import qualified Data.ByteString.Unsafe   as BSU
+import           Data.Int             (Int16, Int32, Int64)
 import qualified Data.Text            as T
 import           Data.Text            (Text)
 import qualified Data.Text.Encoding   as TE
 import qualified Data.UUID            as UUID
 import           Data.UUID            (UUID)
-import           Data.Word            (Word8, Word32, Word64)
+import           Data.Word            (Word8, Word16, Word32, Word64, byteSwap16, byteSwap32, byteSwap64)
+import           Foreign.Ptr          (Ptr, castPtr)
+import           Foreign.Storable     (peek, poke)
+import           GHC.ByteOrder        (ByteOrder (..), targetByteOrder)
 import           GHC.Float            (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble)
 import           GHC.Generics         (Generic)
+import           GHC.IO               (unsafePerformIO)
 
 -- | Bidirectional codec.  'deserialize' returns 'Either' so callers
 -- can route failures through a deserialisation handler.
@@ -129,54 +150,110 @@ voidSerde =
           else Left "voidSerde: expected empty payload"
     }
 
+----------------------------------------------------------------------
+-- Big-endian numeric primitives
+--
+-- These serdes use the GHC 'byteSwap16' \/ 'byteSwap32' \/
+-- 'byteSwap64' primops (which compile to a single @bswap@
+-- instruction on x86-64 and a @rev@ instruction on ARM64)
+-- paired with a single unaligned word load / store.
+--
+-- The same pattern the protocol layer uses ("Kafka.Protocol.Wire")
+-- — one MOV + one BSWAP instead of N byte loads + N shifts. The
+-- target-endianness branch is a compile-time case on
+-- 'targetByteOrder' so it constant-folds to either
+--
+--   * a plain 'peek' / 'poke'              (BE host: no-op)
+--   * a 'peek' \/ 'poke' with 'byteSwap' (LE host: one instr)
+--
+-- at the call site.
+----------------------------------------------------------------------
+
+-- | Read a host-endian word from a 'ByteString' of the right
+-- size. Uses 'Foreign.Storable.peek' on a 'Ptr Word_' aliased onto
+-- the ByteString's payload; consistent with 'Kafka.Protocol.Wire'.
+{-# INLINE peekHostWord32 #-}
+peekHostWord32 :: ByteString -> Word32
+peekHostWord32 !bs = unsafePerformIO $
+  BSU.unsafeUseAsCString bs $ \p ->
+    peek (castPtr p :: Ptr Word32)
+
+{-# INLINE peekHostWord64 #-}
+peekHostWord64 :: ByteString -> Word64
+peekHostWord64 !bs = unsafePerformIO $
+  BSU.unsafeUseAsCString bs $ \p ->
+    peek (castPtr p :: Ptr Word64)
+
+{-# INLINE peekHostWord16 #-}
+peekHostWord16 :: ByteString -> Word16
+peekHostWord16 !bs = unsafePerformIO $
+  BSU.unsafeUseAsCString bs $ \p ->
+    peek (castPtr p :: Ptr Word16)
+
+-- | Write a host-endian word into a freshly allocated 'ByteString'.
+{-# INLINE pokeHostWord32 #-}
+pokeHostWord32 :: Word32 -> ByteString
+pokeHostWord32 !w = BSI.unsafeCreate 4 $ \p ->
+  poke (castPtr p :: Ptr Word32) w
+
+{-# INLINE pokeHostWord64 #-}
+pokeHostWord64 :: Word64 -> ByteString
+pokeHostWord64 !w = BSI.unsafeCreate 8 $ \p ->
+  poke (castPtr p :: Ptr Word64) w
+
+{-# INLINE pokeHostWord16 #-}
+pokeHostWord16 :: Word16 -> ByteString
+pokeHostWord16 !w = BSI.unsafeCreate 2 $ \p ->
+  poke (castPtr p :: Ptr Word16) w
+
+-- | @hostToBE32 w@ flips the bytes of @w@ on a little-endian host
+-- (one @bswap@ instruction); identity on a big-endian host
+-- (compile-time constant fold).
+{-# INLINE hostToBE32 #-}
+hostToBE32 :: Word32 -> Word32
+hostToBE32 = case targetByteOrder of
+  BigEndian    -> id
+  LittleEndian -> byteSwap32
+
+{-# INLINE hostToBE64 #-}
+hostToBE64 :: Word64 -> Word64
+hostToBE64 = case targetByteOrder of
+  BigEndian    -> id
+  LittleEndian -> byteSwap64
+
+{-# INLINE hostToBE16 #-}
+hostToBE16 :: Word16 -> Word16
+hostToBE16 = case targetByteOrder of
+  BigEndian    -> id
+  LittleEndian -> byteSwap16
+
 -- | Big-endian 'Int32' serde. Matches @IntegerSerializer@ on the JVM
 -- (which writes a 4-byte big-endian two's-complement value).
 int32Serde :: Serde Int32
-int32Serde = Serde encodeI32 decodeI32
-  where
-    encodeI32 :: Int32 -> ByteString
-    encodeI32 n =
-      let w = fromIntegral n :: Word32
-       in BS.pack
-            [ fromIntegral (w `shiftR` 24)
-            , fromIntegral (w `shiftR` 16)
-            , fromIntegral (w `shiftR`  8)
-            , fromIntegral  w
-            ]
-    decodeI32 b
-      | BS.length b /= 4 = Left "int32Serde: expected 4 bytes"
-      | otherwise =
-          let !w = (fromIntegral (BS.index b 0) `shiftL` 24)
-                .|. (fromIntegral (BS.index b 1) `shiftL` 16)
-                .|. (fromIntegral (BS.index b 2) `shiftL` 8)
-                .|.  fromIntegral (BS.index b 3) :: Word32
-           in Right (fromIntegral w)
+int32Serde = Serde
+  { serialize   = pokeHostWord32 . hostToBE32 . fromIntegral
+  , deserialize = \b -> if BS.length b /= 4
+      then Left "int32Serde: expected 4 bytes"
+      else Right $! fromIntegral (hostToBE32 (peekHostWord32 b))
+  }
 
 -- | Big-endian 'Int64' serde. Matches @LongSerializer@ on the JVM.
 int64Serde :: Serde Int64
-int64Serde = Serde encodeI64 decodeI64
-  where
-    encodeI64 :: Int64 -> ByteString
-    encodeI64 n =
-      let w = fromIntegral n :: Word64
-       in BS.pack
-            [ fromIntegral (w `shiftR` 56)
-            , fromIntegral (w `shiftR` 48)
-            , fromIntegral (w `shiftR` 40)
-            , fromIntegral (w `shiftR` 32)
-            , fromIntegral (w `shiftR` 24)
-            , fromIntegral (w `shiftR` 16)
-            , fromIntegral (w `shiftR`  8)
-            , fromIntegral  w
-            ]
-    decodeI64 b
-      | BS.length b /= 8 = Left "int64Serde: expected 8 bytes"
-      | otherwise =
-          let bytes = BS.unpack b
-              !w = foldl
-                (\acc x -> (acc `shiftL` 8) .|. fromIntegral x)
-                (0 :: Word64) bytes
-           in Right (fromIntegral w)
+int64Serde = Serde
+  { serialize   = pokeHostWord64 . hostToBE64 . fromIntegral
+  , deserialize = \b -> if BS.length b /= 8
+      then Left "int64Serde: expected 8 bytes"
+      else Right $! fromIntegral (hostToBE64 (peekHostWord64 b))
+  }
+
+-- | Big-endian 'Int16' serde. Matches @ShortSerializer@ on the JVM.
+int16Serde :: Serde Int16
+int16Serde = Serde
+  { serialize   = pokeHostWord16 . hostToBE16 . fromIntegral
+  , deserialize = \b -> if BS.length b /= 2
+      then Left "int16Serde: expected 2 bytes"
+      else Right $! fromIntegral (hostToBE16 (peekHostWord16 b))
+  }
 
 -- | Alias for 'int64Serde' — matches Java's @LongSerializer@ /
 -- @LongDeserializer@.
@@ -184,6 +261,8 @@ longSerde :: Serde Int64
 longSerde = int64Serde
 
 -- | IEEE-754 big-endian double. Matches @DoubleSerializer@ on the JVM.
+-- Encoded as the raw 64-bit bit pattern via 'castDoubleToWord64'
+-- (no allocation, no boxing).
 doubleSerde :: Serde Double
 doubleSerde = imap castDoubleToWord64 castWord64ToDouble word64Serde
 
@@ -193,13 +272,27 @@ floatSerde = imap castFloatToWord32 castWord32ToFloat word32Serde
 
 word64Serde :: Serde Word64
 word64Serde = Serde
-  (serialize int64Serde . fromIntegral)
-  (fmap fromIntegral . deserialize int64Serde)
+  { serialize   = pokeHostWord64 . hostToBE64
+  , deserialize = \b -> if BS.length b /= 8
+      then Left "word64Serde: expected 8 bytes"
+      else Right $! hostToBE64 (peekHostWord64 b)
+  }
 
 word32Serde :: Serde Word32
 word32Serde = Serde
-  (serialize int32Serde . fromIntegral)
-  (fmap fromIntegral . deserialize int32Serde)
+  { serialize   = pokeHostWord32 . hostToBE32
+  , deserialize = \b -> if BS.length b /= 4
+      then Left "word32Serde: expected 4 bytes"
+      else Right $! hostToBE32 (peekHostWord32 b)
+  }
+
+word16Serde :: Serde Word16
+word16Serde = Serde
+  { serialize   = pokeHostWord16 . hostToBE16
+  , deserialize = \b -> if BS.length b /= 2
+      then Left "word16Serde: expected 2 bytes"
+      else Right $! hostToBE16 (peekHostWord16 b)
+  }
 
 -- | Big-endian 16-byte UUID encoding (matches @UUIDSerializer@).
 uuidSerde :: Serde UUID
@@ -226,25 +319,22 @@ jsonSerde = Serde
 -- | Length-prefix the value with a 32-bit big-endian byte-count, then
 -- the serialised value. Useful for composite serdes (e.g. windowed
 -- keys) that need a self-delimiting framing.
+--
+-- Uses the same 'byteSwap32' + single-word load/store pattern as
+-- the primitive serdes for the 4-byte header.
 lengthPrefixedSerde :: Serde a -> Serde a
 lengthPrefixedSerde inner = Serde
   { serialize = \a ->
       let payload = serialize inner a
           n       = fromIntegral (BS.length payload) :: Word32
-       in BL.toStrict
-            $ BB.toLazyByteString
-            $ BB.word32BE n <> BB.byteString payload
+       in pokeHostWord32 (hostToBE32 n) <> payload
   , deserialize = \b ->
       if BS.length b < 4
         then Left "lengthPrefixedSerde: truncated header"
         else
           let header = BS.take 4 b
               rest   = BS.drop 4 b
-              hi a   = fromIntegral (BS.index header a) :: Word32
-              n      = (hi 0 `shiftL` 24)
-                   .|. (hi 1 `shiftL` 16)
-                   .|. (hi 2 `shiftL` 8)
-                   .|.  hi 3
+              n      = hostToBE32 (peekHostWord32 header)
            in if fromIntegral n /= BS.length rest
                 then Left
                   $ "lengthPrefixedSerde: declared "
