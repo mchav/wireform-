@@ -69,7 +69,6 @@ import Control.Concurrent (forkIOWithUnmask, myThreadId)
 import Control.Concurrent.MVar
 import Control.Exception qualified as E
 import Control.Monad
-import Data.Foldable (fold)
 import Data.ByteString qualified as S
 import Data.ByteString.Builder.Extra qualified as X
 import Data.ByteString.Builder.Prim qualified as P
@@ -142,8 +141,13 @@ instance Monoid Builder where
   {-# INLINE mempty #-}
   mappend = (<>)
   {-# INLINE mappend #-}
-  mconcat = fold
+  -- Don't be tempted to write `mconcat = fold` here — the @Foldable []@
+  -- instance defines `fold = mconcat` as an optimisation, so going
+  -- through `fold` would bottom out in a value-level cycle and trip
+  -- GHC's blackhole detection at runtime (<<loop>>).
+  mconcat = foldr mappend mempty
   {-# INLINE mconcat #-}
+  {-# HLINT ignore "Use fold" #-}
 
 
 -- | 'fromString' = 'stringUtf8'

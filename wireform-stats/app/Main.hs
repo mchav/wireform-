@@ -190,7 +190,7 @@ runRenderBenchCharts opts = do
           let chartsDir = roRoot opts </> pkg </> "bench-results" </> "charts"
               base      = chartsDir </> T.unpack (Bench.bsId summary)
               chart     = Bench.summaryToBarChart summary
-              (lightSvg, darkSvg) = SVG.renderBarChartBoth chart
+          let (lightSvg, darkSvg) = SVG.renderBarChartBoth chart
           createDirectoryIfMissing True chartsDir
           BS.writeFile (base <> "-light.svg") lightSvg
           BS.writeFile (base <> "-dark.svg")  darkSvg
