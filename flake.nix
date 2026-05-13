@@ -51,6 +51,11 @@
         # Adding a new per-format package means: drop a line into
         # `wireformPackages` *and* an entry under `cabal.project`
         # at the workspace root.
+        # Packages built via callCabal2nix and included in the dev shell.
+        # wireform-grpc is excluded because its transitive deps
+        # (grpc-spec -> crc32c, http2-tls) are broken in nixpkgs;
+        # it still builds fine via `cabal build wireform-grpc` inside
+        # the shell.
         wireformPackages = {
           wireform-core         = ./wireform-core;
           wireform-derive       = ./wireform-derive;
@@ -77,7 +82,12 @@
           wireform-toml         = ./wireform-toml;
           wireform-csv          = ./wireform-csv;
           wireform-ndjson       = ./wireform-ndjson;
-          wireform-grpc         = ./wireform-grpc;
+          wireform-fory         = ./wireform-fory;
+          wireform-kafka        = ./wireform-kafka;
+          wireform-lance        = ./wireform-lance;
+          wireform-yaml         = ./wireform-yaml;
+          wireform-delta        = ./wireform-delta;
+          wireform-hudi         = ./wireform-hudi;
         };
 
         # Cabal flags to enable on specific packages. Mirrors the
@@ -95,6 +105,9 @@
         # apply the right Cabal flags. Benchmarks are off by
         # default to avoid pulling proto-lens / criterion / xeno
         # / hexml into the closure.
+        # cabal2nix turns pkgconfig-depends (e.g. `snappy`, `liblz4`)
+        # into Nix function arguments. We provide them through the
+        # Haskell package set so shellFor can resolve them.
         haskellOverlay = self: super:
           let
             mkPkg = name: src:
@@ -106,21 +119,26 @@
               (hlib.overrideCabal (drv: { doBenchmark = false; })
                 (self.callCabal2nix "wireform" ./. {}));
           in
-            perFormatAttrs // { wireform = wireformAttr; };
+            perFormatAttrs // {
+              wireform = wireformAttr;
+              # Map pkg-config names to system packages so cabal2nix
+              # generated derivations can find them.
+              liblz4 = pkgs.lz4;
+              snappy = pkgs.snappy;
+            };
 
         mkDevShell = ghcAttr:
           let
             hp = (pkgs.haskell.packages.${ghcAttr}).override {
               overrides = haskellOverlay;
             };
-            # Every package the workspace ships, so a single
-            # `nix develop` shell can build any of them via
-            # `cabal build <pkg>`. The closure is rebuilt only when
-            # the dep set actually changes.
+            # Every package the workspace ships (minus wireform-grpc
+            # which has broken transitive deps in nixpkgs), so a
+            # single `nix develop` shell can build any of them via
+            # `cabal build <pkg>`.
             workspaceDrvs =
-              [ hp.wireform ]
-              ++ lib.attrValues
-                   (lib.getAttrs (lib.attrNames wireformPackages) hp);
+              lib.attrValues
+                (lib.getAttrs (lib.attrNames wireformPackages) hp);
           in
           hp.shellFor {
             packages = _: workspaceDrvs;
