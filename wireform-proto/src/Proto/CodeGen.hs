@@ -173,6 +173,10 @@ data JsonOverride = JsonOverride
   deriving stock (Show, Eq)
 
 
+-- | Sensible defaults: @\"Proto.Gen\"@ module prefix, prefixed field
+-- names, strict fields, unpack primitives, derive Generic and NFData,
+-- packed repeated scalars, eager submessages, built-in JSON overrides
+-- for well-known types, no hooks.
 defaultGenerateOpts :: GenerateOpts
 defaultGenerateOpts =
   GenerateOpts

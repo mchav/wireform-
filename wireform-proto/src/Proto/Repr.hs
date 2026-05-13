@@ -591,6 +591,9 @@ data RepConfig = RepConfig
   }
 
 
+-- | Sensible defaults: strict Text, strict ByteString, boxed Vector,
+-- ordered Map, no per-field or per-message overrides, and the built-in
+-- adapter registry.
 defaultRepConfig :: RepConfig
 defaultRepConfig =
   RepConfig

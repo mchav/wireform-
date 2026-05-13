@@ -251,14 +251,12 @@ identifier (unpinned, GC-friendly for small IDs). `ConfigEntry`
 gets `[Text]` instead of `Vector Text` (small collections where
 list overhead doesn't matter).
 
-### `.proto` field options *(planned)*
+### `.proto` field options
 
 Overrides specified directly in the schema so the intent is visible
 to anyone reading the `.proto`:
 
 ```protobuf
-import "wireform/options.proto";
-
 message BlobMsg {
   string name = 1;
   bytes data = 2 [(wireform.haskell_bytes) = "lazy"];
@@ -274,8 +272,23 @@ message ConfigEntry {
 Option names: `wireform.haskell_string` (`"strict"`, `"lazy"`,
 `"short"`, `"string"`), `wireform.haskell_bytes` (`"strict"`,
 `"lazy"`, `"short"`), `wireform.haskell_repeated` (`"vector"`,
-`"list"`, `"seq"`), `wireform.haskell_map` (`"ord"`, `"hash"`).
-Haskell-side overrides take precedence when both are present.
+`"unboxed"`, `"list"`, `"seq"`), `wireform.haskell_map` (`"ord"`,
+`"hash"`). Haskell-side overrides take precedence when both are
+present.
+
+Custom adapter names can be registered via `AdapterRegistry` in
+`RepConfig`:
+
+```haskell
+myConfig = defaultRepConfig
+  { configAdapterRegistry = defaultAdapterRegistry
+      { arStringAdapters = Map.insert "url" urlAdapter
+          (arStringAdapters defaultAdapterRegistry)
+      }
+  }
+```
+
+Then use them from `.proto`: `[(wireform.haskell_string) = "url"]`.
 
 ### Built-in adapters
 
@@ -466,18 +479,9 @@ full proto2/proto3 surface.
 | **Decode speed** | 3-4x faster | Baseline |
 | **Field representation** | Configurable per-field | Fixed |
 
-### Where proto-lens has the edge
-
-- **Ecosystem maturity.** More packages depend on it, more
-  StackOverflow answers reference it, more edge cases found and
-  fixed over the years.
-- **HasField polymorphism.** proto-lens's `HasField` class lets you
-  write functions generic over any message containing a given field
-  name. wireform-proto's records are nominal.
-- **Optics integration.** If your codebase lives in `lens` or
-  `optics`, proto-lens plugs right in. wireform-proto works with
-  `OverloadedRecordDot` and plain selectors; optics can be derived
-  separately.
+**Optics integration:** wireform-proto works with
+`OverloadedRecordDot` and plain selectors; optics can be derived
+separately via your optics library of choice.
 
 ---
 
