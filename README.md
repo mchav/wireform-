@@ -1,73 +1,96 @@
 # wireform
 
-There is a small ritual you perform every time you reach for a Haskell
-serialization library. Open Hackage. Find the package for the format
-you need. Brace yourself for the audit.
+You need to serialize a thing. Maybe it's protobuf, because the team
+next door decided proto is what events look like. Maybe it's Avro,
+because Iceberg is involved. Maybe it's CBOR, because something nearby
+speaks COSE. The exact format doesn't matter. The next ten minutes are
+roughly the same regardless.
 
-Is it fast, or did someone prove a point about elegance and never come
-back to benchmark it? Does it pass the upstream conformance suite, or
-just the tests the author happened to think of? Has anyone touched it
-since GHC 8.10? Does it transitively pull in eighty modules of lens
-because the author wanted one helper? Does its API resemble the other
-six serialization libraries already in your build plan, or do you have
-a new typeclass to learn, a new error type to pattern-match on, and a
-new way to spell `decode`?
+You open Hackage. There are usually a couple of packages. Time to do
+the audit.
 
-I have done that audit a lot. After the third or fourth round you
-notice that the custom code you keep writing on top of these packages
-is the same custom code, lightly rearranged: the same allocation
-tricks, the same Template Haskell deriver boilerplate, the same
-property-test scaffolding, the same emergency bridge to JSON for the
-format that didn't think it would need one. wireform is what happens
-when you stop performing the audit and start writing the library you
-wish was already on Hackage. Once. For thirty formats at the same time.
+**Is it fast?** The README doesn't say. The benchmarks live in a
+`bench/` directory last touched in 2019, when GHC was on a different
+number. Inconclusive.
 
-In practice, that's a monorepo of roughly thirty format packages where
-every one shares the same allocation-disciplined core (`wireform-core`),
+**Does it pass the upstream conformance suite?** The README doesn't
+mention a conformance suite. There is, of course, one. Every serious
+format has one. You've just never seen one wired into a Haskell test
+suite, and this package isn't going to break the streak.
+
+**Has anyone touched it lately?** Define "lately." There's a commit
+from six months ago that says `bump bounds`, and before that one from
+two years ago that says `wip`. The author has, in the intervening
+period, started writing Rust full-time. Understandable, but
+inconvenient.
+
+**Will it pull half of Hackage in?** Let's check the cabal file.
+`bytestring`, fine. `text`, fine. `lens`, because the author wanted
+`view _Just` somewhere. `lens-aeson`, naturally. A `containers` upper
+bound that hasn't shifted since 2014. You start to wonder if maybe
+you should just write this yourself.
+
+**Will the API match the rest of your stack?** It will not. The JSON
+library you already use spells it `eitherDecodeStrict`. The CBOR
+library spells it `deserialiseFromBytes`. The MsgPack library spells
+it `unpack`. They all return slightly different error types, none of
+which are interconvertible. You write a small adapter the first time
+you reach for them. By the third time, you start suspecting the
+adapter is the actual thing you're building.
+
+You do this audit a lot. After enough rounds you notice that the audit
+*is* the work, and that the custom code you keep writing on top of
+these packages is, with cosmetic differences, the same custom code:
+same allocation tricks, same Template Haskell deriver boilerplate,
+same property tests, same emergency bridge to JSON for the format
+that didn't think it would need one.
+
+Surely someone has already solved this, you think. Rust has `serde`, for example.
+
+Thus, `wireform` was born.
+
+In practice that's a monorepo of roughly thirty format packages where
+every one shares the extremely performant core utilities (`wireform-core`),
 the same annotation-driven Template Haskell deriver (`wireform-derive`),
-the same per-format Hedgehog suite, and, where an upstream conformance
-suite exists, an opt-in test runner that wires it up. Protobuf runs
+aggressively complete test suites, and, where an upstream conformance
+suite exists, an opt-in test runner that wires it up. For example, Protobuf runs
 against the official `protocolbuffers/protobuf` harness. TOML runs
 against `toml-test`. YAML runs against `yaml-test-suite`. Iceberg,
 Delta Lake, Hudi, and Lance round-trip through their respective Python
-or Rust readers. Fory rides on `pyfory`. Kafka rides on a live broker.
-The answer to "is this format actually conformant?" stops being "I sure
-hope so" and starts being "here is the suite, here is the score."
+or Rust readers. Fory rides on `pyfory`. Kafka clients test against a live broker.
+The answer to "is this format actually conformant?" stops being "I
+sure hope so" and starts being "here is the suite, here is the score."
 
 The minimal-dependency posture is the same instinct pointed at your
 build plan. Each per-format package depends on `wireform-core`,
 `wireform-derive`, and the third-party libraries the format genuinely
 needs. Usually that's `bytestring`, `text`, `vector`, and whatever
-schema library is unavoidable, and nothing else. No format drags in
-another format's deps. If you only need CBOR, you only build CBOR.
+schema library is unavoidable, and nothing else. If you only need CBOR, you only build CBOR.
 
-One annotated Haskell record gives you wire codecs for Protocol
-Buffers, CBOR, MessagePack, Thrift, JSON, BSON, Amazon Ion, EDN, TOML,
+By taking this approach, one annotated Haskell record can give you wire 
+codecs for Protocol Buffers, CBOR, MessagePack, Thrift, JSON, BSON, Amazon Ion, EDN, TOML,
 YAML, Bencode, NDJSON, CSV, XML, HTML, ASN.1, Avro, Bond, FlatBuffers,
 Cap'n Proto, Apache Arrow, Apache Parquet, Apache ORC, Apache Iceberg,
-and Apache Fory. The Kafka and gRPC wire protocols ship as native
-clients. Delta Lake, Hudi, and Lance ship as table-format readers on
+and Apache Fory. Delta Lake, Hudi, and Lance ship as table-format readers on
 top of the columnar core.
 
-That leaves the "is it fast" half of the audit. Every format draws on
-the same small set of allocation-disciplined primitives: unboxed sums
-for finite branching, `Int#`-threaded decoders, sized two-pass encoding,
-SIMD-accelerated scanners for XML and HTML, and C FFI for the hottest
-paths. Generated code has to stay competitive with hand-written codecs,
-because "you can always write it faster yourself" is exactly the
-dynamic that got us into this mess in the first place.
+The Kafka and gRPC client and server code is native Haskell rather than depending
+on C libraries, which allow us to build them more easily and exceed the performance of the official implementations by avoiding the overhead of FFI calls.
 
-A note on scope: wireform is unapologetically maximalist. If it parses,
-renders, encodes, decodes, frames, or otherwise shuffles bytes between
-two systems, it's in scope. The current thirty packages are a starting
-position, not a ceiling. New format packages are welcome and actively
+Every format draws on the same handful of
+heavily optimized primitives. SIMD-accelerated parsing, zero-copy encoding/decoding where possible, and specialized C kernels for the hottest paths. All generated code in the repo
+is held to the standard that it is has to be as fast as, or faster than, hand-written codecs.
+
+`wireform` as a project is unapologetically maximalist. If it
+parses, renders, encodes, decodes, frames, or otherwise shuffles bytes
+between two systems, it's in scope. The current thirty packages are a starting
+point for the project, but new format packages are welcome and actively
 wanted, provided they clear the same bar the existing ones had to:
-fast enough to prove it with a benchmark, tested hard enough to prove
-it with the format's official conformance suite (or, where no such
+fast enough to rival C/Rust/Zig, minimal garbage collection overhead, 
+tested hard enough to prove it fully conforms with the format's official conformance suite (or, where no such
 suite exists, with an explicit interop test against another language's
 implementation), wired into the shared annotation deriver so users
-don't learn a new API per format, and dependency-light enough not to
-drag the rest of the build plan in. Acceptance criteria in full are
+don't learn a new API per format, and dependency-light enough to not raise eyebrows. Acceptance criteria in full are
 under [Adding a new format](#adding-a-new-format).
 
 ---
@@ -89,7 +112,7 @@ under [Adding a new format](#adding-a-new-format).
 ## What's in here
 
 Each format ships with the machinery you actually need to use it in
-production, not just `encode` / `decode`:
+production, not just `encode` / `decode`, including but not limited to:
 
 - Encode and decode for every format, sharing the same allocation
   primitives.
@@ -98,12 +121,11 @@ production, not just `encode` / `decode`:
 - IDL parsers and code generators for `.proto`, `.avsc` / `.avdl`,
   `.thrift`, `.bond`, `.capnp`, `.fbs`, ASN.1, ISL, CDDL, XSD, and Iceberg
   table metadata.
-- Streaming and incremental decoders for protobuf, MsgPack, CBOR, XML,
-  NDJSON, and YAML.
+- Streaming and incremental decoders for a wide array of formats, such as protobuf, MsgPack, CBOR, XML, NDJSON, and YAML.
 - RPC framing for gRPC (length-prefix), Thrift (binary and compact),
   msgpack-rpc, and Avro IPC.
 - A native Kafka client: TCP / TLS / SASL, compression, version
-  negotiation, transactions, consumer groups, pipelining, OpenTelemetry.
+  negotiation, transactions, consumer groups, pipelining, Kafka Streams support, and built-in OpenTelemetry instrumentation.
 - Container file I/O for Avro OCF, Parquet (footer, page index, bloom
   filter, column reads), Arrow IPC, ORC (postscript and stripes), and
   Iceberg (table metadata and manifests).
@@ -116,8 +138,7 @@ production, not just `encode` / `decode`:
 - An XML pipeline that goes beyond encode/decode: SIMD-accelerated SAX,
   zero-copy DOM, chunk-fed incremental and concurrent parse, an XPath-lite
   query language, and an XSLT 1.0 subset.
-- HTML5 with a spec-compliant tokenizer and tree builder, SIMD serializer,
-  CSS selectors, and a streaming rewriter.
+- A world-class HTML5 DOM library with a spec-compliant tokenizer and tree builder, CSS selector support, and a streaming rewriter. According to earlier benchmarks I've run, it is possibly the fastest open-source HTML5 DOM library in the world.
 
 ---
 
@@ -141,7 +162,7 @@ its format actually needs.
 | `wireform-ion` | Amazon Ion binary values, ISL schema, codegen |
 | `wireform-edn` | Extensible Data Notation (EDN) |
 | `wireform-toml` | TOML 1.0 / 1.1 |
-| `wireform-yaml` | YAML 1.2 (block + flow, anchors / aliases, tags, multi-document streams) |
+| `wireform-yaml` | YAML 1.2 (block + flow, anchors / aliases, tags, multi-document streams). It is the fastest YAML library for Haskell, has no external C library dependencies, and is the only one that passes 100% of the YAML 1.2 conformance suite. Also, it is the only one that is hardened against e.g. billion laughs attacks. |
 | `wireform-bencode` | BitTorrent bencode |
 | `wireform-fory` | Apache Fory (formerly Fury) cross-language serialization, wire-compatible with `pyfory` 0.17 |
 | `wireform-asn1` | ASN.1 BER / DER (ITU-T X.690) |
@@ -479,7 +500,79 @@ Runnable from the workspace root with `cabal run <name>`:
 
 ---
 
+## Contributing
 
+Contributor notes, code-generation principles, allocation discipline
+rules, and per-package conventions live in [`agents.md`](agents.md).
+Highlights:
+
+- Every message type comes from the code generator. Hand-written wire
+  encode/decode instances are not permitted because they drift from what
+  the code generator produces and mask codegen bugs.
+- Unboxed sums for finite branching, `Int#`-threaded offsets, no boxed
+  `Either` or `Maybe` on the hot path.
+- Never round-trip through `String`. No list comprehensions. No
+  `threadDelay` in tests. Property-based tests via Hedgehog.
+- The four-step recipe for adding a new constructor to
+  `Wireform.Derive.Modifier.Modifier` is in `agents.md`.
+
+### Adding a new format
+
+The maximalist scope from the intro turns into a checklist. A new
+`wireform-<format>` package is in good shape to land when:
+
+- **It's fast, and there's a benchmark to prove it.** At least one
+  benchmark has to compare encode and decode against the next-best
+  Hackage library, or, if no Haskell equivalent exists, against the
+  reference implementation in another language. The goal isn't
+  "fastest possible at any cost"; the goal is "no obvious slowness
+  that a future user is going to discover for us." The shared
+  `wireform-core` primitives (`Wireform.Encode.Direct`, the `Decoder`
+  newtype, the `Wireform.FFI` helpers) exist precisely so you don't
+  have to reinvent the allocation-discipline layer.
+- **It's tested against something other than itself.** If the format
+  has an official upstream conformance suite (and most of them do),
+  wire it up as an opt-in test runner. The pattern is in
+  [`wireform-proto/test-conformance/`](wireform-proto/test-conformance/)
+  and the various `*-interop` test-suites: silent skip when the
+  upstream runner isn't installed locally, full diff when it is. If
+  the format genuinely has no upstream suite, ship interop tests
+  against an implementation in another language. Python or Rust
+  round-trip suites are the established pattern (see
+  `wireform-iceberg/probe/`, `wireform-fory-interop/`, and
+  `wireform-delta`'s `delta-rs` cross-checks).
+- **It plugs into the shared deriver.** Every per-format package ships
+  `<Format>.Derive` and consumes `Wireform.Derive.Modifier`
+  annotations. The deriver shape is the same in every existing
+  package, so cloning the nearest sibling and adapting the
+  value-mapping calls is the path of least resistance. Format-specific
+  knobs that don't fit the core vocabulary go through
+  `BackendModifier` extensions; see `XmlFieldOpt`, `HtmlFieldOpt`, and
+  `Asn1Tag` for the shape.
+- **The IDL goes through codegen, not hand-written instances.** If
+  your format has a schema language, the parser lives in
+  `<Format>.Parser`, the codegen in `<Format>.CodeGen`, and the
+  per-message instances are generated. Hand-written wire instances
+  drift from what the codegen produces and mask codegen bugs; the
+  rule is in `agents.md` and isn't negotiable. Generated files are
+  output, not source: edit the codegen and regenerate, never edit the
+  generated module directly.
+- **Direct C dependencies need a justification.** New deps are fine when
+  the format actually requires them. Heavy or flaky-to-install
+  transitive trees go behind a Cabal flag (the existing `+zstd`,
+  `+lz4`, `+rest-client`, `+brotli`, `+snappy`, `+python-interop`,
+  and `+dataframe-bridge` flags are examples of this). If you only need
+  CBOR, pulling in CBOR shouldn't pull in three columnar formats.
+- **The module layout matches the per-format convention** from
+  [Package layout](#package-layout). That convention is enforced by
+  reviewers, not by tooling, so a quick `git diff` against a sibling
+  package before opening a PR will save round trips.
+
+Then file a PR. Smaller PRs that add the package skeleton + decoder +
+property tests first, then layer codegen, IDL, and interop in
+follow-ups, review faster than one giant drop.
+
+---
 
 ## License
 

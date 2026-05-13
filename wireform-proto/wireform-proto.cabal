@@ -74,33 +74,68 @@ library
   autogen-modules: Paths_wireform_proto
   other-modules: Paths_wireform_proto
   exposed-modules:
-    Proto.AST
-    Proto.Annotations
-    Proto.Church
-    Proto.CodeGen
-    Proto.CodeGen.Combinators
-    Proto.CodeGen.Decode
-    Proto.CodeGen.Encode
-    Proto.CodeGen.Hooks
-    Proto.CodeGen.Service
-    Proto.CodeGen.Types
-    Proto.Compat
-    Proto.Conformance
-    Proto.Decode
-    Proto.Derive
-    Proto.Derive.Internal
-    Proto.Decode.Fast
-    Proto.Decode.Stream
-    Proto.Decode.Streaming
-    Proto.Descriptor.Convert
-    Proto.Dynamic
+    -- Core wire format
+    Proto.Wire
+    Proto.Wire.Decode
+    Proto.Wire.Encode
     Proto.Encode
     Proto.Encode.Archetype
     Proto.Encode.Direct
     Proto.Encode.Lazy
+    Proto.Decode
+    Proto.Decode.Fast
+    Proto.Decode.Stream
+    Proto.Decode.Streaming
+    Proto.SizedBuilder
+    Proto.VectorBuilder
+    Proto.Merge
+
+    -- Message infrastructure
+    Proto.Message
+    Proto.Schema
     Proto.Extension
     Proto.FieldPresence
-    Proto.GRPC
+    Proto.Dynamic
+    Proto.Lens
+    Proto.Registry
+    Proto.Registry.TH
+
+    -- JSON
+    Proto.JSON
+    Proto.JSON.Extension
+    Proto.JSON.WellKnown
+
+    -- AST, parser, annotations
+    Proto.AST
+    Proto.Annotations
+    Proto.Options
+    Proto.Options.Custom
+    Proto.Parser
+    Proto.Parser.Error
+    Proto.Parser.Lexer
+    Proto.Parser.Resolver
+
+    -- Code generation (public API)
+    Proto.CodeGen
+    Proto.CodeGen.Combinators
+    Proto.CodeGen.Hooks
+    Proto.CodeGen.Types
+    Proto.Repr
+
+    -- TH splices
+    Proto.TH
+    Proto.TH.Metadata
+    Proto.QQ
+    Proto.Derive
+    Proto.Derive.Internal
+    Proto.Setup
+
+    -- Text format, inspection, printing
+    Proto.TextFormat
+    Proto.Print
+    Proto.Inspect
+
+    -- Well-known types
     Proto.Google.Protobuf.Any
     Proto.Google.Protobuf.Any.Util
     Proto.Google.Protobuf.Compiler.Plugin
@@ -117,37 +152,23 @@ library
     Proto.Google.Protobuf.Timestamp.Util
     Proto.Google.Protobuf.Wrappers
     Proto.Google.Protobuf.Wrappers.Util
-    Proto.Inspect
+
+    -- Descriptor conversion, conformance, gRPC, TDP
+    Proto.Descriptor.Convert
+    Proto.Conformance
+    Proto.GRPC
+    Proto.TDP
+    Proto.Compat
+    Proto.Church
+
+  other-modules:
+    -- Internal codegen sub-modules (used only by Proto.CodeGen)
+    Proto.CodeGen.Decode
+    Proto.CodeGen.Encode
+    Proto.CodeGen.Service
+    -- Unboxed sum types for zero-allocation decode (not yet wired)
     Proto.Internal.Either
     Proto.Internal.Maybe
-    Proto.JSON
-    Proto.JSON.Extension
-    Proto.JSON.WellKnown
-    Proto.Lens
-    Proto.Merge
-    Proto.Message
-    Proto.Options
-    Proto.Options.Custom
-    Proto.Parser
-    Proto.Parser.Error
-    Proto.Parser.Lexer
-    Proto.Parser.Resolver
-    Proto.Print
-    Proto.QQ
-    Proto.Registry
-    Proto.Registry.TH
-    Proto.Repr
-    Proto.Schema
-    Proto.Setup
-    Proto.SizedBuilder
-    Proto.TDP
-    Proto.TH
-    Proto.TH.Metadata
-    Proto.TextFormat
-    Proto.VectorBuilder
-    Proto.Wire
-    Proto.Wire.Decode
-    Proto.Wire.Encode
   build-depends:
     base >= 4.16 && < 5,
     wireform-core == 0.1.*,
@@ -173,6 +194,53 @@ library
     time >= 1.9 && < 1.15,
     cryptohash-md5 >= 0.11 && < 0.12,
     stm >= 2.5 && < 2.6
+
+-- ===========================================================
+-- Integration test suite: wire format, JSON, parser, well-known
+-- types, code generation, schema handling, etc.
+-- ===========================================================
+
+test-suite wireform-proto-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test-integration
+  main-is: Main.hs
+  other-modules:
+    Test.Wire
+    Test.Roundtrip
+    Test.StreamCodec
+    Test.TDP
+    Test.JSON
+    Test.WellKnown
+    Test.WellKnownUtil
+    Test.Parser
+    Test.CodeGen
+    Test.Resolver
+    Test.Schema
+    Test.Options
+    Test.Lens
+    Test.PrintInspect
+    Test.Compat
+    Test.Hooks
+    Test.GRPC
+  build-depends:
+    base,
+    wireform-proto,
+    wireform-core,
+    aeson,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    hashable,
+    unordered-containers,
+    text,
+    time,
+    vector,
+    hedgehog             >= 1.0  && < 1.5,
+    tasty                >= 1.4  && < 1.6,
+    tasty-hedgehog       >= 1.0  && < 1.5,
+    tasty-hunit          >= 0.10 && < 0.11
 
 -- ===========================================================
 -- Conformance suite: drives the upstream protobuf

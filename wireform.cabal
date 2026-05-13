@@ -232,24 +232,8 @@ test-suite wireform-test
   type: exitcode-stdio-1.0
   main-is: Main.hs
   other-modules:
-    Test.Parser
-    Test.Wire
-    Test.Roundtrip
-    Test.CodeGen
-    Test.WellKnown
-    Test.WellKnownUtil
-    Test.PrintInspect
-    Test.Compat
-    Test.Schema
-    Test.Options
-    Test.Lens
-    Test.StreamCodec
-    Test.JSON
-    Test.Hooks
-    Test.TDP
     Test.Thrift
     Test.Avro
-    Test.GRPC
     Test.CBOR
     Test.MsgPack
     Test.BSON
@@ -285,7 +269,6 @@ test-suite wireform-test
     Test.ASN1CodeGen
     Test.CDDLCodeGen
     Test.ISLCodeGen
-    Test.Resolver
     Test.CapnProtoParser
     Test.FlatBuffersParser
     Test.ASN1Parser
