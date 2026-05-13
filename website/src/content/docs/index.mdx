@@ -1,9 +1,9 @@
 ---
 title: wireform
-description: One Haskell library for serialization, schema parsing, code generation, streaming, RPC framing, container I/O, and analytics metadata.
+description: One Haskell ecosystem for serialization, codegen, streaming, DOM parsing, messaging, and analytics.
 template: splash
 hero:
-  tagline: "Encode, decode, generate, stream, and query — across 25+ wire formats — from a single Haskell library."
+  tagline: "Encode, decode, generate, stream, query, and publish — across 30+ formats and protocols — from one cohesive Haskell ecosystem."
   actions:
     - text: Get started
       link: /guides/getting-started/
@@ -18,28 +18,7 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid, Aside, Badge } from '@astrojs/starlight/components';
-
-<CardGrid>
-  <Card title="One library, many formats" icon="seti:default">
-    Protocol Buffers, Avro, Thrift, MessagePack, CBOR, BSON, XML, HTML,
-    Parquet, ORC, Arrow, Iceberg, FlatBuffers, Cap'n Proto, ASN.1, Bond,
-    EDN, Ion, TOML, NDJSON, CSV, Bencode, and more.
-  </Card>
-  <Card title="Schema-aware codegen" icon="rocket">
-    A single CLI (`wireform-gen`) generates idiomatic Haskell from
-    `.proto`, `.avsc`, `.thrift`, `.bond`, `.fbs`, `.capnp`, `.asn1`,
-    `.xsd`, and CDDL/ISL files.
-  </Card>
-  <Card title="Allocation-tight decoding" icon="setting">
-    Unboxed sums on the decoder hot path, `withTag` CPS dispatch,
-    `Data.Text.Builder` everywhere, zero `String` round-trips.
-  </Card>
-  <Card title="Cross-format conversion" icon="puzzle">
-    `Value` types share conventions across formats — convert between
-    MessagePack, CBOR, Avro, and others in a few lines.
-  </Card>
-</CardGrid>
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
 ## Quick start
 
@@ -50,26 +29,54 @@ cabal update && cabal run example-msgpack
 
 Three lines to a working round-trip. No `.proto` file, no codegen, no external tooling.
 
-## Capabilities at a glance
+## What's inside
 
 <CardGrid>
-  <Card title="Encode / Decode" icon="open-book">
-    Type-safe serialization for every supported format, with `Generic` deriving
-    for schema-less formats and codegen for schema-first workflows.
+  <Card title="Schema-driven codegen" icon="rocket">
+    Point `wireform-gen` at a `.proto`, `.avsc`, `.thrift`, or any of 10
+    other schema languages and get idiomatic Haskell out. Or skip the CLI
+    entirely with a Template Haskell splice.
   </Card>
-  <Card title="Streaming" icon="right-arrow">
-    Incremental decoders for Protocol Buffers, MessagePack, CBOR, and XML.
-    Feed chunks as they arrive — no buffering the full payload.
+  <Card title="Every binary format you reach for" icon="seti:default">
+    MessagePack, CBOR, BSON, Ion, EDN, Bencode, Fory — derive instances
+    for any of them with a single line. Convert between formats just as
+    easily.
   </Card>
-  <Card title="RPC framing" icon="puzzle">
-    gRPC, Thrift binary/compact, MsgPack-RPC, and Avro IPC framing
-    built in — no separate transport library needed.
+  <Card title="Real XML & HTML processing" icon="document">
+    A fast XML parser with XPath and XSLT, plus a fully spec-compliant
+    HTML5 parser with CSS selectors and a streaming rewriter. Not toy
+    implementations — production-grade and tested against upstream suites.
   </Card>
-  <Card title="Analytics formats" icon="document">
-    Read Parquet pages, ORC stripes, Arrow IPC batches, and Iceberg
-    manifests — without heavyweight JVM tooling.
+  <Card title="Analytics without the JVM" icon="list-format">
+    Read and write Parquet, Arrow, and ORC files. Query Iceberg tables
+    through REST, Glue, or Hadoop catalogs. Inspect Delta Lake, Hudi,
+    and Lance metadata. No Spark required.
+  </Card>
+  <Card title="Kafka & gRPC, native" icon="puzzle">
+    A full Kafka client with producers, consumers, transactions, and a
+    Streams DSL — plus a native gRPC implementation. Both built on
+    wireform's own serialization, not bindings to C libraries.
+  </Card>
+  <Card title="Better-than-OK performance" icon="setting">
+    Carefully optimized where it matters. The decoder hot paths, parsers,
+    and serializers are tuned to avoid unnecessary allocation — fast enough
+    that performance isn't the reason you'd reach for something else.
   </Card>
 </CardGrid>
+
+## Unified by design
+
+Every format package follows the same conventions. Define your type once,
+derive for as many formats as you need:
+
+```haskell
+data Person = Person { name :: !Text, age :: !Int }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (ToMsgPack, FromMsgPack, ToCBOR, FromCBOR, ToYAML, FromYAML)
+```
+
+Same patterns, same vocabulary, same `Value` types — whether you're working
+with MessagePack or Parquet.
 
 ## Where next?
 
@@ -93,7 +100,7 @@ Three lines to a working round-trip. No `.proto` file, no codegen, no external t
     [Learn about Value &rarr;](/concepts/value/)
   </Card>
   <Card title="Columnar roadmap" icon="approve-check">
-    Progress toward complete Parquet, ORC, Arrow, and Iceberg support.
+    Progress toward Parquet, ORC, Arrow, Iceberg, Delta, Hudi, and Lance.
 
     [Read the roadmap &rarr;](/guides/columnar-roadmap/)
   </Card>

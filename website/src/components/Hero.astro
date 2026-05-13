@@ -1,0 +1,386 @@
+---
+const { data } = Astro.locals.starlightRoute.entry;
+const hero = data.hero;
+const actions = hero?.actions ?? [];
+
+const formatGroups = [
+  {
+    label: 'Schema & IDL',
+    formats: ['Protocol Buffers', 'Avro', 'Thrift', 'Bond', "Cap'n Proto", 'FlatBuffers', 'ASN.1'],
+  },
+  {
+    label: 'Binary',
+    formats: ['MessagePack', 'CBOR', 'BSON', 'Ion', 'EDN', 'Bencode', 'Fory'],
+  },
+  {
+    label: 'Text & Markup',
+    formats: ['XML', 'HTML5', 'YAML', 'TOML', 'CSV', 'NDJSON'],
+  },
+  {
+    label: 'Analytics',
+    formats: ['Parquet', 'Arrow', 'ORC', 'Iceberg', 'Delta Lake', 'Hudi', 'Lance'],
+  },
+  {
+    label: 'Protocols',
+    formats: ['gRPC', 'Kafka'],
+  },
+];
+---
+
+{hero && (
+  <section class="wf-hero">
+    <div class="wf-hero__grid" aria-hidden="true"></div>
+    <div class="wf-hero__glow" aria-hidden="true"></div>
+
+    <div class="wf-hero__content">
+      <div class="wf-hero__badge">
+        <span class="wf-hero__badge-dot"></span>
+        Open-source Haskell ecosystem
+      </div>
+
+      <h1 class="wf-hero__title">
+        <span class="wf-hero__title-line">One ecosystem.</span>
+        <span class="wf-hero__title-line wf-hero__title-line--accent">Every format and protocol.</span>
+      </h1>
+
+      <p class="wf-hero__tagline">{hero.tagline}</p>
+
+      <div class="wf-hero__format-groups" aria-label="Supported formats and protocols">
+        {formatGroups.map(group => (
+          <div class="wf-hero__format-group">
+            <span class="wf-hero__format-label">{group.label}</span>
+            <div class="wf-hero__format-tags">
+              {group.formats.map(fmt => (
+                <span class="wf-hero__format-tag">{fmt}</span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {actions.length > 0 && (
+        <div class="wf-hero__actions">
+          {actions.map((action: any) => (
+            <a
+              href={action.link}
+              class:list={[
+                'wf-hero__action',
+                action.variant === 'primary' && 'wf-hero__action--primary',
+                action.variant === 'minimal' && 'wf-hero__action--minimal',
+              ]}
+            >
+              {action.text}
+              {action.variant === 'primary' && <span class="wf-hero__action-arrow">&rarr;</span>}
+            </a>
+          ))}
+        </div>
+      )}
+
+      <div class="wf-hero__terminal">
+        <div class="wf-hero__terminal-bar">
+          <span class="wf-hero__terminal-dot"></span>
+          <span class="wf-hero__terminal-dot"></span>
+          <span class="wf-hero__terminal-dot"></span>
+        </div>
+        <pre class="wf-hero__terminal-code"><code><span class="wf-hero__prompt">$</span> cabal run example-msgpack
+<span class="wf-hero__dim">Encoded Person to 18 bytes (MessagePack)</span>
+<span class="wf-hero__success">{"Person {name = \"Ada\", age = 36}"}</span></code></pre>
+      </div>
+    </div>
+  </section>
+)}
+
+<style>
+  .wf-hero {
+    position: relative;
+    padding: 4rem 0 3rem;
+    margin: -1rem -1rem 2rem;
+    overflow: hidden;
+  }
+
+  /* Dot grid background */
+  .wf-hero__grid {
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle, var(--sl-color-hairline-light) 1px, transparent 1px);
+    background-size: 24px 24px;
+    mask-image: radial-gradient(ellipse 70% 70% at 50% 40%, black 20%, transparent 70%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 40%, black 20%, transparent 70%);
+    opacity: 0.6;
+  }
+
+  /* Gradient glow orb */
+  .wf-hero__glow {
+    position: absolute;
+    top: -6rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36rem;
+    height: 36rem;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      rgba(139, 92, 246, 0.12) 0%,
+      rgba(99, 102, 241, 0.06) 40%,
+      transparent 70%
+    );
+    filter: blur(40px);
+    pointer-events: none;
+    animation: glow-pulse 8s ease-in-out infinite alternate;
+  }
+
+  @keyframes glow-pulse {
+    0% { opacity: 0.7; transform: translateX(-50%) scale(1); }
+    100% { opacity: 1; transform: translateX(-50%) scale(1.08); }
+  }
+
+  .wf-hero__content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.25rem;
+    max-width: 52rem;
+    padding: 0 1rem;
+  }
+
+  /* Badge */
+  .wf-hero__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.85rem;
+    border-radius: 999px;
+    font-family: var(--sl-font-headings);
+    font-size: 0.76rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--wf-badge-text);
+    background: var(--wf-badge-bg);
+    border: 1px solid color-mix(in srgb, var(--sl-color-accent) 20%, transparent);
+  }
+
+  .wf-hero__badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--sl-color-accent);
+    box-shadow: 0 0 6px var(--sl-color-accent);
+    animation: dot-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes dot-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  /* Title */
+  .wf-hero__title {
+    font-family: var(--sl-font-headings);
+    font-size: clamp(2.5rem, 6vw, 3.75rem);
+    font-weight: 700;
+    letter-spacing: -0.045em;
+    line-height: 1.05;
+    margin: 0;
+  }
+
+  .wf-hero__title-line {
+    display: block;
+  }
+
+  .wf-hero__title-line--accent {
+    background: var(--wf-gradient-accent);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Tagline */
+  .wf-hero__tagline {
+    font-size: 1.1rem;
+    line-height: 1.6;
+    color: var(--sl-color-text);
+    opacity: 0.72;
+    max-width: 48ch;
+    margin: 0;
+  }
+
+  /* Format groups */
+  .wf-hero__format-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    max-width: 48rem;
+  }
+
+  .wf-hero__format-group {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+  }
+
+  .wf-hero__format-label {
+    font-family: var(--sl-font-headings);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--sl-color-text-accent);
+    white-space: nowrap;
+    min-width: 7rem;
+    opacity: 0.8;
+  }
+
+  .wf-hero__format-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+
+  .wf-hero__format-tag {
+    display: inline-block;
+    padding: 0.18rem 0.5rem;
+    border-radius: var(--wf-radius-sm);
+    font-family: var(--sl-font-mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--sl-color-text);
+    opacity: 0.7;
+    background: var(--wf-surface);
+    border: 1px solid var(--sl-color-hairline);
+    transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .wf-hero__format-tag:hover {
+    border-color: var(--wf-card-hover-border);
+    opacity: 1;
+    color: var(--sl-color-text-accent);
+  }
+
+  /* Actions */
+  .wf-hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    margin-top: 0.5rem;
+  }
+
+  .wf-hero__action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1.25rem;
+    border-radius: var(--wf-radius);
+    font-family: var(--sl-font-headings);
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-decoration: none;
+    border: 1px solid var(--sl-color-hairline);
+    background: var(--wf-surface);
+    color: var(--sl-color-text);
+    transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .wf-hero__action--primary {
+    background: var(--wf-gradient-accent);
+    color: #fff;
+    border-color: transparent;
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.1),
+      0 4px 16px -4px rgba(139, 92, 246, 0.4);
+  }
+
+  .wf-hero__action--primary:hover {
+    box-shadow:
+      0 2px 4px rgba(0, 0, 0, 0.1),
+      0 8px 24px -4px rgba(139, 92, 246, 0.5);
+    transform: translateY(-1px);
+  }
+
+  .wf-hero__action-arrow {
+    transition: transform 180ms ease;
+  }
+
+  .wf-hero__action--primary:hover .wf-hero__action-arrow {
+    transform: translateX(2px);
+  }
+
+  .wf-hero__action:not(.wf-hero__action--primary):hover {
+    border-color: var(--wf-card-hover-border);
+    background: var(--wf-surface-2);
+  }
+
+  .wf-hero__action--minimal {
+    background: transparent;
+    border-color: transparent;
+    opacity: 0.7;
+  }
+
+  .wf-hero__action--minimal:hover {
+    opacity: 1;
+    background: transparent !important;
+    border-color: transparent !important;
+  }
+
+  /* Terminal preview */
+  .wf-hero__terminal {
+    width: 100%;
+    max-width: 32rem;
+    margin-top: 0.75rem;
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: var(--wf-radius-lg);
+    overflow: hidden;
+    background: var(--wf-surface);
+    box-shadow: 0 4px 24px -8px rgba(0, 0, 0, 0.15);
+  }
+
+  .wf-hero__terminal-bar {
+    display: flex;
+    gap: 5px;
+    padding: 0.55rem 0.75rem;
+    background: var(--wf-surface-2);
+    border-bottom: 1px solid var(--sl-color-hairline);
+  }
+
+  .wf-hero__terminal-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--sl-color-hairline-light);
+  }
+
+  .wf-hero__terminal-code {
+    margin: 0;
+    padding: 0.85rem 1rem;
+    font-family: var(--sl-font-mono);
+    font-size: 0.8rem;
+    line-height: 1.65;
+    overflow-x: auto;
+  }
+
+  .wf-hero__prompt {
+    color: var(--sl-color-accent);
+    font-weight: 600;
+    margin-right: 0.5em;
+  }
+
+  .wf-hero__dim {
+    opacity: 0.5;
+  }
+
+  .wf-hero__success {
+    color: #4ade80;
+  }
+
+  @media (max-width: 40rem) {
+    .wf-hero {
+      padding: 2.5rem 0 2rem;
+    }
+    .wf-hero__title {
+      font-size: 2.25rem;
+    }
+    .wf-hero__format-groups {
+      display: none;
+    }
+  }
+</style>

@@ -37,6 +37,9 @@ export default defineConfig({
         },
       ],
       customCss: ['./src/styles/fumadocs.css'],
+      components: {
+        Hero: './src/components/Hero.astro',
+      },
       sidebar: [
         {
           label: 'Overview',
@@ -75,7 +78,7 @@ export default defineConfig({
         styleOverrides: {
           borderRadius: '0.5rem',
           codeFontFamily:
-            "'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace",
+            "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
         },
       },
     }),
