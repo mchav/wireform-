@@ -96,6 +96,7 @@ import Proto.CodeGen.Hooks
 import Proto.CodeGen.Service qualified as Service
 import Proto.Descriptor.Convert (serializeFileDescriptor)
 import Proto.Options
+import Proto.Options.Custom (extractExtensionOptions, emptyCustomOptionRegistry, registerCustomOption)
 import Proto.Parser.Resolver (ResolvedProto (..))
 
 
@@ -452,11 +453,14 @@ generateModule opts reg filePath pf =
       referencedTypes = collectReferencedTypes (protoTopLevels pf)
       importedModules = computeImports ctx referencedTypes
       localMsgNames = collectLocalMessageNames [] (protoTopLevels pf)
+      customOpts = foldl (flip registerCustomOption) emptyCustomOptionRegistry
+                     (extractExtensionOptions pf)
       fileHookCtx =
         FileHookCtx
           { fhcProtoFile = pf
           , fhcModuleName = thisMod
           , fhcFileOptions = protoOptions pf
+          , fhcCustomOptions = customOpts
           }
       fileHookOutput = onFileCodeGen (genHooks opts) fileHookCtx
       fileHookDocs = fmap pretty fileHookOutput

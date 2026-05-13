@@ -145,6 +145,8 @@ import Proto.Derive.Internal qualified as PDI
 import Proto.Extension qualified as Ext
 import Proto.JSON.Extension qualified as PJExt
 import Proto.Parser (parseProtoFile, renderParseError)
+import Proto.FieldPresence qualified as FP
+import Proto.Options.Custom (extractExtensionOptions, emptyCustomOptionRegistry, registerCustomOption)
 import Proto.Repr
 import Proto.Schema qualified as PS
 import Proto.TH.Metadata qualified as PTM
@@ -315,11 +317,14 @@ loadProtoWith opts path = do
     Left err -> fail (renderParseError err)
     Right pf -> do
       let hooks = loTHHooks opts
+          customOpts = foldl (flip registerCustomOption) emptyCustomOptionRegistry
+                         (extractExtensionOptions pf)
           fileCtx =
             FileHookCtx
               { fhcProtoFile = pf
               , fhcModuleName = T.pack path
               , fhcFileOptions = protoOptions pf
+              , fhcCustomOptions = customOpts
               }
       decls <- protoFileToDecls' (loFieldNaming opts) (loRepConfig opts) hooks pf
       hookDecls <- thOnFile hooks fileCtx
@@ -594,12 +599,19 @@ messageToDecls'' scopeCtx cfg hooks msg = do
         )
     )
 
+  -- Monoid: mempty = defaultFoo (must come after Semigroup in codecDecs)
+  let monoidDec =
+        InstanceD Nothing []
+          (AppT (ConT ''Monoid) (ConT tyName))
+          [FunD 'mempty [Clause [] (NormalB (VarE defName)) []]]
+
   pure
     ( nestedDecls
         <> oneofDecs
         <> [dataDec]
         <> defaultDec
         <> codecDecs
+        <> [monoidDec]
         <> hasExtDec
         <> protoMsgDecs
         <> aesonDecs
@@ -623,7 +635,9 @@ messageCodecsViaBridge tyName pfs = do
   enc <- PDI.mkEncodeInstanceWith meta (ConT tyName) pfs
   siz <- PDI.mkSizeInstanceWith meta (ConT tyName) pfs
   dec <- PDI.mkDecodeInstanceWith meta (ConT tyName) tyName pfs
-  pure [enc, siz, dec]
+  mrg <- PDI.mkMergeableInstanceWith meta (ConT tyName) tyName pfs
+  let semi = PDI.mkSemigroupInstance (ConT tyName)
+  pure [enc, siz, dec, mrg, semi]
 
 
 messageHaddock :: MessageDef -> [FieldSpec] -> String
@@ -1018,7 +1032,7 @@ repeatedTypeQ adapter elemTy = repeatedType adapter elemTy
 optionalTypeQ :: OptionalRep -> Q Type -> Q Type
 optionalTypeQ = \case
   MaybeRep -> appT (conT ''Maybe)
-  FieldPresenceRep -> appT (conT ''Maybe)
+  FieldPresenceRep -> appT (conT ''FP.Field)
 
 
 scalarToTH :: ScalarType -> Q Type
@@ -1069,7 +1083,9 @@ mkDefaultDec scope tyName fields = do
 defaultValueExpr :: ScopeCtx -> FieldSpec -> Q Exp
 defaultValueExpr scope (FSField _ _ lbl ft rep _) = case lbl of
   Just Repeated -> emptyRepeatedQ (fieldRepeated rep)
-  Just Optional -> conE 'Nothing
+  Just Optional -> case fieldOptional rep of
+    MaybeRep -> conE 'Nothing
+    FieldPresenceRep -> conE 'FP.Absent
   _ -> case ft of
     FTScalar SBool -> conE 'False
     FTScalar SString -> emptyStringQ (fieldString rep)

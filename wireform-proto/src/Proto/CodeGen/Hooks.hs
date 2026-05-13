@@ -170,6 +170,7 @@ import Data.Text (Text)
 import Language.Haskell.TH (Q, Dec)
 
 import Proto.AST
+import Proto.Options.Custom (CustomOptionRegistry, extractExtensionOptions, emptyCustomOptionRegistry, registerCustomOption)
 
 -- ---------------------------------------------------------------------------
 -- Hook contexts
@@ -180,6 +181,9 @@ data FileHookCtx = FileHookCtx
   { fhcProtoFile   :: !ProtoFile
   , fhcModuleName  :: !Text
   , fhcFileOptions :: ![OptionDef]
+  , fhcCustomOptions :: !CustomOptionRegistry
+  -- ^ Registry of custom option extensions extracted from
+  -- @extend google.protobuf.FieldOptions@ blocks in this file.
   } deriving stock (Show)
 
 -- | Context passed to message-level hooks.

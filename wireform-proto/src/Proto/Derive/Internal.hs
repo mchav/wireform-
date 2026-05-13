@@ -52,6 +52,8 @@ module Proto.Derive.Internal (
   mkDecodeInstanceWith,
   mkIsMessageInstance,
   mkMergeableInstance,
+  mkMergeableInstanceWith,
+  mkSemigroupInstance,
 
   -- * Convenience: synthesise the full instance group
   synthesiseProtoInstances,
@@ -568,7 +570,10 @@ mkMergeableInstanceWith meta ty conName fs = do
           FKMap _ -> [|$(pure getA) <> $(pure getB)|]
           FKOneof _ -> [|case $(pure getB) of { Nothing -> $(pure getA); b' -> b' }|]
           _ -> case pfType pf of
-            PFSubmessage -> [|PMerge.mergeOptional $(pure getA) $(pure getB)|]
+            -- Optional submessage: incoming Just wins. We don't
+            -- require Mergeable on the submessage type to avoid
+            -- needing instances on every well-known type.
+            PFSubmessage -> [|case $(pure getB) of { Nothing -> $(pure getA); b' -> b' }|]
             _ -> [|$(pure getB)|]  -- scalar: last value wins
   fieldExps <- mapM (\pf -> do
     val <- mergeField pf
