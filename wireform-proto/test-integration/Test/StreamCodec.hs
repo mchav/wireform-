@@ -16,13 +16,9 @@ import Proto.Decode.Stream (
  )
 import Proto.Encode (MessageEncode (..), MessageSize (..), encodeMessage, encodeMessageSized)
 import Proto.Encode.Lazy (
-  IEncode (..),
   encodeMessageLazy,
-  encodeMessageLazySized,
   encodeMessageStream,
   encodeMessageStreamSized,
-  newStreamEncoder,
-  newStreamEncoderSized,
  )
 import Proto.Wire (Tag (..), WireType (..))
 import Proto.Wire.Decode (DecodeError (..), Decoder, getTagOr, getText, getVarint, skipField)
@@ -41,8 +37,6 @@ streamCodecTests =
     , lazyDecodeTests
     , streamRoundtripTests
     , incrementalDecodeTests
-    , incrementalEncodeTests
-    , incrementalRoundtripTests
     ]
 
 
@@ -57,12 +51,12 @@ lazyEncodeTests =
     [ testProperty "encodeMessageLazy matches strict" $ property $ do
         msg <- genSMsg
         BL.toStrict (encodeMessageLazy msg) === encodeMessage msg
-    , testProperty "encodeMessageLazySized matches strict" $ property $ do
+    , testProperty "encodeMessageLazy matches strict" $ property $ do
         msg <- genSMsg
-        BL.toStrict (encodeMessageLazySized msg) === encodeMessageSized msg
-    , testProperty "encodeMessageLazySized matches encodeMessageLazy" $ property $ do
+        BL.toStrict (encodeMessageLazy msg) === encodeMessageSized msg
+    , testProperty "encodeMessageLazy matches encodeMessageLazy" $ property $ do
         msg <- genSMsg
-        encodeMessageLazySized msg === encodeMessageLazy msg
+        encodeMessageLazy msg === encodeMessageLazy msg
     ]
 
 
@@ -250,76 +244,6 @@ incrementalDecodeTests =
 -- Incremental encoder
 -- -----------------------------------------------------------------------
 
-incrementalEncodeTests :: TestTree
-incrementalEncodeTests =
-  testGroup
-    "Incremental encoder"
-    [ testProperty "single message produces correct frame" $ property $ do
-        msg <- genSMsg
-        let expected = frameMessage msg
-        case newStreamEncoder of
-          IEncReady f -> case f (Just msg) of
-            IEncChunk bs next -> do
-              bs === expected
-              case next of
-                IEncReady _ -> success
-                other -> do
-                  annotate ("Expected IEncReady, got: " <> show other)
-                  failure
-            other -> do
-              annotate ("Expected IEncChunk, got: " <> show other)
-              failure
-          other -> do
-            annotate ("Expected IEncReady, got: " <> show other)
-            failure
-    , testProperty "sized encoder matches non-sized" $ property $ do
-        msg <- genSMsg
-        let plain = stepEncoder newStreamEncoder (Just msg)
-            sized = stepEncoder newStreamEncoderSized (Just msg)
-        case (plain, sized) of
-          (IEncChunk bs1 _, IEncChunk bs2 _) -> bs1 === bs2
-          other -> do
-            annotate (show other)
-            failure
-    , testCase "Nothing produces IEncDone" $ do
-        case newStreamEncoder @SMsg of
-          IEncReady f -> case f Nothing of
-            IEncDone -> pure ()
-            other -> assertFailure ("Expected IEncDone, got: " <> show other)
-          other -> assertFailure ("Expected IEncReady, got: " <> show other)
-    , testProperty "multiple messages" $ property $ do
-        msgs <- forAll $ Gen.list (Range.linear 1 15) genSMsg'
-        let chunks = collectEncoder newStreamEncoder msgs
-            expected = BL.toStrict (encodeMessageStream msgs)
-        BS.concat chunks === expected
-    ]
-
-
--- -----------------------------------------------------------------------
--- Incremental roundtrip (encode → decode)
--- -----------------------------------------------------------------------
-
-incrementalRoundtripTests :: TestTree
-incrementalRoundtripTests =
-  testGroup
-    "Incremental encode-decode roundtrip"
-    [ testProperty "stream via incremental encoder → incremental decoder" $ property $ do
-        msgs <- forAll $ Gen.list (Range.linear 0 20) genSMsg'
-        let encoded = BS.concat (collectEncoder newStreamEncoder msgs)
-            decoded = decodeAllIncremental encoded
-        decoded === fmap Right msgs
-    , testProperty "stream via incremental encoder (sized) → incremental decoder" $ property $ do
-        msgs <- forAll $ Gen.list (Range.linear 0 20) genSMsg'
-        let encoded = BS.concat (collectEncoder newStreamEncoderSized msgs)
-            decoded = decodeAllIncremental encoded
-        decoded === fmap Right msgs
-    , testProperty "incremental encoder matches lazy stream encoder" $ property $ do
-        msgs <- forAll $ Gen.list (Range.linear 0 20) genSMsg'
-        let fromIncremental = BS.concat (collectEncoder newStreamEncoder msgs)
-            fromLazy = BL.toStrict (encodeMessageStream msgs)
-        fromIncremental === fromLazy
-    ]
-
 
 -- -----------------------------------------------------------------------
 -- Test message type
@@ -332,20 +256,17 @@ data SMsg = SMsg
   }
   deriving stock (Show, Eq)
 
-
 instance MessageEncode SMsg where
   buildMessage msg =
     (if smValue msg /= 0 then putTag 1 WireVarint <> putVarint (smValue msg) else mempty)
       <> (if smName msg /= "" then putTag 2 WireLengthDelimited <> putText (smName msg) else mempty)
       <> (if smActive msg then putTag 3 WireVarint <> putVarint 1 else mempty)
 
-
 instance MessageSize SMsg where
   messageSize msg =
     (if smValue msg /= 0 then fieldVarintSize 1 (smValue msg) else 0)
       + (if smName msg /= "" then fieldTextSize 2 (smName msg) else 0)
       + (if smActive msg then fieldBoolSize 3 else 0)
-
 
 instance MessageDecode SMsg where
   messageDecoder = loop 0 "" False
@@ -361,18 +282,12 @@ instance MessageDecode SMsg where
             3 -> getVarint >>= \v -> loop val name (v /= 0)
             _ -> skipField wt >> loop val name active
 
-
--- -----------------------------------------------------------------------
--- Helpers
--- -----------------------------------------------------------------------
-
 genSMsg :: PropertyT IO SMsg
 genSMsg = do
   v <- forAll $ Gen.word64 (Range.linear 0 1000000)
   t <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
   b <- forAll $ Gen.bool
   pure (SMsg v t b)
-
 
 genSMsg' :: Gen SMsg
 genSMsg' =
@@ -381,30 +296,22 @@ genSMsg' =
     <*> Gen.text (Range.linear 0 100) Gen.alphaNum
     <*> Gen.bool
 
-
 fromRight' :: Either DecodeError a -> a
 fromRight' (Right a) = a
 fromRight' (Left e) = error ("unexpected decode error: " <> show e)
 
-
 buildToBS :: B.Builder -> BS.ByteString
 buildToBS = BL.toStrict . B.toLazyByteString
 
-
--- | Frame a message with a varint length prefix (strict).
 frameMessage :: (MessageEncode a) => a -> BS.ByteString
 frameMessage msg =
   let payload = encodeMessage msg
   in buildToBS (putVarint (fromIntegral (BS.length payload)) <> B.byteString payload)
 
-
--- | Feed a single chunk to an incremental decoder.
 feed :: IDecode a -> BS.ByteString -> IDecode a
 feed (IPartial k) bs = k (Just bs)
 feed done _ = done
 
-
--- | Feed a list of chunks, then signal EOF.
 feedAll :: IDecode a -> [BS.ByteString] -> IDecode a
 feedAll dec [] = case dec of
   IPartial k -> k Nothing
@@ -412,35 +319,3 @@ feedAll dec [] = case dec of
 feedAll dec (c : cs) = case dec of
   IPartial k -> feedAll (k (Just c)) cs
   other -> other
-
-
--- | Step an encoder with one input.
-stepEncoder :: IEncode a -> Maybe a -> IEncode a
-stepEncoder (IEncReady f) ma = f ma
-stepEncoder other _ = other
-
-
--- | Collect all output chunks from an incremental encoder fed a list of messages.
-collectEncoder :: IEncode a -> [a] -> [BS.ByteString]
-collectEncoder enc msgs = go enc msgs
-  where
-    go (IEncReady f) (m : ms) = drainChunks (f (Just m)) ms
-    go (IEncReady f) [] = drainChunks (f Nothing) []
-    go (IEncChunk bs k) ms = bs : go k ms
-    go IEncDone _ = []
-
-    drainChunks (IEncChunk bs k) ms = bs : drainChunks k ms
-    drainChunks other ms = go other ms
-
-
--- | Decode all messages from a strict ByteString using the incremental decoder.
-decodeAllIncremental :: MessageDecode a => BS.ByteString -> [Either DecodeError a]
-decodeAllIncremental bs
-  | BS.null bs = []
-  | otherwise = case feed decodeMessageIncremental bs of
-      IDone a leftover -> Right a : decodeAllIncremental leftover
-      IFail e _ -> [Left e]
-      IPartial k -> case k Nothing of
-        IDone a leftover -> Right a : decodeAllIncremental leftover
-        IFail e _ -> [Left e]
-        IPartial _ -> [Left (CustomError "unexpected IPartial after EOF")]

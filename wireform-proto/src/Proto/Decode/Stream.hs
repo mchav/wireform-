@@ -18,10 +18,15 @@ module Proto.Decode.Stream
     -- * Stream decoding (length-delimited framing)
   , decodeMessageStream
 
-    -- * Incremental (resumable) decoding
+    -- * Incremental push-based decoding
   , IDecode (..)
   , decodeMessageIncremental
   , feedChunk
+
+    -- * Incremental pull-based decoding (simpler API)
+  , DecodeStep (..)
+  , streamDecode
+  , feedMore
   ) where
 
 import Data.Bits ((.&.), (.|.), shiftL)
@@ -202,3 +207,82 @@ getVarintLazy = go 0 0
             in if b < 0x80
                then Right (val, rest)
                else go val (shift + 7) rest
+
+-- ---------------------------------------------------------------------------
+-- Pull-based incremental decoder (DecodeStep)
+-- ---------------------------------------------------------------------------
+
+-- | Result of a pull-based incremental decode step.
+--
+-- Simpler than 'IDecode': just feed bytes until 'Done' or 'Fail'.
+-- @
+-- case streamDecode input of
+--   Done msg leftover -> use msg
+--   Partial k         -> k moreBytes
+--   Fail err          -> handleError err
+-- @
+data DecodeStep a
+  = Done !a !ByteString
+    -- ^ Successfully decoded. Leftover bytes follow.
+  | Partial (ByteString -> DecodeStep a)
+    -- ^ Need more input. Feed an empty 'ByteString' to signal EOF.
+  | Fail !String
+    -- ^ Decode failed with an error message.
+
+instance Show a => Show (DecodeStep a) where
+  show (Done a bs) = "Done " ++ show a ++ " (" ++ show (BS.length bs) ++ " leftover)"
+  show (Partial _) = "Partial _"
+  show (Fail e)    = "Fail " ++ show e
+
+-- | Begin pull-based streaming decode of a length-delimited message.
+streamDecode :: MessageDecode a => ByteString -> DecodeStep a
+streamDecode = dsVarint 0 0
+
+-- | Feed more bytes into a 'Partial' continuation.
+feedMore :: DecodeStep a -> ByteString -> DecodeStep a
+feedMore (Partial k) bs = k bs
+feedMore step _         = step
+
+dsVarint :: MessageDecode a => Word64 -> Int -> ByteString -> DecodeStep a
+dsVarint !acc !shift !buf
+  | shift > 63 = Fail "varint overflow"
+  | BS.null buf = Partial $ \more ->
+      if BS.null more
+      then Fail "unexpected end of input in varint"
+      else dsVarint acc shift more
+  | otherwise =
+      let !b    = BS.index buf 0
+          !rest = BS.drop 1 buf
+          !val  = acc .|. ((fromIntegral b .&. 0x7F) `shiftL` shift)
+      in if b < 0x80
+         then let !msgLen = fromIntegral val :: Int
+              in if msgLen < 0
+                 then Fail "negative message length"
+                 else dsBody msgLen 0 [] rest
+         else dsVarint val (shift + 7) rest
+
+dsBody :: MessageDecode a => Int -> Int -> [ByteString] -> ByteString -> DecodeStep a
+dsBody !needed !have !acc !buf
+  | BS.null buf =
+      if have >= needed
+      then dsFinish needed acc buf
+      else Partial $ \more ->
+        if BS.null more
+        then Fail "unexpected end of input in body"
+        else dsBody needed have acc more
+  | otherwise =
+      let !available = BS.length buf
+          !remaining = needed - have
+      in if available >= remaining
+         then let (!msgPart, !leftover) = BS.splitAt remaining buf
+              in dsFinish needed (msgPart : acc) leftover
+         else dsBody needed (have + available) (buf : acc) BS.empty
+
+dsFinish :: MessageDecode a => Int -> [ByteString] -> ByteString -> DecodeStep a
+dsFinish needed acc leftover =
+  let !msgBytes = case acc of
+        [single] | BS.length single == needed -> single
+        _        -> BS.concat (reverse acc)
+  in case decodeMessage msgBytes of
+       Left e  -> Fail (show e)
+       Right a -> Done a leftover

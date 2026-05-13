@@ -85,7 +85,6 @@ library
     Proto.Decode
     Proto.Decode.Fast
     Proto.Decode.Stream
-    Proto.Decode.Streaming
     Proto.SizedBuilder
     Proto.VectorBuilder
     Proto.Merge
