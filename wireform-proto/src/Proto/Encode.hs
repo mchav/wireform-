@@ -1,12 +1,44 @@
 {- | High-level encoding interface for protobuf messages.
 
-Key performance technique from Buf's protobuf performance analysis:
-* Two-pass encoding: first compute message size, then encode.
-  This avoids materializing submessages to ByteString just for
-  their length prefix. The size pass is pure arithmetic.
-* Builder-based output for zero-copy concatenation
-* Packed encoding for repeated scalar fields
-* Pre-computed tag bytes for generated code
+This is the primary module for serialising protobuf messages to bytes.
+Most users only need 'encodeMessage' (or 'encodeMessageSized' for
+maximum performance) and 'hPutMessage' for streaming to a file handle.
+
+== Quick start
+
+@
+import Proto.Encode
+
+-- Encode to a strict ByteString
+let bs = 'encodeMessage' myMsg
+
+-- Encode with exact-size pre-allocation (fastest)
+let bs = 'encodeMessageSized' myMsg
+
+-- Stream directly to a Handle (no intermediate ByteString)
+'hPutMessage' handle myMsg
+@
+
+== Typeclass approach
+
+Generated message types automatically get 'MessageEncode' and
+'MessageSize' instances via Template Haskell ('Proto.TH.loadProto').
+'MessageEncode' provides the 'buildMessage' method that produces a
+'Builder'; 'MessageSize' provides 'messageSize' for exact byte-count
+pre-computation.
+
+The two-pass optimisation (compute size, then encode) avoids
+materialising submessages to intermediate 'Data.ByteString.ByteString'
+values just to measure their length prefix. The size pass is pure
+arithmetic; the encode pass writes directly into the output buffer.
+
+== Field-level helpers
+
+The @encodeField*@ and @sizedField*@ families are used by generated
+code and are not normally called directly. The @encodeField*@ variants
+produce a 'Builder'; the @sizedField*@ variants produce a
+'Proto.SizedBuilder.SizedBuilder' that fuses the size computation with
+the builder for zero-allocation submessage encoding.
 -}
 module Proto.Encode (
   -- * Builder type (re-exported from wireform-core)

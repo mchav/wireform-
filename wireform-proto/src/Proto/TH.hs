@@ -14,27 +14,50 @@ import Proto.TH
 
 For each message in the file the splice produces:
 
-  * The data declaration plus a @default<TypeName>@ value.
+  * A record data type plus a @default\<TypeName\>@ value with all fields
+    at their proto default values.
   * @MessageEncode@ \/ @MessageSize@ \/ @MessageDecode@ wire codecs
     (via "Proto.Derive.Internal").
-  * @IsMessage@, @HasExtensions@, and a registry shim.
+  * @HasExtensions@ (proto2 extension support).
   * 'Proto.Schema.ProtoMessage' schema metadata
     (@protoMessageName@ \/ @protoPackageName@ \/ @protoDefaultValue@
     \/ @protoFieldDescriptors@).
   * Proto3 canonical JSON: @Aeson.ToJSON@ + @Aeson.FromJSON@ with
     camelCase keys, base64 bytes, string-encoded 64-bit integers,
     NaN \/ Infinity sentinels for floats.
-  * @Hashable@ — recursive structural hash.
+  * @Hashable@ -- recursive structural hash.
 
 For each enum in the file:
 
-  * The data declaration plus a proto-faithful @Enum@ instance
-    using @evNumber@ as the wire number.
+  * A sum data type plus a proto-faithful @Enum@ instance
+    using @evNumber@ as the wire number, with an @\<Enum\>'Unknown@
+    constructor for open-enum round-tripping.
   * 'Proto.Schema.ProtoEnum' (@protoEnumName@,
     @protoEnumValues@, @toProtoEnumValue@, @fromProtoEnumValue@).
-  * @Aeson.ToJSON@ \/ @FromJSON@ — encode as the primary name
+  * @Aeson.ToJSON@ \/ @FromJSON@ -- encode as the primary name
     string; decode from either the name or the wire number.
-  * @Hashable@ — hash by wire number.
+  * @Hashable@ -- hash by wire number.
+
+== 'LoadOpts' configuration
+
+Control code generation via 'LoadOpts' passed to 'loadProtoWith':
+
+  ['loIncludeDirs'] Directories to search when resolving @import@
+    statements in @.proto@ files. Default: @[\"proto\/\", \".\"]@.
+
+  ['loFieldNaming'] How to name generated record fields. The default
+    'Proto.CodeGen.PrefixedFields' prefixes each field with the
+    lowercased message name (@personName@, @personAge@). Use
+    'Proto.CodeGen.UnprefixedFields' for bare names (@name@, @age@),
+    which requires @DuplicateRecordFields@ but works well with
+    @OverloadedRecordDot@.
+
+  ['loRepConfig'] A 'Proto.Repr.RepConfig' controlling how proto field
+    types map to Haskell types. See "Proto.Repr" for the full adapter
+    system, per-field overrides, and @.proto@ annotation support.
+
+  ['loTHHooks'] 'Proto.CodeGen.Hooks.THHooks' callbacks that produce
+    extra TH declarations based on proto attributes.
 
 == Custom representations
 
@@ -42,7 +65,7 @@ For each enum in the file:
 \$(loadProtoWith (defaultLoadOpts
       { loRepConfig = defaultRepConfig
           { configFieldOverrides = Map.fromList
-              [ (("Person","name"), defaultFieldRep { fieldString = ShortTextRep })
+              [ (("Person","name"), defaultFieldRep { fieldString = shortTextAdapter })
               ]
           }
       })
@@ -245,12 +268,23 @@ based on proto attributes:
 -}
 data LoadOpts = LoadOpts
   { loIncludeDirs :: [FilePath]
+  -- ^ Directories to search when resolving @import@ statements in
+  -- @.proto@ files. Default: @[\"proto\/\", \".\"]@.
   , loFieldNaming :: FieldNaming
+  -- ^ How to name generated record fields. 'PrefixedFields' (default)
+  -- prefixes each field with the lowercased message name.
+  -- 'UnprefixedFields' uses bare names (requires @DuplicateRecordFields@).
   , loRepConfig :: RepConfig
+  -- ^ Controls how proto field types map to Haskell types. See
+  -- "Proto.Repr" for the adapter system and per-field overrides.
   , loTHHooks :: THHooks
+  -- ^ Callbacks that produce extra TH declarations. See
+  -- 'Proto.CodeGen.Hooks.THHooks'.
   }
 
 
+-- | Sensible defaults: search @proto\/@ and @.@, prefixed field names,
+-- default representations, no hooks.
 defaultLoadOpts :: LoadOpts
 defaultLoadOpts =
   LoadOpts
@@ -261,10 +295,18 @@ defaultLoadOpts =
     }
 
 
+-- | Load a @.proto@ file and splice generated Haskell declarations
+-- using 'defaultLoadOpts'. This is the simplest entry point:
+--
+-- @
+-- \$(loadProto \"path\/to\/message.proto\")
+-- @
 loadProto :: FilePath -> Q [Dec]
 loadProto = loadProtoWith defaultLoadOpts
 
 
+-- | Like 'loadProto' but with explicit 'LoadOpts' for controlling
+-- field naming, representations, hooks, and include paths.
 loadProtoWith :: LoadOpts -> FilePath -> Q [Dec]
 loadProtoWith opts path = do
   addDependentFile path
@@ -284,6 +326,8 @@ loadProtoWith opts path = do
       pure (decls <> hookDecls)
 
 
+-- | Generate declarations for all top-level definitions in a parsed
+-- 'ProtoFile', using default options.
 protoFileToDecls :: ProtoFile -> Q [Dec]
 protoFileToDecls = protoFileToDecls' PrefixedFields defaultRepConfig defaultTHHooks
 

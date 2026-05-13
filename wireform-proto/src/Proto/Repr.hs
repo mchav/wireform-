@@ -1,19 +1,40 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-{- | Configurable field representations.
+{- | Configurable field representations (the adapter system).
 
-By default, proto string fields map to strict 'Text', bytes to strict
-'ByteString', and repeated fields to 'Vector'. This module lets you
-override those choices per-field or per-message.
+By default, proto @string@ fields map to strict 'Data.Text.Text',
+@bytes@ to strict 'Data.ByteString.ByteString', @repeated@ to
+'Data.Vector.Vector', and @map@ to 'Data.Map.Strict.Map'. This module
+lets you override those choices per-field, per-message, or globally.
 
-The adapter records ('StringAdapter', 'BytesAdapter', 'RepeatedAdapter',
-'MapAdapter') carry TH expressions for encode\/decode\/size\/empty\/null
-so the codegen can splice them directly. Built-in adapters are provided
-for every standard representation; users can define their own for
-newtypes, unboxed vectors, or any other container.
+== Adapter records
 
-Usage with TH:
+Each proto field category has an adapter record that bundles the
+Template Haskell splices needed by the code generator:
+
+* 'StringAdapter' -- for @string@ fields
+* 'BytesAdapter'  -- for @bytes@ fields
+* 'RepeatedAdapter' -- for @repeated@ fields
+* 'MapAdapter' -- for @map@ fields
+
+== Built-in adapters
+
+__Strings:__ 'strictTextAdapter' (default), 'lazyTextAdapter',
+'shortTextAdapter', 'hsStringAdapter'.
+
+__Bytes:__ 'strictBytesAdapter' (default), 'lazyBytesAdapter',
+'shortBytesAdapter'.
+
+__Repeated:__ 'vectorAdapter' (default), 'unboxedVectorAdapter',
+'listAdapter', 'seqAdapter'.
+
+__Maps:__ 'ordMapAdapter' (default), 'hashMapAdapter'.
+
+== Overriding from Haskell
+
+Use 'RepConfig' fields in 'Proto.TH.LoadOpts' to override per-field
+or per-message:
 
 @
 \$(loadProtoWith (defaultLoadOpts { loRepConfig = defaultRepConfig
@@ -25,6 +46,46 @@ Usage with TH:
     }
 }) "path/to/file.proto")
 @
+
+== Overriding from .proto annotations
+
+Annotate fields in your @.proto@ file using wireform extension options,
+and they will be resolved through the 'AdapterRegistry':
+
+@
+message Blob {
+  bytes data = 1 [(wireform.haskell_bytes) = \"lazy\"];
+  string name = 2 [(wireform.haskell_string) = \"short\"];
+  repeated int32 ids = 3 [(wireform.haskell_repeated) = \"list\"];
+  map\<string, string\> tags = 4 [(wireform.haskell_map) = \"hash\"];
+}
+@
+
+The 'defaultAdapterRegistry' maps the built-in short names
+(@\"strict\"@, @\"lazy\"@, @\"short\"@, @\"string\"@, @\"vector\"@,
+@\"list\"@, @\"seq\"@, @\"unboxed\"@, @\"ord\"@, @\"hash\"@) to
+their corresponding adapters. Register custom adapters by extending
+the registry.
+
+== Defining custom adapters
+
+Start from an existing adapter and override the fields you need:
+
+@
+newtype Url = Url { unUrl :: Text }
+
+urlAdapter :: StringAdapter
+urlAdapter = strictTextAdapter
+  { stringType    = [t| Url |]
+  , stringEncode  = [| \\tag (Url t) -> encodeStrictTextFN tag t |]
+  , stringDecode  = [| Url |]
+  , stringEmpty   = [| Url T.empty |]
+  , stringIsEmpty = [| \\(Url t) -> T.null t |]
+  }
+@
+
+Then register it in an 'AdapterRegistry' or use it directly in
+'configFieldOverrides'.
 -}
 module Proto.Repr (
   -- * Adapter records

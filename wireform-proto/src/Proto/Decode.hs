@@ -4,14 +4,41 @@
 
 {- | High-level decoding interface for protobuf messages.
 
-This module provides the 'MessageDecode' typeclass and utilities for
-decoding messages from 'ByteString'. Key performance characteristics:
+This is the primary module for deserialising protobuf messages from
+bytes. Most users only need 'decodeMessage'.
 
-* Zero-copy: bytes and string fields reference slices of the input
-* Lazy submessage decoding: submessage bytes are captured but not parsed
-  until the field is accessed
-* Packed repeated field support
-* Efficient unknown field skipping
+== Quick start
+
+@
+import Proto.Decode
+
+case 'decodeMessage' rawBytes of
+  Left err -> handleError err   -- 'DecodeError' with details
+  Right msg -> use msg
+@
+
+== Typeclass approach
+
+Generated message types automatically get a 'MessageDecode' instance
+via Template Haskell ('Proto.TH.loadProto'). The instance provides
+'messageDecoder', a 'Decoder' action that is run by 'decodeMessage'.
+
+== Error handling
+
+'decodeMessage' returns @'Either' 'DecodeError' a@. 'DecodeError'
+covers truncated input, invalid varints, UTF-8 validation failures,
+negative length prefixes, and custom errors from generated code.
+
+== Performance characteristics
+
+* __Zero-copy__: @bytes@ and @string@ fields reference slices of the
+  input 'Data.ByteString.ByteString' (no allocation for those fields).
+* __Lazy submessage decoding__: with 'LazyMessage', submessage bytes
+  are captured but not parsed until 'forceLazyMessage' is called.
+* __Packed repeated fields__: adaptive multi-strategy decode with
+  SWAR pre-counting for exact vector pre-allocation.
+* __Unknown field preservation__: unrecognised fields are captured as
+  'UnknownField' values for round-trip fidelity.
 -}
 module Proto.Decode (
   -- * Decoding typeclass

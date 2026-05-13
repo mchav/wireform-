@@ -1,12 +1,46 @@
-{- | Code generation for Haskell modules from parsed proto files.
+{- | Pure-text code generation for Haskell modules from parsed proto files.
 
-Generates complete, compilable Haskell modules with:
+This module powers the standalone @wireform-protoc@ code generator
+(as opposed to the Template Haskell path in "Proto.TH"). It produces
+complete, compilable Haskell source text with:
 
-* Proper cross-module imports via a TypeRegistry
+* Proper cross-module imports via a 'TypeRegistry'
 * Record types for messages, sum types for enums and oneofs
-* MessageEncode / MessageDecode / MessageSize instances
-* Aeson ToJSON / FromJSON instances (using json_name annotations)
+* @MessageEncode@ \/ @MessageDecode@ \/ @MessageSize@ instances
+* @Aeson.ToJSON@ \/ @Aeson.FromJSON@ instances (respecting @json_name@)
 * Map field, oneof, and nested message support
+
+== 'GenerateOpts' configuration
+
+Use 'GenerateOpts' to control the output:
+
+  ['genModulePrefix'] The Haskell module prefix prepended to generated
+    module names. Default: @\"Proto.Gen\"@.
+
+  ['genFieldNaming'] How to name record fields -- 'PrefixedFields'
+    (default, e.g. @personName@) or 'UnprefixedFields' (e.g. @name@,
+    requires @DuplicateRecordFields@).
+
+  ['genStrictFields'] Whether to add strict-field annotations (@!@).
+    Default: 'True'.
+
+  ['genUnpackPrims'] Whether to add @UNPACK@ pragmas on primitive
+    fields. Default: 'True'.
+
+  ['genDeriveGeneric'] Derive @GHC.Generics.Generic@. Default: 'True'.
+
+  ['genDeriveNFData'] Derive @Control.DeepSeq.NFData@. Default: 'True'.
+
+  ['genPackedRepeated'] Use packed encoding for repeated scalar fields.
+    Default: 'True'.
+
+  ['genLazySubmessages'] Decode submessage fields lazily
+    (via 'Proto.Decode.LazyMessage'). Default: 'False'.
+
+  ['genJsonOverrides'] Per-message overrides for JSON instances. See
+    'JsonOverride'.
+
+  ['genHooks'] 'CodeGenHooks' callbacks for emitting extra declarations.
 -}
 module Proto.CodeGen (
   generateModule,
@@ -102,17 +136,29 @@ data FieldNaming
     UnprefixedFields
   deriving stock (Show, Eq)
 
+-- | Options controlling the pure-text code generator.
+-- See the module-level documentation for a description of each field.
 data GenerateOpts = GenerateOpts
   { genModulePrefix :: Text
+  -- ^ Haskell module prefix (e.g. @\"Proto.Gen\"@).
   , genFieldNaming :: FieldNaming
+  -- ^ Record field naming strategy.
   , genStrictFields :: Bool
+  -- ^ Add strict annotations (@!@) to record fields.
   , genUnpackPrims :: Bool
+  -- ^ Add @UNPACK@ pragmas on primitive fields.
   , genDeriveGeneric :: Bool
+  -- ^ Derive @GHC.Generics.Generic@.
   , genDeriveNFData :: Bool
+  -- ^ Derive @Control.DeepSeq.NFData@.
   , genPackedRepeated :: Bool
+  -- ^ Use packed wire encoding for repeated scalar fields.
   , genLazySubmessages :: Bool
+  -- ^ Decode submessage fields lazily via 'Proto.Decode.LazyMessage'.
   , genJsonOverrides :: Map Text JsonOverride
+  -- ^ Per-message 'JsonOverride' keyed by fully-qualified proto name.
   , genHooks :: CodeGenHooks
+  -- ^ Callbacks for emitting extra declarations during codegen.
   }
 
 
