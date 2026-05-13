@@ -52,6 +52,21 @@ library
     template-haskell >= 2.18 && < 2.24,
     aeson >= 2.1 && < 2.3
 
+benchmark wireform-bson-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -O2
+  build-depends:
+    base,
+    wireform-bson,
+    bytestring,
+    deepseq,
+    text,
+    vector,
+    criterion >= 1.5 && < 1.7
+
 test-suite wireform-bson-derive-test
   import: defaults
   type: exitcode-stdio-1.0

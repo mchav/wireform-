@@ -84,7 +84,7 @@ library
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
-    wireform-columnar,
+    wireform-columnar-core,
     wireform-arrow,
     wireform-derive,
     wireform-proto,
@@ -107,9 +107,9 @@ library
     cpp-options: -DHAVE_ZSTD
     build-depends: zstd >= 0.1 && < 0.2
   -- LZ4 support is provided by Columnar.LZ4 (FFI bindings to
-  -- system liblz4 from wireform-columnar). The Cabal flag
+  -- system liblz4 from wireform-columnar-core). The Cabal flag
   -- still gates the codec at compile time so callers can drop
-  -- it; the package dep stays via wireform-columnar regardless,
+  -- it; the package dep stays via wireform-columnar-core regardless,
   -- so the only thing this controls is whether 'tryLZ4Raw' is
   -- compiled in.
   if flag(lz4)
@@ -129,7 +129,7 @@ test-suite wireform-parquet-test
     base >= 4.16 && < 5,
     wireform-core,
     wireform-arrow,
-    wireform-columnar,
+    wireform-columnar-core,
     wireform-parquet,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,

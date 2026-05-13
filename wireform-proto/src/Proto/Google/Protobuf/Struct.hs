@@ -32,15 +32,14 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
+import Proto.Internal.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
 import Data.Proxy (Proxy(..))
-import Proto.Message (IsMessage(..))
+import Proto.Registry (IsMessage)
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
 import qualified Proto.Extension
-import qualified Proto.Merge
-import Proto.Wire (Tag(..), WireType(..))
-import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
+import Proto.Internal.Wire (Tag(..), WireType(..))
+import Proto.Internal.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
   putSVarint32, putSVarint64, putVarintSigned,
   varintSize, tagSize, fieldMessageSize,
@@ -49,7 +48,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
+import Proto.Internal.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
   archFixed32, archFixed64, archFloat, archDouble, archBool,
   archString, archBytes, archSubmessage,
   archVarintSize, archStringSize, archBytesSize, archBoolSize,
@@ -101,8 +100,7 @@ instance MessageDecode Struct where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage Struct where
-  messageTypeName _ = "google.protobuf.Struct"
+instance IsMessage Struct
 
 instance ProtoMessage Struct where
   protoMessageName _ = "google.protobuf.Struct"
@@ -140,14 +138,14 @@ instance Proto.Extension.HasExtensions Struct where
   messageUnknownFields = structUnknownFields
   setMessageUnknownFields !ufs msg = msg { structUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable Struct where
-  mergeFrom a b = Struct
+instance Semigroup Struct where
+  a <> b = Struct
     { structFields = a.structFields <> b.structFields
     , structUnknownFields = a.structUnknownFields <> b.structUnknownFields
     }
 
-instance Semigroup Struct where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid Struct where
+  mempty = defaultStruct
 
 data Value = Value
   { valueKind :: !(Maybe Value'Kind)
@@ -233,8 +231,7 @@ instance MessageDecode Value where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage Value where
-  messageTypeName _ = "google.protobuf.Value"
+instance IsMessage Value
 
 instance ProtoMessage Value where
   protoMessageName _ = "google.protobuf.Value"
@@ -272,14 +269,14 @@ instance Proto.Extension.HasExtensions Value where
   messageUnknownFields = valueUnknownFields
   setMessageUnknownFields !ufs msg = msg { valueUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable Value where
-  mergeFrom a b = Value
+instance Semigroup Value where
+  a <> b = Value
     { valueKind = case b.valueKind of { Nothing -> a.valueKind; x -> x }
     , valueUnknownFields = a.valueUnknownFields <> b.valueUnknownFields
     }
 
-instance Semigroup Value where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid Value where
+  mempty = defaultValue
 
 data NullValue
   = NullValue'NullValue
@@ -349,8 +346,7 @@ instance MessageDecode ListValue where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage ListValue where
-  messageTypeName _ = "google.protobuf.ListValue"
+instance IsMessage ListValue
 
 instance ProtoMessage ListValue where
   protoMessageName _ = "google.protobuf.ListValue"
@@ -388,18 +384,18 @@ instance Proto.Extension.HasExtensions ListValue where
   messageUnknownFields = listValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { listValueUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable ListValue where
-  mergeFrom a b = ListValue
+instance Semigroup ListValue where
+  a <> b = ListValue
     { listValueValues = a.listValueValues <> b.listValueValues
     , listValueUnknownFields = a.listValueUnknownFields <> b.listValueUnknownFields
     }
 
-instance Semigroup ListValue where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid ListValue where
+  mempty = defaultListValue
 
 -- | Register all message types defined in this module.
-registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes :: Proto.Registry.TypeRegistry -> Proto.Registry.TypeRegistry
 registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy Struct) .
-  Proto.Registry.registerType (Proxy :: Proxy Value) .
-  Proto.Registry.registerType (Proxy :: Proxy ListValue) .  id
+  Proto.Registry.registerMessage (Proxy :: Proxy Struct) .
+  Proto.Registry.registerMessage (Proxy :: Proxy Value) .
+  Proto.Registry.registerMessage (Proxy :: Proxy ListValue) .  id

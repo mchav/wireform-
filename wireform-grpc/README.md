@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 Native Haskell [gRPC](https://grpc.io/) client and server. **Vendored
 from [`grapesy`](https://github.com/well-typed/grapesy)** by Edsko de
 Vries (Well-Typed) and re-published as `wireform-grpc` so that

@@ -194,6 +194,7 @@ executable wireform-iceberg-interop-probe
   main-is: Probe.hs
   build-depends:
     base >= 4.16 && < 5,
+    wireform-core,
     wireform-iceberg,
     bytestring,
     containers,

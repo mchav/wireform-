@@ -1,5 +1,9 @@
 # wireform-kafka
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 A Haskell Kafka client + Streams DSL with full wire-protocol
 coverage and operator-level parity with the Java reference.
 

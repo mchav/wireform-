@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [BSON](https://bsonspec.org/) for Haskell. Encode and decode the
 dynamic [`BSON.Value`](src/BSON/Value.hs), and derive typeclass
 instances generically or via Template Haskell. Covers the full BSON
@@ -133,15 +137,33 @@ MongoDB-specific type codes.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs):
+
+```bash
+cabal bench wireform-bson:wireform-bson-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:bson-encode-decode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/bson-encode-decode-dark.svg">
+  <img src="bench-results/charts/bson-encode-decode-light.svg" alt="wireform-bson encode + decode (Person record)">
+</picture>
+
+| Operation      |   encode |   decode | ratio |
+| :------------- | -------: | -------: | ----: |
+| single Person  |   317 ns |   428 ns | 1.35x |
+| [Person] x 100 | 58182 ns | 25172 ns | 0.43x |
+
+<sub>Last run 2026-05-13 11:38:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:bson-encode-decode -->
+
+For cross-language comparisons:
 
 - Haskell: [`bson`](https://hackage.haskell.org/package/bson) (the
   established Haskell BSON library used by `mongoDB`).
 - C: [libbson](https://mongoc.org/libbson/current/index.html), part
   of the official MongoDB C driver.
 - Rust: [`bson`](https://crates.io/crates/bson) crate.
-
-> Numbers TBD: harness pending.
 
 ## License
 

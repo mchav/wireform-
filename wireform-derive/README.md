@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 Annotation-driven Template Haskell deriver core for the
 [`wireform`][wireform] family.  One `{-# ANN ... #-}` vocabulary
 drives instance generation for every supported wire format -- JSON,

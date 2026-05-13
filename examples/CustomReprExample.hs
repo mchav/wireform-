@@ -18,10 +18,19 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Short qualified as SBS
 import Data.Map.Strict qualified as Map
+import Data.Reflection (Given (..))
 import Proto.Decode
 import Proto.Encode
+import Proto.Internal.JSON.Extension (ExtensionRegistry, emptyExtensionRegistry)
 import Proto.Repr hiding (BytesRep (..), MapRep (..), RepeatedRep (..), StringRep (..))
 import Proto.TH
+
+
+-- The generated JSON instances carry a 'Given ExtensionRegistry' constraint
+-- for proto2 extensions. None are defined here, so satisfy it with the
+-- empty registry.
+instance Given ExtensionRegistry where
+  given = emptyExtensionRegistry
 
 
 -- Generate types where:

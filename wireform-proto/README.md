@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 A fully conformant, extremely high-performance Protocol Buffer implementation
 for Haskell. Supports proto2 and proto3 with its own IDL parser, so
 no `protoc` binary is needed.
@@ -359,6 +363,38 @@ runner in [`compare-bench/`](../compare-bench/). Run with
 packages; proto-lens stays NCG. LLVM helps most on repeated fields
 (up to 27%).*
 
+<!-- BEGIN_AUTOGEN bench:proto-vs-proto-lens-encode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/proto-vs-proto-lens-encode-dark.svg">
+  <img src="bench-results/charts/proto-vs-proto-lens-encode-light.svg" alt="wireform-proto vs proto-lens (encode, builder path)">
+</picture>
+
+| Operation | wireform-proto | proto-lens | ratio |
+| :-------- | -------------: | ---------: | ----: |
+| Small     |        25.5 ns |     146 ns | 5.71x |
+| Medium    |       53.10 ns |     272 ns | 5.04x |
+| Nested    |       44.10 ns |     321 ns | 7.13x |
+| Repeated  |         656 ns |    2701 ns | 4.12x |
+
+<sub>Last run 2026-05-13 10:45:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:proto-vs-proto-lens-encode -->
+
+<!-- BEGIN_AUTOGEN bench:proto-vs-proto-lens-decode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/proto-vs-proto-lens-decode-dark.svg">
+  <img src="bench-results/charts/proto-vs-proto-lens-decode-light.svg" alt="wireform-proto vs proto-lens (decode)">
+</picture>
+
+| Operation | wireform-proto | proto-lens | ratio |
+| :-------- | -------------: | ---------: | ----: |
+| Small     |        20.7 ns |    76.5 ns | 3.69x |
+| Medium    |        57.0 ns |     198 ns | 3.48x |
+| Nested    |        48.6 ns |     141 ns | 2.91x |
+| Repeated  |         715 ns |    2107 ns | 2.95x |
+
+<sub>Last run 2026-05-13 10:45:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:proto-vs-proto-lens-decode -->
+
 Encode and decode cost about the same. A 3-field message encodes
 in ~23 ns and decodes in ~20 ns with LLVM. A 50-element
 packed-repeated field with nested submessages round-trips in about
@@ -436,6 +472,19 @@ import Proto.Dynamic (decodeDynamic, encodeDynamic)
 let dyn = decodeDynamic registry "my.package.Person" bytes
 ```
 
+### Lens access
+
+`Proto.Lens` provides optional van Laarhoven lenses for generated
+message fields. No dependency on `lens` or `microlens` — the lenses
+use the van Laarhoven encoding directly:
+
+```haskell
+import Proto.Lens (field)
+
+view (field @"name") person        -- get
+set  (field @"name") "Bob" person  -- set
+```
+
 ### gRPC codegen
 
 `Proto.GRPC` generates service/method type metadata. Wire framing
@@ -479,9 +528,22 @@ full proto2/proto3 surface.
 | **Decode speed** | 3-4x faster | Baseline |
 | **Field representation** | Configurable per-field | Fixed |
 
-**Optics integration:** wireform-proto works with
-`OverloadedRecordDot` and plain selectors; optics can be derived
-separately via your optics library of choice.
+**Optics integration:** wireform-proto generates plain records, so
+`OverloadedRecordDot` and pattern matching work out of the box.
+For lens-style access, `Proto.Lens` provides van Laarhoven lenses
+via a `field @"name"` combinator — compatible with both `lens` and
+`microlens` with no dependency on either:
+
+```haskell
+import Proto.Lens (field)
+
+view (field @"seconds") timestamp
+set  (field @"seconds") 42 timestamp
+over (field @"seconds") (+1) timestamp
+
+-- Compose into nested messages:
+view (field @"inner" . field @"name") nested
+```
 
 ---
 

@@ -1,61 +1,70 @@
 {-# LANGUAGE BangPatterns #-}
--- | Conformance test harness for the official protobuf conformance suite.
---
--- The conformance runner sends 'ConformanceRequest' messages via stdin
--- (length-prefixed) and expects 'ConformanceResponse' messages back.
---
--- To run:
---
--- @
--- conformance-test-runner --enforce_recommended ./wireform-conformance
--- @
-module Proto.Conformance
-  ( -- * Conformance types
-    ConformanceRequest (..)
-  , defaultConformanceRequest
-  , ConformanceResponse (..)
-  , defaultConformanceResponse
-  , WireFormat (..)
 
-    -- * Conformance runner
-  , conformanceMain
-  , handleConformanceRequest
-  ) where
+{- | Conformance test harness for the official protobuf conformance suite.
 
+The conformance runner sends 'ConformanceRequest' messages via stdin
+(length-prefixed) and expects 'ConformanceResponse' messages back.
+
+To run:
+
+@
+conformance-test-runner --enforce_recommended ./wireform-conformance
+@
+-}
+module Proto.Conformance (
+  -- * Conformance types
+  ConformanceRequest (..),
+  defaultConformanceRequest,
+  ConformanceResponse (..),
+  defaultConformanceResponse,
+  WireFormat (..),
+
+  -- * Conformance runner
+  conformanceMain,
+  handleConformanceRequest,
+) where
+
+import Control.DeepSeq (NFData)
+import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Int (Int32)
 import Data.Text (Text)
-import Data.Bits ((.&.), shiftR)
 import Data.Word (Word32)
 import GHC.Generics (Generic)
-import Control.DeepSeq (NFData)
-import System.IO (stdin, stdout, hSetBinaryMode, hSetBuffering, BufferMode(..), hFlush, isEOF)
-
-import Proto.Encode
 import Proto.Decode
-import Proto.Wire (Tag(..))
+import Proto.Encode
+import Proto.Internal.Wire (Tag (..))
+import System.IO (BufferMode (..), hFlush, hSetBinaryMode, hSetBuffering, isEOF, stdin, stdout)
+
 
 data WireFormat = Protobuf | JSON | Jspb | TextFormat
   deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)
-  deriving anyclass NFData
+  deriving anyclass (NFData)
+
 
 data ConformanceRequest = ConformanceRequest
-  { crPayload              :: !ByteString
+  { crPayload :: !ByteString
   , crRequestedOutputFormat :: !Int32
-  , crMessageType           :: !Text
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass NFData
+  , crMessageType :: !Text
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
 
 defaultConformanceRequest :: ConformanceRequest
 defaultConformanceRequest = ConformanceRequest "" 0 ""
 
+
 instance MessageEncode ConformanceRequest where
   buildMessage cr =
-    (if BS.null (crPayload cr) then mempty else encodeFieldBytes 1 (crPayload cr)) <>
-    (if crRequestedOutputFormat cr == 0 then mempty
-     else encodeFieldVarint 3 (fromIntegral (crRequestedOutputFormat cr))) <>
-    (if crMessageType cr == "" then mempty else encodeFieldString 4 (crMessageType cr))
+    (if BS.null (crPayload cr) then mempty else encodeFieldBytes 1 (crPayload cr))
+      <> ( if crRequestedOutputFormat cr == 0
+            then mempty
+            else encodeFieldVarint 3 (fromIntegral (crRequestedOutputFormat cr))
+         )
+      <> (if crMessageType cr == "" then mempty else encodeFieldString 4 (crMessageType cr))
+
 
 instance MessageDecode ConformanceRequest where
   messageDecoder = loop defaultConformanceRequest
@@ -64,16 +73,19 @@ instance MessageDecode ConformanceRequest where
         mt <- getTagOrU
         case mt of
           UNothing -> pure cr
-          UJust (Tag 1 _) -> do v <- decodeFieldBytes; loop cr { crPayload = v }
-          UJust (Tag 2 _) -> do { _jsonPayload <- decodeFieldString; loop cr { crPayload = BS.empty } }
-          UJust (Tag 3 _) -> do v <- getVarint; loop cr { crRequestedOutputFormat = fromIntegral v }
-          UJust (Tag 4 _) -> do v <- decodeFieldString; loop cr { crMessageType = v }
+          UJust (Tag 1 _) -> do v <- decodeFieldBytes; loop cr {crPayload = v}
+          UJust (Tag 2 _) -> do _jsonPayload <- decodeFieldString; loop cr {crPayload = BS.empty}
+          UJust (Tag 3 _) -> do v <- getVarint; loop cr {crRequestedOutputFormat = fromIntegral v}
+          UJust (Tag 4 _) -> do v <- decodeFieldString; loop cr {crMessageType = v}
           UJust (Tag _ wt) -> skipField wt >> loop cr
+
 
 newtype ConformanceResponse = ConformanceResponse
   { crsResult :: ConformanceResult
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass NFData
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
 
 data ConformanceResult
   = ParseError !Text
@@ -83,19 +95,22 @@ data ConformanceResult
   | JsonPayload !Text
   | Skipped !Text
   deriving stock (Show, Eq, Generic)
-  deriving anyclass NFData
+  deriving anyclass (NFData)
+
 
 defaultConformanceResponse :: ConformanceResponse
 defaultConformanceResponse = ConformanceResponse (Skipped "")
 
+
 instance MessageEncode ConformanceResponse where
   buildMessage (ConformanceResponse r) = case r of
-    ParseError t     -> encodeFieldString 1 t
-    RuntimeError t   -> encodeFieldString 2 t
+    ParseError t -> encodeFieldString 1 t
+    RuntimeError t -> encodeFieldString 2 t
     ProtobufPayload b -> encodeFieldBytes 3 b
-    JsonPayload t    -> encodeFieldString 4 t
-    Skipped t        -> encodeFieldString 5 t
+    JsonPayload t -> encodeFieldString 4 t
+    Skipped t -> encodeFieldString 5 t
     SerializeError t -> encodeFieldString 6 t
+
 
 instance MessageDecode ConformanceResponse where
   messageDecoder = loop defaultConformanceResponse
@@ -112,9 +127,11 @@ instance MessageDecode ConformanceResponse where
           UJust (Tag 6 _) -> ConformanceResponse . SerializeError <$> decodeFieldString
           UJust (Tag _ wt) -> skipField wt >> loop cr
 
--- | Main loop for conformance testing.
--- Reads length-delimited ConformanceRequest from stdin,
--- processes them, and writes length-delimited ConformanceResponse to stdout.
+
+{- | Main loop for conformance testing.
+Reads length-delimited ConformanceRequest from stdin,
+processes them, and writes length-delimited ConformanceResponse to stdout.
+-}
 conformanceMain :: (ConformanceRequest -> IO ConformanceResponse) -> IO ()
 conformanceMain handler = do
   hSetBinaryMode stdin True
@@ -124,22 +141,24 @@ conformanceMain handler = do
   where
     go = do
       eof <- isEOF
-      if eof then pure ()
-      else do
-        lenBytes <- BS.hGet stdin 4
-        if BS.length lenBytes < 4 then pure ()
+      if eof
+        then pure ()
         else do
-          let len = fromIntegral (readLE32 lenBytes)
-          payload <- BS.hGet stdin len
-          case decodeMessage payload of
-            Left _err -> do
-              let resp = ConformanceResponse (ParseError "Failed to decode ConformanceRequest")
-              writeResponse resp
-              go
-            Right req -> do
-              resp <- handler req
-              writeResponse resp
-              go
+          lenBytes <- BS.hGet stdin 4
+          if BS.length lenBytes < 4
+            then pure ()
+            else do
+              let len = fromIntegral (readLE32 lenBytes)
+              payload <- BS.hGet stdin len
+              case decodeMessage payload of
+                Left _err -> do
+                  let resp = ConformanceResponse (ParseError "Failed to decode ConformanceRequest")
+                  writeResponse resp
+                  go
+                Right req -> do
+                  resp <- handler req
+                  writeResponse resp
+                  go
 
     writeResponse resp = do
       let encoded = encodeMessage resp
@@ -147,6 +166,7 @@ conformanceMain handler = do
       BS.hPut stdout lenBytes
       BS.hPut stdout encoded
       hFlush stdout
+
 
 readLE32 :: ByteString -> Word32
 readLE32 bs =
@@ -156,13 +176,16 @@ readLE32 bs =
       b3 = fromIntegral (BS.index bs 3) :: Word32
   in b0 + b1 * 256 + b2 * 65536 + b3 * 16777216
 
+
 encodeLE32 :: Word32 -> ByteString
-encodeLE32 n = BS.pack
-  [ fromIntegral (n .&. 0xFF)
-  , fromIntegral ((n `shiftR` 8) .&. 0xFF)
-  , fromIntegral ((n `shiftR` 16) .&. 0xFF)
-  , fromIntegral ((n `shiftR` 24) .&. 0xFF)
-  ]
+encodeLE32 n =
+  BS.pack
+    [ fromIntegral (n .&. 0xFF)
+    , fromIntegral ((n `shiftR` 8) .&. 0xFF)
+    , fromIntegral ((n `shiftR` 16) .&. 0xFF)
+    , fromIntegral ((n `shiftR` 24) .&. 0xFF)
+    ]
+
 
 -- | Default handler that does protobuf round-trip.
 handleConformanceRequest :: ConformanceRequest -> IO ConformanceResponse

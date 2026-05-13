@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)) for Haskell.
 Encode and decode the dynamic [`CBOR.Value`](src/CBOR/Value.hs), derive
 typeclass instances generically or via Template Haskell, parse and code
@@ -198,6 +202,10 @@ The per-format Hedgehog suite lives in `test/`:
 cabal test wireform-cbor:wireform-cbor-derive-test
 ```
 
+<!-- BEGIN_AUTOGEN tests -->
+_No data yet. Run `cabal test wireform-cbor:all --test-show-details=streaming --xml=dist-stats/test-results/wireform-cbor.junit.xml` to populate._
+<!-- END_AUTOGEN tests -->
+
 It covers the typeclass instances, the deriver, generic and
 TH-derived round-trips, and the dynamic `Value` ADT.
 
@@ -211,6 +219,20 @@ established Haskell CBOR library:
 ```bash
 cabal bench format-bench
 ```
+
+<!-- BEGIN_AUTOGEN bench:cbor-vs-cborg-encode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/cbor-vs-cborg-encode-dark.svg">
+  <img src="bench-results/charts/cbor-vs-cborg-encode-light.svg" alt="wireform-cbor vs cborg">
+</picture>
+
+| Operation | wireform-cbor |   cborg | ratio |
+| :-------- | ------------: | ------: | ----: |
+| encode    |        305 ns |  275 ns | 0.90x |
+| decode    |        460 ns | 1214 ns | 2.64x |
+
+<sub>Last run 2026-05-13 10:30:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:cbor-vs-cborg-encode -->
 
 For cross-language comparisons, the canonical reference implementations
 are [libcbor](https://github.com/PJK/libcbor) (C) and

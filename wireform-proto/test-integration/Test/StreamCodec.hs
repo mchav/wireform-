@@ -14,15 +14,10 @@ import Proto.Decode.Stream (
   decodeMessageLazy,
   decodeMessageStream,
  )
-import Proto.Encode (MessageEncode (..), MessageSize (..), encodeMessage, encodeMessageSized)
-import Proto.Encode.Lazy (
-  encodeMessageLazy,
-  encodeMessageStream,
-  encodeMessageStreamSized,
- )
-import Proto.Wire (Tag (..), WireType (..))
-import Proto.Wire.Decode (DecodeError (..), Decoder, getTagOr, getText, getVarint, skipField)
-import Proto.Wire.Encode (fieldBoolSize, fieldTextSize, fieldVarintSize, putTag, putText, putVarint)
+import Proto.Encode (MessageEncode (..), MessageSize (..), encodeMessage, encodeMessageLazy, encodeMessageSized, encodeMessageStream, encodeMessageStreamSized)
+import Proto.Internal.Wire (Tag (..), WireType (..))
+import Proto.Internal.Wire.Decode (DecodeError (..), Decoder, getTagOr, getText, getVarint, skipField)
+import Proto.Internal.Wire.Encode (fieldBoolSize, fieldTextSize, fieldVarintSize, putTag, putText, putVarint)
 import Test.Tasty
 import Test.Tasty.HUnit hiding (assert)
 import Test.Tasty.Hedgehog
@@ -244,7 +239,6 @@ incrementalDecodeTests =
 -- Incremental encoder
 -- -----------------------------------------------------------------------
 
-
 -- -----------------------------------------------------------------------
 -- Test message type
 -- -----------------------------------------------------------------------
@@ -256,17 +250,20 @@ data SMsg = SMsg
   }
   deriving stock (Show, Eq)
 
+
 instance MessageEncode SMsg where
   buildMessage msg =
     (if smValue msg /= 0 then putTag 1 WireVarint <> putVarint (smValue msg) else mempty)
       <> (if smName msg /= "" then putTag 2 WireLengthDelimited <> putText (smName msg) else mempty)
       <> (if smActive msg then putTag 3 WireVarint <> putVarint 1 else mempty)
 
+
 instance MessageSize SMsg where
   messageSize msg =
     (if smValue msg /= 0 then fieldVarintSize 1 (smValue msg) else 0)
       + (if smName msg /= "" then fieldTextSize 2 (smName msg) else 0)
       + (if smActive msg then fieldBoolSize 3 else 0)
+
 
 instance MessageDecode SMsg where
   messageDecoder = loop 0 "" False
@@ -282,12 +279,14 @@ instance MessageDecode SMsg where
             3 -> getVarint >>= \v -> loop val name (v /= 0)
             _ -> skipField wt >> loop val name active
 
+
 genSMsg :: PropertyT IO SMsg
 genSMsg = do
   v <- forAll $ Gen.word64 (Range.linear 0 1000000)
   t <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
   b <- forAll $ Gen.bool
   pure (SMsg v t b)
+
 
 genSMsg' :: Gen SMsg
 genSMsg' =
@@ -296,21 +295,26 @@ genSMsg' =
     <*> Gen.text (Range.linear 0 100) Gen.alphaNum
     <*> Gen.bool
 
+
 fromRight' :: Either DecodeError a -> a
 fromRight' (Right a) = a
 fromRight' (Left e) = error ("unexpected decode error: " <> show e)
 
+
 buildToBS :: B.Builder -> BS.ByteString
 buildToBS = BL.toStrict . B.toLazyByteString
+
 
 frameMessage :: (MessageEncode a) => a -> BS.ByteString
 frameMessage msg =
   let payload = encodeMessage msg
   in buildToBS (putVarint (fromIntegral (BS.length payload)) <> B.byteString payload)
 
+
 feed :: IDecode a -> BS.ByteString -> IDecode a
 feed (IPartial k) bs = k (Just bs)
 feed done _ = done
+
 
 feedAll :: IDecode a -> [BS.ByteString] -> IDecode a
 feedAll dec [] = case dec of

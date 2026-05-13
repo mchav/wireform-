@@ -36,9 +36,9 @@ clientOutputStream :: OutBodyIface -> IO OutputStream
 clientOutputStream iface =
     return OutputStream {
         _writeChunk = \c ->
-          Client.outBodyPush iface c
+          Client.outBodyPush iface (toBSBuilder c)
       , _writeChunkFinal = \c ->
-          Client.outBodyPushFinal iface c
+          Client.outBodyPushFinal iface (toBSBuilder c)
       , _flush =
           Client.outBodyFlush iface
       }

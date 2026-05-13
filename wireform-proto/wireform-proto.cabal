@@ -8,7 +8,7 @@ description:
   Features:
   .
   * @.proto@ IDL parser (proto2 + proto3) and pure-text Haskell code generator
-  * Annotation-driven Template Haskell deriver (@Proto.Derive@) that emits
+  * Annotation-driven Template Haskell deriver (@Proto.TH.Derive@) that emits
     wire codecs directly from a hand-written Haskell record
   * @loadProto@ Template Haskell splice that pairs the IDL parser with the
     deriver for in-place type and instance generation
@@ -74,49 +74,51 @@ library
   autogen-modules: Paths_wireform_proto
   other-modules: Paths_wireform_proto
   exposed-modules:
-    -- Core wire format
-    Proto.Wire
-    Proto.Wire.Decode
-    Proto.Wire.Encode
+    -- Convenience re-export
+    Proto
+
+    -- Encoding & decoding
     Proto.Encode
-    Proto.Encode.Archetype
-    Proto.Encode.Direct
-    Proto.Encode.Lazy
     Proto.Decode
-    Proto.Decode.Fast
     Proto.Decode.Stream
-    Proto.SizedBuilder
-    Proto.VectorBuilder
-    Proto.Merge
+
+    -- Internal wire format primitives (for generated code & advanced use)
+    Proto.Internal.Wire
+    Proto.Internal.Wire.Decode
+    Proto.Internal.Wire.Encode
+    Proto.Internal.SizedBuilder
+    Proto.Internal.Encode.Archetype
+    Proto.Internal.GrowList
+    Proto.Internal.CodeGen.Combinators
+
+    -- Internal JSON helpers (used by generated code)
+    Proto.Internal.JSON
+    Proto.Internal.JSON.Extension
+    Proto.Internal.JSON.WellKnown
 
     -- Message infrastructure
-    Proto.Message
     Proto.Schema
     Proto.Extension
-    Proto.FieldPresence
     Proto.Dynamic
     Proto.Lens
     Proto.Registry
-    Proto.Registry.TH
 
-    -- JSON
-    Proto.JSON
-    Proto.JSON.Extension
-    Proto.JSON.WellKnown
-
-    -- AST, parser, annotations
-    Proto.AST
-    Proto.Annotations
-    Proto.Options
-    Proto.Options.Custom
-    Proto.Parser
-    Proto.Parser.Error
-    Proto.Parser.Lexer
-    Proto.Parser.Resolver
+    -- IDL: AST, parser, annotations, options, printing, inspection
+    Proto.IDL.AST
+    Proto.IDL.AST.Span
+    Proto.IDL.Annotations
+    Proto.IDL.Options
+    Proto.IDL.Options.Custom
+    Proto.IDL.Parser
+    Proto.IDL.Parser.Error
+    Proto.IDL.Parser.Lexer
+    Proto.IDL.Parser.Resolver
+    Proto.IDL.Print
+    Proto.IDL.Inspect
+    Proto.IDL.Descriptor
 
     -- Code generation (public API)
     Proto.CodeGen
-    Proto.CodeGen.Combinators
     Proto.CodeGen.Hooks
     Proto.CodeGen.Types
     Proto.Repr
@@ -124,15 +126,15 @@ library
     -- TH splices
     Proto.TH
     Proto.TH.Metadata
-    Proto.QQ
-    Proto.Derive
-    Proto.Derive.Internal
+    Proto.TH.QQ
+    Proto.TH.Derive
     Proto.Setup
 
-    -- Text format, inspection, printing
+    -- Text format
     Proto.TextFormat
-    Proto.Print
-    Proto.Inspect
+
+    -- Compatibility
+    Proto.Compat
 
     -- Well-known types
     Proto.Google.Protobuf.Any
@@ -152,19 +154,15 @@ library
     Proto.Google.Protobuf.Wrappers
     Proto.Google.Protobuf.Wrappers.Util
 
-    -- Descriptor conversion, conformance, gRPC, TDP
-    Proto.Descriptor.Convert
-    Proto.Conformance
-    Proto.GRPC
-    Proto.TDP
-    Proto.Compat
-    Proto.Church
-
   other-modules:
     -- Internal codegen sub-modules (used only by Proto.CodeGen)
     Proto.CodeGen.Decode
     Proto.CodeGen.Encode
     Proto.CodeGen.Service
+    -- Internal derive implementation (used by Proto.TH and Proto.TH.Derive)
+    Proto.Internal.Derive
+    -- Conformance test harness (used only by conformance runner)
+    Proto.Conformance
     -- Unboxed sum types for zero-allocation decode (not yet wired)
     Proto.Internal.Either
     Proto.Internal.Maybe
@@ -192,7 +190,8 @@ library
     unordered-containers >= 0.2.16 && < 0.3,
     time >= 1.9 && < 1.15,
     cryptohash-md5 >= 0.11 && < 0.12,
-    stm >= 2.5 && < 2.6
+    stm >= 2.5 && < 2.6,
+    reflection >= 2.1 && < 2.2
 
 -- ===========================================================
 -- Integration test suite: wire format, JSON, parser, well-known
@@ -221,7 +220,6 @@ test-suite wireform-proto-test
     Test.PrintInspect
     Test.Compat
     Test.Hooks
-    Test.GRPC
   build-depends:
     base,
     wireform-proto,
@@ -304,6 +302,7 @@ executable wireform-conformance-runner
     containers,
     deepseq,
     hashable,
+    reflection,
     template-haskell,
     text,
     vector
@@ -330,6 +329,7 @@ test-suite protobuf-conformance-test
     filepath,
     hashable,
     process,
+    reflection,
     template-haskell,
     text,
     vector,

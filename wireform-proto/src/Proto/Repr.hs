@@ -119,9 +119,6 @@ module Proto.Repr (
   FieldRep (..),
   defaultFieldRep,
 
-  -- * Optional rep (still an enum for now)
-  OptionalRep (..),
-
   -- * Configuration table
   RepConfig (..),
   defaultRepConfig,
@@ -212,7 +209,6 @@ module Proto.Repr (
   emptyHsString,
 ) where
 
-import Proto.AST (OptionDef (..), OptionName (..), OptionNamePart (..), Constant (..))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -233,8 +229,9 @@ import Data.Vector qualified as V
 import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word8)
 import Language.Haskell.TH (Exp, Q, Type)
-import Proto.Wire (WireType (..))
-import Proto.Wire.Encode (putLengthDelimited, putTag, putText, putVarint, varintSize)
+import Proto.IDL.AST (Constant (..), OptionDef, OptionName (..), OptionNamePart (..), optName, optValue)
+import Proto.Internal.Wire (WireType (..))
+import Proto.Internal.Wire.Encode (putLengthDelimited, putTag, putText, putVarint, varintSize)
 import Wireform.Builder qualified as B
 
 
@@ -465,9 +462,10 @@ vectorAdapter =
     }
 
 
--- | Unboxed vector @VU.Vector@. No per-element heap objects for
--- primitive types (Int32, Int64, Word32, Word64, Float, Double, Bool).
--- Requires @Unbox@ constraint on the element type.
+{- | Unboxed vector @VU.Vector@. No per-element heap objects for
+primitive types (Int32, Int64, Word32, Word64, Float, Double, Bool).
+Requires @Unbox@ constraint on the element type.
+-}
 unboxedVectorAdapter :: RepeatedAdapter
 unboxedVectorAdapter =
   RepeatedAdapter
@@ -476,7 +474,7 @@ unboxedVectorAdapter =
     , repeatedSnoc = [|VU.snoc|]
     , repeatedFoldl = [|VU.foldl'|]
     , repeatedIsEmpty = [|VU.null|]
-    , repeatedBaseRep = VectorRep  -- reuses VectorRep for encode/decode dispatch
+    , repeatedBaseRep = VectorRep -- reuses VectorRep for encode/decode dispatch
     }
 
 
@@ -540,26 +538,21 @@ hashMapAdapter =
 -- FieldRep + RepConfig
 -- =========================================================================
 
--- | How to represent proto optional/nullable fields.
-data OptionalRep
-  = -- | Maybe a (default)
-    MaybeRep
-  | -- | Proto.FieldPresence.Field a (explicit presence tracking)
-    FieldPresenceRep
-  deriving stock (Show, Eq, Ord)
+{- | Representation choices for a single field.
 
-
--- | Representation choices for a single field.
+Proto3 @optional@ scalars are always materialised as @'Maybe' a@; that
+is the only representation the wire codecs support, so it is not a
+knob on 'FieldRep'.
+-}
 data FieldRep = FieldRep
   { fieldString :: !StringAdapter
   , fieldBytes :: !BytesAdapter
   , fieldRepeated :: !RepeatedAdapter
   , fieldMap :: !MapAdapter
-  , fieldOptional :: !OptionalRep
   }
 
 
--- | Sensible defaults: strict Text, strict ByteString, Vector, Maybe, ordered Map.
+-- | Sensible defaults: strict Text, strict ByteString, Vector, ordered Map.
 defaultFieldRep :: FieldRep
 defaultFieldRep =
   FieldRep
@@ -567,7 +560,6 @@ defaultFieldRep =
     , fieldBytes = strictBytesAdapter
     , fieldRepeated = vectorAdapter
     , fieldMap = ordMapAdapter
-    , fieldOptional = MaybeRep
     }
 
 
@@ -591,9 +583,10 @@ data RepConfig = RepConfig
   }
 
 
--- | Sensible defaults: strict Text, strict ByteString, boxed Vector,
--- ordered Map, no per-field or per-message overrides, and the built-in
--- adapter registry.
+{- | Sensible defaults: strict Text, strict ByteString, boxed Vector,
+ordered Map, no per-field or per-message overrides, and the built-in
+adapter registry.
+-}
 defaultRepConfig :: RepConfig
 defaultRepConfig =
   RepConfig
@@ -695,22 +688,22 @@ wireformFieldOverrides :: AdapterRegistry -> [OptionDef] -> FieldRep -> FieldRep
 wireformFieldOverrides reg opts base =
   let applyStr = case lookupWfOption "wireform.haskell_string" opts of
         Just name -> case Map.lookup name (arStringAdapters reg) of
-          Just a -> \r -> r { fieldString = a }
+          Just a -> \r -> r {fieldString = a}
           Nothing -> id
         Nothing -> id
       applyBytes = case lookupWfOption "wireform.haskell_bytes" opts of
         Just name -> case Map.lookup name (arBytesAdapters reg) of
-          Just a -> \r -> r { fieldBytes = a }
+          Just a -> \r -> r {fieldBytes = a}
           Nothing -> id
         Nothing -> id
       applyRepeated = case lookupWfOption "wireform.haskell_repeated" opts of
         Just name -> case Map.lookup name (arRepeatedAdapters reg) of
-          Just a -> \r -> r { fieldRepeated = a }
+          Just a -> \r -> r {fieldRepeated = a}
           Nothing -> id
         Nothing -> id
       applyMap = case lookupWfOption "wireform.haskell_map" opts of
         Just name -> case Map.lookup name (arMapAdapters reg) of
-          Just a -> \r -> r { fieldMap = a }
+          Just a -> \r -> r {fieldMap = a}
           Nothing -> id
         Nothing -> id
   in applyMap (applyRepeated (applyBytes (applyStr base)))

@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Delta Lake](https://delta.io/) transaction-log reader for Haskell.
 Parse JSON commit files ([`Delta.Log`](src/Delta/Log.hs)),
 read Parquet checkpoint files

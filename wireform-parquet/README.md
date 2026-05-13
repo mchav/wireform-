@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Apache Parquet](https://parquet.apache.org/) for Haskell. The
 metadata footer ([`Parquet.Footer`](src/Parquet/Footer.hs),
 [`Parquet.Types`](src/Parquet/Types.hs),
@@ -221,7 +225,31 @@ that an in-process round-trip wouldn't.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs) measures
+the C-vs-pure speedup on the XXH64 hash that Parquet bloom filters
+key off:
+
+```bash
+cabal bench wireform-parquet:parquet-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:parquet-xxh64-c-vs-pure -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/parquet-xxh64-c-vs-pure-dark.svg">
+  <img src="bench-results/charts/parquet-xxh64-c-vs-pure-light.svg" alt="Parquet XXH64 hash: C kernel vs pure Haskell across input sizes">
+</picture>
+
+| Operation | C kernel | pure Haskell | ratio |
+| :-------- | -------: | -----------: | ----: |
+| 8 B       | 11.10 ns |      10.9 ns | 0.91x |
+| 64 B      |  18.6 ns |      43.1 ns | 2.31x |
+| 1 KiB     |  77.6 ns |       452 ns | 5.83x |
+| 64 KiB    |  4481 ns |     28119 ns | 6.28x |
+
+<sub>Last run 2026-05-13 11:35:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:parquet-xxh64-c-vs-pure -->
+
+For cross-language comparisons (file-format-level):
 
 - Haskell:
   [`parquet-hs`](https://hackage.haskell.org/package/parquet-hs) (the
@@ -232,8 +260,6 @@ No per-package criterion harness in tree yet. Planned comparisons:
 - Rust: [`parquet`](https://crates.io/crates/parquet), used by
   Datafusion and Polars.
 - Python: [`pyarrow.parquet`](https://arrow.apache.org/docs/python/parquet.html).
-
-> Numbers TBD: harness pending.
 
 ## License
 

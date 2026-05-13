@@ -1,0 +1,180 @@
+name: regen-stats
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_benchmarks:
+        description: "Also run the slow benchmark step (slow; off by default)"
+        type: boolean
+        required: false
+        default: false
+
+# Two jobs:
+#
+#   stale-check  -- fast. Builds wireform-stats, runs `regen-stats check`,
+#                   fails if any per-package README's AUTOGEN region is
+#                   stale relative to what the regen tool would produce
+#                   from in-tree summary JSON files. The CI gate.
+#
+#   collect-stats -- runs the per-package test suites with --xml + coverage,
+#                    feeds the output through regen-stats, opens an
+#                    auto-PR with the rendered diffs (or commits to a
+#                    bench-results branch). Optional benchmark step is
+#                    behind workflow_dispatch.
+
+jobs:
+  stale-check:
+    name: README stats stale-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: haskell-actions/setup@v2
+        id: setup
+        with:
+          ghc-version: '9.8.4'
+          cabal-version: 'latest'
+
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc-9.8.4-cabal-stats-${{ hashFiles('wireform-stats/wireform-stats.cabal', 'wireform-xml/wireform-xml.cabal', 'wireform-core/wireform-core.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-ghc-9.8.4-cabal-stats-
+
+      - name: Install system dependencies
+        # liblz4 is needed by wireform-kafka, which the project-wide
+        # solver evaluates even if we only build wireform-stats.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev liblz4-dev libsnappy-dev libzstd-dev libbrotli-dev
+
+      - name: Build regen-stats
+        run: cabal build wireform-stats:exe:regen-stats
+
+      - name: Re-render bench charts (idempotency check)
+        # If the SVG renderer's output differs from what's committed,
+        # the diff in the next step will surface it.
+        run: cabal run wireform-stats:exe:regen-stats -- render-bench-charts --root . --verbose
+
+      - name: Check that AUTOGEN regions are in sync with summary JSON
+        run: cabal run wireform-stats:exe:regen-stats -- check --root . --verbose
+
+      - name: Surface any stray diffs
+        # If render-bench-charts above produced a different SVG, or
+        # the regen tool would rewrite anything, fail the build.
+        run: |
+          if ! git diff --quiet; then
+            echo "::error::regen-stats output is out of date. Run 'cabal run wireform-stats:exe:regen-stats -- render-bench-charts && cabal run wireform-stats:exe:regen-stats -- render' locally and commit the diff."
+            git --no-pager diff
+            exit 1
+          fi
+
+  # The "collect-stats" job runs the actual test/coverage harness on
+  # every PR and pushes a stats commit to the PR branch (when the
+  # tests are passing and the resulting README diffs aren't empty).
+  # Skips for forks because they can't push back.
+  collect-stats:
+    name: Collect tests + coverage stats
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # We push back to the PR branch.
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.head_ref || github.ref }}
+
+      - uses: haskell-actions/setup@v2
+        id: setup
+        with:
+          ghc-version: '9.8.4'
+          cabal-version: 'latest'
+
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc-9.8.4-cabal-statsfull-${{ hashFiles('cabal.project', '**/*.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-ghc-9.8.4-cabal-statsfull-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgmp-dev libsnappy-dev liblz4-dev libzstd-dev \
+            libbrotli-dev librdkafka-dev protobuf-compiler
+
+      - name: Run per-package tests + coverage
+        run: bash scripts/collect-stats.sh tests
+        continue-on-error: true
+
+      - name: Run per-package coverage
+        run: bash scripts/collect-stats.sh coverage
+        continue-on-error: true
+
+      - name: Render markers
+        run: |
+          cabal run wireform-stats:exe:regen-stats -- render --root . --verbose
+          cabal run wireform-stats:exe:regen-stats -- badges --root . --verbose
+
+      - name: Commit & push if anything changed
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "regen-stats[bot]"
+            git config user.email "regen-stats@users.noreply.github.com"
+            git add badges/ wireform-*/README.md
+            git commit -m "ci(regen-stats): refresh test + coverage numbers"
+            git push
+          else
+            echo "No stats changes."
+          fi
+
+  # Benchmark runs are slow + flaky on shared CI runners, so they're
+  # behind workflow_dispatch and require explicit opt-in. The intent
+  # is to run them on a self-hosted dedicated machine; until that
+  # exists, the workflow_dispatch path is also useful for ad-hoc runs
+  # by maintainers from the GitHub UI.
+  collect-bench:
+    name: Collect benchmark stats (manual)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: haskell-actions/setup@v2
+        id: setup
+        with:
+          ghc-version: '9.8.4'
+          cabal-version: 'latest'
+
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc-9.8.4-cabal-statsbench-${{ hashFiles('cabal.project', '**/*.cabal') }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgmp-dev libsnappy-dev liblz4-dev libzstd-dev \
+            libbrotli-dev librdkafka-dev protobuf-compiler
+
+      - name: Run all benchmarks
+        run: bash scripts/collect-stats.sh bench-all
+
+      - name: Stash raw criterion JSON as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-raw-${{ github.sha }}
+          path: dist-stats/bench-raw/
+          retention-days: 90

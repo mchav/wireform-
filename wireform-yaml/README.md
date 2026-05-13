@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [YAML 1.2](https://yaml.org/spec/1.2.2/) for Haskell. Encode and
 decode the dynamic [`YAML.Value`](src/YAML/Value.hs), derive typeclass
 instances generically or via Template Haskell, work with an annotated
@@ -175,6 +179,10 @@ The per-format Hedgehog suite lives in `test/`:
 cabal test wireform-yaml:wireform-yaml-test
 ```
 
+<!-- BEGIN_AUTOGEN tests -->
+_No data yet. Run `cabal test wireform-yaml:all --test-show-details=streaming --xml=dist-stats/test-results/wireform-yaml.junit.xml` to populate._
+<!-- END_AUTOGEN tests -->
+
 It covers the parser, the emitter, the typeclass instances, the
 annotated AST, security-relevant edge cases (billion-laughs anchor
 expansion, deep nesting), and round-trip property tests against
@@ -212,6 +220,40 @@ YAML libraries:
 ```bash
 cabal bench wireform-yaml:wireform-yaml-bench
 ```
+
+<!-- BEGIN_AUTOGEN bench:yaml-decode-vs-libyaml -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/yaml-decode-vs-libyaml-dark.svg">
+  <img src="bench-results/charts/yaml-decode-vs-libyaml-light.svg" alt="wireform-yaml decode vs libyaml across input sizes">
+</picture>
+
+| Operation | wireform-yaml | yaml (libyaml) |  ratio |
+| :-------- | ------------: | -------------: | -----: |
+| tiny      |       0.25 µs |        8.01 µs | 32.04x |
+| small     |       3.80 µs |        40.2 µs | 10.57x |
+| flow      |       4.02 µs |        60.5 µs | 15.05x |
+| literal   |       3.97 µs |        13.2 µs |  3.32x |
+| big       |       14.9 µs |         139 µs |  9.36x |
+
+<sub>Last run 2026-05-13 10:40:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:yaml-decode-vs-libyaml -->
+
+<!-- BEGIN_AUTOGEN bench:yaml-decode-vs-hsyaml -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/yaml-decode-vs-hsyaml-dark.svg">
+  <img src="bench-results/charts/yaml-decode-vs-hsyaml-light.svg" alt="wireform-yaml decode vs HsYAML (pure Haskell) across input sizes">
+</picture>
+
+| Operation | wireform-yaml |  HsYAML |   ratio |
+| :-------- | ------------: | ------: | ------: |
+| tiny      |       0.25 µs |  102 µs | 408.24x |
+| small     |       3.80 µs | 1002 µs | 263.77x |
+| flow      |       4.02 µs | 1242 µs | 308.91x |
+| literal   |       3.97 µs | 1167 µs | 293.93x |
+| big       |       14.9 µs | 3627 µs | 243.90x |
+
+<sub>Last run 2026-05-13 10:40:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:yaml-decode-vs-hsyaml -->
 
 For cross-language comparisons:
 

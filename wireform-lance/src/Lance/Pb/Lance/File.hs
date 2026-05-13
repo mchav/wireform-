@@ -34,7 +34,8 @@ import Data.Word (Word32, Word64)
 import GHC.Generics (Generic)
 import Proto.Decode
 import Proto.Encode
-import Proto.Encode.Archetype (
+import Proto.Extension qualified
+import Proto.Internal.Encode.Archetype (
   archBool,
   archBoolSize,
   archBytes,
@@ -54,13 +55,9 @@ import Proto.Encode.Archetype (
   archVarint,
   archVarintSize,
  )
-import Proto.Extension qualified
-import Proto.JSON (bytesFieldToJSON, bytesMapFieldToJSON, jsonObject, parseBytesFieldMaybe, parseBytesMapFieldMaybe, parseFieldMaybe, protoBytesToJSON, (.=:))
-import Proto.Message (IsMessage (..))
-import Proto.Registry qualified
-import Proto.Schema (FieldDescriptor (..), FieldLabel' (..), FieldTypeDescriptor (..), ProtoMessage (..), ScalarFieldType (..), SomeFieldDescriptor (..))
-import Proto.Wire (Tag (..), WireType (..))
-import Proto.Wire.Encode (
+import Proto.Internal.JSON (bytesFieldToJSON, bytesMapFieldToJSON, jsonObject, parseBytesFieldMaybe, parseBytesMapFieldMaybe, parseFieldMaybe, protoBytesToJSON, (.=:))
+import Proto.Internal.Wire (Tag (..), WireType (..))
+import Proto.Internal.Wire.Encode (
   fieldBoolSize,
   fieldBytesSize,
   fieldDoubleSize,
@@ -90,6 +87,9 @@ import Proto.Wire.Encode (
   zigZag32,
   zigZag64,
  )
+import Proto.Registry (IsMessage)
+import Proto.Registry qualified
+import Proto.Schema (FieldDescriptor (..), FieldLabel' (..), FieldTypeDescriptor (..), ProtoMessage (..), ScalarFieldType (..), SomeFieldDescriptor (..))
 import Wireform.Builder qualified as B
 
 
@@ -100,9 +100,12 @@ fileDescriptorProtoBytes :: ByteString
 fileDescriptorProtoBytes = "\x0a\x10\x6c\x61\x6e\x63\x65\x2f\x66\x69\x6c\x65\x2e\x70\x72\x6f\x74\x6f\x12\x0a\x6c\x61\x6e\x63\x65\x2e\x66\x69\x6c\x65\x22\x38\x0a\x0e\x46\x69\x6c\x65\x44\x65\x73\x63\x72\x69\x70\x74\x6f\x72\x12\x16\x0a\x06\x73\x63\x68\x65\x6d\x61\x18\x01\x20\x01\x28\x0b\x32\x06\x53\x63\x68\x65\x6d\x61\x12\x0e\x0a\x06\x6c\x65\x6e\x67\x74\x68\x18\x02\x20\x01\x28\x04\x22\x4b\x0a\x06\x53\x63\x68\x65\x6d\x61\x12\x20\x0a\x06\x66\x69\x65\x6c\x64\x73\x18\x01\x20\x03\x28\x0b\x32\x10\x6c\x61\x6e\x63\x65\x2e\x66\x69\x6c\x65\x2e\x46\x69\x65\x6c\x64\x12\x1f\x0a\x08\x6d\x65\x74\x61\x64\x61\x74\x61\x18\x05\x20\x03\x28\x0b\x32\x0d\x6d\x65\x74\x61\x64\x61\x74\x61\x45\x6e\x74\x72\x79\x22\xdb\x01\x0a\x08\x4d\x65\x74\x61\x64\x61\x74\x61\x12\x19\x0a\x11\x6d\x61\x6e\x69\x66\x65\x73\x74\x5f\x70\x6f\x73\x69\x74\x69\x6f\x6e\x18\x01\x20\x01\x28\x04\x12\x15\x0a\x0d\x62\x61\x74\x63\x68\x5f\x6f\x66\x66\x73\x65\x74\x73\x18\x02\x20\x03\x28\x05\x12\x1b\x0a\x13\x70\x61\x67\x65\x5f\x74\x61\x62\x6c\x65\x5f\x70\x6f\x73\x69\x74\x69\x6f\x6e\x18\x03\x20\x01\x28\x04\x12\x26\x0a\x0a\x73\x74\x61\x74\x69\x73\x74\x69\x63\x73\x18\x05\x20\x01\x28\x0b\x32\x12\x53\x74\x61\x74\x69\x73\x74\x69\x63\x73\x4d\x65\x74\x61\x64\x61\x74\x61\x1a\x58\x0a\x12\x53\x74\x61\x74\x69\x73\x74\x69\x63\x73\x4d\x65\x74\x61\x64\x61\x74\x61\x12\x15\x0a\x06\x73\x63\x68\x65\x6d\x61\x18\x01\x20\x03\x28\x0b\x32\x05\x46\x69\x65\x6c\x64\x12\x0e\x0a\x06\x66\x69\x65\x6c\x64\x73\x18\x02\x20\x03\x28\x05\x12\x1b\x0a\x13\x70\x61\x67\x65\x5f\x74\x61\x62\x6c\x65\x5f\x70\x6f\x73\x69\x74\x69\x6f\x6e\x18\x03\x20\x01\x28\x04\x22\x2c\x0a\x0a\x44\x69\x63\x74\x69\x6f\x6e\x61\x72\x79\x12\x0e\x0a\x06\x6f\x66\x66\x73\x65\x74\x18\x01\x20\x01\x28\x03\x12\x0e\x0a\x06\x6c\x65\x6e\x67\x74\x68\x18\x02\x20\x01\x28\x03\x22\xd8\x02\x0a\x05\x46\x69\x65\x6c\x64\x12\x12\x0a\x04\x74\x79\x70\x65\x18\x01\x20\x01\x28\x0b\x32\x04\x54\x79\x70\x65\x12\x0c\x0a\x04\x6e\x61\x6d\x65\x18\x02\x20\x01\x28\x09\x12\x0a\x0a\x02\x69\x64\x18\x03\x20\x01\x28\x05\x12\x11\x0a\x09\x70\x61\x72\x65\x6e\x74\x5f\x69\x64\x18\x04\x20\x01\x28\x05\x12\x14\x0a\x0c\x6c\x6f\x67\x69\x63\x61\x6c\x5f\x74\x79\x70\x65\x18\x05\x20\x01\x28\x09\x12\x10\x0a\x08\x6e\x75\x6c\x6c\x61\x62\x6c\x65\x18\x06\x20\x01\x28\x08\x12\x1f\x0a\x08\x6d\x65\x74\x61\x64\x61\x74\x61\x18\x0a\x20\x03\x28\x0b\x32\x0d\x6d\x65\x74\x61\x64\x61\x74\x61\x45\x6e\x74\x72\x79\x12\x1e\x0a\x16\x75\x6e\x65\x6e\x66\x6f\x72\x63\x65\x64\x5f\x70\x72\x69\x6d\x61\x72\x79\x5f\x6b\x65\x79\x18\x0c\x20\x01\x28\x08\x12\x27\x0a\x1f\x75\x6e\x65\x6e\x66\x6f\x72\x63\x65\x64\x5f\x70\x72\x69\x6d\x61\x72\x79\x5f\x6b\x65\x79\x5f\x70\x6f\x73\x69\x74\x69\x6f\x6e\x18\x0d\x20\x01\x28\x0d\x12\x1a\x0a\x08\x65\x6e\x63\x6f\x64\x69\x6e\x67\x18\x07\x20\x01\x28\x0b\x32\x08\x45\x6e\x63\x6f\x64\x69\x6e\x67\x12\x1e\x0a\x0a\x64\x69\x63\x74\x69\x6f\x6e\x61\x72\x79\x18\x08\x20\x01\x28\x0b\x32\x0a\x44\x69\x63\x74\x69\x6f\x6e\x61\x72\x79\x12\x16\x0a\x0e\x65\x78\x74\x65\x6e\x73\x69\x6f\x6e\x5f\x6e\x61\x6d\x65\x18\x09\x20\x01\x28\x09\x22\x28\x0a\x04\x54\x79\x70\x65\x12\x08\x0a\x06\x50\x41\x52\x45\x4e\x54\x12\x0c\x0a\x08\x52\x45\x50\x45\x41\x54\x45\x44\x10\x01\x12\x08\x0a\x04\x4c\x45\x41\x46\x10\x02\x2a\x46\x0a\x08\x45\x6e\x63\x6f\x64\x69\x6e\x67\x12\x06\x0a\x04\x4e\x4f\x4e\x45\x12\x09\x0a\x05\x50\x4c\x41\x49\x4e\x10\x01\x12\x0e\x0a\x0a\x56\x41\x52\x5f\x42\x49\x4e\x41\x52\x59\x10\x02\x12\x0e\x0a\x0a\x44\x49\x43\x54\x49\x4f\x4e\x41\x52\x59\x10\x03\x12\x07\x0a\x03\x52\x4c\x45\x10\x04\x62\x06\x70\x72\x6f\x74\x6f\x33"
 
 
+-- | A file descriptor that describes the contents of a Lance file
 data FileDescriptor = FileDescriptor
   { fileDescriptorSchema :: !(Maybe Schema)
+  -- ^ The schema of the file
   , fileDescriptorLength :: {-# UNPACK #-} !Word64
+  -- ^ The number of rows in the file
   , fileDescriptorUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -136,24 +139,20 @@ instance MessageDecode FileDescriptor where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop Nothing 0 []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (FileDescriptor {fileDescriptorSchema = acc_0, fileDescriptorLength = acc_1, fileDescriptorUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldMessage
-              loop (Just v) acc_1 acc_unknown_
-            2 -> do
-              v <- decodeFieldVarint
-              loop acc_0 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
-
-
-instance IsMessage FileDescriptor where
-  messageTypeName _ = "lance.file.FileDescriptor"
+      loop acc_0 acc_1 acc_unknown_ =
+        withTagM
+          (pure (FileDescriptor {fileDescriptorSchema = acc_0, fileDescriptorLength = acc_1, fileDescriptorUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldMessage
+                loop (Just v) acc_1 acc_unknown_
+              2 -> do
+                v <- decodeFieldVarint
+                loop acc_0 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage FileDescriptor where
@@ -190,6 +189,9 @@ instance ProtoMessage FileDescriptor where
       ]
 
 
+instance IsMessage FileDescriptor
+
+
 instance Aeson.ToJSON FileDescriptor where
   toJSON msg =
     jsonObject
@@ -218,9 +220,25 @@ instance Proto.Extension.HasExtensions FileDescriptor where
   setMessageUnknownFields !ufs msg = msg {fileDescriptorUnknownFields = ufs}
 
 
+instance Semigroup FileDescriptor where
+  a <> b =
+    FileDescriptor
+      { fileDescriptorSchema = case b.fileDescriptorSchema of Nothing -> a.fileDescriptorSchema; x -> x
+      , fileDescriptorLength = if b.fileDescriptorLength == 0 then a.fileDescriptorLength else b.fileDescriptorLength
+      , fileDescriptorUnknownFields = a.fileDescriptorUnknownFields <> b.fileDescriptorUnknownFields
+      }
+
+
+instance Monoid FileDescriptor where
+  mempty = defaultFileDescriptor
+
+
+-- | A schema which describes the data type of each of the columns
 data Schema = Schema
   { schemaFields :: !(V.Vector Field)
+  -- ^ All fields in this file, including the nested fields.
   , schemaMetadata :: !(Map.Map Text ByteString)
+  -- ^ Schema metadata.
   , schemaUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -254,27 +272,23 @@ instance MessageDecode Schema where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop V.empty Map.empty []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Schema {schemaFields = acc_0, schemaMetadata = acc_1, schemaUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldMessage
-              loop (acc_0 <> V.singleton v) acc_1 acc_unknown_
-            5 -> do
-              bs' <- getLengthDelimited
-              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldBytes "" "") bs'
-              case decodeEntry of
-                Left _ -> loop acc_0 acc_1 acc_unknown_
-                Right (mk', mv') -> loop acc_0 (Map.union acc_1 (Map.singleton mk' mv')) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
-
-
-instance IsMessage Schema where
-  messageTypeName _ = "lance.file.Schema"
+      loop acc_0 acc_1 acc_unknown_ =
+        withTagM
+          (pure (Schema {schemaFields = acc_0, schemaMetadata = acc_1, schemaUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldMessage
+                loop (acc_0 <> V.singleton v) acc_1 acc_unknown_
+              5 -> do
+                bs' <- getLengthDelimited
+                let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldBytes "" "") bs'
+                case decodeEntry of
+                  Left _ -> loop acc_0 acc_1 acc_unknown_
+                  Right (mk', mv') -> loop acc_0 (Map.union acc_1 (Map.singleton mk' mv')) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage Schema where
@@ -311,6 +325,9 @@ instance ProtoMessage Schema where
       ]
 
 
+instance IsMessage Schema
+
+
 instance Aeson.ToJSON Schema where
   toJSON msg =
     jsonObject
@@ -339,10 +356,45 @@ instance Proto.Extension.HasExtensions Schema where
   setMessageUnknownFields !ufs msg = msg {schemaUnknownFields = ufs}
 
 
+instance Semigroup Schema where
+  a <> b =
+    Schema
+      { schemaFields = a.schemaFields <> b.schemaFields
+      , schemaMetadata = a.schemaMetadata <> b.schemaMetadata
+      , schemaUnknownFields = a.schemaUnknownFields <> b.schemaUnknownFields
+      }
+
+
+instance Monoid Schema where
+  mempty = defaultSchema
+
+
+-- | Metadata of one Lance file.
 data Metadata = Metadata
   { metadataManifestPosition :: {-# UNPACK #-} !Word64
+  -- ^ Position of the manifest in the file. If it is zero, the manifest is stored
+  -- externally.
   , metadataBatchOffsets :: !(VU.Vector Int32)
+  -- ^ Logical offsets of each chunk group, i.e., number of the rows in each
+  -- chunk.
   , metadataPageTablePosition :: {-# UNPACK #-} !Word64
+  -- ^ The file position that page table is stored.
+  --
+  -- A page table is a matrix of N x M x 2, where N = num_fields, and M =
+  -- num_batches. Each cell in the table is a pair of <position:int64,
+  -- length:int64> of the page. Both position and length are int64 values. The
+  -- <position, length> of all the pages in the same column are then
+  -- contiguously stored.
+  --
+  -- Every field that is a part of the file will have a run in the page table.
+  -- This includes struct columns, which will have a run of length 0 since
+  -- they don't store any actual data.
+  --
+  -- For example, for the column 5 and batch 4, we have:
+  -- ```text
+  --   position = page_table[5][4][0];
+  --   length = page_table[5][4][1];
+  -- ```
   , metadataStatistics :: !(Maybe Metadata'StatisticsMetadata)
   , metadataUnknownFields :: ![UnknownField]
   }
@@ -352,8 +404,28 @@ data Metadata = Metadata
 
 data Metadata'StatisticsMetadata = Metadata'StatisticsMetadata
   { metadataStatisticsMetadataSchema :: !(V.Vector Field)
+  -- ^ The schema of the statistics.
+  --
+  -- This might be empty, meaning there are no statistics. It also might not
+  -- contain statistics for every field.
   , metadataStatisticsMetadataFields :: !(VU.Vector Int32)
+  -- ^ The field ids of the statistics leaf fields.
+  --
+  -- This plays a similar role to the `fields` field in the DataFile message.
+  -- Each of these field ids corresponds to a field in the stats_schema. There
+  -- is one per column in the stats page table.
   , metadataStatisticsMetadataPageTablePosition :: {-# UNPACK #-} !Word64
+  -- ^ The file position of the statistics page table
+  --
+  -- The page table is a matrix of N x 2, where N = length of stats_fields.
+  -- This is the same layout as the main page table, except there is always
+  -- only one batch.
+  --
+  -- For example, to get the stats column 5, we have:
+  -- ```text
+  --   position = stats_page_table[5][0];
+  --   length = stats_page_table[5][1];
+  -- ```
   , metadataStatisticsMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -390,31 +462,27 @@ instance MessageDecode Metadata'StatisticsMetadata where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop V.empty VU.empty 0 []
     where
-      loop acc_0 acc_1 acc_2 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Metadata'StatisticsMetadata {metadataStatisticsMetadataSchema = acc_0, metadataStatisticsMetadataFields = acc_1, metadataStatisticsMetadataPageTablePosition = acc_2, metadataStatisticsMetadataUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldMessage
-              loop (acc_0 <> V.singleton v) acc_1 acc_2 acc_unknown_
-            2 -> case wt of
-              WireLengthDelimited -> do
-                vs <- (VU.map fromIntegral <$> decodePackedVarint)
-                loop acc_0 (acc_1 <> vs) acc_2 acc_unknown_
+      loop acc_0 acc_1 acc_2 acc_unknown_ =
+        withTagM
+          (pure (Metadata'StatisticsMetadata {metadataStatisticsMetadataSchema = acc_0, metadataStatisticsMetadataFields = acc_1, metadataStatisticsMetadataPageTablePosition = acc_2, metadataStatisticsMetadataUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldMessage
+                loop (acc_0 <> V.singleton v) acc_1 acc_2 acc_unknown_
+              2 -> case wt of
+                2 -> do
+                  vs <- (VU.map fromIntegral <$> decodePackedVarint)
+                  loop acc_0 (acc_1 <> vs) acc_2 acc_unknown_
+                _ -> do
+                  v <- (fromIntegral <$> decodeFieldVarint)
+                  loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_unknown_
+              3 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 v acc_unknown_
               _ -> do
-                v <- (fromIntegral <$> decodeFieldVarint)
-                loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_unknown_
-            3 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 (uf : acc_unknown_)
-
-
-instance IsMessage Metadata'StatisticsMetadata where
-  messageTypeName _ = "lance.file.Metadata.StatisticsMetadata"
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage Metadata'StatisticsMetadata where
@@ -463,6 +531,9 @@ instance ProtoMessage Metadata'StatisticsMetadata where
       ]
 
 
+instance IsMessage Metadata'StatisticsMetadata
+
+
 instance Aeson.ToJSON Metadata'StatisticsMetadata where
   toJSON msg =
     jsonObject
@@ -492,6 +563,20 @@ instance Hashable Metadata'StatisticsMetadata where
 instance Proto.Extension.HasExtensions Metadata'StatisticsMetadata where
   messageUnknownFields = metadataStatisticsMetadataUnknownFields
   setMessageUnknownFields !ufs msg = msg {metadataStatisticsMetadataUnknownFields = ufs}
+
+
+instance Semigroup Metadata'StatisticsMetadata where
+  a <> b =
+    Metadata'StatisticsMetadata
+      { metadataStatisticsMetadataSchema = a.metadataStatisticsMetadataSchema <> b.metadataStatisticsMetadataSchema
+      , metadataStatisticsMetadataFields = a.metadataStatisticsMetadataFields <> b.metadataStatisticsMetadataFields
+      , metadataStatisticsMetadataPageTablePosition = if b.metadataStatisticsMetadataPageTablePosition == 0 then a.metadataStatisticsMetadataPageTablePosition else b.metadataStatisticsMetadataPageTablePosition
+      , metadataStatisticsMetadataUnknownFields = a.metadataStatisticsMetadataUnknownFields <> b.metadataStatisticsMetadataUnknownFields
+      }
+
+
+instance Monoid Metadata'StatisticsMetadata where
+  mempty = defaultMetadata'StatisticsMetadata
 
 
 defaultMetadata :: Metadata
@@ -527,34 +612,30 @@ instance MessageDecode Metadata where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 VU.empty 0 Nothing []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Metadata {metadataManifestPosition = acc_0, metadataBatchOffsets = acc_1, metadataPageTablePosition = acc_2, metadataStatistics = acc_3, metadataUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldVarint
-              loop v acc_1 acc_2 acc_3 acc_unknown_
-            2 -> case wt of
-              WireLengthDelimited -> do
-                vs <- (VU.map fromIntegral <$> decodePackedVarint)
-                loop acc_0 (acc_1 <> vs) acc_2 acc_3 acc_unknown_
+      loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ =
+        withTagM
+          (pure (Metadata {metadataManifestPosition = acc_0, metadataBatchOffsets = acc_1, metadataPageTablePosition = acc_2, metadataStatistics = acc_3, metadataUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldVarint
+                loop v acc_1 acc_2 acc_3 acc_unknown_
+              2 -> case wt of
+                2 -> do
+                  vs <- (VU.map fromIntegral <$> decodePackedVarint)
+                  loop acc_0 (acc_1 <> vs) acc_2 acc_3 acc_unknown_
+                _ -> do
+                  v <- (fromIntegral <$> decodeFieldVarint)
+                  loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_3 acc_unknown_
+              3 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 v acc_3 acc_unknown_
+              5 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 (Just v) acc_unknown_
               _ -> do
-                v <- (fromIntegral <$> decodeFieldVarint)
-                loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_3 acc_unknown_
-            3 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 v acc_3 acc_unknown_
-            5 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 (Just v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 (uf : acc_unknown_)
-
-
-instance IsMessage Metadata where
-  messageTypeName _ = "lance.file.Metadata"
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage Metadata where
@@ -615,6 +696,9 @@ instance ProtoMessage Metadata where
       ]
 
 
+instance IsMessage Metadata
+
+
 instance Aeson.ToJSON Metadata where
   toJSON msg =
     jsonObject
@@ -649,12 +733,33 @@ instance Proto.Extension.HasExtensions Metadata where
   setMessageUnknownFields !ufs msg = msg {metadataUnknownFields = ufs}
 
 
+instance Semigroup Metadata where
+  a <> b =
+    Metadata
+      { metadataManifestPosition = if b.metadataManifestPosition == 0 then a.metadataManifestPosition else b.metadataManifestPosition
+      , metadataBatchOffsets = a.metadataBatchOffsets <> b.metadataBatchOffsets
+      , metadataPageTablePosition = if b.metadataPageTablePosition == 0 then a.metadataPageTablePosition else b.metadataPageTablePosition
+      , metadataStatistics = case b.metadataStatistics of Nothing -> a.metadataStatistics; x -> x
+      , metadataUnknownFields = a.metadataUnknownFields <> b.metadataUnknownFields
+      }
+
+
+instance Monoid Metadata where
+  mempty = defaultMetadata
+
+
+-- | Supported encodings.
 data Encoding
-  = Encoding'None
-  | Encoding'Plain
-  | Encoding'VarBinary
-  | Encoding'Dictionary
-  | Encoding'Rle
+  = -- | Invalid encoding.
+    Encoding'None
+  | -- | Plain encoding.
+    Encoding'Plain
+  | -- | Var-length binary encoding.
+    Encoding'VarBinary
+  | -- | Dictionary encoding.
+    Encoding'Dictionary
+  | -- | Run-length encoding.
+    Encoding'Rle
   deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)
   deriving anyclass (NFData)
 
@@ -711,9 +816,15 @@ instance Hashable Encoding where
   hashWithSalt salt x = hashWithSalt salt (toProtoEnumEncoding x)
 
 
+-- | Dictionary field metadata
 data Dictionary = Dictionary
   { dictionaryOffset :: {-# UNPACK #-} !Int64
+  -- ^ / The file offset for storing the dictionary value.
+  -- / It is only valid if encoding is DICTIONARY.
+  -- /
+  -- / The logic type presents the value type of the column, i.e., string value.
   , dictionaryLength :: {-# UNPACK #-} !Int64
+  -- ^ / The length of dictionary values.
   , dictionaryUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -747,24 +858,20 @@ instance MessageDecode Dictionary where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 0 []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Dictionary {dictionaryOffset = acc_0, dictionaryLength = acc_1, dictionaryUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop v acc_1 acc_unknown_
-            2 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
-
-
-instance IsMessage Dictionary where
-  messageTypeName _ = "lance.file.Dictionary"
+      loop acc_0 acc_1 acc_unknown_ =
+        withTagM
+          (pure (Dictionary {dictionaryOffset = acc_0, dictionaryLength = acc_1, dictionaryUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop v acc_1 acc_unknown_
+              2 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop acc_0 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage Dictionary where
@@ -801,6 +908,9 @@ instance ProtoMessage Dictionary where
       ]
 
 
+instance IsMessage Dictionary
+
+
 instance Aeson.ToJSON Dictionary where
   toJSON msg =
     jsonObject
@@ -829,19 +939,85 @@ instance Proto.Extension.HasExtensions Dictionary where
   setMessageUnknownFields !ufs msg = msg {dictionaryUnknownFields = ufs}
 
 
+instance Semigroup Dictionary where
+  a <> b =
+    Dictionary
+      { dictionaryOffset = if b.dictionaryOffset == 0 then a.dictionaryOffset else b.dictionaryOffset
+      , dictionaryLength = if b.dictionaryLength == 0 then a.dictionaryLength else b.dictionaryLength
+      , dictionaryUnknownFields = a.dictionaryUnknownFields <> b.dictionaryUnknownFields
+      }
+
+
+instance Monoid Dictionary where
+  mempty = defaultDictionary
+
+
+-- | Field metadata for a column.
 data Field = Field
   { fieldType :: !Field'Type
   , fieldName :: !Text
+  -- ^ Fully qualified name.
   , fieldId :: {-# UNPACK #-} !Int32
+  -- ^ / Field Id.
+  -- /
+  -- / See the comment in `DataFile.fields` for how field ids are assigned.
   , fieldParentId :: {-# UNPACK #-} !Int32
+  -- ^ / Parent Field ID. If not set, this is a top-level column.
   , fieldLogicalType :: !Text
+  -- ^ Logical types, support parameterized Arrow Type.
+  --
+  -- PARENT types will always have logical type "struct".
+  --
+  -- REPEATED types may have logical types:
+  -- * "list"
+  -- * "large_list"
+  -- * "list.struct"
+  -- * "large_list.struct"
+  -- The final two are used if the list values are structs, and therefore the
+  -- field is both implicitly REPEATED and PARENT.
+  --
+  -- LEAF types may have logical types:
+  -- * "null"
+  -- * "bool"
+  -- * "int8" / "uint8"
+  -- * "int16" / "uint16"
+  -- * "int32" / "uint32"
+  -- * "int64" / "uint64"
+  -- * "halffloat" / "float" / "double"
+  -- * "string" / "large_string"
+  -- * "binary" / "large_binary"
+  -- * "date32:day"
+  -- * "date64:ms"
+  -- * "decimal:128:{precision}:{scale}" / "decimal:256:{precision}:{scale}"
+  -- * "time:{unit}" / "timestamp:{unit}" / "duration:{unit}", where unit is
+  -- "s", "ms", "us", "ns"
+  -- * "dict:{value_type}:{index_type}:false"
   , fieldNullable :: {-# UNPACK #-} !Bool
+  -- ^ If this field is nullable.
   , fieldMetadata :: !(Map.Map Text ByteString)
+  -- ^ optional field metadata (e.g. extension type name/parameters)
   , fieldUnenforcedPrimaryKey :: {-# UNPACK #-} !Bool
   , fieldUnenforcedPrimaryKeyPosition :: {-# UNPACK #-} !Word32
+  -- ^ Position of this field in the primary key (1-based).
+  -- 0 means the field is part of the primary key but uses schema field id for ordering.
+  -- When set to a positive value, primary key fields are ordered by this position.
   , fieldEncoding :: !Encoding
+  -- ^ DEPRECATED ----------------------------------------------------------------
+  -- Deprecated: Only used in V1 file format. V2 uses variable encodings defined
+  -- per page.
+  --
+  -- The global encoding to use for this field.
   , fieldDictionary :: !(Maybe Dictionary)
+  -- ^ Deprecated: Only used in V1 file format. V2 dynamically chooses when to
+  -- do dictionary encoding and keeps the dictionary in the data files.
+  --
+  -- The file offset for storing the dictionary value.
+  -- It is only valid if encoding is DICTIONARY.
+  --
+  -- The logic type presents the value type of the column, i.e., string value.
   , fieldExtensionName :: !Text
+  -- ^ Deprecated: optional extension type name, use metadata field
+  -- ARROW:extension:name
   , fieldUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -957,57 +1133,53 @@ instance MessageDecode Field where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop (toEnum 0) "" 0 0 "" False Map.empty False 0 (toEnum 0) Nothing "" []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Field {fieldType = acc_0, fieldName = acc_1, fieldId = acc_2, fieldParentId = acc_3, fieldLogicalType = acc_4, fieldNullable = acc_5, fieldMetadata = acc_6, fieldUnenforcedPrimaryKey = acc_7, fieldUnenforcedPrimaryKeyPosition = acc_8, fieldEncoding = acc_9, fieldDictionary = acc_10, fieldExtensionName = acc_11, fieldUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldEnum
-              loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
-            2 -> do
-              v <- decodeFieldString
-              loop acc_0 v acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
-            3 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 acc_1 v acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
-            4 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
-            5 -> do
-              v <- decodeFieldString
-              loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
-            6 -> do
-              v <- decodeFieldBool
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 v acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
-            10 -> do
-              bs' <- getLengthDelimited
-              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldBytes "" "") bs'
-              case decodeEntry of
-                Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
-                Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Map.union acc_6 (Map.singleton mk' mv')) acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
-            12 -> do
-              v <- decodeFieldBool
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v acc_8 acc_9 acc_10 acc_11 acc_unknown_
-            13 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 v acc_9 acc_10 acc_11 acc_unknown_
-            7 -> do
-              v <- decodeFieldEnum
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 v acc_10 acc_11 acc_unknown_
-            8 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 (Just v) acc_11 acc_unknown_
-            9 -> do
-              v <- decodeFieldString
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 (uf : acc_unknown_)
-
-
-instance IsMessage Field where
-  messageTypeName _ = "lance.file.Field"
+      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_ =
+        withTagM
+          (pure (Field {fieldType = acc_0, fieldName = acc_1, fieldId = acc_2, fieldParentId = acc_3, fieldLogicalType = acc_4, fieldNullable = acc_5, fieldMetadata = acc_6, fieldUnenforcedPrimaryKey = acc_7, fieldUnenforcedPrimaryKeyPosition = acc_8, fieldEncoding = acc_9, fieldDictionary = acc_10, fieldExtensionName = acc_11, fieldUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldEnum
+                loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
+              2 -> do
+                v <- decodeFieldString
+                loop acc_0 v acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
+              3 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop acc_0 acc_1 v acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
+              4 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
+              5 -> do
+                v <- decodeFieldString
+                loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
+              6 -> do
+                v <- decodeFieldBool
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 v acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
+              10 -> do
+                bs' <- getLengthDelimited
+                let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldBytes "" "") bs'
+                case decodeEntry of
+                  Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
+                  Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Map.union acc_6 (Map.singleton mk' mv')) acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_
+              12 -> do
+                v <- decodeFieldBool
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v acc_8 acc_9 acc_10 acc_11 acc_unknown_
+              13 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 v acc_9 acc_10 acc_11 acc_unknown_
+              7 -> do
+                v <- decodeFieldEnum
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 v acc_10 acc_11 acc_unknown_
+              8 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 (Just v) acc_11 acc_unknown_
+              9 -> do
+                v <- decodeFieldString
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage Field where
@@ -1164,6 +1336,9 @@ instance ProtoMessage Field where
       ]
 
 
+instance IsMessage Field
+
+
 instance Aeson.ToJSON Field where
   toJSON msg =
     jsonObject
@@ -1222,13 +1397,24 @@ instance Proto.Extension.HasExtensions Field where
   setMessageUnknownFields !ufs msg = msg {fieldUnknownFields = ufs}
 
 
--- | Register all message types defined in this module.
-registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
-registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy FileDescriptor)
-    . Proto.Registry.registerType (Proxy :: Proxy Schema)
-    . Proto.Registry.registerType (Proxy :: Proxy Metadata)
-    . Proto.Registry.registerType (Proxy :: Proxy Metadata'StatisticsMetadata)
-    . Proto.Registry.registerType (Proxy :: Proxy Dictionary)
-    . Proto.Registry.registerType (Proxy :: Proxy Field)
-    . id
+instance Semigroup Field where
+  a <> b =
+    Field
+      { fieldType = if b.fieldType == (toEnum 0) then a.fieldType else b.fieldType
+      , fieldName = if b.fieldName == "" then a.fieldName else b.fieldName
+      , fieldId = if b.fieldId == 0 then a.fieldId else b.fieldId
+      , fieldParentId = if b.fieldParentId == 0 then a.fieldParentId else b.fieldParentId
+      , fieldLogicalType = if b.fieldLogicalType == "" then a.fieldLogicalType else b.fieldLogicalType
+      , fieldNullable = if b.fieldNullable == False then a.fieldNullable else b.fieldNullable
+      , fieldMetadata = a.fieldMetadata <> b.fieldMetadata
+      , fieldUnenforcedPrimaryKey = if b.fieldUnenforcedPrimaryKey == False then a.fieldUnenforcedPrimaryKey else b.fieldUnenforcedPrimaryKey
+      , fieldUnenforcedPrimaryKeyPosition = if b.fieldUnenforcedPrimaryKeyPosition == 0 then a.fieldUnenforcedPrimaryKeyPosition else b.fieldUnenforcedPrimaryKeyPosition
+      , fieldEncoding = if b.fieldEncoding == (toEnum 0) then a.fieldEncoding else b.fieldEncoding
+      , fieldDictionary = case b.fieldDictionary of Nothing -> a.fieldDictionary; x -> x
+      , fieldExtensionName = if b.fieldExtensionName == "" then a.fieldExtensionName else b.fieldExtensionName
+      , fieldUnknownFields = a.fieldUnknownFields <> b.fieldUnknownFields
+      }
+
+
+instance Monoid Field where
+  mempty = defaultField

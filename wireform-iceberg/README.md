@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Apache Iceberg](https://iceberg.apache.org/) for Haskell. Table
 metadata ([`Iceberg.Types`](src/Iceberg/Types.hs)), snapshots
 ([`Iceberg.Snapshot`](src/Iceberg/Snapshot.hs)) and time-travel,
@@ -265,7 +269,46 @@ The in-process catalog implementations (`Glue` / `Hadoop` / `REST` /
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs) measures
+the C-vs-pure speedup on the hot paths Iceberg uses internally:
+Murmur3 (the hash function `bucket[N]` partition transforms call),
+deletion-vector decode + contains, Roaring container encode/decode.
+
+```bash
+cabal bench wireform-iceberg:iceberg-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:iceberg-murmur3-c-vs-pure -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/iceberg-murmur3-c-vs-pure-dark.svg">
+  <img src="bench-results/charts/iceberg-murmur3-c-vs-pure-light.svg" alt="Iceberg Murmur3 hash: C kernel vs pure Haskell across input sizes">
+</picture>
+
+| Operation | C kernel | pure Haskell | ratio |
+| :-------- | -------: | -----------: | ----: |
+| 8 B       |  11.2 ns |      21.2 ns | 1.90x |
+| 64 B      |  24.0 ns |       116 ns | 4.82x |
+| 1 KiB     |   401 ns |      1581 ns | 3.95x |
+| 64 KiB    | 26196 ns |     98723 ns | 3.77x |
+
+<sub>Last run 2026-05-13 11:30:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:iceberg-murmur3-c-vs-pure -->
+
+<!-- BEGIN_AUTOGEN bench:iceberg-deletion-vector -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/iceberg-deletion-vector-dark.svg">
+  <img src="bench-results/charts/iceberg-deletion-vector-light.svg" alt="Iceberg deletion vector hot paths: C vs pure Haskell">
+</picture>
+
+| Operation             | C kernel | pure Haskell |  ratio |
+| :-------------------- | -------: | -----------: | -----: |
+| decode 1001 positions | 10262 ns |     29795 ns |  2.90x |
+| contains check        |  12.2 ns |      1049 ns | 85.62x |
+
+<sub>Last run 2026-05-13 11:30:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:iceberg-deletion-vector -->
+
+For cross-language comparisons (table-format-level):
 
 - Java: the
   [Apache Iceberg reference Java library](https://github.com/apache/iceberg),
@@ -275,8 +318,6 @@ No per-package criterion harness in tree yet. Planned comparisons:
 - Rust: [`iceberg-rust`](https://github.com/apache/iceberg-rust),
   the in-incubation Rust binding.
 - Go: [`go-iceberg`](https://github.com/apache/iceberg-go).
-
-> Numbers TBD: harness pending.
 
 ## License
 

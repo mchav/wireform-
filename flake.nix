@@ -38,6 +38,11 @@
           pkgs.hlint
           pkgs.prek
           pkgs.llvmPackages.llvm
+          # protoc is required at configure time by
+          # proto-lens-protobuf-types, which the wireform-grpc test
+          # suites pull in. It also unblocks anyone running the
+          # protobuf conformance / interop scripts manually.
+          pkgs.protobuf
         ];
 
         # ------------------------------------------------------------
@@ -59,6 +64,7 @@
         wireformPackages = {
           wireform-core         = ./wireform-core;
           wireform-derive       = ./wireform-derive;
+          wireform-columnar-core = ./wireform-columnar-core;
           wireform-columnar     = ./wireform-columnar;
           wireform-proto        = ./wireform-proto;
           wireform-avro         = ./wireform-avro;
@@ -101,6 +107,14 @@
           lib.foldl' (acc: flag: hlib.enableCabalFlag flag acc) drv
             (packageFlags.${name} or []);
 
+        # Packages whose tests must be skipped at the Nix level
+        # because they would introduce a build-time dependency
+        # cycle. wireform-columnar-core's test-suite depends on
+        # wireform-columnar, which itself depends on
+        # wireform-columnar-core (mirrors the `tests: False` line
+        # for wireform-columnar-core in cabal.project).
+        skipTests = [ "wireform-columnar-core" ];
+
         # Build every per-format package via callCabal2nix and
         # apply the right Cabal flags. Benchmarks are off by
         # default to avoid pulling proto-lens / criterion / xeno
@@ -112,7 +126,10 @@
           let
             mkPkg = name: src:
               applyFlags name
-                (hlib.overrideCabal (drv: { doBenchmark = false; })
+                (hlib.overrideCabal (drv: {
+                  doBenchmark = false;
+                  doCheck = if lib.elem name skipTests then false else drv.doCheck or true;
+                })
                   (self.callCabal2nix name src {}));
             perFormatAttrs = lib.mapAttrs mkPkg wireformPackages;
             wireformAttr = applyFlags "wireform"
@@ -121,9 +138,12 @@
           in
             perFormatAttrs // {
               wireform = wireformAttr;
-              # Map pkg-config names to system packages so cabal2nix
-              # generated derivations can find them.
+              # Map pkg-config names (cabal `pkgconfig-depends`) and
+              # bare C library names (cabal `extra-libraries`) to
+              # system packages so cabal2nix-generated derivations
+              # can find them.
               liblz4 = pkgs.lz4;
+              lz4    = pkgs.lz4;
               snappy = pkgs.snappy;
             };
 

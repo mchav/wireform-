@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Newline-delimited JSON](https://github.com/ndjson/ndjson-spec) (NDJSON,
 also commonly called JSON Lines) for Haskell. Encode and decode
 streams of `aeson` values with a SIMD-accelerated newline scanner, an
@@ -159,18 +163,37 @@ both the synchronous and concurrent decoder paths.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs) compares
+wireform-ndjson against the obvious baseline: aeson + manual newline
+splitting via `BS.split '\n'`.
 
-- Haskell: line-splitting [`aeson`](https://hackage.haskell.org/package/aeson)
-  by hand (the obvious baseline), plus
-  [`json-stream`](https://hackage.haskell.org/package/json-stream).
+```bash
+cabal bench wireform-ndjson:wireform-ndjson-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:ndjson-vs-aeson-lines -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/ndjson-vs-aeson-lines-dark.svg">
+  <img src="bench-results/charts/ndjson-vs-aeson-lines-light.svg" alt="wireform-ndjson vs aeson + manual newline splitting">
+</picture>
+
+| Operation        | wireform-ndjson | aeson + lines | ratio |
+| :--------------- | --------------: | ------------: | ----: |
+| encode 10 rows   |         5.03 µs |       4.76 µs | 0.95x |
+| encode 1000 rows |          545 µs |        504 µs | 0.92x |
+| decode 10 rows   |         4.00 µs |       3.91 µs | 0.98x |
+| decode 1000 rows |          442 µs |        402 µs | 0.91x |
+
+<sub>Last run 2026-05-13 11:42:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5. Today the SIMD newline scanner doesn't yet outperform `BS.split '\n'` on these inputs; both paths are within 10%..</sub>
+<!-- END_AUTOGEN bench:ndjson-vs-aeson-lines -->
+
+For cross-language comparisons:
+
 - Rust: [`serde_jsonlines`](https://crates.io/crates/serde_jsonlines).
 - C: [simdjson](https://github.com/simdjson/simdjson)'s ndjson
   iterator.
 - Python: [`orjson`](https://pypi.org/project/orjson/) (the
   fastest-in-class Python JSON parser, used line by line).
-
-> Numbers TBD: harness pending.
 
 ## License
 

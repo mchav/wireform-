@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [ASN.1](https://www.itu.int/rec/T-REC-X.680) BER and DER ([ITU-T
 X.690](https://www.itu.int/rec/T-REC-X.690)) for Haskell. Encode and
 decode the dynamic [`ASN1.Value`](src/ASN1/Value.hs), derive typeclass
@@ -203,7 +207,27 @@ parser + codegen.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs):
+
+```bash
+cabal bench wireform-asn1:wireform-asn1-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:asn1-encode-decode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/asn1-encode-decode-dark.svg">
+  <img src="bench-results/charts/asn1-encode-decode-light.svg" alt="wireform-asn1 encode + decode (DER, Subject record)">
+</picture>
+
+| Operation       |   encode |   decode | ratio |
+| :-------------- | -------: | -------: | ----: |
+| single Subject  |   141 ns |   115 ns | 0.82x |
+| [Subject] x 100 | 16921 ns | 12839 ns | 0.76x |
+
+<sub>Last run 2026-05-13 11:42:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:asn1-encode-decode -->
+
+For cross-language comparisons:
 
 - Haskell:
   [`asn1-encoding`](https://hackage.haskell.org/package/asn1-encoding)
@@ -214,8 +238,6 @@ No per-package criterion harness in tree yet. Planned comparisons:
   family and [GnuTLS's libtasn1](https://www.gnu.org/software/libtasn1/).
 - Rust: [`rasn`](https://crates.io/crates/rasn) and
   [`asn1`](https://crates.io/crates/asn1).
-
-> Numbers TBD: harness pending.
 
 ## License
 

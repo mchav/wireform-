@@ -34,7 +34,9 @@ import Data.Word (Word32, Word64)
 import GHC.Generics (Generic)
 import Proto.Decode
 import Proto.Encode
-import Proto.Encode.Archetype (
+import Proto.Extension qualified
+import Proto.Google.Protobuf.Empty qualified as PB_Empty
+import Proto.Internal.Encode.Archetype (
   archBool,
   archBoolSize,
   archBytes,
@@ -54,14 +56,9 @@ import Proto.Encode.Archetype (
   archVarint,
   archVarintSize,
  )
-import Proto.Extension qualified
-import Proto.Google.Protobuf.Empty qualified as PB_Empty
-import Proto.JSON (bytesFieldToJSON, bytesMapFieldToJSON, jsonObject, parseBytesFieldMaybe, parseBytesMapFieldMaybe, parseFieldMaybe, protoBytesToJSON, (.=:))
-import Proto.Message (IsMessage (..))
-import Proto.Registry qualified
-import Proto.Schema (FieldDescriptor (..), FieldLabel' (..), FieldTypeDescriptor (..), ProtoMessage (..), ScalarFieldType (..), SomeFieldDescriptor (..))
-import Proto.Wire (Tag (..), WireType (..))
-import Proto.Wire.Encode (
+import Proto.Internal.JSON (bytesFieldToJSON, bytesMapFieldToJSON, jsonObject, parseBytesFieldMaybe, parseBytesMapFieldMaybe, parseFieldMaybe, protoBytesToJSON, (.=:))
+import Proto.Internal.Wire (Tag (..), WireType (..))
+import Proto.Internal.Wire.Encode (
   fieldBoolSize,
   fieldBytesSize,
   fieldDoubleSize,
@@ -91,6 +88,9 @@ import Proto.Wire.Encode (
   zigZag32,
   zigZag64,
  )
+import Proto.Registry (IsMessage)
+import Proto.Registry qualified
+import Proto.Schema (FieldDescriptor (..), FieldLabel' (..), FieldTypeDescriptor (..), ProtoMessage (..), ScalarFieldType (..), SomeFieldDescriptor (..))
 import Wireform.Builder qualified as B
 
 
@@ -101,8 +101,127 @@ fileDescriptorProtoBytes :: ByteString
 fileDescriptorProtoBytes = "\x0a\x11\x6c\x61\x6e\x63\x65\x2f\x66\x69\x6c\x65\x32\x2e\x70\x72\x6f\x74\x6f\x12\x0d\x6c\x61\x6e\x63\x65\x2e\x66\x69\x6c\x65\x2e\x76\x32\x1a\x19\x67\x6f\x6f\x67\x6c\x65\x2f\x70\x72\x6f\x74\x6f\x62\x75\x66\x2f\x61\x6e\x79\x2e\x70\x72\x6f\x74\x6f\x1a\x1b\x67\x6f\x6f\x67\x6c\x65\x2f\x70\x72\x6f\x74\x6f\x62\x75\x66\x2f\x65\x6d\x70\x74\x79\x2e\x70\x72\x6f\x74\x6f\x22\x42\x0a\x10\x44\x65\x66\x65\x72\x72\x65\x64\x45\x6e\x63\x6f\x64\x69\x6e\x67\x12\x17\x0a\x0f\x62\x75\x66\x66\x65\x72\x5f\x6c\x6f\x63\x61\x74\x69\x6f\x6e\x18\x01\x20\x01\x28\x04\x12\x15\x0a\x0d\x62\x75\x66\x66\x65\x72\x5f\x6c\x65\x6e\x67\x74\x68\x18\x02\x20\x01\x28\x04\x22\x22\x0a\x0e\x44\x69\x72\x65\x63\x74\x45\x6e\x63\x6f\x64\x69\x6e\x67\x12\x10\x0a\x08\x65\x6e\x63\x6f\x64\x69\x6e\x67\x18\x01\x20\x01\x28\x0c\x22\x7f\x0a\x08\x45\x6e\x63\x6f\x64\x69\x6e\x67\x12\x22\x0a\x08\x69\x6e\x64\x69\x72\x65\x63\x74\x18\x01\x20\x01\x28\x0b\x32\x10\x44\x65\x66\x65\x72\x72\x65\x64\x45\x6e\x63\x6f\x64\x69\x6e\x67\x12\x1e\x0a\x06\x64\x69\x72\x65\x63\x74\x18\x02\x20\x01\x28\x0b\x32\x0e\x44\x69\x72\x65\x63\x74\x45\x6e\x63\x6f\x64\x69\x6e\x67\x12\x23\x0a\x04\x6e\x6f\x6e\x65\x18\x03\x20\x01\x28\x0b\x32\x15\x67\x6f\x6f\x67\x6c\x65\x2e\x70\x72\x6f\x74\x6f\x62\x75\x66\x2e\x45\x6d\x70\x74\x79\x42\x0a\x0a\x08\x6c\x6f\x63\x61\x74\x69\x6f\x6e\x22\xe3\x01\x0a\x0e\x43\x6f\x6c\x75\x6d\x6e\x4d\x65\x74\x61\x64\x61\x74\x61\x12\x1a\x0a\x08\x65\x6e\x63\x6f\x64\x69\x6e\x67\x18\x01\x20\x01\x28\x0b\x32\x08\x45\x6e\x63\x6f\x64\x69\x6e\x67\x12\x13\x0a\x05\x70\x61\x67\x65\x73\x18\x02\x20\x03\x28\x0b\x32\x04\x50\x61\x67\x65\x12\x16\x0a\x0e\x62\x75\x66\x66\x65\x72\x5f\x6f\x66\x66\x73\x65\x74\x73\x18\x03\x20\x03\x28\x04\x12\x14\x0a\x0c\x62\x75\x66\x66\x65\x72\x5f\x73\x69\x7a\x65\x73\x18\x04\x20\x03\x28\x04\x1a\x72\x0a\x04\x50\x61\x67\x65\x12\x16\x0a\x0e\x62\x75\x66\x66\x65\x72\x5f\x6f\x66\x66\x73\x65\x74\x73\x18\x01\x20\x03\x28\x04\x12\x14\x0a\x0c\x62\x75\x66\x66\x65\x72\x5f\x73\x69\x7a\x65\x73\x18\x02\x20\x03\x28\x04\x12\x0e\x0a\x06\x6c\x65\x6e\x67\x74\x68\x18\x03\x20\x01\x28\x04\x12\x1a\x0a\x08\x65\x6e\x63\x6f\x64\x69\x6e\x67\x18\x04\x20\x01\x28\x0b\x32\x08\x45\x6e\x63\x6f\x64\x69\x6e\x67\x12\x10\x0a\x08\x70\x72\x69\x6f\x72\x69\x74\x79\x18\x05\x20\x01\x28\x04\x62\x06\x70\x72\x6f\x74\x6f\x33"
 
 
+{- | # Lance v2.X File Format
+
+The Lance file format is a barebones format for serializing columnar data
+into a file.
+
+* Each Lance file contains between 0 and 4Gi columns
+* Each column contains between 0 and 4Gi pages
+* Each page contains between 0 and 2^64 items
+* Different pages within a column can have different items counts
+* Columns may have up to 2^64 items
+* Different columns within a file can have different item counts
+
+The Lance file format does not have any notion of a type system or schemas.
+From the perspective of the file format all data is arbitrary buffers of
+bytes with an extensible metadata block to describe the data.  It is up to
+the user to interpret these bytes meaningfully.
+
+Data buffers are written to the file first.  These data buffers can be
+referenced from three different places in the file:
+
+* Page encodings can reference data buffers.  This is the most common way
+  that actual data is stored.
+* Column encodings can reference data buffers.  For example, a column encoding
+  may reference data buffer(s) containing statistics or dictionaries.
+* Finally, the global buffer offset table can reference data buffers.  This
+  is useful for storing data that is shared across multiple columns.
+  This is also useful for global file metadata (e.g. a schema that describes
+  the file)
+
+## File Layout
+
+Note: the number of buffers (BN) is independent of the number of columns (CN)
+      and pages.
+
+      Buffers often need to be aligned.  64-byte alignment is common when
+      working with SIMD operations.  4096-byte alignment is common when
+      working with direct I/O.  In order to ensure these buffers are aligned
+      writers may need to insert padding before the buffers.
+
+      If direct I/O is required then most (but not all) fields described
+      below must be sector aligned.  We have marked these fields with an
+      asterisk for clarity.  Readers should assume there will be optional
+      padding inserted before these fields.
+
+      All footer fields are unsigned integers written with  little endian
+      byte order.
+
+├──────────────────────────────────┤
+| Data Pages                       |
+|   Data Buffer 0*                 |
+|   ...                            |
+|   Data Buffer BN*                |
+├──────────────────────────────────┤
+| Column Metadatas                 |
+| |A| Column 0 Metadata*           |
+|     Column 1 Metadata*           |
+|     ...                          |
+|     Column CN Metadata*          |
+├──────────────────────────────────┤
+| Column Metadata Offset Table     |
+| |B| Column 0 Metadata Position*  |
+|     Column 0 Metadata Size       |
+|     ...                          |
+|     Column CN Metadata Position  |
+|     Column CN Metadata Size      |
+├──────────────────────────────────┤
+| Global Buffers Offset Table      |
+| |C| Global Buffer 0 Position*    |
+|     Global Buffer 0 Size         |
+|     ...                          |
+|     Global Buffer GN Position    |
+|     Global Buffer GN Size        |
+├──────────────────────────────────┤
+| Footer                           |
+| A u64: Offset to column meta 0   |
+| B u64: Offset to CMO table       |
+| C u64: Offset to GBO table       |
+|   u32: Number of global bufs     |
+|   u32: Number of columns         |
+|   u16: Major version             |
+|   u16: Minor version             |
+|   "LANC"                         |
+├──────────────────────────────────┤
+
+File Layout-End
+
+## Data Pages
+
+A lot of flexibility is provided in how data is stored.  A page's buffers do
+not strictly need to be contiguous on the disk.  However, it is recommended
+that buffers within a page be grouped together for best performance.
+
+Data pages should be large.  The only time a page should be written to disk
+is when the writer needs to flush the page to disk because it has accumulated
+too much data.  Pages are not read in sequential order and if pages are too
+small then the seek overhead (or request overhead) will be problematic.  We
+generally advise that pages be at least 8MB or larger.
+
+## Encodings
+
+Specific encodings are not part of this minimal format.  They are provided
+by extensions. Readers and writers should be designed so that encodings can
+be easily added and removed. Ideally, they should allow for this without
+requiring recompilation through some kind of plugin system.
+The deferred encoding is used to place the encoding itself in a different
+part of the file.  This is most commonly used to allow encodings to be shared
+across different columns.  For example, when writing a file with thousands of
+columns, where many pages have the exact same encoding, it can be useful
+to cut down on the size of the metadata by using a deferred encoding.
+-}
 data DeferredEncoding = DeferredEncoding
   { deferredEncodingBufferLocation :: {-# UNPACK #-} !Word64
+  -- ^ Location of the buffer containing the encoding.
+  --
+  -- * If sharing encodings across columns then this will be in a global buffer
+  -- * If sharing encodings across pages within a column this could be in a
+  --   column metadata buffer.
+  -- * This could also be a page buffer if the encoding is not shared, needs
+  --   to be written before the file ends, and the encoding is too large to load
+  --   unless we first determine the page needs to be read.  This combination
+  --   seems unusual.
   , deferredEncodingBufferLength :: {-# UNPACK #-} !Word64
   , deferredEncodingUnknownFields :: ![UnknownField]
   }
@@ -137,24 +256,20 @@ instance MessageDecode DeferredEncoding where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 0 []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (DeferredEncoding {deferredEncodingBufferLocation = acc_0, deferredEncodingBufferLength = acc_1, deferredEncodingUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldVarint
-              loop v acc_1 acc_unknown_
-            2 -> do
-              v <- decodeFieldVarint
-              loop acc_0 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
-
-
-instance IsMessage DeferredEncoding where
-  messageTypeName _ = "lance.file.v2.DeferredEncoding"
+      loop acc_0 acc_1 acc_unknown_ =
+        withTagM
+          (pure (DeferredEncoding {deferredEncodingBufferLocation = acc_0, deferredEncodingBufferLength = acc_1, deferredEncodingUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldVarint
+                loop v acc_1 acc_unknown_
+              2 -> do
+                v <- decodeFieldVarint
+                loop acc_0 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage DeferredEncoding where
@@ -191,6 +306,9 @@ instance ProtoMessage DeferredEncoding where
       ]
 
 
+instance IsMessage DeferredEncoding
+
+
 instance Aeson.ToJSON DeferredEncoding where
   toJSON msg =
     jsonObject
@@ -219,8 +337,25 @@ instance Proto.Extension.HasExtensions DeferredEncoding where
   setMessageUnknownFields !ufs msg = msg {deferredEncodingUnknownFields = ufs}
 
 
+instance Semigroup DeferredEncoding where
+  a <> b =
+    DeferredEncoding
+      { deferredEncodingBufferLocation = if b.deferredEncodingBufferLocation == 0 then a.deferredEncodingBufferLocation else b.deferredEncodingBufferLocation
+      , deferredEncodingBufferLength = if b.deferredEncodingBufferLength == 0 then a.deferredEncodingBufferLength else b.deferredEncodingBufferLength
+      , deferredEncodingUnknownFields = a.deferredEncodingUnknownFields <> b.deferredEncodingUnknownFields
+      }
+
+
+instance Monoid DeferredEncoding where
+  mempty = defaultDeferredEncoding
+
+
+-- | The encoding is placed directly in the metadata section
 data DirectEncoding = DirectEncoding
   { directEncodingEncoding :: !ByteString
+  -- ^ The bytes that make up the encoding embedded directly in the metadata
+  --
+  -- This is the most common approach.
   , directEncodingUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -251,21 +386,17 @@ instance MessageDecode DirectEncoding where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (DirectEncoding {directEncodingEncoding = acc_0, directEncodingUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldBytes
-              loop v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
-
-
-instance IsMessage DirectEncoding where
-  messageTypeName _ = "lance.file.v2.DirectEncoding"
+      loop acc_0 acc_unknown_ =
+        withTagM
+          (pure (DirectEncoding {directEncodingEncoding = acc_0, directEncodingUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldBytes
+                loop v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage DirectEncoding where
@@ -288,6 +419,9 @@ instance ProtoMessage DirectEncoding where
               }
         )
       ]
+
+
+instance IsMessage DirectEncoding
 
 
 instance Aeson.ToJSON DirectEncoding where
@@ -315,6 +449,25 @@ instance Proto.Extension.HasExtensions DirectEncoding where
   setMessageUnknownFields !ufs msg = msg {directEncodingUnknownFields = ufs}
 
 
+instance Semigroup DirectEncoding where
+  a <> b =
+    DirectEncoding
+      { directEncodingEncoding = if b.directEncodingEncoding == "" then a.directEncodingEncoding else b.directEncodingEncoding
+      , directEncodingUnknownFields = a.directEncodingUnknownFields <> b.directEncodingUnknownFields
+      }
+
+
+instance Monoid DirectEncoding where
+  mempty = defaultDirectEncoding
+
+
+{- | An encoding stores the information needed to decode a column or page
+
+For example, it could describe if the page is using bit packing, and how many bits
+there are in each individual value.
+
+At the column level it can be used to wrap columns with dictionaries or statistics.
+-}
 data Encoding = Encoding
   { encodingLocation :: !(Maybe Encoding'Location)
   , encodingUnknownFields :: ![UnknownField]
@@ -324,9 +477,12 @@ data Encoding = Encoding
 
 
 data Encoding'Location
-  = Encoding'Location'Indirect !DeferredEncoding
-  | Encoding'Location'Direct !DirectEncoding
-  | Encoding'Location'None !PB_Empty.Empty
+  = -- | The encoding is stored elsewhere and not part of this protobuf message
+    Encoding'Location'Indirect !DeferredEncoding
+  | -- | The encoding is stored within this protobuf message
+    Encoding'Location'Direct !DirectEncoding
+  | -- | There is no encoding information
+    Encoding'Location'None !PB_Empty.Empty
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 
@@ -379,27 +535,23 @@ instance MessageDecode Encoding where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop Nothing []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Encoding {encodingLocation = acc_0, encodingUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldMessage
-              loop (Just (Encoding'Location'Indirect v)) acc_unknown_
-            2 -> do
-              v <- decodeFieldMessage
-              loop (Just (Encoding'Location'Direct v)) acc_unknown_
-            3 -> do
-              v <- decodeFieldMessage
-              loop (Just (Encoding'Location'None v)) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
-
-
-instance IsMessage Encoding where
-  messageTypeName _ = "lance.file.v2.Encoding"
+      loop acc_0 acc_unknown_ =
+        withTagM
+          (pure (Encoding {encodingLocation = acc_0, encodingUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldMessage
+                loop (Just (Encoding'Location'Indirect v)) acc_unknown_
+              2 -> do
+                v <- decodeFieldMessage
+                loop (Just (Encoding'Location'Direct v)) acc_unknown_
+              3 -> do
+                v <- decodeFieldMessage
+                loop (Just (Encoding'Location'None v)) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage Encoding where
@@ -422,6 +574,9 @@ instance ProtoMessage Encoding where
               }
         )
       ]
+
+
+instance IsMessage Encoding
 
 
 instance Aeson.ToJSON Encoding where
@@ -449,23 +604,66 @@ instance Proto.Extension.HasExtensions Encoding where
   setMessageUnknownFields !ufs msg = msg {encodingUnknownFields = ufs}
 
 
+instance Semigroup Encoding where
+  a <> b =
+    Encoding
+      { encodingLocation = case b.encodingLocation of Nothing -> a.encodingLocation; x -> x
+      , encodingUnknownFields = a.encodingUnknownFields <> b.encodingUnknownFields
+      }
+
+
+instance Monoid Encoding where
+  mempty = defaultEncoding
+
+
+{- | ## Metadata
+Each column has a metadata block that is placed at the end of the file.
+These may be read individually to allow for column projection.
+-}
 data ColumnMetadata = ColumnMetadata
   { columnMetadataEncoding :: !(Maybe Encoding)
+  -- ^ Encoding information about the column itself.  This typically describes
+  -- how to interpret the column metadata buffers.  For example, it could
+  -- describe how statistics or dictionaries are stored in the column metadata.
   , columnMetadataPages :: !(V.Vector ColumnMetadata'Page)
+  -- ^ The pages in the column
   , columnMetadataBufferOffsets :: !(VU.Vector Word64)
+  -- ^ The file offsets of each of the column metadata buffers
+  --
+  -- There may be zero buffers.
   , columnMetadataBufferSizes :: !(VU.Vector Word64)
+  -- ^ The size (in bytes) of each of the column metadata buffers
+  --
+  -- This field will have the same length as `buffer_offsets` and
+  -- may be empty.
   , columnMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 
 
+-- | This describes a page of column data.
 data ColumnMetadata'Page = ColumnMetadata'Page
   { columnMetadataPageBufferOffsets :: !(VU.Vector Word64)
+  -- ^ The file offsets for each of the page buffers
+  --
+  -- The number of buffers is variable and depends on the encoding.  There
+  -- may be zero buffers (e.g. constant encoded data) in which case this
+  -- could be empty.
   , columnMetadataPageBufferSizes :: !(VU.Vector Word64)
+  -- ^ The size (in bytes) of each of the page buffers
+  --
+  -- This field will have the same length as `buffer_offsets` and
+  -- may be empty.
   , columnMetadataPageLength :: {-# UNPACK #-} !Word64
+  -- ^ Logical length (e.g. # rows) of the page
   , columnMetadataPageEncoding :: !(Maybe Encoding)
+  -- ^ The encoding used to encode the page
   , columnMetadataPagePriority :: {-# UNPACK #-} !Word64
+  -- ^ The priority of the page
+  --
+  -- For tabular data this will be the top-level row number of the first row
+  -- in the page (and top-level rows should not split across pages).
   , columnMetadataPageUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -508,41 +706,37 @@ instance MessageDecode ColumnMetadata'Page where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop VU.empty VU.empty 0 Nothing 0 []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (ColumnMetadata'Page {columnMetadataPageBufferOffsets = acc_0, columnMetadataPageBufferSizes = acc_1, columnMetadataPageLength = acc_2, columnMetadataPageEncoding = acc_3, columnMetadataPagePriority = acc_4, columnMetadataPageUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> case wt of
-              WireLengthDelimited -> do
-                vs <- decodePackedVarint
-                loop (acc_0 <> vs) acc_1 acc_2 acc_3 acc_4 acc_unknown_
-              _ -> do
+      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ =
+        withTagM
+          (pure (ColumnMetadata'Page {columnMetadataPageBufferOffsets = acc_0, columnMetadataPageBufferSizes = acc_1, columnMetadataPageLength = acc_2, columnMetadataPageEncoding = acc_3, columnMetadataPagePriority = acc_4, columnMetadataPageUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> case wt of
+                2 -> do
+                  vs <- decodePackedVarint
+                  loop (acc_0 <> vs) acc_1 acc_2 acc_3 acc_4 acc_unknown_
+                _ -> do
+                  v <- decodeFieldVarint
+                  loop (acc_0 <> VU.singleton v) acc_1 acc_2 acc_3 acc_4 acc_unknown_
+              2 -> case wt of
+                2 -> do
+                  vs <- decodePackedVarint
+                  loop acc_0 (acc_1 <> vs) acc_2 acc_3 acc_4 acc_unknown_
+                _ -> do
+                  v <- decodeFieldVarint
+                  loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_3 acc_4 acc_unknown_
+              3 -> do
                 v <- decodeFieldVarint
-                loop (acc_0 <> VU.singleton v) acc_1 acc_2 acc_3 acc_4 acc_unknown_
-            2 -> case wt of
-              WireLengthDelimited -> do
-                vs <- decodePackedVarint
-                loop acc_0 (acc_1 <> vs) acc_2 acc_3 acc_4 acc_unknown_
-              _ -> do
+                loop acc_0 acc_1 v acc_3 acc_4 acc_unknown_
+              4 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 (Just v) acc_4 acc_unknown_
+              5 -> do
                 v <- decodeFieldVarint
-                loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_3 acc_4 acc_unknown_
-            3 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 v acc_3 acc_4 acc_unknown_
-            4 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 (Just v) acc_4 acc_unknown_
-            5 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (uf : acc_unknown_)
-
-
-instance IsMessage ColumnMetadata'Page where
-  messageTypeName _ = "lance.file.v2.ColumnMetadata.Page"
+                loop acc_0 acc_1 acc_2 acc_3 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage ColumnMetadata'Page where
@@ -615,6 +809,9 @@ instance ProtoMessage ColumnMetadata'Page where
       ]
 
 
+instance IsMessage ColumnMetadata'Page
+
+
 instance Aeson.ToJSON ColumnMetadata'Page where
   toJSON msg =
     jsonObject
@@ -652,6 +849,22 @@ instance Proto.Extension.HasExtensions ColumnMetadata'Page where
   setMessageUnknownFields !ufs msg = msg {columnMetadataPageUnknownFields = ufs}
 
 
+instance Semigroup ColumnMetadata'Page where
+  a <> b =
+    ColumnMetadata'Page
+      { columnMetadataPageBufferOffsets = a.columnMetadataPageBufferOffsets <> b.columnMetadataPageBufferOffsets
+      , columnMetadataPageBufferSizes = a.columnMetadataPageBufferSizes <> b.columnMetadataPageBufferSizes
+      , columnMetadataPageLength = if b.columnMetadataPageLength == 0 then a.columnMetadataPageLength else b.columnMetadataPageLength
+      , columnMetadataPageEncoding = case b.columnMetadataPageEncoding of Nothing -> a.columnMetadataPageEncoding; x -> x
+      , columnMetadataPagePriority = if b.columnMetadataPagePriority == 0 then a.columnMetadataPagePriority else b.columnMetadataPagePriority
+      , columnMetadataPageUnknownFields = a.columnMetadataPageUnknownFields <> b.columnMetadataPageUnknownFields
+      }
+
+
+instance Monoid ColumnMetadata'Page where
+  mempty = defaultColumnMetadata'Page
+
+
 defaultColumnMetadata :: ColumnMetadata
 defaultColumnMetadata =
   ColumnMetadata
@@ -685,38 +898,34 @@ instance MessageDecode ColumnMetadata where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop Nothing V.empty VU.empty VU.empty []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (ColumnMetadata {columnMetadataEncoding = acc_0, columnMetadataPages = acc_1, columnMetadataBufferOffsets = acc_2, columnMetadataBufferSizes = acc_3, columnMetadataUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldMessage
-              loop (Just v) acc_1 acc_2 acc_3 acc_unknown_
-            2 -> do
-              v <- decodeFieldMessage
-              loop acc_0 (acc_1 <> V.singleton v) acc_2 acc_3 acc_unknown_
-            3 -> case wt of
-              WireLengthDelimited -> do
-                vs <- decodePackedVarint
-                loop acc_0 acc_1 (acc_2 <> vs) acc_3 acc_unknown_
+      loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ =
+        withTagM
+          (pure (ColumnMetadata {columnMetadataEncoding = acc_0, columnMetadataPages = acc_1, columnMetadataBufferOffsets = acc_2, columnMetadataBufferSizes = acc_3, columnMetadataUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldMessage
+                loop (Just v) acc_1 acc_2 acc_3 acc_unknown_
+              2 -> do
+                v <- decodeFieldMessage
+                loop acc_0 (acc_1 <> V.singleton v) acc_2 acc_3 acc_unknown_
+              3 -> case wt of
+                2 -> do
+                  vs <- decodePackedVarint
+                  loop acc_0 acc_1 (acc_2 <> vs) acc_3 acc_unknown_
+                _ -> do
+                  v <- decodeFieldVarint
+                  loop acc_0 acc_1 (acc_2 <> VU.singleton v) acc_3 acc_unknown_
+              4 -> case wt of
+                2 -> do
+                  vs <- decodePackedVarint
+                  loop acc_0 acc_1 acc_2 (acc_3 <> vs) acc_unknown_
+                _ -> do
+                  v <- decodeFieldVarint
+                  loop acc_0 acc_1 acc_2 (acc_3 <> VU.singleton v) acc_unknown_
               _ -> do
-                v <- decodeFieldVarint
-                loop acc_0 acc_1 (acc_2 <> VU.singleton v) acc_3 acc_unknown_
-            4 -> case wt of
-              WireLengthDelimited -> do
-                vs <- decodePackedVarint
-                loop acc_0 acc_1 acc_2 (acc_3 <> vs) acc_unknown_
-              _ -> do
-                v <- decodeFieldVarint
-                loop acc_0 acc_1 acc_2 (acc_3 <> VU.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 (uf : acc_unknown_)
-
-
-instance IsMessage ColumnMetadata where
-  messageTypeName _ = "lance.file.v2.ColumnMetadata"
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage ColumnMetadata where
@@ -777,6 +986,9 @@ instance ProtoMessage ColumnMetadata where
       ]
 
 
+instance IsMessage ColumnMetadata
+
+
 instance Aeson.ToJSON ColumnMetadata where
   toJSON msg =
     jsonObject
@@ -811,12 +1023,16 @@ instance Proto.Extension.HasExtensions ColumnMetadata where
   setMessageUnknownFields !ufs msg = msg {columnMetadataUnknownFields = ufs}
 
 
--- | Register all message types defined in this module.
-registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
-registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy DeferredEncoding)
-    . Proto.Registry.registerType (Proxy :: Proxy DirectEncoding)
-    . Proto.Registry.registerType (Proxy :: Proxy Encoding)
-    . Proto.Registry.registerType (Proxy :: Proxy ColumnMetadata)
-    . Proto.Registry.registerType (Proxy :: Proxy ColumnMetadata'Page)
-    . id
+instance Semigroup ColumnMetadata where
+  a <> b =
+    ColumnMetadata
+      { columnMetadataEncoding = case b.columnMetadataEncoding of Nothing -> a.columnMetadataEncoding; x -> x
+      , columnMetadataPages = a.columnMetadataPages <> b.columnMetadataPages
+      , columnMetadataBufferOffsets = a.columnMetadataBufferOffsets <> b.columnMetadataBufferOffsets
+      , columnMetadataBufferSizes = a.columnMetadataBufferSizes <> b.columnMetadataBufferSizes
+      , columnMetadataUnknownFields = a.columnMetadataUnknownFields <> b.columnMetadataUnknownFields
+      }
+
+
+instance Monoid ColumnMetadata where
+  mempty = defaultColumnMetadata

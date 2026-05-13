@@ -8,9 +8,9 @@ import Data.Word (Word32, Word64)
 import Hedgehog
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import Proto.Wire
-import Proto.Wire.Decode
-import Proto.Wire.Encode
+import Proto.Internal.Wire
+import Proto.Internal.Wire.Decode
+import Proto.Internal.Wire.Encode
 import Test.Tasty
 import Test.Tasty.HUnit hiding (assert)
 import Test.Tasty.Hedgehog

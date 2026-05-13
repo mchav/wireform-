@@ -56,7 +56,7 @@ library
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
-    wireform-columnar,
+    wireform-columnar-core,
     wireform-derive,
     wireform-flatbuffers,
     bytestring >= 0.11 && < 0.13,
@@ -97,7 +97,7 @@ test-suite wireform-arrow-test
   build-depends:
     base >= 4.16 && < 5,
     wireform-arrow,
-    wireform-columnar,
+    wireform-columnar-core,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,

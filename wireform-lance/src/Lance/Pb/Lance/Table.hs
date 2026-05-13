@@ -35,7 +35,10 @@ import GHC.Generics (Generic)
 import Lance.Pb.Lance.File qualified as Lance_Pb_Lance_File
 import Proto.Decode
 import Proto.Encode
-import Proto.Encode.Archetype (
+import Proto.Extension qualified
+import Proto.Google.Protobuf.Any qualified as PB_Any
+import Proto.Google.Protobuf.Timestamp qualified as PB_Timestamp
+import Proto.Internal.Encode.Archetype (
   archBool,
   archBoolSize,
   archBytes,
@@ -55,15 +58,9 @@ import Proto.Encode.Archetype (
   archVarint,
   archVarintSize,
  )
-import Proto.Extension qualified
-import Proto.Google.Protobuf.Any qualified as PB_Any
-import Proto.Google.Protobuf.Timestamp qualified as PB_Timestamp
-import Proto.JSON (bytesFieldToJSON, bytesMapFieldToJSON, jsonObject, parseBytesFieldMaybe, parseBytesMapFieldMaybe, parseFieldMaybe, protoBytesToJSON, (.=:))
-import Proto.Message (IsMessage (..))
-import Proto.Registry qualified
-import Proto.Schema (FieldDescriptor (..), FieldLabel' (..), FieldTypeDescriptor (..), ProtoMessage (..), ScalarFieldType (..), SomeFieldDescriptor (..))
-import Proto.Wire (Tag (..), WireType (..))
-import Proto.Wire.Encode (
+import Proto.Internal.JSON (bytesFieldToJSON, bytesMapFieldToJSON, jsonObject, parseBytesFieldMaybe, parseBytesMapFieldMaybe, parseFieldMaybe, protoBytesToJSON, (.=:))
+import Proto.Internal.Wire (Tag (..), WireType (..))
+import Proto.Internal.Wire.Encode (
   fieldBoolSize,
   fieldBytesSize,
   fieldDoubleSize,
@@ -93,6 +90,9 @@ import Proto.Wire.Encode (
   zigZag32,
   zigZag64,
  )
+import Proto.Registry (IsMessage)
+import Proto.Registry qualified
+import Proto.Schema (FieldDescriptor (..), FieldLabel' (..), FieldTypeDescriptor (..), ProtoMessage (..), ScalarFieldType (..), SomeFieldDescriptor (..))
 import Wireform.Builder qualified as B
 
 
@@ -103,6 +103,7 @@ fileDescriptorProtoBytes :: ByteString
 fileDescriptorProtoBytes = "\x0a\x11\x6c\x61\x6e\x63\x65\x2f\x74\x61\x62\x6c\x65\x2e\x70\x72\x6f\x74\x6f\x12\x0b\x6c\x61\x6e\x63\x65\x2e\x74\x61\x62\x6c\x65\x1a\x19\x67\x6f\x6f\x67\x6c\x65\x2f\x70\x72\x6f\x74\x6f\x62\x75\x66\x2f\x61\x6e\x79\x2e\x70\x72\x6f\x74\x6f\x1a\x1f\x67\x6f\x6f\x67\x6c\x65\x2f\x70\x72\x6f\x74\x6f\x62\x75\x66\x2f\x74\x69\x6d\x65\x73\x74\x61\x6d\x70\x2e\x70\x72\x6f\x74\x6f\x1a\x0a\x66\x69\x6c\x65\x2e\x70\x72\x6f\x74\x6f\x22\x14\x0a\x04\x55\x55\x49\x44\x12\x0c\x0a\x04\x75\x75\x69\x64\x18\x01\x20\x01\x28\x0c\x22\xfb\x05\x0a\x08\x4d\x61\x6e\x69\x66\x65\x73\x74\x12\x20\x0a\x06\x66\x69\x65\x6c\x64\x73\x18\x01\x20\x03\x28\x0b\x32\x10\x6c\x61\x6e\x63\x65\x2e\x66\x69\x6c\x65\x2e\x46\x69\x65\x6c\x64\x12\x2d\x0a\x0f\x73\x63\x68\x65\x6d\x61\x5f\x6d\x65\x74\x61\x64\x61\x74\x61\x18\x05\x20\x03\x28\x0b\x32\x14\x73\x63\x68\x65\x6d\x61\x5f\x6d\x65\x74\x61\x64\x61\x74\x61\x45\x6e\x74\x72\x79\x12\x1f\x0a\x09\x66\x72\x61\x67\x6d\x65\x6e\x74\x73\x18\x02\x20\x03\x28\x0b\x32\x0c\x44\x61\x74\x61\x46\x72\x61\x67\x6d\x65\x6e\x74\x12\x0f\x0a\x07\x76\x65\x72\x73\x69\x6f\x6e\x18\x03\x20\x01\x28\x04\x12\x18\x0a\x10\x76\x65\x72\x73\x69\x6f\x6e\x5f\x61\x75\x78\x5f\x64\x61\x74\x61\x18\x04\x20\x01\x28\x04\x12\x25\x0a\x0e\x77\x72\x69\x74\x65\x72\x5f\x76\x65\x72\x73\x69\x6f\x6e\x18\x0d\x20\x01\x28\x0b\x32\x0d\x57\x72\x69\x74\x65\x72\x56\x65\x72\x73\x69\x6f\x6e\x12\x15\x0a\x0d\x69\x6e\x64\x65\x78\x5f\x73\x65\x63\x74\x69\x6f\x6e\x18\x06\x20\x01\x28\x04\x12\x2c\x0a\x09\x74\x69\x6d\x65\x73\x74\x61\x6d\x70\x18\x07\x20\x01\x28\x0b\x32\x19\x67\x6f\x6f\x67\x6c\x65\x2e\x70\x72\x6f\x74\x6f\x62\x75\x66\x2e\x54\x69\x6d\x65\x73\x74\x61\x6d\x70\x12\x0b\x0a\x03\x74\x61\x67\x18\x08\x20\x01\x28\x09\x12\x1c\x0a\x14\x72\x65\x61\x64\x65\x72\x5f\x66\x65\x61\x74\x75\x72\x65\x5f\x66\x6c\x61\x67\x73\x18\x09\x20\x01\x28\x04\x12\x1c\x0a\x14\x77\x72\x69\x74\x65\x72\x5f\x66\x65\x61\x74\x75\x72\x65\x5f\x66\x6c\x61\x67\x73\x18\x0a\x20\x01\x28\x04\x12\x17\x0a\x0f\x6d\x61\x78\x5f\x66\x72\x61\x67\x6d\x65\x6e\x74\x5f\x69\x64\x18\x0b\x20\x01\x28\x0d\x12\x18\x0a\x10\x74\x72\x61\x6e\x73\x61\x63\x74\x69\x6f\x6e\x5f\x66\x69\x6c\x65\x18\x0c\x20\x01\x28\x09\x12\x1b\x0a\x13\x74\x72\x61\x6e\x73\x61\x63\x74\x69\x6f\x6e\x5f\x73\x65\x63\x74\x69\x6f\x6e\x18\x15\x20\x01\x28\x04\x12\x13\x0a\x0b\x6e\x65\x78\x74\x5f\x72\x6f\x77\x5f\x69\x64\x18\x0e\x20\x01\x28\x04\x12\x26\x0a\x0b\x64\x61\x74\x61\x5f\x66\x6f\x72\x6d\x61\x74\x18\x0f\x20\x01\x28\x0b\x32\x11\x44\x61\x74\x61\x53\x74\x6f\x72\x61\x67\x65\x46\x6f\x72\x6d\x61\x74\x12\x1b\x0a\x06\x63\x6f\x6e\x66\x69\x67\x18\x10\x20\x03\x28\x0b\x32\x0b\x63\x6f\x6e\x66\x69\x67\x45\x6e\x74\x72\x79\x12\x2b\x0a\x0e\x74\x61\x62\x6c\x65\x5f\x6d\x65\x74\x61\x64\x61\x74\x61\x18\x13\x20\x03\x28\x0b\x32\x13\x74\x61\x62\x6c\x65\x5f\x6d\x65\x74\x61\x64\x61\x74\x61\x45\x6e\x74\x72\x79\x12\x1c\x0a\x0a\x62\x61\x73\x65\x5f\x70\x61\x74\x68\x73\x18\x12\x20\x03\x28\x0b\x32\x08\x42\x61\x73\x65\x50\x61\x74\x68\x12\x0e\x0a\x06\x62\x72\x61\x6e\x63\x68\x18\x14\x20\x01\x28\x09\x1a\x5d\x0a\x0d\x57\x72\x69\x74\x65\x72\x56\x65\x72\x73\x69\x6f\x6e\x12\x0f\x0a\x07\x6c\x69\x62\x72\x61\x72\x79\x18\x01\x20\x01\x28\x09\x12\x0f\x0a\x07\x76\x65\x72\x73\x69\x6f\x6e\x18\x02\x20\x01\x28\x09\x12\x12\x0a\x0a\x70\x72\x65\x72\x65\x6c\x65\x61\x73\x65\x18\x03\x20\x01\x28\x09\x12\x16\x0a\x0e\x62\x75\x69\x6c\x64\x5f\x6d\x65\x74\x61\x64\x61\x74\x61\x18\x04\x20\x01\x28\x09\x1a\x39\x0a\x11\x44\x61\x74\x61\x53\x74\x6f\x72\x61\x67\x65\x46\x6f\x72\x6d\x61\x74\x12\x13\x0a\x0b\x66\x69\x6c\x65\x5f\x66\x6f\x72\x6d\x61\x74\x18\x01\x20\x01\x28\x09\x12\x0f\x0a\x07\x76\x65\x72\x73\x69\x6f\x6e\x18\x02\x20\x01\x28\x09\x22\x4b\x0a\x08\x42\x61\x73\x65\x50\x61\x74\x68\x12\x0a\x0a\x02\x69\x64\x18\x01\x20\x01\x28\x0d\x12\x0c\x0a\x04\x6e\x61\x6d\x65\x18\x02\x20\x01\x28\x09\x12\x17\x0a\x0f\x69\x73\x5f\x64\x61\x74\x61\x73\x65\x74\x5f\x72\x6f\x6f\x74\x18\x03\x20\x01\x28\x08\x12\x0c\x0a\x04\x70\x61\x74\x68\x18\x04\x20\x01\x28\x09\x22\x31\x0a\x0e\x56\x65\x72\x73\x69\x6f\x6e\x41\x75\x78\x44\x61\x74\x61\x12\x1f\x0a\x08\x6d\x65\x74\x61\x64\x61\x74\x61\x18\x03\x20\x03\x28\x0b\x32\x0d\x6d\x65\x74\x61\x64\x61\x74\x61\x45\x6e\x74\x72\x79\x22\xf5\x01\x0a\x0d\x49\x6e\x64\x65\x78\x4d\x65\x74\x61\x64\x61\x74\x61\x12\x12\x0a\x04\x75\x75\x69\x64\x18\x01\x20\x01\x28\x0b\x32\x04\x55\x55\x49\x44\x12\x0e\x0a\x06\x66\x69\x65\x6c\x64\x73\x18\x02\x20\x03\x28\x05\x12\x0c\x0a\x04\x6e\x61\x6d\x65\x18\x03\x20\x01\x28\x09\x12\x17\x0a\x0f\x64\x61\x74\x61\x73\x65\x74\x5f\x76\x65\x72\x73\x69\x6f\x6e\x18\x04\x20\x01\x28\x04\x12\x17\x0a\x0f\x66\x72\x61\x67\x6d\x65\x6e\x74\x5f\x62\x69\x74\x6d\x61\x70\x18\x05\x20\x01\x28\x0c\x12\x2a\x0a\x0d\x69\x6e\x64\x65\x78\x5f\x64\x65\x74\x61\x69\x6c\x73\x18\x06\x20\x01\x28\x0b\x32\x13\x67\x6f\x6f\x67\x6c\x65\x2e\x70\x72\x6f\x74\x6f\x62\x75\x66\x2e\x41\x6e\x79\x12\x15\x0a\x0d\x69\x6e\x64\x65\x78\x5f\x76\x65\x72\x73\x69\x6f\x6e\x18\x07\x20\x01\x28\x05\x12\x12\x0a\x0a\x63\x72\x65\x61\x74\x65\x64\x5f\x61\x74\x18\x08\x20\x01\x28\x04\x12\x0f\x0a\x07\x62\x61\x73\x65\x5f\x69\x64\x18\x09\x20\x01\x28\x0d\x12\x18\x0a\x05\x66\x69\x6c\x65\x73\x18\x0a\x20\x03\x28\x0b\x32\x09\x49\x6e\x64\x65\x78\x46\x69\x6c\x65\x22\x2d\x0a\x09\x49\x6e\x64\x65\x78\x46\x69\x6c\x65\x12\x0c\x0a\x04\x70\x61\x74\x68\x18\x01\x20\x01\x28\x09\x12\x12\x0a\x0a\x73\x69\x7a\x65\x5f\x62\x79\x74\x65\x73\x18\x02\x20\x01\x28\x04\x22\x2e\x0a\x0c\x49\x6e\x64\x65\x78\x53\x65\x63\x74\x69\x6f\x6e\x12\x1e\x0a\x07\x69\x6e\x64\x69\x63\x65\x73\x18\x01\x20\x03\x28\x0b\x32\x0d\x49\x6e\x64\x65\x78\x4d\x65\x74\x61\x64\x61\x74\x61\x22\xbf\x03\x0a\x0c\x44\x61\x74\x61\x46\x72\x61\x67\x6d\x65\x6e\x74\x12\x0a\x0a\x02\x69\x64\x18\x01\x20\x01\x28\x04\x12\x17\x0a\x05\x66\x69\x6c\x65\x73\x18\x02\x20\x03\x28\x0b\x32\x08\x44\x61\x74\x61\x46\x69\x6c\x65\x12\x23\x0a\x0d\x64\x65\x6c\x65\x74\x69\x6f\x6e\x5f\x66\x69\x6c\x65\x18\x03\x20\x01\x28\x0b\x32\x0c\x44\x65\x6c\x65\x74\x69\x6f\x6e\x46\x69\x6c\x65\x12\x16\x0a\x0e\x69\x6e\x6c\x69\x6e\x65\x5f\x72\x6f\x77\x5f\x69\x64\x73\x18\x05\x20\x01\x28\x0c\x12\x26\x0a\x10\x65\x78\x74\x65\x72\x6e\x61\x6c\x5f\x72\x6f\x77\x5f\x69\x64\x73\x18\x06\x20\x01\x28\x0b\x32\x0c\x45\x78\x74\x65\x72\x6e\x61\x6c\x46\x69\x6c\x65\x12\x27\x0a\x1f\x69\x6e\x6c\x69\x6e\x65\x5f\x6c\x61\x73\x74\x5f\x75\x70\x64\x61\x74\x65\x64\x5f\x61\x74\x5f\x76\x65\x72\x73\x69\x6f\x6e\x73\x18\x07\x20\x01\x28\x0c\x12\x37\x0a\x21\x65\x78\x74\x65\x72\x6e\x61\x6c\x5f\x6c\x61\x73\x74\x5f\x75\x70\x64\x61\x74\x65\x64\x5f\x61\x74\x5f\x76\x65\x72\x73\x69\x6f\x6e\x73\x18\x08\x20\x01\x28\x0b\x32\x0c\x45\x78\x74\x65\x72\x6e\x61\x6c\x46\x69\x6c\x65\x12\x22\x0a\x1a\x69\x6e\x6c\x69\x6e\x65\x5f\x63\x72\x65\x61\x74\x65\x64\x5f\x61\x74\x5f\x76\x65\x72\x73\x69\x6f\x6e\x73\x18\x09\x20\x01\x28\x0c\x12\x32\x0a\x1c\x65\x78\x74\x65\x72\x6e\x61\x6c\x5f\x63\x72\x65\x61\x74\x65\x64\x5f\x61\x74\x5f\x76\x65\x72\x73\x69\x6f\x6e\x73\x18\x0a\x20\x01\x28\x0b\x32\x0c\x45\x78\x74\x65\x72\x6e\x61\x6c\x46\x69\x6c\x65\x12\x15\x0a\x0d\x70\x68\x79\x73\x69\x63\x61\x6c\x5f\x72\x6f\x77\x73\x18\x04\x20\x01\x28\x04\x42\x11\x0a\x0f\x72\x6f\x77\x5f\x69\x64\x5f\x73\x65\x71\x75\x65\x6e\x63\x65\x42\x22\x0a\x20\x6c\x61\x73\x74\x5f\x75\x70\x64\x61\x74\x65\x64\x5f\x61\x74\x5f\x76\x65\x72\x73\x69\x6f\x6e\x5f\x73\x65\x71\x75\x65\x6e\x63\x65\x42\x1d\x0a\x1b\x63\x72\x65\x61\x74\x65\x64\x5f\x61\x74\x5f\x76\x65\x72\x73\x69\x6f\x6e\x5f\x73\x65\x71\x75\x65\x6e\x63\x65\x22\xa2\x01\x0a\x08\x44\x61\x74\x61\x46\x69\x6c\x65\x12\x0c\x0a\x04\x70\x61\x74\x68\x18\x01\x20\x01\x28\x09\x12\x0e\x0a\x06\x66\x69\x65\x6c\x64\x73\x18\x02\x20\x03\x28\x05\x12\x16\x0a\x0e\x63\x6f\x6c\x75\x6d\x6e\x5f\x69\x6e\x64\x69\x63\x65\x73\x18\x03\x20\x03\x28\x05\x12\x1a\x0a\x12\x66\x69\x6c\x65\x5f\x6d\x61\x6a\x6f\x72\x5f\x76\x65\x72\x73\x69\x6f\x6e\x18\x04\x20\x01\x28\x0d\x12\x1a\x0a\x12\x66\x69\x6c\x65\x5f\x6d\x69\x6e\x6f\x72\x5f\x76\x65\x72\x73\x69\x6f\x6e\x18\x05\x20\x01\x28\x0d\x12\x17\x0a\x0f\x66\x69\x6c\x65\x5f\x73\x69\x7a\x65\x5f\x62\x79\x74\x65\x73\x18\x06\x20\x01\x28\x04\x12\x0f\x0a\x07\x62\x61\x73\x65\x5f\x69\x64\x18\x07\x20\x01\x28\x0d\x22\xaf\x01\x0a\x0c\x44\x65\x6c\x65\x74\x69\x6f\x6e\x46\x69\x6c\x65\x12\x23\x0a\x09\x66\x69\x6c\x65\x5f\x74\x79\x70\x65\x18\x01\x20\x01\x28\x0b\x32\x10\x44\x65\x6c\x65\x74\x69\x6f\x6e\x46\x69\x6c\x65\x54\x79\x70\x65\x12\x14\x0a\x0c\x72\x65\x61\x64\x5f\x76\x65\x72\x73\x69\x6f\x6e\x18\x02\x20\x01\x28\x04\x12\x0a\x0a\x02\x69\x64\x18\x03\x20\x01\x28\x04\x12\x18\x0a\x10\x6e\x75\x6d\x5f\x64\x65\x6c\x65\x74\x65\x64\x5f\x72\x6f\x77\x73\x18\x04\x20\x01\x28\x04\x12\x0f\x0a\x07\x62\x61\x73\x65\x5f\x69\x64\x18\x07\x20\x01\x28\x0d\x22\x2d\x0a\x10\x44\x65\x6c\x65\x74\x69\x6f\x6e\x46\x69\x6c\x65\x54\x79\x70\x65\x12\x0d\x0a\x0b\x41\x52\x52\x4f\x57\x5f\x41\x52\x52\x41\x59\x12\x0a\x0a\x06\x42\x49\x54\x4d\x41\x50\x10\x01\x22\x3a\x0a\x0c\x45\x78\x74\x65\x72\x6e\x61\x6c\x46\x69\x6c\x65\x12\x0c\x0a\x04\x70\x61\x74\x68\x18\x01\x20\x01\x28\x09\x12\x0e\x0a\x06\x6f\x66\x66\x73\x65\x74\x18\x02\x20\x01\x28\x04\x12\x0c\x0a\x04\x73\x69\x7a\x65\x18\x03\x20\x01\x28\x04\x22\x14\x0a\x12\x56\x65\x63\x74\x6f\x72\x49\x6e\x64\x65\x78\x44\x65\x74\x61\x69\x6c\x73\x22\x8d\x03\x0a\x19\x46\x72\x61\x67\x6d\x65\x6e\x74\x52\x65\x75\x73\x65\x49\x6e\x64\x65\x78\x44\x65\x74\x61\x69\x6c\x73\x12\x1d\x0a\x06\x69\x6e\x6c\x69\x6e\x65\x18\x01\x20\x01\x28\x0b\x32\x0d\x49\x6e\x6c\x69\x6e\x65\x43\x6f\x6e\x74\x65\x6e\x74\x12\x1e\x0a\x08\x65\x78\x74\x65\x72\x6e\x61\x6c\x18\x02\x20\x01\x28\x0b\x32\x0c\x45\x78\x74\x65\x72\x6e\x61\x6c\x46\x69\x6c\x65\x1a\x2a\x0a\x0d\x49\x6e\x6c\x69\x6e\x65\x43\x6f\x6e\x74\x65\x6e\x74\x12\x19\x0a\x08\x76\x65\x72\x73\x69\x6f\x6e\x73\x18\x01\x20\x03\x28\x0b\x32\x07\x56\x65\x72\x73\x69\x6f\x6e\x1a\x4d\x0a\x0e\x46\x72\x61\x67\x6d\x65\x6e\x74\x44\x69\x67\x65\x73\x74\x12\x0a\x0a\x02\x69\x64\x18\x01\x20\x01\x28\x04\x12\x15\x0a\x0d\x70\x68\x79\x73\x69\x63\x61\x6c\x5f\x72\x6f\x77\x73\x18\x02\x20\x01\x28\x04\x12\x18\x0a\x10\x6e\x75\x6d\x5f\x64\x65\x6c\x65\x74\x65\x64\x5f\x72\x6f\x77\x73\x18\x03\x20\x01\x28\x04\x1a\x70\x0a\x05\x47\x72\x6f\x75\x70\x12\x19\x0a\x11\x63\x68\x61\x6e\x67\x65\x64\x5f\x72\x6f\x77\x5f\x61\x64\x64\x72\x73\x18\x01\x20\x01\x28\x0c\x12\x25\x0a\x0d\x6f\x6c\x64\x5f\x66\x72\x61\x67\x6d\x65\x6e\x74\x73\x18\x02\x20\x03\x28\x0b\x32\x0e\x46\x72\x61\x67\x6d\x65\x6e\x74\x44\x69\x67\x65\x73\x74\x12\x25\x0a\x0d\x6e\x65\x77\x5f\x66\x72\x61\x67\x6d\x65\x6e\x74\x73\x18\x03\x20\x03\x28\x0b\x32\x0e\x46\x72\x61\x67\x6d\x65\x6e\x74\x44\x69\x67\x65\x73\x74\x1a\x39\x0a\x07\x56\x65\x72\x73\x69\x6f\x6e\x12\x17\x0a\x0f\x64\x61\x74\x61\x73\x65\x74\x5f\x76\x65\x72\x73\x69\x6f\x6e\x18\x01\x20\x01\x28\x04\x12\x15\x0a\x06\x67\x72\x6f\x75\x70\x73\x18\x03\x20\x03\x28\x0b\x32\x05\x47\x72\x6f\x75\x70\x42\x09\x0a\x07\x63\x6f\x6e\x74\x65\x6e\x74\x22\xae\x02\x0a\x0d\x53\x68\x61\x72\x64\x4d\x61\x6e\x69\x66\x65\x73\x74\x12\x16\x0a\x08\x73\x68\x61\x72\x64\x5f\x69\x64\x18\x0b\x20\x01\x28\x0b\x32\x04\x55\x55\x49\x44\x12\x0f\x0a\x07\x76\x65\x72\x73\x69\x6f\x6e\x18\x01\x20\x01\x28\x04\x12\x15\x0a\x0d\x73\x68\x61\x72\x64\x5f\x73\x70\x65\x63\x5f\x69\x64\x18\x0a\x20\x01\x28\x0d\x12\x2c\x0a\x13\x73\x68\x61\x72\x64\x5f\x66\x69\x65\x6c\x64\x5f\x65\x6e\x74\x72\x69\x65\x73\x18\x0e\x20\x03\x28\x0b\x32\x0f\x53\x68\x61\x72\x64\x46\x69\x65\x6c\x64\x45\x6e\x74\x72\x79\x12\x14\x0a\x0c\x77\x72\x69\x74\x65\x72\x5f\x65\x70\x6f\x63\x68\x18\x02\x20\x01\x28\x04\x12\x27\x0a\x1f\x72\x65\x70\x6c\x61\x79\x5f\x61\x66\x74\x65\x72\x5f\x77\x61\x6c\x5f\x65\x6e\x74\x72\x79\x5f\x70\x6f\x73\x69\x74\x69\x6f\x6e\x18\x03\x20\x01\x28\x04\x12\x24\x0a\x1c\x77\x61\x6c\x5f\x65\x6e\x74\x72\x79\x5f\x70\x6f\x73\x69\x74\x69\x6f\x6e\x5f\x6c\x61\x73\x74\x5f\x73\x65\x65\x6e\x18\x04\x20\x01\x28\x04\x12\x1a\x0a\x12\x63\x75\x72\x72\x65\x6e\x74\x5f\x67\x65\x6e\x65\x72\x61\x74\x69\x6f\x6e\x18\x06\x20\x01\x28\x04\x12\x2e\x0a\x13\x66\x6c\x75\x73\x68\x65\x64\x5f\x67\x65\x6e\x65\x72\x61\x74\x69\x6f\x6e\x73\x18\x08\x20\x03\x28\x0b\x32\x11\x46\x6c\x75\x73\x68\x65\x64\x47\x65\x6e\x65\x72\x61\x74\x69\x6f\x6e\x22\x32\x0a\x0f\x53\x68\x61\x72\x64\x46\x69\x65\x6c\x64\x45\x6e\x74\x72\x79\x12\x10\x0a\x08\x66\x69\x65\x6c\x64\x5f\x69\x64\x18\x01\x20\x01\x28\x09\x12\x0d\x0a\x05\x76\x61\x6c\x75\x65\x18\x02\x20\x01\x28\x0c\x22\x35\x0a\x11\x46\x6c\x75\x73\x68\x65\x64\x47\x65\x6e\x65\x72\x61\x74\x69\x6f\x6e\x12\x12\x0a\x0a\x67\x65\x6e\x65\x72\x61\x74\x69\x6f\x6e\x18\x01\x20\x01\x28\x04\x12\x0c\x0a\x04\x70\x61\x74\x68\x18\x02\x20\x01\x28\x09\x22\x3e\x0a\x10\x4d\x65\x72\x67\x65\x64\x47\x65\x6e\x65\x72\x61\x74\x69\x6f\x6e\x12\x16\x0a\x08\x73\x68\x61\x72\x64\x5f\x69\x64\x18\x01\x20\x01\x28\x0b\x32\x04\x55\x55\x49\x44\x12\x12\x0a\x0a\x67\x65\x6e\x65\x72\x61\x74\x69\x6f\x6e\x18\x02\x20\x01\x28\x04\x22\x5b\x0a\x14\x49\x6e\x64\x65\x78\x43\x61\x74\x63\x68\x75\x70\x50\x72\x6f\x67\x72\x65\x73\x73\x12\x12\x0a\x0a\x69\x6e\x64\x65\x78\x5f\x6e\x61\x6d\x65\x18\x01\x20\x01\x28\x09\x12\x2f\x0a\x15\x63\x61\x75\x67\x68\x74\x5f\x75\x70\x5f\x67\x65\x6e\x65\x72\x61\x74\x69\x6f\x6e\x73\x18\x02\x20\x03\x28\x0b\x32\x10\x4d\x65\x72\x67\x65\x64\x47\x65\x6e\x65\x72\x61\x74\x69\x6f\x6e\x22\xf5\x01\x0a\x12\x4d\x65\x6d\x57\x61\x6c\x49\x6e\x64\x65\x78\x44\x65\x74\x61\x69\x6c\x73\x12\x1a\x0a\x12\x73\x6e\x61\x70\x73\x68\x6f\x74\x5f\x74\x73\x5f\x6d\x69\x6c\x6c\x69\x73\x18\x01\x20\x01\x28\x03\x12\x12\x0a\x0a\x6e\x75\x6d\x5f\x73\x68\x61\x72\x64\x73\x18\x02\x20\x01\x28\x0d\x12\x18\x0a\x10\x69\x6e\x6c\x69\x6e\x65\x5f\x73\x6e\x61\x70\x73\x68\x6f\x74\x73\x18\x03\x20\x01\x28\x0c\x12\x1e\x0a\x0b\x73\x68\x61\x72\x64\x5f\x73\x70\x65\x63\x73\x18\x07\x20\x03\x28\x0b\x32\x09\x53\x68\x61\x72\x64\x53\x70\x65\x63\x12\x1a\x0a\x12\x6d\x61\x69\x6e\x74\x61\x69\x6e\x65\x64\x5f\x69\x6e\x64\x65\x78\x65\x73\x18\x08\x20\x03\x28\x09\x12\x2c\x0a\x12\x6d\x65\x72\x67\x65\x64\x5f\x67\x65\x6e\x65\x72\x61\x74\x69\x6f\x6e\x73\x18\x09\x20\x03\x28\x0b\x32\x10\x4d\x65\x72\x67\x65\x64\x47\x65\x6e\x65\x72\x61\x74\x69\x6f\x6e\x12\x2b\x0a\x0d\x69\x6e\x64\x65\x78\x5f\x63\x61\x74\x63\x68\x75\x70\x18\x0a\x20\x03\x28\x0b\x32\x14\x49\x6e\x64\x65\x78\x43\x61\x74\x63\x68\x75\x70\x50\x72\x6f\x67\x72\x65\x73\x73\x22\x38\x0a\x09\x53\x68\x61\x72\x64\x53\x70\x65\x63\x12\x0f\x0a\x07\x73\x70\x65\x63\x5f\x69\x64\x18\x01\x20\x01\x28\x0d\x12\x1a\x0a\x06\x66\x69\x65\x6c\x64\x73\x18\x02\x20\x03\x28\x0b\x32\x0a\x53\x68\x61\x72\x64\x46\x69\x65\x6c\x64\x22\x93\x01\x0a\x0a\x53\x68\x61\x72\x64\x46\x69\x65\x6c\x64\x12\x10\x0a\x08\x66\x69\x65\x6c\x64\x5f\x69\x64\x18\x01\x20\x01\x28\x09\x12\x12\x0a\x0a\x73\x6f\x75\x72\x63\x65\x5f\x69\x64\x73\x18\x02\x20\x03\x28\x05\x12\x11\x0a\x09\x74\x72\x61\x6e\x73\x66\x6f\x72\x6d\x18\x03\x20\x01\x28\x09\x12\x12\x0a\x0a\x65\x78\x70\x72\x65\x73\x73\x69\x6f\x6e\x18\x04\x20\x01\x28\x09\x12\x13\x0a\x0b\x72\x65\x73\x75\x6c\x74\x5f\x74\x79\x70\x65\x18\x05\x20\x01\x28\x09\x12\x23\x0a\x0a\x70\x61\x72\x61\x6d\x65\x74\x65\x72\x73\x18\x06\x20\x03\x28\x0b\x32\x0f\x70\x61\x72\x61\x6d\x65\x74\x65\x72\x73\x45\x6e\x74\x72\x79\x62\x06\x70\x72\x6f\x74\x6f\x33"
 
 
+-- | UUID type. encoded as 16 bytes.
 data UUID = UUID
   { uUIDUuid :: !ByteString
   , uUIDUnknownFields :: ![UnknownField]
@@ -135,21 +136,17 @@ instance MessageDecode UUID where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (UUID {uUIDUuid = acc_0, uUIDUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldBytes
-              loop v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
-
-
-instance IsMessage UUID where
-  messageTypeName _ = "lance.table.UUID"
+      loop acc_0 acc_unknown_ =
+        withTagM
+          (pure (UUID {uUIDUuid = acc_0, uUIDUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldBytes
+                loop v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage UUID where
@@ -172,6 +169,9 @@ instance ProtoMessage UUID where
               }
         )
       ]
+
+
+instance IsMessage UUID
 
 
 instance Aeson.ToJSON UUID where
@@ -199,27 +199,122 @@ instance Proto.Extension.HasExtensions UUID where
   setMessageUnknownFields !ufs msg = msg {uUIDUnknownFields = ufs}
 
 
+instance Semigroup UUID where
+  a <> b =
+    UUID
+      { uUIDUuid = if b.uUIDUuid == "" then a.uUIDUuid else b.uUIDUuid
+      , uUIDUnknownFields = a.uUIDUnknownFields <> b.uUIDUnknownFields
+      }
+
+
+instance Monoid UUID where
+  mempty = defaultUUID
+
+
+-- | Manifest is a global section shared between all the files.
 data Manifest = Manifest
   { manifestFields :: !(V.Vector Lance_Pb_Lance_File.Field)
+  -- ^ All fields of the dataset, including the nested fields.
   , manifestSchemaMetadata :: !(Map.Map Text ByteString)
+  -- ^ Schema metadata.
   , manifestFragments :: !(V.Vector DataFragment)
+  -- ^ Fragments of the dataset.
   , manifestVersion :: {-# UNPACK #-} !Word64
+  -- ^ Snapshot version number.
   , manifestVersionAuxData :: {-# UNPACK #-} !Word64
+  -- ^ The file position of the version auxiliary data.
+  --  * It is not inheritable between versions.
+  --  * It is not loaded by default during query.
   , manifestWriterVersion :: !(Maybe Manifest'WriterVersion)
+  -- ^ The version of the writer that created this file.
+  --
+  -- This information may be used to detect whether the file may have known bugs
+  -- associated with that writer.
   , manifestIndexSection :: !(Maybe Word64)
+  -- ^ If present, the file position of the index metadata.
   , manifestTimestamp :: !(Maybe PB_Timestamp.Timestamp)
+  -- ^ Version creation Timestamp, UTC timezone
   , manifestTag :: !Text
+  -- ^ Optional version tag
   , manifestReaderFeatureFlags :: {-# UNPACK #-} !Word64
+  -- ^ Feature flags for readers.
+  --
+  -- A bitmap of flags that indicate which features are required to be able to
+  -- read the table. If a reader does not recognize a flag that is set, it
+  -- should not attempt to read the dataset.
+  --
+  -- Known flags:
+  -- * 1: deletion files are present
+  -- * 2: row ids are stable and stored as part of the fragment metadata.
+  -- * 4: use v2 format (deprecated)
+  -- * 8: table config is present
   , manifestWriterFeatureFlags :: {-# UNPACK #-} !Word64
+  -- ^ Feature flags for writers.
+  --
+  -- A bitmap of flags that indicate which features must be used when writing to the
+  -- dataset. If a writer does not recognize a flag that is set, it should not attempt to
+  -- write to the dataset.
+  --
+  -- The flag identities are the same as for reader_feature_flags, but the values of
+  -- reader_feature_flags and writer_feature_flags are not required to be identical.
   , manifestMaxFragmentId :: !(Maybe Word32)
+  -- ^ The highest fragment ID that has been used so far.
+  --
+  -- This ID is not guaranteed to be present in the current version, but it may
+  -- have been used in previous versions.
+  --
+  -- For a single fragment, will be zero. For no fragments, will be absent.
   , manifestTransactionFile :: !Text
+  -- ^ Path to the transaction file, relative to `{root}/_transactions`. The file at that
+  -- location contains a wire-format serialized Transaction message representing the
+  -- transaction that created this version.
+  --
+  -- This string field "transaction_file" may be empty if no transaction file was written.
+  --
+  -- The path format is "{read_version}-{uuid}.txn" where {read_version} is the version of
+  -- the table the transaction read from (serialized to decimal with no padding digits),
+  -- and {uuid} is a hyphen-separated UUID.
   , manifestTransactionSection :: !(Maybe Word64)
+  -- ^ The file position of the transaction content. None if transaction is empty
+  -- This transaction content begins with the transaction content length as u32
+  -- If the transaction proto message has a length of `len`, the message ends at `len` + 4
   , manifestNextRowId :: {-# UNPACK #-} !Word64
+  -- ^ The next unused row id. If zero, then the table does not have any rows.
+  --
+  -- This is only used if the "stable_row_ids" feature flag is set.
   , manifestDataFormat :: !(Maybe Manifest'DataStorageFormat)
+  -- ^ The data storage format
+  --
+  -- This specifies what format is used to store the data files.
   , manifestConfig :: !(Map.Map Text Text)
+  -- ^ Table config.
+  --
+  -- Keys with the prefix "lance." are reserved for the Lance library. Other
+  -- libraries may wish to similarly prefix their configuration keys
+  -- appropriately.
   , manifestTableMetadata :: !(Map.Map Text Text)
+  -- ^ Metadata associated with the table.
+  --
+  -- This is a key-value map that can be used to store arbitrary metadata
+  -- associated with the table.
+  --
+  -- This is different than configuration, which is used to tell libraries how
+  -- to read, write, or manage the table.
+  --
+  -- This is different than schema metadata, which is used to describe the
+  -- data itself and is attached to the output schema of scans.
   , manifestBasePaths :: !(V.Vector BasePath)
+  -- ^ The base paths of data files.
+  --
+  -- This is used to determine the base path of a data file. In common cases data file paths are under current dataset base path.
+  -- But for shallow cloning, importing file and other multi-tier storage cases, the actual data files could be outside of the current dataset.
+  -- This field is used with the `base_id` in `lance.file.File` and `lance.file.DeletionFile`.
+  --
+  -- For example, if we have a dataset with base path `s3://bucket/dataset`, we have a DataFile with base_id 0, we get the actual data file path by:
+  -- base_paths[id = 0] + /data/ + file.path
+  -- the key(a.k.a index) starts from 0, increased by 1 for each new base path.
   , manifestBranch :: !(Maybe Text)
+  -- ^ The branch of the dataset. None means main branch.
   , manifestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -228,9 +323,38 @@ data Manifest = Manifest
 
 data Manifest'WriterVersion = Manifest'WriterVersion
   { manifestWriterVersionLibrary :: !Text
+  -- ^ The name of the library that created this file.
   , manifestWriterVersionVersion :: !Text
+  -- ^ The version of the library that created this file. Because we cannot assume
+  -- that the library is semantically versioned, this is a string. However, if it
+  -- is semantically versioned, it should be a valid semver string without any 'v'
+  -- prefix. For example: `2.0.0`, `2.0.0-rc.1`.
+  --
+  -- For forward compatibility with older readers, when writing new manifests this
+  -- field should contain only the core version (major.minor.patch) without any
+  -- prerelease or build metadata. The prerelease/build info should be stored in
+  -- the separate prerelease and build_metadata fields instead.
   , manifestWriterVersionPrerelease :: !(Maybe Text)
+  -- ^ Optional semver prerelease identifier.
+  --
+  -- This field stores the prerelease portion of a semantic version separately
+  -- from the core version number. For example, if the full version is "2.0.0-rc.1",
+  -- the version field would contain "2.0.0" and prerelease would contain "rc.1".
+  --
+  -- This separation ensures forward compatibility: older readers can parse the
+  -- clean version field without errors, while newer readers can reconstruct the
+  -- full semantic version by combining version, prerelease, and build_metadata.
+  --
+  -- If absent, the version field is used as-is.
   , manifestWriterVersionBuildMetadata :: !(Maybe Text)
+  -- ^ Optional semver build metadata.
+  --
+  -- This field stores the build metadata portion of a semantic version separately
+  -- from the core version number. For example, if the full version is
+  -- "2.0.0-rc.1+build.123", the version field would contain "2.0.0", prerelease
+  -- would contain "rc.1", and build_metadata would contain "build.123".
+  --
+  -- If absent, no build metadata is present.
   , manifestWriterVersionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -270,30 +394,26 @@ instance MessageDecode Manifest'WriterVersion where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" "" Nothing Nothing []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Manifest'WriterVersion {manifestWriterVersionLibrary = acc_0, manifestWriterVersionVersion = acc_1, manifestWriterVersionPrerelease = acc_2, manifestWriterVersionBuildMetadata = acc_3, manifestWriterVersionUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldString
-              loop v acc_1 acc_2 acc_3 acc_unknown_
-            2 -> do
-              v <- decodeFieldString
-              loop acc_0 v acc_2 acc_3 acc_unknown_
-            3 -> do
-              v <- decodeFieldString
-              loop acc_0 acc_1 (Just v) acc_3 acc_unknown_
-            4 -> do
-              v <- decodeFieldString
-              loop acc_0 acc_1 acc_2 (Just v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 (uf : acc_unknown_)
-
-
-instance IsMessage Manifest'WriterVersion where
-  messageTypeName _ = "lance.table.Manifest.WriterVersion"
+      loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ =
+        withTagM
+          (pure (Manifest'WriterVersion {manifestWriterVersionLibrary = acc_0, manifestWriterVersionVersion = acc_1, manifestWriterVersionPrerelease = acc_2, manifestWriterVersionBuildMetadata = acc_3, manifestWriterVersionUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldString
+                loop v acc_1 acc_2 acc_3 acc_unknown_
+              2 -> do
+                v <- decodeFieldString
+                loop acc_0 v acc_2 acc_3 acc_unknown_
+              3 -> do
+                v <- decodeFieldString
+                loop acc_0 acc_1 (Just v) acc_3 acc_unknown_
+              4 -> do
+                v <- decodeFieldString
+                loop acc_0 acc_1 acc_2 (Just v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage Manifest'WriterVersion where
@@ -354,6 +474,9 @@ instance ProtoMessage Manifest'WriterVersion where
       ]
 
 
+instance IsMessage Manifest'WriterVersion
+
+
 instance Aeson.ToJSON Manifest'WriterVersion where
   toJSON msg =
     jsonObject
@@ -388,9 +511,29 @@ instance Proto.Extension.HasExtensions Manifest'WriterVersion where
   setMessageUnknownFields !ufs msg = msg {manifestWriterVersionUnknownFields = ufs}
 
 
+instance Semigroup Manifest'WriterVersion where
+  a <> b =
+    Manifest'WriterVersion
+      { manifestWriterVersionLibrary = if b.manifestWriterVersionLibrary == "" then a.manifestWriterVersionLibrary else b.manifestWriterVersionLibrary
+      , manifestWriterVersionVersion = if b.manifestWriterVersionVersion == "" then a.manifestWriterVersionVersion else b.manifestWriterVersionVersion
+      , manifestWriterVersionPrerelease = case b.manifestWriterVersionPrerelease of Nothing -> a.manifestWriterVersionPrerelease; x -> x
+      , manifestWriterVersionBuildMetadata = case b.manifestWriterVersionBuildMetadata of Nothing -> a.manifestWriterVersionBuildMetadata; x -> x
+      , manifestWriterVersionUnknownFields = a.manifestWriterVersionUnknownFields <> b.manifestWriterVersionUnknownFields
+      }
+
+
+instance Monoid Manifest'WriterVersion where
+  mempty = defaultManifest'WriterVersion
+
+
 data Manifest'DataStorageFormat = Manifest'DataStorageFormat
   { manifestDataStorageFormatFileFormat :: !Text
+  -- ^ The format of the data files (e.g. "lance")
   , manifestDataStorageFormatVersion :: !Text
+  -- ^ The max format version of the data files. The format of the version can vary by
+  -- file_format and is not required to follow semver.
+  --
+  -- Every file in this version of the dataset has the same file_format version.
   , manifestDataStorageFormatUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -424,24 +567,20 @@ instance MessageDecode Manifest'DataStorageFormat where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" "" []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Manifest'DataStorageFormat {manifestDataStorageFormatFileFormat = acc_0, manifestDataStorageFormatVersion = acc_1, manifestDataStorageFormatUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldString
-              loop v acc_1 acc_unknown_
-            2 -> do
-              v <- decodeFieldString
-              loop acc_0 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
-
-
-instance IsMessage Manifest'DataStorageFormat where
-  messageTypeName _ = "lance.table.Manifest.DataStorageFormat"
+      loop acc_0 acc_1 acc_unknown_ =
+        withTagM
+          (pure (Manifest'DataStorageFormat {manifestDataStorageFormatFileFormat = acc_0, manifestDataStorageFormatVersion = acc_1, manifestDataStorageFormatUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldString
+                loop v acc_1 acc_unknown_
+              2 -> do
+                v <- decodeFieldString
+                loop acc_0 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage Manifest'DataStorageFormat where
@@ -478,6 +617,9 @@ instance ProtoMessage Manifest'DataStorageFormat where
       ]
 
 
+instance IsMessage Manifest'DataStorageFormat
+
+
 instance Aeson.ToJSON Manifest'DataStorageFormat where
   toJSON msg =
     jsonObject
@@ -504,6 +646,19 @@ instance Hashable Manifest'DataStorageFormat where
 instance Proto.Extension.HasExtensions Manifest'DataStorageFormat where
   messageUnknownFields = manifestDataStorageFormatUnknownFields
   setMessageUnknownFields !ufs msg = msg {manifestDataStorageFormatUnknownFields = ufs}
+
+
+instance Semigroup Manifest'DataStorageFormat where
+  a <> b =
+    Manifest'DataStorageFormat
+      { manifestDataStorageFormatFileFormat = if b.manifestDataStorageFormatFileFormat == "" then a.manifestDataStorageFormatFileFormat else b.manifestDataStorageFormatFileFormat
+      , manifestDataStorageFormatVersion = if b.manifestDataStorageFormatVersion == "" then a.manifestDataStorageFormatVersion else b.manifestDataStorageFormatVersion
+      , manifestDataStorageFormatUnknownFields = a.manifestDataStorageFormatUnknownFields <> b.manifestDataStorageFormatUnknownFields
+      }
+
+
+instance Monoid Manifest'DataStorageFormat where
+  mempty = defaultManifest'DataStorageFormat
 
 
 defaultManifest :: Manifest
@@ -587,87 +742,83 @@ instance MessageDecode Manifest where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop V.empty Map.empty V.empty 0 0 Nothing Nothing Nothing "" 0 0 Nothing "" Nothing 0 Nothing Map.empty Map.empty V.empty Nothing []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Manifest {manifestFields = acc_0, manifestSchemaMetadata = acc_1, manifestFragments = acc_2, manifestVersion = acc_3, manifestVersionAuxData = acc_4, manifestWriterVersion = acc_5, manifestIndexSection = acc_6, manifestTimestamp = acc_7, manifestTag = acc_8, manifestReaderFeatureFlags = acc_9, manifestWriterFeatureFlags = acc_10, manifestMaxFragmentId = acc_11, manifestTransactionFile = acc_12, manifestTransactionSection = acc_13, manifestNextRowId = acc_14, manifestDataFormat = acc_15, manifestConfig = acc_16, manifestTableMetadata = acc_17, manifestBasePaths = acc_18, manifestBranch = acc_19, manifestUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldMessage
-              loop (acc_0 <> V.singleton v) acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            5 -> do
-              bs' <- getLengthDelimited
-              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldBytes "" "") bs'
-              case decodeEntry of
-                Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-                Right (mk', mv') -> loop acc_0 (Map.union acc_1 (Map.singleton mk' mv')) acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            2 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 (acc_2 <> V.singleton v) acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            3 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            4 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            13 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v) acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            6 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v) acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            7 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (Just v) acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            8 -> do
-              v <- decodeFieldString
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 v acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            9 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 v acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            10 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 v acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            11 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 (Just v) acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            12 -> do
-              v <- decodeFieldString
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 v acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            21 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 (Just v) acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            14 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 v acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            15 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 (Just v) acc_16 acc_17 acc_18 acc_19 acc_unknown_
-            16 -> do
-              bs' <- getLengthDelimited
-              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
-              case decodeEntry of
-                Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-                Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 (Map.union acc_16 (Map.singleton mk' mv')) acc_17 acc_18 acc_19 acc_unknown_
-            19 -> do
-              bs' <- getLengthDelimited
-              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
-              case decodeEntry of
-                Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
-                Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 (Map.union acc_17 (Map.singleton mk' mv')) acc_18 acc_19 acc_unknown_
-            18 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 (acc_18 <> V.singleton v) acc_19 acc_unknown_
-            20 -> do
-              v <- decodeFieldString
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 (Just v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 (uf : acc_unknown_)
-
-
-instance IsMessage Manifest where
-  messageTypeName _ = "lance.table.Manifest"
+      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_ =
+        withTagM
+          (pure (Manifest {manifestFields = acc_0, manifestSchemaMetadata = acc_1, manifestFragments = acc_2, manifestVersion = acc_3, manifestVersionAuxData = acc_4, manifestWriterVersion = acc_5, manifestIndexSection = acc_6, manifestTimestamp = acc_7, manifestTag = acc_8, manifestReaderFeatureFlags = acc_9, manifestWriterFeatureFlags = acc_10, manifestMaxFragmentId = acc_11, manifestTransactionFile = acc_12, manifestTransactionSection = acc_13, manifestNextRowId = acc_14, manifestDataFormat = acc_15, manifestConfig = acc_16, manifestTableMetadata = acc_17, manifestBasePaths = acc_18, manifestBranch = acc_19, manifestUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldMessage
+                loop (acc_0 <> V.singleton v) acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              5 -> do
+                bs' <- getLengthDelimited
+                let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldBytes "" "") bs'
+                case decodeEntry of
+                  Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+                  Right (mk', mv') -> loop acc_0 (Map.union acc_1 (Map.singleton mk' mv')) acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              2 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 (acc_2 <> V.singleton v) acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              3 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              4 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              13 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v) acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              6 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v) acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              7 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (Just v) acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              8 -> do
+                v <- decodeFieldString
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 v acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              9 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 v acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              10 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 v acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              11 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 (Just v) acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              12 -> do
+                v <- decodeFieldString
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 v acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              21 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 (Just v) acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              14 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 v acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              15 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 (Just v) acc_16 acc_17 acc_18 acc_19 acc_unknown_
+              16 -> do
+                bs' <- getLengthDelimited
+                let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
+                case decodeEntry of
+                  Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+                  Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 (Map.union acc_16 (Map.singleton mk' mv')) acc_17 acc_18 acc_19 acc_unknown_
+              19 -> do
+                bs' <- getLengthDelimited
+                let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
+                case decodeEntry of
+                  Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_unknown_
+                  Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 (Map.union acc_17 (Map.singleton mk' mv')) acc_18 acc_19 acc_unknown_
+              18 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 (acc_18 <> V.singleton v) acc_19 acc_unknown_
+              20 -> do
+                v <- decodeFieldString
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 (Just v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage Manifest where
@@ -920,6 +1071,9 @@ instance ProtoMessage Manifest where
       ]
 
 
+instance IsMessage Manifest
+
+
 instance Aeson.ToJSON Manifest where
   toJSON msg =
     jsonObject
@@ -1002,11 +1156,49 @@ instance Proto.Extension.HasExtensions Manifest where
   setMessageUnknownFields !ufs msg = msg {manifestUnknownFields = ufs}
 
 
+instance Semigroup Manifest where
+  a <> b =
+    Manifest
+      { manifestFields = a.manifestFields <> b.manifestFields
+      , manifestSchemaMetadata = a.manifestSchemaMetadata <> b.manifestSchemaMetadata
+      , manifestFragments = a.manifestFragments <> b.manifestFragments
+      , manifestVersion = if b.manifestVersion == 0 then a.manifestVersion else b.manifestVersion
+      , manifestVersionAuxData = if b.manifestVersionAuxData == 0 then a.manifestVersionAuxData else b.manifestVersionAuxData
+      , manifestWriterVersion = case b.manifestWriterVersion of Nothing -> a.manifestWriterVersion; x -> x
+      , manifestIndexSection = case b.manifestIndexSection of Nothing -> a.manifestIndexSection; x -> x
+      , manifestTimestamp = case b.manifestTimestamp of Nothing -> a.manifestTimestamp; x -> x
+      , manifestTag = if b.manifestTag == "" then a.manifestTag else b.manifestTag
+      , manifestReaderFeatureFlags = if b.manifestReaderFeatureFlags == 0 then a.manifestReaderFeatureFlags else b.manifestReaderFeatureFlags
+      , manifestWriterFeatureFlags = if b.manifestWriterFeatureFlags == 0 then a.manifestWriterFeatureFlags else b.manifestWriterFeatureFlags
+      , manifestMaxFragmentId = case b.manifestMaxFragmentId of Nothing -> a.manifestMaxFragmentId; x -> x
+      , manifestTransactionFile = if b.manifestTransactionFile == "" then a.manifestTransactionFile else b.manifestTransactionFile
+      , manifestTransactionSection = case b.manifestTransactionSection of Nothing -> a.manifestTransactionSection; x -> x
+      , manifestNextRowId = if b.manifestNextRowId == 0 then a.manifestNextRowId else b.manifestNextRowId
+      , manifestDataFormat = case b.manifestDataFormat of Nothing -> a.manifestDataFormat; x -> x
+      , manifestConfig = a.manifestConfig <> b.manifestConfig
+      , manifestTableMetadata = a.manifestTableMetadata <> b.manifestTableMetadata
+      , manifestBasePaths = a.manifestBasePaths <> b.manifestBasePaths
+      , manifestBranch = case b.manifestBranch of Nothing -> a.manifestBranch; x -> x
+      , manifestUnknownFields = a.manifestUnknownFields <> b.manifestUnknownFields
+      }
+
+
+instance Monoid Manifest where
+  mempty = defaultManifest
+
+
+-- | external dataset base path
 data BasePath = BasePath
   { basePathId :: {-# UNPACK #-} !Word32
   , basePathName :: !(Maybe Text)
+  -- ^ This is an alias name of the base path, it is optional.
+  -- When we use shallow clone and the target version is a tag, the tag name will be set here.
   , basePathIsDatasetRoot :: {-# UNPACK #-} !Bool
+  -- ^ Flag indicating whether this path is a dataset root path or file directory:
+  -- - true:  Path is a dataset root (actual files under subdirectories like `data`, '_deletions')
+  -- - false: Path is a direct file directory (scenario like importing files)
   , basePathPath :: !Text
+  -- ^ Note: This absolute path will be directly used by Path:parse(),
   , basePathUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -1046,30 +1238,26 @@ instance MessageDecode BasePath where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 Nothing False "" []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (BasePath {basePathId = acc_0, basePathName = acc_1, basePathIsDatasetRoot = acc_2, basePathPath = acc_3, basePathUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop v acc_1 acc_2 acc_3 acc_unknown_
-            2 -> do
-              v <- decodeFieldString
-              loop acc_0 (Just v) acc_2 acc_3 acc_unknown_
-            3 -> do
-              v <- decodeFieldBool
-              loop acc_0 acc_1 v acc_3 acc_unknown_
-            4 -> do
-              v <- decodeFieldString
-              loop acc_0 acc_1 acc_2 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 (uf : acc_unknown_)
-
-
-instance IsMessage BasePath where
-  messageTypeName _ = "lance.table.BasePath"
+      loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ =
+        withTagM
+          (pure (BasePath {basePathId = acc_0, basePathName = acc_1, basePathIsDatasetRoot = acc_2, basePathPath = acc_3, basePathUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop v acc_1 acc_2 acc_3 acc_unknown_
+              2 -> do
+                v <- decodeFieldString
+                loop acc_0 (Just v) acc_2 acc_3 acc_unknown_
+              3 -> do
+                v <- decodeFieldBool
+                loop acc_0 acc_1 v acc_3 acc_unknown_
+              4 -> do
+                v <- decodeFieldString
+                loop acc_0 acc_1 acc_2 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage BasePath where
@@ -1130,6 +1318,9 @@ instance ProtoMessage BasePath where
       ]
 
 
+instance IsMessage BasePath
+
+
 instance Aeson.ToJSON BasePath where
   toJSON msg =
     jsonObject
@@ -1164,8 +1355,27 @@ instance Proto.Extension.HasExtensions BasePath where
   setMessageUnknownFields !ufs msg = msg {basePathUnknownFields = ufs}
 
 
+instance Semigroup BasePath where
+  a <> b =
+    BasePath
+      { basePathId = if b.basePathId == 0 then a.basePathId else b.basePathId
+      , basePathName = case b.basePathName of Nothing -> a.basePathName; x -> x
+      , basePathIsDatasetRoot = if b.basePathIsDatasetRoot == False then a.basePathIsDatasetRoot else b.basePathIsDatasetRoot
+      , basePathPath = if b.basePathPath == "" then a.basePathPath else b.basePathPath
+      , basePathUnknownFields = a.basePathUnknownFields <> b.basePathUnknownFields
+      }
+
+
+instance Monoid BasePath where
+  mempty = defaultBasePath
+
+
+{- | Auxiliary Data attached to a version.
+Only load on-demand.
+-}
 data VersionAuxData = VersionAuxData
   { versionAuxDataMetadata :: !(Map.Map Text ByteString)
+  -- ^ key-value metadata.
   , versionAuxDataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -1196,24 +1406,20 @@ instance MessageDecode VersionAuxData where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop Map.empty []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (VersionAuxData {versionAuxDataMetadata = acc_0, versionAuxDataUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            3 -> do
-              bs' <- getLengthDelimited
-              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldBytes "" "") bs'
-              case decodeEntry of
-                Left _ -> loop acc_0 acc_unknown_
-                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
-
-
-instance IsMessage VersionAuxData where
-  messageTypeName _ = "lance.table.VersionAuxData"
+      loop acc_0 acc_unknown_ =
+        withTagM
+          (pure (VersionAuxData {versionAuxDataMetadata = acc_0, versionAuxDataUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              3 -> do
+                bs' <- getLengthDelimited
+                let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldBytes "" "") bs'
+                case decodeEntry of
+                  Left _ -> loop acc_0 acc_unknown_
+                  Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage VersionAuxData where
@@ -1236,6 +1442,9 @@ instance ProtoMessage VersionAuxData where
               }
         )
       ]
+
+
+instance IsMessage VersionAuxData
 
 
 instance Aeson.ToJSON VersionAuxData where
@@ -1263,17 +1472,67 @@ instance Proto.Extension.HasExtensions VersionAuxData where
   setMessageUnknownFields !ufs msg = msg {versionAuxDataUnknownFields = ufs}
 
 
+instance Semigroup VersionAuxData where
+  a <> b =
+    VersionAuxData
+      { versionAuxDataMetadata = a.versionAuxDataMetadata <> b.versionAuxDataMetadata
+      , versionAuxDataUnknownFields = a.versionAuxDataUnknownFields <> b.versionAuxDataUnknownFields
+      }
+
+
+instance Monoid VersionAuxData where
+  mempty = defaultVersionAuxData
+
+
+-- | Metadata describing an index.
 data IndexMetadata = IndexMetadata
   { indexMetadataUuid :: !(Maybe UUID)
+  -- ^ Unique ID of an index. It is unique across all the dataset versions.
   , indexMetadataFields :: !(VU.Vector Int32)
+  -- ^ The columns to build the index. These refer to file.Field.id.
   , indexMetadataName :: !Text
+  -- ^ Index name. Must be unique within one dataset version.
   , indexMetadataDatasetVersion :: {-# UNPACK #-} !Word64
+  -- ^ The version of the dataset this index was built from.
   , indexMetadataFragmentBitmap :: !ByteString
+  -- ^ A bitmap of the included fragment ids.
+  --
+  -- This may by used to determine how much of the dataset is covered by the
+  -- index. This information can be retrieved from the dataset by looking at
+  -- the dataset at `dataset_version`. However, since the old version may be
+  -- deleted while the index is still in use, this information is also stored
+  -- in the index.
+  --
+  -- The bitmap is stored as a 32-bit Roaring bitmap.
   , indexMetadataIndexDetails :: !(Maybe PB_Any.Any)
+  -- ^ Details, specific to the index type, which are needed to load / interpret the index
+  --
+  -- Indices should avoid putting large amounts of information in this field, as it will
+  -- bloat the manifest.
+  --
+  -- Indexes are plugins, and so the format of the details message is flexible and not fully
+  -- defined by the table format.  However, there are some conventions that should be followed:
+  --
+  -- - When Lance APIs refer to indexes they will use the type URL of the index details as the
+  --   identifier for the index type.  If a user provides a simple string identifier like
+  --   "btree" then it will be converted to "/lance.table.BTreeIndexDetails"
+  -- - Type URLs comparisons are case-insensitive.  Thereform an index must have a unique type
+  --   URL ignoring case.
   , indexMetadataIndexVersion :: !(Maybe Int32)
+  -- ^ The minimum lance version that this index is compatible with.
   , indexMetadataCreatedAt :: !(Maybe Word64)
+  -- ^ Timestamp when the index was created (UTC timestamp in milliseconds since epoch)
+  --
+  -- This field is optional for backward compatibility. For existing indices created before
+  -- this field was added, this will be None/null.
   , indexMetadataBaseId :: !(Maybe Word32)
+  -- ^ The base path index of the data file. Used when the file is imported or referred from another dataset.
+  -- Lance use it as key of the base_paths field in Manifest to determine the actual base path of the data file.
   , indexMetadataFiles :: !(V.Vector IndexFile)
+  -- ^ List of files and their sizes for this index segment.
+  -- This enables skipping HEAD calls when opening indices and allows reporting
+  -- of index sizes without extra IO.
+  -- If this is empty, the index files sizes are unknown.
   , indexMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -1331,52 +1590,48 @@ instance MessageDecode IndexMetadata where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop Nothing VU.empty "" 0 "" Nothing Nothing Nothing Nothing V.empty []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (IndexMetadata {indexMetadataUuid = acc_0, indexMetadataFields = acc_1, indexMetadataName = acc_2, indexMetadataDatasetVersion = acc_3, indexMetadataFragmentBitmap = acc_4, indexMetadataIndexDetails = acc_5, indexMetadataIndexVersion = acc_6, indexMetadataCreatedAt = acc_7, indexMetadataBaseId = acc_8, indexMetadataFiles = acc_9, indexMetadataUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldMessage
-              loop (Just v) acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_
-            2 -> case wt of
-              WireLengthDelimited -> do
-                vs <- (VU.map fromIntegral <$> decodePackedVarint)
-                loop acc_0 (acc_1 <> vs) acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_
-              _ -> do
+      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_ =
+        withTagM
+          (pure (IndexMetadata {indexMetadataUuid = acc_0, indexMetadataFields = acc_1, indexMetadataName = acc_2, indexMetadataDatasetVersion = acc_3, indexMetadataFragmentBitmap = acc_4, indexMetadataIndexDetails = acc_5, indexMetadataIndexVersion = acc_6, indexMetadataCreatedAt = acc_7, indexMetadataBaseId = acc_8, indexMetadataFiles = acc_9, indexMetadataUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldMessage
+                loop (Just v) acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_
+              2 -> case wt of
+                2 -> do
+                  vs <- (VU.map fromIntegral <$> decodePackedVarint)
+                  loop acc_0 (acc_1 <> vs) acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_
+                _ -> do
+                  v <- (fromIntegral <$> decodeFieldVarint)
+                  loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_
+              3 -> do
+                v <- decodeFieldString
+                loop acc_0 acc_1 v acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_
+              4 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_
+              5 -> do
+                v <- decodeFieldBytes
+                loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_
+              6 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v) acc_6 acc_7 acc_8 acc_9 acc_unknown_
+              7 -> do
                 v <- (fromIntegral <$> decodeFieldVarint)
-                loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_
-            3 -> do
-              v <- decodeFieldString
-              loop acc_0 acc_1 v acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_
-            4 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_
-            5 -> do
-              v <- decodeFieldBytes
-              loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7 acc_8 acc_9 acc_unknown_
-            6 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v) acc_6 acc_7 acc_8 acc_9 acc_unknown_
-            7 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v) acc_7 acc_8 acc_9 acc_unknown_
-            8 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (Just v) acc_8 acc_9 acc_unknown_
-            9 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 (Just v) acc_9 acc_unknown_
-            10 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 (acc_9 <> V.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 (uf : acc_unknown_)
-
-
-instance IsMessage IndexMetadata where
-  messageTypeName _ = "lance.table.IndexMetadata"
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v) acc_7 acc_8 acc_9 acc_unknown_
+              8 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (Just v) acc_8 acc_9 acc_unknown_
+              9 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 (Just v) acc_9 acc_unknown_
+              10 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 (acc_9 <> V.singleton v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage IndexMetadata where
@@ -1509,6 +1764,9 @@ instance ProtoMessage IndexMetadata where
       ]
 
 
+instance IsMessage IndexMetadata
+
+
 instance Aeson.ToJSON IndexMetadata where
   toJSON msg =
     jsonObject
@@ -1561,9 +1819,33 @@ instance Proto.Extension.HasExtensions IndexMetadata where
   setMessageUnknownFields !ufs msg = msg {indexMetadataUnknownFields = ufs}
 
 
+instance Semigroup IndexMetadata where
+  a <> b =
+    IndexMetadata
+      { indexMetadataUuid = case b.indexMetadataUuid of Nothing -> a.indexMetadataUuid; x -> x
+      , indexMetadataFields = a.indexMetadataFields <> b.indexMetadataFields
+      , indexMetadataName = if b.indexMetadataName == "" then a.indexMetadataName else b.indexMetadataName
+      , indexMetadataDatasetVersion = if b.indexMetadataDatasetVersion == 0 then a.indexMetadataDatasetVersion else b.indexMetadataDatasetVersion
+      , indexMetadataFragmentBitmap = if b.indexMetadataFragmentBitmap == "" then a.indexMetadataFragmentBitmap else b.indexMetadataFragmentBitmap
+      , indexMetadataIndexDetails = case b.indexMetadataIndexDetails of Nothing -> a.indexMetadataIndexDetails; x -> x
+      , indexMetadataIndexVersion = case b.indexMetadataIndexVersion of Nothing -> a.indexMetadataIndexVersion; x -> x
+      , indexMetadataCreatedAt = case b.indexMetadataCreatedAt of Nothing -> a.indexMetadataCreatedAt; x -> x
+      , indexMetadataBaseId = case b.indexMetadataBaseId of Nothing -> a.indexMetadataBaseId; x -> x
+      , indexMetadataFiles = a.indexMetadataFiles <> b.indexMetadataFiles
+      , indexMetadataUnknownFields = a.indexMetadataUnknownFields <> b.indexMetadataUnknownFields
+      }
+
+
+instance Monoid IndexMetadata where
+  mempty = defaultIndexMetadata
+
+
+-- | Metadata about a single file within an index segment.
 data IndexFile = IndexFile
   { indexFilePath :: !Text
+  -- ^ Path relative to the index directory (e.g., "index.idx", "auxiliary.idx")
   , indexFileSizeBytes :: {-# UNPACK #-} !Word64
+  -- ^ Size of the file in bytes
   , indexFileUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -1597,24 +1879,20 @@ instance MessageDecode IndexFile where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" 0 []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (IndexFile {indexFilePath = acc_0, indexFileSizeBytes = acc_1, indexFileUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldString
-              loop v acc_1 acc_unknown_
-            2 -> do
-              v <- decodeFieldVarint
-              loop acc_0 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
-
-
-instance IsMessage IndexFile where
-  messageTypeName _ = "lance.table.IndexFile"
+      loop acc_0 acc_1 acc_unknown_ =
+        withTagM
+          (pure (IndexFile {indexFilePath = acc_0, indexFileSizeBytes = acc_1, indexFileUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldString
+                loop v acc_1 acc_unknown_
+              2 -> do
+                v <- decodeFieldVarint
+                loop acc_0 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage IndexFile where
@@ -1651,6 +1929,9 @@ instance ProtoMessage IndexFile where
       ]
 
 
+instance IsMessage IndexFile
+
+
 instance Aeson.ToJSON IndexFile where
   toJSON msg =
     jsonObject
@@ -1679,6 +1960,20 @@ instance Proto.Extension.HasExtensions IndexFile where
   setMessageUnknownFields !ufs msg = msg {indexFileUnknownFields = ufs}
 
 
+instance Semigroup IndexFile where
+  a <> b =
+    IndexFile
+      { indexFilePath = if b.indexFilePath == "" then a.indexFilePath else b.indexFilePath
+      , indexFileSizeBytes = if b.indexFileSizeBytes == 0 then a.indexFileSizeBytes else b.indexFileSizeBytes
+      , indexFileUnknownFields = a.indexFileUnknownFields <> b.indexFileUnknownFields
+      }
+
+
+instance Monoid IndexFile where
+  mempty = defaultIndexFile
+
+
+-- | Index Section, containing a list of index metadata for one dataset version.
 data IndexSection = IndexSection
   { indexSectionIndices :: !(V.Vector IndexMetadata)
   , indexSectionUnknownFields :: ![UnknownField]
@@ -1711,21 +2006,17 @@ instance MessageDecode IndexSection where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop V.empty []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (IndexSection {indexSectionIndices = acc_0, indexSectionUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldMessage
-              loop (acc_0 <> V.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
-
-
-instance IsMessage IndexSection where
-  messageTypeName _ = "lance.table.IndexSection"
+      loop acc_0 acc_unknown_ =
+        withTagM
+          (pure (IndexSection {indexSectionIndices = acc_0, indexSectionUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldMessage
+                loop (acc_0 <> V.singleton v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage IndexSection where
@@ -1748,6 +2039,9 @@ instance ProtoMessage IndexSection where
               }
         )
       ]
+
+
+instance IsMessage IndexSection
 
 
 instance Aeson.ToJSON IndexSection where
@@ -1775,23 +2069,54 @@ instance Proto.Extension.HasExtensions IndexSection where
   setMessageUnknownFields !ufs msg = msg {indexSectionUnknownFields = ufs}
 
 
+instance Semigroup IndexSection where
+  a <> b =
+    IndexSection
+      { indexSectionIndices = a.indexSectionIndices <> b.indexSectionIndices
+      , indexSectionUnknownFields = a.indexSectionUnknownFields <> b.indexSectionUnknownFields
+      }
+
+
+instance Monoid IndexSection where
+  mempty = defaultIndexSection
+
+
+{- | A DataFragment is a set of files which represent the different columns of the same
+rows. If column exists in the schema of a dataset, but the file for that column does
+not exist within a DataFragment of that dataset, that column consists entirely of
+nulls.
+-}
 data DataFragment = DataFragment
   { dataFragmentId :: {-# UNPACK #-} !Word64
+  -- ^ The ID of a DataFragment is unique within a dataset.
   , dataFragmentFiles :: !(V.Vector DataFile)
   , dataFragmentDeletionFile :: !(Maybe DeletionFile)
+  -- ^ File that indicates which rows, if any, should be considered deleted.
   , dataFragmentRowIdSequence :: !(Maybe DataFragment'RowIdSequence)
   , dataFragmentLastUpdatedAtVersionSequence :: !(Maybe DataFragment'LastUpdatedAtVersionSequence)
   , dataFragmentCreatedAtVersionSequence :: !(Maybe DataFragment'CreatedAtVersionSequence)
   , dataFragmentPhysicalRows :: {-# UNPACK #-} !Word64
+  -- ^ Number of original rows in the fragment, this includes rows that are now marked with
+  -- deletion tombstones. To compute the current number of rows, subtract
+  -- `deletion_file.num_deleted_rows` from this value.
   , dataFragmentUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 
 
+{- | TODO: What's the simplest way we can allow an inline tombstone bitmap?
+A serialized RowIdSequence message (see rowids.proto).
+
+These are the row ids for the fragment, in order of the rows as they appear.
+That is, if a fragment has 3 rows, and the row ids are [1, 42, 3], then the
+first row is row 1, the second row is row 42, and the third row is row 3.
+-}
 data DataFragment'RowIdSequence
-  = DataFragment'RowIdSequence'InlineRowIds !ByteString
-  | DataFragment'RowIdSequence'ExternalRowIds !ExternalFile
+  = -- | If small (< 200KB), the row ids are stored inline.
+    DataFragment'RowIdSequence'InlineRowIds !ByteString
+  | -- | Otherwise, stored as part of a file.
+    DataFragment'RowIdSequence'ExternalRowIds !ExternalFile
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 
@@ -1810,8 +2135,10 @@ instance Hashable DataFragment'RowIdSequence where
 
 
 data DataFragment'LastUpdatedAtVersionSequence
-  = DataFragment'LastUpdatedAtVersionSequence'InlineLastUpdatedAtVersions !ByteString
-  | DataFragment'LastUpdatedAtVersionSequence'ExternalLastUpdatedAtVersions !ExternalFile
+  = -- | If small (< 200KB), the row latest updated versions are stored inline.
+    DataFragment'LastUpdatedAtVersionSequence'InlineLastUpdatedAtVersions !ByteString
+  | -- | Otherwise, stored as part of a file.
+    DataFragment'LastUpdatedAtVersionSequence'ExternalLastUpdatedAtVersions !ExternalFile
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 
@@ -1830,8 +2157,10 @@ instance Hashable DataFragment'LastUpdatedAtVersionSequence where
 
 
 data DataFragment'CreatedAtVersionSequence
-  = DataFragment'CreatedAtVersionSequence'InlineCreatedAtVersions !ByteString
-  | DataFragment'CreatedAtVersionSequence'ExternalCreatedAtVersions !ExternalFile
+  = -- | If small (< 200KB), the row created at versions are stored inline.
+    DataFragment'CreatedAtVersionSequence'InlineCreatedAtVersions !ByteString
+  | -- | Otherwise, stored as part of a file.
+    DataFragment'CreatedAtVersionSequence'ExternalCreatedAtVersions !ExternalFile
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 
@@ -1915,48 +2244,44 @@ instance MessageDecode DataFragment where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 V.empty Nothing Nothing Nothing Nothing 0 []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (DataFragment {dataFragmentId = acc_0, dataFragmentFiles = acc_1, dataFragmentDeletionFile = acc_2, dataFragmentRowIdSequence = acc_3, dataFragmentLastUpdatedAtVersionSequence = acc_4, dataFragmentCreatedAtVersionSequence = acc_5, dataFragmentPhysicalRows = acc_6, dataFragmentUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldVarint
-              loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
-            2 -> do
-              v <- decodeFieldMessage
-              loop acc_0 (acc_1 <> V.singleton v) acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
-            3 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just v) acc_3 acc_4 acc_5 acc_6 acc_unknown_
-            5 -> do
-              v <- decodeFieldBytes
-              loop acc_0 acc_1 acc_2 (Just (DataFragment'RowIdSequence'InlineRowIds v)) acc_4 acc_5 acc_6 acc_unknown_
-            6 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 (Just (DataFragment'RowIdSequence'ExternalRowIds v)) acc_4 acc_5 acc_6 acc_unknown_
-            7 -> do
-              v <- decodeFieldBytes
-              loop acc_0 acc_1 acc_2 acc_3 (Just (DataFragment'LastUpdatedAtVersionSequence'InlineLastUpdatedAtVersions v)) acc_5 acc_6 acc_unknown_
-            8 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 (Just (DataFragment'LastUpdatedAtVersionSequence'ExternalLastUpdatedAtVersions v)) acc_5 acc_6 acc_unknown_
-            9 -> do
-              v <- decodeFieldBytes
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (DataFragment'CreatedAtVersionSequence'InlineCreatedAtVersions v)) acc_6 acc_unknown_
-            10 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (DataFragment'CreatedAtVersionSequence'ExternalCreatedAtVersions v)) acc_6 acc_unknown_
-            4 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (uf : acc_unknown_)
-
-
-instance IsMessage DataFragment where
-  messageTypeName _ = "lance.table.DataFragment"
+      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ =
+        withTagM
+          (pure (DataFragment {dataFragmentId = acc_0, dataFragmentFiles = acc_1, dataFragmentDeletionFile = acc_2, dataFragmentRowIdSequence = acc_3, dataFragmentLastUpdatedAtVersionSequence = acc_4, dataFragmentCreatedAtVersionSequence = acc_5, dataFragmentPhysicalRows = acc_6, dataFragmentUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldVarint
+                loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
+              2 -> do
+                v <- decodeFieldMessage
+                loop acc_0 (acc_1 <> V.singleton v) acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
+              3 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 (Just v) acc_3 acc_4 acc_5 acc_6 acc_unknown_
+              5 -> do
+                v <- decodeFieldBytes
+                loop acc_0 acc_1 acc_2 (Just (DataFragment'RowIdSequence'InlineRowIds v)) acc_4 acc_5 acc_6 acc_unknown_
+              6 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 (Just (DataFragment'RowIdSequence'ExternalRowIds v)) acc_4 acc_5 acc_6 acc_unknown_
+              7 -> do
+                v <- decodeFieldBytes
+                loop acc_0 acc_1 acc_2 acc_3 (Just (DataFragment'LastUpdatedAtVersionSequence'InlineLastUpdatedAtVersions v)) acc_5 acc_6 acc_unknown_
+              8 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 acc_3 (Just (DataFragment'LastUpdatedAtVersionSequence'ExternalLastUpdatedAtVersions v)) acc_5 acc_6 acc_unknown_
+              9 -> do
+                v <- decodeFieldBytes
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (DataFragment'CreatedAtVersionSequence'InlineCreatedAtVersions v)) acc_6 acc_unknown_
+              10 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (DataFragment'CreatedAtVersionSequence'ExternalCreatedAtVersions v)) acc_6 acc_unknown_
+              4 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage DataFragment where
@@ -2053,6 +2378,9 @@ instance ProtoMessage DataFragment where
       ]
 
 
+instance IsMessage DataFragment
+
+
 instance Aeson.ToJSON DataFragment where
   toJSON msg =
     jsonObject
@@ -2096,14 +2424,105 @@ instance Proto.Extension.HasExtensions DataFragment where
   setMessageUnknownFields !ufs msg = msg {dataFragmentUnknownFields = ufs}
 
 
+instance Semigroup DataFragment where
+  a <> b =
+    DataFragment
+      { dataFragmentId = if b.dataFragmentId == 0 then a.dataFragmentId else b.dataFragmentId
+      , dataFragmentFiles = a.dataFragmentFiles <> b.dataFragmentFiles
+      , dataFragmentDeletionFile = case b.dataFragmentDeletionFile of Nothing -> a.dataFragmentDeletionFile; x -> x
+      , dataFragmentRowIdSequence = case b.dataFragmentRowIdSequence of Nothing -> a.dataFragmentRowIdSequence; x -> x
+      , dataFragmentLastUpdatedAtVersionSequence = case b.dataFragmentLastUpdatedAtVersionSequence of Nothing -> a.dataFragmentLastUpdatedAtVersionSequence; x -> x
+      , dataFragmentCreatedAtVersionSequence = case b.dataFragmentCreatedAtVersionSequence of Nothing -> a.dataFragmentCreatedAtVersionSequence; x -> x
+      , dataFragmentPhysicalRows = if b.dataFragmentPhysicalRows == 0 then a.dataFragmentPhysicalRows else b.dataFragmentPhysicalRows
+      , dataFragmentUnknownFields = a.dataFragmentUnknownFields <> b.dataFragmentUnknownFields
+      }
+
+
+instance Monoid DataFragment where
+  mempty = defaultDataFragment
+
+
 data DataFile = DataFile
   { dataFilePath :: !Text
+  -- ^ Path to the root relative to the dataset's URI.
   , dataFileFields :: !(VU.Vector Int32)
+  -- ^ The ids of the fields/columns in this file.
+  --
+  -- When a DataFile object is created in memory, every value in fields is assigned -1 by
+  -- default. An object with a value in fields of -1 must not be stored to disk. -2 is
+  -- used for "tombstoned", meaning a field that is no longer in use. This is often
+  -- because the original field id was reassigned to a different data file.
+  --
+  -- In Lance v1 IDs are assigned based on position in the file, offset by the max
+  -- existing field id in the table (if any already). So when a fragment is first created
+  -- with one file of N columns, the field ids will be 1, 2, ..., N. If a second fragment
+  -- is created with M columns, the field ids will be N+1, N+2, ..., N+M.
+  --
+  -- In Lance v1 there is one field for each field in the input schema, this includes
+  -- nested fields (both struct and list).  Fixed size list fields have only a single
+  -- field id (these are not considered nested fields in Lance v1).
+  --
+  -- This allows column indices to be calculated from field IDs and the input schema.
+  --
+  -- In Lance v2 the field IDs generally follow the same pattern but there is no
+  -- way to calculate the column index from the field ID.  This is because a given
+  -- field could be encoded in many different ways, some of which occupy a different
+  -- number of columns.  For example, a struct field could be encoded into N + 1 columns
+  -- or it could be encoded into a single packed column.  To determine column indices
+  -- the column_indices property should be used instead.
+  --
+  -- In Lance v1 these ids must be sorted but might not always be contiguous.
   , dataFileColumnIndices :: !(VU.Vector Int32)
+  -- ^ The top-level column indices for each field in the file.
+  --
+  -- If the data file is version 1 then this property will be empty
+  --
+  -- Otherwise there must be one entry for each field in `fields`.
+  --
+  -- Some fields may not correspond to a top-level column in the file.  In these cases
+  -- the index will -1.
+  --
+  -- For example, consider the schema:
+  --
+  -- - dimension: packed-struct (0):
+  --   - x: u32 (1)
+  --   - y: u32 (2)
+  -- - path: `list<u32>` (3)
+  -- - embedding: `fsl<768>` (4)
+  --   - fp64
+  -- - borders: `fsl<4>` (5)
+  --   - simple-struct (6)
+  --     - margin: fp64 (7)
+  --     - padding: fp64 (8)
+  --
+  -- One possible column indices array could be:
+  -- [0, -1, -1, 1, 3, 4, 5, 6, 7]
+  --
+  -- This reflects quite a few phenomenon:
+  -- - The packed struct is encoded into a single column and there is no top-level column
+  --   for the x or y fields
+  -- - The variable sized list is encoded into two columns
+  -- - The embedding is encoded into a single column (common for FSL of primitive) and there
+  --   is not "FSL column"
+  -- - The borders field actually does have an "FSL column"
+  --
+  -- The column indices table may not have duplicates (other than -1)
   , dataFileFileMajorVersion :: {-# UNPACK #-} !Word32
+  -- ^ The major file version used to create the file
   , dataFileFileMinorVersion :: {-# UNPACK #-} !Word32
+  -- ^ The minor file version used to create the file
+  --
+  -- If both `file_major_version` and `file_minor_version` are set to 0,
+  -- then this is a version 0.1 or version 0.2 file.
   , dataFileFileSizeBytes :: {-# UNPACK #-} !Word64
+  -- ^ The known size of the file on disk in bytes.
+  --
+  -- This is used to quickly find the footer of the file.
+  --
+  -- When this is zero, it should be interpreted as "unknown".
   , dataFileBaseId :: !(Maybe Word32)
+  -- ^ The base path index of the data file. Used when the file is imported or referred from another dataset.
+  -- Lance use it as key of the base_paths field in Manifest to determine the actual base path of the data file.
   , dataFileUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -2152,47 +2571,43 @@ instance MessageDecode DataFile where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" VU.empty VU.empty 0 0 0 Nothing []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (DataFile {dataFilePath = acc_0, dataFileFields = acc_1, dataFileColumnIndices = acc_2, dataFileFileMajorVersion = acc_3, dataFileFileMinorVersion = acc_4, dataFileFileSizeBytes = acc_5, dataFileBaseId = acc_6, dataFileUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldString
-              loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
-            2 -> case wt of
-              WireLengthDelimited -> do
-                vs <- (VU.map fromIntegral <$> decodePackedVarint)
-                loop acc_0 (acc_1 <> vs) acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
-              _ -> do
+      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ =
+        withTagM
+          (pure (DataFile {dataFilePath = acc_0, dataFileFields = acc_1, dataFileColumnIndices = acc_2, dataFileFileMajorVersion = acc_3, dataFileFileMinorVersion = acc_4, dataFileFileSizeBytes = acc_5, dataFileBaseId = acc_6, dataFileUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldString
+                loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
+              2 -> case wt of
+                2 -> do
+                  vs <- (VU.map fromIntegral <$> decodePackedVarint)
+                  loop acc_0 (acc_1 <> vs) acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
+                _ -> do
+                  v <- (fromIntegral <$> decodeFieldVarint)
+                  loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
+              3 -> case wt of
+                2 -> do
+                  vs <- (VU.map fromIntegral <$> decodePackedVarint)
+                  loop acc_0 acc_1 (acc_2 <> vs) acc_3 acc_4 acc_5 acc_6 acc_unknown_
+                _ -> do
+                  v <- (fromIntegral <$> decodeFieldVarint)
+                  loop acc_0 acc_1 (acc_2 <> VU.singleton v) acc_3 acc_4 acc_5 acc_6 acc_unknown_
+              4 -> do
                 v <- (fromIntegral <$> decodeFieldVarint)
-                loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
-            3 -> case wt of
-              WireLengthDelimited -> do
-                vs <- (VU.map fromIntegral <$> decodePackedVarint)
-                loop acc_0 acc_1 (acc_2 <> vs) acc_3 acc_4 acc_5 acc_6 acc_unknown_
-              _ -> do
+                loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6 acc_unknown_
+              5 -> do
                 v <- (fromIntegral <$> decodeFieldVarint)
-                loop acc_0 acc_1 (acc_2 <> VU.singleton v) acc_3 acc_4 acc_5 acc_6 acc_unknown_
-            4 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6 acc_unknown_
-            5 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_unknown_
-            6 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 v acc_6 acc_unknown_
-            7 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (uf : acc_unknown_)
-
-
-instance IsMessage DataFile where
-  messageTypeName _ = "lance.table.DataFile"
+                loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_unknown_
+              6 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 v acc_6 acc_unknown_
+              7 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage DataFile where
@@ -2289,6 +2704,9 @@ instance ProtoMessage DataFile where
       ]
 
 
+instance IsMessage DataFile
+
+
 instance Aeson.ToJSON DataFile where
   toJSON msg =
     jsonObject
@@ -2332,21 +2750,60 @@ instance Proto.Extension.HasExtensions DataFile where
   setMessageUnknownFields !ufs msg = msg {dataFileUnknownFields = ufs}
 
 
+instance Semigroup DataFile where
+  a <> b =
+    DataFile
+      { dataFilePath = if b.dataFilePath == "" then a.dataFilePath else b.dataFilePath
+      , dataFileFields = a.dataFileFields <> b.dataFileFields
+      , dataFileColumnIndices = a.dataFileColumnIndices <> b.dataFileColumnIndices
+      , dataFileFileMajorVersion = if b.dataFileFileMajorVersion == 0 then a.dataFileFileMajorVersion else b.dataFileFileMajorVersion
+      , dataFileFileMinorVersion = if b.dataFileFileMinorVersion == 0 then a.dataFileFileMinorVersion else b.dataFileFileMinorVersion
+      , dataFileFileSizeBytes = if b.dataFileFileSizeBytes == 0 then a.dataFileFileSizeBytes else b.dataFileFileSizeBytes
+      , dataFileBaseId = case b.dataFileBaseId of Nothing -> a.dataFileBaseId; x -> x
+      , dataFileUnknownFields = a.dataFileUnknownFields <> b.dataFileUnknownFields
+      }
+
+
+instance Monoid DataFile where
+  mempty = defaultDataFile
+
+
+{- | Deletion File
+
+The path of the deletion file is constructed as:
+  {root}/_deletions/{fragment_id}-{read_version}-{id}.{extension}
+where {extension} depends on DeletionFileType.
+-}
 data DeletionFile = DeletionFile
   { deletionFileFileType :: !DeletionFile'DeletionFileType
+  -- ^ Type of deletion file.
   , deletionFileReadVersion :: {-# UNPACK #-} !Word64
+  -- ^ The version of the dataset this deletion file was built from.
   , deletionFileId :: {-# UNPACK #-} !Word64
+  -- ^ An opaque id used to differentiate this file from others written by concurrent
+  -- writers.
   , deletionFileNumDeletedRows :: {-# UNPACK #-} !Word64
+  -- ^ The number of rows that are marked as deleted.
   , deletionFileBaseId :: !(Maybe Word32)
+  -- ^ The base path index of the deletion file. Used when the file is imported or referred from another
+  -- dataset. Lance uses it as key of the base_paths field in Manifest to determine the actual base
+  -- path of the deletion file.
   , deletionFileUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 
 
+{- | Type of deletion file, intended as a way to increase efficiency of the storage of deleted row
+offsets. If there are sparsely deleted rows, then ARROW_ARRAY is the most efficient. If there
+are densely deleted rows, then BITMAP is the most efficient.
+-}
 data DeletionFile'DeletionFileType
-  = DeletionFile'DeletionFileType'ArrowArray
-  | DeletionFile'DeletionFileType'Bitmap
+  = -- | A single Int32Array of deleted row offsets, stored as an Arrow IPC file with one batch and
+    -- one column. Has a .arrow extension.
+    DeletionFile'DeletionFileType'ArrowArray
+  | -- | A Roaring Bitmap of deleted row offsets. Has a .bin extension.
+    DeletionFile'DeletionFileType'Bitmap
   deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)
   deriving anyclass (NFData)
 
@@ -2427,33 +2884,29 @@ instance MessageDecode DeletionFile where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop (toEnum 0) 0 0 0 Nothing []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (DeletionFile {deletionFileFileType = acc_0, deletionFileReadVersion = acc_1, deletionFileId = acc_2, deletionFileNumDeletedRows = acc_3, deletionFileBaseId = acc_4, deletionFileUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldEnum
-              loop v acc_1 acc_2 acc_3 acc_4 acc_unknown_
-            2 -> do
-              v <- decodeFieldVarint
-              loop acc_0 v acc_2 acc_3 acc_4 acc_unknown_
-            3 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 v acc_3 acc_4 acc_unknown_
-            4 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 v acc_4 acc_unknown_
-            7 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 acc_1 acc_2 acc_3 (Just v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (uf : acc_unknown_)
-
-
-instance IsMessage DeletionFile where
-  messageTypeName _ = "lance.table.DeletionFile"
+      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ =
+        withTagM
+          (pure (DeletionFile {deletionFileFileType = acc_0, deletionFileReadVersion = acc_1, deletionFileId = acc_2, deletionFileNumDeletedRows = acc_3, deletionFileBaseId = acc_4, deletionFileUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldEnum
+                loop v acc_1 acc_2 acc_3 acc_4 acc_unknown_
+              2 -> do
+                v <- decodeFieldVarint
+                loop acc_0 v acc_2 acc_3 acc_4 acc_unknown_
+              3 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 v acc_3 acc_4 acc_unknown_
+              4 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 v acc_4 acc_unknown_
+              7 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop acc_0 acc_1 acc_2 acc_3 (Just v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage DeletionFile where
@@ -2526,6 +2979,9 @@ instance ProtoMessage DeletionFile where
       ]
 
 
+instance IsMessage DeletionFile
+
+
 instance Aeson.ToJSON DeletionFile where
   toJSON msg =
     jsonObject
@@ -2563,10 +3019,29 @@ instance Proto.Extension.HasExtensions DeletionFile where
   setMessageUnknownFields !ufs msg = msg {deletionFileUnknownFields = ufs}
 
 
+instance Semigroup DeletionFile where
+  a <> b =
+    DeletionFile
+      { deletionFileFileType = if b.deletionFileFileType == (toEnum 0) then a.deletionFileFileType else b.deletionFileFileType
+      , deletionFileReadVersion = if b.deletionFileReadVersion == 0 then a.deletionFileReadVersion else b.deletionFileReadVersion
+      , deletionFileId = if b.deletionFileId == 0 then a.deletionFileId else b.deletionFileId
+      , deletionFileNumDeletedRows = if b.deletionFileNumDeletedRows == 0 then a.deletionFileNumDeletedRows else b.deletionFileNumDeletedRows
+      , deletionFileBaseId = case b.deletionFileBaseId of Nothing -> a.deletionFileBaseId; x -> x
+      , deletionFileUnknownFields = a.deletionFileUnknownFields <> b.deletionFileUnknownFields
+      }
+
+
+instance Monoid DeletionFile where
+  mempty = defaultDeletionFile
+
+
 data ExternalFile = ExternalFile
   { externalFilePath :: !Text
+  -- ^ Path to the file, relative to the root of the table.
   , externalFileOffset :: {-# UNPACK #-} !Word64
+  -- ^ The byte offset in the file where the data starts.
   , externalFileSize :: {-# UNPACK #-} !Word64
+  -- ^ The size of the data in the file, in bytes.
   , externalFileUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -2603,27 +3078,23 @@ instance MessageDecode ExternalFile where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" 0 0 []
     where
-      loop acc_0 acc_1 acc_2 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (ExternalFile {externalFilePath = acc_0, externalFileOffset = acc_1, externalFileSize = acc_2, externalFileUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldString
-              loop v acc_1 acc_2 acc_unknown_
-            2 -> do
-              v <- decodeFieldVarint
-              loop acc_0 v acc_2 acc_unknown_
-            3 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 (uf : acc_unknown_)
-
-
-instance IsMessage ExternalFile where
-  messageTypeName _ = "lance.table.ExternalFile"
+      loop acc_0 acc_1 acc_2 acc_unknown_ =
+        withTagM
+          (pure (ExternalFile {externalFilePath = acc_0, externalFileOffset = acc_1, externalFileSize = acc_2, externalFileUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldString
+                loop v acc_1 acc_2 acc_unknown_
+              2 -> do
+                v <- decodeFieldVarint
+                loop acc_0 v acc_2 acc_unknown_
+              3 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage ExternalFile where
@@ -2672,6 +3143,9 @@ instance ProtoMessage ExternalFile where
       ]
 
 
+instance IsMessage ExternalFile
+
+
 instance Aeson.ToJSON ExternalFile where
   toJSON msg =
     jsonObject
@@ -2703,6 +3177,21 @@ instance Proto.Extension.HasExtensions ExternalFile where
   setMessageUnknownFields !ufs msg = msg {externalFileUnknownFields = ufs}
 
 
+instance Semigroup ExternalFile where
+  a <> b =
+    ExternalFile
+      { externalFilePath = if b.externalFilePath == "" then a.externalFilePath else b.externalFilePath
+      , externalFileOffset = if b.externalFileOffset == 0 then a.externalFileOffset else b.externalFileOffset
+      , externalFileSize = if b.externalFileSize == 0 then a.externalFileSize else b.externalFileSize
+      , externalFileUnknownFields = a.externalFileUnknownFields <> b.externalFileUnknownFields
+      }
+
+
+instance Monoid ExternalFile where
+  mempty = defaultExternalFile
+
+
+-- | Empty details messages for older indexes that don't take advantage of the details field.
 data VectorIndexDetails = VectorIndexDetails
   { vectorIndexDetailsUnknownFields :: ![UnknownField]
   }
@@ -2731,18 +3220,14 @@ instance MessageDecode VectorIndexDetails where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop []
     where
-      loop acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (VectorIndexDetails {vectorIndexDetailsUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop (uf : acc_unknown_)
-
-
-instance IsMessage VectorIndexDetails where
-  messageTypeName _ = "lance.table.VectorIndexDetails"
+      loop acc_unknown_ =
+        withTagM
+          (pure (VectorIndexDetails {vectorIndexDetailsUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage VectorIndexDetails where
@@ -2753,6 +3238,9 @@ instance ProtoMessage VectorIndexDetails where
   protoFieldDescriptors _ =
     Map.fromList
       []
+
+
+instance IsMessage VectorIndexDetails
 
 
 instance Aeson.ToJSON VectorIndexDetails where
@@ -2774,6 +3262,17 @@ instance Proto.Extension.HasExtensions VectorIndexDetails where
   setMessageUnknownFields !ufs msg = msg {vectorIndexDetailsUnknownFields = ufs}
 
 
+instance Semigroup VectorIndexDetails where
+  a <> b =
+    VectorIndexDetails
+      { vectorIndexDetailsUnknownFields = a.vectorIndexDetailsUnknownFields <> b.vectorIndexDetailsUnknownFields
+      }
+
+
+instance Monoid VectorIndexDetails where
+  mempty = defaultVectorIndexDetails
+
+
 data FragmentReuseIndexDetails = FragmentReuseIndexDetails
   { fragmentReuseIndexDetailsContent :: !(Maybe FragmentReuseIndexDetails'Content)
   , fragmentReuseIndexDetailsUnknownFields :: ![UnknownField]
@@ -2783,7 +3282,8 @@ data FragmentReuseIndexDetails = FragmentReuseIndexDetails
 
 
 data FragmentReuseIndexDetails'Content
-  = FragmentReuseIndexDetails'Content'Inline !FragmentReuseIndexDetails'InlineContent
+  = -- | if < 200KB, store the content inline, otherwise store the InlineContent bytes in external file
+    FragmentReuseIndexDetails'Content'Inline !FragmentReuseIndexDetails'InlineContent
   | FragmentReuseIndexDetails'Content'External !ExternalFile
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
@@ -2834,21 +3334,17 @@ instance MessageDecode FragmentReuseIndexDetails'InlineContent where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop V.empty []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (FragmentReuseIndexDetails'InlineContent {fragmentReuseIndexDetailsInlineContentVersions = acc_0, fragmentReuseIndexDetailsInlineContentUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldMessage
-              loop (acc_0 <> V.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
-
-
-instance IsMessage FragmentReuseIndexDetails'InlineContent where
-  messageTypeName _ = "lance.table.FragmentReuseIndexDetails.InlineContent"
+      loop acc_0 acc_unknown_ =
+        withTagM
+          (pure (FragmentReuseIndexDetails'InlineContent {fragmentReuseIndexDetailsInlineContentVersions = acc_0, fragmentReuseIndexDetailsInlineContentUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldMessage
+                loop (acc_0 <> V.singleton v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage FragmentReuseIndexDetails'InlineContent where
@@ -2871,6 +3367,9 @@ instance ProtoMessage FragmentReuseIndexDetails'InlineContent where
               }
         )
       ]
+
+
+instance IsMessage FragmentReuseIndexDetails'InlineContent
 
 
 instance Aeson.ToJSON FragmentReuseIndexDetails'InlineContent where
@@ -2896,6 +3395,18 @@ instance Hashable FragmentReuseIndexDetails'InlineContent where
 instance Proto.Extension.HasExtensions FragmentReuseIndexDetails'InlineContent where
   messageUnknownFields = fragmentReuseIndexDetailsInlineContentUnknownFields
   setMessageUnknownFields !ufs msg = msg {fragmentReuseIndexDetailsInlineContentUnknownFields = ufs}
+
+
+instance Semigroup FragmentReuseIndexDetails'InlineContent where
+  a <> b =
+    FragmentReuseIndexDetails'InlineContent
+      { fragmentReuseIndexDetailsInlineContentVersions = a.fragmentReuseIndexDetailsInlineContentVersions <> b.fragmentReuseIndexDetailsInlineContentVersions
+      , fragmentReuseIndexDetailsInlineContentUnknownFields = a.fragmentReuseIndexDetailsInlineContentUnknownFields <> b.fragmentReuseIndexDetailsInlineContentUnknownFields
+      }
+
+
+instance Monoid FragmentReuseIndexDetails'InlineContent where
+  mempty = defaultFragmentReuseIndexDetails'InlineContent
 
 
 data FragmentReuseIndexDetails'FragmentDigest = FragmentReuseIndexDetails'FragmentDigest
@@ -2938,27 +3449,23 @@ instance MessageDecode FragmentReuseIndexDetails'FragmentDigest where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 0 0 []
     where
-      loop acc_0 acc_1 acc_2 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (FragmentReuseIndexDetails'FragmentDigest {fragmentReuseIndexDetailsFragmentDigestId = acc_0, fragmentReuseIndexDetailsFragmentDigestPhysicalRows = acc_1, fragmentReuseIndexDetailsFragmentDigestNumDeletedRows = acc_2, fragmentReuseIndexDetailsFragmentDigestUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldVarint
-              loop v acc_1 acc_2 acc_unknown_
-            2 -> do
-              v <- decodeFieldVarint
-              loop acc_0 v acc_2 acc_unknown_
-            3 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 (uf : acc_unknown_)
-
-
-instance IsMessage FragmentReuseIndexDetails'FragmentDigest where
-  messageTypeName _ = "lance.table.FragmentReuseIndexDetails.FragmentDigest"
+      loop acc_0 acc_1 acc_2 acc_unknown_ =
+        withTagM
+          (pure (FragmentReuseIndexDetails'FragmentDigest {fragmentReuseIndexDetailsFragmentDigestId = acc_0, fragmentReuseIndexDetailsFragmentDigestPhysicalRows = acc_1, fragmentReuseIndexDetailsFragmentDigestNumDeletedRows = acc_2, fragmentReuseIndexDetailsFragmentDigestUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldVarint
+                loop v acc_1 acc_2 acc_unknown_
+              2 -> do
+                v <- decodeFieldVarint
+                loop acc_0 v acc_2 acc_unknown_
+              3 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage FragmentReuseIndexDetails'FragmentDigest where
@@ -3007,6 +3514,9 @@ instance ProtoMessage FragmentReuseIndexDetails'FragmentDigest where
       ]
 
 
+instance IsMessage FragmentReuseIndexDetails'FragmentDigest
+
+
 instance Aeson.ToJSON FragmentReuseIndexDetails'FragmentDigest where
   toJSON msg =
     jsonObject
@@ -3038,8 +3548,27 @@ instance Proto.Extension.HasExtensions FragmentReuseIndexDetails'FragmentDigest 
   setMessageUnknownFields !ufs msg = msg {fragmentReuseIndexDetailsFragmentDigestUnknownFields = ufs}
 
 
+instance Semigroup FragmentReuseIndexDetails'FragmentDigest where
+  a <> b =
+    FragmentReuseIndexDetails'FragmentDigest
+      { fragmentReuseIndexDetailsFragmentDigestId = if b.fragmentReuseIndexDetailsFragmentDigestId == 0 then a.fragmentReuseIndexDetailsFragmentDigestId else b.fragmentReuseIndexDetailsFragmentDigestId
+      , fragmentReuseIndexDetailsFragmentDigestPhysicalRows = if b.fragmentReuseIndexDetailsFragmentDigestPhysicalRows == 0 then a.fragmentReuseIndexDetailsFragmentDigestPhysicalRows else b.fragmentReuseIndexDetailsFragmentDigestPhysicalRows
+      , fragmentReuseIndexDetailsFragmentDigestNumDeletedRows = if b.fragmentReuseIndexDetailsFragmentDigestNumDeletedRows == 0 then a.fragmentReuseIndexDetailsFragmentDigestNumDeletedRows else b.fragmentReuseIndexDetailsFragmentDigestNumDeletedRows
+      , fragmentReuseIndexDetailsFragmentDigestUnknownFields = a.fragmentReuseIndexDetailsFragmentDigestUnknownFields <> b.fragmentReuseIndexDetailsFragmentDigestUnknownFields
+      }
+
+
+instance Monoid FragmentReuseIndexDetails'FragmentDigest where
+  mempty = defaultFragmentReuseIndexDetails'FragmentDigest
+
+
+-- | A summarized version of the RewriteGroup information in a Rewrite transaction
 data FragmentReuseIndexDetails'Group = FragmentReuseIndexDetails'Group
   { fragmentReuseIndexDetailsGroupChangedRowAddrs :: !ByteString
+  -- ^ A roaring treemap of the changed row addresses.
+  -- When combined with the old fragment IDs and new fragment IDs,
+  -- it can recover the full mapping of old row addresses to either new row addresses or deleted.
+  -- this mapping can then be used to remap indexes or satisfy index queries for the new unindexed fragments.
   , fragmentReuseIndexDetailsGroupOldFragments :: !(V.Vector FragmentReuseIndexDetails'FragmentDigest)
   , fragmentReuseIndexDetailsGroupNewFragments :: !(V.Vector FragmentReuseIndexDetails'FragmentDigest)
   , fragmentReuseIndexDetailsGroupUnknownFields :: ![UnknownField]
@@ -3078,27 +3607,23 @@ instance MessageDecode FragmentReuseIndexDetails'Group where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" V.empty V.empty []
     where
-      loop acc_0 acc_1 acc_2 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (FragmentReuseIndexDetails'Group {fragmentReuseIndexDetailsGroupChangedRowAddrs = acc_0, fragmentReuseIndexDetailsGroupOldFragments = acc_1, fragmentReuseIndexDetailsGroupNewFragments = acc_2, fragmentReuseIndexDetailsGroupUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldBytes
-              loop v acc_1 acc_2 acc_unknown_
-            2 -> do
-              v <- decodeFieldMessage
-              loop acc_0 (acc_1 <> V.singleton v) acc_2 acc_unknown_
-            3 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 (acc_2 <> V.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 (uf : acc_unknown_)
-
-
-instance IsMessage FragmentReuseIndexDetails'Group where
-  messageTypeName _ = "lance.table.FragmentReuseIndexDetails.Group"
+      loop acc_0 acc_1 acc_2 acc_unknown_ =
+        withTagM
+          (pure (FragmentReuseIndexDetails'Group {fragmentReuseIndexDetailsGroupChangedRowAddrs = acc_0, fragmentReuseIndexDetailsGroupOldFragments = acc_1, fragmentReuseIndexDetailsGroupNewFragments = acc_2, fragmentReuseIndexDetailsGroupUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldBytes
+                loop v acc_1 acc_2 acc_unknown_
+              2 -> do
+                v <- decodeFieldMessage
+                loop acc_0 (acc_1 <> V.singleton v) acc_2 acc_unknown_
+              3 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 (acc_2 <> V.singleton v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage FragmentReuseIndexDetails'Group where
@@ -3147,6 +3672,9 @@ instance ProtoMessage FragmentReuseIndexDetails'Group where
       ]
 
 
+instance IsMessage FragmentReuseIndexDetails'Group
+
+
 instance Aeson.ToJSON FragmentReuseIndexDetails'Group where
   toJSON msg =
     jsonObject
@@ -3178,8 +3706,23 @@ instance Proto.Extension.HasExtensions FragmentReuseIndexDetails'Group where
   setMessageUnknownFields !ufs msg = msg {fragmentReuseIndexDetailsGroupUnknownFields = ufs}
 
 
+instance Semigroup FragmentReuseIndexDetails'Group where
+  a <> b =
+    FragmentReuseIndexDetails'Group
+      { fragmentReuseIndexDetailsGroupChangedRowAddrs = if b.fragmentReuseIndexDetailsGroupChangedRowAddrs == "" then a.fragmentReuseIndexDetailsGroupChangedRowAddrs else b.fragmentReuseIndexDetailsGroupChangedRowAddrs
+      , fragmentReuseIndexDetailsGroupOldFragments = a.fragmentReuseIndexDetailsGroupOldFragments <> b.fragmentReuseIndexDetailsGroupOldFragments
+      , fragmentReuseIndexDetailsGroupNewFragments = a.fragmentReuseIndexDetailsGroupNewFragments <> b.fragmentReuseIndexDetailsGroupNewFragments
+      , fragmentReuseIndexDetailsGroupUnknownFields = a.fragmentReuseIndexDetailsGroupUnknownFields <> b.fragmentReuseIndexDetailsGroupUnknownFields
+      }
+
+
+instance Monoid FragmentReuseIndexDetails'Group where
+  mempty = defaultFragmentReuseIndexDetails'Group
+
+
 data FragmentReuseIndexDetails'Version = FragmentReuseIndexDetails'Version
   { fragmentReuseIndexDetailsVersionDatasetVersion :: {-# UNPACK #-} !Word64
+  -- ^ The dataset_version at the time the index adds this version entry
   , fragmentReuseIndexDetailsVersionGroups :: !(V.Vector FragmentReuseIndexDetails'Group)
   , fragmentReuseIndexDetailsVersionUnknownFields :: ![UnknownField]
   }
@@ -3214,24 +3757,20 @@ instance MessageDecode FragmentReuseIndexDetails'Version where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 V.empty []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (FragmentReuseIndexDetails'Version {fragmentReuseIndexDetailsVersionDatasetVersion = acc_0, fragmentReuseIndexDetailsVersionGroups = acc_1, fragmentReuseIndexDetailsVersionUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldVarint
-              loop v acc_1 acc_unknown_
-            3 -> do
-              v <- decodeFieldMessage
-              loop acc_0 (acc_1 <> V.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
-
-
-instance IsMessage FragmentReuseIndexDetails'Version where
-  messageTypeName _ = "lance.table.FragmentReuseIndexDetails.Version"
+      loop acc_0 acc_1 acc_unknown_ =
+        withTagM
+          (pure (FragmentReuseIndexDetails'Version {fragmentReuseIndexDetailsVersionDatasetVersion = acc_0, fragmentReuseIndexDetailsVersionGroups = acc_1, fragmentReuseIndexDetailsVersionUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldVarint
+                loop v acc_1 acc_unknown_
+              3 -> do
+                v <- decodeFieldMessage
+                loop acc_0 (acc_1 <> V.singleton v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage FragmentReuseIndexDetails'Version where
@@ -3268,6 +3807,9 @@ instance ProtoMessage FragmentReuseIndexDetails'Version where
       ]
 
 
+instance IsMessage FragmentReuseIndexDetails'Version
+
+
 instance Aeson.ToJSON FragmentReuseIndexDetails'Version where
   toJSON msg =
     jsonObject
@@ -3294,6 +3836,19 @@ instance Hashable FragmentReuseIndexDetails'Version where
 instance Proto.Extension.HasExtensions FragmentReuseIndexDetails'Version where
   messageUnknownFields = fragmentReuseIndexDetailsVersionUnknownFields
   setMessageUnknownFields !ufs msg = msg {fragmentReuseIndexDetailsVersionUnknownFields = ufs}
+
+
+instance Semigroup FragmentReuseIndexDetails'Version where
+  a <> b =
+    FragmentReuseIndexDetails'Version
+      { fragmentReuseIndexDetailsVersionDatasetVersion = if b.fragmentReuseIndexDetailsVersionDatasetVersion == 0 then a.fragmentReuseIndexDetailsVersionDatasetVersion else b.fragmentReuseIndexDetailsVersionDatasetVersion
+      , fragmentReuseIndexDetailsVersionGroups = a.fragmentReuseIndexDetailsVersionGroups <> b.fragmentReuseIndexDetailsVersionGroups
+      , fragmentReuseIndexDetailsVersionUnknownFields = a.fragmentReuseIndexDetailsVersionUnknownFields <> b.fragmentReuseIndexDetailsVersionUnknownFields
+      }
+
+
+instance Monoid FragmentReuseIndexDetails'Version where
+  mempty = defaultFragmentReuseIndexDetails'Version
 
 
 defaultFragmentReuseIndexDetails :: FragmentReuseIndexDetails
@@ -3328,24 +3883,20 @@ instance MessageDecode FragmentReuseIndexDetails where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop Nothing []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (FragmentReuseIndexDetails {fragmentReuseIndexDetailsContent = acc_0, fragmentReuseIndexDetailsUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldMessage
-              loop (Just (FragmentReuseIndexDetails'Content'Inline v)) acc_unknown_
-            2 -> do
-              v <- decodeFieldMessage
-              loop (Just (FragmentReuseIndexDetails'Content'External v)) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
-
-
-instance IsMessage FragmentReuseIndexDetails where
-  messageTypeName _ = "lance.table.FragmentReuseIndexDetails"
+      loop acc_0 acc_unknown_ =
+        withTagM
+          (pure (FragmentReuseIndexDetails {fragmentReuseIndexDetailsContent = acc_0, fragmentReuseIndexDetailsUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldMessage
+                loop (Just (FragmentReuseIndexDetails'Content'Inline v)) acc_unknown_
+              2 -> do
+                v <- decodeFieldMessage
+                loop (Just (FragmentReuseIndexDetails'Content'External v)) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage FragmentReuseIndexDetails where
@@ -3368,6 +3919,9 @@ instance ProtoMessage FragmentReuseIndexDetails where
               }
         )
       ]
+
+
+instance IsMessage FragmentReuseIndexDetails
 
 
 instance Aeson.ToJSON FragmentReuseIndexDetails where
@@ -3395,16 +3949,54 @@ instance Proto.Extension.HasExtensions FragmentReuseIndexDetails where
   setMessageUnknownFields !ufs msg = msg {fragmentReuseIndexDetailsUnknownFields = ufs}
 
 
+instance Semigroup FragmentReuseIndexDetails where
+  a <> b =
+    FragmentReuseIndexDetails
+      { fragmentReuseIndexDetailsContent = case b.fragmentReuseIndexDetailsContent of Nothing -> a.fragmentReuseIndexDetailsContent; x -> x
+      , fragmentReuseIndexDetailsUnknownFields = a.fragmentReuseIndexDetailsUnknownFields <> b.fragmentReuseIndexDetailsUnknownFields
+      }
+
+
+instance Monoid FragmentReuseIndexDetails where
+  mempty = defaultFragmentReuseIndexDetails
+
+
+{- | ============================================================================
+MemWAL Index Types
+============================================================================
+Shard manifest containing epoch-based fencing and WAL state.
+Each shard has exactly one active writer at any time.
+-}
 data ShardManifest = ShardManifest
   { shardManifestShardId :: !(Maybe UUID)
+  -- ^ Shard identifier (UUID v4).
   , shardManifestVersion :: {-# UNPACK #-} !Word64
+  -- ^ Manifest version number.
+  -- Matches the version encoded in the filename.
   , shardManifestShardSpecId :: {-# UNPACK #-} !Word32
+  -- ^ Shard spec ID this shard was created with.
+  -- Set at shard creation and immutable thereafter.
+  -- A value of 0 indicates a manually-created shard not governed by any spec.
   , shardManifestShardFieldEntries :: !(V.Vector ShardFieldEntry)
+  -- ^ Computed shard field values as raw Arrow scalar bytes, keyed by shard
+  -- field id. The byte encoding follows Arrow's little-endian convention:
+  -- int32 is 4 LE bytes, utf8 is raw UTF-8 bytes, etc. The receiver looks
+  -- up the result_type from the ShardSpec to interpret each value.
   , shardManifestWriterEpoch :: {-# UNPACK #-} !Word64
+  -- ^ Writer fencing token - monotonically increasing.
+  -- A writer must increment this when claiming the shard.
   , shardManifestReplayAfterWalEntryPosition :: {-# UNPACK #-} !Word64
+  -- ^ The most recent WAL entry position (0-based) that has been flushed to a MemTable.
+  -- During recovery, replay starts from replay_after_wal_entry_position + 1.
   , shardManifestWalEntryPositionLastSeen :: {-# UNPACK #-} !Word64
+  -- ^ The most recent WAL entry position (0-based) at the time manifest was updated.
+  -- This is a hint, not authoritative - recovery must list files to find actual state.
   , shardManifestCurrentGeneration :: {-# UNPACK #-} !Word64
+  -- ^ Next generation ID to create (incremented after each MemTable flush).
   , shardManifestFlushedGenerations :: !(V.Vector FlushedGeneration)
+  -- ^ Field 7 removed: merged_generation moved to MemWalIndexDetails.merged_generations
+  -- which is the authoritative source for merge progress.
+  -- List of flushed MemTable generations and their directory paths.
   , shardManifestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -3459,45 +4051,41 @@ instance MessageDecode ShardManifest where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop Nothing 0 0 V.empty 0 0 0 0 V.empty []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (ShardManifest {shardManifestShardId = acc_0, shardManifestVersion = acc_1, shardManifestShardSpecId = acc_2, shardManifestShardFieldEntries = acc_3, shardManifestWriterEpoch = acc_4, shardManifestReplayAfterWalEntryPosition = acc_5, shardManifestWalEntryPositionLastSeen = acc_6, shardManifestCurrentGeneration = acc_7, shardManifestFlushedGenerations = acc_8, shardManifestUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            11 -> do
-              v <- decodeFieldMessage
-              loop (Just v) acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_
-            1 -> do
-              v <- decodeFieldVarint
-              loop acc_0 v acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_
-            10 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 acc_1 v acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_
-            14 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 (acc_3 <> V.singleton v) acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_
-            2 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7 acc_8 acc_unknown_
-            3 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 v acc_6 acc_7 acc_8 acc_unknown_
-            4 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v acc_7 acc_8 acc_unknown_
-            6 -> do
-              v <- decodeFieldVarint
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v acc_8 acc_unknown_
-            8 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 (acc_8 <> V.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 (uf : acc_unknown_)
-
-
-instance IsMessage ShardManifest where
-  messageTypeName _ = "lance.table.ShardManifest"
+      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_ =
+        withTagM
+          (pure (ShardManifest {shardManifestShardId = acc_0, shardManifestVersion = acc_1, shardManifestShardSpecId = acc_2, shardManifestShardFieldEntries = acc_3, shardManifestWriterEpoch = acc_4, shardManifestReplayAfterWalEntryPosition = acc_5, shardManifestWalEntryPositionLastSeen = acc_6, shardManifestCurrentGeneration = acc_7, shardManifestFlushedGenerations = acc_8, shardManifestUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              11 -> do
+                v <- decodeFieldMessage
+                loop (Just v) acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_
+              1 -> do
+                v <- decodeFieldVarint
+                loop acc_0 v acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_
+              10 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop acc_0 acc_1 v acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_
+              14 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 (acc_3 <> V.singleton v) acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_
+              2 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7 acc_8 acc_unknown_
+              3 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 v acc_6 acc_7 acc_8 acc_unknown_
+              4 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v acc_7 acc_8 acc_unknown_
+              6 -> do
+                v <- decodeFieldVarint
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v acc_8 acc_unknown_
+              8 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 (acc_8 <> V.singleton v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage ShardManifest where
@@ -3618,6 +4206,9 @@ instance ProtoMessage ShardManifest where
       ]
 
 
+instance IsMessage ShardManifest
+
+
 instance Aeson.ToJSON ShardManifest where
   toJSON msg =
     jsonObject
@@ -3667,9 +4258,33 @@ instance Proto.Extension.HasExtensions ShardManifest where
   setMessageUnknownFields !ufs msg = msg {shardManifestUnknownFields = ufs}
 
 
+instance Semigroup ShardManifest where
+  a <> b =
+    ShardManifest
+      { shardManifestShardId = case b.shardManifestShardId of Nothing -> a.shardManifestShardId; x -> x
+      , shardManifestVersion = if b.shardManifestVersion == 0 then a.shardManifestVersion else b.shardManifestVersion
+      , shardManifestShardSpecId = if b.shardManifestShardSpecId == 0 then a.shardManifestShardSpecId else b.shardManifestShardSpecId
+      , shardManifestShardFieldEntries = a.shardManifestShardFieldEntries <> b.shardManifestShardFieldEntries
+      , shardManifestWriterEpoch = if b.shardManifestWriterEpoch == 0 then a.shardManifestWriterEpoch else b.shardManifestWriterEpoch
+      , shardManifestReplayAfterWalEntryPosition = if b.shardManifestReplayAfterWalEntryPosition == 0 then a.shardManifestReplayAfterWalEntryPosition else b.shardManifestReplayAfterWalEntryPosition
+      , shardManifestWalEntryPositionLastSeen = if b.shardManifestWalEntryPositionLastSeen == 0 then a.shardManifestWalEntryPositionLastSeen else b.shardManifestWalEntryPositionLastSeen
+      , shardManifestCurrentGeneration = if b.shardManifestCurrentGeneration == 0 then a.shardManifestCurrentGeneration else b.shardManifestCurrentGeneration
+      , shardManifestFlushedGenerations = a.shardManifestFlushedGenerations <> b.shardManifestFlushedGenerations
+      , shardManifestUnknownFields = a.shardManifestUnknownFields <> b.shardManifestUnknownFields
+      }
+
+
+instance Monoid ShardManifest where
+  mempty = defaultShardManifest
+
+
+-- | A shard field value stored as raw Arrow scalar bytes.
 data ShardFieldEntry = ShardFieldEntry
   { shardFieldEntryFieldId :: !Text
+  -- ^ Shard field id (matches ShardField.field_id in the ShardSpec).
   , shardFieldEntryValue :: !ByteString
+  -- ^ Raw Arrow scalar value bytes in little-endian encoding.
+  -- The data type is determined by the result_type of the matching ShardField.
   , shardFieldEntryUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -3703,24 +4318,20 @@ instance MessageDecode ShardFieldEntry where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" "" []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (ShardFieldEntry {shardFieldEntryFieldId = acc_0, shardFieldEntryValue = acc_1, shardFieldEntryUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldString
-              loop v acc_1 acc_unknown_
-            2 -> do
-              v <- decodeFieldBytes
-              loop acc_0 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
-
-
-instance IsMessage ShardFieldEntry where
-  messageTypeName _ = "lance.table.ShardFieldEntry"
+      loop acc_0 acc_1 acc_unknown_ =
+        withTagM
+          (pure (ShardFieldEntry {shardFieldEntryFieldId = acc_0, shardFieldEntryValue = acc_1, shardFieldEntryUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldString
+                loop v acc_1 acc_unknown_
+              2 -> do
+                v <- decodeFieldBytes
+                loop acc_0 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage ShardFieldEntry where
@@ -3757,6 +4368,9 @@ instance ProtoMessage ShardFieldEntry where
       ]
 
 
+instance IsMessage ShardFieldEntry
+
+
 instance Aeson.ToJSON ShardFieldEntry where
   toJSON msg =
     jsonObject
@@ -3785,9 +4399,25 @@ instance Proto.Extension.HasExtensions ShardFieldEntry where
   setMessageUnknownFields !ufs msg = msg {shardFieldEntryUnknownFields = ufs}
 
 
+instance Semigroup ShardFieldEntry where
+  a <> b =
+    ShardFieldEntry
+      { shardFieldEntryFieldId = if b.shardFieldEntryFieldId == "" then a.shardFieldEntryFieldId else b.shardFieldEntryFieldId
+      , shardFieldEntryValue = if b.shardFieldEntryValue == "" then a.shardFieldEntryValue else b.shardFieldEntryValue
+      , shardFieldEntryUnknownFields = a.shardFieldEntryUnknownFields <> b.shardFieldEntryUnknownFields
+      }
+
+
+instance Monoid ShardFieldEntry where
+  mempty = defaultShardFieldEntry
+
+
+-- | A flushed MemTable generation and its storage location.
 data FlushedGeneration = FlushedGeneration
   { flushedGenerationGeneration :: {-# UNPACK #-} !Word64
+  -- ^ Generation number.
   , flushedGenerationPath :: !Text
+  -- ^ Directory name relative to the shard directory.
   , flushedGenerationUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -3821,24 +4451,20 @@ instance MessageDecode FlushedGeneration where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 "" []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (FlushedGeneration {flushedGenerationGeneration = acc_0, flushedGenerationPath = acc_1, flushedGenerationUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldVarint
-              loop v acc_1 acc_unknown_
-            2 -> do
-              v <- decodeFieldString
-              loop acc_0 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
-
-
-instance IsMessage FlushedGeneration where
-  messageTypeName _ = "lance.table.FlushedGeneration"
+      loop acc_0 acc_1 acc_unknown_ =
+        withTagM
+          (pure (FlushedGeneration {flushedGenerationGeneration = acc_0, flushedGenerationPath = acc_1, flushedGenerationUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldVarint
+                loop v acc_1 acc_unknown_
+              2 -> do
+                v <- decodeFieldString
+                loop acc_0 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage FlushedGeneration where
@@ -3875,6 +4501,9 @@ instance ProtoMessage FlushedGeneration where
       ]
 
 
+instance IsMessage FlushedGeneration
+
+
 instance Aeson.ToJSON FlushedGeneration where
   toJSON msg =
     jsonObject
@@ -3903,9 +4532,25 @@ instance Proto.Extension.HasExtensions FlushedGeneration where
   setMessageUnknownFields !ufs msg = msg {flushedGenerationUnknownFields = ufs}
 
 
+instance Semigroup FlushedGeneration where
+  a <> b =
+    FlushedGeneration
+      { flushedGenerationGeneration = if b.flushedGenerationGeneration == 0 then a.flushedGenerationGeneration else b.flushedGenerationGeneration
+      , flushedGenerationPath = if b.flushedGenerationPath == "" then a.flushedGenerationPath else b.flushedGenerationPath
+      , flushedGenerationUnknownFields = a.flushedGenerationUnknownFields <> b.flushedGenerationUnknownFields
+      }
+
+
+instance Monoid FlushedGeneration where
+  mempty = defaultFlushedGeneration
+
+
+-- | A shard's merged generation, used in MemWalIndexDetails.
 data MergedGeneration = MergedGeneration
   { mergedGenerationShardId :: !(Maybe UUID)
+  -- ^ Shard identifier (UUID v4).
   , mergedGenerationGeneration :: {-# UNPACK #-} !Word64
+  -- ^ Last generation merged to base table for this shard.
   , mergedGenerationUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -3939,24 +4584,20 @@ instance MessageDecode MergedGeneration where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop Nothing 0 []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (MergedGeneration {mergedGenerationShardId = acc_0, mergedGenerationGeneration = acc_1, mergedGenerationUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldMessage
-              loop (Just v) acc_1 acc_unknown_
-            2 -> do
-              v <- decodeFieldVarint
-              loop acc_0 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
-
-
-instance IsMessage MergedGeneration where
-  messageTypeName _ = "lance.table.MergedGeneration"
+      loop acc_0 acc_1 acc_unknown_ =
+        withTagM
+          (pure (MergedGeneration {mergedGenerationShardId = acc_0, mergedGenerationGeneration = acc_1, mergedGenerationUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldMessage
+                loop (Just v) acc_1 acc_unknown_
+              2 -> do
+                v <- decodeFieldVarint
+                loop acc_0 v acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage MergedGeneration where
@@ -3993,6 +4634,9 @@ instance ProtoMessage MergedGeneration where
       ]
 
 
+instance IsMessage MergedGeneration
+
+
 instance Aeson.ToJSON MergedGeneration where
   toJSON msg =
     jsonObject
@@ -4021,9 +4665,29 @@ instance Proto.Extension.HasExtensions MergedGeneration where
   setMessageUnknownFields !ufs msg = msg {mergedGenerationUnknownFields = ufs}
 
 
+instance Semigroup MergedGeneration where
+  a <> b =
+    MergedGeneration
+      { mergedGenerationShardId = case b.mergedGenerationShardId of Nothing -> a.mergedGenerationShardId; x -> x
+      , mergedGenerationGeneration = if b.mergedGenerationGeneration == 0 then a.mergedGenerationGeneration else b.mergedGenerationGeneration
+      , mergedGenerationUnknownFields = a.mergedGenerationUnknownFields <> b.mergedGenerationUnknownFields
+      }
+
+
+instance Monoid MergedGeneration where
+  mempty = defaultMergedGeneration
+
+
+{- | Tracks which merged generation a base table index has been rebuilt to cover.
+Used to determine whether to read from flushed MemTable indexes or base table.
+-}
 data IndexCatchupProgress = IndexCatchupProgress
   { indexCatchupProgressIndexName :: !Text
+  -- ^ Name of the base table index (must match an entry in maintained_indexes).
   , indexCatchupProgressCaughtUpGenerations :: !(V.Vector MergedGeneration)
+  -- ^ Per-shard progress: the generation up to which this index covers.
+  -- If a shard is not present, the index is assumed to be fully caught up
+  -- (i.e., caught_up_generation >= merged_generation for that shard).
   , indexCatchupProgressUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -4057,24 +4721,20 @@ instance MessageDecode IndexCatchupProgress where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" V.empty []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (IndexCatchupProgress {indexCatchupProgressIndexName = acc_0, indexCatchupProgressCaughtUpGenerations = acc_1, indexCatchupProgressUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldString
-              loop v acc_1 acc_unknown_
-            2 -> do
-              v <- decodeFieldMessage
-              loop acc_0 (acc_1 <> V.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
-
-
-instance IsMessage IndexCatchupProgress where
-  messageTypeName _ = "lance.table.IndexCatchupProgress"
+      loop acc_0 acc_1 acc_unknown_ =
+        withTagM
+          (pure (IndexCatchupProgress {indexCatchupProgressIndexName = acc_0, indexCatchupProgressCaughtUpGenerations = acc_1, indexCatchupProgressUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldString
+                loop v acc_1 acc_unknown_
+              2 -> do
+                v <- decodeFieldMessage
+                loop acc_0 (acc_1 <> V.singleton v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage IndexCatchupProgress where
@@ -4111,6 +4771,9 @@ instance ProtoMessage IndexCatchupProgress where
       ]
 
 
+instance IsMessage IndexCatchupProgress
+
+
 instance Aeson.ToJSON IndexCatchupProgress where
   toJSON msg =
     jsonObject
@@ -4139,14 +4802,78 @@ instance Proto.Extension.HasExtensions IndexCatchupProgress where
   setMessageUnknownFields !ufs msg = msg {indexCatchupProgressUnknownFields = ufs}
 
 
+instance Semigroup IndexCatchupProgress where
+  a <> b =
+    IndexCatchupProgress
+      { indexCatchupProgressIndexName = if b.indexCatchupProgressIndexName == "" then a.indexCatchupProgressIndexName else b.indexCatchupProgressIndexName
+      , indexCatchupProgressCaughtUpGenerations = a.indexCatchupProgressCaughtUpGenerations <> b.indexCatchupProgressCaughtUpGenerations
+      , indexCatchupProgressUnknownFields = a.indexCatchupProgressUnknownFields <> b.indexCatchupProgressUnknownFields
+      }
+
+
+instance Monoid IndexCatchupProgress where
+  mempty = defaultIndexCatchupProgress
+
+
+{- | Index details for MemWAL Index, stored in IndexMetadata.index_details.
+This is the centralized structure for all MemWAL metadata:
+- Configuration (shard specs, indexes to maintain)
+- Merge progress (merged generations per shard)
+- Shard state snapshots
+
+Writers read this index to get configuration before writing.
+Readers may use shard snapshots in this index as a point-in-time
+optimization. Readers that need the latest shard set should list shard
+directories in storage and read each shard's latest manifest.
+A background process updates the index periodically to keep shard snapshots current.
+
+Shard snapshots are stored as a Lance file with one row per shard.
+The schema records shard discovery fields. Full mutable shard state remains
+authoritative in the shard manifest files.
+  shard_id: utf8
+  shard_spec_id: uint32
+  shard_field_{field_id}: typed per the matching ShardField.result_type
+-}
 data MemWalIndexDetails = MemWalIndexDetails
   { memWalIndexDetailsSnapshotTsMillis :: {-# UNPACK #-} !Int64
+  -- ^ Snapshot timestamp (Unix timestamp in milliseconds).
   , memWalIndexDetailsNumShards :: {-# UNPACK #-} !Word32
+  -- ^ Number of shards in the snapshot.
+  -- Used to determine storage format without reading the snapshot data.
   , memWalIndexDetailsInlineSnapshots :: !(Maybe ByteString)
+  -- ^ Inline shard snapshots for small shard counts.
+  -- When num_shards <= threshold (implementation-defined, e.g., 100),
+  -- snapshots are stored inline as serialized bytes.
+  -- Format: Lance file bytes with the shard snapshot schema.
   , memWalIndexDetailsShardSpecs :: !(V.Vector ShardSpec)
+  -- ^ Shard specs defining how to derive shard identifiers.
+  -- This configuration determines how rows are partitioned into shards.
   , memWalIndexDetailsMaintainedIndexes :: !(V.Vector Text)
+  -- ^ Indexes from the base table to maintain in MemTables.
+  -- These are index names referencing indexes defined on the base table.
+  -- The primary key btree index is always maintained implicitly and
+  -- should not be listed here.
+  --
+  -- For vector indexes, MemTables inherit quantization parameters (PQ codebook,
+  -- SQ params) from the base table index to ensure distance comparability.
   , memWalIndexDetailsMergedGenerations :: !(V.Vector MergedGeneration)
+  -- ^ Last generation merged to base table for each shard.
+  -- This is updated atomically with merge-insert data commits, enabling
+  -- conflict resolution when multiple mergers operate concurrently.
+  --
+  -- Note: This is separate from shard snapshots because:
+  -- 1. merged_generations is updated by mergers (atomic with data commit)
+  -- 2. shard snapshots are updated by background index builder
   , memWalIndexDetailsIndexCatchup :: !(V.Vector IndexCatchupProgress)
+  -- ^ Per-index catchup progress tracking.
+  -- When data is merged to the base table, base table indexes are rebuilt
+  -- asynchronously. This field tracks which generation each index covers.
+  --
+  -- For indexed queries, if an index's caught_up_generation < merged_generation,
+  -- readers should use flushed MemTable indexes for the gap instead of
+  -- scanning unindexed data in the base table.
+  --
+  -- If an index is not present in this list, it is assumed to be fully caught up.
   , memWalIndexDetailsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -4195,43 +4922,35 @@ instance MessageDecode MemWalIndexDetails where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 0 Nothing V.empty V.empty V.empty V.empty []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (MemWalIndexDetails {memWalIndexDetailsSnapshotTsMillis = acc_0, memWalIndexDetailsNumShards = acc_1, memWalIndexDetailsInlineSnapshots = acc_2, memWalIndexDetailsShardSpecs = acc_3, memWalIndexDetailsMaintainedIndexes = acc_4, memWalIndexDetailsMergedGenerations = acc_5, memWalIndexDetailsIndexCatchup = acc_6, memWalIndexDetailsUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
-            2 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 v acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
-            3 -> do
-              v <- decodeFieldBytes
-              loop acc_0 acc_1 (Just v) acc_3 acc_4 acc_5 acc_6 acc_unknown_
-            7 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 (acc_3 <> V.singleton v) acc_4 acc_5 acc_6 acc_unknown_
-            8 -> case wt of
-              WireLengthDelimited -> do
-                vs <- (decodeFail (CustomError "repeated string is never packed"))
-                loop acc_0 acc_1 acc_2 acc_3 (acc_4 <> vs) acc_5 acc_6 acc_unknown_
-              _ -> do
+      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ =
+        withTagM
+          (pure (MemWalIndexDetails {memWalIndexDetailsSnapshotTsMillis = acc_0, memWalIndexDetailsNumShards = acc_1, memWalIndexDetailsInlineSnapshots = acc_2, memWalIndexDetailsShardSpecs = acc_3, memWalIndexDetailsMaintainedIndexes = acc_4, memWalIndexDetailsMergedGenerations = acc_5, memWalIndexDetailsIndexCatchup = acc_6, memWalIndexDetailsUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
+              2 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop acc_0 v acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_
+              3 -> do
+                v <- decodeFieldBytes
+                loop acc_0 acc_1 (Just v) acc_3 acc_4 acc_5 acc_6 acc_unknown_
+              7 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 (acc_3 <> V.singleton v) acc_4 acc_5 acc_6 acc_unknown_
+              8 -> do
                 v <- decodeFieldString
                 loop acc_0 acc_1 acc_2 acc_3 (acc_4 <> V.singleton v) acc_5 acc_6 acc_unknown_
-            9 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (acc_5 <> V.singleton v) acc_6 acc_unknown_
-            10 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (acc_6 <> V.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (uf : acc_unknown_)
-
-
-instance IsMessage MemWalIndexDetails where
-  messageTypeName _ = "lance.table.MemWalIndexDetails"
+              9 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 (acc_5 <> V.singleton v) acc_6 acc_unknown_
+              10 -> do
+                v <- decodeFieldMessage
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (acc_6 <> V.singleton v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage MemWalIndexDetails where
@@ -4328,6 +5047,9 @@ instance ProtoMessage MemWalIndexDetails where
       ]
 
 
+instance IsMessage MemWalIndexDetails
+
+
 instance Aeson.ToJSON MemWalIndexDetails where
   toJSON msg =
     jsonObject
@@ -4371,9 +5093,31 @@ instance Proto.Extension.HasExtensions MemWalIndexDetails where
   setMessageUnknownFields !ufs msg = msg {memWalIndexDetailsUnknownFields = ufs}
 
 
+instance Semigroup MemWalIndexDetails where
+  a <> b =
+    MemWalIndexDetails
+      { memWalIndexDetailsSnapshotTsMillis = if b.memWalIndexDetailsSnapshotTsMillis == 0 then a.memWalIndexDetailsSnapshotTsMillis else b.memWalIndexDetailsSnapshotTsMillis
+      , memWalIndexDetailsNumShards = if b.memWalIndexDetailsNumShards == 0 then a.memWalIndexDetailsNumShards else b.memWalIndexDetailsNumShards
+      , memWalIndexDetailsInlineSnapshots = case b.memWalIndexDetailsInlineSnapshots of Nothing -> a.memWalIndexDetailsInlineSnapshots; x -> x
+      , memWalIndexDetailsShardSpecs = a.memWalIndexDetailsShardSpecs <> b.memWalIndexDetailsShardSpecs
+      , memWalIndexDetailsMaintainedIndexes = a.memWalIndexDetailsMaintainedIndexes <> b.memWalIndexDetailsMaintainedIndexes
+      , memWalIndexDetailsMergedGenerations = a.memWalIndexDetailsMergedGenerations <> b.memWalIndexDetailsMergedGenerations
+      , memWalIndexDetailsIndexCatchup = a.memWalIndexDetailsIndexCatchup <> b.memWalIndexDetailsIndexCatchup
+      , memWalIndexDetailsUnknownFields = a.memWalIndexDetailsUnknownFields <> b.memWalIndexDetailsUnknownFields
+      }
+
+
+instance Monoid MemWalIndexDetails where
+  mempty = defaultMemWalIndexDetails
+
+
+-- | Shard spec definition.
 data ShardSpec = ShardSpec
   { shardSpecSpecId :: {-# UNPACK #-} !Word32
+  -- ^ Unique identifier for this spec within the index.
+  -- IDs are never reused.
   , shardSpecFields :: !(V.Vector ShardField)
+  -- ^ Shard field definitions that determine how to compute shard identifiers.
   , shardSpecUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -4407,24 +5151,20 @@ instance MessageDecode ShardSpec where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 V.empty []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (ShardSpec {shardSpecSpecId = acc_0, shardSpecFields = acc_1, shardSpecUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop v acc_1 acc_unknown_
-            2 -> do
-              v <- decodeFieldMessage
-              loop acc_0 (acc_1 <> V.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
-
-
-instance IsMessage ShardSpec where
-  messageTypeName _ = "lance.table.ShardSpec"
+      loop acc_0 acc_1 acc_unknown_ =
+        withTagM
+          (pure (ShardSpec {shardSpecSpecId = acc_0, shardSpecFields = acc_1, shardSpecUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- (fromIntegral <$> decodeFieldVarint)
+                loop v acc_1 acc_unknown_
+              2 -> do
+                v <- decodeFieldMessage
+                loop acc_0 (acc_1 <> V.singleton v) acc_unknown_
+              _ -> do
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage ShardSpec where
@@ -4461,6 +5201,9 @@ instance ProtoMessage ShardSpec where
       ]
 
 
+instance IsMessage ShardSpec
+
+
 instance Aeson.ToJSON ShardSpec where
   toJSON msg =
     jsonObject
@@ -4489,13 +5232,35 @@ instance Proto.Extension.HasExtensions ShardSpec where
   setMessageUnknownFields !ufs msg = msg {shardSpecUnknownFields = ufs}
 
 
+instance Semigroup ShardSpec where
+  a <> b =
+    ShardSpec
+      { shardSpecSpecId = if b.shardSpecSpecId == 0 then a.shardSpecSpecId else b.shardSpecSpecId
+      , shardSpecFields = a.shardSpecFields <> b.shardSpecFields
+      , shardSpecUnknownFields = a.shardSpecUnknownFields <> b.shardSpecUnknownFields
+      }
+
+
+instance Monoid ShardSpec where
+  mempty = defaultShardSpec
+
+
+-- | Shard field definition.
 data ShardField = ShardField
   { shardFieldFieldId :: !Text
+  -- ^ Unique string identifier for this shard field.
   , shardFieldSourceIds :: !(VU.Vector Int32)
+  -- ^ Field IDs referencing source columns in the schema.
   , shardFieldTransform :: !(Maybe Text)
+  -- ^ Well-known shard transform name (e.g., "identity", "year", "bucket").
+  -- Mutually exclusive with expression.
   , shardFieldExpression :: !(Maybe Text)
+  -- ^ DataFusion SQL expression for custom logic.
+  -- Mutually exclusive with transform.
   , shardFieldResultType :: !Text
+  -- ^ Output type of the shard value (Arrow type name).
   , shardFieldParameters :: !(Map.Map Text Text)
+  -- ^ Transform parameters (e.g., num_buckets for bucket transform).
   , shardFieldUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
@@ -4541,43 +5306,39 @@ instance MessageDecode ShardField where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop "" VU.empty Nothing Nothing "" Map.empty []
     where
-      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (ShardField {shardFieldFieldId = acc_0, shardFieldSourceIds = acc_1, shardFieldTransform = acc_2, shardFieldExpression = acc_3, shardFieldResultType = acc_4, shardFieldParameters = acc_5, shardFieldUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldString
-              loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_
-            2 -> case wt of
-              WireLengthDelimited -> do
-                vs <- (VU.map fromIntegral <$> decodePackedVarint)
-                loop acc_0 (acc_1 <> vs) acc_2 acc_3 acc_4 acc_5 acc_unknown_
+      loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_ =
+        withTagM
+          (pure (ShardField {shardFieldFieldId = acc_0, shardFieldSourceIds = acc_1, shardFieldTransform = acc_2, shardFieldExpression = acc_3, shardFieldResultType = acc_4, shardFieldParameters = acc_5, shardFieldUnknownFields = reverse acc_unknown_}))
+          ( \fn wt -> case fn of
+              1 -> do
+                v <- decodeFieldString
+                loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_
+              2 -> case wt of
+                2 -> do
+                  vs <- (VU.map fromIntegral <$> decodePackedVarint)
+                  loop acc_0 (acc_1 <> vs) acc_2 acc_3 acc_4 acc_5 acc_unknown_
+                _ -> do
+                  v <- (fromIntegral <$> decodeFieldVarint)
+                  loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_3 acc_4 acc_5 acc_unknown_
+              3 -> do
+                v <- decodeFieldString
+                loop acc_0 acc_1 (Just v) acc_3 acc_4 acc_5 acc_unknown_
+              4 -> do
+                v <- decodeFieldString
+                loop acc_0 acc_1 acc_2 (Just v) acc_4 acc_5 acc_unknown_
+              5 -> do
+                v <- decodeFieldString
+                loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_unknown_
+              6 -> do
+                bs' <- getLengthDelimited
+                let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
+                case decodeEntry of
+                  Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_
+                  Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 (Map.union acc_5 (Map.singleton mk' mv')) acc_unknown_
               _ -> do
-                v <- (fromIntegral <$> decodeFieldVarint)
-                loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_3 acc_4 acc_5 acc_unknown_
-            3 -> do
-              v <- decodeFieldString
-              loop acc_0 acc_1 (Just v) acc_3 acc_4 acc_5 acc_unknown_
-            4 -> do
-              v <- decodeFieldString
-              loop acc_0 acc_1 acc_2 (Just v) acc_4 acc_5 acc_unknown_
-            5 -> do
-              v <- decodeFieldString
-              loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_unknown_
-            6 -> do
-              bs' <- getLengthDelimited
-              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
-              case decodeEntry of
-                Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_
-                Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 (Map.union acc_5 (Map.singleton mk' mv')) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (uf : acc_unknown_)
-
-
-instance IsMessage ShardField where
-  messageTypeName _ = "lance.table.ShardField"
+                uf <- captureUnknownField fn (toEnum wt)
+                loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (uf : acc_unknown_)
+          )
 
 
 instance ProtoMessage ShardField where
@@ -4662,6 +5423,9 @@ instance ProtoMessage ShardField where
       ]
 
 
+instance IsMessage ShardField
+
+
 instance Aeson.ToJSON ShardField where
   toJSON msg =
     jsonObject
@@ -4702,34 +5466,18 @@ instance Proto.Extension.HasExtensions ShardField where
   setMessageUnknownFields !ufs msg = msg {shardFieldUnknownFields = ufs}
 
 
--- | Register all message types defined in this module.
-registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
-registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy UUID)
-    . Proto.Registry.registerType (Proxy :: Proxy Manifest)
-    . Proto.Registry.registerType (Proxy :: Proxy Manifest'WriterVersion)
-    . Proto.Registry.registerType (Proxy :: Proxy Manifest'DataStorageFormat)
-    . Proto.Registry.registerType (Proxy :: Proxy BasePath)
-    . Proto.Registry.registerType (Proxy :: Proxy VersionAuxData)
-    . Proto.Registry.registerType (Proxy :: Proxy IndexMetadata)
-    . Proto.Registry.registerType (Proxy :: Proxy IndexFile)
-    . Proto.Registry.registerType (Proxy :: Proxy IndexSection)
-    . Proto.Registry.registerType (Proxy :: Proxy DataFragment)
-    . Proto.Registry.registerType (Proxy :: Proxy DataFile)
-    . Proto.Registry.registerType (Proxy :: Proxy DeletionFile)
-    . Proto.Registry.registerType (Proxy :: Proxy ExternalFile)
-    . Proto.Registry.registerType (Proxy :: Proxy VectorIndexDetails)
-    . Proto.Registry.registerType (Proxy :: Proxy FragmentReuseIndexDetails)
-    . Proto.Registry.registerType (Proxy :: Proxy FragmentReuseIndexDetails'InlineContent)
-    . Proto.Registry.registerType (Proxy :: Proxy FragmentReuseIndexDetails'FragmentDigest)
-    . Proto.Registry.registerType (Proxy :: Proxy FragmentReuseIndexDetails'Group)
-    . Proto.Registry.registerType (Proxy :: Proxy FragmentReuseIndexDetails'Version)
-    . Proto.Registry.registerType (Proxy :: Proxy ShardManifest)
-    . Proto.Registry.registerType (Proxy :: Proxy ShardFieldEntry)
-    . Proto.Registry.registerType (Proxy :: Proxy FlushedGeneration)
-    . Proto.Registry.registerType (Proxy :: Proxy MergedGeneration)
-    . Proto.Registry.registerType (Proxy :: Proxy IndexCatchupProgress)
-    . Proto.Registry.registerType (Proxy :: Proxy MemWalIndexDetails)
-    . Proto.Registry.registerType (Proxy :: Proxy ShardSpec)
-    . Proto.Registry.registerType (Proxy :: Proxy ShardField)
-    . id
+instance Semigroup ShardField where
+  a <> b =
+    ShardField
+      { shardFieldFieldId = if b.shardFieldFieldId == "" then a.shardFieldFieldId else b.shardFieldFieldId
+      , shardFieldSourceIds = a.shardFieldSourceIds <> b.shardFieldSourceIds
+      , shardFieldTransform = case b.shardFieldTransform of Nothing -> a.shardFieldTransform; x -> x
+      , shardFieldExpression = case b.shardFieldExpression of Nothing -> a.shardFieldExpression; x -> x
+      , shardFieldResultType = if b.shardFieldResultType == "" then a.shardFieldResultType else b.shardFieldResultType
+      , shardFieldParameters = a.shardFieldParameters <> b.shardFieldParameters
+      , shardFieldUnknownFields = a.shardFieldUnknownFields <> b.shardFieldUnknownFields
+      }
+
+
+instance Monoid ShardField where
+  mempty = defaultShardField

@@ -146,9 +146,9 @@ import Foreign.Ptr (castPtr)
 import Foreign.Storable (Storable)
 import GHC.Exts (Int (I#))
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
-import Proto.Wire (Tag (..), WireType (..))
-import Proto.Wire.Decode
-import Proto.Wire.Encode (putFixed32, putFixed64, putLengthDelimited, putTag, putVarint, tagSize, varintSize)
+import Proto.Internal.Wire (Tag (..), WireType (..))
+import Proto.Internal.Wire.Decode
+import Proto.Internal.Wire.Encode (putFixed32, putFixed64, putLengthDelimited, putTag, putVarint, tagSize, varintSize)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 import Wireform.Builder qualified as B
 import Wireform.FFI (countPackedVarints)
@@ -417,10 +417,7 @@ decodeAllFixed64 bs
     (!n, !r) = BS.length bs `quotRem` 8
 
 
-{- | Decode packed float values. Count is known: byteLength / 4.
-On LE platforms: the IEEE 754 bytes are already in native order,
-so we bulk-copy and reinterpret as Float via VU.unsafeCast.
--}
+-- | Decode packed float values. Count is known: byteLength / 4.
 decodePackedFloat :: Decoder (VU.Vector Float)
 decodePackedFloat = do
   bs <- getLengthDelimited
@@ -456,17 +453,7 @@ decodeAllDouble bs
     (!n, !r) = BS.length bs `quotRem` 8
 
 
-{- | Bulk-copy a ByteString into a new unboxed vector using a single memcpy.
-On little-endian platforms (x86_64, aarch64-LE), the wire bytes for
-fixed-width protobuf fields are already in native byte order, so this
-is a zero-decode operation — just copy the bytes into a properly-typed
-vector backing store.
-
-Uses Storable.Vector for the raw memcpy (its backing store IS a
-ForeignPtr), then converts to Unboxed via VU.convert (which copies
-once from the Storable ForeignPtr into a ByteArray#).  Net result:
-one memcpy vs N individual peek-and-write calls.
--}
+-- | Bulk-copy a ByteString into a new unboxed vector
 unsafeBulkCopyToVectorU
   :: (VU.Unbox a, Storable a)
   => Int
@@ -637,9 +624,7 @@ encodeUnknownFields = foldMap encodeOne
       putTag fn WireLengthDelimited <> putLengthDelimited val
 
 
-{- | Decode a map entry (key=field1, value=field2) from a length-delimited chunk.
-Uses 'withTagM' CPS to avoid allocating a 'Tag' per field.
--}
+-- | Decode a map entry (key=field1, value=field2) from a length-delimited chunk.
 decodeMapEntry :: Decoder k -> Decoder v -> k -> v -> Decoder (k, v)
 decodeMapEntry decK decV = loop
   where

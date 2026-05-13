@@ -32,15 +32,14 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
+import Proto.Internal.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
 import Data.Proxy (Proxy(..))
-import Proto.Message (IsMessage(..))
+import Proto.Registry (IsMessage)
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
 import qualified Proto.Extension
-import qualified Proto.Merge
-import Proto.Wire (Tag(..), WireType(..))
-import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
+import Proto.Internal.Wire (Tag(..), WireType(..))
+import Proto.Internal.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
   putSVarint32, putSVarint64, putVarintSigned,
   varintSize, tagSize, fieldMessageSize,
@@ -49,7 +48,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
+import Proto.Internal.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
   archFixed32, archFixed64, archFloat, archDouble, archBool,
   archString, archBytes, archSubmessage,
   archVarintSize, archStringSize, archBytesSize, archBoolSize,
@@ -105,8 +104,7 @@ instance MessageDecode Any where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 acc_1 (uf : acc_unknown_))
 
-instance IsMessage Any where
-  messageTypeName _ = "google.protobuf.Any"
+instance IsMessage Any
 
 instance ProtoMessage Any where
   protoMessageName _ = "google.protobuf.Any"
@@ -153,17 +151,17 @@ instance Proto.Extension.HasExtensions Any where
   messageUnknownFields = anyUnknownFields
   setMessageUnknownFields !ufs msg = msg { anyUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable Any where
-  mergeFrom a b = Any
+instance Semigroup Any where
+  a <> b = Any
     { anyTypeUrl = b.anyTypeUrl
     , anyValue = b.anyValue
     , anyUnknownFields = a.anyUnknownFields <> b.anyUnknownFields
     }
 
-instance Semigroup Any where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid Any where
+  mempty = defaultAny
 
 -- | Register all message types defined in this module.
-registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes :: Proto.Registry.TypeRegistry -> Proto.Registry.TypeRegistry
 registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy Any) .  id
+  Proto.Registry.registerMessage (Proxy :: Proxy Any) .  id

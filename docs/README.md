@@ -1,5 +1,9 @@
 # wireform documentation
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 | Guide | Audience |
 |-------|----------|
 | [**Getting started**](getting-started.md) | First-time users: run examples, pick a workflow, wire a Cabal package, go deeper. |

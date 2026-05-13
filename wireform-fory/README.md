@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Apache Fory](https://fory.apache.org/) (formerly Fury) for Haskell.
 Encode and decode the dynamic [`Fory.Value`](src/Fory/Value.hs), derive
 typeclass instances generically or via Template Haskell, and stay
@@ -192,6 +196,23 @@ A criterion harness in [`bench/Bench.hs`](bench/Bench.hs):
 cabal bench wireform-fory:wireform-fory-bench
 ```
 
+<!-- BEGIN_AUTOGEN bench:fory-encode-decode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/fory-encode-decode-dark.svg">
+  <img src="bench-results/charts/fory-encode-decode-light.svg" alt="wireform-fory encode + decode across representative shapes">
+</picture>
+
+| Operation        |  encode |   decode | ratio |
+| :--------------- | ------: | -------: | ----: |
+| int              | 76.0 ns |  63.8 ns | 0.84x |
+| string           | 83.5 ns |  77.5 ns | 0.93x |
+| bytes 1KB        |  127 ns |  62.4 ns | 0.49x |
+| Person struct    |  262 ns |   456 ns | 1.74x |
+| list[Person]*100 | 6712 ns | 10674 ns | 1.59x |
+
+<sub>Last run 2026-05-13 11:20:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:fory-encode-decode -->
+
 For cross-language comparisons:
 
 - Java: [Apache Fory's reference Java implementation](https://github.com/apache/fory).
@@ -199,8 +220,6 @@ For cross-language comparisons:
   binding the interop test shells out to).
 - Rust: Apache Fory ships an in-repo Rust binding under the same
   monorepo.
-
-> Numbers TBD: drop a results table in once the harness is captured.
 
 ## License
 

@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    font-feature-settings: "ss01", "cv11";
+  }
+}
+
+@theme {
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-paper: #efece4;
+  --color-paper-2: #f6f4ee;
+  --color-card: #ffffff;
+  --color-ink: #1a1d24;
+  --color-muted: #6a6660;
+  --color-line: rgba(0, 0, 0, 0.12);
+  --color-line-2: rgba(0, 0, 0, 0.06);
+
+  --color-primary: #0a4a6e;
+  --color-primary-dark: #073952;
+  --color-accent: #c5512d;
+  --color-third: #d4a017;
+}

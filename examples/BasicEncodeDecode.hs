@@ -1,53 +1,58 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
--- | Example: basic message encoding and decoding.
---
--- Demonstrates defining a message type by hand, implementing the
--- encode/decode typeclasses, and doing a roundtrip.
---
--- Run with: cabal run example-basic
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+{- | Example: basic message encoding and decoding.
+
+Demonstrates defining a message type by hand, implementing the
+encode/decode typeclasses, and doing a roundtrip.
+
+Run with: cabal run example-basic
+-}
 module Main where
 
-import qualified Data.ByteString as BS
+import Control.DeepSeq (NFData)
+import Data.ByteString qualified as BS
 import Data.Text (Text)
 import Data.Word (Word64)
 import GHC.Generics (Generic)
-import Control.DeepSeq (NFData)
-
-import Proto.Encode
 import Proto.Decode
-import Proto.Message (IsMessage(..))
-import Proto.Wire (Tag (..))
-import Proto.Wire.Encode (fieldVarintSize, fieldTextSize, fieldBoolSize)
+import Proto.Encode
+import Proto.Internal.Wire (Tag (..))
+import Proto.Internal.Wire.Encode (fieldBoolSize, fieldTextSize, fieldVarintSize)
+
 
 -- Define a message type as a plain Haskell record.
 -- Strict fields with UNPACK for primitives.
 data Person = Person
-  { personName  :: !Text
-  , personAge   :: {-# UNPACK #-} !Word64
+  { personName :: !Text
+  , personAge :: {-# UNPACK #-} !Word64
   , personEmail :: !Text
   , personActive :: !Bool
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass NFData
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
 
 -- Implement encoding: fields skip default values per proto3 rules.
 instance MessageEncode Person where
   buildMessage (Person name age email active) =
-    (if name == "" then mempty else encodeFieldString 1 name) <>
-    (if age == 0 then mempty else encodeFieldVarint 2 age) <>
-    (if email == "" then mempty else encodeFieldString 3 email) <>
-    (if not active then mempty else encodeFieldBool 4 active)
+    (if name == "" then mempty else encodeFieldString 1 name)
+      <> (if age == 0 then mempty else encodeFieldVarint 2 age)
+      <> (if email == "" then mempty else encodeFieldString 3 email)
+      <> (if not active then mempty else encodeFieldBool 4 active)
+
 
 -- Implement size computation for exact-size ByteString allocation.
 instance MessageSize Person where
   messageSize (Person name age email active) =
-    (if name == "" then 0 else fieldTextSize 1 name) +
-    (if age == 0 then 0 else fieldVarintSize 2 age) +
-    (if email == "" then 0 else fieldTextSize 3 email) +
-    (if not active then 0 else fieldBoolSize 4)
+    (if name == "" then 0 else fieldTextSize 1 name)
+      + (if age == 0 then 0 else fieldVarintSize 2 age)
+      + (if email == "" then 0 else fieldTextSize 3 email)
+      + (if not active then 0 else fieldBoolSize 4)
+
 
 -- Implement decoding: CPS loop with accumulators, unknown field skipping.
 instance MessageDecode Person where
@@ -64,9 +69,6 @@ instance MessageDecode Person where
             4 -> decodeFieldBool >>= \v -> loop name age email v
             _ -> skipField wt >> loop name age email active
 
--- Register type identity for Any support.
-instance IsMessage Person where
-  messageTypeName _ = "example.Person"
 
 main :: IO ()
 main = do

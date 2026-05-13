@@ -5,49 +5,64 @@ sidebar:
   order: 2
 ---
 
+:::caution[Not yet on Hackage]
+wireform is in heavy development and has not been published to Hackage yet.
+APIs may change. To use it today, clone the repo and add it as a path
+dependency.
+:::
+
+wireform currently ships 34 packages covering serialization, codegen,
+streaming, DOM processing, messaging, and analytics. This page lists
+every format with its capabilities and the modules to reach for.
+
 ## Schema & IDL formats
 
-| Format | Package | Encode/Decode | Codegen | Streaming | RPC / Framing |
-|--------|---------|:---:|:---:|:---:|---|
-| Protocol Buffers | `wireform-proto` | Yes | `loadProto` / `wireform-gen proto` / `protoc` | `Proto.Decode.Stream` | gRPC (via `wireform-grpc`) |
-| Avro | `wireform-avro` | Yes | `wireform-gen avro` | — | Avro IPC, Container (OCF) |
-| Thrift | `wireform-thrift` | Yes | `wireform-gen thrift` | — | Binary + Compact protocol |
-| Bond | `wireform-bond` | Yes | `wireform-gen bond` | — | — |
-| Cap'n Proto | `wireform-capnproto` | Yes | `wireform-gen capnp` | — | — |
-| FlatBuffers | `wireform-flatbuffers` | Yes | `wireform-gen fbs` | — | — |
-| ASN.1 | `wireform-asn1` | Yes (BER/DER) | `wireform-gen asn1` | — | — |
+These formats define types in a schema language and generate Haskell code.
+
+| Format | Package | Codegen | RPC / Framing |
+|--------|---------|---------|---------------|
+| Protocol Buffers | `wireform-proto` | `loadProto` TH / `wireform-gen proto` / `protoc` plugin | `Proto.GRPC` framing; full gRPC via `wireform-grpc` |
+| Avro | `wireform-avro` | `wireform-gen avro` | Avro IPC (`Avro.Protocol`), container files (`Avro.Container`) |
+| Thrift | `wireform-thrift` | `wireform-gen thrift` | Binary + Compact protocol (`Thrift.Message`) |
+| Bond | `wireform-bond` | `wireform-gen bond` | — |
+| Cap'n Proto | `wireform-capnproto` | `wireform-gen capnp` | — |
+| FlatBuffers | `wireform-flatbuffers` | `wireform-gen fbs` | — |
+| ASN.1 | `wireform-asn1` | `wireform-gen asn1` | — |
 
 ## Binary value formats
 
-| Format | Package | Generic | Value ADT | JSON bridge | Streaming |
-|--------|---------|:---:|:---:|:---:|:---:|
-| MessagePack | `wireform-msgpack` | `MsgPack.Class` | Yes | Yes | `MsgPack.Stream` |
-| CBOR | `wireform-cbor` | `CBOR.Class` | Yes | Yes | `CBOR.Stream` |
-| BSON | `wireform-bson` | `BSON.Class` | Yes | — | — |
-| Ion | `wireform-ion` | `Ion.Class` | Yes | — | Yes |
-| EDN | `wireform-edn` | `EDN.Class` | Yes | — | — |
-| Bencode | `wireform-bencode` | `Bencode.Class` | Yes | — | — |
-| Fory | `wireform-fory` | — | Yes | — | — |
+Schema-less formats with `Generic` deriving. Each package exposes a `Value`
+ADT for dynamic messages.
+
+| Format | Package | Class module | Extras |
+|--------|---------|-------------|--------|
+| MessagePack | `wireform-msgpack` | `MsgPack.Class` | Streaming (`MsgPack.Stream`), RPC (`MsgPack.RPC`), JSON bridge |
+| CBOR | `wireform-cbor` | `CBOR.Class` | Streaming (`CBOR.Stream`), CDDL schema + codegen, diagnostics, JSON bridge |
+| BSON | `wireform-bson` | `BSON.Class` | MongoDB wire format |
+| Ion | `wireform-ion` | `Ion.Class` | ISL schema + codegen |
+| EDN | `wireform-edn` | `EDN.Class` | Clojure/Datomic format |
+| Bencode | `wireform-bencode` | `Bencode.Class` | BitTorrent serialization |
+| Fory | `wireform-fory` | — | Apache Fory xlang format (interop-tested against pyfory) |
 
 ## Text & markup formats
 
-| Format | Package | Generic | Streaming | Special |
-|--------|---------|:---:|:---:|---|
-| XML | `wireform-xml` | `XML.Class` | SAX + incremental | SIMD parser, XPath, XSLT 1.0, XSD codegen, zero-copy DOM |
-| HTML5 | `wireform-html` | `HTML.Class` | Streaming rewriter | Spec-compliant tree builder, CSS selectors, SIMD serializer |
-| YAML | `wireform-yaml` | `YAML.Class` | — | YAML 1.2, 100% yaml-test-suite, annotated AST |
-| TOML | `wireform-toml` | `TOML.Class` | — | TOML 1.0/1.1, toml-test conformant |
-| CSV | `wireform-csv` | `CSV.Class` | — | CSV / TSV / pipe-separated |
-| NDJSON | `wireform-ndjson` | `NDJSON.Class` | Yes | JSON lines |
+| Format | Package | Class module | Extras |
+|--------|---------|-------------|--------|
+| XML | `wireform-xml` | `XML.Class` | SAX (`XML.SAX`), zero-copy DOM (`XML.FastDOM`), XPath (`XML.Path`), XSLT 1.0 (`XML.XSLT`), XSD codegen, concurrent parsing (`XML.Incremental`) |
+| HTML5 | `wireform-html` | `HTML.Class` | Spec-compliant tree builder, CSS selectors (`HTML.Selector`), streaming rewriter (`HTML.Rewriter`) |
+| YAML | `wireform-yaml` | `YAML.Class` | YAML 1.2, 100% yaml-test-suite conformance, annotated AST, JSON bridge |
+| TOML | `wireform-toml` | `TOML.Class` | TOML 1.0/1.1, toml-test conformant |
+| CSV | `wireform-csv` | `CSV.Class` | CSV / TSV / pipe-separated |
+| NDJSON | `wireform-ndjson` | `NDJSON.Class` | Newline-delimited JSON, incremental decoder |
 
 ## Analytics & lake formats
 
 | Format | Package | Reader | Writer | Extras |
-|--------|---------|:---:|:---:|---|
-| Parquet | `wireform-parquet` | Full | Full | All encodings, compression, bloom filters, page index, encryption, predicate pushdown |
+|--------|---------|:------:|:------:|--------|
+| Parquet | `wireform-parquet` | Full | Full | All encodings, snappy/zstd/lz4/brotli compression, bloom filters, page index, encryption, predicate pushdown, Arrow bridge |
 | Arrow IPC | `wireform-arrow` | Full | Full | Schema framing, record batch materialization, zstd/lz4 compression |
-| ORC | `wireform-orc` | Full | Partial | Integer RLE v1/v2, compression, predicate evaluator |
-| Iceberg | `wireform-iceberg` | Full | — | Schema evolution, partition transforms, deletion vectors, Puffin, catalog clients (REST, Glue, Hadoop, SQL) |
+| ORC | `wireform-orc` | Full | Partial | Integer RLE v1/v2, snappy/zstd/lz4 compression, predicate evaluator |
+| Iceberg | `wireform-iceberg` | Full | — | Schema evolution, partition transforms, deletion vectors, Puffin statistics, catalog clients (REST, Glue, Hadoop, SQL) |
 | Delta Lake | `wireform-delta` | Partial | — | Transaction log, checkpoints, time travel |
 | Hudi | `wireform-hudi` | Partial | — | Timeline reader, copy-on-write |
 | Lance | `wireform-lance` | Partial | — | Data files, manifests, dataset versions |
@@ -55,17 +70,31 @@ sidebar:
 ## Messaging & RPC
 
 | Protocol | Package | Capabilities |
-|----------|---------|---|
+|----------|---------|--------------|
 | gRPC | `wireform-grpc` | Client/server, unary + streaming (server, client, bidi), HTTP/2, TLS |
-| Kafka | `wireform-kafka` | Producer, consumer, transactions, Kafka Streams DSL (KStream, KTable, windowed aggregations, joins), SASL auth (PLAIN, SCRAM, OAUTHBEARER, MSK IAM), compression codecs, OpenTelemetry instrumentation |
+| Kafka | `wireform-kafka` | Producer, consumer, exactly-once transactions, Kafka Streams DSL (KStream, KTable, windowed aggregations, joins), SASL auth (PLAIN, SCRAM, OAUTHBEARER, MSK IAM), snappy/zstd/lz4/gzip compression, OpenTelemetry instrumentation |
 
 ## Shared infrastructure
 
-| Package | Purpose |
-|---------|---|
-| `wireform-core` | FFI/SIMD primitives — packed varint, SWAR UTF-8, SIMD scanning, endianness helpers |
-| `wireform-derive` | Annotation vocabulary for Generic deriving across all 25+ backends |
-| `wireform-columnar` | Format-agnostic columnar primitives — pull iterators, predicate pushdown, mmap I/O, SIMD bit-unpacking |
+These packages are used internally by the format packages. You generally
+don't import them directly, but they're good to know about.
 
-For cross-cutting concerns (streaming, RPC, container files, dynamic messages)
-see [Get started — Step 6: Go deeper](/guides/getting-started/#step-6--go-deeper).
+| Package | What it does |
+|---------|--------------|
+| `wireform-core` | FFI/SIMD primitives shared across formats — packed varint decode, UTF-8 validation, byte/whitespace/JSON scanning |
+| `wireform-derive` | Annotation vocabulary for Generic deriving. One set of annotations (`rename`, `tag`, `skip`, `defaults`, `flatten`, etc.) works across all 25+ backends. |
+| `wireform-columnar` | Shared columnar primitives — pull-based iterators, predicate pushdown, mmap-aware file loading, SIMD bit-unpacking |
+
+## Conformance
+
+Several packages are tested against upstream conformance suites:
+
+| Package | Suite | Status |
+|---------|-------|--------|
+| `wireform-proto` | Official protobuf conformance | 2,675 / 2,675 passing |
+| `wireform-html` | html5lib tree builder tests | 1,779 / 1,779 passing |
+| `wireform-yaml` | yaml-test-suite | 100% passing |
+| `wireform-toml` | toml-test | Passing |
+| `wireform-fory` | pyfory interop | 45 / 45 passing |
+| `wireform-parquet` | pyarrow / DuckDB interop | Passing |
+| `wireform-iceberg` | pyiceberg / fastavro interop | Passing |

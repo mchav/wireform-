@@ -1,4 +1,4 @@
-module Test.TDP (tdpTests) where
+module Test.TDP (dynamicSchemaTests) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -16,11 +16,10 @@ import Hedgehog
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Proto.Decode
+import Proto.Dynamic
 import Proto.Encode
-import Proto.Schema
-import Proto.TDP
-import Proto.Wire (Tag (..), WireType (..), fieldTag)
-import Proto.Wire.Decode (
+import Proto.Internal.Wire (Tag (..), WireType (..), fieldTag)
+import Proto.Internal.Wire.Decode (
   DecodeError (..),
   DecodeResult (..),
   Decoder,
@@ -35,8 +34,9 @@ import Proto.Wire.Decode (
   skipWireType,
   withTagM,
  )
-import Proto.Wire.Decode qualified as WD
-import Proto.Wire.Encode
+import Proto.Internal.Wire.Decode qualified as WD
+import Proto.Internal.Wire.Encode
+import Proto.Schema
 import Test.Tasty
 import Test.Tasty.HUnit hiding (assert)
 import Test.Tasty.Hedgehog
@@ -44,16 +44,16 @@ import Wireform.Builder qualified as B
 import Wireform.FFI (countPackedVarints, packedAllSingleByte, validateUtf8SWAR)
 
 
-tdpTests :: TestTree
-tdpTests =
+dynamicSchemaTests :: TestTree
+dynamicSchemaTests =
   testGroup
-    "TDP (Table-Driven Parser)"
-    [ tdpCoreTests
-    , tdpCompileTests
-    , tdpWireFFITests
-    , tdpPackedTests
-    , tdpUTF8Tests
-    , tdpWithTagMTests
+    "Dynamic Schema-Driven Decoder"
+    [ coreTests
+    , compileTests
+    , wireFFITests
+    , packedTests
+    , utf8Tests
+    , withTagMTests
     ]
 
 
@@ -61,23 +61,23 @@ tdpTests =
 -- TDP core interpreter tests
 -- ============================================================
 
-tdpCoreTests :: TestTree
-tdpCoreTests =
+coreTests :: TestTree
+coreTests =
   testGroup
     "Core interpreter"
     [ testCase "empty message" $ do
-        let result = runParseTable emptyTable BS.empty
+        let result = decodeDynamicWithSchema emptyTable BS.empty
         case result of
-          Right msg -> IntMap.null (tdpFields msg) @?= True
+          Right msg -> Map.null (dynFields msg) @?= True
           Left e -> assertFailure (show e)
     , testCase "single varint field" $ do
         let bs = buildToBS $ putTag 1 WireVarint <> putVarint 42
-            result = runParseTable testSimpleTable bs
+            result = decodeDynamicWithSchema testSimpleTable bs
         case result of
           Right msg -> do
-            case IntMap.lookup 1 (tdpFields msg) of
-              Just (TVVarint 42) -> pure ()
-              other -> assertFailure ("Expected TVVarint 42, got: " <> show other)
+            case Map.lookup 1 (dynFields msg) of
+              Just (DynVarint 42) -> pure ()
+              other -> assertFailure ("Expected DynVarint 42, got: " <> show other)
           Left e -> assertFailure (show e)
     , testCase "multiple fields in order" $ do
         let bs =
@@ -88,12 +88,12 @@ tdpCoreTests =
                   <> putText "hello"
                   <> putTag 3 WireVarint
                   <> putVarint 1
-            result = runParseTable testMultiTable bs
+            result = decodeDynamicWithSchema testMultiTable bs
         case result of
           Right msg -> do
-            IntMap.lookup 1 (tdpFields msg) @?= Just (TVVarint 100)
-            IntMap.lookup 2 (tdpFields msg) @?= Just (TVBytes (buildToBS (B.byteString "hello")))
-            IntMap.lookup 3 (tdpFields msg) @?= Just (TVVarint 1)
+            Map.lookup 1 (dynFields msg) @?= Just (DynVarint 100)
+            Map.lookup 2 (dynFields msg) @?= Just (DynBytes (buildToBS (B.byteString "hello")))
+            Map.lookup 3 (dynFields msg) @?= Just (DynVarint 1)
           Left e -> assertFailure (show e)
     , testCase "fields out of order" $ do
         let bs =
@@ -102,11 +102,11 @@ tdpCoreTests =
                   <> putVarint 99
                   <> putTag 1 WireVarint
                   <> putVarint 42
-            result = runParseTable testMultiTable bs
+            result = decodeDynamicWithSchema testMultiTable bs
         case result of
           Right msg -> do
-            IntMap.lookup 1 (tdpFields msg) @?= Just (TVVarint 42)
-            IntMap.lookup 3 (tdpFields msg) @?= Just (TVVarint 99)
+            Map.lookup 1 (dynFields msg) @?= Just (DynVarint 42)
+            Map.lookup 3 (dynFields msg) @?= Just (DynVarint 99)
           Left e -> assertFailure (show e)
     , testCase "unknown fields are skipped" $ do
         let bs =
@@ -117,11 +117,11 @@ tdpCoreTests =
                   <> putVarint 999
                   <> putTag 2 WireLengthDelimited
                   <> putText "hi"
-            result = runParseTable testMultiTable bs
+            result = decodeDynamicWithSchema testMultiTable bs
         case result of
           Right msg -> do
-            IntMap.lookup 1 (tdpFields msg) @?= Just (TVVarint 42)
-            IntMap.member 99 (tdpFields msg) @?= False
+            Map.lookup 1 (dynFields msg) @?= Just (DynVarint 42)
+            Map.member 99 (dynFields msg) @?= False
           Left e -> assertFailure (show e)
     , testCase "last value wins for scalar fields" $ do
         let bs =
@@ -130,34 +130,34 @@ tdpCoreTests =
                   <> putVarint 10
                   <> putTag 1 WireVarint
                   <> putVarint 20
-            result = runParseTable testSimpleTable bs
+            result = decodeDynamicWithSchema testSimpleTable bs
         case result of
           Right msg ->
-            IntMap.lookup 1 (tdpFields msg) @?= Just (TVVarint 20)
+            Map.lookup 1 (dynFields msg) @?= Just (DynVarint 20)
           Left e -> assertFailure (show e)
     , testCase "fixed32 field" $ do
         let bs = buildToBS $ putTag 1 Wire32Bit <> putFixed32 0xDEADBEEF
-            table = makeSimpleTable 1 Wire32Bit (thunkFixed32Pub TVFixed32)
-            result = runParseTable table bs
+            table = makeSimpleTable 1 Wire32Bit (thunkFixed32Pub DynFixed32)
+            result = decodeDynamicWithSchema table bs
         case result of
           Right msg ->
-            IntMap.lookup 1 (tdpFields msg) @?= Just (TVFixed32 0xDEADBEEF)
+            Map.lookup 1 (dynFields msg) @?= Just (DynFixed32 0xDEADBEEF)
           Left e -> assertFailure (show e)
     , testCase "fixed64 field" $ do
         let bs = buildToBS $ putTag 1 Wire64Bit <> putFixed64 0xCAFEBABEDEADBEEF
-            table = makeSimpleTable 1 Wire64Bit (thunkFixed64Pub TVFixed64)
-            result = runParseTable table bs
+            table = makeSimpleTable 1 Wire64Bit (thunkFixed64Pub DynFixed64)
+            result = decodeDynamicWithSchema table bs
         case result of
           Right msg ->
-            IntMap.lookup 1 (tdpFields msg) @?= Just (TVFixed64 0xCAFEBABEDEADBEEF)
+            Map.lookup 1 (dynFields msg) @?= Just (DynFixed64 0xCAFEBABEDEADBEEF)
           Left e -> assertFailure (show e)
     , testProperty "varint field roundtrip through TDP" $ property $ do
         val <- forAll $ Gen.word64 (Range.linear 0 maxBound)
         let bs = buildToBS $ putTag 1 WireVarint <> putVarint val
-            result = runParseTable testSimpleTable bs
+            result = decodeDynamicWithSchema testSimpleTable bs
         case result of
           Right msg ->
-            IntMap.lookup 1 (tdpFields msg) === Just (TVVarint val)
+            Map.lookup 1 (dynFields msg) === Just (DynVarint val)
           Left e -> do
             annotate (show e)
             failure
@@ -173,12 +173,12 @@ tdpCoreTests =
                   <> putVarint v2
                   <> putTag 3 WireVarint
                   <> putVarint v3
-            result = runParseTable testThreeVarintTable bs
+            result = decodeDynamicWithSchema testThreeVarintTable bs
         case result of
           Right msg -> do
-            IntMap.lookup 1 (tdpFields msg) === Just (TVVarint v1)
-            IntMap.lookup 2 (tdpFields msg) === Just (TVVarint v2)
-            IntMap.lookup 3 (tdpFields msg) === Just (TVVarint v3)
+            Map.lookup 1 (dynFields msg) === Just (DynVarint v1)
+            Map.lookup 2 (dynFields msg) === Just (DynVarint v2)
+            Map.lookup 3 (dynFields msg) === Just (DynVarint v3)
           Left e -> do
             annotate (show e)
             failure
@@ -189,8 +189,8 @@ tdpCoreTests =
 -- Compile from schema tests
 -- ============================================================
 
-tdpCompileTests :: TestTree
-tdpCompileTests =
+compileTests :: TestTree
+compileTests =
   testGroup
     "Compilation from schema"
     [ testCase "compileParseTable produces non-empty table" $ do
@@ -215,11 +215,11 @@ tdpCompileTests =
                   <> putText "test"
                   <> putTag 3 WireVarint
                   <> putVarint 1
-            result = runParseTable table bs
+            result = decodeDynamicWithSchema table bs
         case result of
           Right msg -> do
-            IntMap.lookup 1 (tdpFields msg) @?= Just (TVVarint 42)
-            IntMap.lookup 3 (tdpFields msg) @?= Just (TVBool True)
+            Map.lookup 1 (dynFields msg) @?= Just (DynVarint 42)
+            Map.lookup 3 (dynFields msg) @?= Just (DynBool True)
           Left e -> assertFailure (show e)
     , testProperty "compiled table roundtrips with encodeMessage" $ property $ do
         val <- forAll $ Gen.word64 (Range.linear 0 1000)
@@ -228,11 +228,11 @@ tdpCompileTests =
         let msg = TestSchemaMsg val name active
             encoded = encodeMessage msg
             table = compileParseTable (Proxy :: Proxy TestSchemaMsg)
-            result = runParseTable table encoded
+            result = decodeDynamicWithSchema table encoded
         case result of
           Right tdpMsg -> do
-            case IntMap.lookup 1 (tdpFields tdpMsg) of
-              Just (TVVarint v) -> v === val
+            case Map.lookup 1 (dynFields tdpMsg) of
+              Just (DynVarint v) -> v === val
               Nothing | val == 0 -> success
               other -> do
                 annotate ("field 1: " <> show other)
@@ -247,8 +247,8 @@ tdpCompileTests =
 -- Wire FFI tests (SWAR routines)
 -- ============================================================
 
-tdpWireFFITests :: TestTree
-tdpWireFFITests =
+wireFFITests :: TestTree
+wireFFITests =
   testGroup
     "Wire FFI (SWAR)"
     [ testCase "countPackedVarints empty" $
@@ -287,8 +287,8 @@ tdpWireFFITests =
 -- Packed field decode tests (zero-copy, bulk memcpy paths)
 -- ============================================================
 
-tdpPackedTests :: TestTree
-tdpPackedTests =
+packedTests :: TestTree
+packedTests =
   testGroup
     "Packed field optimizations"
     [ testProperty "packed varint single-byte fast path" $ property $ do
@@ -386,8 +386,8 @@ tdpPackedTests =
 -- SWAR UTF-8 validation tests
 -- ============================================================
 
-tdpUTF8Tests :: TestTree
-tdpUTF8Tests =
+utf8Tests :: TestTree
+utf8Tests =
   testGroup
     "SWAR UTF-8 validation"
     [ testCase "empty is valid" $
@@ -429,8 +429,8 @@ tdpUTF8Tests =
 -- withTagM CPS tests
 -- ============================================================
 
-tdpWithTagMTests :: TestTree
-tdpWithTagMTests =
+withTagMTests :: TestTree
+withTagMTests =
   testGroup
     "withTagM CPS dispatch"
     [ testCase "withTagM at EOF returns kEOF" $ do
@@ -497,21 +497,21 @@ buildToBS = BL.toStrict . B.toLazyByteString
 
 
 -- Expose thunk builders for tests
-thunkVarintPub :: (Word64 -> TDPValue) -> FieldThunk
+thunkVarintPub :: (Word64 -> DynamicValue) -> FieldThunk
 thunkVarintPub f bs off =
   case runDecoder' getVarint bs off of
     DecodeOK v off' -> pure (f v, off')
     DecodeFail e -> error (show e)
 
 
-thunkFixed32Pub :: (Word32 -> TDPValue) -> FieldThunk
+thunkFixed32Pub :: (Word32 -> DynamicValue) -> FieldThunk
 thunkFixed32Pub f bs off =
   case runDecoder' getFixed32 bs off of
     DecodeOK v off' -> pure (f v, off')
     DecodeFail e -> error (show e)
 
 
-thunkFixed64Pub :: (Word64 -> TDPValue) -> FieldThunk
+thunkFixed64Pub :: (Word64 -> DynamicValue) -> FieldThunk
 thunkFixed64Pub f bs off =
   case runDecoder' getFixed64 bs off of
     DecodeOK v off' -> pure (f v, off')
@@ -523,31 +523,31 @@ emptyTable = ParseTable V.empty (BS.replicate 128 0xFF) IntMap.empty 0
 
 
 testSimpleTable :: ParseTable
-testSimpleTable = makeSimpleTable 1 WireVarint (thunkVarintPub TVVarint)
+testSimpleTable = makeSimpleTable 1 WireVarint (thunkVarintPub DynVarint)
 
 
 testMultiTable :: ParseTable
 testMultiTable =
   makeMultiTable
-    [ (1, WireVarint, thunkVarintPub TVVarint)
+    [ (1, WireVarint, thunkVarintPub DynVarint)
     , (2, WireLengthDelimited, thunkLenDelimPub)
-    , (3, WireVarint, thunkVarintPub TVVarint)
+    , (3, WireVarint, thunkVarintPub DynVarint)
     ]
 
 
 testThreeVarintTable :: ParseTable
 testThreeVarintTable =
   makeMultiTable
-    [ (1, WireVarint, thunkVarintPub TVVarint)
-    , (2, WireVarint, thunkVarintPub TVVarint)
-    , (3, WireVarint, thunkVarintPub TVVarint)
+    [ (1, WireVarint, thunkVarintPub DynVarint)
+    , (2, WireVarint, thunkVarintPub DynVarint)
+    , (3, WireVarint, thunkVarintPub DynVarint)
     ]
 
 
 thunkLenDelimPub :: FieldThunk
 thunkLenDelimPub bs off =
   case runDecoder' getLengthDelimited bs off of
-    DecodeOK v off' -> pure (TVBytes v, off')
+    DecodeOK v off' -> pure (DynBytes v, off')
     DecodeFail e -> error (show e)
 
 

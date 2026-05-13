@@ -2,8 +2,8 @@ module Main (main) where
 
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS.Char8
+import Network.GRPC.Common.Framing (grpcFrame, grpcFrameMany, grpcUnframe, grpcUnframeMany)
 import Network.GRPC.Server.Otel (noopTracer)
-import Proto.GRPC (grpcFrame, grpcUnframe, grpcFrameMany, grpcUnframeMany)
 
 main :: IO ()
 main = do

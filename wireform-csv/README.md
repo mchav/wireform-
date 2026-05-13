@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 CSV, TSV, and pipe-separated text for Haskell. Encode and decode the
 dynamic [`CSV.Value`](src/CSV/Value.hs), derive typeclass instances
 generically or via Template Haskell, and parse with a SIMD-accelerated
@@ -171,7 +175,27 @@ escaping, and the alternate delimiter configurations.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs):
+
+```bash
+cabal bench wireform-csv:wireform-csv-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:csv-encode-decode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/csv-encode-decode-dark.svg">
+  <img src="bench-results/charts/csv-encode-decode-light.svg" alt="wireform-csv encode + decode (Sale record)">
+</picture>
+
+| Operation |  encode |  decode | ratio |
+| :-------- | ------: | ------: | ----: |
+| 10 rows   | 5.27 µs | 10.7 µs | 2.02x |
+| 1000 rows |  640 µs | 1396 µs | 2.18x |
+
+<sub>Last run 2026-05-13 11:38:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:csv-encode-decode -->
+
+For cross-language comparisons:
 
 - Haskell: [`cassava`](https://hackage.haskell.org/package/cassava)
   (the established Hackage CSV library) and
@@ -181,8 +205,6 @@ No per-package criterion harness in tree yet. Planned comparisons:
 - C: [libcsv](https://github.com/rgamble/libcsv).
 - Python: [`pandas.read_csv`](https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html)
   for an end-to-end ingest comparison.
-
-> Numbers TBD: harness pending.
 
 ## License
 

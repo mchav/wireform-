@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Apache Lance](https://lancedb.github.io/lance/) reader for Haskell.
 Parse the Lance data file format (40-byte footer, manifest envelope)
 ([`Lance.Format`](src/Lance/Format.hs)),

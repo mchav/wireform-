@@ -51,6 +51,21 @@ library
     template-haskell >= 2.18 && < 2.24,
     deepseq >= 1.4 && < 1.6
 
+benchmark wireform-csv-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -O2
+  build-depends:
+    base,
+    wireform-csv,
+    bytestring,
+    deepseq,
+    text,
+    vector,
+    criterion >= 1.5 && < 1.7
+
 test-suite wireform-csv-derive-test
   import: defaults
   type: exitcode-stdio-1.0

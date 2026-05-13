@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 XML 1.0 for Haskell. SIMD-accelerated SAX, a typed dynamic
 [`XML.Value`](src/XML/Value.hs) DOM, a zero-copy span-based DOM
 ([`XML.FastDOM`](src/XML/FastDOM.hs)), an incremental chunk-fed parser
@@ -298,6 +302,10 @@ The per-format Hedgehog suite lives in `test/`:
 cabal test wireform-xml:wireform-xml-derive-test
 ```
 
+<!-- BEGIN_AUTOGEN tests -->
+_No data yet. Run `cabal test wireform-xml:all --test-show-details=streaming --xml=dist-stats/test-results/wireform-xml.junit.xml` to populate._
+<!-- END_AUTOGEN tests -->
+
 It covers the typeclass instances, the deriver, both DOM
 representations, the SAX iterator, the incremental parser, the XPath
 query engine, the XSLT subset, the XSD schema parser, and the code
@@ -319,6 +327,32 @@ established Haskell XML libraries:
 ```bash
 cabal bench xml-bench
 ```
+
+<!-- BEGIN_AUTOGEN bench:dom-parse-medium -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/dom-parse-medium-dark.svg">
+  <img src="bench-results/charts/dom-parse-medium-light.svg" alt="wireform-xml DOM parse vs Hackage XML libraries (medium document)">
+</picture>
+
+| Operation       | hexml (C bindings) | wireform-xml (FastDOM) | wireform-xml (typed DOM) | xml-conduit | ratio |
+| :-------------- | -----------------: | ---------------------: | -----------------------: | ----------: | ----: |
+| medium document |            29.0 µs |                53.6 µs |                   194 µs |     1610 µs | 0.28x |
+
+<sub>Last run 2026-05-13 10:35:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:dom-parse-medium -->
+
+<!-- BEGIN_AUTOGEN bench:sax-parse-medium -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/sax-parse-medium-dark.svg">
+  <img src="bench-results/charts/sax-parse-medium-light.svg" alt="wireform-xml SAX parse vs xeno (medium document)">
+</picture>
+
+| Operation       |    xeno | wireform-xml | ratio |
+| :-------------- | ------: | -----------: | ----: |
+| medium document | 44.6 µs |       149 µs | 1.00x |
+
+<sub>Last run 2026-05-13 10:35:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:sax-parse-medium -->
 
 For cross-language comparisons:
 

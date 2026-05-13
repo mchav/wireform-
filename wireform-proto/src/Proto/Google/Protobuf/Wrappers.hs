@@ -32,15 +32,14 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
+import Proto.Internal.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
 import Data.Proxy (Proxy(..))
-import Proto.Message (IsMessage(..))
+import Proto.Registry (IsMessage)
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
 import qualified Proto.Extension
-import qualified Proto.Merge
-import Proto.Wire (Tag(..), WireType(..))
-import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
+import Proto.Internal.Wire (Tag(..), WireType(..))
+import Proto.Internal.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
   putSVarint32, putSVarint64, putVarintSigned,
   varintSize, tagSize, fieldMessageSize,
@@ -49,7 +48,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
+import Proto.Internal.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
   archFixed32, archFixed64, archFloat, archDouble, archBool,
   archString, archBytes, archSubmessage,
   archVarintSize, archStringSize, archBytesSize, archBoolSize,
@@ -98,8 +97,7 @@ instance MessageDecode DoubleValue where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage DoubleValue where
-  messageTypeName _ = "google.protobuf.DoubleValue"
+instance IsMessage DoubleValue
 
 instance ProtoMessage DoubleValue where
   protoMessageName _ = "google.protobuf.DoubleValue"
@@ -137,14 +135,14 @@ instance Proto.Extension.HasExtensions DoubleValue where
   messageUnknownFields = doubleValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { doubleValueUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable DoubleValue where
-  mergeFrom a b = DoubleValue
+instance Semigroup DoubleValue where
+  a <> b = DoubleValue
     { doubleValueValue = b.doubleValueValue
     , doubleValueUnknownFields = a.doubleValueUnknownFields <> b.doubleValueUnknownFields
     }
 
-instance Semigroup DoubleValue where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid DoubleValue where
+  mempty = defaultDoubleValue
 
 data FloatValue = FloatValue
   { floatValueValue :: {-# UNPACK #-} !Float
@@ -183,8 +181,7 @@ instance MessageDecode FloatValue where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage FloatValue where
-  messageTypeName _ = "google.protobuf.FloatValue"
+instance IsMessage FloatValue
 
 instance ProtoMessage FloatValue where
   protoMessageName _ = "google.protobuf.FloatValue"
@@ -222,14 +219,14 @@ instance Proto.Extension.HasExtensions FloatValue where
   messageUnknownFields = floatValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { floatValueUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable FloatValue where
-  mergeFrom a b = FloatValue
+instance Semigroup FloatValue where
+  a <> b = FloatValue
     { floatValueValue = b.floatValueValue
     , floatValueUnknownFields = a.floatValueUnknownFields <> b.floatValueUnknownFields
     }
 
-instance Semigroup FloatValue where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid FloatValue where
+  mempty = defaultFloatValue
 
 data Int64Value = Int64Value
   { int64ValueValue :: {-# UNPACK #-} !Int64
@@ -268,8 +265,7 @@ instance MessageDecode Int64Value where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage Int64Value where
-  messageTypeName _ = "google.protobuf.Int64Value"
+instance IsMessage Int64Value
 
 instance ProtoMessage Int64Value where
   protoMessageName _ = "google.protobuf.Int64Value"
@@ -307,14 +303,14 @@ instance Proto.Extension.HasExtensions Int64Value where
   messageUnknownFields = int64ValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { int64ValueUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable Int64Value where
-  mergeFrom a b = Int64Value
+instance Semigroup Int64Value where
+  a <> b = Int64Value
     { int64ValueValue = b.int64ValueValue
     , int64ValueUnknownFields = a.int64ValueUnknownFields <> b.int64ValueUnknownFields
     }
 
-instance Semigroup Int64Value where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid Int64Value where
+  mempty = defaultInt64Value
 
 data UInt64Value = UInt64Value
   { uInt64ValueValue :: {-# UNPACK #-} !Word64
@@ -353,8 +349,7 @@ instance MessageDecode UInt64Value where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage UInt64Value where
-  messageTypeName _ = "google.protobuf.UInt64Value"
+instance IsMessage UInt64Value
 
 instance ProtoMessage UInt64Value where
   protoMessageName _ = "google.protobuf.UInt64Value"
@@ -392,14 +387,14 @@ instance Proto.Extension.HasExtensions UInt64Value where
   messageUnknownFields = uInt64ValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { uInt64ValueUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable UInt64Value where
-  mergeFrom a b = UInt64Value
+instance Semigroup UInt64Value where
+  a <> b = UInt64Value
     { uInt64ValueValue = b.uInt64ValueValue
     , uInt64ValueUnknownFields = a.uInt64ValueUnknownFields <> b.uInt64ValueUnknownFields
     }
 
-instance Semigroup UInt64Value where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid UInt64Value where
+  mempty = defaultUInt64Value
 
 data Int32Value = Int32Value
   { int32ValueValue :: {-# UNPACK #-} !Int32
@@ -438,8 +433,7 @@ instance MessageDecode Int32Value where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage Int32Value where
-  messageTypeName _ = "google.protobuf.Int32Value"
+instance IsMessage Int32Value
 
 instance ProtoMessage Int32Value where
   protoMessageName _ = "google.protobuf.Int32Value"
@@ -477,14 +471,14 @@ instance Proto.Extension.HasExtensions Int32Value where
   messageUnknownFields = int32ValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { int32ValueUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable Int32Value where
-  mergeFrom a b = Int32Value
+instance Semigroup Int32Value where
+  a <> b = Int32Value
     { int32ValueValue = b.int32ValueValue
     , int32ValueUnknownFields = a.int32ValueUnknownFields <> b.int32ValueUnknownFields
     }
 
-instance Semigroup Int32Value where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid Int32Value where
+  mempty = defaultInt32Value
 
 data UInt32Value = UInt32Value
   { uInt32ValueValue :: {-# UNPACK #-} !Word32
@@ -523,8 +517,7 @@ instance MessageDecode UInt32Value where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage UInt32Value where
-  messageTypeName _ = "google.protobuf.UInt32Value"
+instance IsMessage UInt32Value
 
 instance ProtoMessage UInt32Value where
   protoMessageName _ = "google.protobuf.UInt32Value"
@@ -562,14 +555,14 @@ instance Proto.Extension.HasExtensions UInt32Value where
   messageUnknownFields = uInt32ValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { uInt32ValueUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable UInt32Value where
-  mergeFrom a b = UInt32Value
+instance Semigroup UInt32Value where
+  a <> b = UInt32Value
     { uInt32ValueValue = b.uInt32ValueValue
     , uInt32ValueUnknownFields = a.uInt32ValueUnknownFields <> b.uInt32ValueUnknownFields
     }
 
-instance Semigroup UInt32Value where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid UInt32Value where
+  mempty = defaultUInt32Value
 
 data BoolValue = BoolValue
   { boolValueValue :: {-# UNPACK #-} !Bool
@@ -608,8 +601,7 @@ instance MessageDecode BoolValue where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage BoolValue where
-  messageTypeName _ = "google.protobuf.BoolValue"
+instance IsMessage BoolValue
 
 instance ProtoMessage BoolValue where
   protoMessageName _ = "google.protobuf.BoolValue"
@@ -647,14 +639,14 @@ instance Proto.Extension.HasExtensions BoolValue where
   messageUnknownFields = boolValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { boolValueUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable BoolValue where
-  mergeFrom a b = BoolValue
+instance Semigroup BoolValue where
+  a <> b = BoolValue
     { boolValueValue = b.boolValueValue
     , boolValueUnknownFields = a.boolValueUnknownFields <> b.boolValueUnknownFields
     }
 
-instance Semigroup BoolValue where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid BoolValue where
+  mempty = defaultBoolValue
 
 data StringValue = StringValue
   { stringValueValue :: !Text
@@ -693,8 +685,7 @@ instance MessageDecode StringValue where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage StringValue where
-  messageTypeName _ = "google.protobuf.StringValue"
+instance IsMessage StringValue
 
 instance ProtoMessage StringValue where
   protoMessageName _ = "google.protobuf.StringValue"
@@ -732,14 +723,14 @@ instance Proto.Extension.HasExtensions StringValue where
   messageUnknownFields = stringValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { stringValueUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable StringValue where
-  mergeFrom a b = StringValue
+instance Semigroup StringValue where
+  a <> b = StringValue
     { stringValueValue = b.stringValueValue
     , stringValueUnknownFields = a.stringValueUnknownFields <> b.stringValueUnknownFields
     }
 
-instance Semigroup StringValue where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid StringValue where
+  mempty = defaultStringValue
 
 data BytesValue = BytesValue
   { bytesValueValue :: !ByteString
@@ -778,8 +769,7 @@ instance MessageDecode BytesValue where
             uf <- captureUnknownField fn (toEnum wt)
             loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage BytesValue where
-  messageTypeName _ = "google.protobuf.BytesValue"
+instance IsMessage BytesValue
 
 instance ProtoMessage BytesValue where
   protoMessageName _ = "google.protobuf.BytesValue"
@@ -817,24 +807,24 @@ instance Proto.Extension.HasExtensions BytesValue where
   messageUnknownFields = bytesValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { bytesValueUnknownFields = ufs }
 
-instance Proto.Merge.Mergeable BytesValue where
-  mergeFrom a b = BytesValue
+instance Semigroup BytesValue where
+  a <> b = BytesValue
     { bytesValueValue = b.bytesValueValue
     , bytesValueUnknownFields = a.bytesValueUnknownFields <> b.bytesValueUnknownFields
     }
 
-instance Semigroup BytesValue where
-  (<>) = Proto.Merge.mergeFrom
+instance Monoid BytesValue where
+  mempty = defaultBytesValue
 
 -- | Register all message types defined in this module.
-registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes :: Proto.Registry.TypeRegistry -> Proto.Registry.TypeRegistry
 registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy DoubleValue) .
-  Proto.Registry.registerType (Proxy :: Proxy FloatValue) .
-  Proto.Registry.registerType (Proxy :: Proxy Int64Value) .
-  Proto.Registry.registerType (Proxy :: Proxy UInt64Value) .
-  Proto.Registry.registerType (Proxy :: Proxy Int32Value) .
-  Proto.Registry.registerType (Proxy :: Proxy UInt32Value) .
-  Proto.Registry.registerType (Proxy :: Proxy BoolValue) .
-  Proto.Registry.registerType (Proxy :: Proxy StringValue) .
-  Proto.Registry.registerType (Proxy :: Proxy BytesValue) .  id
+  Proto.Registry.registerMessage (Proxy :: Proxy DoubleValue) .
+  Proto.Registry.registerMessage (Proxy :: Proxy FloatValue) .
+  Proto.Registry.registerMessage (Proxy :: Proxy Int64Value) .
+  Proto.Registry.registerMessage (Proxy :: Proxy UInt64Value) .
+  Proto.Registry.registerMessage (Proxy :: Proxy Int32Value) .
+  Proto.Registry.registerMessage (Proxy :: Proxy UInt32Value) .
+  Proto.Registry.registerMessage (Proxy :: Proxy BoolValue) .
+  Proto.Registry.registerMessage (Proxy :: Proxy StringValue) .
+  Proto.Registry.registerMessage (Proxy :: Proxy BytesValue) .  id

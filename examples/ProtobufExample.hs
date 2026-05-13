@@ -11,9 +11,9 @@ module Main where
 
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Proto.Wire (Tag (..), WireType (..))
-import Proto.Wire.Decode (Decoder, getTag, getText, getVarint, runDecoder)
-import Proto.Wire.Encode (putTag, putText, putVarint)
+import Proto.Internal.Wire (Tag (..), WireType (..))
+import Proto.Internal.Wire.Decode (Decoder, getTag, getText, getVarint, runDecoder)
+import Proto.Internal.Wire.Encode (putTag, putText, putVarint)
 import Wireform.Builder qualified as B
 
 

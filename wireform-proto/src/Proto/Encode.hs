@@ -37,7 +37,7 @@ arithmetic; the encode pass writes directly into the output buffer.
 The @encodeField*@ and @sizedField*@ families are used by generated
 code and are not normally called directly. The @encodeField*@ variants
 produce a 'Builder'; the @sizedField*@ variants produce a
-'Proto.SizedBuilder.SizedBuilder' that fuses the size computation with
+'Proto.Internal.SizedBuilder.SizedBuilder' that fuses the size computation with
 the builder for zero-allocation submessage encoding.
 -}
 module Proto.Encode (
@@ -52,6 +52,13 @@ module Proto.Encode (
   encodeMessage,
   encodeMessageSized,
   encodeLazy,
+
+  -- * Stream encoding (length-delimited framing)
+  encodeMessageLazy,
+  encodeMessageStream,
+  encodeMessageStreamSized,
+  hPutMessageStream,
+  buildMessageFramed,
 
   -- * Running encoders (Builder output)
   hPutMessage,
@@ -123,9 +130,9 @@ import Data.Word (Word32, Word64)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (castPtr)
 import Foreign.Storable (Storable, sizeOf)
-import Proto.SizedBuilder (SizedBuilder, sized, toByteStringFromBuilder, withSubMessage)
-import Proto.Wire (WireType (..))
-import Proto.Wire.Encode
+import Proto.Internal.SizedBuilder (SizedBuilder, sized, toByteStringFromBuilder, withSubMessage)
+import Proto.Internal.Wire (WireType (..))
+import Proto.Internal.Wire.Encode
 import System.IO (Handle)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 import Wireform.Builder qualified as B
@@ -574,3 +581,47 @@ sizedFieldMessage fn submsg =
   let tagSB = sized (tagSize fn) (putTag fn WireLengthDelimited)
   in tagSB <> withSubMessage submsg
 {-# INLINE sizedFieldMessage #-}
+
+
+-- | Encode a message to a lazy 'ByteString'.
+encodeMessageLazy :: MessageEncode a => a -> BL.ByteString
+encodeMessageLazy = B.toLazyByteString . buildMessage
+{-# INLINE encodeMessageLazy #-}
+
+
+{- | Encode a list of messages with length-delimited framing.
+Each message is preceded by a varint length prefix.
+-}
+encodeMessageStream :: MessageEncode a => [a] -> BL.ByteString
+encodeMessageStream = B.toLazyByteString . foldMap buildMessageFramedMaterialized
+
+
+{- | Like 'encodeMessageStream' but uses 'MessageSize' to avoid
+materialising each message for its length prefix.
+-}
+encodeMessageStreamSized :: (MessageEncode a, MessageSize a) => [a] -> BL.ByteString
+encodeMessageStreamSized = B.toLazyByteString . foldMap buildMessageFramed
+
+
+{- | Write a stream of messages directly to a 'Handle' with
+length-delimited framing.
+-}
+hPutMessageStream :: (MessageEncode a, MessageSize a) => Handle -> [a] -> IO ()
+hPutMessageStream h = WB.hPutBuilder h . foldMap buildMessageFramed
+
+
+{- | Build a single length-delimited frame: varint size prefix
+followed by the message payload.
+-}
+buildMessageFramed :: (MessageEncode a, MessageSize a) => a -> B.Builder
+buildMessageFramed msg =
+  let !sz = messageSize msg
+  in putVarint (fromIntegral sz) <> buildMessage msg
+{-# INLINE buildMessageFramed #-}
+
+
+buildMessageFramedMaterialized :: MessageEncode a => a -> B.Builder
+buildMessageFramedMaterialized msg =
+  let payload = B.toStrictByteString (buildMessage msg)
+  in putVarint (fromIntegral (BS.length payload))
+      <> B.byteStringCopy payload

@@ -76,72 +76,6 @@ common defaults
     OverloadedStrings
     LambdaCase
 
-library
-  import: defaults
-  hs-source-dirs: facade
-  exposed-modules:
-    Wireform.Proto
-    Wireform.Avro
-    Wireform.Thrift
-    Wireform.CBOR
-    Wireform.MsgPack
-    Wireform.BSON
-    Wireform.Ion
-    Wireform.CapnProto
-    Wireform.FlatBuffers
-    Wireform.Bond
-    Wireform.ASN1
-    Wireform.XML
-    Wireform.HTML
-    Wireform.Columnar
-    Wireform.Parquet
-    Wireform.Arrow
-    Wireform.ORC
-    Wireform.Iceberg
-    Wireform.EDN
-    Wireform.Bencode
-    Wireform.TOML
-    Wireform.YAML
-    Wireform.CSV
-    Wireform.NDJSON
-    Wireform.Fory
-    Wireform.Kafka
-  other-modules:
-    Paths_wireform
-  autogen-modules: Paths_wireform
-  build-depends:
-      base                >= 4.16 && < 5
-    , wireform-core
-    , wireform-columnar
-    , wireform-proto
-    , wireform-avro
-    , wireform-thrift
-    , wireform-cbor
-    , wireform-msgpack
-    , wireform-bson
-    , wireform-ion
-    , wireform-capnproto
-    , wireform-flatbuffers
-    , wireform-bond
-    , wireform-asn1
-    , wireform-xml
-    , wireform-html
-    , wireform-parquet
-    , wireform-arrow
-    , wireform-orc
-    , wireform-iceberg
-    , wireform-edn
-    , wireform-bencode
-    , wireform-toml
-    , wireform-yaml
-    , wireform-csv
-    , wireform-ndjson
-    , wireform-fory
-    , wireform-kafka
-    , bytestring
-    , text
-    , vector
-
 -- Multi-format code generation CLI
 executable wireform-gen
   import: defaults
@@ -167,18 +101,6 @@ executable wireform-gen
 -- Protobuf conformance test runner
 -- protoc plugin
 -- Well-known type code generator
--- Profiling harness
-executable profile
-  import: defaults
-  main-is: Main.hs
-  ghc-options: -O2 -rtsopts
-  hs-source-dirs: profile
-  build-depends:
-      base >= 4.16 && < 5
-    , wireform-proto
-    , bytestring
-    , text
-    , vector
 
 ------------------------------------------------------------------------
 -- Test suites
@@ -242,7 +164,8 @@ test-suite wireform-test
     Test.ORC
   build-depends:
       base                 >= 4.16 && < 5
-    , wireform
+    , wireform-columnar
+    , wireform-columnar-core
     , wireform-core
     , wireform-proto
     , wireform-avro
@@ -323,7 +246,7 @@ test-suite html-dom-test
   main-is: HTMLDOMTest.hs
   hs-source-dirs: test-interop
   build-depends:
-      base, wireform-html, bytestring, text,
+      base, wireform-core, wireform-html, bytestring, text,
       tasty, tasty-hunit
 
 test-suite wpt-selector-test
@@ -341,7 +264,7 @@ test-suite html-rewriter-test
   main-is: HTMLRewriterTest.hs
   hs-source-dirs: test-interop
   build-depends:
-      base, wireform-html, bytestring, text, aeson,
+      base, wireform-core, wireform-html, bytestring, text, aeson,
       tasty, tasty-hunit, directory, filepath
 
 test-suite python-interop
@@ -522,19 +445,19 @@ executable example-custom-repr
   import: defaults
   main-is: CustomReprExample.hs
   hs-source-dirs: examples
-  build-depends: base, wireform-proto, bytestring, text, containers, aeson
+  build-depends: base, wireform-proto, bytestring, text, containers, aeson, reflection
 
 executable example-extensions
   import: defaults
   main-is: ExtensionExample.hs
   hs-source-dirs: examples
-  build-depends: base, wireform-proto, bytestring, text
+  build-depends: base, wireform-proto, bytestring, text, reflection
 
 executable example-th
   import: defaults
   main-is: THExample.hs
   hs-source-dirs: examples
-  build-depends: base, wireform-proto, bytestring, text
+  build-depends: base, wireform-proto, bytestring, text, reflection
 
 executable example-derive
   import: defaults
@@ -554,7 +477,7 @@ executable example-qq
   import: defaults
   main-is: QQExample.hs
   hs-source-dirs: examples
-  build-depends: base, wireform-proto, bytestring
+  build-depends: base, wireform-proto, bytestring, reflection
 
 executable example-msgpack
   import: defaults

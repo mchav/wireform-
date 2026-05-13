@@ -1,21 +1,34 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE StrictData #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
--- | Demonstrates proto2 typed extensions.
---
--- Run with: cabal run example-extensions
+{-# LANGUAGE StrictData #-}
+{-# LANGUAGE TemplateHaskell #-}
+
+{- | Demonstrates proto2 typed extensions.
+
+Run with: cabal run example-extensions
+-}
 module Main where
 
-import qualified Data.ByteString as BS
-
-import Proto.Encode
+import Data.ByteString qualified as BS
+import Data.Reflection (Given (..))
 import Proto.Decode
+import Proto.Encode
+import Proto.Extension qualified as Ext
+import Proto.Internal.JSON.Extension (ExtensionRegistry, emptyExtensionRegistry)
 import Proto.TH
-import qualified Proto.Extension as Ext
+
+
+-- The generated JSON instances carry a 'Given ExtensionRegistry' constraint
+-- for proto2 extensions. Satisfy it with the empty registry; the typed
+-- 'Ext.setExtension' / 'Ext.getExtension' surface in this example doesn't
+-- touch the JSON path.
+instance Given ExtensionRegistry where
+  given = emptyExtensionRegistry
+
 
 $(loadProto "examples/proto/extension_demo.proto")
+
 
 main :: IO ()
 main = do
@@ -26,14 +39,14 @@ main = do
   -- 'loadProto' scopes record selectors by the lowerCamelCase of
   -- the owning message; @optional string name@ on @message Account@
   -- becomes @accountName :: Maybe Text@.
-  let a0 = defaultAccount { accountName = Just "alice" }
-      a1 = Ext.setExtension accountLevel   42            a0
-      a2 = Ext.setExtension accountTag     "gold-member" a1
-      a3 = Ext.setExtension accountDisabled False        a2
+  let a0 = defaultAccount {accountName = Just "alice"}
+      a1 = Ext.setExtension accountLevel 42 a0
+      a2 = Ext.setExtension accountTag "gold-member" a1
+      a3 = Ext.setExtension accountDisabled False a2
 
   putStrLn $ "Account name:   " <> show (accountName a3)
-  putStrLn $ "level ext:      " <> show (Ext.getExtension accountLevel   a3)
-  putStrLn $ "tag ext:        " <> show (Ext.getExtension accountTag     a3)
+  putStrLn $ "level ext:      " <> show (Ext.getExtension accountLevel a3)
+  putStrLn $ "tag ext:        " <> show (Ext.getExtension accountTag a3)
   putStrLn $ "disabled ext:   " <> show (Ext.getExtension accountDisabled a3)
 
   -- Round-trip through the wire: extensions live in unknownFields and
@@ -43,17 +56,19 @@ main = do
     Left err -> putStrLn $ "decode error: " <> show err
     Right (recovered :: Account) -> do
       putStrLn ""
-      putStrLn $ "After wire round-trip (" <>
-        show (BS.length bytes) <> " bytes):"
+      putStrLn $
+        "After wire round-trip ("
+          <> show (BS.length bytes)
+          <> " bytes):"
       putStrLn $ "  name:         " <> show (accountName recovered)
       putStrLn $ "  level ext:    " <> show (Ext.getExtension accountLevel recovered)
       putStrLn $ "  tag ext:      " <> show (Ext.getExtension accountTag recovered)
       putStrLn $ "  disabled ext: " <> show (Ext.getExtension accountDisabled recovered)
 
   -- Repeated extensions: scalars, packed scalars, strings.
-  let a3a = Ext.setRepeatedExtension accountScores       [10, 20, 30] a3
+  let a3a = Ext.setRepeatedExtension accountScores [10, 20, 30] a3
       a3b = Ext.setRepeatedExtension accountPackedScores [1, 2, 3, 4] a3a
-      a3c = Ext.setRepeatedExtension accountAliases      ["a","bb","ccc"] a3b
+      a3c = Ext.setRepeatedExtension accountAliases ["a", "bb", "ccc"] a3b
       a3d = Ext.appendRepeatedExtension accountScores 99 a3c
   putStrLn ""
   putStrLn "Repeated extensions:"
@@ -76,11 +91,14 @@ main = do
   let a4 = Ext.clearExtension accountTag a3
   putStrLn ""
   putStrLn "After clearExtension accountTag:"
-  putStrLn $ "  hasExtension accountTag:     " <>
-    show (Ext.hasExtension accountTag a4)
-  putStrLn $ "  getExtension accountTag:     " <>
-    show (Ext.getExtension accountTag a4)
-  putStrLn $ "  (level still set?)           " <>
-    show (Ext.getExtension accountLevel a4)
+  putStrLn $
+    "  hasExtension accountTag:     "
+      <> show (Ext.hasExtension accountTag a4)
+  putStrLn $
+    "  getExtension accountTag:     "
+      <> show (Ext.getExtension accountTag a4)
+  putStrLn $
+    "  (level still set?)           "
+      <> show (Ext.getExtension accountLevel a4)
 
   putStrLn "\nDone."

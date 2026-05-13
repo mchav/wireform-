@@ -5,6 +5,11 @@ sidebar:
   order: 3
 ---
 
+:::caution[Not yet on Hackage]
+wireform is in heavy development and has not been published to Hackage yet.
+The milestones below reflect current progress — APIs may change.
+:::
+
 This document tracks progress toward **complete, spec-faithful** support for the
 columnar and table-metadata formats exposed in wireform. "Complete" is staged:
 each format has **reader** and (where applicable) **writer** milestones, with

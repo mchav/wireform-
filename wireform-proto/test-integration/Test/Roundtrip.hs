@@ -9,13 +9,12 @@ import Data.Word (Word64)
 import Hedgehog
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import Proto.Church
 import Proto.Decode
 import Proto.Encode
-import Proto.SizedBuilder qualified as SB
-import Proto.Wire (Tag (..), WireType (..))
-import Proto.Wire.Decode
-import Proto.Wire.Encode
+import Proto.Internal.SizedBuilder qualified as SB
+import Proto.Internal.Wire (Tag (..), WireType (..))
+import Proto.Internal.Wire.Decode
+import Proto.Internal.Wire.Encode
 import Test.Tasty
 import Test.Tasty.HUnit hiding (assert)
 import Test.Tasty.Hedgehog
@@ -356,19 +355,6 @@ roundtripTests =
             let sb = sizedFieldDouble fn d
                 bs = SB.toByteString sb
             BS.length bs === SB.size sb
-        ]
-    , testGroup
-        "Church-encoded accumulation"
-        [ testCase "DList accumulation" $ do
-            let dl = foldl snocDList emptyDList [1 :: Int, 2, 3, 4, 5]
-            dlistToList dl @?= [1, 2, 3, 4, 5]
-        , testCase "ChurchList accumulation" $ do
-            let cl = foldl snocChurchList emptyChurchList [1 :: Int, 2, 3, 4, 5]
-            churchListToList cl @?= [1, 2, 3, 4, 5]
-        , testProperty "DList preserves order" $ property $ do
-            xs <- forAll $ Gen.list (Range.linear 0 100) (Gen.int (Range.linear 0 1000))
-            let dl = foldl snocDList emptyDList xs
-            dlistToList dl === xs
         ]
     ]
 

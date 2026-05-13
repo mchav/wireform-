@@ -12,7 +12,7 @@ groups every 'loadProto'-generated message wants:
   * 'Data.Aeson.ToJSON' / 'Data.Aeson.FromJSON' — proto3 canonical
     JSON (camelCase keys, base64 bytes, string-encoded 64-bit
     integers, NaN\/Infinity sentinels for floats; all of which are
-    already handled by helpers in "Proto.JSON").
+    already handled by helpers in "Proto.Internal.JSON").
   * 'Data.Hashable.Hashable' — recursive structural hash that mirrors
     what the pure-text codegen in "Proto.CodeGen" emits.
   * 'Proto.Schema.ProtoEnum' — enum metadata + numeric \<-\> name
@@ -77,6 +77,7 @@ import Data.Hashable (Hashable, hashWithSalt)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Int (Int32, Int64)
 import Data.Map.Strict qualified as Map
+import Data.Reflection (Given, given)
 import Data.Scientific qualified as Sci
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
@@ -95,10 +96,10 @@ import Proto.Google.Protobuf.Struct (NullValue (NullValue'NullValue))
 import Proto.Google.Protobuf.Struct qualified as PGS
 import Proto.Google.Protobuf.Timestamp qualified
 import Proto.Google.Protobuf.Wrappers qualified
-import Proto.JSON qualified as PJ
-import Proto.JSON qualified as PJI
-import Proto.JSON.Extension qualified as PJExt
-import Proto.JSON.WellKnown qualified as WK
+import Proto.Internal.JSON qualified as PJ
+import Proto.Internal.JSON qualified as PJI
+import Proto.Internal.JSON.Extension qualified as PJExt
+import Proto.Internal.JSON.WellKnown qualified as WK
 import Proto.Schema qualified as PS
 
 
@@ -108,7 +109,7 @@ import Proto.Schema qualified as PS
 
 {- | A condensed view of one record field — enough to drive every
 satellite-instance emitter without re-deriving anything from the
-raw 'Proto.AST' shape. The caller (currently only 'Proto.TH')
+raw 'Proto.IDL.AST' shape. The caller (currently only 'Proto.TH')
 builds this from the 'FieldSpec' it already has.
 -}
 data MetaField = MetaField
@@ -134,7 +135,7 @@ data MetaField = MetaField
   -- @hashWithSalt@.
   , mfJsonKind :: !JsonKind
   -- ^ Whether the field needs the bytes-aware JSON helpers from
-  -- "Proto.JSON" (because either the value type or the map value
+  -- "Proto.Internal.JSON" (because either the value type or the map value
   -- type is @bytes@).
   , mfBytesShape :: !BytesShape
   -- ^ When the field carries proto @bytes@ (either directly or as
@@ -190,7 +191,7 @@ data JsonShape
     --   variant's JSON key.
     JSOneof ![OneofVariantJson]
   | -- | Singular WKT field — route
-    --   through "Proto.JSON.WellKnown".
+    --   through "Proto.Internal.JSON.WellKnown".
     JSWkt !WktShape
   | -- | @Maybe Wkt@: skip Nothing.
     JSWktMaybe !WktShape
@@ -200,7 +201,7 @@ data JsonShape
 
 {- | Identifies which Well-Known-Type a field carries, so the JSON
 splice can dispatch to the right helper in
-"Proto.JSON.WellKnown" (rather than the generic
+"Proto.Internal.JSON.WellKnown" (rather than the generic
 @Aeson.toJSON@ which doesn't match proto3 canonical JSON).
 -}
 data WktShape
@@ -296,7 +297,7 @@ data MetaFieldKind
 
 
 {- | Whether the field needs the bytes-aware JSON encoder/parser
-helpers in "Proto.JSON". Plain (non-bytes) fields use the
+helpers in "Proto.Internal.JSON". Plain (non-bytes) fields use the
 'Aeson.toJSON' instance for their type directly.
 -}
 data JsonKind
@@ -426,7 +427,7 @@ The shape mirrors what the pure-text codegen in "Proto.CodeGen"
 emits: a @jsonObject@ with one entry per field on the encode side,
 and @parseFieldMaybe@ + a per-field @maybe (default) id@
 assignment on the decode side. Bytes / bytes-map fields go
-through the dedicated helpers in "Proto.JSON" so base64 and
+through the dedicated helpers in "Proto.Internal.JSON" so base64 and
 64-bit-integer-as-string encoding happen automatically.
 -}
 mkAesonInstancesForMessage
@@ -492,9 +493,9 @@ runtime registry into the [(Text, Aeson.Value)] form
 'PJ.jsonObject' wants. INLINE so the splice's call site
 collapses cleanly when the message has no unknown fields.
 -}
-extEntries :: Text -> [PD.UnknownField] -> [(Text, Aeson.Value)]
+extEntries :: Given PJExt.ExtensionRegistry => Text -> [PD.UnknownField] -> [(Text, Aeson.Value)]
 extEntries _ [] = []
-extEntries fqn xs = PJExt.extensionEntriesForJson fqn xs
+extEntries fqn xs = PJExt.extensionEntriesForJson (given :: PJExt.ExtensionRegistry) fqn xs
 {-# INLINE extEntries #-}
 
 
@@ -510,7 +511,7 @@ toJSONEntry msgVar mf =
       shape = mfBytesShape mf
       -- Bytes-shaped fields don't have an Aeson.ToJSON instance,
       -- so they short-circuit through the dedicated bytes
-      -- helpers in "Proto.JSON". Empty containers / default
+      -- helpers in "Proto.Internal.JSON". Empty containers / default
       -- ByteString are still skipped per proto3 canonical-JSON.
       bytesIsNullE :: Q Exp
       bytesIsNullE = case shape of
@@ -846,7 +847,7 @@ wktEncoderE wkt e = case wkt of
             (PGS.listValueValues $(pure e))
         )
       |]
-  WktAny -> [|WK.anyToJSON $(pure e)|]
+  WktAny -> [|WK.anyToJSON WK.standardWktRegistry $(pure e)|]
   WktEmpty -> [|WK.emptyToJSON $(pure e)|]
   WktNullValue -> [|WK.nullValueToJSON $(pure e)|]
   WktWrapBool -> [|WK.wrapBoolValue $(pure e)|]
@@ -880,7 +881,7 @@ wktEncoderE1 wkt = case wkt of
             )
       )
       |]
-  WktAny -> [|WK.anyToJSON|]
+  WktAny -> [|WK.anyToJSON WK.standardWktRegistry|]
   WktEmpty -> [|WK.emptyToJSON|]
   WktNullValue -> [|WK.nullValueToJSON|]
   WktWrapBool -> [|WK.wrapBoolValue|]
@@ -933,7 +934,7 @@ scalarIsDefaultE sc e = case sc of
 
 
 {- | Per-scalar JSON encoder. Routes 64-bit ints through the
-string-form helpers in "Proto.JSON", floats through the
+string-form helpers in "Proto.Internal.JSON", floats through the
 NaN/Infinity-aware helpers, bytes through base64.
 -}
 scalarToJsonE :: JsonScalar -> Exp -> Exp
@@ -1084,11 +1085,11 @@ message without an @extend@ block), bypass the per-key walk
 entirely.
 -}
 extDrain
-  :: Text -> Aeson.Object -> Either String [PD.UnknownField]
+  :: Given PJExt.ExtensionRegistry => Text -> Aeson.Object -> Either String [PD.UnknownField]
 extDrain parentFqn obj
-  | not (PJExt.parentHasExtensions parentFqn) = Right []
+  | not (PJExt.parentHasExtensions reg parentFqn) = Right []
   | otherwise =
-      let go acc (k, v) = case PJExt.parseExtensionEntry parentFqn k v of
+      let go acc (k, v) = case PJExt.parseExtensionEntry reg parentFqn k v of
             Nothing -> Right acc
             Just (Right uf) -> Right (uf : acc)
             Just (Left e) -> Left e
@@ -1096,6 +1097,7 @@ extDrain parentFqn obj
           Right xs -> Right (reverse xs)
           Left e -> Left e
   where
+    reg = given :: PJExt.ExtensionRegistry
     foldlEither _ z [] = Right z
     foldlEither f z (x : xs) = case f z x of
       Right z' -> foldlEither f z' xs
@@ -1573,7 +1575,7 @@ protoWord32FromJSON v = case v of
 
 
 {- | Parse 'Scientific' from a JSON-quoted numeric string. We
-can't reuse 'PJ.sciFromText' without adding a Proto.JSON
+can't reuse 'PJ.sciFromText' without adding a Proto.Internal.JSON
 dependency edge, so duplicate the trivial implementation.
 -}
 sciFromText32 :: Text -> AesonT.Parser Sci.Scientific
@@ -1589,8 +1591,8 @@ sciFromText32 t
 
 
 {- | Bounded-integer narrowing for 32-bit fields. Mirrors
-'Proto.JSON.boundedFromSci' but lives here so the TH-spliced
-decoders don't have to drag in 'Proto.JSON' transitively.
+'Proto.Internal.JSON.boundedFromSci' but lives here so the TH-spliced
+decoders don't have to drag in 'Proto.Internal.JSON' transitively.
 -}
 bounded32 :: forall i. (Integral i, Bounded i) => String -> Sci.Scientific -> AesonT.Parser i
 bounded32 ty s = case Sci.toBoundedInteger s of
@@ -1733,7 +1735,7 @@ parseAnyMaybe
   :: Aeson.Object
   -> Text
   -> AesonT.Parser (Maybe (Maybe Proto.Google.Protobuf.Any.Any))
-parseAnyMaybe = parseWktMaybe WK.anyFromJSON
+parseAnyMaybe = parseWktMaybe (WK.anyFromJSON WK.standardWktRegistry)
 
 
 parseEmptyMaybe
@@ -1861,7 +1863,7 @@ parseListValueVectorMaybe obj key = do
 
 
 parseAnyVectorMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Any.Any))
-parseAnyVectorMaybe = parseWktVectorMaybe WK.anyFromJSON
+parseAnyVectorMaybe = parseWktVectorMaybe (WK.anyFromJSON WK.standardWktRegistry)
 
 
 parseEmptyVectorMaybe :: Aeson.Object -> Text -> AesonT.Parser (Maybe (V.Vector Proto.Google.Protobuf.Empty.Empty))

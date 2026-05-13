@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Apache Arrow](https://arrow.apache.org/) IPC for Haskell. The Arrow
 schema and type system ([`Arrow.Types`](src/Arrow/Types.hs)), the
 columnar value representation ([`Arrow.Column`](src/Arrow/Column.hs)),

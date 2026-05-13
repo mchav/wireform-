@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [MessagePack](https://msgpack.org/) for Haskell. Encode and decode the
 dynamic [`MsgPack.Value`](src/MsgPack/Value.hs), derive typeclass
 instances generically or via Template Haskell, stream over chunked
@@ -181,6 +185,10 @@ The per-format Hedgehog suite lives in `test/`:
 cabal test wireform-msgpack:wireform-msgpack-derive-test
 ```
 
+<!-- BEGIN_AUTOGEN tests -->
+_No data yet. Run `cabal test wireform-msgpack:all --test-show-details=streaming --xml=dist-stats/test-results/wireform-msgpack.junit.xml` to populate._
+<!-- END_AUTOGEN tests -->
+
 It covers the typeclass instances, the deriver, generic and
 TH-derived round-trips, and the dynamic `Value` ADT.
 
@@ -194,6 +202,20 @@ decode against the Hackage
 ```bash
 cabal bench format-bench
 ```
+
+<!-- BEGIN_AUTOGEN bench:msgpack-vs-msgpack-haskell -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/msgpack-vs-msgpack-haskell-dark.svg">
+  <img src="bench-results/charts/msgpack-vs-msgpack-haskell-light.svg" alt="wireform-msgpack vs Hackage msgpack">
+</picture>
+
+| Operation | wireform-msgpack | msgpack | ratio |
+| :-------- | ---------------: | ------: | ----: |
+| encode    |           292 ns | 1191 ns | 4.08x |
+| decode    |           391 ns | 1702 ns | 4.35x |
+
+<sub>Last run 2026-05-13 10:30:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:msgpack-vs-msgpack-haskell -->
 
 For cross-language comparisons, the canonical reference implementations
 are [msgpack-c](https://github.com/msgpack/msgpack-c) and

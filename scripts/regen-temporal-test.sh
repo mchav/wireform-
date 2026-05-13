@@ -28,12 +28,16 @@ NUM_FILES=$(echo "$PROTO_FILES" | wc -l)
 echo "    Found $NUM_FILES proto files"
 
 echo "==> Regenerating temporal-test modules..."
-# shellcheck disable=SC2086
-cabal exec wireform-gen -- generate \
-  -I "$WORK_DIR/temporal-api" \
-  -I "$PROJECT_ROOT/proto" \
-  -o "$PROJECT_ROOT/temporal-test" \
-  --module-prefix Proto \
-  $PROTO_FILES
+OUT_DIR="$PROJECT_ROOT/wireform-proto/temporal-test"
+mkdir -p "$OUT_DIR"
+# wireform-gen accepts a single -i FILE per invocation, so loop.
+while IFS= read -r proto; do
+  cabal exec wireform-gen -- proto generate \
+    -I "$WORK_DIR/temporal-api" \
+    -I "$PROJECT_ROOT/proto" \
+    -i "$proto" \
+    -o "$OUT_DIR" \
+    -m Proto
+done <<< "$PROTO_FILES"
 
-echo "==> Done. Regenerated $NUM_FILES modules in temporal-test/"
+echo "==> Done. Regenerated $NUM_FILES modules in wireform-proto/temporal-test/"

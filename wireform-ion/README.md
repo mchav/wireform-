@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Amazon Ion](https://amazon-ion.github.io/ion-docs/) for Haskell. The
 binary wire format, the dynamic [`Ion.Value`](src/Ion/Value.hs), the
 annotation-driven Template Haskell deriver, the
@@ -161,7 +165,27 @@ the code generator output.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs):
+
+```bash
+cabal bench wireform-ion:wireform-ion-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:ion-encode-decode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/ion-encode-decode-dark.svg">
+  <img src="bench-results/charts/ion-encode-decode-light.svg" alt="wireform-ion encode + decode (Person record)">
+</picture>
+
+| Operation      |   encode |   decode | ratio |
+| :------------- | -------: | -------: | ----: |
+| single Person  |   324 ns |   410 ns | 1.27x |
+| [Person] x 100 | 38521 ns | 41672 ns | 1.08x |
+
+<sub>Last run 2026-05-13 11:42:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:ion-encode-decode -->
+
+For cross-language comparisons:
 
 - Haskell: no comparable Ion library on Hackage; the natural baseline
   is the wireform-ion `Value`-level round trip.
@@ -169,8 +193,6 @@ No per-package criterion harness in tree yet. Planned comparisons:
   reference implementation.
 - Rust: [`ion-rs`](https://crates.io/crates/ion-rs).
 - C: [ion-c](https://github.com/amazon-ion/ion-c).
-
-> Numbers TBD: harness pending.
 
 ## License
 

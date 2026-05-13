@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Bencode](https://www.bittorrent.org/beps/bep_0003.html#bencoding) for
 Haskell. Encode and decode the dynamic
 [`Bencode.Value`](src/Bencode/Value.hs), and derive typeclass instances
@@ -125,7 +129,27 @@ sorted-keys invariant that BitTorrent's info-hash relies on.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs):
+
+```bash
+cabal bench wireform-bencode:wireform-bencode-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:bencode-encode-decode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/bencode-encode-decode-dark.svg">
+  <img src="bench-results/charts/bencode-encode-decode-light.svg" alt="wireform-bencode encode + decode (TorrentInfo record)">
+</picture>
+
+| Operation            |   encode |   decode | ratio |
+| :------------------- | -------: | -------: | ----: |
+| single-file metainfo |   960 ns |  1929 ns | 2.01x |
+| 100-file metainfo    | 32124 ns | 83068 ns | 2.59x |
+
+<sub>Last run 2026-05-13 11:38:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:bencode-encode-decode -->
+
+For cross-language comparisons:
 
 - Haskell:
   [`bencoding`](https://hackage.haskell.org/package/bencoding) (the
@@ -134,8 +158,6 @@ No per-package criterion harness in tree yet. Planned comparisons:
 - Rust: [`bendy`](https://crates.io/crates/bendy) and
   [`serde_bencode`](https://crates.io/crates/serde_bencode).
 - C: [libtorrent-rasterbar's bencode](https://www.libtorrent.org/reference-Bencoding.html).
-
-> Numbers TBD: harness pending.
 
 ## License
 

@@ -17,7 +17,7 @@ For each message in the file the splice produces:
   * A record data type plus a @default\<TypeName\>@ value with all fields
     at their proto default values.
   * @MessageEncode@ \/ @MessageSize@ \/ @MessageDecode@ wire codecs
-    (via "Proto.Derive.Internal").
+    (via "Proto.Internal.Derive").
   * @HasExtensions@ (proto2 extension support).
   * 'Proto.Schema.ProtoMessage' schema metadata
     (@protoMessageName@ \/ @protoPackageName@ \/ @protoDefaultValue@
@@ -128,8 +128,6 @@ import Data.Word (Word32, Word64)
 import GHC.Generics (Generic)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile, addModFinalizer)
-import Proto.AST
-import Proto.Annotations (lookupSimpleOption, optionAsBool, optionAsString)
 import Proto.CodeGen (
   FieldNaming (..),
   escapeReserved,
@@ -141,12 +139,13 @@ import Proto.CodeGen (
  )
 import Proto.CodeGen.Hooks
 import Proto.Decode qualified as Decode
-import Proto.Derive.Internal qualified as PDI
 import Proto.Extension qualified as Ext
-import Proto.JSON.Extension qualified as PJExt
-import Proto.Parser (parseProtoFile, renderParseError)
-import Proto.FieldPresence qualified as FP
-import Proto.Options.Custom (extractExtensionOptions, emptyCustomOptionRegistry, registerCustomOption)
+import Proto.IDL.AST
+import Proto.IDL.Annotations (lookupSimpleOption, optionAsBool, optionAsString)
+import Proto.IDL.Options.Custom (emptyCustomOptionRegistry, extractExtensionOptions, registerCustomOption)
+import Proto.IDL.Parser (parseProtoFile, renderParseError)
+import Proto.Internal.Derive qualified as PDI
+import Proto.Internal.JSON.Extension qualified as PJExt
 import Proto.Repr
 import Proto.Schema qualified as PS
 import Proto.TH.Metadata qualified as PTM
@@ -236,21 +235,24 @@ to be resolved by the user via proto-side renaming; the TH
 bridge stays lean rather than emitting always-prefixed names
 nobody asked for.
 -}
--- | When a repeated field has a packable scalar element and the user
--- hasn't overridden the repeated adapter, upgrade to unboxed vector
--- for zero per-element heap overhead.
+
+{- | When a repeated field has a packable scalar element and the user
+hasn't overridden the repeated adapter, upgrade to unboxed vector
+for zero per-element heap overhead.
+-}
 autoUnboxRepeated :: Maybe FieldLabel -> FieldType -> FieldRep -> FieldRep
 autoUnboxRepeated (Just Repeated) (FTScalar st) rep
   | isUnboxableScalar st
-  , repeatedBaseRep (fieldRepeated rep) == VectorRep
-  = rep { fieldRepeated = unboxedVectorAdapter }
+  , repeatedBaseRep (fieldRepeated rep) == VectorRep =
+      rep {fieldRepeated = unboxedVectorAdapter}
 autoUnboxRepeated _ _ rep = rep
+
 
 isUnboxableScalar :: ScalarType -> Bool
 isUnboxableScalar = \case
   SString -> False
-  SBytes  -> False
-  _       -> True
+  SBytes -> False
+  _ -> True
 
 
 hsEnumCon :: Text -> Text -> Text
@@ -285,8 +287,9 @@ data LoadOpts = LoadOpts
   }
 
 
--- | Sensible defaults: search @proto\/@ and @.@, prefixed field names,
--- default representations, no hooks.
+{- | Sensible defaults: search @proto\/@ and @.@, prefixed field names,
+default representations, no hooks.
+-}
 defaultLoadOpts :: LoadOpts
 defaultLoadOpts =
   LoadOpts
@@ -297,18 +300,20 @@ defaultLoadOpts =
     }
 
 
--- | Load a @.proto@ file and splice generated Haskell declarations
--- using 'defaultLoadOpts'. This is the simplest entry point:
---
--- @
--- \$(loadProto \"path\/to\/message.proto\")
--- @
+{- | Load a @.proto@ file and splice generated Haskell declarations
+using 'defaultLoadOpts'. This is the simplest entry point:
+
+@
+\$(loadProto \"path\/to\/message.proto\")
+@
+-}
 loadProto :: FilePath -> Q [Dec]
 loadProto = loadProtoWith defaultLoadOpts
 
 
--- | Like 'loadProto' but with explicit 'LoadOpts' for controlling
--- field naming, representations, hooks, and include paths.
+{- | Like 'loadProto' but with explicit 'LoadOpts' for controlling
+field naming, representations, hooks, and include paths.
+-}
 loadProtoWith :: LoadOpts -> FilePath -> Q [Dec]
 loadProtoWith opts path = do
   addDependentFile path
@@ -317,8 +322,11 @@ loadProtoWith opts path = do
     Left err -> fail (renderParseError err)
     Right pf -> do
       let hooks = loTHHooks opts
-          customOpts = foldl (flip registerCustomOption) emptyCustomOptionRegistry
-                         (extractExtensionOptions pf)
+          customOpts =
+            foldl
+              (flip registerCustomOption)
+              emptyCustomOptionRegistry
+              (extractExtensionOptions pf)
           fileCtx =
             FileHookCtx
               { fhcProtoFile = pf
@@ -331,8 +339,9 @@ loadProtoWith opts path = do
       pure (decls <> hookDecls)
 
 
--- | Generate declarations for all top-level definitions in a parsed
--- 'ProtoFile', using default options.
+{- | Generate declarations for all top-level definitions in a parsed
+'ProtoFile', using default options.
+-}
 protoFileToDecls :: ProtoFile -> Q [Dec]
 protoFileToDecls = protoFileToDecls' PrefixedFields defaultRepConfig defaultTHHooks
 
@@ -544,7 +553,7 @@ messageToDecls'' scopeCtx cfg hooks msg = do
   dataDec <- mkDataDec scopeCtx tyName fields
   defaultDec <- mkDefaultDec scopeCtx tyName fields
   -- All wire codecs (MessageEncode / MessageSize / MessageDecode)
-  -- now come from 'Proto.Derive.Internal' via the IDL bridge,
+  -- now come from 'Proto.Internal.Derive' via the IDL bridge,
   -- including oneofs (whose sum types are emitted by
   -- 'mkOneofDataDecs' just above). The bridge handles every
   -- 'FieldSpec' shape; if 'fieldSpecToProtoField' reports an
@@ -601,9 +610,17 @@ messageToDecls'' scopeCtx cfg hooks msg = do
 
   -- Monoid: mempty = defaultFoo (must come after Semigroup in codecDecs)
   let monoidDec =
-        InstanceD Nothing []
+        InstanceD
+          Nothing
+          []
           (AppT (ConT ''Monoid) (ConT tyName))
           [FunD 'mempty [Clause [] (NormalB (VarE defName)) []]]
+
+  -- IsMessage: marker instance picked up by Proto.Registry's TH
+  -- discovery splice. Must come AFTER protoMsgDecs and aesonDecs since
+  -- IsMessage requires ProtoMessage / Aeson.ToJSON / Aeson.FromJSON as
+  -- superclasses.
+  let ismDec = PDI.mkIsMessageInstance (ConT tyName)
 
   pure
     ( nestedDecls
@@ -616,13 +633,14 @@ messageToDecls'' scopeCtx cfg hooks msg = do
         <> protoMsgDecs
         <> aesonDecs
         <> [hashableDec]
+        <> [ismDec]
         <> oneofSatellites
         <> hookDecls
     )
 
 
 {- | Synthesise the @MessageEncode \/ MessageSize \/ MessageDecode@
-triple via 'Proto.Derive.Internal.synthesiseProtoInstancesWith'
+triple via 'Proto.Internal.Derive.synthesiseProtoInstancesWith'
 with unknown-field preservation enabled. Used for every
 'loadProto'-generated message.
 -}
@@ -635,9 +653,8 @@ messageCodecsViaBridge tyName pfs = do
   enc <- PDI.mkEncodeInstanceWith meta (ConT tyName) pfs
   siz <- PDI.mkSizeInstanceWith meta (ConT tyName) pfs
   dec <- PDI.mkDecodeInstanceWith meta (ConT tyName) tyName pfs
-  mrg <- PDI.mkMergeableInstanceWith meta (ConT tyName) tyName pfs
-  let semi = PDI.mkSemigroupInstance (ConT tyName)
-  pure [enc, siz, dec, mrg, semi]
+  semi <- PDI.mkSemigroupInstanceWith meta (ConT tyName) tyName pfs
+  pure [enc, siz, dec, semi]
 
 
 messageHaddock :: MessageDef -> [FieldSpec] -> String
@@ -754,12 +771,15 @@ extractMessageFields cfg msgN = concatMap go
           , fsNum = unFieldNumber (fieldNumber fd)
           , fsLabel = fieldLabel fd
           , fsType = fieldType fd
-          , fsRep = (if configUnboxedRepeated cfg
-                      then autoUnboxRepeated (fieldLabel fd) (fieldType fd)
-                      else id) $
-                      wireformFieldOverrides (configAdapterRegistry cfg)
-                        (fieldOptions fd)
-                        (lookupFieldRep msgN (fieldName fd) cfg)
+          , fsRep =
+              ( if configUnboxedRepeated cfg
+                  then autoUnboxRepeated (fieldLabel fd) (fieldType fd)
+                  else id
+              )
+                $ wireformFieldOverrides
+                  (configAdapterRegistry cfg)
+                  (fieldOptions fd)
+                  (lookupFieldRep msgN (fieldName fd) cfg)
           , fsOptions = fieldOptions fd
           }
       ]
@@ -769,9 +789,11 @@ extractMessageFields cfg msgN = concatMap go
           , fsNum = unFieldNumber (mapFieldNum mf)
           , fsMapKey = mapKeyType mf
           , fsMapVal = mapValueType mf
-          , fsMapRep = wireformFieldOverrides (configAdapterRegistry cfg)
-                        (mapOptions mf)
-                        (lookupFieldRep msgN (mapFieldName mf) cfg)
+          , fsMapRep =
+              wireformFieldOverrides
+                (configAdapterRegistry cfg)
+                (mapOptions mf)
+                (lookupFieldRep msgN (mapFieldName mf) cfg)
           }
       ]
     go (MEOneof od) =
@@ -779,9 +801,14 @@ extractMessageFields cfg msgN = concatMap go
           { fsName = oneofName od
           , fsOneofFields =
               fmap
-                (\f -> (f, wireformFieldOverrides (configAdapterRegistry cfg)
-                            (oneofFieldOptions f)
-                            (lookupFieldRep msgN (oneofFieldName f) cfg)))
+                ( \f ->
+                    ( f
+                    , wireformFieldOverrides
+                        (configAdapterRegistry cfg)
+                        (oneofFieldOptions f)
+                        (lookupFieldRep msgN (oneofFieldName f) cfg)
+                    )
+                )
                 (oneofFields od)
           }
       ]
@@ -914,7 +941,7 @@ mkUnknownFieldsField tyName =
 fieldTypeToTH :: ScopeCtx -> Maybe FieldLabel -> FieldType -> FieldRep -> Q Type
 fieldTypeToTH scope lbl ft rep = case lbl of
   Just Repeated -> repeatedTypeQ (fieldRepeated rep) (fieldTypeInnerScopedQ scope rep ft)
-  Just Optional -> optionalTypeQ (fieldOptional rep) (fieldTypeInnerScopedQ scope rep ft)
+  Just Optional -> appT (conT ''Maybe) (fieldTypeInnerScopedQ scope rep ft)
   _ -> case ft of
     -- Singular submessage fields are implicitly optional in proto3
     -- (the sender can omit them, and consumers must distinguish
@@ -1029,12 +1056,6 @@ repeatedTypeQ :: RepeatedAdapter -> Q Type -> Q Type
 repeatedTypeQ adapter elemTy = repeatedType adapter elemTy
 
 
-optionalTypeQ :: OptionalRep -> Q Type -> Q Type
-optionalTypeQ = \case
-  MaybeRep -> appT (conT ''Maybe)
-  FieldPresenceRep -> appT (conT ''FP.Field)
-
-
 scalarToTH :: ScalarType -> Q Type
 scalarToTH = \case
   SDouble -> conT ''Double
@@ -1083,9 +1104,7 @@ mkDefaultDec scope tyName fields = do
 defaultValueExpr :: ScopeCtx -> FieldSpec -> Q Exp
 defaultValueExpr scope (FSField _ _ lbl ft rep _) = case lbl of
   Just Repeated -> emptyRepeatedQ (fieldRepeated rep)
-  Just Optional -> case fieldOptional rep of
-    MaybeRep -> conE 'Nothing
-    FieldPresenceRep -> conE 'FP.Absent
+  Just Optional -> conE 'Nothing
   _ -> case ft of
     FTScalar SBool -> conE 'False
     FTScalar SString -> emptyStringQ (fieldString rep)
@@ -1160,7 +1179,7 @@ emptyBytesQ adapter = bytesEmpty adapter
 
 
 -- ---------------------------------------------------------------------------
--- Wire codec generation lives in 'Proto.Derive.Internal'; the
+-- Wire codec generation lives in 'Proto.Internal.Derive'; the
 -- bridge in 'fieldSpecToProtoField' below feeds it. The legacy
 -- hand-written 'mkEncodeInstance' \/ 'mkDecodeInstance' \/
 -- 'mkSizeInstance' family of helpers used to live here; they were
@@ -1545,7 +1564,7 @@ oneExtensionDec ownerHs ownerPrefix parentFqn pkg fd = case fieldLabel fd of
 
 {- | Emit a top-level @register<ExtName>Json :: IO ()@ binding
 that, when called, registers the extension's JSON codec in
-the runtime registry from "Proto.JSON.Extension". The user
+the runtime registry from "Proto.Internal.JSON.Extension". The user
 calls 'forceLoadProtoExtensionRegistrations' (also generated
 by 'loadProto', collected per-file at the bottom) to drain
 the file's registrations on startup.
@@ -1572,7 +1591,7 @@ extensionJsonRegistrationDecs parentFqn pkg extLeaf num extConName = do
               <> T.unpack (T.replace (T.singleton '.') (T.pack "_") extFqn)
           )
       extConE = ConE (mkName ("Ext." <> T.unpack extConName))
-  sig <- sigD regName [t|IO ()|]
+  sig <- sigD regName [t|PJExt.ExtensionRegistry|]
   body <-
     valD
       (varP regName)
@@ -1643,7 +1662,7 @@ upperFirst t = case T.uncons t of
 
 
 -- ===========================================================
--- IDL bridge: FieldSpec → Proto.Derive.Internal.ProtoField
+-- IDL bridge: FieldSpec → Proto.Internal.Derive.ProtoField
 -- ===========================================================
 
 {- | Translate a single 'FieldSpec' to a 'PDI.ProtoField'.

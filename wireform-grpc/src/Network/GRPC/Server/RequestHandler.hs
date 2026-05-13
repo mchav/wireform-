@@ -30,6 +30,7 @@ import Network.GRPC.Server.Session (CallSetupFailure (..))
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.Imports
 import Network.GRPC.Util.Session.Server
+import Network.GRPC.Util.Stream (toBSBuilder)
 import Network.HTTP.Semantics.Server qualified as Server
 import Network.HTTP.Types qualified as HTTP
 import Wireform.Builder qualified as Builder
@@ -151,14 +152,14 @@ mkFailureResponse params = \case
       Server.responseBuilder
         HTTP.methodNotAllowed405
         [("Allow", "POST")]
-        ( Builder.byteString . mconcat $
+        ( toBSBuilder . Builder.byteString . mconcat $
             [ "Unexpected :method " <> method <> ".\n"
             , "The only method supported by gRPC is POST.\n"
             ]
         )
   CallSetupInvalidResourceHeaders (InvalidPath path) ->
     return $
-      Server.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
+      Server.responseBuilder HTTP.badRequest400 [] . toBSBuilder . Builder.byteString $
         "Invalid path " <> path
   CallSetupInvalidRequestHeaders invalid ->
     return $
@@ -166,7 +167,7 @@ mkFailureResponse params = \case
         prettyInvalidHeaders invalid
   CallSetupUnsupportedCompression cid ->
     return $
-      Server.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
+      Server.responseBuilder HTTP.badRequest400 [] . toBSBuilder . Builder.byteString $
         "Unsupported compression: " <> BS.UTF8.fromString (show cid)
   CallSetupUnimplementedMethod path -> do
     let trailersOnly :: TrailersOnly

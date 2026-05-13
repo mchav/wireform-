@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Apache Thrift](https://thrift.apache.org/) for Haskell. Both wire
 protocols (binary and compact), the IDL parser and code generator, RPC
 message framing, the dynamic [`Thrift.Value`](src/Thrift/Value.hs), an
@@ -192,15 +196,33 @@ parser, the code generator output, and the dynamic `Value` ADT.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs):
+
+```bash
+cabal bench wireform-thrift:wireform-thrift-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:thrift-binary-vs-compact -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/thrift-binary-vs-compact-dark.svg">
+  <img src="bench-results/charts/thrift-binary-vs-compact-light.svg" alt="wireform-thrift binary vs compact wire protocols">
+</picture>
+
+| Operation             |   binary |  compact | ratio |
+| :-------------------- | -------: | -------: | ----: |
+| encode Person         |   266 ns |   290 ns | 1.09x |
+| encode [Person] x 100 | 24478 ns | 27893 ns | 1.14x |
+
+<sub>Last run 2026-05-13 11:38:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:thrift-binary-vs-compact -->
+
+For cross-language comparisons:
 
 - Haskell: [`thrift`](https://hackage.haskell.org/package/thrift)
   (the Apache Thrift Haskell binding).
 - C++: [Apache Thrift's libthrift](https://github.com/apache/thrift),
   the reference implementation.
 - Rust: [`thrift`](https://crates.io/crates/thrift) crate.
-
-> Numbers TBD: harness pending.
 
 ## License
 

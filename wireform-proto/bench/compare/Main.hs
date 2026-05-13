@@ -27,55 +27,23 @@ import WireformTypes
 
 
 encSmallH :: HSmall -> BS.ByteString
-encSmallH = directEncodeSmall
+encSmallH = H.encodeMessageSized
 {-# NOINLINE encSmallH #-}
 
 
 encMediumH :: HMedium -> BS.ByteString
-encMediumH = directEncodeMedium
+encMediumH = H.encodeMessageSized
 {-# NOINLINE encMediumH #-}
 
 
 encNestedH :: HWithNested -> BS.ByteString
-encNestedH = directEncodeNested
+encNestedH = H.encodeMessageSized
 {-# NOINLINE encNestedH #-}
 
 
 encRepH :: HWithRepeated -> BS.ByteString
-encRepH = directEncodeRepeated
+encRepH = H.encodeMessageSized
 {-# NOINLINE encRepH #-}
-
-
--- Builder-based encoders (exact-size FixedBuffer via encodeMessageSized)
-encSmallB :: HSmall -> BS.ByteString
-encSmallB = H.encodeMessageSized
-{-# NOINLINE encSmallB #-}
-
-
-encMediumB :: HMedium -> BS.ByteString
-encMediumB = H.encodeMessage
-{-# NOINLINE encMediumB #-}
-
-
-encNestedB :: HWithNested -> BS.ByteString
-encNestedB = H.encodeMessage
-{-# NOINLINE encNestedB #-}
-
-
-encRepB :: HWithRepeated -> BS.ByteString
-encRepB = H.encodeMessage
-{-# NOINLINE encRepB #-}
-
-
--- Direct fast-builder encoders (no SizedBuilder wrapper)
-encSmallFB :: HSmall -> BS.ByteString
-encSmallFB = encodeSmallDirect
-{-# NOINLINE encSmallFB #-}
-
-
-encMediumFB :: HMedium -> BS.ByteString
-encMediumFB = encodeMediumDirect
-{-# NOINLINE encMediumFB #-}
 
 
 main :: IO ()
@@ -85,9 +53,7 @@ main =
         "Small"
         [ bgroup
             "encode"
-            [ bench "wireform-direct" $ nf encSmallH smallHS
-            , bench "wireform-builder" $ nf encSmallB smallHS
-            , bench "wireform-fb-direct" $ nf encSmallFB smallHS
+            [ bench "wireform" $ nf encSmallH smallHS
             , bench "proto-lens" $ nf PLC.encodeMessage smallPL
             ]
         , bgroup
@@ -105,9 +71,7 @@ main =
         "Medium"
         [ bgroup
             "encode"
-            [ bench "wireform-direct" $ nf encMediumH mediumHS
-            , bench "wireform-builder" $ nf encMediumB mediumHS
-            , bench "wireform-fb-direct" $ nf encMediumFB mediumHS
+            [ bench "wireform" $ nf encMediumH mediumHS
             , bench "proto-lens" $ nf PLC.encodeMessage mediumPL
             ]
         , bgroup
@@ -125,8 +89,7 @@ main =
         "Nested"
         [ bgroup
             "encode"
-            [ bench "wireform-direct" $ nf encNestedH nestedHS
-            , bench "wireform-builder" $ nf encNestedB nestedHS
+            [ bench "wireform" $ nf encNestedH nestedHS
             , bench "proto-lens" $ nf PLC.encodeMessage nestedPL
             ]
         , bgroup
@@ -144,8 +107,7 @@ main =
         "Repeated"
         [ bgroup
             "encode"
-            [ bench "wireform-direct" $ nf encRepH repeatedHS
-            , bench "wireform-builder" $ nf encRepB repeatedHS
+            [ bench "wireform" $ nf encRepH repeatedHS
             , bench "proto-lens" $ nf PLC.encodeMessage repeatedPL
             ]
         , bgroup
@@ -157,9 +119,8 @@ main =
     ]
 
 
--- Decode wrappers — using fast Addr#-based decoders
 decSmallH :: BS.ByteString -> Either H.DecodeError HSmall
-decSmallH = fastDecodeSmall
+decSmallH = H.decodeMessage
 {-# NOINLINE decSmallH #-}
 
 
@@ -169,7 +130,7 @@ decSmallP = PLC.decodeMessage
 
 
 rtSmallH :: HSmall -> Either H.DecodeError HSmall
-rtSmallH m = H.decodeMessage (directEncodeSmall m)
+rtSmallH m = H.decodeMessage (H.encodeMessageSized m)
 {-# NOINLINE rtSmallH #-}
 
 
@@ -179,7 +140,7 @@ rtSmallP m = PLC.decodeMessage (PLC.encodeMessage m)
 
 
 decMediumH :: BS.ByteString -> Either H.DecodeError HMedium
-decMediumH = fastDecodeMedium
+decMediumH = H.decodeMessage
 {-# NOINLINE decMediumH #-}
 
 
@@ -189,7 +150,7 @@ decMediumP = PLC.decodeMessage
 
 
 rtMediumH :: HMedium -> Either H.DecodeError HMedium
-rtMediumH m = H.decodeMessage (directEncodeMedium m)
+rtMediumH m = H.decodeMessage (H.encodeMessageSized m)
 {-# NOINLINE rtMediumH #-}
 
 
@@ -199,7 +160,7 @@ rtMediumP m = PLC.decodeMessage (PLC.encodeMessage m)
 
 
 decNestedH :: BS.ByteString -> Either H.DecodeError HWithNested
-decNestedH = fastDecodeNested
+decNestedH = H.decodeMessage
 {-# NOINLINE decNestedH #-}
 
 
@@ -209,7 +170,7 @@ decNestedP = PLC.decodeMessage
 
 
 rtNestedH :: HWithNested -> Either H.DecodeError HWithNested
-rtNestedH m = H.decodeMessage (directEncodeNested m)
+rtNestedH m = H.decodeMessage (H.encodeMessageSized m)
 {-# NOINLINE rtNestedH #-}
 
 
@@ -219,7 +180,7 @@ rtNestedP m = PLC.decodeMessage (PLC.encodeMessage m)
 
 
 decRepH :: BS.ByteString -> Either H.DecodeError HWithRepeated
-decRepH = fastDecodeRepeated
+decRepH = H.decodeMessage
 {-# NOINLINE decRepH #-}
 
 

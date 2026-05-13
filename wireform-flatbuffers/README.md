@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Google FlatBuffers](https://flatbuffers.dev/) for Haskell. Encode and
 decode the dynamic [`FlatBuffers.Value`](src/FlatBuffers/Value.hs),
 derive typeclass instances generically or via Template Haskell, parse
@@ -184,7 +188,27 @@ test suite that exercises the zero-copy cursor path.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs):
+
+```bash
+cabal bench wireform-flatbuffers:wireform-flatbuffers-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:flatbuffers-encode-decode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/flatbuffers-encode-decode-dark.svg">
+  <img src="bench-results/charts/flatbuffers-encode-decode-light.svg" alt="wireform-flatbuffers encode + decode (zero-copy decode)">
+</picture>
+
+| Operation          |   encode |  decode | ratio |
+| :----------------- | -------: | ------: | ----: |
+| Person table       |   774 ns |  134 ns | 0.17x |
+| Person[100] vector | 94579 ns | 70.3 ns | 0.00x |
+
+<sub>Last run 2026-05-13 11:44:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5. Decode is a zero-copy cursor by design: only the outer envelope is resolved at decode time. Per-field reads happen lazily..</sub>
+<!-- END_AUTOGEN bench:flatbuffers-encode-decode -->
+
+For cross-language comparisons:
 
 - Haskell:
   [`flatbuffers`](https://hackage.haskell.org/package/flatbuffers)
@@ -194,8 +218,6 @@ No per-package criterion harness in tree yet. Planned comparisons:
 - Rust: [`flatbuffers`](https://crates.io/crates/flatbuffers) crate.
 - Python: [`flatbuffers`](https://pypi.org/project/flatbuffers/) on
   PyPI.
-
-> Numbers TBD: harness pending.
 
 ## License
 

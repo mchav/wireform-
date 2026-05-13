@@ -9,12 +9,12 @@ families of instances side by side:
    reference implementation.
 2. 'deriveProtoFromTranslated' produces matching instances for
    'BridgeRegItem' \/ 'BridgeRegInventory' from
-   "Test.Proto.Derive.RegressionTypes".
+   "Test.Proto.TH.Derive.RegressionTypes".
 
-The actual byte-equality assertion lives in "Test.Proto.Derive";
+The actual byte-equality assertion lives in "Test.Proto.TH.Derive";
 this module only wires up the splices.
 -}
-module Test.Proto.Derive.RegressionInstances (
+module Test.Proto.TH.Derive.RegressionInstances (
   -- * loadProto-generated types (re-exported for tests)
   RegItem (..),
   RegInventory (..),
@@ -26,15 +26,15 @@ import Data.Int (Int32)
 import Data.Text qualified as T
 import Data.Vector qualified as V -- needed by the loadProto splice
 import Language.Haskell.TH (Type (ConT))
-import Proto.Derive (
+import Proto.Repr qualified as PR
+import Proto.TH (loadProto)
+import Proto.TH.Derive (
   TranslatedField (..),
   TranslatedMessage (..),
   deriveProtoFromTranslated,
   translatedField,
  )
-import Proto.Repr qualified as PR
-import Proto.TH (loadProto)
-import Test.Proto.Derive.RegressionTypes (
+import Test.Proto.TH.Derive.RegressionTypes (
   BridgeRegInventory (..),
   BridgeRegItem (..),
  )

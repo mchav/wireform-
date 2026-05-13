@@ -9,10 +9,10 @@ import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word64)
 import Proto.Decode
 import Proto.Encode
-import Proto.SizedBuilder qualified as SB
-import Proto.Wire (Tag (..))
-import Proto.Wire.Decode
-import Proto.Wire.Encode
+import Proto.Internal.SizedBuilder qualified as SB
+import Proto.Internal.Wire (Tag (..))
+import Proto.Internal.Wire.Decode
+import Proto.Internal.Wire.Encode
 import System.CPUTime
 import Wireform.Builder qualified as B
 

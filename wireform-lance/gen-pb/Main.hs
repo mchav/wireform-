@@ -1,29 +1,32 @@
--- | Regenerate the Lance protobuf modules from the bundled
--- @proto/lance/{file,table}.proto@ files.
---
--- Run: @cabal run wireform-lance:gen-lance-pb@
---
--- This overwrites @src/Lance/Pb/Lance/{File,Table}.hs@ with
--- freshly-generated code, ensuring the checked-in modules
--- always match the codegen output. Same pattern as
--- @cabal run gen-wkt@ for the well-known types.
+{- | Regenerate the Lance protobuf modules from the bundled
+@proto/lance/{file,table}.proto@ files.
+
+Run: @cabal run wireform-lance:gen-lance-pb@
+
+This overwrites @src/Lance/Pb/Lance/{File,Table}.hs@ with
+freshly-generated code, ensuring the checked-in modules
+always match the codegen output. Same pattern as
+@cabal run gen-wkt@ for the well-known types.
+-}
 module Main (main) where
 
 import Control.Monad (forM, forM_)
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
+import Proto.CodeGen
+import Proto.IDL.Parser.Resolver
 import System.Directory (createDirectoryIfMissing)
-import System.FilePath ((</>), takeDirectory, (<.>))
+import System.FilePath (takeDirectory, (<.>), (</>))
 import System.IO (hPutStrLn, stderr)
 
-import Proto.Parser.Resolver
-import Proto.CodeGen
 
 protoDir :: FilePath
 protoDir = "wireform-lance/proto"
 
+
 outputDir :: FilePath
 outputDir = "wireform-lance/src"
+
 
 protoFiles :: [FilePath]
 protoFiles =
@@ -32,10 +35,13 @@ protoFiles =
   , "lance/table.proto"
   ]
 
+
 opts :: GenerateOpts
-opts = defaultGenerateOpts
-  { genModulePrefix = "Lance.Pb"
-  }
+opts =
+  defaultGenerateOpts
+    { genModulePrefix = "Lance.Pb"
+    }
+
 
 main :: IO ()
 main = do

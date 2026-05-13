@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Microsoft Bond](https://github.com/microsoft/bond) compact-binary
 serialization for Haskell. Encode and decode the dynamic
 [`Bond.Value`](src/Bond/Value.hs), derive typeclass instances generically
@@ -156,16 +160,33 @@ ADT, the schema parser, and the code generator output.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs):
 
-- Haskell: no comparable Bond library on Hackage; the natural
-  baseline is the wireform-bond `Value`-level round trip.
+```bash
+cabal bench wireform-bond:wireform-bond-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:bond-encode-decode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/bond-encode-decode-dark.svg">
+  <img src="bench-results/charts/bond-encode-decode-light.svg" alt="wireform-bond encode + decode (Compact Binary, Person record)">
+</picture>
+
+| Operation      |   encode |  decode | ratio |
+| :------------- | -------: | ------: | ----: |
+| single Person  |   162 ns |  185 ns | 1.14x |
+| [Person] x 100 | 15720 ns | 2081 ns | 0.13x |
+
+<sub>Last run 2026-05-13 11:44:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5. Decode is structurally lazy at the Value layer; the [Person] x 100 number reflects only the outer container resolution..</sub>
+<!-- END_AUTOGEN bench:bond-encode-decode -->
+
+For cross-language comparisons:
+
+- Haskell: no comparable Bond library on Hackage.
 - C++: [Microsoft's reference Bond library](https://github.com/microsoft/bond)
   (Compact Binary v1 + v2, Simple Binary, Fast Binary).
 - C#: the same reference library's .NET binding.
 - Python: the same reference library's Python binding.
-
-> Numbers TBD: harness pending.
 
 ## License
 

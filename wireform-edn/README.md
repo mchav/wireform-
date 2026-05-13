@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Extensible Data Notation (EDN)](https://github.com/edn-format/edn) for
 Haskell. Encode and decode the dynamic
 [`EDN.Value`](src/EDN/Value.hs), derive typeclass instances generically
@@ -150,14 +154,32 @@ TH-derived round-trips, and the dynamic `Value` ADT.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs):
+
+```bash
+cabal bench wireform-edn:wireform-edn-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:edn-encode-decode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/edn-encode-decode-dark.svg">
+  <img src="bench-results/charts/edn-encode-decode-light.svg" alt="wireform-edn encode + decode (Person record, text format)">
+</picture>
+
+| Operation      |   encode |    decode | ratio |
+| :------------- | -------: | --------: | ----: |
+| single Person  |   813 ns |   1992 ns | 2.45x |
+| [Person] x 100 | 84602 ns | 235878 ns | 2.79x |
+
+<sub>Last run 2026-05-13 11:38:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5.</sub>
+<!-- END_AUTOGEN bench:edn-encode-decode -->
+
+For cross-language comparisons:
 
 - Haskell: [`hedn`](https://hackage.haskell.org/package/hedn) (the
   established Haskell EDN parser).
 - JVM: [edn-java](https://github.com/bpsm/edn-java) and Clojure's
   built-in `clojure.edn` reader.
-
-> Numbers TBD: harness pending.
 
 ## License
 

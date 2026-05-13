@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Apache Hudi](https://hudi.apache.org/) timeline reader for Haskell.
 Parse the timeline ([`Hudi.Timeline`](src/Hudi/Timeline.hs)),
 decode the Avro 1.x+ instant payload format

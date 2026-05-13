@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Cap'n Proto](https://capnproto.org/) for Haskell. Encode and decode
 the dynamic [`CapnProto.Value`](src/CapnProto/Value.hs), derive
 typeclass instances generically or via Template Haskell, parse `.capnp`
@@ -157,7 +161,27 @@ ADT, the schema parser, and the code generator output.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs):
+
+```bash
+cabal bench wireform-capnproto:wireform-capnproto-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:capnproto-encode-decode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/capnproto-encode-decode-dark.svg">
+  <img src="bench-results/charts/capnproto-encode-decode-light.svg" alt="wireform-capnproto encode + decode (zero-copy decode)">
+</picture>
+
+| Operation     |  encode |   decode | ratio |
+| :------------ | ------: | -------: | ----: |
+| Person struct |  108 ns |  27.1 ns | 0.25x |
+| Person[100]   | 8547 ns | 26.10 ns | 0.00x |
+
+<sub>Last run 2026-05-13 11:44:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5. Decode is a zero-copy cursor by design: only the outer envelope is resolved at decode time. Per-field reads happen lazily..</sub>
+<!-- END_AUTOGEN bench:capnproto-encode-decode -->
+
+For cross-language comparisons:
 
 - Haskell: [`capnp`](https://hackage.haskell.org/package/capnp) (the
   existing Hackage Cap'n Proto library).
@@ -165,8 +189,6 @@ No per-package criterion harness in tree yet. Planned comparisons:
   the canonical implementation.
 - Rust: [`capnp`](https://crates.io/crates/capnp) crate.
 - Python: [`pycapnp`](https://pypi.org/project/pycapnp/) on PyPI.
-
-> Numbers TBD: harness pending.
 
 ## License
 

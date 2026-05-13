@@ -1,5 +1,9 @@
 # wireform
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 You need to serialize a thing. Maybe it's protobuf, because the team
 next door decided proto is what events look like. Maybe it's Avro,
 because Iceberg is involved. Maybe it's CBOR, because you need to 
@@ -38,7 +42,7 @@ The MsgPack library calls it `unpack`.
 
 And so on.
 
-You do this audit semi-regularly. After enough times you notice that 
+You end up doing this song and dance semi-regularly. After enough times you notice that 
 determining whether to trust libraries from random authors takes as 
 long as writing the library yourself.
 
@@ -50,7 +54,7 @@ that didn't think it would need one.
 
 Surely someone has already solved this, you think. Rust has `serde`, for example.
 
-Thus, `wireform` as a project was born.
+Enter `wireform`.
 
 Wireform provides an ecosystem of roughly thirty format packages where
 every one shares the extremely performant core utilities (`wireform-core`),
@@ -155,6 +159,12 @@ only need CBOR, you only build CBOR.
 |---------|------|
 | [`wireform-grpc`](wireform-grpc/README.md) | gRPC client and server |
 | [`wireform-kafka`](wireform-kafka/README.md) | Native Kafka client with Streams, transactions, and OpenTelemetry |
+
+### Internal tooling
+
+| Package | What it does |
+|---------|------|
+| [`wireform-stats`](wireform-stats/README.md) | `regen-stats` keeps the per-package READMEs' tests / coverage / benchmark sections in sync with in-tree data, with light + dark SVG bar charts emitted via `wireform-xml` |
 
 ### Module conventions
 
@@ -281,26 +291,6 @@ Run from the workspace root with `cabal run <name>`:
 | `example-parquet` / `arrow` / `iceberg` | Analytics formats |
 
 See `examples/` for the full list.
-
----
-
-## Contributing
-
-Guidelines live in [`agents.md`](agents.md). The short version:
-
-- Generated code is output, not source. Edit the codegen, not the
-  generated file.
-- Every format needs benchmarks and interop/conformance tests.
-- New formats plug into the shared deriver (`<Format>.Derive`).
-- Deps behind flags when they're heavy (`+zstd`, `+snappy`,
-  `+python-interop`, etc.).
-
-### Adding a new format
-
-A `wireform-<format>` package is ready to land when it's fast
-(benchmarked), correct (conformance-tested or interop-tested),
-deriver-integrated, codegen-driven for IDL formats, and
-dependency-light. See [agents.md](agents.md) for the full checklist.
 
 ---
 

@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 HTML5 for Haskell. A spec-compliant tokenizer and tree builder
 ([`HTML.Parse`](src/HTML/Parse.hs)), a typed DOM
 ([`HTML.DOM`](src/HTML/DOM.hs)), CSS selectors with `querySelector` /

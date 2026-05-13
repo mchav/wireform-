@@ -11,6 +11,7 @@ import Network.GRPC.Util.Imports
 
 import Network.GRPC.Server.Context
 import Network.GRPC.Util.Session.API
+import Network.GRPC.Util.Stream (fromBSBuilder)
 
 {-------------------------------------------------------------------------------
   Definition
@@ -59,7 +60,7 @@ instance SupportsServerRpc rpc => IsSession (ServerSession rpc) where
   buildOutboundTrailers _ = buildProperTrailers
 
   parseMsg _ = parseInput  (Proxy @rpc) . inbCompression
-  buildMsg _ = buildOutput (Proxy @rpc) . outCompression
+  buildMsg _ = \hdrs msg -> fromBSBuilder (buildOutput (Proxy @rpc) (outCompression hdrs) msg)
 
 {-------------------------------------------------------------------------------
   Exceptions

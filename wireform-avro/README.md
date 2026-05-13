@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [Apache Avro](https://avro.apache.org/) for Haskell. The wire format,
 the dynamic [`Avro.Value`](src/Avro/Value.hs), the
 annotation-driven Template Haskell deriver, the `.avsc` JSON schema

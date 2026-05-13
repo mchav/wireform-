@@ -2,6 +2,10 @@
 
 [![BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 [TOML](https://toml.io/) for Haskell. Encode and decode the dynamic
 [`TOML.Value`](src/TOML/Value.hs), derive typeclass instances
 generically or via Template Haskell, and pass the official
@@ -155,7 +159,27 @@ even without the external clone.
 
 ## Benchmarks
 
-No per-package criterion harness in tree yet. Planned comparisons:
+A criterion harness in [`bench/Bench.hs`](bench/Bench.hs):
+
+```bash
+cabal bench wireform-toml:wireform-toml-bench
+```
+
+<!-- BEGIN_AUTOGEN bench:toml-encode-decode -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="bench-results/charts/toml-encode-decode-dark.svg">
+  <img src="bench-results/charts/toml-encode-decode-light.svg" alt="wireform-toml encode + decode (Person record)">
+</picture>
+
+| Operation      |   encode |    decode | ratio |
+| :------------- | -------: | --------: | ----: |
+| single Person  |   731 ns |   2337 ns | 3.19x |
+| [Person] x 100 | 84498 ns | 334545 ns | 3.96x |
+
+<sub>Last run 2026-05-13 12:10:00 UTC. ghc-9.8.4 on darwin-aarch64, criterion 1.6.5. Decode is now linear in input size (was previously O(N²) due to T.index/T.length on the full source); 100-record decode dropped from 240 ms to 335 µs..</sub>
+<!-- END_AUTOGEN bench:toml-encode-decode -->
+
+For cross-language comparisons:
 
 - Haskell:
   [`toml-parser`](https://hackage.haskell.org/package/toml-parser),
@@ -166,8 +190,6 @@ No per-package criterion harness in tree yet. Planned comparisons:
   [`toml_edit`](https://crates.io/crates/toml_edit) (the latter
   preserves formatting, so it's the right comparison if you care
   about lossless round-trips).
-
-> Numbers TBD: harness pending.
 
 ## License
 

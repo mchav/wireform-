@@ -59,6 +59,24 @@ library
     scientific >= 0.3 && < 0.4,
     aeson >= 2.1 && < 2.3
 
+benchmark wireform-bond-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -O2
+  default-extensions:
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-bond,
+    wireform-derive,
+    bytestring,
+    deepseq,
+    text,
+    vector,
+    criterion >= 1.5 && < 1.7
+
 test-suite wireform-bond-derive-test
   import: defaults
   type: exitcode-stdio-1.0

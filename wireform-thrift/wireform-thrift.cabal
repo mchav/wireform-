@@ -67,6 +67,21 @@ library
     scientific >= 0.3 && < 0.4,
     stm >= 2.5 && < 2.6
 
+benchmark wireform-thrift-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -O2
+  build-depends:
+    base,
+    wireform-thrift,
+    bytestring,
+    deepseq,
+    text,
+    vector,
+    criterion >= 1.5 && < 1.7
+
 test-suite wireform-thrift-derive-test
   import: defaults
   type: exitcode-stdio-1.0

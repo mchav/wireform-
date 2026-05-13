@@ -1,0 +1,14 @@
+{
+  "id": "fory-encode-decode",
+  "title": "wireform-fory encode + decode across representative shapes",
+  "unit": "Nanos",
+  "higherIsBetter": false,
+  "groups": ["int", "string", "bytes 1KB", "Person struct", "list[Person]*100"],
+  "series": [
+    {"name": "encode", "values": [76.03, 83.53, 126.86, 262.11, 6712.15]},
+    {"name": "decode", "values": [63.83, 77.53, 62.43, 455.74, 10673.57]}
+  ],
+  "baseline": "encode",
+  "capturedAt": "2026-05-13T11:20:00Z",
+  "toolchain": "ghc-9.8.4 on darwin-aarch64, criterion 1.6.5"
+}

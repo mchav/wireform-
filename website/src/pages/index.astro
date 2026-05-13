@@ -1,0 +1,169 @@
+---
+import Landing from '../layouts/Landing.astro';
+
+const formats = [
+  'Protocol Buffers', 'Avro', 'Thrift', 'MessagePack', 'CBOR', 'BSON',
+  'XML', 'HTML5', 'YAML', 'TOML', 'Parquet', 'Arrow', 'ORC', 'Iceberg',
+  'Kafka', 'gRPC', "Cap'n Proto", 'FlatBuffers', 'Bond', 'ASN.1',
+  'Ion', 'EDN', 'Bencode', 'Fory', 'CSV', 'NDJSON',
+  'Delta Lake', 'Hudi', 'Lance',
+];
+
+const sections = [
+  {
+    title: 'Derive once, serialize everywhere',
+    text: 'Define your type, add the formats you need, and you\'re done. The same annotation vocabulary works across every backend.',
+    code: `data Person = Person { name :: !Text, age :: !Int }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (ToMsgPack, FromMsgPack, ToCBOR, FromCBOR, ToYAML, FromYAML)`,
+  },
+  {
+    title: 'Generate types from any schema language',
+    text: 'Point wireform-gen at a schema file and get idiomatic Haskell — or use a Template Haskell splice and skip the CLI entirely.',
+    code: `-- No protoc binary needed. No generated files to commit.
+$(loadProto "proto/person.proto")
+
+-- Or use the CLI for any of 10 schema languages.
+-- $ wireform-gen proto  -i api.proto     -o gen/
+-- $ wireform-gen avro   -i user.avsc     -o gen/
+-- $ wireform-gen thrift -i service.thrift -o gen/`,
+  },
+  {
+    title: 'Real XML and HTML processing',
+    text: 'A fast XML parser with XPath and XSLT. A fully spec-compliant HTML5 tree builder with CSS selectors and a streaming rewriter.',
+    code: `-- CSS selectors on parsed HTML, just like the browser
+let articles = querySelectorAll "article.post > h2" document
+
+-- XPath queries on XML
+let titles = query "//book/title" catalog`,
+  },
+  {
+    title: 'Analytics without the JVM',
+    text: 'Read and write Parquet, Arrow, and ORC files. Query Iceberg tables through REST, Glue, or Hadoop catalogs. No Spark required.',
+    code: `rows <- readParquet "events.parquet"
+  & filterPredicate (col "status" .== lit "active")
+  & selectColumns ["user_id", "event_type", "timestamp"]`,
+  },
+  {
+    title: 'Kafka and gRPC, built in',
+    text: 'A full Kafka client with producers, consumers, transactions, and a Streams DSL. A native gRPC implementation with bidirectional streaming.',
+    code: `produce producer "events" (avroEncode event)
+
+withTransaction consumer $ \\records ->
+  for_ records processEvent`,
+  },
+];
+
+const base = import.meta.env.BASE_URL;
+---
+
+<Landing
+  title="wireform — one Haskell ecosystem for every format and protocol"
+  description="Serialization, codegen, streaming, messaging, and analytics under one roof."
+>
+  <!-- Nav -->
+  <nav class="fixed top-0 inset-x-0 z-50 border-b border-line bg-paper/88 backdrop-blur-sm">
+    <div class="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+      <a href={base} class="font-bold text-lg tracking-tight text-ink no-underline">
+        wire<span class="text-primary">form</span>
+      </a>
+      <div class="flex items-center gap-6 text-sm">
+        <a href={`${base}guides/getting-started`} class="text-muted hover:text-ink transition-colors no-underline">Docs</a>
+        <a href={`${base}guides/formats`} class="text-muted hover:text-ink transition-colors no-underline">Formats</a>
+        <a href="https://github.com/iand675/wireform-" class="text-muted hover:text-ink transition-colors no-underline">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-6xl mx-auto px-6 pt-28 pb-24">
+    <!-- Hero -->
+    <section class="relative pb-16 border-b border-line">
+      <!-- Paper grid -->
+      <div
+        class="absolute inset-0 pointer-events-none opacity-40"
+        style="background-image: linear-gradient(rgba(0,0,0,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.06) 1px, transparent 1px); background-size: 32px 32px; mask-image: radial-gradient(ellipse at center, black 25%, transparent 75%); -webkit-mask-image: radial-gradient(ellipse at center, black 25%, transparent 75%);"
+        aria-hidden="true"
+      />
+
+      <div class="relative max-w-3xl">
+        <div class="mb-6 inline-flex items-center gap-2 px-3 py-1.5 text-xs font-mono tracking-wide uppercase border border-accent/30 text-accent bg-accent/5">
+          In heavy development — not yet on Hackage
+        </div>
+
+        <h1 class="text-4xl sm:text-5xl font-bold tracking-tight leading-tight">
+          One ecosystem.{' '}
+          <span class="text-primary">Every format and protocol.</span>
+        </h1>
+
+        <p class="mt-5 text-lg text-muted max-w-xl leading-relaxed">
+          Stop gluing together thirty packages. wireform gives you serialization,
+          codegen, streaming, messaging, and analytics under one roof — with APIs
+          that actually rhyme.
+        </p>
+
+        <div class="mt-8 flex flex-wrap gap-2">
+          <a
+            href={`${base}guides/getting-started`}
+            class="inline-flex items-center gap-2 px-5 py-3 text-sm font-semibold bg-primary text-paper border border-primary hover:bg-primary-dark transition-colors no-underline"
+          >
+            Get started <span>&rarr;</span>
+          </a>
+          <a
+            href={`${base}guides/formats`}
+            class="inline-flex items-center gap-2 px-5 py-3 text-sm font-semibold text-primary border border-primary hover:bg-primary hover:text-paper transition-colors no-underline"
+          >
+            Format catalogue
+          </a>
+        </div>
+      </div>
+
+      <!-- Format tags -->
+      <div class="mt-10 flex flex-wrap gap-1 max-w-3xl">
+        {formats.map(f => (
+          <span class="px-2 py-0.5 text-xs font-mono text-muted border border-line hover:border-primary/30 hover:text-primary transition-colors">
+            {f}
+          </span>
+        ))}
+      </div>
+    </section>
+
+    <!-- Feature sections -->
+    {sections.map((s, i) => (
+      <section class:list={["py-16", i < sections.length - 1 && "border-b border-line"]}>
+        <div class="grid md:grid-cols-[1fr_1.2fr] gap-10 items-start">
+          <div>
+            <h2 class="text-2xl font-semibold tracking-tight">{s.title}</h2>
+            <p class="mt-3 text-muted leading-relaxed max-w-md">{s.text}</p>
+          </div>
+          <pre class="bg-card border border-line p-5 text-sm font-mono leading-relaxed overflow-x-auto"><code>{s.code}</code></pre>
+        </div>
+      </section>
+    ))}
+
+    <!-- CTA -->
+    <section class="pt-16 border-t border-line">
+      <p class="text-muted max-w-md">
+        Add wireform to your project and start building.
+        No external tools, no runtime dependencies, no JVM.
+      </p>
+      <a
+        href={`${base}guides/getting-started`}
+        class="inline-flex items-center gap-2 mt-4 text-sm font-semibold text-primary hover:text-primary-dark transition-colors no-underline"
+      >
+        Read the getting started guide &rarr;
+      </a>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-line">
+    <div class="max-w-6xl mx-auto px-6 py-8 flex justify-between items-end">
+      <span class="font-mono text-xs tracking-widest uppercase text-muted">
+        wireform · open source · haskell
+      </span>
+      <span class="font-mono text-xs tracking-wider uppercase text-muted">
+        Space Grotesk &amp; JetBrains Mono
+      </span>
+    </div>
+  </footer>
+</Landing>

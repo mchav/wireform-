@@ -27,7 +27,8 @@ import Data.Text qualified as Text
 
 import Proto.Encode (encodeMessage)
 import Proto.Decode (decodeMessage, DecodeError)
-import Proto.Message (IsMessage(..))
+import Proto.Registry (IsMessage)
+import Proto.Schema (ProtoMessage(..))
 import Proto.Google.Protobuf.Any (Any(..))
 import Proto.Google.Protobuf.Any qualified as PbAny
 
@@ -40,7 +41,7 @@ typeUrlPrefix = "type.googleapis.com/"
 
 pack :: forall a. IsMessage a => a -> Any
 pack msg = PbAny.Any
-  { anyTypeUrl       = typeUrlPrefix <> messageTypeName (Proxy @a)
+  { anyTypeUrl       = typeUrlPrefix <> protoMessageName (Proxy @a)
   , anyValue         = encodeMessage msg
   , anyUnknownFields = []
   }
@@ -64,4 +65,4 @@ unpack any'
         Left e -> Left $ DecodingError $ Text.pack (show e)
         Right x -> Right x
   where
-    expectedName = messageTypeName (Proxy :: Proxy a)
+    expectedName = protoMessageName (Proxy :: Proxy a)
