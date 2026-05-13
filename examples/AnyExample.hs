@@ -108,7 +108,7 @@ main = do
           Just codec ->
             case acToJSON codec (anyValue a) of
               Left err -> putStrLn $ "error: " <> err
-              Right val -> putStrLn (show val)
+              Right val -> print val
           Nothing -> putStrLn "unknown type"
     )
     messages

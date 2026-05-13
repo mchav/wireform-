@@ -215,15 +215,15 @@ printInspectTests =
               Left e -> assertFailure (show e)
               Right pf -> do
                 let types = allTypeNames pf
-                assertBool "Has Person" (elem "Person" types)
-                assertBool "Has Status" (elem "Status" types)
+                assertBool "Has Person" ("Person" `elem` types)
+                assertBool "Has Status" ("Status" `elem` types)
         , testCase "referencedTypes" $ do
             case parseProtoFile "<test>" complexProto of
               Left e -> assertFailure (show e)
               Right pf -> do
                 let refs = referencedTypes pf
-                assertBool "References PhoneNumber" (elem "PhoneNumber" refs)
-                assertBool "References Status" (elem "Status" refs)
+                assertBool "References PhoneNumber" ("PhoneNumber" `elem` refs)
+                assertBool "References Status" ("Status" `elem` refs)
         , testCase "summarize" $ do
             case parseProtoFile "<test>" complexProto of
               Left e -> assertFailure (show e)

@@ -286,5 +286,5 @@ assertParserFails p = case AesonT.parseEither (const p) () of
 
 normalizeObject :: Aeson.Value -> Map.Map Text Aeson.Value
 normalizeObject (Aeson.Object o) =
-  Map.fromList (fmap (\(k, v) -> (AesonKey.toText k, v)) (AesonKM.toList o))
+  Map.fromList (fmap (Data.Bifunctor.first AesonKey.toText) (AesonKM.toList o))
 normalizeObject _ = Map.empty

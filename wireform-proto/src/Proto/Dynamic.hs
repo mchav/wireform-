@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 {- | Dynamic messages for runtime protobuf manipulation.
@@ -381,22 +380,22 @@ mkThunk :: FieldTypeDescriptor -> FieldThunk
 mkThunk = \case
   ScalarType DoubleField -> thunkFixed64 (DynDouble . castWord64ToDouble)
   ScalarType FloatField -> thunkFixed32 (DynFloat . castWord32ToFloat)
-  ScalarType Int32Field -> thunkVarint (DynVarint)
-  ScalarType Int64Field -> thunkVarint (DynVarint)
-  ScalarType UInt32Field -> thunkVarint (DynVarint)
-  ScalarType UInt64Field -> thunkVarint (DynVarint)
-  ScalarType SInt32Field -> thunkVarint (DynVarint)
-  ScalarType SInt64Field -> thunkVarint (DynVarint)
-  ScalarType Fixed32Field -> thunkFixed32 (DynFixed32)
-  ScalarType Fixed64Field -> thunkFixed64 (DynFixed64)
-  ScalarType SFixed32Field -> thunkFixed32 (DynFixed32)
-  ScalarType SFixed64Field -> thunkFixed64 (DynFixed64)
+  ScalarType Int32Field -> thunkVarint DynVarint
+  ScalarType Int64Field -> thunkVarint DynVarint
+  ScalarType UInt32Field -> thunkVarint DynVarint
+  ScalarType UInt64Field -> thunkVarint DynVarint
+  ScalarType SInt32Field -> thunkVarint DynVarint
+  ScalarType SInt64Field -> thunkVarint DynVarint
+  ScalarType Fixed32Field -> thunkFixed32 DynFixed32
+  ScalarType Fixed64Field -> thunkFixed64 DynFixed64
+  ScalarType SFixed32Field -> thunkFixed32 DynFixed32
+  ScalarType SFixed64Field -> thunkFixed64 DynFixed64
   ScalarType BoolField -> thunkVarint (\v -> DynBool (v /= 0))
-  ScalarType StringField -> thunkLenDelim (\bs -> DynString <$> decodeTextValue bs)
-  ScalarType BytesField -> thunkLenDelim (\bs -> Right (DynBytes bs))
-  MessageType _ -> thunkLenDelim (\bs -> DynMessage <$> decodeSubmsg bs)
+  ScalarType StringField -> thunkLenDelim (fmap DynString . decodeTextValue)
+  ScalarType BytesField -> thunkLenDelim (Right . DynBytes)
+  MessageType _ -> thunkLenDelim (fmap DynMessage . decodeSubmsg)
   EnumType _ -> thunkVarint (DynEnum . fromIntegral)
-  MapType _ _ -> thunkLenDelim (\bs -> Right (DynBytes bs))
+  MapType _ _ -> thunkLenDelim (Right . DynBytes)
 
 
 decodeTextValue :: ByteString -> Either DecodeError Text

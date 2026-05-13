@@ -148,7 +148,7 @@ resolverTests =
               ]
           result <- resolveProtoImports [dir] (dir </> "bad.proto")
           case result of
-            Left (FileNotFound _ _ _) -> pure ()
+            Left (FileNotFound {}) -> pure ()
             Left e -> assertFailure ("unexpected error: " <> show e)
             Right _ -> assertFailure "expected FileNotFound error"
     , testCase "circular import detected" $ do
@@ -185,7 +185,7 @@ withTempProtoDir :: (FilePath -> IO ()) -> IO ()
 withTempProtoDir action = do
   let dir = "/tmp/wireform-test-resolver"
   exists <- doesDirectoryExist dir
-  if exists then removeDirectoryRecursive dir else pure ()
+  Control.Monad.when exists $ removeDirectoryRecursive dir
   createDirectoryIfMissing True dir
   action dir
   removeDirectoryRecursive dir

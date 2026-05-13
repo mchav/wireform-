@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 module Main where

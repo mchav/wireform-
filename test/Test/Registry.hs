@@ -228,7 +228,7 @@ thriftRegistryTests =
     , testCase "struct annotation emits extra derivations" $ do
         let handler =
               StructAnnotationHandler
-                { sahExtraDerivations = \_val -> ["Hashable"]
+                { sahExtraDerivations = const ["Hashable"]
                 , sahExtraCode = \k v ->
                     ["-- struct annotation " <> k <> " = " <> v]
                 }
@@ -275,7 +275,7 @@ cborTagRegistryTests =
               TagHandler
                 { thName = "geojson"
                 , thHaskellType = Just "GeoJSON"
-                , thValidate = \v -> Right v
+                , thValidate = Right
                 }
             reg = registerTag 100 handler defaultCBORTagRegistry
         case lookupTag 100 reg of
@@ -300,8 +300,8 @@ cborTagRegistryTests =
               Right _ -> assertFailure "should have rejected UInt for datetime tag"
           Nothing -> assertFailure "tag 0 not found"
     , testCase "Semigroup composition" $ do
-        let reg1 = registerTag 100 (TagHandler "a" Nothing (\v -> Right v)) mempty
-            reg2 = registerTag 101 (TagHandler "b" Nothing (\v -> Right v)) mempty
+        let reg1 = registerTag 100 (TagHandler "a" Nothing Right) mempty
+            reg2 = registerTag 101 (TagHandler "b" Nothing Right) mempty
             combined = reg1 <> reg2
         assertBool "has 100" (IntMap.member 100 (ctrTags combined))
         assertBool "has 101" (IntMap.member 101 (ctrTags combined))

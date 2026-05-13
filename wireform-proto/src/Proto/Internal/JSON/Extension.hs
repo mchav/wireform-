@@ -93,8 +93,8 @@ data ExtRegistryEntry = ExtRegistryEntry
 Built at module load time by generated code, passed explicitly
 to JSON encode/decode functions.
 -}
-data ExtensionRegistry = ExtensionRegistry
-  { erEntries :: !(Map Text ExtRegistryEntry)
+newtype ExtensionRegistry = ExtensionRegistry
+  { erEntries :: Map Text ExtRegistryEntry
   }
 
 

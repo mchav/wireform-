@@ -72,11 +72,13 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Short qualified as SBS
+import Data.Either (fromRight)
 import Data.Foldable qualified as F
 import Data.Hashable (Hashable, hashWithSalt)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Int (Int32, Int64)
 import Data.Map.Strict qualified as Map
+import Data.Maybe qualified
 import Data.Reflection (Given, given)
 import Data.Scientific qualified as Sci
 import Data.Sequence (Seq)
@@ -873,12 +875,10 @@ wktEncoderE1 wkt = case wkt of
   WktValue -> [|WK.valueToJSON|]
   WktListValue ->
     [|
-      ( \lv ->
-          Aeson.Array
-            ( V.map
-                WK.valueToJSON
-                (PGS.listValueValues lv)
-            )
+      ( Aeson.Array
+          . V.map
+            WK.valueToJSON
+          . PGS.listValueValues
       )
       |]
   WktAny -> [|WK.anyToJSON WK.standardWktRegistry|]
@@ -1116,15 +1116,12 @@ parseBindStmt objVar mf fldVar = case mfJsonShape mf of
   JSOneof variants -> do
     e <- buildOneofParseExp objVar variants
     pure (BindS (VarP fldVar) e)
-  _ -> pure $ case mfJsonName mf == mfProtoName mf of
-    True -> parseBindStmtSingleKey objVar mf fldVar (mfJsonName mf)
-    False ->
-      parseBindStmtTwoKeys
-        objVar
-        mf
-        fldVar
-        (mfJsonName mf)
-        (mfProtoName mf)
+  _ ->
+    pure
+      ( if mfJsonName mf == mfProtoName mf
+          then parseBindStmtSingleKey objVar mf fldVar (mfJsonName mf)
+          else parseBindStmtTwoKeys objVar mf fldVar (mfJsonName mf) (mfProtoName mf)
+      )
 
 
 {- | Parse @Maybe a@ from @obj@, trying both the camelCase JSON
@@ -1181,7 +1178,7 @@ of 'parseBindStmt' so both the single- and two-key paths can
 share the same dispatch table.
 -}
 parseFnFor :: MetaField -> Exp
-parseFnFor mf = oldParseFnFor mf
+parseFnFor = oldParseFnFor
 
 
 -- | Renamed inline of the original 'parseBindStmt' helper logic.
@@ -1420,7 +1417,7 @@ parseEnumVectorMaybe obj key =
     Just Aeson.Null -> pure Nothing
     Just (Aeson.Array vs) -> do
       xs <- traverse parseOne (V.toList vs)
-      pure (Just (V.fromList [x | Just x <- xs]))
+      pure (Just (V.fromList (Data.Maybe.catMaybes xs)))
     Just _ -> fail ("Expected JSON Array for enum field " <> show key)
   where
     -- 'null' as an array element means "unknown enum value
@@ -1847,12 +1844,12 @@ parseListValueVectorMaybe obj key = do
     Just (Aeson.Array vs) ->
       let !lvs =
             V.map
-              ( \v -> case v of
+              ( \case
                   Aeson.Array inner ->
                     PGS.defaultListValue
                       { PGS.listValueValues =
                           V.map
-                            (either (const PGS.defaultValue) id . WK.valueFromJSON)
+                            (fromRight PGS.defaultValue . WK.valueFromJSON)
                             inner
                       }
                   _ -> PGS.defaultListValue
@@ -2006,7 +2003,7 @@ own combinators (which differ slightly between containers
 versions).
 -}
 foldlSeq :: (a -> b -> a) -> a -> Seq b -> a
-foldlSeq f = foldl f
+foldlSeq = foldl
 
 
 -- ---------------------------------------------------------------------------
@@ -2305,7 +2302,7 @@ parseScalarVectorMaybe _sc obj key = do
   mv <- PJI.parseFieldMaybe obj key
   case mv of
     Nothing -> pure Nothing
-    Just vs -> Just . V.fromList <$> pure (vs :: [a])
+    Just vs -> pure ((Just . V.fromList) (vs :: [a]))
 
 
 {- | Parse a scalar-keyed scalar-valued map from a JSON object.

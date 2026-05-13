@@ -69,6 +69,7 @@ module Proto.Internal.Derive (
   tagByteFor,
 ) where
 
+import Data.Bifunctor qualified
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -76,6 +77,7 @@ import Data.ByteString.Short qualified as SBS
 import Data.Int (Int32, Int64)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
+import Data.Maybe (maybeToList)
 import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -308,8 +310,8 @@ footprint). When 'Nothing', the codecs match the original
 'Proto.TH.Derive.deriveProto' output and silently drop unknown
 tags.
 -}
-data MessageMeta = MessageMeta
-  { mmUnknownFieldsSel :: !(Maybe Name)
+newtype MessageMeta = MessageMeta
+  { mmUnknownFieldsSel :: Maybe Name
   -- ^ Selector for an @[Decode.UnknownField]@ field on the
   -- record. When set, the codecs round-trip unknown tags through
   -- this slot.
@@ -385,7 +387,7 @@ buildMessageBodyWith meta fs = do
                 (VarE 'PD.encodeUnknownFields)
                 (AppE (VarE sel) (VarE msg))
             )
-      allParts = parts <> maybe [] (: []) ufPart
+      allParts = parts <> maybeToList ufPart
   case allParts of
     [] -> lamE [varP msg] [|mempty|]
     _ ->
@@ -415,7 +417,7 @@ messageSizeBodyWith meta fs = do
                 (VarE 'PD.unknownFieldsSize)
                 (AppE (VarE sel) (VarE msg))
             )
-      allParts = parts <> maybe [] (: []) ufPart
+      allParts = parts <> maybeToList ufPart
   case allParts of
     [] -> lamE [varP msg] [|0 :: Int|]
     _ ->
@@ -574,7 +576,7 @@ mkSemigroupInstanceWith meta ty conName fs = do
             _ -> case pfType pf of
               PFSubmessage -> [|case $(pure getB) of Nothing -> $(pure getA); b' -> b'|]
               PFEnum -> [|if $(pure getB) == toEnum 0 then $(pure getA) else $(pure getB)|]
-              PFScalar SBool -> [|if $(pure getB) == False then $(pure getA) else $(pure getB)|]
+              PFScalar SBool -> [|if not $(pure getB) then $(pure getA) else $(pure getB)|]
               PFScalar SString -> [|if $(pure getB) == mempty then $(pure getA) else $(pure getB)|]
               PFScalar SBytes -> [|if $(pure getB) == mempty then $(pure getA) else $(pure getB)|]
               PFScalar _ -> [|if $(pure getB) == 0 then $(pure getA) else $(pure getB)|]
@@ -1483,12 +1485,12 @@ initFor (pf, _) = case (pfKind pf, pfType pf) of
 
 -- | Adapter-based empty value for a string field.
 stringEmptyE :: StringAdapter -> Q Exp
-stringEmptyE adapter = stringEmpty adapter
+stringEmptyE = stringEmpty
 
 
 -- | Adapter-based empty value for a bytes field.
 bytesEmptyE :: BytesAdapter -> Q Exp
-bytesEmptyE adapter = bytesEmpty adapter
+bytesEmptyE = bytesEmpty
 
 
 -- | Adapter-based size for a string field.
@@ -1509,14 +1511,14 @@ bytesSizeE adapter v =
 and sizer. Splices the adapter's foldl function.
 -}
 repeatedFoldlE :: RepeatedAdapter -> Q Exp
-repeatedFoldlE adapter = repeatedFoldl adapter
+repeatedFoldlE = repeatedFoldl
 
 
 {- | Empty value for a repeated container, used by the decoder
 accumulator initialiser.
 -}
 repeatedEmptyE :: RepeatedAdapter -> Q Exp
-repeatedEmptyE adapter = repeatedEmpty adapter
+repeatedEmptyE = repeatedEmpty
 
 
 {- | @container `snoc` v@ in 'Q'-friendly form. Used by the decode
@@ -1531,7 +1533,7 @@ repeatedSnocE adapter accE vName =
 the shape required by 'decodePackedInto'.
 -}
 repeatedSnocFnE :: RepeatedAdapter -> Q Exp
-repeatedSnocFnE adapter = repeatedSnoc adapter
+repeatedSnocFnE = repeatedSnoc
 
 
 {- | True iff this repeated field's element type is a packable
@@ -1634,7 +1636,7 @@ decodeLoopBody
 decodeLoopBody meta conName loopName pairs ufAccM = do
   fnVar <- newName "fn"
   wtVar <- newName "wt"
-  let declaredAssigns = map (\(pf, acc) -> (pfSelector pf, VarE acc)) pairs
+  let declaredAssigns = map (Data.Bifunctor.bimap pfSelector VarE) pairs
       ufAssigns = case (mmUnknownFieldsSel meta, ufAccM) of
         (Just sel, Just ufAcc) ->
           [(sel, AppE (VarE 'reverse) (VarE ufAcc))]

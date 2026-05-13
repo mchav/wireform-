@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-
 {- | Memory-mapped file loading for columnar formats.
 
 The Parquet and ORC readers consume a 'ByteString' for the

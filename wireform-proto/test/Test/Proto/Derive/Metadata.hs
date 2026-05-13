@@ -1,6 +1,4 @@
-{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 {- | Tests for the metadata satellite instances 'loadProto' now
 emits in addition to the wire codecs:
@@ -176,4 +174,4 @@ tests =
 
 
 hasKey :: T.Text -> AesonKM.KeyMap Aeson.Value -> Bool
-hasKey k km = AesonKM.member (AesonKey.fromText k) km
+hasKey k = AesonKM.member (AesonKey.fromText k)

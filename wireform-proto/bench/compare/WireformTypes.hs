@@ -5,7 +5,6 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StrictData #-}
-{-# LANGUAGE UnboxedSums #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 -- | wireform types matching bench.proto for benchmark comparison.
@@ -97,7 +96,7 @@ encodeMediumDirect m =
 
 
 instance MessageDecode HSmall where
-  messageDecoder = Decoder (\bs off -> loop 0 "" False bs off)
+  messageDecoder = Decoder (loop 0 "" False)
     where
       loop :: Int64 -> Text -> Bool -> ByteString -> Int# -> (# (# HSmall, Int# #) | DecodeError #)
       loop !i !n !a !bs !off =
@@ -163,7 +162,7 @@ instance MessageSize HMedium where
 
 
 instance MessageDecode HMedium where
-  messageDecoder = Decoder (\bs off -> loop "" 0 0 "" False 0 "" 0 bs off)
+  messageDecoder = Decoder (loop "" 0 0 "" False 0 "" 0)
     where
       loop :: Text -> Int32 -> Double -> ByteString -> Bool -> Int64 -> Text -> Float -> ByteString -> Int# -> (# (# HMedium, Int# #) | DecodeError #)
       loop !t !c !sc !p !e !ts !d !r !bs !off =
@@ -218,7 +217,7 @@ data HWithNested = HWithNested
 buildSizedNested :: HWithNested -> SB.SizedBuilder
 buildSizedNested m =
   (if hwnId m == 0 then mempty else sbArchVarint 0x08 (fromIntegral (hwnId m)))
-    <> maybe mempty (\inner -> sbArchSubmessage 0x12 (buildSizedSmall inner)) (hwnInner m)
+    <> maybe mempty (sbArchSubmessage 0x12 . buildSizedSmall) (hwnInner m)
     <> (if hwnLabel m == "" then mempty else sbArchString 0x1a (hwnLabel m))
 {-# INLINE buildSizedNested #-}
 
@@ -234,7 +233,7 @@ instance MessageSize HWithNested where
 
 
 instance MessageDecode HWithNested where
-  messageDecoder = Decoder (\bs off -> loop 0 Nothing "" bs off)
+  messageDecoder = Decoder (loop 0 Nothing "")
     where
       loop :: Int64 -> Maybe HSmall -> Text -> ByteString -> Int# -> (# (# HWithNested, Int# #) | DecodeError #)
       loop !i !inner !lbl !bs !off =
@@ -290,7 +289,7 @@ instance MessageSize HWithRepeated where
 
 
 instance MessageDecode HWithRepeated where
-  messageDecoder = Decoder (\bs off -> loop emptyGrowList emptyGrowList emptyGrowList bs off)
+  messageDecoder = Decoder (loop emptyGrowList emptyGrowList emptyGrowList)
     where
       loop :: GrowList Int32 -> GrowList Text -> GrowList HSmall -> ByteString -> Int# -> (# (# HWithRepeated, Int# #) | DecodeError #)
       loop !vals !tags !items !bs !off =
@@ -357,7 +356,7 @@ sizeMedium m =
 sizeNested :: HWithNested -> Int
 sizeNested m =
   (if hwnId m == 0 then 0 else archVarintSize (fromIntegral (hwnId m)))
-    + maybe 0 (\inner -> archSubmessageSize (sizeSmall inner)) (hwnInner m)
+    + maybe 0 (archSubmessageSize . sizeSmall) (hwnInner m)
     + (if hwnLabel m == "" then 0 else archStringSize (hwnLabel m))
 {-# INLINE sizeNested #-}
 

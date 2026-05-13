@@ -153,7 +153,7 @@ roundtripTests =
         [ testProperty "multi-field roundtrip" $ property $ do
             v1 <- forAll $ Gen.word64 (Range.linear 0 maxBound)
             v2 <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
-            v3 <- forAll $ Gen.bool
+            v3 <- forAll Gen.bool
             v4 <- forAll $ Gen.double (Range.linearFrac (-1e10) 1e10)
 
             let encoded =
@@ -225,7 +225,7 @@ roundtripTests =
         [ testProperty "TestMsg roundtrip" $ property $ do
             v <- forAll $ Gen.word64 (Range.linear 0 1000000)
             t <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
-            b <- forAll $ Gen.bool
+            b <- forAll Gen.bool
             let msg = TestMsg v t b
                 encoded = encodeMessage msg
             case decodeMessage encoded of
@@ -253,7 +253,7 @@ roundtripTests =
         , testProperty "TestMsg size always matches" $ property $ do
             v <- forAll $ Gen.word64 (Range.linear 0 maxBound)
             t <- forAll $ Gen.text (Range.linear 0 200) Gen.alphaNum
-            b <- forAll $ Gen.bool
+            b <- forAll Gen.bool
             let msg = TestMsg v t b
                 encoded = encodeMessage msg
             BS.length encoded === messageSize msg
@@ -345,7 +345,7 @@ roundtripTests =
             BS.length bs === SB.size outerSB
         , testProperty "sizedFieldBool size matches" $ property $ do
             fn <- forAll $ Gen.int (Range.linear 1 100)
-            b <- forAll $ Gen.bool
+            b <- forAll Gen.bool
             let sb = sizedFieldBool fn b
                 bs = SB.toByteString sb
             BS.length bs === SB.size sb
@@ -412,7 +412,7 @@ instance MessageEncode TestOuter where
 instance MessageSize TestOuter where
   messageSize msg =
     (if toValue msg /= 0 then fieldVarintSize 1 (toValue msg) else 0)
-      + maybe 0 (\inner -> fieldMessageSize 2 (messageSize inner)) (toInner msg)
+      + maybe 0 (fieldMessageSize 2 . messageSize) (toInner msg)
 
 
 instance MessageDecode TestOuter where

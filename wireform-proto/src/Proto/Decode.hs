@@ -1,5 +1,4 @@
 {-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedSums #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 {- | High-level decoding interface for protobuf messages.
@@ -126,6 +125,7 @@ module Proto.Decode (
 ) where
 
 import Control.DeepSeq (NFData (..))
+import Control.Monad qualified
 import Control.Monad.ST (runST)
 import Data.Bits (shiftL, (.&.), (.|.))
 import Data.ByteString (ByteString)
@@ -277,7 +277,7 @@ varint of @0xFF...FF7F@.
 -}
 decodeFieldEnum :: Enum a => Decoder a
 decodeFieldEnum =
-  (toEnum . fromIntegral . (fromIntegral :: Word64 -> Int32))
+  toEnum . fromIntegral . (fromIntegral :: Word64 -> Int32)
     <$> getVarint
 {-# INLINE decodeFieldEnum #-}
 
@@ -334,7 +334,7 @@ decodeAllVarints bs
           !n = countPackedVarints bs
       in if n == len
           -- Strategy 1: all single-byte
-          then Right $! VU.generate n (\i -> fromIntegral (BSU.unsafeIndex bs i))
+          then Right $! VU.generate n (fromIntegral . BSU.unsafeIndex bs)
           else Right $! runST $ do
             mv <- MVU.unsafeNew n
             if n >= len `quot` 2
@@ -349,19 +349,17 @@ decodeAllVarints bs
                                 MVU.unsafeWrite mv idx b0
                                 go (idx + 1) (off + 1)
                               else
-                                if off + 1 < len
-                                  then
-                                    let !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word64
-                                    in if b1 < 0x80
-                                        then do
-                                          MVU.unsafeWrite mv idx ((b0 .&. 0x7F) .|. (b1 `shiftL` 7))
-                                          go (idx + 1) (off + 2)
-                                        else case runDecoder' getVarint bs off of
-                                          DecodeOK v off' -> do
-                                            MVU.unsafeWrite mv idx v
-                                            go (idx + 1) off'
-                                          DecodeFail _ -> pure ()
-                                  else pure ()
+                                Control.Monad.when (off + 1 < len) $
+                                  let !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word64
+                                  in if b1 < 0x80
+                                      then do
+                                        MVU.unsafeWrite mv idx ((b0 .&. 0x7F) .|. (b1 `shiftL` 7))
+                                        go (idx + 1) (off + 2)
+                                      else case runDecoder' getVarint bs off of
+                                        DecodeOK v off' -> do
+                                          MVU.unsafeWrite mv idx v
+                                          go (idx + 1) off'
+                                        DecodeFail _ -> pure ()
                 go 0 0
               -- Strategy 3: many large varints, full decoder
               else do

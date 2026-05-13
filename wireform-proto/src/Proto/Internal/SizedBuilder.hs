@@ -87,7 +87,7 @@ is known. Pre-allocates a buffer of @sz@ bytes — no reallocation,
 no IORef.
 -}
 toByteStringFromBuilder :: Int -> B.Builder -> ByteString
-toByteStringFromBuilder sz bld = B.toStrictByteStringExact sz bld
+toByteStringFromBuilder = B.toStrictByteStringExact
 {-# INLINE toByteStringFromBuilder #-}
 
 

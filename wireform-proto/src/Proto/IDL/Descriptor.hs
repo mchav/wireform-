@@ -199,7 +199,7 @@ fileDescriptorToAST fdp =
   ProtoFile
     { protoSyntax = parseSyntax (fdpSyntax fdp) (fdpEdition fdp)
     , protoPackage = if T.null (fdpPackage fdp) then Nothing else Just (fdpPackage fdp)
-    , protoImports = fmap (\d -> ImportDef () Nothing d) (V.toList (fdpDependency fdp))
+    , protoImports = fmap (ImportDef () Nothing) (V.toList (fdpDependency fdp))
     , protoOptions = []
     , protoTopLevels =
         fmap (TLMessage . descriptorToMessage) (V.toList (fdpMessageType fdp))
@@ -247,7 +247,7 @@ partitionOneofFields oneofNames fields =
 
 
 buildOneofDefs :: [Text] -> [[FieldDescriptorProto]] -> [MessageElement]
-buildOneofDefs names groups = zipWith mkOneof names groups
+buildOneofDefs = zipWith mkOneof
   where
     mkOneof name flds =
       MEOneof

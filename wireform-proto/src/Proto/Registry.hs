@@ -204,9 +204,7 @@ lookupDecoder
   -> Maybe (ByteString -> Either DecodeError a)
 lookupDecoder name reg = do
   SomeDecoder (_ :: Proxy b) <- Map.lookup name (trDecoders reg)
-  case cast (decodeMessage :: ByteString -> Either DecodeError b) of
-    Just f -> Just f
-    Nothing -> Nothing
+  cast (decodeMessage :: ByteString -> Either DecodeError b)
 
 
 -- ---------------------------------------------------------------------------

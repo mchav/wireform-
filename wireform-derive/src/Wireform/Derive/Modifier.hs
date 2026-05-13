@@ -343,7 +343,7 @@ oneof = ModOneof
 @forBackend backendProto (rename "name")@
 -}
 forBackend :: Backend -> Modifier -> Modifier
-forBackend b m = ModBackendOnly [b] m
+forBackend b = ModBackendOnly [b]
 
 
 {- | Restrict a list of modifiers to a list of backends.

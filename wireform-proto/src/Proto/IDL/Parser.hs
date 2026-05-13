@@ -662,14 +662,14 @@ insertTopLevelComments src unclaimed tls =
       -- Trailing comments after the last definition
       let trailing = filter (\lc -> lcLine lc > afterLine) unclaimed
           groups = groupConsecutive trailing
-      in fmap (\g -> TLComment (fmap lcComment g)) groups
+      in fmap (TLComment . fmap lcComment) groups
     go afterLine (tl : rest) =
-      let startLine = maybe maxBound id (topLevelStartLine src tl)
-          endLine = maybe afterLine id (topLevelEndLine src tl)
+      let startLine = fromMaybe maxBound (topLevelStartLine src tl)
+          endLine = fromMaybe afterLine (topLevelEndLine src tl)
           -- Comments between afterLine and startLine that are unclaimed
           between = filter (\lc -> lcLine lc > afterLine && lcLine lc < startLine) unclaimed
           groups = groupConsecutive between
-          commentNodes = fmap (\g -> TLComment (fmap lcComment g)) groups
+          commentNodes = fmap (TLComment . fmap lcComment) groups
           -- Also insert comments inside messages
           tl' = insertCommentsInTopLevel src unclaimed tl
       in commentNodes ++ [tl'] ++ go endLine rest
@@ -732,13 +732,13 @@ insertMessageElementComments src unclaimed elems = go 0 elems
     go afterLine [] =
       let trailing = filter (\lc -> lcLine lc > afterLine) unclaimed
           groups = groupConsecutive trailing
-      in fmap (\g -> MEComment (fmap lcComment g)) groups
+      in fmap (MEComment . fmap lcComment) groups
     go afterLine (el : rest) =
-      let startLine = maybe maxBound id (msgElemStartLine src el)
-          endLine = maybe afterLine id (msgElemEndLine src el)
+      let startLine = fromMaybe maxBound (msgElemStartLine src el)
+          endLine = fromMaybe afterLine (msgElemEndLine src el)
           between = filter (\lc -> lcLine lc > afterLine && lcLine lc < startLine) unclaimed
           groups = groupConsecutive between
-          commentNodes = fmap (\g -> MEComment (fmap lcComment g)) groups
+          commentNodes = fmap (MEComment . fmap lcComment) groups
           -- Recurse into nested messages
           el' = case el of
             MEMessage inner -> MEMessage (insertCommentsInMessage src unclaimed inner)

@@ -278,9 +278,7 @@ serializeTAT2 fmt tm = case fmt of
 
 hasUnknownFields2 :: TestAllTypesProto2 -> Bool
 hasUnknownFields2 m =
-  any
-    (\uf -> not (knownExtension uf))
-    (testAllTypesProto2UnknownFields m)
+  not (all knownExtension (testAllTypesProto2UnknownFields m))
   where
     knownExtension uf =
       case PJExt.lookupExtensionByNumber

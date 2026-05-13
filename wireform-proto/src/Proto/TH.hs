@@ -117,6 +117,7 @@ import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
+import Data.Maybe qualified
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 import Data.Text (Text)
@@ -352,7 +353,7 @@ protoFileToDecls' naming cfg hooks pf = do
         ScopeCtx
           { scSyntax = protoSyntax pf
           , scTopLevels = protoTopLevels pf
-          , scPackage = maybe T.empty id (protoPackage pf)
+          , scPackage = Data.Maybe.fromMaybe T.empty (protoPackage pf)
           , scParents = []
           , scFieldNaming = naming
           }
@@ -428,9 +429,7 @@ findTypeScope scope t =
 
       -- First top-level that matches wins.
       foldTL acc tl = acc <|> tryTopLevel tl
-  in case foldl foldTL Nothing (scTopLevels scope) of
-      Just ps -> ps
-      Nothing -> []
+  in Data.Maybe.fromMaybe [] (foldl foldTL Nothing (scTopLevels scope))
   where
     leafOf x = case T.splitOn (T.pack ".") x of
       [] -> x
@@ -1045,15 +1044,15 @@ lookupWkt n = case T.unpack n of
 
 
 stringTypeQ :: StringAdapter -> Q Type
-stringTypeQ adapter = stringType adapter
+stringTypeQ = stringType
 
 
 bytesTypeQ :: BytesAdapter -> Q Type
-bytesTypeQ adapter = bytesType adapter
+bytesTypeQ = bytesType
 
 
 repeatedTypeQ :: RepeatedAdapter -> Q Type -> Q Type
-repeatedTypeQ adapter elemTy = repeatedType adapter elemTy
+repeatedTypeQ = repeatedType
 
 
 scalarToTH :: ScalarType -> Q Type
@@ -1167,15 +1166,15 @@ enumZeroDefaultE scope protoTy = case findEnum (scTopLevels scope) of
 
 
 emptyRepeatedQ :: RepeatedAdapter -> Q Exp
-emptyRepeatedQ adapter = repeatedEmpty adapter
+emptyRepeatedQ = repeatedEmpty
 
 
 emptyStringQ :: StringAdapter -> Q Exp
-emptyStringQ adapter = stringEmpty adapter
+emptyStringQ = stringEmpty
 
 
 emptyBytesQ :: BytesAdapter -> Q Exp
-emptyBytesQ adapter = bytesEmpty adapter
+emptyBytesQ = bytesEmpty
 
 
 -- ---------------------------------------------------------------------------
@@ -1193,7 +1192,7 @@ enumToDecls = enumToDecls' defaultTHHooks
 
 
 enumToDecls' :: THHooks -> EnumDef -> Q [Dec]
-enumToDecls' hooks ed = enumToDecls'' T.empty [] hooks ed
+enumToDecls' = enumToDecls'' T.empty []
 
 
 {- | Enum splice with the proto package + parent-message scope
@@ -1467,11 +1466,10 @@ extendToDecls pkg ownerProtoName fields =
   where
     ownerHsName = mkName (T.unpack (hsTypeName (lastProtoSegment ownerProtoName)))
     ownerPrefix = lowerFirst (hsTypeName (lastProtoSegment ownerProtoName))
-    parentFqn = case T.null pkg of
-      True -> ownerProtoName
-      False -> case T.isInfixOf (T.singleton '.') ownerProtoName of
-        True -> ownerProtoName
-        False -> pkg <> T.singleton '.' <> ownerProtoName
+    parentFqn
+      | T.null pkg = ownerProtoName
+      | T.isInfixOf (T.singleton '.') ownerProtoName = ownerProtoName
+      | otherwise = pkg <> T.singleton '.' <> ownerProtoName
 
 
 lastProtoSegment :: Text -> Text
@@ -1582,9 +1580,7 @@ extensionJsonRegistrationDecs
   -- ^ ExtensionType constructor name (e.g. "ExtInt32")
   -> Q [Dec]
 extensionJsonRegistrationDecs parentFqn pkg extLeaf num extConName = do
-  let extFqn = case T.null pkg of
-        True -> extLeaf
-        False -> pkg <> T.singleton '.' <> extLeaf
+  let extFqn = (if T.null pkg then extLeaf else pkg <> T.singleton '.' <> extLeaf)
       regName =
         mkName
           ( "registerExt_"
@@ -1760,9 +1756,7 @@ packedModeFor scope opts =
         Editions ed -> case featureRepeatedFieldEncoding (featuresForEdition ed) of
           PackedEncoding -> True
           ExpandedEncoding -> False
-      packed = case explicit of
-        Just b -> b
-        Nothing -> defaultPacked
+      packed = Data.Maybe.fromMaybe defaultPacked explicit
   in if packed then PDI.ModePacked else PDI.ModeUnpacked
 
 
@@ -2137,9 +2131,7 @@ camelCase form of the proto-side name; the @json_name@ option
 -}
 jsonNameFromOpts :: [OptionDef] -> Text -> Text
 jsonNameFromOpts opts dflt = case lookupSimpleOption (T.pack "json_name") opts of
-  Just c -> case optionAsString c of
-    Just s -> s
-    Nothing -> dflt
+  Just c -> Data.Maybe.fromMaybe dflt (optionAsString c)
   Nothing -> dflt
 
 

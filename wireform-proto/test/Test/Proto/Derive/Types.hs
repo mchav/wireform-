@@ -1,7 +1,5 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 {- | Annotated test fixtures for 'Proto.TH.Derive'.
 

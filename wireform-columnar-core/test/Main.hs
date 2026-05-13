@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | Property tests for 'Columnar.Stream' and
@@ -179,7 +178,7 @@ iterCombinatorProps =
   where
     sortedList =
       forAll
-        ( (\xs -> sortAsc xs)
+        ( sortAsc
             <$> Gen.list (Range.linear 0 20) (Gen.int (Range.linear 0 100))
         )
     sortAsc = foldr insertAsc []
@@ -200,7 +199,7 @@ iterCombinatorProps =
     init1 [_] = []
     init1 (x : xs) = x : init1 xs
 
-    scanl' f z = go z
+    scanl' f = go
       where
         go !acc [] = [acc]
         go !acc (x : xs) = acc : go (f acc x) xs
@@ -372,7 +371,7 @@ predicateProps =
                   op
               range64 = map fromIntegral [mn .. mx] :: [Int64]
               !satisfies = case op of
-                Pred.PEq (Pred.PVInt64 v) -> any (== v) range64
+                Pred.PEq (Pred.PVInt64 v) -> v `elem` range64
                 Pred.PNeq (Pred.PVInt64 v) -> any (/= v) range64
                 Pred.PLt (Pred.PVInt64 v) -> any (< v) range64
                 Pred.PLtEq (Pred.PVInt64 v) -> any (<= v) range64

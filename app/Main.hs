@@ -13,6 +13,7 @@ import Bond.Parser (parseBond)
 import CapnProto.CodeGen (generateCapnProtoTypes)
 import CapnProto.Parser (parseCapnProto)
 import Data.Map.Strict qualified as Map
+import Data.Maybe qualified
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Vector qualified as V
@@ -488,6 +489,6 @@ stripIncludeDirs :: [FilePath] -> FilePath -> FilePath
 stripIncludeDirs dirs fp =
   let t = T.pack fp
       attempts = fmap (\d -> T.stripPrefix (T.pack (d <> "/")) t) dirs
-  in case [rest | Just rest <- attempts] of
+  in case Data.Maybe.catMaybes attempts of
       (r : _) -> T.unpack r
       [] -> fp

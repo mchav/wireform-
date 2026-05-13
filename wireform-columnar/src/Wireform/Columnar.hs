@@ -203,8 +203,8 @@ defaultWriteOptions =
 caller-visible read-time knobs (footer decryption); Arrow and
 ORC readers self-configure from the file header.
 -}
-data ReadOptions = ReadOptions
-  { parquetRead :: !Parquet.ReadOptions
+newtype ReadOptions = ReadOptions
+  { parquetRead :: Parquet.ReadOptions
   }
 
 
@@ -300,7 +300,7 @@ decode fmt opts bs = case fmt of
     let !numStripes = V.length (orcStripes footer)
     batches <-
       mapM
-        (\i -> OArrow.orcStripeToArrow sch bs footer i)
+        (OArrow.orcStripeToArrow sch bs footer)
         [0 .. numStripes - 1]
     Right (sch, batches)
 
@@ -766,7 +766,7 @@ decodeDatasetRowSlicedIter fmt opts skip keep files = do
     batchRowCount cols
       | V.null cols = 0
       | otherwise = AC.columnLength (V.head cols)
-    sliceBatch s l cols = V.map (AC.sliceColumnArray s l) cols
+    sliceBatch s l = V.map (AC.sliceColumnArray s l)
 
 
 -- ============================================================

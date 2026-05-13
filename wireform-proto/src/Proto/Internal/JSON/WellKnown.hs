@@ -71,7 +71,7 @@ import Data.Bifunctor (bimap)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base64 qualified as Base64
-import Data.Char (isDigit)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import Data.Int (Int32, Int64)
 import Data.Map.Strict qualified as Map
 import Data.Scientific (fromFloatDigits, toRealFloat)
@@ -312,8 +312,8 @@ parseOffsetSuffix t
         , isDigit m2 ->
             Just
               ( if c1 == '+' then 1 else -1
-              , fromIntegral ((d h1) * 10 + d h2)
-              , fromIntegral ((d m1) * 10 + d m2)
+              , fromIntegral (d h1 * 10 + d h2)
+              , fromIntegral (d m1 * 10 + d m2)
               )
       _ -> Nothing
 
@@ -498,7 +498,7 @@ snakeToFieldMaskCamel t = T.pack <$> go False (T.unpack t)
             else (c :) <$> go False cs
       | isUpperAscii c =
           Left ("uppercase character not allowed in source path: " <> show t)
-      | cap = ((upperOf c) :) <$> go False cs
+      | cap = (upperOf c :) <$> go False cs
       | otherwise = (c :) <$> go False cs
 
 
@@ -523,8 +523,8 @@ camelToFieldMaskSnake t = T.pack <$> go (T.unpack t)
 
 
 isLowerAscii, isUpperAscii :: Char -> Bool
-isLowerAscii c = c >= 'a' && c <= 'z'
-isUpperAscii c = c >= 'A' && c <= 'Z'
+isLowerAscii = isAsciiLower
+isUpperAscii = isAsciiUpper
 
 
 upperOf, lowerOf :: Char -> Char
@@ -862,7 +862,7 @@ Use this as the base registry and extend it with
 standardWktRegistry :: TypeRegistry
 standardWktRegistry =
   foldr
-    (\(n, c) -> registerCodec n c)
+    (uncurry registerCodec)
     emptyRegistry
     [
       ( "google.protobuf.Timestamp"
@@ -909,8 +909,8 @@ standardWktRegistry =
       , wktCodecVia
           PD.decodeMessage
           PE.encodeMessage
-          (\lv -> Aeson.Array (V.map valueToJSON (listValueValues lv)))
-          ( \v -> case v of
+          (Aeson.Array . V.map valueToJSON . listValueValues)
+          ( \case
               Aeson.Array vs ->
                 Right (defaultListValue {listValueValues = V.map jsonToValue vs})
               _ -> Left "Expected JSON array for ListValue"
@@ -938,7 +938,7 @@ standardWktRegistry =
           { acToJSON = \bs -> case PD.decodeMessage bs of
               Left _ -> Left "Any: nested Any decode failed"
               Right (a :: Any.Any) -> Right (anyToJSON standardWktRegistry a)
-          , acFromJSON = \v -> PE.encodeMessage <$> anyFromJSON standardWktRegistry v
+          , acFromJSON = fmap PE.encodeMessage . anyFromJSON standardWktRegistry
           , acIsWkt = True
           }
       )
@@ -1001,6 +1001,6 @@ wktCodecVia decBytes encBytes encJson decJson =
     { acToJSON = \bs -> case decBytes bs of
         Left _ -> Left "Any: failed to decode embedded value"
         Right a -> Right (encJson a)
-    , acFromJSON = \v -> encBytes <$> decJson v
+    , acFromJSON = fmap encBytes . decJson
     , acIsWkt = True
     }

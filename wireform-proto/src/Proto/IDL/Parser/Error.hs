@@ -18,7 +18,8 @@ module Proto.IDL.Parser.Error (
 
 import Data.List (intercalate)
 import Data.List.NonEmpty qualified as NE
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isNothing)
+import Data.Maybe qualified
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -57,14 +58,14 @@ renderOneError sourceLines bundle err =
       mainLine = showSourceLine sourceLines line lineNumWidth
       -- When error is past EOF (line doesn't exist), show the last available line
       -- and point to the end of it
-      useFallback = mainLine == Nothing && line >= 2
+      useFallback = isNothing mainLine && line >= 2
       fallbackLine =
         if useFallback
           then showSourceLine sourceLines (line - 1) lineNumWidth
           else Nothing
-      effectiveLine = if mainLine /= Nothing then mainLine else fallbackLine
+      effectiveLine = if Data.Maybe.isJust mainLine then mainLine else fallbackLine
       effectiveCol =
-        if mainLine /= Nothing
+        if Data.Maybe.isJust mainLine
           then col
           else maybe col (\l -> T.length l + 1) (getSourceLine sourceLines (line - 1))
       -- Show context line before the effective error line, avoiding duplicates

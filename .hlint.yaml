@@ -47,5 +47,9 @@
 # temporal-test: generated from Temporal API protos
 - ignore: {within: [Proto.Temporalio]}
 
+# wireform-lance Pb modules: emitted by `cabal run wireform-lance:gen-lance-pb`
+# from proto/lance/{file,file2,table}.proto. Fix in the codegen if needed.
+- ignore: {within: [Lance.Pb]}
+
 # compare-bench/gen: generated proto-lens comparison types
 - ignore: {within: [Proto.Bench, Proto.Bench_Fields]}

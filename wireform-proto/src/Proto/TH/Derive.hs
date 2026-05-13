@@ -2,6 +2,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
+-- TH name-quotes ('' / ''' / ' / 'foo) need TemplateHaskell, but hlint
+-- can't see the syntax and reports the pragma as unused.
+{-# HLINT ignore "Unused LANGUAGE pragma" #-}
+
 {- | Annotation-driven Template Haskell deriver for protobuf wire
 instances on hand-written Haskell records.
 
@@ -105,6 +109,7 @@ module Proto.TH.Derive (
   BytesRep (..),
 ) where
 
+import Data.Functor qualified
 import Data.Text (Text)
 import Data.Text qualified as T
 import Language.Haskell.TH
@@ -501,23 +506,22 @@ b)@ has both a 'Maybe' wrapper and an inner 'Map', and only the
 inner shape should drive the proto kind.
 -}
 detectShape :: Name -> Type -> Maybe MapKeyScalar -> Q DetectedShape
-detectShape selName fieldTy mMapKey = case stripMaybe fieldTy of
-  -- Repeated containers take precedence over the Maybe stripping
-  -- because @Maybe (Vector a)@ is essentially never what users
-  -- want — proto3 doesn't have nullable repeated fields. We
-  -- inspect the original (un-stripped) type for repeated detection
-  -- so @Vector (Maybe a)@ is recognised as repeated-with-Maybe-
-  -- elements (which the deriver currently doesn't support but
-  -- can warn about cleanly).
-  _ -> case detectRepeated fieldTy of
-    Just (rep, elemTy) -> pure (ShapeRepeated rep elemTy)
-    Nothing -> case detectMap fieldTy mMapKey of
-      Just (mks, valTy) -> pure (ShapeMap mks valTy)
-      Nothing ->
-        let (kind, innerTy) = unwrapMaybe fieldTy
-        in detectOneof selName innerTy >>= \case
-            Just variants -> pure (ShapeOneof fieldTy variants)
-            Nothing -> pure (ShapeSingular kind innerTy)
+-- Repeated containers take precedence over the Maybe stripping
+-- because @Maybe (Vector a)@ is essentially never what users
+-- want — proto3 doesn't have nullable repeated fields. We
+-- inspect the original (un-stripped) type for repeated detection
+-- so @Vector (Maybe a)@ is recognised as repeated-with-Maybe-
+-- elements (which the deriver currently doesn't support but
+-- can warn about cleanly).
+detectShape selName fieldTy mMapKey = case detectRepeated fieldTy of
+  Just (rep, elemTy) -> pure (ShapeRepeated rep elemTy)
+  Nothing -> case detectMap fieldTy mMapKey of
+    Just (mks, valTy) -> pure (ShapeMap mks valTy)
+    Nothing ->
+      let (kind, innerTy) = unwrapMaybe fieldTy
+      in detectOneof selName innerTy >>= \case
+          Just variants -> pure (ShapeOneof fieldTy variants)
+          Nothing -> pure (ShapeSingular kind innerTy)
 
 
 -- | Strip a single outer 'Maybe' constructor.
@@ -584,7 +588,7 @@ detectOneof selName ty = case ty of
   ConT tyN -> do
     ti <- reifyTypeInfo tyN
     case typeInfoShape ti of
-      TypeShapeSum cs -> traverse (variantOf selName) cs >>= pure . sequence
+      TypeShapeSum cs -> traverse (variantOf selName) cs Data.Functor.<&> sequence
       _ -> pure Nothing
   _ -> pure Nothing
 

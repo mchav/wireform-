@@ -1,9 +1,12 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
+
+-- The QuasiQuotes / TemplateHaskell pragmas drive the @[proto|…|]@ block
+-- below; hlint can't see through the QQ and reports them as unused.
+{-# HLINT ignore "Unused LANGUAGE pragma" #-}
 
 {- | Example: QuasiQuoter for inline proto definitions.
 

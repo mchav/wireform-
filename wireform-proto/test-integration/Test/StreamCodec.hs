@@ -284,7 +284,7 @@ genSMsg :: PropertyT IO SMsg
 genSMsg = do
   v <- forAll $ Gen.word64 (Range.linear 0 1000000)
   t <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
-  b <- forAll $ Gen.bool
+  b <- forAll Gen.bool
   pure (SMsg v t b)
 
 

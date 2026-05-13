@@ -30,12 +30,16 @@ module TOML.Decode (
   decodeBS,
 ) where
 
+import Control.Monad qualified
 import Data.ByteString (ByteString)
 import Data.Char (
   chr,
   digitToInt,
+  isAsciiLower,
+  isAsciiUpper,
   isDigit,
   isHexDigit,
+  isOctDigit,
   ord,
  )
 import Data.Set (Set)
@@ -172,7 +176,7 @@ expect :: Char -> P ()
 expect c = do
   mc <- peek
   case mc of
-    Just x | x == c -> advance >> pure ()
+    Just x | x == c -> Control.Monad.void advance
     Just x -> failP $ "expected " ++ show c ++ " but got " ++ show x
     Nothing -> failP $ "expected " ++ show c ++ " but got EOF"
 
@@ -303,12 +307,12 @@ skipLineEnd = do
   case mc of
     Nothing -> pure ()
     Just '#' -> skipComment >> skipLineEnd
-    Just '\n' -> advance >> pure ()
+    Just '\n' -> Control.Monad.void advance
     Just '\r' -> do
       _ <- advance
       mc2 <- peek
       case mc2 of
-        Just '\n' -> advance >> pure ()
+        Just '\n' -> Control.Monad.void advance
         _ -> pure ()
     Just c -> failP $ "unexpected " ++ show c ++ " at end of line"
 
@@ -441,9 +445,9 @@ parseKeyOne = do
 
 isBareKeyChar :: Char -> Bool
 isBareKeyChar c =
-  (c >= 'A' && c <= 'Z')
-    || (c >= 'a' && c <= 'z')
-    || (c >= '0' && c <= '9')
+  isAsciiUpper c
+    || isAsciiLower c
+    || isDigit c
     || c == '_'
     || c == '-'
 
@@ -604,12 +608,12 @@ parseMultilineBasicStringInner = do
   -- discarded.
   mc <- peek
   _ <- case mc of
-    Just '\n' -> advance >> pure ()
+    Just '\n' -> Control.Monad.void advance
     Just '\r' -> do
       _ <- advance
       mc2 <- peek
       case mc2 of
-        Just '\n' -> advance >> pure ()
+        Just '\n' -> Control.Monad.void advance
         _ -> pure ()
     _ -> pure ()
   T.pack . reverse <$> loop []
@@ -679,12 +683,12 @@ parseMultilineBasicStringInner = do
       case mc of
         Just ' ' -> advance >> skipTrailingWsThenNewline
         Just '\t' -> advance >> skipTrailingWsThenNewline
-        Just '\n' -> advance >> pure ()
+        Just '\n' -> Control.Monad.void advance
         Just '\r' -> do
           _ <- advance
           mc2 <- peek
           case mc2 of
-            Just '\n' -> advance >> pure ()
+            Just '\n' -> Control.Monad.void advance
             _ -> pure ()
         _ -> pure ()
 
@@ -694,12 +698,12 @@ parseMultilineLiteralStringInner :: P Text
 parseMultilineLiteralStringInner = do
   mc <- peek
   _ <- case mc of
-    Just '\n' -> advance >> pure ()
+    Just '\n' -> Control.Monad.void advance
     Just '\r' -> do
       _ <- advance
       mc2 <- peek
       case mc2 of
-        Just '\n' -> advance >> pure ()
+        Just '\n' -> Control.Monad.void advance
         _ -> pure ()
     _ -> pure ()
   T.pack . reverse <$> loop []
@@ -1050,13 +1054,13 @@ looksLikeJustDate t =
   T.length t == 10
     && T.index t 4 == '-'
     && T.index t 7 == '-'
-    && and (map (\i -> isDigit (T.index t i)) [0, 1, 2, 3, 5, 6, 8, 9])
+    && all (isDigit . T.index t) [0, 1, 2, 3, 5, 6, 8, 9]
 
 
 resolveScalar :: Text -> P TV.Value
 resolveScalar raw
   | raw == "inf" || raw == "+inf" = pure (TV.TFloat (1 / 0))
-  | raw == "-inf" = pure (TV.TFloat (-1 / 0))
+  | raw == "-inf" = pure (TV.TFloat (-(1 / 0)))
   | raw == "nan" || raw == "+nan" = pure (TV.TFloat (0 / 0))
   | raw == "-nan" = pure (TV.TFloat (negate (0 / 0)))
   | T.isPrefixOf "0x" raw = parseHexInt raw
@@ -1089,8 +1093,7 @@ parseOctInt :: Text -> P TV.Value
 parseOctInt raw =
   case stripPrefixGen "0o" raw of
     Just body -> do
-      let isOct c = c >= '0' && c <= '7'
-          (clean, ok) = cleanUnderscores body isOct
+      let (clean, ok) = cleanUnderscores body isOctDigit
       if ok && not (T.null clean)
         then pure (TV.TInteger (T.foldl' (\a c -> a * 8 + fromIntegral (digitToInt c)) 0 clean))
         else failP $ "invalid octal integer: " ++ T.unpack raw
@@ -1426,7 +1429,7 @@ parseDigits !off !n t =
 
 digitsAt :: Int -> Int -> Text -> Bool
 digitsAt a b t =
-  and (map (\i -> i < T.length t && isDigit (T.index t i)) [a .. b - 1])
+  all (\i -> i < T.length t && isDigit (T.index t i)) [a .. b - 1]
 
 
 -- ---------------------------------------------------------------------------
@@ -1559,7 +1562,7 @@ applyAction bs = \case
         -- dotted key implicitly creates as a table.
         prefixesBelow =
           let segs = map (: []) kp
-              builds = scanl1 (\a b -> a ++ b) segs
+              builds = scanl1 (++) segs
               lastIdx = length builds - 1
           in take lastIdx (map (owner ++) builds)
     when (Set.member fullPath (bsTables bs)) $
@@ -1679,7 +1682,7 @@ anyAncestorInline kp inl = any (`Set.member` inl) (properPrefixes kp)
     properPrefixes [_] = []
     properPrefixes xs =
       scanl1
-        (\a b -> a ++ b)
+        (++)
         (map (: []) (init xs))
 
 
@@ -1701,7 +1704,7 @@ anyAncestorStatic kp ss = any (`Set.member` ss) (properPrefixes kp)
     properPrefixes [_] = []
     properPrefixes xs =
       scanl1
-        (\a b -> a ++ b)
+        (++)
         (map (: []) (init xs))
 
 

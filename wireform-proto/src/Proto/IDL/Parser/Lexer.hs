@@ -36,6 +36,7 @@ module Proto.IDL.Parser.Lexer (
 
 import Control.Monad (void)
 import Data.Char (chr, digitToInt, isAlphaNum, isDigit, isLetter, isOctDigit)
+import Data.Functor qualified
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Maybe (catMaybes)
@@ -135,12 +136,13 @@ Also handles leading dot for fully qualified names.
 -}
 fullIdent :: Parser Text
 fullIdent =
-  ( lexeme $ do
-      leading <- option "" (T.singleton <$> char '.')
-      first <- identRaw
-      rest <- many (T.cons <$> char '.' <*> identRaw)
-      pure (T.concat (leading : first : rest))
-  )
+  lexeme
+    ( do
+        leading <- option "" (T.singleton <$> char '.')
+        first <- identRaw
+        rest <- many (T.cons <$> char '.' <*> identRaw)
+        pure (T.concat (leading : first : rest))
+    )
     <?> "type name"
   where
     identRaw :: Parser Text
@@ -152,16 +154,17 @@ fullIdent =
 
 intLiteral :: Parser Integer
 intLiteral =
-  ( lexeme $ do
-      sign <- option id (negate <$ char '-')
-      n <-
-        choice
-          [ try (char '0' *> char' 'x') *> L.hexadecimal
-          , try (char '0' *> octalNum)
-          , L.decimal
-          ]
-      pure (sign n)
-  )
+  lexeme
+    ( do
+        sign <- option id (negate <$ char '-')
+        n <-
+          choice
+            [ try (char '0' *> char' 'x') *> L.hexadecimal
+            , try (char '0' *> octalNum)
+            , L.decimal
+            ]
+        pure (sign n)
+    )
     <?> "integer literal"
   where
     octalNum = do
@@ -171,25 +174,26 @@ intLiteral =
 
 floatLiteral :: Parser Double
 floatLiteral =
-  ( lexeme $ do
-      sign <- option id (negate <$ char '-')
-      n <-
-        choice
-          [ try $ do
-              whole <- takeWhile1P Nothing isDigit
-              void (char '.')
-              frac <- takeWhileP Nothing isDigit
-              ex <- option "" exponentPart
-              pure (read (T.unpack whole <> "." <> T.unpack frac <> T.unpack ex))
-          , try $ do
-              whole <- takeWhile1P Nothing isDigit
-              ex <- exponentPart
-              pure (read (T.unpack whole <> T.unpack ex))
-          , 1 / 0 <$ (string "inf" <|> string "infinity")
-          , (0 / 0) <$ string "nan"
-          ]
-      pure (sign n)
-  )
+  lexeme
+    ( do
+        sign <- option id (negate <$ char '-')
+        n <-
+          choice
+            [ try $ do
+                whole <- takeWhile1P Nothing isDigit
+                void (char '.')
+                frac <- takeWhileP Nothing isDigit
+                ex <- option "" exponentPart
+                pure (read (T.unpack whole <> "." <> T.unpack frac <> T.unpack ex))
+            , try $ do
+                whole <- takeWhile1P Nothing isDigit
+                ex <- exponentPart
+                pure (read (T.unpack whole <> T.unpack ex))
+            , 1 / 0 <$ (string "inf" <|> string "infinity")
+            , (0 / 0) <$ string "nan"
+            ]
+        pure (sign n)
+    )
     <?> "float literal"
   where
     exponentPart = do
@@ -204,10 +208,11 @@ Adjacent string literals are concatenated per the proto spec.
 -}
 stringLiteral :: Parser Text
 stringLiteral =
-  ( lexeme $ do
-      parts <- some singleString
-      pure (T.concat parts)
-  )
+  lexeme
+    ( do
+        parts <- some singleString
+        pure (T.concat parts)
+    )
     <?> "string literal"
   where
     singleString = do
@@ -253,12 +258,12 @@ stringLiteral =
 
 boolLiteral :: Parser Bool
 boolLiteral =
-  ( lexeme $
-      choice
+  lexeme
+    ( choice
         [ True <$ string "true"
         , False <$ string "false"
         ]
-  )
+    )
     <?> "boolean (true or false)"
 
 
@@ -404,7 +409,7 @@ definition boundaries to capture standalone comments.
 -}
 collectComments :: Parser [Comment]
 collectComments = do
-  cs <- many (try lineCommentP <|> try blockCommentP <|> (space1 *> pure Nothing))
+  cs <- many (try lineCommentP <|> try blockCommentP <|> (space1 Data.Functor.$> Nothing))
   pure (catMaybes cs)
   where
     lineCommentP :: Parser (Maybe Comment)

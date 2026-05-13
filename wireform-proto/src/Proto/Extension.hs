@@ -424,7 +424,7 @@ packedPayload ty values =
 
 
 varintList :: ByteString -> [Word64]
-varintList bs0 = go bs0
+varintList = go
   where
     go bs
       | BS.null bs = []
@@ -434,7 +434,7 @@ varintList bs0 = go bs0
 
 
 readVarint :: ByteString -> Maybe (Word64, ByteString)
-readVarint bs0 = step 0 0 bs0
+readVarint = step 0 0
   where
     step !acc !shift bs
       | BS.null bs = Nothing
@@ -508,7 +508,7 @@ readU64 bs =
 
 
 chunked :: Int -> (ByteString -> a) -> ByteString -> [a]
-chunked n decode bs0 = go bs0
+chunked n decode = go
   where
     go bs
       | BS.length bs < n = []
@@ -532,9 +532,9 @@ zigzagEncode64 n =
 zigzagDecode32 :: Word64 -> Int32
 zigzagDecode32 v =
   let !w = fromIntegral v :: Word32
-  in fromIntegral ((w `shiftR` 1) `xor` (0 - (w .&. 1)))
+  in fromIntegral ((w `shiftR` 1) `xor` negate (w .&. 1))
 
 
 zigzagDecode64 :: Word64 -> Int64
 zigzagDecode64 v =
-  fromIntegral ((v `shiftR` 1) `xor` (0 - (v .&. 1)))
+  fromIntegral ((v `shiftR` 1) `xor` negate (v .&. 1))

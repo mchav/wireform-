@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE LambdaCase #-}
 
 {- | Pull-based streaming primitives shared by every columnar
 format ("Arrow.Stream", "Parquet.HighLevel", "ORC").
@@ -468,7 +467,7 @@ showing the accumulator /after/ that element was folded in.
 Useful for prefix sums / running aggregates.
 -}
 iterScan :: (b -> a -> b) -> b -> Iter a -> Iter b
-iterScan f seed = go seed
+iterScan f = go
   where
     go !acc it =
       Iter $
