@@ -65,10 +65,14 @@ jobs:
           KAFKA_IMAGE_TAG: ${{ matrix.kafka }}
         run: |
           docker compose -f wireform-kafka/test-integration/docker-compose.yml up -d
-          # Wait for the broker to become ready.
+          # Wait for the broker to become ready. The apache/kafka
+          # image ships the admin tools under /opt/kafka/bin as
+          # *.sh scripts (kafka-topics.sh, kafka-console-producer.sh,
+          # …) and does not put them on $PATH, so we invoke them
+          # by absolute path.
           for i in $(seq 1 30); do
             if docker compose -f wireform-kafka/test-integration/docker-compose.yml \
-                 exec -T kafka kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
+                 exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
               echo "Kafka is ready"
               break
             fi
@@ -78,11 +82,11 @@ jobs:
       - name: Pre-create topics for transactional spec
         run: |
           docker compose -f wireform-kafka/test-integration/docker-compose.yml \
-            exec -T kafka kafka-topics --bootstrap-server localhost:9092 \
+            exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
               --create --if-not-exists --topic wireform-kafka-txn-source \
               --partitions 1 --replication-factor 1
           docker compose -f wireform-kafka/test-integration/docker-compose.yml \
-            exec -T kafka kafka-topics --bootstrap-server localhost:9092 \
+            exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
               --create --if-not-exists --topic wireform-kafka-txn-sink \
               --partitions 1 --replication-factor 1
 

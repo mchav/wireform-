@@ -334,6 +334,7 @@ benchmark html-bench
   main-is: HTMLBench.hs
   build-depends:
       base >= 4.16 && < 5
+    , wireform-core
     , wireform-html
     , bytestring
     , primitive

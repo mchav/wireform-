@@ -40,9 +40,11 @@ services:
       KAFKA_NUM_PARTITIONS: "3"
       CLUSTER_ID: "wireform-kafka-test-cluster-id-xx"
     healthcheck:
+      # apache/kafka ships tools at /opt/kafka/bin/*.sh; they are not
+      # on the container's $PATH so call by absolute path.
       test:
         - "CMD-SHELL"
-        - "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"
+        - "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"
       interval: 5s
       timeout: 5s
       retries: 30

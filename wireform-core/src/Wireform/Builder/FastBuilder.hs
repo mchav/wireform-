@@ -69,6 +69,7 @@ import Control.Concurrent (forkIOWithUnmask, myThreadId)
 import Control.Concurrent.MVar
 import Control.Exception qualified as E
 import Control.Monad
+import Data.Foldable (fold)
 import Data.ByteString qualified as S
 import Data.ByteString.Builder.Extra qualified as X
 import Data.ByteString.Builder.Prim qualified as P
@@ -141,7 +142,7 @@ instance Monoid Builder where
   {-# INLINE mempty #-}
   mappend = (<>)
   {-# INLINE mappend #-}
-  mconcat = foldr mappend mempty
+  mconcat = fold
   {-# INLINE mconcat #-}
 
 
@@ -315,7 +316,7 @@ from the consumer thread to the builder thread, requesting the builder
 thread to temporarily pause execution. Later, the consumer thread may
 request resumption by filling the 'MVar'.
 -}
-data SuspendBuilderException = SuspendBuilderException !(MVar ())
+newtype SuspendBuilderException = SuspendBuilderException (MVar ())
 
 
 instance Show SuspendBuilderException where
@@ -349,7 +350,7 @@ instance Monad BuildM where
 
 -- | Create a builder from a BuildM.
 mkBuilder :: BuildM () -> Builder
-mkBuilder (BuildM bb) = bb $ \_ -> mempty
+mkBuilder (BuildM bb) = bb $ const mempty
 {-# INLINE mkBuilder #-}
 
 
@@ -408,6 +409,11 @@ is sufficient for each 'Write'.
 data Write = Write !Int (BuilderState -> BuilderState)
 
 
+-- 'BuilderState' is an unlifted tuple, so the @(\\s -> w1 (w0 s))@ /
+-- @(\\s -> s)@ continuations here can't go through @(.)@ or 'id' —
+-- those have lifted-kind type parameters and don't apply.
+{-# HLINT ignore "Avoid lambda" #-}
+{-# HLINT ignore "Use id" #-}
 instance Sem.Semigroup Write where
   Write s0 w0 <> Write s1 w1 = Write (s0 + s1) (\s -> w1 (w0 s))
 
@@ -664,7 +670,7 @@ hPutBuilder !h builder = void $ hPutBuilderLen h builder
 
 -- | Output a 'Builder' to a 'IO.Handle'. Returns the number of bytes written.
 hPutBuilderLen :: IO.Handle -> Builder -> IO Int
-hPutBuilderLen !h builder = hPutBuilderWith h 100 4096 builder
+hPutBuilderLen !h = hPutBuilderWith h 100 4096
 
 
 {- | Like 'hPutBuffer', but allows the user to specify the initial
@@ -1038,7 +1044,7 @@ getBytes_ n = mkBuilder $ do
                 , sqCap = I# n
                 }
           setCur newBase
-          setEnd (newBase `plusPtr` (I# n))
+          setEnd (newBase `plusPtr` I# n)
 {-# NOINLINE getBytes_ #-}
 
 

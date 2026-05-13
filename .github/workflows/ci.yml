@@ -140,7 +140,7 @@ jobs:
           cabal build exe:wireform-bench
           cabal build exe:avro-thrift-bench
           cabal build exe:all-formats-bench
-          cabal build exe:profile
+          cabal build exe:profile-rewriter
           cabal build exe:bench-grow
 
   codegen-roundtrip:
@@ -182,14 +182,17 @@ jobs:
           mkdir -p /tmp/gen-test
           # wireform-gen's CLI now dispatches on the format via
           # a subcommand: `wireform-gen proto -I ... -i ... -o ... -m ...`.
-          for f in proto/google/protobuf/timestamp.proto \
-                   proto/google/protobuf/duration.proto \
-                   proto/google/protobuf/empty.proto \
-                   proto/google/protobuf/field_mask.proto \
-                   proto/google/protobuf/source_context.proto \
-                   proto/google/protobuf/wrappers.proto \
-                   proto/google/protobuf/struct.proto; do
-            cabal exec wireform-gen -- proto -I proto -o /tmp/gen-test -m Proto -i "$f"
+          # The .proto WKT sources moved under wireform-proto/data/proto/
+          # when the per-format repo layout landed.
+          PROTO_DIR=wireform-proto/data/proto
+          for f in "$PROTO_DIR/google/protobuf/timestamp.proto" \
+                   "$PROTO_DIR/google/protobuf/duration.proto" \
+                   "$PROTO_DIR/google/protobuf/empty.proto" \
+                   "$PROTO_DIR/google/protobuf/field_mask.proto" \
+                   "$PROTO_DIR/google/protobuf/source_context.proto" \
+                   "$PROTO_DIR/google/protobuf/wrappers.proto" \
+                   "$PROTO_DIR/google/protobuf/struct.proto"; do
+            cabal exec wireform-gen -- proto -I "$PROTO_DIR" -o /tmp/gen-test -m Proto -i "$f"
           done
           echo "Generated files:"
           find /tmp/gen-test -name "*.hs" -exec echo "  {}" \;
