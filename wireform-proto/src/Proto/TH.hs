@@ -108,6 +108,7 @@ import Language.Haskell.TH.Syntax (addDependentFile, addModFinalizer)
 import Proto.AST
 import Proto.Annotations (lookupSimpleOption, optionAsBool, optionAsString)
 import Proto.CodeGen (
+  FieldNaming (..),
   escapeReserved,
   hsTypeName,
   lowerFirst,
@@ -186,10 +187,12 @@ unknownConNameFor parents enumNm =
     )
 
 
-scopedHsFieldName :: Text -> Text -> Text
-scopedHsFieldName parentMsg fldName =
+scopedHsFieldName :: FieldNaming -> Text -> Text -> Text
+scopedHsFieldName PrefixedFields parentMsg fldName =
   let prefix = lowerFirst (hsTypeName parentMsg)
   in escapeReserved (prefix <> upperFirstT (snakeToCamel fldName))
+scopedHsFieldName UnprefixedFields _parentMsg fldName =
+  escapeReserved (snakeToCamel fldName)
 
 
 upperFirstT :: Text -> Text
@@ -225,6 +228,7 @@ based on proto attributes:
 -}
 data LoadOpts = LoadOpts
   { loIncludeDirs :: [FilePath]
+  , loFieldNaming :: FieldNaming
   , loRepConfig :: RepConfig
   , loTHHooks :: THHooks
   }
@@ -234,6 +238,7 @@ defaultLoadOpts :: LoadOpts
 defaultLoadOpts =
   LoadOpts
     { loIncludeDirs = ["proto/", "."]
+    , loFieldNaming = PrefixedFields
     , loRepConfig = defaultRepConfig
     , loTHHooks = defaultTHHooks
     }
@@ -257,23 +262,24 @@ loadProtoWith opts path = do
               , fhcModuleName = T.pack path
               , fhcFileOptions = protoOptions pf
               }
-      decls <- protoFileToDecls' (loRepConfig opts) hooks pf
+      decls <- protoFileToDecls' (loFieldNaming opts) (loRepConfig opts) hooks pf
       hookDecls <- thOnFile hooks fileCtx
       pure (decls <> hookDecls)
 
 
 protoFileToDecls :: ProtoFile -> Q [Dec]
-protoFileToDecls = protoFileToDecls' defaultRepConfig defaultTHHooks
+protoFileToDecls = protoFileToDecls' PrefixedFields defaultRepConfig defaultTHHooks
 
 
-protoFileToDecls' :: RepConfig -> THHooks -> ProtoFile -> Q [Dec]
-protoFileToDecls' cfg hooks pf = do
+protoFileToDecls' :: FieldNaming -> RepConfig -> THHooks -> ProtoFile -> Q [Dec]
+protoFileToDecls' naming cfg hooks pf = do
   let scope =
         ScopeCtx
           { scSyntax = protoSyntax pf
           , scTopLevels = protoTopLevels pf
           , scPackage = maybe T.empty id (protoPackage pf)
           , scParents = []
+          , scFieldNaming = naming
           }
   concat <$> mapM (topLevelToDecls scope cfg hooks) (protoTopLevels pf)
 
@@ -300,6 +306,9 @@ data ScopeCtx = ScopeCtx
   -- different .proto files (or different parents within the
   -- same file) can declare an inner @NestedMessage@ without
   -- colliding at the Haskell level.
+  , scFieldNaming :: !FieldNaming
+  -- ^ How to name record fields (prefixed with message name
+  -- or bare).
   }
 
 
@@ -416,6 +425,7 @@ messageToDecls' cfg hooks msg =
           , scTopLevels = [TLMessage msg]
           , scPackage = T.empty
           , scParents = []
+          , scFieldNaming = PrefixedFields
           }
   in messageToDecls'' scope cfg hooks msg
 
@@ -712,17 +722,17 @@ mkDataDec scope tyName fields = do
     parentName = T.pack (nameBase tyName)
     mkField :: FieldSpec -> Q [VarBangType]
     mkField (FSField name _ lbl ft rep _) = do
-      let fname = mkName (T.unpack (scopedHsFieldName parentName name))
+      let fname = mkName (T.unpack (scopedHsFieldName (scFieldNaming scope) parentName name))
       ty <- fieldTypeToTH scope lbl ft rep
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
     mkField (FSMap name _ kt vt rep) = do
-      let fname = mkName (T.unpack (scopedHsFieldName parentName name))
+      let fname = mkName (T.unpack (scopedHsFieldName (scFieldNaming scope) parentName name))
       kty <- scalarToTH kt
       vty <- fieldTypeInnerScopedQ scope rep vt
       t <- appT (appT (conT ''Map) (pure kty)) (pure vty)
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, t)]
     mkField (FSOneof name _ofs) = do
-      let fname = mkName (T.unpack (scopedHsFieldName parentName name))
+      let fname = mkName (T.unpack (scopedHsFieldName (scFieldNaming scope) parentName name))
           oneofTyName = oneofSumName tyName name
       ty <- appT (conT ''Maybe) (conT oneofTyName)
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
@@ -971,7 +981,7 @@ mkDefaultDec scope tyName fields = do
     mapM
       ( \fs -> do
           val <- defaultValueExpr scope fs
-          pure (mkName (T.unpack (scopedHsFieldName parentName (fsFieldName fs))), val)
+          pure (mkName (T.unpack (scopedHsFieldName (scFieldNaming scope) parentName (fsFieldName fs))), val)
       )
       fields
   -- Every TH-generated record now carries an empty unknown-fields
@@ -1564,7 +1574,7 @@ generate the matching sum-type 'Name' (see 'oneofSumName' and
 fieldSpecToProtoField :: ScopeCtx -> Name -> FieldSpec -> Q PDI.ProtoField
 fieldSpecToProtoField scope parentTy (FSField name num lbl ft rep opts) = do
   let parentName = T.pack (nameBase parentTy)
-      sel = mkName (T.unpack (scopedHsFieldName parentName name))
+      sel = mkName (T.unpack (scopedHsFieldName (scFieldNaming scope) parentName name))
       pft = fieldTypeToBridge scope ft
       mode = case (lbl, pft) of
         (Just Repeated, PDI.PFScalar sc)
@@ -1607,7 +1617,7 @@ fieldSpecToProtoField scope parentTy (FSMap name num kt vt rep) =
         )
     Just mks ->
       let parentName = T.pack (nameBase parentTy)
-          sel = mkName (T.unpack (scopedHsFieldName parentName name))
+          sel = mkName (T.unpack (scopedHsFieldName (scFieldNaming scope) parentName name))
           pft = fieldTypeToBridge scope vt
           inner = innerHsType scope vt rep
           base = PDI.protoField sel num (PDI.FKMap mks) pft inner
@@ -1618,7 +1628,7 @@ fieldSpecToProtoField scope parentTy (FSMap name num kt vt rep) =
             }
 fieldSpecToProtoField scope parentTy (FSOneof name ofs) = do
   let parentName = T.pack (nameBase parentTy)
-      sel = mkName (T.unpack (scopedHsFieldName parentName name))
+      sel = mkName (T.unpack (scopedHsFieldName (scFieldNaming scope) parentName name))
       sumTy = oneofSumName parentTy name
       carrier = AppT (ConT ''Maybe) (ConT sumTy)
       variants = fmap (oneofVariantToBridge scope parentTy name) ofs
@@ -1787,7 +1797,7 @@ emitters in "Proto.TH.Metadata".
 fieldSpecToMetaField :: ScopeCtx -> Name -> FieldSpec -> PTM.MetaField
 fieldSpecToMetaField scope parentTy fs = case fs of
   FSField name num lbl ft rep opts ->
-    let sel = mkName (T.unpack (scopedHsFieldName parentName name))
+    let sel = mkName (T.unpack (scopedHsFieldName (scFieldNaming scope) parentName name))
         jsonNm = jsonNameFromOpts opts (protoJsonName name)
         repeatedKind = case repeatedBaseRep (fieldRepeated rep) of
           VectorRep -> PTM.MFKVector
@@ -1840,7 +1850,7 @@ fieldSpecToMetaField scope parentTy fs = case fs of
         , PTM.mfJsonShape = jsonShape
         }
   FSMap name num kt vt rep ->
-    let sel = mkName (T.unpack (scopedHsFieldName parentName name))
+    let sel = mkName (T.unpack (scopedHsFieldName (scFieldNaming scope) parentName name))
         jsonNm = protoJsonName name
         bytesShape = case bytesBaseRep (fieldBytes rep) of
           StrictBytesRep -> PTM.SBStrict
@@ -1867,7 +1877,7 @@ fieldSpecToMetaField scope parentTy fs = case fs of
         , PTM.mfJsonShape = jsonShape
         }
   FSOneof name ofs ->
-    let sel = mkName (T.unpack (scopedHsFieldName parentName name))
+    let sel = mkName (T.unpack (scopedHsFieldName (scFieldNaming scope) parentName name))
         jsonNm = protoJsonName name
         variants = fmap (oneofVariantJson scope parentTy name) ofs
     in PTM.MetaField
