@@ -200,9 +200,9 @@ test-suite wireform-test
     , time
     , filepath
     , directory
-    , hedgehog             >= 1.0  && < 1.5
+    , hedgehog             >= 1.0  && < 1.8
     , tasty                >= 1.4  && < 1.6
-    , tasty-hedgehog       >= 1.0  && < 1.5
+    , tasty-hedgehog       >= 1.0  && < 1.8
     , tasty-hunit          >= 0.10 && < 0.11
     , stm
     , primitive
@@ -285,9 +285,9 @@ test-suite python-interop
     , directory
     , filepath
     , process          >= 1.6  && < 1.8
-    , hedgehog         >= 1.0  && < 1.5
+    , hedgehog         >= 1.0  && < 1.8
     , tasty            >= 1.4  && < 1.6
-    , tasty-hedgehog   >= 1.0  && < 1.5
+    , tasty-hedgehog   >= 1.0  && < 1.8
     , tasty-hunit      >= 0.10 && < 0.11
   hs-source-dirs: test-interop
 

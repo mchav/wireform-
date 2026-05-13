@@ -56,7 +56,7 @@ library
     wireform-core,
     wireform-derive,
     bytestring >= 0.11 && < 0.13,
-    containers >= 0.6 && < 0.8,
+    containers >= 0.6 && < 0.9,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
     megaparsec >= 9.0 && < 10,

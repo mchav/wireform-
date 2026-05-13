@@ -65,7 +65,7 @@ library
     text >= 2.1 && < 2.2,
     vector >= 0.13 && < 0.14,
     primitive >= 0.7 && < 0.10,
-    containers >= 0.6 && < 0.8,
+    containers >= 0.6 && < 0.9,
     megaparsec >= 9.0 && < 10,
     deepseq >= 1.4 && < 1.6,
     template-haskell >= 2.18 && < 2.24,
