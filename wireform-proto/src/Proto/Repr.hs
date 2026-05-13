@@ -46,6 +46,7 @@ module Proto.Repr (
 
   -- * Built-in repeated adapters
   vectorAdapter,
+  unboxedVectorAdapter,
   listAdapter,
   seqAdapter,
 
@@ -64,6 +65,11 @@ module Proto.Repr (
   RepConfig (..),
   defaultRepConfig,
   lookupFieldRep,
+
+  -- * Adapter registry (for .proto annotation support)
+  AdapterRegistry (..),
+  defaultAdapterRegistry,
+  wireformFieldOverrides,
 
   -- * Legacy enum types (convenience aliases)
   StringRep (..),
@@ -145,6 +151,7 @@ module Proto.Repr (
   emptyHsString,
 ) where
 
+import Proto.AST (OptionDef (..), OptionName (..), OptionNamePart (..), Constant (..))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -162,6 +169,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Encoding qualified as TLE
 import Data.Vector qualified as V
+import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word8)
 import Language.Haskell.TH (Exp, Q, Type)
 import Proto.Wire (WireType (..))
@@ -396,6 +404,21 @@ vectorAdapter =
     }
 
 
+-- | Unboxed vector @VU.Vector@. No per-element heap objects for
+-- primitive types (Int32, Int64, Word32, Word64, Float, Double, Bool).
+-- Requires @Unbox@ constraint on the element type.
+unboxedVectorAdapter :: RepeatedAdapter
+unboxedVectorAdapter =
+  RepeatedAdapter
+    { repeatedType = \t -> [t|VU.Vector $t|]
+    , repeatedEmpty = [|VU.empty|]
+    , repeatedSnoc = [|VU.snoc|]
+    , repeatedFoldl = [|VU.foldl'|]
+    , repeatedIsEmpty = [|VU.null|]
+    , repeatedBaseRep = VectorRep  -- reuses VectorRep for encode/decode dispatch
+    }
+
+
 -- | Plain list @[]@. Good fusion, convenient.
 listAdapter :: RepeatedAdapter
 listAdapter =
@@ -491,10 +514,19 @@ defaultFieldRep =
 data RepConfig = RepConfig
   { configDefault :: !FieldRep
   -- ^ Default representation for all fields.
+  , configUnboxedRepeated :: !Bool
+  -- ^ When 'True', repeated fields whose element type is 'Unbox'-able
+  -- (all numeric scalars and Bool) default to @Data.Vector.Unboxed@
+  -- instead of @Data.Vector@. Zero per-element heap overhead for
+  -- packed repeated fields. Default: 'False' (for backwards compat).
   , configMessageOverrides :: !(Map Text FieldRep)
   -- ^ Per-message override (applies to all fields in the message).
   , configFieldOverrides :: !(Map (Text, Text) FieldRep)
   -- ^ Per-field override. Key is (messageName, fieldName).
+  -- Haskell-side overrides take precedence over .proto annotations.
+  , configAdapterRegistry :: !AdapterRegistry
+  -- ^ Maps string names (from .proto annotations like
+  -- @[(wireform.haskell_bytes) = \"lazy\"]@) to adapters.
   }
 
 
@@ -502,8 +534,10 @@ defaultRepConfig :: RepConfig
 defaultRepConfig =
   RepConfig
     { configDefault = defaultFieldRep
+    , configUnboxedRepeated = False
     , configMessageOverrides = Map.empty
     , configFieldOverrides = Map.empty
+    , configAdapterRegistry = defaultAdapterRegistry
     }
 
 
@@ -520,6 +554,118 @@ lookupFieldRep msgName fldName cfg =
 
 
 -- =========================================================================
+-- =========================================================================
+-- Adapter registry (for .proto annotation support)
+-- =========================================================================
+
+{- | Maps short string names to adapters. Used to resolve
+@wireform.haskell_string@, @wireform.haskell_bytes@, etc.
+options from @.proto@ files.
+
+Built-in names: @\"strict\"@, @\"lazy\"@, @\"short\"@, @\"string\"@
+(for strings); @\"strict\"@, @\"lazy\"@, @\"short\"@ (for bytes);
+@\"vector\"@, @\"list\"@, @\"seq\"@ (for repeated); @\"ord\"@,
+@\"hash\"@ (for maps).
+
+Register your own adapters to use custom names:
+
+@
+myRegistry = defaultAdapterRegistry
+  { arStringAdapters = Map.insert \"url\" myUrlAdapter
+      (arStringAdapters defaultAdapterRegistry)
+  }
+@
+-}
+data AdapterRegistry = AdapterRegistry
+  { arStringAdapters :: !(Map Text StringAdapter)
+  , arBytesAdapters :: !(Map Text BytesAdapter)
+  , arRepeatedAdapters :: !(Map Text RepeatedAdapter)
+  , arMapAdapters :: !(Map Text MapAdapter)
+  }
+
+
+-- | Registry with all built-in adapters.
+defaultAdapterRegistry :: AdapterRegistry
+defaultAdapterRegistry =
+  AdapterRegistry
+    { arStringAdapters =
+        Map.fromList
+          [ ("strict", strictTextAdapter)
+          , ("lazy", lazyTextAdapter)
+          , ("short", shortTextAdapter)
+          , ("string", hsStringAdapter)
+          ]
+    , arBytesAdapters =
+        Map.fromList
+          [ ("strict", strictBytesAdapter)
+          , ("lazy", lazyBytesAdapter)
+          , ("short", shortBytesAdapter)
+          ]
+    , arRepeatedAdapters =
+        Map.fromList
+          [ ("vector", vectorAdapter)
+          , ("unboxed", unboxedVectorAdapter)
+          , ("list", listAdapter)
+          , ("seq", seqAdapter)
+          ]
+    , arMapAdapters =
+        Map.fromList
+          [ ("ord", ordMapAdapter)
+          , ("hash", hashMapAdapter)
+          ]
+    }
+
+
+{- | Read wireform-specific field options from a list of proto
+@OptionDef@s and produce per-category overrides. Returns a
+function that patches a 'FieldRep' with any overrides found.
+
+Reads these extension options:
+
+  * @(wireform.haskell_string)@ = @\"strict\"@ | @\"lazy\"@ | @\"short\"@ | @\"string\"@
+  * @(wireform.haskell_bytes)@  = @\"strict\"@ | @\"lazy\"@ | @\"short\"@
+  * @(wireform.haskell_repeated)@ = @\"vector\"@ | @\"list\"@ | @\"seq\"@
+  * @(wireform.haskell_map)@    = @\"ord\"@ | @\"hash\"@
+-}
+wireformFieldOverrides :: AdapterRegistry -> [OptionDef] -> FieldRep -> FieldRep
+wireformFieldOverrides reg opts base =
+  let applyStr = case lookupWfOption "wireform.haskell_string" opts of
+        Just name -> case Map.lookup name (arStringAdapters reg) of
+          Just a -> \r -> r { fieldString = a }
+          Nothing -> id
+        Nothing -> id
+      applyBytes = case lookupWfOption "wireform.haskell_bytes" opts of
+        Just name -> case Map.lookup name (arBytesAdapters reg) of
+          Just a -> \r -> r { fieldBytes = a }
+          Nothing -> id
+        Nothing -> id
+      applyRepeated = case lookupWfOption "wireform.haskell_repeated" opts of
+        Just name -> case Map.lookup name (arRepeatedAdapters reg) of
+          Just a -> \r -> r { fieldRepeated = a }
+          Nothing -> id
+        Nothing -> id
+      applyMap = case lookupWfOption "wireform.haskell_map" opts of
+        Just name -> case Map.lookup name (arMapAdapters reg) of
+          Just a -> \r -> r { fieldMap = a }
+          Nothing -> id
+        Nothing -> id
+  in applyMap (applyRepeated (applyBytes (applyStr base)))
+
+
+-- | Look up a wireform extension option and extract its string value.
+lookupWfOption :: Text -> [OptionDef] -> Maybe Text
+lookupWfOption name opts = case filter matchExt opts of
+  (o : _) -> constToText (optValue o)
+  [] -> Nothing
+  where
+    matchExt o = case optNameParts (optName o) of
+      [ExtensionOption n] -> n == name
+      _ -> False
+    constToText (CString t) = Just t
+    constToText (CIdent t) = Just t
+    constToText _ = Nothing
+
+
 -- Legacy enum types (for convenience / backwards compat)
 -- =========================================================================
 

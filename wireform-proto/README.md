@@ -51,16 +51,15 @@ case decodeMessage bytes of
   Left err -> print err
 ```
 
-For the other entry points—inline `Proto.QQ`, Haskell-first
+For the other entry points, you can use inline `Proto.QQ`, Haskell-first
 `Proto.Derive`, on-disk output via `Proto.Setup`, the `protoc`
-plugin, or direct `Proto.CodeGen`—see the next section.
+plugin, or direct `Proto.CodeGen`.
 
 ---
 
 ## Ways to use it
 
-Six entry points into the same codegen machinery. All produce
-identical wire-format instances; they differ only in where and
+There are six entry points into the same codegen machinery, depending on your development style. All produce identical wire-format instances; they differ only in where and
 when code generation happens.
 
 ### `loadProto`: TH splice from a `.proto` file
@@ -357,18 +356,85 @@ materialising a `ByteString`.
 
 ## Also included
 
-- **Proto3 canonical JSON.** `json_name` overrides, base64 bytes,
-  string-encoded 64-bit integers, NaN/Infinity sentinels.
-- **Well-known types.** `Timestamp`, `Duration`, `Any`, `FieldMask`,
-  `Struct`, `Value`, `ListValue`, `NullValue`, `Wrappers`, `Empty`,
-  `SourceContext`, plus supplementary logic (`packAny`, RFC 3339
-  formatting, `TypeRegistry`, `FieldMask` ops).
-- **Proto2 typed extensions**, unknown-field preservation, dynamic
-  messages, `.pbtxt` text format, runtime `MessageRegistry`.
-- **Streaming and incremental decoders** (`Proto.Decode.Stream`,
-  `Proto.Decode.Streaming`).
-- **gRPC service-method codegen** (`Proto.GRPC`). Wire framing
-  lives in [`wireform-grpc`](../wireform-grpc/).
+### Proto3 canonical JSON
+
+Generated types get `ToJSON` / `FromJSON` instances that follow the
+[proto3 JSON mapping](https://protobuf.dev/programming-guides/proto3/#json).
+`json_name` overrides, base64-encoded bytes, string-encoded 64-bit
+integers, and `NaN`/`Infinity` sentinels are handled automatically.
+
+```haskell
+import Data.Aeson (encode, eitherDecode)
+
+let json = encode alice                 -- proto3 JSON
+case eitherDecode json of
+  Right p  -> print (p :: Person)
+  Left err -> putStrLn err
+```
+
+### Well-known types
+
+`Timestamp`, `Duration`, `Any`, `FieldMask`, `Struct`, `Value`,
+`ListValue`, `NullValue`, all `Wrappers`, `Empty`, and
+`SourceContext` ship with supplementary utilities:
+
+```haskell
+import Proto.Google.Protobuf.Timestamp.Util (fromUTCTime, toUTCTime)
+import Proto.Google.Protobuf.Duration.Util (fromNominalDiffTime)
+import Proto.Google.Protobuf.Any.Util (packAny, unpackAny)
+import Proto.Google.Protobuf.FieldMask.Util (intersect, merge)
+
+let ts   = fromUTCTime now              -- UTCTime -> Timestamp
+let dur  = fromNominalDiffTime 3.5      -- NominalDiffTime -> Duration
+let any_ = packAny registry alice       -- pack into Any
+case unpackAny registry any_ of
+  Just (p :: Person) -> print p
+  Nothing            -> putStrLn "unknown type"
+```
+
+### Streaming and incremental decoders
+
+For length-delimited message streams (gRPC, Kafka, log files):
+
+```haskell
+import Proto.Decode.Stream (decodeStream)
+import Proto.Decode.Streaming (streamDecode, StreamStep(..))
+
+-- Strict: decode all messages from a ByteString
+let msgs = decodeStream @LogEntry bytes
+
+-- Incremental: decode one message at a time
+case streamDecode @LogEntry of
+  StreamNeedMore feed -> feed chunk >>= \case
+    StreamYield entry k -> process entry >> continue k
+    StreamDone          -> pure ()
+```
+
+### Proto2 extensions and dynamic messages
+
+```haskell
+import Proto.Extension (getExtension, setExtension)
+
+-- Typed extensions (proto2)
+let deadline = getExtension deadlineField request
+
+-- Dynamic messages (schema not known at compile time)
+import Proto.Dynamic (decodeDynamic, encodeDynamic)
+let dyn = decodeDynamic registry "my.package.Person" bytes
+```
+
+### gRPC codegen
+
+`Proto.GRPC` generates service/method type metadata. Wire framing
+and transport live in [`wireform-grpc`](../wireform-grpc/).
+
+```haskell
+import Proto.GRPC (ServiceDef(..), MethodDef(..))
+
+-- Generated:
+-- grpcGreeterService :: ServiceDef
+-- grpcSayHelloMethod :: MethodDef
+```
 
 ---
 

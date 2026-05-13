@@ -211,6 +211,23 @@ to be resolved by the user via proto-side renaming; the TH
 bridge stays lean rather than emitting always-prefixed names
 nobody asked for.
 -}
+-- | When a repeated field has a packable scalar element and the user
+-- hasn't overridden the repeated adapter, upgrade to unboxed vector
+-- for zero per-element heap overhead.
+autoUnboxRepeated :: Maybe FieldLabel -> FieldType -> FieldRep -> FieldRep
+autoUnboxRepeated (Just Repeated) (FTScalar st) rep
+  | isUnboxableScalar st
+  , repeatedBaseRep (fieldRepeated rep) == VectorRep
+  = rep { fieldRepeated = unboxedVectorAdapter }
+autoUnboxRepeated _ _ rep = rep
+
+isUnboxableScalar :: ScalarType -> Bool
+isUnboxableScalar = \case
+  SString -> False
+  SBytes  -> False
+  _       -> True
+
+
 hsEnumCon :: Text -> Text -> Text
 hsEnumCon _enumName = snakeToPascal
 
@@ -679,7 +696,12 @@ extractMessageFields cfg msgN = concatMap go
           , fsNum = unFieldNumber (fieldNumber fd)
           , fsLabel = fieldLabel fd
           , fsType = fieldType fd
-          , fsRep = lookupFieldRep msgN (fieldName fd) cfg
+          , fsRep = (if configUnboxedRepeated cfg
+                      then autoUnboxRepeated (fieldLabel fd) (fieldType fd)
+                      else id) $
+                      wireformFieldOverrides (configAdapterRegistry cfg)
+                        (fieldOptions fd)
+                        (lookupFieldRep msgN (fieldName fd) cfg)
           , fsOptions = fieldOptions fd
           }
       ]
@@ -689,7 +711,9 @@ extractMessageFields cfg msgN = concatMap go
           , fsNum = unFieldNumber (mapFieldNum mf)
           , fsMapKey = mapKeyType mf
           , fsMapVal = mapValueType mf
-          , fsMapRep = lookupFieldRep msgN (mapFieldName mf) cfg
+          , fsMapRep = wireformFieldOverrides (configAdapterRegistry cfg)
+                        (mapOptions mf)
+                        (lookupFieldRep msgN (mapFieldName mf) cfg)
           }
       ]
     go (MEOneof od) =
@@ -697,7 +721,9 @@ extractMessageFields cfg msgN = concatMap go
           { fsName = oneofName od
           , fsOneofFields =
               fmap
-                (\f -> (f, lookupFieldRep msgN (oneofFieldName f) cfg))
+                (\f -> (f, wireformFieldOverrides (configAdapterRegistry cfg)
+                            (oneofFieldOptions f)
+                            (lookupFieldRep msgN (oneofFieldName f) cfg)))
                 (oneofFields od)
           }
       ]
