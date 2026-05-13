@@ -127,8 +127,8 @@ parseRegions input = outside (T.lines input) []
     flushLiteral lineAcc tl = Literal (T.unlines (reverse lineAcc)) : tl
 
     renderBody :: [Text] -> Text
-    renderBody [] = "\n"
-    renderBody xs = "\n" <> T.unlines xs
+    renderBody [] = ""
+    renderBody xs = T.unlines xs
 
 -- | Render the regions back to a single document. Inverse of
 -- 'parseRegions' on well-formed input.
@@ -150,13 +150,15 @@ rewriteMarkers replacements doc =
         Nothing  -> r
         Just rep -> Managed k (normalise rep)
 
-    -- Ensure the rewritten body starts and ends with exactly one
-    -- newline so the markers themselves stay on their own lines.
+    -- The marker lines themselves are stored as Literal regions
+    -- with their trailing '\n', so the body just needs to end with
+    -- exactly one '\n' (and no leading whitespace). Strip both
+    -- ends of the user-supplied content and re-terminate.
     normalise t =
-      let trimmed = T.stripEnd (T.stripStart t)
+      let trimmed = T.strip t
       in if T.null trimmed
-           then "\n"
-           else "\n" <> trimmed <> "\n"
+           then ""
+           else trimmed <> "\n"
 
 -- | The new body to substitute. Leading and trailing whitespace is
 -- normalised by 'rewriteMarkers'; you don't need to add the wrapping

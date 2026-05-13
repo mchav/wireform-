@@ -17,64 +17,97 @@
     Menlo, monospace;
 
   --wf-radius-sm: 0.375rem;
-  --wf-radius: 0.5rem;
-  --wf-radius-lg: 0.75rem;
+  --wf-radius: 0.625rem;
+  --wf-radius-lg: 0.875rem;
+  --wf-transition: 180ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* ------------------------------------------------------------------ */
+/* Dark theme                                                         */
+/* ------------------------------------------------------------------ */
 :root[data-theme='dark'] {
-  --sl-color-bg: #0b0b0d;
-  --sl-color-bg-nav: #0b0b0d;
-  --sl-color-bg-sidebar: #0b0b0d;
-  --sl-color-bg-inline-code: #1a1a1f;
-  --sl-color-hairline: #1f1f24;
-  --sl-color-hairline-light: #2a2a30;
-  --sl-color-hairline-shade: #16161a;
-  --sl-color-text: #e6e6ea;
+  --sl-color-bg: #09090b;
+  --sl-color-bg-nav: rgba(9, 9, 11, 0.82);
+  --sl-color-bg-sidebar: #09090b;
+  --sl-color-bg-inline-code: #18181b;
+  --sl-color-hairline: #1e1e24;
+  --sl-color-hairline-light: #27272a;
+  --sl-color-hairline-shade: #131316;
+  --sl-color-text: #e4e4e7;
   --sl-color-text-accent: #a78bfa;
   --sl-color-accent: #8b5cf6;
   --sl-color-accent-high: #c4b5fd;
   --sl-color-accent-low: #4c1d95;
-  --wf-surface: #111114;
-  --wf-surface-2: #16161b;
-  --wf-source-link: #a3a3ae;
+  --wf-surface: #0f0f12;
+  --wf-surface-2: #151518;
+  --wf-source-link: #71717a;
+  --wf-glow: rgba(139, 92, 246, 0.08);
+  --wf-gradient-start: #a78bfa;
+  --wf-gradient-end: #6d28d9;
+  --wf-gradient-accent: linear-gradient(135deg, #a78bfa, #818cf8, #6d28d9);
+  --wf-card-hover-border: rgba(167, 139, 250, 0.35);
+  --wf-badge-bg: rgba(139, 92, 246, 0.12);
+  --wf-badge-text: #c4b5fd;
 }
 
+/* ------------------------------------------------------------------ */
+/* Light theme                                                        */
+/* ------------------------------------------------------------------ */
 :root[data-theme='light'] {
-  --sl-color-bg: #ffffff;
-  --sl-color-bg-nav: #ffffff;
-  --sl-color-bg-sidebar: #fafafa;
-  --sl-color-bg-inline-code: #f4f4f5;
+  --sl-color-bg: #fafafa;
+  --sl-color-bg-nav: rgba(250, 250, 250, 0.82);
+  --sl-color-bg-sidebar: #f5f5f5;
+  --sl-color-bg-inline-code: #f0f0f2;
   --sl-color-hairline: #e4e4e7;
   --sl-color-hairline-light: #d4d4d8;
-  --sl-color-hairline-shade: #f4f4f5;
+  --sl-color-hairline-shade: #f0f0f2;
   --sl-color-text: #18181b;
   --sl-color-text-accent: #6d28d9;
   --sl-color-accent: #7c3aed;
   --sl-color-accent-high: #4c1d95;
   --sl-color-accent-low: #ede9fe;
-  --wf-surface: #fafafa;
+  --wf-surface: #ffffff;
   --wf-surface-2: #f4f4f5;
-  --wf-source-link: #6b7280;
+  --wf-source-link: #71717a;
+  --wf-glow: rgba(124, 58, 237, 0.06);
+  --wf-gradient-start: #7c3aed;
+  --wf-gradient-end: #4f46e5;
+  --wf-gradient-accent: linear-gradient(135deg, #7c3aed, #6366f1, #4f46e5);
+  --wf-card-hover-border: rgba(124, 58, 237, 0.4);
+  --wf-badge-bg: rgba(124, 58, 237, 0.08);
+  --wf-badge-text: #6d28d9;
 }
 
 html {
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
   font-family: var(--sl-font);
-  letter-spacing: -0.005em;
+  letter-spacing: -0.011em;
 }
 
-/* --- Header -------------------------------------------------------- */
+/* ------------------------------------------------------------------ */
+/* Selection                                                          */
+/* ------------------------------------------------------------------ */
+::selection {
+  background: rgba(139, 92, 246, 0.25);
+}
 
+/* ------------------------------------------------------------------ */
+/* Header                                                             */
+/* ------------------------------------------------------------------ */
 .header {
   border-bottom: 1px solid var(--sl-color-hairline);
-  backdrop-filter: saturate(140%) blur(12px);
-  background-color: color-mix(in srgb, var(--sl-color-bg) 80%, transparent);
+  backdrop-filter: saturate(160%) blur(16px);
+  background-color: var(--sl-color-bg-nav);
 }
 
-/* --- Sidebar ------------------------------------------------------- */
+/* ------------------------------------------------------------------ */
+/* Sidebar                                                            */
+/* ------------------------------------------------------------------ */
 
 starlight-sidebar-state-persist,
 .sidebar-pane {
@@ -89,9 +122,9 @@ starlight-sidebar-state-persist,
 
 .sidebar-content a {
   border-radius: var(--wf-radius-sm);
-  font-size: 0.85rem;
-  padding: 0.3rem 0.5rem;
-  transition: background-color 120ms ease, color 120ms ease;
+  font-size: 0.84rem;
+  padding: 0.3rem 0.55rem;
+  transition: background-color var(--wf-transition), color var(--wf-transition);
 }
 
 .sidebar-content a:hover {
@@ -99,80 +132,137 @@ starlight-sidebar-state-persist,
 }
 
 .sidebar-content a[aria-current='page'] {
-  background-color: color-mix(
-    in srgb,
-    var(--sl-color-accent) 18%,
-    transparent
-  );
+  background-color: color-mix(in srgb, var(--sl-color-accent) 14%, transparent);
   color: var(--sl-color-text-accent);
-  font-weight: 500;
+  font-weight: 550;
 }
 
 .sidebar-content summary {
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.78;
+  opacity: 0.6;
 }
 
-/* --- Content ------------------------------------------------------- */
+/* ------------------------------------------------------------------ */
+/* Content                                                            */
+/* ------------------------------------------------------------------ */
 
 .content-panel {
   padding-block: 2rem;
 }
 
 .sl-markdown-content {
-  --sl-text-h1: 2rem;
-  --sl-text-h2: 1.45rem;
-  --sl-text-h3: 1.15rem;
-  font-size: 0.97rem;
-  line-height: 1.7;
+  --sl-text-h1: 1.9rem;
+  --sl-text-h2: 1.38rem;
+  --sl-text-h3: 1.1rem;
+  font-size: 0.95rem;
+  line-height: 1.72;
+}
+
+.sl-markdown-content :is(h1, h2, h3, h4) {
+  letter-spacing: -0.02em;
+  font-weight: 650;
 }
 
 .sl-markdown-content :is(h2, h3) {
   scroll-margin-top: 6rem;
 }
 
+.sl-markdown-content h2 {
+  margin-top: 2.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--sl-color-hairline);
+}
+
 .sl-markdown-content :not(a) > code {
   background: var(--sl-color-bg-inline-code);
   border: 1px solid var(--sl-color-hairline);
   border-radius: var(--wf-radius-sm);
-  padding: 0.05rem 0.35rem;
-  font-size: 0.85em;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.84em;
 }
 
 .sl-markdown-content blockquote {
   border-left: 2px solid var(--sl-color-accent);
-  background: color-mix(in srgb, var(--sl-color-accent) 6%, transparent);
+  background: color-mix(in srgb, var(--sl-color-accent) 5%, transparent);
   border-radius: 0 var(--wf-radius) var(--wf-radius) 0;
+  padding: 0.75rem 1rem;
 }
 
-/* --- Cards (used on the home page) -------------------------------- */
+/* Better tables */
+.sl-markdown-content table {
+  font-size: 0.88rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: var(--wf-radius);
+  overflow: hidden;
+  width: 100%;
+}
+
+.sl-markdown-content th {
+  background: var(--wf-surface);
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--sl-color-text);
+  opacity: 0.8;
+}
+
+.sl-markdown-content td {
+  border-top: 1px solid var(--sl-color-hairline);
+}
+
+.sl-markdown-content :is(th, td) {
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+}
+
+.sl-markdown-content tr:hover td {
+  background: var(--wf-glow);
+}
+
+/* Links in prose */
+.sl-markdown-content a:not(.card a) {
+  text-decoration-color: color-mix(in srgb, var(--sl-color-accent) 40%, transparent);
+  text-underline-offset: 0.15em;
+  transition: text-decoration-color var(--wf-transition);
+}
+.sl-markdown-content a:not(.card a):hover {
+  text-decoration-color: var(--sl-color-accent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Cards                                                              */
+/* ------------------------------------------------------------------ */
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
-  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: 0.75rem;
   margin-block: 1.25rem;
 }
 
 .card {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  padding: 1rem 1.1rem;
+  gap: 0.5rem;
+  padding: 1.1rem 1.15rem;
   background: var(--wf-surface);
   border: 1px solid var(--sl-color-hairline);
-  border-radius: var(--wf-radius);
-  transition: border-color 120ms ease, transform 120ms ease,
-    background-color 120ms ease;
+  border-radius: var(--wf-radius-lg);
+  transition: border-color var(--wf-transition), transform var(--wf-transition),
+    box-shadow var(--wf-transition), background-color var(--wf-transition);
 }
 
 .card:hover {
-  border-color: var(--sl-color-text-accent);
+  border-color: var(--wf-card-hover-border);
   background: var(--wf-surface-2);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 24px -4px var(--wf-glow);
 }
 
 .card a {
@@ -180,18 +270,130 @@ starlight-sidebar-state-persist,
 }
 
 .card .title {
-  font-weight: 600;
-  font-size: 0.95rem;
+  font-weight: 650;
+  font-size: 0.93rem;
+  letter-spacing: -0.01em;
 }
 
 .card .desc {
   color: var(--sl-color-text);
-  opacity: 0.78;
-  font-size: 0.85rem;
-  line-height: 1.5;
+  opacity: 0.72;
+  font-size: 0.84rem;
+  line-height: 1.55;
 }
 
-/* --- Haddock-style API page ------------------------------------- */
+/* ------------------------------------------------------------------ */
+/* Hero (Starlight splash page)                                       */
+/* ------------------------------------------------------------------ */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 3.5rem 0 2.5rem;
+  margin-bottom: 1.5rem;
+  border-bottom: none;
+  position: relative;
+}
+
+/* Subtle gradient background glow behind hero */
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(100%, 40rem);
+  height: 24rem;
+  background: radial-gradient(ellipse at center, var(--wf-glow) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.hero .eyebrow {
+  font-family: var(--sl-font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sl-color-text-accent);
+}
+
+.hero h1 {
+  font-size: clamp(2.25rem, 5vw, 3.25rem) !important;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+  margin: 0;
+  background: var(--wf-gradient-accent);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero p.lede {
+  font-size: 1.08rem;
+  line-height: 1.6;
+  color: var(--sl-color-text);
+  opacity: 0.78;
+  max-width: 56ch;
+}
+
+.hero .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.hero .actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: var(--wf-radius);
+  font-size: 0.88rem;
+  font-weight: 550;
+  border: 1px solid var(--sl-color-hairline);
+  background: var(--wf-surface);
+  color: var(--sl-color-text);
+  text-decoration: none;
+  transition: all var(--wf-transition);
+}
+
+.hero .actions a.primary {
+  background: var(--wf-gradient-accent);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 1px 12px -2px rgba(139, 92, 246, 0.4);
+}
+
+.hero .actions a.primary:hover {
+  box-shadow: 0 2px 20px -2px rgba(139, 92, 246, 0.55);
+  transform: translateY(-1px);
+}
+
+.hero .actions a:not(.primary):hover {
+  border-color: var(--wf-card-hover-border);
+  background: var(--wf-surface-2);
+}
+
+/* ------------------------------------------------------------------ */
+/* Starlight hero overrides (splash template)                         */
+/* ------------------------------------------------------------------ */
+
+.sl-markdown-content .hero > img {
+  display: none;
+}
+
+/* Starlight's built-in hero component */
+[data-page-title],
+.page-title {
+  letter-spacing: -0.03em;
+}
+
+/* ------------------------------------------------------------------ */
+/* Haddock-style API page                                             */
+/* ------------------------------------------------------------------ */
 
 .haddock-module {
   display: flex;
@@ -221,6 +423,11 @@ starlight-sidebar-state-persist,
   background: var(--wf-surface);
   border: 1px solid var(--sl-color-hairline);
   border-radius: var(--wf-radius);
+  transition: border-color var(--wf-transition);
+}
+
+.decl:hover {
+  border-color: var(--sl-color-hairline-light);
 }
 
 .decl > .decl-header {
@@ -245,14 +452,15 @@ starlight-sidebar-state-persist,
 
 .decl > .decl-header a.source {
   margin-left: auto;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--wf-source-link);
   text-decoration: none;
   border: 1px solid var(--sl-color-hairline);
-  padding: 0.1rem 0.45rem;
+  padding: 0.15rem 0.5rem;
   border-radius: var(--wf-radius-sm);
+  transition: all var(--wf-transition);
 }
 
 .decl > .decl-header a.source:hover {
@@ -284,11 +492,11 @@ starlight-sidebar-state-persist,
 .decl .fields h4,
 .decl .methods h4 {
   margin: 0;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--sl-color-text);
-  opacity: 0.65;
+  opacity: 0.6;
 }
 
 .decl .constructor,
@@ -331,11 +539,11 @@ starlight-sidebar-state-persist,
 .synopsis h2 {
   margin: 0 0 0.5rem;
   font-family: var(--sl-font);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--sl-color-text);
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 .synopsis ul {
@@ -351,6 +559,7 @@ starlight-sidebar-state-persist,
   color: var(--sl-color-text);
   text-decoration: none;
   border-bottom: 1px dashed transparent;
+  transition: all var(--wf-transition);
 }
 
 .synopsis a:hover {
@@ -373,11 +582,12 @@ starlight-sidebar-state-persist,
   border-radius: var(--wf-radius);
   padding: 0.7rem 0.9rem;
   background: var(--wf-surface);
-  transition: border-color 120ms ease;
+  transition: border-color var(--wf-transition), box-shadow var(--wf-transition);
 }
 
 .module-index li:hover {
-  border-color: var(--sl-color-text-accent);
+  border-color: var(--wf-card-hover-border);
+  box-shadow: 0 2px 12px -2px var(--wf-glow);
 }
 
 .module-index a {
@@ -390,73 +600,88 @@ starlight-sidebar-state-persist,
 .module-index .desc {
   font-size: 0.78rem;
   color: var(--sl-color-text);
-  opacity: 0.7;
+  opacity: 0.65;
   margin-top: 0.25rem;
 }
 
-/* --- Hero ---------------------------------------------------------- */
+/* ------------------------------------------------------------------ */
+/* Starlight component overrides                                      */
+/* ------------------------------------------------------------------ */
 
-.hero {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  padding: 2rem 0 1rem;
-  border-bottom: 1px solid var(--sl-color-hairline);
-  margin-bottom: 1rem;
+/* Nicer aside/callout styling */
+.starlight-aside {
+  border-radius: var(--wf-radius) !important;
+  border-width: 1px !important;
+  border-left-width: 3px !important;
 }
 
-.hero .eyebrow {
-  font-family: var(--sl-font-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--sl-color-text-accent);
+/* Pagination links at bottom of pages */
+.pagination-links a {
+  border-radius: var(--wf-radius) !important;
+  transition: all var(--wf-transition) !important;
 }
 
-.hero h1 {
-  font-size: clamp(2rem, 4vw, 2.75rem) !important;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  line-height: 1.1;
-  margin: 0;
+.pagination-links a:hover {
+  border-color: var(--wf-card-hover-border) !important;
+  box-shadow: 0 2px 12px -2px var(--wf-glow) !important;
 }
 
-.hero p.lede {
-  font-size: 1.05rem;
-  line-height: 1.55;
-  color: var(--sl-color-text);
-  opacity: 0.85;
-  max-width: 60ch;
+/* Table of contents */
+starlight-toc a {
+  font-size: 0.82rem;
+  transition: color var(--wf-transition);
 }
 
-.hero .actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
+/* Search button polish */
+site-search button {
+  border-radius: var(--wf-radius) !important;
 }
 
-.hero .actions a {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.45rem 0.85rem;
+/* ------------------------------------------------------------------ */
+/* Code blocks                                                        */
+/* ------------------------------------------------------------------ */
+
+.expressive-code {
+  margin-block: 1.25rem;
+}
+
+.expressive-code .frame {
+  border: 1px solid var(--sl-color-hairline) !important;
+  border-radius: var(--wf-radius-lg) !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* Badge styling for status labels                                    */
+/* ------------------------------------------------------------------ */
+
+.sl-badge {
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+}
+
+/* ------------------------------------------------------------------ */
+/* Smooth scroll                                                      */
+/* ------------------------------------------------------------------ */
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Focus rings                                                        */
+/* ------------------------------------------------------------------ */
+:focus-visible {
+  outline: 2px solid var(--sl-color-accent);
+  outline-offset: 2px;
   border-radius: var(--wf-radius-sm);
-  font-size: 0.85rem;
-  font-weight: 500;
-  border: 1px solid var(--sl-color-hairline);
-  background: var(--wf-surface);
-  color: var(--sl-color-text);
-  text-decoration: none;
-  transition: border-color 120ms ease, background-color 120ms ease;
-}
-
-.hero .actions a.primary {
-  background: var(--sl-color-text-accent);
-  color: var(--sl-color-bg);
-  border-color: var(--sl-color-text-accent);
-}
-
-.hero .actions a:hover {
-  border-color: var(--sl-color-text-accent);
 }

@@ -259,17 +259,16 @@ summaryToTable s =
             []       -> Nothing
       mkRow gi g =
         let cell ss = formatValue (bsUnit s) (nthOr 0 gi (bsValues ss))
+            -- ratio = (first non-baseline series) / (baseline series).
+            -- For lower-is-better metrics, <1 means comparison wins.
+            -- For higher-is-better metrics, >1 means comparison wins.
+            -- Reader interprets with the higher-is-better hint that
+            -- already appears in the chart subtitle / table caption.
             ratio = case (baselineSeries, bsSeries s) of
               (Just bv, _ : nextSeries : _) ->
                 let base = nthOr 0 gi bv
-                    -- For "higher is better" we report each series
-                    -- relative to the baseline; for "lower is better"
-                    -- we invert so >1.00 always means "the comparison
-                    -- series is better."
                     cmp  = nthOr 0 gi (bsValues nextSeries)
-                    raw  = if base == 0 then 0 else cmp / base
-                    adj  = if bsHigherIsBetter s then raw else (if raw == 0 then 0 else 1 / raw)
-                in formatRatio adj
+                in if base == 0 then "-" else formatRatio (cmp / base)
               _ -> "-"
         in g : map cell (bsSeries s) ++ [ratio]
   in Tbl.Table

@@ -3,89 +3,98 @@ title: wireform
 description: One Haskell library for serialization, schema parsing, code generation, streaming, RPC framing, container I/O, and analytics metadata.
 template: splash
 hero:
-  tagline: One Haskell library covering Protocol Buffers, Avro, Thrift, MessagePack, CBOR, XML, HTML, Parquet, ORC, Arrow, Iceberg, and 15+ other wire formats.
+  tagline: "Encode, decode, generate, stream, and query — across 25+ wire formats — from a single Haskell library."
   actions:
     - text: Get started
       link: /guides/getting-started/
       icon: right-arrow
       variant: primary
-    - text: Browse the API
-      link: /api/
-      icon: external
-      variant: secondary
+    - text: Format catalogue
+      link: /guides/formats/
+      icon: list-format
     - text: GitHub
       link: https://github.com/iand675/wireform-
       icon: external
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid, Aside, Badge } from '@astrojs/starlight/components';
 
-## What is wireform?
-
-wireform is one Haskell library that ships **encode/decode**, **schema parsing**,
-**code generation**, **streaming**, **RPC framing**, **container I/O**, and
-**analytics metadata** under one consistent surface — across 25+ wire formats.
-
-<CardGrid stagger>
+<CardGrid>
   <Card title="One library, many formats" icon="seti:default">
     Protocol Buffers, Avro, Thrift, MessagePack, CBOR, BSON, XML, HTML,
     Parquet, ORC, Arrow, Iceberg, FlatBuffers, Cap'n Proto, ASN.1, Bond,
-    EDN, Ion, TOML, NDJSON, CSV, Bencode, plus the wireform core.
+    EDN, Ion, TOML, NDJSON, CSV, Bencode, and more.
   </Card>
   <Card title="Schema-aware codegen" icon="rocket">
     A single CLI (`wireform-gen`) generates idiomatic Haskell from
     `.proto`, `.avsc`, `.thrift`, `.bond`, `.fbs`, `.capnp`, `.asn1`,
     `.xsd`, and CDDL/ISL files.
   </Card>
-  <Card title="Performance discipline" icon="setting">
+  <Card title="Allocation-tight decoding" icon="setting">
     Unboxed sums on the decoder hot path, `withTag` CPS dispatch,
-    `Data.Text.Builder` everywhere, no `String` round-trips. See the
-    benchmark suite in `bench/`.
+    `Data.Text.Builder` everywhere, zero `String` round-trips.
   </Card>
-  <Card title="Plays well with others" icon="puzzle">
-    Decode one format's `Value`, map across, re-encode in another —
-    wireform's `Value` types share the same conventions across formats
-    so format conversion is a few lines.
+  <Card title="Cross-format conversion" icon="puzzle">
+    `Value` types share conventions across formats — convert between
+    MessagePack, CBOR, Avro, and others in a few lines.
   </Card>
 </CardGrid>
 
-## Try it now
+## Quick start
 
 ```bash
 git clone https://github.com/iand675/wireform-.git && cd wireform-
-cabal update
-cabal run example-msgpack     # Generics-derived MessagePack — quickest demo
-cabal run example-basic       # hand-written protobuf message
-cabal run example-xml         # Generic XML encode/decode
+cabal update && cabal run example-msgpack
 ```
+
+Three lines to a working round-trip. No `.proto` file, no codegen, no external tooling.
+
+## Capabilities at a glance
+
+<CardGrid>
+  <Card title="Encode / Decode" icon="open-book">
+    Type-safe serialization for every supported format, with `Generic` deriving
+    for schema-less formats and codegen for schema-first workflows.
+  </Card>
+  <Card title="Streaming" icon="right-arrow">
+    Incremental decoders for Protocol Buffers, MessagePack, CBOR, and XML.
+    Feed chunks as they arrive — no buffering the full payload.
+  </Card>
+  <Card title="RPC framing" icon="puzzle">
+    gRPC, Thrift binary/compact, MsgPack-RPC, and Avro IPC framing
+    built in — no separate transport library needed.
+  </Card>
+  <Card title="Analytics formats" icon="document">
+    Read Parquet pages, ORC stripes, Arrow IPC batches, and Iceberg
+    manifests — without heavyweight JVM tooling.
+  </Card>
+</CardGrid>
 
 ## Where next?
 
 <CardGrid>
   <Card title="Getting started" icon="open-book">
-    A two-minute walkthrough: run an example, then wire wireform into your
-    own Cabal package.
+    Run an example, then wire wireform into your own Cabal package in
+    two minutes.
 
-    [Read the guide →](/guides/getting-started/)
-  </Card>
-  <Card title="API reference" icon="document">
-    Browse the full Haddock-derived API. Auto-ingested from
-    `cabal haddock` output and re-rendered with type-signature highlighting,
-    grouped declarations, and a per-module synopsis.
-
-    [Open API reference →](/api/)
+    [Read the guide &rarr;](/guides/getting-started/)
   </Card>
   <Card title="Format catalogue" icon="list-format">
-    Every format wireform supports, what it can do, and the modules to
-    look at.
+    Every format wireform supports, what it can do, and which modules to
+    reach for.
 
-    [See the catalogue →](/guides/formats/)
+    [See the catalogue &rarr;](/guides/formats/)
+  </Card>
+  <Card title="The Value type" icon="puzzle">
+    How wireform's shared `Value` types enable cross-format conversion
+    with minimal ceremony.
+
+    [Learn about Value &rarr;](/concepts/value/)
   </Card>
   <Card title="Columnar roadmap" icon="approve-check">
-    The state of Parquet, ORC, Arrow, and Iceberg support — and what's
-    still ahead.
+    Progress toward complete Parquet, ORC, Arrow, and Iceberg support.
 
-    [Read the roadmap →](/guides/columnar-roadmap/)
+    [Read the roadmap &rarr;](/guides/columnar-roadmap/)
   </Card>
 </CardGrid>

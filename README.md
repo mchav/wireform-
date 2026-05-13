@@ -100,7 +100,6 @@ under [Adding a new format](#adding-a-new-format).
 - [What's in here](#whats-in-here)
 - [Package layout](#package-layout)
 - [The annotation-driven deriver](#the-annotation-driven-deriver)
-- [Protocol Buffers](#protocol-buffers)
 - [Building](#building)
 - [Testing](#testing)
 - [Examples](#examples)
@@ -186,9 +185,7 @@ its format actually needs.
 
 ### Module conventions inside each format package
 
-Every per-format package follows the same internal layout, so once you
-know one you know them all. See [`agents.md`](agents.md) for the full
-contributor guide.
+Every per-format package follows the same internal layout:
 
 ```
 <Format>                       -- top-level API umbrella (re-exports)
@@ -199,11 +196,13 @@ contributor guide.
 <Format>.JSON                  -- bridge to/from JSON for self-describing formats
 ```
 
-The `Proto.*` package predates the per-format split and keeps its
-historical `Proto.AST` / `Proto.Parser.*` / `Proto.Wire.*` /
-`Proto.CodeGen.*` / `Proto.TH` / `Proto.Derive.*` /
-`Proto.Google.Protobuf.*` layout. See [`agents.md`](agents.md) for the
-full Proto map.
+`wireform-proto` additionally carries its own IDL parser
+(`Proto.Parser`), code generator (`Proto.CodeGen`), TH splices
+(`Proto.TH`), and well-known type modules (`Proto.Google.Protobuf.*`).
+See the [wireform-proto README](wireform-proto/README.md) for the
+full module map.
+
+See [`agents.md`](agents.md) for the contributor guide.
 
 ---
 
@@ -314,64 +313,6 @@ reads them via `lookupExtension` / `lookupExtensions` / `hasExtension`.
 
 ---
 
-## Protocol Buffers
-
-`wireform-proto` is the largest package and predates the per-format
-split. It carries its own IDL parser, AST, pure-text code generator,
-TH/QQ splices, JSON mapping, well-known types, dynamic decoder, and
-`.pbtxt` text format. There are two TH-driven paths into the deriver,
-both of which feed the same body builders in `Proto.Derive.Internal`:
-
-1. **`Proto.TH.loadProto "path/to/file.proto"`** is the IDL bridge. It
-   parses the `.proto` file, generates the data declarations and the
-   wire codec instances, and preserves unknown fields automatically. All
-   five proto3 field shapes (singular, `Maybe a`, repeated
-   `Vector` / list / `Seq`, `map<K, V>`, `oneof`, `enum`) are bridged
-   end-to-end. Custom string and bytes representations (`LazyText`,
-   `ShortText`, `HsString`, `LazyBytes`, `ShortBytes`) are honoured per
-   field through `loadProtoWith`.
-2. **`Proto.Derive.deriveProto`** is the annotation-driven path on a
-   Haskell record where every field carries an explicit `tag N`. It
-   auto-detects each field's shape from the Haskell type: scalars,
-   submessages, `Maybe` wrappers, plus `Vector` / `[]` / `Seq` repeated
-   containers, `Map.Map` map fields, sum-of-tagged-singletons oneofs,
-   and `Enum`-shaped types (every constructor nullary). Repeated packable
-   scalars are encoded packed by default; the deriver accepts both packed
-   and unpacked on the read side regardless of which the writer chose.
-   The IDL bridge is only required for cases the reify graph can't see
-   (e.g. types declared in the same splice).
-3. **`Proto.Derive.deriveProtoFromTranslated`** is the explicit-shape
-   entry used by IDL bridges that need to call the deriver from inside
-   their own splice. It sidesteps the GHC TH stage restriction that
-   prevents `qReify`-ing types declared in the same splice.
-
-The TH-emitted code uses `Proto.Encode.Archetype` (`archVarint`,
-`archFixed64`, ...) so the encode hot path is identical in shape to what
-the pure-text codegen produces. `Proto.QQ` ships an inline quasiquoter,
-`Proto.Setup` is the Cabal setup hook for pre-build codegen, and
-`protoc-gen-wireform` is a `protoc` plugin (`--wireform_out=DIR`).
-Proto2 typed extensions (`HasExtensions`), unknown-field preservation,
-and dynamic / `.pbtxt` decoding all carry through.
-
-```haskell
-{-# LANGUAGE TemplateHaskell #-}
-import Proto.TH (loadProto)
-
-$(loadProto "examples/proto/simple.proto")
--- Generates: GetPersonRequest, ListPeopleRequest, AddPersonResponse, ...
-
-let req = defaultGetPersonRequest { personId = 42 }
-let bytes = encodeMessage req       -- 2 bytes (0x08 0x2a)
-case decodeMessage bytes of
-  Right (decoded :: GetPersonRequest) -> ...
-```
-
-For custom field representations, `loadProtoWith` accepts a `LoadOpts`
-with field- and message-level overrides. See
-[`examples/CustomReprExample.hs`](examples/CustomReprExample.hs).
-
----
-
 ## Building
 
 ```bash
@@ -415,42 +356,7 @@ Per-format packages are also reachable as `nix build .#wireform-proto`,
 cabal test all
 ```
 
-### Protobuf conformance suite
-
-`wireform-proto` ships an end-to-end harness that runs the official
-[upstream protobuf conformance suite](https://github.com/protocolbuffers/protobuf/tree/main/conformance)
-against `loadProto`-generated codecs. The harness skips cleanly when the
-upstream runner isn't built:
-
-```bash
-# One-time: clone + build the upstream runner (~10 min, requires
-# git, cmake, a C++17 toolchain).
-bash wireform-proto/test-conformance/scripts/build-conformance-runner.sh
-
-# Then:
-cabal test wireform-proto:protobuf-conformance-test
-```
-
-Current baseline against `protocolbuffers/protobuf@v28.2`: 2675
-successes, 0 skipped, 0 expected failures, 0 unexpected failures, across
-the proto3 and proto2 binary/json suites.
-
-Well-known types (`Timestamp`, `Duration`, `Wrappers`, `Empty`, `Any`,
-`FieldMask`, `Struct`, `Value`, `ListValue`, `NullValue`) are supported
-via a per-FQN registry in `Proto.TH.lookupWkt` that routes `loadProto`
-references to the pre-generated `Proto.Google.Protobuf.*` modules. The
-JSON encoder and parser use the proto3-canonical helpers in
-`Proto.JSON.WellKnown` (RFC 3339 for Timestamps, `"1.5s"` for Durations,
-base64 for Bytes wrappers, bare-value for the rest).
-
-`TEXT_FORMAT` output is supported via
-`Proto.TextFormat.typedToTextPretty`, which walks a typed message via
-its `ProtoMessage` descriptors and emits pbtxt with field names.
-
-See [`wireform-proto/test-conformance/README.md`](wireform-proto/test-conformance/README.md)
-for the architecture and how to add expected failures.
-
-### Other test suites
+### Conformance and interop suites
 
 Annotation-driven deriver coverage spans every per-format package, with
 hundreds of tests across the `wireform-*-derive-test` suites plus a
@@ -458,9 +364,12 @@ shared core suite under `wireform-derive`. Each format package also has
 its own non-derive test suite for the codecs, value ADT, schema parsers,
 and protocol framing.
 
-Several format packages also have opt-in interop tests against
-upstream runners (silent skip when the runner isn't installed):
+Several format packages have opt-in interop tests against upstream
+runners (silent skip when the runner isn't installed):
 
+- `wireform-proto` against the official
+  [`protobuf conformance suite`](https://github.com/protocolbuffers/protobuf/tree/main/conformance)
+  (2675/2675 tests passing).
 - `wireform-toml` against [`toml-test`](https://github.com/toml-lang/toml-test)
   via `TOML_TEST_SUITE=...`.
 - `wireform-yaml` against [`yaml-test-suite`](https://github.com/yaml/yaml-test-suite)
