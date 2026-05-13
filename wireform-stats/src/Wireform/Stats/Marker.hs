@@ -31,6 +31,9 @@ module Wireform.Stats.Marker
   , rewriteFile
     -- * Inspection
   , markersIn
+    -- * Marker line helpers (for fresh templates)
+  , renderBegin
+  , renderEnd
   ) where
 
 import Data.Map.Strict (Map)
@@ -206,8 +209,13 @@ parseDirective kw line =
                Right k -> Just k
                Left _  -> Nothing
 
+-- | Render a key as its BEGIN marker line. Exposed for callers that
+-- want to inject a complete marker pair into a fresh template
+-- programmatically (the in-tree caller is the smoke-test helper for
+-- 'rewriteMarkers').
 renderBegin :: MarkerKey -> Text
 renderBegin (MarkerKey k) = "<!-- BEGIN_AUTOGEN " <> k <> " -->"
 
+-- | The companion to 'renderBegin'.
 renderEnd :: MarkerKey -> Text
 renderEnd (MarkerKey k) = "<!-- END_AUTOGEN " <> k <> " -->"

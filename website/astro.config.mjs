@@ -59,7 +59,7 @@ export default defineConfig({
             : [
                 {
                   label: 'Not yet ingested',
-                  slug: 'api/index',
+                  slug: 'api',
                 },
               ],
         },

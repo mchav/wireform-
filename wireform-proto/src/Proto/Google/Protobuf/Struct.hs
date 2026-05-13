@@ -38,6 +38,7 @@ import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
 import qualified Proto.Extension
+import qualified Proto.Merge
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -138,6 +139,15 @@ instance Hashable Struct where
 instance Proto.Extension.HasExtensions Struct where
   messageUnknownFields = structUnknownFields
   setMessageUnknownFields !ufs msg = msg { structUnknownFields = ufs }
+
+instance Proto.Merge.Mergeable Struct where
+  mergeFrom a b = Struct
+    { structFields = a.structFields <> b.structFields
+    , structUnknownFields = a.structUnknownFields <> b.structUnknownFields
+    }
+
+instance Semigroup Struct where
+  (<>) = Proto.Merge.mergeFrom
 
 data Value = Value
   { valueKind :: !(Maybe Value'Kind)
@@ -262,6 +272,15 @@ instance Proto.Extension.HasExtensions Value where
   messageUnknownFields = valueUnknownFields
   setMessageUnknownFields !ufs msg = msg { valueUnknownFields = ufs }
 
+instance Proto.Merge.Mergeable Value where
+  mergeFrom a b = Value
+    { valueKind = case b.valueKind of { Nothing -> a.valueKind; x -> x }
+    , valueUnknownFields = a.valueUnknownFields <> b.valueUnknownFields
+    }
+
+instance Semigroup Value where
+  (<>) = Proto.Merge.mergeFrom
+
 data NullValue
   = NullValue'NullValue
   deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)
@@ -368,6 +387,15 @@ instance Hashable ListValue where
 instance Proto.Extension.HasExtensions ListValue where
   messageUnknownFields = listValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { listValueUnknownFields = ufs }
+
+instance Proto.Merge.Mergeable ListValue where
+  mergeFrom a b = ListValue
+    { listValueValues = a.listValueValues <> b.listValueValues
+    , listValueUnknownFields = a.listValueUnknownFields <> b.listValueUnknownFields
+    }
+
+instance Semigroup ListValue where
+  (<>) = Proto.Merge.mergeFrom
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

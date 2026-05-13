@@ -38,6 +38,7 @@ import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
 import qualified Proto.Extension
+import qualified Proto.Merge
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -114,6 +115,14 @@ instance Hashable Empty where
 instance Proto.Extension.HasExtensions Empty where
   messageUnknownFields = emptyUnknownFields
   setMessageUnknownFields !ufs msg = msg { emptyUnknownFields = ufs }
+
+instance Proto.Merge.Mergeable Empty where
+  mergeFrom a b = Empty
+    { emptyUnknownFields = a.emptyUnknownFields <> b.emptyUnknownFields
+    }
+
+instance Semigroup Empty where
+  (<>) = Proto.Merge.mergeFrom
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

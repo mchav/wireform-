@@ -38,6 +38,7 @@ import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
 import qualified Proto.Extension
+import qualified Proto.Merge
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -136,6 +137,15 @@ instance Proto.Extension.HasExtensions DoubleValue where
   messageUnknownFields = doubleValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { doubleValueUnknownFields = ufs }
 
+instance Proto.Merge.Mergeable DoubleValue where
+  mergeFrom a b = DoubleValue
+    { doubleValueValue = b.doubleValueValue
+    , doubleValueUnknownFields = a.doubleValueUnknownFields <> b.doubleValueUnknownFields
+    }
+
+instance Semigroup DoubleValue where
+  (<>) = Proto.Merge.mergeFrom
+
 data FloatValue = FloatValue
   { floatValueValue :: {-# UNPACK #-} !Float
   , floatValueUnknownFields :: ![UnknownField]
@@ -211,6 +221,15 @@ instance Hashable FloatValue where
 instance Proto.Extension.HasExtensions FloatValue where
   messageUnknownFields = floatValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { floatValueUnknownFields = ufs }
+
+instance Proto.Merge.Mergeable FloatValue where
+  mergeFrom a b = FloatValue
+    { floatValueValue = b.floatValueValue
+    , floatValueUnknownFields = a.floatValueUnknownFields <> b.floatValueUnknownFields
+    }
+
+instance Semigroup FloatValue where
+  (<>) = Proto.Merge.mergeFrom
 
 data Int64Value = Int64Value
   { int64ValueValue :: {-# UNPACK #-} !Int64
@@ -288,6 +307,15 @@ instance Proto.Extension.HasExtensions Int64Value where
   messageUnknownFields = int64ValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { int64ValueUnknownFields = ufs }
 
+instance Proto.Merge.Mergeable Int64Value where
+  mergeFrom a b = Int64Value
+    { int64ValueValue = b.int64ValueValue
+    , int64ValueUnknownFields = a.int64ValueUnknownFields <> b.int64ValueUnknownFields
+    }
+
+instance Semigroup Int64Value where
+  (<>) = Proto.Merge.mergeFrom
+
 data UInt64Value = UInt64Value
   { uInt64ValueValue :: {-# UNPACK #-} !Word64
   , uInt64ValueUnknownFields :: ![UnknownField]
@@ -363,6 +391,15 @@ instance Hashable UInt64Value where
 instance Proto.Extension.HasExtensions UInt64Value where
   messageUnknownFields = uInt64ValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { uInt64ValueUnknownFields = ufs }
+
+instance Proto.Merge.Mergeable UInt64Value where
+  mergeFrom a b = UInt64Value
+    { uInt64ValueValue = b.uInt64ValueValue
+    , uInt64ValueUnknownFields = a.uInt64ValueUnknownFields <> b.uInt64ValueUnknownFields
+    }
+
+instance Semigroup UInt64Value where
+  (<>) = Proto.Merge.mergeFrom
 
 data Int32Value = Int32Value
   { int32ValueValue :: {-# UNPACK #-} !Int32
@@ -440,6 +477,15 @@ instance Proto.Extension.HasExtensions Int32Value where
   messageUnknownFields = int32ValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { int32ValueUnknownFields = ufs }
 
+instance Proto.Merge.Mergeable Int32Value where
+  mergeFrom a b = Int32Value
+    { int32ValueValue = b.int32ValueValue
+    , int32ValueUnknownFields = a.int32ValueUnknownFields <> b.int32ValueUnknownFields
+    }
+
+instance Semigroup Int32Value where
+  (<>) = Proto.Merge.mergeFrom
+
 data UInt32Value = UInt32Value
   { uInt32ValueValue :: {-# UNPACK #-} !Word32
   , uInt32ValueUnknownFields :: ![UnknownField]
@@ -515,6 +561,15 @@ instance Hashable UInt32Value where
 instance Proto.Extension.HasExtensions UInt32Value where
   messageUnknownFields = uInt32ValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { uInt32ValueUnknownFields = ufs }
+
+instance Proto.Merge.Mergeable UInt32Value where
+  mergeFrom a b = UInt32Value
+    { uInt32ValueValue = b.uInt32ValueValue
+    , uInt32ValueUnknownFields = a.uInt32ValueUnknownFields <> b.uInt32ValueUnknownFields
+    }
+
+instance Semigroup UInt32Value where
+  (<>) = Proto.Merge.mergeFrom
 
 data BoolValue = BoolValue
   { boolValueValue :: {-# UNPACK #-} !Bool
@@ -592,6 +647,15 @@ instance Proto.Extension.HasExtensions BoolValue where
   messageUnknownFields = boolValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { boolValueUnknownFields = ufs }
 
+instance Proto.Merge.Mergeable BoolValue where
+  mergeFrom a b = BoolValue
+    { boolValueValue = b.boolValueValue
+    , boolValueUnknownFields = a.boolValueUnknownFields <> b.boolValueUnknownFields
+    }
+
+instance Semigroup BoolValue where
+  (<>) = Proto.Merge.mergeFrom
+
 data StringValue = StringValue
   { stringValueValue :: !Text
   , stringValueUnknownFields :: ![UnknownField]
@@ -668,6 +732,15 @@ instance Proto.Extension.HasExtensions StringValue where
   messageUnknownFields = stringValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { stringValueUnknownFields = ufs }
 
+instance Proto.Merge.Mergeable StringValue where
+  mergeFrom a b = StringValue
+    { stringValueValue = b.stringValueValue
+    , stringValueUnknownFields = a.stringValueUnknownFields <> b.stringValueUnknownFields
+    }
+
+instance Semigroup StringValue where
+  (<>) = Proto.Merge.mergeFrom
+
 data BytesValue = BytesValue
   { bytesValueValue :: !ByteString
   , bytesValueUnknownFields :: ![UnknownField]
@@ -743,6 +816,15 @@ instance Hashable BytesValue where
 instance Proto.Extension.HasExtensions BytesValue where
   messageUnknownFields = bytesValueUnknownFields
   setMessageUnknownFields !ufs msg = msg { bytesValueUnknownFields = ufs }
+
+instance Proto.Merge.Mergeable BytesValue where
+  mergeFrom a b = BytesValue
+    { bytesValueValue = b.bytesValueValue
+    , bytesValueUnknownFields = a.bytesValueUnknownFields <> b.bytesValueUnknownFields
+    }
+
+instance Semigroup BytesValue where
+  (<>) = Proto.Merge.mergeFrom
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

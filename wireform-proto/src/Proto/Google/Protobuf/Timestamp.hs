@@ -38,6 +38,7 @@ import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
 import qualified Proto.Extension
+import qualified Proto.Merge
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -168,6 +169,16 @@ instance Hashable Timestamp where
 instance Proto.Extension.HasExtensions Timestamp where
   messageUnknownFields = timestampUnknownFields
   setMessageUnknownFields !ufs msg = msg { timestampUnknownFields = ufs }
+
+instance Proto.Merge.Mergeable Timestamp where
+  mergeFrom a b = Timestamp
+    { timestampSeconds = b.timestampSeconds
+    , timestampNanos = b.timestampNanos
+    , timestampUnknownFields = a.timestampUnknownFields <> b.timestampUnknownFields
+    }
+
+instance Semigroup Timestamp where
+  (<>) = Proto.Merge.mergeFrom
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

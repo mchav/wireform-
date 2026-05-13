@@ -373,3 +373,48 @@ test-suite wireform-proto-derive-test
     vector,
     tasty,
     tasty-hunit
+
+-- ===========================================================
+-- protoc plugin: reads CodeGeneratorRequest, writes Haskell
+-- ===========================================================
+
+executable protoc-gen-wireform
+  import: defaults
+  main-is: Main.hs
+  hs-source-dirs: protoc-plugin
+  build-depends:
+    base,
+    wireform-proto,
+    bytestring,
+    text,
+    containers,
+    vector,
+    directory,
+    filepath,
+    optparse-applicative   >= 0.17 && < 0.20
+
+-- ===========================================================
+-- proto-lens comparison benchmark
+-- ===========================================================
+
+benchmark compare-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+    WireformTypes
+    Proto.Bench
+    Proto.Bench_Fields
+  build-depends:
+      base               >= 4.16 && < 5
+    , wireform-core
+    , wireform-proto
+    , bytestring
+    , text
+    , vector
+    , deepseq
+    , criterion          >= 1.5  && < 1.7
+    , proto-lens         >= 0.7  && < 0.8
+    , proto-lens-runtime >= 0.7  && < 0.8
+    , lens-family        >= 2.1  && < 2.2
+  hs-source-dirs: bench/compare, bench/compare/gen

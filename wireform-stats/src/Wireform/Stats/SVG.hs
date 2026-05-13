@@ -35,7 +35,6 @@ import XML.Encode qualified as XE
 import XML.Value
   ( Attribute (..)
   , Document (..)
-  , Name (..)
   , Node (..)
   , XMLDecl (..)
   , simpleName
@@ -80,10 +79,10 @@ type GroupLabel = Text
 -- | Default empty chart with title + unit set. Useful as a starting
 -- point with record updates.
 defaultGitHubBarChart :: Text -> Text -> BarChart
-defaultGitHubBarChart title unit = BarChart
-  { chartTitle    = title
+defaultGitHubBarChart titleT unitT = BarChart
+  { chartTitle    = titleT
   , chartSubtitle = Nothing
-  , chartUnit     = unit
+  , chartUnit     = unitT
   , chartGroups   = []
   , chartSeries   = []
   , chartHigherIsBetter = False
@@ -375,7 +374,7 @@ groupLabels theme chart =
              , ("fill", themeForeground theme)
              ]
              [ text_ g ]
-  in el "g" [] (zipWith lab [0 ..] groups)
+  in el "g" [] (zipWith lab [0 :: Int ..] groups)
 
 legend :: Theme -> BarChart -> Node
 legend theme chart =

@@ -653,6 +653,7 @@ genImports externalModules =
     , txt "import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))"
     , txt "import qualified Proto.Registry"
     , txt "import qualified Proto.Extension"
+    , txt "import qualified Proto.Merge"
     , txt "import Proto.Wire (Tag(..), WireType(..))"
     , txt "import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,"
     , txt "  putFloat, putDouble, putText, putByteString, putLengthDelimited,"
@@ -781,6 +782,10 @@ genMessage ctx scope msg =
          , genHashableInstance ctx scope' msg
          , mempty
          , genHasExtensionsInstance scope' msg
+         , mempty
+         , genMergeableInstance ctx scope' msg
+         , mempty
+         , genSemigroupInstance scope'
          ]
       <> case hookDocs of
         [] -> []
@@ -1944,6 +1949,44 @@ genHasExtensionsInstance scope _msg =
           txt "setMessageUnknownFields !ufs msg = msg { "
             <> pretty acc
             <> txt " = ufs }"
+      ]
+
+
+-- | Generate a Mergeable instance: per-field merge semantics.
+genMergeableInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
+genMergeableInstance ctx scope msg =
+  let tyN = scopedTypeName scope
+      fields = extractAllFields ctx scope (msgElements msg)
+      conN = scopedTypeName scope
+      unknownAcc = unknownFieldAccessor scope
+      mergeField fi =
+        let acc = fifAccessor fi
+        in pretty acc <> txt " = " <> case fifKind fi of
+          FKMap _ _ -> txt "a." <> pretty acc <> txt " <> b." <> pretty acc
+          FKOneof _ _ -> txt "case b." <> pretty acc <> txt " of { Nothing -> a." <> pretty acc <> txt "; x -> x }"
+          FKScalar (Just Repeated) _ -> txt "a." <> pretty acc <> txt " <> b." <> pretty acc
+          FKNamed (Just Repeated) _ _ -> txt "a." <> pretty acc <> txt " <> b." <> pretty acc
+          FKNamed (Just Optional) _ _ -> txt "case b." <> pretty acc <> txt " of { Nothing -> a." <> pretty acc <> txt "; x -> x }"
+          _ -> txt "b." <> pretty acc
+  in vsep
+      [ txt "instance Proto.Merge.Mergeable " <> pretty tyN <> txt " where"
+      , indent 2 $ vsep
+          [ txt "mergeFrom a b = " <> pretty conN
+          , indent 2 $ braceBlock
+              ( fmap mergeField fields
+                  <> [pretty unknownAcc <> txt " = a." <> pretty unknownAcc <> txt " <> b." <> pretty unknownAcc]
+              )
+          ]
+      ]
+
+
+-- | Generate a Semigroup instance via Mergeable.
+genSemigroupInstance :: [Text] -> Doc ann
+genSemigroupInstance scope =
+  let tyN = scopedTypeName scope
+  in vsep
+      [ txt "instance Semigroup " <> pretty tyN <> txt " where"
+      , indent 2 $ txt "(<>) = Proto.Merge.mergeFrom"
       ]
 
 
