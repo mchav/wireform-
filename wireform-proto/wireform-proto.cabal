@@ -370,6 +370,7 @@ test-suite wireform-proto-derive-test
     hashable,
     text,
     template-haskell,
+    reflection,
     vector,
     tasty,
     tasty-hunit

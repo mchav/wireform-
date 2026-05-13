@@ -2,13 +2,13 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 {- | TH splice site that drives 'Proto.TH.Derive.deriveProtoFromTranslated'
-against the bare records in 'Test.Proto.TH.Derive.TranslatedTypes'.
+against the bare records in 'Test.Proto.Derive.TranslatedTypes'.
 
 Modifiers are supplied inline as a @['Modifier']@ list per field —
 the same shape that an IDL bridge (e.g. a future 'Proto.TH.loadProto'
 rewrite) would synthesise from a parsed @MessageDef@.
 -}
-module Test.Proto.TH.Derive.TranslatedInstances () where
+module Test.Proto.Derive.TranslatedInstances () where
 
 import Data.ByteString (ByteString)
 import Data.Int (Int32, Int64)
@@ -20,7 +20,7 @@ import Proto.TH.Derive (
   deriveProtoFromTranslated,
   translatedField,
  )
-import Test.Proto.TH.Derive.TranslatedTypes (
+import Test.Proto.Derive.TranslatedTypes (
   AddressT (..),
   UserT (..),
  )

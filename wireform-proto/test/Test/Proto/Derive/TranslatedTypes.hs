@@ -3,12 +3,12 @@
 
 {- | Test fixtures for 'Proto.TH.Derive.deriveProtoFromTranslated'.
 
-Unlike 'Test.Proto.TH.Derive.Types', these records carry no @ANN@
+Unlike 'Test.Proto.Derive.Types', these records carry no @ANN@
 annotations: the modifier vocabulary is supplied inline at the
 'deriveProtoFromTranslated' call site instead. This exercises the
 IDL-bridge entry point intended for use from 'Proto.TH.loadProto'.
 -}
-module Test.Proto.TH.Derive.TranslatedTypes (
+module Test.Proto.Derive.TranslatedTypes (
   AddressT (..),
   UserT (..),
 ) where

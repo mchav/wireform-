@@ -1,5 +1,6 @@
 module Test.Resolver (resolverTests) where
 
+import qualified Control.Monad
 import Data.ByteString qualified as BS
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T

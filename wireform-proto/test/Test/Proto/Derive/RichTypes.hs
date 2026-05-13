@@ -5,10 +5,10 @@
 oneof, and enum support. These records carry no @ANN@
 pragmas; the modifier vocabulary is supplied inline at the
 'Proto.TH.Derive.deriveProtoFromTranslated' call site in
-"Test.Proto.TH.Derive.RichInstances", mimicking what an IDL bridge
+"Test.Proto.Derive.RichInstances", mimicking what an IDL bridge
 would do.
 -}
-module Test.Proto.TH.Derive.RichTypes (
+module Test.Proto.Derive.RichTypes (
   -- * Enum field
   Color (..),
   Painting (..),

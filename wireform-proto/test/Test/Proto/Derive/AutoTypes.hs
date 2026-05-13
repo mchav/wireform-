@@ -9,12 +9,12 @@ entry point. Each record relies on type-shape detection to pick
 Haskell type alone — the only annotation present is the
 mandatory @tag N@.
 
-Together with "Test.Proto.TH.Derive.AutoInstances", this file
+Together with "Test.Proto.Derive.AutoInstances", this file
 proves that users no longer have to go through the IDL bridge
 ('deriveProtoFromTranslated') just to use a 'Vector', 'Map', or
 sum type in a record.
 -}
-module Test.Proto.TH.Derive.AutoTypes (
+module Test.Proto.Derive.AutoTypes (
   -- * Auto-detected repeated, optional, enum
   AutoColor (..),
   AutoCard (..),

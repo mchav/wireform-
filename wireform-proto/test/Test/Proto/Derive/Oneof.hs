@@ -3,13 +3,13 @@ rewire. Exercises 'Proto.TH.loadProto'-generated codecs for
 @Envelope@, whose @oneof envelope_choice@ produces an
 @Envelope'EnvelopeChoice@ sum type via 'Proto.TH.mkOneofDataDecs'.
 -}
-module Test.Proto.TH.Derive.Oneof (tests) where
+module Test.Proto.Derive.Oneof (tests) where
 
 import Data.ByteString qualified as BS
 import Data.Text qualified as T
 import Proto.Decode qualified as PD
 import Proto.Encode qualified as PE
-import Test.Proto.TH.Derive.OneofInstances (
+import Test.Proto.Derive.OneofInstances (
   Envelope (..),
   Envelope'EnvelopeChoice (..),
   Inner (..),

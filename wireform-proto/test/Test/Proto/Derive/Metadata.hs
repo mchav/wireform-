@@ -12,7 +12,7 @@ The fixtures we exercise here are the same ones the
 'topenum_regression.proto' splice already generates for the
 top-level enum tests, plus a couple of small derived messages.
 -}
-module Test.Proto.TH.Derive.Metadata (tests) where
+module Test.Proto.Derive.Metadata (tests) where
 
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as AesonKey
@@ -23,7 +23,7 @@ import Data.Proxy (Proxy (..))
 import Data.Text qualified as T
 import Data.Vector qualified as V
 import Proto.Schema qualified as PS
-import Test.Proto.TH.Derive.TopEnumInstances (
+import Test.Proto.Derive.TopEnumInstances (
   Account (..),
   PackedBag (..),
   Status (..),

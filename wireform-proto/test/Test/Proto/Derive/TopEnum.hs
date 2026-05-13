@@ -1,14 +1,14 @@
 {- | Tests for the top-level enum + packed scalar 'loadProto'
 regression.
 -}
-module Test.Proto.TH.Derive.TopEnum (tests) where
+module Test.Proto.Derive.TopEnum (tests) where
 
 import Data.ByteString qualified as BS
 import Data.Text qualified as T
 import Data.Vector qualified as V
 import Proto.Decode qualified as PD
 import Proto.Encode qualified as PE
-import Test.Proto.TH.Derive.TopEnumInstances (
+import Test.Proto.Derive.TopEnumInstances (
   Account (..),
   PackedBag (..),
   Status (..),

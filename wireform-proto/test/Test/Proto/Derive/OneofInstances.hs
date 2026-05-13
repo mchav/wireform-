@@ -15,9 +15,9 @@
    match on the sum and dispatch on the variant tags.
 
 The actual round-trip + variant-overwrite assertions live in
-'Test.Proto.TH.Derive.Oneof'.
+'Test.Proto.Derive.Oneof'.
 -}
-module Test.Proto.TH.Derive.OneofInstances (
+module Test.Proto.Derive.OneofInstances (
   -- * loadProto-generated types
   Envelope (..),
   Inner (..),
@@ -27,9 +27,17 @@ module Test.Proto.TH.Derive.OneofInstances (
 ) where
 
 import Data.Int (Int32)
+import Data.Reflection (Given (..))
 import Data.Text qualified as T
 import Data.Vector qualified as V
+import Proto.Internal.JSON.Extension (ExtensionRegistry, emptyExtensionRegistry)
 import Proto.TH (loadProto)
+
+-- TH-generated JSON instances carry a 'Given ExtensionRegistry' constraint
+-- for proto2 extensions; this test target has none, so satisfy it with
+-- the empty registry.
+instance Given ExtensionRegistry where
+  given = emptyExtensionRegistry
 
 
 -- Keep the imports the loadProto splice transitively needs from

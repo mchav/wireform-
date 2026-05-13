@@ -6,10 +6,10 @@ The only annotation the user needs to write is @tag N@; the
 deriver figures out 'FKRepeated' / 'FKMap' / 'FKMaybe' / 'FKOneof'
 from the field's Haskell type.
 -}
-module Test.Proto.TH.Derive.AutoInstances () where
+module Test.Proto.Derive.AutoInstances () where
 
 import Proto.TH.Derive (deriveProto)
-import Test.Proto.TH.Derive.AutoTypes (
+import Test.Proto.Derive.AutoTypes (
   AutoCard,
   AutoEnvelope,
   AutoPackedNums,

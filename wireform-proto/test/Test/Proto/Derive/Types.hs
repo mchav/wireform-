@@ -8,7 +8,7 @@ A nested 'Address' submessage exercises the recursive
 'MessageEncode' \/ 'MessageDecode' path, and 'wireOverride' is used
 on a couple of fields to force ZigZag and fixed-width encodings.
 -}
-module Test.Proto.TH.Derive.Types (
+module Test.Proto.Derive.Types (
   User (..),
   Address (..),
 ) where

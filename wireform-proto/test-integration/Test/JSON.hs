@@ -1,5 +1,6 @@
 module Test.JSON (jsonTests) where
 
+import qualified Data.Bifunctor
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as AesonKey
 import Data.Aeson.KeyMap qualified as AesonKM

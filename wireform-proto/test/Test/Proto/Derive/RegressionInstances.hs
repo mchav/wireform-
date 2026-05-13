@@ -9,12 +9,12 @@ families of instances side by side:
    reference implementation.
 2. 'deriveProtoFromTranslated' produces matching instances for
    'BridgeRegItem' \/ 'BridgeRegInventory' from
-   "Test.Proto.TH.Derive.RegressionTypes".
+   "Test.Proto.Derive.RegressionTypes".
 
-The actual byte-equality assertion lives in "Test.Proto.TH.Derive";
+The actual byte-equality assertion lives in "Test.Proto.Derive";
 this module only wires up the splices.
 -}
-module Test.Proto.TH.Derive.RegressionInstances (
+module Test.Proto.Derive.RegressionInstances (
   -- * loadProto-generated types (re-exported for tests)
   RegItem (..),
   RegInventory (..),
@@ -23,9 +23,11 @@ module Test.Proto.TH.Derive.RegressionInstances (
 ) where
 
 import Data.Int (Int32)
+import Data.Reflection (Given (..))
 import Data.Text qualified as T
 import Data.Vector qualified as V -- needed by the loadProto splice
 import Language.Haskell.TH (Type (ConT))
+import Proto.Internal.JSON.Extension (ExtensionRegistry, emptyExtensionRegistry)
 import Proto.Repr qualified as PR
 import Proto.TH (loadProto)
 import Proto.TH.Derive (
@@ -34,11 +36,17 @@ import Proto.TH.Derive (
   deriveProtoFromTranslated,
   translatedField,
  )
-import Test.Proto.TH.Derive.RegressionTypes (
+import Test.Proto.Derive.RegressionTypes (
   BridgeRegInventory (..),
   BridgeRegItem (..),
  )
 import Wireform.Derive (tag)
+
+-- TH-generated JSON instances carry a 'Given ExtensionRegistry' constraint
+-- for proto2 extensions; this test target has none, so satisfy it with
+-- the empty registry.
+instance Given ExtensionRegistry where
+  given = emptyExtensionRegistry
 
 
 -- Keep GHC from optimising away the imports the loadProto splice

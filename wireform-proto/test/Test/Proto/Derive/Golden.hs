@@ -1,6 +1,6 @@
 {- | Hand-computed golden byte vectors for the protobuf wire
 format. These exist to guard the byte-equivalence regression in
-"Test.Proto.TH.Derive": before this file the regression compared
+"Test.Proto.Derive": before this file the regression compared
 two implementations against each other ('loadProto' vs.
 'deriveProtoFromTranslated'), which after the bridge rewire
 both go through the same body builders in
@@ -13,14 +13,14 @@ bridge ever drifts off-spec the assertion will catch it
 immediately, no matter how many implementations agree with
 each other.
 -}
-module Test.Proto.TH.Derive.Golden (tests) where
+module Test.Proto.Derive.Golden (tests) where
 
 import Data.ByteString qualified as BS
 import Data.Text qualified as T
 import Data.Vector qualified as V
 import Data.Word (Word8)
 import Proto.Encode qualified as PE
-import Test.Proto.TH.Derive.RegressionInstances (
+import Test.Proto.Derive.RegressionInstances (
   RegInventory (..),
   RegItem (..),
   defaultRegInventory,

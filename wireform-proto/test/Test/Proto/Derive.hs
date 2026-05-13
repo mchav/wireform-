@@ -7,7 +7,7 @@ an optional nested submessage, and the IDL-bridge entry point
 'deriveProtoFromTranslated' for repeated, map, oneof, and enum
 shapes.
 -}
-module Test.Proto.TH.Derive (tests) where
+module Test.Proto.Derive (tests) where
 
 import Data.ByteString qualified as BS
 import Data.Map.Strict qualified as Map
@@ -16,19 +16,19 @@ import Data.Text qualified as T
 import Data.Vector qualified as V
 import Proto.Decode qualified as PD
 import Proto.Encode qualified as PE
-import Test.Proto.TH.Derive.Instances ()
-import Test.Proto.TH.Derive.RegressionInstances (
+import Test.Proto.Derive.Instances ()
+import Test.Proto.Derive.RegressionInstances (
   RegInventory (..),
   RegItem (..),
   defaultRegInventory,
   defaultRegItem,
  )
-import Test.Proto.TH.Derive.RegressionTypes (
+import Test.Proto.Derive.RegressionTypes (
   BridgeRegInventory (..),
   BridgeRegItem (..),
  )
-import Test.Proto.TH.Derive.RichInstances ()
-import Test.Proto.TH.Derive.RichTypes (
+import Test.Proto.Derive.RichInstances ()
+import Test.Proto.Derive.RichTypes (
   Avatar (..),
   Color (..),
   Inventory (..),
@@ -38,9 +38,9 @@ import Test.Proto.TH.Derive.RichTypes (
   Profile (..),
   Tagged (..),
  )
-import Test.Proto.TH.Derive.TranslatedInstances ()
-import Test.Proto.TH.Derive.TranslatedTypes (AddressT (..), UserT (..))
-import Test.Proto.TH.Derive.Types (Address (..), User (..))
+import Test.Proto.Derive.TranslatedInstances ()
+import Test.Proto.Derive.TranslatedTypes (AddressT (..), UserT (..))
+import Test.Proto.Derive.Types (Address (..), User (..))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 

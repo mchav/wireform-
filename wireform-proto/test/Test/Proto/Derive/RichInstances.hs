@@ -1,11 +1,11 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-{- | Bridge-driven instance splices for "Test.Proto.TH.Derive.RichTypes",
+{- | Bridge-driven instance splices for "Test.Proto.Derive.RichTypes",
 exercising 'Proto.TH.Derive.deriveProtoFromTranslated' with each of
 the new field shapes (enum, repeated, map, oneof).
 -}
-module Test.Proto.TH.Derive.RichInstances () where
+module Test.Proto.Derive.RichInstances () where
 
 import Data.ByteString (ByteString)
 import Data.Int (Int32)
@@ -21,7 +21,7 @@ import Proto.TH.Derive (
   deriveProtoFromTranslated,
   translatedField,
  )
-import Test.Proto.TH.Derive.RichTypes (
+import Test.Proto.Derive.RichTypes (
   Avatar (..),
   Color,
   Inventory (..),

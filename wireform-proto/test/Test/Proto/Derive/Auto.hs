@@ -4,7 +4,7 @@ mandatory @tag N@ annotations — so passing tests prove the
 type-driven shape detection (Vector / [] / Map / sum-of-tagged
 constructors / Enum) actually works end-to-end.
 -}
-module Test.Proto.TH.Derive.Auto (tests) where
+module Test.Proto.Derive.Auto (tests) where
 
 import Data.ByteString qualified as BS
 import Data.Map.Strict qualified as Map
@@ -13,8 +13,8 @@ import Data.Vector qualified as V
 import Data.Word (Word8)
 import Proto.Decode qualified as PD
 import Proto.Encode qualified as PE
-import Test.Proto.TH.Derive.AutoInstances ()
-import Test.Proto.TH.Derive.AutoTypes (
+import Test.Proto.Derive.AutoInstances ()
+import Test.Proto.Derive.AutoTypes (
   AutoCard (..),
   AutoChoice (..),
   AutoColor (..),
