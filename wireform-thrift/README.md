@@ -6,8 +6,7 @@
 protocols (binary and compact), the IDL parser and code generator, RPC
 message framing, the dynamic [`Thrift.Value`](src/Thrift/Value.hs), an
 inline `[thrift| ... |]` quasiquoter, the runtime registry, and a JSON
-mapping for the times you have to render a Thrift payload as something
-a human or a browser can read.
+mapping for cases where the wire payload needs to be rendered as text.
 
 Thrift originated at Facebook in 2007. It's the wire format used by
 Apache Hadoop, Apache Cassandra, Apache Parquet's file footer,
@@ -190,6 +189,18 @@ cabal test wireform-thrift:wireform-thrift-derive-test
 
 It covers both wire protocols, the typeclass instances, the IDL
 parser, the code generator output, and the dynamic `Value` ADT.
+
+## Benchmarks
+
+No per-package criterion harness in tree yet. Planned comparisons:
+
+- Haskell: [`thrift`](https://hackage.haskell.org/package/thrift)
+  (the Apache Thrift Haskell binding).
+- C++: [Apache Thrift's libthrift](https://github.com/apache/thrift),
+  the reference implementation.
+- Rust: [`thrift`](https://crates.io/crates/thrift) crate.
+
+> Numbers TBD: harness pending.
 
 ## License
 

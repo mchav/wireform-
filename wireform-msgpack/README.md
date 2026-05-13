@@ -6,8 +6,7 @@
 dynamic [`MsgPack.Value`](src/MsgPack/Value.hs), derive typeclass
 instances generically or via Template Haskell, stream over chunked
 input, run [msgpack-rpc](https://github.com/msgpack-rpc/msgpack-rpc) on
-top of the codec, and bridge to JSON when something upstream insists
-on it.
+top of the codec, and bridge to JSON when interop calls for it.
 
 MessagePack shares JSON's data model (scalars, arrays, maps) and adds
 a binary type and an extension type for application-specific tagging.
@@ -184,6 +183,25 @@ cabal test wireform-msgpack:wireform-msgpack-derive-test
 
 It covers the typeclass instances, the deriver, generic and
 TH-derived round-trips, and the dynamic `Value` ADT.
+
+## Benchmarks
+
+A criterion harness in [`bench/FormatBench.hs`](../bench/FormatBench.hs)
+(in the umbrella package) compares wireform-msgpack's encode and
+decode against the Hackage
+[`msgpack`](https://hackage.haskell.org/package/msgpack) library:
+
+```bash
+cabal bench format-bench
+```
+
+For cross-language comparisons, the canonical reference implementations
+are [msgpack-c](https://github.com/msgpack/msgpack-c) and
+[`rmp-serde`](https://crates.io/crates/rmp-serde) (Rust). A
+cross-language harness against those is on the roadmap; numbers will
+land here once it ships.
+
+> Numbers TBD: run the harness above and drop a results table in.
 
 ## License
 

@@ -6,8 +6,8 @@ CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)) for Haskell.
 Encode and decode the dynamic [`CBOR.Value`](src/CBOR/Value.hs), derive
 typeclass instances generically or via Template Haskell, parse and code
 generate [CDDL](https://www.rfc-editor.org/rfc/rfc8610) schemas, stream
-incrementally over partial input, and bridge to JSON when something
-upstream insists on it.
+incrementally over partial input, and bridge to JSON when interop
+calls for it.
 
 CBOR shares JSON's data model (scalars, arrays, maps) but encodes it
 in a tagged binary format with a small registry of type tags for
@@ -200,6 +200,25 @@ cabal test wireform-cbor:wireform-cbor-derive-test
 
 It covers the typeclass instances, the deriver, generic and
 TH-derived round-trips, and the dynamic `Value` ADT.
+
+## Benchmarks
+
+A criterion harness in [`bench/FormatBench.hs`](../bench/FormatBench.hs)
+(in the umbrella package) compares wireform-cbor's encode and decode
+against [`cborg`](https://hackage.haskell.org/package/cborg), the
+established Haskell CBOR library:
+
+```bash
+cabal bench format-bench
+```
+
+For cross-language comparisons, the canonical reference implementations
+are [libcbor](https://github.com/PJK/libcbor) (C) and
+[`ciborium`](https://crates.io/crates/ciborium) (Rust). A cross-language
+harness against those is on the roadmap; numbers will land here once it
+ships.
+
+> Numbers TBD: run the harness above and drop a results table in.
 
 ## License
 

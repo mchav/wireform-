@@ -131,6 +131,18 @@ It covers the typeclass instances, the deriver, generic and
 TH-derived round-trips, and the dynamic `Value` ADT including the
 MongoDB-specific type codes.
 
+## Benchmarks
+
+No per-package criterion harness in tree yet. Planned comparisons:
+
+- Haskell: [`bson`](https://hackage.haskell.org/package/bson) (the
+  established Haskell BSON library used by `mongoDB`).
+- C: [libbson](https://mongoc.org/libbson/current/index.html), part
+  of the official MongoDB C driver.
+- Rust: [`bson`](https://crates.io/crates/bson) crate.
+
+> Numbers TBD: harness pending.
+
 ## License
 
 BSD-3-Clause.

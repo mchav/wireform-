@@ -51,6 +51,7 @@ module Proto.Derive.Internal (
   mkDecodeInstance,
   mkDecodeInstanceWith,
   mkIsMessageInstance,
+  mkMergeableInstance,
 
   -- * Convenience: synthesise the full instance group
   synthesiseProtoInstances,
@@ -83,6 +84,7 @@ import Language.Haskell.TH
 import Proto.Decode qualified as PD
 import Proto.Encode qualified as PE
 import Proto.Encode.Archetype qualified as PA
+import Proto.Merge qualified as PMerge
 import Proto.Message qualified as PM
 import Proto.Repr (BytesAdapter (..), BytesRep (..), MapAdapter (..), RepeatedAdapter (..), StringAdapter (..), StringRep (..))
 import Proto.Repr qualified as PR
@@ -537,9 +539,71 @@ mkIsMessageInstance ty nameStr = do
       [FunD 'PM.messageTypeName [Clause [] (NormalB body) []]]
 
 
-{- | One-shot: emit all four instances ('PE.MessageEncode',
-'PE.MessageSize', 'PD.MessageDecode', 'PM.IsMessage') for a
-pre-translated message.
+{- | Generate a 'PMerge.Mergeable' instance.
+
+For each field, the merge strategy is:
+
+  * Scalar: last non-default value wins ('PMerge.mergeScalar')
+  * Bool: last true wins ('PMerge.mergeBool')
+  * Text: last non-empty wins ('PMerge.mergeText')
+  * Bytes: last non-empty wins ('PMerge.mergeBytes')
+  * Repeated: append ('PMerge.mergeRepeated')
+  * Map: union, incoming wins per key ('PMerge.mergeMap')
+  * Optional (Maybe): recursively merge Just values ('PMerge.mergeOptional')
+  * Submessage: recursively merge via 'PMerge.mergeFrom'
+-}
+mkMergeableInstance :: Type -> Name -> [ProtoField] -> Q Dec
+mkMergeableInstance = mkMergeableInstanceWith defaultMessageMeta
+
+mkMergeableInstanceWith :: MessageMeta -> Type -> Name -> [ProtoField] -> Q Dec
+mkMergeableInstanceWith meta ty conName fs = do
+  aName <- newName "a"
+  bName <- newName "b"
+  let mergeField pf =
+        let sel = pfSelector pf
+            getA = AppE (VarE sel) (VarE aName)
+            getB = AppE (VarE sel) (VarE bName)
+        in case pfKind pf of
+          FKRepeated _ _ -> [|$(pure getA) <> $(pure getB)|]
+          FKMap _ -> [|$(pure getA) <> $(pure getB)|]
+          FKOneof _ -> [|case $(pure getB) of { Nothing -> $(pure getA); b' -> b' }|]
+          _ -> case pfType pf of
+            PFSubmessage -> [|PMerge.mergeOptional $(pure getA) $(pure getB)|]
+            _ -> [|$(pure getB)|]  -- scalar: last value wins
+  fieldExps <- mapM (\pf -> do
+    val <- mergeField pf
+    pure (pfSelector pf, val)) fs
+  -- unknown fields: append (only if the type has an unknown-fields slot)
+  let ufMerge = case mmUnknownFieldsSel meta of
+        Just ufSel ->
+          [(ufSel,
+            AppE (AppE (VarE '(<>))
+              (AppE (VarE ufSel) (VarE aName)))
+              (AppE (VarE ufSel) (VarE bName)))]
+        Nothing -> []
+  let body = RecConE conName (fmap (\(sel, val) -> (sel, val)) fieldExps ++ ufMerge)
+  pure $
+    InstanceD
+      Nothing
+      []
+      (AppT (ConT ''PMerge.Mergeable) ty)
+      [FunD 'PMerge.mergeFrom
+        [Clause [VarP aName, VarP bName] (NormalB body) []]]
+
+
+-- | Generate a Semigroup instance that delegates to Mergeable.mergeFrom.
+mkSemigroupInstance :: Type -> Dec
+mkSemigroupInstance ty =
+  InstanceD
+    Nothing
+    []
+    (AppT (ConT ''Semigroup) ty)
+    [FunD '(<>) [Clause [] (NormalB (VarE 'PMerge.mergeFrom)) []]]
+
+
+{- | One-shot: emit all six instances ('PE.MessageEncode',
+'PE.MessageSize', 'PD.MessageDecode', 'PM.IsMessage',
+'PMerge.Mergeable') for a pre-translated message.
 
 Suitable for use from 'Proto.TH.loadProto'-style splices that
 emit a fresh @data@ declaration alongside the instances and so
@@ -569,7 +633,9 @@ synthesiseProtoInstancesWith meta ty conName protoName fs = do
   siz <- mkSizeInstanceWith meta ty fs
   dec <- mkDecodeInstanceWith meta ty conName fs
   ism <- mkIsMessageInstance ty protoName
-  pure [enc, siz, dec, ism]
+  mrg <- mkMergeableInstanceWith meta ty conName fs
+  let semi = mkSemigroupInstance ty
+  pure [enc, siz, dec, ism, mrg, semi]
 
 
 -- ---------------------------------------------------------------------------

@@ -159,6 +159,19 @@ It covers the typeclass instances, the deriver, generic and
 TH-derived round-trips, the dynamic `Value` ADT, the ISL parser, and
 the code generator output.
 
+## Benchmarks
+
+No per-package criterion harness in tree yet. Planned comparisons:
+
+- Haskell: no comparable Ion library on Hackage; the natural baseline
+  is the wireform-ion `Value`-level round trip.
+- Java: [ion-java](https://github.com/amazon-ion/ion-java), the
+  reference implementation.
+- Rust: [`ion-rs`](https://crates.io/crates/ion-rs).
+- C: [ion-c](https://github.com/amazon-ion/ion-c).
+
+> Numbers TBD: harness pending.
+
 ## License
 
 BSD-3-Clause.

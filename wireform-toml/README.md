@@ -62,6 +62,14 @@ main = do
     Left  err                 -> putStrLn err
 ```
 
+`encodeTOML s` renders to:
+
+```toml
+host = "localhost"
+port = 8080
+tls = true
+```
+
 ## What's in here
 
 | Module           | Role                                                      |
@@ -144,6 +152,22 @@ When the env var is unset the harness reports a no-op skip group so
 CI stays green out of the box. A built-in mini-suite drawn from the
 TOML 1.0 spec examples always runs, so core compliance is exercised
 even without the external clone.
+
+## Benchmarks
+
+No per-package criterion harness in tree yet. Planned comparisons:
+
+- Haskell:
+  [`toml-parser`](https://hackage.haskell.org/package/toml-parser),
+  [`tomland`](https://hackage.haskell.org/package/tomland), and
+  [`htoml-megaparsec`](https://hackage.haskell.org/package/htoml-megaparsec).
+- C: [tomlc99](https://github.com/cktan/tomlc99).
+- Rust: [`toml`](https://crates.io/crates/toml) and
+  [`toml_edit`](https://crates.io/crates/toml_edit) (the latter
+  preserves formatting, so it's the right comparison if you care
+  about lossless round-trips).
+
+> Numbers TBD: harness pending.
 
 ## License
 

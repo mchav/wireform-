@@ -62,6 +62,12 @@ main = do
     Left  err                 -> putStrLn err
 ```
 
+`encodeEDN cfg` renders to:
+
+```edn
+{:host "localhost", :port 8080, :debug true}
+```
+
 The runnable version lives in [`examples/EDNExample.hs`](../examples/EDNExample.hs).
 
 ## What's in here
@@ -141,6 +147,17 @@ cabal test wireform-edn:wireform-edn-derive-test
 
 It covers the typeclass instances, the deriver, generic and
 TH-derived round-trips, and the dynamic `Value` ADT.
+
+## Benchmarks
+
+No per-package criterion harness in tree yet. Planned comparisons:
+
+- Haskell: [`hedn`](https://hackage.haskell.org/package/hedn) (the
+  established Haskell EDN parser).
+- JVM: [edn-java](https://github.com/bpsm/edn-java) and Clojure's
+  built-in `clojure.edn` reader.
+
+> Numbers TBD: harness pending.
 
 ## License
 
