@@ -242,6 +242,23 @@ test-suite wireform-proto-test
     tasty-hunit          >= 0.10 && < 0.11
 
 -- ===========================================================
+-- Regenerate well-known types from .proto files.
+-- Run: cabal run regen-wkt
+-- ===========================================================
+
+executable regen-wkt
+  import: defaults
+  main-is: Main.hs
+  hs-source-dirs: regen-wkt
+  build-depends:
+    base,
+    wireform-proto,
+    containers,
+    directory,
+    filepath,
+    text
+
+-- ===========================================================
 -- Conformance suite: drives the upstream protobuf
 -- conformance_test_runner against a wireform-conformance binary.
 -- See `test-conformance/README.md` for setup.

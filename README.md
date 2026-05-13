@@ -151,38 +151,38 @@ its format actually needs.
 
 | Package | Role |
 |---------|------|
-| `wireform-core` | Shared FFI primitives (encode buffers, hashing) used by every format package |
-| `wireform-derive` | Annotation-driven Template Haskell deriver core (`Modifier`, `NameStyle`, `TypeInfo`, `BackendModifier`) |
-| `wireform-columnar` | SIMD-accelerated columnar primitives (bit-unpacking, predicate vocabulary, pull-based iter combinators) shared by Arrow, Parquet, and ORC |
-| `wireform-proto` | Protocol Buffers (proto2 / proto3): IDL parser, codegen, runtime, JSON mapping, well-known types |
-| `wireform-cbor` | CBOR (RFC 8949) values, encoding/decoding, JSON bridge, CDDL schema and codegen |
-| `wireform-msgpack` | MessagePack values, encoding/decoding, JSON bridge, msgpack-rpc |
-| `wireform-thrift` | Apache Thrift binary and compact protocol, schema, JSON mapping |
-| `wireform-bson` | BSON (MongoDB wire format) |
-| `wireform-ion` | Amazon Ion binary values, ISL schema, codegen |
-| `wireform-edn` | Extensible Data Notation (EDN) |
-| `wireform-toml` | TOML 1.0 / 1.1 |
-| `wireform-yaml` | YAML 1.2 (block + flow, anchors / aliases, tags, multi-document streams). It is the fastest YAML library for Haskell, has no external C library dependencies, and is the only one that passes 100% of the YAML 1.2 conformance suite. Also, it is the only one that is hardened against e.g. billion laughs attacks. |
-| `wireform-bencode` | BitTorrent bencode |
-| `wireform-fory` | Apache Fory (formerly Fury) cross-language serialization, wire-compatible with `pyfory` 0.17 |
-| `wireform-asn1` | ASN.1 BER / DER (ITU-T X.690) |
-| `wireform-avro` | Apache Avro: schema resolution, JSON conversion, IPC protocol, container files |
-| `wireform-bond` | Microsoft Bond compact binary |
-| `wireform-flatbuffers` | FlatBuffers zero-copy flat serialization |
-| `wireform-capnproto` | Cap'n Proto zero-copy serialization |
-| `wireform-arrow` | Apache Arrow IPC schema framing and record batch materialization |
-| `wireform-parquet` | Apache Parquet metadata, column pages, page index, bloom filter, read/write |
-| `wireform-orc` | Apache ORC metadata, stripes, read/write, predicate evaluator |
-| `wireform-iceberg` | Apache Iceberg table metadata, manifests, schema evolution, catalogs |
-| `wireform-delta` | Delta Lake transaction log + checkpoints + time travel |
-| `wireform-hudi` | Apache Hudi timeline reader (Copy-on-Write, JSON + Avro instants) |
-| `wireform-lance` | Apache Lance data file + manifest + dataset reader |
-| `wireform-csv` | CSV / TSV / pipe-separated |
-| `wireform-ndjson` | Newline-delimited JSON |
-| `wireform-xml` | High-performance XML SAX/DOM, XPath, XSLT 1.0 subset, codegen |
-| `wireform-html` | HTML5 tokenizer, tree builder, DOM, CSS selectors, streaming rewriter |
-| `wireform-grpc` | gRPC client/server (vendored from `grapesy`) over `wireform-proto` |
-| `wireform-kafka` | Native Apache Kafka client (TCP / TLS / SASL / compression / consumer groups / transactions / pipelining / OTel) |
+| [`wireform-core`](wireform-core/README.md) | Shared FFI primitives (encode buffers, hashing) used by every format package |
+| [`wireform-derive`](wireform-derive/README.md) | Annotation-driven Template Haskell deriver core (`Modifier`, `NameStyle`, `TypeInfo`, `BackendModifier`) |
+| [`wireform-columnar`](wireform-columnar/README.md) | SIMD-accelerated columnar primitives (bit-unpacking, predicate vocabulary, pull-based iter combinators) shared by Arrow, Parquet, and ORC |
+| [`wireform-proto`](wireform-proto/README.md) | Protocol Buffers (proto2 / proto3): IDL parser, codegen, runtime, JSON mapping, well-known types |
+| [`wireform-cbor`](wireform-cbor/README.md) | CBOR (RFC 8949) values, encoding/decoding, JSON bridge, CDDL schema and codegen |
+| [`wireform-msgpack`](wireform-msgpack/README.md) | MessagePack values, encoding/decoding, JSON bridge, msgpack-rpc |
+| [`wireform-thrift`](wireform-thrift/README.md) | Apache Thrift binary and compact protocol, schema, JSON mapping |
+| [`wireform-bson`](wireform-bson/README.md) | BSON (MongoDB wire format) |
+| [`wireform-ion`](wireform-ion/README.md) | Amazon Ion binary values, ISL schema, codegen |
+| [`wireform-edn`](wireform-edn/README.md) | Extensible Data Notation (EDN) |
+| [`wireform-toml`](wireform-toml/README.md) | TOML 1.0 / 1.1 |
+| [`wireform-yaml`](wireform-yaml/README.md) | YAML 1.2 (block + flow, anchors / aliases, tags, multi-document streams). It is the fastest YAML library for Haskell, has no external C library dependencies, and is the only one that passes 100% of the YAML 1.2 conformance suite. Also, it is the only one that is hardened against e.g. billion laughs attacks. |
+| [`wireform-bencode`](wireform-bencode/README.md) | BitTorrent bencode |
+| [`wireform-fory`](wireform-fory/README.md) | Apache Fory (formerly Fury) cross-language serialization, wire-compatible with `pyfory` 0.17 |
+| [`wireform-asn1`](wireform-asn1/README.md) | ASN.1 BER / DER (ITU-T X.690) |
+| [`wireform-avro`](wireform-avro/README.md) | Apache Avro: schema resolution, JSON conversion, IPC protocol, container files |
+| [`wireform-bond`](wireform-bond/README.md) | Microsoft Bond compact binary |
+| [`wireform-flatbuffers`](wireform-flatbuffers/README.md) | FlatBuffers zero-copy flat serialization |
+| [`wireform-capnproto`](wireform-capnproto/README.md) | Cap'n Proto zero-copy serialization |
+| [`wireform-arrow`](wireform-arrow/README.md) | Apache Arrow IPC schema framing and record batch materialization |
+| [`wireform-parquet`](wireform-parquet/README.md) | Apache Parquet metadata, column pages, page index, bloom filter, read/write |
+| [`wireform-orc`](wireform-orc/README.md) | Apache ORC metadata, stripes, read/write, predicate evaluator |
+| [`wireform-iceberg`](wireform-iceberg/README.md) | Apache Iceberg table metadata, manifests, schema evolution, catalogs |
+| [`wireform-delta`](wireform-delta/README.md) | Delta Lake transaction log + checkpoints + time travel |
+| [`wireform-hudi`](wireform-hudi/README.md) | Apache Hudi timeline reader (Copy-on-Write, JSON + Avro instants) |
+| [`wireform-lance`](wireform-lance/README.md) | Apache Lance data file + manifest + dataset reader |
+| [`wireform-csv`](wireform-csv/README.md) | CSV / TSV / pipe-separated |
+| [`wireform-ndjson`](wireform-ndjson/README.md) | Newline-delimited JSON |
+| [`wireform-xml`](wireform-xml/README.md) | High-performance XML SAX/DOM, XPath, XSLT 1.0 subset, codegen |
+| [`wireform-html`](wireform-html/README.md) | HTML5 tokenizer, tree builder, DOM, CSS selectors, streaming rewriter |
+| [`wireform-grpc`](wireform-grpc/README.md) | gRPC client/server (vendored from `grapesy`) over `wireform-proto` |
+| [`wireform-kafka`](wireform-kafka/README.md) | Native Apache Kafka client (TCP / TLS / SASL / compression / consumer groups / transactions / pipelining / OTel) |
 
 ### Module conventions inside each format package
 
