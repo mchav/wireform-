@@ -24,11 +24,20 @@ import System.CPUTime (getCPUTime)
 import System.IO (hFlush, stdout)
 import Text.Printf (printf)
 
+import Data.Reflection (Given (..))
+import Proto.Internal.JSON.Extension (ExtensionRegistry, emptyExtensionRegistry)
 import Proto.TH (loadProto)
 import qualified Proto.Decode as PD
 import qualified Proto.Encode as PE
 import qualified Proto.Extension as Ext
 import Proto.Google.Protobuf.Timestamp (Timestamp(..), defaultTimestamp)
+
+-- TH-generated JSON instances carry a 'Given ExtensionRegistry' constraint
+-- for proto2 extensions; this bench schema has none, so satisfy it with
+-- the empty registry (same orphan pattern as the test-conformance and
+-- derive-test fixtures).
+instance Given ExtensionRegistry where
+  given = emptyExtensionRegistry
 
 -- A small inline schema covering the common shapes.
 $(loadProto "bench/Bench.proto")

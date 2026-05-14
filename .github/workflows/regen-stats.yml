@@ -13,6 +13,10 @@ on:
         required: false
         default: false
 
+concurrency:
+  group: stats-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # Two jobs:
 #
 #   stale-check  -- fast. Builds wireform-stats, runs `regen-stats check`,

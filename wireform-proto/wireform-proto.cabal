@@ -276,6 +276,7 @@ benchmark loadproto-bench
     aeson,
     bytestring,
     deepseq,
+    reflection,
     template-haskell,
     text,
     vector

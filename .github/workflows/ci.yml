@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# A single push to main can queue ~17 jobs across the CI workflow alone
+# (4 GHC versions × Build & Test + HLint + Benchmarks + Codegen
+# roundtrip), and the matrix legs are slow enough that consecutive
+# pushes saturate the runner pool. Auto-cancel older runs of the same
+# ref so only the latest commit's runs hold runner capacity.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     name: Build & Test (GHC ${{ matrix.ghc }})
