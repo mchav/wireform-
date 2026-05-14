@@ -54,21 +54,25 @@ instance Monoid SizedBuilder where
   {-# INLINE mempty #-}
 
 
+-- | The empty 'SizedBuilder' (zero size, empty builder).
 empty :: SizedBuilder
 empty = mempty
 {-# INLINE empty #-}
 
 
+-- | Construct a 'SizedBuilder' from a known byte size and a builder.
 sized :: Int -> B.Builder -> SizedBuilder
 sized = SizedBuilder
 {-# INLINE sized #-}
 
 
+-- | Extract the underlying builder, discarding the size.
 toBuilder :: SizedBuilder -> B.Builder
 toBuilder = sbBuilder
 {-# INLINE toBuilder #-}
 
 
+-- | Get the precomputed byte size.
 size :: SizedBuilder -> Int
 size = sbSize
 {-# INLINE size #-}
@@ -91,11 +95,13 @@ toByteStringFromBuilder = B.toStrictByteStringExact
 {-# INLINE toByteStringFromBuilder #-}
 
 
+-- | Produce a lazy 'BL.ByteString' from the builder.
 toLazyByteString :: SizedBuilder -> BL.ByteString
 toLazyByteString (SizedBuilder _sz bld) = B.toLazyByteString bld
 {-# INLINE toLazyByteString #-}
 
 
+-- | Wrap a 'SizedBuilder' as a length-delimited submessage (prepends the varint length prefix).
 withSubMessage :: SizedBuilder -> SizedBuilder
 withSubMessage sb =
   let !payloadSize = sbSize sb

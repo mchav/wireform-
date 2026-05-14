@@ -535,7 +535,9 @@ never accesses a submessage field, the decode cost is zero.
 -}
 data LazyMessage a = LazyMessage
   { lazyRawBytes :: !ByteString
+  -- ^ The raw submessage bytes captured from the parent buffer.
   , lazyCached :: ~(Either DecodeError a)
+  -- ^ The lazily-evaluated decode result; not forced until 'forceLazyMessage' is called.
   }
 
 
@@ -570,10 +572,14 @@ Storing unknown fields allows messages to pass through intermediaries
 without losing data added by newer protocol versions.
 -}
 data UnknownField
-  = UnknownVarint {-# UNPACK #-} !Int {-# UNPACK #-} !Word64
-  | UnknownFixed64 {-# UNPACK #-} !Int {-# UNPACK #-} !Word64
-  | UnknownFixed32 {-# UNPACK #-} !Int {-# UNPACK #-} !Word32
-  | UnknownLenDelim {-# UNPACK #-} !Int !ByteString
+  = -- | A varint-encoded unknown field (wire type 0).
+    UnknownVarint {-# UNPACK #-} !Int {-# UNPACK #-} !Word64
+  | -- | A 64-bit fixed-width unknown field (wire type 1).
+    UnknownFixed64 {-# UNPACK #-} !Int {-# UNPACK #-} !Word64
+  | -- | A 32-bit fixed-width unknown field (wire type 5).
+    UnknownFixed32 {-# UNPACK #-} !Int {-# UNPACK #-} !Word32
+  | -- | A length-delimited unknown field (wire type 2).
+    UnknownLenDelim {-# UNPACK #-} !Int !ByteString
   deriving stock (Show, Eq)
 
 

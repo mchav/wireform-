@@ -51,9 +51,11 @@ import Text.Megaparsec.Char
 import Text.Megaparsec.Char.Lexer qualified as L
 
 
+-- | The parser monad used by the proto IDL parser.
 type Parser = Parsec Void Text
 
 
+-- | Try a parser, returning the given default if it does not match.
 option :: a -> Parser a -> Parser a
 option = MP.option
 
@@ -67,14 +69,17 @@ sc =
     (L.skipBlockComment "/*" "*/")
 
 
+-- | Wrap a parser to consume trailing whitespace and comments.
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
 
 
+-- | Parse a fixed symbol and consume trailing whitespace.
 symbol :: Text -> Parser Text
 symbol = L.symbol sc
 
 
+-- | Parse content enclosed in curly braces.
 braces :: Parser a -> Parser a
 braces p = do
   _ <- symbol "{" <?> "'{'"
@@ -83,6 +88,7 @@ braces p = do
   pure x
 
 
+-- | Parse content enclosed in square brackets.
 brackets :: Parser a -> Parser a
 brackets p = do
   _ <- symbol "[" <?> "'['"
@@ -91,6 +97,7 @@ brackets p = do
   pure x
 
 
+-- | Parse content enclosed in parentheses.
 parens :: Parser a -> Parser a
 parens p = do
   _ <- symbol "(" <?> "'('"
@@ -99,6 +106,7 @@ parens p = do
   pure x
 
 
+-- | Parse content enclosed in angle brackets.
 angles :: Parser a -> Parser a
 angles p = do
   _ <- symbol "<" <?> "'<'"
@@ -107,14 +115,17 @@ angles p = do
   pure x
 
 
+-- | Parse a semicolon.
 semi :: Parser ()
 semi = void (symbol ";" <?> "';'")
 
 
+-- | Parse a comma.
 comma :: Parser ()
 comma = void (symbol "," <?> "','")
 
 
+-- | Parse an equals sign.
 equals :: Parser ()
 equals = void (symbol "=" <?> "'='")
 
@@ -152,6 +163,7 @@ fullIdent =
       pure (T.cons c rest)
 
 
+-- | Parse an integer literal (decimal, hex, or octal), with optional sign.
 intLiteral :: Parser Integer
 intLiteral =
   lexeme
@@ -172,6 +184,7 @@ intLiteral =
       pure (T.foldl' (\acc c -> acc * 8 + fromIntegral (digitToInt c)) 0 digits)
 
 
+-- | Parse a floating-point literal, including @inf@ and @nan@.
 floatLiteral :: Parser Double
 floatLiteral =
   lexeme
@@ -256,6 +269,7 @@ stringLiteral =
       pure (chr val)
 
 
+-- | Parse a boolean literal (@true@ or @false@).
 boolLiteral :: Parser Bool
 boolLiteral =
   lexeme
@@ -267,6 +281,7 @@ boolLiteral =
     <?> "boolean (true or false)"
 
 
+-- | Parse a reserved keyword, ensuring it is not a prefix of an identifier.
 reserved :: Text -> Parser ()
 reserved w = lexeme $ do
   void (string w)

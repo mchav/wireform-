@@ -28,19 +28,15 @@ individually; the marker instance is the contract.
 == Discovering instances
 
 The 'discoverRegistry' splice walks every 'IsMessage' instance visible
-in the current module and emits a 'TypeRegistry' value containing them
-all. It's a /typed/ TH splice (return type @'Code' Q 'TypeRegistry'@),
-so the splice site gets a compile-time shape contract on top of the
-runtime registration logic. Use it in place of the previous
-hand-maintained @buildRegistry [ [t| Timestamp |], [t| Duration |], … ]@
-style:
+in the current module and emits a 'TypeRegistry' containing them all,
+plus the standard well-known type codecs (Timestamp, Duration, Any,
+Struct, FieldMask, Wrappers, etc.) so you don't need to wire those up
+manually.
 
 @
 {\-\# LANGUAGE TemplateHaskell \#-\}
 import Proto.Registry (TypeRegistry, discoverRegistry)
-import Proto.Google.Protobuf.Timestamp ()   -- import for the instance
-import Proto.Google.Protobuf.Duration ()
--- ... import every module whose messages should be in the registry
+-- import every module whose messages should be in the registry
 
 myRegistry :: TypeRegistry
 myRegistry = $$discoverRegistry
@@ -85,7 +81,7 @@ import Data.Maybe (mapMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Typeable (Typeable, cast)
-import Language.Haskell.TH (Dec (..), Info (..), Q, Type (..), reify)
+import Language.Haskell.TH (Dec (..), Exp (..), Info (..), Name, Q, Type (..), mkName, reify)
 import Language.Haskell.TH.Syntax (Code, unsafeCodeCoerce)
 import Proto.Decode (DecodeError, MessageDecode (..), decodeMessage)
 import Proto.Encode (MessageEncode (..), encodeMessage)
@@ -211,25 +207,25 @@ lookupDecoder name reg = do
 -- Template Haskell discovery
 -- ---------------------------------------------------------------------------
 
-{- | Typed Template Haskell splice that discovers every 'IsMessage'
-instance visible in the current compilation unit and emits a
-'TypeRegistry' value containing them all.
+{- | Typed Template Haskell splice that builds a 'TypeRegistry' containing:
+
+* Every 'IsMessage' instance visible at the splice site.
+* The standard well-known type codecs (Timestamp, Duration, Any, Struct,
+  FieldMask, Wrappers, Empty, SourceContext) with their canonical JSON
+  handling.
 
 Usage (note the @$$@ for a typed splice):
 
 @
 import Proto.Registry (TypeRegistry, discoverRegistry)
-import Proto.Google.Protobuf.Timestamp ()
-import Proto.Google.Protobuf.Duration ()
-import Proto.Google.Protobuf.Empty ()
 
 myRegistry :: TypeRegistry
 myRegistry = $$discoverRegistry
 @
 
-The splice's return type is statically 'TypeRegistry', so any internal
-bug that produced the wrong shape would be caught at compile time at
-the splice site rather than at @Q@ runtime.
+You don't need to import the WKT modules for their instances — they're
+baked in automatically. Just import the modules whose generated message
+types you want in the registry.
 
 Caveat: TH only sees instances that GHC has already compiled before
 the splice runs. Same-module instances are invisible. Put the splice
@@ -250,7 +246,11 @@ discoverRegistry = unsafeCodeCoerce $ do
         ClassI _ is -> is
         _ -> []
   let types = mapMaybe instanceHeadType insts
-  foldr step [|emptyRegistry|] types
+  -- Start from the standard WKT registry so well-known types
+  -- (Timestamp, Duration, Any, Struct, FieldMask, Wrappers, etc.)
+  -- are always included with their canonical JSON codecs.
+  let wktBase = VarE (mkName "Proto.Internal.JSON.WellKnown.standardWktRegistry")
+  foldr step (pure wktBase) types
   where
     step ty acc =
       [|registerMessage (Proxy :: Proxy $(pure ty)) $acc|]

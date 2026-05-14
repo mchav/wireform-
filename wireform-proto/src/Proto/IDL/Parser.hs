@@ -58,6 +58,7 @@ parseProtoFileWithSpans fp src =
         in Right pf' {protoSource = Just src}
 
 
+-- | Core parser for a proto file given a pre-built comment map.
 parseProto :: CommentMap -> Parser (ProtoFile' Parsed)
 parseProto cm = do
   sc

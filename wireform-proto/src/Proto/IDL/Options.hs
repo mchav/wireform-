@@ -78,25 +78,45 @@ import Proto.IDL.Annotations
 -- | Standard file-level options.
 data FileOptions = FileOptions
   { foJavaPackage :: !(Maybe Text)
+  -- ^ @java_package@ option.
   , foJavaOuterClassname :: !(Maybe Text)
+  -- ^ @java_outer_classname@ option.
   , foJavaMultipleFiles :: !Bool
+  -- ^ @java_multiple_files@ option.
   , foGoPackage :: !(Maybe Text)
+  -- ^ @go_package@ option.
   , foCsharpNamespace :: !(Maybe Text)
+  -- ^ @csharp_namespace@ option.
   , foObjcClassPrefix :: !(Maybe Text)
+  -- ^ @objc_class_prefix@ option.
   , foPhpNamespace :: !(Maybe Text)
+  -- ^ @php_namespace@ option.
   , foRubyPackage :: !(Maybe Text)
+  -- ^ @ruby_package@ option.
   , foSwiftPrefix :: !(Maybe Text)
+  -- ^ @swift_prefix@ option.
   , foOptimizeFor :: !OptimizeMode
+  -- ^ @optimize_for@ option.
   , foCcEnableArenas :: !Bool
+  -- ^ @cc_enable_arenas@ option.
   , foDeprecated :: !Bool
+  -- ^ Whether the file is marked deprecated.
   }
   deriving stock (Show, Eq)
 
 
-data OptimizeMode = Speed | CodeSize | LiteRuntime
+-- | The @optimize_for@ file option.
+data OptimizeMode
+  = -- | Optimize for speed (default).
+    Speed
+  | -- | Optimize for code size.
+    CodeSize
+  | -- | Use the lite runtime.
+    LiteRuntime
   deriving stock (Show, Eq, Ord)
 
 
+-- | Extract standard file-level options from a list of option definitions.
 extractFileOptions :: [OptionDef] -> FileOptions
 extractFileOptions opts =
   FileOptions
@@ -124,11 +144,14 @@ parseOptimizeMode _ = Speed
 -- | Standard message-level options.
 data MessageOptions = MessageOptions
   { moDeprecated :: !Bool
+  -- ^ Whether the message is marked deprecated.
   , moMapEntry :: !Bool
+  -- ^ Whether this message is a synthetic map entry type.
   }
   deriving stock (Show, Eq)
 
 
+-- | Extract standard message-level options from a list of option definitions.
 extractMessageOptions :: [OptionDef] -> MessageOptions
 extractMessageOptions opts =
   MessageOptions
@@ -140,12 +163,16 @@ extractMessageOptions opts =
 -- | Standard field-level options.
 data FieldOptions = FieldOptions
   { fldDeprecated :: !Bool
+  -- ^ Whether the field is marked deprecated.
   , fldPacked :: !(Maybe Bool)
+  -- ^ The @packed@ option value, if set.
   , fldJsonName :: !(Maybe Text)
+  -- ^ The @json_name@ override, if set.
   }
   deriving stock (Show, Eq)
 
 
+-- | Extract standard field-level options from a list of option definitions.
 extractFieldOptions :: [OptionDef] -> FieldOptions
 extractFieldOptions opts =
   FieldOptions
@@ -158,11 +185,14 @@ extractFieldOptions opts =
 -- | Standard enum-level options.
 data EnumOptions = EnumOptions
   { eoAllowAlias :: !Bool
+  -- ^ Whether multiple enum values may share the same number.
   , eoDeprecated :: !Bool
+  -- ^ Whether the enum is marked deprecated.
   }
   deriving stock (Show, Eq)
 
 
+-- | Extract standard enum-level options from a list of option definitions.
 extractEnumOptions :: [OptionDef] -> EnumOptions
 extractEnumOptions opts =
   EnumOptions
@@ -178,6 +208,7 @@ newtype EnumValueOptions = EnumValueOptions
   deriving stock (Show, Eq)
 
 
+-- | Extract standard enum value options from a list of option definitions.
 extractEnumValueOptions :: [OptionDef] -> EnumValueOptions
 extractEnumValueOptions opts =
   EnumValueOptions
@@ -192,6 +223,7 @@ newtype ServiceOptions = ServiceOptions
   deriving stock (Show, Eq)
 
 
+-- | Extract standard service-level options from a list of option definitions.
 extractServiceOptions :: [OptionDef] -> ServiceOptions
 extractServiceOptions opts =
   ServiceOptions
@@ -206,6 +238,7 @@ newtype RpcOptions = RpcOptions
   deriving stock (Show, Eq)
 
 
+-- | Extract standard RPC-level options from a list of option definitions.
 extractRpcOptions :: [OptionDef] -> RpcOptions
 extractRpcOptions opts =
   RpcOptions

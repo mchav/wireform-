@@ -58,6 +58,7 @@ newtype CustomOptionRegistry = CustomOptionRegistry
   deriving stock (Show, Eq)
 
 
+-- | An empty custom option registry with no registered options.
 emptyCustomOptionRegistry :: CustomOptionRegistry
 emptyCustomOptionRegistry = CustomOptionRegistry Map.empty
 

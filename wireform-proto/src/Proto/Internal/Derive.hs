@@ -319,6 +319,7 @@ newtype MessageMeta = MessageMeta
   deriving stock (Show)
 
 
+-- | Default 'MessageMeta' with no unknown-fields slot.
 defaultMessageMeta :: MessageMeta
 defaultMessageMeta = MessageMeta {mmUnknownFieldsSel = Nothing}
 
@@ -1652,9 +1653,7 @@ decodeLoopBody meta conName loopName pairs ufAccM = do
         do
           -- 'withTagM' passes 'wt' as a raw 'Int'; 'captureUnknownField'
           -- and 'skipField' both want a 'WireType'. 'toEnum' bridges
-          -- the two without paying for a 'Tag' record allocation on
-          -- the hot path (which the old 'getTagOrU' + pattern match
-          -- forced even when the field was an unknown).
+          -- the two without allocating a 'Tag' record on the hot path.
           $(varP ufVar) <- PD.captureUnknownField $(varE fnVar) (toEnum $(varE wtVar))
           $(recurseLoopWithUFE loopName allAccs ufAcc (VarE ufVar))
         |]

@@ -22,7 +22,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['9.6.4', '9.8.4', '9.10.1', '9.12.1']
+        # 9.10.3 (not .1) because 9.10.1 hits a SIGSEGV in the GHC
+        # backend while compiling some TH-heavy modules in
+        # wireform-proto (`exe:wireform-conformance-runner` and
+        # `test:wireform-proto-derive-test`) on linux-x86_64 — not
+        # reproducible on aarch64-darwin or other GHC versions, so
+        # almost certainly a backend bug fixed in the 9.10 patch line.
+        ghc: ['9.6.4', '9.8.4', '9.10.3', '9.12.1']
     steps:
       - uses: actions/checkout@v4
 

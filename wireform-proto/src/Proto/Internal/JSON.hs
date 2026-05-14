@@ -146,14 +146,18 @@ parseBytesFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj o
 
 -- Proto3 canonical JSON: 64-bit integers are encoded as strings.
 
+-- | Encode an 'Int64' as a JSON string (proto3 canonical 64-bit encoding).
 protoInt64ToJSON :: Int64 -> Aeson.Value
 protoInt64ToJSON n = Aeson.String (int64ToText n)
 
 
+-- | Encode a 'Word64' as a JSON string (proto3 canonical 64-bit encoding).
 protoWord64ToJSON :: Word64 -> Aeson.Value
 protoWord64ToJSON n = Aeson.String (word64ToText n)
 
 
+-- | Parse an 'Int64' from a JSON string or number (proto3 canonical).
+--
 -- Proto3 spec, "JSON Mapping": int64 / uint64 are encoded as
 -- decimal strings on output, but accepted as either string or
 -- number on input. The conformance suite verifies range +
@@ -165,6 +169,7 @@ protoInt64FromJSON (Aeson.Number n) = boundedFromSci "int64" n
 protoInt64FromJSON _ = fail "Expected int64 string or number"
 
 
+-- | Parse a 'Word64' from a JSON string or number (proto3 canonical).
 protoWord64FromJSON :: Aeson.Value -> Aeson.Parser Word64
 protoWord64FromJSON (Aeson.String s) = sciFromText s >>= boundedFromSci "uint64"
 protoWord64FromJSON (Aeson.Number n) = boundedFromSci "uint64" n
@@ -209,6 +214,7 @@ boundedFromSci ty s = case toBoundedInteger s of
 
 -- Proto3 canonical JSON: floats with NaN/Infinity as strings.
 
+-- | Encode a 'Double' as JSON, using string sentinels for NaN and Infinity.
 protoDoubleToJSON :: Double -> Aeson.Value
 protoDoubleToJSON d
   | isNaN d = Aeson.String "NaN"
@@ -216,10 +222,12 @@ protoDoubleToJSON d
   | otherwise = Aeson.Number (fromFloatDigits d)
 
 
+-- | Encode a 'Float' as JSON, using string sentinels for NaN and Infinity.
 protoFloatToJSON :: Float -> Aeson.Value
 protoFloatToJSON = protoDoubleToJSON . realToFrac
 
 
+-- | Parse a 'Double' from JSON, accepting NaN\/Infinity string sentinels.
 protoDoubleFromJSON :: Aeson.Value -> Aeson.Parser Double
 protoDoubleFromJSON (Aeson.Number n) = pure (toRealFloat n)
 protoDoubleFromJSON (Aeson.String "NaN") = pure (0 / 0)
@@ -228,12 +236,14 @@ protoDoubleFromJSON (Aeson.String "-Infinity") = pure (negate (1 / 0))
 protoDoubleFromJSON _ = fail "Expected number or special float string"
 
 
+-- | Parse a 'Float' from JSON, accepting NaN\/Infinity string sentinels.
 protoFloatFromJSON :: Aeson.Value -> Aeson.Parser Float
 protoFloatFromJSON v = realToFrac <$> protoDoubleFromJSON v
 
 
 -- Proto3 canonical JSON: bytes as base64.
 
+-- | Encode a strict 'ByteString' as a base64 JSON string.
 protoBytesToJSON :: ByteString -> Aeson.Value
 protoBytesToJSON bs = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
 
@@ -245,6 +255,7 @@ protoBytesToJSON bs = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
 -- when input length is already a multiple of 4 internally;
 -- for \"-_\"-style 2-char inputs we manually pad first so the
 -- @decode@ entrypoint accepts them.
+-- | Parse a strict 'ByteString' from a base64 or base64url JSON string.
 protoBytesFromJSON :: Aeson.Value -> Aeson.Parser ByteString
 protoBytesFromJSON (Aeson.String s) =
   let bs = TE.encodeUtf8 s
@@ -284,18 +295,22 @@ looksLikeBase64Url bs =
 -- Lazy ByteString (base64)
 -- ---------------------------------------------------------------------------
 
+-- | Encode a lazy 'BL.ByteString' as a base64 JSON string.
 protoLazyBytesToJSON :: BL.ByteString -> Aeson.Value
 protoLazyBytesToJSON = protoBytesToJSON . BL.toStrict
 
 
+-- | Parse a lazy 'BL.ByteString' from a base64 JSON string.
 protoLazyBytesFromJSON :: Aeson.Value -> Aeson.Parser BL.ByteString
 protoLazyBytesFromJSON v = BL.fromStrict <$> protoBytesFromJSON v
 
 
+-- | Encode a lazy bytes field as a base64 JSON string field pair.
 lazyBytesFieldToJSON :: Text -> BL.ByteString -> (Text, Aeson.Value)
 lazyBytesFieldToJSON key lbs = (key, protoLazyBytesToJSON lbs)
 
 
+-- | Parse an optional lazy bytes field from base64.
 parseLazyBytesFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe BL.ByteString)
 parseLazyBytesFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
   Nothing -> pure Nothing
@@ -307,18 +322,22 @@ parseLazyBytesFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) o
 -- ShortByteString (base64)
 -- ---------------------------------------------------------------------------
 
+-- | Encode a 'SBS.ShortByteString' as a base64 JSON string.
 protoShortBytesToJSON :: SBS.ShortByteString -> Aeson.Value
 protoShortBytesToJSON = protoBytesToJSON . SBS.fromShort
 
 
+-- | Parse a 'SBS.ShortByteString' from a base64 JSON string.
 protoShortBytesFromJSON :: Aeson.Value -> Aeson.Parser SBS.ShortByteString
 protoShortBytesFromJSON v = SBS.toShort <$> protoBytesFromJSON v
 
 
+-- | Encode a short bytes field as a base64 JSON string field pair.
 shortBytesFieldToJSON :: Text -> SBS.ShortByteString -> (Text, Aeson.Value)
 shortBytesFieldToJSON key sbs = (key, protoShortBytesToJSON sbs)
 
 
+-- | Parse an optional short bytes field from base64.
 parseShortBytesFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe SBS.ShortByteString)
 parseShortBytesFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
   Nothing -> pure Nothing
@@ -330,10 +349,12 @@ parseShortBytesFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) 
 -- Lazy Text (JSON string)
 -- ---------------------------------------------------------------------------
 
+-- | Encode a lazy 'TL.Text' field as a JSON string field pair.
 lazyTextFieldToJSON :: Text -> TL.Text -> (Text, Aeson.Value)
 lazyTextFieldToJSON key lt = (key, Aeson.String (TL.toStrict lt))
 
 
+-- | Parse an optional lazy 'TL.Text' field from a JSON string.
 parseLazyTextFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe TL.Text)
 parseLazyTextFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
   Nothing -> pure Nothing
@@ -346,12 +367,14 @@ parseLazyTextFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) ob
 -- ShortByteString as text (UTF-8 stored in SBS)
 -- ---------------------------------------------------------------------------
 
+-- | Encode a UTF-8 'SBS.ShortByteString' text field as a JSON string field pair.
 shortTextFieldToJSON :: Text -> SBS.ShortByteString -> (Text, Aeson.Value)
 shortTextFieldToJSON key sbs = case TE.decodeUtf8' (SBS.fromShort sbs) of
   Right t -> (key, Aeson.String t)
   Left _ -> (key, Aeson.String "")
 
 
+-- | Parse an optional UTF-8 'SBS.ShortByteString' text field from a JSON string.
 parseShortTextFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe SBS.ShortByteString)
 parseShortTextFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
   Nothing -> pure Nothing
@@ -364,10 +387,12 @@ parseShortTextFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) o
 -- Haskell String (JSON string)
 -- ---------------------------------------------------------------------------
 
+-- | Encode a Haskell 'String' field as a JSON string field pair.
 hsStringFieldToJSON :: Text -> String -> (Text, Aeson.Value)
 hsStringFieldToJSON key s = (key, Aeson.String (T.pack s))
 
 
+-- | Parse an optional Haskell 'String' field from a JSON string.
 parseHsStringFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe String)
 parseHsStringFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
   Nothing -> pure Nothing
@@ -436,6 +461,7 @@ parseHashMapFromJSON _ = fail "Expected JSON object for map field"
 -- Bytes map helpers (Map k ByteString, common in proto APIs)
 -- ---------------------------------------------------------------------------
 
+-- | Encode a @Map Text ByteString@ field as a JSON object with base64 values.
 bytesMapFieldToJSON :: Text -> Map Text ByteString -> (Text, Aeson.Value)
 bytesMapFieldToJSON key m =
   ( key
@@ -446,6 +472,7 @@ bytesMapFieldToJSON key m =
   )
 
 
+-- | Parse an optional @Map Text ByteString@ field from a JSON object with base64 values.
 parseBytesMapFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe (Map Text ByteString))
 parseBytesMapFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
   Nothing -> pure Nothing
@@ -470,6 +497,7 @@ lazyBytesMapFieldToJSON key m =
   )
 
 
+-- | Parse an optional @Map Text BL.ByteString@ field from a JSON object with base64 values.
 parseLazyBytesMapFieldMaybe
   :: Aeson.Object -> Text -> Aeson.Parser (Maybe (Map Text BL.ByteString))
 parseLazyBytesMapFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
@@ -495,6 +523,7 @@ shortBytesMapFieldToJSON key m =
   )
 
 
+-- | Parse an optional @Map Text SBS.ShortByteString@ field from a JSON object with base64 values.
 parseShortBytesMapFieldMaybe
   :: Aeson.Object -> Text -> Aeson.Parser (Maybe (Map Text SBS.ShortByteString))
 parseShortBytesMapFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of

@@ -83,36 +83,43 @@ archVarint !tag !val = B.word8 tag <> putVarint val
 {-# INLINE archVarint #-}
 
 
+-- | Archetype: ZigZag-encoded sint32 field with baked tag byte.
 archSVarint32 :: Word8 -> Int32 -> B.Builder
 archSVarint32 !tag !val = B.word8 tag <> putSVarint32 val
 {-# INLINE archSVarint32 #-}
 
 
+-- | Archetype: ZigZag-encoded sint64 field with baked tag byte.
 archSVarint64 :: Word8 -> Int64 -> B.Builder
 archSVarint64 !tag !val = B.word8 tag <> putSVarint64 val
 {-# INLINE archSVarint64 #-}
 
 
+-- | Archetype: fixed32 field with baked tag byte (little-endian).
 archFixed32 :: Word8 -> Word32 -> B.Builder
 archFixed32 !tag !val = B.word8 tag <> B.word32LE val
 {-# INLINE archFixed32 #-}
 
 
+-- | Archetype: fixed64 field with baked tag byte (little-endian).
 archFixed64 :: Word8 -> Word64 -> B.Builder
 archFixed64 !tag !val = B.word8 tag <> B.word64LE val
 {-# INLINE archFixed64 #-}
 
 
+-- | Archetype: float field with baked tag byte (IEEE 754).
 archFloat :: Word8 -> Float -> B.Builder
 archFloat !tag !val = B.word8 tag <> B.floatLE val
 {-# INLINE archFloat #-}
 
 
+-- | Archetype: double field with baked tag byte (IEEE 754).
 archDouble :: Word8 -> Double -> B.Builder
 archDouble !tag !val = B.word8 tag <> B.doubleLE val
 {-# INLINE archDouble #-}
 
 
+-- | Archetype: bool field with baked tag byte.
 archBool :: Word8 -> Bool -> B.Builder
 archBool !tag True = B.word8 tag <> B.word8 1
 archBool !tag False = B.word8 tag <> B.word8 0
@@ -133,6 +140,7 @@ archString !tag !val = B.word8 tag <> putText val
 {-# INLINE archString #-}
 
 
+-- | Archetype: bytes field with baked tag byte (length-delimited).
 archBytes :: Word8 -> ByteString -> B.Builder
 archBytes !tag !val =
   B.word8 tag <> putVarint (fromIntegral (BS.length val)) <> B.byteString val
@@ -162,6 +170,7 @@ archRepeatedSubmessage = archSubmessage
 
 -- Size archetypes: compute encoded size with tag included.
 
+-- | Encoded size of a varint field including the 1-byte tag.
 archVarintSize :: Word64 -> Int
 archVarintSize !val = 1 + varintSize val
 {-# INLINE archVarintSize #-}
@@ -169,13 +178,8 @@ archVarintSize !val = 1 + varintSize val
 
 {- | Encoded size of a text field with baked tag.
 
-The naive shape (used here previously) called
-@'BS.length' ('TE.encodeUtf8' val)@, which materialises a fresh
-pinned 'BS.ByteString' every time the size pass runs purely to read its
-length slot. 'TF.lengthWord8' returns the same number in O(1) by
-reading the 'Text' record's length field directly, with no heap
-allocation. Saves one pinned 'ByteString' allocation per text
-field per encode call.
+Uses 'TF.lengthWord8' to read the 'Text' record's byte length in O(1)
+with no heap allocation.
 -}
 archStringSize :: Text -> Int
 archStringSize !val =
@@ -184,6 +188,7 @@ archStringSize !val =
 {-# INLINE archStringSize #-}
 
 
+-- | Encoded size of a bytes field including tag and length varint.
 archBytesSize :: ByteString -> Int
 archBytesSize !val =
   let !len = BS.length val

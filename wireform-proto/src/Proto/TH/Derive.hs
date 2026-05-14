@@ -141,6 +141,7 @@ deriveProto nm = do
   pure (enc ++ siz ++ dec)
 
 
+-- | Derive only the 'MessageEncode' instance for a record type.
 deriveProtoEncode :: Name -> Q [Dec]
 deriveProtoEncode nm = do
   ti <- recordOnly nm =<< reifyTypeInfo nm
@@ -150,6 +151,7 @@ deriveProtoEncode nm = do
   pure [inst]
 
 
+-- | Derive only the 'MessageSize' instance for a record type.
 deriveProtoSize :: Name -> Q [Dec]
 deriveProtoSize nm = do
   ti <- recordOnly nm =<< reifyTypeInfo nm
@@ -159,6 +161,7 @@ deriveProtoSize nm = do
   pure [inst]
 
 
+-- | Derive only the 'MessageDecode' instance for a record type.
 deriveProtoDecode :: Name -> Q [Dec]
 deriveProtoDecode nm = do
   ti <- recordOnly nm =<< reifyTypeInfo nm

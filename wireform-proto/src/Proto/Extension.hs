@@ -193,6 +193,7 @@ clearExtension ext msg =
 -- Internal
 -- ============================================================
 
+-- | Extract the field number from an 'UnknownField'.
 unknownFieldNumber :: UnknownField -> Int
 unknownFieldNumber = \case
   UnknownVarint n _ -> n
@@ -212,6 +213,7 @@ lookupField fn = go . reverse
       | otherwise = go rest
 
 
+-- | Decode a typed value from an 'UnknownField' using the given 'ExtensionType'.
 decodeExtensionValue :: ExtensionType a -> UnknownField -> Maybe a
 decodeExtensionValue ty uf = case (ty, uf) of
   (ExtInt32, UnknownVarint _ v) -> Just (fromIntegral v)
@@ -235,6 +237,7 @@ decodeExtensionValue ty uf = case (ty, uf) of
   _ -> Nothing
 
 
+-- | Encode a typed value into an 'UnknownField' for the given field number and type.
 encodeExtensionValue :: Int -> ExtensionType a -> a -> UnknownField
 encodeExtensionValue fn ty value = case ty of
   ExtInt32 -> UnknownVarint fn (fromIntegral value)

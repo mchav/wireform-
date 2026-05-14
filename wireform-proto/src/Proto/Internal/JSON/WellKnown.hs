@@ -92,8 +92,6 @@ import Proto.Google.Protobuf.Wrappers qualified as W
 import Proto.Registry (AnyCodec (..), TypeRegistry, emptyRegistry, lookupCodec, registerCodec)
 
 
--- Timestamp: RFC 3339 format "YYYY-MM-DDThh:mm:ss[.nnn]Z"
-
 {- | Encode a 'Timestamp' as canonical RFC 3339. Throws on out-
 of-range input — the conformance suite requires that
 serialisation fail when the wire-format value is outside
@@ -111,11 +109,13 @@ timestampToJSON ts
     !n = timestampNanos ts
 
 
+-- | Parse a 'Timestamp' from an RFC 3339 JSON string.
 timestampFromJSON :: Aeson.Value -> Either String Timestamp
 timestampFromJSON (Aeson.String t) = parseRfc3339 t
 timestampFromJSON _ = Left "Expected RFC 3339 string for Timestamp"
 
 
+-- | Format seconds and nanos as an RFC 3339 timestamp string.
 formatRfc3339 :: Int64 -> Int32 -> Text
 formatRfc3339 secs nanos =
   let !civil = unixToCivil secs
@@ -229,6 +229,7 @@ timestampMinSecs = -62135596800 -- 0001-01-01T00:00:00Z
 timestampMaxSecs = 253402300799 -- 9999-12-31T23:59:59Z
 
 
+-- | Parse an RFC 3339 string into a 'Timestamp'.
 parseRfc3339 :: Text -> Either String Timestamp
 parseRfc3339 t = do
   let stripped = T.strip t
@@ -389,6 +390,7 @@ durationMinSecs = -315576000000
 durationMaxSecs = 315576000000
 
 
+-- | Encode a 'Duration' as a canonical JSON string (e.g. @\"3.5s\"@).
 durationToJSON :: Duration -> Aeson.Value
 durationToJSON dur
   | s < durationMinSecs || s > durationMaxSecs =
@@ -406,6 +408,7 @@ durationToJSON dur
     secStr = signStr <> intToText (fromIntegral (abs s))
 
 
+-- | Parse a 'Duration' from a canonical JSON string (e.g. @\"3.5s\"@).
 durationFromJSON :: Aeson.Value -> Either String Duration
 durationFromJSON (Aeson.String t) = parseDuration t
 durationFromJSON _ = Left "Expected duration string"
@@ -449,6 +452,7 @@ parseDuration t = do
 -- camel form (uppercase chars, embedded digits, repeated
 -- underscores) MUST be rejected on serialise.
 
+-- | Encode a 'FieldMask' as a comma-separated lowerCamelCase JSON string.
 fieldMaskToJSON :: FieldMask -> Aeson.Value
 fieldMaskToJSON fm =
   case traverse snakeToFieldMaskCamel (V.toList (fieldMaskPaths fm)) of
@@ -456,6 +460,7 @@ fieldMaskToJSON fm =
     Left e -> error ("FieldMask path: " <> e)
 
 
+-- | Parse a 'FieldMask' from a comma-separated lowerCamelCase JSON string.
 fieldMaskFromJSON :: Aeson.Value -> Either String FieldMask
 fieldMaskFromJSON (Aeson.String t)
   | T.null t =
@@ -538,6 +543,7 @@ lowerOf c
 
 -- Struct/Value: native JSON
 
+-- | Encode a 'Struct' as a native JSON object.
 structToJSON :: Struct -> Aeson.Value
 structToJSON s =
   Aeson.Object
@@ -546,6 +552,7 @@ structToJSON s =
     )
 
 
+-- | Parse a 'Struct' from a native JSON object.
 structFromJSON :: Aeson.Value -> Either String Struct
 structFromJSON (Aeson.Object o) =
   Right
@@ -557,6 +564,7 @@ structFromJSON (Aeson.Object o) =
 structFromJSON _ = Left "Expected object for Struct"
 
 
+-- | Encode a protobuf 'Value' as a native JSON value.
 valueToJSON :: Value -> Aeson.Value
 valueToJSON v = case valueKind v of
   Nothing -> Aeson.Null
@@ -577,6 +585,7 @@ valueToJSON v = case valueKind v of
     Value'Kind'ListValue l -> Aeson.Array (fmap valueToJSON (listValueValues l))
 
 
+-- | Parse a protobuf 'Value' from a native JSON value.
 valueFromJSON :: Aeson.Value -> Either String Value
 valueFromJSON jv = Right (jsonToValue jv)
 
@@ -598,38 +607,47 @@ jsonToValue (Aeson.Object o) = defaultValue {valueKind = Just (Value'Kind'Struct
 -- per-scalar conversions where needed (string-form 64-bit ints,
 -- NaN/Infinity floats, base64 bytes).
 
+-- | Encode a 'W.BoolValue' as its bare inner JSON boolean.
 wrapBoolValue :: W.BoolValue -> Aeson.Value
 wrapBoolValue = Aeson.Bool . W.boolValueValue
 
 
+-- | Encode an 'W.Int32Value' as its bare inner JSON number.
 wrapInt32Value :: W.Int32Value -> Aeson.Value
 wrapInt32Value = Aeson.toJSON . W.int32ValueValue
 
 
+-- | Encode an 'W.Int64Value' as its bare inner JSON string (64-bit canonical).
 wrapInt64Value :: W.Int64Value -> Aeson.Value
 wrapInt64Value = Aeson.String . T.pack . show . W.int64ValueValue
 
 
+-- | Encode a 'W.UInt32Value' as its bare inner JSON number.
 wrapUInt32Value :: W.UInt32Value -> Aeson.Value
 wrapUInt32Value = Aeson.toJSON . W.uInt32ValueValue
 
 
+-- | Encode a 'W.UInt64Value' as its bare inner JSON string (64-bit canonical).
 wrapUInt64Value :: W.UInt64Value -> Aeson.Value
 wrapUInt64Value = Aeson.String . T.pack . show . W.uInt64ValueValue
 
 
+-- | Encode a 'W.FloatValue' as its bare inner JSON number (with NaN\/Infinity sentinels).
 wrapFloatValue :: W.FloatValue -> Aeson.Value
 wrapFloatValue = floatLikeToJSON . realToFrac . W.floatValueValue
 
 
+-- | Encode a 'W.DoubleValue' as its bare inner JSON number (with NaN\/Infinity sentinels).
 wrapDoubleValue :: W.DoubleValue -> Aeson.Value
 wrapDoubleValue = floatLikeToJSON . W.doubleValueValue
 
 
+-- | Encode a 'W.StringValue' as its bare inner JSON string.
 wrapStringValue :: W.StringValue -> Aeson.Value
 wrapStringValue = Aeson.String . W.stringValueValue
 
 
+-- | Encode a 'W.BytesValue' as its bare inner base64 JSON string.
 wrapBytesValue :: W.BytesValue -> Aeson.Value
 wrapBytesValue = Aeson.String . TE.decodeUtf8 . Base64.encode . W.bytesValueValue
 
@@ -643,23 +661,27 @@ floatLikeToJSON d
 
 -- Decoders parse a bare JSON value and construct the wrapper.
 
+-- | Parse a bare JSON boolean into a 'W.BoolValue'.
 unwrapBoolValue :: Aeson.Value -> Either String W.BoolValue
 unwrapBoolValue (Aeson.Bool b) = Right W.defaultBoolValue {W.boolValueValue = b}
 unwrapBoolValue _ = Left "Expected JSON Bool for BoolValue"
 
 
+-- | Parse a bare JSON number or string into an 'W.Int32Value'.
 unwrapInt32Value :: Aeson.Value -> Either String W.Int32Value
 unwrapInt32Value v = case parseIntegral v of
   Right n -> Right W.defaultInt32Value {W.int32ValueValue = fromIntegral (n :: Int64)}
   Left e -> Left e
 
 
+-- | Parse a bare JSON number or string into an 'W.Int64Value'.
 unwrapInt64Value :: Aeson.Value -> Either String W.Int64Value
 unwrapInt64Value v = case parseIntegral v of
   Right n -> Right W.defaultInt64Value {W.int64ValueValue = n}
   Left e -> Left e
 
 
+-- | Parse a bare JSON number or string into a 'W.UInt32Value'.
 unwrapUInt32Value :: Aeson.Value -> Either String W.UInt32Value
 unwrapUInt32Value v = case parseIntegral v of
   Right n ->
@@ -670,6 +692,7 @@ unwrapUInt32Value v = case parseIntegral v of
   Left e -> Left e
 
 
+-- | Parse a bare JSON number or string into a 'W.UInt64Value'.
 unwrapUInt64Value :: Aeson.Value -> Either String W.UInt64Value
 unwrapUInt64Value v = case parseIntegral v of
   Right n ->
@@ -680,24 +703,28 @@ unwrapUInt64Value v = case parseIntegral v of
   Left e -> Left e
 
 
+-- | Parse a bare JSON number (or NaN\/Infinity string) into a 'W.FloatValue'.
 unwrapFloatValue :: Aeson.Value -> Either String W.FloatValue
 unwrapFloatValue v = case parseFloating v of
   Right d -> Right W.defaultFloatValue {W.floatValueValue = realToFrac d}
   Left e -> Left e
 
 
+-- | Parse a bare JSON number (or NaN\/Infinity string) into a 'W.DoubleValue'.
 unwrapDoubleValue :: Aeson.Value -> Either String W.DoubleValue
 unwrapDoubleValue v = case parseFloating v of
   Right d -> Right W.defaultDoubleValue {W.doubleValueValue = d}
   Left e -> Left e
 
 
+-- | Parse a bare JSON string into a 'W.StringValue'.
 unwrapStringValue :: Aeson.Value -> Either String W.StringValue
 unwrapStringValue (Aeson.String s) =
   Right W.defaultStringValue {W.stringValueValue = s}
 unwrapStringValue _ = Left "Expected JSON String for StringValue"
 
 
+-- | Parse a bare base64 JSON string into a 'W.BytesValue'.
 unwrapBytesValue :: Aeson.Value -> Either String W.BytesValue
 unwrapBytesValue (Aeson.String s) =
   case Base64.decode (TE.encodeUtf8 s) of
@@ -726,10 +753,12 @@ parseFloating _ = Left "Expected JSON Number or {NaN,Infinity}"
 -- Empty / NullValue / Any
 -- ---------------------------------------------------------------------------
 
+-- | Encode 'Empty.Empty' as an empty JSON object.
 emptyToJSON :: Empty.Empty -> Aeson.Value
 emptyToJSON _ = Aeson.Object AesonKM.empty
 
 
+-- | Parse 'Empty.Empty' from a JSON object.
 emptyFromJSON :: Aeson.Value -> Either String Empty.Empty
 emptyFromJSON (Aeson.Object _) = Right Empty.defaultEmpty
 emptyFromJSON _ = Left "Expected JSON Object for Empty"

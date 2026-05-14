@@ -87,14 +87,11 @@ class ProtoMessage a where
   protoDefaultValue :: a
 
 
-{- | Type-safe field access without lenses.
+{- | Type-safe field access via plain get\/set functions.
 
 @HasField msg "fieldName" fieldType@ means the message @msg@ has a
-field named @"fieldName"@ with Haskell type @fieldType@.
-
-Unlike proto-lens, access is via plain get/set functions, not lenses.
-This avoids the lens-family dependency and the type inference issues
-that come with it.
+field named @"fieldName"@ with Haskell type @fieldType@. For lens-style
+access, see "Proto.Lens".
 -}
 class HasField (msg :: Type) (name :: Symbol) (a :: Type) | msg name -> a where
   -- | Get the field value.

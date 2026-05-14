@@ -93,6 +93,7 @@ import System.IO.Unsafe (unsafeDupablePerformIO)
 import Wireform.FFI (validateUtf8SWAR)
 
 
+-- | Errors that can occur during protobuf wire-format decoding.
 data DecodeError
   = UnexpectedEnd
   | InvalidVarint
@@ -261,26 +262,31 @@ getVarintSlow bs = go 0 0
 {-# INLINE getVarintSlow #-}
 
 
+-- | Decode a varint as a signed 'Int64'.
 getVarintSigned :: Decoder Int64
 getVarintSigned = fromIntegral <$> getVarint
 {-# INLINE getVarintSigned #-}
 
 
+-- | Decode a ZigZag-encoded sint32 value.
 getSVarint32 :: Decoder Int32
 getSVarint32 = unZigZag32 . fromIntegral <$> getVarint
 {-# INLINE getSVarint32 #-}
 
 
+-- | Decode a ZigZag-encoded sint64 value.
 getSVarint64 :: Decoder Int64
 getSVarint64 = unZigZag64 <$> getVarint
 {-# INLINE getSVarint64 #-}
 
 
+-- | Decode a ZigZag-encoded 32-bit value back to a signed 'Int32'.
 unZigZag32 :: Word32 -> Int32
 unZigZag32 n = fromIntegral ((n `shiftR` 1) `xor` negate (n .&. 1))
 {-# INLINE unZigZag32 #-}
 
 
+-- | Decode a ZigZag-encoded 64-bit value back to a signed 'Int64'.
 unZigZag64 :: Word64 -> Int64
 unZigZag64 n = fromIntegral ((n `shiftR` 1) `xor` negate (n .&. 1))
 {-# INLINE unZigZag64 #-}
@@ -329,11 +335,13 @@ readWord64LE (BSI.BS fp _) off = unsafeDupablePerformIO $
 {-# INLINE readWord64LE #-}
 
 
+-- | Decode a 32-bit IEEE 754 float from a fixed32 wire value.
 getFloat :: Decoder Float
 getFloat = castWord32ToFloat <$> getFixed32
 {-# INLINE getFloat #-}
 
 
+-- | Decode a 64-bit IEEE 754 double from a fixed64 wire value.
 getDouble :: Decoder Double
 getDouble = castWord64ToDouble <$> getFixed64
 {-# INLINE getDouble #-}
@@ -357,6 +365,7 @@ getLengthDelimited = Decoder $ \bs off ->
 {-# INLINE getLengthDelimited #-}
 
 
+-- | Decode a length-delimited bytes field (alias for 'getLengthDelimited').
 getByteString :: Decoder ByteString
 getByteString = getLengthDelimited
 {-# INLINE getByteString #-}
@@ -379,6 +388,7 @@ getText = Decoder $ \bs off ->
 {-# INLINE getText #-}
 
 
+-- | Decode a field tag (field number + wire type). Fails on invalid tags.
 getTag :: Decoder Tag
 getTag = Decoder $ \bs off ->
   case runDecoder# getVarint bs off of
@@ -452,10 +462,12 @@ skipGroup = Decoder $ \bs off ->
 data UMaybe a = UMaybe (# (# #) | a #)
 
 
+-- | A 'UMaybe' containing a value.
 pattern UJust :: a -> UMaybe a
 pattern UJust a = UMaybe (# | a #)
 
 
+-- | An empty 'UMaybe'.
 pattern UNothing :: UMaybe a
 pattern UNothing = UMaybe (# (# #) | #)
 
@@ -463,6 +475,7 @@ pattern UNothing = UMaybe (# (# #) | #)
 {-# COMPLETE UJust, UNothing #-}
 
 
+-- | Eliminate a 'UMaybe': supply a default for 'UNothing' and a function for 'UJust'.
 umaybe :: b -> (a -> b) -> UMaybe a -> b
 umaybe def f (UMaybe x) = case x of
   (# (# #) | #) -> def

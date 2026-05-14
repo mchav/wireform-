@@ -139,19 +139,23 @@ data DynamicMessage = DynamicMessage
   deriving stock (Show, Eq, Ord)
 
 
+-- | An empty dynamic message with no fields and no unknown fields.
 emptyDynamic :: DynamicMessage
 emptyDynamic = DynamicMessage Map.empty []
 
 
+-- | Look up a field by its proto field number in a dynamic message.
 dynamicField :: Int -> DynamicMessage -> Maybe DynamicValue
 dynamicField n (DynamicMessage fs _) = Map.lookup n fs
 
 
+-- | Insert or replace a field value at the given field number.
 setDynamicField :: Int -> DynamicValue -> DynamicMessage -> DynamicMessage
 setDynamicField n v (DynamicMessage fs unk) =
   DynamicMessage (Map.insert n v fs) unk
 
 
+-- | Remove a field by its proto field number, if present.
 removeDynamicField :: Int -> DynamicMessage -> DynamicMessage
 removeDynamicField n (DynamicMessage fs unk) =
   DynamicMessage (Map.delete n fs) unk

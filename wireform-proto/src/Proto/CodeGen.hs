@@ -293,18 +293,28 @@ defaultJsonOverrides =
 -- Type registry: maps fully-qualified proto names to Haskell type info
 -- ---------------------------------------------------------------------------
 
-data TypeKind = TKMessage | TKEnum
+-- | Whether a registered type is a message or an enum.
+data TypeKind
+  = -- | A message type.
+    TKMessage
+  | -- | An enum type.
+    TKEnum
   deriving stock (Show, Eq, Ord)
 
 
+-- | Information about a registered proto type's Haskell mapping.
 data TypeInfo = TypeInfo
   { tiModule :: Text
+  -- ^ The Haskell module containing this type.
   , tiHsName :: Text
+  -- ^ The Haskell type name.
   , tiKind :: TypeKind
+  -- ^ Whether this is a message or enum.
   }
   deriving stock (Show, Eq)
 
 
+-- | Maps fully-qualified proto type names to their Haskell type info.
 type TypeRegistry = Map Text TypeInfo
 
 
@@ -466,6 +476,7 @@ ctxFieldName :: GenCtx -> [Text] -> Text -> Text
 ctxFieldName ctx = scopedFieldNameWith (genFieldNaming (gcOpts ctx))
 
 
+-- | Generate a complete Haskell module as a 'Doc' from a proto file.
 generateModule :: GenerateOpts -> TypeRegistry -> FilePath -> ProtoFile -> Doc ann
 generateModule opts reg filePath pf =
   let thisMod = moduleNameForProto opts filePath pf
@@ -509,6 +520,7 @@ generateModule opts reg filePath pf =
           ds -> [mempty, vsep ds]
 
 
+-- | Generate a complete Haskell module as rendered 'Text' from a proto file.
 generateModuleText :: GenerateOpts -> TypeRegistry -> FilePath -> ProtoFile -> Text
 generateModuleText opts reg filePath pf =
   renderStrict (layoutPretty defaultLayoutOptions (generateModule opts reg filePath pf))
@@ -2699,14 +2711,17 @@ unpackPragma s
 -- Name conversion helpers
 -- ---------------------------------------------------------------------------
 
+-- | Build a Haskell type name from a scope path, joining with @'@.
 scopedTypeName :: [Text] -> Text
 scopedTypeName = T.intercalate "'" . fmap hsTypeName
 
 
+-- | Build a Haskell record field name using 'PrefixedFields' naming.
 scopedFieldName :: [Text] -> Text -> Text
 scopedFieldName = scopedFieldNameWith PrefixedFields
 
 
+-- | Build a Haskell record field name using the given naming strategy.
 scopedFieldNameWith :: FieldNaming -> [Text] -> Text -> Text
 scopedFieldNameWith PrefixedFields scope fName =
   let prefix = case scope of
@@ -2724,6 +2739,7 @@ upperFirst s = case T.uncons s of
   Nothing -> s
 
 
+-- | Build a Haskell enum constructor name from scope and value name.
 scopedEnumCon :: [Text] -> Text -> Text
 scopedEnumCon scope valName =
   case scope of
@@ -2731,6 +2747,7 @@ scopedEnumCon scope valName =
     _ -> scopedTypeName scope <> "'" <> snakeToPascal valName
 
 
+-- | Capitalize the first character of a name for use as a Haskell type name.
 hsTypeName :: Text -> Text
 hsTypeName t = case T.uncons t of
   Just (c, rest) -> T.cons (toUpper c) rest

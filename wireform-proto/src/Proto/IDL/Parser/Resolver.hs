@@ -45,6 +45,7 @@ data ResolveConfig = ResolveConfig
   deriving stock (Show, Eq)
 
 
+-- | Default resolution config with no extra include directories and automatic bundled dir.
 defaultResolveConfig :: ResolveConfig
 defaultResolveConfig =
   ResolveConfig
@@ -62,10 +63,14 @@ data ResolvedProto = ResolvedProto
   deriving stock (Show)
 
 
+-- | Errors that can occur during proto file resolution.
 data ResolveError
-  = ParseError !FilePath !String
-  | FileNotFound !FilePath !Text ![FilePath]
-  | CircularImport ![Text]
+  = -- | A proto file failed to parse.
+    ParseError !FilePath !String
+  | -- | An imported file could not be found in any include directory.
+    FileNotFound !FilePath !Text ![FilePath]
+  | -- | A circular import chain was detected.
+    CircularImport ![Text]
   deriving stock (Show, Eq)
 
 

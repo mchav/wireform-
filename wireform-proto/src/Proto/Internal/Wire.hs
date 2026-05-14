@@ -34,6 +34,7 @@ data WireType
   deriving stock (Show, Eq, Ord, Enum, Bounded)
 
 
+-- | Extract the wire type from the low 3 bits of a tag value.
 wireTypeFromTag :: Word32 -> Maybe WireType
 wireTypeFromTag n = case n .&. 0x07 of
   0 -> Just WireVarint
@@ -45,6 +46,7 @@ wireTypeFromTag n = case n .&. 0x07 of
   _ -> Nothing
 
 
+-- | Convert a 'WireType' to its numeric encoding (0-5).
 wireTypeToWord :: WireType -> Word32
 wireTypeToWord = \case
   WireVarint -> 0

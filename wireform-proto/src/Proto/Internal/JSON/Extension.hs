@@ -114,6 +114,7 @@ instance Monoid ExtensionRegistry where
   mempty = emptyExtensionRegistry
 
 
+-- | An empty extension registry with no registered codecs.
 emptyExtensionRegistry :: ExtensionRegistry
 emptyExtensionRegistry = ExtensionRegistry Map.empty
 
@@ -136,6 +137,7 @@ registerExtensionJson parentFqn codec =
   in ExtensionRegistry (Map.singleton parentFqn entry)
 
 
+-- | Look up an extension codec by its fully-qualified proto name under a parent message.
 lookupExtensionByFqn :: ExtensionRegistry -> Text -> Text -> Maybe ExtJsonCodec
 lookupExtensionByFqn reg parentFqn fqn =
   case Map.lookup parentFqn (erEntries reg) of
@@ -143,6 +145,7 @@ lookupExtensionByFqn reg parentFqn fqn =
     Just e -> Map.lookup fqn (byFqn e)
 
 
+-- | Look up an extension codec by field number under a parent message.
 lookupExtensionByNumber :: ExtensionRegistry -> Text -> Int -> Maybe ExtJsonCodec
 lookupExtensionByNumber reg parentFqn n =
   case Map.lookup parentFqn (erEntries reg) of

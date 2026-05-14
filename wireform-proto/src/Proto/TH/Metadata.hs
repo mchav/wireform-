@@ -1342,6 +1342,7 @@ lenientUnknownEnumRef :: IORef Bool
 lenientUnknownEnumRef = unsafePerformIO (newIORef False)
 
 
+-- | Set the global lenient-mode flag for unknown enum values in JSON parsing.
 setLenientUnknownEnum :: Bool -> IO ()
 setLenientUnknownEnum = writeIORef lenientUnknownEnumRef
 

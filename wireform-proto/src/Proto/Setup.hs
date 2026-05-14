@@ -97,14 +97,21 @@ myConfig = 'defaultProtoGenConfig'
 -}
 data ProtoGenConfig = ProtoGenConfig
   { pgcProtoDir :: FilePath
+  -- ^ Directory containing @.proto@ source files.
   , pgcIncludeDirs :: [FilePath]
+  -- ^ Additional directories to search when resolving @import@ statements.
   , pgcOutputDir :: FilePath
+  -- ^ Output directory for generated Haskell modules.
   , pgcModulePrefix :: T.Text
+  -- ^ Haskell module prefix for generated code (e.g. @\"Proto.Gen\"@).
   , pgcLazySub :: Bool
+  -- ^ When 'True', generate lazy submessage decoders using 'Proto.Decode.LazyMessage'.
   , pgcHooks :: CodeGenHooks
+  -- ^ Codegen hooks that fire based on proto attributes.
   }
 
 
+-- | Sensible defaults: reads from @proto/@, writes to @gen/@, uses module prefix @Proto.Gen@.
 defaultProtoGenConfig :: ProtoGenConfig
 defaultProtoGenConfig =
   ProtoGenConfig

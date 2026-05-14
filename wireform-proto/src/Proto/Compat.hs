@@ -88,10 +88,12 @@ data CompatLevel
   deriving stock (Show, Eq, Ord)
 
 
+-- | Severity of a compatibility issue.
 data Severity = Warning | Error
   deriving stock (Show, Eq, Ord)
 
 
+-- | A single compatibility issue found during schema comparison.
 data CompatError = CompatError
   { ceMessage :: !Text
   , cePath :: !Text -- e.g. "Person.name" or "Status.ACTIVE"
@@ -101,6 +103,7 @@ data CompatError = CompatError
   deriving stock (Show, Eq)
 
 
+-- | The result of a compatibility check, containing zero or more errors.
 newtype CompatResult = CompatResult
   { crErrors :: [CompatError]
   }
@@ -115,10 +118,12 @@ instance Monoid CompatResult where
   mempty = CompatResult []
 
 
+-- | 'True' when the result contains no errors (warnings are allowed).
 isCompatible :: CompatResult -> Bool
 isCompatible (CompatResult errs) = not (any (\e -> ceSeverity e == Error) errs)
 
 
+-- | Extract the list of 'CompatError' entries from a result.
 compatErrors :: CompatResult -> [CompatError]
 compatErrors = crErrors
 
@@ -165,6 +170,7 @@ checkFull :: ProtoFile -> ProtoFile -> CompatResult
 checkFull new old = checkBackward new old <> checkForward new old
 
 
+-- | Direction of a compatibility check.
 data Direction = BackwardDir | ForwardDir
   deriving stock (Show, Eq)
 
@@ -204,6 +210,7 @@ checkMessages dir new old =
         newMsgs
 
 
+-- | Check field-level compatibility between two versions of a message definition.
 checkMessageCompat :: Direction -> Text -> MessageDef -> MessageDef -> CompatResult
 checkMessageCompat dir msgPath newMsg oldMsg =
   let newFields = fieldMap newMsg
