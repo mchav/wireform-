@@ -59,11 +59,13 @@ producer_defaults =
     Prod.producerTransactionTimeoutMs        c @?= 60000
     Prod.producerEnableGaplessGuarantee      c @?= False
     Prod.producerStickyPartitioningLingerMs  c @?= 10
-    Prod.producerIdempotent                  c @?= False
+    -- Matches JVM 3.x: @enable.idempotence@ defaults to @true@.
+    Prod.producerIdempotent                  c @?= True
     Prod.producerTransactional               c @?= Nothing
+    -- Matches JVM 3.x: @acks@ defaults to @all@ (= ExactlyOnce here).
     case Prod.producerDelivery c of
-      Prod.AtLeastOnce -> pure ()
-      other            -> error ("expected AtLeastOnce, got " <> show other)
+      Prod.ExactlyOnce -> pure ()
+      other            -> error ("expected ExactlyOnce, got " <> show other)
 
 producer_setter_round_trips :: TestTree
 producer_setter_round_trips =
