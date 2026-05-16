@@ -35,7 +35,6 @@ import GHC.Generics (Generic)
 import Kafka.Streams.Time
   ( Duration
   , Timestamp (..)
-  , addDuration
   , durationMillis
   )
 
@@ -189,8 +188,3 @@ mergeSession sw (Window s1 e1) (Window s2 e2) =
         else Nothing
   where
     timestampDeltaMs (Timestamp a) (Timestamp b) = a - b
-
--- Force imports we need so the module compiles without dead-code
--- warnings on @addDuration@.
-_silence :: Timestamp -> Duration -> Timestamp
-_silence = addDuration

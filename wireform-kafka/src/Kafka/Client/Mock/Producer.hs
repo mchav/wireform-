@@ -255,8 +255,3 @@ abortTxnMP p = case mpTxnId p of
 isInTxnMP :: MockProducer -> IO Bool
 isInTxnMP p = readTVarIO (mpInTxn p)
 
--- 'Kafka.Client.Mock.Fault' kept imported via qualified-prefix
--- usages above; this dummy keeps GHC happy when the file is
--- compiled alone.
-_keepFault :: Kafka.Client.Mock.Fault.MockError
-_keepFault = Kafka.Client.Mock.Fault.ErrUnknownServerError

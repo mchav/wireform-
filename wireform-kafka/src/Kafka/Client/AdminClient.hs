@@ -302,8 +302,7 @@ import qualified Kafka.Protocol.Wire.Codec as WC
 -- operation-shaped functions over the common value types in
 -- @Kafka.Common.*@.
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.Text.Encoding as TE
+import qualified Kafka.Client.Telemetry as Telemetry
 import qualified Kafka.Client.TopicId as TopicIdImp
 import Data.Word (Word16)
 import qualified Kafka.Common as Common
@@ -4434,9 +4433,6 @@ listClientMetricsResources client = liftIO $ do
 -- @GetTelemetrySubscriptions@ pipeline does.
 adminClientInstanceId :: MonadIO m => AdminClient -> m TopicIdImp.TopicId
 adminClientInstanceId client =
-  liftIO $ pure (uuidFromText (adminClientId (adminConfigOf client)))
-  where
-    uuidFromText t =
-      let !bs    = BS.append (TE.encodeUtf8 t) (BS.replicate 16 0)
-          !short = BS.take 16 bs
-       in TopicIdImp.TopicId short
+  liftIO $ pure
+    (TopicIdImp.TopicId
+      (Telemetry.clientInstanceIdFromText (adminClientId (adminConfigOf client))))

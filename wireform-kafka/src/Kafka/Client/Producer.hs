@@ -209,6 +209,7 @@ import Control.Monad (when)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Kafka.Client.Telemetry as Telemetry
 import qualified Kafka.Client.TopicId as TopicIdImp
 import qualified Data.HashMap.Strict as HashMap
 import Data.Hashable (hash)
@@ -1309,12 +1310,9 @@ producerHealthy Producer{..} = liftIO $ do
 -- broker-assigned id instead; call sites don't need to change.
 producerClientInstanceId :: MonadIO m => Producer -> m TopicIdImp.TopicId
 producerClientInstanceId Producer{..} =
-  liftIO $ pure (uuidFromText (producerClientId producerConfig))
-  where
-    uuidFromText t =
-      let !bs    = BS.append (TE.encodeUtf8 t) (BS.replicate 16 0)
-          !short = BS.take 16 bs
-       in TopicIdImp.TopicId short
+  liftIO $ pure
+    (TopicIdImp.TopicId
+      (Telemetry.clientInstanceIdFromText (producerClientId producerConfig)))
 
 -- | Best-effort dispatch of the ack interceptor. Wraps in 'try' so
 -- a buggy interceptor can't take down the sender thread / caller.

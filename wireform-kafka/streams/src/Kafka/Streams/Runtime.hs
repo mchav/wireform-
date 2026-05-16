@@ -121,7 +121,8 @@ import qualified Data.Sequence as Seq
 import qualified Data.ByteString as BS
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Text.Encoding as TE
+
+import qualified Kafka.Client.Telemetry as Telemetry
 
 import qualified Kafka.Client.Consumer as KC
 import qualified Kafka.Client.Producer as KP
@@ -1257,11 +1258,7 @@ metricsAndState ks = do
 kafkaStreamsClientInstanceId
   :: KafkaStreams -> IO BS.ByteString
 kafkaStreamsClientInstanceId ks =
-  pure (uuidFromText (applicationId (ksConfig ks)))
-  where
-    uuidFromText t =
-      let !bs    = BS.append (TE.encodeUtf8 t) (BS.replicate 16 0)
-       in BS.take 16 bs
+  pure (Telemetry.clientInstanceIdFromText (applicationId (ksConfig ks)))
 
 -- | Build a 'PA.ApplicationState' snapshot from this instance's
 -- live runtime view. Mirrors what the JVM streams runtime

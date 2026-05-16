@@ -57,7 +57,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.List (sortOn)
-import Data.Maybe (fromMaybe, maybeToList)
+import Data.Maybe (maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -330,6 +330,3 @@ urlEncode = BS.concatMap encodeByte
       | n < 10    = toEnum (fromEnum '0' + n)
       | otherwise = toEnum (fromEnum 'A' + n - 10)
 
--- Suppress unused warnings: 'fromMaybe' kept for future use.
-_unusedFromMaybe :: a -> Maybe a -> a
-_unusedFromMaybe = fromMaybe

@@ -120,6 +120,7 @@ library
         Kafka.Client.Env
         Kafka.Client.Consumer
         Kafka.Client.DeleteRecords
+        Kafka.Client.Telemetry
         Kafka.Client.ConsumerGroupV2
         Kafka.Client.Filter
         Kafka.Client.Future

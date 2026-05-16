@@ -28,8 +28,7 @@ import Data.Map.Strict (Map)
 import Data.Int (Int64)
 
 import Kafka.Streams.State.Store
-  ( LoggingConfig
-  , StateStore (..)
+  ( StateStore (..)
   , StoreBuilderW (..)
   , StoreName
   , WindowStore (..)
@@ -132,5 +131,3 @@ inMemoryWindowStoreBuilder nm sz ret = StoreBuilderW
   , sbWBuild   = inMemoryWindowStore nm sz ret
   }
 
-_unused :: LoggingConfig -> ()
-_unused _ = ()

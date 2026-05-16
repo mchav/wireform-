@@ -90,12 +90,10 @@ import Control.Concurrent.MVar
   )
 import Control.Exception (SomeException, bracket, bracketOnError, try)
 import Control.Monad (when)
-import Data.Function ((&))
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
-import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import System.Directory (renameFile)
 import System.FilePath (takeDirectory, takeExtension, takeFileName)
@@ -488,12 +486,6 @@ archivePath p t =
         _     -> stem <> suffix <> ext
   in (if null dir || dir == "." then "" else dir <> "/") <> archived
 
--- | Internal: the POSIX time the active file was opened. Used
--- by tests to assert rotation-trigger logic.
-_openedAtPosix :: RotatingState -> Double
-_openedAtPosix st =
-  realToFrac (utcTimeToPOSIXSeconds (rsOpenedAt st))
-
 ----------------------------------------------------------------------
 -- Rotating sink helpers (lower-level than the 'Printed' builder)
 ----------------------------------------------------------------------
@@ -533,9 +525,3 @@ defaultRender label r =
     <> T.pack (show (recordKey r))
     <> " value="
     <> T.pack (show (recordValue r))
-
--- 'Data.Function.&' is imported for downstream call sites that
--- use the builder-with style. Tiny use-site to silence the
--- unused-import warning.
-_useAmp :: Int
-_useAmp = 1 & id

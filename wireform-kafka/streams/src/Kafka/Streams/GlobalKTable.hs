@@ -40,7 +40,6 @@ module Kafka.Streams.GlobalKTable
   ) where
 
 import Data.IORef
-import qualified Data.Text as T
 import qualified Unsafe.Coerce as Unsafe
 
 import Kafka.Streams.Consumed (Consumed (..))
@@ -53,7 +52,6 @@ import Kafka.Streams.KStream
 import qualified Kafka.Streams.KStream as KS
 import Kafka.Streams.Materialized
   ( Materialized (..)
-  , materializedAs
   )
 import Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
@@ -293,10 +291,3 @@ mkGlobalJoinProc storeNm keyMap mode = do
               _ -> pure ()
     }
 
--- Re-export 'materializedAs' so tests don't have to add an extra
--- import line for it.
-_keepMatAs :: StoreName -> Materialized k v
-_keepMatAs = materializedAs
-
-_keepUnused :: T.Text -> T.Text
-_keepUnused = id

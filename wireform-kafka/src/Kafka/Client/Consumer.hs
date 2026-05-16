@@ -241,6 +241,7 @@ import qualified StmContainers.Map as StmMap
 import qualified ListT
 
 import qualified Kafka.Client.Internal.ConsumerGroup as CG
+import qualified Kafka.Client.Telemetry as Telemetry
 import qualified Kafka.Client.TopicId as TopicIdImp
 import qualified Text.Regex.TDFA as RE
 import Kafka.Client.ConfigValidation
@@ -3166,12 +3167,7 @@ matchesSubscriptionPattern sp t =
 -- per-process and stable".
 clientInstanceId :: Consumer -> IO TopicIdImp.TopicId
 clientInstanceId c =
-  pure (uuidFromText (consumerGroupIdOf c))
-  where
-    uuidFromText t =
-      let !bs    = BS.append (TE.encodeUtf8 t) (BS.replicate 16 0)
-          !short = BS.take 16 bs
-       in TopicIdImp.TopicId short
+  pure (TopicIdImp.TopicId (Telemetry.clientInstanceIdFromText (consumerGroupIdOf c)))
 
 ----------------------------------------------------------------------
 -- Consumer overload tail (KIP-447 / KIP-666 / KIP-848)

@@ -64,7 +64,6 @@ import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
-import qualified Data.UUID as UUID
 import Data.UUID (UUID)
 import GHC.Generics (Generic)
 
@@ -257,9 +256,3 @@ defaultRackAwareAssignmentConfigs = RackAwareAssignmentConfigs
   , raNonOverlapCost = 10
   , raAssignmentTags = []
   }
-
--- 'UUID.nil' is imported but currently unused; keep the dep
--- alive with a tiny use-site for tests that want a sentinel
--- 'ProcessId'.
-_unusedNilProcessId :: ProcessId
-_unusedNilProcessId = ProcessId UUID.nil

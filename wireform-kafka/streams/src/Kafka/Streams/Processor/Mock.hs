@@ -67,7 +67,6 @@ import Data.Map.Strict (Map)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq, (|>))
 import Data.Text (Text)
-import qualified Data.Text as T
 import Unsafe.Coerce (unsafeCoerce)
 
 import Kafka.Streams.Processor
@@ -250,8 +249,3 @@ registerStateStore
   :: MockProcessorContext -> StoreName -> AnyStateStore -> IO ()
 registerStateStore m nm st =
   atomicModifyIORef' (mpcStores m) (\mp -> (Map.insert nm st mp, ()))
-
--- T.pack is imported but unused at the surface (kept for any
--- future renderer that wants to flatten captured records).
-_useTpack :: Text -> Text
-_useTpack = T.pack . T.unpack

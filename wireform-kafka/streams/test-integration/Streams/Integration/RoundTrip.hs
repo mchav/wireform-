@@ -10,8 +10,6 @@ import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, assertBool)
 
-import qualified Kafka.Client.Consumer as KC
-import qualified Kafka.Client.Producer as KP
 
 import Kafka.Streams
 
@@ -50,8 +48,3 @@ tests brokers = testGroup "RoundTrip"
       assertBool ("final status closed: " <> show stN) (stN == StreamsClosed)
   ]
 
--- Suppress unused-warnings for clients (they're imported here so
--- this module pulls in the producer/consumer surface for any future
--- expansion).
-_unusedProducerConsumerImports :: KP.ProducerConfig -> KC.ConsumerConfig -> ()
-_unusedProducerConsumerImports _ _ = ()

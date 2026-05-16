@@ -21,7 +21,6 @@ import Kafka.Streams.Serde (Serde)
 import Kafka.Streams.State.Store
   ( KeyValueStore
   , StoreName
-  , storeName
   )
 
 -- | Materialised view config. The @s@ type parameter (Java's
@@ -94,7 +93,3 @@ withLoggingDisabled m = m { matLoggingEnabled = False }
 withRetention :: Int64 -> Materialized k v -> Materialized k v
 withRetention r m = m { matRetentionMs = Just r }
 
--- 'storeName' is re-exported so call sites can build store names
--- without importing 'Kafka.Streams.State.Store'.
-_keep :: StoreName
-_keep = storeName "internal"

@@ -15,7 +15,9 @@ import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
+import qualified Data.ByteString as BS
 import qualified Kafka.Client.Consumer as C
+import qualified Kafka.Client.Telemetry as Tel
 -- The JVM-equivalence shims (ConsumerRecords, OffsetAndMetadata,
 -- ConsumerGroupMetadata, OffsetCommitCallback, SubscriptionPattern,
 -- the consumer-overload tail) live in 'Kafka.Client.Consumer'
@@ -29,7 +31,10 @@ import qualified Kafka.Common.Acl as Acl
 import qualified Kafka.Common.Quota as Quota
 import qualified Kafka.Common.Resource as Resource
 import qualified Kafka.Serde as Serde
+import Data.IORef
+import qualified Kafka.Streams
 import qualified Kafka.Streams.Config
+import qualified Kafka.Streams.Runtime
 import qualified Kafka.Streams.Errors as Errors
 import qualified Kafka.Streams.Processor.Assignment as TA
 import qualified Kafka.Streams.Window as W
@@ -84,6 +89,15 @@ tests = testGroup "SDK parity shims (audit pass)"
   , testGroup "v4: KIP-924 + KIP-714 runtime wiring"
       [ task_assignor_plugin_configurable
       , task_assignor_plugin_invocable
+      , telemetry_id_is_16_bytes
+      , telemetry_id_is_deterministic
+      , telemetry_id_distinguishes_inputs
+      , telemetry_id_truncates_long_inputs
+      , telemetry_id_pads_short_inputs
+      , streams_runtime_telemetry_id
+      , streams_runtime_user_assignor_default_nothing
+      , streams_runtime_user_assignor_invoked_when_set
+      , streams_application_state_starts_empty
       ]
   ]
 
@@ -395,10 +409,6 @@ per_error_streams_exceptions =
         _ = Errors.InvalidPartitionsException "negative count"
     pure ()
 
--- Set is imported via the imports already, make sure to use it.
-_useSet :: Set.Set ()
-_useSet = Set.empty
-
 ----------------------------------------------------------------------
 -- v4: protocol-codegen-dependent admin RPCs
 ----------------------------------------------------------------------
@@ -547,12 +557,129 @@ task_assignor_plugin_invocable =
     -- same shape).
     Map.keysSet (TA.taAssignments out) @?= Set.singleton pid
 
--- 'Kafka.Streams.Config' is imported via qualifying inside the
--- bodies above; pull a tiny use-site so the import line that
--- introduces it isn't flagged.
-_useStreamsConfig :: Bool
-_useStreamsConfig =
-  case Kafka.Streams.Config.taskAssignor
-         Kafka.Streams.Config.defaultStreamsConfig of
-    Nothing -> True
-    Just _  -> True
+----------------------------------------------------------------------
+-- v4: KIP-714 deterministic client-instance-id derivation
+----------------------------------------------------------------------
+
+telemetry_id_is_16_bytes :: TestTree
+telemetry_id_is_16_bytes =
+  testCase "clientInstanceIdFromText returns exactly 16 bytes" $ do
+    BS.length (Tel.clientInstanceIdFromText "")         @?= 16
+    BS.length (Tel.clientInstanceIdFromText "short")    @?= 16
+    BS.length (Tel.clientInstanceIdFromText
+                 "a-very-long-application-id-bigger-than-sixteen-bytes")
+                                                        @?= 16
+
+telemetry_id_is_deterministic :: TestTree
+telemetry_id_is_deterministic =
+  testCase "clientInstanceIdFromText is deterministic" $ do
+    let a = Tel.clientInstanceIdFromText "wireform-streams-app"
+        b = Tel.clientInstanceIdFromText "wireform-streams-app"
+    a @?= b
+
+telemetry_id_distinguishes_inputs :: TestTree
+telemetry_id_distinguishes_inputs =
+  testCase "clientInstanceIdFromText distinguishes distinct seeds" $
+    assertBool "two short distinct seeds should differ"
+      (Tel.clientInstanceIdFromText "alpha"
+         /= Tel.clientInstanceIdFromText "beta")
+
+telemetry_id_pads_short_inputs :: TestTree
+telemetry_id_pads_short_inputs =
+  testCase "clientInstanceIdFromText pads short seeds with \\0" $ do
+    let bs = Tel.clientInstanceIdFromText "abc"
+    BS.take 3 bs    @?= "abc"
+    BS.drop 3 bs    @?= BS.replicate 13 0
+
+telemetry_id_truncates_long_inputs :: TestTree
+telemetry_id_truncates_long_inputs =
+  testCase "clientInstanceIdFromText truncates seeds longer than 16 bytes" $ do
+    let !seed = "abcdefghijklmnopqrstuvwxyz"   -- 26 bytes
+        bs    = Tel.clientInstanceIdFromText seed
+    bs @?= "abcdefghijklmnop"
+
+----------------------------------------------------------------------
+-- v4: KafkaStreams runtime hooks (clientInstanceId + assignor)
+----------------------------------------------------------------------
+
+-- A trivial source→sink topology suitable for instantiating
+-- 'KafkaStreams' without a live broker. Mirrors what the
+-- other state-listener tests in this suite use.
+mkTinyKafkaStreams
+  :: Kafka.Streams.Config.StreamsConfig -> IO Kafka.Streams.Runtime.KafkaStreams
+mkTinyKafkaStreams cfg = do
+  b <- Kafka.Streams.newStreamsBuilder
+  s <- Kafka.Streams.streamFromTopic
+         b
+         (Kafka.Streams.topicName "in")
+         (Kafka.Streams.consumed Kafka.Streams.textSerde Kafka.Streams.textSerde)
+  Kafka.Streams.toTopic
+    (Kafka.Streams.topicName "out")
+    (Kafka.Streams.produced Kafka.Streams.textSerde Kafka.Streams.textSerde)
+    s
+  topo <- Kafka.Streams.buildTopology b
+  case Kafka.Streams.validateTopology topo of
+    Left err -> error (show err)
+    Right v  -> Kafka.Streams.Runtime.newKafkaStreams cfg v
+
+streams_runtime_telemetry_id :: TestTree
+streams_runtime_telemetry_id =
+  testCase "kafkaStreamsClientInstanceId derives from application.id" $ do
+    ks <- mkTinyKafkaStreams
+      Kafka.Streams.Config.defaultStreamsConfig
+        { Kafka.Streams.Config.applicationId    = "ti-app"
+        , Kafka.Streams.Config.bootstrapServers = ["mock:0"]
+        }
+    bs <- Kafka.Streams.Runtime.kafkaStreamsClientInstanceId ks
+    BS.length bs                       @?= 16
+    bs @?= Tel.clientInstanceIdFromText "ti-app"
+
+streams_runtime_user_assignor_default_nothing :: TestTree
+streams_runtime_user_assignor_default_nothing =
+  testCase "streamsRunUserAssignor returns Nothing when no plug-in set" $ do
+    ks <- mkTinyKafkaStreams
+      Kafka.Streams.Config.defaultStreamsConfig
+        { Kafka.Streams.Config.applicationId    = "no-plugin"
+        , Kafka.Streams.Config.bootstrapServers = ["mock:0"]
+        }
+    r <- Kafka.Streams.Runtime.streamsRunUserAssignor ks
+    case r of
+      Nothing -> pure ()
+      Just _  -> assertBool "expected Nothing without a plug-in" False
+
+streams_runtime_user_assignor_invoked_when_set :: TestTree
+streams_runtime_user_assignor_invoked_when_set =
+  testCase "streamsRunUserAssignor invokes the configured TaskAssignor" $ do
+    fired <- newIORef False
+    let probe = TA.defaultTaskAssignor
+          { TA.taAssign = \app -> do
+              writeIORef fired True
+              TA.taAssign TA.defaultTaskAssignor app
+          }
+    ks <- mkTinyKafkaStreams
+      Kafka.Streams.Config.defaultStreamsConfig
+        { Kafka.Streams.Config.applicationId    = "with-plugin"
+        , Kafka.Streams.Config.bootstrapServers = ["mock:0"]
+        , Kafka.Streams.Config.taskAssignor     = Just probe
+        }
+    r <- Kafka.Streams.Runtime.streamsRunUserAssignor ks
+    seen <- readIORef fired
+    case r of
+      Nothing -> assertBool "plug-in should have been invoked" False
+      Just _  -> pure ()
+    seen @?= True
+
+streams_application_state_starts_empty :: TestTree
+streams_application_state_starts_empty =
+  testCase "streamsApplicationState reflects the local-only initial view" $ do
+    ks <- mkTinyKafkaStreams
+      Kafka.Streams.Config.defaultStreamsConfig
+        { Kafka.Streams.Config.applicationId    = "as-app"
+        , Kafka.Streams.Config.bootstrapServers = ["mock:0"]
+        }
+    app <- Kafka.Streams.Runtime.streamsApplicationState ks
+    -- Brand-new runtime: no owned partitions ⇒ no tasks, exactly
+    -- one local client registered.
+    Map.size (TA.asAllTasks app)          @?= 0
+    Map.size (TA.asKafkaStreamsStates app) @?= 1
+

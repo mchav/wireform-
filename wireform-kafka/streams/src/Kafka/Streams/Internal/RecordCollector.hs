@@ -30,7 +30,6 @@ module Kafka.Streams.Internal.RecordCollector
 
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
-import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Sequence (Seq, (|>))
@@ -117,7 +116,3 @@ collectorHasPending c = do
   m <- collectorPeek c
   pure (not (Map.null m) && any (not . Seq.null) (Map.elems m))
 
--- Use IORef somewhere so the unused-import warning doesn't fire if
--- the build flags add -Werror later.
-_unused :: IORef () -> IO ()
-_unused r = readIORef r >>= writeIORef r

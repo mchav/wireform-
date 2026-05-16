@@ -20,8 +20,7 @@ import Data.Map.Strict (Map)
 import Data.Int (Int64)
 
 import Kafka.Streams.State.Store
-  ( LoggingConfig
-  , SessionKey (..)
+  ( SessionKey (..)
   , SessionStore (..)
   , StateStore (..)
   , StoreBuilderS (..)
@@ -114,5 +113,3 @@ inMemorySessionStoreBuilder nm retention = StoreBuilderS
   , sbSBuild   = inMemorySessionStore nm retention
   }
 
-_unused :: LoggingConfig -> ()
-_unused _ = ()
