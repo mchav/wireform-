@@ -39,12 +39,12 @@ defaultProducerInterceptorIsIdentity :: IO ()
 defaultProducerInterceptorIsIdentity = do
   let cfg = Producer.defaultProducerConfig
       rec_ = Producer.ProducerRecord
-        { Producer.recordTopic     = "t"
-        , Producer.recordKey       = Just "k"
-        , Producer.recordValue     = "v"
-        , Producer.recordHeaders   = []
-        , Producer.recordPartition = Nothing
-        , Producer.recordTimestamp = Nothing
+        { topic     = "t"
+        , key       = Just "k"
+        , value     = "v"
+        , headers   = []
+        , partition = Nothing
+        , timestamp = Nothing
         }
   out <- Producer.producerInterceptor cfg rec_
   out @?= rec_
@@ -61,22 +61,21 @@ interceptorCanRewriteRecord = do
   let cfg = Producer.defaultProducerConfig
         { Producer.producerInterceptor = \r ->
             pure r
-              { Producer.recordTopic = Producer.recordTopic r <> "-suffix"
-              , Producer.recordHeaders =
-                  Producer.recordHeaders r ++ [("trace-id", "abc")]
+              { topic   = r.topic <> "-suffix"
+              , headers = r.headers ++ [("trace-id", "abc")]
               }
         }
       input = Producer.ProducerRecord
-        { Producer.recordTopic     = "events"
-        , Producer.recordKey       = Just "k"
-        , Producer.recordValue     = "v"
-        , Producer.recordHeaders   = []
-        , Producer.recordPartition = Nothing
-        , Producer.recordTimestamp = Nothing
+        { topic     = "events"
+        , key       = Just "k"
+        , value     = "v"
+        , headers   = []
+        , partition = Nothing
+        , timestamp = Nothing
         }
   out <- Producer.producerInterceptor cfg input
-  Producer.recordTopic out @?= "events-suffix"
-  Producer.recordHeaders out @?= [("trace-id", "abc")]
+  out.topic   @?= "events-suffix"
+  out.headers @?= [("trace-id", "abc")]
 
 defaultConsumerInterceptorIsIdentity :: IO ()
 defaultConsumerInterceptorIsIdentity = do

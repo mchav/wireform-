@@ -1,7 +1,4 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards #-}
 
 {-|
@@ -211,7 +208,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import GHC.Generics (Generic)
-import GHC.Records (HasField (..))
 import qualified ListT
 import qualified StmContainers.Map as StmMap
 import System.Timeout (timeout)
@@ -454,50 +450,31 @@ producerConfigFromEnv cfg = liftIO $ do
 
 -- | A record to be sent to Kafka.
 data ProducerRecord = ProducerRecord
-  { recordTopic :: !Text
+  { topic :: !Text
     -- ^ Target topic
-  , recordKey :: !(Maybe ByteString)
+  , key :: !(Maybe ByteString)
     -- ^ Optional message key (for partitioning and compaction)
-  , recordValue :: !ByteString
+  , value :: !ByteString
     -- ^ Message value
-  , recordHeaders :: ![(Text, ByteString)]
+  , headers :: ![(Text, ByteString)]
     -- ^ Optional headers
-  , recordPartition :: !(Maybe Int32)
+  , partition :: !(Maybe Int32)
     -- ^ Explicit partition (overrides partitioner)
-  , recordTimestamp :: !(Maybe Int64)
+  , timestamp :: !(Maybe Int64)
     -- ^ Message timestamp (Nothing = broker assigns)
   } deriving (Eq, Show, Generic)
 
 -- | Metadata about a successfully sent record.
 data RecordMetadata = RecordMetadata
-  { metadataTopic :: !Text
+  { topic :: !Text
     -- ^ Topic name
-  , metadataPartition :: !Int32
+  , partition :: !Int32
     -- ^ Partition number
-  , metadataOffset :: !Int64
+  , offset :: !Int64
     -- ^ Offset within partition
-  , metadataTimestamp :: !Int64
+  , timestamp :: !Int64
     -- ^ Broker-assigned timestamp
   } deriving (Eq, Show, Generic)
-
--- | OverloadedRecordDot accessors for 'ProducerRecord'. Backing
--- field selectors keep their @record@ prefix so existing
--- @recordKey rec@ call sites compile; @rec.key@ / @rec.value@ /
--- etc. is the recommended style for new code.
-instance HasField "topic"     ProducerRecord Text                 where getField = recordTopic
-instance HasField "key"       ProducerRecord (Maybe ByteString)   where getField = recordKey
-instance HasField "value"     ProducerRecord ByteString           where getField = recordValue
-instance HasField "headers"   ProducerRecord [(Text, ByteString)] where getField = recordHeaders
-instance HasField "partition" ProducerRecord (Maybe Int32)        where getField = recordPartition
-instance HasField "timestamp" ProducerRecord (Maybe Int64)        where getField = recordTimestamp
-
--- | OverloadedRecordDot accessors for 'RecordMetadata'. Same
--- story: backing @metadata@-prefixed selectors stay; @md.topic@ /
--- @md.partition@ / @md.offset@ / @md.timestamp@ read better.
-instance HasField "topic"     RecordMetadata Text  where getField = metadataTopic
-instance HasField "partition" RecordMetadata Int32 where getField = metadataPartition
-instance HasField "offset"    RecordMetadata Int64 where getField = metadataOffset
-instance HasField "timestamp" RecordMetadata Int64 where getField = metadataTimestamp
 
 -- | Partitioning strategy for messages.
 -- | Partitioner function type. The default partitioner uses
@@ -1178,18 +1155,18 @@ sendMessage p@Producer{..} topic key value = liftIO $ do
   --    the record (e.g. attach trace headers, drop a field, …).
   --    Errors propagate.
   let preInterceptRecord = ProducerRecord
-        { recordTopic     = topic
-        , recordKey       = key
-        , recordValue     = value
-        , recordHeaders   = []
-        , recordPartition = Nothing
-        , recordTimestamp = Nothing
+        { topic     = topic
+        , key       = key
+        , value     = value
+        , headers   = []
+        , partition = Nothing
+        , timestamp = Nothing
         }
   iceptedRecord <- producerInterceptor producerConfig preInterceptRecord
-  let icTopic = recordTopic   iceptedRecord
-      icKey   = recordKey     iceptedRecord
-      icValue = recordValue   iceptedRecord
-      icHdrs  = recordHeaders iceptedRecord
+  let icTopic = iceptedRecord.topic
+      icKey   = iceptedRecord.key
+      icValue = iceptedRecord.value
+      icHdrs  = iceptedRecord.headers
   -- 2. Decide whether the producer is in a transactional /
   --    idempotent mode that requires stamping. We read the
   --    transaction state once up front; if the txn finishes
@@ -1220,10 +1197,10 @@ sendMessage p@Producer{..} topic key value = liftIO $ do
               Left err -> Left (T.unpack err)
               Right ack ->
                 Right RecordMetadata
-                  { metadataTopic     = BA.ackTopic     ack
-                  , metadataPartition = BA.ackPartition ack
-                  , metadataOffset    = BA.ackOffset    ack
-                  , metadataTimestamp = BA.ackTimestamp ack
+                  { topic     = BA.ackTopic     ack
+                  , partition = BA.ackPartition ack
+                  , offset    = BA.ackOffset    ack
+                  , timestamp = BA.ackTimestamp ack
                   }
 
       success <- BA.appendRecordStamped
@@ -1542,18 +1519,18 @@ sendMessageAsync
 sendMessageAsync p@Producer{..} topic key value = liftIO $ do
   resultVar <- newEmptyMVar
   let preInterceptRecord = ProducerRecord
-        { recordTopic     = topic
-        , recordKey       = key
-        , recordValue     = value
-        , recordHeaders   = []
-        , recordPartition = Nothing
-        , recordTimestamp = Nothing
+        { topic     = topic
+        , key       = key
+        , value     = value
+        , headers   = []
+        , partition = Nothing
+        , timestamp = Nothing
         }
   iceptedRecord <- producerInterceptor producerConfig preInterceptRecord
-  let icTopic = recordTopic   iceptedRecord
-      icKey   = recordKey     iceptedRecord
-      icValue = recordValue   iceptedRecord
-      icHdrs  = recordHeaders iceptedRecord
+  let icTopic = iceptedRecord.topic
+      icKey   = iceptedRecord.key
+      icValue = iceptedRecord.value
+      icHdrs  = iceptedRecord.headers
   preCheck <- producerPreSendCheck p icTopic icKey
   case preCheck of
     Left err -> do
@@ -1575,10 +1552,10 @@ sendMessageAsync p@Producer{..} topic key value = liftIO $ do
                   Left err -> Left (T.unpack err)
                   Right ack ->
                     Right RecordMetadata
-                      { metadataTopic     = BA.ackTopic     ack
-                      , metadataPartition = BA.ackPartition ack
-                      , metadataOffset    = BA.ackOffset    ack
-                      , metadataTimestamp = BA.ackTimestamp ack
+                      { topic     = BA.ackTopic     ack
+                      , partition = BA.ackPartition ack
+                      , offset    = BA.ackOffset    ack
+                      , timestamp = BA.ackTimestamp ack
                       }
             runAckInterceptor producerConfig iceptedRecord outcome
             putMVar resultVar outcome
@@ -1976,7 +1953,7 @@ sendBatch producer records = liftIO $ do
   where
     sendRecordIndividual :: Producer -> ProducerRecord -> IO (Either String RecordMetadata)
     sendRecordIndividual p ProducerRecord{..} =
-      sendMessage p recordTopic recordKey recordValue
+      sendMessage p topic key value
     
     partitionEithers :: [Either a b] -> ([a], [b])
     partitionEithers = foldr (either left right) ([], [])
