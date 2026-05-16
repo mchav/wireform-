@@ -291,3 +291,22 @@ admin_extras_value_smoke =
           , Adm.cqeValues = Map.fromList [("producer_byte_rate", 1024)]
           }
     Adm.cqeValues cqe @?= Map.fromList [("producer_byte_rate", 1024)]
+    -- v3c: SCRAM credentials + producer / log-dir / delegation tokens.
+    let sci = Adm.ScramCredentialInfo Adm.ScramSha256 4096
+    Adm.sciIterations sci @?= 4096
+    let scu = Adm.ScramCredentialUpsertion "alice" Adm.ScramSha512 8192 "salt" "hashed"
+    Adm.scuMechanism scu @?= Adm.ScramSha512
+    let ps = Adm.ProducerState 5001 1 42 0 0 (-1)
+    Adm.psProducerId ps @?= 5001
+    let ldd = Adm.LogDirDescription "/var/log/kafka-data" 0 (1024 * 1024) 512000 []
+    Adm.lddPath ldd @?= "/var/log/kafka-data"
+    let dt = Adm.DelegationToken
+          { Adm.dtTokenId         = "tid"
+          , Adm.dtHmac            = "secret"
+          , Adm.dtOwner           = ("User", "alice")
+          , Adm.dtTokenRequester  = ("User", "alice")
+          , Adm.dtIssueTimestamp  = 0
+          , Adm.dtExpiryTimestamp = 60000
+          , Adm.dtMaxTimestamp    = 86400000
+          }
+    Adm.dtTokenId dt @?= "tid"

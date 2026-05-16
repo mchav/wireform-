@@ -62,6 +62,29 @@ module Kafka.Client.AdminClient.Extras
   , TransactionTopicPartitions (..)
   , listTransactions
   , describeTransactions
+    -- * SCRAM credential admin (KIP-554)
+  , ScramMechanism (..)
+  , ScramCredentialInfo (..)
+  , ScramCredentialUpsertion (..)
+  , ScramCredentialDeletion (..)
+  , describeUserScramCredentials
+  , alterUserScramCredentials
+    -- * Producer-state admin (KIP-664)
+  , ProducerState (..)
+  , describeProducers
+    -- * Log directory admin (KIP-113 / KIP-405)
+  , LogDirDescription (..)
+  , TopicLogDirDescription (..)
+  , PartitionLogDirDescription (..)
+  , ReplicaLogDirAssignment (..)
+  , describeLogDirs
+  , alterReplicaLogDirs
+    -- * Delegation tokens (KIP-48)
+  , DelegationToken (..)
+  , createDelegationToken
+  , renewDelegationToken
+  , expireDelegationToken
+  , describeDelegationToken
   ) where
 
 import Control.Concurrent.STM (atomically)
@@ -114,6 +137,25 @@ import qualified Kafka.Protocol.Generated.ListTransactionsRequest as LTReq
 import qualified Kafka.Protocol.Generated.ListTransactionsResponse as LTResp
 import qualified Kafka.Protocol.Generated.DescribeTransactionsRequest as DTReq
 import qualified Kafka.Protocol.Generated.DescribeTransactionsResponse as DTResp
+import qualified Kafka.Protocol.Generated.DescribeUserScramCredentialsRequest as DSCReq
+import qualified Kafka.Protocol.Generated.DescribeUserScramCredentialsResponse as DSCResp
+import qualified Kafka.Protocol.Generated.AlterUserScramCredentialsRequest as ASCReq
+import qualified Kafka.Protocol.Generated.AlterUserScramCredentialsResponse as ASCResp
+import qualified Kafka.Protocol.Generated.DescribeProducersRequest as DPReq
+import qualified Kafka.Protocol.Generated.DescribeProducersResponse as DPResp
+import qualified Kafka.Protocol.Generated.DescribeLogDirsRequest as DLDReq
+import qualified Kafka.Protocol.Generated.DescribeLogDirsResponse as DLDResp
+import qualified Kafka.Protocol.Generated.AlterReplicaLogDirsRequest as ALDReq
+import qualified Kafka.Protocol.Generated.AlterReplicaLogDirsResponse as ALDResp
+import qualified Kafka.Protocol.Generated.CreateDelegationTokenRequest as CDTReq
+import qualified Kafka.Protocol.Generated.CreateDelegationTokenResponse as CDTResp
+import qualified Kafka.Protocol.Generated.RenewDelegationTokenRequest as RDTReq
+import qualified Kafka.Protocol.Generated.RenewDelegationTokenResponse as RDTResp
+import qualified Kafka.Protocol.Generated.ExpireDelegationTokenRequest as EDTReq
+import qualified Kafka.Protocol.Generated.ExpireDelegationTokenResponse as EDTResp
+import qualified Kafka.Protocol.Generated.DescribeDelegationTokenRequest as DDTReq
+import qualified Kafka.Protocol.Generated.DescribeDelegationTokenResponse as DDTResp
+import Data.ByteString (ByteString)
 import qualified Kafka.Common.Quota as Quota
 import qualified Kafka.Protocol.Primitives as P
 import qualified Kafka.Protocol.Wire.Codec as WC
@@ -677,6 +719,14 @@ groupTypeFromText t = case T.toLower t of
   "share"    -> Just Common.ShareGroup
   _          -> Nothing
 
+-- | Unwrap a wire 'P.KafkaBytes' to a strict 'ByteString'. The
+-- protocol type carries a 'NotNull' tag; we collapse the 'Null'
+-- case to an empty 'ByteString' since the broker only emits
+-- 'NotNull' for the fields we read here.
+fromKB :: P.KafkaBytes -> ByteString
+fromKB (P.KafkaBytes (P.NotNull bs)) = bs
+fromKB (P.KafkaBytes P.Null)         = mempty
+
 ----------------------------------------------------------------------
 -- Partition reassignment (KIP-455)
 ----------------------------------------------------------------------
@@ -1167,4 +1217,599 @@ describeTransactions client tids = liftIO $ do
             { ttpTopic      = extractText (DTResp.topicDataTopic tp)
             , ttpPartitions = ps
             }
+
+----------------------------------------------------------------------
+-- SCRAM credential admin (KIP-554)
+----------------------------------------------------------------------
+
+-- | SCRAM mechanism identifier. Mirrors
+-- @org.apache.kafka.clients.admin.ScramMechanism@. Codes
+-- match the broker wire shape.
+data ScramMechanism
+  = ScramSha256
+  | ScramSha512
+  | ScramUnknown
+  deriving stock (Eq, Show)
+
+scramMechanismCode :: ScramMechanism -> Int8
+scramMechanismCode = \case
+  ScramUnknown -> 0
+  ScramSha256  -> 1
+  ScramSha512  -> 2
+
+scramMechanismFromCode :: Int8 -> ScramMechanism
+scramMechanismFromCode = \case
+  1 -> ScramSha256
+  2 -> ScramSha512
+  _ -> ScramUnknown
+
+-- | Per-user credential metadata returned by
+-- 'describeUserScramCredentials'.
+data ScramCredentialInfo = ScramCredentialInfo
+  { sciMechanism  :: !ScramMechanism
+  , sciIterations :: !Int32
+  }
+  deriving stock (Eq, Show)
+
+-- | Add or update a SCRAM credential. The broker requires
+-- caller-supplied salt + salted password (PBKDF2-applied).
+data ScramCredentialUpsertion = ScramCredentialUpsertion
+  { scuUser           :: !Text
+  , scuMechanism      :: !ScramMechanism
+  , scuIterations     :: !Int32
+  , scuSalt           :: !ByteString
+  , scuSaltedPassword :: !ByteString
+  }
+  deriving stock (Eq, Show)
+
+-- | Delete a SCRAM credential for a user under a specific mechanism.
+data ScramCredentialDeletion = ScramCredentialDeletion
+  { scdUser      :: !Text
+  , scdMechanism :: !ScramMechanism
+  }
+  deriving stock (Eq, Show)
+
+-- | Describe SCRAM credentials for the supplied users. Passing
+-- @[]@ asks for every user the requesting principal can see.
+describeUserScramCredentials
+  :: MonadIO m
+  => AdminClient
+  -> [Text]
+  -> m (Either String [(Text, Either String [ScramCredentialInfo])])
+describeUserScramCredentials client users = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 50 0 0 0 $ \conn corrId apiVer -> do
+        let req = DSCReq.DescribeUserScramCredentialsRequest
+              { DSCReq.describeUserScramCredentialsRequestUsers =
+                  P.mkKafkaArray $ V.fromList
+                    [ DSCReq.UserName { DSCReq.userNameName = P.mkKafkaString u } | u <- users ]
+              }
+            body = WC.runEncodeVer @DSCReq.DescribeUserScramCredentialsRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 50 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("DescribeUserScramCredentials request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @DSCResp.DescribeUserScramCredentialsResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if DSCResp.describeUserScramCredentialsResponseErrorCode resp /= 0
+                  then pure $ Left $
+                    "DescribeUserScramCredentials: " <> T.unpack
+                      (extractText (DSCResp.describeUserScramCredentialsResponseErrorMessage resp))
+                  else do
+                    let rs = case P.unKafkaArray (DSCResp.describeUserScramCredentialsResponseResults resp) of
+                          P.Null      -> V.empty
+                          P.NotNull v -> v
+                    pure $ Right (V.toList (V.map decodeUser rs))
+  where
+    decodeUser r =
+      let !nm   = extractText (DSCResp.describeUserScramCredentialsResultUser r)
+          !code = DSCResp.describeUserScramCredentialsResultErrorCode r
+          !msg  = extractText (DSCResp.describeUserScramCredentialsResultErrorMessage r)
+       in if code == 0
+            then
+              let cs = case P.unKafkaArray (DSCResp.describeUserScramCredentialsResultCredentialInfos r) of
+                    P.Null      -> V.empty
+                    P.NotNull v -> v
+               in (nm, Right (V.toList (V.map decodeCI cs)))
+            else (nm, Left ("Error " <> show code <> ": " <> T.unpack msg))
+    decodeCI ci = ScramCredentialInfo
+      { sciMechanism  = scramMechanismFromCode (DSCResp.credentialInfoMechanism ci)
+      , sciIterations = DSCResp.credentialInfoIterations ci
+      }
+
+-- | Add and/or remove SCRAM credentials. Mirrors
+-- @Admin.alterUserScramCredentials(List<UserScramCredentialAlteration>)@.
+alterUserScramCredentials
+  :: MonadIO m
+  => AdminClient
+  -> [ScramCredentialUpsertion]
+  -> [ScramCredentialDeletion]
+  -> m (Either String [(Text, Either String ())])
+alterUserScramCredentials client upserts deletes = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 51 0 0 0 $ \conn corrId apiVer -> do
+        let req = ASCReq.AlterUserScramCredentialsRequest
+              { ASCReq.alterUserScramCredentialsRequestDeletions =
+                  P.mkKafkaArray (V.fromList (map buildDel deletes))
+              , ASCReq.alterUserScramCredentialsRequestUpsertions =
+                  P.mkKafkaArray (V.fromList (map buildUps upserts))
+              }
+            body = WC.runEncodeVer @ASCReq.AlterUserScramCredentialsRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 51 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("AlterUserScramCredentials request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @ASCResp.AlterUserScramCredentialsResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp -> do
+                let rs = case P.unKafkaArray (ASCResp.alterUserScramCredentialsResponseResults resp) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                pure $ Right (V.toList (V.map decodeR rs))
+  where
+    buildDel d = ASCReq.ScramCredentialDeletion
+      { ASCReq.scramCredentialDeletionName      = P.mkKafkaString (scdUser d)
+      , ASCReq.scramCredentialDeletionMechanism = scramMechanismCode (scdMechanism d)
+      }
+    buildUps u = ASCReq.ScramCredentialUpsertion
+      { ASCReq.scramCredentialUpsertionName           = P.mkKafkaString (scuUser u)
+      , ASCReq.scramCredentialUpsertionMechanism      = scramMechanismCode (scuMechanism u)
+      , ASCReq.scramCredentialUpsertionIterations     = scuIterations u
+      , ASCReq.scramCredentialUpsertionSalt           = P.mkKafkaBytes (scuSalt u)
+      , ASCReq.scramCredentialUpsertionSaltedPassword = P.mkKafkaBytes (scuSaltedPassword u)
+      }
+    decodeR r =
+      let !nm   = extractText (ASCResp.alterUserScramCredentialsResultUser r)
+          !code = ASCResp.alterUserScramCredentialsResultErrorCode r
+          !msg  = extractText (ASCResp.alterUserScramCredentialsResultErrorMessage r)
+       in if code == 0
+            then (nm, Right ())
+            else (nm, Left ("Error " <> show code <> ": " <> T.unpack msg))
+
+----------------------------------------------------------------------
+-- Producer-state admin (KIP-664)
+----------------------------------------------------------------------
+
+-- | Active-producer snapshot for a partition. Mirrors
+-- @ProducerState@ in the JVM SDK.
+data ProducerState = ProducerState
+  { psProducerId             :: !Int64
+  , psProducerEpoch          :: !Int32
+  , psLastSequence           :: !Int32
+  , psLastTimestamp          :: !Int64
+  , psCoordinatorEpoch       :: !Int32
+  , psCurrentTxnStartOffset  :: !Int64
+  }
+  deriving stock (Eq, Show)
+
+-- | Describe the producer state for the supplied partitions.
+describeProducers
+  :: MonadIO m
+  => AdminClient
+  -> [(Text, [Int32])]                    -- ^ topic → partition list
+  -> m (Either String [(Text, Int32, Either String [ProducerState])])
+describeProducers client targets = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 61 0 0 0 $ \conn corrId apiVer -> do
+        let !topicReqs = V.fromList
+              [ DPReq.TopicRequest
+                  { DPReq.topicRequestName            = P.mkKafkaString t
+                  , DPReq.topicRequestPartitionIndexes = P.mkKafkaArray (V.fromList ps)
+                  }
+              | (t, ps) <- targets
+              ]
+            req = DPReq.DescribeProducersRequest
+              { DPReq.describeProducersRequestTopics = P.mkKafkaArray topicReqs
+              }
+            body = WC.runEncodeVer @DPReq.DescribeProducersRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 61 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("DescribeProducers request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @DPResp.DescribeProducersResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp -> do
+                let topicRs = case P.unKafkaArray (DPResp.describeProducersResponseTopics resp) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                pure $ Right $ concatMap flattenT (V.toList topicRs)
+  where
+    flattenT t =
+      let !nm = extractText (DPResp.topicResponseName t)
+          ps = case P.unKafkaArray (DPResp.topicResponsePartitions t) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+       in V.toList (V.map (decodeP nm) ps)
+    decodeP nm p =
+      let !pi_  = DPResp.partitionResponsePartitionIndex p
+          !code = DPResp.partitionResponseErrorCode p
+          !msg  = extractText (DPResp.partitionResponseErrorMessage p)
+       in if code == 0
+            then
+              let ps_ = case P.unKafkaArray (DPResp.partitionResponseActiveProducers p) of
+                    P.Null      -> V.empty
+                    P.NotNull v -> v
+               in (nm, pi_, Right (V.toList (V.map decodeS ps_)))
+            else (nm, pi_, Left ("Error " <> show code <> ": " <> T.unpack msg))
+    decodeS s = ProducerState
+      { psProducerId            = DPResp.producerStateProducerId s
+      , psProducerEpoch         = DPResp.producerStateProducerEpoch s
+      , psLastSequence          = DPResp.producerStateLastSequence s
+      , psLastTimestamp         = DPResp.producerStateLastTimestamp s
+      , psCoordinatorEpoch      = DPResp.producerStateCoordinatorEpoch s
+      , psCurrentTxnStartOffset = DPResp.producerStateCurrentTxnStartOffset s
+      }
+
+----------------------------------------------------------------------
+-- Log directory admin
+----------------------------------------------------------------------
+
+-- | A single broker's report of a log directory.
+data LogDirDescription = LogDirDescription
+  { lddPath        :: !Text
+  , lddErrorCode   :: !Int16
+  , lddTotalBytes  :: !Int64
+  , lddUsableBytes :: !Int64
+  , lddTopics      :: ![TopicLogDirDescription]
+  }
+  deriving stock (Eq, Show)
+
+data TopicLogDirDescription = TopicLogDirDescription
+  { tlddName       :: !Text
+  , tlddPartitions :: ![PartitionLogDirDescription]
+  }
+  deriving stock (Eq, Show)
+
+data PartitionLogDirDescription = PartitionLogDirDescription
+  { pldPartition    :: !Int32
+  , pldPartitionSize :: !Int64
+  , pldOffsetLag    :: !Int64
+  , pldIsFutureKey  :: !Bool
+  }
+  deriving stock (Eq, Show)
+
+-- | Describe the log directories on the supplied partitions.
+-- Mirrors @Admin.describeLogDirs(Collection<Integer>)@ — the
+-- JVM variant takes broker ids; this one piggy-backs on the
+-- admin client's currently-connected broker and only reports
+-- its log dirs.
+describeLogDirs
+  :: MonadIO m
+  => AdminClient
+  -> [(Text, [Int32])]                    -- ^ topics × partitions to query
+  -> m (Either String [LogDirDescription])
+describeLogDirs client targets = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 35 0 4 0 $ \conn corrId apiVer -> do
+        let !ts = V.fromList
+              [ DLDReq.DescribableLogDirTopic
+                  { DLDReq.describableLogDirTopicTopic      = P.mkKafkaString t
+                  , DLDReq.describableLogDirTopicPartitions = P.mkKafkaArray (V.fromList ps)
+                  }
+              | (t, ps) <- targets
+              ]
+            req = DLDReq.DescribeLogDirsRequest
+              { DLDReq.describeLogDirsRequestTopics = P.mkKafkaArray ts
+              }
+            body = WC.runEncodeVer @DLDReq.DescribeLogDirsRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 35 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("DescribeLogDirs request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @DLDResp.DescribeLogDirsResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp -> do
+                let rs = case P.unKafkaArray (DLDResp.describeLogDirsResponseResults resp) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                pure $ Right (V.toList (V.map decodeR rs))
+  where
+    decodeR r =
+      let !ts = case P.unKafkaArray (DLDResp.describeLogDirsResultTopics r) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+       in LogDirDescription
+            { lddPath        = extractText (DLDResp.describeLogDirsResultLogDir r)
+            , lddErrorCode   = DLDResp.describeLogDirsResultErrorCode r
+            , lddTotalBytes  = DLDResp.describeLogDirsResultTotalBytes r
+            , lddUsableBytes = DLDResp.describeLogDirsResultUsableBytes r
+            , lddTopics      = V.toList (V.map decodeT ts)
+            }
+    decodeT t =
+      let !ps = case P.unKafkaArray (DLDResp.describeLogDirsTopicPartitions t) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+       in TopicLogDirDescription
+            { tlddName       = extractText (DLDResp.describeLogDirsTopicName t)
+            , tlddPartitions = V.toList (V.map decodeP ps)
+            }
+    decodeP p = PartitionLogDirDescription
+      { pldPartition    = DLDResp.describeLogDirsPartitionPartitionIndex p
+      , pldPartitionSize = DLDResp.describeLogDirsPartitionPartitionSize p
+      , pldOffsetLag    = DLDResp.describeLogDirsPartitionOffsetLag p
+      , pldIsFutureKey  = DLDResp.describeLogDirsPartitionIsFutureKey p
+      }
+
+-- | Move replicas to specific log directories. Each entry says
+-- "for these (topic, partition) pairs, put them on this path".
+data ReplicaLogDirAssignment = ReplicaLogDirAssignment
+  { rldaPath       :: !Text
+  , rldaPartitions :: ![(Text, [Int32])]
+  }
+  deriving stock (Eq, Show)
+
+-- | Reassign replicas to specific log directories. Mirrors
+-- @Admin.alterReplicaLogDirs(Map<TopicPartitionReplica, String>)@
+-- (we adopt the per-path shape because that's how the wire
+-- carries the request — JVM users flip it client-side).
+alterReplicaLogDirs
+  :: MonadIO m
+  => AdminClient
+  -> [ReplicaLogDirAssignment]
+  -> m (Either String [(Text, Int32, Either String ())])
+alterReplicaLogDirs client assignments = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 34 0 2 0 $ \conn corrId apiVer -> do
+        let !dirs = V.fromList
+              [ ALDReq.AlterReplicaLogDir
+                  { ALDReq.alterReplicaLogDirPath = P.mkKafkaString (rldaPath a)
+                  , ALDReq.alterReplicaLogDirTopics = P.mkKafkaArray $ V.fromList
+                      [ ALDReq.AlterReplicaLogDirTopic
+                          { ALDReq.alterReplicaLogDirTopicName       = P.mkKafkaString t
+                          , ALDReq.alterReplicaLogDirTopicPartitions = P.mkKafkaArray (V.fromList ps)
+                          }
+                      | (t, ps) <- rldaPartitions a
+                      ]
+                  }
+              | a <- assignments
+              ]
+            req = ALDReq.AlterReplicaLogDirsRequest
+              { ALDReq.alterReplicaLogDirsRequestDirs = P.mkKafkaArray dirs
+              }
+            body = WC.runEncodeVer @ALDReq.AlterReplicaLogDirsRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 34 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("AlterReplicaLogDirs request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @ALDResp.AlterReplicaLogDirsResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp -> do
+                let rs = case P.unKafkaArray (ALDResp.alterReplicaLogDirsResponseResults resp) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                pure $ Right (concatMap flattenT (V.toList rs))
+  where
+    flattenT t =
+      let !nm = extractText (ALDResp.alterReplicaLogDirTopicResultTopicName t)
+          ps = case P.unKafkaArray (ALDResp.alterReplicaLogDirTopicResultPartitions t) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+       in V.toList (V.map (decodeP nm) ps)
+    decodeP nm p =
+      let !pi_  = ALDResp.alterReplicaLogDirPartitionResultPartitionIndex p
+          !code = ALDResp.alterReplicaLogDirPartitionResultErrorCode p
+       in if code == 0
+            then (nm, pi_, Right ())
+            else (nm, pi_, Left ("Error " <> show code))
+
+----------------------------------------------------------------------
+-- Delegation tokens (KIP-48)
+----------------------------------------------------------------------
+
+-- | A described delegation token.
+data DelegationToken = DelegationToken
+  { dtTokenId        :: !Text
+  , dtHmac           :: !ByteString
+  , dtOwner          :: !(Text, Text)  -- principal type, principal name
+  , dtTokenRequester :: !(Text, Text)
+  , dtIssueTimestamp :: !Int64
+  , dtExpiryTimestamp :: !Int64
+  , dtMaxTimestamp   :: !Int64
+  }
+  deriving stock (Eq, Show)
+
+-- | Create a delegation token. The optional renewers list
+-- nominates additional principals allowed to renew/expire the
+-- token; pass @[]@ to lock it down to the issuer.
+createDelegationToken
+  :: MonadIO m
+  => AdminClient
+  -> Maybe (Text, Text)                   -- ^ override owner principal (Nothing = use the issuer)
+  -> [(Text, Text)]                       -- ^ renewers
+  -> Int64                                -- ^ max lifetime ms (negative = broker default)
+  -> m (Either String DelegationToken)
+createDelegationToken client mOwner renewers maxLifeMs = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 38 0 3 0 $ \conn corrId apiVer -> do
+        let (ot, on) = case mOwner of
+              Just (t, n) -> (t, n)
+              Nothing     -> ("", "")
+            !rens = V.fromList
+              [ CDTReq.CreatableRenewers
+                  { CDTReq.creatableRenewersPrincipalType = P.mkKafkaString t
+                  , CDTReq.creatableRenewersPrincipalName = P.mkKafkaString n
+                  }
+              | (t, n) <- renewers
+              ]
+            req = CDTReq.CreateDelegationTokenRequest
+              { CDTReq.createDelegationTokenRequestOwnerPrincipalType = P.mkKafkaString ot
+              , CDTReq.createDelegationTokenRequestOwnerPrincipalName = P.mkKafkaString on
+              , CDTReq.createDelegationTokenRequestRenewers           = P.mkKafkaArray rens
+              , CDTReq.createDelegationTokenRequestMaxLifetimeMs      = maxLifeMs
+              }
+            body = WC.runEncodeVer @CDTReq.CreateDelegationTokenRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 38 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("CreateDelegationToken request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @CDTResp.CreateDelegationTokenResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if CDTResp.createDelegationTokenResponseErrorCode resp /= 0
+                  then pure $ Left $ "CreateDelegationToken: error code "
+                    <> show (CDTResp.createDelegationTokenResponseErrorCode resp)
+                  else pure $ Right DelegationToken
+                    { dtTokenId        =
+                        extractText (CDTResp.createDelegationTokenResponseTokenId resp)
+                    , dtHmac           =
+                        fromKB (CDTResp.createDelegationTokenResponseHmac resp)
+                    , dtOwner          =
+                        ( extractText (CDTResp.createDelegationTokenResponsePrincipalType resp)
+                        , extractText (CDTResp.createDelegationTokenResponsePrincipalName resp)
+                        )
+                    , dtTokenRequester =
+                        ( extractText (CDTResp.createDelegationTokenResponseTokenRequesterPrincipalType resp)
+                        , extractText (CDTResp.createDelegationTokenResponseTokenRequesterPrincipalName resp)
+                        )
+                    , dtIssueTimestamp = CDTResp.createDelegationTokenResponseIssueTimestampMs resp
+                    , dtExpiryTimestamp = CDTResp.createDelegationTokenResponseExpiryTimestampMs resp
+                    , dtMaxTimestamp   = CDTResp.createDelegationTokenResponseMaxTimestampMs resp
+                    }
+
+-- | Push the token's expiry deadline forward by @renewPeriodMs@.
+-- Returns the new expiry timestamp on success.
+renewDelegationToken
+  :: MonadIO m
+  => AdminClient
+  -> ByteString                           -- ^ HMAC of the token to renew
+  -> Int64                                -- ^ renew period ms
+  -> m (Either String Int64)
+renewDelegationToken client hmac periodMs = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 39 0 2 0 $ \conn corrId apiVer -> do
+        let req = RDTReq.RenewDelegationTokenRequest
+              { RDTReq.renewDelegationTokenRequestHmac          = P.mkKafkaBytes hmac
+              , RDTReq.renewDelegationTokenRequestRenewPeriodMs = periodMs
+              }
+            body = WC.runEncodeVer @RDTReq.RenewDelegationTokenRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 39 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("RenewDelegationToken request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @RDTResp.RenewDelegationTokenResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if RDTResp.renewDelegationTokenResponseErrorCode resp == 0
+                  then pure $ Right (RDTResp.renewDelegationTokenResponseExpiryTimestampMs resp)
+                  else pure $ Left $ "RenewDelegationToken: error code "
+                    <> show (RDTResp.renewDelegationTokenResponseErrorCode resp)
+
+-- | Set the token's expiry deadline to @now + expiryPeriodMs@.
+-- Passing a negative period invalidates the token immediately.
+-- Returns the new expiry timestamp.
+expireDelegationToken
+  :: MonadIO m
+  => AdminClient
+  -> ByteString
+  -> Int64
+  -> m (Either String Int64)
+expireDelegationToken client hmac periodMs = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 40 0 2 0 $ \conn corrId apiVer -> do
+        let req = EDTReq.ExpireDelegationTokenRequest
+              { EDTReq.expireDelegationTokenRequestHmac          = P.mkKafkaBytes hmac
+              , EDTReq.expireDelegationTokenRequestExpiryTimePeriodMs = periodMs
+              }
+            body = WC.runEncodeVer @EDTReq.ExpireDelegationTokenRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 40 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("ExpireDelegationToken request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @EDTResp.ExpireDelegationTokenResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if EDTResp.expireDelegationTokenResponseErrorCode resp == 0
+                  then pure $ Right (EDTResp.expireDelegationTokenResponseExpiryTimestampMs resp)
+                  else pure $ Left $ "ExpireDelegationToken: error code "
+                    <> show (EDTResp.expireDelegationTokenResponseErrorCode resp)
+
+-- | Describe issued delegation tokens. Pass @[]@ to ask for
+-- /every/ token the requesting principal can see.
+describeDelegationToken
+  :: MonadIO m
+  => AdminClient
+  -> [(Text, Text)]                       -- ^ owner principals to filter on
+  -> m (Either String [DelegationToken])
+describeDelegationToken client owners = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 41 0 3 0 $ \conn corrId apiVer -> do
+        let !os = V.fromList
+              [ DDTReq.DescribeDelegationTokenOwner
+                  { DDTReq.describeDelegationTokenOwnerPrincipalType = P.mkKafkaString t
+                  , DDTReq.describeDelegationTokenOwnerPrincipalName = P.mkKafkaString n
+                  }
+              | (t, n) <- owners
+              ]
+            req = DDTReq.DescribeDelegationTokenRequest
+              { DDTReq.describeDelegationTokenRequestOwners = P.mkKafkaArray os
+              }
+            body = WC.runEncodeVer @DDTReq.DescribeDelegationTokenRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 41 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("DescribeDelegationToken request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @DDTResp.DescribeDelegationTokenResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if DDTResp.describeDelegationTokenResponseErrorCode resp /= 0
+                  then pure $ Left $ "DescribeDelegationToken: error code "
+                    <> show (DDTResp.describeDelegationTokenResponseErrorCode resp)
+                  else do
+                    let ts = case P.unKafkaArray (DDTResp.describeDelegationTokenResponseTokens resp) of
+                          P.Null      -> V.empty
+                          P.NotNull v -> v
+                    pure $ Right (V.toList (V.map decodeT ts))
+  where
+    decodeT t = DelegationToken
+      { dtTokenId         = extractText (DDTResp.describedDelegationTokenTokenId t)
+      , dtHmac            = fromKB (DDTResp.describedDelegationTokenHmac t)
+      , dtOwner           =
+          ( extractText (DDTResp.describedDelegationTokenPrincipalType t)
+          , extractText (DDTResp.describedDelegationTokenPrincipalName t)
+          )
+      , dtTokenRequester  =
+          ( extractText (DDTResp.describedDelegationTokenTokenRequesterPrincipalType t)
+          , extractText (DDTResp.describedDelegationTokenTokenRequesterPrincipalName t)
+          )
+      , dtIssueTimestamp  = DDTResp.describedDelegationTokenIssueTimestamp t
+      , dtExpiryTimestamp = DDTResp.describedDelegationTokenExpiryTimestamp t
+      , dtMaxTimestamp    = DDTResp.describedDelegationTokenMaxTimestamp t
+      }
 

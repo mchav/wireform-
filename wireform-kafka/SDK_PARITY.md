@@ -753,19 +753,23 @@ operations. The new module imports the existing
 | `Admin.alterClientQuotas(Collection<ClientQuotaAlteration>)`                    | ✅ | `Kafka.Client.AdminClient.Extras.alterClientQuotas` |
 | `Admin.listTransactions()` / `(ListTransactionsOptions)`                        | ✅ | `Kafka.Client.AdminClient.Extras.listTransactions` + `TransactionListing` |
 | `Admin.describeTransactions(Collection<String>)`                                | ✅ | `Kafka.Client.AdminClient.Extras.describeTransactions` + `TransactionDescription` + `TransactionTopicPartitions` |
+| `Admin.describeUserScramCredentials(List<String>)`                              | ✅ | `Kafka.Client.AdminClient.Extras.describeUserScramCredentials` + `ScramCredentialInfo` + `ScramMechanism` |
+| `Admin.alterUserScramCredentials(List<UserScramCredentialAlteration>)`          | ✅ | `Kafka.Client.AdminClient.Extras.alterUserScramCredentials` + `ScramCredentialUpsertion` / `ScramCredentialDeletion` |
+| `Admin.describeProducers(Collection<TopicPartition>)`                           | ✅ | `Kafka.Client.AdminClient.Extras.describeProducers` + `ProducerState` |
+| `Admin.describeLogDirs(Collection<Integer>)`                                    | ✅ | `Kafka.Client.AdminClient.Extras.describeLogDirs` + `LogDirDescription` / `TopicLogDirDescription` / `PartitionLogDirDescription` |
+| `Admin.alterReplicaLogDirs(Map<TopicPartitionReplica, String>)`                 | ✅ | `Kafka.Client.AdminClient.Extras.alterReplicaLogDirs` + `ReplicaLogDirAssignment` |
+| `Admin.createDelegationToken(...)` / `renewDelegationToken` / `expireDelegationToken` / `describeDelegationToken` | ✅ | `Kafka.Client.AdminClient.Extras.{createDelegationToken,renewDelegationToken,expireDelegationToken,describeDelegationToken}` + `DelegationToken` |
 
 These reduce the v2 long-tail. What's still missing from the
 admin surface (and tracked as remaining gaps):
 
-- `describeLogDirs` / `alterReplicaLogDirs` / `describeReplicaLogDirs`
-- `describeUserScramCredentials` / `alterUserScramCredentials`
 - `addRaftVoter` / `removeRaftVoter` / `describeMetadataQuorum`
 - `describeFeatures` / `updateFeatures` (`DescribeFeaturesRequest/Response` are not yet emitted by `kafka-codegen`)
-- `describeProducers` / `fenceProducers` / `abortTransaction` (admin)
+- `fenceProducers` / `abortTransaction` (admin)
 - `describeClassicGroups` / `describeShareGroups`
 - `removeMembersFromConsumerGroup`
 - `listClientMetricsResources`
-- `*DelegationToken*` (`createDelegationToken` / `renewDelegationToken` / `expireDelegationToken` / `describeDelegationToken`)
+- `describeReplicaLogDirs`
 
 These are mechanical follow-ups in the same shape as the v3
 additions: import the corresponding `Kafka.Protocol.Generated.*`
