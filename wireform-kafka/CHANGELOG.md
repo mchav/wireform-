@@ -8,6 +8,61 @@ and this project adheres to the
 
 ## Unreleased
 
+### Added
+
+- **`Kafka.Client.AdminClient` — KIP-584 feature flags.**
+  `describeFeatures` parses the supported + finalized feature
+  set off ApiVersionsResponse v3+ and returns a typed
+  `FeatureMetadata`. `updateFeatures` (with
+  `FeatureUpdate` + `FeatureUpgradeType`) wraps
+  UpdateFeaturesRequest (API key 57) for declarative
+  cluster-wide feature-level changes.
+- **`Kafka.Client.AdminClient` — KIP-360 producer fencing.**
+  `fenceProducers` bumps the producer epoch of the supplied
+  transactional ids via InitProducerIdRequest, returning the
+  authoritative (producer-id, epoch) tuple per id. Equivalent
+  to `Admin.fenceProducers(Collection<String>)`.
+- **`Kafka.Client.AdminClient` — KIP-664 manual transaction
+  abort.** `abortTransaction` + `AbortTransactionSpec` route
+  through WriteTxnMarkers to abort a hanging transaction by
+  (producer-id, producer-epoch, coordinator-epoch) directly
+  on the affected partitions.
+- **`Kafka.Client.AdminClient` — KIP-848 group describe.**
+  `describeConsumerGroups2` wraps the next-gen
+  ConsumerGroupDescribe RPC (API key 69) and returns
+  `ConsumerGroupDescription2` / `ConsumerGroupMember`
+  including the group/assignment epoch, assignor name, and
+  per-member (subscribed-topics, current-assignment,
+  target-assignment) tuples.
+- **`Kafka.Client.AdminClient` — KIP-932 share groups.**
+  `describeShareGroups` + `ShareGroupDescription` /
+  `ShareGroupMember` wrap ShareGroupDescribe (API key 77).
+- **`Kafka.Client.AdminClient.describeClassicGroups`.** Same
+  shape as the existing `describeConsumerGroups`; surface
+  named to match the JVM 4.0 SDK's "explicit classic group"
+  call site.
+- **`Kafka.Client.AdminClient.listClientMetricsResources`**
+  (KIP-714) — lists the named client-metrics configurable
+  resources the broker exposes.
+- **KIP-714 `clientInstanceId` on every client.**
+  `Kafka.Client.Producer.producerClientInstanceId`,
+  `Kafka.Client.AdminClient.adminClientInstanceId`,
+  `Kafka.Streams.Runtime.kafkaStreamsClientInstanceId`
+  return a deterministic 16-byte UUID derived from the
+  configured `client.id` / `application.id`. Switches to the
+  broker-assigned id when the `GetTelemetrySubscriptions`
+  pipeline lands. (Consumer already had this in v3e.)
+- **KIP-924 `TaskAssignor` plug-in wiring.**
+  `Kafka.Streams.Config.StreamsConfig.taskAssignor`
+  (`Maybe TaskAssignor`) carries a user-supplied assignor
+  through the runtime; `Kafka.Streams.Runtime.streamsRunUserAssignor`
+  constructs the `ApplicationState` from the live runtime
+  view and invokes the plug-in. The leader-side rebalance
+  still defaults to the built-in cooperative-sticky
+  assignor; the assignment source can flip over to the
+  plug-in in a follow-up without changing the public
+  interface.
+
 ### Changed
 
 - **Module consolidation.** Folded the JVM-equivalence SDK

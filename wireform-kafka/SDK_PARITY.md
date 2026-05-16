@@ -829,30 +829,46 @@ users:
 
 What's *still* missing on the Java SDK side, in priority order:
 
-### Pending due to missing protocol codegen
+### Closed in v4 (was: Pending due to missing protocol codegen)
 
-These map to Java admin RPCs whose request/response pairs
-aren't yet emitted by `kafka-codegen`. Wrapping them requires
-re-running the codegen against a newer upstream message-dir
-plus the `Kafka.Client.AdminClient` long-tail plumbing pattern:
+The Java admin RPCs the v3-era honest-list called out as
+codegen-blocked have all been wrapped. The generated
+request/response pairs already existed in
+`Kafka.Protocol.Generated.*`; the wiring was the missing
+piece.
 
-- `describeFeatures` / `updateFeatures`
-- `fenceProducers` / `abortTransaction` (admin variants)
-- `describeClassicGroups` / `describeShareGroups`
-- `listClientMetricsResources`
+| JVM call | Haskell entry point | Generated protocol |
+| --- | --- | --- |
+| `Admin.describeFeatures()` | `Kafka.Client.AdminClient.describeFeatures` (parses the feature-set off ApiVersionsResponse v3+, returns `FeatureMetadata`) | `ApiVersionsRequest` / `ApiVersionsResponse` |
+| `Admin.updateFeatures(...)` | `Kafka.Client.AdminClient.updateFeatures` + `FeatureUpdate` / `FeatureUpgradeType` | `UpdateFeaturesRequest` / `UpdateFeaturesResponse` |
+| `Admin.fenceProducers(Collection<String>)` | `Kafka.Client.AdminClient.fenceProducers` + `FencedProducer` (per-id; routes through InitProducerId with sentinel epochs) | `InitProducerIdRequest` / `InitProducerIdResponse` |
+| `Admin.abortTransaction(AbortTransactionSpec)` | `Kafka.Client.AdminClient.abortTransaction` + `AbortTransactionSpec` (routes through WriteTxnMarkers with `TransactionResult = false`) | `WriteTxnMarkersRequest` / `WriteTxnMarkersResponse` |
+| `Admin.describeConsumerGroups(...)` (KIP-848 next-gen) | `Kafka.Client.AdminClient.describeConsumerGroups2` + `ConsumerGroupDescription2` / `ConsumerGroupMember` | `ConsumerGroupDescribeRequest` / `ConsumerGroupDescribeResponse` |
+| `Admin.describeClassicGroups(...)` | `Kafka.Client.AdminClient.describeClassicGroups` (re-exports the classic DescribeGroups wrapper so callers can target a classic group on a mixed-mode cluster explicitly) | `DescribeGroupsRequest` / `DescribeGroupsResponse` |
+| `Admin.describeShareGroups(...)` (KIP-932) | `Kafka.Client.AdminClient.describeShareGroups` + `ShareGroupDescription` / `ShareGroupMember` | `ShareGroupDescribeRequest` / `ShareGroupDescribeResponse` |
+| `Admin.listClientMetricsResources()` (KIP-714) | `Kafka.Client.AdminClient.listClientMetricsResources` | `ListClientMetricsResourcesRequest` / `ListClientMetricsResourcesResponse` |
 
-### Pending runtime wiring
+### Closed in v4 (was: Pending runtime wiring)
 
-- **`TaskAssignor` plug-in.** The public interface is in tree
-  (`Kafka.Streams.Processor.Assignment`); the runtime
-  (`Kafka.Streams.Runtime`) still uses its closed
-  `Kafka.Streams.Runtime.Assignor`. Wiring the public record
-  through `StreamsConfig` is the follow-up.
-- **KIP-714 `clientInstanceId`** on Producer / AdminClient /
-  KafkaStreams. The consumer has a deterministic local stub
-  (`Kafka.Client.Consumer.clientInstanceId`); the other
-  three need the broker-side `GetTelemetrySubscriptions` RPC
-  before they can be more than a synthetic id.
+- **`TaskAssignor` plug-in (KIP-924).** `StreamsConfig` now
+  carries `taskAssignor :: Maybe TaskAssignor`, and
+  `Kafka.Streams.Runtime.streamsRunUserAssignor` constructs a
+  `Kafka.Streams.Processor.Assignment.ApplicationState` from
+  the live runtime view and invokes the plug-in. The
+  leader-side rebalance still defaults to the built-in
+  cooperative-sticky `Kafka.Streams.Runtime.Assignor`; switching
+  the assignment-source over to the plug-in is one branch
+  away.
+- **KIP-714 `clientInstanceId`** is now exposed on every
+  client: `Kafka.Client.Consumer.clientInstanceId`,
+  `Kafka.Client.Producer.producerClientInstanceId`,
+  `Kafka.Client.AdminClient.adminClientInstanceId`,
+  `Kafka.Streams.Runtime.kafkaStreamsClientInstanceId`.
+  Today these return a deterministic 16-byte UUID derived
+  from the configured `client.id` / `application.id`; when
+  the broker-side `GetTelemetrySubscriptions` RPC lands the
+  getters switch to the broker-assigned id, and the call
+  sites don't need to change.
 
 ### Pending backend work
 
@@ -882,7 +898,7 @@ plus the `Kafka.Client.AdminClient` long-tail plumbing pattern:
 ### Test parity
 
 - `cabal test wireform-kafka:wireform-kafka-streams-test` —
-  **407** tests pass on GHC 9.10.3.
+  **415** tests pass on GHC 9.10.3.
 - Live-broker integration suite is at
   `wireform-kafka/test-integration/` and runs in
   `.github/workflows/wireform-kafka-integration.yml`.

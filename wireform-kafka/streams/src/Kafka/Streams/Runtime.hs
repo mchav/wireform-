@@ -96,6 +96,11 @@ module Kafka.Streams.Runtime
   , LocalThreadMetadata (..)
   , metadataForLocalThreads
   , metricsAndState
+    -- * KIP-714 client telemetry id
+  , kafkaStreamsClientInstanceId
+    -- * KIP-924 user-pluggable task assignor
+  , streamsRunUserAssignor
+  , streamsApplicationState
     -- * Progress signal (used by tests to coordinate without threadDelay)
   , ksTickCount
   , awaitTicks
@@ -113,8 +118,10 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import qualified Data.ByteString as BS
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as TE
 
 import qualified Kafka.Client.Consumer as KC
 import qualified Kafka.Client.Producer as KP
@@ -123,6 +130,7 @@ import Kafka.Streams.Config
   ( ProcessingGuarantee (..)
   , StreamsConfig (..)
   )
+import qualified Kafka.Streams.Processor.Assignment as PA
 import Kafka.Streams.Errors
   ( ProcessingException (..)
   , ProcessingExceptionHandler (..)
@@ -198,6 +206,8 @@ import Kafka.Streams.Time (Timestamp (..), nowMillis)
 import Kafka.Streams.Types (TopicName, topicName, unTopicName)
 import qualified Data.HashSet as HashSet
 import Data.HashSet (HashSet)
+import qualified Data.Set as Set
+import qualified Data.UUID as UUID
 
 -- | Lifecycle of the runtime.
 data StreamsStatus
@@ -1235,6 +1245,103 @@ metricsAndState ks = do
   st <- streamsStatus ks
   ms <- metadataForLocalThreads ks
   pure (st, ms)
+
+-- | Returns the streams instance's client-instance id (KIP-714).
+-- Mirrors @KafkaStreams.clientInstanceIds(Duration)@ on the JVM —
+-- which on a 4.0 cluster simply forwards the consumer's /
+-- producer's / admin's broker-assigned UUIDs back to the caller.
+-- Until the broker-side telemetry pipeline lands, this returns a
+-- deterministic locally-derived UUID padded from the configured
+-- @application.id@; same encoding the consumer + producer +
+-- admin clients use.
+kafkaStreamsClientInstanceId
+  :: KafkaStreams -> IO BS.ByteString
+kafkaStreamsClientInstanceId ks =
+  pure (uuidFromText (applicationId (ksConfig ks)))
+  where
+    uuidFromText t =
+      let !bs    = BS.append (TE.encodeUtf8 t) (BS.replicate 16 0)
+       in BS.take 16 bs
+
+-- | Build a 'PA.ApplicationState' snapshot from this instance's
+-- live runtime view. Mirrors what the JVM streams runtime
+-- passes to a user-supplied @TaskAssignor@ on the leader side
+-- of a rebalance.
+--
+-- The snapshot is single-instance: this is the view the local
+-- runtime has of its own tasks. On a multi-instance cluster
+-- the JVM SDK aggregates state from every member via the
+-- group-coordination subscription metadata; that aggregation
+-- isn't wired here yet, but the 'PA.ApplicationState' returned
+-- is the shape the plug-in expects so user code can be tested
+-- end-to-end against the local view.
+streamsApplicationState :: KafkaStreams -> IO PA.ApplicationState
+streamsApplicationState ks = do
+  owned    <- readTVarIO (ksOwned ks)
+  standbys <- readTVarIO (ksStandbys ks)
+  -- Build per-instance state. The local ProcessId is derived
+  -- deterministically from the application id so re-runs against
+  -- the same config produce the same id.
+  let !cfg = ksConfig ks
+      !pid = PA.ProcessId (UUID.fromWords 0 0 0
+                            (fromIntegral
+                              (Text.length (applicationId cfg))))
+      ownedSet  = HashMap.toList (HashSet.toMap owned)
+      tasksFromOwned =
+        Map.fromList
+          [ ( TaskId 0 tp.partition
+            , PA.TaskInfo
+                { PA.tiTaskId          = TaskId 0 tp.partition
+                , PA.tiTopicPartitions = Set.singleton (PA.TaskTopicPartition
+                    { PA.ttpTopic       = tp.topic
+                    , PA.ttpPartition   = tp.partition
+                    , PA.ttpIsChangelog = False
+                    })
+                , PA.tiIsStateful = False
+                , PA.tiStores     = Set.empty
+                }
+            )
+          | (tp, _) <- ownedSet
+          ]
+      activeTids = Map.keysSet tasksFromOwned
+      standbyTids = Set.fromList
+        [ TaskId 0 tp.partition | tp <- Map.keys standbys ]
+      kss = PA.KafkaStreamsState
+              { PA.kssProcessId            = pid
+              , PA.kssNumProcessingThreads = numStreamThreads cfg
+              , PA.kssClientTags           = Map.empty
+              , PA.kssPreviousActiveTasks  = activeTids
+              , PA.kssPreviousStandbyTasks = standbyTids
+              , PA.kssRackId               = Nothing
+              }
+  pure PA.ApplicationState
+    { PA.asAllTasks           = tasksFromOwned
+    , PA.asKafkaStreamsStates = Map.singleton pid kss
+    , PA.asAssignmentConfigs  = PA.AssignmentConfigs
+        { PA.acNumStandbyReplicas      = numStandbyReplicas cfg
+        , PA.acAcceptableRecoveryLag   = fromIntegral (acceptableRecoveryLag cfg)
+        , PA.acMaxWarmupReplicas       = maxWarmupReplicas cfg
+        , PA.acProbingRebalanceIntervalMs = probingRebalanceIntervalMs cfg
+        , PA.acRackAware               = PA.defaultRackAwareAssignmentConfigs
+        }
+    }
+
+-- | Invoke the user-configured 'PA.TaskAssignor' against the
+-- current 'streamsApplicationState'. Returns 'Nothing' when no
+-- plug-in is configured ('Kafka.Streams.Config.taskAssignor =
+-- Nothing'); returns @Just@ the assignor's output otherwise.
+--
+-- The runtime itself doesn't consume this value yet — the
+-- leader-side assignment path uses the built-in cooperative-
+-- sticky assignor — but the wiring is in place so user code
+-- can drive the plug-in deterministically.
+streamsRunUserAssignor :: KafkaStreams -> IO (Maybe PA.TaskAssignment)
+streamsRunUserAssignor ks =
+  case taskAssignor (ksConfig ks) of
+    Nothing  -> pure Nothing
+    Just ta_ -> do
+      app <- streamsApplicationState ks
+      Just <$> PA.taAssign ta_ app
 
 -- | Run the supplied event loop with the configured uncaught-exception
 -- handling. On exception the user handler decides whether to

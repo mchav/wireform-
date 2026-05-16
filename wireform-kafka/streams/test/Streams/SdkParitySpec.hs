@@ -29,6 +29,7 @@ import qualified Kafka.Common.Acl as Acl
 import qualified Kafka.Common.Quota as Quota
 import qualified Kafka.Common.Resource as Resource
 import qualified Kafka.Serde as Serde
+import qualified Kafka.Streams.Config
 import qualified Kafka.Streams.Errors as Errors
 import qualified Kafka.Streams.Processor.Assignment as TA
 import qualified Kafka.Streams.Window as W
@@ -71,6 +72,18 @@ tests = testGroup "SDK parity shims (audit pass)"
       , list_serde_roundtrip
       , task_assignor_default
       , per_error_streams_exceptions
+      ]
+  , testGroup "v4: protocol-codegen-dependent admin RPCs"
+      [ feature_metadata_value_smoke
+      , feature_update_value_smoke
+      , abort_transaction_spec_value_smoke
+      , consumer_group_describe2_value_smoke
+      , share_group_describe_value_smoke
+      , fenced_producer_value_smoke
+      ]
+  , testGroup "v4: KIP-924 + KIP-714 runtime wiring"
+      [ task_assignor_plugin_configurable
+      , task_assignor_plugin_invocable
       ]
   ]
 
@@ -385,3 +398,161 @@ per_error_streams_exceptions =
 -- Set is imported via the imports already, make sure to use it.
 _useSet :: Set.Set ()
 _useSet = Set.empty
+
+----------------------------------------------------------------------
+-- v4: protocol-codegen-dependent admin RPCs
+----------------------------------------------------------------------
+
+-- The wrapper functions themselves can't be invoked without a
+-- live broker, but the public value types they expose must
+-- compose so user code can build requests / pattern-match
+-- responses offline.
+
+feature_metadata_value_smoke :: TestTree
+feature_metadata_value_smoke =
+  testCase "FeatureMetadata + ranges compose" $ do
+    let !fm = Adm.FeatureMetadata
+          { Adm.fmSupportedFeatures = Map.singleton "metadata.version"
+              (Adm.SupportedFeatureRange 0 20)
+          , Adm.fmFinalizedFeatures = Map.singleton "metadata.version"
+              (Adm.FinalizedFeatureLevel 14 14)
+          , Adm.fmFinalizedFeaturesEpoch = Just 42
+          }
+    Map.size (Adm.fmSupportedFeatures fm) @?= 1
+    Map.size (Adm.fmFinalizedFeatures fm) @?= 1
+    Adm.fmFinalizedFeaturesEpoch fm @?= Just 42
+
+feature_update_value_smoke :: TestTree
+feature_update_value_smoke =
+  testCase "FeatureUpdate / UpgradeType compose" $ do
+    let _ = Adm.FeatureUpdate "metadata.version" 16 Adm.UpgradeOnly
+        _ = Adm.FeatureUpdate "metadata.version" 14 Adm.SafeDowngrade
+        _ = Adm.FeatureUpdate "metadata.version" 14 Adm.UnsafeDowngrade
+    pure ()
+
+abort_transaction_spec_value_smoke :: TestTree
+abort_transaction_spec_value_smoke =
+  testCase "AbortTransactionSpec composes with multiple partitions" $ do
+    let !spec = Adm.AbortTransactionSpec
+          { Adm.atsProducerId       = 1000
+          , Adm.atsProducerEpoch    = 7
+          , Adm.atsCoordinatorEpoch = 3
+          , Adm.atsTopicPartitions  = [("txn-topic", [0, 1, 2])]
+          }
+    Adm.atsProducerId spec @?= 1000
+    length (Adm.atsTopicPartitions spec) @?= 1
+
+consumer_group_describe2_value_smoke :: TestTree
+consumer_group_describe2_value_smoke =
+  testCase "KIP-848 ConsumerGroupDescription2 compose" $ do
+    let !m = Adm.ConsumerGroupMember
+          { Adm.cgmMemberId           = "m-1"
+          , Adm.cgmInstanceId         = Nothing
+          , Adm.cgmRackId             = Just "rack-a"
+          , Adm.cgmMemberEpoch        = 5
+          , Adm.cgmClientId           = "c"
+          , Adm.cgmClientHost         = "h"
+          , Adm.cgmSubscribedTopicNames = ["t-1"]
+          , Adm.cgmSubscribedTopicRegex = Nothing
+          , Adm.cgmAssignedPartitions = [("t-1", [0])]
+          , Adm.cgmTargetAssignment   = [("t-1", [0])]
+          }
+        !d = Adm.ConsumerGroupDescription2
+          { Adm.cgd2GroupId           = "g-1"
+          , Adm.cgd2GroupState        = "STABLE"
+          , Adm.cgd2GroupEpoch        = 5
+          , Adm.cgd2AssignmentEpoch   = 5
+          , Adm.cgd2AssignorName      = "uniform"
+          , Adm.cgd2Members           = [m]
+          , Adm.cgd2AuthorizedOperations = 0
+          }
+    length (Adm.cgd2Members d) @?= 1
+
+share_group_describe_value_smoke :: TestTree
+share_group_describe_value_smoke =
+  testCase "KIP-932 ShareGroupDescription compose" $ do
+    let !m = Adm.ShareGroupMember
+          { Adm.sgmMemberId           = "m-1"
+          , Adm.sgmRackId             = Nothing
+          , Adm.sgmMemberEpoch        = 1
+          , Adm.sgmClientId           = "c"
+          , Adm.sgmClientHost         = "h"
+          , Adm.sgmSubscribedTopicNames = ["share-topic"]
+          , Adm.sgmAssignedPartitions = [("share-topic", [0, 1])]
+          }
+        !d = Adm.ShareGroupDescription
+          { Adm.sgdGroupId             = "share-g-1"
+          , Adm.sgdGroupState          = "STABLE"
+          , Adm.sgdGroupEpoch          = 1
+          , Adm.sgdAssignmentEpoch     = 1
+          , Adm.sgdAssignorName        = "simple"
+          , Adm.sgdMembers             = [m]
+          , Adm.sgdAuthorizedOperations = 0
+          }
+    length (Adm.sgdMembers d) @?= 1
+
+fenced_producer_value_smoke :: TestTree
+fenced_producer_value_smoke =
+  testCase "FencedProducer composes" $ do
+    let !fp = Adm.FencedProducer
+          { Adm.fpTransactionalId = "txn-id"
+          , Adm.fpProducerId      = 123
+          , Adm.fpProducerEpoch   = 4
+          }
+    Adm.fpTransactionalId fp @?= "txn-id"
+    Adm.fpProducerEpoch fp @?= 4
+
+----------------------------------------------------------------------
+-- v4: KIP-924 TaskAssignor plug-in
+----------------------------------------------------------------------
+
+-- We can't spin up a full 'KafkaStreams' in a unit test, so this
+-- pair exercises the wiring at the config layer: the plug-in
+-- carries through 'StreamsConfig' unchanged, and a directly-
+-- invoked plug-in produces the expected 'TaskAssignment' shape.
+
+task_assignor_plugin_configurable :: TestTree
+task_assignor_plugin_configurable =
+  testCase "TaskAssignor plug-in carries through StreamsConfig" $ do
+    let !cfg = Kafka.Streams.Config.defaultStreamsConfig
+          { Kafka.Streams.Config.taskAssignor =
+              Just TA.defaultTaskAssignor
+          }
+    case Kafka.Streams.Config.taskAssignor cfg of
+      Nothing -> assertBool "taskAssignor plug-in was dropped" False
+      Just _  -> pure ()
+
+task_assignor_plugin_invocable :: TestTree
+task_assignor_plugin_invocable =
+  testCase "TaskAssignor plug-in produces a TaskAssignment" $ do
+    let pid = TA.ProcessId UUID.nil
+        emptyApp = TA.ApplicationState
+          { TA.asAllTasks = Map.empty
+          , TA.asKafkaStreamsStates = Map.singleton pid TA.KafkaStreamsState
+              { TA.kssProcessId            = pid
+              , TA.kssNumProcessingThreads = 1
+              , TA.kssClientTags           = Map.empty
+              , TA.kssPreviousActiveTasks  = Set.empty
+              , TA.kssPreviousStandbyTasks = Set.empty
+              , TA.kssRackId               = Nothing
+              }
+          , TA.asAssignmentConfigs = TA.defaultAssignmentConfigs
+          }
+    out <- TA.taAssign TA.defaultTaskAssignor emptyApp
+    -- The default assignor hands every task to the first client.
+    -- Even with no tasks, the single registered ProcessId still
+    -- gets an (empty) KafkaStreamsAssignment entry — this
+    -- confirms the assignor surface is end-to-end invocable
+    -- (the runtime hook 'streamsRunUserAssignor' consumes the
+    -- same shape).
+    Map.keysSet (TA.taAssignments out) @?= Set.singleton pid
+
+-- 'Kafka.Streams.Config' is imported via qualifying inside the
+-- bodies above; pull a tiny use-site so the import line that
+-- introduces it isn't flagged.
+_useStreamsConfig :: Bool
+_useStreamsConfig =
+  case Kafka.Streams.Config.taskAssignor
+         Kafka.Streams.Config.defaultStreamsConfig of
+    Nothing -> True
+    Just _  -> True

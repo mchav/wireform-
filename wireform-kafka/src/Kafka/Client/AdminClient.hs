@@ -176,6 +176,42 @@ module Kafka.Client.AdminClient
   , MemberToRemove (..)
   , removeMembersFromConsumerGroup
 
+    -- * Feature flags (KIP-584)
+  , FeatureMetadata (..)
+  , SupportedFeatureRange (..)
+  , FinalizedFeatureLevel (..)
+  , describeFeatures
+  , FeatureUpdate (..)
+  , FeatureUpgradeType (..)
+  , updateFeatures
+
+    -- * Producer fencing (KIP-360)
+  , fenceProducers
+  , FencedProducer (..)
+
+    -- * Manual transaction abort (KIP-664)
+  , AbortTransactionSpec (..)
+  , abortTransaction
+
+    -- * KIP-848 consumer group describe
+  , ConsumerGroupDescription2 (..)
+  , ConsumerGroupMember (..)
+  , describeConsumerGroups2
+
+    -- * Share group describe (KIP-932)
+  , ShareGroupDescription (..)
+  , ShareGroupMember (..)
+  , describeShareGroups
+
+    -- * Classic group describe (KIP-848 explicit-protocol shape)
+  , describeClassicGroups
+
+    -- * Client metrics resources (KIP-714)
+  , listClientMetricsResources
+
+    -- * KIP-714 client telemetry id
+  , adminClientInstanceId
+
     -- * Configuration
   , defaultAdminClientConfig
   , defaultAdminApiTimeoutMs
@@ -266,6 +302,9 @@ import qualified Kafka.Protocol.Wire.Codec as WC
 -- operation-shaped functions over the common value types in
 -- @Kafka.Common.*@.
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.Text.Encoding as TE
+import qualified Kafka.Client.TopicId as TopicIdImp
 import Data.Word (Word16)
 import qualified Kafka.Common as Common
 import Kafka.Common (Node (..), Cluster (..))
@@ -322,6 +361,20 @@ import qualified Kafka.Protocol.Generated.DescribeQuorumRequest as DQReq
 import qualified Kafka.Protocol.Generated.DescribeQuorumResponse as DQResp
 import qualified Kafka.Protocol.Generated.LeaveGroupRequest as LGRReq
 import qualified Kafka.Protocol.Generated.LeaveGroupResponse as LGRResp
+import qualified Kafka.Protocol.Generated.UpdateFeaturesRequest as UFReq
+import qualified Kafka.Protocol.Generated.UpdateFeaturesResponse as UFResp
+import qualified Kafka.Protocol.Generated.ApiVersionsRequest as AVReq
+import qualified Kafka.Protocol.Generated.ApiVersionsResponse as AVResp
+import qualified Kafka.Protocol.Generated.InitProducerIdRequest as IPIReq
+import qualified Kafka.Protocol.Generated.InitProducerIdResponse as IPIResp
+import qualified Kafka.Protocol.Generated.WriteTxnMarkersRequest as WTMReq
+import qualified Kafka.Protocol.Generated.WriteTxnMarkersResponse as WTMResp
+import qualified Kafka.Protocol.Generated.ConsumerGroupDescribeRequest as CGDReq
+import qualified Kafka.Protocol.Generated.ConsumerGroupDescribeResponse as CGDResp
+import qualified Kafka.Protocol.Generated.ShareGroupDescribeRequest as SGDReq
+import qualified Kafka.Protocol.Generated.ShareGroupDescribeResponse as SGDResp
+import qualified Kafka.Protocol.Generated.ListClientMetricsResourcesRequest as LCMRReq
+import qualified Kafka.Protocol.Generated.ListClientMetricsResourcesResponse as LCMRResp
 
 -- | AdminClient configuration
 data AdminClientConfig = AdminClientConfig
@@ -3754,3 +3807,636 @@ removeMembersFromConsumerGroup client groupId members = liftIO $ do
             then (mid, Right ())
             else (mid, Left ("Error " <> show code))
 
+
+----------------------------------------------------------------------
+-- Feature flags (KIP-584)
+----------------------------------------------------------------------
+
+-- | Supported version range a broker reports for a feature.
+-- Mirrors @SupportedVersionRange@ in the JVM SDK.
+data SupportedFeatureRange = SupportedFeatureRange
+  { sfrMinVersion :: !Int16
+  , sfrMaxVersion :: !Int16
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Cluster-wide finalized version level for a feature.
+-- Mirrors @FinalizedVersionRange@.
+data FinalizedFeatureLevel = FinalizedFeatureLevel
+  { ffvMinVersionLevel :: !Int16
+  , ffvMaxVersionLevel :: !Int16
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Snapshot of the cluster's feature metadata. Mirrors
+-- @FeatureMetadata@.
+data FeatureMetadata = FeatureMetadata
+  { fmSupportedFeatures        :: !(Map.Map Text SupportedFeatureRange)
+  , fmFinalizedFeatures        :: !(Map.Map Text FinalizedFeatureLevel)
+  , fmFinalizedFeaturesEpoch   :: !(Maybe Int64)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Describe the cluster's supported + finalized feature flags.
+-- Mirrors @Admin.describeFeatures()@.
+--
+-- The wire shape lives on the ApiVersionsResponse (v3+), which
+-- the broker emits alongside the per-API version negotiation.
+-- We send a fresh ApiVersions request so the caller doesn't pay
+-- the cost of digging into the AdminClient's cached negotiation
+-- state.
+describeFeatures
+  :: MonadIO m
+  => AdminClient
+  -> m (Either String FeatureMetadata)
+describeFeatures client = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 18 3 4 3 $ \conn corrId apiVer -> do
+        let req = AVReq.ApiVersionsRequest
+              { AVReq.apiVersionsRequestClientSoftwareName    =
+                  P.mkKafkaString "wireform-kafka"
+              , AVReq.apiVersionsRequestClientSoftwareVersion =
+                  P.mkKafkaString "0.1.0.0"
+              }
+            body = WC.runEncodeVer @AVReq.ApiVersionsRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 18 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("ApiVersions request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @AVResp.ApiVersionsResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse ApiVersionsResponse: " <> e))
+              Right resp ->
+                if AVResp.apiVersionsResponseErrorCode resp /= 0
+                  then pure $ Left $
+                    "describeFeatures: ApiVersions error code "
+                      <> show (AVResp.apiVersionsResponseErrorCode resp)
+                  else do
+                    let sup = case P.unKafkaArray (AVResp.apiVersionsResponseSupportedFeatures resp) of
+                          P.Null      -> V.empty
+                          P.NotNull v -> v
+                        fin = case P.unKafkaArray (AVResp.apiVersionsResponseFinalizedFeatures resp) of
+                          P.Null      -> V.empty
+                          P.NotNull v -> v
+                        !supMap = Map.fromList
+                          [ ( extractText (AVResp.supportedFeatureKeyName f)
+                            , SupportedFeatureRange
+                                { sfrMinVersion = AVResp.supportedFeatureKeyMinVersion f
+                                , sfrMaxVersion = AVResp.supportedFeatureKeyMaxVersion f
+                                }
+                            )
+                          | f <- V.toList sup
+                          ]
+                        !finMap = Map.fromList
+                          [ ( extractText (AVResp.finalizedFeatureKeyName f)
+                            , FinalizedFeatureLevel
+                                { ffvMinVersionLevel = AVResp.finalizedFeatureKeyMinVersionLevel f
+                                , ffvMaxVersionLevel = AVResp.finalizedFeatureKeyMaxVersionLevel f
+                                }
+                            )
+                          | f <- V.toList fin
+                          ]
+                        !epoch = AVResp.apiVersionsResponseFinalizedFeaturesEpoch resp
+                    pure $ Right FeatureMetadata
+                      { fmSupportedFeatures      = supMap
+                      , fmFinalizedFeatures      = finMap
+                      , fmFinalizedFeaturesEpoch =
+                          if epoch < 0 then Nothing else Just epoch
+                      }
+
+-- | Whether an 'updateFeatures' request is allowed to downgrade
+-- the feature level. Mirrors @FeatureUpdate.UpgradeType@.
+data FeatureUpgradeType
+  = UpgradeOnly                            -- ^ wire value 1
+  | SafeDowngrade                          -- ^ wire value 2
+  | UnsafeDowngrade                        -- ^ wire value 3
+  deriving stock (Eq, Show, Generic)
+
+upgradeTypeCode :: FeatureUpgradeType -> Int8
+upgradeTypeCode = \case
+  UpgradeOnly      -> 1
+  SafeDowngrade    -> 2
+  UnsafeDowngrade  -> 3
+
+-- | A single feature-version update request. Mirrors
+-- @FeatureUpdate@.
+data FeatureUpdate = FeatureUpdate
+  { fuFeature         :: !Text
+  , fuMaxVersionLevel :: !Int16
+    -- ^ A value of @0@ asks the broker to delete the feature's
+    -- finalized version level entirely.
+  , fuUpgradeType     :: !FeatureUpgradeType
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Apply the supplied 'FeatureUpdate's atomically. Mirrors
+-- @Admin.updateFeatures(Map<String, FeatureUpdate>,
+-- UpdateFeaturesOptions)@.
+--
+-- Returns a per-feature @(name, result)@ list.
+updateFeatures
+  :: MonadIO m
+  => AdminClient
+  -> [FeatureUpdate]
+  -> Bool                                 -- ^ validateOnly
+  -> m (Either String [(Text, Either String ())])
+updateFeatures client updates validate = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 57 1 2 1 $ \conn corrId apiVer -> do
+        let !ups = V.fromList (map buildUp updates)
+            req = UFReq.UpdateFeaturesRequest
+              { UFReq.updateFeaturesRequesttimeoutMs   = 30000
+              , UFReq.updateFeaturesRequestFeatureUpdates = P.mkKafkaArray ups
+              , UFReq.updateFeaturesRequestValidateOnly = validate
+              }
+            body = WC.runEncodeVer @UFReq.UpdateFeaturesRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 57 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("UpdateFeatures request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @UFResp.UpdateFeaturesResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse UpdateFeaturesResponse: " <> e))
+              Right resp ->
+                if UFResp.updateFeaturesResponseErrorCode resp /= 0
+                  then pure $ Left $
+                    "updateFeatures: top-level error: "
+                      <> T.unpack
+                           (extractText (UFResp.updateFeaturesResponseErrorMessage resp))
+                  else do
+                    let rs = case P.unKafkaArray (UFResp.updateFeaturesResponseResults resp) of
+                          P.Null      -> V.empty
+                          P.NotNull v -> v
+                    pure $ Right (V.toList (V.map decodeR rs))
+  where
+    buildUp u = UFReq.FeatureUpdateKey
+      { UFReq.featureUpdateKeyFeature         =
+          P.mkKafkaString (fuFeature u)
+      , UFReq.featureUpdateKeyMaxVersionLevel = fuMaxVersionLevel u
+      , UFReq.featureUpdateKeyAllowDowngrade  =
+          case fuUpgradeType u of
+            UpgradeOnly      -> False
+            SafeDowngrade    -> True
+            UnsafeDowngrade  -> True
+      , UFReq.featureUpdateKeyUpgradeType     =
+          upgradeTypeCode (fuUpgradeType u)
+      }
+    decodeR r =
+      let !nm   = extractText (UFResp.updatableFeatureResultFeature r)
+          !code = UFResp.updatableFeatureResultErrorCode r
+          !msg  = extractText (UFResp.updatableFeatureResultErrorMessage r)
+       in if code == 0
+            then (nm, Right ())
+            else (nm, Left ("Error " <> show code <> ": " <> T.unpack msg))
+
+----------------------------------------------------------------------
+-- Producer fencing (KIP-360)
+----------------------------------------------------------------------
+
+-- | A fenced producer. Mirrors the JVM result of
+-- @Admin.fenceProducers(Collection<String>)@: per-id producer
+-- id + epoch the broker now considers authoritative. The next
+-- producer that opens the same @transactional.id@ inherits
+-- these values, fencing off any zombie producer still holding
+-- the old epoch.
+data FencedProducer = FencedProducer
+  { fpTransactionalId :: !Text
+  , fpProducerId      :: !Int64
+  , fpProducerEpoch   :: !Int16
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Bump the producer epochs of the supplied transactional ids,
+-- evicting any in-flight producer holding the old epoch.
+-- Mirrors @Admin.fenceProducers(Collection<String>)@.
+--
+-- One InitProducerId RPC per id (the JVM client does the same;
+-- a "fence" is just an InitProducerId with no producer id /
+-- epoch supplied, which forces the broker to issue a fresh
+-- epoch).
+fenceProducers
+  :: MonadIO m
+  => AdminClient
+  -> [Text]
+  -> m (Either String [(Text, Either String FencedProducer)])
+fenceProducers client tids = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e   -> pure (Left e)
+    Right addr -> do
+      rs <- mapM (fenceOne addr) tids
+      pure (Right rs)
+  where
+    fenceOne addr tid = do
+      -- 'withNegotiatedVersion' itself returns @IO (Either String a)@;
+      -- we want a (tid, Either String FencedProducer) tuple regardless
+      -- of which layer fails, so we collapse the outer error path
+      -- into the inner 'Either' here.
+      r <- withNegotiatedVersion client addr 22 4 5 4 $ \conn corrId apiVer -> do
+        let req = IPIReq.InitProducerIdRequest
+              { IPIReq.initProducerIdRequestTransactionalId =
+                  P.mkKafkaString tid
+              , IPIReq.initProducerIdRequestTransactionTimeoutMs = 30000
+              , IPIReq.initProducerIdRequestProducerId           = -1
+              , IPIReq.initProducerIdRequestProducerEpoch        = -1
+              }
+            body = WC.runEncodeVer @IPIReq.InitProducerIdRequest apiVer req
+            cid  = clientIdOf client
+        sr <- Req.sendRequestReceiveResponse conn 22 apiVer corrId cid body
+        case sr of
+          Left e -> pure (Right (Left ("InitProducerId request failed: " <> e)))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @IPIResp.InitProducerIdResponse apiVer respBody of
+              Left e -> pure (Right (Left ("Failed to parse response: " <> e)))
+              Right resp ->
+                if IPIResp.initProducerIdResponseErrorCode resp /= 0
+                  then pure (Right (Left $ "InitProducerId error code "
+                    <> show (IPIResp.initProducerIdResponseErrorCode resp)))
+                  else pure (Right (Right FencedProducer
+                    { fpTransactionalId = tid
+                    , fpProducerId      = IPIResp.initProducerIdResponseProducerId resp
+                    , fpProducerEpoch   = IPIResp.initProducerIdResponseProducerEpoch resp
+                    }))
+      pure $ case r of
+        Left e          -> (tid, Left e)
+        Right (Left e)  -> (tid, Left e)
+        Right (Right f) -> (tid, Right f)
+
+----------------------------------------------------------------------
+-- Manual transaction abort (KIP-664)
+----------------------------------------------------------------------
+
+-- | A transaction to abort. Mirrors @AbortTransactionSpec@:
+-- the abort marker the broker is asked to write must carry the
+-- producer id + epoch the on-disk txn data already references,
+-- plus the coordinator epoch the txn coordinator stamped on
+-- the txn. The 'atsTopicPartitions' set identifies which
+-- (topic, partition) pairs carry the open txn.
+data AbortTransactionSpec = AbortTransactionSpec
+  { atsProducerId       :: !Int64
+  , atsProducerEpoch    :: !Int16
+  , atsCoordinatorEpoch :: !Int32
+  , atsTopicPartitions  :: ![(Text, [Int32])]
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Manually abort a hanging transaction. Mirrors
+-- @Admin.abortTransaction(AbortTransactionSpec)@. Routes through
+-- the WriteTxnMarkers RPC with @TransactionResult = false@
+-- (= abort).
+abortTransaction
+  :: MonadIO m
+  => AdminClient
+  -> AbortTransactionSpec
+  -> m (Either String ())
+abortTransaction client spec = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 27 1 1 1 $ \conn corrId apiVer -> do
+        let !topics = V.fromList
+              [ WTMReq.WritableTxnMarkerTopic
+                  { WTMReq.writableTxnMarkerTopicName = P.mkKafkaString t
+                  , WTMReq.writableTxnMarkerTopicPartitionIndexes =
+                      P.mkKafkaArray (V.fromList ps)
+                  }
+              | (t, ps) <- atsTopicPartitions spec
+              ]
+            marker = WTMReq.WritableTxnMarker
+              { WTMReq.writableTxnMarkerProducerId        = atsProducerId spec
+              , WTMReq.writableTxnMarkerProducerEpoch     = atsProducerEpoch spec
+              , WTMReq.writableTxnMarkerTransactionResult = False
+              , WTMReq.writableTxnMarkerTopics            = P.mkKafkaArray topics
+              , WTMReq.writableTxnMarkerCoordinatorEpoch  = atsCoordinatorEpoch spec
+              }
+            req = WTMReq.WriteTxnMarkersRequest
+              { WTMReq.writeTxnMarkersRequestMarkers =
+                  P.mkKafkaArray (V.singleton marker)
+              }
+            body = WC.runEncodeVer @WTMReq.WriteTxnMarkersRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 27 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("WriteTxnMarkers request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @WTMResp.WriteTxnMarkersResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp -> do
+                let ms = case P.unKafkaArray (WTMResp.writeTxnMarkersResponseMarkers resp) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                case V.toList ms of
+                  []      -> pure (Right ())
+                  (m : _) ->
+                    let tops = case P.unKafkaArray (WTMResp.writableTxnMarkerResultTopics m) of
+                          P.Null      -> []
+                          P.NotNull v -> V.toList v
+                        firstErr = listToMaybe
+                          [ (extractText (WTMResp.writableTxnMarkerTopicResultName t), pi_, code)
+                          | t <- tops
+                          , p <- case P.unKafkaArray (WTMResp.writableTxnMarkerTopicResultPartitions t) of
+                              P.Null      -> []
+                              P.NotNull v -> V.toList v
+                          , let pi_  = WTMResp.writableTxnMarkerPartitionResultPartitionIndex p
+                                code = WTMResp.writableTxnMarkerPartitionResultErrorCode p
+                          , code /= 0
+                          ]
+                     in case firstErr of
+                          Nothing -> pure (Right ())
+                          Just (t, pi_, code) -> pure $ Left $
+                            "abortTransaction: " <> T.unpack t
+                              <> "-" <> show pi_
+                              <> ": error code " <> show code
+  where
+    listToMaybe []      = Nothing
+    listToMaybe (x : _) = Just x
+
+----------------------------------------------------------------------
+-- KIP-848 consumer-group describe
+----------------------------------------------------------------------
+
+-- | A single member of a KIP-848 consumer group.
+data ConsumerGroupMember = ConsumerGroupMember
+  { cgmMemberId             :: !Text
+  , cgmInstanceId           :: !(Maybe Text)
+  , cgmRackId               :: !(Maybe Text)
+  , cgmMemberEpoch          :: !Int32
+  , cgmClientId             :: !Text
+  , cgmClientHost           :: !Text
+  , cgmSubscribedTopicNames :: ![Text]
+  , cgmSubscribedTopicRegex :: !(Maybe Text)
+  , cgmAssignedPartitions   :: ![(Text, [Int32])]
+  , cgmTargetAssignment     :: ![(Text, [Int32])]
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | A KIP-848 (next-gen) consumer group description. Mirrors
+-- the JVM @ConsumerGroupDescription@ for the new protocol.
+data ConsumerGroupDescription2 = ConsumerGroupDescription2
+  { cgd2GroupId               :: !Text
+  , cgd2GroupState            :: !Text
+  , cgd2GroupEpoch            :: !Int32
+  , cgd2AssignmentEpoch       :: !Int32
+  , cgd2AssignorName          :: !Text
+  , cgd2Members               :: ![ConsumerGroupMember]
+  , cgd2AuthorizedOperations  :: !Int32
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Describe the supplied consumer groups using the KIP-848
+-- ConsumerGroupDescribe RPC (API key 69). Mirrors
+-- @Admin.describeConsumerGroups@ on a 4.0 broker, which uses
+-- this RPC by default.
+describeConsumerGroups2
+  :: MonadIO m
+  => AdminClient
+  -> [Text]                               -- ^ group ids
+  -> Bool                                 -- ^ include authorised operations
+  -> m (Either String [ConsumerGroupDescription2])
+describeConsumerGroups2 client gids inclAuth = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 69 0 1 0 $ \conn corrId apiVer -> do
+        let req = CGDReq.ConsumerGroupDescribeRequest
+              { CGDReq.consumerGroupDescribeRequestGroupIds =
+                  P.mkKafkaArray (V.fromList (map P.mkKafkaString gids))
+              , CGDReq.consumerGroupDescribeRequestIncludeAuthorizedOperations =
+                  inclAuth
+              }
+            body = WC.runEncodeVer @CGDReq.ConsumerGroupDescribeRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 69 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("ConsumerGroupDescribe request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @CGDResp.ConsumerGroupDescribeResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp -> do
+                let gs = case P.unKafkaArray (CGDResp.consumerGroupDescribeResponseGroups resp) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                pure $ Right (V.toList (V.map decodeG gs))
+  where
+    decodeG g =
+      let !ms = case P.unKafkaArray (CGDResp.describedGroupMembers g) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+       in ConsumerGroupDescription2
+            { cgd2GroupId         = extractText (CGDResp.describedGroupGroupId g)
+            , cgd2GroupState      = extractText (CGDResp.describedGroupGroupState g)
+            , cgd2GroupEpoch      = CGDResp.describedGroupGroupEpoch g
+            , cgd2AssignmentEpoch = CGDResp.describedGroupAssignmentEpoch g
+            , cgd2AssignorName    = extractText (CGDResp.describedGroupAssignorName g)
+            , cgd2AuthorizedOperations = CGDResp.describedGroupAuthorizedOperations g
+            , cgd2Members         = V.toList (V.map decodeM ms)
+            }
+    decodeM m = ConsumerGroupMember
+      { cgmMemberId         = extractText (CGDResp.memberMemberId m)
+      , cgmInstanceId       = maybeText (extractText (CGDResp.memberInstanceId m))
+      , cgmRackId           = maybeText (extractText (CGDResp.memberRackId m))
+      , cgmMemberEpoch      = CGDResp.memberMemberEpoch m
+      , cgmClientId         = extractText (CGDResp.memberClientId m)
+      , cgmClientHost       = extractText (CGDResp.memberClientHost m)
+      , cgmSubscribedTopicNames =
+          let arr = case P.unKafkaArray (CGDResp.memberSubscribedTopicNames m) of
+                P.Null      -> V.empty
+                P.NotNull v -> v
+           in V.toList (V.map extractText arr)
+      , cgmSubscribedTopicRegex =
+          maybeText (extractText (CGDResp.memberSubscribedTopicRegex m))
+      , cgmAssignedPartitions   =
+          decodeAssignment (CGDResp.memberAssignment m)
+      , cgmTargetAssignment     =
+          decodeAssignment (CGDResp.memberTargetAssignment m)
+      }
+    decodeAssignment a =
+      let tps = case P.unKafkaArray (CGDResp.assignmentTopicPartitions a) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+       in V.toList (V.map decodeTP tps)
+    decodeTP tp =
+      let pa = case P.unKafkaArray (CGDResp.topicPartitionsPartitions tp) of
+            P.Null      -> []
+            P.NotNull v -> V.toList v
+       in (extractText (CGDResp.topicPartitionsTopicName tp), pa)
+    maybeText t = if T.null t then Nothing else Just t
+
+-- | Describe consumer groups using the /classic/ DescribeGroups
+-- RPC (API key 15). Mirrors @Admin.describeClassicGroups@ on
+-- the JVM 4.0 SDK — same wire shape as 3.x @describeConsumerGroups@,
+-- kept addressable so callers can target classic groups
+-- explicitly when running on a mixed-mode cluster.
+describeClassicGroups
+  :: MonadIO m
+  => AdminClient
+  -> [Text]
+  -> m (Either String [ConsumerGroupDescription])
+describeClassicGroups = describeConsumerGroups
+
+----------------------------------------------------------------------
+-- Share group describe (KIP-932)
+----------------------------------------------------------------------
+
+-- | A single member of a share group.
+data ShareGroupMember = ShareGroupMember
+  { sgmMemberId             :: !Text
+  , sgmRackId               :: !(Maybe Text)
+  , sgmMemberEpoch          :: !Int32
+  , sgmClientId             :: !Text
+  , sgmClientHost           :: !Text
+  , sgmSubscribedTopicNames :: ![Text]
+  , sgmAssignedPartitions   :: ![(Text, [Int32])]
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | A share group description (KIP-932).
+data ShareGroupDescription = ShareGroupDescription
+  { sgdGroupId               :: !Text
+  , sgdGroupState            :: !Text
+  , sgdGroupEpoch            :: !Int32
+  , sgdAssignmentEpoch       :: !Int32
+  , sgdAssignorName          :: !Text
+  , sgdMembers               :: ![ShareGroupMember]
+  , sgdAuthorizedOperations  :: !Int32
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Describe the supplied share groups. Mirrors
+-- @Admin.describeShareGroups(Collection<String>)@.
+describeShareGroups
+  :: MonadIO m
+  => AdminClient
+  -> [Text]
+  -> Bool
+  -> m (Either String [ShareGroupDescription])
+describeShareGroups client gids inclAuth = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 77 0 0 0 $ \conn corrId apiVer -> do
+        let req = SGDReq.ShareGroupDescribeRequest
+              { SGDReq.shareGroupDescribeRequestGroupIds =
+                  P.mkKafkaArray (V.fromList (map P.mkKafkaString gids))
+              , SGDReq.shareGroupDescribeRequestIncludeAuthorizedOperations =
+                  inclAuth
+              }
+            body = WC.runEncodeVer @SGDReq.ShareGroupDescribeRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 77 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("ShareGroupDescribe request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @SGDResp.ShareGroupDescribeResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp -> do
+                let gs = case P.unKafkaArray (SGDResp.shareGroupDescribeResponseGroups resp) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                pure $ Right (V.toList (V.map decodeG gs))
+  where
+    decodeG g =
+      let !ms = case P.unKafkaArray (SGDResp.describedGroupMembers g) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+       in ShareGroupDescription
+            { sgdGroupId         = extractText (SGDResp.describedGroupGroupId g)
+            , sgdGroupState      = extractText (SGDResp.describedGroupGroupState g)
+            , sgdGroupEpoch      = SGDResp.describedGroupGroupEpoch g
+            , sgdAssignmentEpoch = SGDResp.describedGroupAssignmentEpoch g
+            , sgdAssignorName    = extractText (SGDResp.describedGroupAssignorName g)
+            , sgdAuthorizedOperations = SGDResp.describedGroupAuthorizedOperations g
+            , sgdMembers         = V.toList (V.map decodeM ms)
+            }
+    decodeM m = ShareGroupMember
+      { sgmMemberId         = extractText (SGDResp.memberMemberId m)
+      , sgmRackId           = maybeText (extractText (SGDResp.memberRackId m))
+      , sgmMemberEpoch      = SGDResp.memberMemberEpoch m
+      , sgmClientId         = extractText (SGDResp.memberClientId m)
+      , sgmClientHost       = extractText (SGDResp.memberClientHost m)
+      , sgmSubscribedTopicNames =
+          let arr = case P.unKafkaArray (SGDResp.memberSubscribedTopicNames m) of
+                P.Null      -> V.empty
+                P.NotNull v -> v
+           in V.toList (V.map extractText arr)
+      , sgmAssignedPartitions   =
+          decodeAssignment (SGDResp.memberAssignment m)
+      }
+    decodeAssignment a =
+      let tps = case P.unKafkaArray (SGDResp.assignmentTopicPartitions a) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+       in V.toList (V.map decodeTP tps)
+    decodeTP tp =
+      let pa = case P.unKafkaArray (SGDResp.topicPartitionsPartitions tp) of
+            P.Null      -> []
+            P.NotNull v -> V.toList v
+       in (extractText (SGDResp.topicPartitionsTopicName tp), pa)
+    maybeText t = if T.null t then Nothing else Just t
+
+----------------------------------------------------------------------
+-- Client metrics resources (KIP-714)
+----------------------------------------------------------------------
+
+-- | List the client-metrics resource names configured on the
+-- cluster. Mirrors
+-- @Admin.listClientMetricsResources()@. Each returned name is a
+-- configurable resource the broker uses to gate metric
+-- collection (see KIP-714).
+listClientMetricsResources
+  :: MonadIO m
+  => AdminClient
+  -> m (Either String [Text])
+listClientMetricsResources client = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 74 0 0 0 $ \conn corrId apiVer -> do
+        let req = LCMRReq.ListClientMetricsResourcesRequest
+            body = WC.runEncodeVer @LCMRReq.ListClientMetricsResourcesRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 74 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("ListClientMetricsResources request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @LCMRResp.ListClientMetricsResourcesResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if LCMRResp.listClientMetricsResourcesResponseErrorCode resp /= 0
+                  then pure $ Left $
+                    "listClientMetricsResources: error code "
+                      <> show (LCMRResp.listClientMetricsResourcesResponseErrorCode resp)
+                  else do
+                    let rs = case P.unKafkaArray (LCMRResp.listClientMetricsResourcesResponseClientMetricsResources resp) of
+                          P.Null      -> V.empty
+                          P.NotNull v -> v
+                    pure $ Right
+                      [ extractText (LCMRResp.clientMetricsResourceName r) | r <- V.toList rs ]
+
+----------------------------------------------------------------------
+-- KIP-714 client telemetry id
+----------------------------------------------------------------------
+
+-- | Returns the admin client's client-instance id. Mirrors
+-- @AdminClient.clientInstanceId(Duration)@. Deterministic
+-- locally-derived UUID (same encoding the consumer + producer
+-- use); broker-side telemetry assignment lands here when the
+-- @GetTelemetrySubscriptions@ pipeline does.
+adminClientInstanceId :: MonadIO m => AdminClient -> m TopicIdImp.TopicId
+adminClientInstanceId client =
+  liftIO $ pure (uuidFromText (adminClientId (adminConfigOf client)))
+  where
+    uuidFromText t =
+      let !bs    = BS.append (TE.encodeUtf8 t) (BS.replicate 16 0)
+          !short = BS.take 16 bs
+       in TopicIdImp.TopicId short

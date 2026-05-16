@@ -139,6 +139,16 @@ module Kafka.Client.Producer
   , producerClusterId
   , producerHealthy
 
+    -- * KIP-714 client telemetry id
+    --
+    -- | Returns the producer's client-instance id. Mirrors
+    -- @KafkaProducer.clientInstanceId(Duration)@. Deterministic
+    -- locally-derived UUID (same shape as
+    -- 'Kafka.Client.Consumer.clientInstanceId'); broker-side
+    -- telemetry assignment (KIP-714 client side) lands here
+    -- when the @GetTelemetrySubscriptions@ pipeline does.
+  , producerClientInstanceId
+
     -- * Environment-variable overlay
     --
     -- | 'createProducer' already reads @KAFKA_*@ env vars and
@@ -199,6 +209,7 @@ import Control.Monad (when)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Kafka.Client.TopicId as TopicIdImp
 import qualified Data.HashMap.Strict as HashMap
 import Data.Hashable (hash)
 import qualified Data.Hashable as Hashable
@@ -1290,6 +1301,20 @@ producerHealthy Producer{..} = liftIO $ do
   pure $ case status of
     Nothing -> True
     Just _  -> False
+
+-- | Returns the producer's client-instance id (KIP-714).
+-- Deterministic locally-derived UUID padded from the configured
+-- @client.id@; same encoding the consumer uses. When the
+-- broker-side telemetry pipeline lands, this returns the
+-- broker-assigned id instead; call sites don't need to change.
+producerClientInstanceId :: MonadIO m => Producer -> m TopicIdImp.TopicId
+producerClientInstanceId Producer{..} =
+  liftIO $ pure (uuidFromText (producerClientId producerConfig))
+  where
+    uuidFromText t =
+      let !bs    = BS.append (TE.encodeUtf8 t) (BS.replicate 16 0)
+          !short = BS.take 16 bs
+       in TopicIdImp.TopicId short
 
 -- | Best-effort dispatch of the ack interceptor. Wraps in 'try' so
 -- a buggy interceptor can't take down the sender thread / caller.
