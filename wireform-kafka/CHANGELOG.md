@@ -31,6 +31,26 @@ and this project adheres to the
   stable. The terminal `KStream` sinks `rotatingPrintStream` /
   `rotatingPrintToHandle` close the parity gap with the JVM
   `KStream.print(Printed.toFile(...))`.
+- **`Kafka.Streams.Printed`** — direct port of the JVM
+  `org.apache.kafka.streams.kstream.Printed<K,V>` builder.
+  `toSysOut` / `toErr` / `toHandle` / `toFile` /
+  `toRotatingFile` constructors; `withLabel` /
+  `withKeyValueMapper` modifiers; `printKStream` applies the
+  built `Printed` to a `KStream`. Bracket-form
+  `withPrintedFile` / `withPrintedRotatingFile` for
+  deterministic shutdown.
+- **`Kafka.Streams.Runtime.MultiInstanceMockHarness`** — live
+  multi-instance rebalance harness over the in-process
+  `MockCluster`. `newMockSet` spins up N
+  `MockStreamsDriver`s sharing the same group, `tickAll` /
+  `tickAllUntilQuiet` / `refreshAll` drive them step-by-step,
+  `crashInstance` evicts a member and triggers reassignment.
+  `Streams.MultiInstanceRebalanceSpec` adds 4 cases (assignor
+  covers + disjoint, sink routing end-to-end, partition
+  migration on instance loss, Hedgehog property over
+  arbitrary (instances, partitions)). Closes the
+  multi-instance code-side parity gap; an OS-level
+  multi-process broker fixture is still follow-up CI work.
 - **Schema Registry compatibility-mode probing.**
   `Kafka.Streams.Serde.SchemaRegistry.SchemaRegistryClient`
   gained two new methods: `srCompatibilityMode` (read the

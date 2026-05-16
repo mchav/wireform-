@@ -31,12 +31,14 @@ import Kafka.Streams
   , topicName
   , buildTopology
   )
+import qualified Kafka.Streams.Printed as Printed
 import qualified Kafka.Streams.Sink.RotatingFile as RF
 
 tests :: TestTree
 tests = testGroup "Kafka.Streams.Sink.RotatingFile"
   [ rotating_basic_write
   , rotating_size_based_rollover
+  , printed_to_rotating_file
   ]
 
 bytes :: Text -> BSC.ByteString
@@ -107,3 +109,30 @@ rotating_size_based_rollover =
         (not (null archives))
       length entries @?= length entries -- silence unused
       mapM_ (removeFile . (dir </>)) entries
+
+-- | End-to-end: 'Printed.withPrintedRotatingFile' wires
+-- 'Kafka.Streams.Printed' to the rotating file sink with a
+-- proper lifecycle bracket. Mirrors the JVM
+-- @KStream.print(Printed.toFile(path))@ with auto rotation.
+printed_to_rotating_file :: TestTree
+printed_to_rotating_file =
+  testCase "Printed.withPrintedRotatingFile end-to-end with label override" $
+    withSystemTempDirectory "wireform-printed" $ \dir -> do
+      let logPath = dir </> "p.log"
+      Printed.withPrintedRotatingFile
+        logPath
+        (Printed.withMaxBytes 1024 Printed.def)
+        $ \printed -> do
+            b   <- newStreamsBuilder
+            src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
+            Printed.printKStream
+              (Printed.withLabel "[from-printed]" printed) src
+            topo <- buildTopology b
+            driver <- newDriver topo "printed-test"
+            pipeInput driver (topicName "in") (Just "k1") (bytes "hello") (ts 0) 0
+            closeDriver driver
+      txt <- readFile logPath
+      assertBool ("contains label: " <> txt)
+        ("[from-printed]" `T.isInfixOf` T.pack txt)
+      assertBool ("contains value: " <> txt)
+        ("hello" `T.isInfixOf` T.pack txt)

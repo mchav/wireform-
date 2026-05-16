@@ -489,6 +489,7 @@ library wireform-kafka-streams
         Kafka.Streams.Runtime.RevocationGrace
         Kafka.Streams.Runtime.NativeDriver
         Kafka.Streams.Runtime.MultiInstanceHarness
+        Kafka.Streams.Runtime.MultiInstanceMockHarness
         Kafka.Streams.State.Transactional
         Kafka.Streams.Topology.Optimization
         Kafka.Streams.Topology.StableNames
@@ -498,6 +499,7 @@ library wireform-kafka-streams
         Kafka.Streams.Serde.SchemaRegistry
         Kafka.Streams.Serde.SchemaRegistry.Http
         Kafka.Streams.Sink.RotatingFile
+        Kafka.Streams.Printed
         Kafka.Streams.InteractiveQueries
     build-depends:
         base                      >= 4.16  && < 5,
@@ -599,6 +601,7 @@ test-suite wireform-kafka-streams-test
         Streams.RemoteIQSpec
         Streams.IdiomaticDSLSpec
         Streams.DSLFacadeSpec
+        Streams.MultiInstanceRebalanceSpec
         Streams.RotatingFileSinkSpec
         Streams.SchemaRegistryCompatSpec
         Streams.MultiInstanceHarnessSpec
