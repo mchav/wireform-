@@ -96,8 +96,8 @@ encodeSubscriptionInfo si =
       P.putInt16be (fromIntegral (length xs))
       mapM_
         (\tp -> do
-           putText (KC.tpTopic tp)
-           P.putInt32be (KC.tpPartition tp))
+           putText tp.topic
+           P.putInt32be tp.partition)
         xs
 
 -- | Decode the wire format. Returns 'Left' with a reason on
