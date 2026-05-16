@@ -29,7 +29,7 @@ main =
       , Kafka.'topics'           = [\"events\"]
       }
     $ \\record -> do
-        putStrLn $ \"got \" <> show ('crKey' record) <> \" -> \" <> show ('crValue' record)
+        putStrLn $ \"got \" <> show record.key <> \" -> \" <> show record.value
 @
 
 That is the whole API for the common case. The bracket:

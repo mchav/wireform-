@@ -46,10 +46,10 @@ will see it and use it as the parent:
 import qualified OpenTelemetry.Context.ThreadLocal as OCtxTL
 
 forM_ records $ \\rec -> do
-  parent <- KOTel.extractFromConsumerHeaders tr (Consumer.crHeaders rec)
+  parent <- KOTel.extractFromConsumerHeaders tr rec.headers
   _ <- OCtxTL.attachContext parent
-  KOTel.inConsumerSpan tr (Consumer.crTopic rec)
-    (Consumer.crPartition rec) (Consumer.crOffset rec) \"my-group\" $ \\_sp ->
+  KOTel.inConsumerSpan tr rec.topic
+    rec.partition rec.offset \"my-group\" $ \\_sp ->
       handle rec
   _ <- OCtxTL.detachContext
   pure ()

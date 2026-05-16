@@ -95,7 +95,7 @@ consumerInterceptorCanDropRecords :: IO ()
 consumerInterceptorCanDropRecords = do
   let cfg = Consumer.defaultConsumerConfig
         { Consumer.consumerInterceptor = \rs ->
-            pure (filter (\r -> Consumer.crKey r /= Just "drop") rs)
+            pure (filter (\r -> r.key /= Just "drop") rs)
         }
       input =
         [ sampleRec "k1" "v1"
@@ -103,7 +103,7 @@ consumerInterceptorCanDropRecords = do
         , sampleRec "k2" "v2"
         ]
   out <- Consumer.consumerInterceptor cfg input
-  map Consumer.crKey out @?= [Just "k1", Just "k2"]
+  map (.key) out @?= [Just "k1", Just "k2"]
 
 consumerOnCommitReceivesOffsets :: IO ()
 consumerOnCommitReceivesOffsets = do
@@ -124,13 +124,13 @@ sampleRecords = [sampleRec "k" "v"]
 
 sampleRec :: String -> String -> Consumer.ConsumerRecord
 sampleRec k v = Consumer.ConsumerRecord
-  { Consumer.crTopic     = "t"
-  , Consumer.crPartition = 0
-  , Consumer.crOffset    = 0
-  , Consumer.crTimestamp = 0
-  , Consumer.crKey       = Just (toBs k)
-  , Consumer.crValue     = toBs v
-  , Consumer.crHeaders   = []
+  { topic     = "t"
+  , partition = 0
+  , offset    = 0
+  , timestamp = 0
+  , key       = Just (toBs k)
+  , value     = toBs v
+  , headers   = []
   }
   where
     toBs = TE.encodeUtf8 . T.pack

@@ -74,14 +74,21 @@ and this project adheres to the
   `Produce`, `ProduceTyped`, `Consume`, `Group`, `Transaction`.
   All wired to a `wireform-kafka-client-examples` cabal
   executable: `cabal run wireform-kafka-client-examples produce`.
-- `OverloadedRecordDot` is now in the cabal common-defaults, with
-  hand-written `HasField` instances on `ConsumerRecord`,
-  `ProducerRecord`, `RecordMetadata`, `TopicPartition` that map
-  the prefixed selectors (`crKey`, `recordValue`, `metadataTopic`,
-  `tpTopic`, …) to bare-name dot accessors. Callers can now write
-  `rec.key` / `rec.value` / `rec.partition` / `md.offset` without
-  any new imports; the original prefixed selectors continue to
-  work unchanged.
+- **`ConsumerRecord`, `ProducerRecord`, `RecordMetadata`, and
+  `TopicPartition` fields are renamed to bare names**: `topic`,
+  `partition`, `offset`, `timestamp`, `key`, `value`, `headers`.
+  The previous Hungarian-prefixed selectors (`crKey`,
+  `recordValue`, `metadataTopic`, `tpTopic`, …) no longer exist;
+  callers read fields with `OverloadedRecordDot` syntax
+  (`rec.key`, `md.offset`, `tp.topic`, …). `DuplicateRecordFields`
+  is enabled in the cabal common defaults so the four records can
+  share field names without ambiguity.
+  
+  Migration: every `crKey rec` becomes `rec.key`, every
+  `Producer.recordTopic = "events"` in a record literal becomes
+  `topic = "events"`, etc. The dot syntax disambiguates the
+  record type at the use site, so no other annotations are
+  needed.
 
 ### Changed
 

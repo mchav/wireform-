@@ -140,7 +140,7 @@ drainValues c maxAttempts = go [] maxAttempts
       case r of
         Left _   -> pure acc
         Right [] -> go acc (k - 1)
-        Right rs -> go (acc ++ map Consumer.crValue rs) (k - 1)
+        Right rs -> go (acc ++ map (.value) rs) (k - 1)
 
 ----------------------------------------------------------------------
 -- Cases

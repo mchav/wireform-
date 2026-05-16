@@ -55,7 +55,7 @@ main =
       , Kafka.topics           = ["events"]
       }
     $ \rec ->
-        BS.putStrLn (Kafka.crValue rec)
+        BS.putStrLn rec.value
 ```
 
 For higher throughput, use `runBatchedConsumer` — same shape,

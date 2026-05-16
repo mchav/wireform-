@@ -145,7 +145,7 @@ testProduceAndPollRoundTrip brokerText = do
   case sendR of
     Left e -> assertFailure ("produce: " <> e)
     Right md -> do
-      let producedOffset = KP.metadataOffset md
+      let producedOffset = md.offset
       KP.closeProducer pr
       consumer <- mkConsumerOrFail brokerText "wf-it-poll-grp"
       let tp = KC.TopicPartition topic 0
@@ -162,16 +162,16 @@ testProduceAndPollRoundTrip brokerText = do
         Right rs -> do
           assertBool "expected at least one record from poll"
                      (not (null rs))
-          let !mr = filter (\r -> KC.crOffset r == producedOffset) rs
+          let !mr = filter (\r -> r.offset == producedOffset) rs
           case mr of
             (r:_) -> do
-              KC.crTopic     r @?= topic
-              KC.crPartition r @?= 0
-              KC.crValue     r @?= payload
+              r.topic     @?= topic
+              r.partition @?= 0
+              r.value     @?= payload
             [] -> assertFailure
               ("poll did not return the record we just produced "
                  <> "(offset=" <> show producedOffset
-                 <> "; got offsets=" <> show (map KC.crOffset rs) <> ")")
+                 <> "; got offsets=" <> show (map (.offset) rs) <> ")")
 
 testOffsetsForTimesFull :: T.Text -> IO ()
 testOffsetsForTimesFull brokerText = do
@@ -195,7 +195,7 @@ testOffsetsForTimesFull brokerText = do
       case HashMap.lookup tp hm of
         Nothing -> assertFailure
           ("offsetsForTimesFull: no entry for "
-             ++ T.unpack topic ++ ":" ++ show (KC.tpPartition tp))
+             ++ T.unpack topic ++ ":" ++ show tp.partition)
         Just oat -> do
           assertBool
             ("expected non-negative offset, got " ++ show (KC.oatOffset oat))

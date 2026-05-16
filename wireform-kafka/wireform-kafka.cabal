@@ -67,6 +67,7 @@ common defaults
     default-extensions:
         OverloadedStrings
         OverloadedRecordDot
+        DuplicateRecordFields
         StrictData
         DerivingStrategies
         DeriveAnyClass

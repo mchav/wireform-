@@ -148,9 +148,9 @@ testProducerSendSync = do
 
       case sendResult of
         Left err -> assertFailure $ "Failed to send: " ++ err
-        Right metadata -> do
-          putStrLn $ "Sent to offset: " ++ show (Producer.metadataOffset metadata)
-          assertBool "Expected non-negative offset" (Producer.metadataOffset metadata >= 0)
+        Right md -> do
+          putStrLn $ "Sent to offset: " ++ show md.offset
+          assertBool "Expected non-negative offset" (md.offset >= 0)
 
 -- | Test sending a batch of messages
 testProducerBatch :: Assertion
@@ -282,9 +282,9 @@ testProduceConsumeIntegration = do
 
       case sendResult of
         Left err -> assertFailure $ "Failed to produce: " ++ err
-        Right metadata -> do
-          let producedOffset = Producer.metadataOffset metadata
-              producedPart   = Producer.metadataPartition metadata
+        Right md -> do
+          let producedOffset = md.offset
+              producedPart   = md.partition
           putStrLn $ "Produced at offset: " ++ show producedOffset
           assertBool "Expected non-negative offset" (producedOffset >= 0)
 
@@ -305,7 +305,7 @@ testProduceConsumeIntegration = do
               case pollResult of
                 Left err -> assertFailure $ "Failed to poll: " ++ err
                 Right records -> do
-                  let ours = filter (\r -> Consumer.crValue r == payload) records
+                  let ours = filter (\r -> r.value == payload) records
                   when (null ours) $
                     putStrLn $ "Polled " ++ show (length records) ++ " unrelated record(s)"
                   assertBool "Should find our produced message" (not (null ours))

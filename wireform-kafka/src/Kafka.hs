@@ -63,7 +63,7 @@ main =
       , Kafka.'topics'           = [\"events\"]
       }
     $ \\rec ->
-        putStrLn (show (Kafka.'crKey' rec, Kafka.'crValue' rec))
+        putStrLn (show (rec.key, rec.value))
 @
 
 'runConsumer' joins the group, runs your handler once per record,

@@ -33,13 +33,13 @@ tests = testGroup "Probing rebalance runtime wiring (KIP-441)"
 
 mkRec :: Text -> Text -> KC.ConsumerRecord
 mkRec k v = KC.ConsumerRecord
-  { KC.crTopic = "in"
-  , KC.crPartition = 0
-  , KC.crOffset = 0
-  , KC.crTimestamp = 0
-  , KC.crKey = Just (BSC.pack (T.unpack k))
-  , KC.crValue = BSC.pack (T.unpack v)
-  , KC.crHeaders = []
+  { topic = "in"
+  , partition = 0
+  , offset = 0
+  , timestamp = 0
+  , key = Just (BSC.pack (T.unpack k))
+  , value = BSC.pack (T.unpack v)
+  , headers = []
   }
 
 buildPassthroughTopo :: IO TopologyValid

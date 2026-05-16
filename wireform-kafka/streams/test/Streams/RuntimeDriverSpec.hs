@@ -88,13 +88,13 @@ buildUpcaseTopo = do
 
 consumerRecord :: Text -> Text -> Text -> Int64ish -> Int64ish -> KC.ConsumerRecord
 consumerRecord topic k v off ts = KC.ConsumerRecord
-  { KC.crTopic     = topic
-  , KC.crPartition = 0
-  , KC.crOffset    = fromIntegral (unI64 off)
-  , KC.crTimestamp = fromIntegral (unI64 ts)
-  , KC.crKey       = Just (bytes k)
-  , KC.crValue     = bytes v
-  , KC.crHeaders   = []
+  { topic     = topic
+  , partition = 0
+  , offset    = fromIntegral (unI64 off)
+  , timestamp = fromIntegral (unI64 ts)
+  , key       = Just (bytes k)
+  , value     = bytes v
+  , headers   = []
   }
 
 newtype Int64ish = Int64ish { unI64 :: Integer }
@@ -374,13 +374,13 @@ consumerRecordPart
   :: Text -> Int -> Text -> Text -> Int64ish -> Int64ish
   -> KC.ConsumerRecord
 consumerRecordPart topic part k v off ts = KC.ConsumerRecord
-  { KC.crTopic     = topic
-  , KC.crPartition = fromIntegral part
-  , KC.crOffset    = fromIntegral (unI64 off)
-  , KC.crTimestamp = fromIntegral (unI64 ts)
-  , KC.crKey       = Just (bytes k)
-  , KC.crValue     = bytes v
-  , KC.crHeaders   = []
+  { topic     = topic
+  , partition = fromIntegral part
+  , offset    = fromIntegral (unI64 off)
+  , timestamp = fromIntegral (unI64 ts)
+  , key       = Just (bytes k)
+  , value     = bytes v
+  , headers   = []
   }
 
 ----------------------------------------------------------------------

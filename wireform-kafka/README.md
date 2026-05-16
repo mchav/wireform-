@@ -122,11 +122,12 @@ main =
         BS.putStrLn rec.value
 ```
 
-The `OverloadedRecordDot` extension lets you read `ConsumerRecord`
-fields without prefixes — `rec.key`, `rec.value`, `rec.topic`,
-`rec.partition`, `rec.offset`, `rec.timestamp`, `rec.headers`. The
-backing selectors (`Kafka.crKey`, `Kafka.crValue`, …) still exist
-for callers that prefer the function-style.
+The `ConsumerRecord` fields use bare names — read them via
+`OverloadedRecordDot` (`rec.key`, `rec.value`, `rec.topic`,
+`rec.partition`, `rec.offset`, `rec.timestamp`, `rec.headers`).
+The same field names are shared with `ProducerRecord` /
+`RecordMetadata` / `TopicPartition` via `DuplicateRecordFields`,
+so the dot syntax is the recommended style.
 
 `runConsumer` joins the consumer group, hands you records one at
 a time, commits offsets after each one, and leaves the group on a

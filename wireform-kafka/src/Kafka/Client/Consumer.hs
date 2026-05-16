@@ -1,7 +1,4 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -30,7 +27,7 @@ main =
   Consumer.'withConsumer' [\"localhost:9092\"] \"my-group\"
     Consumer.'defaultConsumerConfig' [\"events\"] $ \\c -> do
       Right recs <- 'poll' c 1000
-      mapM_ (\\r -> print ('crKey' r, 'crValue' r)) recs
+      mapM_ (\\r -> print (r.key, r.value)) recs
       _ <- 'commitSync' c
       pure ()
 @
@@ -204,7 +201,6 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
-import GHC.Records (HasField (..))
 import Network.Connection (Connection)
 import qualified StmContainers.Map as StmMap
 import qualified ListT
@@ -492,42 +488,30 @@ consumerConfigFromEnv cfg = liftIO $ do
 
 -- | A topic-partition pair.
 data TopicPartition = TopicPartition
-  { tpTopic :: !Text
-  , tpPartition :: !Int32
+  { topic     :: !Text
+  , partition :: !Int32
   } deriving (Eq, Show, Ord, Generic)
 
 instance Hashable TopicPartition
 
--- | OverloadedRecordDot accessors for 'TopicPartition'. The
--- backing field selectors keep their @tp@ prefix to avoid
--- ambiguity at top-level call sites, but @tp.topic@ /
--- @tp.partition@ syntax works.
-instance HasField "topic"     TopicPartition Text  where getField = tpTopic
-instance HasField "partition" TopicPartition Int32 where getField = tpPartition
-
 -- | A consumed record from Kafka.
+--
+-- Fields use bare names — access them via OverloadedRecordDot
+-- (@rec.key@, @rec.value@, @rec.topic@, …). The field names are
+-- shared with 'Kafka.Client.Producer.ProducerRecord' and
+-- 'Kafka.Client.Producer.RecordMetadata' via 'DuplicateRecordFields';
+-- function-style selectors (@key rec@) are only valid when the
+-- record type is unambiguous at the call site, so the dot syntax
+-- is the recommended style.
 data ConsumerRecord = ConsumerRecord
-  { crTopic :: !Text
-  , crPartition :: !Int32
-  , crOffset :: !Int64
-  , crTimestamp :: !Int64
-  , crKey :: !(Maybe ByteString)
-  , crValue :: !ByteString
-  , crHeaders :: ![(Text, ByteString)]
+  { topic     :: !Text
+  , partition :: !Int32
+  , offset    :: !Int64
+  , timestamp :: !Int64
+  , key       :: !(Maybe ByteString)
+  , value     :: !ByteString
+  , headers   :: ![(Text, ByteString)]
   } deriving (Eq, Show, Generic)
-
--- | OverloadedRecordDot accessors for 'ConsumerRecord'. The
--- backing field selectors keep their @cr@ prefix so existing
--- @crKey rec@ call sites keep compiling, but @rec.key@ /
--- @rec.value@ / etc. read more naturally and are the
--- recommended style for new code.
-instance HasField "topic"     ConsumerRecord Text                 where getField = crTopic
-instance HasField "partition" ConsumerRecord Int32                where getField = crPartition
-instance HasField "offset"    ConsumerRecord Int64                where getField = crOffset
-instance HasField "timestamp" ConsumerRecord Int64                where getField = crTimestamp
-instance HasField "key"       ConsumerRecord (Maybe ByteString)   where getField = crKey
-instance HasField "value"     ConsumerRecord ByteString           where getField = crValue
-instance HasField "headers"   ConsumerRecord [(Text, ByteString)] where getField = crHeaders
 
 -- | Kafka consumer handle.
 data Consumer = Consumer
@@ -916,7 +900,7 @@ queryPartitionOffsets
 queryPartitionOffsets consumer@Consumer{..} partitions timestamp = do
   -- Group partitions by topic
   let byTopic = Map.fromListWith (++)
-        [ (tpTopic tp, [tpPartition tp])
+        [ (tp.topic, [tp.partition])
         | tp <- partitions
         ]
   
@@ -1278,7 +1262,7 @@ subscribe Consumer{..} topics = liftIO $ do
                 | (stp, _) <- tps
                 ]
               !newAssignmentSorted =
-                List.sortOn (\tp -> (tpTopic tp, tpPartition tp))
+                List.sortOn (\tp -> (tp.topic, tp.partition))
                             newAssignment
           -- Decide assigned-vs-revoked-vs-lost BEFORE we replace
           -- the assignment: 'hbLost' tells us if the previous
@@ -1351,7 +1335,7 @@ setRebalanceListener Consumer{..} onA onR onL = atomically $ do
 currentAssignment :: MonadIO m => Consumer -> m [TopicPartition]
 currentAssignment Consumer{..} = liftIO $ do
   m <- readIORef consumerAssignment
-  pure $ List.sortOn (\tp -> (tpTopic tp, tpPartition tp))
+  pure $ List.sortOn (\tp -> (tp.topic, tp.partition))
                      (HashMap.keys m)
 
 -- | Pure delta computation between two partition assignments.
@@ -1546,8 +1530,8 @@ poll consumer@Consumer{..} timeoutMs = liftIO $ do
             return $ Right iceptedRecords
 
    advanceOffset !m r =
-     let !tp         = TopicPartition (crTopic r) (crPartition r)
-         !nextOffset = crOffset r + 1
+     let !tp         = TopicPartition r.topic r.partition
+         !nextOffset = r.offset + 1
      in HashMap.alter (Just . maybe nextOffset (max nextOffset)) tp m
 
 -- | Seek to a specific offset on an /assigned/ partition. The
@@ -1563,8 +1547,8 @@ seek Consumer{..} tp offset = liftIO $
     case HashMap.lookup tp m of
       Nothing -> ( m
                  , Left ( "seek: partition not assigned: "
-                       ++ T.unpack (tpTopic tp)
-                       ++ ":" ++ show (tpPartition tp)
+                       ++ T.unpack tp.topic
+                       ++ ":" ++ show tp.partition
                        )
                  )
       Just _  -> (HashMap.insert tp offset m, Right ())
@@ -1655,8 +1639,8 @@ committed consumer tp = liftIO $ do
     Left err -> pure (Left err)
     Right hm -> case HashMap.lookup tp hm of
       Nothing  -> pure (Left ("committed: no offset returned for "
-                                ++ T.unpack (tpTopic tp)
-                                ++ ":" ++ show (tpPartition tp)))
+                                ++ T.unpack tp.topic
+                                ++ ":" ++ show tp.partition))
       Just off -> pure (Right off)
 
 -- | Fetch committed offsets for many partitions in one
@@ -1687,8 +1671,8 @@ position Consumer{..} tp = liftIO $ do
   m <- readIORef consumerAssignment
   case HashMap.lookup tp m of
     Nothing  -> pure (Left ("position: partition not assigned: "
-                              ++ T.unpack (tpTopic tp)
-                              ++ ":" ++ show (tpPartition tp)))
+                              ++ T.unpack tp.topic
+                              ++ ":" ++ show tp.partition))
     Just off -> pure (Right off)
 
 -- | Query the earliest offset available for each
@@ -1812,7 +1796,7 @@ fetchRecords
 fetchRecords consumer@Consumer{..} partitions timeoutMs = do
   -- Group partitions by topic
   let byTopic = Map.fromListWith (++)
-        [ (tpTopic tp, [(tpPartition tp, offset)])
+        [ (tp.topic, [(tp.partition, offset)])
         | (tp, offset) <- partitions
         ]
   
@@ -2158,13 +2142,13 @@ convertBatchToRecordsV topic partId batch =
       baseTimestamp = RB.batchBaseTimestamp batch
   in V.map
        (\rec -> ConsumerRecord
-          { crTopic     = topic
-          , crPartition = partId
-          , crOffset    = baseOffset + fromIntegral (RB.recordOffsetDelta rec)
-          , crTimestamp = baseTimestamp + RB.recordTimestampDelta rec
-          , crKey       = RB.recordKey rec
-          , crValue     = RB.recordValue rec
-          , crHeaders   = convertHeaders (RB.recordHeaders rec)
+          { topic     = topic
+          , partition = partId
+          , offset    = baseOffset + fromIntegral (RB.recordOffsetDelta rec)
+          , timestamp = baseTimestamp + RB.recordTimestampDelta rec
+          , key       = RB.recordKey rec
+          , value     = RB.recordValue rec
+          , headers   = convertHeaders (RB.recordHeaders rec)
           })
        (RB.batchRecords batch)
 
@@ -2180,13 +2164,13 @@ convertSlicedBatchToRecordsV
 convertSlicedBatchToRecordsV topic partId sb =
   let !n = RBW.slicedRecordCount sb
   in V.generate n $ \i -> ConsumerRecord
-       { crTopic     = topic
-       , crPartition = partId
-       , crOffset    = RBW.slicedRecordOffset    sb i
-       , crTimestamp = RBW.slicedRecordTimestamp sb i
-       , crKey       = RBW.slicedRecordKey       sb i
-       , crValue     = RBW.slicedRecordValue     sb i
-       , crHeaders   = convertSlicedHeaders sb i
+       { topic     = topic
+       , partition = partId
+       , offset    = RBW.slicedRecordOffset    sb i
+       , timestamp = RBW.slicedRecordTimestamp sb i
+       , key       = RBW.slicedRecordKey       sb i
+       , value     = RBW.slicedRecordValue     sb i
+       , headers   = convertSlicedHeaders sb i
        }
 
 -- | Pull the i-th record's headers out of a 'SlicedRecordBatch'
@@ -2349,7 +2333,7 @@ commitOffsetsSync consumer@Consumer{..} groupId offsets = do
               
               -- Group offsets by topic
               let byTopic = Map.fromListWith (++)
-                    [ (tpTopic tp, [(tpPartition tp, offset)])
+                    [ (tp.topic, [(tp.partition, offset)])
                     | (tp, offset) <- offsets
                     ]
                   
@@ -2464,7 +2448,7 @@ fetchCommittedOffsetsBatch consumer@Consumer{..} groupId tps = do
                     Right v -> v
                     Left  _ -> 5
               let byTopic = Map.fromListWith (++)
-                    [ (tpTopic tp, [tpPartition tp]) | tp <- tps ]
+                    [ (tp.topic, [tp.partition]) | tp <- tps ]
                   request
                     | apiVersion >= 8 = buildOffsetFetchRequestV8 groupId byTopic
                     | otherwise       = buildOffsetFetchRequestLegacy groupId byTopic
@@ -2633,7 +2617,7 @@ queryPartitionOffsetsByTimestampFull
 queryPartitionOffsetsByTimestampFull consumer@Consumer{..} pts = do
   -- Group partitions by topic, carrying per-partition timestamp.
   let byTopic = Map.fromListWith (++)
-        [ (tpTopic tp, [(tpPartition tp, ts)])
+        [ (tp.topic, [(tp.partition, ts)])
         | (tp, ts) <- pts
         ]
   brokersM <- atomically $ Meta.getAllBrokers consumerMetadata
