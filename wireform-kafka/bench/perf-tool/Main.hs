@@ -76,7 +76,7 @@ runProduce broker topic n vsize acks batch lingerMs compression = do
       let go !i
             | i <= 0 = pure ()
             | otherwise = do
-                r <- WP.sendMessageDropFastest p topic Nothing payload
+                r <- WP.sendMessageFastest_ p topic Nothing payload
                 case r of
                   Left e -> die ("send: " ++ e)
                   Right _ -> go (i - 1)
@@ -127,7 +127,7 @@ runConsume broker topic group n = do
                       ts <- realToFrac <$> Time.getPOSIXTime
                       writeIORef tStartRef ts
                     let !nrs = length rs
-                        !nbs = sum (map (BS.length . WC.crValue) rs)
+                        !nbs = sum (map (BS.length . (.value)) rs)
                     modifyIORef' countRef (+ nrs)
                     modifyIORef' bytesRef (+ nbs)
                     go

@@ -7,30 +7,40 @@
 
 -- |
 -- Module      : Kafka.Streams.Discovery.RemoteIQ
--- Description : Transport-agnostic remote interactive-query proxy
+-- Description : Cross-instance interactive-query forwarding hook
 --
--- KIP-535 introduces cross-instance IQ: if a key the user
--- asks about lives on a /peer/ instance, the application
--- forwards the query to that peer's @application.server@
--- host:port instead of returning "store missing" locally.
+-- Cross-instance interactive queries: if a key the user asks
+-- about lives on a /peer/ instance, the application forwards
+-- the query to that peer's @application.server@ host:port
+-- instead of returning \"store missing\" locally.
 --
--- The transport is the user's choice — gRPC, HTTP, raw TCP.
--- This module exposes the routing /decision/ and a
--- pluggable 'RemoteIQ' interface so call sites stay typed
--- and testable.
+-- The Kafka Streams API ships the /discovery/ half of this in
+-- the runtime (which peer owns each key) but deliberately
+-- leaves the /transport/ to the application — neither the
+-- protocol nor any KIP specifies a wire for cross-instance IQ.
+-- Confluent's reference apps typically expose REST endpoints
+-- (Jersey \/ JAX-RS); other shops use gRPC; some go straight
+-- TCP. There is no single right answer, so this module follows
+-- the JVM convention and exposes the routing /decision/ plus a
+-- 'RemoteIQ' record that the application populates with
+-- whatever client it already uses.
+--
+-- For an in-house gRPC implementation, plug your
+-- @wireform-grpc@ client into 'runRemoteIQ'. For interop with
+-- JVM Streams instances that expose @\/state\/keyvalue\/{store}\/{key}@,
+-- plug an HTTP client in. For tests, use 'noopRemoteIQ' or a
+-- hand-supplied stub.
 --
 -- == Typical usage
 --
 -- @
 -- let metadata = makeKeyQueryMetadata peers \"orders\"
 --                  (hashedPartitionFor key 12)
--- case metadata of
---   Nothing  -> ...                 -- nobody owns it
---   Just kqm ->
---     if kqm.activeHost == myHost
---       then readLocal store key      -- local read
---       else remoteIqFetch transport
---             kqm.activeHost storeName key
+-- case routeQuery myHost metadata of
+--   RouteMissing      -> ...
+--   RouteLocal        -> readLocal store key
+--   RouteRemote peer  -> runRemoteIQ transport peer
+--                          (RemoteIQRequest \"orders\" key)
 -- @
 module Kafka.Streams.Discovery.RemoteIQ
   ( RemoteIQ (..)

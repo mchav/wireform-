@@ -1,0 +1,173 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+
+-- |
+-- Module      : Kafka.Streams.SessionWindowedKStream
+-- Description : SessionWindowedKStream + session aggregations
+module Kafka.Streams.SessionWindowedKStream
+  ( SessionWindowedKStream
+  , countSessionWindowed
+  , aggregateSessionWindowed
+  , SessionWindowedTableHandle (..)
+  ) where
+
+import Data.IORef
+import Data.Int (Int64)
+import qualified Unsafe.Coerce as Unsafe
+import qualified Kafka.Streams.Time as Time
+
+import Kafka.Streams.KGroupedStream
+  ( SessionWindowedKStream (..)
+  )
+import Kafka.Streams.Materialized (Materialized (..))
+import Kafka.Streams.StreamsBuilder
+  ( StreamsBuilder
+  , freshNodeName
+  , freshStoreName
+  , withTopology_
+  )
+import Kafka.Streams.Processor
+  ( Processor (..)
+  , forwardRecord
+  , getStateStore
+  , processorName
+  )
+import Kafka.Streams.State.Store
+  ( AnyStateStore (..)
+  , SessionKey (..)
+  , SessionStore (..)
+  , StoreBuilderS
+  , StoreName
+  , kvIteratorToList
+  )
+import Kafka.Streams.State.Session.InMemory
+  ( inMemorySessionStoreBuilder
+  )
+import qualified Kafka.Streams.Topology as Topo
+import Kafka.Streams.Types (Record (..))
+import Kafka.Streams.Window (SessionWindows (..))
+
+data SessionWindowedTableHandle k v = SessionWindowedTableHandle
+  { swthNode    :: !Topo.NodeName
+  , swthStore   :: !StoreName
+  , swthBuilder :: !StreamsBuilder
+  }
+
+countSessionWindowed
+  :: forall k v
+   . Ord k
+  => Materialized k Int64
+  -> SessionWindowedKStream k v
+  -> IO (SessionWindowedTableHandle k Int64)
+countSessionWindowed =
+  aggregateSessionWindowed @k @v @Int64
+    (pure 0)
+    (\_ _ acc -> acc + 1)
+    (\_ a b -> a + b)
+
+-- | Generic session aggregator. The 'merger' is invoked when two
+-- adjacent sessions are merged into one (Java's @Merger<K, A>@).
+aggregateSessionWindowed
+  :: forall k v a
+   . Ord k
+  => IO a
+  -> (k -> v -> a -> a)
+  -> (k -> a -> a -> a)
+  -> Materialized k a
+  -> SessionWindowedKStream k v
+  -> IO (SessionWindowedTableHandle k a)
+aggregateSessionWindowed initial agg merger m swks = do
+  let b = swksBuilder swks
+      sw = swksWindows swks
+  storeNm <- maybe (freshStoreName b "SESSION-AGG-STORE")
+                   pure
+                   (matName m)
+  let supplier = inMemorySessionStoreBuilder storeNm (swRetention sw)
+                   :: StoreBuilderS k a
+  nodeNm <- freshNodeName b "SESSION-AGG"
+  withTopology_ b $ \t ->
+    let !t1 = Topo.addProcessorWith
+                Topo.ProcessorSpec
+                  { Topo.processorSpecName     = nodeNm
+                  , Topo.processorSpecParents  = [swksParent swks]
+                  , Topo.processorSpecSupplier =
+                      Topo.AnyProcessor
+                        (sessionAggProc @k @v @a storeNm sw initial agg merger)
+                  , Topo.processorSpecStores   = []
+                  }
+                t
+        !t2 = Topo.addStateStoreS supplier [nodeNm] t1
+     in t2
+  pure SessionWindowedTableHandle
+    { swthNode    = nodeNm
+    , swthStore   = storeNm
+    , swthBuilder = b
+    }
+
+sessionAggProc
+  :: forall k v a
+   . Ord k
+  => StoreName
+  -> SessionWindows
+  -> IO a
+  -> (k -> v -> a -> a)
+  -> (k -> a -> a -> a)
+  -> IO (Processor k v)
+sessionAggProc sn sw initial agg merger = do
+  ctxRef <- newIORef Nothing
+  storeRef <- newIORef (Nothing :: Maybe (SessionStore k a))
+  pure Processor
+    { procName = processorName "SESSION-AGG"
+    , procInit = \ctx -> do
+        writeIORef ctxRef (Just ctx)
+        st <- getStateStore ctx sn
+        case st of
+          Just (AnySessionStore ss) ->
+            writeIORef storeRef (Just (unsafeCastSS ss))
+          _ -> error $ "sessionAggProc: store not found: " <> show sn
+    , procClose = pure ()
+    , procProcess = \r -> do
+        mctx <- readIORef ctxRef
+        mst  <- readIORef storeRef
+        case (mctx, mst, recordKey r) of
+          (Just ctx, Just store_, Just k) -> do
+            let !ts = recordTimestamp r
+                !gap = swInactivityGap sw
+            -- Find adjacent sessions (anything ending within
+            -- [ts-gap, ts+gap]).
+            it <- ssFindSessions store_ k
+                    (timestampMinus ts gap)
+                    (timestampPlus  ts gap)
+            adjacents <- kvIteratorToList it
+            -- Compute the merged session window bounds (always
+            -- includes 'ts'); compute the merged aggregate only if
+            -- there's at least one adjacent session.
+            let !lo = foldl (\s (SessionKey _ s' _, _) -> min s s')
+                            ts adjacents
+                !hi = foldl (\e (SessionKey _ _ e', _) -> max e e')
+                            ts adjacents
+            base <- case adjacents of
+              [] -> initial
+              ((_, a0) : rest) ->
+                pure $! foldl (\a (_, a') -> merger k a a') a0 rest
+            mapM_ (\(sk, _) -> ssRemove store_ sk) adjacents
+            let !newAgg = agg k (recordValue r) base
+                !sk = SessionKey k lo hi
+            ssPut store_ sk newAgg
+            forwardRecord ctx r { recordValue = newAgg }
+          _ -> pure ()
+    }
+
+timestampMinus :: Time.Timestamp -> Int64 -> Time.Timestamp
+timestampMinus (Time.Timestamp t) n = Time.Timestamp (t - n)
+
+timestampPlus :: Time.Timestamp -> Int64 -> Time.Timestamp
+timestampPlus (Time.Timestamp t) n = Time.Timestamp (t + n)
+
+unsafeCastSS :: SessionStore k v -> SessionStore k' v'
+unsafeCastSS = Unsafe.unsafeCoerce
+{-# INLINE unsafeCastSS #-}

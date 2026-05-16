@@ -311,10 +311,10 @@ newMockDriver = do
             atomically $ modifyTVar' sends
               (\s -> s |> MockSend topic key value)
             pure (Right KP.RecordMetadata
-              { KP.metadataTopic     = topic
-              , KP.metadataPartition = 0
-              , KP.metadataOffset    = 0
-              , KP.metadataTimestamp = 0
+              { topic     = topic
+              , partition = 0
+              , offset    = 0
+              , timestamp = 0
               })
         , sdProducerFlush = do
             atomically $ modifyTVar' flushd (+ 1)

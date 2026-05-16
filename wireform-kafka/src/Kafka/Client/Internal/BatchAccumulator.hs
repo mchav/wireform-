@@ -139,8 +139,8 @@ data BatchAck = BatchAck
 -- 'Right' with the per-record 'BatchAck'.
 --
 -- Why a sum and not a function-only type:
--- the perf-critical code paths ('sendMessageDropUnsafe',
--- 'sendMessageDropFastest', 'sendMessagesDrop') pass the no-op
+-- the perf-critical code paths ('sendMessageUnsafe_',
+-- 'sendMessageFastest_', 'sendMessages_') pass the no-op
 -- callback. With a function-only type the sender would still
 -- have to /allocate/ and /strictly construct/ the per-record
 -- 'BatchAck' (UNPACK'd strict fields → all evaluated at
@@ -1063,7 +1063,7 @@ createBatch BatchAccumulatorConfig{..} tp currentTime =
 
 -- | Look up the partition's currently-in-progress
 -- 'BatchAccumulating' (or 'Nothing' if there isn't one yet).
--- Used by 'Kafka.Client.Producer.sendMessageDropFastest' to
+-- Used by 'Kafka.Client.Producer.sendMessageFastest_' to
 -- cache the in-progress batch handle in producer-local state and
 -- skip the per-record partition-map + queue-current lookups.
 currentBatchOf

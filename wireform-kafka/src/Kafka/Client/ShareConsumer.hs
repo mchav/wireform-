@@ -58,10 +58,25 @@ module Kafka.Client.ShareConsumer
   , RecordLockState (..)
   , lockExpiresAt
   , shouldRedeliver
+
+    -- * Per-partition pause / resume
+  , PauseSet
+  , newPauseSet
+  , pausePartitions
+  , resumePartitions
+  , isPaused
+
+    -- * Dead-letter-queue routing
+  , DlqRoute (..)
+  , DlqDecision (..)
+  , decideDlq
   ) where
 
 import Control.Concurrent.STM
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.ByteString (ByteString)
+import qualified Data.HashSet as HashSet
+import Data.HashSet (HashSet)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Int (Int32, Int64)
@@ -115,12 +130,12 @@ data ShareConsumer = ShareConsumer
   }
 
 createShareConsumer
-  :: ShareConsumerConfig -> IO ShareConsumer
-createShareConsumer cfg = do
+  :: MonadIO m => ShareConsumerConfig -> m ShareConsumer
+createShareConsumer cfg = liftIO $ do
   pending <- newTVarIO []
   pure ShareConsumer { shConfig = cfg, shPendingAcks = pending }
 
-closeShareConsumer :: ShareConsumer -> IO ()
+closeShareConsumer :: MonadIO m => ShareConsumer -> m ()
 closeShareConsumer _ = pure ()
 
 ----------------------------------------------------------------------
@@ -164,21 +179,21 @@ data Acknowledgement = Acknowledgement
 -- Returns an empty batch today; the production wiring lives in
 -- a follow-up commit on the same branch (the wire types are in
 -- "Kafka.Protocol.Generated.ShareFetchRequest").
-pollShareRecords :: ShareConsumer -> Int -> IO [ShareRecord]
+pollShareRecords :: MonadIO m => ShareConsumer -> Int -> m [ShareRecord]
 pollShareRecords _ _ = pure []
 
 -- | Stage an acknowledgement in the local buffer; flush via
 -- 'commitAcknowledgements'.
 acknowledgeShareRecord
-  :: ShareConsumer -> Acknowledgement -> IO ()
-acknowledgeShareRecord sc ack = atomically $
+  :: MonadIO m => ShareConsumer -> Acknowledgement -> m ()
+acknowledgeShareRecord sc ack = liftIO $ atomically $
   modifyTVar' (shPendingAcks sc) (ack :)
 
 -- | Drain the pending acknowledgements. The returned list is in
 -- the order the broker should see (oldest first).
 commitAcknowledgements
-  :: ShareConsumer -> IO [Acknowledgement]
-commitAcknowledgements sc = atomically $ do
+  :: MonadIO m => ShareConsumer -> m [Acknowledgement]
+commitAcknowledgements sc = liftIO $ atomically $ do
   acks <- readTVar (shPendingAcks sc)
   writeTVar (shPendingAcks sc) []
   pure (reverse acks)
@@ -213,3 +228,58 @@ shouldRedeliver now maxAttempts rls =
   let !expired = now >= lockExpiresAt rls
       !poison  = rlsDeliveryCount rls >= maxAttempts
   in expired && not poison
+
+----------------------------------------------------------------------
+-- Per-partition pause / resume
+--
+-- Previously lived in @Kafka.Client.ShareGroupExtras@.
+----------------------------------------------------------------------
+
+-- | Set of paused @(topic, partition)@ pairs. The share consumer
+-- consults it before issuing the next 'pollShareRecords' fetch.
+newtype PauseSet = PauseSet (TVar (HashSet (Text, Int32)))
+
+newPauseSet :: IO PauseSet
+newPauseSet = PauseSet <$> newTVarIO HashSet.empty
+
+pausePartitions (PauseSet v) tps = liftIO $ atomically $
+  modifyTVar' v (HashSet.union (HashSet.fromList tps))
+
+resumePartitions :: MonadIO m => PauseSet -> [(Text, Int32)] -> m ()
+resumePartitions (PauseSet v) tps = liftIO $ atomically $
+  modifyTVar' v (\s -> HashSet.difference s (HashSet.fromList tps))
+
+isPaused :: MonadIO m => PauseSet -> Text -> Int32 -> m Bool
+isPaused (PauseSet v) topic part = liftIO $ do
+  s <- readTVarIO v
+  pure (HashSet.member (topic, part) s)
+
+----------------------------------------------------------------------
+-- Dead-letter-queue routing
+----------------------------------------------------------------------
+
+-- | What to do with a record that's exhausted its delivery
+-- attempts.
+data DlqRoute
+  = DlqDrop                     -- ^ silently discard
+  | DlqRouteTo !Text            -- ^ route to a specific DLQ topic
+  | DlqDelegate                 -- ^ defer to a user-supplied callback
+  deriving stock (Eq, Show, Generic)
+
+-- | Whether a record should be retried or shipped to the DLQ.
+data DlqDecision
+  = DlqDecisionRetry            -- ^ keep retrying (delivery count below threshold)
+  | DlqDecisionDeliver !DlqRoute
+  deriving stock (Eq, Show, Generic)
+
+-- | Pure DLQ decision: given the configured max-delivery-count and
+-- a record's current delivery attempt count, return whether the
+-- record should be retried or shoved into the DLQ.
+decideDlq
+  :: Int32          -- ^ max delivery count
+  -> ShareRecord
+  -> DlqRoute
+  -> DlqDecision
+decideDlq maxDeliveries rec route
+  | srDeliveryCount rec >= maxDeliveries = DlqDecisionDeliver route
+  | otherwise                            = DlqDecisionRetry

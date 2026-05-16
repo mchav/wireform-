@@ -11,7 +11,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
 import Kafka.Streams
-import Kafka.Streams.DSL.Joined (symmetricJoinWindows)
+import Kafka.Streams.Joined (symmetricJoinWindows)
 
 tests :: TestTree
 tests = testGroup "Joins"

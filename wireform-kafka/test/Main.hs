@@ -18,17 +18,16 @@ To run tests:
 -}
 module Main (main) where
 
+import Client.AdminClientConfigSpec qualified
 import Client.AdminClientSpec qualified
-import Client.AdminExtrasSpec qualified
 import Client.AdminTimeoutsSpec qualified
 import Client.BatchAccumulatorSpec qualified
 import Client.BatchSplittingSpec qualified
 import Client.ConfigParitySpec qualified
 import Client.ConfigValidationSpec qualified
-import Client.ConnectionExtrasSpec qualified
 import Client.ConsumerConfigSpec qualified
-import Client.ConsumerExtrasSpec qualified
 import Client.ConsumerGroupV2Spec qualified
+import Client.ConsumerSnapshotsSpec qualified
 import Client.EnvSpec qualified
 import Client.FilterSpec qualified
 import Client.FutureSpec qualified
@@ -53,7 +52,6 @@ import Client.Murmur2Spec qualified
 import Client.PartitionerSpec qualified
 import Client.PipelineSpec qualified
 import Client.ProducerConsumerLifecycleSpec qualified
-import Client.ProducerExtrasSpec qualified
 import Client.ProducerRetrySpec qualified
 import Client.ProducerTimeoutSpec qualified
 import Client.ProducerTransactionWiringSpec qualified
@@ -63,18 +61,19 @@ import Client.RecordMetadataSpec qualified
 import Client.ResponseFrameSpec qualified
 import Client.RetryClassifierSpec qualified
 import Client.SerdeContextSpec qualified
+import Client.ShareConsumerHelpersSpec qualified
 import Client.ShareConsumerSpec qualified
-import Client.ShareGroupExtrasSpec qualified
 import Client.StatsJsonSpec qualified
 import Client.SubscribeSpec qualified
 import Client.TelemetryPushSpec qualified
 import Client.TopicIdSpec qualified
-import Client.TraceContextSpec qualified
 import Client.TransactionCoordinatorSpec qualified
+import Client.TransactionHelpersSpec qualified
 import Client.TransactionSpec qualified
 import Codegen.WireGeneratorSpec qualified
 import Network.AuthSpec qualified
 import Network.BootstrapSpec qualified
+import Network.ConnectionHelpersSpec qualified
 import Network.ConnectionLivenessSpec qualified
 import Network.ConnectionRetrySpec qualified
 import Network.OAuthOidcSpec qualified
@@ -184,7 +183,6 @@ clientTests =
     , Client.ConsumerGroupV2Spec.tests
     , Client.ShareConsumerSpec.tests
     , Client.TelemetryPushSpec.tests
-    , Client.TraceContextSpec.tests
     , Client.RecordMetadataSpec.tests
     , Client.FilterSpec.tests
     , Client.FutureSpec.tests
@@ -194,14 +192,14 @@ clientTests =
     , Client.RetryClassifierSpec.tests
     , Client.BatchSplittingSpec.tests
     , Client.ResponseFrameSpec.tests
-    , Client.ConsumerExtrasSpec.tests
+    , Client.ConsumerSnapshotsSpec.tests
     , Client.MetadataCacheControlSpec.tests
     , Client.RackAwareSpec.tests
-    , Client.ProducerExtrasSpec.tests
-    , Client.ConnectionExtrasSpec.tests
-    , Client.AdminExtrasSpec.tests
+    , Client.TransactionHelpersSpec.tests
+    , Network.ConnectionHelpersSpec.tests
+    , Client.AdminClientConfigSpec.tests
     , Client.SerdeContextSpec.tests
-    , Client.ShareGroupExtrasSpec.tests
+    , Client.ShareConsumerHelpersSpec.tests
     , Client.AdminClientSpec.tests
     , Client.GroupSpec.groupSpec
     , Client.MockBrokerSpec.tests

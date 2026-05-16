@@ -141,7 +141,7 @@ versioned / transactional variants:
 | `VersionedKeyValueStore`   | `Kafka.Streams.State.KeyValue.Versioned` |
 | `CachingKeyValueStore`                     | `Kafka.Streams.State.KeyValue.Caching` |
 | Transactional store (EOS-V3)      | `Kafka.Streams.State.Transactional`    |
-| `DslStoreSuppliers`             | `Kafka.Streams.DSL.DslStoreSuppliers`  |
+| `DslStoreSuppliers`             | `Kafka.Streams.DslStoreSuppliers`  |
 | `addReadOnlyStateStore`          | `addReadOnlyStateStore`                |
 
 The RocksDB backend is gated behind the `rocksdb` cabal flag
@@ -420,14 +420,14 @@ most user docs and examples are written for, and it mirrors
 the JVM fluent builder one-to-one.
 
 For transformations you want to *name* and *reuse* across
-topologies, `Kafka.Streams.DSL.Pipeline` provides
+topologies, `Kafka.Streams.Pipeline` provides
 `Pipeline a b`: a thin newtype over `a -> IO b` with a
 `Control.Category` instance. Fragments compose with `(>>>)`
 exactly like ordinary functions:
 
 ```haskell
 import Control.Category ((>>>))
-import Kafka.Streams.DSL.Pipeline
+import Kafka.Streams.Pipeline
 
 normalise :: Pipeline (KStream Text Text) (KStream Text Text)
 normalise = pmapValues T.toUpper

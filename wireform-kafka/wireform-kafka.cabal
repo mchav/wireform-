@@ -26,6 +26,8 @@ build-type: Simple
 extra-doc-files:
     README.md
     CHANGELOG.md
+    CONCEPTS.md
+    TUTORIAL.md
     INTEGRATION_TESTING.md
 extra-source-files:
     cbits/crc32c.h
@@ -64,6 +66,8 @@ common defaults
     default-language: GHC2021
     default-extensions:
         OverloadedStrings
+        OverloadedRecordDot
+        DuplicateRecordFields
         StrictData
         DerivingStrategies
         DeriveAnyClass
@@ -100,28 +104,29 @@ library
         liblz4
     exposed-modules:
         Kafka
+        Kafka.Errors
+        Kafka.Headers
+        Kafka.Serde
+        Kafka.Serde.Avro
+        Kafka.Serde.Proto
+        Kafka.Topic
         Kafka.Client.AdminClient
-        Kafka.Client.AdminExtras
         Kafka.Client.AdminTimeouts
         Kafka.Client.ConfigValidation
-        Kafka.Client.ConnectionExtras
         Kafka.Client.Env
         Kafka.Client.Consumer
-        Kafka.Client.ConsumerExtras
         Kafka.Client.DeleteRecords
         Kafka.Client.ConsumerGroupV2
         Kafka.Client.Filter
         Kafka.Client.Future
         Kafka.Client.Group
         Kafka.Client.MetadataCacheControl
-        Kafka.Client.ProducerExtras
         Kafka.Client.RackAware
         Kafka.Client.RebalanceListener
         Kafka.Client.RecordMetadata
         Kafka.Client.RetryClassifier
         Kafka.Client.SerdeContext
         Kafka.Client.ShareConsumer
-        Kafka.Client.ShareGroupExtras
         Kafka.Client.StatsEmitter
         Kafka.Client.TopicId
         Kafka.Client.Internal.BatchSplitting
@@ -145,7 +150,6 @@ library
         Kafka.Client.Pipeline
         Kafka.Client.Producer
         Kafka.Client.ReauthDriver
-        Kafka.Client.Simple
         Kafka.Client.Transaction
         Kafka.Compression.BuilderGzip
         Kafka.Compression.BuilderLz4
@@ -368,7 +372,6 @@ library
         Kafka.Telemetry.OpenTelemetry
         Kafka.Telemetry.Push
         Kafka.Telemetry.StatsJson
-        Kafka.Telemetry.TraceContext
         Kafka.Time
     build-depends:
         base                      >= 4.16  && < 5,
@@ -378,6 +381,7 @@ library
         base64-bytestring         >= 1.2   && < 1.3,
         binary                    >= 0.8   && < 0.11,
         bytestring                >= 0.11  && < 0.13,
+        case-insensitive          >= 1.2   && < 1.3,
         containers                >= 0.6   && < 0.9,
         wireform-core             == 0.1.*,
         crypton                   >= 1.0   && < 1.1,
@@ -392,6 +396,7 @@ library
         filepath                  >= 1.4   && < 1.6,
         hashable                  >= 1.3   && < 1.6,
         hs-opentelemetry-api      >= 0.2   && < 1,
+        http-types                >= 0.12  && < 0.13,
         list-t                    >= 1.0   && < 1.1,
         memory                    >= 0.18  && < 0.19,
         network                   >= 3.1   && < 3.3,
@@ -403,9 +408,12 @@ library
         time                      >= 1.11  && < 1.15,
         tls                       >= 1.7   && < 2.2,
         unagi-chan                >= 0.4   && < 0.5,
+        unliftio-core             >= 0.2   && < 0.3,
         unordered-containers      >= 0.2   && < 0.3,
         uuid                      >= 1.3   && < 1.4,
         vector                    >= 0.13  && < 0.14,
+        wireform-avro,
+        wireform-proto,
         zlib                      >= 0.6   && < 0.8,
         zstd                      >= 0.1   && < 0.2
 
@@ -448,26 +456,26 @@ library wireform-kafka-streams
         Kafka.Streams.Internal.RecordCollector
         Kafka.Streams.Internal.Engine
         Kafka.Streams.Driver
-        Kafka.Streams.DSL.Materialized
-        Kafka.Streams.DSL.Consumed
-        Kafka.Streams.DSL.Produced
-        Kafka.Streams.DSL.Repartitioned
-        Kafka.Streams.DSL.Pipeline
-        Kafka.Streams.DSL.Grouped
-        Kafka.Streams.DSL.Joined
-        Kafka.Streams.DSL.Named
-        Kafka.Streams.DSL.StreamsBuilder
-        Kafka.Streams.DSL.KStream
-        Kafka.Streams.DSL.KTable
-        Kafka.Streams.DSL.KGroupedStream
-        Kafka.Streams.DSL.KGroupedTable
-        Kafka.Streams.DSL.TimeWindowedKStream
-        Kafka.Streams.DSL.SessionWindowedKStream
-        Kafka.Streams.DSL.GlobalKTable
-        Kafka.Streams.DSL.ForeignKeyJoin
-        Kafka.Streams.DSL.Cogroup
-        Kafka.Streams.DSL.Suppress
-        Kafka.Streams.DSL.DslStoreSuppliers
+        Kafka.Streams.Materialized
+        Kafka.Streams.Consumed
+        Kafka.Streams.Produced
+        Kafka.Streams.Repartitioned
+        Kafka.Streams.Pipeline
+        Kafka.Streams.Grouped
+        Kafka.Streams.Joined
+        Kafka.Streams.Named
+        Kafka.Streams.StreamsBuilder
+        Kafka.Streams.KStream
+        Kafka.Streams.KTable
+        Kafka.Streams.KGroupedStream
+        Kafka.Streams.KGroupedTable
+        Kafka.Streams.TimeWindowedKStream
+        Kafka.Streams.SessionWindowedKStream
+        Kafka.Streams.GlobalKTable
+        Kafka.Streams.ForeignKeyJoin
+        Kafka.Streams.Cogroup
+        Kafka.Streams.Suppress
+        Kafka.Streams.DslStoreSuppliers
         Kafka.Streams.Runtime
         Kafka.Streams.Runtime.EOS
         Kafka.Streams.Runtime.Task
@@ -630,6 +638,23 @@ test-suite wireform-kafka-streams-integration
         tasty-hunit               >= 0.10  && < 0.11,
         text
 
+executable wireform-kafka-client-examples
+    import: defaults
+    main-is: Main.hs
+    hs-source-dirs: examples
+    ghc-options: -threaded -rtsopts
+    other-modules:
+        Kafka.Client.Examples.Consume
+        Kafka.Client.Examples.Group
+        Kafka.Client.Examples.Produce
+        Kafka.Client.Examples.ProduceTyped
+        Kafka.Client.Examples.Transaction
+    build-depends:
+        base,
+        wireform-kafka,
+        bytestring,
+        text
+
 executable wireform-kafka-streams-examples
     import: defaults
     main-is: Main.hs
@@ -757,7 +782,6 @@ test-suite wireform-kafka-test
         Client.ConsumerGroupV2Spec
         Client.ShareConsumerSpec
         Client.TelemetryPushSpec
-        Client.TraceContextSpec
         Client.RecordMetadataSpec
         Client.FilterSpec
         Client.FutureSpec
@@ -769,14 +793,14 @@ test-suite wireform-kafka-test
         Client.ResponseFrameSpec
         Network.OAuthOidcSpec
         Network.BootstrapSpec
-        Client.ConsumerExtrasSpec
+        Client.ConsumerSnapshotsSpec
         Client.MetadataCacheControlSpec
         Client.RackAwareSpec
-        Client.ProducerExtrasSpec
-        Client.ConnectionExtrasSpec
-        Client.AdminExtrasSpec
+        Client.TransactionHelpersSpec
+        Network.ConnectionHelpersSpec
+        Client.AdminClientConfigSpec
         Client.SerdeContextSpec
-        Client.ShareGroupExtrasSpec
+        Client.ShareConsumerHelpersSpec
         Client.MockBrokerSpec
         Client.MockBrokerFailureModesSpec
         Client.MockBrokerAdvancedSpec

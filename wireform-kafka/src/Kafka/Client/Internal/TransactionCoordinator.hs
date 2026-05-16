@@ -323,7 +323,7 @@ addPartitionsToTxn connMgr versionCache corrIdVar clientId coordinator transacti
   
   -- Group partitions by topic
   let byTopic = Map.fromListWith (++)
-        [(tpTopic tp, [tpPartition tp]) | tp <- partitions]
+        [(tp.topic, [tp.partition]) | tp <- partitions]
       
       topics = V.fromList
         [APTReq.AddPartitionsToTxnTopic
@@ -687,7 +687,7 @@ buildTxnOffsetCommitRequest
   -> TOCReq.TxnOffsetCommitRequest
 buildTxnOffsetCommitRequest groupId producerId epoch offsets =
   let !byTopic = Map.fromListWith (++)
-        [ (tpTopic tp, [(tpPartition tp, off)])
+        [ (tp.topic, [(tp.partition, off)])
         | (tp, off) <- offsets
         ]
       !topicVec = V.fromList

@@ -61,6 +61,25 @@ module Kafka.Network.Connection
   , connectOffload
     -- * Backoff Utilities
   , calculateBackoffDelay
+    -- * Pluggable host resolution
+  , HostResolver (..)
+    -- * Connection-quota throttling
+  , ConnectionQuotaState
+  , newConnectionQuotaState
+  , recordThrottle
+  , shouldDelayConnect
+    -- * Idle-expiry tracking
+  , IdleConnTracker
+  , newIdleConnTracker
+  , recordActivity
+  , isIdle
+    -- * SASL timeouts
+  , SaslTimeouts (..)
+  , defaultSaslTimeouts
+    -- * Request quality-of-service
+  , QosClass (..)
+  , QosWeight (..)
+  , prioritise
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -71,6 +90,10 @@ import Control.Monad (when)
 import qualified Data.ByteString as BS
 import Data.Default.Class (def)
 import Data.Hashable (Hashable(hashWithSalt))
+import Data.Int (Int64)
+import qualified Data.List as L
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
@@ -844,4 +867,105 @@ isConnected conn = do
       pure $ case r of
         Right bs -> not (BS.null bs)
         Left  _  -> False
+
+----------------------------------------------------------------------
+-- Additional connection-layer ergonomics
+--
+-- Previously lived in @Kafka.Client.ConnectionExtras@ +
+-- @Kafka.Client.AdminExtras@ (the 'HostResolver' record).
+----------------------------------------------------------------------
+
+-- | A pluggable hostname resolver — useful for service-mesh /
+-- multi-cluster setups where DNS isn't authoritative. Returns the
+-- resolved IP string(s); callers iterate the result with the same
+-- shape librdkafka uses.
+newtype HostResolver = HostResolver
+  { resolveHost :: Text -> IO [Text]
+  }
+
+-- | Tracks broker-imposed @connection.creation.rate@ throttles so
+-- the client can back off before opening another connection.
+newtype ConnectionQuotaState = ConnectionQuotaState
+  { cqsThrottleUntilMs :: TVar Int64 }
+
+newConnectionQuotaState :: IO ConnectionQuotaState
+newConnectionQuotaState = ConnectionQuotaState <$> newTVarIO 0
+
+-- | Record a broker-imposed throttle (the broker's
+-- @connection.creation.rate.throttle.ms@ response). The client
+-- waits until @nowMs >= cqsThrottleUntilMs@ before opening another
+-- connection.
+recordThrottle :: ConnectionQuotaState -> Int64 -> Int -> IO ()
+recordThrottle st now throttleMs = atomically $
+  writeTVar (cqsThrottleUntilMs st) (now + fromIntegral throttleMs)
+
+shouldDelayConnect :: ConnectionQuotaState -> Int64 -> IO (Maybe Int)
+shouldDelayConnect st now = do
+  until_ <- readTVarIO (cqsThrottleUntilMs st)
+  let !wait = until_ - now
+  pure $ if wait > 0 then Just (fromIntegral wait) else Nothing
+
+-- | Tracks per-key last-activity timestamps so the connection pool
+-- can age out idle entries.
+newtype IdleConnTracker key = IdleConnTracker
+  { ictLastActivity :: TVar (Map key Int64) }
+
+newIdleConnTracker :: Ord key => IO (IdleConnTracker key)
+newIdleConnTracker = IdleConnTracker <$> newTVarIO Map.empty
+
+recordActivity :: Ord key => IdleConnTracker key -> key -> Int64 -> IO ()
+recordActivity (IdleConnTracker v) k now = atomically $
+  modifyTVar' v (Map.insert k now)
+
+isIdle
+  :: Ord key
+  => IdleConnTracker key
+  -> key
+  -> Int64        -- ^ now (ms)
+  -> Int          -- ^ idle threshold (ms)
+  -> IO Bool
+isIdle (IdleConnTracker v) k now thresholdMs = do
+  m <- readTVarIO v
+  pure $ case Map.lookup k m of
+    Nothing -> True
+    Just ts -> now - ts >= fromIntegral thresholdMs
+
+-- | Bounds on the SASL handshake + idle window.
+data SaslTimeouts = SaslTimeouts
+  { saslConnectTimeoutMs :: !Int
+    -- ^ Bound on the initial SASL handshake.
+  , saslMaxIdleMs        :: !Int
+    -- ^ Per-session idle window before forced re-auth.
+    --   @0@ = unbounded.
+  }
+  deriving stock (Eq, Show, Generic)
+
+defaultSaslTimeouts :: SaslTimeouts
+defaultSaslTimeouts = SaslTimeouts
+  { saslConnectTimeoutMs = 30_000
+  , saslMaxIdleMs        = 0
+  }
+
+-- | Priority class used by 'prioritise' for fair-share request
+-- scheduling.
+data QosClass
+  = QosCritical
+  | QosHigh
+  | QosNormal
+  | QosLow
+  deriving stock (Eq, Ord, Show, Generic)
+
+newtype QosWeight = QosWeight { unQosWeight :: Int }
+  deriving stock (Eq, Show, Generic)
+
+-- | Sort a queue of @(class, payload)@ entries with critical
+-- requests first, low last. The relative order within a class is
+-- preserved (stable sort).
+prioritise :: [(QosClass, a)] -> [(QosClass, a)]
+prioritise = L.sortOn (\(c, _) -> classWeight c)
+  where
+    classWeight QosCritical = 0 :: Int
+    classWeight QosHigh     = 1
+    classWeight QosNormal   = 2
+    classWeight QosLow      = 3
 

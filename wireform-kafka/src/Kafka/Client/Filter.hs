@@ -63,20 +63,20 @@ noopFilter = identityFilter
 
 byKeyEquals :: ByteString -> RecordFilter
 byKeyEquals expected = RecordFilter $ \r ->
-  case crKey r of
+  case r.key of
     Just k  -> k == expected
     Nothing -> False
 
 byHeaderEquals :: Text -> ByteString -> RecordFilter
 byHeaderEquals name expected = RecordFilter $ \r ->
-  case lookup name (crHeaders r) of
+  case lookup name r.headers of
     Just v  -> v == expected
     Nothing -> False
 
 -- | Pass records whose topic is in the supplied set.
 byTopicIn :: HashSet Text -> RecordFilter
 byTopicIn topics = RecordFilter $ \r ->
-  HashSet.member (crTopic r) topics
+  HashSet.member r.topic topics
 
 byPredicate :: (ConsumerRecord -> Bool) -> RecordFilter
 byPredicate = RecordFilter

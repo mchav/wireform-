@@ -39,12 +39,12 @@ defaultProducerInterceptorIsIdentity :: IO ()
 defaultProducerInterceptorIsIdentity = do
   let cfg = Producer.defaultProducerConfig
       rec_ = Producer.ProducerRecord
-        { Producer.recordTopic     = "t"
-        , Producer.recordKey       = Just "k"
-        , Producer.recordValue     = "v"
-        , Producer.recordHeaders   = []
-        , Producer.recordPartition = Nothing
-        , Producer.recordTimestamp = Nothing
+        { topic     = "t"
+        , key       = Just "k"
+        , value     = "v"
+        , headers   = []
+        , partition = Nothing
+        , timestamp = Nothing
         }
   out <- Producer.producerInterceptor cfg rec_
   out @?= rec_
@@ -61,22 +61,21 @@ interceptorCanRewriteRecord = do
   let cfg = Producer.defaultProducerConfig
         { Producer.producerInterceptor = \r ->
             pure r
-              { Producer.recordTopic = Producer.recordTopic r <> "-suffix"
-              , Producer.recordHeaders =
-                  Producer.recordHeaders r ++ [("trace-id", "abc")]
+              { topic   = r.topic <> "-suffix"
+              , headers = r.headers ++ [("trace-id", "abc")]
               }
         }
       input = Producer.ProducerRecord
-        { Producer.recordTopic     = "events"
-        , Producer.recordKey       = Just "k"
-        , Producer.recordValue     = "v"
-        , Producer.recordHeaders   = []
-        , Producer.recordPartition = Nothing
-        , Producer.recordTimestamp = Nothing
+        { topic     = "events"
+        , key       = Just "k"
+        , value     = "v"
+        , headers   = []
+        , partition = Nothing
+        , timestamp = Nothing
         }
   out <- Producer.producerInterceptor cfg input
-  Producer.recordTopic out @?= "events-suffix"
-  Producer.recordHeaders out @?= [("trace-id", "abc")]
+  out.topic   @?= "events-suffix"
+  out.headers @?= [("trace-id", "abc")]
 
 defaultConsumerInterceptorIsIdentity :: IO ()
 defaultConsumerInterceptorIsIdentity = do
@@ -95,7 +94,7 @@ consumerInterceptorCanDropRecords :: IO ()
 consumerInterceptorCanDropRecords = do
   let cfg = Consumer.defaultConsumerConfig
         { Consumer.consumerInterceptor = \rs ->
-            pure (filter (\r -> Consumer.crKey r /= Just "drop") rs)
+            pure (filter (\r -> r.key /= Just "drop") rs)
         }
       input =
         [ sampleRec "k1" "v1"
@@ -103,7 +102,7 @@ consumerInterceptorCanDropRecords = do
         , sampleRec "k2" "v2"
         ]
   out <- Consumer.consumerInterceptor cfg input
-  map Consumer.crKey out @?= [Just "k1", Just "k2"]
+  map (.key) out @?= [Just "k1", Just "k2"]
 
 consumerOnCommitReceivesOffsets :: IO ()
 consumerOnCommitReceivesOffsets = do
@@ -124,13 +123,13 @@ sampleRecords = [sampleRec "k" "v"]
 
 sampleRec :: String -> String -> Consumer.ConsumerRecord
 sampleRec k v = Consumer.ConsumerRecord
-  { Consumer.crTopic     = "t"
-  , Consumer.crPartition = 0
-  , Consumer.crOffset    = 0
-  , Consumer.crTimestamp = 0
-  , Consumer.crKey       = Just (toBs k)
-  , Consumer.crValue     = toBs v
-  , Consumer.crHeaders   = []
+  { topic     = "t"
+  , partition = 0
+  , offset    = 0
+  , timestamp = 0
+  , key       = Just (toBs k)
+  , value     = toBs v
+  , headers   = []
   }
   where
     toBs = TE.encodeUtf8 . T.pack

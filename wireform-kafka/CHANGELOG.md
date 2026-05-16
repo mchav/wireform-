@@ -10,6 +10,279 @@ and this project adheres to the
 
 ### Added
 
+- **`Kafka.Errors`** — the exception hierarchy every public Kafka
+  operation throws on failure. `KafkaException` carries a
+  structured `KafkaErrorKind` (`ConnectError`,
+  `AuthenticationError`, `TimeoutError`, `RecordTooLargeError !Int
+  !Int`, `ProducerFencedError`, `ConfigurationError ![Text]`,
+  `OffsetOutOfRangeError !Text !Int32 !Int64`, …) plus an optional
+  underlying `SomeException` cause. Includes `isRetriable` /
+  `isFatal` classifiers (KIP-487 shape) and an `orThrow :: IO
+  (Either String a) -> IO a` bridge for migrating internal
+  helpers. Mirrors `org.apache.kafka.common.errors.*` on the JVM.
+- **`Kafka.Headers`** — typed wrapper around `Vector (Text,
+  ByteString)`. Headers are a list on the wire but at the
+  application level you almost always want random-access lookup
+  and structured construction. The new `Headers` newtype preserves
+  insertion order, supports O(n) lookup / O(1) append / O(n)
+  replace, and has a `Semigroup`/`Monoid` instance.
+- **`Kafka.Serde`** — `Serde a` plus the standard built-ins
+  (`textSerde`, `int16Serde`, `int32Serde`, `int64Serde`,
+  `word16Serde`, `word32Serde`, `word64Serde`, `doubleSerde`,
+  `floatSerde`, `voidSerde`, `uuidSerde`, `jsonSerde`, …). Moved
+  here from `Kafka.Streams.Serde`, which is now a thin re-export
+  so existing `import Kafka.Streams.Serde` call sites keep
+  working. Numeric serdes use the GHC `byteSwap16` /
+  `byteSwap32` / `byteSwap64` primops (one `MOV` + one `BSWAP`
+  on x86-64; one `STR` + one `REV` on ARM64) — the same pattern
+  `Kafka.Protocol.Wire` already uses for the protocol layer.
+  Replaces the hand-rolled four-shift-OR sequence the previous
+  encoder / decoder used.
+- **`Kafka.Serde.Proto`** — `protoSerde :: (MessageEncode a,
+  MessageDecode a) => Serde a` for any `wireform-proto`
+  message. Hard dependency on the `wireform-proto` package;
+  encodes via `Proto.Encode.encodeMessage`, decodes via
+  `Proto.Decode.decodeMessage`. Threads the structured
+  `Proto.Wire.Decode.DecodeError` through `show` to fit the
+  `Serde`'s `String` error channel.
+- **`Kafka.Serde.Avro`** — `avroSerde :: (ToAvro a, FromAvro a)
+  => AvroType -> Serde a` for any `wireform-avro`-typed
+  payload, plus an `avroValueSerde :: AvroType -> Serde
+  Avro.Value.Value` for callers that work in the dynamic
+  representation. Hard dependency on the `wireform-avro`
+  package. Schema is passed at call-site, so the same `Serde`
+  shape composes cleanly with the Confluent
+  `Kafka.Streams.Serde.SchemaRegistry` envelope wrapper.
+- **`Kafka.Topic`** — typed topic reference. `Topic k v` bundles
+  a name + key serde + value serde. Smart constructors `topic`,
+  `topicAny`, `bytesTopic`, `textTopic`.
+- **`Kafka.Client.Producer.publish` / `publish_`** — typed sends
+  that take a `Topic k v` and apply the topic's serdes
+  automatically. Saves the typical `encodeUtf8` boilerplate at
+  every send site.
+- **`Kafka.Client.Producer.producerHealthy`** and
+  **`Kafka.Client.Consumer.consumerHealthy`** — cheap in-process
+  health probes suitable for a Kubernetes `livenessProbe`.
+  `producerHealthy` returns `False` if the sender thread died;
+  `consumerHealthy` returns `False` if the group's heartbeat
+  thread died. Neither call contacts the broker.
+- **`Kafka.Client.AdminClient.ensureTopic`** — idempotent topic
+  creation. Calls `createTopics` for the supplied topic and
+  treats the broker-side `TOPIC_ALREADY_EXISTS` (error code 36)
+  as success.
+- Runnable client examples under **`examples/Kafka/Client/Examples/`**:
+  `Produce`, `ProduceTyped`, `Consume`, `Group`, `Transaction`.
+  All wired to a `wireform-kafka-client-examples` cabal
+  executable: `cabal run wireform-kafka-client-examples produce`.
+- **`ConsumerRecord`, `ProducerRecord`, `RecordMetadata`, and
+  `TopicPartition` fields are renamed to bare names**: `topic`,
+  `partition`, `offset`, `timestamp`, `key`, `value`, `headers`.
+  The previous Hungarian-prefixed selectors (`crKey`,
+  `recordValue`, `metadataTopic`, `tpTopic`, …) no longer exist;
+  callers read fields with `OverloadedRecordDot` syntax
+  (`rec.key`, `md.offset`, `tp.topic`, …). `DuplicateRecordFields`
+  is enabled in the cabal common defaults so the four records can
+  share field names without ambiguity.
+  
+  Migration: every `crKey rec` becomes `rec.key`, every
+  `Producer.recordTopic = "events"` in a record literal becomes
+  `topic = "events"`, etc. The dot syntax disambiguates the
+  record type at the use site, so no other annotations are
+  needed.
+
+### Changed
+
+- **Every public function in the client surface is now polymorphic
+  over `MonadIO m`** (or `MonadUnliftIO m` for the `with*` brackets
+  and the `runConsumer` family), with the body wrapped in `liftIO $`
+  so the implementation is unchanged. The IO call path is unaffected
+  thanks to `INLINABLE` + `SPECIALIZE` pragmas on every entry point;
+  application code that runs in a custom monad stack (ReaderT IO,
+  RIO, MonadAppM, …) can now call `Kafka.sendMessage`,
+  `Kafka.poll`, `Kafka.commitSync`, `Kafka.runConsumer`, … without
+  sprinkling `liftIO` at every call site. Adds `unliftio-core`
+  (>= 0.2 && < 0.3) — just the `MonadUnliftIO` typeclass, no
+  transitive dep churn.
+
+  Covers `Kafka.Client.Producer`, `Kafka.Client.Consumer`,
+  `Kafka.Client.AdminClient`, `Kafka.Client.Transaction`,
+  `Kafka.Client.Group`, `Kafka.Client.ShareConsumer`. The internal
+  helpers (`getNextCorrelationId`, `runHandler`, `decodeAllBatches`,
+  …) stay in `IO` because callers don't see them and the
+  dictionary-passing overhead would hurt the hot path.
+
+- **`defaultProducerConfig` now matches the Java 3.x producer
+  defaults out of the box: idempotent producer is **ON**, acks
+  are **all** (`producerDelivery = ExactlyOnce`), and
+  `max.in.flight.requests.per.connection` is 5. Strongest
+  single-producer delivery guarantees (no duplicates, no
+  reordering) are the default; callers who specifically need
+  lower latency can downgrade to `AtLeastOnce` / `AtMostOnce`
+  explicitly. **Behavioural caveat:** creating a producer now
+  triggers an additional `InitProducerId` round-trip with the
+  coordinator.
+- **`withProducer` / `withConsumer` / `withAdminClient` /
+  `withGroupConsumer`** throw `Kafka.Errors.KafkaException` on
+  setup failure instead of the previous generic `IOError`. The
+  structured error kind lets callers pattern-match on
+  `ConnectError` / `ConfigurationError` / etc. instead of
+  grepping error strings.
+- **`Kafka.Client.Producer.sendMessageAsync`** now returns `IO
+  (MVar (Either String RecordMetadata))` instead of `IO (Either
+  String ())`. Callers wait on the broker result by taking the
+  `MVar` whenever they're ready:
+
+  ```haskell
+  handle <- sendMessageAsync p "events" Nothing "hello"
+  ... do other work ...
+  md <- takeMVar handle
+  ```
+
+  The producer's interceptor + onAcknowledgement hooks still fire
+  on the sender thread.
+- **`Kafka.Client.Producer` fire-and-forget rename**: the `Drop`
+  family now uses the trailing-underscore convention idiomatic
+  with `Control.Monad.forM_`:
+  `sendMessageDrop` → `sendMessage_`,
+  `sendMessageDropUnsafe` → `sendMessageUnsafe_`,
+  `sendMessageDropFastest` → `sendMessageFastest_`,
+  `sendMessagesDrop` → `sendMessages_`.
+- **`Kafka.Client.Producer.withProducer`** and `withProducer'` —
+  `Control.Exception.bracket` wrappers that open a producer, run a
+  body, and flush + close on exit even when the body throws.
+  Setup failures surface as `KafkaException` so they participate
+  in the usual bracket / catch / restart idioms instead of being
+  a returned `Either`.
+- **`Kafka.Client.Consumer.withConsumer`** and `withConsumer'` — the
+  consumer analogue. Optionally subscribes to a topic list as part
+  of the bracket; on exit calls `closeConsumerWithTimeout` (or a
+  user-supplied shutdown). Setup failures surface as
+  `KafkaException`.
+- New **`CONCEPTS.md`** — a five-minute, plain-language Kafka
+  primer covering topics, partitions, brokers, producers,
+  consumers, consumer groups, offsets, transactions, and streams,
+  each mapped to the type / function in this library.
+- The `Kafka` umbrella module now re-exports `Kafka.Client.Group`
+  so `runConsumer` / `runBatchedConsumer` / `withGroupConsumer` /
+  `defaultGroupConfig` are reachable as `Kafka.*` without a
+  separate import.
+
+### Removed
+
+- The five `Kafka.Client.*Extras` modules are gone. Every utility
+  they exposed is consolidated into the module it naturally
+  belongs in. No functional change; just a cleaner module
+  structure.
+
+  | from | to |
+  |---|---|
+  | `Kafka.Client.AdminExtras.defaultAdminApiTimeoutMs` | `Kafka.Client.AdminClient` |
+  | `Kafka.Client.AdminExtras.TopicCreateDefaults` (+ `defaultTopicCreateDefaults`) | `Kafka.Client.AdminClient` |
+  | `Kafka.Client.AdminExtras.NullKeyCompactionPolicy` (+ `defaultNullKeyCompactionPolicy`) | `Kafka.Client.AdminClient` |
+  | `Kafka.Client.AdminExtras.admin*LatencyMs` constants | `Kafka.Client.AdminClient` |
+  | `Kafka.Client.AdminExtras.HostResolver` | `Kafka.Network.Connection` |
+  | `Kafka.Client.AdminExtras.PerPartitionFetchKnob` | `Kafka.Client.Consumer` |
+  | `Kafka.Client.AdminExtras.SslEngineFactory` | dropped (was a degenerate `newtype` wrapping `IO ()` with no callers) |
+  | `Kafka.Client.ConsumerExtras` (all of it) | `Kafka.Client.Consumer` |
+  | `Kafka.Client.ConnectionExtras` (all of it) | `Kafka.Network.Connection` |
+  | `Kafka.Client.ProducerExtras.EnhancedCallback` (+ `noopEnhancedCallback` / `dispatchEnhanced`) | `Kafka.Client.Producer` |
+  | `Kafka.Client.ProducerExtras.transactionalIdOptional` | `Kafka.Client.Transaction` |
+  | `Kafka.Client.ProducerExtras.TxnErrorRecovery` (+ `classifyTxnError`) | `Kafka.Client.Transaction` |
+  | `Kafka.Client.ProducerExtras.TxnDeadline` (+ `effectiveTxnDeadlineMs`) | `Kafka.Client.Transaction` |
+  | `Kafka.Client.ShareGroupExtras` (all of it) | `Kafka.Client.ShareConsumer` |
+
+  The five unit-test specs that exercised them are renamed to
+  reflect what they're actually testing:
+  `Client.AdminExtrasSpec` → `Client.AdminClientConfigSpec`,
+  `Client.ConsumerExtrasSpec` → `Client.ConsumerSnapshotsSpec`,
+  `Client.ConnectionExtrasSpec` → `Network.ConnectionHelpersSpec`,
+  `Client.ProducerExtrasSpec` → `Client.TransactionHelpersSpec`,
+  `Client.ShareGroupExtrasSpec` → `Client.ShareConsumerHelpersSpec`.
+
+- `Kafka.Client.Simple` is gone. It was a single-broker,
+  single-record helper used as a low-level reference for the
+  protocol; everything it did is already covered by the
+  higher-level modules:
+  - `Simple.createSimpleClient` / `closeSimpleClient` —
+    use `Kafka.Network.Connection.connect` /
+    `Kafka.Network.Connection.disconnect` (or
+    `Conn.withConnection`).
+  - `Simple.getMetadata` — use `Kafka.Client.AdminClient.listTopics`
+    or `Kafka.Client.AdminClient.describeTopics` (and the
+    `MetadataCache` is automatically populated by
+    `createProducer` / `createConsumer`).
+  - `Simple.produceSimple` — use `Kafka.Client.Producer.sendMessage`.
+  - `Simple.fetchSimple` — use `Kafka.Client.Consumer.assign` +
+    `Kafka.Client.Consumer.poll`.
+  The integration suite has been migrated; only one orphan unit
+  test in the old `test/Integration/BasicSpec.hs` referenced it,
+  and that file wasn't wired into any test target — it has been
+  removed too.
+- `Kafka.Telemetry.TraceContext` is gone. It was a hand-rolled
+  W3C Trace Context codec that existed because the previous
+  `Kafka.Telemetry.OpenTelemetry` module didn't actually use the
+  OpenTelemetry SDK; that's been replaced by real
+  `hs-opentelemetry-api` usage (see *Changed* below), so the
+  hand-rolled codec is now redundant.
+- The earlier seven dead span / metric stubs on
+  `Kafka.Telemetry.OpenTelemetry` (`createProducerSpan`,
+  `createConsumerSpan`, `createTransactionSpan`,
+  `recordMessageSent`, `recordMessageReceived`,
+  `recordRequestDuration`, `recordBatchSize`) are gone with this
+  rewrite.
+
+### Changed
+
+- `Kafka.Telemetry.OpenTelemetry` is rewritten on top of
+  [`hs-opentelemetry-api`](https://hackage.haskell.org/package/hs-opentelemetry-api).
+  `Tracer`s are real `OTel.Tracer`s, spans are real `OTel.Span`s,
+  and the propagator that ships with the configured
+  `TracerProvider` (W3C Trace Context by default in the SDK) is
+  the one we delegate to for header inject / extract. New
+  exports: `kafkaTracer`, `kafkaInstrumentationLibrary`,
+  `inProducerSpan`, `inConsumerSpan`, `inTransactionSpan`,
+  `producerSpanArguments`, `consumerSpanArguments`,
+  `transactionSpanArguments`, `injectIntoProducerHeaders`,
+  `extractFromConsumerHeaders`, `tracingProducerInterceptor`.
+
+### Changed
+
+- The 20 `Kafka.Streams.DSL.*` modules are renamed to
+  `Kafka.Streams.*` — `Kafka.Streams.DSL.KStream` →
+  `Kafka.Streams.KStream`, etc. The `DSL` segment was a
+  category, not a domain object, and sat between
+  `Kafka.Streams` and the actual user-facing types
+  (`KStream`, `KTable`, `StreamsBuilder`, `Consumed`,
+  `Produced`, …). Imports of the umbrella `Kafka.Streams`
+  module are unchanged; direct imports of
+  `Kafka.Streams.DSL.X` must be rewritten to
+  `Kafka.Streams.X`.
+- `Kafka.Client.Group.GroupConfig` and `GroupConsumer` field
+  selectors lose the `gc` prefix — `gcBootstrapBrokers` →
+  `bootstrapBrokers`, `gcGroupId` → `groupId`, `gcTopics` →
+  `topics`, and so on through every field. This is a breaking
+  change for code that constructs `GroupConfig` by record-update
+  syntax; the fix is a straight find-and-replace.
+- `Kafka.Client.Producer` and `Kafka.Client.Consumer` module
+  docstrings have been rewritten as a friendly orientation:
+  what's in the module, the recommended starting point, how to
+  pick between near-duplicate variants, where the config knobs
+  live. Their export lists are reorganised into labelled sections
+  so the everyday calls float above the more advanced surface.
+- `Kafka.Client.Simple`'s docstring now opens with an explicit
+  "this is not the module beginners should reach for, despite the
+  name" callout — that module is a single-broker single-record
+  reference for conformance / protocol tooling, not a
+  high-throughput client.
+- README is rewritten as a beginner-aimed on-ramp: what the package
+  does in two sentences, a "pick the layer you need" table, and
+  concrete recipes for produce / consume (high level) / consume
+  (custom poll loop) / streams.
+- TUTORIAL.md is re-ordered to start from `withProducer` +
+  `runConsumer` against a live broker and progressively reveal the
+  mock cluster, transactions, streams, state stores, multi-instance
+  routing, schema registry, and observability.
+
 - **TLS offload support** for the broker connection layer
   (`Kafka.Network.TlsOffload`, new field
   `Kafka.Network.Connection.connTlsOffload`). When set, the

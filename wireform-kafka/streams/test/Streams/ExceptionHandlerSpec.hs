@@ -34,13 +34,13 @@ bytes = BSC.pack . T.unpack
 
 mkRec :: Text -> Text -> Text -> KC.ConsumerRecord
 mkRec topic k v = KC.ConsumerRecord
-  { KC.crTopic     = topic
-  , KC.crPartition = 0
-  , KC.crOffset    = 0
-  , KC.crTimestamp = 100
-  , KC.crKey       = Just (bytes k)
-  , KC.crValue     = bytes v
-  , KC.crHeaders   = []
+  { topic     = topic
+  , partition = 0
+  , offset    = 0
+  , timestamp = 100
+  , key       = Just (bytes k)
+  , value     = bytes v
+  , headers   = []
   }
 
 ----------------------------------------------------------------------

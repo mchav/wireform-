@@ -32,7 +32,7 @@ import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 
 import Kafka.Streams
-import Kafka.Streams.DSL.Pipeline
+import Kafka.Streams.Pipeline
 
 -- | Strip whitespace + uppercase every value. A reusable
 -- fragment — could be defined in a shared module and used by

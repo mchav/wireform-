@@ -66,8 +66,8 @@ buildDeleteRecordsRequest =
          -> DeleteRecordsRequest
          -> HashMap String [(Int, Int64)]
     step !acc tp dr =
-      let !topic = T.unpack (KC.tpTopic tp)
-          !part  = fromIntegral (KC.tpPartition tp)
+      let !topic = T.unpack tp.topic
+          !part  = fromIntegral tp.partition
           !off   = drBeforeOffset dr
       in HashMap.insertWith (\_new old -> (part, off) : old)
                             topic

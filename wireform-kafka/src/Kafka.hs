@@ -1,87 +1,125 @@
 {-|
 Module      : Kafka
-Description : Pure-Haskell native Kafka client umbrella module
+Description : One-stop import for the wireform-kafka client.
 Copyright   : (c) 2025
 License     : BSD-3-Clause
 
-Convenience entry point for the @wireform-kafka@ package — a
-fully native, pure-Haskell client implementation of the Apache
-Kafka wire protocol.
+This umbrella module is the recommended starting point. It
+re-exports the high-level client surface — producers, consumers,
+consumer groups, and transactions — so that a typical application
+only needs
 
-The package is layered:
+@
+import qualified Kafka
+@
 
-* "Kafka.Protocol.Primitives" — wire primitives (varints,
-  compact strings, fixed-width integers, tagged fields).
-* "Kafka.Protocol.RecordBatch" — RecordBatch v2 framing (CRC,
-  header, key \/ value framing, transaction markers).
-* "Kafka.Protocol.CRC32C" — Castagnoli CRC32C with hardware
-  acceleration.
-* "Kafka.Protocol.Wire" \/ "Kafka.Protocol.Wire.Codec" —
-  direct-poke wire codec used by hand-written and
-  code-generated message modules.
-* "Kafka.Protocol.ApiVersions" — version negotiation against
-  the broker's @ApiVersionsResponse@.
-* @Kafka.Protocol.Generated.*@ — code-generated request \/
-  response modules, one per Kafka API key, emitted by
-  @kafka-codegen@ from the upstream JSON message definitions.
-* "Kafka.Network.Connection" — TCP \/ TLS \/ SASL connection
-  state.
-* @Kafka.Network.Auth.*@ — SASL mechanisms (PLAIN,
-  SCRAM-SHA-256\/512, OAUTHBEARER\/OIDC).
-* @Kafka.Compression.*@ — gzip \/ snappy \/ lz4 \/ zstd
-  record-batch codecs.
-* @Kafka.Client.*@ — high-level Producer \/ Consumer \/
-  AdminClient \/ Transaction surface; the most-used pieces are
-  re-exported below.
-* "Kafka.Telemetry.OpenTelemetry" — semantic-convention
-  instrumentation.
+= If you're new to Kafka
 
-= Quick start: producer
+Kafka is an append-only log service. You /produce/ records into
+named /topics/, and one or more independent /consumers/ /poll/ those
+records back out in order. There are two long-running roles you can
+play:
+
+  * __producer__ — opens a connection, holds onto it, and publishes
+    records (key, value, headers, optionally a partition) into one or
+    more topics. See "Kafka.Client.Producer".
+  * __consumer__ — opens a connection, joins a /consumer group/ that
+    shares the work across many processes, and reads records out one
+    at a time. See "Kafka.Client.Group" for the high-level
+    \"call this handler per record\" API, or "Kafka.Client.Consumer"
+    if you want to drive the poll loop yourself.
+
+If you need stateful stream processing on top — windowed
+aggregations, joins, exactly-once side effects — see the
+"Kafka.Streams" package.
+
+= Sending a record (producer)
 
 @
 import qualified Kafka
 
 main :: IO ()
-main = do
-  Right p <- Kafka.createProducer [\"localhost:9092\"] Kafka.defaultProducerConfig
-  _ <- Kafka.sendMessage p \"my-topic\" Nothing \"hello\"
-  Kafka.closeProducer p
+main =
+  Kafka.'withProducer' [\"localhost:9092\"] Kafka.'defaultProducerConfig' $ \\p -> do
+    _ \<- Kafka.'sendMessage' p \"my-topic\" Nothing \"hello\"
+    pure ()
 @
 
-= Quick start: consumer (high-level group API)
+'withProducer' is a 'Control.Exception.bracket': it builds the
+producer, runs your body, and flushes + closes on the way out even
+if you throw.
 
-For just-give-me-records consumption, use "Kafka.Client.Group".
-It hides FindCoordinator \/ JoinGroup \/ SyncGroup \/
-OffsetFetch \/ heartbeat \/ commit behind a single bracket:
+= Receiving records (high-level consumer)
 
 @
-import qualified Kafka.Client.Group as Group
+import qualified Kafka
 
 main :: IO ()
 main =
-  Group.runConsumer
-    Group.defaultGroupConfig
-      { Group.gcBootstrapBrokers = [\"localhost:9092\"]
-      , Group.gcGroupId          = \"my-service\"
-      , Group.gcTopics           = [\"events\"]
+  Kafka.'runConsumer'
+    Kafka.'defaultGroupConfig'
+      { Kafka.'bootstrapBrokers' = [\"localhost:9092\"]
+      , Kafka.'groupId'          = \"my-service\"
+      , Kafka.'topics'           = [\"events\"]
       }
-    $ \\rec -> putStrLn (show (Kafka.crKey rec, Kafka.crValue rec))
+    $ \\rec ->
+        putStrLn (show (rec.key, rec.value))
 @
 
-The lower-level "Kafka.Client.Consumer" (re-exported below) is
-still available for cases where you want to drive the poll loop
-or own offset management yourself. "Kafka.Client.AdminClient"
-exposes the topic \/ group \/ config admin operations.
+'runConsumer' joins the group, runs your handler once per record,
+commits offsets when you return successfully, and leaves the group
+on the way out. For higher throughput where per-record overhead
+matters, use 'runBatchedConsumer'; for full control of the poll
+loop, drop down to 'withConsumer' from "Kafka.Client.Consumer".
+
+= Transactions
+
+To make 'sendMessage' calls part of an atomic group with consumer
+offsets, see "Kafka.Client.Transaction".
+
+= Where the rest of the package lives
+
+  * "Kafka.Client.AdminClient" — create / delete / describe topics,
+    groups, ACLs, configs.
+  * "Kafka.Streams" — Streams DSL (KStream, KTable, joins, windows,
+    transactional state).
+  * "Kafka.Compression.*" — gzip / snappy / lz4 / zstd codecs.
+  * "Kafka.Network.Connection" / "Kafka.Network.Auth.*" — TLS,
+    SASL\/PLAIN\/SCRAM\/OAUTHBEARER\/AWS-MSK-IAM, low-level
+    connection control.
+  * "Kafka.Telemetry.OpenTelemetry" — OpenTelemetry
+    instrumentation (producer \/ consumer \/ transaction spans +
+    header trace-context propagation), built directly on
+    @hs-opentelemetry-api@.
+  * "Kafka.Protocol.*" / @Kafka.Protocol.Generated.*@ — raw wire
+    primitives and one module per Kafka request \/ response (for
+    custom tooling). Pair these with
+    "Kafka.Network.Connection" if you need to send a one-shot
+    request without the producer \/ consumer infrastructure.
+
+The full guided tour lives in @TUTORIAL.md@; a plain-language Kafka
+primer is in @CONCEPTS.md@.
 -}
 module Kafka
   ( -- * High-level producer
     module Kafka.Client.Producer
     -- * High-level consumer
   , module Kafka.Client.Consumer
+    -- * \"Call this handler per record\" consumer group runner
+  , module Kafka.Client.Group
     -- * Transactional producer
   , module Kafka.Client.Transaction
   ) where
 
-import Kafka.Client.Producer
 import Kafka.Client.Consumer
+import Kafka.Client.Group hiding
+  -- 'Kafka.Client.Group.currentAssignment' takes a 'GroupConsumer';
+  -- the 'Kafka.Client.Consumer.currentAssignment' (re-exported above)
+  -- takes the lower-level 'Consumer'. Both are useful, but two
+  -- different functions can't share an unqualified name in the
+  -- umbrella; users who want the high-level one should import
+  -- "Kafka.Client.Group" qualified.
+  ( currentAssignment
+  )
+import Kafka.Client.Producer
 import Kafka.Client.Transaction

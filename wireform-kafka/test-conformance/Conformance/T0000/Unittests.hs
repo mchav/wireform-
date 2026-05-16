@@ -43,7 +43,7 @@ tests = testGroup "0000-unittests"
 
   , testCase "high-level group umbrella exports a default" $ do
       let cfg = G.defaultGroupConfig
-      assertBool "default broker list non-empty" (not (null (G.gcBootstrapBrokers cfg)))
-      G.gcSessionTimeoutMs   cfg @?= 10000
-      G.gcMaxPollIntervalMs  cfg @?= 300000
+      assertBool "default broker list non-empty" (not (null (G.bootstrapBrokers cfg)))
+      G.sessionTimeoutMs   cfg @?= 10000
+      G.maxPollIntervalMs  cfg @?= 300000
   ]

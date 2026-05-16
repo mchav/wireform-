@@ -4,49 +4,114 @@
 
 {-|
 Module: Kafka.Client.Transaction
-Description: Transaction support for Kafka producer (KIP-98)
+Description: Group multiple producer sends + consumer offset commits into one atomic write.
 
-Provides exactly-once semantics (EOS) for Kafka producers through:
-- Idempotent producer with producer ID and epoch
-- Atomic writes across multiple partitions
-- Atomic offset commits within transactions
-- Producer fencing to prevent zombie writers
+A Kafka /transaction/ lets a producer publish to several partitions
+and update one or more consumer offsets, then commit the lot
+atomically — either every write lands, or none of them do. That is
+what \"exactly once\" actually means in Kafka: a stream-processing
+pipeline that reads from one topic and writes to another can
+guarantee its outputs and its consumer offsets advance together.
+
+= The five-step recipe
+
+@
+'withProducer' brokers
+  'defaultProducerConfig'
+    { 'producerTransactional' = Just \"my-app-1\"
+    , 'producerIdempotent'    = True
+    } $ \\p -> do
+      txn <- 'createTransaction' (TransactionalId \"my-app-1\") connMgr vCache
+               \"my-app-client\" bootstrap 60_000
+      Right () <- 'initTransactions' txn           -- once per producer
+      'bindTransaction' p txn
+
+      Right () <- 'beginTransaction' txn
+      _        <- 'sendMessage' p \"out\" Nothing payload
+      Right () <- 'commitTransaction' txn
+@
+
+Five steps in order:
+
+  1. Configure the producer with a 'producerTransactional' id and
+     'producerIdempotent' on (these are required by the broker).
+  2. 'createTransaction' for the coordinator handle, then
+     'initTransactions' once — this fences any zombie producer
+     using the same id from a previous run.
+  3. 'bindTransaction' the producer to the transaction so subsequent
+     sends participate in it.
+  4. 'beginTransaction', send records via 'sendMessage' (and / or
+     stage consumer offsets via 'commitOffsetsInTransaction'),
+     then 'commitTransaction' or 'abortTransaction'.
+  5. Repeat 4 as many times as you like — one initialised
+     'Transaction' handle supports many begin/commit cycles.
+
+The wire-level guarantees the broker provides:
+
+  * /Atomicity/ — every record in the transaction either becomes
+    visible or none of them do.
+  * /Fencing/ — only one producer instance can hold a given
+    transactional id at a time; an older instance is reliably
+    locked out as soon as a newer one calls 'initTransactions'.
+  * /Read isolation/ — a consumer configured with
+    'consumerIsolationLevel = ReadCommitted' will only return
+    records from committed transactions.
+
+= Where the lower-level primitives live
+
+Most user code only ever needs the five-step recipe above. The
+'createTransaction' \/ 'getTransactionState' \/ 'transitionState'
+exports are for the integration tests and the OpenTelemetry
+instrumentation.
 -}
 module Kafka.Client.Transaction
-  ( -- * Transaction Types
-    Transaction(..)
+  ( -- * The transaction lifecycle
+    --
+    -- | Initialise once per producer process; then begin / commit /
+    -- abort as many times as you like.
+    initTransactions
+  , beginTransaction
+  , commitTransaction
+  , abortTransaction
+  , withTransaction
+
+    -- * Transactional sends
+  , sendInTransaction
+  , commitOffsetsInTransaction
+
+    -- * Types
+  , Transaction(..)
   , TransactionState(..)
   , ProducerId(..)
   , ProducerEpoch(..)
   , TransactionalId(..)
   , TransactionError(..)
-    
-    -- * Transaction Operations
-  , initTransactions
-  , beginTransaction
-  , commitTransaction
-  , abortTransaction
-  , withTransaction
-    
-    -- * Transactional Send
-  , sendInTransaction
-  , commitOffsetsInTransaction
-    
-    -- * State management
+
+    -- * Low-level state management
     --
-    -- | These low-level state-management primitives are used by
-    -- the integration tests and the OpenTelemetry instrumentation.
-    -- Most user code only needs 'initTransactions' /
-    -- 'beginTransaction' / 'commitTransaction' /
-    -- 'abortTransaction' / 'withTransaction'.
+    -- | Used by integration tests and the OpenTelemetry
+    -- instrumentation. Most user code does not need to touch these.
   , createTransaction
   , getTransactionState
   , transitionState
+
+    -- * Transactional-id helpers
+  , transactionalIdOptional
+
+    -- * Transactional-error classification
+  , TxnErrorRecovery (..)
+  , classifyTxnError
+
+    -- * Bounded txn-op deadlines
+  , TxnDeadline (..)
+  , effectiveTxnDeadlineMs
   ) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import Control.Exception (Exception, try, SomeException)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Control.Monad (unless)
 import Data.IORef
   ( IORef
@@ -66,6 +131,7 @@ import qualified Data.Text as T
 import Kafka.Client.Consumer (TopicPartition(..))
 import Kafka.Client.Internal.TransactionCoordinator (TransactionCoordinator)
 import qualified Kafka.Client.Internal.TransactionCoordinator as TC
+import qualified Kafka.Client.RetryClassifier as RC
 import Kafka.Network.Connection (BrokerAddress, ConnectionManager)
 import qualified Kafka.Network.Connection as Conn
 import Kafka.Protocol.ApiVersions (ApiVersionCache)
@@ -158,14 +224,15 @@ data TransactionError
 instance Exception TransactionError
 
 -- | Create a new transaction handle with all required infrastructure
-createTransaction :: TransactionalId
+createTransaction :: MonadIO m
+                  => TransactionalId
                   -> ConnectionManager
                   -> ApiVersionCache
                   -> Text  -- ^ Client ID
                   -> BrokerAddress  -- ^ Bootstrap broker
                   -> Int32  -- ^ Transaction timeout (ms)
-                  -> IO Transaction
-createTransaction transactionalId connMgr versionCache clientId bootstrapBroker timeoutMs = do
+                  -> m Transaction
+createTransaction transactionalId connMgr versionCache clientId bootstrapBroker timeoutMs = liftIO $ do
   producerId <- newIORef Nothing
   producerEpoch <- newIORef Nothing
   state <- newIORef Uninitialized
@@ -230,8 +297,8 @@ isValidTransition from to = case (from, to) of
 -- | Initialize transactions (KIP-98)
 -- This must be called before any transactional operations.
 -- It discovers the transaction coordinator and obtains a producer ID.
-initTransactions :: Transaction -> IO (Either TransactionError ())
-initTransactions txn = do
+initTransactions :: MonadIO m => Transaction -> m (Either TransactionError ())
+initTransactions txn = liftIO $ do
   state <- getTransactionState txn
   case state of
     Uninitialized -> do
@@ -351,8 +418,8 @@ initProducerIdWithRetry txn coordinator transactionalId attemptsLeft = do
       _                                -> False
 
 -- | Begin a new transaction (KIP-98)
-beginTransaction :: Transaction -> IO (Either TransactionError ())
-beginTransaction txn = do
+beginTransaction :: MonadIO m => Transaction -> m (Either TransactionError ())
+beginTransaction txn = liftIO $ do
   state <- getTransactionState txn
   case state of
     Ready -> do
@@ -375,8 +442,8 @@ beginTransaction txn = do
     _ -> return $ Left $ InvalidStateTransition state InTransaction
 
 -- | Commit the current transaction (KIP-98)
-commitTransaction :: Transaction -> IO (Either TransactionError ())
-commitTransaction txn = do
+commitTransaction :: MonadIO m => Transaction -> m (Either TransactionError ())
+commitTransaction txn = liftIO $ do
   state <- getTransactionState txn
   case state of
     InTransaction -> do
@@ -445,8 +512,8 @@ commitTransaction txn = do
     _ -> return $ Left $ InvalidStateTransition state Committing
 
 -- | Abort the current transaction (KIP-98)
-abortTransaction :: Transaction -> IO (Either TransactionError ())
-abortTransaction txn = do
+abortTransaction :: MonadIO m => Transaction -> m (Either TransactionError ())
+abortTransaction txn = liftIO $ do
   state <- getTransactionState txn
   case state of
     InTransaction -> do
@@ -515,31 +582,39 @@ abortTransaction txn = do
     
     _ -> return $ Left $ InvalidStateTransition state Aborting
 
--- | Execute an action within a transaction, automatically committing on success and aborting on exception
-withTransaction :: Transaction -> IO a -> IO (Either TransactionError a)
-withTransaction txn action = do
-  -- Begin transaction
-  beginResult <- beginTransaction txn
-  case beginResult of
-    Left err -> return $ Left err
-    Right () -> do
-      -- Execute action with automatic commit/abort
-      result <- try action
-      case result of
-        Right value -> do
-          commitResult <- commitTransaction txn
-          case commitResult of
-            Left err -> return $ Left err
-            Right () -> return $ Right value
-        Left (ex :: SomeException) -> do
-          -- Abort on any exception
-          _ <- abortTransaction txn
-          return $ Left $ TransactionAborted $ T.pack $ show ex
+-- | Execute an action within a transaction, automatically
+-- committing on success and aborting on exception. The action
+-- runs in the caller's monad; commit / abort always run in IO
+-- (the broker calls don't need 'MonadIO' polymorphism inside
+-- the bracket since they're internal to the lifecycle).
+withTransaction
+  :: MonadUnliftIO m
+  => Transaction
+  -> m a
+  -> m (Either TransactionError a)
+withTransaction txn action =
+  withRunInIO $ \run -> do
+    beginResult <- beginTransaction txn
+    case beginResult of
+      Left err -> pure (Left err)
+      Right () -> do
+        result <- try (run action)
+        case result of
+          Right value -> do
+            commitResult <- commitTransaction txn
+            case commitResult of
+              Left err -> pure (Left err)
+              Right () -> pure (Right value)
+          Left (ex :: SomeException) -> do
+            _ <- abortTransaction txn
+            pure (Left (TransactionAborted (T.pack (show ex))))
+{-# INLINABLE withTransaction #-}
+{-# SPECIALIZE withTransaction :: Transaction -> IO a -> IO (Either TransactionError a) #-}
 
 -- | Send a record within a transaction
 -- This tracks which partitions are involved in the transaction
-sendInTransaction :: Transaction -> TopicPartition -> IO (Either TransactionError ())
-sendInTransaction txn tp = do
+sendInTransaction :: MonadIO m => Transaction -> TopicPartition -> m (Either TransactionError ())
+sendInTransaction txn tp = liftIO $ do
   state <- getTransactionState txn
   case state of
     InTransaction -> do
@@ -591,3 +666,81 @@ commitOffsetsInTransaction txn groupId offsets = do
       pure (Right ())
 
     _ -> return $ Left $ TransactionNotInProgress "Must be in a transaction to commit offsets"
+
+----------------------------------------------------------------------
+-- Additional transactional ergonomics
+--
+-- Previously lived in @Kafka.Client.ProducerExtras@.
+----------------------------------------------------------------------
+
+-- | Optionally derive a @transactional.id@ from a base prefix +
+-- a per-process suffix. Keeps the user-facing API symmetric with
+-- the JVM client, where @transactional.id@ may be left blank and
+-- the client picks one based on host/process ids.
+transactionalIdOptional
+  :: Maybe Text         -- ^ explicit override (matches the JVM client's @transactional.id@ property)
+  -> Text               -- ^ application prefix
+  -> Text               -- ^ per-process suffix (e.g. host\@pid)
+  -> Text
+transactionalIdOptional (Just t) _ _      = t
+transactionalIdOptional Nothing prefix sf = prefix <> "-" <> sf
+
+-- | Recovery action for a non-zero error code returned by the
+-- transaction coordinator. Mirrors the abort / retry / fatal
+-- partitioning the JVM client uses.
+data TxnErrorRecovery
+  = TxnRecoverByAbort
+    -- ^ Abort the current transaction and let the producer continue.
+  | TxnRecoverByRetry
+    -- ^ Re-issue the same operation after a short backoff.
+  | TxnRecoverFatal
+    -- ^ The producer must close.
+  deriving stock (Eq, Show)
+
+-- | Classify a Kafka error code into a 'TxnErrorRecovery' bucket.
+-- Backed by 'Kafka.Client.RetryClassifier.classify' so the
+-- mapping stays in sync with the producer's retry logic.
+classifyTxnError :: Int16 -> TxnErrorRecovery
+classifyTxnError code = case RC.classify code of
+  RC.ECNoError   -> TxnRecoverByRetry
+  RC.ECRetriable -> TxnRecoverByRetry
+  RC.ECAbortable -> TxnRecoverByAbort
+  RC.ECFatal     -> TxnRecoverFatal
+
+-- | Deadline supplied to @commitTransaction@ / @abortTransaction@.
+-- Callers can bound the wait so a misbehaving coordinator can't
+-- pin the producer open during shutdown.
+data TxnDeadline
+  = TxnUseProducerDefault
+    -- ^ Fall back to the producer's @transaction.timeout.ms@.
+  | TxnDeadlineMs !Int
+    -- ^ Hard upper bound in ms.
+  deriving stock (Eq, Show)
+
+effectiveTxnDeadlineMs
+  :: Int64        -- ^ now (ms)
+  -> Int          -- ^ producer's @transaction.timeout.ms@
+  -> TxnDeadline
+  -> Int64
+effectiveTxnDeadlineMs now defaultMs = \case
+  TxnUseProducerDefault -> now + fromIntegral defaultMs
+  TxnDeadlineMs ms      -> now + fromIntegral ms
+
+----------------------------------------------------------------------
+-- SPECIALIZE pragmas for the IO hot path
+--
+-- See "Kafka.Client.Producer" for the rationale.
+----------------------------------------------------------------------
+
+{-# INLINABLE createTransaction #-}
+{-# SPECIALIZE createTransaction :: TransactionalId -> ConnectionManager -> ApiVersionCache -> Text -> BrokerAddress -> Int32 -> IO Transaction #-}
+{-# INLINABLE initTransactions #-}
+{-# SPECIALIZE initTransactions :: Transaction -> IO (Either TransactionError ()) #-}
+{-# INLINABLE beginTransaction #-}
+{-# SPECIALIZE beginTransaction :: Transaction -> IO (Either TransactionError ()) #-}
+{-# INLINABLE commitTransaction #-}
+{-# SPECIALIZE commitTransaction :: Transaction -> IO (Either TransactionError ()) #-}
+{-# INLINABLE abortTransaction #-}
+{-# SPECIALIZE abortTransaction :: Transaction -> IO (Either TransactionError ()) #-}
+{-# INLINABLE sendInTransaction #-}
+{-# SPECIALIZE sendInTransaction :: Transaction -> TopicPartition -> IO (Either TransactionError ()) #-}

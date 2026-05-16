@@ -18,7 +18,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
 import Kafka.Streams
-import Kafka.Streams.DSL.KGroupedTable
+import Kafka.Streams.KGroupedTable
 
 tests :: TestTree
 tests = testGroup "KGroupedTable (KIP-150)"

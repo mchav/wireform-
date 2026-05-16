@@ -496,16 +496,16 @@ feedWithHandler ks node rec body = do
     Left  e  -> do
       h <- readIORef (ksProcHand ks)
       resp <- runProcessingExceptionHandler h ProcessingException
-                { topic     = KC.crTopic rec
-                , partition = KC.crPartition rec
-                , offset    = fromIntegral (KC.crOffset rec)
+                { topic     = rec.topic
+                , partition = rec.partition
+                , offset    = fromIntegral rec.offset
                 , node      = node
                 , reason    = Text.pack (show e)
                 }
       case resp of
         ProcessingContinue -> pure ()
         ProcessingFail     -> throwIO
-          (ProcessingFailFast (KC.crTopic rec) (Text.pack (show e)))
+          (ProcessingFailFast rec.topic (Text.pack (show e)))
 
 ----------------------------------------------------------------------
 -- Event loop
@@ -534,12 +534,12 @@ eventLoop ks driver engine = go
               forM_ recs $ \rec ->
                 feedWithHandler ks "<source>" rec $
                   feedSource engine
-                    (topicName (KC.crTopic rec))
-                    (KC.crKey rec)
-                    (KC.crValue rec)
-                    (Timestamp (KC.crTimestamp rec))
-                    (fromIntegral (KC.crPartition rec))
-                    (KC.crOffset rec)
+                    (topicName rec.topic)
+                    rec.key
+                    rec.value
+                    (Timestamp rec.timestamp)
+                    (fromIntegral rec.partition)
+                    rec.offset
 
             -- Collect the highest (offset + 1) per (topic, partition)
             -- across the records we just fed; that's what the EOS
@@ -551,9 +551,9 @@ eventLoop ks driver engine = go
                     then HashMap.empty
                     else HashMap.fromListWith max
                            [ ( KC.TopicPartition
-                                 (KC.crTopic rec)
-                                 (KC.crPartition rec)
-                             , KC.crOffset rec + 1
+                                 rec.topic
+                                 rec.partition
+                             , rec.offset + 1
                              )
                            | rec <- recs
                            ]
@@ -625,11 +625,11 @@ multiEventLoop ks driver pool = go
               forM_ recs $ \rec ->
                 feedWithHandler ks "<source>" rec $
                   submitRecordHashed pool
-                    (topicName (KC.crTopic rec))
-                    (KC.crKey rec)
-                    (KC.crValue rec)
-                    (Timestamp (KC.crTimestamp rec))
-                    (fromIntegral (KC.crPartition rec))
+                    (topicName rec.topic)
+                    rec.key
+                    rec.value
+                    (Timestamp rec.timestamp)
+                    (fromIntegral rec.partition)
             -- Wait until every just-submitted record is processed.
             waitForQuiescence pool
 
@@ -638,9 +638,9 @@ multiEventLoop ks driver pool = go
                     then HashMap.empty
                     else HashMap.fromListWith max
                            [ ( KC.TopicPartition
-                                 (KC.crTopic rec)
-                                 (KC.crPartition rec)
-                             , KC.crOffset rec + 1
+                                 rec.topic
+                                 rec.partition
+                             , rec.offset + 1
                              )
                            | rec <- recs
                            ]
