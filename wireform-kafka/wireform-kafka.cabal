@@ -441,6 +441,7 @@ library wireform-kafka-streams
         Kafka.Streams.Serde.Windowed
         Kafka.Streams.Window
         Kafka.Streams.Processor
+        Kafka.Streams.Processor.Assignment
         Kafka.Streams.Processor.Mock
         Kafka.Streams.Topology
         Kafka.Streams.TopologyDescription

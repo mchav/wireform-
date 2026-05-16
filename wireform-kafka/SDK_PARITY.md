@@ -798,6 +798,31 @@ users:
 | `InvalidPartitionsException` (admin)            | ✅ | `Kafka.Streams.Errors.InvalidPartitionsException` |
 | `LogCaptureAppender` (test util)                | ✅ | `Kafka.Streams.Errors.LogCaptureAppender` |
 
+### Closures of the remaining "small" gaps
+
+| Java                                                                  | Status | Haskell |
+| --------------------------------------------------------------------- | ------ | ------- |
+| `UnlimitedWindows.of()`                                               | ✅ | `Kafka.Streams.Window.unlimitedWindows` |
+| `ByteBufferSerializer` / `ByteBufferDeserializer`                     | ✅ | `Kafka.Serde.byteBufferSerde` |
+| `BytesSerializer` / `BytesDeserializer`                               | ✅ | `Kafka.Serde.bytesSerde` |
+| `ListSerializer` / `ListDeserializer`                                 | ✅ | `Kafka.Serde.listSerde` |
+
+### KIP-924 user-pluggable TaskAssignor
+
+`Kafka.Streams.Processor.Assignment` is the public mirror of
+`org.apache.kafka.streams.processor.assignment`:
+
+| Java                                                              | Status | Haskell |
+| ----------------------------------------------------------------- | ------ | ------- |
+| `TaskAssignor` (interface)                                        | ✅ | `Kafka.Streams.Processor.Assignment.TaskAssignor` (record-of-functions: `taAssign` / `taOnAssignmentComputed` / `taConfigure`) |
+| `TaskAssignor.AssignmentError`                                    | ✅ | `Kafka.Streams.Processor.Assignment.AssignmentError` |
+| `TaskAssignor.TaskAssignment` / `KafkaStreamsAssignment`          | ✅ | `Kafka.Streams.Processor.Assignment.TaskAssignment` / `KafkaStreamsAssignment` |
+| `ApplicationState` / `KafkaStreamsState`                          | ✅ | `Kafka.Streams.Processor.Assignment.ApplicationState` / `KafkaStreamsState` |
+| `ProcessId`                                                       | ✅ | `Kafka.Streams.Processor.Assignment.ProcessId` |
+| `TaskInfo` / `TaskTopicPartition`                                 | ✅ | `Kafka.Streams.Processor.Assignment.TaskInfo` / `TaskTopicPartition` |
+| `AssignmentConfigs` / `RackAwareAssignmentConfigs`                | ✅ | `Kafka.Streams.Processor.Assignment.AssignmentConfigs` / `RackAwareAssignmentConfigs` (+ defaults) |
+| `StickyTaskAssignor` (built-in)                                   | ⚠️ | `Kafka.Streams.Processor.Assignment.defaultTaskAssignor` is the baseline "first-client-takes-all" assignor; the streams runtime's internal sticky logic in `Kafka.Streams.Runtime.Assignor` is the closed sticky variant. Wiring the public `TaskAssignor` record into `StreamsConfig` so user-supplied assignors take effect is the follow-up that flips this row to ✅.
+
 These are mechanical follow-ups in the same shape as the v3
 additions: import the corresponding `Kafka.Protocol.Generated.*`
 pair, wire the value-type adapters, and slot the operation into

@@ -16,11 +16,16 @@ import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
 import qualified Kafka.Client.Consumer as C
 import qualified Kafka.Client.ConsumerSdk as SDK
+import qualified Data.UUID as UUID
 import qualified Kafka.Client.AdminClient.Extras as Adm
 import qualified Kafka.Common as Common
 import qualified Kafka.Common.Acl as Acl
 import qualified Kafka.Common.Quota as Quota
 import qualified Kafka.Common.Resource as Resource
+import qualified Kafka.Serde as Serde
+import qualified Kafka.Streams.Errors as Errors
+import qualified Kafka.Streams.Processor.Assignment as TA
+import qualified Kafka.Streams.Window as W
 import qualified Kafka.Streams.Processor as P
 import qualified Kafka.Streams.Processor.Mock as M
 import Kafka.Streams.Types (Record (..), mkRecord)
@@ -54,6 +59,12 @@ tests = testGroup "SDK parity shims (audit pass)"
       ]
   , testGroup "Kafka.Client.AdminClient.Extras (v3 audit additions)"
       [ admin_extras_value_smoke
+      ]
+  , testGroup "v3+: leftover gaps from v2 honest-list"
+      [ unlimited_windows_smoke
+      , list_serde_roundtrip
+      , task_assignor_default
+      , per_error_streams_exceptions
       ]
   ]
 
@@ -310,3 +321,61 @@ admin_extras_value_smoke =
           , Adm.dtMaxTimestamp    = 86400000
           }
     Adm.dtTokenId dt @?= "tid"
+
+----------------------------------------------------------------------
+-- v3+: leftover gaps from v2 honest-list
+----------------------------------------------------------------------
+
+unlimited_windows_smoke :: TestTree
+unlimited_windows_smoke =
+  testCase "unlimitedWindows assigns a single never-ending window per record" $ do
+    let ws = W.unlimitedWindows
+        ws_assigned = W.windowsAssign ws (Timestamp 1_000_000_000)
+    length ws_assigned @?= 1
+
+list_serde_roundtrip :: TestTree
+list_serde_roundtrip =
+  testCase "listSerde encodes + decodes a [Text]" $ do
+    let s   = Serde.listSerde Serde.textSerde
+        xs  = ["alpha", "bravo", "charlie"] :: [T.Text]
+        bs  = Serde.serialize s xs
+    Serde.deserialize s bs @?= Right xs
+    -- empty list edge case
+    Serde.deserialize s (Serde.serialize s ([] :: [T.Text])) @?= Right []
+
+task_assignor_default :: TestTree
+task_assignor_default =
+  testCase "defaultTaskAssignor hands every task to the first client" $ do
+    let pidA = TA.ProcessId (UUID.fromWords 0 0 0 1)
+        pidB = TA.ProcessId (UUID.fromWords 0 0 0 2)
+        states = Map.fromList
+          [ ( pidA
+            , TA.KafkaStreamsState pidA 1 Map.empty Set.empty Set.empty Nothing
+            )
+          , ( pidB
+            , TA.KafkaStreamsState pidB 1 Map.empty Set.empty Set.empty Nothing
+            )
+          ]
+        tasks = Map.empty
+        app = TA.ApplicationState tasks states TA.defaultAssignmentConfigs
+    out <- TA.taAssign TA.defaultTaskAssignor app
+    Map.keys (TA.taAssignments out) @?= [pidA]
+
+per_error_streams_exceptions :: TestTree
+per_error_streams_exceptions =
+  testCase "streams errors: per-Java-class discriminated constructors" $ do
+    -- Catchable by their specific type now; smoke test the
+    -- record / newtype shape.
+    let _ = Errors.BrokerNotFoundException "no broker"
+        _ = Errors.MissingSourceTopicException "events" "deleted"
+        _ = Errors.TaskAssignmentException "boom"
+        _ = Errors.TaskCorruptedException "0_0" "wal corrupt"
+        _ = Errors.UnknownStateStoreException "counts"
+        _ = Errors.LockException "/tmp/state" "held by other"
+        _ = Errors.InvalidConfigurationException "bad knob"
+        _ = Errors.InvalidPartitionsException "negative count"
+    pure ()
+
+-- Set is imported via the imports already, make sure to use it.
+_useSet :: Set.Set ()
+_useSet = Set.empty

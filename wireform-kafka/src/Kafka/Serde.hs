@@ -73,6 +73,9 @@ module Kafka.Serde
   , voidSerde
   , uuidSerde
   , byteArraySerde
+  , byteBufferSerde
+  , bytesSerde
+  , listSerde
   , jsonSerde
     -- * Combinators
   , prefixedSerde
@@ -308,6 +311,62 @@ uuidSerde = Serde
 -- @ByteArraySerializer@/@ByteArrayDeserializer@).
 byteArraySerde :: Serde ByteString
 byteArraySerde = byteStringSerde
+
+-- | Alias for 'byteStringSerde'. Mirrors Java's
+-- @ByteBufferSerializer@/@ByteBufferDeserializer@ — the Java
+-- variant lets callers re-use a pre-allocated NIO @ByteBuffer@;
+-- the Haskell side already owns immutable 'ByteString's, so the
+-- shape collapses to the same codec.
+byteBufferSerde :: Serde ByteString
+byteBufferSerde = byteStringSerde
+
+-- | Alias for 'byteStringSerde'. Mirrors Java's
+-- @BytesSerializer@/@BytesDeserializer@ (Kafka's own opaque
+-- byte-array wrapper).
+bytesSerde :: Serde ByteString
+bytesSerde = byteStringSerde
+
+-- | Length-prefixed list serde. Each element is encoded by the
+-- supplied @inner@ serde with a 4-byte big-endian length
+-- prefix. Mirrors Java's @ListSerializer@/@ListDeserializer@.
+--
+-- The wire shape is: @count :: Int32 BE@ followed by @count@
+-- elements, each prefixed by its own @len :: Int32 BE@.
+listSerde :: Serde a -> Serde [a]
+listSerde inner = Serde
+  { serialize = \xs ->
+      let !cnt = serialize int32Serde (fromIntegral (length xs))
+          !els = BS.concat (map (lengthPrefixSerialize inner) xs)
+       in BS.append cnt els
+  , deserialize = \bs0 -> do
+      (n, rest0) <- splitInt32 bs0
+      goN (fromIntegral n) rest0 []
+  }
+  where
+    lengthPrefixSerialize :: Serde a -> a -> ByteString
+    lengthPrefixSerialize s a =
+      let !bs = serialize s a
+          !len = fromIntegral (BS.length bs) :: Int32
+       in BS.append (serialize int32Serde len) bs
+
+    splitInt32 bs
+      | BS.length bs < 4 = Left "listSerde: truncated length prefix"
+      | otherwise =
+          let (h, t) = BS.splitAt 4 bs
+           in case deserialize int32Serde h of
+                Left e  -> Left e
+                Right n -> Right (n, t)
+
+    goN 0 _ acc = Right (reverse acc)
+    goN _ bs _ | BS.null bs = Left "listSerde: truncated element"
+    goN k bs acc = do
+      (len, rest) <- splitInt32 bs
+      let (h, t) = BS.splitAt (fromIntegral len) rest
+      if BS.length h /= fromIntegral len
+        then Left "listSerde: element shorter than length prefix"
+        else case deserialize inner h of
+          Left e  -> Left e
+          Right x -> goN (k - 1) t (x : acc)
 
 -- | Aeson 'Aeson.ToJSON' / 'Aeson.FromJSON'-backed serde.
 jsonSerde :: (Aeson.ToJSON a, Aeson.FromJSON a) => Serde a
