@@ -14,7 +14,7 @@
 -- behaves identically when interpreted.
 module Streams.TopologyFreeSpec (tests) where
 
-import Control.Arrow ((***), (&&&), (>>>))
+import Control.Arrow ((&&&), (>>>))
 import qualified Control.Category as Cat
 import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
