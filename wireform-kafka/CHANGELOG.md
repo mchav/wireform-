@@ -85,6 +85,25 @@ and this project adheres to the
 
 ### Changed
 
+- **Every public function in the client surface is now polymorphic
+  over `MonadIO m`** (or `MonadUnliftIO m` for the `with*` brackets
+  and the `runConsumer` family), with the body wrapped in `liftIO $`
+  so the implementation is unchanged. The IO call path is unaffected
+  thanks to `INLINABLE` + `SPECIALIZE` pragmas on every entry point;
+  application code that runs in a custom monad stack (ReaderT IO,
+  RIO, MonadAppM, …) can now call `Kafka.sendMessage`,
+  `Kafka.poll`, `Kafka.commitSync`, `Kafka.runConsumer`, … without
+  sprinkling `liftIO` at every call site. Adds `unliftio-core`
+  (>= 0.2 && < 0.3) — just the `MonadUnliftIO` typeclass, no
+  transitive dep churn.
+
+  Covers `Kafka.Client.Producer`, `Kafka.Client.Consumer`,
+  `Kafka.Client.AdminClient`, `Kafka.Client.Transaction`,
+  `Kafka.Client.Group`, `Kafka.Client.ShareConsumer`. The internal
+  helpers (`getNextCorrelationId`, `runHandler`, `decodeAllBatches`,
+  …) stay in `IO` because callers don't see them and the
+  dictionary-passing overhead would hurt the hot path.
+
 - **`defaultProducerConfig` now matches the Java 3.x producer
   defaults out of the box: idempotent producer is **ON**, acks
   are **all** (`producerDelivery = ExactlyOnce`), and
