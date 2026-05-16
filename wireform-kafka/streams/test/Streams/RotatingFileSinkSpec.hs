@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | End-to-end tests for "Kafka.Streams.Sink.RotatingFile".
+-- | End-to-end tests for the rotating-file machinery folded
+-- into "Kafka.Streams.Printed".
 module Streams.RotatingFileSinkSpec (tests) where
 
 import Control.Exception (bracket)
@@ -32,10 +33,15 @@ import Kafka.Streams
   , buildTopology
   )
 import qualified Kafka.Streams.Printed as Printed
-import qualified Kafka.Streams.Sink.RotatingFile as RF
+-- The rotating-handle machinery used to live in
+-- 'Kafka.Streams.Sink.RotatingFile'. It now hangs off
+-- 'Kafka.Streams.Printed' alongside the JVM-parity
+-- @Printed.toRotatingFile@ builder. The @RF@ alias is kept so
+-- the test bodies still read as low-level handle operations.
+import qualified Kafka.Streams.Printed as RF
 
 tests :: TestTree
-tests = testGroup "Kafka.Streams.Sink.RotatingFile"
+tests = testGroup "Kafka.Streams.Printed (rotating-file sink)"
   [ rotating_basic_write
   , rotating_size_based_rollover
   , printed_to_rotating_file

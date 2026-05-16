@@ -8,6 +8,44 @@ and this project adheres to the
 
 ## Unreleased
 
+### Changed
+
+- **Module consolidation.** Folded the JVM-equivalence SDK
+  shims and admin long-tail RPCs back into their primary
+  modules so the public surface has one obvious home per
+  concept:
+  - `Kafka.Client.ConsumerSdk` → `Kafka.Client.Consumer`.
+    `ConsumerRecords`, `OffsetAndMetadata`,
+    `ConsumerGroupMetadata`, `OffsetCommitCallback`,
+    `SubscriptionPattern`, `clientInstanceId`, and the
+    overload tail (`commitSyncOffsets`,
+    `commitAsyncCallback`, `seekWithMetadata`,
+    `enforceRebalanceWithReason`) all live in
+    `Kafka.Client.Consumer` directly.
+  - `Kafka.Client.AdminClient.Extras` →
+    `Kafka.Client.AdminClient`. `createPartitions`,
+    `describeCluster`, `listGroups`, `createAcls` /
+    `describeAcls` / `deleteAcls`,
+    `alter/listPartitionReassignments`,
+    `unregisterBroker`, `describe/alterClientQuotas`,
+    `list/describeTransactions`,
+    `describe/alterUserScramCredentials`,
+    `describeProducers`, `describeLogDirs`,
+    `alterReplicaLogDirs`, delegation-token operations,
+    `add/removeRaftVoter`, `describeMetadataQuorum`, and
+    `removeMembersFromConsumerGroup` all live in
+    `Kafka.Client.AdminClient` directly.
+  - `Kafka.Streams.Sink.RotatingFile` →
+    `Kafka.Streams.Printed`. `RotatingHandle`,
+    `openRotatingHandle`, `closeRotatingHandle`,
+    `writeLine`, `rotatingPrintStream`,
+    `rotatingPrintToHandle` now sit alongside the
+    JVM-parity `Printed.toRotatingFile` builder.
+
+  Old module names no longer exist; downstream call sites
+  should swap the import path while keeping the symbol
+  names unchanged.
+
 ### Added
 
 - **`Kafka.Streams.DSL`** — Haskell-native builder-implicit
@@ -22,7 +60,7 @@ and this project adheres to the
   (`Streams (KStream …)`). The original imperative API
   (`streamFromTopic` / `filterStream` / `mapValues` / …) is
   unchanged.
-- **`Kafka.Streams.Sink.RotatingFile`** — `Printed.toFile` with
+- **`Kafka.Streams.Printed`** — `Printed.toFile` with
   log rotation. `openRotatingHandle` / `writeLine` /
   `closeRotatingHandle` manage the active file lifecycle;
   rotation triggers on either size (`rfMaxBytes`) or age

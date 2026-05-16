@@ -115,12 +115,10 @@ library
         Kafka.Serde.Proto
         Kafka.Topic
         Kafka.Client.AdminClient
-        Kafka.Client.AdminClient.Extras
         Kafka.Client.AdminTimeouts
         Kafka.Client.ConfigValidation
         Kafka.Client.Env
         Kafka.Client.Consumer
-        Kafka.Client.ConsumerSdk
         Kafka.Client.DeleteRecords
         Kafka.Client.ConsumerGroupV2
         Kafka.Client.Filter
@@ -507,7 +505,6 @@ library wireform-kafka-streams
         Kafka.Streams.Serde.Protobuf
         Kafka.Streams.Serde.SchemaRegistry
         Kafka.Streams.Serde.SchemaRegistry.Http
-        Kafka.Streams.Sink.RotatingFile
         Kafka.Streams.Printed
         Kafka.Streams.InteractiveQueries
     build-depends:

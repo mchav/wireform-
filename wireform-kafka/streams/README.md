@@ -394,7 +394,7 @@ there" and have now landed; references for the reader:
   [`Kafka.Streams.Serde.SchemaRegistry`](src/Kafka/Streams/Serde/SchemaRegistry.hs)
   and its [HTTP sibling](src/Kafka/Streams/Serde/SchemaRegistry/Http.hs).
 - **`Printed.toFile` with log rotation.** The new
-  [`Kafka.Streams.Sink.RotatingFile`](src/Kafka/Streams/Sink/RotatingFile.hs)
+  [`Kafka.Streams.Printed`](src/Kafka/Streams/Printed.hs)
   module ships an `openRotatingHandle` / `closeRotatingHandle`
   pair plus the `rotatingPrintStream` / `rotatingPrintToHandle`
   sinks. Rotation policy covers size, age, and buffering; rolled

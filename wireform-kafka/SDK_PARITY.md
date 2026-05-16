@@ -27,7 +27,7 @@ Companion files:
 | ---- | ----- | ------- |
 | v1   | Top-level packages (`clients.producer`, `clients.consumer`, `clients.admin`, `streams`, `streams.kstream`, `streams.processor.api`, `streams.state`, `streams.errors`, `streams.query`, `common`, `common.errors`, `common.header`, `common.serialization`, `common.config`). Headline classes only. | Mapped the operator-level surface and named the obvious gaps. **Skimmed** in several places: didn't walk every method overload (`KafkaConsumer.subscribe` has 6 overloads, `commitSync` / `commitAsync` have 4 each, etc.), didn't drill into the `*Options` / `*Result` admin record families, didn't audit `Producer` / `Consumer` *interfaces* separate from the `KafkaProducer` / `KafkaConsumer` classes. |
 | v2   | Sub-packages missed in v1: `common.acl`, `common.resource`, `common.quota`, `common.metrics`, `streams.processor` (the non-`api` package), `streams.processor.assignment` (KIP-924 user-supplied task assignors), `streams.test`. Plus full-method drills on `Producer`, `Consumer`, `KafkaConsumer`, `KStream`, `KTable`, `KafkaStreams`, `StateRestoreListener`, `Stores`, `TaskAssignor`. | Surfaced a *lot* more gaps — the v2 sections below have ❌ entries the v1 pass would have called ✅. The audit is now honest at the method-overload level. |
-| v3   | Fill the v2 honest-list: wrap the `Admin.*` long-tail RPCs that take the v2-added carrying types; add the Consumer overload tail; stub KIP-714 telemetry-id getters. | Adds `Kafka.Client.AdminClient.Extras` (`createPartitions`, `describeCluster`, `listGroups`, `createAcls` / `describeAcls` / `deleteAcls`); adds `Kafka.Client.ConsumerSdk.clientInstanceId` + the consumer-overload-tail shims (`commitSyncOffsets`, `commitAsyncCallback`, `seekWithMetadata`, `enforceRebalanceWithReason`). |
+| v3   | Fill the v2 honest-list: wrap the `Admin.*` long-tail RPCs that take the v2-added carrying types; add the Consumer overload tail; stub KIP-714 telemetry-id getters. | Adds `Kafka.Client.AdminClient` long-tail (`createPartitions`, `describeCluster`, `listGroups`, `createAcls` / `describeAcls` / `deleteAcls`); adds `Kafka.Client.Consumer.clientInstanceId` + the consumer-overload-tail shims (`commitSyncOffsets`, `commitAsyncCallback`, `seekWithMetadata`, `enforceRebalanceWithReason`). |
 
 ---
 
@@ -482,7 +482,7 @@ Every overload. The v1 audit collapsed these into a single ✅ per method name; 
 | `commitSync(Map<TopicPartition, OffsetAndMetadata>)` | ❌ | typed-offsets overload |
 | `commitSync(Map<TopicPartition, OffsetAndMetadata>, Duration)` | ❌ | both above |
 | `commitAsync()` | ✅ | `commitAsync` |
-| `commitAsync(OffsetCommitCallback)` | ⚠️ | The `OffsetCommitCallback` type exists in `Kafka.Client.ConsumerSdk`; the overload that *takes* it isn't wired to `commitAsync` yet |
+| `commitAsync(OffsetCommitCallback)` | ⚠️ | The `OffsetCommitCallback` type exists in `Kafka.Client.Consumer`; the overload that *takes* it isn't wired to `commitAsync` yet |
 | `commitAsync(Map<TopicPartition, OffsetAndMetadata>, OffsetCommitCallback)` | ⚠️ | (same) |
 | `seek(TopicPartition, long)` / `seek(TopicPartition, OffsetAndMetadata)` | ⚠️ | first overload ✅; second (with metadata) ❌ |
 | `seekToBeginning` / `seekToEnd` | ✅ | same names |
@@ -500,7 +500,7 @@ Every overload. The v1 audit collapsed these into a single ✅ per method name; 
 | `beginningOffsets(Collection)` / `beginningOffsets(Collection, Duration)` | ⚠️ | first ✅, timeout ❌ |
 | `endOffsets(Collection)` / `endOffsets(Collection, Duration)` | ⚠️ | first ✅, timeout ❌ |
 | `currentLag(TopicPartition)` | ❌ | KIP-666 lag getter (streams has `Kafka.Streams.Runtime.LagInfo`) |
-| `groupMetadata()` | ✅ | `Kafka.Client.ConsumerSdk.groupMetadata` |
+| `groupMetadata()` | ✅ | `Kafka.Client.Consumer.groupMetadata` |
 | `enforceRebalance()` / `enforceRebalance(String reason)` | ⚠️ | `requestRejoin` is the first; the `reason` overload isn't carried |
 | `close()` / `close(Duration)` | ✅ | `closeConsumer` / `closeConsumerWithTimeout` |
 | `wakeup()` | ❌ | Use async + STM/MVar cancellation patterns |
@@ -729,7 +729,7 @@ This is the v2 honest list. It's longer than v1's; the difference is the v1 list
 
 ## v3 pass — fill the v2 honest-list
 
-### New admin RPCs in `Kafka.Client.AdminClient.Extras`
+### New admin RPCs in `Kafka.Client.AdminClient` long-tail
 
 The carrying types added in v2 (`AclBinding`, `ResourcePattern`,
 `ClientQuotaEntity`, …) are now consumed by typed admin
@@ -740,25 +740,25 @@ operations. The new module imports the existing
 
 | Java                                                                            | Status | Haskell |
 | ------------------------------------------------------------------------------- | ------ | ------- |
-| `Admin.createPartitions(Map<String, NewPartitions>)`                            | ✅ | `Kafka.Client.AdminClient.Extras.createPartitions` + `NewPartitions` |
-| `Admin.describeCluster()`                                                       | ✅ | `Kafka.Client.AdminClient.Extras.describeCluster` (returns `Kafka.Common.Cluster`) |
-| `Admin.listGroups()` (KIP-848 generic)                                          | ✅ | `Kafka.Client.AdminClient.Extras.listGroups` (filters by `GroupState` + `GroupType`; returns `GroupListing`) |
-| `Admin.createAcls(Collection<AclBinding>)`                                      | ✅ | `Kafka.Client.AdminClient.Extras.createAcls` |
-| `Admin.describeAcls(AclBindingFilter)`                                          | ✅ | `Kafka.Client.AdminClient.Extras.describeAcls` |
-| `Admin.deleteAcls(Collection<AclBindingFilter>)`                                | ✅ | `Kafka.Client.AdminClient.Extras.deleteAcls` |
-| `Admin.alterPartitionReassignments(Map<TopicPartition, Optional<NewPartitionReassignment>>)` | ✅ | `Kafka.Client.AdminClient.Extras.alterPartitionReassignments` + `PartitionReassignmentSpec` |
-| `Admin.listPartitionReassignments()` / `(Set<TopicPartition>)`                  | ✅ | `Kafka.Client.AdminClient.Extras.listPartitionReassignments` + `OngoingPartitionReassignment` |
-| `Admin.unregisterBroker(int)`                                                   | ✅ | `Kafka.Client.AdminClient.Extras.unregisterBroker` |
-| `Admin.describeClientQuotas(ClientQuotaFilter)`                                 | ✅ | `Kafka.Client.AdminClient.Extras.describeClientQuotas` + `ClientQuotaEntry` |
-| `Admin.alterClientQuotas(Collection<ClientQuotaAlteration>)`                    | ✅ | `Kafka.Client.AdminClient.Extras.alterClientQuotas` |
-| `Admin.listTransactions()` / `(ListTransactionsOptions)`                        | ✅ | `Kafka.Client.AdminClient.Extras.listTransactions` + `TransactionListing` |
-| `Admin.describeTransactions(Collection<String>)`                                | ✅ | `Kafka.Client.AdminClient.Extras.describeTransactions` + `TransactionDescription` + `TransactionTopicPartitions` |
-| `Admin.describeUserScramCredentials(List<String>)`                              | ✅ | `Kafka.Client.AdminClient.Extras.describeUserScramCredentials` + `ScramCredentialInfo` + `ScramMechanism` |
-| `Admin.alterUserScramCredentials(List<UserScramCredentialAlteration>)`          | ✅ | `Kafka.Client.AdminClient.Extras.alterUserScramCredentials` + `ScramCredentialUpsertion` / `ScramCredentialDeletion` |
-| `Admin.describeProducers(Collection<TopicPartition>)`                           | ✅ | `Kafka.Client.AdminClient.Extras.describeProducers` + `ProducerState` |
-| `Admin.describeLogDirs(Collection<Integer>)`                                    | ✅ | `Kafka.Client.AdminClient.Extras.describeLogDirs` + `LogDirDescription` / `TopicLogDirDescription` / `PartitionLogDirDescription` |
-| `Admin.alterReplicaLogDirs(Map<TopicPartitionReplica, String>)`                 | ✅ | `Kafka.Client.AdminClient.Extras.alterReplicaLogDirs` + `ReplicaLogDirAssignment` |
-| `Admin.createDelegationToken(...)` / `renewDelegationToken` / `expireDelegationToken` / `describeDelegationToken` | ✅ | `Kafka.Client.AdminClient.Extras.{createDelegationToken,renewDelegationToken,expireDelegationToken,describeDelegationToken}` + `DelegationToken` |
+| `Admin.createPartitions(Map<String, NewPartitions>)`                            | ✅ | `Kafka.Client.AdminClient.createPartitions` + `NewPartitions` |
+| `Admin.describeCluster()`                                                       | ✅ | `Kafka.Client.AdminClient.describeCluster` (returns `Kafka.Common.Cluster`) |
+| `Admin.listGroups()` (KIP-848 generic)                                          | ✅ | `Kafka.Client.AdminClient.listGroups` (filters by `GroupState` + `GroupType`; returns `GroupListing`) |
+| `Admin.createAcls(Collection<AclBinding>)`                                      | ✅ | `Kafka.Client.AdminClient.createAcls` |
+| `Admin.describeAcls(AclBindingFilter)`                                          | ✅ | `Kafka.Client.AdminClient.describeAcls` |
+| `Admin.deleteAcls(Collection<AclBindingFilter>)`                                | ✅ | `Kafka.Client.AdminClient.deleteAcls` |
+| `Admin.alterPartitionReassignments(Map<TopicPartition, Optional<NewPartitionReassignment>>)` | ✅ | `Kafka.Client.AdminClient.alterPartitionReassignments` + `PartitionReassignmentSpec` |
+| `Admin.listPartitionReassignments()` / `(Set<TopicPartition>)`                  | ✅ | `Kafka.Client.AdminClient.listPartitionReassignments` + `OngoingPartitionReassignment` |
+| `Admin.unregisterBroker(int)`                                                   | ✅ | `Kafka.Client.AdminClient.unregisterBroker` |
+| `Admin.describeClientQuotas(ClientQuotaFilter)`                                 | ✅ | `Kafka.Client.AdminClient.describeClientQuotas` + `ClientQuotaEntry` |
+| `Admin.alterClientQuotas(Collection<ClientQuotaAlteration>)`                    | ✅ | `Kafka.Client.AdminClient.alterClientQuotas` |
+| `Admin.listTransactions()` / `(ListTransactionsOptions)`                        | ✅ | `Kafka.Client.AdminClient.listTransactions` + `TransactionListing` |
+| `Admin.describeTransactions(Collection<String>)`                                | ✅ | `Kafka.Client.AdminClient.describeTransactions` + `TransactionDescription` + `TransactionTopicPartitions` |
+| `Admin.describeUserScramCredentials(List<String>)`                              | ✅ | `Kafka.Client.AdminClient.describeUserScramCredentials` + `ScramCredentialInfo` + `ScramMechanism` |
+| `Admin.alterUserScramCredentials(List<UserScramCredentialAlteration>)`          | ✅ | `Kafka.Client.AdminClient.alterUserScramCredentials` + `ScramCredentialUpsertion` / `ScramCredentialDeletion` |
+| `Admin.describeProducers(Collection<TopicPartition>)`                           | ✅ | `Kafka.Client.AdminClient.describeProducers` + `ProducerState` |
+| `Admin.describeLogDirs(Collection<Integer>)`                                    | ✅ | `Kafka.Client.AdminClient.describeLogDirs` + `LogDirDescription` / `TopicLogDirDescription` / `PartitionLogDirDescription` |
+| `Admin.alterReplicaLogDirs(Map<TopicPartitionReplica, String>)`                 | ✅ | `Kafka.Client.AdminClient.alterReplicaLogDirs` + `ReplicaLogDirAssignment` |
+| `Admin.createDelegationToken(...)` / `renewDelegationToken` / `expireDelegationToken` / `describeDelegationToken` | ✅ | `Kafka.Client.AdminClient.{createDelegationToken,renewDelegationToken,expireDelegationToken,describeDelegationToken}` + `DelegationToken` |
 
 These reduce the v2 long-tail. What's still missing from the
 admin surface (and tracked as remaining gaps):
@@ -773,10 +773,10 @@ admin surface (and tracked as remaining gaps):
 
 | Java                                                                            | Status | Haskell |
 | ------------------------------------------------------------------------------- | ------ | ------- |
-| `Admin.addRaftVoter(int, Uuid, Set<RaftVoterEndpoint>)`                         | ✅ | `Kafka.Client.AdminClient.Extras.addRaftVoter` + `RaftVoterEndpoint` |
-| `Admin.removeRaftVoter(int, Uuid)`                                              | ✅ | `Kafka.Client.AdminClient.Extras.removeRaftVoter` |
-| `Admin.describeMetadataQuorum()`                                                | ✅ | `Kafka.Client.AdminClient.Extras.describeMetadataQuorum` + `QuorumInfo` / `PartitionQuorumInfo` / `ReplicaState` |
-| `Admin.removeMembersFromConsumerGroup(String, RemoveMembersFromConsumerGroupOptions)` | ✅ | `Kafka.Client.AdminClient.Extras.removeMembersFromConsumerGroup` + `MemberToRemove` |
+| `Admin.addRaftVoter(int, Uuid, Set<RaftVoterEndpoint>)`                         | ✅ | `Kafka.Client.AdminClient.addRaftVoter` + `RaftVoterEndpoint` |
+| `Admin.removeRaftVoter(int, Uuid)`                                              | ✅ | `Kafka.Client.AdminClient.removeRaftVoter` |
+| `Admin.describeMetadataQuorum()`                                                | ✅ | `Kafka.Client.AdminClient.describeMetadataQuorum` + `QuorumInfo` / `PartitionQuorumInfo` / `ReplicaState` |
+| `Admin.removeMembersFromConsumerGroup(String, RemoveMembersFromConsumerGroupOptions)` | ✅ | `Kafka.Client.AdminClient.removeMembersFromConsumerGroup` + `MemberToRemove` |
 
 ### Streams errors: per-exception discriminated constructors
 
@@ -834,7 +834,7 @@ What's *still* missing on the Java SDK side, in priority order:
 These map to Java admin RPCs whose request/response pairs
 aren't yet emitted by `kafka-codegen`. Wrapping them requires
 re-running the codegen against a newer upstream message-dir
-plus the `Kafka.Client.AdminClient.Extras` plumbing pattern:
+plus the `Kafka.Client.AdminClient` long-tail plumbing pattern:
 
 - `describeFeatures` / `updateFeatures`
 - `fenceProducers` / `abortTransaction` (admin variants)
@@ -850,7 +850,7 @@ plus the `Kafka.Client.AdminClient.Extras` plumbing pattern:
   through `StreamsConfig` is the follow-up.
 - **KIP-714 `clientInstanceId`** on Producer / AdminClient /
   KafkaStreams. The consumer has a deterministic local stub
-  (`Kafka.Client.ConsumerSdk.clientInstanceId`); the other
+  (`Kafka.Client.Consumer.clientInstanceId`); the other
   three need the broker-side `GetTelemetrySubscriptions` RPC
   before they can be more than a synthetic id.
 
@@ -894,16 +894,16 @@ plus the `Kafka.Client.AdminClient.Extras` plumbing pattern:
 These are mechanical follow-ups in the same shape as the v3
 additions: import the corresponding `Kafka.Protocol.Generated.*`
 pair, wire the value-type adapters, and slot the operation into
-`Kafka.Client.AdminClient.Extras`.
+`Kafka.Client.AdminClient` long-tail.
 
 ### Consumer overload tail
 
 | Java                                                     | Status | Haskell |
 | -------------------------------------------------------- | ------ | ------- |
-| `commitSync(Map<TopicPartition, OffsetAndMetadata>)`     | ✅ | `Kafka.Client.ConsumerSdk.commitSyncOffsets` |
-| `commitAsync(OffsetCommitCallback)`                      | ✅ | `Kafka.Client.ConsumerSdk.commitAsyncCallback` |
-| `seek(TopicPartition, OffsetAndMetadata)`                | ✅ | `Kafka.Client.ConsumerSdk.seekWithMetadata` |
-| `enforceRebalance(String reason)`                        | ✅ | `Kafka.Client.ConsumerSdk.enforceRebalanceWithReason` |
+| `commitSync(Map<TopicPartition, OffsetAndMetadata>)`     | ✅ | `Kafka.Client.Consumer.commitSyncOffsets` |
+| `commitAsync(OffsetCommitCallback)`                      | ✅ | `Kafka.Client.Consumer.commitAsyncCallback` |
+| `seek(TopicPartition, OffsetAndMetadata)`                | ✅ | `Kafka.Client.Consumer.seekWithMetadata` |
+| `enforceRebalance(String reason)`                        | ✅ | `Kafka.Client.Consumer.enforceRebalanceWithReason` |
 
 The current implementations route through the existing
 single-arg versions; future revisions can sharpen the
@@ -914,7 +914,7 @@ without changing the call sites.
 
 | Java                                | Status | Haskell |
 | ----------------------------------- | ------ | ------- |
-| `KafkaConsumer.clientInstanceId(Duration)` | ⚠️ | `Kafka.Client.ConsumerSdk.clientInstanceId` — deterministic local id derived from the configured `client.id`; pending broker-side telemetry-RPC support |
+| `KafkaConsumer.clientInstanceId(Duration)` | ⚠️ | `Kafka.Client.Consumer.clientInstanceId` — deterministic local id derived from the configured `client.id`; pending broker-side telemetry-RPC support |
 
 The Producer + AdminClient + KafkaStreams variants of this
 getter are the analogous follow-ups.

@@ -1,10 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Smoke tests for the JVM-parity shims added in the SDK_PARITY
--- audit pass: 'Kafka.Client.ConsumerSdk' (ConsumerRecords,
--- OffsetAndMetadata, ConsumerGroupMetadata, OffsetCommitCallback,
--- SubscriptionPattern) and 'Kafka.Streams.Processor.Mock' (the
--- mock processor context for unit-testing user processors).
+-- audit pass: the JVM-equivalence surface in 'Kafka.Client.Consumer'
+-- (ConsumerRecords, OffsetAndMetadata, ConsumerGroupMetadata,
+-- OffsetCommitCallback, SubscriptionPattern) and
+-- 'Kafka.Streams.Processor.Mock' (the mock processor context for
+-- unit-testing user processors).
 module Streams.SdkParitySpec (tests) where
 
 import qualified Data.HashMap.Strict as HashMap
@@ -15,9 +16,14 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
 import qualified Kafka.Client.Consumer as C
-import qualified Kafka.Client.ConsumerSdk as SDK
+-- The JVM-equivalence shims (ConsumerRecords, OffsetAndMetadata,
+-- ConsumerGroupMetadata, OffsetCommitCallback, SubscriptionPattern,
+-- the consumer-overload tail) live in 'Kafka.Client.Consumer'
+-- itself now; the 'SDK' alias is kept for the tests so the
+-- "JVM name" call-sites read clearly.
+import qualified Kafka.Client.Consumer as SDK
 import qualified Data.UUID as UUID
-import qualified Kafka.Client.AdminClient.Extras as Adm
+import qualified Kafka.Client.AdminClient as Adm
 import qualified Kafka.Common as Common
 import qualified Kafka.Common.Acl as Acl
 import qualified Kafka.Common.Quota as Quota
@@ -40,7 +46,7 @@ import Kafka.Streams.Time
 
 tests :: TestTree
 tests = testGroup "SDK parity shims (audit pass)"
-  [ testGroup "Kafka.Client.ConsumerSdk"
+  [ testGroup "Kafka.Client.Consumer JVM-equivalence shims"
       [ consumerRecords_groupings
       , offsetAndMetadata_builder
       , subscriptionPattern_match
@@ -57,7 +63,7 @@ tests = testGroup "SDK parity shims (audit pass)"
       , common_quota_helpers
       , timeextractor_use_partition_time
       ]
-  , testGroup "Kafka.Client.AdminClient.Extras (v3 audit additions)"
+  , testGroup "Kafka.Client.AdminClient long-tail RPCs (v3 audit additions)"
       [ admin_extras_value_smoke
       ]
   , testGroup "v3+: leftover gaps from v2 honest-list"
@@ -69,7 +75,7 @@ tests = testGroup "SDK parity shims (audit pass)"
   ]
 
 ----------------------------------------------------------------------
--- ConsumerSdk
+-- Kafka.Client.Consumer JVM-equivalence shims
 ----------------------------------------------------------------------
 
 mkRec :: T.Text -> Int -> Int -> C.ConsumerRecord
@@ -241,7 +247,7 @@ timeextractor_use_partition_time =
 type TE k v = Kafka.Streams.Time.TimestampExtractor k v
 
 ----------------------------------------------------------------------
--- AdminClient.Extras
+-- AdminClient long-tail RPCs
 ----------------------------------------------------------------------
 
 -- Smoke test: the public types of the new admin operations are
@@ -250,7 +256,7 @@ type TE k v = Kafka.Streams.Time.TimestampExtractor k v
 -- under .github/workflows/wireform-kafka-integration.yml.
 admin_extras_value_smoke :: TestTree
 admin_extras_value_smoke =
-  testCase "Kafka.Client.AdminClient.Extras: public value types compose" $ do
+  testCase "Kafka.Client.AdminClient long-tail: public value types compose" $ do
     let np = Adm.NewPartitions
           { Adm.npTopicName      = "events"
           , Adm.npTotalCount     = 6
