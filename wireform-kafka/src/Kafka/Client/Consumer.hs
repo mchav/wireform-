@@ -1028,7 +1028,7 @@ closeConsumer consumer = closeConsumerWithTimeout consumer 30000
 --
 -- @since KIP-102
 closeConsumerWithTimeout :: MonadIO m => Consumer -> Int -> m ()
-closeConsumerWithTimeout = closeConsumerImpl True
+closeConsumerWithTimeout c t = liftIO (closeConsumerImpl True c t)
 
 -- | @CloseOptions.leaveGroup = false@: close the
 -- consumer /without/ sending a @LeaveGroup@ request. The
@@ -1038,7 +1038,7 @@ closeConsumerWithTimeout = closeConsumerImpl True
 -- (e.g. rolling deploy with static membership) and want to
 -- avoid the rebalance churn.
 closeConsumerWithoutLeavingGroup :: MonadIO m => Consumer -> Int -> m ()
-closeConsumerWithoutLeavingGroup = closeConsumerImpl False
+closeConsumerWithoutLeavingGroup c t = liftIO (closeConsumerImpl False c t)
 
 -- | Programmatic rejoin trigger. Flips
 -- 'HB.hbNeedsRebalance' so the next 'poll' transparently

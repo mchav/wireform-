@@ -460,6 +460,7 @@ library wireform-kafka-streams
         Kafka.Streams.Consumed
         Kafka.Streams.Produced
         Kafka.Streams.Repartitioned
+        Kafka.Streams.DSL
         Kafka.Streams.Pipeline
         Kafka.Streams.Grouped
         Kafka.Streams.Joined

@@ -2029,11 +2029,8 @@ dispatchEnhanced ec rec_ outcome = do
 {-# SPECIALIZE sendMessage :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String RecordMetadata) #-}
 {-# INLINABLE sendMessageAsync #-}
 {-# SPECIALIZE sendMessageAsync :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (MVar (Either String RecordMetadata)) #-}
-{-# INLINABLE sendMessage_ #-}
 {-# SPECIALIZE sendMessage_ :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String ()) #-}
-{-# INLINABLE sendMessageUnsafe_ #-}
 {-# SPECIALIZE sendMessageUnsafe_ :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String ()) #-}
-{-# INLINABLE sendMessageFastest_ #-}
 {-# SPECIALIZE sendMessageFastest_ :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String ()) #-}
 {-# INLINABLE sendMessages_ #-}
 {-# SPECIALIZE sendMessages_ :: Producer -> Text -> [(Maybe ByteString, ByteString)] -> IO (Either String ()) #-}
