@@ -45,11 +45,30 @@ module Kafka.Client.AdminClient.Extras
   , deleteAcls
   , AclCreationResult (..)
   , AclDeletionResult (..)
+    -- * Partition reassignment admin (KIP-455)
+  , PartitionReassignmentSpec (..)
+  , OngoingPartitionReassignment (..)
+  , alterPartitionReassignments
+  , listPartitionReassignments
+    -- * Broker lifecycle (KIP-704)
+  , unregisterBroker
+    -- * Client-quota admin (KIP-546)
+  , ClientQuotaEntry (..)
+  , describeClientQuotas
+  , alterClientQuotas
+    -- * Transaction admin (KIP-664)
+  , TransactionListing (..)
+  , TransactionDescription (..)
+  , TransactionTopicPartitions (..)
+  , listTransactions
+  , describeTransactions
   ) where
 
 import Control.Concurrent.STM (atomically)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Data.Int (Int8, Int16, Int32)
+import Data.Int (Int8, Int16, Int32, Int64)
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -81,6 +100,21 @@ import qualified Kafka.Protocol.Generated.DescribeAclsRequest as DAReq
 import qualified Kafka.Protocol.Generated.DescribeAclsResponse as DAResp
 import qualified Kafka.Protocol.Generated.DeleteAclsRequest as DelAReq
 import qualified Kafka.Protocol.Generated.DeleteAclsResponse as DelAResp
+import qualified Kafka.Protocol.Generated.AlterPartitionReassignmentsRequest as APRReq
+import qualified Kafka.Protocol.Generated.AlterPartitionReassignmentsResponse as APRResp
+import qualified Kafka.Protocol.Generated.ListPartitionReassignmentsRequest as LPRReq
+import qualified Kafka.Protocol.Generated.ListPartitionReassignmentsResponse as LPRResp
+import qualified Kafka.Protocol.Generated.UnregisterBrokerRequest as UBReq
+import qualified Kafka.Protocol.Generated.UnregisterBrokerResponse as UBResp
+import qualified Kafka.Protocol.Generated.DescribeClientQuotasRequest as DCQReq
+import qualified Kafka.Protocol.Generated.DescribeClientQuotasResponse as DCQResp
+import qualified Kafka.Protocol.Generated.AlterClientQuotasRequest as ACQReq
+import qualified Kafka.Protocol.Generated.AlterClientQuotasResponse as ACQResp
+import qualified Kafka.Protocol.Generated.ListTransactionsRequest as LTReq
+import qualified Kafka.Protocol.Generated.ListTransactionsResponse as LTResp
+import qualified Kafka.Protocol.Generated.DescribeTransactionsRequest as DTReq
+import qualified Kafka.Protocol.Generated.DescribeTransactionsResponse as DTResp
+import qualified Kafka.Common.Quota as Quota
 import qualified Kafka.Protocol.Primitives as P
 import qualified Kafka.Protocol.Wire.Codec as WC
 
@@ -642,4 +676,495 @@ groupTypeFromText t = case T.toLower t of
   "consumer" -> Just Common.ConsumerGroup
   "share"    -> Just Common.ShareGroup
   _          -> Nothing
+
+----------------------------------------------------------------------
+-- Partition reassignment (KIP-455)
+----------------------------------------------------------------------
+
+-- | A per-partition reassignment request. @prsTargetReplicas =
+-- Nothing@ means "cancel any in-flight reassignment for this
+-- partition".
+data PartitionReassignmentSpec = PartitionReassignmentSpec
+  { prsTopic          :: !Text
+  , prsPartition      :: !Int32
+  , prsTargetReplicas :: !(Maybe [Int32])
+  }
+  deriving stock (Eq, Show)
+
+-- | An in-flight partition reassignment from
+-- 'listPartitionReassignments'. Mirrors
+-- @PartitionReassignment@ in the JVM SDK.
+data OngoingPartitionReassignment = OngoingPartitionReassignment
+  { oprTopic            :: !Text
+  , oprPartition        :: !Int32
+  , oprCurrentReplicas  :: ![Int32]
+  , oprAddingReplicas   :: ![Int32]
+  , oprRemovingReplicas :: ![Int32]
+  }
+  deriving stock (Eq, Show)
+
+-- | Alter (or cancel) partition reassignments. Mirrors
+-- @Admin.alterPartitionReassignments(Map<TopicPartition, Optional<NewPartitionReassignment>>)@.
+alterPartitionReassignments
+  :: MonadIO m
+  => AdminClient
+  -> [PartitionReassignmentSpec]
+  -> m (Either String [(Text, Int32, Either String ())])
+alterPartitionReassignments client specs = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 45 0 0 0 $ \conn corrId apiVer -> do
+        let grouped = groupByTopic specs
+            !topics = V.fromList (map buildTopic grouped)
+            req = APRReq.AlterPartitionReassignmentsRequest
+              { APRReq.alterPartitionReassignmentsRequestTimeoutMs = 30000
+              , APRReq.alterPartitionReassignmentsRequestTopics = P.mkKafkaArray topics
+              }
+            body = WC.runEncodeVer @APRReq.AlterPartitionReassignmentsRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 45 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("AlterPartitionReassignments request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @APRResp.AlterPartitionReassignmentsResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if APRResp.alterPartitionReassignmentsResponseErrorCode resp /= 0
+                  then pure $ Left $
+                    "AlterPartitionReassignments: " <> T.unpack
+                      (extractText (APRResp.alterPartitionReassignmentsResponseErrorMessage resp))
+                  else do
+                    let topicRs = case P.unKafkaArray (APRResp.alterPartitionReassignmentsResponseResponses resp) of
+                          P.Null      -> V.empty
+                          P.NotNull v -> v
+                    pure $ Right $ concatMap flattenTopic (V.toList topicRs)
+  where
+    groupByTopic xs =
+      let byT = foldr (\s acc -> Map.insertWith (++) (prsTopic s) [s] acc) Map.empty xs
+       in Map.toList byT
+
+    buildTopic (topic, rs) = APRReq.ReassignableTopic
+      { APRReq.reassignableTopicName       = P.mkKafkaString topic
+      , APRReq.reassignableTopicPartitions =
+          P.mkKafkaArray (V.fromList (map buildPartition rs))
+      }
+    buildPartition s = APRReq.ReassignablePartition
+      { APRReq.reassignablePartitionPartitionIndex = prsPartition s
+      , APRReq.reassignablePartitionReplicas =
+          case prsTargetReplicas s of
+            Just rs -> P.mkKafkaArray (V.fromList rs)
+            Nothing -> P.mkKafkaArray V.empty
+      }
+    flattenTopic t =
+      let !nm = extractText (APRResp.reassignableTopicResponseName t)
+          ps = case P.unKafkaArray (APRResp.reassignableTopicResponsePartitions t) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+       in V.toList (V.map (decodePart nm) ps)
+    decodePart nm p =
+      let !pi_ = APRResp.reassignablePartitionResponsePartitionIndex p
+          !code = APRResp.reassignablePartitionResponseErrorCode p
+          !msg  = extractText (APRResp.reassignablePartitionResponseErrorMessage p)
+       in if code == 0
+            then (nm, pi_, Right ())
+            else (nm, pi_, Left ("Error " <> show code <> ": " <> T.unpack msg))
+
+-- | List in-flight partition reassignments. Passing 'Nothing'
+-- asks for /every/ reassignment in the cluster; @'Just' tps@ scopes
+-- to specific partitions.
+listPartitionReassignments
+  :: MonadIO m
+  => AdminClient
+  -> Maybe [(Text, [Int32])]              -- ^ topic + partition selector
+  -> m (Either String [OngoingPartitionReassignment])
+listPartitionReassignments client mScope = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 46 0 0 0 $ \conn corrId apiVer -> do
+        let !topicsArr = case mScope of
+              Nothing -> P.mkKafkaArray V.empty
+              Just sc -> P.mkKafkaArray $ V.fromList
+                [ LPRReq.ListPartitionReassignmentsTopics
+                    { LPRReq.listPartitionReassignmentsTopicsName =
+                        P.mkKafkaString t
+                    , LPRReq.listPartitionReassignmentsTopicsPartitionIndexes =
+                        P.mkKafkaArray (V.fromList ps)
+                    }
+                | (t, ps) <- sc
+                ]
+            req = LPRReq.ListPartitionReassignmentsRequest
+              { LPRReq.listPartitionReassignmentsRequestTimeoutMs = 30000
+              , LPRReq.listPartitionReassignmentsRequestTopics    = topicsArr
+              }
+            body = WC.runEncodeVer @LPRReq.ListPartitionReassignmentsRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 46 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("ListPartitionReassignments request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @LPRResp.ListPartitionReassignmentsResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if LPRResp.listPartitionReassignmentsResponseErrorCode resp /= 0
+                  then pure $ Left $
+                    "ListPartitionReassignments: " <> T.unpack
+                      (extractText (LPRResp.listPartitionReassignmentsResponseErrorMessage resp))
+                  else do
+                    let topicRs = case P.unKafkaArray (LPRResp.listPartitionReassignmentsResponseTopics resp) of
+                          P.Null      -> V.empty
+                          P.NotNull v -> v
+                    pure $ Right $ concatMap flattenT (V.toList topicRs)
+  where
+    flattenT t =
+      let !nm  = extractText (LPRResp.ongoingTopicReassignmentName t)
+          ps = case P.unKafkaArray (LPRResp.ongoingTopicReassignmentPartitions t) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+       in V.toList (V.map (decodeP nm) ps)
+    decodeP nm p = OngoingPartitionReassignment
+      { oprTopic            = nm
+      , oprPartition        = LPRResp.ongoingPartitionReassignmentPartitionIndex p
+      , oprCurrentReplicas  = unArr (LPRResp.ongoingPartitionReassignmentReplicas p)
+      , oprAddingReplicas   = unArr (LPRResp.ongoingPartitionReassignmentAddingReplicas p)
+      , oprRemovingReplicas = unArr (LPRResp.ongoingPartitionReassignmentRemovingReplicas p)
+      }
+    unArr arr = case P.unKafkaArray arr of
+      P.Null      -> []
+      P.NotNull v -> V.toList v
+
+----------------------------------------------------------------------
+-- Broker lifecycle
+----------------------------------------------------------------------
+
+-- | Unregister a broker. Mirrors @Admin.unregisterBroker(int)@.
+-- Returns @Right ()@ on broker-side success; the @Left@ payload
+-- carries the error code + message.
+unregisterBroker
+  :: MonadIO m
+  => AdminClient
+  -> Int32                                -- ^ broker id
+  -> m (Either String ())
+unregisterBroker client bid = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 64 0 0 0 $ \conn corrId apiVer -> do
+        let req = UBReq.UnregisterBrokerRequest
+              { UBReq.unregisterBrokerRequestBrokerId = bid
+              }
+            body = WC.runEncodeVer @UBReq.UnregisterBrokerRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 64 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("UnregisterBroker request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @UBResp.UnregisterBrokerResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if UBResp.unregisterBrokerResponseErrorCode resp == 0
+                  then pure (Right ())
+                  else pure $ Left $
+                    "UnregisterBroker: error "
+                      <> show (UBResp.unregisterBrokerResponseErrorCode resp)
+                      <> ": "
+                      <> T.unpack (extractText (UBResp.unregisterBrokerResponseErrorMessage resp))
+
+----------------------------------------------------------------------
+-- Client-quota admin (KIP-546)
+----------------------------------------------------------------------
+
+-- | A described quota entry — an entity together with the
+-- per-name quota values configured for it. Mirrors
+-- @ClientQuotaEntry@ in the JVM SDK.
+data ClientQuotaEntry = ClientQuotaEntry
+  { cqeEntity :: !Quota.ClientQuotaEntity
+  , cqeValues :: !(Map Text Double)
+  }
+  deriving stock (Eq, Show)
+
+-- | Describe quotas. Mirrors @Admin.describeClientQuotas@.
+describeClientQuotas
+  :: MonadIO m
+  => AdminClient
+  -> Quota.ClientQuotaFilter
+  -> m (Either String [ClientQuotaEntry])
+describeClientQuotas client (Quota.ClientQuotaFilter comps strict) = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 48 0 1 0 $ \conn corrId apiVer -> do
+        let req = DCQReq.DescribeClientQuotasRequest
+              { DCQReq.describeClientQuotasRequestComponents =
+                  P.mkKafkaArray (V.fromList (map buildComp comps))
+              , DCQReq.describeClientQuotasRequestStrict = strict
+              }
+            body = WC.runEncodeVer @DCQReq.DescribeClientQuotasRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 48 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("DescribeClientQuotas request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @DCQResp.DescribeClientQuotasResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if DCQResp.describeClientQuotasResponseErrorCode resp /= 0
+                  then pure $ Left $
+                    "DescribeClientQuotas: " <> T.unpack
+                      (extractText (DCQResp.describeClientQuotasResponseErrorMessage resp))
+                  else do
+                    let entries = case P.unKafkaArray (DCQResp.describeClientQuotasResponseEntries resp) of
+                          P.Null      -> V.empty
+                          P.NotNull v -> v
+                    pure $ Right (V.toList (V.map decodeEntry entries))
+  where
+    buildComp c =
+      let (mt, mv) = case Quota.cqfcMatchType c of
+            Quota.MatchExact nm -> (0 :: Int8, nm)
+            Quota.MatchDefault  -> (1, T.empty)
+            Quota.MatchAny      -> (2, T.empty)
+       in DCQReq.ComponentData
+            { DCQReq.componentDataEntityType = P.mkKafkaString (Quota.cqfcEntityType c)
+            , DCQReq.componentDataMatchType  = mt
+            , DCQReq.componentDataMatch      = P.mkKafkaString mv
+            }
+    decodeEntry e =
+      let !ents = case P.unKafkaArray (DCQResp.entryDataEntity e) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+          !vals = case P.unKafkaArray (DCQResp.entryDataValues e) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+          !entMap = Map.fromList
+            [ ( extractText (DCQResp.entityDataEntityType ed)
+              , let n = extractText (DCQResp.entityDataEntityName ed)
+                 in if T.null n then Nothing else Just n
+              )
+            | ed <- V.toList ents
+            ]
+          !valMap = Map.fromList
+            [ ( extractText (DCQResp.valueDataKey vd)
+              , DCQResp.valueDataValue vd
+              )
+            | vd <- V.toList vals
+            ]
+       in ClientQuotaEntry
+            { cqeEntity = Quota.ClientQuotaEntity entMap
+            , cqeValues = valMap
+            }
+
+-- | Alter quotas. Mirrors @Admin.alterClientQuotas@.
+alterClientQuotas
+  :: MonadIO m
+  => AdminClient
+  -> [Quota.ClientQuotaAlteration]
+  -> Bool                                 -- ^ validateOnly
+  -> m (Either String [(Quota.ClientQuotaEntity, Either String ())])
+alterClientQuotas client alterations validate = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 49 0 1 0 $ \conn corrId apiVer -> do
+        let req = ACQReq.AlterClientQuotasRequest
+              { ACQReq.alterClientQuotasRequestEntries =
+                  P.mkKafkaArray (V.fromList (map buildEntry alterations))
+              , ACQReq.alterClientQuotasRequestValidateOnly = validate
+              }
+            body = WC.runEncodeVer @ACQReq.AlterClientQuotasRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 49 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("AlterClientQuotas request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @ACQResp.AlterClientQuotasResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp -> do
+                let rs = case P.unKafkaArray (ACQResp.alterClientQuotasResponseEntries resp) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                pure $ Right (V.toList (V.map decodeEntry rs))
+  where
+    buildEntry (Quota.ClientQuotaAlteration (Quota.ClientQuotaEntity entMap) ops) =
+      ACQReq.EntryData
+        { ACQReq.entryDataEntity =
+            P.mkKafkaArray $ V.fromList
+              [ ACQReq.EntityData
+                  { ACQReq.entityDataEntityType = P.mkKafkaString k
+                  , ACQReq.entityDataEntityName = P.mkKafkaString (maybe T.empty id v)
+                  }
+              | (k, v) <- Map.toList entMap
+              ]
+        , ACQReq.entryDataOps =
+            P.mkKafkaArray $ V.fromList
+              [ ACQReq.OpData
+                  { ACQReq.opDataKey    = P.mkKafkaString (Quota.cqoKey op)
+                  , ACQReq.opDataValue  = maybe 0 id (Quota.cqoValue op)
+                  , ACQReq.opDataRemove = case Quota.cqoValue op of
+                      Nothing -> True
+                      Just _  -> False
+                  }
+              | op <- ops
+              ]
+        }
+    decodeEntry e =
+      let !ents = case P.unKafkaArray (ACQResp.entryDataEntity e) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+          !entMap = Map.fromList
+            [ ( extractText (ACQResp.entityDataEntityType ed)
+              , let n = extractText (ACQResp.entityDataEntityName ed)
+                 in if T.null n then Nothing else Just n
+              )
+            | ed <- V.toList ents
+            ]
+          !ent  = Quota.ClientQuotaEntity entMap
+          !code = ACQResp.entryDataErrorCode e
+          !msg  = extractText (ACQResp.entryDataErrorMessage e)
+       in if code == 0
+            then (ent, Right ())
+            else (ent, Left ("Error " <> show code <> ": " <> T.unpack msg))
+
+----------------------------------------------------------------------
+-- Transaction admin (KIP-664)
+----------------------------------------------------------------------
+
+-- | A row from 'listTransactions'.
+data TransactionListing = TransactionListing
+  { tlTransactionalId :: !Text
+  , tlProducerId      :: !Int64
+  , tlState           :: !Text
+    -- ^ One of: @\"Empty\"@, @\"Ongoing\"@, @\"PrepareCommit\"@,
+    -- @\"PrepareAbort\"@, @\"CompleteCommit\"@,
+    -- @\"CompleteAbort\"@, @\"Dead\"@, @\"PrepareEpochFence\"@,
+    -- @\"Unknown\"@.
+  }
+  deriving stock (Eq, Show)
+
+-- | The detailed state of a single transaction.
+data TransactionDescription = TransactionDescription
+  { tdTransactionalId   :: !Text
+  , tdProducerId        :: !Int64
+  , tdProducerEpoch     :: !Int16
+  , tdTimeoutMs         :: !Int32
+  , tdStartTimeMs       :: !Int64
+  , tdState             :: !Text
+  , tdTopicPartitions   :: ![TransactionTopicPartitions]
+  }
+  deriving stock (Eq, Show)
+
+-- | The partitions of a single topic enrolled in a transaction.
+data TransactionTopicPartitions = TransactionTopicPartitions
+  { ttpTopic      :: !Text
+  , ttpPartitions :: ![Int32]
+  }
+  deriving stock (Eq, Show)
+
+-- | List active transactions on the cluster, optionally filtered
+-- by transaction state and producer id. Mirrors
+-- @Admin.listTransactions()@.
+listTransactions
+  :: MonadIO m
+  => AdminClient
+  -> [Text]                               -- ^ state filters
+  -> [Int64]                              -- ^ producer-id filters
+  -> Maybe Int64                          -- ^ min duration in ms
+  -> m (Either String [TransactionListing])
+listTransactions client stateFilters pidFilters durMs = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 66 0 1 0 $ \conn corrId apiVer -> do
+        let req = LTReq.ListTransactionsRequest
+              { LTReq.listTransactionsRequestStateFilters =
+                  P.mkKafkaArray (V.fromList (map P.mkKafkaString stateFilters))
+              , LTReq.listTransactionsRequestProducerIdFilters =
+                  P.mkKafkaArray (V.fromList pidFilters)
+              , LTReq.listTransactionsRequestDurationFilter =
+                  maybe (-1) id durMs
+              }
+            body = WC.runEncodeVer @LTReq.ListTransactionsRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 66 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("ListTransactions request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @LTResp.ListTransactionsResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if LTResp.listTransactionsResponseErrorCode resp /= 0
+                  then pure $ Left $
+                    "ListTransactions: error code "
+                      <> show (LTResp.listTransactionsResponseErrorCode resp)
+                  else do
+                    let ts = case P.unKafkaArray (LTResp.listTransactionsResponseTransactionStates resp) of
+                          P.Null      -> V.empty
+                          P.NotNull v -> v
+                    pure $ Right (V.toList (V.map decode_ ts))
+  where
+    decode_ t = TransactionListing
+      { tlTransactionalId = extractText (LTResp.transactionStateTransactionalId t)
+      , tlProducerId      = LTResp.transactionStateProducerId t
+      , tlState           = extractText (LTResp.transactionStateTransactionState t)
+      }
+
+-- | Describe the supplied transactions. Mirrors
+-- @Admin.describeTransactions(Collection<String>)@.
+describeTransactions
+  :: MonadIO m
+  => AdminClient
+  -> [Text]                               -- ^ transactional ids
+  -> m (Either String [TransactionDescription])
+describeTransactions client tids = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 65 0 0 0 $ \conn corrId apiVer -> do
+        let req = DTReq.DescribeTransactionsRequest
+              { DTReq.describeTransactionsRequestTransactionalIds =
+                  P.mkKafkaArray (V.fromList (map P.mkKafkaString tids))
+              }
+            body = WC.runEncodeVer @DTReq.DescribeTransactionsRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 65 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("DescribeTransactions request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @DTResp.DescribeTransactionsResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp -> do
+                let ts = case P.unKafkaArray (DTResp.describeTransactionsResponseTransactionStates resp) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                pure $ Right (V.toList (V.map decode_ ts))
+  where
+    decode_ t =
+      let !topics = case P.unKafkaArray (DTResp.transactionStateTopics t) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+       in TransactionDescription
+            { tdTransactionalId = extractText (DTResp.transactionStateTransactionalId t)
+            , tdProducerId      = DTResp.transactionStateProducerId t
+            , tdProducerEpoch   = DTResp.transactionStateProducerEpoch t
+            , tdTimeoutMs       = DTResp.transactionStateTransactionTimeoutMs t
+            , tdStartTimeMs     = DTResp.transactionStateTransactionStartTimeMs t
+            , tdState           = extractText (DTResp.transactionStateTransactionState t)
+            , tdTopicPartitions =
+                V.toList (V.map decodeTopic topics)
+            }
+    decodeTopic tp =
+      let !ps = case P.unKafkaArray (DTResp.topicDataPartitions tp) of
+            P.Null      -> []
+            P.NotNull v -> V.toList v
+       in TransactionTopicPartitions
+            { ttpTopic      = extractText (DTResp.topicDataTopic tp)
+            , ttpPartitions = ps
+            }
 

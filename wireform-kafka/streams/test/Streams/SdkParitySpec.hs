@@ -263,3 +263,31 @@ admin_extras_value_smoke =
     Adm.acrError acrOk @?= Nothing
     let adr = Adm.AclDeletionResult { Adm.adrDeletedCount = 3, Adm.adrError = Nothing }
     Adm.adrDeletedCount adr @?= 3
+    -- v3b: partition reassignment + transaction admin value types.
+    let prs = Adm.PartitionReassignmentSpec "in" 0 (Just [1, 2, 3])
+    Adm.prsTopic prs @?= "in"
+    let opr = Adm.OngoingPartitionReassignment "in" 0 [1, 2, 3] [4] []
+    Adm.oprAddingReplicas opr @?= [4]
+    let tl = Adm.TransactionListing
+          { Adm.tlTransactionalId = "txn-1"
+          , Adm.tlProducerId      = 100
+          , Adm.tlState           = "Ongoing"
+          }
+    Adm.tlState tl @?= "Ongoing"
+    let td = Adm.TransactionDescription
+          { Adm.tdTransactionalId = "txn-1"
+          , Adm.tdProducerId      = 100
+          , Adm.tdProducerEpoch   = 7
+          , Adm.tdTimeoutMs       = 60_000
+          , Adm.tdStartTimeMs     = 0
+          , Adm.tdState           = "Ongoing"
+          , Adm.tdTopicPartitions =
+              [Adm.TransactionTopicPartitions "out" [0, 1, 2]]
+          }
+    map Adm.ttpTopic (Adm.tdTopicPartitions td) @?= ["out"]
+    let cqe = Adm.ClientQuotaEntry
+          { Adm.cqeEntity =
+              Quota.clientQuotaEntity [("user", Just "alice")]
+          , Adm.cqeValues = Map.fromList [("producer_byte_rate", 1024)]
+          }
+    Adm.cqeValues cqe @?= Map.fromList [("producer_byte_rate", 1024)]

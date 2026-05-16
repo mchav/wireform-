@@ -738,26 +738,30 @@ operations. The new module imports the existing
 `withNegotiatedVersion` plumbing exposed from
 `Kafka.Client.AdminClient`.
 
-| Java                                             | Status | Haskell |
-| ------------------------------------------------ | ------ | ------- |
-| `Admin.createPartitions(Map<String, NewPartitions>)` | ✅ | `Kafka.Client.AdminClient.Extras.createPartitions` + `NewPartitions` |
-| `Admin.describeCluster()`                        | ✅ | `Kafka.Client.AdminClient.Extras.describeCluster` (returns `Kafka.Common.Cluster`) |
-| `Admin.listGroups()` (KIP-848 generic)           | ✅ | `Kafka.Client.AdminClient.Extras.listGroups` (filters by `GroupState` + `GroupType`; returns `GroupListing`) |
-| `Admin.createAcls(Collection<AclBinding>)`       | ✅ | `Kafka.Client.AdminClient.Extras.createAcls` |
-| `Admin.describeAcls(AclBindingFilter)`           | ✅ | `Kafka.Client.AdminClient.Extras.describeAcls` |
-| `Admin.deleteAcls(Collection<AclBindingFilter>)` | ✅ | `Kafka.Client.AdminClient.Extras.deleteAcls` |
+| Java                                                                            | Status | Haskell |
+| ------------------------------------------------------------------------------- | ------ | ------- |
+| `Admin.createPartitions(Map<String, NewPartitions>)`                            | ✅ | `Kafka.Client.AdminClient.Extras.createPartitions` + `NewPartitions` |
+| `Admin.describeCluster()`                                                       | ✅ | `Kafka.Client.AdminClient.Extras.describeCluster` (returns `Kafka.Common.Cluster`) |
+| `Admin.listGroups()` (KIP-848 generic)                                          | ✅ | `Kafka.Client.AdminClient.Extras.listGroups` (filters by `GroupState` + `GroupType`; returns `GroupListing`) |
+| `Admin.createAcls(Collection<AclBinding>)`                                      | ✅ | `Kafka.Client.AdminClient.Extras.createAcls` |
+| `Admin.describeAcls(AclBindingFilter)`                                          | ✅ | `Kafka.Client.AdminClient.Extras.describeAcls` |
+| `Admin.deleteAcls(Collection<AclBindingFilter>)`                                | ✅ | `Kafka.Client.AdminClient.Extras.deleteAcls` |
+| `Admin.alterPartitionReassignments(Map<TopicPartition, Optional<NewPartitionReassignment>>)` | ✅ | `Kafka.Client.AdminClient.Extras.alterPartitionReassignments` + `PartitionReassignmentSpec` |
+| `Admin.listPartitionReassignments()` / `(Set<TopicPartition>)`                  | ✅ | `Kafka.Client.AdminClient.Extras.listPartitionReassignments` + `OngoingPartitionReassignment` |
+| `Admin.unregisterBroker(int)`                                                   | ✅ | `Kafka.Client.AdminClient.Extras.unregisterBroker` |
+| `Admin.describeClientQuotas(ClientQuotaFilter)`                                 | ✅ | `Kafka.Client.AdminClient.Extras.describeClientQuotas` + `ClientQuotaEntry` |
+| `Admin.alterClientQuotas(Collection<ClientQuotaAlteration>)`                    | ✅ | `Kafka.Client.AdminClient.Extras.alterClientQuotas` |
+| `Admin.listTransactions()` / `(ListTransactionsOptions)`                        | ✅ | `Kafka.Client.AdminClient.Extras.listTransactions` + `TransactionListing` |
+| `Admin.describeTransactions(Collection<String>)`                                | ✅ | `Kafka.Client.AdminClient.Extras.describeTransactions` + `TransactionDescription` + `TransactionTopicPartitions` |
 
 These reduce the v2 long-tail. What's still missing from the
 admin surface (and tracked as remaining gaps):
 
-- `alterPartitionReassignments` / `listPartitionReassignments`
 - `describeLogDirs` / `alterReplicaLogDirs` / `describeReplicaLogDirs`
-- `describeClientQuotas` / `alterClientQuotas` (carrying types exist in `Kafka.Common.Quota`)
 - `describeUserScramCredentials` / `alterUserScramCredentials`
 - `addRaftVoter` / `removeRaftVoter` / `describeMetadataQuorum`
-- `unregisterBroker`
-- `describeFeatures` / `updateFeatures`
-- `describeProducers` / `fenceProducers` / `abortTransaction` (admin) / `describeTransactions` / `listTransactions`
+- `describeFeatures` / `updateFeatures` (`DescribeFeaturesRequest/Response` are not yet emitted by `kafka-codegen`)
+- `describeProducers` / `fenceProducers` / `abortTransaction` (admin)
 - `describeClassicGroups` / `describeShareGroups`
 - `removeMembersFromConsumerGroup`
 - `listClientMetricsResources`
