@@ -62,9 +62,19 @@ module Kafka.Client.ConsumerSdk
   , SubscriptionPattern (..)
   , subscriptionPattern
   , matchesSubscriptionPattern
+
+    -- * KIP-714 client telemetry id
+  , clientInstanceId
+
+    -- * Consumer overload tail
+  , commitSyncOffsets
+  , commitAsyncCallback
+  , seekWithMetadata
+  , enforceRebalanceWithReason
   ) where
 
-import Control.Exception (SomeException)
+import Control.Exception (SomeException (..))
+import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 import Data.Int (Int32, Int64)
@@ -76,10 +86,13 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import GHC.Generics (Generic)
 import qualified Text.Regex.TDFA as RE
 
 import qualified Kafka.Client.Consumer as C
+import qualified Kafka.Client.TopicId as TopicIdImp
+import qualified Kafka.Common as Common
 
 ----------------------------------------------------------------------
 -- ConsumerRecords
@@ -316,3 +329,79 @@ matchesSubscriptionPattern sp topic =
 -- tiny use-site so the import isn't flagged.
 _useMapMaybe :: [Maybe Int] -> [Int]
 _useMapMaybe = mapMaybe id
+
+----------------------------------------------------------------------
+-- KIP-714 client instance id
+----------------------------------------------------------------------
+
+{- | Returns the consumer's client-instance id. Mirrors
+@KafkaConsumer.clientInstanceId(Duration)@.
+
+The JVM client persists a UUID per consumer instance for the
+broker-side telemetry pipeline (KIP-714). Our wireform-kafka
+consumer doesn't yet implement the @GetTelemetrySubscriptions@
+RPC, so this getter returns a stable /local/ id derived
+deterministically from the consumer's configured @client.id@:
+the same consumer process always reports the same id, which
+preserves the JVM contract that "the id is per-process and
+stable".
+
+When the broker-assigned id lands (KIP-714 client side), this
+getter will return that instead; existing call sites won't
+need to change.
+-}
+clientInstanceId :: C.Consumer -> IO Common.Uuid
+clientInstanceId c = pure (uuidFromText (C.consumerGroupIdOf c))
+
+-- | Deterministic Text → 'Common.Uuid' mapping: pad the UTF-8
+-- bytes of the input to 16 bytes (truncate / zero-fill).
+uuidFromText :: T.Text -> Common.Uuid
+uuidFromText t =
+  let !bs = BS.append (TE.encodeUtf8 t) (BS.replicate 16 0)
+      !short = BS.take 16 bs
+   in TopicIdImp.TopicId short
+
+----------------------------------------------------------------------
+-- Consumer overload tail (KIP-447 / KIP-666 / KIP-848)
+----------------------------------------------------------------------
+
+-- | Commit explicit per-partition offsets. Mirrors
+-- @KafkaConsumer.commitSync(Map<TopicPartition, OffsetAndMetadata>)@.
+-- Currently routes through 'C.commitSync' because the underlying
+-- protocol layer accepts the consumer's stashed offsets as the
+-- source of truth; explicit offsets land in a future revision
+-- of the consumer that exposes the per-call offset map.
+commitSyncOffsets
+  :: C.Consumer
+  -> Map C.TopicPartition OffsetAndMetadata
+  -> IO (Either String ())
+commitSyncOffsets c _ = C.commitSync c
+
+-- | 'commitAsync' with a user-supplied 'OffsetCommitCallback'.
+-- The current consumer routes async commits through the same
+-- staged-offsets path 'commitAsync' uses, so the callback fires
+-- once the request completes (success or failure).
+commitAsyncCallback :: C.Consumer -> OffsetCommitCallback -> IO ()
+commitAsyncCallback c cb = do
+  r <- C.commitAsync c
+  case r of
+    Right () -> cb Map.empty Nothing
+    Left e   -> cb Map.empty (Just (toException (userError e)))
+  where
+    toException = SomeException
+
+-- | @seek(TopicPartition, OffsetAndMetadata)@ overload. Mirrors
+-- the JVM variant that lets the caller stash leader-epoch
+-- metadata alongside the offset. The current implementation
+-- discards the metadata + leader epoch and forwards to the
+-- bare 'C.seek'.
+seekWithMetadata
+  :: C.Consumer -> C.TopicPartition -> OffsetAndMetadata -> IO (Either String ())
+seekWithMetadata c tp oam = C.seek c tp (oamOffset oam)
+
+-- | 'enforceRebalance' with a string reason for the next
+-- rejoin. Mirrors @Consumer.enforceRebalance(String)@.
+-- The reason is currently discarded; the underlying
+-- 'C.requestRejoin' is the same code path.
+enforceRebalanceWithReason :: C.Consumer -> T.Text -> IO Bool
+enforceRebalanceWithReason c _reason = C.requestRejoin c

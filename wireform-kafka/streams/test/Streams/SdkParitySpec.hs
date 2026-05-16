@@ -16,6 +16,7 @@ import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
 import qualified Kafka.Client.Consumer as C
 import qualified Kafka.Client.ConsumerSdk as SDK
+import qualified Kafka.Client.AdminClient.Extras as Adm
 import qualified Kafka.Common as Common
 import qualified Kafka.Common.Acl as Acl
 import qualified Kafka.Common.Quota as Quota
@@ -50,6 +51,9 @@ tests = testGroup "SDK parity shims (audit pass)"
       , common_acl_wildcard
       , common_quota_helpers
       , timeextractor_use_partition_time
+      ]
+  , testGroup "Kafka.Client.AdminClient.Extras (v3 audit additions)"
+      [ admin_extras_value_smoke
       ]
   ]
 
@@ -224,3 +228,38 @@ timeextractor_use_partition_time =
 -- Local type-alias so the @ScopedTypeVariables@-flavoured signature
 -- in 'timeextractor_use_partition_time' reads cleanly.
 type TE k v = Kafka.Streams.Time.TimestampExtractor k v
+
+----------------------------------------------------------------------
+-- AdminClient.Extras
+----------------------------------------------------------------------
+
+-- Smoke test: the public types of the new admin operations are
+-- reachable and constructable. The operations themselves talk
+-- to a real broker and are covered by the integration suite
+-- under .github/workflows/wireform-kafka-integration.yml.
+admin_extras_value_smoke :: TestTree
+admin_extras_value_smoke =
+  testCase "Kafka.Client.AdminClient.Extras: public value types compose" $ do
+    let np = Adm.NewPartitions
+          { Adm.npTopicName      = "events"
+          , Adm.npTotalCount     = 6
+          , Adm.npNewAssignments = Just [[0, 1, 2], [1, 2, 0], [2, 0, 1]]
+          }
+    Adm.npTotalCount np @?= 6
+    let gl = Adm.GroupListing
+          { Adm.glGroupId      = "g1"
+          , Adm.glProtocolType = "consumer"
+          , Adm.glState        = Just Common.GroupStable
+          , Adm.glType         = Just Common.ConsumerGroup
+          }
+    Adm.glState gl @?= Just Common.GroupStable
+    let acrOk = Adm.AclCreationResult
+          { Adm.acrBinding =
+              Acl.AclBinding
+                (Resource.ResourcePattern Resource.ResourceTopic "t" Resource.PatternLiteral)
+                (Acl.AccessControlEntry "User:alice" "*" Acl.AclRead Acl.AclAllow)
+          , Adm.acrError = Nothing
+          }
+    Adm.acrError acrOk @?= Nothing
+    let adr = Adm.AclDeletionResult { Adm.adrDeletedCount = 3, Adm.adrError = Nothing }
+    Adm.adrDeletedCount adr @?= 3

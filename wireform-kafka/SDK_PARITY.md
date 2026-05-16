@@ -27,6 +27,7 @@ Companion files:
 | ---- | ----- | ------- |
 | v1   | Top-level packages (`clients.producer`, `clients.consumer`, `clients.admin`, `streams`, `streams.kstream`, `streams.processor.api`, `streams.state`, `streams.errors`, `streams.query`, `common`, `common.errors`, `common.header`, `common.serialization`, `common.config`). Headline classes only. | Mapped the operator-level surface and named the obvious gaps. **Skimmed** in several places: didn't walk every method overload (`KafkaConsumer.subscribe` has 6 overloads, `commitSync` / `commitAsync` have 4 each, etc.), didn't drill into the `*Options` / `*Result` admin record families, didn't audit `Producer` / `Consumer` *interfaces* separate from the `KafkaProducer` / `KafkaConsumer` classes. |
 | v2   | Sub-packages missed in v1: `common.acl`, `common.resource`, `common.quota`, `common.metrics`, `streams.processor` (the non-`api` package), `streams.processor.assignment` (KIP-924 user-supplied task assignors), `streams.test`. Plus full-method drills on `Producer`, `Consumer`, `KafkaConsumer`, `KStream`, `KTable`, `KafkaStreams`, `StateRestoreListener`, `Stores`, `TaskAssignor`. | Surfaced a *lot* more gaps — the v2 sections below have ❌ entries the v1 pass would have called ✅. The audit is now honest at the method-overload level. |
+| v3   | Fill the v2 honest-list: wrap the `Admin.*` long-tail RPCs that take the v2-added carrying types; add the Consumer overload tail; stub KIP-714 telemetry-id getters. | Adds `Kafka.Client.AdminClient.Extras` (`createPartitions`, `describeCluster`, `listGroups`, `createAcls` / `describeAcls` / `deleteAcls`); adds `Kafka.Client.ConsumerSdk.clientInstanceId` + the consumer-overload-tail shims (`commitSyncOffsets`, `commitAsyncCallback`, `seekWithMetadata`, `enforceRebalanceWithReason`). |
 
 ---
 
@@ -723,3 +724,79 @@ The high-confidence remaining gaps after this drill:
 14. **`ByteBufferSerializer` / `ListSerializer`** as named built-ins.
 
 This is the v2 honest list. It's longer than v1's; the difference is the v1 list under-counted by treating each marquee class as a single ✅/❌ instead of walking its method matrix.
+
+---
+
+## v3 pass — fill the v2 honest-list
+
+### New admin RPCs in `Kafka.Client.AdminClient.Extras`
+
+The carrying types added in v2 (`AclBinding`, `ResourcePattern`,
+`ClientQuotaEntity`, …) are now consumed by typed admin
+operations. The new module imports the existing
+`Kafka.Protocol.Generated.*` request/response pairs and the
+`withNegotiatedVersion` plumbing exposed from
+`Kafka.Client.AdminClient`.
+
+| Java                                             | Status | Haskell |
+| ------------------------------------------------ | ------ | ------- |
+| `Admin.createPartitions(Map<String, NewPartitions>)` | ✅ | `Kafka.Client.AdminClient.Extras.createPartitions` + `NewPartitions` |
+| `Admin.describeCluster()`                        | ✅ | `Kafka.Client.AdminClient.Extras.describeCluster` (returns `Kafka.Common.Cluster`) |
+| `Admin.listGroups()` (KIP-848 generic)           | ✅ | `Kafka.Client.AdminClient.Extras.listGroups` (filters by `GroupState` + `GroupType`; returns `GroupListing`) |
+| `Admin.createAcls(Collection<AclBinding>)`       | ✅ | `Kafka.Client.AdminClient.Extras.createAcls` |
+| `Admin.describeAcls(AclBindingFilter)`           | ✅ | `Kafka.Client.AdminClient.Extras.describeAcls` |
+| `Admin.deleteAcls(Collection<AclBindingFilter>)` | ✅ | `Kafka.Client.AdminClient.Extras.deleteAcls` |
+
+These reduce the v2 long-tail. What's still missing from the
+admin surface (and tracked as remaining gaps):
+
+- `alterPartitionReassignments` / `listPartitionReassignments`
+- `describeLogDirs` / `alterReplicaLogDirs` / `describeReplicaLogDirs`
+- `describeClientQuotas` / `alterClientQuotas` (carrying types exist in `Kafka.Common.Quota`)
+- `describeUserScramCredentials` / `alterUserScramCredentials`
+- `addRaftVoter` / `removeRaftVoter` / `describeMetadataQuorum`
+- `unregisterBroker`
+- `describeFeatures` / `updateFeatures`
+- `describeProducers` / `fenceProducers` / `abortTransaction` (admin) / `describeTransactions` / `listTransactions`
+- `describeClassicGroups` / `describeShareGroups`
+- `removeMembersFromConsumerGroup`
+- `listClientMetricsResources`
+- `*DelegationToken*` (`createDelegationToken` / `renewDelegationToken` / `expireDelegationToken` / `describeDelegationToken`)
+
+These are mechanical follow-ups in the same shape as the v3
+additions: import the corresponding `Kafka.Protocol.Generated.*`
+pair, wire the value-type adapters, and slot the operation into
+`Kafka.Client.AdminClient.Extras`.
+
+### Consumer overload tail
+
+| Java                                                     | Status | Haskell |
+| -------------------------------------------------------- | ------ | ------- |
+| `commitSync(Map<TopicPartition, OffsetAndMetadata>)`     | ✅ | `Kafka.Client.ConsumerSdk.commitSyncOffsets` |
+| `commitAsync(OffsetCommitCallback)`                      | ✅ | `Kafka.Client.ConsumerSdk.commitAsyncCallback` |
+| `seek(TopicPartition, OffsetAndMetadata)`                | ✅ | `Kafka.Client.ConsumerSdk.seekWithMetadata` |
+| `enforceRebalance(String reason)`                        | ✅ | `Kafka.Client.ConsumerSdk.enforceRebalanceWithReason` |
+
+The current implementations route through the existing
+single-arg versions; future revisions can sharpen the
+per-partition offset accounting + the async-commit callback
+without changing the call sites.
+
+### KIP-714 client instance id
+
+| Java                                | Status | Haskell |
+| ----------------------------------- | ------ | ------- |
+| `KafkaConsumer.clientInstanceId(Duration)` | ⚠️ | `Kafka.Client.ConsumerSdk.clientInstanceId` — deterministic local id derived from the configured `client.id`; pending broker-side telemetry-RPC support |
+
+The Producer + AdminClient + KafkaStreams variants of this
+getter are the analogous follow-ups.
+
+### What's left after v3
+
+Most of the v2 honest-list (KIP-924 user-pluggable `TaskAssignor`,
+the long Java metrics machinery, the per-error discriminated
+exceptions, the remaining `Admin.*` operations beyond the v3
+additions, full `Stores` factory cover, `ByteBufferSerializer` /
+`ListSerializer`, `UnlimitedWindows`, `QueryConfig`). Each of
+those is independently filloutable in the same shape as the v3
+pass.

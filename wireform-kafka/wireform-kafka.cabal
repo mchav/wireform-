@@ -115,6 +115,7 @@ library
         Kafka.Serde.Proto
         Kafka.Topic
         Kafka.Client.AdminClient
+        Kafka.Client.AdminClient.Extras
         Kafka.Client.AdminTimeouts
         Kafka.Client.ConfigValidation
         Kafka.Client.Env

@@ -117,6 +117,11 @@ module Kafka.Client.AdminClient
   , decodeResourceTypeCode
   , unpackResourceResult
   , unpackConfigEntry
+    -- * Internals (re-exported for Kafka.Client.AdminClient.Extras)
+  , withNegotiatedVersion
+  , extractText
+  , adminMetadataOf
+  , adminConfigOf
   ) where
 
 import Control.Concurrent.STM
@@ -386,6 +391,16 @@ formatMismatch (VN.VersionMismatch k cmin cmax bmin bmax) =
 -- @Left@ before the caller's action runs; the action itself
 -- only sees a successful @(conn, corrId, apiVersion)@ triple
 -- and returns the usual @Either String result@.
+-- | Read-only accessor for the admin client's metadata cache.
+-- Exposed for 'Kafka.Client.AdminClient.Extras'.
+adminMetadataOf :: AdminClient -> Meta.MetadataCache
+adminMetadataOf c = adminMetadata c
+
+-- | Read-only accessor for the admin client's 'AdminClientConfig'.
+-- Exposed for 'Kafka.Client.AdminClient.Extras'.
+adminConfigOf :: AdminClient -> AdminClientConfig
+adminConfigOf c = adminConfig c
+
 withNegotiatedVersion
   :: AdminClient
   -> Conn.BrokerAddress
