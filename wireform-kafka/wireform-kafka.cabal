@@ -444,6 +444,7 @@ library wireform-kafka-streams
         Kafka.Streams.Processor.Mock
         Kafka.Streams.Topology
         Kafka.Streams.Topology.Free
+        Kafka.Streams.Topology.Free.Optimize
         Kafka.Streams.TopologyDescription
         Kafka.Streams.Metrics
         Kafka.Streams.Stores

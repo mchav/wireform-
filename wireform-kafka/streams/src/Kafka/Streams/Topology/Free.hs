@@ -135,9 +135,34 @@ module Kafka.Streams.Topology.Free
   , SplitBranch (..)
 
     -- * Compilation
+  --
+  -- 'compile' applies a curated set of /semantics-preserving/
+  -- rewrites to the topology before walking it (see
+  -- "Kafka.Streams.Topology.Free.Optimize"). Use
+  -- 'compileNoOptimize' for golden-file or rewrite-debugging tests
+  -- where you want the AST untouched. 'compileWithOptimization'
+  -- lets you pick which rewrite families fire.
   , compile
+  , compileNoOptimize
+  , compileWithOptimization
+  , compileInBuilder
   , compileWith
   , apply
+
+    -- * Optimisation
+  --
+  -- See "Kafka.Streams.Topology.Free.Optimize" for the rewrite
+  -- list and configuration. 'optimize' is also re-exported from
+  -- "Kafka.Streams.Topology.Free.Optimize" so callers can pick
+  -- either module without changing import lists.
+  , optimize
+  , optimizeWith
+  , OptimizeConfig (..)
+  , defaultOptimizeConfig
+  , noOptimization
+  , countNodes
+  , OptimizationStats (..)
+  , optimizationStats
 
     -- * Constants for the type signatures
   , TBuilder
@@ -1114,15 +1139,38 @@ handleToKTable m h = KT.KTable
   }
 
 -- | Compile a closed-input topology into the existing
--- 'Kafka.Streams.Topology.Topology' graph. The output @o@ is
--- whatever the AST says — typically @()@ for a sink-closed
--- pipeline, but a freshly-compiled 'KStream' / 'KTable' is also
--- fine if the caller wants to keep wiring around the imperative
--- DSL.
+-- 'Kafka.Streams.Topology.Topology' graph.
+--
+-- The AST is first run through the default rewrite passes
+-- ('defaultOptimizeConfig'). The result is a topology with fused
+-- adjacent operators, collapsed identity nodes, and right-associated
+-- 'Compose' chains — fewer processor nodes, identical observable
+-- behaviour. Use 'compileNoOptimize' to bypass.
+--
+-- The output @o@ is whatever the AST says — typically @()@ for a
+-- sink-closed pipeline, but a freshly-compiled 'KStream' / 'KTable'
+-- is also fine if the caller wants to keep wiring around the
+-- imperative DSL.
 compile :: Topology Void o -> IO (o, Topo.Topology)
-compile t = do
+compile = compileWithOptimization defaultOptimizeConfig
+
+-- | Like 'compile' but skips the rewrite passes. Use this when
+-- you /need/ the AST and the compiled topology graph to line up
+-- node-for-node (golden-file tests, rewrite debugging,
+-- benchmarking the un-optimised path).
+compileNoOptimize :: Topology Void o -> IO (o, Topo.Topology)
+compileNoOptimize = compileWithOptimization noOptimization
+
+-- | 'compile' with an explicit 'OptimizeConfig'. Use this to
+-- enable a single rewrite family for an A\/B comparison or to
+-- skip a class of rewrites that's interacting with caller-side
+-- assumptions.
+compileWithOptimization
+  :: OptimizeConfig -> Topology Void o -> IO (o, Topo.Topology)
+compileWithOptimization cfg t = do
   b <- newStreamsBuilder
-  o <- apply t b voidInput
+  let !t' = optimizeWith cfg t
+  o <- apply t' b voidInput
   topo <- buildTopology b
   pure (o, topo)
   where
@@ -1134,13 +1182,21 @@ compile t = do
 
 -- | 'compile' against a pre-existing 'StreamsBuilder'. Useful when
 -- splicing a 'Topology' into a topology being built imperatively
--- through "Kafka.Streams.StreamsBuilder".
-compileWith :: TBuilder -> Topology Void o -> IO o
-compileWith b t = apply t b voidInput
+-- through "Kafka.Streams.StreamsBuilder". /Does not/ run the
+-- optimiser — when splicing into an existing imperative graph
+-- you usually want node-for-node correspondence between the
+-- 'Topology' AST and the resulting builder nodes.
+compileInBuilder :: TBuilder -> Topology Void o -> IO o
+compileInBuilder b t = apply t b voidInput
   where
     voidInput :: Void
     voidInput =
-      error "Kafka.Streams.Topology.Free.compileWith: void input forced"
+      error "Kafka.Streams.Topology.Free.compileInBuilder: void input forced"
+
+-- | Deprecated name for 'compileInBuilder'. Kept as an alias so
+-- existing call sites don't break.
+compileWith :: TBuilder -> Topology Void o -> IO o
+compileWith = compileInBuilder
 
 -- | Compile a closed topology and return only the resulting
 -- 'Topo.Topology'. Convenience wrapper around 'compile'.
@@ -1737,3 +1793,341 @@ inspect = go
 -- format — use it for debugging, not for parsing.
 prettyPrint :: Topology i o -> Text
 prettyPrint = T.intercalate " " . inspect
+
+----------------------------------------------------------------------
+-- Optimisation
+--
+-- Walks a 'Topology' and applies a curated set of /semantics-
+-- preserving/ rewrites that fuse adjacent operators, collapse
+-- identity nodes, and right-associate composition into a canonical
+-- form. The result is an AST that compiles to fewer topology graph
+-- nodes and therefore fewer record-forwarding hops at run time.
+--
+-- The rewrite set covers Category\/Arrow laws (Id collapse, Arr
+-- fusion, push-pure-through-First\/Second\/Parallel\/Fanout,
+-- right-associate Compose), KStream operator fusion
+-- (MapValues\/MapValuesM\/MapKeyValue\/FlatMapValues\/Filter\/
+-- FilterNot\/SelectKey\/Peek), and structural identity collapse
+-- (Tap Id, First Id, Parallel Id Id, etc).
+--
+-- What we deliberately /don't/ rewrite: reordering across
+-- @Filter '>>>' MapValues@ (the filter observes the pre-map
+-- record), global topic-level optimisations (those live in
+-- "Kafka.Streams.Topology.Optimization"), and removing observable
+-- effects ('Peek', 'Foreach' are preserved verbatim).
+----------------------------------------------------------------------
+
+-- | Toggles for the rewrite passes. Each flag controls one /family/
+-- of rewrites. Defaults enable everything.
+data OptimizeConfig = OptimizeConfig
+  { -- | Right-associate 'Compose' chains so adjacent operators
+    -- surface along the right spine for the fusion pass.
+    optAssociateCompose :: !Bool
+
+    -- | Fuse adjacent 'Arr' applications and push pure functions
+    -- through 'First', 'Second', 'Parallel', 'Fanout'.
+  , optFusePureFunctions :: !Bool
+
+    -- | Fuse adjacent 'MapValues' \/ 'MapValuesM' \/ 'MapKeyValue'.
+  , optFuseMaps          :: !Bool
+
+    -- | Fuse adjacent 'Filter' \/ 'FilterNot'.
+  , optFuseFilters       :: !Bool
+
+    -- | Fuse 'FlatMapValues' with adjacent 'MapValues' and itself.
+  , optFuseFlatMaps      :: !Bool
+
+    -- | Fuse adjacent 'SelectKey'.
+  , optFuseSelectKeys    :: !Bool
+
+    -- | Fuse adjacent 'Peek' callbacks.
+  , optFusePeeks         :: !Bool
+
+    -- | Collapse @'Tap' 'Id'@, @'First' 'Id'@, @'Parallel' 'Id'
+    -- 'Id'@, etc. to 'Id'.
+  , optCollapseIdentity  :: !Bool
+
+    -- | Upper bound on rewrite passes. Each iteration must reduce
+    -- node count or termination is forced; this is a belt-and-
+    -- braces guard against pathological inputs.
+  , optMaxPasses         :: !Int
+  }
+  deriving stock (Show)
+
+defaultOptimizeConfig :: OptimizeConfig
+defaultOptimizeConfig = OptimizeConfig
+  { optAssociateCompose  = True
+  , optFusePureFunctions = True
+  , optFuseMaps          = True
+  , optFuseFilters       = True
+  , optFuseFlatMaps      = True
+  , optFuseSelectKeys    = True
+  , optFusePeeks         = True
+  , optCollapseIdentity  = True
+  , optMaxPasses         = 8
+  }
+
+-- | Everything off — the AST passes through unchanged. Useful for
+-- A\/B comparisons in tests.
+noOptimization :: OptimizeConfig
+noOptimization = OptimizeConfig
+  { optAssociateCompose  = False
+  , optFusePureFunctions = False
+  , optFuseMaps          = False
+  , optFuseFilters       = False
+  , optFuseFlatMaps      = False
+  , optFuseSelectKeys    = False
+  , optFusePeeks         = False
+  , optCollapseIdentity  = False
+  , optMaxPasses         = 0
+  }
+
+-- | Apply the default optimisation passes until a fixed point on
+-- node count, or 'optMaxPasses' is exhausted.
+optimize :: Topology i o -> Topology i o
+optimize = optimizeWith defaultOptimizeConfig
+
+-- | 'optimize' with an explicit 'OptimizeConfig'.
+optimizeWith :: OptimizeConfig -> Topology i o -> Topology i o
+optimizeWith cfg = loop (optMaxPasses cfg)
+  where
+    loop :: Int -> Topology i o -> Topology i o
+    loop 0 t = t
+    loop n t =
+      let !t' = optimizePass cfg t
+          !before = countNodes t
+          !after  = countNodes t'
+       in if after < before then loop (n - 1) t' else t'
+
+-- | One bottom-up rewrite pass.
+optimizePass :: OptimizeConfig -> Topology i o -> Topology i o
+optimizePass cfg = go
+  where
+    go :: forall a b. Topology a b -> Topology a b
+    go (Compose g f) = smartCompose cfg (go g) (go f)
+    go (First t)     = collapseFirst cfg (go t)
+    go (Second t)    = collapseSecond cfg (go t)
+    go (Parallel p q)= collapseParallel cfg (go p) (go q)
+    go (Fanout p q)  = collapseFanout cfg (go p) (go q)
+    go (LeftT t)     = collapseLeft cfg (go t)
+    go (RightT t)    = collapseRight cfg (go t)
+    go (Plus p q)    = collapsePlus cfg (go p) (go q)
+    go (Fanin p q)   = Fanin (go p) (go q)
+    go (ForkN ts)    = ForkN (NE.map go ts)
+    go (Tap t)       = collapseTap cfg (go t)
+    -- Leaf operators are unchanged; nothing to recurse into.
+    go x             = x
+
+----------------------------------------------------------------------
+-- Identity collapses on structural combinators
+----------------------------------------------------------------------
+
+collapseFirst :: OptimizeConfig -> Topology a b -> Topology (a, c) (b, c)
+collapseFirst cfg Id      | optCollapseIdentity  cfg = Id
+collapseFirst cfg (Arr f) | optFusePureFunctions cfg =
+  Arr (\(a, c) -> (f a, c))
+collapseFirst _ t = First t
+
+collapseSecond :: OptimizeConfig -> Topology a b -> Topology (c, a) (c, b)
+collapseSecond cfg Id      | optCollapseIdentity  cfg = Id
+collapseSecond cfg (Arr f) | optFusePureFunctions cfg =
+  Arr (\(c, a) -> (c, f a))
+collapseSecond _ t = Second t
+
+collapseParallel
+  :: OptimizeConfig
+  -> Topology a b -> Topology c d -> Topology (a, c) (b, d)
+collapseParallel cfg Id      Id | optCollapseIdentity  cfg = Id
+collapseParallel cfg (Arr f) (Arr g) | optFusePureFunctions cfg =
+  Arr (\(a, c) -> (f a, g c))
+collapseParallel _ p q = Parallel p q
+
+collapseFanout
+  :: OptimizeConfig
+  -> Topology a b -> Topology a c -> Topology a (b, c)
+collapseFanout cfg (Arr f) (Arr g) | optFusePureFunctions cfg =
+  Arr (\a -> (f a, g a))
+collapseFanout _ p q = Fanout p q
+
+collapseLeft
+  :: OptimizeConfig
+  -> Topology a b -> Topology (Either a c) (Either b c)
+collapseLeft cfg Id | optCollapseIdentity cfg = Id
+collapseLeft _ t = LeftT t
+
+collapseRight
+  :: OptimizeConfig
+  -> Topology a b -> Topology (Either c a) (Either c b)
+collapseRight cfg Id | optCollapseIdentity cfg = Id
+collapseRight _ t = RightT t
+
+collapsePlus
+  :: OptimizeConfig
+  -> Topology a b -> Topology c d -> Topology (Either a c) (Either b d)
+collapsePlus cfg Id Id | optCollapseIdentity cfg = Id
+collapsePlus _ p q = Plus p q
+
+collapseTap :: OptimizeConfig -> Topology a () -> Topology a a
+collapseTap cfg Id | optCollapseIdentity cfg = Id
+collapseTap _ t = Tap t
+
+----------------------------------------------------------------------
+-- Smart 'Compose': right-associate + fuse along the right spine
+----------------------------------------------------------------------
+
+smartCompose
+  :: forall a b c. OptimizeConfig -> Topology b c -> Topology a b -> Topology a c
+smartCompose cfg g f =
+  case fuseStep cfg g f of
+    Just gf -> gf
+    Nothing ->
+      case f of
+        -- If 'f' is itself a Compose, attempt to fuse 'g' with its
+        -- head 'h' along the right spine.
+        Compose h i ->
+          case fuseStep cfg g h of
+            Just gh -> smartCompose cfg gh i
+            Nothing -> Compose g (Compose h i)
+        _ -> case g of
+          Compose h i | optAssociateCompose cfg ->
+            -- Right-associate: (h . i) . f -> h . (i . f)
+            smartCompose cfg h (smartCompose cfg i f)
+          _ -> Compose g f
+
+----------------------------------------------------------------------
+-- The fuse rule table
+----------------------------------------------------------------------
+
+-- | Return the fused operator if @g '.' f@ matches one of the
+-- recognised patterns. The result must be /semantically equivalent/
+-- to running @f@ then @g@ in sequence; the only thing it changes is
+-- the number of topology graph nodes.
+fuseStep
+  :: forall a b c
+   . OptimizeConfig
+  -> Topology b c
+  -> Topology a b
+  -> Maybe (Topology a c)
+fuseStep cfg g f = case (g, f) of
+  -- Identity collapses
+  (Id, _) | optCollapseIdentity cfg -> Just f
+  (_, Id) | optCollapseIdentity cfg -> Just g
+
+  -- Pure-function fusion
+  (Arr g', Arr f') | optFusePureFunctions cfg -> Just (Arr (g' . f'))
+
+  -- MapValues family
+  (MapValues g', MapValues f') | optFuseMaps cfg ->
+    Just (MapValues (g' . f'))
+  (MapValuesM g', MapValues f') | optFuseMaps cfg ->
+    Just (MapValuesM (g' . f'))
+  (MapValues g', MapValuesM f') | optFuseMaps cfg ->
+    Just (MapValuesM (\v -> g' <$> f' v))
+  (MapValuesM g', MapValuesM f') | optFuseMaps cfg ->
+    Just (MapValuesM (\v -> f' v >>= g'))
+
+  -- MapKeyValue family
+  (MapKeyValue g', MapKeyValue f') | optFuseMaps cfg ->
+    Just (MapKeyValue (\k v ->
+                         let (!k', !v') = f' k v
+                          in g' k' v'))
+  (MapKeyValueM g', MapKeyValue f') | optFuseMaps cfg ->
+    Just (MapKeyValueM (\k v ->
+                           let (!k', !v') = f' k v
+                            in g' k' v'))
+  (MapKeyValue g', MapKeyValueM f') | optFuseMaps cfg ->
+    Just (MapKeyValueM (\k v -> do
+                           (!k', !v') <- f' k v
+                           pure (g' k' v')))
+  (MapKeyValueM g', MapKeyValueM f') | optFuseMaps cfg ->
+    Just (MapKeyValueM (\k v -> do
+                            (!k', !v') <- f' k v
+                            g' k' v'))
+
+  -- FlatMap fusion
+  (FlatMapValues g', MapValues f') | optFuseFlatMaps cfg ->
+    Just (FlatMapValues (g' . f'))
+  (MapValues g', FlatMapValues f') | optFuseFlatMaps cfg ->
+    Just (FlatMapValues (fmap g' . f'))
+  (FlatMapValues g', FlatMapValues f') | optFuseFlatMaps cfg ->
+    Just (FlatMapValues (\v -> concatMap g' (f' v)))
+
+  -- Filter / FilterNot fusion. 'f' runs first, so the conjunction's
+  -- left-hand side is the inner predicate.
+  (Filter p2, Filter p1) | optFuseFilters cfg ->
+    Just (Filter (\r -> p1 r && p2 r))
+  (FilterNot p2, FilterNot p1) | optFuseFilters cfg ->
+    Just (FilterNot (\r -> p1 r || p2 r))
+  (Filter p, FilterNot q) | optFuseFilters cfg ->
+    Just (Filter (\r -> not (q r) && p r))
+  (FilterNot q, Filter p) | optFuseFilters cfg ->
+    Just (Filter (\r -> p r && not (q r)))
+
+  -- SelectKey fusion. The outer 'SelectKey' sees the re-keyed
+  -- record; we synthesise the intermediate 'Record k' v' for it.
+  (SelectKey g', SelectKey f') | optFuseSelectKeys cfg ->
+    Just (SelectKey (\r ->
+            let !k' = f' r
+                !r' = r { recordKey = Just k' }
+             in g' r'))
+
+  -- Peek fusion. 'inner' runs first, then 'outer' — both observe
+  -- the same record, no order change.
+  (Peek g', Peek f') | optFusePeeks cfg ->
+    Just (Peek (\r -> f' r >> g' r))
+
+  _ -> Nothing
+
+----------------------------------------------------------------------
+-- Node counting and optimization statistics
+----------------------------------------------------------------------
+
+-- | Count the constructors in a 'Topology' AST.
+countNodes :: Topology i o -> Int
+countNodes = go
+  where
+    go :: forall a b. Topology a b -> Int
+    go Id              = 1
+    go (Compose g f)   = 1 + go g + go f
+    go (Arr _)         = 1
+    go (First t)       = 1 + go t
+    go (Second t)      = 1 + go t
+    go (Parallel p q)  = 1 + go p + go q
+    go (Fanout p q)    = 1 + go p + go q
+    go (LeftT t)       = 1 + go t
+    go (RightT t)      = 1 + go t
+    go (Plus p q)      = 1 + go p + go q
+    go (Fanin p q)     = 1 + go p + go q
+    go Fork            = 1
+    go (ForkN ts)      = 1 + sum (NE.map go ts)
+    go (Tap t)         = 1 + go t
+    go (Split _ _)     = 1
+    -- All remaining leaves: source/sink/transform/aggregator etc.
+    go _               = 1
+
+-- | Before \/ after node counts plus the absolute and relative
+-- reduction the default rewrite passes achieve. Useful in tests
+-- and benchmarks as a sanity check on the optimiser.
+data OptimizationStats = OptimizationStats
+  { osBefore     :: !Int
+  , osAfter      :: !Int
+  , osNodesSaved :: !Int
+  , osPercent    :: !Double
+  }
+  deriving stock (Eq, Show)
+
+-- | 'OptimizationStats' for applying the default 'optimize' to @t@.
+optimizationStats :: Topology i o -> OptimizationStats
+optimizationStats t =
+  let !before = countNodes t
+      !after  = countNodes (optimize t)
+      !saved  = before - after
+      !pct    = if before == 0
+                  then 0
+                  else fromIntegral saved * 100 / fromIntegral before
+   in OptimizationStats
+        { osBefore     = before
+        , osAfter      = after
+        , osNodesSaved = saved
+        , osPercent    = pct
+        }
