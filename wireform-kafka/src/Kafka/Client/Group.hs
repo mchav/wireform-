@@ -102,6 +102,8 @@ module Kafka.Client.Group
 
 import Control.Concurrent (threadDelay)
 import Control.Exception
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
   ( SomeException
   , bracket
   , catch
@@ -263,17 +265,19 @@ underlyingConsumer = groupConsumer
 -- subscription fails — the caller can catch and retry the whole
 -- bracket if needed.
 withGroupConsumer
-  :: GroupConfig
-  -> (GroupConsumer -> IO a)
-  -> IO a
+  :: MonadUnliftIO m
+  => GroupConfig
+  -> (GroupConsumer -> m a)
+  -> m a
 withGroupConsumer cfg@GroupConfig{..} body = do
   validateConfig cfg
-  bracket open close $ \gc -> do
-    subResult <- C.subscribe (groupConsumer gc) topics
-    case subResult of
-      Left err -> throwIO $ Errors.connectError
-        (T.pack ("wireform-kafka: subscribe failed: " <> err))
-      Right () -> body gc
+  withRunInIO $ \run ->
+    bracket open close $ \gc -> do
+      subResult <- C.subscribe (groupConsumer gc) topics
+      case subResult of
+        Left err -> throwIO $ Errors.connectError
+          (T.pack ("wireform-kafka: subscribe failed: " <> err))
+        Right () -> run (body gc)
   where
     open = do
       let connBase = Conn.defaultConnectionConfig
@@ -313,8 +317,8 @@ withGroupConsumer cfg@GroupConfig{..} body = do
     close gc = C.closeConsumerWithTimeout (groupConsumer gc) (closeTimeoutMs (groupConfig gc))
 
 -- | A single 'C.poll' against the underlying consumer.
-pollOnce :: GroupConsumer -> IO [C.ConsumerRecord]
-pollOnce GroupConsumer{..} = do
+pollOnce :: MonadIO m => GroupConsumer -> m [C.ConsumerRecord]
+pollOnce GroupConsumer{..} = liftIO $ do
   r <- C.poll groupConsumer (pollTimeoutMs groupConfig)
   case r of
     Right xs -> pure xs
@@ -325,8 +329,8 @@ pollOnce GroupConsumer{..} = do
 -- | Commit current offsets according to the configured 'CommitMode'.
 -- 'CommitManual' is a no-op (the caller is expected to drive their
 -- own commits).
-commit :: GroupConsumer -> IO ()
-commit gc@GroupConsumer{groupConfig = GroupConfig{..}} =
+commit :: MonadIO m => GroupConsumer -> m ()
+commit gc@GroupConsumer{groupConfig = GroupConfig{..}} = liftIO $
   case commitMode of
     CommitManual -> pure ()
     CommitAsync  -> do
@@ -342,7 +346,7 @@ commit gc@GroupConsumer{groupConfig = GroupConfig{..}} =
 
 -- | Currently-assigned partitions for this consumer. Useful for
 -- rebalance-aware logging.
-currentAssignment :: GroupConsumer -> IO [C.TopicPartition]
+currentAssignment :: MonadIO m => GroupConsumer -> m [C.TopicPartition]
 currentAssignment GroupConsumer{..} = C.assignment groupConsumer
 
 -- | Run a consumer loop: call the handler once per record, commit
@@ -353,15 +357,18 @@ currentAssignment GroupConsumer{..} = C.assignment groupConsumer
 -- a final commit (in 'CommitSync' mode) when the body returns or
 -- throws.
 runConsumer
-  :: GroupConfig
-  -> (C.ConsumerRecord -> IO ())
-  -> IO ()
+  :: MonadUnliftIO m
+  => GroupConfig
+  -> (C.ConsumerRecord -> m ())
+  -> m ()
 runConsumer cfg handler =
-  withGroupConsumer cfg $ \gc -> do
-    keepGoing <- newIORef True
-    loop gc keepGoing
+  withRunInIO $ \run -> do
+    let ioHandler rec = run (handler rec)
+    withGroupConsumer cfg $ \gc -> do
+      keepGoing <- newIORef True
+      loop ioHandler gc keepGoing
   where
-    loop gc keepGoing = do
+    loop hio gc keepGoing = do
       go <- readIORef keepGoing
       when go $ do
         records <- pollOnce gc
@@ -369,13 +376,15 @@ runConsumer cfg handler =
           [] -> do
             -- Nothing right now; tiny back-off so we don't spin.
             threadDelay 50000  -- 50 ms
-            loop gc keepGoing
+            loop hio gc keepGoing
           rs -> do
             forM_ rs $ \rec -> do
-              keep <- runHandler (groupConfig gc) handler rec
+              keep <- runHandler (groupConfig gc) hio rec
               unless keep $ writeIORef keepGoing False
             commit gc
-            loop gc keepGoing
+            loop hio gc keepGoing
+{-# INLINABLE runConsumer #-}
+{-# SPECIALIZE runConsumer :: GroupConfig -> (C.ConsumerRecord -> IO ()) -> IO () #-}
 
 -- | Same as 'runConsumer' but the handler receives a whole batch at a
 -- time (whatever 'C.poll' returned). Use this for higher-throughput
@@ -385,32 +394,37 @@ runConsumer cfg handler =
 -- throws, no offsets are committed for that batch. The 'ErrorPolicy'
 -- still controls whether the loop stops.
 runBatchedConsumer
-  :: GroupConfig
-  -> (V.Vector C.ConsumerRecord -> IO ())
-  -> IO ()
+  :: MonadUnliftIO m
+  => GroupConfig
+  -> (V.Vector C.ConsumerRecord -> m ())
+  -> m ()
 runBatchedConsumer cfg handler =
-  withGroupConsumer cfg $ \gc -> do
-    keepGoing <- newIORef True
-    loop gc keepGoing
+  withRunInIO $ \run -> do
+    let ioHandler vec = run (handler vec)
+    withGroupConsumer cfg $ \gc -> do
+      keepGoing <- newIORef True
+      loop ioHandler gc keepGoing
   where
-    loop gc keepGoing = do
+    loop hio gc keepGoing = do
       go <- readIORef keepGoing
       when go $ do
         records <- pollOnce gc
         case records of
           [] -> do
             threadDelay 50000
-            loop gc keepGoing
+            loop hio gc keepGoing
           rs -> do
-            outcome <- (Right <$> handler (V.fromList rs))
+            outcome <- (Right <$> hio (V.fromList rs))
                         `catch` \(e :: SomeException) -> pure (Left e)
             case outcome of
-              Right () -> commit gc >> loop gc keepGoing
+              Right () -> commit gc >> loop hio gc keepGoing
               Left e   -> do
                 keep <- handleError (groupConfig gc) e
                 if keep
-                  then loop gc keepGoing
+                  then loop hio gc keepGoing
                   else pure ()
+{-# INLINABLE runBatchedConsumer #-}
+{-# SPECIALIZE runBatchedConsumer :: GroupConfig -> (V.Vector C.ConsumerRecord -> IO ()) -> IO () #-}
 
 runHandler
   :: GroupConfig
@@ -441,8 +455,8 @@ handlePolicy policy e = case policy of
       ("[wireform-kafka] handler exception: " <> show ex)
 
 -- | Cheap sanity checks before we even open a network connection.
-validateConfig :: GroupConfig -> IO ()
-validateConfig GroupConfig{..} = do
+validateConfig :: MonadIO m => GroupConfig -> m ()
+validateConfig GroupConfig{..} = liftIO $ do
   let cfgErr msg = throwIO $ Errors.configurationError [msg]
   when (null bootstrapBrokers) $
     cfgErr "bootstrapBrokers must be non-empty"

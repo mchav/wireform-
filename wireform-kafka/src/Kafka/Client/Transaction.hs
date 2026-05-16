@@ -110,6 +110,8 @@ module Kafka.Client.Transaction
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import Control.Exception (Exception, try, SomeException)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Control.Monad (unless)
 import Data.IORef
   ( IORef
@@ -222,14 +224,15 @@ data TransactionError
 instance Exception TransactionError
 
 -- | Create a new transaction handle with all required infrastructure
-createTransaction :: TransactionalId
+createTransaction :: MonadIO m
+                  => TransactionalId
                   -> ConnectionManager
                   -> ApiVersionCache
                   -> Text  -- ^ Client ID
                   -> BrokerAddress  -- ^ Bootstrap broker
                   -> Int32  -- ^ Transaction timeout (ms)
-                  -> IO Transaction
-createTransaction transactionalId connMgr versionCache clientId bootstrapBroker timeoutMs = do
+                  -> m Transaction
+createTransaction transactionalId connMgr versionCache clientId bootstrapBroker timeoutMs = liftIO $ do
   producerId <- newIORef Nothing
   producerEpoch <- newIORef Nothing
   state <- newIORef Uninitialized
@@ -294,8 +297,8 @@ isValidTransition from to = case (from, to) of
 -- | Initialize transactions (KIP-98)
 -- This must be called before any transactional operations.
 -- It discovers the transaction coordinator and obtains a producer ID.
-initTransactions :: Transaction -> IO (Either TransactionError ())
-initTransactions txn = do
+initTransactions :: MonadIO m => Transaction -> m (Either TransactionError ())
+initTransactions txn = liftIO $ do
   state <- getTransactionState txn
   case state of
     Uninitialized -> do
@@ -415,8 +418,8 @@ initProducerIdWithRetry txn coordinator transactionalId attemptsLeft = do
       _                                -> False
 
 -- | Begin a new transaction (KIP-98)
-beginTransaction :: Transaction -> IO (Either TransactionError ())
-beginTransaction txn = do
+beginTransaction :: MonadIO m => Transaction -> m (Either TransactionError ())
+beginTransaction txn = liftIO $ do
   state <- getTransactionState txn
   case state of
     Ready -> do
@@ -439,8 +442,8 @@ beginTransaction txn = do
     _ -> return $ Left $ InvalidStateTransition state InTransaction
 
 -- | Commit the current transaction (KIP-98)
-commitTransaction :: Transaction -> IO (Either TransactionError ())
-commitTransaction txn = do
+commitTransaction :: MonadIO m => Transaction -> m (Either TransactionError ())
+commitTransaction txn = liftIO $ do
   state <- getTransactionState txn
   case state of
     InTransaction -> do
@@ -509,8 +512,8 @@ commitTransaction txn = do
     _ -> return $ Left $ InvalidStateTransition state Committing
 
 -- | Abort the current transaction (KIP-98)
-abortTransaction :: Transaction -> IO (Either TransactionError ())
-abortTransaction txn = do
+abortTransaction :: MonadIO m => Transaction -> m (Either TransactionError ())
+abortTransaction txn = liftIO $ do
   state <- getTransactionState txn
   case state of
     InTransaction -> do
@@ -579,31 +582,39 @@ abortTransaction txn = do
     
     _ -> return $ Left $ InvalidStateTransition state Aborting
 
--- | Execute an action within a transaction, automatically committing on success and aborting on exception
-withTransaction :: Transaction -> IO a -> IO (Either TransactionError a)
-withTransaction txn action = do
-  -- Begin transaction
-  beginResult <- beginTransaction txn
-  case beginResult of
-    Left err -> return $ Left err
-    Right () -> do
-      -- Execute action with automatic commit/abort
-      result <- try action
-      case result of
-        Right value -> do
-          commitResult <- commitTransaction txn
-          case commitResult of
-            Left err -> return $ Left err
-            Right () -> return $ Right value
-        Left (ex :: SomeException) -> do
-          -- Abort on any exception
-          _ <- abortTransaction txn
-          return $ Left $ TransactionAborted $ T.pack $ show ex
+-- | Execute an action within a transaction, automatically
+-- committing on success and aborting on exception. The action
+-- runs in the caller's monad; commit / abort always run in IO
+-- (the broker calls don't need 'MonadIO' polymorphism inside
+-- the bracket since they're internal to the lifecycle).
+withTransaction
+  :: MonadUnliftIO m
+  => Transaction
+  -> m a
+  -> m (Either TransactionError a)
+withTransaction txn action =
+  withRunInIO $ \run -> do
+    beginResult <- beginTransaction txn
+    case beginResult of
+      Left err -> pure (Left err)
+      Right () -> do
+        result <- try (run action)
+        case result of
+          Right value -> do
+            commitResult <- commitTransaction txn
+            case commitResult of
+              Left err -> pure (Left err)
+              Right () -> pure (Right value)
+          Left (ex :: SomeException) -> do
+            _ <- abortTransaction txn
+            pure (Left (TransactionAborted (T.pack (show ex))))
+{-# INLINABLE withTransaction #-}
+{-# SPECIALIZE withTransaction :: Transaction -> IO a -> IO (Either TransactionError a) #-}
 
 -- | Send a record within a transaction
 -- This tracks which partitions are involved in the transaction
-sendInTransaction :: Transaction -> TopicPartition -> IO (Either TransactionError ())
-sendInTransaction txn tp = do
+sendInTransaction :: MonadIO m => Transaction -> TopicPartition -> m (Either TransactionError ())
+sendInTransaction txn tp = liftIO $ do
   state <- getTransactionState txn
   case state of
     InTransaction -> do

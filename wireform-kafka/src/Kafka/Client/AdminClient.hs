@@ -137,6 +137,9 @@ import Network.Connection (Connection)
 
 import qualified Kafka.Client.Metadata as Meta
 import qualified Kafka.Errors as Errors
+
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.ApiVersions as AV
@@ -204,10 +207,11 @@ data AdminClient = AdminClient
 
 -- | Create a new admin client
 createAdminClient
-  :: [Text]                -- ^ Bootstrap broker addresses ("host:port")
+  :: MonadIO m
+  => [Text]                -- ^ Bootstrap broker addresses ("host:port")
   -> AdminClientConfig
-  -> IO (Either String AdminClient)
-createAdminClient brokerAddrs config = do
+  -> m (Either String AdminClient)
+createAdminClient brokerAddrs config = liftIO $ do
   -- Parse broker addresses
   let parsedBrokers = map parseBrokerAddress brokerAddrs
   
@@ -280,22 +284,28 @@ parseBrokerAddress addr =
 --   print results
 -- @
 withAdminClient
-  :: [Text]
+  :: MonadUnliftIO m
+  => [Text]
   -> AdminClientConfig
-  -> (AdminClient -> IO a)
-  -> IO a
-withAdminClient brokers cfg = bracket open closeAdminClient
+  -> (AdminClient -> m a)
+  -> m a
+withAdminClient brokers cfg body =
+  withRunInIO $ \run ->
+    bracket open closeAdminClient (run . body)
   where
+    open :: IO AdminClient
     open = do
       r <- createAdminClient brokers cfg
       case r of
         Left err -> throwIO $ Errors.connectError
           (T.pack ("wireform-kafka: createAdminClient failed: " <> err))
         Right c  -> pure c
+{-# INLINABLE withAdminClient #-}
+{-# SPECIALIZE withAdminClient :: [Text] -> AdminClientConfig -> (AdminClient -> IO a) -> IO a #-}
 
 -- | Close the admin client and clean up resources
-closeAdminClient :: AdminClient -> IO ()
-closeAdminClient AdminClient{..} = do
+closeAdminClient :: MonadIO m => AdminClient -> m ()
+closeAdminClient AdminClient{..} = liftIO $ do
   Conn.closeAllConnections adminConnManager
 
 -- | Get next correlation ID
@@ -436,10 +446,11 @@ data TopicDescription = TopicDescription
 -- | Create one or more topics
 -- Returns a list of (topic name, result) pairs
 createTopics
-  :: AdminClient
+  :: MonadIO m
+  => AdminClient
   -> [NewTopic]
-  -> IO (Either String [(Text, Either String ())])
-createTopics client@AdminClient{..} topics = do
+  -> m (Either String [(Text, Either String ())])
+createTopics client@AdminClient{..} topics = liftIO $ do
   -- Get any broker connection (Kafka will redirect to controller if needed)
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
   case brokersM of
@@ -508,7 +519,7 @@ createTopics client@AdminClient{..} topics = do
 -- This is the right helper for service-startup code that wants
 -- to assert "my topic exists with these settings" without caring
 -- whether it created it or inherited it.
-ensureTopic :: AdminClient -> NewTopic -> IO (Either String ())
+ensureTopic :: MonadIO m => AdminClient -> NewTopic -> m (Either String ())
 ensureTopic adm t = do
   r <- createTopics adm [t]
   case r of
@@ -523,10 +534,11 @@ ensureTopic adm t = do
 -- | Delete one or more topics
 -- Returns a list of (topic name, result) pairs
 deleteTopics
-  :: AdminClient
+  :: MonadIO m
+  => AdminClient
   -> [Text]
-  -> IO (Either String [(Text, Either String ())])
-deleteTopics client@AdminClient{..} topicNames = do
+  -> m (Either String [(Text, Either String ())])
+deleteTopics client@AdminClient{..} topicNames = liftIO $ do
   -- Get any broker connection (Kafka will redirect to controller if needed)
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
   case brokersM of
@@ -570,9 +582,10 @@ deleteTopics client@AdminClient{..} topicNames = do
 
 -- | List all topics in the cluster
 listTopics
-  :: AdminClient
-  -> IO (Either String [Text])
-listTopics client@AdminClient{..} = do
+  :: MonadIO m
+  => AdminClient
+  -> m (Either String [Text])
+listTopics client@AdminClient{..} = liftIO $ do
   -- Use Metadata API to list topics
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
   case brokersM of
@@ -616,10 +629,11 @@ listTopics client@AdminClient{..} = do
 
 -- | Describe one or more topics
 describeTopics
-  :: AdminClient
+  :: MonadIO m
+  => AdminClient
   -> [Text]
-  -> IO (Either String [TopicDescription])
-describeTopics client@AdminClient{..} topicNames = do
+  -> m (Either String [TopicDescription])
+describeTopics client@AdminClient{..} topicNames = liftIO $ do
   -- Use Metadata API to describe topics
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
   case brokersM of
@@ -715,9 +729,10 @@ data ConsumerGroupDescription = ConsumerGroupDescription
 
 -- | List all consumer groups in the cluster
 listConsumerGroups
-  :: AdminClient
-  -> IO (Either String [ConsumerGroupListing])
-listConsumerGroups client@AdminClient{..} = do
+  :: MonadIO m
+  => AdminClient
+  -> m (Either String [ConsumerGroupListing])
+listConsumerGroups client@AdminClient{..} = liftIO $ do
   -- Get any broker connection
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
   case brokersM of
@@ -754,10 +769,11 @@ listConsumerGroups client@AdminClient{..} = do
 
 -- | Describe one or more consumer groups
 describeConsumerGroups
-  :: AdminClient
+  :: MonadIO m
+  => AdminClient
   -> [Text]
-  -> IO (Either String [ConsumerGroupDescription])
-describeConsumerGroups client@AdminClient{..} groupIds = do
+  -> m (Either String [ConsumerGroupDescription])
+describeConsumerGroups client@AdminClient{..} groupIds = liftIO $ do
   -- Get any broker connection
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
   case brokersM of
@@ -812,10 +828,11 @@ describeConsumerGroups client@AdminClient{..} groupIds = do
 -- | Delete one or more consumer groups
 -- Returns a list of (group ID, result) pairs
 deleteConsumerGroups
-  :: AdminClient
+  :: MonadIO m
+  => AdminClient
   -> [Text]
-  -> IO (Either String [(Text, Either String ())])
-deleteConsumerGroups client@AdminClient{..} groupIds = do
+  -> m (Either String [(Text, Either String ())])
+deleteConsumerGroups client@AdminClient{..} groupIds = liftIO $ do
   -- Get any broker connection
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
   case brokersM of
@@ -899,10 +916,11 @@ data ConfigResourceResult = ConfigResourceResult
 -- level are surfaced via 'crrError'; transport-level failures
 -- collapse into the outer 'Left'.
 describeConfigs
-  :: AdminClient
+  :: MonadIO m
+  => AdminClient
   -> [ConfigResource]
-  -> IO (Either String [ConfigResourceResult])
-describeConfigs client@AdminClient{..} resources = do
+  -> m (Either String [ConfigResourceResult])
+describeConfigs client@AdminClient{..} resources = liftIO $ do
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
   case brokersM of
     Nothing       -> return $ Left "No brokers available"
@@ -1027,8 +1045,8 @@ unpackConfigEntry e =
 -- | Read the broker-supplied cluster id off the admin
 -- client's metadata cache. Returns 'Nothing' until the first
 -- successful refresh.
-adminClusterId :: AdminClient -> IO (Maybe Text)
-adminClusterId AdminClient{..} =
+adminClusterId :: MonadIO m => AdminClient -> m (Maybe Text)
+adminClusterId AdminClient{..} = liftIO $
   atomically (Meta.getClusterId adminMetadata)
 
 -- * List-topics filtering
@@ -1037,8 +1055,8 @@ adminClusterId AdminClient{..} =
 -- the @isInternal@ flag set: @__consumer_offsets@,
 -- @__transaction_state@, …). Mirrors the JVM client's
 -- @ListTopicsOptions.listInternal(false)@.
-listTopicsExcludeInternal :: AdminClient -> IO (Either String [Text])
-listTopicsExcludeInternal client@AdminClient{..} = do
+listTopicsExcludeInternal :: MonadIO m => AdminClient -> m (Either String [Text])
+listTopicsExcludeInternal client@AdminClient{..} = liftIO $ do
   -- Re-issues the same MetadataRequest 'listTopics' does but
   -- filters with the per-topic 'isInternal' flag.
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
@@ -1084,10 +1102,11 @@ listTopicsExcludeInternal client@AdminClient{..} = do
 -- Returns one entry per input resource: @Right ()@ on success,
 -- or @Left errorMessage@ for resources the broker rejected.
 alterConfigs
-  :: AdminClient
+  :: MonadIO m
+  => AdminClient
   -> [(ConfigResource, [(Text, Text)])]
-  -> IO (Either String [(ConfigResource, Either String ())])
-alterConfigs client@AdminClient{..} resources = do
+  -> m (Either String [(ConfigResource, Either String ())])
+alterConfigs client@AdminClient{..} resources = liftIO $ do
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
   case brokersM of
     Nothing -> return $ Left "No brokers available"
@@ -1164,10 +1183,11 @@ data AlterableConfigEntry = AlterableConfigEntry
 --
 -- Strongly preferred over 'alterConfigs' for new code.
 incrementalAlterConfigs
-  :: AdminClient
+  :: MonadIO m
+  => AdminClient
   -> [(ConfigResource, [AlterableConfigEntry])]
-  -> IO (Either String [(ConfigResource, Either String ())])
-incrementalAlterConfigs client@AdminClient{..} resources = do
+  -> m (Either String [(ConfigResource, Either String ())])
+incrementalAlterConfigs client@AdminClient{..} resources = liftIO $ do
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
   case brokersM of
     Nothing -> return $ Left "No brokers available"
@@ -1259,11 +1279,12 @@ data DeleteRecordsResultEntry = DeleteRecordsResultEntry
 -- supplied offset for each (topic, partition). Mirrors
 -- @AdminClient.deleteRecords(Map\<TopicPartition, RecordsToDelete\>)@.
 deleteRecords
-  :: AdminClient
+  :: MonadIO m
+  => AdminClient
   -> [(Text, Int32, Int64)]   -- ^ (topic, partition, offset)
-  -> IO (Either String [DeleteRecordsResultEntry])
+  -> m (Either String [DeleteRecordsResultEntry])
 deleteRecords _ [] = pure (Right [])
-deleteRecords client@AdminClient{..} entries = do
+deleteRecords client@AdminClient{..} entries = liftIO $ do
   brokersM <- atomically $ Meta.getAllBrokers adminMetadata
   case brokersM of
     Nothing -> return $ Left "No brokers available"
