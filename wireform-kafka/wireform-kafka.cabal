@@ -104,6 +104,10 @@ library
         liblz4
     exposed-modules:
         Kafka
+        Kafka.Common
+        Kafka.Common.Acl
+        Kafka.Common.Resource
+        Kafka.Common.Quota
         Kafka.Errors
         Kafka.Headers
         Kafka.Serde

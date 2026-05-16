@@ -16,10 +16,21 @@ import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
 import qualified Kafka.Client.Consumer as C
 import qualified Kafka.Client.ConsumerSdk as SDK
+import qualified Kafka.Common as Common
+import qualified Kafka.Common.Acl as Acl
+import qualified Kafka.Common.Quota as Quota
+import qualified Kafka.Common.Resource as Resource
 import qualified Kafka.Streams.Processor as P
 import qualified Kafka.Streams.Processor.Mock as M
 import Kafka.Streams.Types (Record (..), mkRecord)
-import Kafka.Streams.Time (Timestamp (..))
+import qualified Kafka.Streams.Time
+import Kafka.Streams.Time
+  ( StreamTime (..)
+  , Timestamp (..)
+  , initialStreamTime
+  , runTimestampExtractor
+  , usePartitionTimeOnInvalidTimestamp
+  )
 
 tests :: TestTree
 tests = testGroup "SDK parity shims (audit pass)"
@@ -33,6 +44,12 @@ tests = testGroup "SDK parity shims (audit pass)"
       [ mock_captures_forwards
       , mock_captures_punctuators
       , mock_commit_request_flag
+      ]
+  , testGroup "Kafka.Common (v2 audit additions)"
+      [ common_node_endpoint_smoke
+      , common_acl_wildcard
+      , common_quota_helpers
+      , timeextractor_use_partition_time
       ]
   ]
 
@@ -140,3 +157,70 @@ mock_commit_request_flag =
     M.commitRequested mock >>= (@?= True)
     M.readCommitRequested mock >>= (@?= True)
     M.commitRequested mock >>= (@?= False)
+
+----------------------------------------------------------------------
+-- Kafka.Common
+----------------------------------------------------------------------
+
+common_node_endpoint_smoke :: TestTree
+common_node_endpoint_smoke =
+  testCase "Kafka.Common: Node/Endpoint/Cluster value types compose" $ do
+    let !node = Common.Node 1 "broker-1" 9092 (Just "rack-a")
+        !ep   = Common.Endpoint "PLAINTEXT" "broker-1" 9092 "PLAINTEXT"
+        !cl   = Common.emptyCluster
+                  { Common.clusterId         = Just "cid"
+                  , Common.clusterNodes      = [node]
+                  , Common.clusterController = Just node
+                  }
+    Common.nodeId node @?= 1
+    Common.endpointPort ep @?= 9092
+    Common.clusterId cl @?= Just "cid"
+    Common.clusterController cl @?= Just node
+
+common_acl_wildcard :: TestTree
+common_acl_wildcard =
+  testCase "Kafka.Common.Acl: wildcard filter matches everything by construction" $ do
+    let f = Acl.anyAclBindingFilter
+    Acl.acefOperation (Acl.aclbfEntryFilter f)      @?= Acl.AclAnyOp
+    Acl.acefPermissionType (Acl.aclbfEntryFilter f) @?= Acl.AclAnyPerm
+    Resource.rpfResourceType (Acl.aclbfPatternFilter f)
+      @?= Resource.ResourceAny
+
+common_quota_helpers :: TestTree
+common_quota_helpers =
+  testCase "Kafka.Common.Quota: ClientQuotaEntity + filter helpers" $ do
+    let e = Quota.clientQuotaEntity
+              [ ("user", Just "alice")
+              , ("client-id", Nothing)
+              ]
+    Map.size (Quota.cqeEntries e) @?= 2
+    let c = Quota.exactMatch "user" "alice"
+    Quota.cqfcMatchType c @?= Quota.MatchExact "alice"
+    let d = Quota.defaultEntity "user"
+    Quota.cqfcMatchType d @?= Quota.MatchDefault
+
+timeextractor_use_partition_time :: TestTree
+timeextractor_use_partition_time =
+  testCase
+    "Kafka.Streams.Time.usePartitionTimeOnInvalidTimestamp: fall back to stream time on -1"
+    $ do
+        let ex :: TE T.Text T.Text
+            ex = usePartitionTimeOnInvalidTimestamp
+        -- Valid embedded timestamp ⇒ returned unchanged.
+        r1 <- runTimestampExtractor ex
+                (Just "k")
+                ("x" :: T.Text)
+                (Timestamp 100)
+                initialStreamTime
+        r1 @?= Timestamp 100
+        -- Sentinel -1 + known stream time ⇒ stream time.
+        r2 <- runTimestampExtractor ex
+                (Just "k")
+                ("x" :: T.Text)
+                (Timestamp (-1))
+                (StreamTime (Timestamp 42))
+        r2 @?= Timestamp 42
+
+-- Local type-alias so the @ScopedTypeVariables@-flavoured signature
+-- in 'timeextractor_use_partition_time' reads cleanly.
+type TE k v = Kafka.Streams.Time.TimestampExtractor k v

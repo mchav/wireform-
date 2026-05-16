@@ -21,6 +21,13 @@ Companion files:
 - [`CONFIG_PARITY.md`](CONFIG_PARITY.md) — `librdkafka` config-knob parity.
 - [`streams/README.md`](streams/README.md) — operator-level parity for the streams DSL.
 
+## Audit history
+
+| Pass | Scope | Outcome |
+| ---- | ----- | ------- |
+| v1   | Top-level packages (`clients.producer`, `clients.consumer`, `clients.admin`, `streams`, `streams.kstream`, `streams.processor.api`, `streams.state`, `streams.errors`, `streams.query`, `common`, `common.errors`, `common.header`, `common.serialization`, `common.config`). Headline classes only. | Mapped the operator-level surface and named the obvious gaps. **Skimmed** in several places: didn't walk every method overload (`KafkaConsumer.subscribe` has 6 overloads, `commitSync` / `commitAsync` have 4 each, etc.), didn't drill into the `*Options` / `*Result` admin record families, didn't audit `Producer` / `Consumer` *interfaces* separate from the `KafkaProducer` / `KafkaConsumer` classes. |
+| v2   | Sub-packages missed in v1: `common.acl`, `common.resource`, `common.quota`, `common.metrics`, `streams.processor` (the non-`api` package), `streams.processor.assignment` (KIP-924 user-supplied task assignors), `streams.test`. Plus full-method drills on `Producer`, `Consumer`, `KafkaConsumer`, `KStream`, `KTable`, `KafkaStreams`, `StateRestoreListener`, `Stores`, `TaskAssignor`. | Surfaced a *lot* more gaps — the v2 sections below have ❌ entries the v1 pass would have called ✅. The audit is now honest at the method-overload level. |
+
 ---
 
 ## `org.apache.kafka.clients.producer`
@@ -430,3 +437,289 @@ These are tracked as "honest list" gaps in this file. They are
 not blocking for the streams runtime + DSL parity (which is at
 100% for the kstream operator surface) or for the producer /
 consumer / transaction hot paths (which are at full parity).
+
+---
+
+## v2 pass — drill-down on classes the headline audit skimmed
+
+The headline audit above stops at the operator level. Going one
+level deeper exposes per-overload and sub-package gaps that
+weren't in v1. This section adds them.
+
+### `Producer` *interface* (separate from `KafkaProducer`)
+
+| Java method | Status | Haskell |
+| ----------- | ------ | ------- |
+| `initTransactions()` | ✅ | `Kafka.Client.Transaction.initTransactions` |
+| `beginTransaction()` | ✅ | `beginTransaction` |
+| `sendOffsetsToTransaction(...)` | ✅ | `commitOffsetsInTransaction` |
+| `commitTransaction()` / `abortTransaction()` | ✅ | `commitTransaction` / `abortTransaction` |
+| `registerMetricForSubscription(KafkaMetric)` / `unregisterMetricFromSubscription(KafkaMetric)` | ❌ | KIP-714 metric subscription |
+| `send(ProducerRecord)` / `send(ProducerRecord, Callback)` | ✅ | `sendMessage` / `sendMessageAsync` |
+| `flush()` | ✅ | `flushProducer` |
+| `partitionsFor(topic)` | ❌ | Use `Kafka.Client.AdminClient.describeTopics` |
+| `metrics()` (returning `Map<MetricName, ? extends Metric>`) | ⚠️ | `Kafka.Telemetry.Metrics` returns a flat-key registry, not the typed `MetricName` map |
+| `clientInstanceId(Duration)` | ❌ | KIP-714 telemetry id getter |
+| `close()` / `close(Duration)` | ✅ | `closeProducer` / `closeProducerWithTimeout` |
+
+### `Consumer` *interface* (separate from `KafkaConsumer`)
+
+Every overload. The v1 audit collapsed these into a single ✅ per method name; the real story:
+
+| Java method | Status | Haskell |
+| ----------- | ------ | ------- |
+| `assignment()` / `subscription()` | ✅ | `assignment` / *no `subscription` getter — use the ConsumerConfig* (⚠️) |
+| `subscribe(Collection<String>)` | ✅ | `subscribe` |
+| `subscribe(Collection<String>, ConsumerRebalanceListener)` | ⚠️ | Compose `subscribe` + `setRebalanceListener` — no single-shot overload |
+| `subscribe(Pattern)` / `subscribe(Pattern, ConsumerRebalanceListener)` | ❌ | `java.util.regex.Pattern` overload not exposed; the Haskell side has the `SubscriptionPattern` regex type but no `subscribe(pattern)` overload yet |
+| `subscribe(SubscriptionPattern)` / `subscribe(SubscriptionPattern, ConsumerRebalanceListener)` | ❌ | (same) |
+| `assign(Collection<TopicPartition>)` | ✅ | `assign` |
+| `unsubscribe()` | ✅ | `unsubscribe` |
+| `poll(Duration)` | ✅ | `poll` |
+| `commitSync()` | ✅ | `commitSync` |
+| `commitSync(Duration)` | ❌ | timeout overload |
+| `commitSync(Map<TopicPartition, OffsetAndMetadata>)` | ❌ | typed-offsets overload |
+| `commitSync(Map<TopicPartition, OffsetAndMetadata>, Duration)` | ❌ | both above |
+| `commitAsync()` | ✅ | `commitAsync` |
+| `commitAsync(OffsetCommitCallback)` | ⚠️ | The `OffsetCommitCallback` type exists in `Kafka.Client.ConsumerSdk`; the overload that *takes* it isn't wired to `commitAsync` yet |
+| `commitAsync(Map<TopicPartition, OffsetAndMetadata>, OffsetCommitCallback)` | ⚠️ | (same) |
+| `seek(TopicPartition, long)` / `seek(TopicPartition, OffsetAndMetadata)` | ⚠️ | first overload ✅; second (with metadata) ❌ |
+| `seekToBeginning` / `seekToEnd` | ✅ | same names |
+| `position(TopicPartition)` | ✅ | `position` |
+| `position(TopicPartition, Duration)` | ❌ | timeout overload |
+| `committed(Set<TopicPartition>)` | ✅ | `committed` / `committedAll` |
+| `committed(Set<TopicPartition>, Duration)` | ❌ | timeout overload |
+| `clientInstanceId(Duration)` | ❌ | KIP-714 telemetry id getter |
+| `metrics()` | ⚠️ | (same as Producer) |
+| `partitionsFor(topic)` / `partitionsFor(topic, Duration)` | ❌ | use `AdminClient.describeTopics` |
+| `listTopics()` / `listTopics(Duration)` | ❌ | use `AdminClient.listTopics` |
+| `paused()` | ✅ | `paused` |
+| `pause(Collection)` / `resume(Collection)` | ✅ | `pause` / `resume` |
+| `offsetsForTimes(Map)` / `offsetsForTimes(Map, Duration)` | ⚠️ | `offsetsForTimes` ✅ ; timeout overload ❌ |
+| `beginningOffsets(Collection)` / `beginningOffsets(Collection, Duration)` | ⚠️ | first ✅, timeout ❌ |
+| `endOffsets(Collection)` / `endOffsets(Collection, Duration)` | ⚠️ | first ✅, timeout ❌ |
+| `currentLag(TopicPartition)` | ❌ | KIP-666 lag getter (streams has `Kafka.Streams.Runtime.LagInfo`) |
+| `groupMetadata()` | ✅ | `Kafka.Client.ConsumerSdk.groupMetadata` |
+| `enforceRebalance()` / `enforceRebalance(String reason)` | ⚠️ | `requestRejoin` is the first; the `reason` overload isn't carried |
+| `close()` / `close(Duration)` | ✅ | `closeConsumer` / `closeConsumerWithTimeout` |
+| `wakeup()` | ❌ | Use async + STM/MVar cancellation patterns |
+| `registerMetricForSubscription` / `unregisterMetricFromSubscription` | ❌ | (same KIP-714 gap) |
+
+### `KafkaConsumer` (concrete; extras beyond the interface)
+
+| Java method | Status | Haskell |
+| ----------- | ------ | ------- |
+| `groupMetadata()` | ✅ | `groupMetadata` |
+| `assignmentLost()` | ❌ | KIP-848 lost-partitions accessor |
+| Static `createDeadLetterTopic` shortcuts | n/a | Not in the upstream Java SDK; handled by Streams `Kafka.Streams.Errors` handlers |
+
+### `KStream` overload drill-down
+
+The v1 audit marked these ✅; the real story is overload-level:
+
+| Java overload | Status | Haskell |
+| ------------- | ------ | ------- |
+| `filter(Predicate)` / `filter(Predicate, Named)` | ✅ | `filterStream` / `filterStreamNamed` |
+| `filterNot(Predicate)` / `filterNot(Predicate, Named)` | ✅ | `filterNotStream` (Named variant ⚠️ — same processor name handling) |
+| `map(KeyValueMapper)` / `map(KeyValueMapper, Named)` | ✅ | `mapKeyValue` / `mapKeyValueNamed` |
+| `mapValues(ValueMapper)` / `mapValues(ValueMapper, Named)` / `mapValues(ValueMapperWithKey)` / `mapValues(ValueMapperWithKey, Named)` | ⚠️ | Two overloads collapsed: the `WithKey` variant goes through `mapKeyValue` (where the function takes the key); the `Named` variants on `*WithKey` use the same processor-name knob |
+| `flatMap(KeyValueMapper)` / `flatMap(..., Named)` | ✅ | `flatMapKeyValue` |
+| `flatMapValues(ValueMapper)` / `flatMapValues(ValueMapper, Named)` / `flatMapValues(ValueMapperWithKey)` / `flatMapValues(..., Named)` | ⚠️ | Single Haskell signature; `Named` variants composed from `flatMapValues` + `*Named` |
+| `foreach(ForeachAction)` / `foreach(ForeachAction, Named)` | ✅ | `foreachStream` |
+| `peek(ForeachAction)` / `peek(ForeachAction, Named)` | ✅ | `peekStream` / `peekStreamNamed` |
+| `groupBy(KeyValueMapper)` / `groupBy(KeyValueMapper, Grouped)` | ✅ | `groupByStream` |
+| `groupByKey()` / `groupByKey(Grouped)` | ✅ | `groupByKey` |
+| `merge(KStream)` / `merge(KStream, Named)` | ✅ | `mergeStreams` |
+| `to(String)` / `to(String, Produced)` / `to(TopicNameExtractor)` / `to(TopicNameExtractor, Produced)` | ✅ | `toTopic` / `toExtracted` |
+| `repartition()` / `repartition(Repartitioned)` | ✅ | `repartition` / `repartitionWith` |
+| `selectKey(KeyValueMapper)` / `selectKey(KeyValueMapper, Named)` | ✅ | `selectKey` / `selectKeyNamed` |
+| `split()` / `split(Named)` | ⚠️ | `splitStream` is the unified entry; `Named` is folded into per-branch `Branched` records |
+| `print(Printed)` | ✅ | `Kafka.Streams.Printed.printKStream` |
+| `process(ProcessorSupplier, String...)` | ✅ | `processStream` |
+| `processValues(FixedKeyProcessorSupplier, String...)` | ✅ | `processValuesStream` |
+| `join` / `leftJoin` / `outerJoin` (stream-stream, 4 overloads each: default-serde / `StreamJoined` / windowed / windowed+`StreamJoined`) | ⚠️ | Default-serde + `StreamJoined` paths ✅; the four overloads collapse to one Haskell signature (`Joined` covers the optional serdes) |
+| `join` / `leftJoin` (KTable, 2 overloads: default / `Joined`) | ✅ | `joinKStreamKTable` / `leftJoinKStreamKTable` (the `Joined` knob is on `Kafka.Streams.Joined`) |
+| `join` / `leftJoin` (GlobalKTable, 4 overloads: default-key-mapper / `Named` / `ValueJoinerWithKey` / `Named` + `ValueJoinerWithKey`) | ⚠️ | `joinKStreamGlobalKTable` / `leftJoinKStreamGlobalKTable` — the `WithKey` joiner variant requires composing through `mapKeyValue` |
+| `toTable()` / `toTable(Named)` / `toTable(Materialized)` / `toTable(Named, Materialized)` | ⚠️ | `toTable` takes a `Materialized` always; the `Named` variants compose `toTable` + a named pass-through |
+
+### `KTable` overload drill-down
+
+Same shape: every Java method has 2–4 overloads (default / `Materialized` / `Named` / `Named + Materialized`). Haskell collapses these to a single combinator with the optional `Named` going through `Kafka.Streams.Named.namedOr`. The functional reach is identical; the per-overload tally is ⚠️ for everything other than the headline single-arg form.
+
+Notable concrete gaps in `KTable`:
+
+| Java method | Status | Haskell |
+| ----------- | ------ | ------- |
+| `queryableStoreName()` | ✅ | `ktableStore` (a `StoreName`, not a `String`) |
+| `suppress(Suppressed)` | ✅ | `suppressKStream` etc. (returns `KStream`, not `KTable`; documented in `streams/README.md`) |
+| `toStream(KeyValueMapper)` (rekeying variant) | ⚠️ | `toKStreamFromKTable` followed by `selectKey`; not a single call |
+| `toStream(Named)` | ⚠️ | Same — compose with `Named` |
+| `join` / `leftJoin` (foreign-key, with `Named` overload) | ⚠️ | `foreignKeyJoinKTable` covers the default; the `Named` form folds through `TableJoined` |
+
+### `Stores` factory
+
+Java factory methods (audited against the [Stores Javadoc](https://kafka.apache.org/40/javadoc/org/apache/kafka/streams/state/Stores.html)):
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `persistentKeyValueStore(name)` | ✅ | `Kafka.Streams.Stores.persistentKeyValueStore` |
+| `persistentTimestampedKeyValueStore(name)` | ⚠️ | use `timestampedKeyValueStore` + persistent backing supplier |
+| `persistentVersionedKeyValueStore(name, historyRetention)` | ⚠️ | `versionedKeyValueStore` (in-memory only; no `persistent` variant yet) |
+| `persistentVersionedKeyValueStore(name, historyRetention, segmentInterval)` | ❌ | The two-arg overload isn't exposed |
+| `inMemoryKeyValueStore(name)` | ✅ | `inMemoryKeyValueStore` |
+| `lruMap(name, maxCacheSize)` | ✅ | `lruMap` |
+| `persistentWindowStore(name, retentionPeriod, windowSize, retainDuplicates)` | ❌ | The persistent window backend isn't exposed in the public `Stores` re-exports |
+| `persistentTimestampedWindowStore(...)` | ❌ | (same) |
+| `inMemoryWindowStore(name, retentionPeriod, windowSize, retainDuplicates)` | ⚠️ | `inMemoryWindowStore` exists but takes `(name, size, retention)` — argument order + the `retainDuplicates` knob differ |
+| `persistentSessionStore(name, retentionPeriod)` | ❌ | Persistent session backend not exposed |
+| `inMemorySessionStore(name, retentionPeriod)` | ✅ | `inMemorySessionStore` |
+| `keyValueStoreBuilder(supplier, keySerde, valueSerde)` | ✅ | `StoreBuilderKV` plumbing in `Kafka.Streams.State.Store` |
+| `timestampedKeyValueStoreBuilder(...)` | ⚠️ | Same plumbing; no dedicated `timestampedKeyValueStoreBuilder` name |
+| `versionedKeyValueStoreBuilder(...)` | ⚠️ | (same) |
+| `windowStoreBuilder(...)` | ✅ | `StoreBuilderW` plumbing |
+| `timestampedWindowStoreBuilder(...)` | ⚠️ | (same) |
+| `sessionStoreBuilder(...)` | ✅ | `StoreBuilderS` plumbing |
+
+### `org.apache.kafka.streams.processor` (the non-`api` package)
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `BatchingStateRestoreCallback` | ❌ | (deprecated in favour of `StateRestoreListener`) |
+| `Cancellable` | ✅ | `Kafka.Streams.Processor.Cancellable` |
+| `CommitCallback` | ❌ | Store-side commit hook |
+| `ConnectedStoreProvider` | ⚠️ | Encoded via the `StoreBuilder` returned from `ProcessorSupplier` |
+| `ExtractRecordMetadataTimestamp` | ✅ | `Kafka.Streams.Time.extractRecordMetadataTimestamp` (added in this audit pass) |
+| `FailOnInvalidTimestamp` | ✅ | `Kafka.Streams.Time.failOnNoTimestampExtractor` |
+| `LogAndSkipOnInvalidTimestamp` | ✅ | `Kafka.Streams.Time.logAndSkipOnNoTimestamp` |
+| `UsePartitionTimeOnInvalidTimestamp` | ✅ | `Kafka.Streams.Time.usePartitionTimeOnInvalidTimestamp` (added in this audit pass) |
+| `WallclockTimestampExtractor` | ✅ | `Kafka.Streams.Time.wallClockTimestampExtractor` |
+| `MockProcessorContext` (legacy, in `processor`) | ⚠️ | Use `Kafka.Streams.Processor.Mock` (the `processor.api` variant) |
+| `Punctuator` / `PunctuationType` | ✅ | same names in `Kafka.Streams.Processor` |
+| `RecordContext` | ⚠️ | Folded into `ProcessorContext` (which carries `ctxRecordMetadata` + `ctxRecordHeaders`) |
+| `StateRestoreCallback` | ❌ | The runtime owns the changelog-replay path; no user-supplied callback yet |
+| `StateRestoreListener` | ✅ | `Kafka.Streams.Runtime.StateRestoreListener` (added in this audit pass with all four methods: `onRestoreStart` / `onBatchRestored` / `onRestoreEnd` / `onRestoreSuspended`) + `setStateRestoreListener` |
+| `StandbyUpdateListener` | ✅ | `Kafka.Streams.Runtime.StandbyUpdateListener` + `setStandbyUpdateListener` |
+| `StateStore` | ✅ | `Kafka.Streams.State.Store.StateStore` |
+| `StateStoreContext` | ⚠️ | Folded into `ProcessorContext` |
+| `StreamPartitioner` | ✅ | `Kafka.Streams.Produced.StreamPartitioner` |
+| `TaskId` | ✅ | `Kafka.Streams.Processor.TaskId` |
+| `TimestampExtractor` | ✅ | `Kafka.Streams.Time.TimestampExtractor` |
+| `To` (sink target spec) | ⚠️ | `forwardTo :: ProcessorContext -> NodeName -> Record -> IO ()` — no envelope record |
+| `TopicNameExtractor` | ✅ | `Kafka.Streams.KStream.TopicNameExtractor` |
+
+### `org.apache.kafka.streams.processor.assignment` (KIP-924)
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `TaskAssignor` (interface, user-pluggable) | ⚠️ | The streams runtime ships `Kafka.Streams.Runtime.Assignor` as a /closed/ implementation; KIP-924 user-supplied `TaskAssignor` plugin point isn't exposed |
+| `TaskAssignor.AssignmentError` (enum) | ❌ |  |
+| `TaskAssignor.TaskAssignment` | ❌ |  |
+| `ApplicationState` / `KafkaStreamsState` | ❌ |  |
+| `AssignmentConfigs` / `RackAwareAssignmentConfigs` | ❌ |  |
+| `ProcessId` | ❌ |  |
+| `TaskInfo` / `TaskTopicPartition` | ❌ |  |
+| `TaskAssignmentUtils` | ❌ |  |
+| `StickyTaskAssignor` (built-in) | ⚠️ | The streams runtime uses its own sticky logic in `Kafka.Streams.Runtime.Assignor` |
+
+KIP-924 is the *user-supplied* task assignor plug-in point. The Haskell runtime's `Kafka.Streams.Runtime.Assignor` is a closed implementation of the same shape — we'd need to expose the assignor as a record-of-functions in `StreamsConfig` to make it user-pluggable in the JVM sense.
+
+### `org.apache.kafka.common.acl`
+
+ACL value types — used by the unwrapped `Admin.createAcls` / `describeAcls` / `deleteAcls` RPCs.
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `AclPermissionType` | ✅ | `Kafka.Common.Acl.AclPermissionType` (added) |
+| `AclOperation` | ✅ | `Kafka.Common.Acl.AclOperation` (added) |
+| `AccessControlEntry` | ✅ | `Kafka.Common.Acl.AccessControlEntry` (added) |
+| `AccessControlEntryFilter` | ✅ | `Kafka.Common.Acl.AccessControlEntryFilter` + `anyAccessControlEntryFilter` (added) |
+| `AclBinding` | ✅ | `Kafka.Common.Acl.AclBinding` (added) |
+| `AclBindingFilter` | ✅ | `Kafka.Common.Acl.AclBindingFilter` + `anyAclBindingFilter` (added) |
+
+### `org.apache.kafka.common.resource`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `ResourceType` | ✅ | `Kafka.Common.Resource.ResourceType` (added) |
+| `PatternType` | ✅ | `Kafka.Common.Resource.PatternType` (added) |
+| `Resource` | ✅ | `Kafka.Common.Resource.Resource` (added) |
+| `ResourcePattern` | ✅ | `Kafka.Common.Resource.ResourcePattern` (added) |
+| `ResourcePatternFilter` | ✅ | `Kafka.Common.Resource.ResourcePatternFilter` + `anyResourcePatternFilter` (added) |
+
+### `org.apache.kafka.common.quota`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `ClientQuotaEntity` | ✅ | `Kafka.Common.Quota.ClientQuotaEntity` + `clientQuotaEntity` (added) |
+| `ClientQuotaFilter` | ✅ | `Kafka.Common.Quota.ClientQuotaFilter` (added) |
+| `ClientQuotaFilterComponent` | ✅ | `Kafka.Common.Quota.ClientQuotaFilterComponent` + `exactMatch` / `matchAnyName` / `defaultEntity` (added) |
+| `ClientQuotaAlteration` | ✅ | `Kafka.Common.Quota.ClientQuotaAlteration` (added) |
+| `ClientQuotaAlteration.Op` | ✅ | `Kafka.Common.Quota.ClientQuotaOp` (added) |
+
+### `org.apache.kafka.common.metrics`
+
+The full Java metrics machinery (`Sensor` / `Metrics` / `MetricsReporter` / `Stat` hierarchy / `Quota` enforcement / `MetricConfig`). The Haskell side has a *much* smaller `Kafka.Telemetry.Metrics` registry that the producer / consumer / streams runtime emit into.
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `Metrics` | ⚠️ | `Kafka.Telemetry.Metrics.MetricsRegistry` |
+| `MetricConfig` | ❌ |  |
+| `MetricsContext` / `KafkaMetricsContext` | ❌ |  |
+| `MetricsReporter` (plug-in) | ❌ |  |
+| `MetricName` / `MetricNameTemplate` | ✅ | `Kafka.Common.MetricName` / `Kafka.Common.MetricNameTemplate` (added; declarative-only) |
+| `Sensor` | ❌ |  |
+| `Stat` / `MeasurableStat` / `CompoundStat` | ❌ |  |
+| `Measurable` / `Gauge` / `MetricValueProvider` | ❌ |  |
+| `JmxReporter` | ❌ |  |
+| `Quota` / `QuotaViolationException` | ❌ |  |
+
+Full parity here would require porting the whole Java reporter / sensor framework; the Haskell side instead keeps the registry small + idiomatic and relies on OpenTelemetry (`Kafka.Telemetry.OpenTelemetry`) for the export path.
+
+### `org.apache.kafka.common` (top-level value types)
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `Node` | ✅ | `Kafka.Common.Node` (added) |
+| `Endpoint` | ✅ | `Kafka.Common.Endpoint` (added) |
+| `Cluster` | ✅ | `Kafka.Common.Cluster` + `emptyCluster` (added) |
+| `ClusterResource` | ✅ | `Kafka.Common.ClusterResource` (added) |
+| `ClusterResourceListener` | ❌ | Cluster-id change notifier; not idiomatic in Haskell |
+| `Configurable` (reflective config interface) | ❌ |  |
+| `Reconfigurable` | ❌ |  |
+| `GroupState` | ✅ | `Kafka.Common.GroupState` (added) |
+| `ClassicGroupState` | ✅ | `Kafka.Common.ClassicGroupState` (added) |
+| `GroupType` | ✅ | `Kafka.Common.GroupType` (added) |
+| `IsolationLevel` (in `common`; mirror of consumer's) | ⚠️ | `Kafka.Client.Consumer.IsolationLevel` |
+| `KafkaException` | ✅ | `Kafka.Errors.KafkaException` |
+| `KafkaFuture` | ✅ | `Kafka.Client.Future.KafkaFuture` |
+| `MessageFormatter` | ❌ | Console-consumer tooling; out of scope for a client library |
+| `Metric` | ⚠️ | (see `Metrics` notes above) |
+| `MetricName` / `MetricNameTemplate` | ✅ | `Kafka.Common.MetricName` / `MetricNameTemplate` (added) |
+| `PartitionInfo` | ✅ | `Kafka.Common.PartitionInfo` (added; the existing `Kafka.Client.AdminClient.PartitionInfo` covers the admin shape) |
+| `TopicCollection` / `TopicIdCollection` / `TopicNameCollection` | ❌ | `[Text]` / `[TopicId]` everywhere |
+| `TopicIdPartition` | ✅ | `Kafka.Common.TopicIdPartition` (added) |
+| `TopicPartition` | ✅ | `Kafka.Client.Consumer.TopicPartition` + `Kafka.Streams.Types.TopicPartition` |
+| `TopicPartitionInfo` | ✅ | `Kafka.Common.TopicPartitionInfo` (added) |
+| `TopicPartitionReplica` | ✅ | `Kafka.Common.TopicPartitionReplica` (added) |
+| `Uuid` | ✅ | `Kafka.Common.Uuid` (alias of `Kafka.Client.TopicId.TopicId`) |
+
+### What's left after v2
+
+The high-confidence remaining gaps after this drill:
+
+1. **The long-tail `Admin.*` RPCs.** The protocol-level pairs exist; what's missing is the typed `*Options` / `*Result` wrapper that calls them. The v2 pass adds the *carrying* types (`AclBinding`, `ResourcePattern`, `ClientQuotaEntity`, etc.) the eventual wrappers will need, but doesn't add the wrappers themselves. Concrete missing operations: `createAcls`, `describeAcls`, `deleteAcls`, `createPartitions`, `alterPartitionReassignments`, `listPartitionReassignments`, `describeLogDirs`, `alterReplicaLogDirs`, `describeReplicaLogDirs`, `describeClientQuotas`, `alterClientQuotas`, `*DelegationToken*`, `*UserScramCredentials`, `addRaftVoter`, `removeRaftVoter`, `describeMetadataQuorum`, `unregisterBroker`, `describeFeatures`, `updateFeatures`, `describeProducers`, `fenceProducers`, `abortTransaction` (admin variant), `describeTransactions`, `listTransactions`, `describeClassicGroups`, `describeShareGroups`, `removeMembersFromConsumerGroup`, `listClientMetricsResources`, `listGroups()` (generic across types).
+2. **KIP-714 telemetry-id getters** on Producer / Consumer / KafkaStreams (`clientInstanceId(Duration)`, `registerMetricForSubscription` / `unregisterMetricFromSubscription`).
+3. **The `Consumer` overload tail.** Every `*Sync(... , Duration)` timeout overload, the `OffsetCommitCallback`-taking `commitAsync` variants, `subscribe(Pattern)` / `subscribe(SubscriptionPattern)`, `seek(TopicPartition, OffsetAndMetadata)`, `currentLag(TopicPartition)`, `enforceRebalance(String)`, `wakeup()`, `partitionsFor` / `listTopics` (the JVM puts these on the consumer; Haskell deflects to AdminClient).
+4. **`Producer.partitionsFor` / `Producer.metrics()` shape parity** (the `Map<MetricName, Metric>` shape).
+5. **Discriminated per-error exception constructors** for the long list in `org.apache.kafka.common.errors` and `org.apache.kafka.streams.errors` (BrokerNotFound, TaskCorrupted, UnknownStateStore, LockException, etc.).
+6. **The full `Stores` factory cover** — persistent + timestamped + versioned variants of every store type are partially exposed.
+7. **`KafkaConsumer.assignmentLost()`** (KIP-848 lost-partitions getter).
+8. **`KIP-924 TaskAssignor` plug-in point** — the runtime owns the assignor; exposing it as a user-pluggable record on `StreamsConfig` is the work.
+9. **The full Java metrics machinery** (`Sensor` / `MetricsReporter` / `Stat` / `MetricConfig` / `Quota`) — not a 1:1 port goal.
+10. **`Cluster.*` accessors** beyond the read-only record shape (`nodeIfRecognised`, etc.).
+11. **`Configurable` / `Reconfigurable`** reflective-config interfaces.
+12. **`UnlimitedWindows`** (Java's "open-ended" window — practical use is rare; use `Duration.ofMillis(Long.MAX_VALUE)` style).
+13. **`QueryConfig`** (the `executionInfo` flag).
+14. **`ByteBufferSerializer` / `ListSerializer`** as named built-ins.
+
+This is the v2 honest list. It's longer than v1's; the difference is the v1 list under-counted by treating each marquee class as a single ✅/❌ instead of walking its method matrix.
