@@ -823,6 +823,74 @@ users:
 | `AssignmentConfigs` / `RackAwareAssignmentConfigs`                | ✅ | `Kafka.Streams.Processor.Assignment.AssignmentConfigs` / `RackAwareAssignmentConfigs` (+ defaults) |
 | `StickyTaskAssignor` (built-in)                                   | ⚠️ | `Kafka.Streams.Processor.Assignment.defaultTaskAssignor` is the baseline "first-client-takes-all" assignor; the streams runtime's internal sticky logic in `Kafka.Streams.Runtime.Assignor` is the closed sticky variant. Wiring the public `TaskAssignor` record into `StreamsConfig` so user-supplied assignors take effect is the follow-up that flips this row to ✅.
 
+---
+
+## Honest-list status (after v3a–v3e)
+
+What's *still* missing on the Java SDK side, in priority order:
+
+### Pending due to missing protocol codegen
+
+These map to Java admin RPCs whose request/response pairs
+aren't yet emitted by `kafka-codegen`. Wrapping them requires
+re-running the codegen against a newer upstream message-dir
+plus the `Kafka.Client.AdminClient.Extras` plumbing pattern:
+
+- `describeFeatures` / `updateFeatures`
+- `fenceProducers` / `abortTransaction` (admin variants)
+- `describeClassicGroups` / `describeShareGroups`
+- `listClientMetricsResources`
+
+### Pending runtime wiring
+
+- **`TaskAssignor` plug-in.** The public interface is in tree
+  (`Kafka.Streams.Processor.Assignment`); the runtime
+  (`Kafka.Streams.Runtime`) still uses its closed
+  `Kafka.Streams.Runtime.Assignor`. Wiring the public record
+  through `StreamsConfig` is the follow-up.
+- **KIP-714 `clientInstanceId`** on Producer / AdminClient /
+  KafkaStreams. The consumer has a deterministic local stub
+  (`Kafka.Client.ConsumerSdk.clientInstanceId`); the other
+  three need the broker-side `GetTelemetrySubscriptions` RPC
+  before they can be more than a synthetic id.
+
+### Pending backend work
+
+- **`Stores`** persistent / timestamped / versioned window +
+  session backends. RocksDB-only today; in-memory + a
+  full-feature persistent backend is the work.
+- **The full Java metrics machinery** (`Sensor` / `MetricsReporter`
+  / `Stat` / `MetricConfig` / `Quota`). Not a 1:1 port goal —
+  the Haskell side leans on OpenTelemetry through
+  `Kafka.Telemetry.OpenTelemetry` for the export path.
+
+### Intentionally not ported
+
+- `Configurable` / `Reconfigurable` — reflective config
+  interfaces; idiomatic Haskell uses typed config records
+  instead.
+- `ClusterResourceListener` — cluster-id change notifier; not
+  idiomatic.
+- `MessageFormatter` — `kafka-console-consumer`-style console
+  tooling, out of scope for a client library.
+
+### Captured-elsewhere
+
+- `QueryConfig` (the `executionInfo` flag) — the typed `Query`
+  GADT covers the same surface without the flag.
+
+### Test parity
+
+- `cabal test wireform-kafka:wireform-kafka-streams-test` —
+  **407** tests pass on GHC 9.10.3.
+- Live-broker integration suite is at
+  `wireform-kafka/test-integration/` and runs in
+  `.github/workflows/wireform-kafka-integration.yml`.
+- A multi-OS-process broker fixture is the remaining test gap
+  ('streams/README.md' calls it out); the runtime protocol
+  path itself has direct mock-cluster coverage via
+  `Streams.MultiInstanceRebalanceSpec`.
+
 These are mechanical follow-ups in the same shape as the v3
 additions: import the corresponding `Kafka.Protocol.Generated.*`
 pair, wire the value-type adapters, and slot the operation into
