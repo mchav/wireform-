@@ -1637,3 +1637,42 @@ adminDescribeGroupsLatencyMs = "kafka.admin.describe-groups.latency.ms"
 adminAlterConfigsLatencyMs   = "kafka.admin.alter-configs.latency.ms"
 adminDeleteRecordsLatencyMs  = "kafka.admin.delete-records.latency.ms"
 
+----------------------------------------------------------------------
+-- SPECIALIZE pragmas for the IO hot path
+--
+-- See "Kafka.Client.Producer" for the rationale.
+----------------------------------------------------------------------
+
+{-# INLINABLE createAdminClient #-}
+{-# SPECIALIZE createAdminClient :: [Text] -> AdminClientConfig -> IO (Either String AdminClient) #-}
+{-# INLINABLE closeAdminClient #-}
+{-# SPECIALIZE closeAdminClient :: AdminClient -> IO () #-}
+{-# INLINABLE createTopics #-}
+{-# SPECIALIZE createTopics :: AdminClient -> [NewTopic] -> IO (Either String [(Text, Either String ())]) #-}
+{-# INLINABLE ensureTopic #-}
+{-# SPECIALIZE ensureTopic :: AdminClient -> NewTopic -> IO (Either String ()) #-}
+{-# INLINABLE deleteTopics #-}
+{-# SPECIALIZE deleteTopics :: AdminClient -> [Text] -> IO (Either String [(Text, Either String ())]) #-}
+{-# INLINABLE listTopics #-}
+{-# SPECIALIZE listTopics :: AdminClient -> IO (Either String [Text]) #-}
+{-# INLINABLE describeTopics #-}
+{-# SPECIALIZE describeTopics :: AdminClient -> [Text] -> IO (Either String [TopicDescription]) #-}
+{-# INLINABLE listTopicsExcludeInternal #-}
+{-# SPECIALIZE listTopicsExcludeInternal :: AdminClient -> IO (Either String [Text]) #-}
+{-# INLINABLE listConsumerGroups #-}
+{-# SPECIALIZE listConsumerGroups :: AdminClient -> IO (Either String [ConsumerGroupListing]) #-}
+{-# INLINABLE describeConsumerGroups #-}
+{-# SPECIALIZE describeConsumerGroups :: AdminClient -> [Text] -> IO (Either String [ConsumerGroupDescription]) #-}
+{-# INLINABLE deleteConsumerGroups #-}
+{-# SPECIALIZE deleteConsumerGroups :: AdminClient -> [Text] -> IO (Either String [(Text, Either String ())]) #-}
+{-# INLINABLE describeConfigs #-}
+{-# SPECIALIZE describeConfigs :: AdminClient -> [ConfigResource] -> IO (Either String [ConfigResourceResult]) #-}
+{-# INLINABLE alterConfigs #-}
+{-# SPECIALIZE alterConfigs :: AdminClient -> [(ConfigResource, [(Text, Text)])] -> IO (Either String [(ConfigResource, Either String ())]) #-}
+{-# INLINABLE incrementalAlterConfigs #-}
+{-# SPECIALIZE incrementalAlterConfigs :: AdminClient -> [(ConfigResource, [AlterableConfigEntry])] -> IO (Either String [(ConfigResource, Either String ())]) #-}
+{-# INLINABLE deleteRecords #-}
+{-# SPECIALIZE deleteRecords :: AdminClient -> [(Text, Int32, Int64)] -> IO (Either String [DeleteRecordsResultEntry]) #-}
+{-# INLINABLE adminClusterId #-}
+{-# SPECIALIZE adminClusterId :: AdminClient -> IO (Maybe Text) #-}
+

@@ -2863,3 +2863,70 @@ data PerPartitionFetchKnob = PerPartitionFetchKnob
     --   this value.
   }
   deriving stock (Eq, Show, Generic)
+
+----------------------------------------------------------------------
+-- SPECIALIZE pragmas for the IO hot path
+--
+-- See the matching block in "Kafka.Client.Producer".
+----------------------------------------------------------------------
+
+{-# INLINABLE createConsumer #-}
+{-# SPECIALIZE createConsumer :: [Text] -> Text -> ConsumerConfig -> IO (Either String Consumer) #-}
+{-# INLINABLE closeConsumer #-}
+{-# SPECIALIZE closeConsumer :: Consumer -> IO () #-}
+{-# INLINABLE closeConsumerWithTimeout #-}
+{-# SPECIALIZE closeConsumerWithTimeout :: Consumer -> Int -> IO () #-}
+{-# INLINABLE closeConsumerWithoutLeavingGroup #-}
+{-# SPECIALIZE closeConsumerWithoutLeavingGroup :: Consumer -> Int -> IO () #-}
+{-# INLINABLE subscribe #-}
+{-# SPECIALIZE subscribe :: Consumer -> [Text] -> IO (Either String ()) #-}
+{-# INLINABLE unsubscribe #-}
+{-# SPECIALIZE unsubscribe :: Consumer -> IO () #-}
+{-# INLINABLE assign #-}
+{-# SPECIALIZE assign :: Consumer -> [TopicPartition] -> IO (Either String ()) #-}
+{-# INLINABLE poll #-}
+{-# SPECIALIZE poll :: Consumer -> Int -> IO (Either String [ConsumerRecord]) #-}
+{-# INLINABLE commitSync #-}
+{-# SPECIALIZE commitSync :: Consumer -> IO (Either String ()) #-}
+{-# INLINABLE commitAsync #-}
+{-# SPECIALIZE commitAsync :: Consumer -> IO (Either String ()) #-}
+{-# INLINABLE committed #-}
+{-# SPECIALIZE committed :: Consumer -> TopicPartition -> IO (Either String Int64) #-}
+{-# INLINABLE committedAll #-}
+{-# SPECIALIZE committedAll :: Consumer -> [TopicPartition] -> IO (Either String (HashMap.HashMap TopicPartition Int64)) #-}
+{-# INLINABLE position #-}
+{-# SPECIALIZE position :: Consumer -> TopicPartition -> IO (Either String Int64) #-}
+{-# INLINABLE seek #-}
+{-# SPECIALIZE seek :: Consumer -> TopicPartition -> Int64 -> IO (Either String ()) #-}
+{-# INLINABLE seekToBeginning #-}
+{-# SPECIALIZE seekToBeginning :: Consumer -> [TopicPartition] -> IO (Either String ()) #-}
+{-# INLINABLE seekToEnd #-}
+{-# SPECIALIZE seekToEnd :: Consumer -> [TopicPartition] -> IO (Either String ()) #-}
+{-# INLINABLE seekToTimestamp #-}
+{-# SPECIALIZE seekToTimestamp :: Consumer -> [TopicPartition] -> Int64 -> IO (Either String ()) #-}
+{-# INLINABLE beginningOffsets #-}
+{-# SPECIALIZE beginningOffsets :: Consumer -> [TopicPartition] -> IO (Either String (HashMap.HashMap TopicPartition Int64)) #-}
+{-# INLINABLE endOffsets #-}
+{-# SPECIALIZE endOffsets :: Consumer -> [TopicPartition] -> IO (Either String (HashMap.HashMap TopicPartition Int64)) #-}
+{-# INLINABLE offsetsForTimes #-}
+{-# SPECIALIZE offsetsForTimes :: Consumer -> [(TopicPartition, Int64)] -> IO (Either String (HashMap.HashMap TopicPartition Int64)) #-}
+{-# INLINABLE offsetsForTimesFull #-}
+{-# SPECIALIZE offsetsForTimesFull :: Consumer -> [(TopicPartition, Int64)] -> IO (Either String (HashMap.HashMap TopicPartition OffsetAndTimestamp)) #-}
+{-# INLINABLE pause #-}
+{-# SPECIALIZE pause :: Consumer -> [TopicPartition] -> IO () #-}
+{-# INLINABLE resume #-}
+{-# SPECIALIZE resume :: Consumer -> [TopicPartition] -> IO () #-}
+{-# INLINABLE assignment #-}
+{-# SPECIALIZE assignment :: Consumer -> IO [TopicPartition] #-}
+{-# INLINABLE paused #-}
+{-# SPECIALIZE paused :: Consumer -> IO [TopicPartition] #-}
+{-# INLINABLE currentAssignment #-}
+{-# SPECIALIZE currentAssignment :: Consumer -> IO [TopicPartition] #-}
+{-# INLINABLE consumerClusterId #-}
+{-# SPECIALIZE consumerClusterId :: Consumer -> IO (Maybe Text) #-}
+{-# INLINABLE consumerHealthy #-}
+{-# SPECIALIZE consumerHealthy :: Consumer -> IO Bool #-}
+{-# INLINABLE requestRejoin #-}
+{-# SPECIALIZE requestRejoin :: Consumer -> IO Bool #-}
+{-# INLINABLE consumerConfigFromEnv #-}
+{-# SPECIALIZE consumerConfigFromEnv :: ConsumerConfig -> IO (Either [ConfigError] ConsumerConfig) #-}

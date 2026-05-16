@@ -2030,3 +2030,46 @@ dispatchEnhanced ec rec_ outcome = do
     Right () -> pure ()
     Left  _  -> pure ()
 
+----------------------------------------------------------------------
+-- SPECIALIZE pragmas for the IO hot path
+--
+-- The public functions are polymorphic over 'MonadIO' /
+-- 'MonadUnliftIO' so callers in an application monad stack
+-- (ReaderT IO, RIO, etc.) don't have to sprinkle 'liftIO'.
+-- These pragmas materialise the monomorphic IO entry-points so
+-- the dictionary-passing overhead is zero in the IO case.
+----------------------------------------------------------------------
+
+{-# INLINABLE createProducer #-}
+{-# SPECIALIZE createProducer :: [Text] -> ProducerConfig -> IO (Either String Producer) #-}
+{-# INLINABLE closeProducer #-}
+{-# SPECIALIZE closeProducer :: Producer -> IO () #-}
+{-# INLINABLE closeProducerWithTimeout #-}
+{-# SPECIALIZE closeProducerWithTimeout :: Producer -> Int -> IO () #-}
+{-# INLINABLE flushProducer #-}
+{-# SPECIALIZE flushProducer :: Producer -> IO (Either String ()) #-}
+{-# INLINABLE sendMessage #-}
+{-# SPECIALIZE sendMessage :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String RecordMetadata) #-}
+{-# INLINABLE sendMessageAsync #-}
+{-# SPECIALIZE sendMessageAsync :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (MVar (Either String RecordMetadata)) #-}
+{-# INLINABLE sendMessage_ #-}
+{-# SPECIALIZE sendMessage_ :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String ()) #-}
+{-# INLINABLE sendMessageUnsafe_ #-}
+{-# SPECIALIZE sendMessageUnsafe_ :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String ()) #-}
+{-# INLINABLE sendMessageFastest_ #-}
+{-# SPECIALIZE sendMessageFastest_ :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String ()) #-}
+{-# INLINABLE sendMessages_ #-}
+{-# SPECIALIZE sendMessages_ :: Producer -> Text -> [(Maybe ByteString, ByteString)] -> IO (Either String ()) #-}
+{-# INLINABLE sendBatch #-}
+{-# SPECIALIZE sendBatch :: Producer -> [ProducerRecord] -> IO (Either String [RecordMetadata]) #-}
+{-# INLINABLE bindTransaction #-}
+{-# SPECIALIZE bindTransaction :: Producer -> Txn.Transaction -> IO () #-}
+{-# INLINABLE producerBoundTransaction #-}
+{-# SPECIALIZE producerBoundTransaction :: Producer -> IO (Maybe Txn.Transaction) #-}
+{-# INLINABLE producerClusterId #-}
+{-# SPECIALIZE producerClusterId :: Producer -> IO (Maybe Text) #-}
+{-# INLINABLE producerHealthy #-}
+{-# SPECIALIZE producerHealthy :: Producer -> IO Bool #-}
+{-# INLINABLE producerConfigFromEnv #-}
+{-# SPECIALIZE producerConfigFromEnv :: ProducerConfig -> IO (Either [ConfigError] ProducerConfig) #-}
+

@@ -464,3 +464,20 @@ validateConfig GroupConfig{..} = liftIO $ do
     cfgErr "groupId must be non-empty"
   when (null topics) $
     cfgErr "topics must be non-empty"
+
+----------------------------------------------------------------------
+-- SPECIALIZE pragmas for the IO hot path
+--
+-- See "Kafka.Client.Producer" for the rationale.
+----------------------------------------------------------------------
+
+{-# INLINABLE withGroupConsumer #-}
+{-# SPECIALIZE withGroupConsumer :: GroupConfig -> (GroupConsumer -> IO a) -> IO a #-}
+{-# INLINABLE pollOnce #-}
+{-# SPECIALIZE pollOnce :: GroupConsumer -> IO [C.ConsumerRecord] #-}
+{-# INLINABLE commit #-}
+{-# SPECIALIZE commit :: GroupConsumer -> IO () #-}
+{-# INLINABLE currentAssignment #-}
+{-# SPECIALIZE currentAssignment :: GroupConsumer -> IO [C.TopicPartition] #-}
+{-# INLINABLE validateConfig #-}
+{-# SPECIALIZE validateConfig :: GroupConfig -> IO () #-}

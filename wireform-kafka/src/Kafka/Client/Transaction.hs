@@ -725,3 +725,22 @@ effectiveTxnDeadlineMs
 effectiveTxnDeadlineMs now defaultMs = \case
   TxnUseProducerDefault -> now + fromIntegral defaultMs
   TxnDeadlineMs ms      -> now + fromIntegral ms
+
+----------------------------------------------------------------------
+-- SPECIALIZE pragmas for the IO hot path
+--
+-- See "Kafka.Client.Producer" for the rationale.
+----------------------------------------------------------------------
+
+{-# INLINABLE createTransaction #-}
+{-# SPECIALIZE createTransaction :: TransactionalId -> ConnectionManager -> ApiVersionCache -> Text -> BrokerAddress -> Int32 -> IO Transaction #-}
+{-# INLINABLE initTransactions #-}
+{-# SPECIALIZE initTransactions :: Transaction -> IO (Either TransactionError ()) #-}
+{-# INLINABLE beginTransaction #-}
+{-# SPECIALIZE beginTransaction :: Transaction -> IO (Either TransactionError ()) #-}
+{-# INLINABLE commitTransaction #-}
+{-# SPECIALIZE commitTransaction :: Transaction -> IO (Either TransactionError ()) #-}
+{-# INLINABLE abortTransaction #-}
+{-# SPECIALIZE abortTransaction :: Transaction -> IO (Either TransactionError ()) #-}
+{-# INLINABLE sendInTransaction #-}
+{-# SPECIALIZE sendInTransaction :: Transaction -> TopicPartition -> IO (Either TransactionError ()) #-}

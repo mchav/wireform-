@@ -73,6 +73,7 @@ module Kafka.Client.ShareConsumer
   ) where
 
 import Control.Concurrent.STM
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.ByteString (ByteString)
 import qualified Data.HashSet as HashSet
 import Data.HashSet (HashSet)
@@ -129,12 +130,12 @@ data ShareConsumer = ShareConsumer
   }
 
 createShareConsumer
-  :: ShareConsumerConfig -> IO ShareConsumer
-createShareConsumer cfg = do
+  :: MonadIO m => ShareConsumerConfig -> m ShareConsumer
+createShareConsumer cfg = liftIO $ do
   pending <- newTVarIO []
   pure ShareConsumer { shConfig = cfg, shPendingAcks = pending }
 
-closeShareConsumer :: ShareConsumer -> IO ()
+closeShareConsumer :: MonadIO m => ShareConsumer -> m ()
 closeShareConsumer _ = pure ()
 
 ----------------------------------------------------------------------
@@ -178,21 +179,21 @@ data Acknowledgement = Acknowledgement
 -- Returns an empty batch today; the production wiring lives in
 -- a follow-up commit on the same branch (the wire types are in
 -- "Kafka.Protocol.Generated.ShareFetchRequest").
-pollShareRecords :: ShareConsumer -> Int -> IO [ShareRecord]
+pollShareRecords :: MonadIO m => ShareConsumer -> Int -> m [ShareRecord]
 pollShareRecords _ _ = pure []
 
 -- | Stage an acknowledgement in the local buffer; flush via
 -- 'commitAcknowledgements'.
 acknowledgeShareRecord
-  :: ShareConsumer -> Acknowledgement -> IO ()
-acknowledgeShareRecord sc ack = atomically $
+  :: MonadIO m => ShareConsumer -> Acknowledgement -> m ()
+acknowledgeShareRecord sc ack = liftIO $ atomically $
   modifyTVar' (shPendingAcks sc) (ack :)
 
 -- | Drain the pending acknowledgements. The returned list is in
 -- the order the broker should see (oldest first).
 commitAcknowledgements
-  :: ShareConsumer -> IO [Acknowledgement]
-commitAcknowledgements sc = atomically $ do
+  :: MonadIO m => ShareConsumer -> m [Acknowledgement]
+commitAcknowledgements sc = liftIO $ atomically $ do
   acks <- readTVar (shPendingAcks sc)
   writeTVar (shPendingAcks sc) []
   pure (reverse acks)
@@ -241,16 +242,15 @@ newtype PauseSet = PauseSet (TVar (HashSet (Text, Int32)))
 newPauseSet :: IO PauseSet
 newPauseSet = PauseSet <$> newTVarIO HashSet.empty
 
-pausePartitions :: PauseSet -> [(Text, Int32)] -> IO ()
-pausePartitions (PauseSet v) tps = atomically $
+pausePartitions (PauseSet v) tps = liftIO $ atomically $
   modifyTVar' v (HashSet.union (HashSet.fromList tps))
 
-resumePartitions :: PauseSet -> [(Text, Int32)] -> IO ()
-resumePartitions (PauseSet v) tps = atomically $
+resumePartitions :: MonadIO m => PauseSet -> [(Text, Int32)] -> m ()
+resumePartitions (PauseSet v) tps = liftIO $ atomically $
   modifyTVar' v (\s -> HashSet.difference s (HashSet.fromList tps))
 
-isPaused :: PauseSet -> Text -> Int32 -> IO Bool
-isPaused (PauseSet v) topic part = do
+isPaused :: MonadIO m => PauseSet -> Text -> Int32 -> m Bool
+isPaused (PauseSet v) topic part = liftIO $ do
   s <- readTVarIO v
   pure (HashSet.member (topic, part) s)
 
