@@ -73,14 +73,11 @@ module Kafka.Network.Auth.SASL
   ) where
 
 import Control.Exception (SomeException, try)
-import Control.Monad (when)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 import Data.IORef
 import Data.Int (Int16, Int32)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Network.Connection (Connection)
 
@@ -466,13 +463,3 @@ reauthRequiredAtMs now (Just d) =
       !margin    = max 1000 (max 0 d `div` 10)
   in remaining <= margin
 
--- Suppress unused-import warnings on building blocks that the
--- mechanism implementations above use indirectly.
-_dummyEncode :: Text -> ByteString
-_dummyEncode = TE.encodeUtf8
-
-_dummyWhen :: IO ()
-_dummyWhen = when False (pure ())
-
-_dummyBs :: ByteString
-_dummyBs = BS.empty

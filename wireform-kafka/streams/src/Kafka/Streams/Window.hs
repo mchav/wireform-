@@ -19,6 +19,7 @@ module Kafka.Streams.Window
   , tumblingWindows
   , hoppingWindows
   , slidingWindows
+  , unlimitedWindows
   , withGracePeriod
   , withWindowsRetention
     -- * Session
@@ -34,7 +35,6 @@ import GHC.Generics (Generic)
 import Kafka.Streams.Time
   ( Duration
   , Timestamp (..)
-  , addDuration
   , durationMillis
   )
 
@@ -139,6 +139,28 @@ slidingWindows size =
         , windowsGracePeriod = 0
         }
 
+-- | Unlimited windows. Mirrors the (deprecated-since-4.0)
+-- @org.apache.kafka.streams.kstream.UnlimitedWindows@: every
+-- record falls into exactly one window that starts at the
+-- record's timestamp and extends forever.
+--
+-- Java's JVM @UnlimitedWindows.of()@ takes no parameters; we
+-- expose a single nullary smart constructor that uses
+-- 'maxBound' as the right edge so 'windowContains' is total.
+-- Use with caution — retention is effectively infinite, so a
+-- topology built on 'unlimitedWindows' must explicitly
+-- 'withWindowsRetention' to a finite value or the state store
+-- grows without bound.
+unlimitedWindows :: Windows
+unlimitedWindows = Windows
+  { windowsAssign = \(Timestamp t) ->
+      [Window (Timestamp t) (Timestamp maxBound)]
+  , windowsSize        = maxBound
+  , windowsAdvance     = maxBound
+  , windowsRetention   = maxBound
+  , windowsGracePeriod = 0
+  }
+
 -- | Session windows: dynamic; sessions extend by @inactivityGap@.
 data SessionWindows = SessionWindows
   { swInactivityGap   :: !Int64
@@ -166,8 +188,3 @@ mergeSession sw (Window s1 e1) (Window s2 e2) =
         else Nothing
   where
     timestampDeltaMs (Timestamp a) (Timestamp b) = a - b
-
--- Force imports we need so the module compiles without dead-code
--- warnings on @addDuration@.
-_silence :: Timestamp -> Duration -> Timestamp
-_silence = addDuration

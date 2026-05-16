@@ -1,0 +1,560 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UndecidableInstances #-}
+
+-- |
+-- Module      : Kafka.Streams.DSL
+-- Description : Haskell-native, builder-implicit façade over the Streams DSL
+--
+-- This module is a re-skinned façade on top of the existing
+-- @Kafka.Streams.KStream@ / @Kafka.Streams.KTable@ API. The
+-- underlying primitives are unchanged; what's new here is:
+--
+-- 1. A 'Streams' /reader/ monad over the 'StreamsBuilder' so users
+--    don't thread it through every source / sink call.
+--
+-- 2. Shorter operator names that collide with @Prelude@ (e.g.
+--    'Kafka.Streams.DSL.map', 'filter', 'foldr'-shaped fragments).
+--    Import this module qualified:
+--
+--    @
+--    import qualified Kafka.Streams.DSL as S
+--
+--    topology :: IO Topology
+--    topology = S.build $ do
+--      src <- S.source \"in\"  textSerde textSerde
+--      out <- src S.|> S.map T.toUpper
+--                 S.|> S.filter (\\r -> recordValue r /= \"\")
+--      S.sink \"out\" textSerde textSerde out
+--    @
+--
+-- 3. A pipe operator '|>' for left-to-right chains. It accepts
+--    either a pure value @a@ or an action @Streams a@ on the
+--    left, dispatching via the 'Pipe' class, so the same
+--    operator works on the head and tail of a chain.
+--
+-- 4. An alternative 'into' / 'with' vocabulary for sinks
+--    that reads naturally at call sites: @src `into` \"out\"@.
+--
+-- The original imperative API (@streamFromTopic@, @filterStream@,
+-- @mapValues@…) is still available unchanged from
+-- "Kafka.Streams"; pick whichever style fits the topology.
+module Kafka.Streams.DSL
+  (     -- * Topology builder
+    Streams (..)
+  , runStreams
+  , runStreamsWith
+  , build
+  , builder
+  , liftIO
+
+    -- * Re-exports for convenience
+  , KStream
+  , KTable
+  , GlobalKTable
+  , Record (..)
+  , TopicName
+  , topicName
+  , Serde
+  , Consumed
+  , Produced
+  , Materialized
+  , Joined
+  , Grouped
+  , KGroupedStream
+  , KGS.CountedTableLocal
+  , Timestamp (..)
+
+    -- * Sources
+  , source
+  , sourceWith
+  , table
+  , tableWith
+  , globalTable
+
+    -- * Sinks
+  , sink
+  , sinkWith
+  , sinkTo
+  , into
+  , through
+
+    -- * Stateless transforms
+  , map
+  , mapWithKey
+  , mapM
+  , mapWithKeyM
+  , filter
+  , filterNot
+  , flatMap
+  , flatMapWithKey
+  , peek
+  , foreach
+  , selectKey
+  , values
+
+    -- * Combine
+  , merge
+  , mergeAll
+  , branch
+
+    -- * Conversions
+  , toTable
+  , toStream
+  , repartition
+
+    -- * Aggregations
+  , groupByKey
+  , groupBy
+  , count
+  , reduce
+  , aggregate
+
+    -- * Joins
+  , join
+  , leftJoin
+  , outerJoin
+  , joinTable
+
+    -- * Pipe operators
+  , (|>)
+  , (<|)
+  , Pipe (..)
+  ) where
+
+import Prelude hiding (filter, map, mapM)
+
+import Data.Int (Int64)
+import Data.Text (Text)
+
+import Kafka.Streams.Consumed (Consumed, consumed)
+import Kafka.Streams.Grouped (Grouped (..))
+import Kafka.Streams.GlobalKTable (GlobalKTable)
+import qualified Kafka.Streams.GlobalKTable as GT
+import Kafka.Streams.Joined (Joined)
+import qualified Kafka.Streams.Joined as JW
+import qualified Kafka.Streams.KGroupedStream as KGS
+import Kafka.Streams.KGroupedStream (KGroupedStream)
+import qualified Kafka.Streams.KStream as KS
+import Kafka.Streams.KStream (KStream)
+import qualified Kafka.Streams.KTable as KT
+import Kafka.Streams.KTable (KTable)
+import Kafka.Streams.Materialized (Materialized)
+import qualified Kafka.Streams.Materialized as Mat
+import Kafka.Streams.Produced (Produced, produced)
+import Kafka.Streams.Serde (Serde)
+import Kafka.Streams.StreamsBuilder
+  ( StreamsBuilder
+  , buildTopology
+  , newStreamsBuilder
+  )
+import Kafka.Streams.Time (Timestamp (..))
+import qualified Kafka.Streams.Topology as Topo
+import Kafka.Streams.Types (Record (..), TopicName, topicName)
+
+----------------------------------------------------------------------
+-- Streams monad
+----------------------------------------------------------------------
+
+-- | A topology under construction. Carries the 'StreamsBuilder'
+-- implicitly so the user doesn't pass it to every source / sink
+-- call. Operations register a new node in the underlying
+-- mutable builder; the 'Streams' value records the work to do.
+--
+-- Implemented as a hand-rolled @ReaderT StreamsBuilder IO@ to
+-- avoid pulling @mtl@ into the @wireform-kafka-streams@ tree —
+-- the package already keeps its dependency closure minimal so
+-- it can compile in restricted contexts.
+newtype Streams a = Streams { unStreams :: StreamsBuilder -> IO a }
+
+instance Functor Streams where
+  fmap f (Streams g) = Streams $ \b -> fmap f (g b)
+  {-# INLINE fmap #-}
+
+instance Applicative Streams where
+  pure x = Streams (\_ -> pure x)
+  {-# INLINE pure #-}
+  Streams f <*> Streams x = Streams $ \b -> f b <*> x b
+  {-# INLINE (<*>) #-}
+
+instance Monad Streams where
+  Streams m >>= k = Streams $ \b -> do
+    !a <- m b
+    unStreams (k a) b
+  {-# INLINE (>>=) #-}
+
+-- | Lift an arbitrary 'IO' action into 'Streams'. The same
+-- shape as @Control.Monad.IO.Class.liftIO@ but spelled out so
+-- the module doesn't require @mtl@.
+liftIO :: IO a -> Streams a
+liftIO m = Streams (\_ -> m)
+{-# INLINE liftIO #-}
+
+-- | Run a topology-builder action and return the assembled
+-- 'Topo.Topology'. Equivalent to @newStreamsBuilder@ +
+-- @buildTopology@ with the body in between.
+build :: Streams a -> IO Topo.Topology
+build m = fmap snd (runStreams m)
+
+-- | Run a topology-builder action, returning both the result
+-- of the action /and/ the assembled 'Topo.Topology'.
+runStreams :: Streams a -> IO (a, Topo.Topology)
+runStreams m = do
+  b <- newStreamsBuilder
+  a <- unStreams m b
+  topo <- buildTopology b
+  pure (a, topo)
+
+-- | Variant that runs against a pre-existing 'StreamsBuilder'.
+-- Use when interleaving DSL-style fragments with imperative
+-- builder operations from the original API.
+runStreamsWith :: StreamsBuilder -> Streams a -> IO a
+runStreamsWith b m = unStreams m b
+
+-- | Yield the current 'StreamsBuilder' inside a 'Streams' action.
+-- Useful when dropping down to the original API for an operation
+-- not yet covered here.
+builder :: Streams StreamsBuilder
+builder = Streams pure
+
+-- | Internal helper.
+withBuilder :: (StreamsBuilder -> IO a) -> Streams a
+withBuilder = Streams
+
+----------------------------------------------------------------------
+-- Sources
+----------------------------------------------------------------------
+
+-- | Subscribe to a topic with the default 'Consumed' (record
+-- timestamp, earliest offset reset, no explicit node name).
+--
+-- /JVM equivalent:/ @StreamsBuilder.stream(topic, Consumed.with(...))@.
+source
+  :: Text                                 -- ^ topic name
+  -> Serde k                              -- ^ key serde
+  -> Serde v                              -- ^ value serde
+  -> Streams (KStream k v)
+source t ks vs = sourceWith (topicName t) (consumed ks vs)
+
+-- | Subscribe to a topic with a fully-specified 'Consumed'.
+sourceWith :: TopicName -> Consumed k v -> Streams (KStream k v)
+sourceWith t c = withBuilder $ \b -> KS.streamFromTopic b t c
+
+-- | Materialise a topic as a 'KTable' (default in-memory store).
+--
+-- /JVM equivalent:/ @StreamsBuilder.table(topic, Consumed, Materialized)@.
+table
+  :: Ord k
+  => Text -> Serde k -> Serde v -> Streams (KTable k v)
+table t ks vs =
+  tableWith (topicName t) (consumed ks vs)
+    (Mat.withValueSerde vs (Mat.withKeySerde ks Mat.materialized))
+
+-- | Materialise a topic as a 'KTable' with a caller-supplied
+-- 'Consumed' and 'Materialized'.
+tableWith
+  :: Ord k
+  => TopicName
+  -> Consumed k v
+  -> Materialized k v
+  -> Streams (KTable k v)
+tableWith t c m = withBuilder $ \b -> KT.tableFromTopic b t c m
+
+-- | Cluster-replicated 'GlobalKTable'.
+--
+-- /JVM equivalent:/ @StreamsBuilder.globalTable(topic, ...)@.
+globalTable
+  :: Ord k
+  => Text -> Serde k -> Serde v -> Streams (GlobalKTable k v)
+globalTable t ks vs = withBuilder $ \b ->
+  GT.globalTable b (topicName t) (consumed ks vs)
+    (Mat.withValueSerde vs (Mat.withKeySerde ks Mat.materialized))
+
+----------------------------------------------------------------------
+-- Sinks
+----------------------------------------------------------------------
+
+-- | Publish records to a topic with default 'Produced'.
+--
+-- /JVM equivalent:/ @KStream.to(topic, Produced.with(ks, vs))@.
+sink
+  :: Text                                 -- ^ topic name
+  -> Serde k                              -- ^ key serde
+  -> Serde v                              -- ^ value serde
+  -> KStream k v
+  -> Streams ()
+sink t ks vs s = sinkWith (topicName t) (produced ks vs) s
+
+-- | Publish records to a topic with a fully-specified 'Produced'.
+sinkWith :: TopicName -> Produced k v -> KStream k v -> Streams ()
+sinkWith t p s = liftIO (KS.toTopic t p s)
+
+-- | Flipped 'sink' — reads as @src `into` "out"@.
+--
+-- @
+-- src `into` "out" textSerde textSerde
+-- @
+into
+  :: KStream k v
+  -> Text -> Serde k -> Serde v
+  -> Streams ()
+into s t ks vs = sink t ks vs s
+
+-- | Per-record dynamic-topic sink. Mirrors
+-- @KStream.to(TopicNameExtractor, Produced)@.
+sinkTo
+  :: KS.TopicNameExtractor k v
+  -> Produced k v
+  -> KStream k v
+  -> Streams ()
+sinkTo ext p s = liftIO (KS.toExtracted ext p s)
+
+-- | Sink to a topic and re-subscribe from it.
+-- Mirrors @KStream.through@.
+through
+  :: Text -> Serde k -> Serde v
+  -> KStream k v
+  -> Streams (KStream k v)
+through t ks vs s = liftIO (KS.throughTopic (topicName t) (produced ks vs) s)
+
+----------------------------------------------------------------------
+-- Stateless transforms
+----------------------------------------------------------------------
+
+-- | Pure value-only map. Equivalent to @KStream.mapValues@.
+map :: (v -> v') -> KStream k v -> Streams (KStream k v')
+map f s = liftIO (KS.mapValues f s)
+
+-- | Pure (key, value) map. Equivalent to @KStream.map@.
+mapWithKey
+  :: (k -> v -> (k', v')) -> KStream k v -> Streams (KStream k' v')
+mapWithKey f s = liftIO (KS.mapKeyValue f s)
+
+-- | Effectful value-only map. Equivalent to @KStream.mapValues@
+-- with an embedded @IO@.
+mapM :: (v -> IO v') -> KStream k v -> Streams (KStream k v')
+mapM f s = liftIO (KS.mapValuesM f s)
+
+-- | Effectful (key, value) map. Equivalent to @KStream.map@ with
+-- an embedded @IO@.
+mapWithKeyM
+  :: (k -> v -> IO (k', v')) -> KStream k v -> Streams (KStream k' v')
+mapWithKeyM f s = liftIO (KS.mapKeyValueM f s)
+
+-- | Keep records satisfying the predicate. Mirrors @KStream.filter@.
+filter
+  :: (Record k v -> Bool) -> KStream k v -> Streams (KStream k v)
+filter p s = liftIO (KS.filterStream p s)
+
+-- | Drop records satisfying the predicate. Mirrors @KStream.filterNot@.
+filterNot
+  :: (Record k v -> Bool) -> KStream k v -> Streams (KStream k v)
+filterNot p s = liftIO (KS.filterNotStream p s)
+
+-- | One-to-many value-only expansion. Mirrors @KStream.flatMapValues@.
+flatMap :: (v -> [v']) -> KStream k v -> Streams (KStream k v')
+flatMap f s = liftIO (KS.flatMapValues f s)
+
+-- | One-to-many (key, value) expansion. Mirrors @KStream.flatMap@.
+flatMapWithKey
+  :: (k -> v -> [(k', v')]) -> KStream k v -> Streams (KStream k' v')
+flatMapWithKey f s = liftIO (KS.flatMapKeyValue f s)
+
+-- | Side-effecting observer (record is unchanged). Mirrors @KStream.peek@.
+peek
+  :: (Record k v -> IO ()) -> KStream k v -> Streams (KStream k v)
+peek f s = liftIO (KS.peekStream f s)
+
+-- | Terminal side-effect; the stream is dropped. Mirrors @KStream.foreach@.
+foreach :: (Record k v -> IO ()) -> KStream k v -> Streams ()
+foreach f s = liftIO (KS.foreachStream f s)
+
+-- | Re-key the stream from the full record. Mirrors @KStream.selectKey@.
+selectKey
+  :: (Record k v -> k') -> KStream k v -> Streams (KStream k' v)
+selectKey f s = liftIO (KS.selectKey f s)
+
+-- | Drop the key. Mirrors @KStream.values@.
+values :: KStream k v -> Streams (KStream () v)
+values s = liftIO (KS.valuesStream s)
+
+----------------------------------------------------------------------
+-- Composition
+----------------------------------------------------------------------
+
+-- | Merge two streams of the same key/value type. Mirrors
+-- @KStream.merge@.
+merge :: KStream k v -> KStream k v -> Streams (KStream k v)
+merge a b = liftIO (KS.mergeStreams a b)
+
+-- | Merge a non-empty list of streams. Mirrors fold of @merge@.
+mergeAll :: [KStream k v] -> Streams (KStream k v)
+mergeAll = liftIO . KS.mergeStreamsN
+
+-- | Predicate-routed split. Mirrors @KStream.branch@ (the pre-KIP-418
+-- shape that just returns @[KStream]@; for the named-branches DSL use
+-- 'KS.splitStream' from the original API).
+branch
+  :: [Record k v -> Bool]
+  -> KStream k v
+  -> Streams [KStream k v]
+branch ps s = liftIO (KS.branchStream ps s)
+
+----------------------------------------------------------------------
+-- KStream ↔ KTable
+----------------------------------------------------------------------
+
+-- | Convert a 'KStream' into a 'KTable' by materialising the
+-- latest value per key. Mirrors @KStream.toTable@.
+toTable
+  :: Ord k
+  => Materialized k v -> KStream k v -> Streams (KTable k v)
+toTable m s = liftIO (KS.toTable m s)
+
+-- | Convert a 'KTable' to a 'KStream' carrying every changelog
+-- event. Mirrors @KTable.toStream@.
+toStream :: KTable k v -> Streams (KStream k v)
+toStream kt = liftIO (KS.toKStreamFromKTable kt)
+
+-- | Force a repartition with the given topic-name prefix.
+-- Mirrors @KStream.repartition@.
+repartition :: Text -> KStream k v -> Streams (KStream k v)
+repartition prefix s = liftIO (KS.repartition prefix s)
+
+----------------------------------------------------------------------
+-- Aggregations
+----------------------------------------------------------------------
+
+-- | Group by the existing key. Mirrors @KStream.groupByKey@.
+--
+-- @KGroupedStream@ is a pure-handle type, so unlike most DSL
+-- combinators 'groupByKey' doesn't need to register a new
+-- topology node and is therefore non-effectful in 'Streams'.
+groupByKey
+  :: Grouped k v -> KStream k v -> Streams (KGroupedStream k v)
+groupByKey g s = pure (KGS.groupByKey g s)
+
+-- | Group by a derived key. Mirrors @KStream.groupBy@.
+groupBy
+  :: (Record k v -> k')
+  -> Grouped k' v
+  -> KStream k v
+  -> Streams (KGroupedStream k' v)
+groupBy f g s = liftIO (KGS.groupByStream f g s)
+
+-- | Cardinality per key. Mirrors @KGroupedStream.count@.
+count
+  :: Ord k
+  => Materialized k Int64
+  -> KGroupedStream k v
+  -> Streams (KGS.CountedTableLocal k Int64)
+count m g = liftIO (KGS.countStream m g)
+
+-- | Same-shape reducer. Mirrors @KGroupedStream.reduce@.
+reduce
+  :: Ord k
+  => (v -> v -> v)
+  -> Materialized k v
+  -> KGroupedStream k v
+  -> Streams (KGS.CountedTableLocal k v)
+reduce f m g = liftIO (KGS.reduceStream f m g)
+
+-- | General-shape aggregator. Mirrors @KGroupedStream.aggregate@.
+-- The initialiser is an 'IO' to mirror Java's @Initializer<A>@
+-- (a fresh accumulator per key); supply @pure x@ for pure seeds.
+aggregate
+  :: Ord k
+  => IO agg
+  -> (k -> v -> agg -> agg)
+  -> Materialized k agg
+  -> KGroupedStream k v
+  -> Streams (KGS.CountedTableLocal k agg)
+aggregate z step m g = liftIO (KGS.aggregateStream z step m g)
+
+----------------------------------------------------------------------
+-- Joins
+----------------------------------------------------------------------
+
+-- | Stream-table inner join. Mirrors
+-- @KStream.join(KTable, ValueJoiner, Joined)@.
+join
+  :: Ord k
+  => (v -> vt -> v')
+  -> Joined k v vt
+  -> KStream k v
+  -> KTable k vt
+  -> Streams (KStream k v')
+join j jo s t = liftIO (KS.joinKStreamKTable j jo s t)
+
+-- | Stream-table left join.
+leftJoin
+  :: Ord k
+  => (v -> Maybe vt -> v')
+  -> Joined k v vt
+  -> KStream k v
+  -> KTable k vt
+  -> Streams (KStream k v')
+leftJoin j jo s t = liftIO (KS.leftJoinKStreamKTable j jo s t)
+
+-- | KTable-KTable inner join.
+joinTable
+  :: Ord k
+  => (v1 -> v2 -> v')
+  -> Materialized k v'
+  -> KTable k v1
+  -> KTable k v2
+  -> Streams (KTable k v')
+joinTable j m a b = liftIO (KT.joinKTableKTable j m a b)
+
+----------------------------------------------------------------------
+-- Imports used only by signatures above
+----------------------------------------------------------------------
+
+-- | Stream-stream window outer-join. Mirrors
+-- @KStream.outerJoin(other, ValueJoiner, JoinWindows, StreamJoined)@.
+outerJoin
+  :: Ord k
+  => (Maybe v1 -> Maybe v2 -> v')
+  -> JW.JoinWindows
+  -> Joined k v1 v2
+  -> KStream k v1
+  -> KStream k v2
+  -> Streams (KStream k v')
+outerJoin j w jo a b = liftIO (KS.outerJoinKStreamKStream j w jo a b)
+
+----------------------------------------------------------------------
+-- Pipe operator
+----------------------------------------------------------------------
+
+-- | A class lifting either a pure value @a@ or a 'Streams' action
+-- producing @a@ into the 'Streams' monad. Used so the same '|>'
+-- operator works on the head and the tail of a chain.
+class Pipe a b | a -> b where
+  toStreams :: a -> Streams b
+
+instance Pipe (Streams a) a where
+  toStreams = id
+
+instance {-# OVERLAPPABLE #-} (a ~ b) => Pipe a b where
+  toStreams = pure
+
+-- | Left-to-right pipe. The right-hand side is a 'Streams'
+-- continuation; the left-hand side is either a pure value or
+-- another 'Streams' action. Type inference selects via 'Pipe'.
+--
+-- @
+-- src |> map T.toUpper |> filter (\\r -> recordValue r /= \"\")
+-- @
+(|>) :: Pipe a b => a -> (b -> Streams c) -> Streams c
+a |> f = toStreams a >>= f
+infixl 1 |>
+
+-- | Right-to-left form of '|>'.
+(<|) :: Pipe a b => (b -> Streams c) -> a -> Streams c
+f <| a = a |> f
+infixr 1 <|

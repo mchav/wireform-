@@ -117,6 +117,7 @@ import qualified Network.HTTP.Types       as HT
 import qualified OpenTelemetry.Context             as OCtx
 import qualified OpenTelemetry.Context.ThreadLocal as OCtxTL
 import qualified OpenTelemetry.Propagator          as OProp
+import qualified OpenTelemetry.Attributes           as OAttr
 import qualified OpenTelemetry.Trace.Core          as OTel
 import           OpenTelemetry.Trace.Core
   ( Span
@@ -167,7 +168,7 @@ kafkaInstrumentationLibrary = OTel.InstrumentationLibrary
   { OTel.libraryName       = "wireform-kafka"
   , OTel.libraryVersion    = "0.1.0.0"
   , OTel.librarySchemaUrl  = ""
-  , OTel.libraryAttributes = mempty
+  , OTel.libraryAttributes = OAttr.emptyAttributes
   }
 
 -- | Make a 'Tracer' for the @wireform-kafka@ instrumentation library

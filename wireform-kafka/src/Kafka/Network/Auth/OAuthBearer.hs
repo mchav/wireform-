@@ -39,7 +39,6 @@ module Kafka.Network.Auth.OAuthBearer
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
@@ -102,9 +101,3 @@ buildOAuthPayload OAuthToken{..} =
   where
     ctlA = 0x01 :: Word8
 
--- (we keep the Char8 import even though we don't use it directly,
--- because GHC elides unused-import warnings only for instance imports
--- and otherwise complains; the import provides the IsString instance
--- for ByteString literals via OverloadedStrings.)
-_dummyChar8Use :: ByteString
-_dummyChar8Use = BS8.empty

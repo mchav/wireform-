@@ -1406,10 +1406,6 @@ splitStream branches mDefault s = do
     childNodes
   pure (Map.fromList results)
 
--- 'Map' / 'KTable' kept imported here so helper signatures resolve
--- without polluting the public surface.
-_unused_split :: Map.Map T.Text Int
-_unused_split = Map.empty
 
 ----------------------------------------------------------------------
 -- Named variants (KIP-307)

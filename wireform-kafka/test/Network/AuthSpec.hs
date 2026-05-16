@@ -21,7 +21,6 @@ in the broker-gated integration suite.
 module Network.AuthSpec (authSpec) where
 
 import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.Key as Aeson
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.ByteArray.Encoding as BA
 import qualified Data.ByteString as BS
@@ -356,7 +355,3 @@ lookupIndex needle hay =
       | BS.take nLen bs == needle = i
       | otherwise = go (i + 1) (BS.drop 1 bs)
 
--- Suppress unused-import warning on Aeson.Key while still keeping it
--- around for object lookups via overloaded strings.
-_dummyKey :: Aeson.Key
-_dummyKey = "_unused_"

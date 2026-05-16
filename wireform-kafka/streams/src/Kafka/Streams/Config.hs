@@ -37,6 +37,7 @@ import Kafka.Streams.Errors
   , ProductionHandler
   , logAndContinue
   )
+import Kafka.Streams.Processor.Assignment (TaskAssignor)
 
 -- | What level of processing-guarantee should the runtime offer?
 data ProcessingGuarantee
@@ -98,6 +99,16 @@ data StreamsConfig = StreamsConfig
     --   should use when computing assignments. 'Nothing' (the
     --   default) selects the built-in cooperative-sticky
     --   assignor.
+  , taskAssignor             :: !(Maybe TaskAssignor)
+    -- ^ KIP-924 in-process 'TaskAssignor' plug-in. When set,
+    --   the streams runtime's leader-side assignment path
+    --   invokes this plug-in instead of the built-in
+    --   cooperative-sticky assignor. 'Nothing' (the default)
+    --   keeps the built-in assignor. The streams runtime
+    --   reaches into this via
+    --   'Kafka.Streams.Runtime.streamsRunUserAssignor', which
+    --   constructs the 'ApplicationState' from the live
+    --   runtime view and invokes 'taAssign' on the plug-in.
   , applicationServer        :: !(Maybe Text)
     -- ^ KIP-67 @application.server@ — host:port advertised in
     --   JoinGroup subscription metadata so peers can discover
@@ -167,6 +178,7 @@ defaultStreamsConfig = StreamsConfig
   , maxWarmupReplicas          = 2
   , probingRebalanceIntervalMs = 600_000
   , taskAssignorClass          = Nothing
+  , taskAssignor               = Nothing
   , applicationServer          = Nothing
   , defaultDslStore            = DslInMemoryStore
   , rackAwareAssignmentStrategy = RackAwareNone

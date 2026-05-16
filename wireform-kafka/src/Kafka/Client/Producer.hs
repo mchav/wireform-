@@ -139,6 +139,16 @@ module Kafka.Client.Producer
   , producerClusterId
   , producerHealthy
 
+    -- * KIP-714 client telemetry id
+    --
+    -- | Returns the producer's client-instance id. Mirrors
+    -- @KafkaProducer.clientInstanceId(Duration)@. Deterministic
+    -- locally-derived UUID (same shape as
+    -- 'Kafka.Client.Consumer.clientInstanceId'); broker-side
+    -- telemetry assignment (KIP-714 client side) lands here
+    -- when the @GetTelemetrySubscriptions@ pipeline does.
+  , producerClientInstanceId
+
     -- * Environment-variable overlay
     --
     -- | 'createProducer' already reads @KAFKA_*@ env vars and
@@ -199,6 +209,8 @@ import Control.Monad (when)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Kafka.Client.Telemetry as Telemetry
+import qualified Kafka.Client.TopicId as TopicIdImp
 import qualified Data.HashMap.Strict as HashMap
 import Data.Hashable (hash)
 import qualified Data.Hashable as Hashable
@@ -1291,6 +1303,17 @@ producerHealthy Producer{..} = liftIO $ do
     Nothing -> True
     Just _  -> False
 
+-- | Returns the producer's client-instance id (KIP-714).
+-- Deterministic locally-derived UUID padded from the configured
+-- @client.id@; same encoding the consumer uses. When the
+-- broker-side telemetry pipeline lands, this returns the
+-- broker-assigned id instead; call sites don't need to change.
+producerClientInstanceId :: MonadIO m => Producer -> m TopicIdImp.TopicId
+producerClientInstanceId Producer{..} =
+  liftIO $ pure
+    (TopicIdImp.TopicId
+      (Telemetry.clientInstanceIdFromText (producerClientId producerConfig)))
+
 -- | Best-effort dispatch of the ack interceptor. Wraps in 'try' so
 -- a buggy interceptor can't take down the sender thread / caller.
 runAckInterceptor
@@ -2029,11 +2052,8 @@ dispatchEnhanced ec rec_ outcome = do
 {-# SPECIALIZE sendMessage :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String RecordMetadata) #-}
 {-# INLINABLE sendMessageAsync #-}
 {-# SPECIALIZE sendMessageAsync :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (MVar (Either String RecordMetadata)) #-}
-{-# INLINABLE sendMessage_ #-}
 {-# SPECIALIZE sendMessage_ :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String ()) #-}
-{-# INLINABLE sendMessageUnsafe_ #-}
 {-# SPECIALIZE sendMessageUnsafe_ :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String ()) #-}
-{-# INLINABLE sendMessageFastest_ #-}
 {-# SPECIALIZE sendMessageFastest_ :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String ()) #-}
 {-# INLINABLE sendMessages_ #-}
 {-# SPECIALIZE sendMessages_ :: Producer -> Text -> [(Maybe ByteString, ByteString)] -> IO (Either String ()) #-}

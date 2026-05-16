@@ -60,18 +60,27 @@ interceptorCanRewriteRecord :: IO ()
 interceptorCanRewriteRecord = do
   let cfg = Producer.defaultProducerConfig
         { Producer.producerInterceptor = \r ->
-            pure r
-              { topic   = r.topic <> "-suffix"
-              , headers = r.headers ++ [("trace-id", "abc")]
+            -- DuplicateRecordFields makes the bare @r { topic =
+            -- ... }@ ambiguous because multiple types in scope
+            -- have a 'topic' field. Rebuild the
+            -- 'Producer.ProducerRecord' explicitly so the type
+            -- of every field site is unambiguous.
+            pure Producer.ProducerRecord
+              { Producer.topic     = r.topic <> "-suffix"
+              , Producer.key       = r.key
+              , Producer.value     = r.value
+              , Producer.headers   = r.headers ++ [("trace-id", "abc")]
+              , Producer.partition = r.partition
+              , Producer.timestamp = r.timestamp
               }
         }
       input = Producer.ProducerRecord
-        { topic     = "events"
-        , key       = Just "k"
-        , value     = "v"
-        , headers   = []
-        , partition = Nothing
-        , timestamp = Nothing
+        { Producer.topic     = "events"
+        , Producer.key       = Just "k"
+        , Producer.value     = "v"
+        , Producer.headers   = []
+        , Producer.partition = Nothing
+        , Producer.timestamp = Nothing
         }
   out <- Producer.producerInterceptor cfg input
   out.topic   @?= "events-suffix"
@@ -133,3 +142,4 @@ sampleRec k v = Consumer.ConsumerRecord
   }
   where
     toBs = TE.encodeUtf8 . T.pack
+

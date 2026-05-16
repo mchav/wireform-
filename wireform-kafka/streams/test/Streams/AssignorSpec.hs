@@ -8,7 +8,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Set (Set)
 import qualified Data.Text as T
-import qualified Hedgehog
 import Hedgehog ((===), assert, forAll, property)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -119,7 +118,3 @@ properties = testGroup "properties"
           loads = map (\ta -> Set.size ta.active) (Map.elems asg)
       assert (maximum loads - minimum loads <= 1)
   ]
-
--- silence unused-warnings for Hedgehog if the property body shrinks.
-_silence :: Hedgehog.PropertyT IO ()
-_silence = pure ()

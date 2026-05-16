@@ -34,6 +34,7 @@ import qualified Network.Socket as Socket
 import qualified Network.Socket.ByteString as SocketBS
 import qualified Network.TLS as TLS
 import qualified Network.TLS.Extra.Cipher as TLS
+import qualified System.Directory as Dir
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, assertBool, assertFailure)
 
@@ -56,29 +57,56 @@ tests = testGroup "Kafka.Network TLS handshake"
 -- Fixtures
 ----------------------------------------------------------------------
 
-serverCertPath, serverKeyPath, clientCertPath, clientKeyPath :: FilePath
-serverCertPath = "test/Network/TLS/server.crt"
-serverKeyPath  = "test/Network/TLS/server.key"
-clientCertPath = "test/Network/TLS/client.crt"
-clientKeyPath  = "test/Network/TLS/client.key"
+serverCertName, serverKeyName, clientCertName, clientKeyName :: FilePath
+serverCertName = "server.crt"
+serverKeyName  = "server.key"
+clientCertName = "client.crt"
+clientKeyName  = "client.key"
+
+-- | Find a TLS fixture regardless of the cwd cabal hands us at
+-- test time. The fixtures live under @test/Network/TLS/@
+-- relative to the @wireform-kafka@ package root; depending on
+-- how the test binary is launched (cabal-from-workspace-root,
+-- cabal-from-package-root, raw binary), the working directory
+-- can be either of those. We walk a short list of candidate
+-- prefixes and return the first one that exists.
+locateFixture :: FilePath -> IO FilePath
+locateFixture name = do
+  let candidates =
+        [ "test/Network/TLS/" <> name
+        , "wireform-kafka/test/Network/TLS/" <> name
+        , "../test/Network/TLS/" <> name
+        , "../wireform-kafka/test/Network/TLS/" <> name
+        ]
+  go candidates
+  where
+    go []       = error ("TLS fixture not found: " <> name)
+    go (p : ps) = do
+      ok <- Dir.doesFileExist p
+      if ok then pure p else go ps
 
 loadServerCreds :: IO TLS.Credential
 loadServerCreds = do
-  r <- TLS.credentialLoadX509 serverCertPath serverKeyPath
+  sc <- locateFixture serverCertName
+  sk <- locateFixture serverKeyName
+  r  <- TLS.credentialLoadX509 sc sk
   case r of
     Left err -> error ("failed to load server creds: " <> err)
     Right c  -> pure c
 
 loadClientCreds :: IO TLS.Credential
 loadClientCreds = do
-  r <- TLS.credentialLoadX509 clientCertPath clientKeyPath
+  cc <- locateFixture clientCertName
+  ck <- locateFixture clientKeyName
+  r  <- TLS.credentialLoadX509 cc ck
   case r of
     Left err -> error ("failed to load client creds: " <> err)
     Right c  -> pure c
 
 trustStoreFromServerCert :: IO CertStore.CertificateStore
 trustStoreFromServerCert = do
-  signed <- X509File.readSignedObject serverCertPath
+  sc     <- locateFixture serverCertName
+  signed <- X509File.readSignedObject sc
   pure (CertStore.makeCertificateStore signed)
 
 ----------------------------------------------------------------------

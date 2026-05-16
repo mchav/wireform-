@@ -10,6 +10,181 @@ and this project adheres to the
 
 ### Added
 
+- **`Kafka.Client.AdminClient` — KIP-584 feature flags.**
+  `describeFeatures` parses the supported + finalized feature
+  set off ApiVersionsResponse v3+ and returns a typed
+  `FeatureMetadata`. `updateFeatures` (with
+  `FeatureUpdate` + `FeatureUpgradeType`) wraps
+  UpdateFeaturesRequest (API key 57) for declarative
+  cluster-wide feature-level changes.
+- **`Kafka.Client.AdminClient` — KIP-360 producer fencing.**
+  `fenceProducers` bumps the producer epoch of the supplied
+  transactional ids via InitProducerIdRequest, returning the
+  authoritative (producer-id, epoch) tuple per id. Equivalent
+  to `Admin.fenceProducers(Collection<String>)`.
+- **`Kafka.Client.AdminClient` — KIP-664 manual transaction
+  abort.** `abortTransaction` + `AbortTransactionSpec` route
+  through WriteTxnMarkers to abort a hanging transaction by
+  (producer-id, producer-epoch, coordinator-epoch) directly
+  on the affected partitions.
+- **`Kafka.Client.AdminClient` — KIP-848 group describe.**
+  `describeConsumerGroups2` wraps the next-gen
+  ConsumerGroupDescribe RPC (API key 69) and returns
+  `ConsumerGroupDescription2` / `ConsumerGroupMember`
+  including the group/assignment epoch, assignor name, and
+  per-member (subscribed-topics, current-assignment,
+  target-assignment) tuples.
+- **`Kafka.Client.AdminClient` — KIP-932 share groups.**
+  `describeShareGroups` + `ShareGroupDescription` /
+  `ShareGroupMember` wrap ShareGroupDescribe (API key 77).
+- **`Kafka.Client.AdminClient.describeClassicGroups`.** Same
+  shape as the existing `describeConsumerGroups`; surface
+  named to match the JVM 4.0 SDK's "explicit classic group"
+  call site.
+- **`Kafka.Client.AdminClient.listClientMetricsResources`**
+  (KIP-714) — lists the named client-metrics configurable
+  resources the broker exposes.
+- **KIP-714 `clientInstanceId` on every client.**
+  `Kafka.Client.Producer.producerClientInstanceId`,
+  `Kafka.Client.AdminClient.adminClientInstanceId`,
+  `Kafka.Streams.Runtime.kafkaStreamsClientInstanceId`
+  return a deterministic 16-byte UUID derived from the
+  configured `client.id` / `application.id`. Switches to the
+  broker-assigned id when the `GetTelemetrySubscriptions`
+  pipeline lands. (Consumer already had this in v3e.)
+- **KIP-924 `TaskAssignor` plug-in wiring.**
+  `Kafka.Streams.Config.StreamsConfig.taskAssignor`
+  (`Maybe TaskAssignor`) carries a user-supplied assignor
+  through the runtime; `Kafka.Streams.Runtime.streamsRunUserAssignor`
+  constructs the `ApplicationState` from the live runtime
+  view and invokes the plug-in. The leader-side rebalance
+  still defaults to the built-in cooperative-sticky
+  assignor; the assignment source can flip over to the
+  plug-in in a follow-up without changing the public
+  interface.
+
+### Changed
+
+- **Module consolidation.** Folded the JVM-equivalence SDK
+  shims and admin long-tail RPCs back into their primary
+  modules so the public surface has one obvious home per
+  concept:
+  - `Kafka.Client.ConsumerSdk` → `Kafka.Client.Consumer`.
+    `ConsumerRecords`, `OffsetAndMetadata`,
+    `ConsumerGroupMetadata`, `OffsetCommitCallback`,
+    `SubscriptionPattern`, `clientInstanceId`, and the
+    overload tail (`commitSyncOffsets`,
+    `commitAsyncCallback`, `seekWithMetadata`,
+    `enforceRebalanceWithReason`) all live in
+    `Kafka.Client.Consumer` directly.
+  - `Kafka.Client.AdminClient.Extras` →
+    `Kafka.Client.AdminClient`. `createPartitions`,
+    `describeCluster`, `listGroups`, `createAcls` /
+    `describeAcls` / `deleteAcls`,
+    `alter/listPartitionReassignments`,
+    `unregisterBroker`, `describe/alterClientQuotas`,
+    `list/describeTransactions`,
+    `describe/alterUserScramCredentials`,
+    `describeProducers`, `describeLogDirs`,
+    `alterReplicaLogDirs`, delegation-token operations,
+    `add/removeRaftVoter`, `describeMetadataQuorum`, and
+    `removeMembersFromConsumerGroup` all live in
+    `Kafka.Client.AdminClient` directly.
+  - `Kafka.Streams.Sink.RotatingFile` →
+    `Kafka.Streams.Printed`. `RotatingHandle`,
+    `openRotatingHandle`, `closeRotatingHandle`,
+    `writeLine`, `rotatingPrintStream`,
+    `rotatingPrintToHandle` now sit alongside the
+    JVM-parity `Printed.toRotatingFile` builder.
+
+  Old module names no longer exist; downstream call sites
+  should swap the import path while keeping the symbol
+  names unchanged.
+
+### Added
+
+- **`Kafka.Streams.DSL`** — Haskell-native builder-implicit
+  façade over the existing `KStream` / `KTable` API. Carries
+  the `StreamsBuilder` in a hand-rolled reader monad so users
+  don't thread it through every source / sink call. Ships
+  short, unsuffixed names (`map`, `filter`, `flatMap`, `peek`,
+  `selectKey`, `merge`, `branch`, `join`, `leftJoin`,
+  `outerJoin`, `count`, `reduce`, `aggregate`, …) plus a `|>`
+  pipe operator. The `Pipe` class lets the same operator work
+  on the head of a chain (pure `KStream`) and on the tail
+  (`Streams (KStream …)`). The original imperative API
+  (`streamFromTopic` / `filterStream` / `mapValues` / …) is
+  unchanged.
+- **`Kafka.Streams.Printed`** — `Printed.toFile` with
+  log rotation. `openRotatingHandle` / `writeLine` /
+  `closeRotatingHandle` manage the active file lifecycle;
+  rotation triggers on either size (`rfMaxBytes`) or age
+  (`rfMaxAge`). Rolled files take a UTC-suffixed archive name
+  (`stream.20260516T110942Z.log`) so the active path stays
+  stable. The terminal `KStream` sinks `rotatingPrintStream` /
+  `rotatingPrintToHandle` close the parity gap with the JVM
+  `KStream.print(Printed.toFile(...))`.
+- **`Kafka.Streams.Printed`** — direct port of the JVM
+  `org.apache.kafka.streams.kstream.Printed<K,V>` builder.
+  `toSysOut` / `toErr` / `toHandle` / `toFile` /
+  `toRotatingFile` constructors; `withLabel` /
+  `withKeyValueMapper` modifiers; `printKStream` applies the
+  built `Printed` to a `KStream`. Bracket-form
+  `withPrintedFile` / `withPrintedRotatingFile` for
+  deterministic shutdown.
+- **`Kafka.Streams.Runtime.MultiInstanceMockHarness`** — live
+  multi-instance rebalance harness over the in-process
+  `MockCluster`. `newMockSet` spins up N
+  `MockStreamsDriver`s sharing the same group, `tickAll` /
+  `tickAllUntilQuiet` / `refreshAll` drive them step-by-step,
+  `crashInstance` evicts a member and triggers reassignment.
+  `Streams.MultiInstanceRebalanceSpec` adds 4 cases (assignor
+  covers + disjoint, sink routing end-to-end, partition
+  migration on instance loss, Hedgehog property over
+  arbitrary (instances, partitions)). Closes the
+  multi-instance code-side parity gap; an OS-level
+  multi-process broker fixture is still follow-up CI work.
+- **Schema Registry compatibility-mode probing.**
+  `Kafka.Streams.Serde.SchemaRegistry.SchemaRegistryClient`
+  gained two new methods: `srCompatibilityMode` (read the
+  per-subject policy — `NONE` / `BACKWARD` / `FORWARD` /
+  `FULL` / `*_TRANSITIVE`) and `srTestCompatibility` (ask
+  whether a candidate schema would pass the policy). The
+  HTTP-backed client wires `GET /config/{subject}` and
+  `POST /compatibility/subjects/{subject}/versions/latest`.
+  The new `registrySerdeChecked` wrapper probes the policy
+  once at construction time and fails fast with
+  `IncompatibleSchema` before a producer publishes.
+- **`Kafka.Streams.Pipeline` expansion.** The existing
+  `Pipeline a b ≃ a -> IO b` newtype now ships `Arrow`,
+  `ArrowChoice`, `Functor`, and `Applicative` instances so the
+  full Kleisli vocabulary (`first` / `second` / `***` / `&&&`,
+  `left` / `right` / `+++` / `|||`, `arr`, `fmap`) works on
+  Pipeline values. Many new smart constructors:
+  `pfilterNot`, `pvalues`, `pmerge`, `pmergeAll`, `pbranch`,
+  `psink`, `psinkWith`, `pthrough`, `ptoTable`, `ptoStream`,
+  `prepartition`, and a `liftPure` alias for `arr`.
+
+### Fixed
+
+- **GHC 9.10 build errors** picked up after the CI matrix bump:
+  - `Kafka.Client.Group`: untangle the `Control.Exception` /
+    `Control.Monad.IO.Unlift` import-list shadowing.
+  - `Kafka.Client.Group`: switch the `closeTimeoutMs` accessor
+    to `OverloadedRecordDot` so `DuplicateRecordFields`
+    resolves it correctly.
+  - `Kafka.Client.Consumer`: `closeConsumerWithTimeout` /
+    `closeConsumerWithoutLeavingGroup` are declared
+    `MonadIO m =>` but the implementation is `IO`; thread
+    `liftIO`.
+  - `Kafka.Client.Producer`: drop duplicate `INLINABLE` pragmas
+    that collide with the earlier `INLINE` pragmas on the same
+    binding.
+  - `Kafka.Telemetry.OpenTelemetry`: use
+    `Attributes.emptyAttributes` for `libraryAttributes`;
+    `mempty` is no longer accepted by the current `Attributes`
+    type.
+
 - **`Kafka.Errors`** — the exception hierarchy every public Kafka
   operation throws on failure. `KafkaException` carries a
   structured `KafkaErrorKind` (`ConnectError`,

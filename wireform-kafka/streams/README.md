@@ -358,25 +358,77 @@ just haven't landed yet.
   the cross-instance rebalance code path is wired
   (`setRebalanceListener` + `ownedPartitions` + `standbyTasks`
   + the standby-grace state-machine + JoinGroup subscription-
-  metadata exchange). What's still pending is a multi-process
-  CI test that joins two instances to the same consumer group
-  and observes assignment migration. The single-instance Docker
-  fixture in `.github/workflows/wireform-kafka-integration.yml`
-  covers the protocol path; the multi-instance variant is
-  follow-up work.
-- **Schema Registry compatibility-mode probing.** The serde
-  wraps the Confluent envelope and trusts the registry's
-  schema id; we don't proactively check the registry's
-  `compatibility-mode` setting before publishing a new schema
-  version.
-- **`Printed.toFile` with log rotation.** We have
-  `printStream` + `printToHandle`; rotating-file sinks are
-  the user's responsibility (give us a `Handle` you manage).
+  metadata exchange), and the new
+  [`Kafka.Streams.Runtime.MultiInstanceMockHarness`](src/Kafka/Streams/Runtime/MultiInstanceMockHarness.hs)
+  exercises it end-to-end against an in-process mock cluster
+  (assignment split, partition migration on instance loss,
+  Hedgehog property over the assignor's coverage +
+  disjointness invariants — see
+  [`Streams.MultiInstanceRebalanceSpec`](test/Streams/MultiInstanceRebalanceSpec.hs)).
+  What's still pending is a multi-OS-process CI fixture that
+  joins two instances against an actual broker; the single-instance
+  Docker fixture in `.github/workflows/wireform-kafka-integration.yml`
+  covers the protocol path.
 
 Otherwise the streams runtime + DSL are **feature-complete
 relative to Apache Kafka 4.0 Streams**; tests cover every
-shipped operator end-to-end (375 cases in
+shipped operator end-to-end (391+ cases in
 `wireform-kafka-streams-test`).
+
+### Closed gaps
+
+The following parity gaps were previously listed as "not yet
+there" and have now landed; references for the reader:
+
+- **Schema Registry compatibility-mode probing.** The
+  `Kafka.Streams.Serde.SchemaRegistry.SchemaRegistryClient`
+  record gained two new methods: `srCompatibilityMode` (read
+  the per-subject policy — `NONE` / `BACKWARD` / `FORWARD` /
+  `FULL` / `*_TRANSITIVE`) and `srTestCompatibility` (ask
+  whether a candidate schema would pass the policy). The
+  HTTP-backed client wires `GET /config/{subject}` and
+  `POST /compatibility/subjects/{subject}/versions/latest`. A
+  `registrySerdeChecked` wrapper probes the policy once at
+  construction time and fails fast with `IncompatibleSchema`
+  before a producer publishes. See
+  [`Kafka.Streams.Serde.SchemaRegistry`](src/Kafka/Streams/Serde/SchemaRegistry.hs)
+  and its [HTTP sibling](src/Kafka/Streams/Serde/SchemaRegistry/Http.hs).
+- **`Printed.toFile` with log rotation.** The new
+  [`Kafka.Streams.Printed`](src/Kafka/Streams/Printed.hs)
+  module ships an `openRotatingHandle` / `closeRotatingHandle`
+  pair plus the `rotatingPrintStream` / `rotatingPrintToHandle`
+  sinks. Rotation policy covers size, age, and buffering; rolled
+  files take a UTC-suffixed archive name
+  (`stream.20260516T110942Z.log`) so the active path stays
+  stable for tail-style readers. The JVM
+  `org.apache.kafka.streams.kstream.Printed<K,V>` builder has a
+  direct port in
+  [`Kafka.Streams.Printed`](src/Kafka/Streams/Printed.hs):
+  `Printed.toSysOut` / `toErr` / `toHandle` / `toFile` /
+  `toRotatingFile` / `withLabel` / `withKeyValueMapper`, plus
+  bracket-form `withPrintedFile` / `withPrintedRotatingFile`
+  for deterministic shutdown.
+
+### Haskell-native DSL façade
+
+For users who prefer the Haskell-native shape over the JVM-style
+fluent builder, [`Kafka.Streams.DSL`](src/Kafka/Streams/DSL.hs)
+re-skins the operator surface as a builder-implicit reader monad
+with short names and a `|>` pipe:
+
+```haskell
+import qualified Kafka.Streams.DSL as S
+
+topology :: IO Topology
+topology = S.build $ do
+  src <- S.source "in" textSerde textSerde
+  src S.|> S.map T.toUpper
+      S.|> S.filter (\r -> recordValue r /= "")
+      S.|> S.sink "out" textSerde textSerde
+```
+
+The original imperative API (`streamFromTopic` / `filterStream`
+/ `mapValues` / …) is unchanged.
 
 ---
 

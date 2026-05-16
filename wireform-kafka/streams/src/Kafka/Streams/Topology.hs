@@ -73,6 +73,7 @@ module Kafka.Streams.Topology
   , AnySerde (..)
   , AnyTimestampExtractor (..)
   , AnyStoreBuilder (..)
+  , storeBuilderName
   , topoSources
   , topoProcessors
   , topoSinks
@@ -100,7 +101,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
 
-import Kafka.Streams.Errors (TopologyException (..))
 import Kafka.Streams.Processor
   ( Processor
   , ProcessorName (..)
@@ -112,10 +112,6 @@ import Kafka.Streams.State.Store
   , StoreBuilderS (..)
   , StoreBuilderW (..)
   , StoreName
-  , StateStore
-  , KeyValueStore
-  , WindowStore
-  , SessionStore
   , unStoreName
   )
 import qualified Kafka.Streams.State.Store
@@ -623,10 +619,3 @@ parentsOf t n =
 childrenOf :: Topology -> NodeName -> [NodeName]
 childrenOf t n = Map.findWithDefault [] n (topoChildrenIndex t)
 
--- Silence unused
-_unused :: TopologyException -> StateStore -> KeyValueStore () () -> WindowStore () () -> SessionStore () () -> ()
-_unused _ _ _ _ _ = ()
-
--- 'storeBuilderName' is exported indirectly via runtime helpers later.
-_ignored :: AnyStoreBuilder -> StoreName
-_ignored = storeBuilderName

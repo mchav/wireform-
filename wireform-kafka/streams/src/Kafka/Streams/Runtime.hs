@@ -89,10 +89,18 @@ module Kafka.Streams.Runtime
   , setStandbyUpdateListener
   , GlobalStateRestoreListener
   , setGlobalStateRestoreListener
+  , StateRestoreListener (..)
+  , defaultStateRestoreListener
+  , setStateRestoreListener
     -- * Metadata + metrics
   , LocalThreadMetadata (..)
   , metadataForLocalThreads
   , metricsAndState
+    -- * KIP-714 client telemetry id
+  , kafkaStreamsClientInstanceId
+    -- * KIP-924 user-pluggable task assignor
+  , streamsRunUserAssignor
+  , streamsApplicationState
     -- * Progress signal (used by tests to coordinate without threadDelay)
   , ksTickCount
   , awaitTicks
@@ -110,8 +118,11 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import qualified Data.ByteString as BS
 import Data.Text (Text)
 import qualified Data.Text as Text
+
+import qualified Kafka.Client.Telemetry as Telemetry
 
 import qualified Kafka.Client.Consumer as KC
 import qualified Kafka.Client.Producer as KP
@@ -120,6 +131,7 @@ import Kafka.Streams.Config
   ( ProcessingGuarantee (..)
   , StreamsConfig (..)
   )
+import qualified Kafka.Streams.Processor.Assignment as PA
 import Kafka.Streams.Errors
   ( ProcessingException (..)
   , ProcessingExceptionHandler (..)
@@ -195,6 +207,8 @@ import Kafka.Streams.Time (Timestamp (..), nowMillis)
 import Kafka.Streams.Types (TopicName, topicName, unTopicName)
 import qualified Data.HashSet as HashSet
 import Data.HashSet (HashSet)
+import qualified Data.Set as Set
+import qualified Data.UUID as UUID
 
 -- | Lifecycle of the runtime.
 data StreamsStatus
@@ -259,6 +273,7 @@ data KafkaStreams = KafkaStreams
     -- 'replaceThreadOnException'.
   , ksStandbyLis :: !(IORef StandbyUpdateListener)
   , ksGlobalRestoreLis :: !(IORef GlobalStateRestoreListener)
+  , ksRestoreListener :: !(IORef (Maybe StateRestoreListener))
   , ksWarmupLag :: !(TVar (Map.Map TaskId Int64))
     -- ^ KIP-441 warmup-replica progress map: 'TaskId ->
     -- changelog-lag'. Updated by user code (typically a
@@ -293,6 +308,7 @@ newKafkaStreams cfg topo = do
   uncH  <- newIORef replaceThreadOnException
   stbyLis <- newIORef (\_ _ -> pure ())
   grLis   <- newIORef (\_ _ -> pure ())
+  rLis    <- newIORef Nothing
   warmup  <- newTVarIO Map.empty
   lastPr  <- newTVarIO 0
   stbyMgr <- newStandbyManager
@@ -317,6 +333,7 @@ newKafkaStreams cfg topo = do
     , ksUncaught  = uncH
     , ksStandbyLis = stbyLis
     , ksGlobalRestoreLis = grLis
+    , ksRestoreListener = rLis
     , ksWarmupLag = warmup
     , ksLastProbeAt = lastPr
     , ksStandbyManager = stbyMgr
@@ -1114,6 +1131,78 @@ setGlobalStateRestoreListener
 setGlobalStateRestoreListener ks lis =
   writeIORef (ksGlobalRestoreLis ks) lis
 
+-- | Full state-restore listener matching the JVM
+-- @org.apache.kafka.streams.processor.StateRestoreListener@
+-- 4-method interface:
+--
+--   * 'onRestoreStart'     — fired once at the beginning of a
+--     store's restore, with the starting + exclusive ending
+--     offsets of the changelog slice to replay.
+--   * 'onBatchRestored'    — fired after each batch the runtime
+--     pulls off the changelog; @numRestored@ is the count for
+--     /this batch/, not the running total.
+--   * 'onRestoreEnd'       — fired once at successful completion.
+--   * 'onRestoreSuspended' — fired when the active task hosting
+--     this store migrates out before the restore finished. If
+--     the task comes back, a fresh 'onRestoreStart' fires.
+--
+-- The 'GlobalStateRestoreListener' alias kept above is the
+-- minimal shape (a single @\\ name offset -> IO ()@). Use
+-- 'StateRestoreListener' when you want the full event surface;
+-- 'setStateRestoreListener' adapts the record into the
+-- minimal hook the runtime already calls.
+data StateRestoreListener = StateRestoreListener
+  { onRestoreStart
+      :: !(KC.TopicPartition -> Text -> Int64 -> Int64 -> IO ())
+  , onBatchRestored
+      :: !(KC.TopicPartition -> Text -> Int64 -> Int64 -> IO ())
+  , onRestoreEnd
+      :: !(KC.TopicPartition -> Text -> Int64 -> IO ())
+  , onRestoreSuspended
+      :: !(KC.TopicPartition -> Text -> Int64 -> IO ())
+  }
+
+-- | A listener that does nothing on every event. Useful as a
+-- starting point for record-update syntax:
+--
+-- @
+-- 'setStateRestoreListener' ks $
+--   'defaultStateRestoreListener'
+--     { 'onRestoreStart' = \\tp store start end ->
+--         hPutStrLn stderr (\"restore-start \" <> show (tp, store, start, end))
+--     }
+-- @
+defaultStateRestoreListener :: StateRestoreListener
+defaultStateRestoreListener = StateRestoreListener
+  { onRestoreStart     = \_ _ _ _ -> pure ()
+  , onBatchRestored    = \_ _ _ _ -> pure ()
+  , onRestoreEnd       = \_ _ _   -> pure ()
+  , onRestoreSuspended = \_ _ _   -> pure ()
+  }
+
+-- | Install a 'StateRestoreListener'. Adapts to the existing
+-- 'GlobalStateRestoreListener' hook (which the runtime fires
+-- per replayed offset) by routing each fire to
+-- 'onBatchRestored' with a @numRestored = 1@ count and a
+-- synthetic 'KC.TopicPartition' for the store's changelog.
+-- 'onRestoreStart' / 'onRestoreEnd' / 'onRestoreSuspended' are
+-- fired by the runtime's standby + active-task lifecycle
+-- transitions; if the runtime hasn't been wired with those
+-- transitions yet they're no-ops, but the listener record's
+-- shape stays JVM-equivalent.
+setStateRestoreListener :: KafkaStreams -> StateRestoreListener -> IO ()
+setStateRestoreListener ks lis = do
+  -- Bridge: every replayed offset fires onBatchRestored with a
+  -- batch size of 1 (the runtime doesn't currently batch the
+  -- replay callback). The store-name is what GlobalStateRestoreListener
+  -- gets; we use a sentinel TopicPartition because the runtime
+  -- doesn't expose the per-store changelog partition here.
+  let bridge :: GlobalStateRestoreListener
+      bridge name off =
+        onBatchRestored lis (KC.TopicPartition name 0) name off 1
+  writeIORef (ksGlobalRestoreLis ks) bridge
+  writeIORef (ksRestoreListener ks) (Just lis)
+
 ----------------------------------------------------------------------
 -- KIP-444 metrics + metadata
 ----------------------------------------------------------------------
@@ -1157,6 +1246,99 @@ metricsAndState ks = do
   st <- streamsStatus ks
   ms <- metadataForLocalThreads ks
   pure (st, ms)
+
+-- | Returns the streams instance's client-instance id (KIP-714).
+-- Mirrors @KafkaStreams.clientInstanceIds(Duration)@ on the JVM —
+-- which on a 4.0 cluster simply forwards the consumer's /
+-- producer's / admin's broker-assigned UUIDs back to the caller.
+-- Until the broker-side telemetry pipeline lands, this returns a
+-- deterministic locally-derived UUID padded from the configured
+-- @application.id@; same encoding the consumer + producer +
+-- admin clients use.
+kafkaStreamsClientInstanceId
+  :: KafkaStreams -> IO BS.ByteString
+kafkaStreamsClientInstanceId ks =
+  pure (Telemetry.clientInstanceIdFromText (applicationId (ksConfig ks)))
+
+-- | Build a 'PA.ApplicationState' snapshot from this instance's
+-- live runtime view. Mirrors what the JVM streams runtime
+-- passes to a user-supplied @TaskAssignor@ on the leader side
+-- of a rebalance.
+--
+-- The snapshot is single-instance: this is the view the local
+-- runtime has of its own tasks. On a multi-instance cluster
+-- the JVM SDK aggregates state from every member via the
+-- group-coordination subscription metadata; that aggregation
+-- isn't wired here yet, but the 'PA.ApplicationState' returned
+-- is the shape the plug-in expects so user code can be tested
+-- end-to-end against the local view.
+streamsApplicationState :: KafkaStreams -> IO PA.ApplicationState
+streamsApplicationState ks = do
+  owned    <- readTVarIO (ksOwned ks)
+  standbys <- readTVarIO (ksStandbys ks)
+  -- Build per-instance state. The local ProcessId is derived
+  -- deterministically from the application id so re-runs against
+  -- the same config produce the same id.
+  let !cfg = ksConfig ks
+      !pid = PA.ProcessId (UUID.fromWords 0 0 0
+                            (fromIntegral
+                              (Text.length (applicationId cfg))))
+      ownedSet  = HashMap.toList (HashSet.toMap owned)
+      tasksFromOwned =
+        Map.fromList
+          [ ( TaskId 0 tp.partition
+            , PA.TaskInfo
+                { PA.tiTaskId          = TaskId 0 tp.partition
+                , PA.tiTopicPartitions = Set.singleton (PA.TaskTopicPartition
+                    { PA.ttpTopic       = tp.topic
+                    , PA.ttpPartition   = tp.partition
+                    , PA.ttpIsChangelog = False
+                    })
+                , PA.tiIsStateful = False
+                , PA.tiStores     = Set.empty
+                }
+            )
+          | (tp, _) <- ownedSet
+          ]
+      activeTids = Map.keysSet tasksFromOwned
+      standbyTids = Set.fromList
+        [ TaskId 0 tp.partition | tp <- Map.keys standbys ]
+      kss = PA.KafkaStreamsState
+              { PA.kssProcessId            = pid
+              , PA.kssNumProcessingThreads = numStreamThreads cfg
+              , PA.kssClientTags           = Map.empty
+              , PA.kssPreviousActiveTasks  = activeTids
+              , PA.kssPreviousStandbyTasks = standbyTids
+              , PA.kssRackId               = Nothing
+              }
+  pure PA.ApplicationState
+    { PA.asAllTasks           = tasksFromOwned
+    , PA.asKafkaStreamsStates = Map.singleton pid kss
+    , PA.asAssignmentConfigs  = PA.AssignmentConfigs
+        { PA.acNumStandbyReplicas      = numStandbyReplicas cfg
+        , PA.acAcceptableRecoveryLag   = fromIntegral (acceptableRecoveryLag cfg)
+        , PA.acMaxWarmupReplicas       = maxWarmupReplicas cfg
+        , PA.acProbingRebalanceIntervalMs = probingRebalanceIntervalMs cfg
+        , PA.acRackAware               = PA.defaultRackAwareAssignmentConfigs
+        }
+    }
+
+-- | Invoke the user-configured 'PA.TaskAssignor' against the
+-- current 'streamsApplicationState'. Returns 'Nothing' when no
+-- plug-in is configured ('Kafka.Streams.Config.taskAssignor =
+-- Nothing'); returns @Just@ the assignor's output otherwise.
+--
+-- The runtime itself doesn't consume this value yet — the
+-- leader-side assignment path uses the built-in cooperative-
+-- sticky assignor — but the wiring is in place so user code
+-- can drive the plug-in deterministically.
+streamsRunUserAssignor :: KafkaStreams -> IO (Maybe PA.TaskAssignment)
+streamsRunUserAssignor ks =
+  case taskAssignor (ksConfig ks) of
+    Nothing  -> pure Nothing
+    Just ta_ -> do
+      app <- streamsApplicationState ks
+      Just <$> PA.taAssign ta_ app
 
 -- | Run the supplied event loop with the configured uncaught-exception
 -- handling. On exception the user handler decides whether to

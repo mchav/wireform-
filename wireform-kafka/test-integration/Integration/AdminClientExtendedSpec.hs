@@ -18,6 +18,7 @@ module Integration.AdminClientExtendedSpec
 
 import Control.Monad (forM_)
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.Map.Strict as MS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Time.Clock.POSIX as Time
@@ -53,6 +54,16 @@ tests = testGroup "Integration: AdminClient extended (KIP-78/-339/-444/-460/-503
       withBroker testDeleteRecords
   , testCase "describeTopics returns partition info (negotiated Metadata v13)" $
       withBroker testDescribeTopics
+  , testCase "describeFeatures returns the cluster's KIP-584 feature set" $
+      withBroker testDescribeFeatures
+  , testCase "listClientMetricsResources returns the broker's configured resources" $
+      withBroker testListClientMetricsResources
+  , testCase "describeConsumerGroups2 round-trips against KIP-848 broker" $
+      withBroker testDescribeConsumerGroups2
+  , testCase "adminClientInstanceId is deterministic from client.id" $
+      withBroker testAdminClientInstanceId
+  , testCase "producerClientInstanceId is deterministic from client.id" $
+      withBroker testProducerClientInstanceId
   ]
 
 ----------------------------------------------------------------------
@@ -285,6 +296,58 @@ testDescribeTopics brokerText = do
 -- Helpers
 ----------------------------------------------------------------------
 
+testDescribeFeatures :: T.Text -> IO ()
+testDescribeFeatures brokerText = do
+  ac <- mkAdmin brokerText
+  r  <- AC.describeFeatures ac
+  AC.closeAdminClient ac
+  case r of
+    Left e   -> assertFailure ("describeFeatures: " <> e)
+    Right fm ->
+      -- A 4.x cluster always advertises at least @metadata.version@
+      -- in the supported list; we accept any non-empty supported
+      -- set so the test is portable across broker versions.
+      assertBool "expected at least one supported feature"
+        (not (MS.null (AC.fmSupportedFeatures fm)))
+
+testListClientMetricsResources :: T.Text -> IO ()
+testListClientMetricsResources brokerText = do
+  ac <- mkAdmin brokerText
+  r  <- AC.listClientMetricsResources ac
+  AC.closeAdminClient ac
+  case r of
+    Left e  -> assertFailure ("listClientMetricsResources: " <> e)
+    Right _ -> pure ()   -- empty list is a valid response
+
+testDescribeConsumerGroups2 :: T.Text -> IO ()
+testDescribeConsumerGroups2 brokerText = do
+  ac <- mkAdmin brokerText
+  -- Empty input ⇒ the broker should return an empty result list.
+  r  <- AC.describeConsumerGroups2 ac [] False
+  AC.closeAdminClient ac
+  case r of
+    Left e   -> assertFailure ("describeConsumerGroups2: " <> e)
+    Right ds -> assertEqual "empty input returns empty result" 0 (length ds)
+
+testAdminClientInstanceId :: T.Text -> IO ()
+testAdminClientInstanceId brokerText = do
+  ac <- mkAdmin brokerText
+  a  <- AC.adminClientInstanceId ac
+  b  <- AC.adminClientInstanceId ac
+  AC.closeAdminClient ac
+  assertEqual "deterministic across calls" a b
+
+testProducerClientInstanceId :: T.Text -> IO ()
+testProducerClientInstanceId brokerText = do
+  pcfg <- pure $ KP.defaultProducerConfig { KP.producerClientId = "wf-it-instance" }
+  pr   <- either error pure =<< KP.createProducer [brokerText] pcfg
+  a <- KP.producerClientInstanceId pr
+  b <- KP.producerClientInstanceId pr
+  KP.closeProducer pr
+  assertEqual "deterministic across calls" a b
+
+----------------------------------------------------------------------
+
 withBroker :: (T.Text -> IO ()) -> IO ()
 withBroker k = do
   m <- lookupEnv "WIREFORM_KAFKA_BROKER"
@@ -301,3 +364,4 @@ mkAdmin brokerText = do
   case r of
     Left e  -> error ("createAdminClient: " <> e)
     Right c -> pure c
+

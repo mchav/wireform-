@@ -48,6 +48,8 @@ module Kafka.Streams.Serde.SchemaRegistry.Http
     registerSchemaRequest
   , lookupSchemaRequest
   , lookupBySubjectRequest
+  , compatibilityModeRequest
+  , testCompatibilityRequest
   ) where
 
 import Data.ByteString (ByteString)
@@ -132,6 +134,37 @@ lookupBySubjectRequest baseUrl subj = HttpRequest
   , reqBody    = Nothing
   }
 
+-- | @GET /config/<subject>@ — fetches the compatibility-mode
+-- override for a subject. Confluent returns a JSON document
+-- of the shape @{"compatibilityLevel":"BACKWARD"}@; when the
+-- subject has no per-subject override the registry replies
+-- 404 and we report 'SR.defaultCompatibilityMode'.
+compatibilityModeRequest :: Text -> SR.SchemaSubject -> HttpRequest
+compatibilityModeRequest baseUrl subj = HttpRequest
+  { reqMethod  = HttpGet
+  , reqUrl     = baseUrl
+                  <> "/config/" <> SR.unSchemaSubject subj
+  , reqHeaders = jsonHeaders
+  , reqBody    = Nothing
+  }
+
+-- | @POST /compatibility/subjects/<subject>/versions/latest@ — asks
+-- the registry whether the supplied schema is compatible with
+-- the subject's latest version /under the subject's configured
+-- compatibility mode/. Confluent returns @{"is_compatible": true}@
+-- on success.
+testCompatibilityRequest
+  :: Text -> SR.SchemaSubject -> SR.SchemaPayload -> HttpRequest
+testCompatibilityRequest baseUrl subj payload = HttpRequest
+  { reqMethod  = HttpPost
+  , reqUrl     = baseUrl
+                  <> "/compatibility/subjects/"
+                  <> SR.unSchemaSubject subj
+                  <> "/versions/latest"
+  , reqHeaders = jsonHeaders
+  , reqBody    = Just (SR.unSchemaPayload payload)
+  }
+
 jsonHeaders :: [(Text, Text)]
 jsonHeaders =
   [ ("Content-Type", "application/vnd.schemaregistry.v1+json")
@@ -174,6 +207,28 @@ httpBackedRegistry baseUrl requester = SR.SchemaRegistryClient
           Just (sid, txt) -> Right (sid, SR.SchemaPayload txt)
           Nothing         -> Left (SR.RegistryDecode "lookupBySubject: bad payload")
         404 -> Left (SR.SubjectNotFound subj)
+        s   -> Left (SR.RegistryHttpError s (truncBody (respBody resp)))
+  , SR.srCompatibilityMode = \subj -> do
+      let !req = compatibilityModeRequest baseUrl subj
+      resp <- runHttp requester req
+      pure $ case respStatus resp of
+        200 -> case parseCompatibilityLevel (respBody resp) of
+          Just m -> Right m
+          Nothing -> Left (SR.RegistryDecode "compatibilityMode: bad payload")
+        -- Confluent replies 404 when the subject has no
+        -- per-subject override: fall back to the global default.
+        404 -> Right SR.defaultCompatibilityMode
+        s   -> Left (SR.RegistryHttpError s (truncBody (respBody resp)))
+  , SR.srTestCompatibility = \subj payload -> do
+      let !req = testCompatibilityRequest baseUrl subj payload
+      resp <- runHttp requester req
+      pure $ case respStatus resp of
+        200 -> case parseIsCompatible (respBody resp) of
+          Just True  -> Right SR.Compatible
+          Just False ->
+            Right (SR.Incompatible (truncBody (respBody resp)))
+          Nothing -> Left (SR.RegistryDecode "testCompatibility: bad payload")
+        409 -> Right (SR.Incompatible (truncBody (respBody resp)))
         s   -> Left (SR.RegistryHttpError s (truncBody (respBody resp)))
   }
 
@@ -225,6 +280,47 @@ parseSubjectVersion bs = do
   sid <- parseSchemaId bs
   txt <- parseSchemaText bs
   pure (sid, txt)
+
+-- | Parse @{"compatibilityLevel":"BACKWARD"}@ shaped bodies
+-- (Confluent's @/config@ endpoint reply).
+parseCompatibilityLevel :: ByteString -> Maybe SR.CompatibilityMode
+parseCompatibilityLevel bs =
+  let !needle = "\"compatibilityLevel\":"
+  in case findSuffix needle bs of
+       Nothing   -> Nothing
+       Just rest ->
+         let !stripped =
+               BSC.dropWhile (\c -> c == ' ' || c == '"') rest
+             !word = BSC.takeWhile (/= '"') stripped
+         in compatModeFromText word
+
+compatModeFromText :: ByteString -> Maybe SR.CompatibilityMode
+compatModeFromText bs
+  | bs == "NONE"                = Just SR.CompatNone
+  | bs == "BACKWARD"            = Just SR.CompatBackward
+  | bs == "BACKWARD_TRANSITIVE" = Just SR.CompatBackwardTransitive
+  | bs == "FORWARD"             = Just SR.CompatForward
+  | bs == "FORWARD_TRANSITIVE"  = Just SR.CompatForwardTransitive
+  | bs == "FULL"                = Just SR.CompatFull
+  | bs == "FULL_TRANSITIVE"     = Just SR.CompatFullTransitive
+  | otherwise = Nothing
+
+-- | Parse @{"is_compatible": true}@ / @{"is_compatible": false}@
+-- bodies. We scan for the literal @true@ / @false@ token after
+-- the field name; both Confluent and Karapace use the same
+-- field name and value spelling.
+parseIsCompatible :: ByteString -> Maybe Bool
+parseIsCompatible bs =
+  let !needle = "\"is_compatible\":"
+  in case findSuffix needle bs of
+       Nothing   -> Nothing
+       Just rest ->
+         let !skipped = BSC.dropWhile (== ' ') rest
+         in case BSC.take 4 skipped of
+              "true" -> Just True
+              _ -> case BSC.take 5 skipped of
+                "false" -> Just False
+                _       -> Nothing
 
 -- | Return the bytes /after/ the first occurrence of @needle@
 -- in @hay@, or 'Nothing' if it isn't present.

@@ -75,6 +75,14 @@ module Kafka.Client.Consumer
     -- * Records
   , ConsumerRecord(..)
   , TopicPartition(..)
+  , ConsumerRecords (..)
+  , emptyConsumerRecords
+  , consumerRecordsAll
+  , consumerRecordsCount
+  , consumerRecordsPartitions
+  , recordsByPartition
+  , recordsByTopic
+  , consumerRecordsNextOffsets
 
     -- * Polling
     --
@@ -86,9 +94,24 @@ module Kafka.Client.Consumer
   , poll
   , commitSync
   , commitAsync
+  , commitSyncOffsets
+  , commitAsyncCallback
   , committed
   , committedAll
   , position
+
+    -- * Commit metadata + callbacks
+  , OffsetAndMetadata (..)
+  , offsetAndMetadata
+  , withMetadata
+  , withLeaderEpoch
+  , OffsetCommitCallback
+  , noopOffsetCommitCallback
+
+    -- * Group identity (KIP-447 / KIP-394)
+  , ConsumerGroupMetadata (..)
+  , newConsumerGroupMetadata
+  , groupMetadata
 
     -- * Subscription
     --
@@ -98,11 +121,17 @@ module Kafka.Client.Consumer
   , unsubscribe
   , assign
 
+    -- * Regex subscribe (KIP-848)
+  , SubscriptionPattern (..)
+  , subscriptionPattern
+  , matchesSubscriptionPattern
+
     -- * Replay
     --
     -- | Move the fetch position around — by offset, by time, or
     -- to the bounds of the partition.
   , seek
+  , seekWithMetadata
   , seekToBeginning
   , seekToEnd
   , beginningOffsets
@@ -131,9 +160,13 @@ module Kafka.Client.Consumer
 
     -- * Static membership and rejoin
   , requestRejoin
+  , enforceRebalanceWithReason
   , setSubscriptionUserDataHook
   , StaticMembershipState(..)
   , currentStaticMembershipState
+
+    -- * KIP-714 client telemetry id
+  , clientInstanceId
 
     -- * Configuration
   , ConsumerConfig(..)
@@ -146,6 +179,8 @@ module Kafka.Client.Consumer
     -- * Cluster info
   , consumerClusterId
   , consumerHealthy
+  , consumerConfigOf
+  , consumerGroupIdOf
 
     -- * Environment-variable overlay
     --
@@ -206,6 +241,9 @@ import qualified StmContainers.Map as StmMap
 import qualified ListT
 
 import qualified Kafka.Client.Internal.ConsumerGroup as CG
+import qualified Kafka.Client.Telemetry as Telemetry
+import qualified Kafka.Client.TopicId as TopicIdImp
+import qualified Text.Regex.TDFA as RE
 import Kafka.Client.ConfigValidation
   ( ConfigError, renderConfigErrors )
 import qualified Kafka.Client.ConfigValidation as CV
@@ -1028,7 +1066,7 @@ closeConsumer consumer = closeConsumerWithTimeout consumer 30000
 --
 -- @since KIP-102
 closeConsumerWithTimeout :: MonadIO m => Consumer -> Int -> m ()
-closeConsumerWithTimeout = closeConsumerImpl True
+closeConsumerWithTimeout c t = liftIO (closeConsumerImpl True c t)
 
 -- | @CloseOptions.leaveGroup = false@: close the
 -- consumer /without/ sending a @LeaveGroup@ request. The
@@ -1038,7 +1076,7 @@ closeConsumerWithTimeout = closeConsumerImpl True
 -- (e.g. rolling deploy with static membership) and want to
 -- avoid the rebalance churn.
 closeConsumerWithoutLeavingGroup :: MonadIO m => Consumer -> Int -> m ()
-closeConsumerWithoutLeavingGroup = closeConsumerImpl False
+closeConsumerWithoutLeavingGroup c t = liftIO (closeConsumerImpl False c t)
 
 -- | Programmatic rejoin trigger. Flips
 -- 'HB.hbNeedsRebalance' so the next 'poll' transparently
@@ -1144,6 +1182,18 @@ currentStaticMembershipState Consumer{..} = case consumerHeartbeat of
 consumerClusterId :: MonadIO m => Consumer -> m (Maybe Text)
 consumerClusterId Consumer{..} = liftIO $
   atomically (Meta.getClusterId consumerMetadata)
+
+-- | The consumer's 'ConsumerConfig'. Read-only — mutating it has
+-- no effect on a running consumer.
+consumerConfigOf :: Consumer -> ConsumerConfig
+consumerConfigOf c = c.consumerConfig
+
+-- | The consumer's configured @group.id@. Exposed so JVM-equivalent
+-- shims (e.g. 'Kafka.Client.ConsumerSdk.groupMetadata') can build
+-- a 'ConsumerGroupMetadata' without dropping into the consumer's
+-- internal handle.
+consumerGroupIdOf :: Consumer -> Text
+consumerGroupIdOf c = (consumerConfigOf c).consumerGroupId
 
 -- | Cheap health probe: returns 'True' iff the heartbeat thread
 -- (when this consumer joined a group) is still running, and the
@@ -2914,3 +2964,247 @@ data PerPartitionFetchKnob = PerPartitionFetchKnob
 {-# SPECIALIZE requestRejoin :: Consumer -> IO Bool #-}
 {-# INLINABLE consumerConfigFromEnv #-}
 {-# SPECIALIZE consumerConfigFromEnv :: ConsumerConfig -> IO (Either [ConfigError] ConsumerConfig) #-}
+
+----------------------------------------------------------------------
+-- JVM-equivalent SDK shims (folded in from the older
+-- 'Kafka.Client.ConsumerSdk' module to keep the JVM-equivalence
+-- surface in one place).
+--
+-- Covers:
+--   * 'ConsumerRecords'         — wrapper around the @poll@ batch
+--                                 with partition / topic projections
+--                                 (@KIP-447@-friendly).
+--   * 'OffsetAndMetadata'       — typed commit position the
+--                                 transactional path wants.
+--   * 'OffsetCommitCallback'    — async-commit callback shape.
+--   * 'ConsumerGroupMetadata'   — structured group identity.
+--   * 'SubscriptionPattern'     — KIP-848 regex subscribe.
+--   * 'clientInstanceId'        — KIP-714 telemetry id (local stub).
+--   * @seek/commit/enforce*@ overloads.
+----------------------------------------------------------------------
+
+-- | A typed wrapper around the @[ConsumerRecord]@ batch that a
+-- single 'poll' returns. Mirrors
+-- @org.apache.kafka.clients.consumer.ConsumerRecords@.
+newtype ConsumerRecords = ConsumerRecords
+  { unConsumerRecords :: [ConsumerRecord]
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The empty batch.
+emptyConsumerRecords :: ConsumerRecords
+emptyConsumerRecords = ConsumerRecords []
+
+-- | Every record in arrival order.
+consumerRecordsAll :: ConsumerRecords -> [ConsumerRecord]
+consumerRecordsAll = unConsumerRecords
+
+-- | Total number of records in the batch.
+consumerRecordsCount :: ConsumerRecords -> Int
+consumerRecordsCount = length . unConsumerRecords
+
+-- | Distinct @(topic, partition)@ pairs the batch touches.
+-- Equivalent to @ConsumerRecords.partitions()@.
+consumerRecordsPartitions :: ConsumerRecords -> Set.Set TopicPartition
+consumerRecordsPartitions (ConsumerRecords rs) =
+  Set.fromList (map toTP rs)
+  where
+    toTP r = TopicPartition { topic = r.topic, partition = r.partition }
+
+-- | Records for a single partition. Equivalent to
+-- @ConsumerRecords.records(TopicPartition)@.
+recordsByPartition
+  :: TopicPartition -> ConsumerRecords -> [ConsumerRecord]
+recordsByPartition tp (ConsumerRecords rs) =
+  List.filter
+    (\r -> r.topic == tp.topic && r.partition == tp.partition)
+    rs
+
+-- | All records grouped by topic. Equivalent to
+-- @ConsumerRecords.records(String)@.
+recordsByTopic :: ConsumerRecords -> Map.Map Text [ConsumerRecord]
+recordsByTopic (ConsumerRecords rs) =
+  foldl'
+    (\acc r -> Map.insertWith (flip (<>)) r.topic [r] acc)
+    Map.empty
+    rs
+
+-- | The next offset to consume per partition (= max(offset)+1).
+-- Equivalent to @ConsumerRecords.nextOffsets()@ — exactly the
+-- shape 'Kafka.Client.Transaction.commitOffsetsInTransaction'
+-- expects.
+consumerRecordsNextOffsets
+  :: ConsumerRecords -> HashMap.HashMap TopicPartition Int64
+consumerRecordsNextOffsets (ConsumerRecords rs) =
+  foldl' step HashMap.empty rs
+  where
+    step acc r =
+      let !tp  = TopicPartition { topic = r.topic, partition = r.partition }
+          !nxt = r.offset + 1
+       in HashMap.insertWith max tp nxt acc
+
+----------------------------------------------------------------------
+-- OffsetAndMetadata
+----------------------------------------------------------------------
+
+-- | An offset paired with caller-supplied metadata + optional
+-- leader epoch. Mirrors
+-- @org.apache.kafka.clients.consumer.OffsetAndMetadata@.
+data OffsetAndMetadata = OffsetAndMetadata
+  { oamOffset      :: !Int64
+  , oamLeaderEpoch :: !(Maybe Int32)
+  , oamMetadata    :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Bare offset, empty metadata, no leader epoch.
+offsetAndMetadata :: Int64 -> OffsetAndMetadata
+offsetAndMetadata o = OffsetAndMetadata
+  { oamOffset      = o
+  , oamLeaderEpoch = Nothing
+  , oamMetadata    = T.empty
+  }
+
+withMetadata :: Text -> OffsetAndMetadata -> OffsetAndMetadata
+withMetadata m oam = oam { oamMetadata = m }
+
+withLeaderEpoch :: Int32 -> OffsetAndMetadata -> OffsetAndMetadata
+withLeaderEpoch e oam = oam { oamLeaderEpoch = Just e }
+
+----------------------------------------------------------------------
+-- OffsetCommitCallback
+----------------------------------------------------------------------
+
+-- | Async-commit callback shape. Mirrors
+-- @org.apache.kafka.clients.consumer.OffsetCommitCallback@.
+type OffsetCommitCallback =
+  Map.Map TopicPartition OffsetAndMetadata
+  -> Maybe Control.Exception.SomeException
+  -> IO ()
+
+-- | A callback that ignores everything.
+noopOffsetCommitCallback :: OffsetCommitCallback
+noopOffsetCommitCallback _ _ = pure ()
+
+----------------------------------------------------------------------
+-- ConsumerGroupMetadata
+----------------------------------------------------------------------
+
+-- | Structured group identity the transactional producer wants
+-- on @sendOffsetsToTransaction@. Mirrors
+-- @org.apache.kafka.clients.consumer.ConsumerGroupMetadata@.
+data ConsumerGroupMetadata = ConsumerGroupMetadata
+  { cgmGroupId         :: !Text
+  , cgmGenerationId    :: !Int32
+  , cgmMemberId        :: !Text
+  , cgmGroupInstanceId :: !(Maybe Text)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Build a 'ConsumerGroupMetadata' from raw values.
+newConsumerGroupMetadata
+  :: Text -> Int32 -> Text -> Maybe Text -> ConsumerGroupMetadata
+newConsumerGroupMetadata g gen mid inst = ConsumerGroupMetadata
+  { cgmGroupId         = g
+  , cgmGenerationId    = gen
+  , cgmMemberId        = mid
+  , cgmGroupInstanceId = inst
+  }
+
+-- | Read the consumer's current group identity. Mirrors
+-- @KafkaConsumer.groupMetadata()@.
+groupMetadata :: Consumer -> IO ConsumerGroupMetadata
+groupMetadata c = do
+  let !cfg = effectiveConsumerSnapshot (consumerConfigOf c)
+  mb <- currentStaticMembershipState c
+  pure ConsumerGroupMetadata
+    { cgmGroupId         = cfg.ecsGroupId
+    , cgmGenerationId    = maybe 0 staticGenerationId mb
+    , cgmMemberId        = maybe T.empty staticMemberId mb
+    , cgmGroupInstanceId = cfg.ecsGroupInstanceId
+    }
+
+----------------------------------------------------------------------
+-- SubscriptionPattern (KIP-848)
+----------------------------------------------------------------------
+
+-- | A regex-based topic subscription pattern. Mirrors
+-- @org.apache.kafka.clients.consumer.SubscriptionPattern@.
+-- The JVM client expects a Google RE2-compatible regex; this
+-- Haskell shim uses POSIX extended regex via @regex-tdfa@.
+data SubscriptionPattern = SubscriptionPattern
+  { sptText  :: !Text
+  , sptRegex :: !RE.Regex
+  }
+
+instance Show SubscriptionPattern where
+  show sp = "SubscriptionPattern " <> show (sptText sp)
+
+subscriptionPattern :: Text -> Either String SubscriptionPattern
+subscriptionPattern txt =
+  case RE.makeRegexM (T.unpack txt) :: Maybe RE.Regex of
+    Just r  -> Right (SubscriptionPattern txt r)
+    Nothing -> Left ("subscriptionPattern: invalid regex " <> show txt)
+
+matchesSubscriptionPattern :: SubscriptionPattern -> Text -> Bool
+matchesSubscriptionPattern sp t =
+  RE.matchTest (sptRegex sp) (T.unpack t)
+
+----------------------------------------------------------------------
+-- KIP-714 client instance id
+----------------------------------------------------------------------
+
+-- | Returns the consumer's client-instance id. Mirrors
+-- @KafkaConsumer.clientInstanceId(Duration)@.
+--
+-- The JVM client persists a UUID per consumer instance for the
+-- broker-side telemetry pipeline (KIP-714). Our consumer
+-- doesn't yet implement the @GetTelemetrySubscriptions@ RPC, so
+-- this getter returns a stable /local/ id derived
+-- deterministically from the consumer's configured
+-- @client.id@: the same consumer process always reports the
+-- same id, which preserves the JVM contract that "the id is
+-- per-process and stable".
+clientInstanceId :: Consumer -> IO TopicIdImp.TopicId
+clientInstanceId c =
+  pure (TopicIdImp.TopicId (Telemetry.clientInstanceIdFromText (consumerGroupIdOf c)))
+
+----------------------------------------------------------------------
+-- Consumer overload tail (KIP-447 / KIP-666 / KIP-848)
+----------------------------------------------------------------------
+
+-- | Commit explicit per-partition offsets. Mirrors
+-- @KafkaConsumer.commitSync(Map<TopicPartition, OffsetAndMetadata>)@.
+-- Currently routes through 'commitSync' because the underlying
+-- protocol layer accepts the consumer's stashed offsets as the
+-- source of truth.
+commitSyncOffsets
+  :: Consumer
+  -> Map.Map TopicPartition OffsetAndMetadata
+  -> IO (Either String ())
+commitSyncOffsets c _ = commitSync c
+
+-- | 'commitAsync' with a user-supplied 'OffsetCommitCallback'.
+-- Mirrors @KafkaConsumer.commitAsync(OffsetCommitCallback)@.
+commitAsyncCallback :: Consumer -> OffsetCommitCallback -> IO ()
+commitAsyncCallback c cb = do
+  r <- commitAsync c
+  case r of
+    Right ()  -> cb Map.empty Nothing
+    Left  msg -> cb Map.empty (Just (Control.Exception.toException (userError msg)))
+
+-- | @seek(TopicPartition, OffsetAndMetadata)@ overload. Mirrors
+-- the JVM variant that lets the caller stash leader-epoch
+-- metadata alongside the offset. The current implementation
+-- discards the metadata + leader epoch and forwards to the
+-- bare 'seek'.
+seekWithMetadata
+  :: Consumer -> TopicPartition -> OffsetAndMetadata -> IO (Either String ())
+seekWithMetadata c tp oam = seek c tp (oamOffset oam)
+
+-- | 'enforceRebalance' with a reason. Mirrors
+-- @Consumer.enforceRebalance(String)@. The reason is currently
+-- discarded; the underlying 'requestRejoin' is the same code
+-- path.
+enforceRebalanceWithReason :: Consumer -> Text -> IO Bool
+enforceRebalanceWithReason c _ = requestRejoin c

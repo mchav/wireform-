@@ -102,13 +102,13 @@ module Kafka.Client.Group
 
 import Control.Concurrent (threadDelay)
 import Control.Exception
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
   ( SomeException
   , bracket
   , catch
   , throwIO
   )
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Control.Monad (forM_, unless, when)
 import Data.IORef
 import Data.Text (Text)
@@ -314,7 +314,7 @@ withGroupConsumer cfg@GroupConfig{..} body = do
           (T.pack ("wireform-kafka: createConsumer failed: " <> err))
         Right con -> pure GroupConsumer { groupConsumer = con, groupConfig = cfg }
 
-    close gc = C.closeConsumerWithTimeout (groupConsumer gc) (closeTimeoutMs (groupConfig gc))
+    close gc = C.closeConsumerWithTimeout (groupConsumer gc) ((groupConfig gc).closeTimeoutMs)
 
 -- | A single 'C.poll' against the underlying consumer.
 pollOnce :: MonadIO m => GroupConsumer -> m [C.ConsumerRecord]

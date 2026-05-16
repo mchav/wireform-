@@ -30,9 +30,7 @@ import Data.Map.Strict (Map)
 import Data.Int (Int64)
 
 import Kafka.Streams.State.Store
-  ( KeyValueIterator
-  , KeyValueStore (..)
-  , LoggingConfig
+  ( KeyValueStore (..)
   , StateStore (..)
   , StoreBuilderKV (..)
   , StoreName
@@ -219,7 +217,3 @@ inMemoryKeyValueStoreBuilder nm = StoreBuilderKV
   , sbKvBuild   = inMemoryKeyValueStore nm
   }
 
--- Silence unused-warning for KeyValueIterator/LoggingConfig imports
--- (used only via type signatures the haddock references).
-_unused :: KeyValueIterator () () -> LoggingConfig -> ()
-_unused _ _ = ()

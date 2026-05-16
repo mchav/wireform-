@@ -45,6 +45,8 @@ module Kafka.Streams.Time
   , recordTimestampExtractor
   , failOnNoTimestampExtractor
   , logAndSkipOnNoTimestamp
+  , usePartitionTimeOnInvalidTimestamp
+  , extractRecordMetadataTimestamp
   ) where
 
 import Data.Int (Int64)
@@ -182,3 +184,27 @@ failOnNoTimestampExtractor = TimestampExtractor $ \_ _ rt _ ->
 -- callers should interpret as "skip this record".
 logAndSkipOnNoTimestamp :: TimestampExtractor k v
 logAndSkipOnNoTimestamp = TimestampExtractor $ \_ _ rt _ -> pure rt
+
+-- | Match @UsePartitionTimeOnInvalidTimestamp@ (the JVM default
+-- since Kafka 2.5): when the embedded record timestamp is the
+-- @-1@ sentinel, fall back to the current /partition time/ —
+-- i.e. the highest timestamp seen on this partition so far.
+-- This keeps stream-time monotonic for downstream windowing
+-- without poisoning aggregates with epoch-0 timestamps.
+usePartitionTimeOnInvalidTimestamp :: TimestampExtractor k v
+usePartitionTimeOnInvalidTimestamp = TimestampExtractor $ \_ _ rt (StreamTime st) ->
+  if isKnownTimestamp rt
+    then pure rt
+    else
+      if isKnownTimestamp st
+        then pure st
+        else error "TimestampExtractor: no valid stream time yet"
+
+-- | Base extractor that mirrors Java's
+-- @ExtractRecordMetadataTimestamp@: returns the embedded record
+-- timestamp unchanged, deferring to the caller's specialisation
+-- for the invalid-timestamp branch. Identical to
+-- 'recordTimestampExtractor' but the name is preserved for
+-- JVM-portability shims.
+extractRecordMetadataTimestamp :: TimestampExtractor k v
+extractRecordMetadataTimestamp = recordTimestampExtractor
