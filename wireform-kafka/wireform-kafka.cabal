@@ -497,6 +497,7 @@ library wireform-kafka-streams
         Kafka.Streams.Serde.Protobuf
         Kafka.Streams.Serde.SchemaRegistry
         Kafka.Streams.Serde.SchemaRegistry.Http
+        Kafka.Streams.Sink.RotatingFile
         Kafka.Streams.InteractiveQueries
     build-depends:
         base                      >= 4.16  && < 5,
@@ -597,6 +598,9 @@ test-suite wireform-kafka-streams-test
         Streams.StandbyDriverSpec
         Streams.RemoteIQSpec
         Streams.IdiomaticDSLSpec
+        Streams.DSLFacadeSpec
+        Streams.RotatingFileSinkSpec
+        Streams.SchemaRegistryCompatSpec
         Streams.MultiInstanceHarnessSpec
         Streams.SchemaRegistryHttpSpec
         Streams.SchemaRegistryFormatsSpec

@@ -57,6 +57,12 @@ module Kafka.Streams.Serde.SchemaRegistry (
   -- * Serdes
   SchemaRegistrySerdeConfig (..),
   registrySerde,
+  registrySerdeChecked,
+
+  -- * Compatibility checking
+  CompatibilityMode (..),
+  CompatibilityResult (..),
+  defaultCompatibilityMode,
 
   -- * Wire envelope
   magicByte,
@@ -110,11 +116,63 @@ data RegistryError
   | SubjectNotFound !SchemaSubject
   | RegistryHttpError !Int !Text
   | RegistryDecode !Text
+  | IncompatibleSchema !SchemaSubject !Text
+    -- ^ The new schema failed the registry's compatibility
+    -- check against the subject's current versions. The
+    -- 'Text' carries the registry's verbatim explanation
+    -- (Confluent normally returns @\"is_compatible\": false@
+    -- with no further detail; we surface what the HTTP body
+    -- carried).
+  deriving stock (Eq, Show, Generic)
+
+
+{- | The compatibility policy a subject is configured with. Mirrors
+the @org.apache.kafka.connect.schema.SchemaCompatibility@ values
+Confluent's Schema Registry uses
+(<https://docs.confluent.io/platform/current/schema-registry/avro.html#schema-evolution-and-compatibility>).
+-}
+data CompatibilityMode
+  = CompatNone
+  | CompatBackward
+  | CompatBackwardTransitive
+  | CompatForward
+  | CompatForwardTransitive
+  | CompatFull
+  | CompatFullTransitive
+  deriving stock (Eq, Show, Generic)
+
+
+-- | The default compatibility mode Confluent applies when a
+-- subject has none explicitly set (@BACKWARD@).
+defaultCompatibilityMode :: CompatibilityMode
+defaultCompatibilityMode = CompatBackward
+
+
+{- | The outcome of asking the registry whether a candidate
+'SchemaPayload' is compatible with the subject's current schema
+under the subject's configured 'CompatibilityMode'.
+-}
+data CompatibilityResult
+  = Compatible
+  | Incompatible !Text
+    -- ^ The registry rejected the candidate. The 'Text' carries
+    -- the registry's verbatim explanation (or @\"incompatible\"@
+    -- when the registry didn't elaborate).
   deriving stock (Eq, Show, Generic)
 
 
 {- | Minimum surface every Schema Registry client implementation
 must satisfy.
+
+@srRegister@ + @srLookup@ + @srLookupBySubject@ are the three
+calls Confluent's Avro / JSON-Schema / Protobuf serializers
+make on the producer / consumer hot path.
+
+@srCompatibilityMode@ + @srTestCompatibility@ are the two calls
+the /compatibility-mode probing/ wrapper makes (see
+'registrySerdeChecked'). They have sensible defaults so existing
+clients keep compiling: a 'SchemaRegistryClient' that doesn't
+implement them returns 'CompatNone' / 'Compatible' respectively.
 -}
 data SchemaRegistryClient = SchemaRegistryClient
   { srRegister
@@ -125,6 +183,22 @@ data SchemaRegistryClient = SchemaRegistryClient
   , srLookupBySubject
       :: SchemaSubject
       -> IO (Either RegistryError (SchemaId, SchemaPayload))
+  , srCompatibilityMode
+      :: SchemaSubject
+      -> IO (Either RegistryError CompatibilityMode)
+    -- ^ Read the configured compatibility mode for a subject.
+    -- Returns 'defaultCompatibilityMode' when the subject has
+    -- never been configured. Implementations that don't know
+    -- about subject-level config (e.g. 'inMemoryRegistry')
+    -- return @Right 'CompatNone'@ unconditionally.
+  , srTestCompatibility
+      :: SchemaSubject
+      -> SchemaPayload
+      -> IO (Either RegistryError CompatibilityResult)
+    -- ^ Test whether @payload@ is compatible with the
+    -- subject's latest version under the subject's
+    -- configured compatibility mode. Mirrors Confluent's
+    -- @POST /compatibility/subjects/{subject}/versions/latest@.
   }
 
 
@@ -169,6 +243,14 @@ inMemoryRegistry = do
           pure $ case matches of
             ((sid, p) : _) -> Right (sid, p)
             [] -> Left (SubjectNotFound subj)
+      , -- The in-memory client doesn't track per-subject
+        -- compatibility config; report 'CompatNone' so a
+        -- 'registrySerdeChecked' wrapper trusts every register.
+        srCompatibilityMode = \_subj -> pure (Right CompatNone)
+      , -- The in-memory client is the test double; treat every
+        -- candidate as compatible. Tests that want to model an
+        -- incompatibility can supply their own 'SchemaRegistryClient'.
+        srTestCompatibility = \_subj _payload -> pure (Right Compatible)
       }
 
 
@@ -248,6 +330,37 @@ mockHttpRegistry log_ =
               ]
           )
         pure (Right (SchemaId 1, SchemaPayload "<<mocked schema>>"))
+    , srCompatibilityMode = \subj -> do
+        modifyIORef'
+          log_
+          ( ++
+              [ RecordedExchange
+                  "GET"
+                  ( T.pack
+                      ( "/config/"
+                          <> T.unpack (unSchemaSubject subj)
+                      )
+                  )
+                  Nothing
+              ]
+          )
+        pure (Right CompatBackward)
+    , srTestCompatibility = \subj payload -> do
+        modifyIORef'
+          log_
+          ( ++
+              [ RecordedExchange
+                  "POST"
+                  ( T.pack
+                      ( "/compatibility/subjects/"
+                          <> T.unpack (unSchemaSubject subj)
+                          <> "/versions/latest"
+                      )
+                  )
+                  (Just (unSchemaPayload payload))
+              ]
+          )
+        pure (Right Compatible)
     }
 
 
@@ -378,3 +491,40 @@ registrySerde SchemaRegistrySerdeConfig {..} = do
             Right s -> s
             Left _ -> SchemaId 0
       in encodeEnvelope sid payload
+
+
+{- | A 'registrySerde' variant that probes the subject's
+configured 'CompatibilityMode' /once at construction time/, then
+asks the registry whether the candidate schema is compatible
+/before/ registering it. Two outcomes:
+
+  * The subject is configured 'CompatNone' (or the registry doesn't
+    distinguish), in which case the wrapper degenerates to plain
+    'registrySerde' (no extra round-trip on the steady-state hot
+    path).
+
+  * The subject has a non-trivial compatibility policy and the
+    schema is /incompatible/. The action returns
+    @Left ('IncompatibleSchema' subject explanation)@ — the caller
+    gets a typed failure /before/ a producer starts publishing
+    records under a schema id the consumer would later refuse.
+
+This is the "compatibility-mode probing" gap the streams
+@README.md@ called out. Wire your producer's serdes through this
+when you want fail-fast schema-evolution checks at start-up.
+-}
+registrySerdeChecked
+  :: SchemaRegistrySerdeConfig a
+  -> IO (Either RegistryError (Serde a))
+registrySerdeChecked cfg@SchemaRegistrySerdeConfig {..} = do
+  modeR <- srCompatibilityMode srscClient srscSubject
+  case modeR of
+    Left e -> pure (Left e)
+    Right CompatNone -> Right <$> registrySerde cfg
+    Right _mode -> do
+      r <- srTestCompatibility srscClient srscSubject srscSchema
+      case r of
+        Left e -> pure (Left e)
+        Right (Incompatible reason) ->
+          pure (Left (IncompatibleSchema srscSubject reason))
+        Right Compatible -> Right <$> registrySerde cfg

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -34,28 +35,59 @@
 -- This module sits alongside (not on top of) the existing
 -- imperative DSL — that API stays for users who prefer the
 -- Java-style fluent shape.
+--
+-- 'Pipeline' also has 'Control.Arrow.Arrow' and
+-- 'Control.Arrow.ArrowChoice' instances, so the full Kleisli
+-- vocabulary (@first@, @second@, @***@, @&&&@, @left@, @right@,
+-- @+++@, @|||@) works on it. Combined with the typed smart
+-- constructors below this is enough to express most static
+-- topology fragments as pure values.
 module Kafka.Streams.Pipeline
   ( -- * Pipeline
     Pipeline (..)
   , applyPipeline
+
     -- * Smart constructors over 'KStream'
+    -- ** Stateless transforms
   , pmapValues
   , pmapKeyValue
   , pfilter
+  , pfilterNot
   , pflatMapValues
   , pflatMapKeyValue
   , ppeek
   , pselectKey
+  , pvalues
+    -- ** Composition / branching
+  , pmerge
+  , pmergeAll
+  , pbranch
+    -- ** Sinks
+  , psink
+  , psinkWith
+  , pthrough
+    -- ** Conversions
+  , ptoTable
+  , ptoStream
+  , prepartition
+
     -- * Lifting / lowering
   , liftIOAction
+  , liftPure
   ) where
 
+import Control.Arrow (Arrow (..), ArrowChoice (..))
 import Control.Category (Category (..))
 import Control.Monad ((>=>))
 import Prelude hiding (id, (.))
 
 import qualified Kafka.Streams.KStream as KS
-import Kafka.Streams.Types (Record)
+import Kafka.Streams.KTable (KTable)
+import Kafka.Streams.Materialized (Materialized)
+import Kafka.Streams.Produced (Produced, produced)
+import Kafka.Streams.Serde (Serde)
+import Kafka.Streams.Types (Record, TopicName, topicName)
+import qualified Data.Text as T
 
 ----------------------------------------------------------------------
 -- Pipeline
@@ -80,6 +112,73 @@ instance Category Pipeline where
   (.) :: Pipeline b c -> Pipeline a b -> Pipeline a c
   Pipeline g . Pipeline f = Pipeline (f >=> g)
 
+-- | 'Arrow' parallels the Kleisli IO arrow: 'arr' lifts a pure
+-- function and 'first' / 'second' / @***@ / @&&&@ work as
+-- expected. This is what enables 'proc' notation on
+-- 'Pipeline' values.
+instance Arrow Pipeline where
+  arr :: forall a b. (a -> b) -> Pipeline a b
+  arr f = Pipeline (pure . f)
+
+  first :: forall a b c. Pipeline a b -> Pipeline (a, c) (b, c)
+  first (Pipeline f) = Pipeline $ \(a, c) -> do
+    !b <- f a
+    pure (b, c)
+
+  second :: forall a b c. Pipeline a b -> Pipeline (c, a) (c, b)
+  second (Pipeline f) = Pipeline $ \(c, a) -> do
+    !b <- f a
+    pure (c, b)
+
+  (***) :: Pipeline a b -> Pipeline c d -> Pipeline (a, c) (b, d)
+  Pipeline f *** Pipeline g = Pipeline $ \(a, c) -> do
+    !b <- f a
+    !d <- g c
+    pure (b, d)
+
+  (&&&) :: Pipeline a b -> Pipeline a c -> Pipeline a (b, c)
+  Pipeline f &&& Pipeline g = Pipeline $ \a -> do
+    !b <- f a
+    !c <- g a
+    pure (b, c)
+
+-- | 'ArrowChoice' for branching pipelines over @Either@. Useful
+-- when 'splitStream' yields multiple branches and the per-branch
+-- transforms differ in shape.
+instance ArrowChoice Pipeline where
+  left :: forall a b c. Pipeline a b -> Pipeline (Either a c) (Either b c)
+  left (Pipeline f) = Pipeline $ \case
+    Left a  -> Left <$> f a
+    Right c -> pure (Right c)
+
+  right :: forall a b c. Pipeline a b -> Pipeline (Either c a) (Either c b)
+  right (Pipeline f) = Pipeline $ \case
+    Left c  -> pure (Left c)
+    Right a -> Right <$> f a
+
+  (+++) :: Pipeline a b -> Pipeline c d -> Pipeline (Either a c) (Either b d)
+  Pipeline f +++ Pipeline g = Pipeline $ \case
+    Left a  -> Left <$> f a
+    Right c -> Right <$> g c
+
+  (|||) :: Pipeline a c -> Pipeline b c -> Pipeline (Either a b) c
+  Pipeline f ||| Pipeline g = Pipeline $ \case
+    Left a  -> f a
+    Right b -> g b
+
+-- | 'Functor' over the output type.
+instance Functor (Pipeline a) where
+  fmap f (Pipeline g) = Pipeline (fmap f . g)
+
+-- | 'Applicative' parallel application: @f \<*\> x@ runs both
+-- pipelines on the same input and combines their results.
+instance Applicative (Pipeline a) where
+  pure x = Pipeline (\_ -> pure x)
+  Pipeline f <*> Pipeline x = Pipeline $ \a -> do
+    !g <- f a
+    !v <- x a
+    pure (g v)
+
 -- | 'applyPipeline' is the canonical way to run a pipeline
 -- against a stream. It's a synonym for 'runPipeline' chosen
 -- for readability at call sites:
@@ -91,7 +190,7 @@ applyPipeline :: Pipeline a b -> a -> IO b
 applyPipeline = runPipeline
 
 ----------------------------------------------------------------------
--- Smart constructors
+-- Smart constructors — stateless transforms
 ----------------------------------------------------------------------
 
 -- | Pure value-only transform.
@@ -112,6 +211,12 @@ pfilter
   :: (Record k v -> Bool)
   -> Pipeline (KS.KStream k v) (KS.KStream k v)
 pfilter p = Pipeline (KS.filterStream p)
+
+-- | Inverse of 'pfilter'.
+pfilterNot
+  :: (Record k v -> Bool)
+  -> Pipeline (KS.KStream k v) (KS.KStream k v)
+pfilterNot p = Pipeline (KS.filterNotStream p)
 
 -- | One-to-many value transform.
 pflatMapValues
@@ -137,6 +242,90 @@ pselectKey
   -> Pipeline (KS.KStream k v) (KS.KStream k' v)
 pselectKey f = Pipeline (KS.selectKey f)
 
+-- | Drop the key (mirrors @KStream.values()@).
+pvalues
+  :: Pipeline (KS.KStream k v) (KS.KStream () v)
+pvalues = Pipeline KS.valuesStream
+
+----------------------------------------------------------------------
+-- Composition / branching
+----------------------------------------------------------------------
+
+-- | Merge a stream with a /captured/ companion stream. Useful
+-- inside an 'arr'-heavy section of a 'Pipeline' to interleave
+-- two named upstream sources without leaving the 'Pipeline'
+-- vocabulary.
+pmerge
+  :: KS.KStream k v
+  -> Pipeline (KS.KStream k v) (KS.KStream k v)
+pmerge other = Pipeline (KS.mergeStreams other)
+
+-- | Merge a stream with all captured companions.
+pmergeAll
+  :: [KS.KStream k v]
+  -> Pipeline (KS.KStream k v) (KS.KStream k v)
+pmergeAll others = Pipeline $ \s -> KS.mergeStreamsN (s : others)
+
+-- | Predicate-routed branch. Mirrors the pre-KIP-418
+-- @KStream.branch@ shape: returns one substream per
+-- predicate, in evaluation order. Records that match no
+-- predicate are dropped.
+pbranch
+  :: [Record k v -> Bool]
+  -> Pipeline (KS.KStream k v) [KS.KStream k v]
+pbranch preds = Pipeline (KS.branchStream preds)
+
+----------------------------------------------------------------------
+-- Sinks
+----------------------------------------------------------------------
+
+-- | Publish to a topic with default 'Produced'. Mirrors the
+-- 'Kafka.Streams.DSL.sink' / @KStream.to@ shape but lifted to
+-- a 'Pipeline' value with @()@ as the output type so it can
+-- terminate a chain.
+psink
+  :: T.Text
+  -> Serde k
+  -> Serde v
+  -> Pipeline (KS.KStream k v) ()
+psink t ks vs = Pipeline (KS.toTopic (topicName t) (produced ks vs))
+
+-- | Publish to a topic with a fully-specified 'Produced'.
+psinkWith
+  :: TopicName
+  -> Produced k v
+  -> Pipeline (KS.KStream k v) ()
+psinkWith t p = Pipeline (KS.toTopic t p)
+
+-- | Through a topic and back into a fresh source. Mirrors
+-- @KStream.through@.
+pthrough
+  :: T.Text
+  -> Serde k
+  -> Serde v
+  -> Pipeline (KS.KStream k v) (KS.KStream k v)
+pthrough t ks vs = Pipeline (KS.throughTopic (topicName t) (produced ks vs))
+
+----------------------------------------------------------------------
+-- Conversions
+----------------------------------------------------------------------
+
+-- | Materialise a stream into a 'KTable'.
+ptoTable
+  :: Ord k
+  => Materialized k v
+  -> Pipeline (KS.KStream k v) (KTable k v)
+ptoTable m = Pipeline (KS.toTable m)
+
+-- | Convert a 'KTable' back into a 'KStream' of changes.
+ptoStream :: Pipeline (KTable k v) (KS.KStream k v)
+ptoStream = Pipeline KS.toKStreamFromKTable
+
+-- | Force a repartition with the given topic-name prefix.
+prepartition
+  :: T.Text -> Pipeline (KS.KStream k v) (KS.KStream k v)
+prepartition prefix = Pipeline (KS.repartition prefix)
+
 ----------------------------------------------------------------------
 -- Lifting / lowering
 ----------------------------------------------------------------------
@@ -147,3 +336,8 @@ pselectKey f = Pipeline (KS.selectKey f)
 -- into a Category-style composition without re-writing.
 liftIOAction :: (a -> IO b) -> Pipeline a b
 liftIOAction = Pipeline
+
+-- | Lift a pure function into a 'Pipeline'. Alias for
+-- 'Control.Arrow.arr' specialised to 'Pipeline'.
+liftPure :: (a -> b) -> Pipeline a b
+liftPure = arr
