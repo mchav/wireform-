@@ -10,6 +10,68 @@ and this project adheres to the
 
 ### Added
 
+- **`Kafka.Streams.DSL`** — Haskell-native builder-implicit
+  façade over the existing `KStream` / `KTable` API. Carries
+  the `StreamsBuilder` in a hand-rolled reader monad so users
+  don't thread it through every source / sink call. Ships
+  short, unsuffixed names (`map`, `filter`, `flatMap`, `peek`,
+  `selectKey`, `merge`, `branch`, `join`, `leftJoin`,
+  `outerJoin`, `count`, `reduce`, `aggregate`, …) plus a `|>`
+  pipe operator. The `Pipe` class lets the same operator work
+  on the head of a chain (pure `KStream`) and on the tail
+  (`Streams (KStream …)`). The original imperative API
+  (`streamFromTopic` / `filterStream` / `mapValues` / …) is
+  unchanged.
+- **`Kafka.Streams.Sink.RotatingFile`** — `Printed.toFile` with
+  log rotation. `openRotatingHandle` / `writeLine` /
+  `closeRotatingHandle` manage the active file lifecycle;
+  rotation triggers on either size (`rfMaxBytes`) or age
+  (`rfMaxAge`). Rolled files take a UTC-suffixed archive name
+  (`stream.20260516T110942Z.log`) so the active path stays
+  stable. The terminal `KStream` sinks `rotatingPrintStream` /
+  `rotatingPrintToHandle` close the parity gap with the JVM
+  `KStream.print(Printed.toFile(...))`.
+- **Schema Registry compatibility-mode probing.**
+  `Kafka.Streams.Serde.SchemaRegistry.SchemaRegistryClient`
+  gained two new methods: `srCompatibilityMode` (read the
+  per-subject policy — `NONE` / `BACKWARD` / `FORWARD` /
+  `FULL` / `*_TRANSITIVE`) and `srTestCompatibility` (ask
+  whether a candidate schema would pass the policy). The
+  HTTP-backed client wires `GET /config/{subject}` and
+  `POST /compatibility/subjects/{subject}/versions/latest`.
+  The new `registrySerdeChecked` wrapper probes the policy
+  once at construction time and fails fast with
+  `IncompatibleSchema` before a producer publishes.
+- **`Kafka.Streams.Pipeline` expansion.** The existing
+  `Pipeline a b ≃ a -> IO b` newtype now ships `Arrow`,
+  `ArrowChoice`, `Functor`, and `Applicative` instances so the
+  full Kleisli vocabulary (`first` / `second` / `***` / `&&&`,
+  `left` / `right` / `+++` / `|||`, `arr`, `fmap`) works on
+  Pipeline values. Many new smart constructors:
+  `pfilterNot`, `pvalues`, `pmerge`, `pmergeAll`, `pbranch`,
+  `psink`, `psinkWith`, `pthrough`, `ptoTable`, `ptoStream`,
+  `prepartition`, and a `liftPure` alias for `arr`.
+
+### Fixed
+
+- **GHC 9.10 build errors** picked up after the CI matrix bump:
+  - `Kafka.Client.Group`: untangle the `Control.Exception` /
+    `Control.Monad.IO.Unlift` import-list shadowing.
+  - `Kafka.Client.Group`: switch the `closeTimeoutMs` accessor
+    to `OverloadedRecordDot` so `DuplicateRecordFields`
+    resolves it correctly.
+  - `Kafka.Client.Consumer`: `closeConsumerWithTimeout` /
+    `closeConsumerWithoutLeavingGroup` are declared
+    `MonadIO m =>` but the implementation is `IO`; thread
+    `liftIO`.
+  - `Kafka.Client.Producer`: drop duplicate `INLINABLE` pragmas
+    that collide with the earlier `INLINE` pragmas on the same
+    binding.
+  - `Kafka.Telemetry.OpenTelemetry`: use
+    `Attributes.emptyAttributes` for `libraryAttributes`;
+    `mempty` is no longer accepted by the current `Attributes`
+    type.
+
 - **`Kafka.Errors`** — the exception hierarchy every public Kafka
   operation throws on failure. `KafkaException` carries a
   structured `KafkaErrorKind` (`ConnectError`,
