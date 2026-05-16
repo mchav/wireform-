@@ -14,6 +14,7 @@
 -- behaves identically when interpreted.
 module Streams.TopologyFreeSpec (tests) where
 
+import qualified Control.Arrow
 import Control.Arrow ((&&&), (***), (>>>))
 import qualified Control.Category as Cat
 import qualified Data.ByteString.Char8 as BSC
@@ -61,6 +62,14 @@ tests = testGroup "Topology.Free (GADT topology builder)"
   , test_suppress_until_time_limit
   -- Processor API + state store
   , test_process_stream_with_state_store
+  -- Optimiser
+  , test_optimize_fuses_map_chains
+  , test_optimize_fuses_filter_chains
+  , test_optimize_collapses_identity_combinators
+  , test_optimize_preserves_observable_behaviour
+  , test_optimize_noOptimization_is_a_no_op
+  , test_optimize_pushes_pure_functions_through_fanout
+  , test_compile_default_runs_optimizer
   ]
 
 ----------------------------------------------------------------------
@@ -822,3 +831,239 @@ test_process_stream_with_state_store =
     collected <- readIORef countsCollected
     map snd collected @?= ["v1", "v2"]
     closeDriver driver
+
+----------------------------------------------------------------------
+-- 21. Optimiser fuses chains of MapValues
+----------------------------------------------------------------------
+
+test_optimize_fuses_map_chains :: TestTree
+test_optimize_fuses_map_chains =
+  testCase "optimize collapses 4× MapValues into a single Arr / MapValues" $ do
+    -- Four pure value transforms chained — the optimiser must fuse
+    -- them into a single MapValues node (composition of the four
+    -- functions).
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "in" textSerde textSerde
+            >>> F.mapValues (T.append "a")
+            >>> F.mapValues (T.append "b")
+            >>> F.mapValues (T.append "c")
+            >>> F.mapValues (T.append "d")
+            >>> F.sink "out" textSerde textSerde
+
+        stats = F.optimizationStats topology
+
+    -- Sanity check: optimisation reduced the AST node count by at
+    -- least 3 (the three "extra" MapValues plus the surrounding
+    -- Compose nodes collapse together).
+    assertBool
+      ("expected node-count reduction; stats = " <> show stats)
+      (F.osNodesSaved stats >= 3)
+
+    -- And the optimised topology still produces the right output
+    -- end-to-end.
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-opt-mapfuse"
+    pipeInput driver (topicName "in") Nothing (bytes "x") t0 0
+    out <- readOutput driver (topicName "out")
+    map (unbytes . crValue) out @?= ["dcbax"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 22. Optimiser fuses chains of Filter
+----------------------------------------------------------------------
+
+test_optimize_fuses_filter_chains :: TestTree
+test_optimize_fuses_filter_chains =
+  testCase "optimize fuses 3× Filter into a single conjunction" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "in" textSerde textSerde
+            >>> F.filter (\r -> T.length (recordValue r) >= 2)
+            >>> F.filter (\r -> T.length (recordValue r) <= 5)
+            >>> F.filter (\r -> T.head (recordValue r) /= '_')
+            >>> F.sink "out" textSerde textSerde
+
+        stats = F.optimizationStats topology
+
+    assertBool
+      ("expected filter chain to fuse; stats = " <> show stats)
+      (F.osNodesSaved stats >= 2)
+
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-opt-filterfuse"
+    pipeInput driver (topicName "in") Nothing (bytes "a")        t0 0  -- too short
+    pipeInput driver (topicName "in") Nothing (bytes "abcdef")   t0 0  -- too long
+    pipeInput driver (topicName "in") Nothing (bytes "_skip")    t0 0  -- underscore
+    pipeInput driver (topicName "in") Nothing (bytes "keep")     t0 0  -- passes all 3
+    pipeInput driver (topicName "in") Nothing (bytes "ok")       t0 0  -- passes all 3
+
+    out <- readOutput driver (topicName "out")
+    map (unbytes . crValue) out @?= ["keep", "ok"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 23. Optimiser collapses identity combinators
+----------------------------------------------------------------------
+
+test_optimize_collapses_identity_combinators :: TestTree
+test_optimize_collapses_identity_combinators =
+  testCase "Cat.id . op . Cat.id collapses; first/second/parallel of Id collapse" $ do
+    -- A handcrafted "redundant" topology: lots of identity-wrapped
+    -- combinators that should reduce to a near-empty AST after the
+    -- optimiser runs.
+    let redundant :: F.Topology Void ()
+        redundant =
+          F.source "in" textSerde textSerde
+            >>> Cat.id                        -- redundant identity
+            >>> Cat.id Cat.. F.mapValues T.toUpper Cat.. Cat.id
+                                              -- Id . op . Id ==> op
+            >>> Cat.id                        -- another
+            >>> F.mapValues T.reverse
+            >>> F.sink "out" textSerde textSerde
+
+        before = F.countNodes redundant
+        after  = F.countNodes (F.optimize redundant)
+
+    assertBool
+      ("expected at least 2 nodes saved; before=" <> show before
+        <> " after=" <> show after)
+      (before - after >= 2)
+
+    -- Observable behaviour preserved (toUpper then reverse).
+    (_, topo) <- F.compile redundant
+    driver <- newDriver topo "free-opt-identity"
+    pipeInput driver (topicName "in") Nothing (bytes "hello") t0 0
+    out <- readOutput driver (topicName "out")
+    map (unbytes . crValue) out @?= ["OLLEH"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 24. Optimiser preserves observable behaviour (optimised vs unoptimised)
+----------------------------------------------------------------------
+
+test_optimize_preserves_observable_behaviour :: TestTree
+test_optimize_preserves_observable_behaviour =
+  testCase "optimised and unoptimised compilations produce identical output" $ do
+    -- A topology that mixes several fusible chains. We compile both
+    -- with optimisation and without, drive both with the same input,
+    -- and compare outputs.
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "in" textSerde textSerde
+            >>> F.mapValues T.strip
+            >>> F.mapValues T.toUpper
+            >>> F.filter (\r -> recordValue r /= "")
+            >>> F.filter (\r -> T.length (recordValue r) > 1)
+            >>> F.flatMapValues T.words
+            >>> F.mapValues (<> "!")
+            >>> F.sink "out" textSerde textSerde
+
+        inputs =
+          [ (Just (bytes "k1"), bytes "  hello world  ")
+          , (Just (bytes "k2"), bytes "")
+          , (Just (bytes "k3"), bytes " a ")           -- post-strip is "A", length 1
+          , (Just (bytes "k4"), bytes " ok cool now ")
+          ]
+
+        runWith :: (F.Topology Void () -> IO ((), Topology))
+                -> IO [Text]
+        runWith comp = do
+          (_, topo) <- comp topology
+          driver <- newDriver topo "free-opt-vs-noopt"
+          mapM_ (\(k, v) -> pipeInput driver (topicName "in") k v t0 0) inputs
+          out <- readOutput driver (topicName "out")
+          closeDriver driver
+          pure (map (unbytes . crValue) out)
+
+    optimised   <- runWith F.compile
+    unoptimised <- runWith F.compileNoOptimize
+    optimised @?= unoptimised
+    -- And the expected output is the one both should produce.
+    optimised @?= ["HELLO!", "WORLD!", "OK!", "COOL!", "NOW!"]
+
+----------------------------------------------------------------------
+-- 25. 'noOptimization' is a no-op
+----------------------------------------------------------------------
+
+test_optimize_noOptimization_is_a_no_op :: TestTree
+test_optimize_noOptimization_is_a_no_op =
+  testCase "compileWithOptimization noOptimization preserves node count" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "in" textSerde textSerde
+            >>> F.mapValues T.toUpper
+            >>> F.mapValues T.reverse
+            >>> F.sink "out" textSerde textSerde
+
+        original = F.countNodes topology
+        viaNoOpt = F.countNodes (F.optimizeWith F.noOptimization topology)
+
+    viaNoOpt @?= original
+    -- And the topology still runs fine with the no-op config.
+    (_, topo) <- F.compileWithOptimization F.noOptimization topology
+    driver <- newDriver topo "free-noopt"
+    pipeInput driver (topicName "in") Nothing (bytes "abc") t0 0
+    out <- readOutput driver (topicName "out")
+    map (unbytes . crValue) out @?= ["CBA"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 26. Pure functions push through Fanout
+----------------------------------------------------------------------
+
+test_optimize_pushes_pure_functions_through_fanout :: TestTree
+test_optimize_pushes_pure_functions_through_fanout =
+  testCase "Fanout/Parallel/First of pure functions collapse to a single Arr" $ do
+    -- A pure pipeline built out of Arr-only combinators: Fanout +
+    -- Parallel of Arrs should fully collapse to a single Arr that
+    -- runs the composed pure function.
+    let pureFanout :: F.Topology Int (Int, Int)
+        pureFanout =
+          (Control.Arrow.arr (+ 1)
+              &&& Control.Arrow.arr (* 2))    -- Fanout (Arr) (Arr) ==> Arr
+            >>> (Control.Arrow.arr (+ 10)
+                  *** Control.Arrow.arr (+ 20))
+                                              -- Parallel (Arr) (Arr) ==> Arr
+            >>> Cat.id                        -- redundant Id
+
+        before = F.countNodes pureFanout
+        after  = F.countNodes (F.optimize pureFanout)
+
+    -- We started with several constructors and should land at the
+    -- single 'Arr' constructor representing the composed function.
+    assertBool
+      ("expected pure-function chain to collapse; before=" <> show before
+        <> " after=" <> show after)
+      (before > 1 && after == 1)
+
+----------------------------------------------------------------------
+-- 27. 'compile' (default) runs the optimiser
+----------------------------------------------------------------------
+
+test_compile_default_runs_optimizer :: TestTree
+test_compile_default_runs_optimizer =
+  testCase "default compile reduces topology node count vs compileNoOptimize" $ do
+    -- A chain that the optimiser should reduce: count the Kafka
+    -- 'Topology' graph nodes (sources/processors/sinks) after both
+    -- compilation paths. Fewer processor nodes means fewer
+    -- record-forwarding hops on the data path.
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "in" textSerde textSerde
+            >>> F.mapValues T.strip
+            >>> F.mapValues T.toUpper
+            >>> F.mapValues T.reverse
+            >>> F.mapValues (T.append "x")
+            >>> F.sink "out" textSerde textSerde
+
+    (_, topoOpt)   <- F.compile topology
+    (_, topoNoOpt) <- F.compileNoOptimize topology
+
+    let !nOpt   = length (topologyNodes topoOpt)
+        !nNoOpt = length (topologyNodes topoNoOpt)
+
+    assertBool
+      ("optimised compile should produce fewer nodes; opt=" <> show nOpt
+        <> " noopt=" <> show nNoOpt)
+      (nOpt < nNoOpt)
