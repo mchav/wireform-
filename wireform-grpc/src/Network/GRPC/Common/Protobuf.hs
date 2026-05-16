@@ -20,7 +20,7 @@ module Network.GRPC.Common.Protobuf (
   , (.~)
   , (^.)
   , (%~)
-    -- ** "Proto.Schema" / "Proto.Message"
+    -- ** "Proto.Schema" / "Proto.Registry"
   , StreamingType(..)
   , Proto.Schema.HasField(..)
   , IsMessage
@@ -39,11 +39,11 @@ import Data.Text qualified as T
 import Proto.Lens ((.~), (^.), (%~))
 import Proto.Schema (ProtoMessage(..))
 import Proto.Schema qualified
-import Proto.Message (IsMessage)
+import Proto.Registry (IsMessage)
 import Proto.Encode
 import Proto.Decode
-import Proto.Wire (Tag(..), WireType(..))
-import Proto.Wire.Encode (putTag, putVarint, varintSize, tagSize, fieldTextSize, fieldBytesSize, fieldMessageSize)
+import Proto.Internal.Wire (Tag(..), WireType(..))
+import Proto.Internal.Wire.Encode (putTag, putVarint, varintSize, tagSize, fieldTextSize, fieldBytesSize, fieldMessageSize)
 
 import Network.GRPC.Common.Protobuf.Any (Any)
 import Network.GRPC.Common.Protobuf.Any qualified as Any

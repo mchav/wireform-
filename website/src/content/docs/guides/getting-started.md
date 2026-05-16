@@ -1,32 +1,20 @@
 ---
-title: Get started with wireform
-description: Run an example in two minutes, then wire wireform into your own Cabal package.
+title: Getting started
+description: Run an example in two minutes, then wire wireform into your own project.
 sidebar:
   order: 1
 ---
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Working code before theory. The wireform repo is the fastest playground; your
-own Cabal package is only a few lines more.
+:::caution[Not yet on Hackage]
+wireform is in heavy development and has not been published to Hackage yet.
+To use it, clone the repo and add it as a path dependency in your `cabal.project`
+(see Step 3 below).
+:::
 
-## What wireform is
-
-wireform is a single Haskell library covering **22 serialization formats** with:
-
-- **Encode / decode** for every format, with a `Value` type where appropriate
-- **Generic deriving** (`GHC.Generics`) for 12 schema-less formats
-- **IDL parsers + code generation** for 8 schema languages (`.proto`, `.avsc`,
-  `.thrift`, `.bond`, `.capnp`, `.fbs`, ASN.1, XSD)
-- **Streaming decoders** (protobuf, MessagePack, CBOR, XML)
-- **RPC framing** (gRPC, Thrift binary/compact, MsgPack-RPC, Avro IPC)
-- **Container file I/O** (Avro OCF with codec support, Parquet/ORC/Arrow metadata)
-- **XML pipeline** (SIMD SAX, XPath queries, XSLT transforms, concurrent parse)
-- **HTML5** parser + CSS selectors
-- **Analytics format readers** (Parquet pages, Iceberg manifests, ORC stripes)
-
-The APIs rhyme across formats: `Format.Value`, `Format.Encode`,
-`Format.Decode`, `Format.Class`, `Format.JSON`. Pick one format (or several).
+Working code before theory. The wireform repo is the fastest playground;
+your own Cabal package is only a few lines more.
 
 ## Prerequisites
 
@@ -36,9 +24,9 @@ The APIs rhyme across formats: `Format.Value`, `Format.Encode`,
 | **cabal-install** | 3.x |
 | **Optional: Nix** | `nix develop` gives pinned GHC + pre-built deps. |
 
-No Docker, no `protoc`, and no language-specific runtimes needed below.
+No Docker, no `protoc`, and no language-specific runtimes needed.
 
-## Step 1 — Run something (two minutes)
+## Step 1 — Run something
 
 ```bash
 cd wireform-
@@ -47,28 +35,29 @@ cabal run example-msgpack
 ```
 
 Output: a `Person` record round-tripped through MessagePack with `Generics` —
-no `.proto` file, no schema, no codegen. This is the lowest-ceremony path.
+no schema, no codegen. This is the lowest-ceremony path.
 
-Now try a few more to see the range:
+Try a few more to see the range:
 
 ```bash
-cabal run example-basic       # hand-written protobuf message instances
-cabal run example-xml         # Generic XML encode/decode
-cabal run example-avro        # Avro schema + value API
-cabal run example-parquet     # Parquet footer metadata roundtrip
+cabal run example-protobuf    # protobuf message instances
+cabal run example-xml          # Generic XML encode/decode
+cabal run example-avro         # Avro schema + value API
+cabal run example-cbor         # CBOR encode/decode
+cabal run example-parquet      # Parquet footer metadata
 ```
 
 <Aside type="tip">
-If builds fail, run `cabal build wireform` and read the first error. A missing
-C compiler for `cbits/` is the usual issue on minimal systems.
+There are 28 examples in the repo covering every major format. Run
+`cabal list-bin example-` to see them all.
 </Aside>
 
 ## Step 2 — Pick a workflow
 
 <Tabs>
-<TabItem label="Schema-less Haskell types">
+<TabItem label="Schema-less (Generics)">
 
-For MessagePack, CBOR, BSON, EDN, Ion, Bencode, TOML, CSV, XML, HTML.
+For MessagePack, CBOR, BSON, YAML, TOML, EDN, Ion, Bencode, CSV, XML, HTML.
 
 1. Define records with `Generic`.
 2. Derive the format's classes.
@@ -85,10 +74,10 @@ let bytes = encodeMsgPack (Person "Ada" 36)
 ```
 
 Same pattern for `ToCBOR`/`FromCBOR`, `ToBSON`/`FromBSON`, `ToXML`/`FromXML`,
-`ToHTML`/`FromHTML`, `ToTOML`/`FromTOML`, etc. You can derive multiple at once:
+`ToYAML`/`FromYAML`, `ToTOML`/`FromTOML`, etc. Derive multiple at once:
 
 ```haskell
-  deriving anyclass (ToMsgPack, FromMsgPack, ToCBOR, FromCBOR, ToBSON, FromBSON)
+  deriving anyclass (ToMsgPack, FromMsgPack, ToCBOR, FromCBOR, ToYAML, FromYAML)
 ```
 
 **Best when:** you control both ends of the wire and want little ceremony.
@@ -107,7 +96,7 @@ Three codegen options:
 Then:
 
 ```haskell
-import qualified Wireform.Proto as P
+import qualified Proto.Encode as P
 let bytes = P.encodeMessage myMessage
 ```
 
@@ -115,7 +104,7 @@ let bytes = P.encodeMessage myMessage
 evolution.
 
 </TabItem>
-<TabItem label="Schema-first documents">
+<TabItem label="Schema-first">
 
 For Avro, CDDL, Ion ISL, XSD, etc.
 
@@ -126,43 +115,45 @@ For Avro, CDDL, Ion ISL, XSD, etc.
 **Best when:** data pipelines, registries, Avro container files, analytics.
 
 </TabItem>
-<TabItem label="Analytics metadata">
+<TabItem label="Analytics">
 
-For Parquet, Arrow, Iceberg, ORC. These formats have read-only or
-metadata-only support:
+For Parquet, Arrow, Iceberg, ORC. These formats have full or partial
+reader/writer support:
 
 ```haskell
-import Parquet.Footer (readFooter)
+import Parquet.Read (readParquet)
 import Iceberg.JSON (metadataFromJSON)
-import ORC.Footer (readORCFooter)
+import ORC.Read (readColumn)
+import Arrow.IPC (decodeRecordBatch)
 ```
 
-**Best when:** you need to inspect file layouts, extract schemas, or route
-data without pulling in heavyweight JVM tooling.
+**Best when:** you need to work with columnar data files without pulling
+in heavyweight JVM tooling.
 
 </TabItem>
-<TabItem label="XML / HTML processing">
+<TabItem label="XML / HTML">
 
 wireform includes a full pipeline, not just encode/decode:
 
 | Step | Module |
 |------|--------|
-| SAX event stream | `XML.SAX` (SIMD-accelerated) |
+| SAX event stream | `XML.SAX` |
 | Zero-copy DOM | `XML.FastDOM` |
 | Tree DOM | `XML.Decode` |
 | XPath queries | `XML.Path` |
-| CSS selectors (HTML) | `HTML.Query` |
+| CSS selectors (HTML) | `HTML.Selector` |
 | XSLT transforms | `XML.XSLT` |
 | Concurrent chunk parsing | `XML.Incremental` |
+| Streaming HTML rewriter | `HTML.Rewriter` |
 
 **Best when:** scraping, config parsing, XML pipeline tooling.
 
 </TabItem>
 </Tabs>
 
-## Step 3 — Use wireform from your Cabal package
+## Step 3 — Use wireform from your own package
 
-### 3a. Path dependency (typical while hacking or before Hackage)
+### Path dependency (typical while hacking or before Hackage)
 
 ```text
 ~/Code/
@@ -234,17 +225,9 @@ main = do
 cd ~/Code/my-app && cabal run my-app
 ```
 
-### 3b. Hackage dependency
-
-```cabal
-build-depends: wireform ^>=0.1
-```
-
 ## Step 4 — Template Haskell for protobufs
 
-1. Put `.proto` files under `proto/` (or project root).
-2. Enable `TemplateHaskell`.
-3. Import and splice:
+Put `.proto` files under `proto/` and splice them in:
 
 ```haskell
 {-# LANGUAGE TemplateHaskell #-}
@@ -273,34 +256,37 @@ cabal exec wireform-gen -- thrift -i service.thrift -o gen/
 
 Then add `gen` to `hs-source-dirs` and list modules in your `.cabal`.
 
-Full subcommand list: `proto`, `avro`, `thrift`, `bond`, `capnp`, `fbs`,
-`asn1`, `xsd`.
+Supported schema languages: `proto`, `avro`, `thrift`, `bond`, `capnp`,
+`fbs`, `asn1`, `xsd`.
 
 ## Step 6 — Go deeper
 
-After basic encode/decode works, these are the modules you reach for:
+Once basic encode/decode works, these are the modules you reach for:
 
-| Goal | Module | What it does |
-|------|--------|-------------|
-| Stream protobuf messages over a socket | `Proto.Decode.Stream` | Lazy list of varint-length messages, or incremental `feedChunk` |
-| Stream MessagePack values | `MsgPack.Stream` | One-value-at-a-time incremental decode |
-| Read Avro container files | `Avro.Container` | OCF with `null`/`deflate`/`snappy` codecs |
-| Avro schema evolution | `Avro.Resolution` | Full reader/writer schema resolution |
-| gRPC framing (without full server) | `Proto.GRPC` | `grpcFrame` / `grpcUnframe` |
-| Thrift RPC headers | `Thrift.Message` | Binary + Compact protocol method/seqid framing |
-| MsgPack RPC | `MsgPack.RPC` | Request/response/notification arrays |
-| Dynamic protobuf (no generated types) | `Proto.Dynamic` | Decode to `Map FieldNumber DynamicValue` |
-| Protobuf text format | `Proto.TextFormat` | `.pbtxt` encode/decode |
-| CBOR diagnostic dumps | `CBOR.Diagnostic` | RFC 8949 human-readable notation |
-| SAX events from XML | `XML.SAX` | SIMD-accelerated event stream |
-| XPath queries | `XML.Path` | Axes, predicates, `query` |
-| XSLT transforms | `XML.XSLT` | Subset XSLT 1.0 |
-| CSS selectors on HTML | `HTML.Query` | `querySelector`, `querySelectorAll` |
-| Concurrent XML parsing | `XML.Incremental` | Chunk-fed, `TBQueue`-based |
-| Parquet metadata | `Parquet.Footer` / `Parquet.Read` | Schema, row groups, column statistics, page reads |
-| Iceberg table metadata | `Iceberg.JSON` / `Iceberg.Read` | Table JSON + Avro manifest reading |
-| ORC footer + stripes | `ORC.Footer` / `ORC.Read` | Postscript, type tree, stripe slicing |
-| Arrow IPC | `Arrow.IPC` | Schema + record batch framing |
+| Goal | Module |
+|------|--------|
+| Stream protobuf messages over a socket | `Proto.Decode.Stream` |
+| Stream MessagePack values | `MsgPack.Stream` |
+| Read Avro container files | `Avro.Container` |
+| Avro schema evolution | `Avro.Resolution` |
+| gRPC framing (without full server) | `Proto.GRPC` |
+| Full gRPC client/server | `wireform-grpc` package |
+| Thrift RPC headers | `Thrift.Message` |
+| MsgPack RPC | `MsgPack.RPC` |
+| Dynamic protobuf (no generated types) | `Proto.Dynamic` |
+| Protobuf text format | `Proto.TextFormat` |
+| CBOR diagnostic dumps | `CBOR.Diagnostic` |
+| CSS selectors on HTML | `HTML.Selector` |
+| XPath queries on XML | `XML.Path` |
+| XSLT transforms | `XML.XSLT` |
+| SAX events from XML | `XML.SAX` |
+| Concurrent XML parsing | `XML.Incremental` |
+| Parquet read/write | `Parquet.Read` / `Parquet.Write` |
+| Iceberg table metadata | `Iceberg.JSON` / `Iceberg.Read` |
+| ORC columns | `ORC.Read` |
+| Arrow IPC | `Arrow.IPC` |
+| Kafka produce/consume | `Kafka.Client.Producer` / `Kafka.Client.Consumer` |
+| Kafka Streams DSL | `Kafka.Streams` |
 
 ## Troubleshooting
 

@@ -3,6 +3,10 @@ name: wireform-ndjson
 version: 0.1.0.0
 synopsis: Newline-Delimited JSON (NDJSON) encoding/decoding
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 common defaults
@@ -44,6 +48,22 @@ library
     template-haskell >= 2.18 && < 2.24,
     stm >= 2.5 && < 2.6,
     deepseq >= 1.4 && < 1.6
+
+benchmark wireform-ndjson-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -O2
+  build-depends:
+    base,
+    wireform-ndjson,
+    aeson,
+    bytestring,
+    deepseq,
+    text,
+    vector,
+    criterion >= 1.5 && < 1.7
 
 test-suite wireform-ndjson-derive-test
   import: defaults

@@ -1,0 +1,14 @@
+{
+  "id": "cbor-vs-cborg-encode",
+  "title": "wireform-cbor vs cborg",
+  "unit": "Nanos",
+  "higherIsBetter": false,
+  "groups": ["encode", "decode"],
+  "series": [
+    {"name": "wireform-cbor", "values": [305.06, 460.08]},
+    {"name": "cborg",         "values": [274.87, 1214.31]}
+  ],
+  "baseline": "wireform-cbor",
+  "capturedAt": "2026-05-13T10:30:00Z",
+  "toolchain": "ghc-9.8.4 on darwin-aarch64, criterion 1.6.5"
+}

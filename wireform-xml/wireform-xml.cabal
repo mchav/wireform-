@@ -3,6 +3,10 @@ name: wireform-xml
 version: 0.1.0.0
 synopsis: High-performance XML SAX/DOM parser, serializer, XPath, XSLT, and code generation
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 common defaults
@@ -55,7 +59,7 @@ library
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
     primitive >= 0.7 && < 0.10,
-    containers >= 0.6 && < 0.8,
+    containers >= 0.6 && < 0.9,
     megaparsec >= 9.0 && < 10,
     template-haskell >= 2.18 && < 2.24,
     prettyprinter >= 1.7 && < 1.8,

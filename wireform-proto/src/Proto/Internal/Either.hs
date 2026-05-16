@@ -1,5 +1,5 @@
 -- Copyright © 2018 chessai
--- BSD-3-Clause license (see NOTICE for full text)
+-- BSD-3-Clause license (see LICENSE for full text)
 
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE UnboxedSums     #-}
@@ -17,7 +17,6 @@ module Proto.Internal.Either
   ) where
 
 import Prelude ()
-import Data.Function ((.))
 import qualified Data.Either as BaseEither
 
 data Either a b = Either (# a | b #)

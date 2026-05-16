@@ -53,8 +53,8 @@ import Control.DeepSeq (NFData)
 
 import Proto.Encode
 import Proto.Decode
-import Proto.Wire (Tag(..))
-import Proto.Wire.Encode (fieldVarintSize, fieldTextSize, fieldBytesSize, fieldBoolSize)
+import Proto.Internal.Wire (Tag(..))
+import Proto.Internal.Wire.Encode (fieldVarintSize, fieldTextSize, fieldBytesSize, fieldBoolSize)
 
 newtype FileDescriptorSet = FileDescriptorSet
   { fdsFile :: V.Vector FileDescriptorProto

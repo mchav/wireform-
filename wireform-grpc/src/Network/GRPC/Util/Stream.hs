@@ -7,15 +7,21 @@ module Network.GRPC.Util.Stream (
   , InputStream(..)
   , getChunk
   , getTrailers
+    -- * Boundary conversion between Wireform and bytestring 'Builder'
+  , toBSBuilder
+  , fromBSBuilder
     -- * Exceptions
   , ClientDisconnected(..)
   , ServerDisconnected(..)
   , wrapStreamExceptionsWith
   ) where
 
-import Data.Binary.Builder (Builder)
+import Data.ByteString.Builder qualified as BSB
 import Data.ByteString qualified as Strict (ByteString)
+import Data.ByteString.Lazy qualified as Lazy (toStrict)
 import Network.HTTP.Types qualified as HTTP
+import Wireform.Builder (Builder)
+import Wireform.Builder qualified as WB
 
 import Network.GRPC.Util.Backtrace
 import Network.GRPC.Util.Imports
@@ -52,6 +58,22 @@ writeChunkFinal = _writeChunkFinal
 
 flush :: HasCallStack => OutputStream -> IO ()
 flush = _flush
+
+-- | Materialise a 'Wireform.Builder.Builder' into a 'BSB.Builder' so it
+-- can be handed to @http-semantics@ (which uses bytestring's builder).
+-- Streams through 'WB.toLazyByteString' and rewraps as 'BSB.lazyByteString',
+-- so the chunked layout is preserved.
+toBSBuilder :: Builder -> BSB.Builder
+toBSBuilder = BSB.lazyByteString . WB.toLazyByteString
+{-# INLINE toBSBuilder #-}
+
+-- | Materialise a 'BSB.Builder' (returned by @grpc-spec@'s @buildInput@ /
+-- @buildOutput@) into a 'Wireform.Builder.Builder'. Materialises into
+-- a strict bytestring and re-embeds; the underlying bytes are allocated
+-- exactly once and then handed through unchanged.
+fromBSBuilder :: BSB.Builder -> Builder
+fromBSBuilder = WB.byteString . Lazy.toStrict . BSB.toLazyByteString
+{-# INLINE fromBSBuilder #-}
 
 getChunk :: HasCallStack => InputStream -> IO (Strict.ByteString, Bool)
 getChunk = _getChunk

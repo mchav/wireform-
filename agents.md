@@ -48,6 +48,20 @@ If `git diff` shows changes you did not intend, you have a hand-edit somewhere
 in the source tree (or a stale Generator output). Revert the hand-edit, fold
 the intent into the codegen instead, and re-regen.
 
+#### Per-package README AUTOGEN regions
+
+The same rule applies to the per-package `wireform-X/README.md` files:
+anything between paired `<!-- BEGIN_AUTOGEN <key> -->` and
+`<!-- END_AUTOGEN <key> -->` markers is owned by `wireform-stats`'s
+`regen-stats` tool and rewritten on every run. Edit the surrounding
+prose freely; never edit between markers. The regen-stats CI job
+(`.github/workflows/regen-stats.yml`) fails the build if anything in
+those regions has drifted from what the tool would produce.
+
+Defined keys: `tests`, `coverage`, `coverage:table`,
+`bench:<id>`. See [`wireform-stats/README.md`](wireform-stats/README.md)
+for the schema and the regen workflow.
+
 #### Per-format codegen entry points
 
 | Format        | Codegen entry                                              | Regen helper                                  | Generated dir                                       |
@@ -300,17 +314,14 @@ Proto.Derive.Internal                  -- body builders shared by `Proto.Derive`
                                           annotation deriver emit identical code)
 Proto.Repr                             -- per-field representation choices
                                           (`StringRep`, `BytesRep`, `RepeatedRep`,
-                                          `MapRep`, `OptionalRep`, `FieldRep`,
-                                          `RepConfig`)
+                                          `MapRep`, `FieldRep`, `RepConfig`)
 Proto.Schema                           -- runtime type metadata
-Proto.Message                          -- `IsMessage` typeclass
-Proto.FieldPresence                    -- proto2/proto3 presence helpers
-Proto.Merge, Proto.Compat              -- merge semantics + version-compat helpers
+Proto.Compat                           -- version-compat helpers
 Proto.Lens, Proto.Inspect, Proto.Print -- lens accessors, debug printers
 Proto.Annotations                      -- `Annotation`s reified by the deriver
 Proto.Options, Proto.Options.Custom    -- proto file/message/field options
 Proto.Extension                        -- proto2 `extend`s
-Proto.Registry, Proto.Registry.TH      -- runtime type registry
+Proto.Registry                         -- runtime type registry + `IsMessage` marker + `discoverRegistry` TH splice
 Proto.Setup                            -- Cabal `Setup.hs` integration
 Proto.QQ                               -- proto-source QuasiQuoter
 Proto.Dynamic                          -- dynamic (untyped) messages

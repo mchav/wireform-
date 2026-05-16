@@ -15,7 +15,7 @@ module Proto.Google.Protobuf.FieldMask where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as B
+import qualified Wireform.Builder as B
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -32,13 +32,14 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
+import Proto.Internal.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
 import Data.Proxy (Proxy(..))
-import Proto.Message (IsMessage(..))
+import Proto.Registry (IsMessage)
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
-import Proto.Wire (Tag(..), WireType(..))
-import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
+import qualified Proto.Extension
+import Proto.Internal.Wire (Tag(..), WireType(..))
+import Proto.Internal.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
   putSVarint32, putSVarint64, putVarintSigned,
   varintSize, tagSize, fieldMessageSize,
@@ -47,7 +48,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
+import Proto.Internal.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
   archFixed32, archFixed64, archFloat, archDouble, archBool,
   archString, archBytes, archSubmessage,
   archVarintSize, archStringSize, archBytesSize, archBoolSize,
@@ -79,27 +80,24 @@ instance MessageEncode FieldMask where
 
 instance MessageSize FieldMask where
   messageSize msg =
-    (V.foldl' (\acc v -> acc + archStringSize v) 0 msg.fieldMaskPaths)
+    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.fieldMaskPaths)
     + unknownFieldsSize msg.fieldMaskUnknownFields
 
 instance MessageDecode FieldMask where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop V.empty []
     where
-      loop acc_0 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (FieldMask {fieldMaskPaths = acc_0, fieldMaskUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- decodeFieldString
-              loop (acc_0 <> V.singleton v) acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 (uf : acc_unknown_)
+      loop acc_0 acc_unknown_ = withTagM
+        (pure (FieldMask {fieldMaskPaths = acc_0, fieldMaskUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- decodeFieldString
+            loop (acc_0 <> V.singleton v) acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 (uf : acc_unknown_))
 
-instance IsMessage FieldMask where
-  messageTypeName _ = "google.protobuf.FieldMask"
+instance IsMessage FieldMask
 
 instance ProtoMessage FieldMask where
   protoMessageName _ = "google.protobuf.FieldMask"
@@ -133,7 +131,20 @@ instance Aeson.FromJSON FieldMask where
 instance Hashable FieldMask where
   hashWithSalt salt msg = V.foldl' hashWithSalt (salt) msg.fieldMaskPaths
 
+instance Proto.Extension.HasExtensions FieldMask where
+  messageUnknownFields = fieldMaskUnknownFields
+  setMessageUnknownFields !ufs msg = msg { fieldMaskUnknownFields = ufs }
+
+instance Semigroup FieldMask where
+  a <> b = FieldMask
+    { fieldMaskPaths = a.fieldMaskPaths <> b.fieldMaskPaths
+    , fieldMaskUnknownFields = a.fieldMaskUnknownFields <> b.fieldMaskUnknownFields
+    }
+
+instance Monoid FieldMask where
+  mempty = defaultFieldMask
+
 -- | Register all message types defined in this module.
-registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes :: Proto.Registry.TypeRegistry -> Proto.Registry.TypeRegistry
 registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy FieldMask) .  id
+  Proto.Registry.registerMessage (Proxy :: Proxy FieldMask) .  id

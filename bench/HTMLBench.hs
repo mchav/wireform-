@@ -6,23 +6,23 @@ module Main where
 import Control.Exception (evaluate)
 import Control.Monad (when)
 import Data.ByteString qualified as BS
-import Data.ByteString.Builder qualified as BB
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
 import Data.IORef
 import Data.Primitive.PrimArray (MutablePrimArray, newPrimArray, readPrimArray, writePrimArray)
-import Data.Primitive.SmallArray (SmallArray, smallArrayFromList, sizeofSmallArray, indexSmallArray)
+import Data.Primitive.SmallArray (SmallArray, indexSmallArray, sizeofSmallArray, smallArrayFromList)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Stats
-import HTML.DOM hiding (SmallArray)
 import HTML.DOM (streamHTMLEventsRaw)
+import HTML.DOM hiding (SmallArray)
 import HTML.Parse (parseHTML, tokenizeCountChunk, tokenizeOnlyIO, treeBuildOnlyIO)
 import HTML.Rewriter
 import HTML.Selector
 import HTML.Value (HTMLAttribute (..), HTMLDocument (..), HTMLNode (..))
-import System.IO (hSetBuffering, stdout, BufferMode(..))
+import System.IO (BufferMode (..), hSetBuffering, stdout)
 import System.Mem (performGC)
+import Wireform.Builder qualified as BB
 
 
 -- ---------------------------------------------------------------------------
@@ -126,9 +126,10 @@ printResult br targetMbps targetAlloc = do
       thrptOk = targetMbps <= 0 || round (brMbps br) >= (targetMbps :: Int)
       pass = allocOk && thrptOk
       tag = if pass then "  OK  " else " MISS "
-      thrptLabel = if targetMbps > 0
-                   then "≥" ++ show targetMbps ++ " MB/s"
-                   else "diag"
+      thrptLabel =
+        if targetMbps > 0
+          then "≥" ++ show targetMbps ++ " MB/s"
+          else "diag"
   putStrLn $ "[" ++ tag ++ "] " ++ brLabel br
   putStrLn $ "          throughput: " ++ show (round (brMbps br) :: Int) ++ " MB/s   (target: " ++ thrptLabel ++ ")"
   putStrLn $ "          alloc/iter: " ++ show (brAllocIter br) ++ " bytes   (target: ≤" ++ show targetAlloc ++ ")"
@@ -181,6 +182,7 @@ treeBuildIO !bs = treeBuildOnlyIO bs
 qsaCountIO :: Selector -> Node -> IO Int
 qsaCountIO !sel !root = evaluate $! length (querySelectorAllSel sel root)
 {-# NOINLINE qsaCountIO #-}
+
 
 qsaCountDocIO :: Selector -> Document -> IO Int
 qsaCountDocIO !sel !doc = evaluate $! length (querySelectorAllDoc sel doc)
@@ -242,6 +244,7 @@ streamEventsIO !bs = do
   pure $! sizeofSmallArray arr
 {-# NOINLINE streamEventsIO #-}
 
+
 streamEventsRawIO :: BS.ByteString -> IO Int
 streamEventsRawIO !bs = do
   arr <- streamHTMLEventsRaw bs
@@ -259,7 +262,7 @@ streamEventsIncrementalIO !bs = do
   pure $! acc + sizeofSmallArray final
   where
     goChunks _ [] !acc = pure acc
-    goChunks sp (c:cs) !acc = do
+    goChunks sp (c : cs) !acc = do
       arr <- feedChunkEvents sp c
       goChunks sp cs (acc + sizeofSmallArray arr)
 {-# NOINLINE streamEventsIncrementalIO #-}
@@ -564,8 +567,10 @@ runBenchmarks = do
   let !rawRoot = htmlRoot (documentHTML doc)
       Right (Selector [ComplexSelector compound []]) = parseSelector "div.item"
   let matchN = 200000
-  (matchAlloc, matchNs) <- benchSmall "selector-match" matchN $
-    evaluate $! countMatchesFlat compound rawRoot
+  (matchAlloc, matchNs) <-
+    benchSmall "selector-match" matchN $
+      evaluate $!
+        countMatchesFlat compound rawRoot
   printSmallResult "selector match (flat traversal)" matchAlloc matchNs 20 100.0 >>= checkPass
 
   -- ==================== DOM querySelector ====================
@@ -593,66 +598,77 @@ runBenchmarks = do
       !selHasId = qsParse "[id]"
       !selChildSib = qsParse "div.catalog > div + div"
 
-  (qs1a, qs1ns) <- benchSmall "qsa(div)" qsN $
-    qsaCountDocIO selDiv2 domDoc
+  (qs1a, qs1ns) <-
+    benchSmall "qsa(div)" qsN $
+      qsaCountDocIO selDiv2 domDoc
   printSmallResult "querySelectorAll(\"div\")" qs1a qs1ns 10500 1200.0 >>= checkPass
 
-  (qs2a, qs2ns) <- benchSmall "qsa(.item)" qsN $
-    qsaCountDocIO selDivItem domDoc
+  (qs2a, qs2ns) <-
+    benchSmall "qsa(.item)" qsN $
+      qsaCountDocIO selDivItem domDoc
   printSmallResult "querySelectorAll(\"div.item\")" qs2a qs2ns 11000 1500.0 >>= checkPass
 
-  (qs3a, qs3ns) <- benchSmall "qsa(div.item span.name)" qsN $
-    qsaCountDocIO selDescSpan domDoc
+  (qs3a, qs3ns) <-
+    benchSmall "qsa(div.item span.name)" qsN $
+      qsaCountDocIO selDescSpan domDoc
   printSmallResult "querySelectorAll(\"div.item span.name\")" qs3a qs3ns 22000 3500.0 >>= checkPass
 
-  (qs4a, qs4ns) <- benchSmall "qsa(div:first-child)" qsN $
-    qsaCountDocIO selFirstChild domDoc
+  (qs4a, qs4ns) <-
+    benchSmall "qsa(div:first-child)" qsN $
+      qsaCountDocIO selFirstChild domDoc
   printSmallResult "querySelectorAll(\"div:first-child\")" qs4a qs4ns 3800 1500.0 >>= checkPass
 
-  (qs5a, qs5ns) <- benchSmall "qsa(:nth-child(2n+1))" qsN $
-    qsaCountDocIO selNthChild domDoc
+  (qs5a, qs5ns) <-
+    benchSmall "qsa(:nth-child(2n+1))" qsN $
+      qsaCountDocIO selNthChild domDoc
   printSmallResult "querySelectorAll(\":nth-child(2n+1)\")" qs5a qs5ns 9500 3000.0 >>= checkPass
 
-  (qs6a, qs6ns) <- benchSmall "qsa(:not(.item))" qsN $
-    qsaCountDocIO selNotItem domDoc
+  (qs6a, qs6ns) <-
+    benchSmall "qsa(:not(.item))" qsN $
+      qsaCountDocIO selNotItem domDoc
   printSmallResult "querySelectorAll(\":not(.item)\")" qs6a qs6ns 8000 5500.0 >>= checkPass
 
-  (qs7a, qs7ns) <- benchSmall "qsa([id])" qsN $
-    qsaCountDocIO selHasId domDoc
+  (qs7a, qs7ns) <-
+    benchSmall "qsa([id])" qsN $
+      qsaCountDocIO selHasId domDoc
   printSmallResult "querySelectorAll(\"[id]\")" qs7a qs7ns 30000 10000.0 >>= checkPass
 
-  (qs8a, qs8ns) <- benchSmall "qsa(div.catalog > div + div)" qsN $
-    qsaCountDocIO selChildSib domDoc
+  (qs8a, qs8ns) <-
+    benchSmall "qsa(div.catalog > div + div)" qsN $
+      qsaCountDocIO selChildSib domDoc
   printSmallResult "querySelectorAll(\"div.catalog > div + div\")" qs8a qs8ns 22000 8000.0 >>= checkPass
 
   -- ==================== Micro: PrimArray vs IORef ====================
   putStrLn ""
   putStrLn "--- Micro-benchmarks ---"
-  do pa <- newPrimArray 3
-     writePrimArray pa (0 :: Int) (0 :: Int)
-     writePrimArray pa 1 (-1 :: Int)
-     writePrimArray pa 2 (-1 :: Int)
-     let microN = 100000
-     (paAlloc, paNs) <- benchSmall "PrimArray read+write depth" microN $ do
-       d <- readPrimArray pa 0
-       writePrimArray pa (0 :: Int) (d + 1 :: Int)
-     printSmallResult "PrimArray read+write" paAlloc paNs 0 1000.0 >>= checkPass
+  do
+    pa <- newPrimArray 3
+    writePrimArray pa (0 :: Int) (0 :: Int)
+    writePrimArray pa 1 (-1 :: Int)
+    writePrimArray pa 2 (-1 :: Int)
+    let microN = 100000
+    (paAlloc, paNs) <- benchSmall "PrimArray read+write depth" microN $ do
+      d <- readPrimArray pa 0
+      writePrimArray pa (0 :: Int) (d + 1 :: Int)
+    printSmallResult "PrimArray read+write" paAlloc paNs 0 1000.0 >>= checkPass
 
-  do ref <- newIORef (0 :: Int)
-     let microN = 100000
-     (ioAlloc, ioNs) <- benchSmall "IORef read+write depth" microN $ do
-       d <- readIORef ref
-       writeIORef ref $! (d + 1 :: Int)
-     printSmallResult "IORef strict read+write" ioAlloc ioNs 16 1000.0 >>= checkPass
+  do
+    ref <- newIORef (0 :: Int)
+    let microN = 100000
+    (ioAlloc, ioNs) <- benchSmall "IORef read+write depth" microN $ do
+      d <- readIORef ref
+      writeIORef ref $! (d + 1 :: Int)
+    printSmallResult "IORef strict read+write" ioAlloc ioNs 16 1000.0 >>= checkPass
 
-  do let sampleText = "This is the description for product number 42 in our catalog" :: T.Text
-         microN = 100000
-     ref <- newIORef sampleText
-     (tuAlloc, tuNs) <- benchSmall "T.toUpper 60-char ASCII" microN $ do
-       t <- readIORef ref
-       let !u = T.toUpper t
-       writeIORef ref u
-     printSmallResult "T.toUpper 60-char" tuAlloc tuNs 1200 1000.0 >>= checkPass
+  do
+    let sampleText = "This is the description for product number 42 in our catalog" :: T.Text
+        microN = 100000
+    ref <- newIORef sampleText
+    (tuAlloc, tuNs) <- benchSmall "T.toUpper 60-char ASCII" microN $ do
+      t <- readIORef ref
+      let !u = T.toUpper t
+      writeIORef ref u
+    printSmallResult "T.toUpper 60-char" tuAlloc tuNs 1200 1000.0 >>= checkPass
 
   -- ==================== Summary ====================
   putStrLn ""

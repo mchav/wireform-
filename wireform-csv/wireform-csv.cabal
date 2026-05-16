@@ -3,6 +3,10 @@ name: wireform-csv
 version: 0.1.0.0
 synopsis: CSV/TSV encoding/decoding
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 common defaults
@@ -43,9 +47,24 @@ library
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
-    containers >= 0.6 && < 0.8,
+    containers >= 0.6 && < 0.9,
     template-haskell >= 2.18 && < 2.24,
     deepseq >= 1.4 && < 1.6
+
+benchmark wireform-csv-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -O2
+  build-depends:
+    base,
+    wireform-csv,
+    bytestring,
+    deepseq,
+    text,
+    vector,
+    criterion >= 1.5 && < 1.7
 
 test-suite wireform-csv-derive-test
   import: defaults

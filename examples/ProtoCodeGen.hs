@@ -1,81 +1,84 @@
 {-# LANGUAGE OverloadedStrings #-}
--- | Example: parsing a .proto file and generating Haskell code.
---
--- Demonstrates the full pipeline from proto IDL text to generated
--- Haskell module source.
---
--- Run with: cabal run example-codegen
+
+{- | Example: parsing a .proto file and generating Haskell code.
+
+Demonstrates the full pipeline from proto IDL text to generated
+Haskell module source.
+
+Run with: cabal run example-codegen
+-}
 module Main where
 
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-
-import qualified Data.Map.Strict as Map
-
-import Proto.AST
-import Proto.Parser
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Proto.CodeGen
-import Proto.Annotations
+import Proto.IDL.AST
+import Proto.IDL.Annotations
+import Proto.IDL.Parser
+
 
 sampleProto :: Text
-sampleProto = T.unlines
-  [ "syntax = \"proto3\";"
-  , "package myapp.users;"
-  , ""
-  , "option (custom_validation) = true;"
-  , ""
-  , "// User account message"
-  , "message User {"
-  , "  string id = 1;"
-  , "  string display_name = 2;"
-  , "  string email = 3;"
-  , "  int64 created_at = 4;"
-  , "  bool is_admin = 5;"
-  , "  repeated string roles = 6;"
-  , ""
-  , "  // Address submessage"
-  , "  message Address {"
-  , "    string street = 1;"
-  , "    string city = 2;"
-  , "    string country = 3;"
-  , "    string postal_code = 4;"
-  , "  }"
-  , ""
-  , "  Address address = 7;"
-  , ""
-  , "  oneof contact {"
-  , "    string phone = 8;"
-  , "    string mobile = 9;"
-  , "  }"
-  , "}"
-  , ""
-  , "enum AccountStatus {"
-  , "  ACCOUNT_STATUS_UNSPECIFIED = 0;"
-  , "  ACCOUNT_STATUS_ACTIVE = 1;"
-  , "  ACCOUNT_STATUS_SUSPENDED = 2;"
-  , "  ACCOUNT_STATUS_DELETED = 3;"
-  , "}"
-  , ""
-  , "message GetUserRequest {"
-  , "  string user_id = 1;"
-  , "}"
-  , ""
-  , "message GetUserResponse {"
-  , "  User user = 1;"
-  , "  AccountStatus status = 2;"
-  , "}"
-  , ""
-  , "service UserService {"
-  , "  rpc GetUser (GetUserRequest) returns (GetUserResponse);"
-  , "  rpc ListUsers (ListUsersRequest) returns (stream User);"
-  , "}"
-  , ""
-  , "message ListUsersRequest {"
-  , "  int32 page_size = 1;"
-  , "  string page_token = 2;"
-  , "}"
-  ]
+sampleProto =
+  T.unlines
+    [ "syntax = \"proto3\";"
+    , "package myapp.users;"
+    , ""
+    , "option (custom_validation) = true;"
+    , ""
+    , "// User account message"
+    , "message User {"
+    , "  string id = 1;"
+    , "  string display_name = 2;"
+    , "  string email = 3;"
+    , "  int64 created_at = 4;"
+    , "  bool is_admin = 5;"
+    , "  repeated string roles = 6;"
+    , ""
+    , "  // Address submessage"
+    , "  message Address {"
+    , "    string street = 1;"
+    , "    string city = 2;"
+    , "    string country = 3;"
+    , "    string postal_code = 4;"
+    , "  }"
+    , ""
+    , "  Address address = 7;"
+    , ""
+    , "  oneof contact {"
+    , "    string phone = 8;"
+    , "    string mobile = 9;"
+    , "  }"
+    , "}"
+    , ""
+    , "enum AccountStatus {"
+    , "  ACCOUNT_STATUS_UNSPECIFIED = 0;"
+    , "  ACCOUNT_STATUS_ACTIVE = 1;"
+    , "  ACCOUNT_STATUS_SUSPENDED = 2;"
+    , "  ACCOUNT_STATUS_DELETED = 3;"
+    , "}"
+    , ""
+    , "message GetUserRequest {"
+    , "  string user_id = 1;"
+    , "}"
+    , ""
+    , "message GetUserResponse {"
+    , "  User user = 1;"
+    , "  AccountStatus status = 2;"
+    , "}"
+    , ""
+    , "service UserService {"
+    , "  rpc GetUser (GetUserRequest) returns (GetUserResponse);"
+    , "  rpc ListUsers (ListUsersRequest) returns (stream User);"
+    , "}"
+    , ""
+    , "message ListUsersRequest {"
+    , "  int32 page_size = 1;"
+    , "  string page_token = 2;"
+    , "}"
+    ]
+
 
 main :: IO ()
 main = do
@@ -95,7 +98,7 @@ main = do
       let anns = extractAnnotations (protoOptions pf)
       case anns of
         [] -> putStrLn "  (none)"
-        _  -> mapM_ (\a -> putStrLn $ "  " <> show (annotationName a) <> " = " <> show (annotationValue a)) anns
+        _ -> mapM_ (\a -> putStrLn $ "  " <> show (annotationName a) <> " = " <> show (annotationValue a)) anns
 
       -- 3. Enumerate top-level definitions
       putStrLn "\n--- Definitions ---"
@@ -106,17 +109,20 @@ main = do
       let auditHook = onMessageAttribute "custom_validation" $ \val ctx ->
             case val of
               CBool True ->
-                [ "-- | NOTE: " <> mhcHsTypeName ctx
-                  <> " has custom validation enabled"
+                [ "-- | NOTE: "
+                    <> mhcHsTypeName ctx
+                    <> " has custom validation enabled"
                 ]
               _ -> []
-          opts = defaultGenerateOpts
-            { genModulePrefix = "MyApp.Proto"
-            , genHooks = auditHook
-            }
+          opts =
+            defaultGenerateOpts
+              { genModulePrefix = "MyApp.Proto"
+              , genHooks = auditHook
+              }
           emptyReg = Map.empty :: TypeRegistry
           code = generateModuleText opts emptyReg "<example>" pf
       TIO.putStrLn code
+
 
 showDef :: TopLevel -> IO ()
 showDef = \case
@@ -131,6 +137,7 @@ showDef = \case
     putStrLn $ "  extend " <> show name
   TLOption opt ->
     putStrLn $ "  option " <> show (optName opt)
+
 
 showElem :: MessageElement -> IO ()
 showElem = \case

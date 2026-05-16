@@ -15,6 +15,10 @@ description:
   cache are intentionally not enabled in this initial release; see
   the @Fory.Encode@ haddock for the exact subset.
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 common defaults
@@ -26,7 +30,6 @@ common defaults
     -Wincomplete-uni-patterns
     -Wpartial-fields
     -Wredundant-constraints
-    -O1
   default-language: GHC2021
   default-extensions:
     StrictData
@@ -62,7 +65,7 @@ library
     wireform-derive,
     template-haskell >= 2.18 && < 2.24,
     bytestring >= 0.11 && < 0.13,
-    containers >= 0.6 && < 0.8,
+    containers >= 0.6 && < 0.9,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
     deepseq >= 1.4 && < 1.6,
@@ -120,7 +123,7 @@ test-suite wireform-fory-interop
     base,
     wireform-fory,
     bytestring,
-    containers    >= 0.6 && < 0.8,
+    containers    >= 0.6 && < 0.9,
     text,
     vector,
     aeson         >= 2.1 && < 2.3,
@@ -146,7 +149,7 @@ test-suite wireform-fory-interop-fuzz
     vector,
     process       >= 1.6 && < 1.8,
     directory     >= 1.3 && < 1.4,
-    hedgehog      >= 1.0 && < 1.5
+    hedgehog      >= 1.0 && < 1.8
 
 benchmark wireform-fory-bench
   import: defaults
@@ -182,4 +185,4 @@ executable wireform-fory-fuzz-trace
     vector,
     process       >= 1.6 && < 1.8,
     directory     >= 1.3 && < 1.4,
-    hedgehog      >= 1.0 && < 1.5
+    hedgehog      >= 1.0 && < 1.8

@@ -1,4 +1,4 @@
-{-|
+{- |
 Module      : Main
 Description : Test suite entry point for kafka-native
 Copyright   : (c) 2025
@@ -15,91 +15,92 @@ Tests are organized into groups:
 To run tests:
 
 > stack test
-
 -}
 module Main (main) where
 
+import Client.AdminClientConfigSpec qualified
+import Client.AdminClientSpec qualified
+import Client.AdminTimeoutsSpec qualified
+import Client.BatchAccumulatorSpec qualified
+import Client.BatchSplittingSpec qualified
+import Client.ConfigParitySpec qualified
+import Client.ConfigValidationSpec qualified
+import Client.ConsumerConfigSpec qualified
+import Client.ConsumerGroupV2Spec qualified
+import Client.ConsumerSnapshotsSpec qualified
+import Client.EnvSpec qualified
+import Client.FilterSpec qualified
+import Client.FutureSpec qualified
+import Client.GroupSpec qualified
+import Client.HeartbeatRejoinSpec qualified
+import Client.InterceptorSpec qualified
+import Client.MetadataCacheControlSpec qualified
+import Client.MetadataLeaderUpdateSpec qualified
+import Client.MetadataSpec qualified
+import Client.MetricsRegistrySpec qualified
+import Client.MockBrokerAdminSpec qualified
+import Client.MockBrokerAdvancedSpec qualified
+import Client.MockBrokerCoopSpec qualified
+import Client.MockBrokerExtSpec qualified
+import Client.MockBrokerFailureModesSpec qualified
+import Client.MockBrokerIdempotentSpec qualified
+import Client.MockBrokerNetSpec qualified
+import Client.MockBrokerProtoSpec qualified
+import Client.MockBrokerSpec qualified
+import Client.MockBrokerStoreSpec qualified
+import Client.Murmur2Spec qualified
+import Client.PartitionerSpec qualified
+import Client.PipelineSpec qualified
+import Client.ProducerConsumerLifecycleSpec qualified
+import Client.ProducerRetrySpec qualified
+import Client.ProducerTimeoutSpec qualified
+import Client.ProducerTransactionWiringSpec qualified
+import Client.RackAwareSpec qualified
+import Client.RebalanceListenerSpec qualified
+import Client.RecordMetadataSpec qualified
+import Client.ResponseFrameSpec qualified
+import Client.RetryClassifierSpec qualified
+import Client.SerdeContextSpec qualified
+import Client.ShareConsumerHelpersSpec qualified
+import Client.ShareConsumerSpec qualified
+import Client.StatsJsonSpec qualified
+import Client.SubscribeSpec qualified
+import Client.TelemetryPushSpec qualified
+import Client.TopicIdSpec qualified
+import Client.TransactionCoordinatorSpec qualified
+import Client.TransactionHelpersSpec qualified
+import Client.TransactionSpec qualified
+import Codegen.WireGeneratorSpec qualified
+import Network.AuthSpec qualified
+import Network.BootstrapSpec qualified
+import Network.ConnectionHelpersSpec qualified
+import Network.ConnectionLivenessSpec qualified
+import Network.ConnectionRetrySpec qualified
+import Network.OAuthOidcSpec qualified
+import Network.ReauthDriverSpec qualified
+import Network.SaslReauthSpec qualified
+import Network.TlsHandshakeSpec qualified
+import Network.TlsOffloadSpec qualified
+import Network.TransportSpec qualified
+import Protocol.ApiVersionsSpec qualified
+import Protocol.CRC32CSpec qualified
+import Protocol.CompressionSpec qualified
+import Protocol.Generated.ComprehensiveSpec qualified
+import Protocol.Generated.KnownGoodSpec qualified
+import Protocol.Generated.SimpleRoundTripSpec qualified
+import Protocol.PrimitivesSpec qualified
+import Protocol.RecordBatchAttributesSpec qualified
+import Protocol.RecordBatchSpec qualified
+import Protocol.RecordBatchWireSpec qualified
+import Protocol.RoundTripSpec qualified
+import Protocol.SliceVectorSpec qualified
+import Protocol.StreamingSinkSpec qualified
+import Protocol.VersionHandlingSpec qualified
+import Protocol.VersionNegotiationSpec qualified
+import Protocol.WireCodecParitySpec qualified
+import Protocol.WireSpec qualified
 import Test.Tasty
-import qualified Protocol.CRC32CSpec
-import qualified Protocol.PrimitivesSpec
-import qualified Protocol.RoundTripSpec
-import qualified Protocol.RecordBatchAttributesSpec
-import qualified Protocol.RecordBatchSpec
-import qualified Protocol.CompressionSpec
-import qualified Protocol.Generated.SimpleRoundTripSpec
-import qualified Protocol.Generated.KnownGoodSpec
-import qualified Protocol.Generated.ComprehensiveSpec
-import qualified Protocol.VersionHandlingSpec
-import qualified Protocol.WireSpec
-import qualified Protocol.RecordBatchWireSpec
-import qualified Protocol.SliceVectorSpec
-import qualified Protocol.VersionNegotiationSpec
-import qualified Protocol.ApiVersionsSpec
-import qualified Client.BatchAccumulatorSpec
-import qualified Client.ConsumerConfigSpec
-import qualified Client.GroupSpec
-import qualified Client.MetadataSpec
-import qualified Client.PartitionerSpec
-import qualified Client.ProducerTimeoutSpec
-import qualified Client.ProducerConsumerLifecycleSpec
-import qualified Client.TransactionSpec
-import qualified Client.TransactionCoordinatorSpec
-import qualified Client.ProducerTransactionWiringSpec
-import qualified Client.InterceptorSpec
-import qualified Client.MetadataLeaderUpdateSpec
-import qualified Client.MetricsRegistrySpec
-import qualified Client.Murmur2Spec
-import qualified Client.StatsJsonSpec
-import qualified Client.ConsumerGroupV2Spec
-import qualified Client.ShareConsumerSpec
-import qualified Client.TelemetryPushSpec
-import qualified Client.RecordMetadataSpec
-import qualified Client.FilterSpec
-import qualified Client.FutureSpec
-import qualified Client.TopicIdSpec
-import qualified Client.RebalanceListenerSpec
-import qualified Client.AdminTimeoutsSpec
-import qualified Client.RetryClassifierSpec
-import qualified Client.BatchSplittingSpec
-import qualified Client.ResponseFrameSpec
-import qualified Network.OAuthOidcSpec
-import qualified Network.BootstrapSpec
-import qualified Network.ReauthDriverSpec
-import qualified Client.ConsumerSnapshotsSpec
-import qualified Client.MetadataCacheControlSpec
-import qualified Client.RackAwareSpec
-import qualified Client.TransactionHelpersSpec
-import qualified Network.ConnectionHelpersSpec
-import qualified Client.AdminClientConfigSpec
-import qualified Client.SerdeContextSpec
-import qualified Client.ShareConsumerHelpersSpec
-import qualified Client.AdminClientSpec
-import qualified Client.MockBrokerSpec
-import qualified Client.MockBrokerFailureModesSpec
-import qualified Client.MockBrokerAdvancedSpec
-import qualified Client.MockBrokerExtSpec
-import qualified Client.MockBrokerIdempotentSpec
-import qualified Client.MockBrokerAdminSpec
-import qualified Client.MockBrokerCoopSpec
-import qualified Client.MockBrokerNetSpec
-import qualified Client.MockBrokerStoreSpec
-import qualified Client.MockBrokerProtoSpec
-import qualified Client.ConfigParitySpec
-import qualified Client.ConfigValidationSpec
-import qualified Client.EnvSpec
-import qualified Client.HeartbeatRejoinSpec
-import qualified Codegen.WireGeneratorSpec
-import qualified Protocol.WireCodecParitySpec
-import qualified Client.ProducerRetrySpec
-import qualified Client.PipelineSpec
-import qualified Client.SubscribeSpec
-import qualified Network.ConnectionLivenessSpec
-import qualified Network.AuthSpec
-import qualified Network.ConnectionRetrySpec
-import qualified Network.TlsHandshakeSpec
-import qualified Network.TransportSpec
-import qualified Network.SaslReauthSpec
-import qualified Network.TlsOffloadSpec
+
 
 main :: IO ()
 main = do
@@ -107,112 +108,134 @@ main = do
   comprehensiveTests <- Protocol.Generated.ComprehensiveSpec.tests
   defaultMain $ tests knownGoodTests comprehensiveTests
 
+
 tests :: TestTree -> TestTree -> TestTree
-tests knownGoodTests comprehensiveTests = testGroup "kafka-native"
-  [ protocolTests
-  , generatedTests knownGoodTests comprehensiveTests
-  , versionTests
-  , compressionTests
-  , clientTests
-  , networkTests
-  ]
+tests knownGoodTests comprehensiveTests =
+  testGroup
+    "kafka-native"
+    [ protocolTests
+    , generatedTests knownGoodTests comprehensiveTests
+    , versionTests
+    , compressionTests
+    , clientTests
+    , networkTests
+    ]
+
 
 protocolTests :: TestTree
-protocolTests = testGroup "Protocol"
-  [ Protocol.CRC32CSpec.spec
-  , Protocol.PrimitivesSpec.tests
-  , Protocol.RoundTripSpec.tests
-  , Protocol.RecordBatchSpec.tests
-  , Protocol.RecordBatchAttributesSpec.tests
-  , Protocol.WireSpec.tests
-  , Protocol.RecordBatchWireSpec.tests
-  , Protocol.SliceVectorSpec.tests
-  , Protocol.VersionNegotiationSpec.tests
-  ]
+protocolTests =
+  testGroup
+    "Protocol"
+    [ Protocol.CRC32CSpec.spec
+    , Protocol.PrimitivesSpec.tests
+    , Protocol.RoundTripSpec.tests
+    , Protocol.RecordBatchSpec.tests
+    , Protocol.RecordBatchAttributesSpec.tests
+    , Protocol.WireSpec.tests
+    , Protocol.RecordBatchWireSpec.tests
+    , Protocol.SliceVectorSpec.tests
+    , Protocol.VersionNegotiationSpec.tests
+    ]
+
 
 generatedTests :: TestTree -> TestTree -> TestTree
-generatedTests knownGoodTests comprehensiveTests = testGroup "Generated Messages"
-  [ Protocol.Generated.SimpleRoundTripSpec.tests
-  , knownGoodTests
-  , comprehensiveTests
-  ]
+generatedTests knownGoodTests comprehensiveTests =
+  testGroup
+    "Generated Messages"
+    [ Protocol.Generated.SimpleRoundTripSpec.tests
+    , knownGoodTests
+    , comprehensiveTests
+    ]
+
 
 versionTests :: TestTree
 versionTests = Protocol.VersionHandlingSpec.tests
 
+
 compressionTests :: TestTree
-compressionTests = Protocol.CompressionSpec.compressionTests
+compressionTests =
+  testGroup
+    "Compression"
+    [ Protocol.CompressionSpec.compressionTests
+    , Protocol.StreamingSinkSpec.tests
+    ]
+
 
 clientTests :: TestTree
-clientTests = testGroup "Client"
-  [ Protocol.ApiVersionsSpec.tests
-  , Client.BatchAccumulatorSpec.tests
-  , Client.ConsumerConfigSpec.consumerConfigSpec
-  , Client.MetadataSpec.tests
-  , Client.PartitionerSpec.partitionerSpec
-  , Client.ProducerTimeoutSpec.tests
-  , Client.ProducerConsumerLifecycleSpec.lifecycleSpec
-  , Client.TransactionSpec.transactionSpec
-  , Client.TransactionCoordinatorSpec.transactionCoordinatorSpec
-  , Client.ProducerTransactionWiringSpec.tests
-  , Client.InterceptorSpec.tests
-  , Client.MetadataLeaderUpdateSpec.tests
-  , Client.MetricsRegistrySpec.tests
-  , Client.Murmur2Spec.tests
-  , Client.StatsJsonSpec.tests
-  , Client.ConsumerGroupV2Spec.tests
-  , Client.ShareConsumerSpec.tests
-  , Client.TelemetryPushSpec.tests
-  , Client.RecordMetadataSpec.tests
-  , Client.FilterSpec.tests
-  , Client.FutureSpec.tests
-  , Client.TopicIdSpec.tests
-  , Client.RebalanceListenerSpec.tests
-  , Client.AdminTimeoutsSpec.tests
-  , Client.RetryClassifierSpec.tests
-  , Client.BatchSplittingSpec.tests
-  , Client.ResponseFrameSpec.tests
-  , Client.ConsumerSnapshotsSpec.tests
-  , Client.MetadataCacheControlSpec.tests
-  , Client.RackAwareSpec.tests
-  , Client.TransactionHelpersSpec.tests
-  , Network.ConnectionHelpersSpec.tests
-  , Client.AdminClientConfigSpec.tests
-  , Client.SerdeContextSpec.tests
-  , Client.ShareConsumerHelpersSpec.tests
-  , Client.AdminClientSpec.tests
-  , Client.GroupSpec.groupSpec
-  , Client.MockBrokerSpec.tests
-  , Client.MockBrokerFailureModesSpec.tests
-  , Client.MockBrokerAdvancedSpec.tests
-  , Client.MockBrokerExtSpec.tests
-  , Client.MockBrokerIdempotentSpec.tests
-  , Client.MockBrokerAdminSpec.tests
-  , Client.MockBrokerCoopSpec.tests
-  , Client.MockBrokerNetSpec.tests
-  , Client.MockBrokerStoreSpec.tests
-  , Client.MockBrokerProtoSpec.tests
-  , Client.ConfigParitySpec.tests
-  , Client.ConfigValidationSpec.tests
-  , Client.EnvSpec.tests
-  , Client.HeartbeatRejoinSpec.tests
-  , Codegen.WireGeneratorSpec.tests
-  , Protocol.WireCodecParitySpec.tests
-  , Client.ProducerRetrySpec.tests
-  , Client.PipelineSpec.tests
-  , Client.SubscribeSpec.tests
-  , Network.ConnectionLivenessSpec.tests
-  ]
+clientTests =
+  testGroup
+    "Client"
+    [ Protocol.ApiVersionsSpec.tests
+    , Client.BatchAccumulatorSpec.tests
+    , Client.ConsumerConfigSpec.consumerConfigSpec
+    , Client.MetadataSpec.tests
+    , Client.PartitionerSpec.partitionerSpec
+    , Client.ProducerTimeoutSpec.tests
+    , Client.ProducerConsumerLifecycleSpec.lifecycleSpec
+    , Client.TransactionSpec.transactionSpec
+    , Client.TransactionCoordinatorSpec.transactionCoordinatorSpec
+    , Client.ProducerTransactionWiringSpec.tests
+    , Client.InterceptorSpec.tests
+    , Client.MetadataLeaderUpdateSpec.tests
+    , Client.MetricsRegistrySpec.tests
+    , Client.Murmur2Spec.tests
+    , Client.StatsJsonSpec.tests
+    , Client.ConsumerGroupV2Spec.tests
+    , Client.ShareConsumerSpec.tests
+    , Client.TelemetryPushSpec.tests
+    , Client.RecordMetadataSpec.tests
+    , Client.FilterSpec.tests
+    , Client.FutureSpec.tests
+    , Client.TopicIdSpec.tests
+    , Client.RebalanceListenerSpec.tests
+    , Client.AdminTimeoutsSpec.tests
+    , Client.RetryClassifierSpec.tests
+    , Client.BatchSplittingSpec.tests
+    , Client.ResponseFrameSpec.tests
+    , Client.ConsumerSnapshotsSpec.tests
+    , Client.MetadataCacheControlSpec.tests
+    , Client.RackAwareSpec.tests
+    , Client.TransactionHelpersSpec.tests
+    , Network.ConnectionHelpersSpec.tests
+    , Client.AdminClientConfigSpec.tests
+    , Client.SerdeContextSpec.tests
+    , Client.ShareConsumerHelpersSpec.tests
+    , Client.AdminClientSpec.tests
+    , Client.GroupSpec.groupSpec
+    , Client.MockBrokerSpec.tests
+    , Client.MockBrokerFailureModesSpec.tests
+    , Client.MockBrokerAdvancedSpec.tests
+    , Client.MockBrokerExtSpec.tests
+    , Client.MockBrokerIdempotentSpec.tests
+    , Client.MockBrokerAdminSpec.tests
+    , Client.MockBrokerCoopSpec.tests
+    , Client.MockBrokerNetSpec.tests
+    , Client.MockBrokerStoreSpec.tests
+    , Client.MockBrokerProtoSpec.tests
+    , Client.ConfigParitySpec.tests
+    , Client.ConfigValidationSpec.tests
+    , Client.EnvSpec.tests
+    , Client.HeartbeatRejoinSpec.tests
+    , Codegen.WireGeneratorSpec.tests
+    , Protocol.WireCodecParitySpec.tests
+    , Client.ProducerRetrySpec.tests
+    , Client.PipelineSpec.tests
+    , Client.SubscribeSpec.tests
+    , Network.ConnectionLivenessSpec.tests
+    ]
+
 
 networkTests :: TestTree
-networkTests = testGroup "Network"
-  [ Network.ConnectionRetrySpec.tests
-  , Network.AuthSpec.authSpec
-  , Network.TlsHandshakeSpec.tests
-  , Network.TransportSpec.tests
-  , Network.TlsOffloadSpec.tests
-  , Network.SaslReauthSpec.tests
-  , Network.OAuthOidcSpec.tests
-  , Network.BootstrapSpec.tests
-  , Network.ReauthDriverSpec.tests
-  ]
+networkTests =
+  testGroup
+    "Network"
+    [ Network.ConnectionRetrySpec.tests
+    , Network.AuthSpec.authSpec
+    , Network.TlsHandshakeSpec.tests
+    , Network.TransportSpec.tests
+    , Network.TlsOffloadSpec.tests
+    , Network.SaslReauthSpec.tests
+    , Network.OAuthOidcSpec.tests
+    , Network.BootstrapSpec.tests
+    , Network.ReauthDriverSpec.tests
+    ]

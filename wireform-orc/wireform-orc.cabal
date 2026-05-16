@@ -3,6 +3,10 @@ name: wireform-orc
 version: 0.1.0.0
 synopsis: Apache ORC metadata, stripes, and read/write
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 -- Compression codec flags. Defaults are ON so wireform-orc
@@ -70,12 +74,12 @@ library
     base >= 4.16 && < 5,
     wireform-core,
     wireform-arrow,
-    wireform-columnar,
+    wireform-columnar-core,
     wireform-derive,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
-    containers >= 0.6 && < 0.8,
+    containers >= 0.6 && < 0.9,
     zlib >= 0.6 && < 0.8,
     crypton >= 1.0 && < 1.1,
     memory >= 0.18 && < 0.19,
@@ -89,7 +93,7 @@ library
     cpp-options: -DHAVE_ZSTD
     build-depends: zstd >= 0.1 && < 0.2
   -- LZ4 support is provided by Columnar.LZ4 (FFI bindings to
-  -- system liblz4 from wireform-columnar). See the Parquet
+  -- system liblz4 from wireform-columnar-core). See the Parquet
   -- cabal for the same comment.
   if flag(lz4)
     cpp-options: -DHAVE_LZ4
@@ -98,7 +102,6 @@ executable wireform-orc-interop-probe
   import: defaults
   hs-source-dirs: probe
   main-is: Probe.hs
-  ghc-options: -O1
   build-depends:
     base >= 4.16 && < 5,
     wireform-arrow,
@@ -111,7 +114,6 @@ executable wireform-orc-reverse-probe
   import: defaults
   hs-source-dirs: probe
   main-is: Reverse.hs
-  ghc-options: -O1
   build-depends:
     base >= 4.16 && < 5,
     wireform-arrow,
@@ -128,7 +130,8 @@ test-suite wireform-orc-test
   main-is: Main.hs
   build-depends:
     base >= 4.16 && < 5,
-    wireform-columnar,
+    wireform-columnar-core,
+    wireform-core,
     wireform-orc,
     bytestring >= 0.11 && < 0.13,
     vector >= 0.13 && < 0.14,

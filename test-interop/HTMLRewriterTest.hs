@@ -9,7 +9,6 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as AK
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
-import Data.ByteString.Builder qualified as BB
 import Data.ByteString.Lazy qualified as BL
 import Data.IORef
 import Data.List (isPrefixOf, isSuffixOf, sort)
@@ -23,6 +22,7 @@ import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeFileName, (</>))
 import Test.Tasty
 import Test.Tasty.HUnit
+import Wireform.Builder qualified as BB
 
 
 -- ---------------------------------------------------------------------------
@@ -899,13 +899,14 @@ canParseSelectorAtAll sel =
     Left _ -> False
 
 
--- | Selectors that parse but can't be correctly tested against the fixture data
--- because they depend on browser state (:visited) or XML namespace semantics
--- (the test suite was generated from XHTML where namespace distinctions matter).
+{- | Selectors that parse but can't be correctly tested against the fixture data
+because they depend on browser state (:visited) or XML namespace semantics
+(the test suite was generated from XHTML where namespace distinctions matter).
+-}
 isDOMTestExcluded :: Text -> Bool
 isDOMTestExcluded sel =
   T.isInfixOf ":visited" sel
-  || T.isInfixOf "|" sel
+    || T.isInfixOf "|" sel
 
 
 mkSelectorMatchingTest :: TestFixture -> TestTree
@@ -991,8 +992,13 @@ loadDOMSelectorTests = do
       let infoFiles = filter ("-info.json" `isSuffixOf`) files
       fixtures <- fmap concat $ forEachM infoFiles $ \infoFile -> do
         loadSelectorsTestFile dir infoFile "selector_matching"
-      let supported = filter (\tf -> canParseSelectorAtAll (tfSelector tf)
-                                    && not (isDOMTestExcluded (tfSelector tf))) fixtures
+      let supported =
+            filter
+              ( \tf ->
+                  canParseSelectorAtAll (tfSelector tf)
+                    && not (isDOMTestExcluded (tfSelector tf))
+              )
+              fixtures
       let skipped = length fixtures - length supported
       when (skipped > 0) $
         putStrLn $
@@ -1013,7 +1019,8 @@ mkDOMSelectorTest tf = testCase ("DOM: " ++ tfDescription tf) $ do
           rootDelta
             | expectedCount == 0
             , actualCount == 1
-            , any isDocumentElement matched = 1
+            , any isDocumentElement matched =
+                1
             | otherwise = 0
       actualCount @?= expectedCount + rootDelta
   where

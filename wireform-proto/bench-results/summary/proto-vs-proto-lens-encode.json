@@ -1,0 +1,14 @@
+{
+  "id": "proto-vs-proto-lens-encode",
+  "title": "wireform-proto vs proto-lens (encode, builder path)",
+  "unit": "Nanos",
+  "higherIsBetter": false,
+  "groups": ["Small", "Medium", "Nested", "Repeated"],
+  "series": [
+    {"name": "wireform-proto", "values": [25.53, 53.97, 44.96, 656.30]},
+    {"name": "proto-lens",     "values": [145.84, 271.85, 320.63, 2701.46]}
+  ],
+  "baseline": "wireform-proto",
+  "capturedAt": "2026-05-13T10:45:00Z",
+  "toolchain": "ghc-9.8.4 on darwin-aarch64, criterion 1.6.5"
+}

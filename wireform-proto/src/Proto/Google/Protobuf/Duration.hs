@@ -15,7 +15,7 @@ module Proto.Google.Protobuf.Duration where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as B
+import qualified Wireform.Builder as B
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -32,13 +32,14 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
+import Proto.Internal.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
 import Data.Proxy (Proxy(..))
-import Proto.Message (IsMessage(..))
+import Proto.Registry (IsMessage)
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
-import Proto.Wire (Tag(..), WireType(..))
-import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
+import qualified Proto.Extension
+import Proto.Internal.Wire (Tag(..), WireType(..))
+import Proto.Internal.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
   putSVarint32, putSVarint64, putVarintSigned,
   varintSize, tagSize, fieldMessageSize,
@@ -47,7 +48,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
+import Proto.Internal.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
   archFixed32, archFixed64, archFloat, archDouble, archBool,
   archString, archBytes, archSubmessage,
   archVarintSize, archStringSize, archBytesSize, archBoolSize,
@@ -90,23 +91,20 @@ instance MessageDecode Duration where
   {-# INLINE messageDecoder #-}
   messageDecoder = loop 0 0 []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Duration {durationSeconds = acc_0, durationNanos = acc_1, durationUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop v acc_1 acc_unknown_
-            2 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
+      loop acc_0 acc_1 acc_unknown_ = withTagM
+        (pure (Duration {durationSeconds = acc_0, durationNanos = acc_1, durationUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- (fromIntegral <$> decodeFieldVarint)
+            loop v acc_1 acc_unknown_
+          2 -> do
+            v <- (fromIntegral <$> decodeFieldVarint)
+            loop acc_0 v acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop acc_0 acc_1 (uf : acc_unknown_))
 
-instance IsMessage Duration where
-  messageTypeName _ = "google.protobuf.Duration"
+instance IsMessage Duration
 
 instance ProtoMessage Duration where
   protoMessageName _ = "google.protobuf.Duration"
@@ -150,7 +148,21 @@ instance Aeson.FromJSON Duration where
 instance Hashable Duration where
   hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.durationSeconds) msg.durationNanos
 
+instance Proto.Extension.HasExtensions Duration where
+  messageUnknownFields = durationUnknownFields
+  setMessageUnknownFields !ufs msg = msg { durationUnknownFields = ufs }
+
+instance Semigroup Duration where
+  a <> b = Duration
+    { durationSeconds = b.durationSeconds
+    , durationNanos = b.durationNanos
+    , durationUnknownFields = a.durationUnknownFields <> b.durationUnknownFields
+    }
+
+instance Monoid Duration where
+  mempty = defaultDuration
+
 -- | Register all message types defined in this module.
-registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes :: Proto.Registry.TypeRegistry -> Proto.Registry.TypeRegistry
 registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy Duration) .  id
+  Proto.Registry.registerMessage (Proxy :: Proxy Duration) .  id

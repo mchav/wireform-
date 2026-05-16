@@ -2,6 +2,7 @@ packages:
   .
   wireform-core/
   wireform-derive/
+  wireform-columnar-core/
   wireform-columnar/
   wireform-proto/
   wireform-avro/
@@ -32,6 +33,7 @@ packages:
   wireform-fory/
   wireform-grpc/
   wireform-kafka/
+  wireform-stats/
 
 package *
   optimization: 1
@@ -44,9 +46,11 @@ package *
 -- ships) Array is its own newtype and the pattern fails to unify.
 -- Force the solver to pick text-2.1+ on every GHC.
 constraints: text >= 2.1
+           , crypton >= 1.0 && < 1.2
 
-package wireform
-  flags: +snappy +zstd
+-- Avoid cyclic test deps between columnar packages
+package wireform-columnar-core
+  tests: False
 
 package wireform-arrow
   flags: +zstd +lz4

@@ -1,6 +1,11 @@
 dist-newstyle/
 dist-derive/
 dist-haddock/
+dist-stats/
+# Per-compiler builddirs for local cross-version testing (`cabal build
+# --builddir=dist-ghcXY -w ghc-X.Y.Z all`). Auto-ignored so they don't
+# leak into commits.
+dist-ghc*/
 
 # Stray criterion HTML reports from `cabal run wireform-fory:bench:... -- --output …`
 # accidentally interpreted as a shell glob.

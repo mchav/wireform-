@@ -1,0 +1,188 @@
+---
+const { data } = Astro.locals.starlightRoute.entry;
+const hero = data.hero;
+const actions = hero?.actions ?? [];
+
+const formats = [
+  'Protocol Buffers', 'Avro', 'Thrift', 'MessagePack', 'CBOR', 'BSON',
+  'XML', 'HTML5', 'YAML', 'TOML', 'Parquet', 'Arrow', 'ORC', 'Iceberg',
+  'Kafka', 'gRPC', "Cap'n Proto", 'FlatBuffers', 'Bond', 'ASN.1',
+  'Ion', 'EDN', 'Bencode', 'Fory', 'CSV', 'NDJSON',
+  'Delta Lake', 'Hudi', 'Lance',
+];
+---
+
+{hero && (
+  <section class="wf-hero">
+    <div class="wf-hero__grid" aria-hidden="true"></div>
+
+    <div class="wf-hero__content">
+      <h1 class="wf-hero__title">
+        One ecosystem.{' '}
+        <span class="wf-hero__title--accent">Every format and protocol.</span>
+      </h1>
+
+      <p class="wf-hero__tagline">{hero.tagline}</p>
+
+      {actions.length > 0 && (
+        <div class="wf-hero__actions">
+          {actions.map((action: any) => (
+            <a
+              href={action.link}
+              class:list={[
+                'wf-hero__action',
+                action.variant === 'primary' && 'wf-hero__action--primary',
+                action.variant === 'minimal' && 'wf-hero__action--minimal',
+              ]}
+            >
+              {action.text}
+              {action.variant === 'primary' && <span class="wf-hero__arrow">&rarr;</span>}
+            </a>
+          ))}
+        </div>
+      )}
+
+      <div class="wf-hero__formats" aria-label="Supported formats">
+        {formats.map(fmt => (
+          <span class="wf-hero__tag">{fmt}</span>
+        ))}
+      </div>
+    </div>
+  </section>
+)}
+
+<style>
+  .wf-hero {
+    position: relative;
+    padding: 3rem 0 2rem;
+    overflow: hidden;
+  }
+
+  /* Paper grid */
+  .wf-hero__grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--sl-color-hairline-shade) 1px, transparent 1px),
+      linear-gradient(90deg, var(--sl-color-hairline-shade) 1px, transparent 1px);
+    background-size: 32px 32px;
+    mask-image: radial-gradient(ellipse at center, black 25%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 25%, transparent 75%);
+    opacity: 0.5;
+  }
+
+  .wf-hero__content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.25rem;
+    max-width: 52rem;
+  }
+
+  .wf-hero__title {
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 1.08;
+    margin: 0;
+    color: var(--sl-color-text);
+  }
+
+  .wf-hero__title--accent {
+    color: var(--wf-primary);
+  }
+
+  .wf-hero__tagline {
+    font-size: 1rem;
+    line-height: 1.55;
+    color: var(--wf-muted);
+    max-width: 52ch;
+    margin: 0;
+  }
+
+  .wf-hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .wf-hero__action {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 20px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    letter-spacing: -0.005em;
+    text-decoration: none;
+    border: 1px solid var(--wf-primary);
+    background: transparent;
+    color: var(--wf-primary);
+    transition: all var(--wf-transition);
+  }
+
+  .wf-hero__action--primary {
+    background: var(--wf-primary);
+    color: var(--sl-color-bg);
+  }
+
+  .wf-hero__action--primary:hover {
+    background: var(--sl-color-accent-high);
+  }
+
+  .wf-hero__arrow {
+    transition: transform 150ms ease;
+  }
+
+  .wf-hero__action--primary:hover .wf-hero__arrow {
+    transform: translateX(2px);
+  }
+
+  .wf-hero__action:not(.wf-hero__action--primary):hover {
+    background: var(--wf-primary);
+    color: var(--sl-color-bg);
+  }
+
+  .wf-hero__action--minimal {
+    border-color: transparent;
+    color: var(--wf-muted);
+  }
+
+  .wf-hero__action--minimal:hover {
+    border-color: var(--sl-color-hairline);
+    background: transparent !important;
+    color: var(--sl-color-text) !important;
+  }
+
+  .wf-hero__formats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-width: 44rem;
+    margin-top: 8px;
+  }
+
+  .wf-hero__tag {
+    display: inline-block;
+    padding: 3px 8px;
+    font-family: var(--sl-font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.02em;
+    color: var(--wf-muted);
+    border: 1px solid var(--sl-color-hairline);
+    transition: all var(--wf-transition);
+  }
+
+  .wf-hero__tag:hover {
+    border-color: var(--wf-card-hover-border);
+    color: var(--wf-primary);
+  }
+
+  @media (max-width: 40rem) {
+    .wf-hero { padding: 2rem 0 1.5rem; }
+    .wf-hero__title { font-size: 1.75rem; }
+    .wf-hero__formats { display: none; }
+  }
+</style>

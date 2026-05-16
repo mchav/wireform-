@@ -1,21 +1,23 @@
 module Main (main) where
 
+import Test.Proto.Derive qualified
+import Test.Proto.Derive.Auto qualified
+import Test.Proto.Derive.Golden qualified
+import Test.Proto.Derive.Metadata qualified
+import Test.Proto.Derive.Oneof qualified
+import Test.Proto.Derive.TopEnum qualified
 import Test.Tasty (defaultMain, testGroup)
 
-import qualified Test.Proto.Derive
-import qualified Test.Proto.Derive.Auto
-import qualified Test.Proto.Derive.Golden
-import qualified Test.Proto.Derive.Metadata
-import qualified Test.Proto.Derive.Oneof
-import qualified Test.Proto.Derive.TopEnum
 
 main :: IO ()
-main = defaultMain $
-  testGroup "wireform-proto:Derive"
-    [ Test.Proto.Derive.tests
-    , Test.Proto.Derive.Auto.tests
-    , Test.Proto.Derive.Golden.tests
-    , Test.Proto.Derive.Oneof.tests
-    , Test.Proto.Derive.TopEnum.tests
-    , Test.Proto.Derive.Metadata.tests
-    ]
+main =
+  defaultMain $
+    testGroup
+      "wireform-proto:Derive"
+      [ Test.Proto.Derive.tests
+      , Test.Proto.Derive.Auto.tests
+      , Test.Proto.Derive.Golden.tests
+      , Test.Proto.Derive.Oneof.tests
+      , Test.Proto.Derive.TopEnum.tests
+      , Test.Proto.Derive.Metadata.tests
+      ]

@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# A single push to main can queue ~17 jobs across the CI workflow alone
+# (4 GHC versions × Build & Test + HLint + Benchmarks + Codegen
+# roundtrip), and the matrix legs are slow enough that consecutive
+# pushes saturate the runner pool. Auto-cancel older runs of the same
+# ref so only the latest commit's runs hold runner capacity.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     name: Build & Test (GHC ${{ matrix.ghc }})
@@ -13,7 +22,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['9.6.4', '9.8.4', '9.10.1', '9.12.1']
+        # 9.10.3 (not .1) because 9.10.1 hits a SIGSEGV in the GHC
+        # backend while compiling some TH-heavy modules in
+        # wireform-proto (`exe:wireform-conformance-runner` and
+        # `test:wireform-proto-derive-test`) on linux-x86_64 — not
+        # reproducible on aarch64-darwin or other GHC versions, so
+        # almost certainly a backend bug fixed in the 9.10 patch line.
+        ghc: ['9.6.4', '9.8.4', '9.10.3', '9.12.1']
     steps:
       - uses: actions/checkout@v4
 
@@ -36,7 +51,25 @@ jobs:
         # picks up at configure time via proto-lens-setup. Without it
         # 'cabal build all' aborts before any wireform-* package
         # gets compiled.
-        run: sudo apt-get update && sudo apt-get install -y libgmp-dev protobuf-compiler
+        #
+        # libsnappy-dev / liblz4-dev / libzstd-dev are the C libraries
+        # behind wireform-kafka's compression codecs and wireform-arrow's
+        # ZSTD / LZ4 column-chunk decompression. wireform-kafka declares
+        # them as pkg-config-depends, so cabal's dependency solver
+        # refuses to resolve 'cabal build all' until they're installed.
+        #
+        # librdkafka-dev is required by hw-kafka-client, which the
+        # wireform-kafka benchmark suite uses as a cross-check oracle.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgmp-dev \
+            libsnappy-dev \
+            liblz4-dev \
+            libzstd-dev \
+            libbrotli-dev \
+            librdkafka-dev \
+            protobuf-compiler
 
       - name: Configure
         run: cabal configure --enable-tests --enable-benchmarks
@@ -104,7 +137,17 @@ jobs:
             ${{ runner.os }}-bench-cabal-
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+        # librdkafka-dev is needed for wireform-kafka-bench's
+        # hw-kafka-client comparison oracle.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgmp-dev \
+            libsnappy-dev \
+            liblz4-dev \
+            libzstd-dev \
+            libbrotli-dev \
+            librdkafka-dev
 
       - name: Build all benchmarks
         run: |
@@ -112,7 +155,7 @@ jobs:
           cabal build exe:wireform-bench
           cabal build exe:avro-thrift-bench
           cabal build exe:all-formats-bench
-          cabal build exe:profile
+          cabal build exe:profile-rewriter
           cabal build exe:bench-grow
 
   codegen-roundtrip:
@@ -135,7 +178,14 @@ jobs:
             ${{ runner.os }}-codegen-cabal-
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgmp-dev \
+            libsnappy-dev \
+            liblz4-dev \
+            libzstd-dev \
+            libbrotli-dev
 
       - name: Build code generator
         run: |
@@ -147,14 +197,17 @@ jobs:
           mkdir -p /tmp/gen-test
           # wireform-gen's CLI now dispatches on the format via
           # a subcommand: `wireform-gen proto -I ... -i ... -o ... -m ...`.
-          for f in proto/google/protobuf/timestamp.proto \
-                   proto/google/protobuf/duration.proto \
-                   proto/google/protobuf/empty.proto \
-                   proto/google/protobuf/field_mask.proto \
-                   proto/google/protobuf/source_context.proto \
-                   proto/google/protobuf/wrappers.proto \
-                   proto/google/protobuf/struct.proto; do
-            cabal exec wireform-gen -- proto -I proto -o /tmp/gen-test -m Proto -i "$f"
+          # The .proto WKT sources moved under wireform-proto/data/proto/
+          # when the per-format repo layout landed.
+          PROTO_DIR=wireform-proto/data/proto
+          for f in "$PROTO_DIR/google/protobuf/timestamp.proto" \
+                   "$PROTO_DIR/google/protobuf/duration.proto" \
+                   "$PROTO_DIR/google/protobuf/empty.proto" \
+                   "$PROTO_DIR/google/protobuf/field_mask.proto" \
+                   "$PROTO_DIR/google/protobuf/source_context.proto" \
+                   "$PROTO_DIR/google/protobuf/wrappers.proto" \
+                   "$PROTO_DIR/google/protobuf/struct.proto"; do
+            cabal exec wireform-gen -- proto -I "$PROTO_DIR" -o /tmp/gen-test -m Proto -i "$f"
           done
           echo "Generated files:"
           find /tmp/gen-test -name "*.hs" -exec echo "  {}" \;

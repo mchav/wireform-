@@ -20,6 +20,7 @@ import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Headers
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Client
+import Network.GRPC.Util.Stream (fromBSBuilder)
 
 {-------------------------------------------------------------------------------
   Definition
@@ -88,7 +89,7 @@ instance SupportsClientRpc rpc => IsSession (ClientSession rpc) where
         return $ parseProperTrailers' (Proxy @rpc) trailers
 
   parseMsg _ = parseOutput (Proxy @rpc) . inbCompression
-  buildMsg _ = buildInput  (Proxy @rpc) . outCompression
+  buildMsg _ = \hdrs msg -> fromBSBuilder (buildInput (Proxy @rpc) (outCompression hdrs) msg)
 
 instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
   parseResponse (ClientSession conn) (ResponseInfo status headers body) =

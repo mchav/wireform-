@@ -15,7 +15,7 @@ module Proto.Google.Protobuf.Timestamp where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as B
+import qualified Wireform.Builder as B
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -32,13 +32,14 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
+import Proto.Internal.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe, protoBytesToJSON)
 import Data.Proxy (Proxy(..))
-import Proto.Message (IsMessage(..))
+import Proto.Registry (IsMessage)
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
 import qualified Proto.Registry
-import Proto.Wire (Tag(..), WireType(..))
-import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
+import qualified Proto.Extension
+import Proto.Internal.Wire (Tag(..), WireType(..))
+import Proto.Internal.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
   putSVarint32, putSVarint64, putVarintSigned,
   varintSize, tagSize, fieldMessageSize,
@@ -47,7 +48,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
+import Proto.Internal.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
   archFixed32, archFixed64, archFloat, archDouble, archBool,
   archString, archBytes, archSubmessage,
   archVarintSize, archStringSize, archBytesSize, archBoolSize,
@@ -88,49 +89,22 @@ instance MessageSize Timestamp where
 
 instance MessageDecode Timestamp where
   {-# INLINE messageDecoder #-}
-  messageDecoder = loop_dispatch 0 0 []
+  messageDecoder = loop 0 0 []
     where
-      loop_dispatch acc_0 acc_1 acc_unknown_ = withTagM
+      loop acc_0 acc_1 acc_unknown_ = withTagM
         (pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownFields = reverse acc_unknown_}))
         (\fn wt -> case fn of
           1 -> do
             v <- (fromIntegral <$> decodeFieldVarint)
-            loop_after_0 v acc_1 acc_unknown_
+            loop v acc_1 acc_unknown_
           2 -> do
             v <- (fromIntegral <$> decodeFieldVarint)
-            loop_after_1 acc_0 v acc_unknown_
+            loop acc_0 v acc_unknown_
           _ -> do
             uf <- captureUnknownField fn (toEnum wt)
-            loop_dispatch acc_0 acc_1 (uf : acc_unknown_))
-      loop_after_0 acc_0 acc_1 acc_unknown_ = withTagM
-        (pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownFields = reverse acc_unknown_}))
-        (\fn wt -> if fn == 2
-          then do
-            v <- (fromIntegral <$> decodeFieldVarint)
-            loop_after_1 acc_0 v acc_unknown_
-          else case fn of
-            1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop_after_0 v acc_1 acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn (toEnum wt)
-              loop_dispatch acc_0 acc_1 (uf : acc_unknown_))
-      loop_after_1 acc_0 acc_1 acc_unknown_ = withTagM
-        (pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownFields = reverse acc_unknown_}))
-        (\fn wt -> if fn == 1
-          then do
-            v <- (fromIntegral <$> decodeFieldVarint)
-            loop_after_0 v acc_1 acc_unknown_
-          else case fn of
-            2 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
-              loop_after_1 acc_0 v acc_unknown_
-            _ -> do
-              uf <- captureUnknownField fn (toEnum wt)
-              loop_dispatch acc_0 acc_1 (uf : acc_unknown_))
+            loop acc_0 acc_1 (uf : acc_unknown_))
 
-instance IsMessage Timestamp where
-  messageTypeName _ = "google.protobuf.Timestamp"
+instance IsMessage Timestamp
 
 instance ProtoMessage Timestamp where
   protoMessageName _ = "google.protobuf.Timestamp"
@@ -190,7 +164,21 @@ instance Aeson.FromJSON Timestamp where
 instance Hashable Timestamp where
   hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.timestampSeconds) msg.timestampNanos
 
+instance Proto.Extension.HasExtensions Timestamp where
+  messageUnknownFields = timestampUnknownFields
+  setMessageUnknownFields !ufs msg = msg { timestampUnknownFields = ufs }
+
+instance Semigroup Timestamp where
+  a <> b = Timestamp
+    { timestampSeconds = b.timestampSeconds
+    , timestampNanos = b.timestampNanos
+    , timestampUnknownFields = a.timestampUnknownFields <> b.timestampUnknownFields
+    }
+
+instance Monoid Timestamp where
+  mempty = defaultTimestamp
+
 -- | Register all message types defined in this module.
-registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes :: Proto.Registry.TypeRegistry -> Proto.Registry.TypeRegistry
 registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy Timestamp) .  id
+  Proto.Registry.registerMessage (Proxy :: Proxy Timestamp) .  id

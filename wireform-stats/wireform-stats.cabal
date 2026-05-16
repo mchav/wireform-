@@ -1,0 +1,108 @@
+cabal-version: 3.0
+name: wireform-stats
+version: 0.1.0.0
+synopsis:
+  Per-package README stats regenerator (tests, coverage, benchmarks).
+description:
+  Internal tooling for the wireform monorepo: walks the per-package
+  @wireform-X/README.md@ files, locates @\<!-- BEGIN_AUTOGEN \<key\> --\>@
+  / @\<!-- END_AUTOGEN \<key\> --\>@ regions, and rewrites the content
+  between them with freshly-rendered test, coverage, and benchmark
+  data. Renders both markdown tables and SVG bar charts (light + dark
+  variants) so the README stays useful without a JS-rendered build
+  step. Not intended as a Hackage release.
+license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
+build-type: Simple
+tested-with: GHC == 9.6.4, GHC == 9.8.4
+
+common defaults
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -O2
+  default-language: GHC2021
+  default-extensions:
+    StrictData
+    DerivingStrategies
+    DeriveGeneric
+    DeriveAnyClass
+    OverloadedStrings
+    LambdaCase
+
+library
+  import: defaults
+  hs-source-dirs: src
+  exposed-modules:
+    Wireform.Stats.Marker
+    Wireform.Stats.SVG
+    Wireform.Stats.Table
+    Wireform.Stats.Bench
+    Wireform.Stats.Test
+    Wireform.Stats.Coverage
+    Wireform.Stats.Shields
+  build-depends:
+    base >= 4.16 && < 5,
+    -- We dogfood: wireform-xml renders the SVG charts (since SVG is
+    -- XML), and wireform-cbor is what we recommend in the README
+    -- benchmark sections so it makes sense to validate the deps
+    -- compose. JSON I/O for criterion + summary files goes through
+    -- aeson directly because the lingua franca for stats interchange
+    -- is JSON.
+    wireform-xml,
+    aeson >= 2.1 && < 2.3,
+    bytestring >= 0.11 && < 0.13,
+    containers >= 0.6 && < 0.9,
+    directory >= 1.3 && < 1.4,
+    filepath >= 1.4 && < 1.6,
+    scientific >= 0.3 && < 0.4,
+    text >= 2.0 && < 2.2,
+    time >= 1.9 && < 1.15,
+    vector >= 0.13 && < 0.14
+
+executable regen-stats
+  import: defaults
+  main-is: Main.hs
+  hs-source-dirs: app
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-stats,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    optparse-applicative >= 0.17 && < 0.20,
+    text
+
+test-suite wireform-stats-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: test
+  other-modules:
+    Test.Marker
+    Test.SVG
+    Test.Bench
+    Test.Test
+    Test.Coverage
+  build-depends:
+    base,
+    wireform-stats,
+    aeson,
+    bytestring,
+    containers,
+    text,
+    time,
+    vector,
+    tasty >= 1.4 && < 1.6,
+    tasty-hunit >= 0.10 && < 0.11,
+    tasty-hedgehog >= 1.0 && < 1.8,
+    hedgehog >= 1.0 && < 1.8

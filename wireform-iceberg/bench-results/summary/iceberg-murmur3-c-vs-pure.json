@@ -1,0 +1,14 @@
+{
+  "id": "iceberg-murmur3-c-vs-pure",
+  "title": "Iceberg Murmur3 hash: C kernel vs pure Haskell across input sizes",
+  "unit": "Nanos",
+  "higherIsBetter": false,
+  "groups": ["8 B", "64 B", "1 KiB", "64 KiB"],
+  "series": [
+    {"name": "C kernel",     "values": [11.17, 24.01, 400.57, 26196.03]},
+    {"name": "pure Haskell", "values": [21.25, 115.66, 1581.19, 98723.40]}
+  ],
+  "baseline": "C kernel",
+  "capturedAt": "2026-05-13T11:30:00Z",
+  "toolchain": "ghc-9.8.4 on darwin-aarch64, criterion 1.6.5"
+}

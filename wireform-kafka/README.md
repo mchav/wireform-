@@ -1,5 +1,8 @@
 # wireform-kafka
 
+> [!CAUTION]
+> wireform is in heavy development and has not been published to Hackage yet. APIs may change.
+
 A pure-Haskell client for Apache Kafka. It lets your Haskell
 program publish records to a Kafka cluster and read records back
 out, with full support for everything the Kafka protocol does:
@@ -198,7 +201,8 @@ build-depends:
 The package is part of the
 [wireform monorepo](https://github.com/iand675/wireform).
 Clone the repo and `cabal build wireform-kafka` to compile
-locally.
+locally. Compiling with the LLVM backend (`-fllvm`) adds compile
+time but measurably improves runtime performance.
 
 ## Configuration
 

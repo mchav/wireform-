@@ -13,26 +13,19 @@ description:
   can be depended on directly when you only need one format.
 
 license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Ian Duncan
+maintainer:         ian@iankduncan.com
+copyright:          2026 Ian Duncan
+category:           Data, Codec, Serialization
 homepage:           https://github.com/iand675/wireform-
 bug-reports:        https://github.com/iand675/wireform-/issues
 build-type:         Simple
 tested-with:        GHC == 9.6.4, GHC == 9.8.4
-extra-source-files: CHANGELOG.md
 extra-doc-files:
+  CHANGELOG.md
   docs/README.md
   docs/getting-started.md
-
-data-files:
-  proto/google/protobuf/any.proto
-  proto/google/protobuf/api.proto
-  proto/google/protobuf/duration.proto
-  proto/google/protobuf/empty.proto
-  proto/google/protobuf/field_mask.proto
-  proto/google/protobuf/source_context.proto
-  proto/google/protobuf/struct.proto
-  proto/google/protobuf/timestamp.proto
-  proto/google/protobuf/type.proto
-  proto/google/protobuf/wrappers.proto
 
 data-dir: .
 
@@ -42,21 +35,6 @@ source-repository head
 
 flag python-interop
   description: Enable Python interop conformance tests (requires python3, protobuf pip package, protoc)
-  manual: True
-  default: False
-
-flag snappy
-  description: Enable snappy compression for Avro containers
-  manual: True
-  default: False
-
-flag zstd
-  description: Enable Zstandard decompression for Parquet column chunks (links libzstd)
-  manual: True
-  default: False
-
-flag lz4
-  description: Enable LZ4 raw block decompression for Parquet column chunks (links liblz4)
   manual: True
   default: False
 
@@ -98,72 +76,6 @@ common defaults
     OverloadedStrings
     LambdaCase
 
-library
-  import: defaults
-  hs-source-dirs: facade
-  exposed-modules:
-    Wireform.Proto
-    Wireform.Avro
-    Wireform.Thrift
-    Wireform.CBOR
-    Wireform.MsgPack
-    Wireform.BSON
-    Wireform.Ion
-    Wireform.CapnProto
-    Wireform.FlatBuffers
-    Wireform.Bond
-    Wireform.ASN1
-    Wireform.XML
-    Wireform.HTML
-    Wireform.Columnar
-    Wireform.Parquet
-    Wireform.Arrow
-    Wireform.ORC
-    Wireform.Iceberg
-    Wireform.EDN
-    Wireform.Bencode
-    Wireform.TOML
-    Wireform.YAML
-    Wireform.CSV
-    Wireform.NDJSON
-    Wireform.Fory
-    Wireform.Kafka
-  other-modules:
-    Paths_wireform
-  autogen-modules: Paths_wireform
-  build-depends:
-      base                >= 4.16 && < 5
-    , wireform-core
-    , wireform-columnar
-    , wireform-proto
-    , wireform-avro
-    , wireform-thrift
-    , wireform-cbor
-    , wireform-msgpack
-    , wireform-bson
-    , wireform-ion
-    , wireform-capnproto
-    , wireform-flatbuffers
-    , wireform-bond
-    , wireform-asn1
-    , wireform-xml
-    , wireform-html
-    , wireform-parquet
-    , wireform-arrow
-    , wireform-orc
-    , wireform-iceberg
-    , wireform-edn
-    , wireform-bencode
-    , wireform-toml
-    , wireform-yaml
-    , wireform-csv
-    , wireform-ndjson
-    , wireform-fory
-    , wireform-kafka
-    , bytestring
-    , text
-    , vector
-
 -- Multi-format code generation CLI
 executable wireform-gen
   import: defaults
@@ -187,51 +99,8 @@ executable wireform-gen
     , optparse-applicative   >= 0.17 && < 0.20
 
 -- Protobuf conformance test runner
-executable wireform-conformance
-  import: defaults
-  main-is: Main.hs
-  hs-source-dirs: conformance
-  build-depends:
-      base >= 4.16 && < 5
-    , wireform-proto
-
 -- protoc plugin
-executable protoc-gen-wireform
-  import: defaults
-  main-is: Main.hs
-  hs-source-dirs: protoc-plugin
-  build-depends:
-      base >= 4.16 && < 5
-    , wireform-proto
-    , containers
-    , text
-    , vector
-
 -- Well-known type code generator
-executable gen-wkt
-  import: defaults
-  main-is: Main.hs
-  hs-source-dirs: gen-wkt
-  build-depends:
-      base >= 4.16 && < 5
-    , wireform-proto
-    , containers
-    , text
-    , directory
-    , filepath
-
--- Profiling harness
-executable profile
-  import: defaults
-  main-is: Main.hs
-  ghc-options: -O2 -rtsopts
-  hs-source-dirs: profile
-  build-depends:
-      base >= 4.16 && < 5
-    , wireform-proto
-    , bytestring
-    , text
-    , vector
 
 ------------------------------------------------------------------------
 -- Test suites
@@ -242,24 +111,8 @@ test-suite wireform-test
   type: exitcode-stdio-1.0
   main-is: Main.hs
   other-modules:
-    Test.Parser
-    Test.Wire
-    Test.Roundtrip
-    Test.CodeGen
-    Test.WellKnown
-    Test.WellKnownUtil
-    Test.PrintInspect
-    Test.Compat
-    Test.Schema
-    Test.Options
-    Test.Lens
-    Test.StreamCodec
-    Test.JSON
-    Test.Hooks
-    Test.TDP
     Test.Thrift
     Test.Avro
-    Test.GRPC
     Test.CBOR
     Test.MsgPack
     Test.BSON
@@ -295,7 +148,6 @@ test-suite wireform-test
     Test.ASN1CodeGen
     Test.CDDLCodeGen
     Test.ISLCodeGen
-    Test.Resolver
     Test.CapnProtoParser
     Test.FlatBuffersParser
     Test.ASN1Parser
@@ -312,7 +164,8 @@ test-suite wireform-test
     Test.ORC
   build-depends:
       base                 >= 4.16 && < 5
-    , wireform
+    , wireform-columnar
+    , wireform-columnar-core
     , wireform-core
     , wireform-proto
     , wireform-avro
@@ -347,24 +200,13 @@ test-suite wireform-test
     , time
     , filepath
     , directory
-    , hedgehog             >= 1.0  && < 1.5
+    , hedgehog             >= 1.0  && < 1.8
     , tasty                >= 1.4  && < 1.6
-    , tasty-hedgehog       >= 1.0  && < 1.5
+    , tasty-hedgehog       >= 1.0  && < 1.8
     , tasty-hunit          >= 0.10 && < 0.11
     , stm
     , primitive
   hs-source-dirs: test
-
-test-suite conformance-self-test
-  import: defaults
-  type: exitcode-stdio-1.0
-  main-is: Main.hs
-  hs-source-dirs: test-conformance
-  build-depends:
-      base >= 4.16 && < 5
-    , wireform-proto
-    , bytestring
-    , vector
 
 test-suite interop-test
   import: defaults
@@ -404,7 +246,7 @@ test-suite html-dom-test
   main-is: HTMLDOMTest.hs
   hs-source-dirs: test-interop
   build-depends:
-      base, wireform-html, bytestring, text,
+      base, wireform-core, wireform-html, bytestring, text,
       tasty, tasty-hunit
 
 test-suite wpt-selector-test
@@ -422,7 +264,7 @@ test-suite html-rewriter-test
   main-is: HTMLRewriterTest.hs
   hs-source-dirs: test-interop
   build-depends:
-      base, wireform-html, bytestring, text, aeson,
+      base, wireform-core, wireform-html, bytestring, text, aeson,
       tasty, tasty-hunit, directory, filepath
 
 test-suite python-interop
@@ -443,105 +285,15 @@ test-suite python-interop
     , directory
     , filepath
     , process          >= 1.6  && < 1.8
-    , hedgehog         >= 1.0  && < 1.5
+    , hedgehog         >= 1.0  && < 1.8
     , tasty            >= 1.4  && < 1.6
-    , tasty-hedgehog   >= 1.0  && < 1.5
+    , tasty-hedgehog   >= 1.0  && < 1.8
     , tasty-hunit      >= 0.10 && < 0.11
   hs-source-dirs: test-interop
-
-test-suite temporal-codegen-test
-  import: defaults
-  type: exitcode-stdio-1.0
-  main-is: Main.hs
-  other-modules:
-    Proto.Temporalio.Api.Activity.V1.Message
-    Proto.Temporalio.Api.Batch.V1.Message
-    Proto.Temporalio.Api.Command.V1.Message
-    Proto.Temporalio.Api.Common.V1.Message
-    Proto.Temporalio.Api.Deployment.V1.Message
-    Proto.Temporalio.Api.Enums.V1.Activity
-    Proto.Temporalio.Api.Enums.V1.BatchOperation
-    Proto.Temporalio.Api.Enums.V1.CommandType
-    Proto.Temporalio.Api.Enums.V1.Common
-    Proto.Temporalio.Api.Enums.V1.Deployment
-    Proto.Temporalio.Api.Enums.V1.EventType
-    Proto.Temporalio.Api.Enums.V1.FailedCause
-    Proto.Temporalio.Api.Enums.V1.Namespace
-    Proto.Temporalio.Api.Enums.V1.Nexus
-    Proto.Temporalio.Api.Enums.V1.Query
-    Proto.Temporalio.Api.Enums.V1.Reset
-    Proto.Temporalio.Api.Enums.V1.Schedule
-    Proto.Temporalio.Api.Enums.V1.TaskQueue
-    Proto.Temporalio.Api.Enums.V1.Update
-    Proto.Temporalio.Api.Enums.V1.Workflow
-    Proto.Temporalio.Api.ErrorDetails.V1.Message
-    Proto.Temporalio.Api.Export.V1.Message
-    Proto.Temporalio.Api.Failure.V1.Message
-    Proto.Temporalio.Api.Filter.V1.Message
-    Proto.Temporalio.Api.History.V1.Message
-    Proto.Temporalio.Api.Namespace.V1.Message
-    Proto.Temporalio.Api.Nexus.V1.Message
-    Proto.Temporalio.Api.OperatorService.V1.RequestResponse
-    Proto.Temporalio.Api.OperatorService.V1.Service
-    Proto.Temporalio.Api.Protocol.V1.Message
-    Proto.Temporalio.Api.Query.V1.Message
-    Proto.Temporalio.Api.Replication.V1.Message
-    Proto.Temporalio.Api.Rules.V1.Message
-    Proto.Temporalio.Api.Schedule.V1.Message
-    Proto.Temporalio.Api.Sdk.V1.EnhancedStackTrace
-    Proto.Temporalio.Api.Sdk.V1.TaskCompleteMetadata
-    Proto.Temporalio.Api.Sdk.V1.UserMetadata
-    Proto.Temporalio.Api.Sdk.V1.WorkerConfig
-    Proto.Temporalio.Api.Sdk.V1.WorkflowMetadata
-    Proto.Temporalio.Api.TaskQueue.V1.Message
-    Proto.Temporalio.Api.Update.V1.Message
-    Proto.Temporalio.Api.Version.V1.Message
-    Proto.Temporalio.Api.Worker.V1.Message
-    Proto.Temporalio.Api.WorkflowService.V1.RequestResponse
-    Proto.Temporalio.Api.WorkflowService.V1.Service
-    Proto.Temporalio.Api.Workflow.V1.Message
-  build-depends:
-      base             >= 4.16 && < 5
-    , wireform-proto
-    , aeson
-    , bytestring
-    , containers
-    , deepseq
-    , hashable
-    , text
-    , vector
-  hs-source-dirs: temporal-test
-  -- The Temporal proto set generates ~50 Haskell modules totalling
-  -- tens of thousands of lines; at -O2 the sum of per-module
-  -- optimizations peaks around 10 GB resident. This test only
-  -- verifies that the codegen output compiles + round-trips, so
-  -- opt out of heavy optimization to keep CI machines under budget.
-  ghc-options: -O0
 
 ------------------------------------------------------------------------
 -- Benchmarks
 ------------------------------------------------------------------------
-
-benchmark compare-bench
-  import: defaults
-  type: exitcode-stdio-1.0
-  main-is: Main.hs
-  other-modules:
-    WireformTypes
-    Proto.Bench
-    Proto.Bench_Fields
-  build-depends:
-      base               >= 4.16 && < 5
-    , wireform-proto
-    , bytestring
-    , text
-    , vector
-    , deepseq
-    , criterion          >= 1.5  && < 1.7
-    , proto-lens         >= 0.7  && < 0.8
-    , proto-lens-runtime >= 0.7  && < 0.8
-    , lens-family        >= 2.1  && < 2.2
-  hs-source-dirs: compare-bench, compare-bench/gen
 
 benchmark xml-bench
   import: defaults
@@ -582,12 +334,13 @@ benchmark html-bench
   main-is: HTMLBench.hs
   build-depends:
       base >= 4.16 && < 5
+    , wireform-core
     , wireform-html
     , bytestring
     , primitive
     , text
   hs-source-dirs: bench
-  ghc-options: -O1 -rtsopts
+  ghc-options: -rtsopts
 
 executable profile-rewriter
   import: defaults
@@ -598,7 +351,7 @@ executable profile-rewriter
     , bytestring
     , text
   hs-source-dirs: bench
-  ghc-options: -O1 -rtsopts
+  ghc-options: -rtsopts
   -- The +profile flag re-enables cost-centre generation so
   -- @+RTS -p@ produces useful output. Build with
   --
@@ -607,8 +360,13 @@ executable profile-rewriter
   -- Default-off so @cabal build all@ in CI stays green
   -- (--enable-profiling requires the entire dep closure to be
   -- built with profiling libs too).
+  --
+  -- 'ghc-options: -prof' would be wrong here: --enable-profiling
+  -- already injects -prof for us, and adding it manually trips
+  -- cabal-check's portability error. -fprof-late is the only
+  -- knob we actually need on top.
   if flag(profile)
-    ghc-options: -fprof-late -prof
+    ghc-options: -fprof-late
 
 benchmark yaml-bench
   import: defaults
@@ -688,19 +446,19 @@ executable example-custom-repr
   import: defaults
   main-is: CustomReprExample.hs
   hs-source-dirs: examples
-  build-depends: base, wireform-proto, bytestring, text, containers
+  build-depends: base, wireform-proto, bytestring, text, containers, aeson, reflection
 
 executable example-extensions
   import: defaults
   main-is: ExtensionExample.hs
   hs-source-dirs: examples
-  build-depends: base, wireform-proto, bytestring, text
+  build-depends: base, wireform-proto, bytestring, text, reflection
 
 executable example-th
   import: defaults
   main-is: THExample.hs
   hs-source-dirs: examples
-  build-depends: base, wireform-proto, bytestring, text
+  build-depends: base, wireform-proto, bytestring, text, reflection
 
 executable example-derive
   import: defaults
@@ -720,7 +478,7 @@ executable example-qq
   import: defaults
   main-is: QQExample.hs
   hs-source-dirs: examples
-  build-depends: base, wireform-proto, bytestring
+  build-depends: base, wireform-proto, bytestring, reflection
 
 executable example-msgpack
   import: defaults
@@ -823,7 +581,7 @@ executable example-protobuf
   import: defaults
   main-is: ProtobufExample.hs
   hs-source-dirs: examples
-  build-depends: base, wireform-proto, bytestring
+  build-depends: base, wireform-core, wireform-proto, bytestring
 
 executable example-xml
   import: defaults
@@ -857,7 +615,7 @@ executable wireform-bench
   import: defaults
   main-is: Main.hs
   hs-source-dirs: bench
-  build-depends: base, wireform-proto, bytestring, text, vector
+  build-depends: base, wireform-core, wireform-proto, bytestring, text, vector
 
 executable avro-thrift-bench
   import: defaults

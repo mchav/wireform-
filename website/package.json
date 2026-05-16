@@ -15,11 +15,14 @@
   },
   "dependencies": {
     "@astrojs/starlight": "^0.38.4",
+    "@tailwindcss/vite": "^4.3.0",
     "astro": "^6.1.9",
     "cheerio": "^1.2.0",
-    "sharp": "^0.34.4"
+    "sharp": "^0.34.4",
+    "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
+    "js-yaml": "^4.1.1",
     "typescript": "^5.6.3"
   }
 }

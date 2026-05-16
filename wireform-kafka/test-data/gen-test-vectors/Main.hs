@@ -120,9 +120,6 @@ apiVersionsReqV3 :: AVReq.ApiVersionsRequest
 apiVersionsReqV3 = AVReq.ApiVersionsRequest
   { AVReq.apiVersionsRequestClientSoftwareName    = P.mkKafkaString "wireform-kafka"
   , AVReq.apiVersionsRequestClientSoftwareVersion = P.mkKafkaString "0.1.0"
-    -- KIP-1242 tagged fields (v5+); not on the wire at v3.
-  , AVReq.apiVersionsRequestClusterId             = P.KafkaString P.Null
-  , AVReq.apiVersionsRequestNodeId                = 0
   }
 
 apiVersionsRespV3 :: AVResp.ApiVersionsResponse

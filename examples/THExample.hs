@@ -1,30 +1,45 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE StrictData #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
--- | Example: Template Haskell splice to generate types from a .proto file.
---
--- Run with: cabal run example-th
+{-# LANGUAGE StrictData #-}
+{-# LANGUAGE TemplateHaskell #-}
+
+{- | Example: Template Haskell splice to generate types from a .proto file.
+
+Run with: cabal run example-th
+-}
 module Main where
 
-import qualified Data.ByteString as BS
-
-import Proto.Encode
+import Data.ByteString qualified as BS
+import Data.Reflection (Given (..))
 import Proto.Decode
+import Proto.Encode
+import Proto.Internal.JSON.Extension (ExtensionRegistry, emptyExtensionRegistry)
 import Proto.TH
+
+
+-- The generated JSON instances carry a 'Given ExtensionRegistry' constraint
+-- for proto2 extensions; satisfy it with the empty registry.
+instance Given ExtensionRegistry where
+  given = emptyExtensionRegistry
+
 
 -- Generate types from the proto file at compile time.
 -- This creates: GetPersonRequest, ListPeopleRequest, AddPersonResponse
 $(loadProto "examples/proto/simple.proto")
 
+
 main :: IO ()
 main = do
   putStrLn "=== Template Haskell Example ===\n"
 
-  -- The types are generated at compile time from person.proto.
-  -- GetPersonRequest has an id field.
-  let req = defaultGetPersonRequest { personId = 42 }
+  -- 'loadProto' scopes each generated record field by lowerCamelCasing
+  -- the owning message's type name, mirroring 'Proto.CodeGen.scopedFieldName'.
+  -- So @int32 person_id = 1@ inside @message GetPersonRequest@ becomes
+  -- @getPersonRequestPersonId :: Int32@, not @personId@. Two messages
+  -- declaring the same field name in the same file would otherwise
+  -- collide on the same record selector at the module level.
+  let req = defaultGetPersonRequest {getPersonRequestPersonId = 42}
   putStrLn $ "GetPersonRequest: " <> show req
 
   let encoded = encodeMessage req
@@ -37,10 +52,11 @@ main = do
       putStrLn $ "Match: " <> show (decoded == req)
 
   -- ListPeopleRequest
-  let listReq = defaultListPeopleRequest
-        { pageSize = 10
-        , pageToken = "token123"
-        }
+  let listReq =
+        defaultListPeopleRequest
+          { listPeopleRequestPageSize = 10
+          , listPeopleRequestPageToken = "token123"
+          }
   putStrLn $ "\nListPeopleRequest: " <> show listReq
 
   let listEncoded = encodeMessage listReq
@@ -53,10 +69,11 @@ main = do
       putStrLn $ "Match: " <> show (decoded == listReq)
 
   -- AddPersonResponse
-  let resp = defaultAddPersonResponse
-        { success = True
-        , errorMessage = ""
-        }
+  let resp =
+        defaultAddPersonResponse
+          { addPersonResponseSuccess = True
+          , addPersonResponseErrorMessage = ""
+          }
   putStrLn $ "\nAddPersonResponse: " <> show resp
 
   let respEncoded = encodeMessage resp

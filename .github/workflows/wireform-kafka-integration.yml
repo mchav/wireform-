@@ -13,6 +13,13 @@ on:
 # Docker'd KRaft Kafka 3.7 broker spun up via
 # wireform-kafka/test-integration/docker-compose.yml.
 
+# 8-leg matrix (4 GHC × 2 Kafka versions) is the biggest single
+# consumer of runner capacity in this repo; cancel stale runs so a
+# rapid sequence of pushes doesn't pile up.
+concurrency:
+  group: kafka-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   integration:
     name: integration (GHC ${{ matrix.ghc }}, Kafka ${{ matrix.kafka }})
@@ -20,7 +27,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['9.6.4', '9.8.4', '9.10.1', '9.12.1']
+        # See .github/workflows/ci.yml for why 9.10.3 rather than 9.10.1.
+        ghc: ['9.6.4', '9.8.4', '9.10.3', '9.12.1']
         kafka: ['3.7.0', '4.0.0']
     steps:
       - uses: actions/checkout@v4
@@ -65,24 +73,74 @@ jobs:
           KAFKA_IMAGE_TAG: ${{ matrix.kafka }}
         run: |
           docker compose -f wireform-kafka/test-integration/docker-compose.yml up -d
-          # Wait for the broker to become ready.
+
+          # Three-stage readiness gate. The apache/kafka image ships
+          # admin tools under /opt/kafka/bin as *.sh scripts and does
+          # not put them on $PATH, so we invoke them by absolute path.
+          DC="docker compose -f wireform-kafka/test-integration/docker-compose.yml exec -T kafka"
+
+          # Stage 1: broker accepts admin connections.
+          # `kafka-topics --list` succeeds as soon as the controller has
+          # replayed metadata, which is well before the transaction
+          # coordinator is elected. Necessary but not sufficient.
+          echo "==> Stage 1: waiting for kafka-topics --list to succeed"
           for i in $(seq 1 30); do
-            if docker compose -f wireform-kafka/test-integration/docker-compose.yml \
-                 exec -T kafka kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
-              echo "Kafka is ready"
+            if $DC /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
+              echo "    broker accepts admin connections"
               break
             fi
             sleep 2
           done
 
+          # Stage 2: transaction coordinator is elected. Without this,
+          # `initTransactions` from the test suite races and fails with
+          # CoordinatorNotAvailable. `kafka-transactions.sh --list`
+          # routes to the coordinator and fails fast if it isn't up,
+          # but the call itself forces election so a few polls is
+          # enough.
+          echo "==> Stage 2: waiting for the transaction coordinator"
+          for i in $(seq 1 30); do
+            if $DC /opt/kafka/bin/kafka-transactions.sh --bootstrap-server localhost:9092 list >/dev/null 2>&1; then
+              echo "    transaction coordinator is elected"
+              break
+            fi
+            sleep 2
+          done
+
+          # Stage 3: leaders for newly-created topics actually
+          # propagate. Create a throw-away probe topic and wait for
+          # `describe` to show a non -1 partition leader, which is the
+          # signal that `AdminClient.describeTopics` will get back real
+          # partition metadata for topics the test suite creates.
+          echo "==> Stage 3: waiting for partition leadership propagation"
+          PROBE_TOPIC="wireform-kafka-readiness-probe"
+          $DC /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+            --create --if-not-exists --topic "$PROBE_TOPIC" \
+            --partitions 1 --replication-factor 1 >/dev/null
+          for i in $(seq 1 30); do
+            leader=$($DC /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+                      --describe --topic "$PROBE_TOPIC" 2>/dev/null \
+                      | awk '/Leader: [0-9]+/ {for (j=1; j<=NF; j++) if ($j == "Leader:") print $(j+1)}' \
+                      | head -n 1)
+            if [ -n "$leader" ] && [ "$leader" != "-1" ] && [ "$leader" != "none" ]; then
+              echo "    partition leader = $leader; broker is fully ready"
+              break
+            fi
+            sleep 2
+          done
+          $DC /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+            --delete --topic "$PROBE_TOPIC" >/dev/null 2>&1 || true
+
+          echo "Kafka is ready"
+
       - name: Pre-create topics for transactional spec
         run: |
           docker compose -f wireform-kafka/test-integration/docker-compose.yml \
-            exec -T kafka kafka-topics --bootstrap-server localhost:9092 \
+            exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
               --create --if-not-exists --topic wireform-kafka-txn-source \
               --partitions 1 --replication-factor 1
           docker compose -f wireform-kafka/test-integration/docker-compose.yml \
-            exec -T kafka kafka-topics --bootstrap-server localhost:9092 \
+            exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
               --create --if-not-exists --topic wireform-kafka-txn-sink \
               --partitions 1 --replication-factor 1
 

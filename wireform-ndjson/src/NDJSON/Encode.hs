@@ -1,25 +1,32 @@
 -- | NDJSON (Newline-Delimited JSON) encoder.
-module NDJSON.Encode
-  ( encode
-  , encodeRecords
-  ) where
+module NDJSON.Encode (
+  encode,
+  encodeRecords,
+) where
 
+import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Builder as B
-import qualified Data.ByteString.Lazy as BL
+import Data.ByteString.Lazy qualified as BL
 import Data.Vector (Vector)
-import qualified Data.Vector as V
+import Data.Vector qualified as V
+import Wireform.Builder qualified as B
 
-import qualified Data.Aeson as Aeson
 
 encode :: Vector Aeson.Value -> ByteString
-encode vals = BL.toStrict $ B.toLazyByteString $ buildNDJSON vals
+encode vals = B.toStrictByteString $ buildNDJSON vals
+
 
 encodeRecords :: Aeson.ToJSON a => Vector a -> ByteString
 encodeRecords = encode . V.map Aeson.toJSON
 
+
 buildNDJSON :: Vector Aeson.Value -> B.Builder
-buildNDJSON vals = V.ifoldl' (\acc i val ->
-  acc <> B.lazyByteString (Aeson.encode val) <>
-    (if i < V.length vals - 1 then B.word8 0x0A else mempty)
-  ) mempty vals
+buildNDJSON vals =
+  V.ifoldl'
+    ( \acc i val ->
+        acc
+          <> foldMap B.byteString (BL.toChunks (Aeson.encode val))
+          <> (if i < V.length vals - 1 then B.word8 0x0A else mempty)
+    )
+    mempty
+    vals

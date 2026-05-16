@@ -3,6 +3,10 @@ name: wireform-asn1
 version: 0.1.0.0
 synopsis: ASN.1 BER/DER (ITU-T X.690) encoding/decoding
 license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
 build-type: Simple
 
 common defaults
@@ -44,13 +48,31 @@ library
     base64-bytestring >= 1.2 && < 1.3,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
-    containers >= 0.6 && < 0.8,
+    containers >= 0.6 && < 0.9,
     megaparsec >= 9.0 && < 10,
     template-haskell >= 2.18 && < 2.24,
     prettyprinter >= 1.7 && < 1.8,
     deepseq >= 1.4 && < 1.6,
     scientific >= 0.3 && < 0.4,
     aeson >= 2.1 && < 2.3
+
+benchmark wireform-asn1-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -O2
+  default-extensions:
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-asn1,
+    wireform-derive,
+    bytestring,
+    deepseq,
+    text,
+    vector,
+    criterion >= 1.5 && < 1.7
 
 test-suite wireform-asn1-derive-test
   import: defaults

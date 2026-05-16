@@ -30,7 +30,7 @@ import System.IO (stdin, stdout, hSetBinaryMode)
 
 import Proto.Encode
 import Proto.Decode
-import Proto.Wire (Tag(..))
+import Proto.Internal.Wire (Tag(..))
 import Proto.Google.Protobuf.Descriptor (FileDescriptorProto)
 
 data CodeGeneratorRequest = CodeGeneratorRequest

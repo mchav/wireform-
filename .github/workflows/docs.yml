@@ -47,7 +47,24 @@ jobs:
             ${{ runner.os }}-haddock-ghc-9.6.4-
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+        # wireform-kafka uses pkg-config-depends for libsnappy /
+        # liblz4 / libzstd, and wireform-arrow links libzstd and
+        # liblz4 directly; without them 'cabal v2-haddock all' can't
+        # even resolve dependencies. librdkafka-dev backs
+        # hw-kafka-client which the wireform-kafka benchmarks use.
+        # protobuf-compiler provides 'protoc', invoked at configure
+        # time by proto-lens-protobuf-types' custom Setup.hs (pulled
+        # in transitively via temporal-test).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgmp-dev \
+            libsnappy-dev \
+            liblz4-dev \
+            libzstd-dev \
+            libbrotli-dev \
+            librdkafka-dev \
+            protobuf-compiler
 
       - name: Configure
         run: cabal configure --enable-documentation
@@ -103,7 +120,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Astro 5.x requires Node >= 22.12; the previous '20' here
+          # was failing the website build with an explicit engine
+          # mismatch.
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: website/package-lock.json
 

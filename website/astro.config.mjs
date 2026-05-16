@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import tailwindcss from '@tailwindcss/vite';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -24,11 +25,14 @@ export default defineConfig({
   site: 'https://iand675.github.io',
   base: '/wireform-',
   trailingSlash: 'ignore',
+  vite: {
+    plugins: [tailwindcss()],
+  },
   integrations: [
     starlight({
       title: 'wireform',
       description:
-        'One Haskell library for serialization, schema parsing, code generation, streaming, RPC framing, container I/O, and analytics metadata.',
+        'One Haskell ecosystem for serialization, codegen, streaming, messaging, and analytics.',
       social: [
         {
           icon: 'github',
@@ -37,11 +41,13 @@ export default defineConfig({
         },
       ],
       customCss: ['./src/styles/fumadocs.css'],
+      components: {
+        Hero: './src/components/Hero.astro',
+      },
       sidebar: [
         {
           label: 'Overview',
           items: [
-            { label: 'Introduction', slug: 'index' },
             { label: 'Getting started', slug: 'guides/getting-started' },
             { label: 'Format catalogue', slug: 'guides/formats' },
             { label: 'Columnar roadmap', slug: 'guides/columnar-roadmap' },
@@ -59,23 +65,22 @@ export default defineConfig({
             : [
                 {
                   label: 'Not yet ingested',
-                  slug: 'api/index',
+                  slug: 'api',
                 },
               ],
         },
       ],
       expressiveCode: {
         themes: ['github-dark-default', 'github-light'],
-        // `cabal` isn't in the default Shiki bundle; alias it to text so we
-        // don't lose the build to language warnings until/unless we ship a
-        // proper cabal grammar.
         shiki: {
-          langAlias: { cabal: 'text' },
+          langs: [
+            JSON.parse(readFileSync(resolve(__dirname, 'src/grammars/cabal.tmLanguage.json'), 'utf8')),
+          ],
         },
         styleOverrides: {
-          borderRadius: '0.5rem',
+          borderRadius: '4px',
           codeFontFamily:
-            "'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace",
+            "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
         },
       },
     }),

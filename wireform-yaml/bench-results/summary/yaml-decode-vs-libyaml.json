@@ -1,0 +1,14 @@
+{
+  "id": "yaml-decode-vs-libyaml",
+  "title": "wireform-yaml decode vs libyaml across input sizes",
+  "unit": "Micros",
+  "higherIsBetter": false,
+  "groups": ["tiny", "small", "flow", "literal", "big"],
+  "series": [
+    {"name": "wireform-yaml", "values": [0.25, 3.80, 4.02, 3.97, 14.87]},
+    {"name": "yaml (libyaml)", "values": [8.01, 40.16, 60.51, 13.18, 139.22]}
+  ],
+  "baseline": "wireform-yaml",
+  "capturedAt": "2026-05-13T10:40:00Z",
+  "toolchain": "ghc-9.8.4 on darwin-aarch64, criterion 1.6.5"
+}

@@ -69,10 +69,10 @@ serverOutputStream iface = do
     let outputStream = OutputStream {
             _writeChunk = \c ->
                wrapStreamExceptionsWith ClientDisconnected $
-                 outBodyPush iface c
+                 outBodyPush iface (toBSBuilder c)
           , _writeChunkFinal = \c ->
                wrapStreamExceptionsWith ClientDisconnected $
-                 outBodyPushFinal iface c
+                 outBodyPushFinal iface (toBSBuilder c)
           , _flush =
                wrapStreamExceptionsWith ClientDisconnected $
                  outBodyFlush iface
