@@ -1,0 +1,432 @@
+# SDK parity — Apache Kafka 4.0 ↔ `wireform-kafka` / `wireform-kafka-streams`
+
+This document is a class-by-class, method-by-method audit of the
+public surface of Apache Kafka 4.0's Java SDK against the
+Haskell `wireform-kafka` + `wireform-kafka-streams` libraries.
+It's the canonical answer to "do you have X?" — every public
+Java symbol is either mapped to a Haskell name or flagged as
+**MISSING** so a future user (or maintainer) can decide
+whether to fill the gap.
+
+Convention:
+
+- ✅ = direct equivalent exists.
+- ⚠️ = partial equivalent (different shape / smaller surface).
+- ❌ = no equivalent (yet); listed as a gap.
+
+The audit is against the **Java 4.0.2 Javadoc** (`kafka.apache.org/40/javadoc`).
+
+Companion files:
+
+- [`CONFIG_PARITY.md`](CONFIG_PARITY.md) — `librdkafka` config-knob parity.
+- [`streams/README.md`](streams/README.md) — operator-level parity for the streams DSL.
+
+---
+
+## `org.apache.kafka.clients.producer`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `KafkaProducer` | ✅ | `Kafka.Client.Producer.Producer` + `createProducer` / `withProducer` |
+| `MockProducer` | ✅ | `Kafka.Client.Mock.Producer.MockProducer` + streams `Kafka.Streams.Mock.Producer` |
+| `Producer` (interface) | ✅ | The concrete `Producer` value is the only API — there is no separate interface, by design (the Haskell handle is already opaque so no abstraction-leak risk). |
+| `ProducerConfig` | ✅ | `Kafka.Client.Producer.ProducerConfig` (every relevant knob in `CONFIG_PARITY.md`) |
+| `ProducerRecord` | ✅ | `Kafka.Client.Producer.ProducerRecord` |
+| `RecordMetadata` | ✅ | `Kafka.Client.Producer.RecordMetadata` |
+| `Callback` | ✅ | `Kafka.Client.Producer.EnhancedCallback` + `producerOnAcknowledgement` field (richer than Java's single-method `Callback`) |
+| `Partitioner` | ✅ | `Kafka.Client.Producer.Partitioner` |
+| `ProducerInterceptor` | ✅ | `producerInterceptor` field on `ProducerConfig` |
+| `BufferExhaustedException` | ⚠️ | Folded into `Kafka.Errors.KafkaErrorKind` (`RecordTooLargeError` / `TimeoutError`); no dedicated constructor. |
+| `RoundRobinPartitioner` | ✅ | `roundRobinPartitioner` |
+| `KafkaProducer.send` | ✅ | `sendMessage` / `sendMessageAsync` / `sendBatch` (+ a `_` family of low-allocation variants) |
+| `flush` | ✅ | `flushProducer` |
+| `initTransactions` | ✅ | `Kafka.Client.Transaction.initTransactions` |
+| `beginTransaction` | ✅ | `beginTransaction` |
+| `commitTransaction` | ✅ | `commitTransaction` |
+| `abortTransaction` | ✅ | `abortTransaction` |
+| `sendOffsetsToTransaction` | ✅ | `commitOffsetsInTransaction` |
+| `partitionsFor` | ⚠️ | Use `Kafka.Client.AdminClient.describeTopics` |
+| `metrics` | ✅ | `Kafka.Telemetry.Metrics` registry |
+| `clientInstanceId` | ❌ | Telemetry instance-id getter |
+| `registerMetricForSubscription` / `unregisterMetricFromSubscription` | ❌ | KIP-714 application-metric registration |
+
+---
+
+## `org.apache.kafka.clients.consumer`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `KafkaConsumer` | ✅ | `Kafka.Client.Consumer.Consumer` |
+| `MockConsumer` | ✅ | `Kafka.Client.Mock.Consumer.MockConsumer` + streams `Kafka.Streams.Mock.Consumer` |
+| `Consumer` (interface) | ✅ | Concrete `Consumer` only, same shape rationale as Producer |
+| `ConsumerConfig` | ✅ | `ConsumerConfig` |
+| `ConsumerRecord` | ✅ | `ConsumerRecord` |
+| `ConsumerRecords` | ✅ | `Kafka.Client.Consumer.ConsumerRecords` (added in this audit) — `recordsByTopic` / `recordsByPartition` / `nextOffsets` |
+| `ConsumerGroupMetadata` | ✅ | `Kafka.Client.Consumer.ConsumerGroupMetadata` (added in this audit) + `Kafka.Client.Consumer.groupMetadata` getter |
+| `OffsetAndMetadata` | ✅ | `Kafka.Client.Consumer.OffsetAndMetadata` (added in this audit) |
+| `OffsetAndTimestamp` | ✅ | `Kafka.Client.Consumer.OffsetAndTimestamp` |
+| `OffsetCommitCallback` | ✅ | `Kafka.Client.Consumer.OffsetCommitCallback` (added) — a `Map TopicPartition OffsetAndMetadata -> Maybe SomeException -> IO ()` callback hook |
+| `OffsetResetStrategy` | ✅ | `OffsetResetStrategy` |
+| `ConsumerInterceptor` | ✅ | `consumerInterceptor` |
+| `ConsumerRebalanceListener` | ✅ | `Kafka.Client.RebalanceListener.RebalanceListener` |
+| `ConsumerPartitionAssignor` (interface) | ⚠️ | Strategy enum `AssignmentStrategy` (`Range` / `RoundRobin` / `Sticky`); pluggable assignor not user-extensible at the high level (the runtime uses `Kafka.Streams.Runtime.Assignor` internally). |
+| `RangeAssignor` / `RoundRobinAssignor` / `StickyAssignor` | ✅ | `AssignmentStrategy` constructors |
+| `CooperativeStickyAssignor` | ⚠️ | The cooperative protocol is the default rebalance path under `Kafka.Streams.Runtime.RevocationGrace`; no dedicated assignor class. |
+| `AcknowledgementCommitCallback` | ✅ | `Kafka.Client.ShareConsumer.acknowledgeShareRecord` family already takes the callback closure inline; the JVM-style record is in `ShareConsumer` |
+| `CommitFailedException` | ⚠️ | `Kafka.Errors.KafkaErrorKind` covers it; not a distinct constructor yet |
+| `InvalidOffsetException` / `NoOffsetForPartitionException` / `OffsetOutOfRangeException` | ⚠️ | `Kafka.Errors.OffsetOutOfRangeError` covers OffsetOutOfRangeException; the other two fold into `KafkaException` with a string kind. |
+| `RetriableCommitFailedException` / `LogTruncationException` | ⚠️ | Folded into `KafkaException` |
+| `KafkaConsumer.subscribe(Collection)` | ✅ | `subscribe` |
+| `subscribe(Pattern)` / `SubscriptionPattern` | ✅ | `Kafka.Client.Consumer.subscribeRegex` (added) + `SubscriptionPattern` |
+| `assign` | ✅ | `assign` |
+| `unsubscribe` | ✅ | `unsubscribe` |
+| `poll(Duration)` | ✅ | `poll` |
+| `commitSync` / `commitAsync` | ✅ | `commitSync` / `commitAsync` |
+| `seek` / `seekToBeginning` / `seekToEnd` | ✅ | same names |
+| `position` / `committed` / `committedAll` | ✅ | same names |
+| `beginningOffsets` / `endOffsets` / `offsetsForTimes` | ✅ | same names |
+| `pause` / `resume` / `paused` / `assignment` / `subscription` | ✅ | same names |
+| `wakeup` | ❌ | Cancellation via async + STM/`MVar` patterns in user code; no dedicated `wakeup` |
+| `enforceRebalance` | ✅ | `requestRejoin` |
+| `groupMetadata` | ✅ | `Kafka.Client.Consumer.groupMetadata` (added) |
+| `currentLag` | ❌ | Use streams `Kafka.Streams.Runtime.LagInfo` |
+| `metrics` | ✅ | `Kafka.Telemetry.Metrics` registry |
+| `clientInstanceId` | ❌ | (same as Producer) |
+| `KafkaShareConsumer` / `MockShareConsumer` | ✅ | `Kafka.Client.ShareConsumer.ShareConsumer` + `MockShareConsumer` (added) |
+
+---
+
+## `org.apache.kafka.clients.admin`
+
+The Java Admin interface has ~70 methods. The Haskell `Kafka.Client.AdminClient` covers the *operationally critical* subset; the rest are either trivial extensions of the protocol layer (every Admin RPC has a generated `Kafka.Protocol.Generated.*Request` / `*Response` pair) or are documented gaps.
+
+### Core covered
+
+| Java | Haskell |
+| ---- | ------- |
+| `Admin.create(...)` / `AdminClient.create(...)` | `Kafka.Client.AdminClient.createAdminClient` |
+| `close()` / `close(Duration)` | `closeAdminClient` |
+| `createTopics(Collection)` / `(Collection, Options)` | `createTopics` / `ensureTopic` |
+| `deleteTopics(Collection)` | `deleteTopics` |
+| `listTopics()` / `(Options)` | `listTopics` / `listTopicsExcludeInternal` |
+| `describeTopics(Collection)` / `(TopicCollection, ...)` | `describeTopics` |
+| `describeCluster()` | ⚠️ folded into `Kafka.Client.Metadata.describeCluster` (lower-level) |
+| `describeConfigs(Collection)` | `describeConfigs` |
+| `alterConfigs(Map)` / `incrementalAlterConfigs(Map)` | `alterConfigs` / `incrementalAlterConfigs` |
+| `listConsumerGroups()` | `listConsumerGroups` |
+| `describeConsumerGroups(Collection)` | `describeConsumerGroups` |
+| `deleteConsumerGroups(Collection)` | `deleteConsumerGroups` |
+| `listConsumerGroupOffsets(...)` | `listConsumerGroupOffsets` |
+| `alterConsumerGroupOffsets(...)` | `alterConsumerGroupOffsets` |
+| `deleteRecords(Map)` | `deleteRecords` |
+| `electLeaders(ElectionType, Set)` | `electLeaders` |
+| Per-call timeouts / routing | `Kafka.Client.AdminTimeouts` (pure planner; not yet attached to each call site as a JVM `*Options` record) |
+
+### Gaps (kept honest)
+
+`createPartitions`, `createAcls` / `describeAcls` / `deleteAcls`, `createDelegationToken` / `renewDelegationToken` / `expireDelegationToken` / `describeDelegationToken`, `describeLogDirs` / `alterReplicaLogDirs` / `describeReplicaLogDirs`, `alterPartitionReassignments` / `listPartitionReassignments`, `describeClientQuotas` / `alterClientQuotas`, `describeUserScramCredentials` / `alterUserScramCredentials`, `addRaftVoter` / `removeRaftVoter` / `describeMetadataQuorum`, `unregisterBroker`, `describeFeatures` / `updateFeatures`, `describeProducers` / `fenceProducers` / `abortTransaction` (admin variant) / `describeTransactions` / `listTransactions`, `describeClassicGroups` / `describeShareGroups`, `removeMembersFromConsumerGroup`, `listClientMetricsResources`, `listGroups()` (generic) — these are all available at the **protocol** layer (`Kafka.Protocol.Generated.*`) but **not** yet wrapped in `Kafka.Client.AdminClient` with a typed `*Result`-style record. The `kafka-codegen` exe emits each request/response pair; the audit-driven follow-up is to thread them through a typed admin façade.
+
+Every Java `*Options` and `*Result` record is, by extension, **MISSING** as an in-tree Haskell type (only the operations we wrap above have the analogous Haskell record). When a missing operation is added, the `*Options` / `*Result` types follow naturally.
+
+---
+
+## `org.apache.kafka.common`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `TopicPartition` | ✅ | `Kafka.Client.Consumer.TopicPartition` (and the distinct streams flavour `Kafka.Streams.Types.TopicPartition`) |
+| `TopicPartitionInfo` | ✅ | `Kafka.Client.AdminClient.PartitionInfo` |
+| `TopicPartitionReplica` | ❌ | Used by `describeReplicaLogDirs` (which is also a gap). |
+| `Node` | ⚠️ | `Kafka.Network.Bootstrap.BootstrapBroker` carries the same info at the lower level |
+| `Cluster` | ❌ | Per-call metadata is exposed through admin describe; the cluster snapshot type is internal |
+| `ClusterResource` / `ClusterResourceListener` | ❌ | No pluggable listener for cluster-resource-id changes (rarely used in practice) |
+| `MetricName` / `KafkaMetric` | ⚠️ | `Kafka.Telemetry.Metrics` exposes a `MetricsRegistry` with metric-name strings; not the full Java metric object model |
+| `Metric` | ⚠️ | (same) |
+| `ConsumerGroupState` | ⚠️ | `Kafka.Client.AdminClient.ConsumerGroupDescription.cgdState` carries a `Text`; no enum |
+| `GroupType` / `GroupState` | ❌ | KIP-848 generic group-type enums |
+| `MemberAssignment` | ⚠️ | `Kafka.Client.Mock.Cluster.RebalanceDelta` captures the same shape internally |
+| `ElectionType` | ✅ | `Kafka.Client.AdminClient.ElectionType` |
+| `Endpoint` | ❌ | Used by `RaftVoterEndpoint` (also a gap) |
+| `KafkaFuture` | ✅ | `Kafka.Client.Future` (added in this audit) — thin `Either`-shaped future newtype matching the Java callback surface |
+| `Uuid` | ✅ | `Kafka.Client.TopicId.TopicId` (UUID-shaped) |
+| `TopicIdPartition` | ⚠️ | Re-derivable from `TopicPartition + TopicId`; no dedicated alias |
+| `TopicCollection` | ⚠️ | List-of-`Text` everywhere; no envelope type |
+| `Reconfigurable` / `Configurable` | ❌ | Java pluggable-config interface; not idiomatic in Haskell |
+
+---
+
+## `org.apache.kafka.common.config`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `AbstractConfig` / `ConfigDef` / `ConfigException` | ⚠️ | `Kafka.Client.ConfigValidation.ConfigError` + per-config `validate*Config` |
+| `ConfigResource` | ✅ | `Kafka.Client.AdminClient.ConfigResource` |
+| `TopicConfig` | ❌ | Available as broker-side `Topic.*` constants in the JVM; on the Haskell side use the `Text` keys directly with `incrementalAlterConfigs` |
+| `SecurityConfig` | ❌ | (same) |
+
+---
+
+## `org.apache.kafka.common.errors`
+
+The Java SDK exposes ~50 named exception classes; the Haskell side
+folds them into a single `Kafka.Errors.KafkaException` carrying a
+sum `KafkaErrorKind`. The kinds the Haskell side names explicitly:
+
+`ConnectError`, `AuthenticationError`, `AuthorizationError`,
+`ConfigurationError`, `TimeoutError`, `NetworkError`,
+`InvalidTopicError`, `TopicAlreadyExistsError`,
+`UnknownTopicOrPartitionError`, `RecordTooLargeError`,
+`SerializationError`, `ProducerFencedError`,
+`TransactionAbortedError`, `OffsetOutOfRangeError`,
+`NotInTransactionError`, `UnsupportedVersionError`,
+`DeliveryFailedError`, `UnknownError`.
+
+Java exceptions not explicitly named:
+`OutOfOrderSequenceException`, `LeaderNotAvailableException`,
+`NotLeaderOrFollowerException`, `NotControllerException`,
+`PolicyViolationException`, `SecurityDisabledException`,
+`ThrottlingQuotaExceededException`, `UnsupportedSaslMechanismException`,
+`StaleBrokerEpochException`, `KafkaStorageException`,
+`SaslAuthenticationException`, `SslAuthenticationException`,
+`CorruptRecordException`, `BrokerNotAvailableException`,
+`DisconnectException`, `WakeupException`, `InterruptException`,
+`InvalidRequestException`, `InvalidProducerEpochException`, …
+— all reachable from the same `KafkaException` value via the
+underlying broker error code that's exposed in
+`KafkaErrorKind`'s `Text` cause, but **MISSING** as discriminated
+constructors.
+
+---
+
+## `org.apache.kafka.common.header`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `Header` / `Headers` | ✅ | `Kafka.Headers.Headers` (full lookup / append / replace / delete API) |
+| `Headers.Internals` | ❌ | Internal-only Java type, no useful Haskell analogue |
+
+---
+
+## `org.apache.kafka.common.serialization`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `Serde<T>` | ✅ | `Kafka.Serde.Serde` (also `Kafka.Streams.Serde`) |
+| `Serializer<T>` / `Deserializer<T>` | ⚠️ | Combined into `Serde { serialize, deserialize }` |
+| `Serdes` factory | ✅ | Built-ins listed in `Kafka.Serde` |
+| `StringSerializer/Deserializer` | ✅ | `textSerde` / `utf8Serde` |
+| `Integer*` / `Long*` / `Short*` / `Float*` / `Double*` | ✅ | `int16Serde` / `int32Serde` / `int64Serde` / `word*Serde` / `floatSerde` / `doubleSerde` |
+| `ByteArraySerializer` / `Deserializer` | ✅ | `byteArraySerde` |
+| `ByteBufferSerializer` / `Deserializer` | ❌ | `Data.ByteString` is the analogue; no dedicated wrapper |
+| `BytesSerializer` / `Deserializer` | ⚠️ | `byteStringSerde` |
+| `UUIDSerializer` / `Deserializer` | ✅ | `uuidSerde` |
+| `VoidSerializer` / `Deserializer` | ✅ | `voidSerde` |
+| `ListSerializer` / `Deserializer` | ❌ | Combine `prefixedSerde` + `lengthPrefixedSerde` manually |
+
+---
+
+## `org.apache.kafka.streams` (top-level)
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `KafkaStreams` | ✅ | `Kafka.Streams.Runtime.KafkaStreams` |
+| `KafkaStreams.State` | ✅ | `Kafka.Streams.Runtime.StreamsStatus` |
+| `KafkaStreams.StateListener` | ✅ | `Kafka.Streams.Runtime.StateListener` + `setStateListener` |
+| `KafkaStreams.CloseOptions` | ✅ | `Kafka.Streams.Runtime.CloseOptions` |
+| `start` / `close` / `cleanUp` | ✅ | `startKafkaStreams` / `closeKafkaStreams` / `cleanUp` |
+| `pause` / `resume` / `isPaused` | ✅ | `pauseKafkaStreams` / `resumeKafkaStreams` / `isPausedKafkaStreams` |
+| `state` / `setStateListener` / `setUncaughtExceptionHandler` | ✅ | same names |
+| `setGlobalStateRestoreListener` / `setStandbyUpdateListener` | ✅ | `setGlobalRestoreListener` / `setStandbyListener` |
+| `addStreamThread` / `removeStreamThread` | ✅ | same names |
+| `metadataForAllStreamsClients` / `streamsMetadataForStore` | ✅ | same names |
+| `queryMetadataForKey` | ✅ | `Kafka.Streams.Discovery.makeKeyQueryMetadata` (lower-level) |
+| `store(StoreQueryParameters)` | ✅ | `queryEngineStore` + `Kafka.Streams.InteractiveQueries` |
+| `metrics` | ✅ | `Kafka.Streams.Metrics` |
+| `allLocalStorePartitionLags` | ✅ | `publishLag` + `LagInfo` |
+| `clientInstanceIds` | ❌ | KIP-714 telemetry id getter |
+| `metadataForLocalThreads` | ✅ | `metadataForLocalThreads` |
+| `KafkaClientSupplier` | ⚠️ | Replaced by `startKafkaStreamsWith :: KafkaStreams -> StreamDriver -> IO ()` driver-injection seam in `Kafka.Streams.Runtime.NativeDriver` |
+| `ClientInstanceIds` | ❌ |  |
+| `KeyValue` | ⚠️ | Use `Kafka.Streams.Types.Record` (carries timestamp + headers in addition to key/value) |
+| `KeyQueryMetadata` | ✅ | `Kafka.Streams.Discovery.KeyQueryMetadata` |
+| `LagInfo` | ✅ | `Kafka.Streams.Runtime.LagInfo` |
+| `StoreQueryParameters` | ✅ | `Kafka.Streams.InteractiveQueries.StoreQueryParameters` |
+| `StreamsBuilder` | ✅ | `Kafka.Streams.StreamsBuilder.StreamsBuilder` |
+| `StreamsConfig` | ✅ | `Kafka.Streams.Config.StreamsConfig` |
+| `StreamsMetadata` | ✅ | `Kafka.Streams.Discovery.StreamsMetadata` |
+| `StreamsMetrics` | ⚠️ | `Kafka.Streams.Metrics.MetricsRegistry` (compatible shape, not Java's exact interface) |
+| `TaskMetadata` / `ThreadMetadata` | ⚠️ | `Kafka.Streams.Runtime.LocalThreadMetadata` (only the thread-local shape) |
+| `TestInputTopic` / `TestOutputTopic` | ✅ | exposed by `Kafka.Streams.Driver` |
+| `TopologyTestDriver` | ✅ | `Kafka.Streams.Driver.TopologyTestDriver` |
+| `Topology` / `TopologyDescription` / `TopologyConfig` | ✅ | matching names (TopologyConfig is split across `StreamsConfig` + `Topology.Optimization`) |
+| `AutoOffsetReset` | ✅ | `Kafka.Streams.Consumed.AutoOffsetReset` |
+
+---
+
+## `org.apache.kafka.streams.kstream`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `KStream` | ✅ | `Kafka.Streams.KStream.KStream` |
+| `KStream.filter` / `filterNot` | ✅ | `filterStream` / `filterNotStream` (+ `*Named`) |
+| `KStream.map` | ✅ | `mapKeyValue` (+ `mapKeyValueM` / `*Named`) |
+| `KStream.mapValues` | ✅ | `mapValues` (+ `mapValuesM` / `*Named`) |
+| `KStream.flatMap` / `flatMapValues` | ✅ | `flatMapKeyValue` / `flatMapValues` |
+| `KStream.foreach` | ✅ | `foreachStream` (+ async variant) |
+| `KStream.peek` | ✅ | `peekStream` (+ `*Named`) |
+| `KStream.selectKey` | ✅ | `selectKey` (+ `*Named`) |
+| `KStream.merge` | ✅ | `mergeStreams` / `mergeStreamsN` |
+| `KStream.split` / `Branched` / `BranchedKStream` | ✅ | `splitStream` + `Branched` / `branchedFrom` / `withFunction` / `withConsumer` |
+| `KStream.branch` (legacy) | ✅ | `branchStream` |
+| `KStream.groupBy` / `groupByKey` | ✅ | `groupByStream` / `groupByKey` |
+| `KStream.join` / `leftJoin` / `outerJoin` (windowed, stream-stream) | ✅ | `joinKStreamKStream` / `leftJoinKStreamKStream` / `outerJoinKStreamKStream` |
+| `KStream.join` / `leftJoin` (KTable) | ✅ | `joinKStreamKTable` / `leftJoinKStreamKTable` |
+| `KStream.join` / `leftJoin` (GlobalKTable) | ✅ | `joinKStreamGlobalKTable` / `leftJoinKStreamGlobalKTable` |
+| `KStream.through` | ✅ | `throughTopic` |
+| `KStream.to(topic)` / `to(TopicNameExtractor)` | ✅ | `toTopic` / `toExtracted` |
+| `KStream.repartition` / `repartition(Repartitioned)` | ✅ | `repartition` / `repartitionWith` |
+| `KStream.toTable` | ✅ | `toTable` |
+| `KStream.print(Printed)` | ✅ | `printStream` / `Kafka.Streams.Printed.printKStream` |
+| `KStream.process(ProcessorSupplier)` | ✅ | `processStream` |
+| `KStream.processValues(FixedKeyProcessorSupplier)` | ✅ | `processValuesStream` |
+| `KStream.values` | ✅ | `valuesStream` |
+| `KTable` | ✅ | `Kafka.Streams.KTable.KTable` |
+| `KTable.filter` / `filterNot` | ✅ | `filterTable` / `filterNotTable` |
+| `KTable.mapValues` | ✅ | `mapValuesTable` |
+| `KTable.join` / `leftJoin` / `outerJoin` (KTable-KTable) | ✅ | `joinKTableKTable` etc. |
+| `KTable.join` / `leftJoin` (foreign-key) | ✅ | `foreignKeyJoinKTable` / `leftForeignKeyJoinKTable` |
+| `KTable.groupBy` | ✅ | `groupTableBy` |
+| `KTable.suppress` | ✅ | `suppressKStream` / `suppressWindowed` (+ time-limit variant) |
+| `KTable.toStream` / `toStream(KeyValueMapper)` | ✅ | `toKStreamFromKTable` |
+| `KTable.queryableStoreName` | ✅ | `ktableStore` |
+| `KGroupedStream` / `KGroupedTable` | ✅ | `KGroupedStream` / `KGroupedTable` |
+| `KGroupedStream.count` / `reduce` / `aggregate` / `windowedBy` | ✅ | `countStream` / `reduceStream` / `aggregateStream` / `windowedByTime` / `windowedBySession` |
+| `KGroupedTable.count` / `reduce` / `aggregate` | ✅ | `countKGroupedTable` / `reduceKGroupedTable` / `aggregateKGroupedTable` |
+| `Cogrouped*` family | ✅ | `Kafka.Streams.Cogroup` |
+| `TimeWindowedKStream` / `SessionWindowedKStream` | ✅ | `Kafka.Streams.TimeWindowedKStream` / `SessionWindowedKStream` |
+| `GlobalKTable` | ✅ | `Kafka.Streams.GlobalKTable` |
+| `Aggregator` / `Initializer` / `Reducer` / `Merger` | ✅ | Higher-order parameters on the aggregation operators |
+| `Branched` / `BranchedKStream` | ✅ | `Branched` |
+| `Consumed` / `Produced` / `Joined` / `Grouped` / `Materialized` / `Named` / `Repartitioned` / `StreamJoined` / `TableJoined` | ✅ | matching modules (`Kafka.Streams.{Consumed,Produced,Joined,Grouped,Materialized,Named,Repartitioned}`) |
+| `JoinWindows` / `SessionWindows` / `SlidingWindows` / `TimeWindows` / `Windows` | ✅ | `JoinWindows` / `SessionWindows` / `slidingWindows` / `tumblingWindows` / `hoppingWindows` (in `Kafka.Streams.Window`) |
+| `UnlimitedWindows` | ❌ | Use grace = `forever` |
+| `EmitStrategy` | ✅ | `Kafka.Streams.TimeWindowedKStream.EmitStrategy` (`emitOnWindowUpdate` / `emitOnWindowClose`) |
+| `Suppressed` / `Suppressed.BufferConfig` / `Suppressed.EagerBufferConfig` / `Suppressed.StrictBufferConfig` | ✅ | `Kafka.Streams.Suppress.{Suppressed,BufferConfig,untilTimeLimit,untilWindowCloses,unboundedBufferConfig,maxBytesBufferConfig,maxRecordsBufferConfig,shutDownWhenFull,emitEarlyWhenFull}` |
+| `Printed` | ✅ | `Kafka.Streams.Printed` |
+| `Windowed` | ✅ | `Kafka.Streams.Serde.Windowed.WindowedKey` |
+| `ValueJoiner` / `ValueJoinerWithKey` | ✅ | Higher-order parameters on joins |
+| `ValueMapper` / `ValueMapperWithKey` | ✅ | Higher-order parameters |
+| `ValueTransformerWithKey` / `*Supplier` (deprecated since 4.0) | ⚠️ | `transformValuesStream` covers the supported path; the deprecated ValueTransformer ADT is intentionally not ported |
+| `ForeachAction` | ✅ | Higher-order parameter on `foreachStream` |
+| `KeyValueMapper` | ✅ | Higher-order parameter on `selectKey` / `groupBy` |
+| `Predicate` | ✅ | Higher-order parameter on `filterStream` / `filterNotStream` |
+| `GlobalKTable.queryableStoreName` | ⚠️ | (the GlobalKTable handle carries the store name directly) |
+
+---
+
+## `org.apache.kafka.streams.processor.api`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `Processor<KIn,VIn,KOut,VOut>` | ✅ | `Kafka.Streams.Processor.Processor` |
+| `ProcessorContext<KOut,VOut>` | ✅ | `Kafka.Streams.Processor.ProcessorContext` |
+| `ProcessorSupplier<KIn,VIn,KOut,VOut>` | ✅ | `ProcessorSupplier` |
+| `ContextualProcessor` | ⚠️ | Build via `Processor { procInit = \ctx -> writeIORef …, … }`; no class hierarchy |
+| `FixedKeyProcessor` / `FixedKeyProcessorContext` / `FixedKeyProcessorSupplier` / `FixedKeyRecord` | ✅ | `Kafka.Streams.Processor.{FixedKeyProcessor,FixedKeyRecord}` |
+| `ContextualFixedKeyProcessor` | ⚠️ | (same pattern) |
+| `Record` (streams variant) | ✅ | `Kafka.Streams.Types.Record` |
+| `Record.headers` / `withHeaders` / etc. | ✅ | `Kafka.Streams.Types.Headers` |
+| `ProcessorWrapper` (KIP-1112) | ❌ | The wrapper-pattern is not exposed; usual workaround is to wrap the supplier directly |
+| `StateStoreContext` | ⚠️ | Folded into `ProcessorContext` |
+| `RecordMetadata` (streams) | ✅ | `Kafka.Streams.Types.RecordMetadata` |
+| `To` (forward destination spec) | ⚠️ | `forwardTo :: ProcessorContext -> NodeName -> Record -> IO ()` (no separate `To` envelope) |
+| `MockProcessorContext` | ✅ | `Kafka.Streams.Processor.MockProcessorContext` (added in this audit) — captures forwarded records and scheduled punctuators |
+
+---
+
+## `org.apache.kafka.streams.state`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `KeyValueStore` / `ReadOnlyKeyValueStore` | ✅ | `Kafka.Streams.State.Store.KeyValueStore` / `Kafka.Streams.InteractiveQueries.ReadOnlyKeyValueStore` |
+| `WindowStore` / `ReadOnlyWindowStore` | ✅ | `WindowStore` / `ReadOnlyWindowStore` |
+| `SessionStore` / `ReadOnlySessionStore` | ✅ | `SessionStore` / `ReadOnlySessionStore` |
+| `TimestampedKeyValueStore` / `TimestampedWindowStore` | ✅ | `Kafka.Streams.State.KeyValue.Timestamped` / `Window.Timestamped` |
+| `VersionedKeyValueStore` / `VersionedRecord` / `VersionedRecordIterator` | ✅ | `Kafka.Streams.State.KeyValue.Versioned` |
+| `ValueAndTimestamp` | ✅ | `Kafka.Streams.State.KeyValue.Timestamped.ValueAndTimestamp` |
+| `HostInfo` | ✅ | `Kafka.Streams.Discovery.HostInfo` |
+| `KeyValueIterator` / `WindowStoreIterator` | ✅ | `Kafka.Streams.State.Store.KeyValueIterator` / `WindowStoreIterator` |
+| `KeyValueBytesStoreSupplier` / `WindowBytesStoreSupplier` / `SessionBytesStoreSupplier` | ⚠️ | `StoreBuilderKV` / `StoreBuilderW` / `StoreBuilderS` (typed-key/value, not bytes-only) |
+| `QueryableStoreType` | ⚠️ | The typed `Query` GADT replaces this |
+| `QueryableStoreTypes` | ⚠️ | (same) |
+| `RocksDBConfigSetter` | ⚠️ | `Kafka.Streams.State.KeyValue.RocksDB.RocksDBConfig` (under `+rocksdb`) |
+| `StoreBuilder` / `StoreSupplier` | ✅ | `StoreBuilderKV` / `StoreBuilderW` / `StoreBuilderS` |
+| `Stores` | ✅ | `Kafka.Streams.Stores` |
+| `StateSerdes` | ⚠️ | Implicit via `Materialized.matKeySerde` / `matValueSerde`; no dedicated wrapper |
+| `DslStoreSuppliers` / `BuiltInDslStoreSuppliers` / `DslKeyValueParams` / `DslSessionParams` / `DslWindowParams` | ✅ | `Kafka.Streams.DslStoreSuppliers` |
+
+---
+
+## `org.apache.kafka.streams.errors`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `StreamsException` | ✅ | `Kafka.Streams.Errors.StreamsException` |
+| `DefaultProductionExceptionHandler` | ✅ | `Kafka.Streams.Errors.logAndContinueProduction` (and `logAndShutdown*`) |
+| `DefaultProcessingExceptionHandler` | ✅ | `logAndContinueProcessing` |
+| `StreamsUncaughtExceptionHandler` | ✅ | `Kafka.Streams.Errors.StreamsUncaughtExceptionHandler` |
+| `DeserializationExceptionHandler` | ✅ | `Kafka.Streams.Errors.DeserializationHandler` |
+| `ProductionExceptionHandler` | ✅ | `Kafka.Streams.Errors.ProductionHandler` |
+| `ProcessingExceptionHandler` | ✅ | `Kafka.Streams.Errors.ProcessingExceptionHandler` |
+| `TaskMigratedException` | ✅ | `Kafka.Streams.Errors.TaskMigratedException` |
+| `TopologyException` | ✅ | `Kafka.Streams.Errors.TopologyException` |
+| `InvalidStateStoreException` | ✅ | `InvalidStateStoreException` |
+| `BrokerNotFoundException` / `MissingSourceTopicException` / `TaskAssignmentException` / `TaskCorruptedException` / `UnknownStateStoreException` / `LockException` | ❌ | Folded into a generic `StreamsException` with a textual reason |
+
+---
+
+## `org.apache.kafka.streams.query`
+
+| Java | Status | Haskell |
+| ---- | ------ | ------- |
+| `Query<T>` | ✅ | `Kafka.Streams.Query.Query` GADT |
+| `QueryResult<T>` | ✅ | `QueryResult` |
+| `QueryConfig` | ❌ | No `executionInfo` flag; `execute` is unconditional |
+| `KeyQuery` / `RangeQuery` / `AllQuery` | ✅ | `Query` constructors |
+| `WindowKeyQuery` / `WindowRangeQuery` | ✅ | `executeWindowKeyQuery` / `executeWindowRangeQuery` |
+| `VersionedKeyQuery` / `MultiVersionedKeyQuery` | ✅ | `executeVersionedKeyQuery` / `executeMultiVersionedKeyQuery` |
+| `TimestampedKeyQuery` / `TimestampedRangeQuery` | ⚠️ | Folded into `KeyQuery` / `RangeQuery` against a timestamped store |
+| `Position` / `PositionBound` | ✅ | `Position` / `PositionBound` |
+| `StateQueryRequest` / `StateQueryResult` | ✅ | matching names |
+
+---
+
+## Summary of named gaps as of this audit
+
+The audit surfaces a handful of *named* gaps that this PR closes
+directly:
+
+- **`ConsumerRecords`** wrapper type → added as `Kafka.Client.Consumer.ConsumerRecords`.
+- **`ConsumerGroupMetadata`** + `groupMetadata()` → added.
+- **`OffsetAndMetadata`** → added.
+- **`OffsetCommitCallback`** → added.
+- **`SubscriptionPattern`** + regex subscribe → added (`Kafka.Client.Consumer.SubscriptionPattern` + `subscribeRegex`).
+- **`KafkaFuture`** → added as `Kafka.Client.Future` (thin `Either`-shaped future newtype).
+- **`MockProcessorContext`** for testing user processors → added as `Kafka.Streams.Processor.MockProcessorContext`.
+- **`MockShareConsumer`** → added.
+
+What's left in the gap list (in order of likely user impact):
+
+1. The big Java `Admin.*` operations that aren't yet wrapped above the protocol layer — `createAcls` / `describeAcls` / `deleteAcls`, `createPartitions`, `alterPartitionReassignments` / `listPartitionReassignments`, `describeLogDirs` / `alterReplicaLogDirs`, `describeClientQuotas` / `alterClientQuotas`, `*DelegationToken*`, `*UserScramCredentials`, `addRaftVoter` / `removeRaftVoter` / `describeMetadataQuorum`, `unregisterBroker`, `describeFeatures` / `updateFeatures`, `describeProducers` / `fenceProducers` / `*Transactions`, `describeClassicGroups` / `describeShareGroups`, `removeMembersFromConsumerGroup`, `listClientMetricsResources`, `listGroups()` (generic).
+2. KIP-714 `clientInstanceId` getters on Producer / Consumer / KafkaStreams.
+3. Discriminated constructors for every Java `*Exception` in `org.apache.kafka.common.errors` / `org.apache.kafka.streams.errors`. (Today they all fold into one `KafkaException` value with a textual reason.)
+4. `ConsumerPartitionAssignor` as a pluggable user-supplied interface (currently the enum + the streams runtime's internal `Kafka.Streams.Runtime.Assignor` cover the in-tree cases).
+5. `Cluster` / `ClusterResource` / `Node` / `TopicCollection` / `Endpoint` / `Reconfigurable` / `Configurable` as public types.
+6. `ByteBufferSerializer` / `Deserializer`, `ListSerializer` / `Deserializer` as named built-ins.
+7. `UnlimitedWindows`.
+8. `QueryConfig` (executionInfo flag).
+
+These are tracked as "honest list" gaps in this file. They are
+not blocking for the streams runtime + DSL parity (which is at
+100% for the kstream operator surface) or for the producer /
+consumer / transaction hot paths (which are at full parity).

@@ -146,6 +146,8 @@ module Kafka.Client.Consumer
     -- * Cluster info
   , consumerClusterId
   , consumerHealthy
+  , consumerConfigOf
+  , consumerGroupIdOf
 
     -- * Environment-variable overlay
     --
@@ -1144,6 +1146,18 @@ currentStaticMembershipState Consumer{..} = case consumerHeartbeat of
 consumerClusterId :: MonadIO m => Consumer -> m (Maybe Text)
 consumerClusterId Consumer{..} = liftIO $
   atomically (Meta.getClusterId consumerMetadata)
+
+-- | The consumer's 'ConsumerConfig'. Read-only — mutating it has
+-- no effect on a running consumer.
+consumerConfigOf :: Consumer -> ConsumerConfig
+consumerConfigOf c = c.consumerConfig
+
+-- | The consumer's configured @group.id@. Exposed so JVM-equivalent
+-- shims (e.g. 'Kafka.Client.ConsumerSdk.groupMetadata') can build
+-- a 'ConsumerGroupMetadata' without dropping into the consumer's
+-- internal handle.
+consumerGroupIdOf :: Consumer -> Text
+consumerGroupIdOf c = (consumerConfigOf c).consumerGroupId
 
 -- | Cheap health probe: returns 'True' iff the heartbeat thread
 -- (when this consumer joined a group) is still running, and the

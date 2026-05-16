@@ -68,6 +68,7 @@ import qualified Streams.IdiomaticDSLSpec
 import qualified Streams.MultiInstanceRebalanceSpec
 import qualified Streams.RotatingFileSinkSpec
 import qualified Streams.SchemaRegistryCompatSpec
+import qualified Streams.SdkParitySpec
 import qualified Streams.MultiInstanceHarnessSpec
 import qualified Streams.SchemaRegistryHttpSpec
 import qualified Streams.SchemaRegistryFormatsSpec
@@ -140,6 +141,7 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.MultiInstanceRebalanceSpec.tests
   , Streams.RotatingFileSinkSpec.tests
   , Streams.SchemaRegistryCompatSpec.tests
+  , Streams.SdkParitySpec.tests
   , Streams.MultiInstanceHarnessSpec.tests
   , Streams.SchemaRegistryHttpSpec.tests
   , Streams.SchemaRegistryFormatsSpec.tests
