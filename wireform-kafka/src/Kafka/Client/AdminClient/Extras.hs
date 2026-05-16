@@ -85,6 +85,18 @@ module Kafka.Client.AdminClient.Extras
   , renewDelegationToken
   , expireDelegationToken
   , describeDelegationToken
+    -- * KRaft voter management (KIP-853)
+  , RaftVoterEndpoint (..)
+  , addRaftVoter
+  , removeRaftVoter
+    -- * KRaft quorum description
+  , QuorumInfo (..)
+  , PartitionQuorumInfo (..)
+  , ReplicaState (..)
+  , describeMetadataQuorum
+    -- * Consumer group member removal (KIP-345)
+  , MemberToRemove (..)
+  , removeMembersFromConsumerGroup
   ) where
 
 import Control.Concurrent.STM (atomically)
@@ -155,7 +167,16 @@ import qualified Kafka.Protocol.Generated.ExpireDelegationTokenRequest as EDTReq
 import qualified Kafka.Protocol.Generated.ExpireDelegationTokenResponse as EDTResp
 import qualified Kafka.Protocol.Generated.DescribeDelegationTokenRequest as DDTReq
 import qualified Kafka.Protocol.Generated.DescribeDelegationTokenResponse as DDTResp
+import qualified Kafka.Protocol.Generated.AddRaftVoterRequest as ARVReq
+import qualified Kafka.Protocol.Generated.AddRaftVoterResponse as ARVResp
+import qualified Kafka.Protocol.Generated.RemoveRaftVoterRequest as RRVReq
+import qualified Kafka.Protocol.Generated.RemoveRaftVoterResponse as RRVResp
+import qualified Kafka.Protocol.Generated.DescribeQuorumRequest as DQReq
+import qualified Kafka.Protocol.Generated.DescribeQuorumResponse as DQResp
+import qualified Kafka.Protocol.Generated.LeaveGroupRequest as LGRReq
+import qualified Kafka.Protocol.Generated.LeaveGroupResponse as LGRResp
 import Data.ByteString (ByteString)
+import Data.Word (Word16)
 import qualified Kafka.Common.Quota as Quota
 import qualified Kafka.Protocol.Primitives as P
 import qualified Kafka.Protocol.Wire.Codec as WC
@@ -1812,4 +1833,252 @@ describeDelegationToken client owners = liftIO $ do
       , dtExpiryTimestamp = DDTResp.describedDelegationTokenExpiryTimestamp t
       , dtMaxTimestamp    = DDTResp.describedDelegationTokenMaxTimestamp t
       }
+
+----------------------------------------------------------------------
+-- KRaft voter management (KIP-853)
+----------------------------------------------------------------------
+
+-- | A KRaft voter endpoint: a (listener-name, host, port)
+-- triple. Mirrors @RaftVoterEndpoint@ in the JVM SDK.
+data RaftVoterEndpoint = RaftVoterEndpoint
+  { rveListenerName :: !Text
+  , rveHost         :: !Text
+  , rvePort         :: !Word16
+  }
+  deriving stock (Eq, Show)
+
+-- | Add a voter node to the KRaft metadata quorum. Mirrors
+-- @Admin.addRaftVoter(int, Uuid, Set<RaftVoterEndpoint>)@.
+addRaftVoter
+  :: MonadIO m
+  => AdminClient
+  -> Int32                                -- ^ voter id
+  -> P.KafkaUuid                          -- ^ voter directory id
+  -> [RaftVoterEndpoint]                  -- ^ endpoints
+  -> m (Either String ())
+addRaftVoter client vid vdid endpoints = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 80 0 0 0 $ \conn corrId apiVer -> do
+        let !ls = V.fromList
+              [ ARVReq.Listener
+                  { ARVReq.listenerName = P.mkKafkaString (rveListenerName e)
+                  , ARVReq.listenerHost = P.mkKafkaString (rveHost e)
+                  , ARVReq.listenerPort = rvePort e
+                  }
+              | e <- endpoints
+              ]
+            req = ARVReq.AddRaftVoterRequest
+              { ARVReq.addRaftVoterRequestClusterId =
+                  P.mkKafkaString T.empty
+              , ARVReq.addRaftVoterRequestTimeoutMs = 30000
+              , ARVReq.addRaftVoterRequestVoterId = vid
+              , ARVReq.addRaftVoterRequestVoterDirectoryId = vdid
+              , ARVReq.addRaftVoterRequestListeners = P.mkKafkaArray ls
+              }
+            body = WC.runEncodeVer @ARVReq.AddRaftVoterRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 80 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("AddRaftVoter request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @ARVResp.AddRaftVoterResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if ARVResp.addRaftVoterResponseErrorCode resp == 0
+                  then pure (Right ())
+                  else pure $ Left $ "AddRaftVoter: " <>
+                    T.unpack (extractText (ARVResp.addRaftVoterResponseErrorMessage resp))
+
+-- | Remove a voter node from the KRaft metadata quorum.
+-- Mirrors @Admin.removeRaftVoter(int, Uuid)@.
+removeRaftVoter
+  :: MonadIO m
+  => AdminClient
+  -> Int32                                -- ^ voter id
+  -> P.KafkaUuid                          -- ^ voter directory id
+  -> m (Either String ())
+removeRaftVoter client vid vdid = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 81 0 0 0 $ \conn corrId apiVer -> do
+        let req = RRVReq.RemoveRaftVoterRequest
+              { RRVReq.removeRaftVoterRequestClusterId = P.mkKafkaString T.empty
+              , RRVReq.removeRaftVoterRequestVoterId = vid
+              , RRVReq.removeRaftVoterRequestVoterDirectoryId = vdid
+              }
+            body = WC.runEncodeVer @RRVReq.RemoveRaftVoterRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 81 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("RemoveRaftVoter request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @RRVResp.RemoveRaftVoterResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if RRVResp.removeRaftVoterResponseErrorCode resp == 0
+                  then pure (Right ())
+                  else pure $ Left $ "RemoveRaftVoter: " <>
+                    T.unpack (extractText (RRVResp.removeRaftVoterResponseErrorMessage resp))
+
+----------------------------------------------------------------------
+-- KRaft quorum description
+----------------------------------------------------------------------
+
+-- | A description of a KRaft replica's state.
+data ReplicaState = ReplicaState
+  { rsReplicaId             :: !Int32
+  , rsLogEndOffset          :: !Int64
+  , rsLastFetchTimestamp    :: !Int64
+  , rsLastCaughtUpTimestamp :: !Int64
+  }
+  deriving stock (Eq, Show)
+
+-- | A description of a single quorum partition.
+data PartitionQuorumInfo = PartitionQuorumInfo
+  { pqiPartition     :: !Int32
+  , pqiLeaderId      :: !Int32
+  , pqiLeaderEpoch   :: !Int32
+  , pqiHighWatermark :: !Int64
+  , pqiVoters        :: ![ReplicaState]
+  , pqiObservers     :: ![ReplicaState]
+  }
+  deriving stock (Eq, Show)
+
+-- | A snapshot of the KRaft metadata quorum.
+data QuorumInfo = QuorumInfo
+  { qiPartitions :: ![(Text, [PartitionQuorumInfo])]
+  }
+  deriving stock (Eq, Show)
+
+-- | Describe the metadata quorum. Mirrors
+-- @Admin.describeMetadataQuorum()@.
+describeMetadataQuorum
+  :: MonadIO m
+  => AdminClient
+  -> m (Either String QuorumInfo)
+describeMetadataQuorum client = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 55 0 2 0 $ \conn corrId apiVer -> do
+        -- Empty topics array asks for every topic the broker
+        -- knows about; the JVM sends an explicit selector by
+        -- default but the empty-list shape is the cheapest.
+        let req = DQReq.DescribeQuorumRequest
+              { DQReq.describeQuorumRequestTopics = P.mkKafkaArray V.empty
+              }
+            body = WC.runEncodeVer @DQReq.DescribeQuorumRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 55 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("DescribeQuorum request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @DQResp.DescribeQuorumResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp -> do
+                let ts = case P.unKafkaArray (DQResp.describeQuorumResponseTopics resp) of
+                      P.Null      -> V.empty
+                      P.NotNull v -> v
+                pure $ Right (QuorumInfo (V.toList (V.map decodeT ts)))
+  where
+    decodeT t =
+      let ps = case P.unKafkaArray (DQResp.topicDataPartitions t) of
+            P.Null      -> V.empty
+            P.NotNull v -> v
+       in (extractText (DQResp.topicDataTopicName t), V.toList (V.map decodeP ps))
+    decodeP p = PartitionQuorumInfo
+      { pqiPartition     = DQResp.partitionDataPartitionIndex p
+      , pqiLeaderId      = DQResp.partitionDataLeaderId p
+      , pqiLeaderEpoch   = DQResp.partitionDataLeaderEpoch p
+      , pqiHighWatermark = DQResp.partitionDataHighWatermark p
+      , pqiVoters        = decodeReps (DQResp.partitionDataCurrentVoters p)
+      , pqiObservers     = decodeReps (DQResp.partitionDataObservers p)
+      }
+    decodeReps arr = case P.unKafkaArray arr of
+      P.Null      -> []
+      P.NotNull v -> V.toList (V.map decodeR v)
+    decodeR r = ReplicaState
+      { rsReplicaId             = DQResp.replicaStateReplicaId r
+      , rsLogEndOffset          = DQResp.replicaStateLogEndOffset r
+      , rsLastFetchTimestamp    = DQResp.replicaStateLastFetchTimestamp r
+      , rsLastCaughtUpTimestamp = DQResp.replicaStateLastCaughtUpTimestamp r
+      }
+
+----------------------------------------------------------------------
+-- Consumer-group member removal (KIP-345)
+----------------------------------------------------------------------
+
+-- | A member to remove from a consumer group. The static
+-- 'mtrGroupInstanceId' is the KIP-345 stable identifier;
+-- 'mtrMemberId' is the dynamic id assigned by the broker on
+-- join. At least one must be set.
+data MemberToRemove = MemberToRemove
+  { mtrMemberId        :: !(Maybe Text)
+  , mtrGroupInstanceId :: !(Maybe Text)
+  , mtrReason          :: !(Maybe Text)
+  }
+  deriving stock (Eq, Show)
+
+-- | Force members out of a consumer group. Mirrors
+-- @Admin.removeMembersFromConsumerGroup(String, RemoveMembersFromConsumerGroupOptions)@.
+-- Routes through the LeaveGroup RPC; returns a per-member
+-- result.
+removeMembersFromConsumerGroup
+  :: MonadIO m
+  => AdminClient
+  -> Text                                 -- ^ group id
+  -> [MemberToRemove]
+  -> m (Either String [(Text, Either String ())])
+removeMembersFromConsumerGroup client groupId members = liftIO $ do
+  brokerR <- pickBroker client
+  case brokerR of
+    Left e -> pure (Left e)
+    Right addr ->
+      withNegotiatedVersion client addr 13 3 5 3 $ \conn corrId apiVer -> do
+        let !ms = V.fromList
+              [ LGRReq.MemberIdentity
+                  { LGRReq.memberIdentityMemberId =
+                      P.mkKafkaString (maybe T.empty id (mtrMemberId m))
+                  , LGRReq.memberIdentityGroupInstanceId =
+                      P.mkKafkaString (maybe T.empty id (mtrGroupInstanceId m))
+                  , LGRReq.memberIdentityReason =
+                      P.mkKafkaString (maybe T.empty id (mtrReason m))
+                  }
+              | m <- members
+              ]
+            req = LGRReq.LeaveGroupRequest
+              { LGRReq.leaveGroupRequestGroupId = P.mkKafkaString groupId
+              , LGRReq.leaveGroupRequestMemberId = P.mkKafkaString T.empty
+              , LGRReq.leaveGroupRequestMembers = P.mkKafkaArray ms
+              }
+            body = WC.runEncodeVer @LGRReq.LeaveGroupRequest apiVer req
+            cid  = clientIdOf client
+        r <- Req.sendRequestReceiveResponse conn 13 apiVer corrId cid body
+        case r of
+          Left e -> pure (Left ("LeaveGroup request failed: " <> e))
+          Right (_, respBody) ->
+            case WC.runDecodeVer @LGRResp.LeaveGroupResponse apiVer respBody of
+              Left e -> pure (Left ("Failed to parse response: " <> e))
+              Right resp ->
+                if LGRResp.leaveGroupResponseErrorCode resp /= 0
+                  then pure $ Left $ "LeaveGroup: error code "
+                    <> show (LGRResp.leaveGroupResponseErrorCode resp)
+                  else do
+                    let ms_ = case P.unKafkaArray (LGRResp.leaveGroupResponseMembers resp) of
+                          P.Null      -> V.empty
+                          P.NotNull v -> v
+                    pure $ Right (V.toList (V.map decodeM ms_))
+  where
+    decodeM m =
+      let !mid  = extractText (LGRResp.memberResponseMemberId m)
+          !code = LGRResp.memberResponseErrorCode m
+       in if code == 0
+            then (mid, Right ())
+            else (mid, Left ("Error " <> show code))
 

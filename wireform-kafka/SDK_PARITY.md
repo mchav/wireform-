@@ -763,13 +763,40 @@ operations. The new module imports the existing
 These reduce the v2 long-tail. What's still missing from the
 admin surface (and tracked as remaining gaps):
 
-- `addRaftVoter` / `removeRaftVoter` / `describeMetadataQuorum`
 - `describeFeatures` / `updateFeatures` (`DescribeFeaturesRequest/Response` are not yet emitted by `kafka-codegen`)
-- `fenceProducers` / `abortTransaction` (admin)
+- `fenceProducers` / `abortTransaction` (admin) (their request/response pairs are not yet emitted by `kafka-codegen`)
 - `describeClassicGroups` / `describeShareGroups`
-- `removeMembersFromConsumerGroup`
 - `listClientMetricsResources`
 - `describeReplicaLogDirs`
+
+### KRaft voter + quorum + member-removal
+
+| Java                                                                            | Status | Haskell |
+| ------------------------------------------------------------------------------- | ------ | ------- |
+| `Admin.addRaftVoter(int, Uuid, Set<RaftVoterEndpoint>)`                         | ✅ | `Kafka.Client.AdminClient.Extras.addRaftVoter` + `RaftVoterEndpoint` |
+| `Admin.removeRaftVoter(int, Uuid)`                                              | ✅ | `Kafka.Client.AdminClient.Extras.removeRaftVoter` |
+| `Admin.describeMetadataQuorum()`                                                | ✅ | `Kafka.Client.AdminClient.Extras.describeMetadataQuorum` + `QuorumInfo` / `PartitionQuorumInfo` / `ReplicaState` |
+| `Admin.removeMembersFromConsumerGroup(String, RemoveMembersFromConsumerGroupOptions)` | ✅ | `Kafka.Client.AdminClient.Extras.removeMembersFromConsumerGroup` + `MemberToRemove` |
+
+### Streams errors: per-exception discriminated constructors
+
+The v2 honest list called out a handful of Java exception
+classes that the Haskell side folded into a single
+`StreamsException`. The new constructors mirror the JVM names,
+keeping a discriminated catch-by-type pattern available to
+users:
+
+| Java                                          | Status | Haskell |
+| --------------------------------------------- | ------ | ------- |
+| `BrokerNotFoundException`                     | ✅ | `Kafka.Streams.Errors.BrokerNotFoundException` |
+| `MissingSourceTopicException`                 | ✅ | `Kafka.Streams.Errors.MissingSourceTopicException` |
+| `TaskAssignmentException`                     | ✅ | `Kafka.Streams.Errors.TaskAssignmentException` |
+| `TaskCorruptedException`                      | ✅ | `Kafka.Streams.Errors.TaskCorruptedException` |
+| `UnknownStateStoreException`                  | ✅ | `Kafka.Streams.Errors.UnknownStateStoreException` |
+| `LockException`                               | ✅ | `Kafka.Streams.Errors.LockException` |
+| `InvalidConfigurationException` (common config) | ✅ | `Kafka.Streams.Errors.InvalidConfigurationException` |
+| `InvalidPartitionsException` (admin)            | ✅ | `Kafka.Streams.Errors.InvalidPartitionsException` |
+| `LogCaptureAppender` (test util)                | ✅ | `Kafka.Streams.Errors.LogCaptureAppender` |
 
 These are mechanical follow-ups in the same shape as the v3
 additions: import the corresponding `Kafka.Protocol.Generated.*`

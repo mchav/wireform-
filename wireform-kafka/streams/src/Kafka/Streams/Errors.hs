@@ -32,6 +32,18 @@ module Kafka.Streams.Errors
   , TaskMigratedException (..)
   , StreamsNotStartedException (..)
   , ProducerFencedException (..)
+    -- * KIP-1033 v2-honest-list additions: every Java exception that
+    -- used to be folded into the generic StreamsException now has a
+    -- discriminated constructor.
+  , BrokerNotFoundException (..)
+  , MissingSourceTopicException (..)
+  , TaskAssignmentException (..)
+  , TaskCorruptedException (..)
+  , UnknownStateStoreException (..)
+  , LockException (..)
+  , InvalidConfigurationException (..)
+  , InvalidPartitionsException (..)
+  , LogCaptureAppender (..)
     -- * Deserialization handler (KIP-161)
   , DeserializationHandler (..)
   , DeserializationResponse (..)
@@ -118,6 +130,89 @@ data StreamsNotStartedException = StreamsNotStartedException
 newtype ProducerFencedException = ProducerFencedException Text
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Exception)
+
+----------------------------------------------------------------------
+-- KIP-1033 v2-honest-list additions
+--
+-- The Java SDK uses distinct exception classes for several
+-- runtime failures the wireform-kafka side used to fold into a
+-- generic 'StreamsException'. They're spelled out here so users
+-- can catch them by name in the same way they would on the JVM.
+----------------------------------------------------------------------
+
+-- | Bootstrap brokers can't be reached. Mirrors
+-- @org.apache.kafka.streams.errors.BrokerNotFoundException@.
+newtype BrokerNotFoundException = BrokerNotFoundException Text
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Exception)
+
+-- | One of the topology's source topics doesn't exist on the
+-- cluster. Mirrors
+-- @org.apache.kafka.streams.errors.MissingSourceTopicException@.
+data MissingSourceTopicException = MissingSourceTopicException
+  { mstTopic :: !Text
+  , mstReason :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Exception)
+
+-- | The streams task assignor refused the assignment. Mirrors
+-- @org.apache.kafka.streams.errors.TaskAssignmentException@.
+newtype TaskAssignmentException = TaskAssignmentException Text
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Exception)
+
+-- | A task's local state directory is corrupted and the task has
+-- to recover from the changelog. Mirrors
+-- @org.apache.kafka.streams.errors.TaskCorruptedException@.
+data TaskCorruptedException = TaskCorruptedException
+  { tceTaskId :: !Text
+  , tceReason :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Exception)
+
+-- | A user supplied a state-store name that the topology doesn't
+-- know about. Mirrors
+-- @org.apache.kafka.streams.errors.UnknownStateStoreException@.
+newtype UnknownStateStoreException = UnknownStateStoreException Text
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Exception)
+
+-- | Another task on the same broker holds the lock on a state
+-- store directory. Mirrors
+-- @org.apache.kafka.streams.errors.LockException@.
+data LockException = LockException
+  { lockResource :: !Text
+  , lockReason   :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Exception)
+
+-- | A 'StreamsConfig' value is invalid. Mirrors
+-- @org.apache.kafka.common.config.ConfigException@ as it surfaces
+-- through the streams runtime.
+newtype InvalidConfigurationException = InvalidConfigurationException Text
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Exception)
+
+-- | A change-partition request used invalid arguments. Mirrors
+-- @org.apache.kafka.common.errors.InvalidPartitionsException@ as it
+-- surfaces through the streams runtime / admin path.
+newtype InvalidPartitionsException = InvalidPartitionsException Text
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Exception)
+
+-- | A captured log line. Used by users wiring their own log
+-- appender in test code; mirrors the JVM @LogCaptureAppender@
+-- shape minus the Java logging-framework specifics.
+data LogCaptureAppender = LogCaptureAppender
+  { lcaLevel   :: !Text
+  , lcaLogger  :: !Text
+  , lcaMessage :: !Text
+  , lcaCause   :: !(Maybe SomeException)
+  }
+  deriving stock (Show)
 
 -- | What to do after a deserialisation failure.
 data DeserializationResponse
