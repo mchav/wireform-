@@ -91,6 +91,7 @@ module Kafka.Streams.Topology
 import Control.Exception (Exception, throwIO)
 import qualified Data.Char as Char
 import qualified Data.Foldable as Foldable
+import qualified Data.List as List
 import Data.List (foldl', nub)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -545,13 +546,20 @@ applyMergeRepartitionTopics t =
 -- merged. The returned list contains one entry per group; each
 -- group is a non-empty list of 'NodeName's where the head is the
 -- survivor and the tail is the to-be-removed duplicates.
+--
+-- Survivor selection is deterministic: within each group we pick
+-- the lexicographically smallest 'NodeName'. This is independent
+-- of insertion order, so 'applyMergeRepartitionTopics' is
+-- idempotent under the optimiser's normal compose-with-itself
+-- semantics.
 repartitionSiblingGroups :: Topology -> [[NodeName]]
 repartitionSiblingGroups t =
-  [ grp
+  [ orderedGrp
   | (_parent, kids) <- Map.toList (topoChildrenIndex t)
   , let buckets = groupRepartitionsByPrefix t kids
   , (_prefix, grp) <- buckets
   , length grp > 1
+  , let orderedGrp = List.sort grp
   ]
 
 -- | Partition a child list by repartition prefix; keeps only
