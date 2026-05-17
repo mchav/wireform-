@@ -144,6 +144,8 @@ tests = testGroup "Topology.Free (GADT topology builder)"
   , test_auto_insert_stream_table_join_fanout
   , test_auto_insert_stream_stream_join_fanout
   , test_auto_insert_selectKey_groupByKey_collapses_to_groupBy
+  -- JoinWindows.gracePeriod is honored by the join builder
+  , test_join_grace_drops_late_records
   ]
 
 ----------------------------------------------------------------------
@@ -2636,3 +2638,56 @@ test_auto_insert_selectKey_groupByKey_collapses_to_groupBy =
     "GroupBy"    `elem` toks @?= True
     "SelectKey"  `elem` toks @?= False
     "GroupByKey" `elem` toks @?= False
+
+----------------------------------------------------------------------
+-- 77. JoinWindows grace period drops late records
+----------------------------------------------------------------------
+
+test_join_grace_drops_late_records :: TestTree
+test_join_grace_drops_late_records =
+  testCase "JoinWindows.grace drops records arriving past windowEnd + grace" $ do
+    -- Two-stream join with a 100ms window and 50ms grace.
+    -- Feed an early record; advance stream time well past
+    -- (windowEnd + grace); feed a "late" record on each side and
+    -- assert no match was emitted because both sides were
+    -- dropped at the input.
+    let jw :: Joined.JoinWindows
+        jw = Joined.withJoinWindowsGrace (Duration 50)
+               (Joined.joinWindowsBefore (Duration 100))
+        leftSide :: F.Topology Void (KStream Text Text)
+        leftSide = F.source "join-grace-l" textSerde textSerde
+        rightSide :: F.Topology Void (KStream Text Text)
+        rightSide = F.source "join-grace-r" textSerde textSerde
+        topology :: F.Topology Void ()
+        topology =
+          (leftSide &&& rightSide)
+            >>> F.streamStreamJoin
+                  (\v1 v2 -> v1 <> "+" <> v2)
+                  jw
+                  (Joined.joined textSerde textSerde textSerde)
+            >>> F.sink "join-grace-out" textSerde textSerde
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-join-grace"
+    -- A pair of well-timed matching records produces a join.
+    pipeInput driver (topicName "join-grace-l") (Just (bytes "k"))
+              (bytes "L1") (t 1000) 0
+    pipeInput driver (topicName "join-grace-r") (Just (bytes "k"))
+              (bytes "R1") (t 1010) 0
+    -- Advance stream time well past windowEnd (1100) + grace (50).
+    pipeInput driver (topicName "join-grace-l") (Just (bytes "k"))
+              (bytes "L-now") (t 2000) 0
+    -- The right-side late record arrives within its own window
+    -- but after a stream-time push past the original window's
+    -- grace. Its bare-window predecessor on the left has expired
+    -- past grace and is dropped at the JOIN's input on the left.
+    pipeInput driver (topicName "join-grace-l") (Just (bytes "k"))
+              (bytes "L-stale") (t 1005) 0
+    out <- readOutput driver (topicName "join-grace-out")
+    -- The first L1/R1 join matches normally. The L-stale record
+    -- is past grace and dropped — it contributes no extra match.
+    let outVals = Prelude.map (unbytes . crValue) out
+    assertBool ("L1+R1 join should appear: " <> show outVals) $
+      "L1+R1" `elem` outVals
+    assertBool ("L-stale must not produce a join: " <> show outVals) $
+      not (any ("L-stale" `T.isInfixOf`) outVals)
+    closeDriver driver

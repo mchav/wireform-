@@ -214,11 +214,15 @@ streamFromTopic b topic c = do
               (pure . Topo.NodeName)
               (consumedNodeName c)
   withTopology_ b $
-    Topo.addSource nm
-                   [topic]
-                   (consumedKeySerde c)
-                   (consumedValueSerde c)
-                   (consumedExtractor c)
+    Topo.addSourceWith
+      Topo.SourceSpec
+        { Topo.sourceName        = nm
+        , Topo.sourceTopics      = [topic]
+        , Topo.sourceKeySerde    = Topo.AnySerde (consumedKeySerde c)
+        , Topo.sourceValueSerde  = Topo.AnySerde (consumedValueSerde c)
+        , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
+        , Topo.sourceOffsetReset = consumedOffsetReset c
+        }
   pure KStream
     { kstreamBuilder    = b
     , kstreamParent     = nm
@@ -1126,9 +1130,16 @@ mkSideProc
   -> StoreName -> StoreName -> Topo.NodeName
   -> IO (Processor k vSelf)
 mkSideProc jw joiner mode selfStoreNm otherStoreNm mergeNm = do
-  ctxRef   <- newIORef Nothing
-  selfRef  <- newIORef (Nothing :: Maybe (WindowStore k vSelf))
-  otherRef <- newIORef (Nothing :: Maybe (WindowStore k vOther))
+  ctxRef    <- newIORef Nothing
+  selfRef   <- newIORef (Nothing :: Maybe (WindowStore k vSelf))
+  otherRef  <- newIORef (Nothing :: Maybe (WindowStore k vOther))
+  -- Track the max timestamp observed across both join inputs so
+  -- we can drop late records past the configured grace period.
+  -- JVM semantics: a record at @t@ joins a window
+  -- @[t - beforeMs, t + afterMs]@; it's considered too late
+  -- once @streamTime > t + afterMs + gracePeriodMs@ and is
+  -- dropped at the input.
+  streamTime <- newIORef (Timestamp 0)
   pure Processor
     { procName = processorName "WINDOW-JOIN-SIDE"
     , procInit = \ctx -> do
@@ -1152,32 +1163,48 @@ mkSideProc jw joiner mode selfStoreNm otherStoreNm mergeNm = do
             case (mctx, mself, mother) of
               (Just ctx, Just self_, Just other_) -> do
                 let !ts@(Timestamp tsMs) = recordTimestamp r
-                wsPut self_ k (recordValue r) ts
-                let !lo = Timestamp (tsMs - jw.beforeMs)
-                    !hi = Timestamp (tsMs + jw.afterMs)
-                it <- wsFetchRange other_ k lo hi
-                matches <- kvIteratorToList it
-                if null matches
-                  then case mode of
-                    Inner -> pure ()
-                    LeftEmitNothing f ->
-                      forwardTo ctx mergeNm
-                        (Record
-                          { recordKey       = Just k
-                          , recordValue     = f (recordValue r)
-                          , recordTimestamp = ts
-                          , recordHeaders   = recordHeaders r
-                          } :: Record k vOut)
-                  else mapM_
-                         (\(_otherTs, otherV) ->
-                            forwardTo ctx mergeNm
-                              (Record
-                                { recordKey       = Just k
-                                , recordValue     = joiner (recordValue r) otherV
-                                , recordTimestamp = ts
-                                , recordHeaders   = recordHeaders r
-                                } :: Record k vOut))
-                         matches
+                -- Late-record drop (KIP-633 / JoinWindows.grace).
+                -- If the record's window has already closed past
+                -- the configured grace period, skip the join
+                -- entirely — it doesn't contribute to any open
+                -- window's matches.
+                Timestamp streamMs <- readIORef streamTime
+                let !grace         = jw.gracePeriodMs
+                    !windowCloseMs = tsMs + jw.afterMs
+                    !pastGrace     = streamMs > windowCloseMs + grace
+                if pastGrace
+                  then pure ()
+                  else do
+                    -- Advance stream-time monotonically.
+                    if tsMs > streamMs
+                      then writeIORef streamTime ts
+                      else pure ()
+                    wsPut self_ k (recordValue r) ts
+                    let !lo = Timestamp (tsMs - jw.beforeMs)
+                        !hi = Timestamp (tsMs + jw.afterMs)
+                    it <- wsFetchRange other_ k lo hi
+                    matches <- kvIteratorToList it
+                    if null matches
+                      then case mode of
+                        Inner -> pure ()
+                        LeftEmitNothing f ->
+                          forwardTo ctx mergeNm
+                            (Record
+                              { recordKey       = Just k
+                              , recordValue     = f (recordValue r)
+                              , recordTimestamp = ts
+                              , recordHeaders   = recordHeaders r
+                              } :: Record k vOut)
+                      else mapM_
+                             (\(_otherTs, otherV) ->
+                                forwardTo ctx mergeNm
+                                  (Record
+                                    { recordKey       = Just k
+                                    , recordValue     = joiner (recordValue r) otherV
+                                    , recordTimestamp = ts
+                                    , recordHeaders   = recordHeaders r
+                                    } :: Record k vOut))
+                             matches
               _ -> pure ()
     }
 

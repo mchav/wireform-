@@ -281,6 +281,7 @@ module Kafka.Streams.Topology.Free
   , source
   , sourceWith
   , sources
+  , sourcesWith
   , tableSource
   , globalTableSource
   , mergeSourced
@@ -443,6 +444,7 @@ import Kafka.Streams.Consumed
   , consumed
   , consumedExtractor
   , consumedKeySerde
+  , consumedOffsetReset
   , consumedValueSerde
   )
 import qualified Kafka.Streams.ForeignKeyJoin as FK
@@ -1131,11 +1133,15 @@ sourceMultiCompile
 sourceMultiCompile b ts c = do
   nm <- freshNodeName b "KSTREAM-SOURCE-MULTI"
   withTopology_ b $
-    Topo.addSource nm
-                   (NE.toList ts)
-                   (consumedKeySerde c)
-                   (consumedValueSerde c)
-                   (consumedExtractor c)
+    Topo.addSourceWith
+      Topo.SourceSpec
+        { Topo.sourceName        = nm
+        , Topo.sourceTopics      = NE.toList ts
+        , Topo.sourceKeySerde    = Topo.AnySerde (consumedKeySerde c)
+        , Topo.sourceValueSerde  = Topo.AnySerde (consumedValueSerde c)
+        , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
+        , Topo.sourceOffsetReset = consumedOffsetReset c
+        }
   pure (KS.KStream
           { KS.kstreamBuilder    = b
           , KS.kstreamParent     = nm
@@ -1419,6 +1425,14 @@ sourceWith t c = liftPrim (Source t c)
 sources
   :: NonEmpty Text -> Serde k -> Serde v -> Topology Void (KStream k v)
 sources ts ks vs = liftPrim (SourceMulti (fmap topicName ts) (consumed ks vs))
+
+-- | 'sources' with a fully-specified 'Consumed' (e.g. custom
+-- offset-reset policy, named source node, custom timestamp
+-- extractor). Mirrors the relationship between 'source' and
+-- 'sourceWith'.
+sourcesWith
+  :: NonEmpty TopicName -> Consumed k v -> Topology Void (KStream k v)
+sourcesWith ts c = liftPrim (SourceMulti ts c)
 
 -- | Subscribe to a Kafka topic and materialise it as a
 -- 'KTable' (latest-value-per-key) backed by an in-memory

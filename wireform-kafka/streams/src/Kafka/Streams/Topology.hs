@@ -110,6 +110,7 @@ import qualified Data.Text as T
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
 
+import qualified Kafka.Streams.Consumed as Consumed
 import Kafka.Streams.Processor
   ( Processor
   , ProcessorName (..)
@@ -165,11 +166,16 @@ storeBuilderName = \case
 
 -- | Source node specification.
 data SourceSpec = SourceSpec
-  { sourceName       :: !NodeName
-  , sourceTopics     :: ![TopicName]
-  , sourceKeySerde   :: !AnySerde
-  , sourceValueSerde :: !AnySerde
-  , sourceExtractor  :: !AnyTimestampExtractor
+  { sourceName        :: !NodeName
+  , sourceTopics      :: ![TopicName]
+  , sourceKeySerde    :: !AnySerde
+  , sourceValueSerde  :: !AnySerde
+  , sourceExtractor   :: !AnyTimestampExtractor
+  , sourceOffsetReset :: !Consumed.AutoOffsetReset
+    -- ^ Auto-offset-reset policy. Mirrors Java's
+    -- @Consumed.withOffsetResetPolicy@. The default 'addSource'
+    -- entry point initialises this to 'OffsetEarliest';
+    -- 'addSourceWith' lets callers override.
   }
 
 -- | Processor node specification.
@@ -308,11 +314,12 @@ addSource
   -> Topology
 addSource nm ts ks vs ex t =
   ensureNameFree t nm $ insertSource t SourceSpec
-    { sourceName       = nm
-    , sourceTopics     = ts
-    , sourceKeySerde   = AnySerde ks
-    , sourceValueSerde = AnySerde vs
-    , sourceExtractor  = AnyTimestampExtractor ex
+    { sourceName        = nm
+    , sourceTopics      = ts
+    , sourceKeySerde    = AnySerde ks
+    , sourceValueSerde  = AnySerde vs
+    , sourceExtractor   = AnyTimestampExtractor ex
+    , sourceOffsetReset = Consumed.OffsetEarliest
     }
 
 -- | 'addSource' that lets the caller install a custom 'TopologyError'
@@ -893,11 +900,12 @@ addGlobalStore builder sourceNm procNm topic ks vs ex updater t0 =
              }
   where
     !srcSpec = SourceSpec
-      { sourceName       = sourceNm
-      , sourceTopics     = [topic]
-      , sourceKeySerde   = AnySerde ks
-      , sourceValueSerde = AnySerde vs
-      , sourceExtractor  = AnyTimestampExtractor ex
+      { sourceName        = sourceNm
+      , sourceTopics      = [topic]
+      , sourceKeySerde    = AnySerde ks
+      , sourceValueSerde  = AnySerde vs
+      , sourceExtractor   = AnyTimestampExtractor ex
+      , sourceOffsetReset = Consumed.OffsetEarliest
       }
 
 attachToProcessor
