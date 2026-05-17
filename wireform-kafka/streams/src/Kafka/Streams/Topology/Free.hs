@@ -317,6 +317,15 @@ module Kafka.Streams.Topology.Free
   , BufferConfig
   , maxRecordsBufferConfig
   , maxBytesBufferConfig
+    -- ** Late store attachment + global stores
+  , addGlobalStore
+  , connectProcessorAndStateStores
+    -- ** Rich sink + stateful transform
+  , sinkSpec
+  , transformStream
+    -- ** TableJoined-aware FK joins (KIP-545)
+  , foreignKeyJoinWith
+  , leftForeignKeyJoinWith
   , filter
   , filterNot
   , flatMapValues
@@ -464,6 +473,7 @@ import Kafka.Streams.Consumed
   , consumedOffsetReset
   , consumedValueSerde
   )
+import qualified Kafka.Streams.Joined as Joined
 import qualified Kafka.Streams.Named as Named
 import qualified Kafka.Streams.ForeignKeyJoin as FK
 import Kafka.Streams.GlobalKTable (GlobalKTable)
@@ -507,6 +517,7 @@ import Kafka.Streams.StreamsBuilder
 import qualified Kafka.Streams.Suppress as Suppress
 import qualified Kafka.Streams.TimeWindowedKStream as TWKS
 import Kafka.Streams.Time (Duration)
+import qualified Kafka.Streams.Time as Time
 import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free.Arrow as FA
 import Kafka.Streams.Topology.Free.Arrow (FreeArrow (..))
@@ -3046,6 +3057,153 @@ maxRecordsBufferConfig = Suppress.maxRecordsBufferConfig
 -- so we treat the cap as a record-count surrogate.
 maxBytesBufferConfig :: Int -> BufferConfig
 maxBytesBufferConfig = Suppress.maxBytesBufferConfig
+
+----------------------------------------------------------------------
+-- Late store attachment / global stores
+----------------------------------------------------------------------
+
+-- | Register a /global/ key-value store backed by its own
+-- source + updater processor. Mirrors
+-- 'Kafka.Streams.Topology.addGlobalStore'. The store is
+-- replicated on every instance (the runtime treats global
+-- stores as cluster-wide bypassing partition assignment).
+--
+-- Use 'globalTableSource' for the high-level "global lookup
+-- table" API; this lower-level entry point lets you run
+-- arbitrary updater logic. Either way, joins downstream don't
+-- require co-partitioning of the source topic.
+addGlobalStore
+  :: StoreBuilderKV k v
+  -> Text                                  -- ^ source node name
+  -> Text                                  -- ^ updater processor node name
+  -> TopicName
+  -> Serde k
+  -> Serde v
+  -> Time.TimestampExtractor k v
+  -> IO (Processor k v)                    -- ^ updater supplier
+  -> Topology a a
+addGlobalStore builder srcNm procNm topic ks vs ex updater =
+  liftIO_ "addGlobalStore" $ \b x -> do
+    withTopology_ b $
+      Topo.addGlobalStore
+        builder
+        (Topo.NodeName srcNm)
+        (Topo.NodeName procNm)
+        topic ks vs ex
+        (Topo.AnyProcessor updater)
+    pure x
+
+-- | Connect a previously-added processor to one or more
+-- previously-added state stores. Mirrors
+-- 'Kafka.Streams.Topology.connectProcessorAndStateStores' for
+-- multi-owner / late-wiring patterns. The processor must
+-- already exist; the stores must already exist. Mostly used
+-- after a 'liftIO_' or 'processStream' that registered a
+-- processor under a known node name.
+connectProcessorAndStateStores
+  :: Text             -- ^ processor node name
+  -> [StoreName]
+  -> Topology a a
+connectProcessorAndStateStores procNm stores =
+  liftIO_ "connectProcessorAndStateStores" $ \b x -> do
+    withTopology_ b $
+      Topo.connectProcessorAndStateStores
+        (Topo.NodeName procNm) stores
+    pure x
+
+----------------------------------------------------------------------
+-- Rich sink spec (custom partitioner, explicit node name)
+----------------------------------------------------------------------
+
+-- | 'sink' that accepts a full 'Topo.SinkSpec'. The richer
+-- variant lets callers specify a custom partitioner / explicit
+-- node name that the standard 'sinkWith' (which goes through
+-- 'KS.toTopic') doesn't expose.
+sinkSpec :: Topo.SinkSpec -> Topology (KStream k v) ()
+sinkSpec spec =
+  liftIO_ "sinkSpec" $ \b s -> do
+    withTopology_ b $ \t ->
+      let !t' = Topo.addSinkWith
+                  (spec { Topo.sinkParents = [KS.kstreamParent s] })
+                  t
+       in t'
+    pure ()
+
+----------------------------------------------------------------------
+-- Stateful key-changing transform
+----------------------------------------------------------------------
+
+-- | A stateful key-changing transformer — the equivalent of
+-- JVM @KStream.transform(TransformerSupplier)@. The processor
+-- receives every record, may consult and update declared state
+-- stores, and emits zero or more typed-key/value records
+-- downstream.
+--
+-- This is the most general primitive: it can change BOTH key
+-- and value, run IO, and reach state stores attached via
+-- 'withStateStoreKV' or 'connectProcessorAndStateStores'.
+-- Where 'processValuesStream' is restricted to per-record
+-- /value/ transforms with optional store access,
+-- 'transformStream' is unrestricted.
+--
+-- Pair with 'withStateStoreKV' (or 'connectProcessorAndStateStores')
+-- to wire in state stores; the @['StoreName']@ list goes into
+-- the processor's @processorSpecStores@ and grants access.
+transformStream
+  :: Text                                  -- ^ name prefix
+  -> [StoreName]
+  -> IO (Processor k v)
+  -> Serde k'
+  -> Serde v'
+  -> Topology (KStream k v) (KStream k' v')
+transformStream prefix stores sup ks' vs' =
+  liftIO_ "transformStream" $ \b s -> do
+    nm <- freshNodeName b prefix
+    withTopology_ b $
+      Topo.addProcessorWith
+        Topo.ProcessorSpec
+          { Topo.processorSpecName     = nm
+          , Topo.processorSpecParents  = [KS.kstreamParent s]
+          , Topo.processorSpecSupplier = Topo.AnyProcessor sup
+          , Topo.processorSpecStores   = stores
+          }
+    pure KS.KStream
+      { KS.kstreamBuilder    = b
+      , KS.kstreamParent     = nm
+      , KS.kstreamKeySerde   = ks'
+      , KS.kstreamValueSerde = vs'
+      }
+
+----------------------------------------------------------------------
+-- KIP-545: TableJoined-aware FK joins
+----------------------------------------------------------------------
+
+-- | 'foreignKeyJoin' with a 'TableJoined' override
+-- (naming + partitioner). See 'FK.foreignKeyJoinKTableWith' for
+-- which parts of the override are honored by the in-process
+-- driver today.
+foreignKeyJoinWith
+  :: (Ord k, Ord fk, Hashable v)
+  => Joined.TableJoined k fk
+  -> (v -> fk)
+  -> (v -> vr -> v')
+  -> Materialized k v'
+  -> Topology (KTable k v, KTable fk vr) (KTable k v')
+foreignKeyJoinWith tj ext j m =
+  liftIO_ "foreignKeyJoinWith" $ \_b (t1, t2) ->
+    FK.foreignKeyJoinKTableWith tj ext j m t1 t2
+
+-- | 'leftForeignKeyJoin' with a 'TableJoined' override.
+leftForeignKeyJoinWith
+  :: (Ord k, Ord fk, Hashable v)
+  => Joined.TableJoined k fk
+  -> (v -> fk)
+  -> (v -> Maybe vr -> v')
+  -> Materialized k v'
+  -> Topology (KTable k v, KTable fk vr) (KTable k v')
+leftForeignKeyJoinWith tj ext j m =
+  liftIO_ "leftForeignKeyJoinWith" $ \_b (t1, t2) ->
+    FK.leftForeignKeyJoinKTableWith tj ext j m t1 t2
 
 -- | Walk the AST and collect a per-node textual label
 -- listing.

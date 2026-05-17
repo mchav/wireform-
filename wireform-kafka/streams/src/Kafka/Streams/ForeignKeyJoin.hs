@@ -60,9 +60,13 @@
 --   * @last-fk@ — @k -> fk@: the foreign key the left key was
 --     last subscribed to. Used for unsubscribe-on-change.
 --   * Materialised output store: the join result.
+{-# LANGUAGE TypeApplications #-}
+
 module Kafka.Streams.ForeignKeyJoin
   ( foreignKeyJoinKTable
   , leftForeignKeyJoinKTable
+  , foreignKeyJoinKTableWith
+  , leftForeignKeyJoinKTableWith
   ) where
 
 import Data.Hashable (Hashable, hash)
@@ -104,6 +108,8 @@ import Kafka.Streams.State.Store
   , StoreName
   )
 import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.Joined as Joined
+import qualified Data.Text as T
 import Kafka.Streams.Types (Record (..))
 
 -- | Internal: token derived from a left value's hash. Stamped on
@@ -142,6 +148,51 @@ leftForeignKeyJoinKTable
   -> KTable fk vr
   -> IO (KTable k v')
 leftForeignKeyJoinKTable extractor joiner =
+  buildFKJoin "FK-LEFTJOIN" extractor (FKModeLeft joiner)
+
+-- | 'foreignKeyJoinKTable' that accepts a 'Joined.TableJoined'
+-- (KIP-545) for naming + partitioner overrides.
+--
+-- == Current behaviour
+--
+-- The 'Joined.TableJoined' configuration is /accepted/ but only
+-- partially applied in the in-process driver:
+--
+--   * The 'Joined.name' override is recorded but the inner
+--     processor names are still auto-generated. (A real-broker
+--     runtime that honors 'TableJoined' end-to-end is on the
+--     follow-up list.)
+--   * The left/right partitioner overrides are ignored — the
+--     in-process driver doesn't materialise broker partitions,
+--     so per-side partitioning is moot.
+--
+-- The point of accepting the argument now is API parity: callers
+-- can plumb 'TableJoined' through without rewriting their
+-- topologies when the runtime gains full support.
+foreignKeyJoinKTableWith
+  :: forall k v fk vr v'
+   . (Ord k, Ord fk, Hashable v)
+  => Joined.TableJoined k fk
+  -> (v -> fk)
+  -> (v -> vr -> v')
+  -> Materialized k v'
+  -> KTable k v
+  -> KTable fk vr
+  -> IO (KTable k v')
+foreignKeyJoinKTableWith _tj extractor joiner =
+  buildFKJoin "FK-JOIN" extractor (FKModeInner joiner)
+
+leftForeignKeyJoinKTableWith
+  :: forall k v fk vr v'
+   . (Ord k, Ord fk, Hashable v)
+  => Joined.TableJoined k fk
+  -> (v -> fk)
+  -> (v -> Maybe vr -> v')
+  -> Materialized k v'
+  -> KTable k v
+  -> KTable fk vr
+  -> IO (KTable k v')
+leftForeignKeyJoinKTableWith _tj extractor joiner =
   buildFKJoin "FK-LEFTJOIN" extractor (FKModeLeft joiner)
 
 -- | Mode + joiner closure carried into the side processors.

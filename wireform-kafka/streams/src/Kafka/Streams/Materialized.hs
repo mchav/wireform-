@@ -13,6 +13,10 @@ module Kafka.Streams.Materialized
   , withStoreSupplier
   , withKeySerde
   , withValueSerde
+    -- * Queryable store info
+  , queryableStoreName
+  , QueryableStoreType (..)
+  , queryableStoreType
   ) where
 
 import Data.Int (Int64)
@@ -92,4 +96,38 @@ withLoggingDisabled m = m { matLoggingEnabled = False }
 
 withRetention :: Int64 -> Materialized k v -> Materialized k v
 withRetention r m = m { matRetentionMs = Just r }
+
+----------------------------------------------------------------------
+-- Queryable store info (Interactive Queries surface)
+----------------------------------------------------------------------
+
+-- | The queryable name of the resulting store, mirroring Java's
+-- @Materialized.as("name").queryableStoreName()@. Returns the
+-- explicit name from 'materializedAs' (the most stable choice
+-- for IQ clients) and 'Nothing' for the anonymous form (where
+-- the DSL auto-generates a name and IQ access by stable handle
+-- isn't possible).
+queryableStoreName :: Materialized k v -> Maybe StoreName
+queryableStoreName = matName
+
+-- | The kind of access a store supports — mirrors Java's
+-- @QueryableStoreType\<S\>@. Implementations across the
+-- 'KStream' / 'KGroupedStream' / 'TimeWindowedKStream' /
+-- 'SessionWindowedKStream' DSL pipelines materialise into one
+-- of these.
+data QueryableStoreType
+  = QSKeyValueStore
+  | QSWindowStore
+  | QSSessionStore
+  deriving stock (Eq, Show)
+
+-- | The store type implied by the 'Materialized' constructor,
+-- when the type can be inferred. The current 'Materialized'
+-- record is parameterised by @(k, v)@ and doesn't carry the
+-- store-shape directly; this helper always returns
+-- 'QSKeyValueStore' for a plain 'Materialized'. Use the
+-- per-shape DSL entry points ('countWindowed' /
+-- 'aggregateSessionWindowed') for window / session shapes.
+queryableStoreType :: Materialized k v -> QueryableStoreType
+queryableStoreType _ = QSKeyValueStore
 
