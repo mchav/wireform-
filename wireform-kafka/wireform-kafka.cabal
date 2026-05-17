@@ -444,6 +444,7 @@ library wireform-kafka-streams
         Kafka.Streams.Processor.Mock
         Kafka.Streams.Topology
         Kafka.Streams.Topology.Free
+        Kafka.Streams.Topology.Free.Arrow
         Kafka.Streams.Topology.Free.Optimize
         Kafka.Streams.Topology.Free.Graphviz
         Kafka.Streams.TopologyDescription
@@ -619,6 +620,7 @@ test-suite wireform-kafka-streams-test
         Streams.SchemaRegistryHttpSpec
         Streams.SchemaRegistryFormatsSpec
         Streams.TopologyFreeSpec
+        Streams.TopologyFreeArrowSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
