@@ -164,6 +164,55 @@
 -- share lineage by construction (single-source, multi-sink) —
 -- another way to build EOS-atomic multi-output topologies.
 --
+-- == On side effects
+--
+-- 'Foreach' is /synchronous/: the supplied callback runs on the
+-- stream-processing thread for every record before the engine
+-- moves on. This is intentional and matches the JVM
+-- @KStream.foreach@ contract. The reasons we do /not/ ship a
+-- @foreachAsync@ constructor on top:
+--
+--   * No backpressure — fire-and-forget asyncs accumulate when the
+--     handler is slower than the poll rate; the runtime OOMs
+--     before the stream thread ever felt the slowness.
+--   * Silent error swallowing — discarded async handles drop
+--     failures on the floor.
+--   * EOS-incompatibility — the async escapes the transactional
+--     commit cycle; an abort can't roll it back.
+--   * Out-of-order completion within a partition — Kafka Streams
+--     guarantees per-key ordering on the stream thread, but
+--     @async@ destroys that guarantee.
+--
+-- The JVM API doesn't ship an async @foreach@ either; the canonical
+-- patterns for non-blocking work are:
+--
+-- [\"Sink + downstream consumer\"]
+--   Publish to a side topic with 'sink', then run a separate
+--   consumer that processes the side topic. The intermediate
+--   topic provides durability, ordering, EOS, and natural
+--   backpressure.
+--
+-- [\"Custom processor with bounded async pool\"]
+--   Reach for 'processStream' / 'processWithStateStoreKV' and
+--   build your own bounded queue + worker pool inside the
+--   processor. The 'Processor' lifecycle hooks
+--   ('procInit' \/ 'procClose') give you a place to allocate
+--   and clean up. This keeps the slow work off the stream
+--   thread /and/ caps the in-flight work.
+--
+-- [\"liftIO_ escape hatch\"]
+--   For genuinely best-effort fire-and-forget work that's
+--   acceptable to lose on a restart, use 'liftIO_' with an
+--   explicit 'Control.Concurrent.Async.async'. Making the
+--   user reach for 'liftIO_' is the deliberate friction: the
+--   ergonomic GADT path doesn't lead callers into the footgun.
+--
+-- The underlying imperative
+-- 'Kafka.Streams.KStream.foreachStreamAsync' from the original
+-- DSL is still available for callers who explicitly want it;
+-- this module just doesn't promote it to a first-class
+-- 'Topology' constructor.
+--
 -- == Monad bind for incrementally-built topologies
 --
 -- The 'Monad' instance lets you bind a wire value to a
@@ -249,7 +298,6 @@ module Kafka.Streams.Topology.Free
   , flatMapKeyValue
   , peek
   , foreach
-  , foreachAsync
   , prints
   , selectKey
   , values
@@ -645,9 +693,12 @@ data Topology i o where
                   -> Topology (KStream k v) (KStream k' v')
   Peek            :: (Record k v -> IO ())
                   -> Topology (KStream k v) (KStream k v)
+  -- | Terminal side-effect sink. The callback runs synchronously
+  -- on the stream-processing thread for every record. /No
+  -- async variant is exposed/ — see the module-level note on
+  -- side effects below for the rationale and the recommended
+  -- patterns for non-blocking work.
   Foreach         :: (Record k v -> IO ())
-                  -> Topology (KStream k v) ()
-  ForeachAsync    :: (Record k v -> IO ())
                   -> Topology (KStream k v) ()
   SelectKey       :: (Record k v -> k')
                   -> Topology (KStream k v) (KStream k' v)
@@ -1241,7 +1292,6 @@ apply t b = go t
     go (FlatMapKeyValue f)   = KS.flatMapKeyValue f
     go (Peek f)              = KS.peekStream f
     go (Foreach f)           = KS.foreachStream f
-    go (ForeachAsync f)      = KS.foreachStreamAsync f
     go (SelectKey f)         = KS.selectKey f
     go Values                = KS.valuesStream
     go (Print label putLine) = KS.printToHandle label putLine
@@ -1708,15 +1758,12 @@ flatMapKeyValue = FlatMapKeyValue
 peek :: (Record k v -> IO ()) -> Topology (KStream k v) (KStream k v)
 peek = Peek
 
+-- | Terminal side-effect sink. The callback runs /synchronously/
+-- on the stream-processing thread for every record. There is no
+-- @foreachAsync@ in this module on purpose — see the module-level
+-- note "On side effects" below.
 foreach :: (Record k v -> IO ()) -> Topology (KStream k v) ()
 foreach = Foreach
-
--- | Non-blocking 'foreach' — each effect runs in its own
--- 'Control.Concurrent.Async' so the stream thread doesn't block on
--- IO latency. Same per-task-order caveats as
--- 'Kafka.Streams.KStream.foreachStreamAsync'.
-foreachAsync :: (Record k v -> IO ()) -> Topology (KStream k v) ()
-foreachAsync = ForeachAsync
 
 selectKey :: (Record k v -> k') -> Topology (KStream k v) (KStream k' v)
 selectKey = SelectKey
@@ -2169,7 +2216,6 @@ inspect = go
     go (FlatMapKeyValue _)  = ["FlatMapKeyValue"]
     go (Peek _)             = ["Peek"]
     go (Foreach _)          = ["Foreach"]
-    go (ForeachAsync _)     = ["ForeachAsync"]
     go (SelectKey _)        = ["SelectKey"]
     go Values               = ["Values"]
     go (Print nm _)         = ["Print(" <> nm <> ")"]
