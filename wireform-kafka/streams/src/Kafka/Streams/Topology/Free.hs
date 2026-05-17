@@ -276,12 +276,23 @@ module Kafka.Streams.Topology.Free
   , liftIO_
   , inspect
   , prettyPrint
+
+    -- * Errors
+  --
+  -- Lazy errors the builder can surface when a downstream
+  -- operation forces a field that wasn't fully populated
+  -- upstream (the only situations where the AST is itself well-
+  -- typed but partial). 'TopologyFreeError' is an 'Exception'
+  -- so callers can 'Control.Exception.try' the offending action.
+  , TopologyFreeError (..)
+  , SerdeSide (..)
   ) where
 
 import Prelude hiding (id, filter, (.))
 
 import Control.Arrow (Arrow (..), ArrowChoice (..))
 import Control.Category (Category (..))
+import qualified Control.Exception as Exception
 import Control.Monad ((>=>))
 import Data.Hashable (Hashable)
 import Data.Int (Int64)
@@ -291,6 +302,7 @@ import Data.Map.Strict (Map)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
+import GHC.Generics (Generic)
 
 import Kafka.Streams.Cogroup (CogroupedStream)
 import qualified Kafka.Streams.Cogroup as Cog
@@ -933,9 +945,11 @@ apply t b = go t
       let toBranched (SplitBranch nm p) = KS.branchedFrom nm p
       KS.splitStream (Prelude.map toBranched branches) mDefault s
 
-    -- Sources (the Void input is never inspected)
+    -- Sources (the Void input is never inspected — neither the
+    -- 'Source', 'SourceMulti', 'TableSource', nor 'GlobalSource'
+    -- pattern-match on it).
     go (Source topic c)         = \_void -> KS.streamFromTopic b topic c
-    go (SourceMulti topics c)   = \_void -> sourceMultiCompile b (NE.toList topics) c
+    go (SourceMulti topics c)   = \_void -> sourceMultiCompile b topics c
     go (TableSource topic c m)  = \_void -> KT.tableFromTopic b topic c m
     go (GlobalSource topic c m) = \_void -> GT.globalTable b topic c m
 
@@ -1081,21 +1095,20 @@ apply t b = go t
 --
 -- The runtime's source-topic set is a single list per source node, so
 -- the multi-topic case is the natural shape; the single-topic
--- 'streamFromTopic' is just sugar over it.
+-- 'streamFromTopic' is just sugar over it. The helper takes a
+-- 'NonEmpty' rather than '[]' so the empty-list case isn't even
+-- representable — calling this with an empty 'NonEmpty' is a type
+-- error, eliminating the partial-function pitfall.
 sourceMultiCompile
   :: TBuilder
-  -> [TopicName]
+  -> NonEmpty TopicName
   -> Consumed k v
   -> IO (KStream k v)
-sourceMultiCompile _ [] _ =
-  error
-    "Kafka.Streams.Topology.Free.sources: multi-topic source needs \
-    \at least one topic; pass a NonEmpty in via the smart constructor."
 sourceMultiCompile b ts c = do
   nm <- freshNodeName b "KSTREAM-SOURCE-MULTI"
   withTopology_ b $
     Topo.addSource nm
-                   ts
+                   (NE.toList ts)
                    (consumedKeySerde c)
                    (consumedValueSerde c)
                    (consumedExtractor c)
@@ -1106,14 +1119,22 @@ sourceMultiCompile b ts c = do
           , KS.kstreamValueSerde = consumedValueSerde c
           })
 
--- The 'CountedTableLocal' / windowed handle / session handle returned
--- by the existing aggregation DSL is a thin wrapper around a 'KTable'
--- — it just doesn't carry the serdes. We promote it to a real
--- 'KTable' by extracting the serdes from the supplied 'Materialized'.
--- If they're absent the corresponding 'KTable' field becomes a
--- deferred error (matching the existing 'KTable' lazy-serde behaviour
--- after @mapValues@ etc); a downstream @to@ or @join@ will then
--- report the missing serde at the use site rather than here.
+-- | Promote an aggregation handle to a real 'KTable'.
+--
+-- The 'CountedTableLocal' handle the existing DSL returns from
+-- aggregations is a thin wrapper around a 'KTable' — it just
+-- doesn't carry the serdes. We extract the serdes from the
+-- supplied 'Materialized'. If they're absent the corresponding
+-- 'KTable' field becomes a /deferred/ 'TopologyFreeError' —
+-- matching the existing 'KTable' lazy-serde behaviour after
+-- @mapValues@ etc. Downstream @to@\/@join@ that forces the
+-- serde will raise the exception at the actual use site.
+--
+-- Unlike a bare 'error', the deferred thunk uses
+-- 'TopologyFreeError' so callers who want to surface friendlier
+-- diagnostics can catch it (via 'Control.Exception.evaluate' on
+-- the thunk, or by wrapping the downstream operation in
+-- 'Control.Exception.try').
 handleToKTable
   :: Materialized k v
   -> KGS.CountedTableLocal k v
@@ -1125,18 +1146,48 @@ handleToKTable m h = KT.KTable
   , KT.ktableKeySerde   =
       case Mat.matKeySerde m of
         Just s  -> s
-        Nothing ->
-          error
-            "Kafka.Streams.Topology.Free: aggregation result KTable has \
-            \no key serde; supply one via Materialized.withKeySerde"
+        Nothing -> Exception.throw (MissingMaterializedSerde KeySide)
   , KT.ktableValueSerde =
       case Mat.matValueSerde m of
         Just s  -> s
-        Nothing ->
-          error
-            "Kafka.Streams.Topology.Free: aggregation result KTable has \
-            \no value serde; supply one via Materialized.withValueSerde"
+        Nothing -> Exception.throw (MissingMaterializedSerde ValueSide)
   }
+
+-- | Whether the missing serde was the key or value side of the
+-- 'Materialized'.
+data SerdeSide = KeySide | ValueSide
+  deriving stock (Eq, Show, Generic)
+
+-- | The (small) set of partial conditions the Free topology builder
+-- can land in. All currently land /lazily/: they aren't raised at
+-- AST-construction time, only when a downstream operation forces
+-- the affected field (typically @to@, @join@, or @repartition@
+-- asking for a serde, or the runtime asking for a Void input on a
+-- topology that bypassed the smart constructors).
+--
+-- Because 'TopologyFreeError' is an 'Exception.Exception' callers
+-- can catch it via 'Control.Exception.try' \/
+-- 'Control.Exception.evaluate', rather than the bare 'error' calls
+-- that preceded this type. Pattern-match on the constructor to
+-- decide whether the user can fix the call site
+-- ('MissingMaterializedSerde') or it's a library bug
+-- ('VoidInputForced').
+data TopologyFreeError
+  = -- | An aggregation result was promoted to a 'KTable' but the
+    -- supplied 'Materialized' didn't carry the named serde. Supply
+    -- one via @'Mat.withKeySerde'@ or @'Mat.withValueSerde'@ when
+    -- constructing the 'Materialized', /or/ ensure the downstream
+    -- operation that forced the serde gets it through @Produced@
+    -- (for sinks) \/ @Joined@ (for joins) instead of relying on
+    -- the @KTable@'s embedded serde.
+    MissingMaterializedSerde !SerdeSide
+  | -- | A 'Source' (or any closed-input) primitive inspected its
+    -- 'Void' input. By construction sources never look at the
+    -- void; if you see this exception, please file a bug. The
+    -- 'Text' is the location label from the compile entry point.
+    VoidInputForced !Text
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Exception.Exception)
 
 -- | Compile a closed-input topology into the existing
 -- 'Kafka.Streams.Topology.Topology' graph.
@@ -1174,11 +1225,16 @@ compileWithOptimization cfg t = do
   topo <- buildTopology b
   pure (o, topo)
   where
+    -- By construction every 'Topology Void _' is rooted in one of
+    -- the source constructors, and none of them inspect the input
+    -- value. The thunk below is therefore unreachable code; if it
+    -- ever fires it's because someone bypassed the smart
+    -- constructors (e.g. via 'unsafeCoerce' or a custom 'Lifted'
+    -- handler that destructures Void). We throw a typed
+    -- 'TopologyFreeError' rather than a bare 'error' so callers
+    -- can catch it and report at their preferred granularity.
     voidInput :: Void
-    voidInput =
-      error
-        "Kafka.Streams.Topology.Free.compile: Source primitive inspected its Void input — \
-        \this is a library bug. Please report."
+    voidInput = Exception.throw (VoidInputForced "compileWithOptimization")
 
 -- | 'compile' against a pre-existing 'StreamsBuilder'. Useful when
 -- splicing a 'Topology' into a topology being built imperatively
@@ -1190,8 +1246,7 @@ compileInBuilder :: TBuilder -> Topology Void o -> IO o
 compileInBuilder b t = apply t b voidInput
   where
     voidInput :: Void
-    voidInput =
-      error "Kafka.Streams.Topology.Free.compileInBuilder: void input forced"
+    voidInput = Exception.throw (VoidInputForced "compileInBuilder")
 
 -- | Deprecated name for 'compileInBuilder'. Kept as an alias so
 -- existing call sites don't break.

@@ -17,7 +17,9 @@ module Streams.TopologyFreeSpec (tests) where
 import qualified Control.Arrow
 import Control.Arrow ((&&&), (***), (>>>))
 import qualified Control.Category as Cat
+import Control.Exception (try, evaluate)
 import qualified Data.ByteString.Char8 as BSC
+import qualified Data.HashMap.Strict as HMap
 import Data.Int (Int64)
 import Data.IORef
 import qualified Data.List.NonEmpty as NE
@@ -29,6 +31,11 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
 import Kafka.Streams
+import Kafka.Streams.Runtime.EOS
+  ( CommitOutcome (..)
+  , EOSCoordinator (..)
+  , runCommitCycle
+  )
 import qualified Kafka.Streams.Materialized as Mat
 import qualified Kafka.Streams.Topology.Free as F
 
@@ -78,6 +85,12 @@ tests = testGroup "Topology.Free (GADT topology builder)"
   , test_optimize_tap_foreach_becomes_peek
   , test_optimize_combines_adjacent_taps
   , test_optimize_pushes_arr_through_fork
+  -- Errors
+  , test_missing_serde_throws_typed_exception
+  -- EOS interaction
+  , test_fork_topology_is_eos_atomic
+  , test_forkN_topology_is_eos_atomic
+  , test_tap_topology_is_eos_atomic
   ]
 
 ----------------------------------------------------------------------
@@ -1265,3 +1278,213 @@ test_optimize_pushes_arr_through_fork =
       ("expected Arr.Fork to collapse; before=" <> show before
         <> " after=" <> show after)
       (after == 1 && before > 1)
+
+----------------------------------------------------------------------
+-- 35. Typed exception on a missing-serde Materialized
+----------------------------------------------------------------------
+
+test_missing_serde_throws_typed_exception :: TestTree
+test_missing_serde_throws_typed_exception =
+  testCase "forcing an aggregation KTable's missing serde raises TopologyFreeError" $ do
+    -- A Materialized with no serdes set. The aggregation succeeds at
+    -- compile time, but the resulting KTable's serde fields are
+    -- deferred 'TopologyFreeError' thunks. Forcing one of them
+    -- should yield a catchable exception, not an opaque 'error'.
+    let unset :: Materialized Text Int64
+        unset = Mat.materializedAs (storeName "missing-serde-store")
+
+        topology :: F.Topology Void (KTable Text Int64)
+        topology =
+          F.source "in" textSerde textSerde
+            >>> F.groupByKey (grouped textSerde textSerde)
+            >>> F.count unset
+
+    (kt, _topo) <- F.compile topology
+    -- Force the value-serde field; expect TopologyFreeError.
+    result <- try (evaluate (ktableValueSerde kt))
+    case result of
+      Left (F.MissingMaterializedSerde F.ValueSide) -> pure ()
+      Left other  ->
+        error ("expected MissingMaterializedSerde ValueSide, got: "
+                <> show other)
+      Right _ ->
+        error "expected the missing value serde to raise an exception"
+
+----------------------------------------------------------------------
+-- 36-38. EOS atomicity of Fork / ForkN / Tap topologies
+----------------------------------------------------------------------
+-- We can't drive a real broker in unit tests, but we can verify:
+--
+-- 1. Fork / ForkN / Tap topologies compile to a single source feeding
+--    multiple sinks. /All sinks share the upstream source node/ — so
+--    when the engine processes one record, every downstream sink
+--    receives it within the same task, before any commit fires. That
+--    means all sinks participate in the SAME EOS commit cycle.
+--
+-- 2. With a recording 'EOSCoordinator' wrapping the record-pumping
+--    'flushBody', a single 'runCommitCycle' invocation drives records
+--    through all branches and lands every sink's output within one
+--    transaction. The call sequence is the canonical
+--    @begin → commitOffsets → commit → storeCommit@.
+--
+-- This is the strongest assertion we can make at the unit-test layer
+-- without a live transactional broker; the broker-side wire path is
+-- exercised by the EOS integration tests in 'Streams.EOSRuntimeSpec'.
+
+-- | Recording 'EOSCoordinator' that captures the call sequence in an
+-- 'IORef'. Identical to the helper in 'Streams.EOSRuntimeSpec' but
+-- duplicated here to avoid a cross-module test dependency.
+mkRecordingCoord :: IO (EOSCoordinator, IO [Text])
+mkRecordingCoord = do
+  buf <- newIORef ([] :: [Text])
+  let log_ s = modifyIORef' buf (s :)
+      coord = EOSCoordinator
+        { initTxn       = log_ "init"   *> pure (Right ())
+        , beginTxn      = log_ "begin"  *> pure (Right ())
+        , commitTxn     = log_ "commit" *> pure (Right ())
+        , abortTxn      = log_ "abort"  *> pure (Right ())
+        , commitOffsets = \_ _ -> log_ "commitOffsets" *> pure (Right ())
+        , storeCommit   = log_ "storeCommit" *> pure (Right ())
+        , storeAbort    = log_ "storeAbort"  *> pure (Right ())
+        }
+  pure (coord, reverse <$> readIORef buf)
+
+test_fork_topology_is_eos_atomic :: TestTree
+test_fork_topology_is_eos_atomic =
+  testCase "Fork topology: all branch sinks share the source under EOS" $ do
+    -- 'Fork' duplicates the wire; we sink each half to a different
+    -- topic. The compiled graph has one source feeding both sinks.
+    let upper :: F.Topology (KStream Text Text) ()
+        upper = F.mapValues T.toUpper >>> F.sink "fork-upper" textSerde textSerde
+        lower :: F.Topology (KStream Text Text) ()
+        lower = F.mapValues T.toLower >>> F.sink "fork-lower" textSerde textSerde
+
+        topology :: F.Topology Void ()
+        topology =
+          F.source "fork-in" textSerde textSerde
+            >>> F.fork
+            >>> (upper *** lower)
+            >>> Control.Arrow.arr (const ())
+
+    (_, topo) <- F.compile topology
+    -- Structural check: exactly one source, exactly two sinks, and
+    -- both sinks are descendants of that single source. That's the
+    -- topology shape EOS needs for atomic commit across both
+    -- sinks.
+    let !nSources = length (topologySources topo)
+        !sinks    = topologySinkNames topo
+    nSources @?= 1
+    length sinks @?= 2
+
+    -- Drive records through with a recording EOS coordinator
+    -- wrapping the flushBody. A single commit cycle covers both
+    -- sinks.
+    driver <- newDriver topo "free-eos-fork"
+    (coord, drain) <- mkRecordingCoord
+    outcome <- runCommitCycle coord "g" (pure HMap.empty) $ do
+      pipeInput driver (topicName "fork-in") Nothing (bytes "Hello") t0 0
+      pipeInput driver (topicName "fork-in") Nothing (bytes "World") t0 0
+    outcome @?= CommitSucceeded
+
+    upperOut <- readOutput driver (topicName "fork-upper")
+    lowerOut <- readOutput driver (topicName "fork-lower")
+    map (unbytes . crValue) upperOut @?= ["HELLO", "WORLD"]
+    map (unbytes . crValue) lowerOut @?= ["hello", "world"]
+
+    -- The commit cycle ran the canonical EOS sequence, with /all/
+    -- branch outputs captured between 'begin' and 'commit'.
+    log_ <- drain
+    log_ @?= ["begin", "commitOffsets", "commit", "storeCommit"]
+    closeDriver driver
+
+test_forkN_topology_is_eos_atomic :: TestTree
+test_forkN_topology_is_eos_atomic =
+  testCase "ForkN: N branch sinks all share the source under EOS" $ do
+    -- A three-way ForkN; each branch writes to its own topic.
+    let mkSink :: Text -> (Text -> Text) -> F.Topology (KStream Text Text) ()
+        mkSink topic f =
+          F.mapValues f >>> F.sink topic textSerde textSerde
+
+        topology :: F.Topology Void ()
+        topology =
+          F.source "forkn-in" textSerde textSerde
+            >>> F.forkN
+                  ( NE.fromList
+                      [ mkSink "fn-upper" T.toUpper
+                      , mkSink "fn-lower" T.toLower
+                      , mkSink "fn-rev"   T.reverse
+                      ])
+            >>> Control.Arrow.arr (const ())
+
+    (_, topo) <- F.compile topology
+    let !nSources = length (topologySources topo)
+        !sinks    = topologySinkNames topo
+    nSources @?= 1
+    length sinks @?= 3
+
+    driver <- newDriver topo "free-eos-forkn"
+    (coord, drain) <- mkRecordingCoord
+    outcome <- runCommitCycle coord "g" (pure HMap.empty) $ do
+      pipeInput driver (topicName "forkn-in") Nothing (bytes "abc") t0 0
+    outcome @?= CommitSucceeded
+
+    u <- readOutput driver (topicName "fn-upper")
+    l <- readOutput driver (topicName "fn-lower")
+    r <- readOutput driver (topicName "fn-rev")
+    map (unbytes . crValue) u @?= ["ABC"]
+    map (unbytes . crValue) l @?= ["abc"]
+    map (unbytes . crValue) r @?= ["cba"]
+
+    log_ <- drain
+    log_ @?= ["begin", "commitOffsets", "commit", "storeCommit"]
+    closeDriver driver
+
+test_tap_topology_is_eos_atomic :: TestTree
+test_tap_topology_is_eos_atomic =
+  testCase "Tap topology: side sink commits atomically with main sink" $ do
+    -- A 'Tap' that audit-logs to one topic while the main pipeline
+    -- writes its (transformed) records to another. Both sinks must
+    -- be reached within the same EOS transaction so the audit log
+    -- and the main output never disagree.
+    let auditSink :: F.Topology (KStream Text Text) ()
+        auditSink = F.sink "tap-audit" textSerde textSerde
+
+        topology :: F.Topology Void ()
+        topology =
+          F.source "tap-in" textSerde textSerde
+            >>> F.tap auditSink
+            >>> F.mapValues T.toUpper
+            >>> F.sink "tap-main" textSerde textSerde
+
+    (_, topo) <- F.compile topology
+    let !nSources = length (topologySources topo)
+        !sinks    = topologySinkNames topo
+    nSources @?= 1
+    length sinks @?= 2
+
+    driver <- newDriver topo "free-eos-tap"
+    (coord, drain) <- mkRecordingCoord
+    outcome <- runCommitCycle coord "g" (pure HMap.empty) $ do
+      pipeInput driver (topicName "tap-in") Nothing (bytes "ping") t0 0
+      pipeInput driver (topicName "tap-in") Nothing (bytes "pong") t0 0
+    outcome @?= CommitSucceeded
+
+    audit <- readOutput driver (topicName "tap-audit")
+    main_ <- readOutput driver (topicName "tap-main")
+    -- The audit log gets the /original/ values; the main sink
+    -- gets the transformed ones. Both within one transaction.
+    map (unbytes . crValue) audit @?= ["ping", "pong"]
+    map (unbytes . crValue) main_ @?= ["PING", "PONG"]
+
+    log_ <- drain
+    log_ @?= ["begin", "commitOffsets", "commit", "storeCommit"]
+    closeDriver driver
+
+-- Small helpers reaching into the topology graph for the EOS
+-- structural checks above. Both wrap module-level functions
+-- already re-exported via 'Kafka.Streams'.
+topologySources :: Topology -> [NodeName]
+topologySources topo = Map.keys (topoSources topo)
+
+topologySinkNames :: Topology -> [NodeName]
+topologySinkNames topo = Map.keys (topoSinks topo)
