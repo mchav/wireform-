@@ -3243,6 +3243,37 @@ data OptimizeConfig = OptimizeConfig
     -- topic).
   , optCollapseRepartition :: !Bool
 
+    -- | Drop a 'Repartition' that's about to be invalidated by a
+    -- /key-changing/ op. Pattern: @'SelectKey' f '.' 'Repartition' _ = 'SelectKey' f@
+    -- (similarly for 'MapKeyValue' / 'MapKeyValueM' /
+    -- 'FlatMapKeyValue', plus the 'RepartitionWith' variant).
+    -- Saves a wasted shuffle when callers accidentally write
+    -- @repartition >>> selectKey@ instead of the other way
+    -- around. The downstream stateful op will still need its
+    -- own repartition (which the caller must insert, or which
+    -- the runtime synthesises on the JVM side); this rewrite
+    -- just removes the pointless first one.
+  , optDropPreKeyChangeRepartition :: !Bool
+
+    -- | Hoist pure stateless ops /upstream/ of an adjacent
+    -- 'Repartition' so they run on smaller, pre-shuffle records
+    -- — and so they can fuse with any other adjacent pure ops
+    -- that are already upstream of the repartition. Concretely:
+    --
+    --   * @'MapValues' g '.' 'Repartition' p = 'Repartition' p '.' 'MapValues' g@
+    --   * @'Filter' q '.' 'Repartition' p    = 'Repartition' p '.' 'Filter' q@
+    --   * @'FilterNot' q '.' 'Repartition' p = 'Repartition' p '.' 'FilterNot' q@
+    --   * @'FlatMapValues' g '.' 'Repartition' p = 'Repartition' p '.' 'FlatMapValues' g@
+    --   * and the 'RepartitionWith' analogues.
+    --
+    -- Only pure key-preserving ops are hoisted — IO variants
+    -- ('MapValuesM') and effect-observers ('Peek') stay put
+    -- because their observable semantics depend on which
+    -- partition the record is on (pre- vs. post-shuffle).
+    -- Key-changing ops are explicitly /not/ hoisted (they'd
+    -- invalidate the repartition).
+  , optHoistThroughRepartition :: !Bool
+
     -- | @'Values' '.' 'Values' = 'Values'@ — idempotent key
     -- drop.
   , optCollapseValues      :: !Bool
@@ -3261,38 +3292,42 @@ data OptimizeConfig = OptimizeConfig
 
 defaultOptimizeConfig :: OptimizeConfig
 defaultOptimizeConfig = OptimizeConfig
-  { optAssociateCompose         = True
-  , optFusePureFunctions        = True
-  , optFuseMaps                 = True
-  , optFuseFilters              = True
-  , optFuseFlatMaps             = True
-  , optFuseSelectKeys           = True
-  , optFusePeeks                = True
-  , optCollapseIdentity         = True
-  , optFuseSelectKeyIntoGroupBy = True
-  , optCollapseRepartition      = True
-  , optCollapseValues           = True
-  , optFuseTaps                 = True
-  , optMaxPasses                = 12
+  { optAssociateCompose             = True
+  , optFusePureFunctions            = True
+  , optFuseMaps                     = True
+  , optFuseFilters                  = True
+  , optFuseFlatMaps                 = True
+  , optFuseSelectKeys               = True
+  , optFusePeeks                    = True
+  , optCollapseIdentity             = True
+  , optFuseSelectKeyIntoGroupBy     = True
+  , optCollapseRepartition          = True
+  , optDropPreKeyChangeRepartition  = True
+  , optHoistThroughRepartition      = True
+  , optCollapseValues               = True
+  , optFuseTaps                     = True
+  , optMaxPasses                    = 12
   }
 
 -- | Everything off — the AST passes through unchanged. Useful for
 -- A\/B comparisons in tests.
 noOptimization :: OptimizeConfig
 noOptimization = OptimizeConfig
-  { optAssociateCompose         = False
-  , optFusePureFunctions        = False
-  , optFuseMaps                 = False
-  , optFuseFilters              = False
-  , optFuseFlatMaps             = False
-  , optFuseSelectKeys           = False
-  , optFusePeeks                = False
-  , optCollapseIdentity         = False
-  , optFuseSelectKeyIntoGroupBy = False
-  , optCollapseRepartition      = False
-  , optCollapseValues           = False
-  , optFuseTaps                 = False
-  , optMaxPasses                = 0
+  { optAssociateCompose             = False
+  , optFusePureFunctions            = False
+  , optFuseMaps                     = False
+  , optFuseFilters                  = False
+  , optFuseFlatMaps                 = False
+  , optFuseSelectKeys               = False
+  , optFusePeeks                    = False
+  , optCollapseIdentity             = False
+  , optFuseSelectKeyIntoGroupBy     = False
+  , optCollapseRepartition          = False
+  , optDropPreKeyChangeRepartition  = False
+  , optHoistThroughRepartition      = False
+  , optCollapseValues               = False
+  , optFuseTaps                     = False
+  , optMaxPasses                    = 0
   }
 
 -- | Apply the default rewrite passes ('defaultOptimizeConfig') to
@@ -3578,6 +3613,73 @@ fuseStep cfg g f = case (g, f) of
     Just (liftPrim (Repartition pfx))
   (Lift (RepartitionWith cfg2), Lift (RepartitionWith _)) | optCollapseRepartition cfg ->
     Just (liftPrim (RepartitionWith cfg2))
+
+  -- Drop a Repartition immediately followed by a key-changing
+  -- op — the about-to-change key invalidates the shuffle the
+  -- repartition just performed.
+  (Lift (SelectKey f'), Lift (Repartition _))
+    | optDropPreKeyChangeRepartition cfg ->
+        Just (liftPrim (SelectKey f'))
+  (Lift (SelectKey f'), Lift (RepartitionWith _))
+    | optDropPreKeyChangeRepartition cfg ->
+        Just (liftPrim (SelectKey f'))
+  (Lift (MapKeyValue f'), Lift (Repartition _))
+    | optDropPreKeyChangeRepartition cfg ->
+        Just (liftPrim (MapKeyValue f'))
+  (Lift (MapKeyValue f'), Lift (RepartitionWith _))
+    | optDropPreKeyChangeRepartition cfg ->
+        Just (liftPrim (MapKeyValue f'))
+  (Lift (MapKeyValueM f'), Lift (Repartition _))
+    | optDropPreKeyChangeRepartition cfg ->
+        Just (liftPrim (MapKeyValueM f'))
+  (Lift (MapKeyValueM f'), Lift (RepartitionWith _))
+    | optDropPreKeyChangeRepartition cfg ->
+        Just (liftPrim (MapKeyValueM f'))
+  (Lift (FlatMapKeyValue f'), Lift (Repartition _))
+    | optDropPreKeyChangeRepartition cfg ->
+        Just (liftPrim (FlatMapKeyValue f'))
+  (Lift (FlatMapKeyValue f'), Lift (RepartitionWith _))
+    | optDropPreKeyChangeRepartition cfg ->
+        Just (liftPrim (FlatMapKeyValue f'))
+
+  -- Hoist pure key-preserving stateless ops /upstream/ of an
+  -- adjacent Repartition. Result: the op runs before the shuffle
+  -- (smaller records, more fusion opportunity with upstream
+  -- siblings) and the Repartition stays as the last step before
+  -- the next stateful operation.
+  --
+  -- We rewrite @op '.' repartition@ to @repartition '.' op@
+  -- — Compose's @g . f@ order is "f then g", so swapping the
+  -- argument order on the right-hand side puts the op upstream
+  -- and the repartition downstream.
+  -- Type-changing value transforms only hoist through the
+  -- type-polymorphic 'Repartition'. They cannot hoist through
+  -- 'RepartitionWith' because its 'Rep.Repartitioned' config
+  -- is /value-type-specialised/ — the upstream value type
+  -- doesn't match the downstream config after the swap.
+  (Lift (MapValues g'), Lift (Repartition pfx))
+    | optHoistThroughRepartition cfg ->
+        Just (Compose (liftPrim (Repartition pfx)) (liftPrim (MapValues g')))
+  (Lift (FlatMapValues g'), Lift (Repartition pfx))
+    | optHoistThroughRepartition cfg ->
+        Just (Compose (liftPrim (Repartition pfx)) (liftPrim (FlatMapValues g')))
+
+  -- Value-type-preserving predicates hoist through both
+  -- 'Repartition' /and/ 'RepartitionWith' — no type juggling
+  -- is needed since the value type doesn't change on either
+  -- side of the swap.
+  (Lift (Filter p'), Lift (Repartition pfx))
+    | optHoistThroughRepartition cfg ->
+        Just (Compose (liftPrim (Repartition pfx)) (liftPrim (Filter p')))
+  (Lift (Filter p'), Lift (RepartitionWith cfg'))
+    | optHoistThroughRepartition cfg ->
+        Just (Compose (liftPrim (RepartitionWith cfg')) (liftPrim (Filter p')))
+  (Lift (FilterNot p'), Lift (Repartition pfx))
+    | optHoistThroughRepartition cfg ->
+        Just (Compose (liftPrim (Repartition pfx)) (liftPrim (FilterNot p')))
+  (Lift (FilterNot p'), Lift (RepartitionWith cfg'))
+    | optHoistThroughRepartition cfg ->
+        Just (Compose (liftPrim (RepartitionWith cfg')) (liftPrim (FilterNot p')))
 
   -- 'Values' is idempotent on a key-less stream.
   (Lift Values, Lift Values) | optCollapseValues cfg -> Just (liftPrim Values)

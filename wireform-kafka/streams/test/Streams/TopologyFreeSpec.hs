@@ -28,7 +28,8 @@ import qualified Data.Text as T
 import Data.Text (Text)
 import Data.Void (Void)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Data.List (elemIndex, findIndex)
+import Test.Tasty.HUnit (testCase, (@?=), assertBool, assertFailure)
 import qualified Unsafe.Coerce as Unsafe
 
 import Kafka.Streams
@@ -120,6 +121,16 @@ tests = testGroup "Topology.Free (GADT topology builder)"
   , test_mapRecordM_io_full_record_transform
   , test_mapRecord_chains_fuse
   , test_mapRecord_chain_blocked_by_noFuse
+  -- Repartition-aware rewrites
+  , test_drop_repartition_before_selectKey
+  , test_drop_repartition_before_mapKeyValue
+  , test_drop_repartition_before_flatMapKeyValue
+  , test_hoist_mapValues_through_repartition
+  , test_hoist_filter_through_repartition
+  , test_hoist_enables_upstream_fusion
+  , test_hoist_disabled_keeps_original_order
+  , test_drop_disabled_keeps_repartition
+  , test_repartition_rewrites_preserve_semantics
   ]
 
 ----------------------------------------------------------------------
@@ -2214,4 +2225,209 @@ test_mapRecord_chain_blocked_by_noFuse =
     pipeInput driver (topicName "mrnf-in") Nothing (bytes "x") t0 0
     out <- readOutput driver (topicName "mrnf-out")
     Prelude.map (unbytes . crValue) out @?= ["x123"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 59. repartition >>> selectKey drops the wasted repartition
+----------------------------------------------------------------------
+
+test_drop_repartition_before_selectKey :: TestTree
+test_drop_repartition_before_selectKey =
+  testCase "repartition immediately followed by selectKey is dropped" $ do
+    let topology :: F.Topology (KStream Text Text) (KStream Text Text)
+        topology =
+          F.repartition "wasted"
+            >>> F.selectKey (\_ -> "fresh")
+
+        toksBefore = F.inspect topology
+        toksAfter  = F.inspect (F.optimize topology)
+
+    -- Pre-optimisation: the Repartition is visible.
+    assertBool "baseline contains Repartition" $
+      any (T.isPrefixOf "Repartition") toksBefore
+    -- Post-optimisation: it's gone.
+    assertBool "optimised AST drops the wasted Repartition" $
+      not (any (T.isPrefixOf "Repartition") toksAfter)
+    -- The SelectKey survives.
+    assertBool "SelectKey is preserved" $
+      "SelectKey" `elem` toksAfter
+
+----------------------------------------------------------------------
+-- 60. repartition >>> mapKeyValue drops the wasted repartition
+----------------------------------------------------------------------
+
+test_drop_repartition_before_mapKeyValue :: TestTree
+test_drop_repartition_before_mapKeyValue =
+  testCase "repartition immediately followed by mapKeyValue is dropped" $ do
+    let topology :: F.Topology (KStream Text Text) (KStream Text Text)
+        topology =
+          F.repartition "wasted"
+            >>> F.mapKeyValue (\_ v -> ("new-key", v))
+
+        toks = F.inspect (F.optimize topology)
+    assertBool "optimised AST drops the wasted Repartition" $
+      not (any (T.isPrefixOf "Repartition") toks)
+    assertBool "MapKeyValue is preserved" $
+      "MapKeyValue" `elem` toks
+
+----------------------------------------------------------------------
+-- 61. repartition >>> flatMapKeyValue drops the wasted repartition
+----------------------------------------------------------------------
+
+test_drop_repartition_before_flatMapKeyValue :: TestTree
+test_drop_repartition_before_flatMapKeyValue =
+  testCase "repartition immediately followed by flatMapKeyValue is dropped" $ do
+    let topology :: F.Topology (KStream Text Text) (KStream Text Text)
+        topology =
+          F.repartition "wasted"
+            >>> F.flatMapKeyValue (\_ v -> [("k1", v), ("k2", v)])
+
+        toks = F.inspect (F.optimize topology)
+    assertBool "optimised AST drops the wasted Repartition" $
+      not (any (T.isPrefixOf "Repartition") toks)
+    assertBool "FlatMapKeyValue is preserved" $
+      "FlatMapKeyValue" `elem` toks
+
+----------------------------------------------------------------------
+-- 62. repartition >>> mapValues swaps so mapValues runs upstream
+----------------------------------------------------------------------
+
+test_hoist_mapValues_through_repartition :: TestTree
+test_hoist_mapValues_through_repartition =
+  testCase "mapValues is hoisted upstream of an adjacent repartition" $ do
+    let topology :: F.Topology (KStream Text Text) (KStream Text Text)
+        topology =
+          F.repartition "shuffle"
+            >>> F.mapValues T.toUpper
+
+        toks = F.inspect (F.optimize topology)
+    -- Both ops survive; their order is reversed (mapValues first
+    -- in flow order, then Repartition).
+    let idxMap        = elemIndex "MapValues"        toks
+        idxRepartPart = findIndex (T.isPrefixOf "Repartition") toks
+    assertBool "MapValues is present"   $ idxMap        /= Nothing
+    assertBool "Repartition is present" $ idxRepartPart /= Nothing
+    -- Flow order: 'inspect' walks Compose 'f then g', so the
+    -- upstream op appears earlier in the token list.
+    case (idxMap, idxRepartPart) of
+      (Just iM, Just iR) ->
+        assertBool ("MapValues should be upstream of Repartition; toks=" <> show toks)
+                   (iM < iR)
+      _ -> assertFailure "expected both tokens"
+
+----------------------------------------------------------------------
+-- 63. repartition >>> filter swaps so the filter runs upstream
+----------------------------------------------------------------------
+
+test_hoist_filter_through_repartition :: TestTree
+test_hoist_filter_through_repartition =
+  testCase "filter is hoisted upstream of an adjacent repartition" $ do
+    let topology :: F.Topology (KStream Text Text) (KStream Text Text)
+        topology =
+          F.repartition "shuffle"
+            >>> F.filter (\r -> T.length (recordValue r) > 1)
+
+        toks = F.inspect (F.optimize topology)
+    let idxFilter = elemIndex "Filter" toks
+        idxRepart = findIndex (T.isPrefixOf "Repartition") toks
+    case (idxFilter, idxRepart) of
+      (Just iF, Just iR) ->
+        assertBool ("Filter should be upstream of Repartition; toks=" <> show toks)
+                   (iF < iR)
+      _ -> assertFailure "expected both tokens"
+
+----------------------------------------------------------------------
+-- 64. hoist enables upstream fusion that was blocked before
+----------------------------------------------------------------------
+
+test_hoist_enables_upstream_fusion :: TestTree
+test_hoist_enables_upstream_fusion =
+  testCase "hoisting through repartition lets adjacent mapValues fuse" $ do
+    -- Before optimisation: mapValues "a" >>> repartition >>> mapValues "b"
+    -- Without the hoist rule, the optimiser can't fuse the two
+    -- mapValues calls because the repartition sits between them.
+    -- WITH the hoist rule: mapValues "b" gets pushed upstream of
+    -- the repartition; now both mapValues are adjacent and fuse.
+    let topology :: F.Topology (KStream Text Text) (KStream Text Text)
+        topology =
+          F.mapValues (<> "a")
+            >>> F.repartition "shuffle"
+            >>> F.mapValues (<> "b")
+
+        toks    = F.inspect (F.optimize topology)
+        toksOff = F.inspect (F.optimizeWith
+                              (F.defaultOptimizeConfig
+                                { F.optHoistThroughRepartition = False })
+                              topology)
+    -- With hoist: a single fused MapValues node.
+    length (Prelude.filter (== "MapValues") toks) @?= 1
+    -- With hoist off: both MapValues survive (no fusion).
+    length (Prelude.filter (== "MapValues") toksOff) @?= 2
+
+----------------------------------------------------------------------
+-- 65. hoist toggle off keeps the original order
+----------------------------------------------------------------------
+
+test_hoist_disabled_keeps_original_order :: TestTree
+test_hoist_disabled_keeps_original_order =
+  testCase "optHoistThroughRepartition disabled keeps the original order" $ do
+    let topology :: F.Topology (KStream Text Text) (KStream Text Text)
+        topology =
+          F.repartition "shuffle"
+            >>> F.mapValues T.toUpper
+
+        cfg = F.defaultOptimizeConfig
+                { F.optHoistThroughRepartition = False }
+        toks = F.inspect (F.optimizeWith cfg topology)
+    let idxMap    = elemIndex "MapValues" toks
+        idxRepart = findIndex (T.isPrefixOf "Repartition") toks
+    case (idxMap, idxRepart) of
+      (Just iM, Just iR) ->
+        assertBool ("Repartition should still be upstream of MapValues; toks=" <> show toks)
+                   (iR < iM)
+      _ -> assertFailure "expected both tokens"
+
+----------------------------------------------------------------------
+-- 66. drop toggle off keeps the wasted repartition
+----------------------------------------------------------------------
+
+test_drop_disabled_keeps_repartition :: TestTree
+test_drop_disabled_keeps_repartition =
+  testCase "optDropPreKeyChangeRepartition disabled preserves the repartition" $ do
+    let topology :: F.Topology (KStream Text Text) (KStream Text Text)
+        topology =
+          F.repartition "wasted"
+            >>> F.selectKey (\_ -> "fresh")
+
+        cfg = F.defaultOptimizeConfig
+                { F.optDropPreKeyChangeRepartition = False }
+        toks = F.inspect (F.optimizeWith cfg topology)
+    assertBool "Repartition survives when the toggle is off" $
+      any (T.isPrefixOf "Repartition") toks
+
+----------------------------------------------------------------------
+-- 67. repartition rewrites preserve end-to-end semantics
+----------------------------------------------------------------------
+
+test_repartition_rewrites_preserve_semantics :: TestTree
+test_repartition_rewrites_preserve_semantics =
+  testCase "drop + hoist rewrites preserve observable output" $ do
+    -- A topology that exercises both rewrites: a wasted
+    -- repartition before a selectKey, and a hoistable
+    -- mapValues between two repartitions.
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "rp-in" textSerde textSerde
+            >>> F.repartition "first"
+            >>> F.mapValues T.toUpper
+            >>> F.repartition "second"
+            >>> F.selectKey (\r -> recordValue r)
+            >>> F.sink "rp-out" textSerde textSerde
+
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-repart-rewrites"
+    pipeInput driver (topicName "rp-in") (Just (bytes "k")) (bytes "hello") t0 0
+    pipeInput driver (topicName "rp-in") (Just (bytes "k")) (bytes "world") t0 0
+    out <- readOutput driver (topicName "rp-out")
+    Prelude.map (unbytes . crValue) out @?= ["HELLO", "WORLD"]
     closeDriver driver
