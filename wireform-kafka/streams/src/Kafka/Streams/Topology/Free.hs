@@ -1819,13 +1819,49 @@ prettyPrint = T.intercalate " " . inspect
 
 -- | Toggles for the rewrite passes. Each flag controls one /family/
 -- of rewrites. Defaults enable everything.
+--
+-- == Relationship to Java's @topology.optimization@ knob
+--
+-- Java's Kafka Streams ships two formal optimisations, both at the
+-- /topic/ level (see "Kafka.Streams.Topology.Optimization"):
+--
+--   * @REUSE_KTABLE_SOURCE_TOPICS@ — reuse a 'TableSource' topic as
+--     its KTable's changelog instead of an internal one. /Not yet
+--     implemented here/ — it's a flag on the materialised store's
+--     changelog config, not an AST rewrite.
+--   * @MERGE_REPARTITION_TOPICS@ — collapse repartition topics that
+--     descend from the same key-changing operation via multiple
+--     downstream stateful ops. /Not yet implemented here/ — needs
+--     the runtime to auto-insert repartitions on stateful ops,
+--     which we don't currently do (callers insert 'Repartition'
+--     explicitly).
+--
+-- The GADT-level rewrites this module ships are /additional/ to
+-- those: they fuse adjacent operators (saving processor nodes /
+-- record-forwarding hops) and collapse Cat\/Arrow identity
+-- combinators. Java's DSL doesn't expose an equivalent because its
+-- builder eagerly constructs the physical plan rather than holding
+-- a reified AST. Operationally the result is the same shape Java
+-- programmers achieve by hand-writing
+--
+-- @
+-- stream.mapValues(f).mapValues(g)   -- two processors
+-- @
+--
+-- as
+--
+-- @
+-- stream.mapValues(g . f)            -- one processor
+-- @
+--
+-- We do that fusion automatically.
 data OptimizeConfig = OptimizeConfig
   { -- | Right-associate 'Compose' chains so adjacent operators
     -- surface along the right spine for the fusion pass.
     optAssociateCompose :: !Bool
 
     -- | Fuse adjacent 'Arr' applications and push pure functions
-    -- through 'First', 'Second', 'Parallel', 'Fanout'.
+    -- through 'First', 'Second', 'Parallel', 'Fanout', 'Fork'.
   , optFusePureFunctions :: !Bool
 
     -- | Fuse adjacent 'MapValues' \/ 'MapValuesM' \/ 'MapKeyValue'.
@@ -1840,12 +1876,37 @@ data OptimizeConfig = OptimizeConfig
     -- | Fuse adjacent 'SelectKey'.
   , optFuseSelectKeys    :: !Bool
 
-    -- | Fuse adjacent 'Peek' callbacks.
+    -- | Fuse adjacent 'Peek' callbacks. Also fuses
+    -- @'Foreach' '.' 'Peek'@ and collapses
+    -- @'Tap' ('Foreach' f) = 'Peek' f@.
   , optFusePeeks         :: !Bool
 
     -- | Collapse @'Tap' 'Id'@, @'First' 'Id'@, @'Parallel' 'Id'
     -- 'Id'@, etc. to 'Id'.
   , optCollapseIdentity  :: !Bool
+
+    -- | Java-style grouping rewrite:
+    -- @'GroupByKey' g '.' 'SelectKey' f = 'GroupBy' f g@.
+    -- Matches the Apache docs' guidance to prefer @groupBy@ over
+    -- @selectKey + groupByKey@ for fewer nodes and clearer
+    -- topology descriptions.
+  , optFuseSelectKeyIntoGroupBy :: !Bool
+
+    -- | Eliminate redundant repartitions: a second 'Repartition'
+    -- after a first one with no key-changing op in between is
+    -- pure waste (two shuffles produce the same data). The
+    -- outer wins (its prefix is the one named in the broker
+    -- topic).
+  , optCollapseRepartition :: !Bool
+
+    -- | @'Values' '.' 'Values' = 'Values'@ — idempotent key
+    -- drop.
+  , optCollapseValues      :: !Bool
+
+    -- | Combine adjacent 'Tap' nodes into one by 'Fanout'-ing the
+    -- side pipelines:
+    -- @'Tap' t1 '.' 'Tap' t2 = 'Tap' ('Fanout' t2 t1 '>>>' Arr (const ()))@.
+  , optFuseTaps            :: !Bool
 
     -- | Upper bound on rewrite passes. Each iteration must reduce
     -- node count or termination is forced; this is a belt-and-
@@ -1856,30 +1917,38 @@ data OptimizeConfig = OptimizeConfig
 
 defaultOptimizeConfig :: OptimizeConfig
 defaultOptimizeConfig = OptimizeConfig
-  { optAssociateCompose  = True
-  , optFusePureFunctions = True
-  , optFuseMaps          = True
-  , optFuseFilters       = True
-  , optFuseFlatMaps      = True
-  , optFuseSelectKeys    = True
-  , optFusePeeks         = True
-  , optCollapseIdentity  = True
-  , optMaxPasses         = 8
+  { optAssociateCompose         = True
+  , optFusePureFunctions        = True
+  , optFuseMaps                 = True
+  , optFuseFilters              = True
+  , optFuseFlatMaps             = True
+  , optFuseSelectKeys           = True
+  , optFusePeeks                = True
+  , optCollapseIdentity         = True
+  , optFuseSelectKeyIntoGroupBy = True
+  , optCollapseRepartition      = True
+  , optCollapseValues           = True
+  , optFuseTaps                 = True
+  , optMaxPasses                = 12
   }
 
 -- | Everything off — the AST passes through unchanged. Useful for
 -- A\/B comparisons in tests.
 noOptimization :: OptimizeConfig
 noOptimization = OptimizeConfig
-  { optAssociateCompose  = False
-  , optFusePureFunctions = False
-  , optFuseMaps          = False
-  , optFuseFilters       = False
-  , optFuseFlatMaps      = False
-  , optFuseSelectKeys    = False
-  , optFusePeeks         = False
-  , optCollapseIdentity  = False
-  , optMaxPasses         = 0
+  { optAssociateCompose         = False
+  , optFusePureFunctions        = False
+  , optFuseMaps                 = False
+  , optFuseFilters              = False
+  , optFuseFlatMaps             = False
+  , optFuseSelectKeys           = False
+  , optFusePeeks                = False
+  , optCollapseIdentity         = False
+  , optFuseSelectKeyIntoGroupBy = False
+  , optCollapseRepartition      = False
+  , optCollapseValues           = False
+  , optFuseTaps                 = False
+  , optMaxPasses                = 0
   }
 
 -- | Apply the default optimisation passes until a fixed point on
@@ -1968,7 +2037,13 @@ collapsePlus cfg Id Id | optCollapseIdentity cfg = Id
 collapsePlus _ p q = Plus p q
 
 collapseTap :: OptimizeConfig -> Topology a () -> Topology a a
-collapseTap cfg Id | optCollapseIdentity cfg = Id
+collapseTap cfg Id                | optCollapseIdentity cfg = Id
+-- 'Tap (Foreach f)' is exactly 'Peek f' — both run an effect on
+-- every record and pass the wire through. We recognise this
+-- standalone form here in addition to the @Compose@ boundary
+-- form in 'fuseStep' so single-node @Tap (Foreach f)@ also
+-- collapses.
+collapseTap cfg (Foreach act)     | optFusePeeks cfg = Peek act
 collapseTap _ t = Tap t
 
 ----------------------------------------------------------------------
@@ -2076,7 +2151,81 @@ fuseStep cfg g f = case (g, f) of
   (Peek g', Peek f') | optFusePeeks cfg ->
     Just (Peek (\r -> f' r >> g' r))
 
+  -- Foreach after Peek: the peek's side-effect ran, then the
+  -- foreach's side effect runs on the same record and drops the
+  -- wire. Fuse into a single 'Foreach' that runs both in order.
+  (Foreach g', Peek f') | optFusePeeks cfg ->
+    Just (Foreach (\r -> f' r >> g' r))
+
+  -- 'GroupBy' subsumes 'SelectKey >>> GroupByKey': re-key + group
+  -- in a single processor. Mirrors Java's guidance to prefer
+  -- @groupBy@ over @selectKey + groupByKey@. The 'Grouped' carries
+  -- the new key serde so it stays on 'GroupBy'.
+  (GroupByKey g', SelectKey f') | optFuseSelectKeyIntoGroupBy cfg ->
+    Just (GroupBy f' g')
+
+  -- Repartition idempotence: a second 'Repartition' with no
+  -- key-change between it and the first is a redundant shuffle.
+  -- The outer wins because its prefix is the one the broker
+  -- topic will be named after.
+  (Repartition pfx2, Repartition _pfx1) | optCollapseRepartition cfg ->
+    Just (Repartition pfx2)
+  (RepartitionWith cfg2, Repartition _) | optCollapseRepartition cfg ->
+    Just (RepartitionWith cfg2)
+  (Repartition pfx, RepartitionWith _) | optCollapseRepartition cfg ->
+    Just (Repartition pfx)
+  (RepartitionWith cfg2, RepartitionWith _) | optCollapseRepartition cfg ->
+    Just (RepartitionWith cfg2)
+
+  -- 'Values' is idempotent on a key-less stream.
+  (Values, Values) | optCollapseValues cfg -> Just Values
+
+  -- Adjacent 'Tap's combine into one by Fanout-ing the side
+  -- pipelines. Side effects of both still run on each record;
+  -- the wire still passes through unchanged. Saves a constructor
+  -- but more importantly keeps the AST flat for downstream
+  -- inspection. 'inner' runs first then 'outer'.
+  (Tap t1, Tap t2) | optFuseTaps cfg ->
+    Just (Tap (Compose (Arr (const ())) (Fanout t2 t1)))
+
+  -- 'Tap (Foreach f)' is exactly 'Peek f' — both run an effect
+  -- on each record and pass the wire through. Collapses one
+  -- 'Tap' node into a 'Peek'.
+  (_, _) | Just t <- tapForeachToPeek cfg g f -> Just t
+
+  -- Push pure functions through 'Fork' so the resulting 'Arr'
+  -- can fuse with adjacent 'Arr's. @'Arr' f '.' 'Fork'@ is just
+  -- the pure function applied to the duplicated input.
+  (Arr g', Fork) | optFusePureFunctions cfg ->
+    Just (Arr (\a -> g' (a, a)))
+
   _ -> Nothing
+
+-- | Detect the pattern @'Tap' ('Foreach' f)@ which is equivalent
+-- to @'Peek' f@. The pattern is on the /inner/ position; the
+-- outer is some unrelated combinator that the caller wants to
+-- chain afterwards (it's just passed through).
+--
+-- We match on the @f@ argument of 'fuseStep' (i.e. the inner
+-- topology) and use a tiny helper rather than a full extra
+-- 'fuseStep' clause because the type juggling for the case is
+-- a bit verbose.
+tapForeachToPeek
+  :: forall a b c
+   . OptimizeConfig
+  -> Topology b c
+  -> Topology a b
+  -> Maybe (Topology a c)
+tapForeachToPeek cfg g f
+  | optFusePeeks cfg
+  , Tap inner <- f
+  , Foreach act <- inner
+  -- Re-fuse 'g' on top of the new 'Peek' so this rewrite plays
+  -- well with the surrounding pass.
+  = case fuseStep cfg g (Peek act) of
+      Just t  -> Just t
+      Nothing -> Just (Compose g (Peek act))
+  | otherwise = Nothing
 
 ----------------------------------------------------------------------
 -- Node counting and optimization statistics

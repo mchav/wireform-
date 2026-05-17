@@ -70,6 +70,14 @@ tests = testGroup "Topology.Free (GADT topology builder)"
   , test_optimize_noOptimization_is_a_no_op
   , test_optimize_pushes_pure_functions_through_fanout
   , test_compile_default_runs_optimizer
+  -- Java-style additional rewrites
+  , test_optimize_selectKey_then_groupByKey_becomes_groupBy
+  , test_optimize_collapses_repartition_chains
+  , test_optimize_collapses_values_idempotent
+  , test_optimize_foreach_after_peek_fuses
+  , test_optimize_tap_foreach_becomes_peek
+  , test_optimize_combines_adjacent_taps
+  , test_optimize_pushes_arr_through_fork
   ]
 
 ----------------------------------------------------------------------
@@ -1067,3 +1075,193 @@ test_compile_default_runs_optimizer =
       ("optimised compile should produce fewer nodes; opt=" <> show nOpt
         <> " noopt=" <> show nNoOpt)
       (nOpt < nNoOpt)
+
+----------------------------------------------------------------------
+-- 28. selectKey >>> groupByKey collapses to groupBy
+----------------------------------------------------------------------
+
+test_optimize_selectKey_then_groupByKey_becomes_groupBy :: TestTree
+test_optimize_selectKey_then_groupByKey_becomes_groupBy =
+  testCase "selectKey >>> groupByKey collapses to a single groupBy" $ do
+    -- This is the Java best-practice "prefer groupBy over selectKey+groupByKey"
+    -- pattern: one fewer processor node and a clearer topology
+    -- description.
+    let countMat :: Materialized Text Int64
+        countMat =
+          Mat.withValueSerde int64Serde
+            $ Mat.withKeySerde textSerde
+            $ Mat.materializedAs (storeName "free-rekey-count")
+
+        topology :: F.Topology Void (KTable Text Int64)
+        topology =
+          F.source "in" textSerde textSerde
+            >>> F.selectKey (\r -> T.take 1 (recordValue r))
+            >>> F.groupByKey (grouped textSerde textSerde)
+            >>> F.count countMat
+
+        opsBefore = F.inspect topology
+        opsAfter  = F.inspect (F.optimize topology)
+
+    -- Before optimisation we see both SelectKey and GroupByKey.
+    assertBool "expected SelectKey in pre-optimisation AST" $
+      "SelectKey" `elem` opsBefore
+    assertBool "expected GroupByKey in pre-optimisation AST" $
+      "GroupByKey" `elem` opsBefore
+    -- After optimisation both have collapsed into a single GroupBy.
+    assertBool "expected GroupBy in optimised AST" $
+      "GroupBy" `elem` opsAfter
+    assertBool "expected NO SelectKey in optimised AST" $
+      "SelectKey" `notElem` opsAfter
+    assertBool "expected NO bare GroupByKey in optimised AST" $
+      "GroupByKey" `notElem` opsAfter
+
+    -- And observable behaviour is preserved.
+    (kt, topo) <- F.compile topology
+    driver <- newDriver topo "free-opt-rekey"
+    pipeInput driver (topicName "in") (Just (bytes "u1")) (bytes "apple")  t0 0
+    pipeInput driver (topicName "in") (Just (bytes "u2")) (bytes "apricot") t0 0
+    pipeInput driver (topicName "in") (Just (bytes "u3")) (bytes "banana") t0 0
+    pipeInput driver (topicName "in") (Just (bytes "u4")) (bytes "anchovy") t0 0
+
+    mStore <- getKeyValueStore @Text @Int64 driver (ktableStore kt)
+    case mStore of
+      Just kvs -> do
+        kvsGet kvs "a" >>= (@?= Just 3)
+        kvsGet kvs "b" >>= (@?= Just 1)
+      Nothing -> error "rekey-count store missing"
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 29. Repartition >>> Repartition collapses
+----------------------------------------------------------------------
+
+test_optimize_collapses_repartition_chains :: TestTree
+test_optimize_collapses_repartition_chains =
+  testCase "consecutive repartitions collapse to a single shuffle" $ do
+    -- Two back-to-back 'repartition's are redundant: the broker
+    -- only needs one shuffle. The optimiser collapses the inner
+    -- one; the outer's topic prefix wins.
+    let redundant :: F.Topology Void ()
+        redundant =
+          F.source "in" textSerde textSerde
+            >>> F.repartition "first-shuffle"
+            >>> F.repartition "second-shuffle"
+            >>> F.repartition "third-shuffle"
+            >>> F.sink "out" textSerde textSerde
+
+        ops = F.inspect (F.optimize redundant)
+
+    -- Only one Repartition node should remain.
+    let repartitionCount =
+          length [ () | op <- ops, "Repartition" `T.isPrefixOf` op ]
+    repartitionCount @?= 1
+
+----------------------------------------------------------------------
+-- 30. Values >>> Values idempotence
+----------------------------------------------------------------------
+
+test_optimize_collapses_values_idempotent :: TestTree
+test_optimize_collapses_values_idempotent =
+  testCase "values >>> values collapses to a single values" $ do
+    let topology :: F.Topology (KStream Text Text) (KStream () Text)
+        topology = F.values >>> F.values
+
+        opsAfter = F.inspect (F.optimize topology)
+        valuesCount = length [ () | op <- opsAfter, op == "Values" ]
+
+    valuesCount @?= 1
+
+----------------------------------------------------------------------
+-- 31. Foreach after Peek fuses into one Foreach
+----------------------------------------------------------------------
+
+test_optimize_foreach_after_peek_fuses :: TestTree
+test_optimize_foreach_after_peek_fuses =
+  testCase "foreach >>> peek fuses into a single Foreach" $ do
+    seen <- newIORef ([] :: [(Text, Text)])
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "in" textSerde textSerde
+            >>> F.peek    (\r -> modifyIORef' seen (\xs -> xs ++ [("peek",    recordValue r)]))
+            >>> F.foreach (\r -> modifyIORef' seen (\xs -> xs ++ [("foreach", recordValue r)]))
+
+        ops = F.inspect (F.optimize topology)
+
+    -- After optimisation the Peek and Foreach are gone — both fused
+    -- into a single Foreach whose effect runs both callbacks in the
+    -- original order.
+    assertBool "expected Foreach in optimised AST" $
+      "Foreach" `elem` ops
+    -- And the side effects still fire in the expected order
+    -- (peek-then-foreach per record).
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-opt-foreach-peek"
+    pipeInput driver (topicName "in") Nothing (bytes "x") t0 0
+    pipeInput driver (topicName "in") Nothing (bytes "y") t0 0
+    finalSeen <- readIORef seen
+    finalSeen @?= [("peek", "x"), ("foreach", "x"),
+                   ("peek", "y"), ("foreach", "y")]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 32. Tap (Foreach f) collapses to Peek f
+----------------------------------------------------------------------
+
+test_optimize_tap_foreach_becomes_peek :: TestTree
+test_optimize_tap_foreach_becomes_peek =
+  testCase "tap (foreach f) collapses to peek f" $ do
+    let topology :: F.Topology (KStream Text Text) (KStream Text Text)
+        topology = F.tap (F.foreach (\_ -> pure ()))
+
+        ops = F.inspect (F.optimize topology)
+
+    -- The Tap and Foreach should have been replaced by a single Peek.
+    assertBool "expected Peek in optimised AST" $
+      "Peek" `elem` ops
+    assertBool "Tap should be gone from optimised AST" $
+      not (any ("Tap" `T.isPrefixOf`) ops)
+
+----------------------------------------------------------------------
+-- 33. Adjacent Tap nodes combine
+----------------------------------------------------------------------
+
+test_optimize_combines_adjacent_taps :: TestTree
+test_optimize_combines_adjacent_taps =
+  testCase "two adjacent Taps combine via Fanout" $ do
+    let topology :: F.Topology (KStream Text Text) (KStream Text Text)
+        topology =
+          F.tap (F.sink "audit-a" textSerde textSerde)
+            >>> F.tap (F.sink "audit-b" textSerde textSerde)
+
+        opsBefore = F.inspect topology
+        opsAfter  = F.inspect (F.optimize topology)
+
+        countTaps ops = length [ () | op <- ops, op == "Tap<" ]
+
+    -- Two Tap markers in the unoptimised AST.
+    countTaps opsBefore @?= 2
+    -- One Tap marker after fusion (both sinks now inside a single
+    -- Tap via Fanout).
+    countTaps opsAfter  @?= 1
+
+----------------------------------------------------------------------
+-- 34. Arr through Fork collapses
+----------------------------------------------------------------------
+
+test_optimize_pushes_arr_through_fork :: TestTree
+test_optimize_pushes_arr_through_fork =
+  testCase "Arr f . Fork collapses to a single Arr" $ do
+    let topology :: F.Topology Int Int
+        topology =
+          F.fork                                          -- Int -> (Int, Int)
+            >>> Control.Arrow.arr (\(a, b) -> a + b)       -- (Int, Int) -> Int
+
+        before = F.countNodes topology
+        after  = F.countNodes (F.optimize topology)
+
+    -- We started with at least 'Fork', 'Arr', 'Compose' nodes.
+    -- After optimisation it should collapse to just 'Arr (\a -> a + a)'.
+    assertBool
+      ("expected Arr.Fork to collapse; before=" <> show before
+        <> " after=" <> show after)
+      (after == 1 && before > 1)
