@@ -271,6 +271,9 @@ module Kafka.Streams.Topology.Free
   , withStateStoreKV
   , withStateStoreW
   , withStateStoreS
+  , processWithStateStoreKV
+  , processWithStateStoreW
+  , processWithStateStoreS
 
     -- * Escape hatch + introspection
   , liftIO_
@@ -826,6 +829,32 @@ data Topology i o where
     -> ![Topo.NodeName]
     -> Topology x x
 
+  -- | Atomically register a processor /and/ a 'StoreBuilderKV' the
+  -- processor depends on. The compiler generates one fresh
+  -- 'Topo.NodeName' from the prefix, attaches the processor with
+  -- the store's name in its @processorSpecStores@ list, and
+  -- registers the store with that generated node as its owner —
+  -- so the user doesn't need to (and can't predict the generated
+  -- name). This is the recommended way to combine 'processStream'
+  -- with 'withStateStoreKV' for typical custom-processor use.
+  ProcessWithStateStoreKV
+    :: !Text                                  -- ^ prefix
+    -> !(StoreBuilderKV stk stv)
+    -> !(IO (Processor k v))
+    -> Topology (KStream k v) ()
+  -- | 'ProcessWithStateStoreKV' for a window store.
+  ProcessWithStateStoreW
+    :: !Text
+    -> !(StoreBuilderW stk stv)
+    -> !(IO (Processor k v))
+    -> Topology (KStream k v) ()
+  -- | 'ProcessWithStateStoreKV' for a session store.
+  ProcessWithStateStoreS
+    :: !Text
+    -> !(StoreBuilderS stk stv)
+    -> !(IO (Processor k v))
+    -> Topology (KStream k v) ()
+
   -- ------------------------------------------------------------------
   -- Escape hatch
   --
@@ -1084,8 +1113,58 @@ apply t b = go t
       withTopology_ b (Topo.addStateStoreS builder owners)
       pure x
 
+    go (ProcessWithStateStoreKV prefix builder supplier) = \s -> do
+      attachProcessorWithStore
+        b s prefix supplier
+        (Store.sbKvName builder)
+        (Topo.addStateStoreKV builder)
+    go (ProcessWithStateStoreW prefix builder supplier) = \s -> do
+      attachProcessorWithStore
+        b s prefix supplier
+        (Store.sbWName builder)
+        (Topo.addStateStoreW builder)
+    go (ProcessWithStateStoreS prefix builder supplier) = \s -> do
+      attachProcessorWithStore
+        b s prefix supplier
+        (Store.sbSName builder)
+        (Topo.addStateStoreS builder)
+
     -- Escape
     go (Lifted _ act)        = act b
+
+-- | Attach a custom 'Processor' to a 'KStream' while atomically
+-- registering the state store it owns. The fresh processor node
+-- name is the only thing that gets generated; the store is
+-- registered against that same node so the validator's
+-- store-ownership check passes without callers needing to know
+-- the generated name.
+--
+-- The @attachStore@ function is whichever of
+-- 'Topo.addStateStoreKV' / 'Topo.addStateStoreW' /
+-- 'Topo.addStateStoreS' is appropriate. The @storeNm@ is the
+-- store's name (used to populate 'processorSpecStores').
+attachProcessorWithStore
+  :: TBuilder
+  -> KStream k v
+  -> Text                                            -- ^ prefix
+  -> IO (Processor k v)                              -- ^ supplier
+  -> StoreName                                       -- ^ store name
+  -> ([Topo.NodeName] -> Topo.Topology -> Topo.Topology)
+  -- ^ topology-level @addStateStore*@ for the store's type
+  -> IO ()
+attachProcessorWithStore b s prefix supplier storeNm attachStore = do
+  nm <- freshNodeName b prefix
+  withTopology_ b $ \topo ->
+    let !topo1 = Topo.addProcessorWith
+                   Topo.ProcessorSpec
+                     { Topo.processorSpecName     = nm
+                     , Topo.processorSpecParents  = [KS.kstreamParent s]
+                     , Topo.processorSpecSupplier = Topo.AnyProcessor supplier
+                     , Topo.processorSpecStores   = [storeNm]
+                     }
+                   topo
+        !topo2 = attachStore [nm] topo1
+     in topo2
 
 -- | Multi-topic source helper. The existing
 -- 'Kafka.Streams.KStream.streamFromTopic' takes a single 'TopicName';
@@ -1703,6 +1782,42 @@ withStateStoreS
   :: StoreBuilderS k v -> [Topo.NodeName] -> Topology x x
 withStateStoreS = WithStateStoreS
 
+-- | Atomically attach a custom 'Processor' /and/ its
+-- 'StoreBuilderKV' to the upstream 'KStream'. The compiler
+-- generates the processor's 'Topo.NodeName' from the prefix,
+-- attaches the store's name to its @processorSpecStores@ list,
+-- and registers the store with that generated node as its
+-- owner — so callers don't need to coordinate node names manually
+-- between 'processStream' and 'withStateStoreKV'.
+--
+-- Use this whenever your processor reads or writes a state store
+-- that no other processor shares (the common case). For
+-- multi-owner state stores, stay with the
+-- 'processStream' + 'withStateStoreKV' split and pass an
+-- explicit 'Topo.NodeName' yourself (currently requires the
+-- 'liftIO_' escape; a dedicated /named/ variant is on the
+-- follow-up list).
+processWithStateStoreKV
+  :: Text
+  -> StoreBuilderKV stk stv
+  -> IO (Processor k v)
+  -> Topology (KStream k v) ()
+processWithStateStoreKV = ProcessWithStateStoreKV
+
+processWithStateStoreW
+  :: Text
+  -> StoreBuilderW stk stv
+  -> IO (Processor k v)
+  -> Topology (KStream k v) ()
+processWithStateStoreW = ProcessWithStateStoreW
+
+processWithStateStoreS
+  :: Text
+  -> StoreBuilderS stk stv
+  -> IO (Processor k v)
+  -> Topology (KStream k v) ()
+processWithStateStoreS = ProcessWithStateStoreS
+
 ----------------------------------------------------------------------
 -- Escape hatch + introspection
 ----------------------------------------------------------------------
@@ -1837,6 +1952,15 @@ inspect = go
       = ["WithStateStoreW("  <> Store.unStoreName (Store.sbWName  b) <> ")"]
     go (WithStateStoreS b _)
       = ["WithStateStoreS("  <> Store.unStoreName (Store.sbSName  b) <> ")"]
+    go (ProcessWithStateStoreKV nm b _)
+      = [ "ProcessWithStateStoreKV(" <> nm <> "," <>
+            Store.unStoreName (Store.sbKvName b) <> ")" ]
+    go (ProcessWithStateStoreW nm b _)
+      = [ "ProcessWithStateStoreW(" <> nm <> "," <>
+            Store.unStoreName (Store.sbWName b) <> ")" ]
+    go (ProcessWithStateStoreS nm b _)
+      = [ "ProcessWithStateStoreS(" <> nm <> "," <>
+            Store.unStoreName (Store.sbSName b) <> ")" ]
     -- Escape
     go (Lifted nm _)                  = ["Lifted(" <> nm <> ")"]
 

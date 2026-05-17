@@ -29,6 +29,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import qualified Unsafe.Coerce as Unsafe
 
 import Kafka.Streams
 import Kafka.Streams.Runtime.EOS
@@ -37,6 +38,7 @@ import Kafka.Streams.Runtime.EOS
   , runCommitCycle
   )
 import qualified Kafka.Streams.Materialized as Mat
+import qualified Kafka.Streams.State.Store
 import qualified Kafka.Streams.Topology.Free as F
 
 tests :: TestTree
@@ -821,36 +823,75 @@ test_suppress_until_time_limit =
 
 test_process_stream_with_state_store :: TestTree
 test_process_stream_with_state_store =
-  testCase "processStream + withStateStoreKV runs a custom counter" $ do
-    -- Custom processor: read from a 'counts' KV store, increment per
-    -- record, forward (key, newCount). All wired through the GADT.
-    countsCollected <- newIORef []
-    let topology :: F.Topology Void ()
+  testCase "processWithStateStoreKV runs a state-store-backed counter" $ do
+    -- A custom processor that increments a per-key count in an
+    -- in-memory KV state store. 'F.processWithStateStoreKV'
+    -- atomically registers the processor + state store with the
+    -- right owner-node wiring, so the user doesn't need to know
+    -- the auto-generated processor node name.
+    --
+    -- The processor matches the standard shape used throughout the
+    -- imperative DSL: an 'IORef' for the 'ProcessorContext' captured
+    -- in 'procInit', another for the resolved 'KeyValueStore', and
+    -- a 'procProcess' that uses both to read-modify-write the
+    -- counter store.
+    let storeNm = storeName "free-procapi-counts"
+        storeBuilder
+          :: Kafka.Streams.State.Store.StoreBuilderKV Text Int64
+        storeBuilder = inMemoryKeyValueStoreBuilder storeNm
+
+        -- The custom Processor: on every input record, increment
+        -- the counter for its key in the state store.
+        counterProcessor :: IO (Processor Text Text)
+        counterProcessor = do
+          ctxRef   <- newIORef Nothing
+          storeRef <-
+            newIORef (Nothing :: Maybe (KeyValueStore Text Int64))
+          pure Processor
+            { procName    = processorName "FREE-PROCAPI-COUNTER"
+            , procInit    = \ctx -> do
+                writeIORef ctxRef (Just ctx)
+                getStateStore ctx storeNm >>= \case
+                  Just (AnyKeyValueStore kvs) ->
+                    writeIORef storeRef (Just (Unsafe.unsafeCoerce kvs))
+                  _ -> error
+                         "free-procapi: counter store missing in procInit"
+            , procClose   = pure ()
+            , procProcess = \r -> case recordKey r of
+                Nothing -> pure ()
+                Just k  -> do
+                  mst <- readIORef storeRef
+                  case mst of
+                    Just kvs -> do
+                      cur <- maybe 0 Prelude.id <$> kvsGet kvs k
+                      kvsPut kvs k (cur + 1)
+                    Nothing -> pure ()
+            }
+
+        topology :: F.Topology Void ()
         topology =
           F.source "in" textSerde textSerde
-            >>> F.foreach (\r ->
-                            modifyIORef' countsCollected
-                              (\xs -> xs ++ [(unbytesM (crKeyOf r), recordValue r)]))
+            >>> F.processWithStateStoreKV
+                  "FREE-PROCAPI-COUNTER"
+                  storeBuilder
+                  counterProcessor
 
-        unbytesM = fmap Prelude.id   -- already Text in this path
-        crKeyOf  = recordKey
-
-    -- We're not actually exercising the custom processor + state store
-    -- here (would require defining a Processor k v value with full
-    -- ctxRef plumbing — covered by the imperative test suite). The
-    -- check is that the GADT's foreach pathway lands records in the
-    -- callback. The constructors processStream / withStateStoreKV
-    -- compile (verified by the type checker) and have apply +
-    -- inspect clauses; deeper integration tests live alongside the
-    -- imperative Processor API tests.
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-procapi"
 
-    pipeInput driver (topicName "in") (Just (bytes "k1")) (bytes "v1") t0 0
-    pipeInput driver (topicName "in") (Just (bytes "k2")) (bytes "v2") t0 0
+    pipeInput driver (topicName "in") (Just (bytes "k1")) (bytes "v") t0 0
+    pipeInput driver (topicName "in") (Just (bytes "k1")) (bytes "v") t0 0
+    pipeInput driver (topicName "in") (Just (bytes "k2")) (bytes "v") t0 0
+    pipeInput driver (topicName "in") (Just (bytes "k1")) (bytes "v") t0 0
 
-    collected <- readIORef countsCollected
-    map snd collected @?= ["v1", "v2"]
+    -- Pull the state store directly and verify the counts.
+    mStore <- getKeyValueStore @Text @Int64 driver storeNm
+    case mStore of
+      Just kvs -> do
+        kvsGet kvs "k1" >>= (@?= Just 3)
+        kvsGet kvs "k2" >>= (@?= Just 1)
+        kvsGet kvs "k3" >>= (@?= Nothing)
+      Nothing -> error "free-procapi: counter store missing in driver"
     closeDriver driver
 
 ----------------------------------------------------------------------
