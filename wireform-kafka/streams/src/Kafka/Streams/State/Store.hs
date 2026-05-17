@@ -56,6 +56,10 @@ module Kafka.Streams.State.Store
   , withLoggingDisabledW
   , withLoggingEnabledS
   , withLoggingDisabledS
+    -- * KIP-295 source-changelog reuse
+  , withSourceTopicChangelogKV
+  , withSourceTopicChangelogW
+  , withSourceTopicChangelogS
     -- * Anonymous wrapper
   , AnyStateStore (..)
   , anyStoreName
@@ -69,6 +73,7 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 
 import Kafka.Streams.Time (Timestamp)
+import Kafka.Streams.Types (TopicName)
 
 -- | Globally-unique store name. Must match the Java rule
 -- (alphanumeric plus @-_@, no leading dot, length 1..249) but we
@@ -206,18 +211,34 @@ data SessionStore k v = SessionStore
 -- @loggingEnabled = False@ skips the changelog entirely and the store
 -- becomes /unrecoverable/ — equivalent to Java's
 -- @withLoggingDisabled()@ on a 'Stores.persistentKeyValueStore'.
+--
+-- 'loggingSourceTopic' carries the
+-- @REUSE_KTABLE_SOURCE_TOPICS@ optimisation from KIP-295: when set
+-- to @'Just' topic@, the store /reuses/ the named external topic as
+-- its changelog instead of creating a separate internal
+-- @\<application-id\>-\<store-name\>-changelog@ topic on the broker.
+-- The graph-level optimiser ('Kafka.Streams.Topology.optimizeTopology'
+-- with 'optReuseSourceKTable' enabled) sets this field automatically
+-- for stores attached to a single-parent source-table processor.
 data LoggingConfig = LoggingConfig
-  { loggingEnabled  :: !Bool
-  , loggingTopicCfg :: ![(Text, Text)]
+  { loggingEnabled     :: !Bool
+  , loggingTopicCfg    :: ![(Text, Text)]
     -- ^ Extra topic configuration overrides for the changelog topic
     -- (e.g. @[(\"cleanup.policy\", \"compact\")]@).
+  , loggingSourceTopic :: !(Maybe TopicName)
+    -- ^ When set, the changelog /is/ this external topic — no
+    -- internal changelog topic is created. Implements KIP-295's
+    -- @REUSE_KTABLE_SOURCE_TOPICS@ on the broker side. 'Nothing'
+    -- (the default) means "create an internal changelog topic
+    -- named after the store" as usual.
   }
   deriving stock (Eq, Show, Generic)
 
 defaultLoggingConfig :: LoggingConfig
 defaultLoggingConfig = LoggingConfig
-  { loggingEnabled = True
-  , loggingTopicCfg = [("cleanup.policy", "compact")]
+  { loggingEnabled     = True
+  , loggingTopicCfg    = [("cleanup.policy", "compact")]
+  , loggingSourceTopic = Nothing
   }
 
 -- | Builder for a generic state store. The builder is what the
@@ -283,50 +304,90 @@ data StoreTypeMismatch = StoreTypeMismatch !StoreName !Text
 withLoggingEnabledKV
   :: [(Text, Text)] -> StoreBuilderKV k v -> StoreBuilderKV k v
 withLoggingEnabledKV cfg b = b
-  { sbKvLogging = LoggingConfig
-      { loggingEnabled = True
+  { sbKvLogging = (sbKvLogging b)
+      { loggingEnabled  = True
       , loggingTopicCfg = cfg
       }
   }
 
 withLoggingDisabledKV :: StoreBuilderKV k v -> StoreBuilderKV k v
 withLoggingDisabledKV b = b
-  { sbKvLogging = LoggingConfig
-      { loggingEnabled = False
-      , loggingTopicCfg = []
+  { sbKvLogging = (sbKvLogging b)
+      { loggingEnabled     = False
+      , loggingTopicCfg    = []
+      , loggingSourceTopic = Nothing
       }
   }
 
 withLoggingEnabledW
   :: [(Text, Text)] -> StoreBuilderW k v -> StoreBuilderW k v
 withLoggingEnabledW cfg b = b
-  { sbWLogging = LoggingConfig
-      { loggingEnabled = True
+  { sbWLogging = (sbWLogging b)
+      { loggingEnabled  = True
       , loggingTopicCfg = cfg
       }
   }
 
 withLoggingDisabledW :: StoreBuilderW k v -> StoreBuilderW k v
 withLoggingDisabledW b = b
-  { sbWLogging = LoggingConfig
-      { loggingEnabled = False
-      , loggingTopicCfg = []
+  { sbWLogging = (sbWLogging b)
+      { loggingEnabled     = False
+      , loggingTopicCfg    = []
+      , loggingSourceTopic = Nothing
       }
   }
 
 withLoggingEnabledS
   :: [(Text, Text)] -> StoreBuilderS k v -> StoreBuilderS k v
 withLoggingEnabledS cfg b = b
-  { sbSLogging = LoggingConfig
-      { loggingEnabled = True
+  { sbSLogging = (sbSLogging b)
+      { loggingEnabled  = True
       , loggingTopicCfg = cfg
       }
   }
 
 withLoggingDisabledS :: StoreBuilderS k v -> StoreBuilderS k v
 withLoggingDisabledS b = b
-  { sbSLogging = LoggingConfig
-      { loggingEnabled = False
-      , loggingTopicCfg = []
+  { sbSLogging = (sbSLogging b)
+      { loggingEnabled     = False
+      , loggingTopicCfg    = []
+      , loggingSourceTopic = Nothing
+      }
+  }
+
+-- | Mark a KV store builder as /reusing/ the supplied source topic
+-- as its changelog (KIP-295 @REUSE_KTABLE_SOURCE_TOPICS@). No
+-- separate internal changelog topic will be created; on restore
+-- the runtime will replay from @topic@ directly.
+--
+-- Callers normally don't need this — the graph-level optimiser
+-- ('Kafka.Streams.Topology.optimizeTopology' with
+-- 'optReuseSourceKTable' enabled) sets it automatically on
+-- table-source processors that own a single store. The helper is
+-- exposed for manual control (e.g. tests, custom topologies).
+withSourceTopicChangelogKV
+  :: TopicName -> StoreBuilderKV k v -> StoreBuilderKV k v
+withSourceTopicChangelogKV t b = b
+  { sbKvLogging = (sbKvLogging b)
+      { loggingEnabled     = True
+      , loggingSourceTopic = Just t
+      }
+  }
+
+withSourceTopicChangelogW
+  :: TopicName -> StoreBuilderW k v -> StoreBuilderW k v
+withSourceTopicChangelogW t b = b
+  { sbWLogging = (sbWLogging b)
+      { loggingEnabled     = True
+      , loggingSourceTopic = Just t
+      }
+  }
+
+withSourceTopicChangelogS
+  :: TopicName -> StoreBuilderS k v -> StoreBuilderS k v
+withSourceTopicChangelogS t b = b
+  { sbSLogging = (sbSLogging b)
+      { loggingEnabled     = True
+      , loggingSourceTopic = Just t
       }
   }
