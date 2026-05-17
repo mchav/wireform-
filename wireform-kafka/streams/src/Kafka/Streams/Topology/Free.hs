@@ -296,6 +296,9 @@ module Kafka.Streams.Topology.Free
   , mapValuesM
   , mapKeyValue
   , mapKeyValueM
+  , mapRecord
+  , mapRecordM
+  , noFuse
   , filter
   , filterNot
   , flatMapValues
@@ -583,6 +586,17 @@ data Prim i o where
                   -> Prim (KStream k v) (KStream k' v')
   MapKeyValueM    :: (k -> v -> IO (k', v'))
                   -> Prim (KStream k v) (KStream k' v')
+  -- | Full-record pure transform: see key, value, timestamp,
+  -- and headers; produce a fresh 'Record'. Use when you need
+  -- access to header / timestamp data that 'MapValues' /
+  -- 'MapKeyValue' don't expose.
+  MapRecord       :: (Record k v -> Record k' v')
+                  -> Prim (KStream k v) (KStream k' v')
+  -- | Effectful full-record transform. Same backpressure caveat
+  -- as 'MapValuesM' — the 'IO' runs synchronously on the
+  -- stream thread.
+  MapRecordM      :: (Record k v -> IO (Record k' v'))
+                  -> Prim (KStream k v) (KStream k' v')
   Filter          :: (Record k v -> Bool) -> Prim (KStream k v) (KStream k v)
   FilterNot       :: (Record k v -> Bool) -> Prim (KStream k v) (KStream k v)
   FlatMapValues   :: (v -> [v'])       -> Prim (KStream k v) (KStream k v')
@@ -791,6 +805,22 @@ data Prim i o where
   -- | Escape hatch — splice in a hand-rolled builder action.
   Lifted :: !Text -> (StreamsBuilder -> i -> IO o) -> Prim i o
 
+  -- ------------------------------------------------------------------
+  -- Fusion barrier
+  -- ------------------------------------------------------------------
+
+  -- | A runtime-identity that the AST optimiser /will not fuse
+  -- across/. Adjacent primitives on either side of 'NoFuse' are
+  -- left in their own processor nodes, even when a fusion rule
+  -- in 'fuseStep' would otherwise collapse them.
+  --
+  -- Use this to keep an expensive 'MapValuesM' (e.g. one that
+  -- calls an external service) isolated in its own processor
+  -- so the runtime sees it as a distinct node — useful for
+  -- monitoring, tracing, and scheduling reasoning. See the
+  -- 'noFuse' smart constructor.
+  NoFuse :: Prim a a
+
 ----------------------------------------------------------------------
 -- Algebraic structure
 --
@@ -905,6 +935,9 @@ runPrim b = go
     go (MapValuesM f)        = KS.mapValuesM f
     go (MapKeyValue f)       = KS.mapKeyValue f
     go (MapKeyValueM f)      = KS.mapKeyValueM f
+    go (MapRecord f)         = KS.mapRecord f
+    go (MapRecordM f)        = KS.mapRecordM f
+    go NoFuse                = pure
     go (Filter p)            = KS.filterStream p
     go (FilterNot p)         = KS.filterNotStream p
     go (FlatMapValues f)     = KS.flatMapValues f
@@ -1625,6 +1658,108 @@ mapKeyValue = liftPrim . MapKeyValue
 mapKeyValueM
   :: (k -> v -> IO (k', v')) -> Topology (KStream k v) (KStream k' v')
 mapKeyValueM = liftPrim . MapKeyValueM
+
+-- | Apply a pure transform to the full 'Record' — key, value,
+-- timestamp, and headers all in scope. Useful when the
+-- transform depends on header metadata or needs to propagate a
+-- correlation-id header alongside the value transform.
+--
+-- /JVM equivalent:/ no single direct match — closest is
+-- @KStream.transform@ with a stateless transformer. Mirrors
+-- 'mapKeyValue' / 'mapValues' but with full-record visibility.
+--
+-- == Fusion
+--
+-- Chains of 'mapRecord' fuse into one @MapRecord (g . f)@ via
+-- the same rule that fuses 'MapValues' chains. To opt out of
+-- fusion for a particularly expensive transform, wrap with
+-- 'noFuse' on either side.
+mapRecord
+  :: (Record k v -> Record k' v')
+  -> Topology (KStream k v) (KStream k' v')
+mapRecord = liftPrim . MapRecord
+
+-- | Effectful 'mapRecord'. Same backpressure caveat as
+-- 'mapValuesM'\/'mapKeyValueM' — the supplied 'IO' runs once
+-- per record on the stream thread.
+--
+-- == When to reach for this over 'mapValuesM'
+--
+--   * The transform needs the record's headers (auth context,
+--     trace IDs, schema versions) to decide how to map the
+--     value.
+--   * The transform needs to /set/ a header alongside the value
+--     transform.
+--   * The transform needs the original record timestamp to
+--     compute an event-time-aware result.
+--
+-- For value-only IO transforms, prefer 'mapValuesM' — it's the
+-- exact JVM @ValueMapper@ shape and the optimiser knows more
+-- fusion rules about it.
+--
+-- == Pairing with 'noFuse'
+--
+-- Expensive per-record IO (HTTP calls, external lookups) often
+-- benefits from being its own processor node so the runtime
+-- can attribute latency / errors to it independently:
+--
+-- @
+-- F.mapRecordM enrichWithHeaders
+--   '>>>' F.noFuse  -- keep enrichment isolated
+--   '>>>' F.mapValues normalise
+-- @
+mapRecordM
+  :: (Record k v -> IO (Record k' v'))
+  -> Topology (KStream k v) (KStream k' v')
+mapRecordM = liftPrim . MapRecordM
+
+-- | Opt out of operator fusion at this point in the topology.
+--
+-- 'noFuse' is a runtime identity (it doesn't change the wire
+-- value) but acts as a /fusion barrier/: the AST optimiser
+-- will not fuse adjacent primitives across it, even when
+-- 'fuseStep' would otherwise collapse them.
+--
+-- == When to reach for it
+--
+-- The optimiser's fusion rules (e.g. @MapValues g . MapValues f
+-- = MapValues (g . f)@) save processor nodes by collapsing
+-- chains of stateless transforms. That's almost always a win,
+-- but the runtime then sees /one/ node where the source had two
+-- — which makes per-transform observability harder. When one of
+-- the transforms is expensive (an external lookup, a heavy
+-- compute step, an HTTP call), you usually want it as its own
+-- node so:
+--
+--   * metrics and traces attribute its latency separately,
+--   * @processStream@-style monitoring sees it distinctly,
+--   * task assignment can reason about it independently.
+--
+-- 'noFuse' is the explicit "don't fuse here" marker:
+--
+-- @
+-- F.source \"in\" ks vs
+--   '>>>' F.mapValues cheap
+--   '>>>' F.noFuse                          -- isolate the next transform
+--   '>>>' F.mapValuesM (callExternalAPI)    -- expensive
+--   '>>>' F.noFuse                          -- isolate it on both sides
+--   '>>>' F.mapValues postProcess
+--   '>>>' F.sink \"out\" ks vs
+-- @
+--
+-- Without 'noFuse', the optimiser might collapse the three
+-- 'mapValues' (M) calls into a single processor with the IO
+-- buried inside; with it, each side stays its own node.
+--
+-- == Semantics
+--
+-- 'noFuse' compiles to a no-op pass-through processor at the
+-- imperative level. At runtime it forwards every record
+-- unchanged, like the pass-through processors emitted by
+-- 'repartition'. The cost is one extra processor node per
+-- barrier — negligible relative to the IO it's isolating.
+noFuse :: Topology a a
+noFuse = liftPrim NoFuse
 
 -- | Keep records for which the predicate returns 'True'; drop
 -- the rest.
@@ -2817,6 +2952,9 @@ labelPrim p0 = case p0 of
   MapValuesM _       -> "MapValuesM"
   MapKeyValue _      -> "MapKeyValue"
   MapKeyValueM _     -> "MapKeyValueM"
+  MapRecord _        -> "MapRecord"
+  MapRecordM _       -> "MapRecordM"
+  NoFuse             -> "NoFuse"
   Filter _           -> "Filter"
   FilterNot _        -> "FilterNot"
   FlatMapValues _    -> "FlatMapValues"
@@ -3333,6 +3471,13 @@ fuseStep
   -> Topology a b
   -> Maybe (Topology a c)
 fuseStep cfg g f = case (g, f) of
+  -- Fusion barrier — explicitly do not fuse across 'NoFuse',
+  -- regardless of what the surrounding primitives are. This
+  -- short-circuits the table so /no/ rule below can match a
+  -- pair where either side is a barrier.
+  (Lift NoFuse, _) -> Nothing
+  (_, Lift NoFuse) -> Nothing
+
   -- Identity collapses
   (Id, _) | optCollapseIdentity cfg -> Just f
   (_, Id) | optCollapseIdentity cfg -> Just g
@@ -3367,6 +3512,17 @@ fuseStep cfg g f = case (g, f) of
     Just (liftPrim (MapKeyValueM (\k v -> do
                                       (!k', !v') <- f' k v
                                       g' k' v')))
+
+  -- MapRecord family — full-record transforms compose just like
+  -- their value-only counterparts.
+  (Lift (MapRecord g'), Lift (MapRecord f')) | optFuseMaps cfg ->
+    Just (liftPrim (MapRecord (g' . f')))
+  (Lift (MapRecordM g'), Lift (MapRecord f')) | optFuseMaps cfg ->
+    Just (liftPrim (MapRecordM (g' . f')))
+  (Lift (MapRecord g'), Lift (MapRecordM f')) | optFuseMaps cfg ->
+    Just (liftPrim (MapRecordM (\r -> g' <$> f' r)))
+  (Lift (MapRecordM g'), Lift (MapRecordM f')) | optFuseMaps cfg ->
+    Just (liftPrim (MapRecordM (\r -> f' r >>= g')))
 
   -- FlatMap fusion
   (Lift (FlatMapValues g'), Lift (MapValues f')) | optFuseFlatMaps cfg ->

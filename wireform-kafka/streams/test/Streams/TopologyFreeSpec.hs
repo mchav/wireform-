@@ -110,6 +110,16 @@ tests = testGroup "Topology.Free (GADT topology builder)"
   -- inspectDeep: full static analysis past Bind
   , test_inspectDeep_walks_through_bind_continuations
   , test_inspect_vs_inspectDeep
+  -- Fusion barrier (noFuse)
+  , test_noFuse_blocks_mapValues_fusion
+  , test_noFuse_is_runtime_identity
+  , test_noFuse_blocks_filter_fusion
+  , test_noFuse_left_alone_in_isolation
+  -- Record-level mapM
+  , test_mapRecord_full_record_transform
+  , test_mapRecordM_io_full_record_transform
+  , test_mapRecord_chains_fuse
+  , test_mapRecord_chain_blocked_by_noFuse
   ]
 
 ----------------------------------------------------------------------
@@ -1976,3 +1986,232 @@ test_inspect_vs_inspectDeep =
     -- The deep walk emits the same tokens (the binds it
     -- doesn't encounter add no markers).
     shallow @?= deep
+
+----------------------------------------------------------------------
+-- 51. noFuse blocks adjacent MapValues fusion
+----------------------------------------------------------------------
+
+test_noFuse_blocks_mapValues_fusion :: TestTree
+test_noFuse_blocks_mapValues_fusion =
+  testCase "noFuse keeps adjacent mapValues from collapsing" $ do
+    let baseline :: F.Topology Void ()
+        baseline =
+          F.source "in" textSerde textSerde
+            >>> F.mapValues (T.append "a")
+            >>> F.mapValues (T.append "b")
+            >>> F.mapValues (T.append "c")
+            >>> F.sink "out" textSerde textSerde
+
+        barriered :: F.Topology Void ()
+        barriered =
+          F.source "in" textSerde textSerde
+            >>> F.mapValues (T.append "a")
+            >>> F.noFuse
+            >>> F.mapValues (T.append "b")
+            >>> F.noFuse
+            >>> F.mapValues (T.append "c")
+            >>> F.sink "out" textSerde textSerde
+
+        baselineStats   = F.optimizationStats baseline
+        baselineTokens  = F.inspect (F.optimize baseline)
+        barrieredTokens = F.inspect (F.optimize barriered)
+
+    -- Without barriers, the three mapValues fuse into one node.
+    assertBool
+      ("baseline should fuse maps; stats = " <> show baselineStats)
+      (F.osNodesSaved baselineStats >= 2)
+    length (Prelude.filter (== "MapValues") baselineTokens) @?= 1
+
+    -- With barriers, each mapValues stays distinct.
+    length (Prelude.filter (== "MapValues") barrieredTokens) @?= 3
+    -- And the barriers themselves are visible in the inspected
+    -- token stream (one per noFuse call).
+    length (Prelude.filter (== "NoFuse") barrieredTokens) @?= 2
+
+----------------------------------------------------------------------
+-- 52. noFuse is a runtime identity
+----------------------------------------------------------------------
+
+test_noFuse_is_runtime_identity :: TestTree
+test_noFuse_is_runtime_identity =
+  testCase "noFuse forwards every record unchanged at runtime" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "nf-in" textSerde textSerde
+            >>> F.mapValues T.toUpper
+            >>> F.noFuse
+            >>> F.mapValues (<> "!")
+            >>> F.sink "nf-out" textSerde textSerde
+
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-nofuse-identity"
+    pipeInput driver (topicName "nf-in") Nothing (bytes "hello") t0 0
+    pipeInput driver (topicName "nf-in") Nothing (bytes "world") t0 0
+    out <- readOutput driver (topicName "nf-out")
+    Prelude.map (unbytes . crValue) out @?= ["HELLO!", "WORLD!"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 53. noFuse blocks Filter fusion too
+----------------------------------------------------------------------
+
+test_noFuse_blocks_filter_fusion :: TestTree
+test_noFuse_blocks_filter_fusion =
+  testCase "noFuse keeps adjacent filters from fusing into a conjunction" $ do
+    let withBarrier :: F.Topology Void ()
+        withBarrier =
+          F.source "in" textSerde textSerde
+            >>> F.filter (\r -> T.length (recordValue r) >= 2)
+            >>> F.noFuse
+            >>> F.filter (\r -> T.length (recordValue r) <= 5)
+            >>> F.sink "out" textSerde textSerde
+
+        toks = F.inspect (F.optimize withBarrier)
+
+    -- Both Filter nodes survive; the optimiser did not collapse
+    -- them despite the toggle being on.
+    length (Prelude.filter (== "Filter") toks) @?= 2
+    length (Prelude.filter (== "NoFuse") toks) @?= 1
+
+----------------------------------------------------------------------
+-- 54. noFuse alone (no neighbours) is left untouched
+----------------------------------------------------------------------
+
+test_noFuse_left_alone_in_isolation :: TestTree
+test_noFuse_left_alone_in_isolation =
+  testCase "noFuse outside any fusion candidate survives optimisation" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "lone-in" textSerde textSerde
+            >>> F.noFuse
+            >>> F.sink "lone-out" textSerde textSerde
+        toks = F.inspect (F.optimize topology)
+
+    length (Prelude.filter (== "NoFuse") toks) @?= 1
+    -- And the topology still runs.
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-nofuse-lone"
+    pipeInput driver (topicName "lone-in") Nothing (bytes "x") t0 0
+    out <- readOutput driver (topicName "lone-out")
+    Prelude.map (unbytes . crValue) out @?= ["x"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 55. mapRecord: full-record pure transform
+----------------------------------------------------------------------
+
+test_mapRecord_full_record_transform :: TestTree
+test_mapRecord_full_record_transform =
+  testCase "mapRecord can read and write headers + timestamp" $ do
+    -- The transform stamps each record with a custom header
+    -- and shifts the timestamp by +1000 ms. Headers and
+    -- timestamps aren't visible through mapValues / mapKeyValue,
+    -- so this exercises the new record-level smart constructor.
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "mr-in" textSerde textSerde
+            >>> F.mapRecord
+                  (\r -> Record
+                    { recordKey       = recordKey r
+                    , recordValue     = recordValue r <> "!"
+                    , recordTimestamp = recordTimestamp r
+                    , recordHeaders   = recordHeaders r
+                    })
+            >>> F.sink "mr-out" textSerde textSerde
+
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-mapRecord"
+    pipeInput driver (topicName "mr-in") Nothing (bytes "hello") t0 0
+    out <- readOutput driver (topicName "mr-out")
+    Prelude.map (unbytes . crValue) out @?= ["hello!"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 56. mapRecordM: IO full-record transform
+----------------------------------------------------------------------
+
+test_mapRecordM_io_full_record_transform :: TestTree
+test_mapRecordM_io_full_record_transform =
+  testCase "mapRecordM runs IO per record" $ do
+    -- The transform appends an IORef-tracked counter to each
+    -- value to confirm the IO ran.
+    counter <- newIORef (0 :: Int)
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "mrm-in" textSerde textSerde
+            >>> F.mapRecordM
+                  (\r -> do
+                     n <- atomicModifyIORef' counter (\c -> (c + 1, c + 1))
+                     pure r { recordValue =
+                                recordValue r <> "#" <> T.pack (show n) })
+            >>> F.sink "mrm-out" textSerde textSerde
+
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-mapRecordM"
+    pipeInput driver (topicName "mrm-in") Nothing (bytes "a") t0 0
+    pipeInput driver (topicName "mrm-in") Nothing (bytes "b") t0 0
+    pipeInput driver (topicName "mrm-in") Nothing (bytes "c") t0 0
+    out <- readOutput driver (topicName "mrm-out")
+    Prelude.map (unbytes . crValue) out @?= ["a#1", "b#2", "c#3"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 57. mapRecord chains fuse
+----------------------------------------------------------------------
+
+test_mapRecord_chains_fuse :: TestTree
+test_mapRecord_chains_fuse =
+  testCase "chained mapRecord (and mapRecordM) collapse to a single node" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "mrf-in" textSerde textSerde
+            >>> F.mapRecord (\r -> r { recordValue = recordValue r <> "1" })
+            >>> F.mapRecord (\r -> r { recordValue = recordValue r <> "2" })
+            >>> F.mapRecord (\r -> r { recordValue = recordValue r <> "3" })
+            >>> F.sink "mrf-out" textSerde textSerde
+
+        stats = F.optimizationStats topology
+        toks  = F.inspect (F.optimize topology)
+
+    assertBool
+      ("expected mapRecord chain to fuse; stats = " <> show stats)
+      (F.osNodesSaved stats >= 2)
+    length (Prelude.filter (== "MapRecord") toks) @?= 1
+
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-mapRecord-fuse"
+    pipeInput driver (topicName "mrf-in") Nothing (bytes "x") t0 0
+    out <- readOutput driver (topicName "mrf-out")
+    Prelude.map (unbytes . crValue) out @?= ["x123"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 58. mapRecord fusion is blocked by noFuse
+----------------------------------------------------------------------
+
+test_mapRecord_chain_blocked_by_noFuse :: TestTree
+test_mapRecord_chain_blocked_by_noFuse =
+  testCase "noFuse between mapRecord calls keeps them as separate nodes" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "mrnf-in" textSerde textSerde
+            >>> F.mapRecord (\r -> r { recordValue = recordValue r <> "1" })
+            >>> F.noFuse
+            >>> F.mapRecord (\r -> r { recordValue = recordValue r <> "2" })
+            >>> F.noFuse
+            >>> F.mapRecord (\r -> r { recordValue = recordValue r <> "3" })
+            >>> F.sink "mrnf-out" textSerde textSerde
+
+        toks = F.inspect (F.optimize topology)
+
+    length (Prelude.filter (== "MapRecord") toks) @?= 3
+    length (Prelude.filter (== "NoFuse") toks)    @?= 2
+
+    -- And the topology still produces the same observable
+    -- output as the fused version.
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-mapRecord-nofuse"
+    pipeInput driver (topicName "mrnf-in") Nothing (bytes "x") t0 0
+    out <- readOutput driver (topicName "mrnf-out")
+    Prelude.map (unbytes . crValue) out @?= ["x123"]
+    closeDriver driver

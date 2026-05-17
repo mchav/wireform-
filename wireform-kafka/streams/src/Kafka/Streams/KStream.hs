@@ -59,6 +59,8 @@ module Kafka.Streams.KStream
   , mapKeyValue
   , mapKeyValueNamed
   , mapKeyValueM
+  , mapRecord
+  , mapRecordM
   , flatMapValues
   , flatMapKeyValue
   , peekStream
@@ -403,6 +405,54 @@ mapKVProc f = do
                   } :: Record k' v'
             forwardRecord ctx out
           _ -> pure ()
+    }
+
+-- | Apply a pure transform to the entire 'Record' — key, value,
+-- timestamp, and headers all in scope. Useful when you need to
+-- mutate metadata (e.g. propagate a trace header) alongside the
+-- key/value transform that 'mapKeyValue' covers.
+--
+-- /JVM equivalent:/ no single direct match — closest is
+-- @KStream.transform@ with a stateless transformer. The Java
+-- DSL forces callers through the Processor API; we expose the
+-- common stateless shape as a smart constructor.
+mapRecord
+  :: forall k v k' v'
+   . (Record k v -> Record k' v')
+  -> KStream k v
+  -> IO (KStream k' v')
+mapRecord f = mapRecordM (pure . f)
+
+-- | Effectful 'mapRecord'. The 'IO' runs once per record on the
+-- stream thread — same backpressure caveat as 'mapValuesM'.
+mapRecordM
+  :: forall k v k' v'
+   . (Record k v -> IO (Record k' v'))
+  -> KStream k v
+  -> IO (KStream k' v')
+mapRecordM f s =
+  attachProcessor s "KSTREAM-MAPRECORD"
+    (mapRecordProc f)
+    (error "KStream.mapRecord: downstream key Serde unset")
+    (error "KStream.mapRecord: downstream value Serde unset")
+
+mapRecordProc
+  :: forall k v k' v'
+   . (Record k v -> IO (Record k' v'))
+  -> IO (Processor k v)
+mapRecordProc f = do
+  ctxRef <- newIORef Nothing
+  pure Processor
+    { procName    = processorName "KSTREAM-MAPRECORD"
+    , procInit    = \ctx -> writeIORef ctxRef (Just ctx)
+    , procClose   = pure ()
+    , procProcess = \r -> do
+        mctx <- readIORef ctxRef
+        case mctx of
+          Nothing  -> pure ()
+          Just ctx -> do
+            !r' <- f r
+            forwardRecord ctx (r' :: Record k' v')
     }
 
 -- | Expand each record into zero or more output records,
