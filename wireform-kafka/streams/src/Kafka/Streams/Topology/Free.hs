@@ -3274,6 +3274,35 @@ data OptimizeConfig = OptimizeConfig
     -- invalidate the repartition).
   , optHoistThroughRepartition :: !Bool
 
+    -- | Mirror Java Kafka Streams' implicit
+    -- /auto-insert-repartition-on-stateful-op/ behaviour. When
+    -- enabled, the optimiser walks the AST in flow order tracking
+    -- a /key-dirty/ flag (set by 'SelectKey' / 'MapKeyValue' /
+    -- 'MapKeyValueM' / 'FlatMapKeyValue'; cleared by 'Repartition'
+    -- / 'RepartitionWith') and inserts a 'Repartition' on the
+    -- relevant 'KStream' edge whenever a stateful op would
+    -- otherwise read mis-partitioned records:
+    --
+    --   * Linear flow: a 'Repartition' is inserted just before
+    --     'GroupByKey', 'GroupBy', and 'ToTableT' when the
+    --     upstream key is dirty.
+    --   * Joins: for stream-table and stream-stream joins whose
+    --     immediate upstream is a visible 'Fanout' (the
+    --     '&&&'-shaped tuple-forming idiom), each half is
+    --     analysed and wrapped with a 'Repartition' on the side
+    --     that needs it. Stream-global-table joins are skipped
+    --     (the global table is replicated, no co-partitioning
+    --     required). Joins reached only through monadic bind or
+    --     other opaque shapes are /not/ auto-inserted — callers
+    --     using do-notation should insert 'repartition'
+    --     explicitly.
+    --
+    -- The inserted prefix is @\"auto-rep\"@; downstream graph-level
+    -- merging ('Kafka.Streams.Topology.optMergeRepartitionTopics')
+    -- collapses sibling inserts so two stateful ops downstream
+    -- of the same key-change share one physical repartition.
+  , optAutoInsertRepartition :: !Bool
+
     -- | @'Values' '.' 'Values' = 'Values'@ — idempotent key
     -- drop.
   , optCollapseValues      :: !Bool
@@ -3304,6 +3333,7 @@ defaultOptimizeConfig = OptimizeConfig
   , optCollapseRepartition          = True
   , optDropPreKeyChangeRepartition  = True
   , optHoistThroughRepartition      = True
+  , optAutoInsertRepartition        = True
   , optCollapseValues               = True
   , optFuseTaps                     = True
   , optMaxPasses                    = 12
@@ -3325,6 +3355,7 @@ noOptimization = OptimizeConfig
   , optCollapseRepartition          = False
   , optDropPreKeyChangeRepartition  = False
   , optHoistThroughRepartition      = False
+  , optAutoInsertRepartition        = False
   , optCollapseValues               = False
   , optFuseTaps                     = False
   , optMaxPasses                    = 0
@@ -3391,8 +3422,18 @@ optimizeWith cfg = loop (optMaxPasses cfg)
 -- primitive matches in 'fuseStep' / 'collapseTap' now reach
 -- through the 'Lift' wrapper that 'FreeArrow' uses to embed
 -- 'Prim' nodes.
+--
+-- Before the bottom-up fusion sweep runs, an /auto-insert/
+-- pre-pass walks the AST in flow order and inserts
+-- 'Repartition' primitives where Java's DSL would (KIP-295
+-- auto-repartition shape). The two passes are designed to
+-- cooperate: any auto-inserted Repartition that immediately
+-- abuts a key change is dropped by
+-- 'optDropPreKeyChangeRepartition'; any auto-inserted
+-- Repartition that ends up adjacent to a stateless pure op is
+-- hoisted past it by 'optHoistThroughRepartition'.
 optimizePass :: OptimizeConfig -> Topology i o -> Topology i o
-optimizePass cfg = go
+optimizePass cfg = go . autoInsertRepartitionPass cfg
   where
     go :: forall a b. Topology a b -> Topology a b
     go (Compose g f) = smartCompose cfg (go g) (go f)
@@ -3408,6 +3449,183 @@ optimizePass cfg = go
     go (Tap t)       = collapseTap cfg (go t)
     go (Bind t k)    = Bind (go t) k
     go x             = x
+
+-- | The auto-insert-repartition pre-pass.
+--
+-- Walks the AST in flow order, maintaining a /key-dirty/ flag
+-- that gets set whenever a key-changing primitive runs and
+-- cleared by a 'Repartition' / 'RepartitionWith'. When the walk
+-- meets a stateful op whose correctness depends on partitioning
+-- (a 'GroupByKey', 'GroupBy', 'ToTableT', or a join with a
+-- visible 'Fanout' upstream), it inserts a 'Repartition' on
+-- the relevant 'KStream' edge.
+--
+-- Off (a no-op) when 'optAutoInsertRepartition' is 'False'.
+--
+-- Tuple-input join coverage is limited to the cases where the
+-- tuple is formed by a visible 'Fanout' immediately upstream of
+-- the join Prim. Joins reached through 'Bind' (do-notation) are
+-- opaque to this pass — callers using do-notation are expected
+-- to call 'F.repartition' explicitly. Stream-global-table joins
+-- are deliberately skipped (global tables are replicated, no
+-- co-partitioning needed).
+autoInsertRepartitionPass
+  :: forall i o. OptimizeConfig -> Topology i o -> Topology i o
+autoInsertRepartitionPass cfg t0
+  | optAutoInsertRepartition cfg = snd (walk False t0)
+  | otherwise                    = t0
+  where
+    walk :: forall a b. Bool -> Topology a b -> (Bool, Topology a b)
+    -- Local right-associate: if the LEFT of an outer Compose is
+    -- itself a Compose, rotate so the inner Compose surfaces on
+    -- the right where our join patterns can see it. This is the
+    -- 'Compose-associativity' axiom @(h . i) . f = h . (i . f)@
+    -- applied locally so the walk sees joins regardless of how
+    -- the user parenthesised the chain.
+    walk d (Compose (Compose h i) f) = walk d (Compose h (Compose i f))
+    walk d (Compose (Lift prim) inner) =
+      case prim of
+        StreamTableJoin _ _ ->
+          let (_, inner') = walk d inner
+           in (False, Compose (Lift prim) (insertOnLeftST inner'))
+        StreamTableLeftJoin _ _ ->
+          let (_, inner') = walk d inner
+           in (False, Compose (Lift prim) (insertOnLeftST inner'))
+        StreamStreamJoin _ _ _ ->
+          let (_, inner') = walk d inner
+           in (False, Compose (Lift prim) (insertOnBothSS inner'))
+        StreamStreamLeftJoin _ _ _ ->
+          let (_, inner') = walk d inner
+           in (False, Compose (Lift prim) (insertOnBothSS inner'))
+        StreamStreamOuterJoin _ _ _ ->
+          let (_, inner') = walk d inner
+           in (False, Compose (Lift prim) (insertOnBothSS inner'))
+        _ ->
+          let (d',  f') = walk d  inner
+              (d'', g') = walk d' (Lift prim)
+           in (d'', composeR g' f')
+    -- Other Compose nodes: walk both halves with the linear flag.
+    walk d (Compose g f) =
+      let (d',  f') = walk d  f
+          (d'', g') = walk d' g
+       in (d'', Compose g' f')
+    walk d (Lift p)      = walkPrim d p
+    walk d (First t)     = let (_, t') = walk d t in (d, First t')
+    walk d (Second t)    = let (_, t') = walk d t in (d, Second t')
+    walk d (Parallel p q) =
+      let (_, p') = walk d p
+          (_, q') = walk d q
+       in (d, Parallel p' q')
+    walk d (Fanout p q)  =
+      let (_, p') = walk d p
+          (_, q') = walk d q
+       in (d, Fanout p' q')
+    walk d (LeftT t)     = let (_, t') = walk d t in (d, LeftT t')
+    walk d (RightT t)    = let (_, t') = walk d t in (d, RightT t')
+    walk d (Plus p q)    =
+      let (_, p') = walk d p
+          (_, q') = walk d q
+       in (d, Plus p' q')
+    walk d (Fanin p q)   =
+      let (_, p') = walk d p
+          (_, q') = walk d q
+       in (d, Fanin p' q')
+    walk d (Tap t)       = let (_, t') = walk d t in (d, Tap t')
+    walk d (ForkN ts)    = (d, ForkN (NE.map (snd . walk d) ts))
+    walk d (Bind t k)    = let (d', t') = walk d t in (d', Bind t' k)
+    walk d t             = (d, t)
+
+    -- Right-associating compose builder: if g is itself a
+    -- Compose @(h . i)@, returns @h . (i . f)@ so the result
+    -- AST stays in a canonical right-associated form. Necessary
+    -- because 'walkPrim' for stateful linear ops returns a
+    -- two-node @Compose Lift(prim) Lift(Repartition)@; without
+    -- this helper the outer Compose would left-nest and hide
+    -- the inserted Repartition from later fusion rules.
+    composeR :: forall x y z. Topology y z -> Topology x y -> Topology x z
+    composeR (Compose h i) f = Compose h (composeR i f)
+    composeR g             f = Compose g f
+
+
+    walkPrim :: forall a b. Bool -> Prim a b -> (Bool, Topology a b)
+    -- Key changers — set dirty.
+    walkPrim _ p@(SelectKey _)        = (True, liftPrim p)
+    walkPrim _ p@(MapKeyValue _)      = (True, liftPrim p)
+    walkPrim _ p@(MapKeyValueM _)     = (True, liftPrim p)
+    walkPrim _ p@(FlatMapKeyValue _)  = (True, liftPrim p)
+    -- Repartitions clear dirty.
+    walkPrim _ p@(Repartition _)      = (False, liftPrim p)
+    walkPrim _ p@(RepartitionWith _)  = (False, liftPrim p)
+    -- Stateful linear ops: when dirty, insert a Repartition just
+    -- before. Stays dirty=False afterwards (the inserted
+    -- Repartition restored partitioning by the current key).
+    walkPrim True p@(GroupByKey _) =
+      (False, Compose (liftPrim p) (liftPrim (Repartition "auto-rep")))
+    walkPrim True p@(GroupBy _ _) =
+      (False, Compose (liftPrim p) (liftPrim (Repartition "auto-rep")))
+    walkPrim True p@(ToTableT _) =
+      (False, Compose (liftPrim p) (liftPrim (Repartition "auto-rep")))
+    walkPrim d p = (d, liftPrim p)
+
+    -- Insertion helpers operating on the immediate-Fanout tuple
+    -- pattern. The Fanout-visible idiom is the static
+    -- @'tableSource' '&&&' 'source'@ shape — when the tuple is
+    -- formed elsewhere (typically by 'Bind' in do-notation), we
+    -- can't see through and the helper is conservatively a
+    -- no-op.
+
+    insertOnLeftST
+      :: forall a k vL vT
+       . Topology a (KStream k vL, KTable k vT)
+      -> Topology a (KStream k vL, KTable k vT)
+    insertOnLeftST (Fanout l r)
+      | endsKeyDirty l =
+          Fanout (Compose (liftPrim (Repartition "auto-rep")) l) r
+    insertOnLeftST t = t
+
+    insertOnBothSS
+      :: forall a k v1 v2
+       . Topology a (KStream k v1, KStream k v2)
+      -> Topology a (KStream k v1, KStream k v2)
+    insertOnBothSS (Fanout l r)
+      | dl || dr =
+          Fanout
+            (if dl then Compose (liftPrim (Repartition "auto-rep")) l else l)
+            (if dr then Compose (liftPrim (Repartition "auto-rep")) r else r)
+      where
+        dl = endsKeyDirty l
+        dr = endsKeyDirty r
+    insertOnBothSS t = t
+
+-- | Conservative \"this topology re-keyed without subsequently
+-- repartitioning\" test. Walks the AST in flow order; returns
+-- 'True' iff a key-changing primitive appears with no subsequent
+-- 'Repartition' on the same linear path. Used by the auto-insert
+-- pass to decide whether a join's tuple-side needs wrapping.
+endsKeyDirty :: forall a b. Topology a b -> Bool
+endsKeyDirty = go False
+  where
+    go :: forall x y. Bool -> Topology x y -> Bool
+    go d (Compose g f)              = go (go d f) g
+    go _ (Lift (SelectKey _))       = True
+    go _ (Lift (MapKeyValue _))     = True
+    go _ (Lift (MapKeyValueM _))    = True
+    go _ (Lift (FlatMapKeyValue _)) = True
+    go _ (Lift (Repartition _))     = False
+    go _ (Lift (RepartitionWith _)) = False
+    go d (Lift _)                   = d
+    go d (First _)                  = d
+    go d (Second _)                 = d
+    go d (Parallel _ _)             = d
+    go d (Fanout _ _)               = d
+    go d (LeftT _)                  = d
+    go d (RightT _)                 = d
+    go d (Plus _ _)                 = d
+    go d (Fanin _ _)                = d
+    go d (Tap _)                    = d
+    go d (ForkN _)                  = d
+    go d (Bind _ _)                 = d
+    go d _                          = d
 
 ----------------------------------------------------------------------
 -- Identity collapses on structural combinators
@@ -3603,6 +3821,30 @@ fuseStep cfg g f = case (g, f) of
   -- the new key serde so it stays on 'GroupBy'.
   (Lift (GroupByKey g'), Lift (SelectKey f')) | optFuseSelectKeyIntoGroupBy cfg ->
     Just (liftPrim (GroupBy f' g'))
+  -- Same idea, but looking through an auto-inserted Repartition
+  -- between the 'SelectKey' and the 'GroupByKey'. 'GroupBy'
+  -- semantically implies a repartition (the runtime emits one
+  -- for it), so we can drop the explicit one here. Two sub-cases
+  -- cover whether the @SelectKey@ has further upstream
+  -- (@SelectKey . rest@) or is at the chain start.
+  (Lift (GroupByKey g'),
+    Compose (Lift (Repartition _)) (Lift (SelectKey f')))
+    | optFuseSelectKeyIntoGroupBy cfg ->
+      Just (liftPrim (GroupBy f' g'))
+  (Lift (GroupByKey g'),
+    Compose (Lift (RepartitionWith _)) (Lift (SelectKey f')))
+    | optFuseSelectKeyIntoGroupBy cfg ->
+      Just (liftPrim (GroupBy f' g'))
+  (Lift (GroupByKey g'),
+    Compose (Lift (Repartition _))
+            (Compose (Lift (SelectKey f')) rest))
+    | optFuseSelectKeyIntoGroupBy cfg ->
+      Just (Compose (liftPrim (GroupBy f' g')) rest)
+  (Lift (GroupByKey g'),
+    Compose (Lift (RepartitionWith _))
+            (Compose (Lift (SelectKey f')) rest))
+    | optFuseSelectKeyIntoGroupBy cfg ->
+      Just (Compose (liftPrim (GroupBy f' g')) rest)
 
   -- Repartition idempotence
   (Lift (Repartition pfx2), Lift (Repartition _)) | optCollapseRepartition cfg ->

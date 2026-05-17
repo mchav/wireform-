@@ -38,10 +38,13 @@ import Kafka.Streams.Runtime.EOS
   , EOSCoordinator (..)
   , runCommitCycle
   )
+import qualified Kafka.Streams.Grouped as Grouped
+import qualified Kafka.Streams.Joined as Joined
 import qualified Kafka.Streams.Materialized as Mat
 import qualified Kafka.Streams.State.Store
 import qualified Kafka.Streams.Topology.Free as F
 import qualified Kafka.Streams.Topology.Free.Graphviz as DOT
+import qualified Kafka.Streams.Window as Win
 
 tests :: TestTree
 tests = testGroup "Topology.Free (GADT topology builder)"
@@ -131,6 +134,16 @@ tests = testGroup "Topology.Free (GADT topology builder)"
   , test_hoist_disabled_keeps_original_order
   , test_drop_disabled_keeps_repartition
   , test_repartition_rewrites_preserve_semantics
+  -- Auto-insert repartitions on stateful ops downstream of key changes
+  , test_auto_insert_before_groupByKey
+  , test_auto_insert_before_toTable
+  , test_auto_insert_through_mapValues_chain
+  , test_auto_insert_off_keeps_nothing
+  , test_auto_insert_no_op_when_no_key_change
+  , test_auto_insert_with_explicit_repartition_no_dup
+  , test_auto_insert_stream_table_join_fanout
+  , test_auto_insert_stream_stream_join_fanout
+  , test_auto_insert_selectKey_groupByKey_collapses_to_groupBy
   ]
 
 ----------------------------------------------------------------------
@@ -2431,3 +2444,195 @@ test_repartition_rewrites_preserve_semantics =
     out <- readOutput driver (topicName "rp-out")
     Prelude.map (unbytes . crValue) out @?= ["HELLO", "WORLD"]
     closeDriver driver
+
+----------------------------------------------------------------------
+-- 68. Auto-insert: SelectKey + MapKeyValue >>> GroupByKey
+----------------------------------------------------------------------
+
+test_auto_insert_before_groupByKey :: TestTree
+test_auto_insert_before_groupByKey =
+  testCase "auto-insert wraps groupByKey with a Repartition when upstream re-keys" $ do
+    let topology :: F.Topology (KStream Text Text) (KGroupedStream Text Text)
+        topology =
+          F.mapKeyValue (\_ v -> (T.toUpper v, v))
+            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+        cfgOn  = F.defaultOptimizeConfig
+        cfgOff = F.defaultOptimizeConfig
+                   { F.optAutoInsertRepartition = False }
+        toksOn  = F.inspect (F.optimizeWith cfgOn  topology)
+        toksOff = F.inspect (F.optimizeWith cfgOff topology)
+    -- With auto-insert on, the Repartition appears between the
+    -- key-changing op and the groupByKey.
+    assertBool ("expected Repartition in optimised tokens; " <> show toksOn) $
+      any (T.isPrefixOf "Repartition") toksOn
+    -- With auto-insert off, no Repartition is added.
+    assertBool ("expected no Repartition; " <> show toksOff) $
+      not (any (T.isPrefixOf "Repartition") toksOff)
+
+----------------------------------------------------------------------
+-- 69. Auto-insert: SelectKey >>> ToTable
+----------------------------------------------------------------------
+
+test_auto_insert_before_toTable :: TestTree
+test_auto_insert_before_toTable =
+  testCase "auto-insert wraps toTable with a Repartition when upstream re-keys" $ do
+    let topology :: F.Topology (KStream Text Text) (KTable Text Text)
+        topology =
+          F.selectKey (\r -> recordValue r)
+            >>> F.toTable (Mat.materializedAs (storeName "tbl"))
+        toks = F.inspect (F.optimize topology)
+    assertBool ("expected Repartition before ToTable; " <> show toks) $
+      any (T.isPrefixOf "Repartition") toks
+
+----------------------------------------------------------------------
+-- 70. Auto-insert: dirty flag carries through stateless ops
+----------------------------------------------------------------------
+
+test_auto_insert_through_mapValues_chain :: TestTree
+test_auto_insert_through_mapValues_chain =
+  testCase "key-dirty flag carries through mapValues / filter / peek" $ do
+    let topology :: F.Topology (KStream Text Text) (KGroupedStream Text Text)
+        topology =
+          F.selectKey (\r -> recordValue r)
+            >>> F.mapValues T.toUpper
+            >>> F.filter (\r -> recordValue r /= "")
+            >>> F.peek (\_ -> pure ())
+            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+        toks = F.inspect (F.optimize topology)
+    -- Despite the chain of stateless ops between the key change
+    -- and the groupByKey, the auto-insert still fires.
+    assertBool ("expected Repartition somewhere; " <> show toks) $
+      any (T.isPrefixOf "Repartition") toks
+
+----------------------------------------------------------------------
+-- 71. Auto-insert: disabled toggle is a no-op
+----------------------------------------------------------------------
+
+test_auto_insert_off_keeps_nothing :: TestTree
+test_auto_insert_off_keeps_nothing =
+  testCase "optAutoInsertRepartition=False inserts nothing" $ do
+    let topology :: F.Topology (KStream Text Text) (KGroupedStream Text Text)
+        topology =
+          F.selectKey (\r -> recordValue r)
+            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+        cfgOff = F.defaultOptimizeConfig
+                   { F.optAutoInsertRepartition  = False
+                   , F.optFuseSelectKeyIntoGroupBy = False
+                   }
+        toks = F.inspect (F.optimizeWith cfgOff topology)
+    -- Neither the auto-insert nor the GroupBy fusion fired,
+    -- so the AST keeps SelectKey and GroupByKey as distinct
+    -- nodes with no Repartition.
+    "SelectKey"  `elem` toks @?= True
+    "GroupByKey" `elem` toks @?= True
+    assertBool "no Repartition when toggle is off" $
+      not (any (T.isPrefixOf "Repartition") toks)
+
+----------------------------------------------------------------------
+-- 72. Auto-insert: no-op when there's no key change upstream
+----------------------------------------------------------------------
+
+test_auto_insert_no_op_when_no_key_change :: TestTree
+test_auto_insert_no_op_when_no_key_change =
+  testCase "no upstream key change means no auto-insert" $ do
+    let topology :: F.Topology (KStream Text Text) (KGroupedStream Text Text)
+        topology =
+          F.mapValues T.toUpper
+            >>> F.filter (\r -> recordValue r /= "")
+            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+        toks = F.inspect (F.optimize topology)
+    assertBool "no Repartition for a pure value chain" $
+      not (any (T.isPrefixOf "Repartition") toks)
+
+----------------------------------------------------------------------
+-- 73. Auto-insert: doesn't duplicate when the user already
+-- inserted a Repartition
+----------------------------------------------------------------------
+
+test_auto_insert_with_explicit_repartition_no_dup :: TestTree
+test_auto_insert_with_explicit_repartition_no_dup =
+  testCase "explicit repartition clears the key-dirty flag" $ do
+    let topology :: F.Topology (KStream Text Text) (KGroupedStream Text Text)
+        topology =
+          F.selectKey (\r -> recordValue r)
+            >>> F.repartition "user-explicit"
+            >>> F.mapValues T.toUpper
+            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+        toks = F.inspect (F.optimize topology)
+    -- Exactly one Repartition node — the user's. No auto-insert.
+    length (Prelude.filter (T.isPrefixOf "Repartition") toks) @?= 1
+
+----------------------------------------------------------------------
+-- 74. Auto-insert: stream-table join with visible Fanout
+----------------------------------------------------------------------
+
+test_auto_insert_stream_table_join_fanout :: TestTree
+test_auto_insert_stream_table_join_fanout =
+  testCase "stream-table join via Fanout: insert Repartition on left only" $ do
+    -- Topology shape:
+    --   (selectKey f >>> [stream] &&& [table]) >>> streamTableJoin
+    -- After optimisation the LEFT (stream) side picks up a
+    -- Repartition; the right (table) side stays untouched.
+    let streamSide :: F.Topology Void (KStream Text Text)
+        streamSide =
+          F.source "stj-stream-in" textSerde textSerde
+            >>> F.selectKey (\r -> recordValue r)
+        tableSide :: F.Topology Void (KTable Text Text)
+        tableSide =
+          F.tableSource "stj-table-in" textSerde textSerde
+        topology :: F.Topology Void ()
+        topology =
+          (streamSide &&& tableSide)
+            >>> F.streamTableJoin (\v vt -> v <> "+" <> vt)
+                                  (Joined.joined textSerde textSerde textSerde)
+            >>> F.sink "stj-out" textSerde textSerde
+        toks = F.inspect (F.optimize topology)
+    -- Repartition appears.
+    assertBool ("expected Repartition for stream-table join; " <> show toks) $
+      any (T.isPrefixOf "Repartition") toks
+
+----------------------------------------------------------------------
+-- 75. Auto-insert: stream-stream join with visible Fanout
+----------------------------------------------------------------------
+
+test_auto_insert_stream_stream_join_fanout :: TestTree
+test_auto_insert_stream_stream_join_fanout =
+  testCase "stream-stream join via Fanout: insert Repartition on each dirty side" $ do
+    let leftSide :: F.Topology Void (KStream Text Text)
+        leftSide =
+          F.source "ssj-l-in" textSerde textSerde
+            >>> F.selectKey (\r -> recordValue r)
+        rightSide :: F.Topology Void (KStream Text Text)
+        rightSide =
+          F.source "ssj-r-in" textSerde textSerde
+            >>> F.selectKey (\r -> recordValue r)
+        topology :: F.Topology Void ()
+        topology =
+          (leftSide &&& rightSide)
+            >>> F.streamStreamJoin
+                  (\v1 v2 -> v1 <> "+" <> v2)
+                  (Joined.joinWindowsBefore (Duration 1000))
+                  (Joined.joined textSerde textSerde textSerde)
+            >>> F.sink "ssj-out" textSerde textSerde
+        toks = F.inspect (F.optimize topology)
+    -- Two Repartition nodes — one per side.
+    length (Prelude.filter (T.isPrefixOf "Repartition") toks) @?= 2
+
+----------------------------------------------------------------------
+-- 76. Auto-insert composes cleanly with the SelectKey/GroupByKey
+-- → GroupBy fusion
+----------------------------------------------------------------------
+
+test_auto_insert_selectKey_groupByKey_collapses_to_groupBy :: TestTree
+test_auto_insert_selectKey_groupByKey_collapses_to_groupBy =
+  testCase "selectKey >>> groupByKey still collapses to GroupBy after auto-insert" $ do
+    let topology :: F.Topology (KStream Text Text) (KGroupedStream Text Text)
+        topology =
+          F.selectKey (\r -> recordValue r)
+            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+        toks = F.inspect (F.optimize topology)
+    -- The fusion still wins over the auto-insert: result is
+    -- 'GroupBy', not 'SelectKey >>> Repartition >>> GroupByKey'.
+    "GroupBy"    `elem` toks @?= True
+    "SelectKey"  `elem` toks @?= False
+    "GroupByKey" `elem` toks @?= False
