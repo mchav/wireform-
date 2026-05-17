@@ -388,6 +388,7 @@ module Kafka.Streams.Topology.Free
   , liftIO_
   , inspect
   , inspectDeep
+  , applyTraced
   , prettyPrint
   , prettyPrintDeep
 
@@ -419,13 +420,10 @@ module Kafka.Streams.Topology.Free
 
 import Prelude hiding (id, filter, (.))
 
-import Control.Arrow (Arrow (..), ArrowChoice (..))
 import Control.Category (Category (..))
 import qualified Control.Exception as Exception
-import Control.Monad ((>=>))
 import Data.Hashable (Hashable)
 import Data.Int (Int64)
-import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
@@ -1257,7 +1255,16 @@ compileWithOptimization cfg t = do
   let !t' = optimizeWith cfg t
   o <- apply t' b voidInput
   topo <- buildTopology b
-  pure (o, topo)
+  -- After the AST-level rewrites have collapsed adjacent
+  -- operators in the 'Topology' GADT, hand the resulting Kafka
+  -- 'Topo.Topology' graph to the graph-level optimiser. Today
+  -- 'Topo.optimizeTopology' is a no-op placeholder (it returns
+  -- its input unchanged), but wiring it here means future
+  -- KIP-295-style topic-level rewrites (repartition-topic
+  -- merging, source-KTable reuse) become available without
+  -- callers changing their compile call.
+  let !topo' = Topo.optimizeTopology Topo.defaultOptimizationConfig topo
+  pure (o, topo')
   where
     -- By construction every 'Topology Void _' is rooted in one of
     -- the source constructors, and none of them inspect the input
@@ -2940,321 +2947,6 @@ applyTraced
   -> IO o
 applyTraced tracer b = FA.interpretTraced tracer labelPrim (runPrim b)
 
-{-
-    -- Dead code below — kept here only because deleting via the
-    -- string-replace tool is awkward. Will be removed in a
-    -- follow-up commit.
-    go (Arr fn) i        = trace ["Arr"] >> pure (fn i)
-    go (First t')  (a, c) = do
-      trace ["First<"]
-      !b' <- go t' a
-      trace [">"]
-      pure (b', c)
-    go (Second t') (c, a) = do
-      trace ["Second<"]
-      !b' <- go t' a
-      trace [">"]
-      pure (c, b')
-    go (Parallel p q) (a, c) = do
-      trace ["Parallel<"]
-      !x <- go p a
-      trace ["|"]
-      !y <- go q c
-      trace [">"]
-      pure (x, y)
-    go (Fanout p q) a = do
-      trace ["Fanout<"]
-      !x <- go p a
-      trace ["|"]
-      !y <- go q a
-      trace [">"]
-      pure (x, y)
-    go (LeftT t')  e = case e of
-      Left a  -> do
-        trace ["Left<"]; !x <- go t' a; trace [">"]; pure (Left x)
-      Right c -> trace ["Left<", ">"] >> pure (Right c)
-    go (RightT t') e = case e of
-      Left c  -> trace ["Right<", ">"] >> pure (Left c)
-      Right a -> do
-        trace ["Right<"]; !x <- go t' a; trace [">"]; pure (Right x)
-    go (Plus p q) e = case e of
-      Left a  -> do
-        trace ["Plus<"]; !x <- go p a; trace ["|", ">"]; pure (Left x)
-      Right c -> do
-        trace ["Plus<", "|"]; !y <- go q c; trace [">"]; pure (Right y)
-    go (Fanin p q) e = case e of
-      Left a  -> do
-        trace ["Fanin<"]; !x <- go p a; trace ["|", ">"]; pure x
-      Right c -> do
-        trace ["Fanin<", "|"]; !y <- go q c; trace [">"]; pure y
-
-    -- Lineage
-    go Fork a            = trace ["Fork"] >> pure (a, a)
-    go (ForkN ts) a      = do
-      trace ["ForkN<"]
-      !ys <- traverse (`go` a) ts
-      trace [">"]
-      pure ys
-    go (Tap t') a        = do
-      trace ["Tap<"]
-      !_ <- go t' a
-      trace [">"]
-      pure a
-    go (Split branches mDefault) s = do
-      trace [ "Split("
-            <> T.intercalate "|" (map sbName branches)
-            <> maybe "" (\d -> "+default=" <> d) mDefault
-            <> ")"
-            ]
-      let toBranched (SplitBranch nm p) = KS.branchedFrom nm p
-      KS.splitStream (Prelude.map toBranched branches) mDefault s
-
-    -- Sources
-    go (Source topic c) _ = do
-      trace ["Source(" <> showTopic topic <> ")"]
-      KS.streamFromTopic b topic c
-    go (SourceMulti topics c) _ = do
-      trace [ "SourceMulti("
-            <> T.intercalate ","
-                 (Prelude.map showTopic (NE.toList topics))
-            <> ")"
-            ]
-      sourceMultiCompile b topics c
-    go (TableSource topic c m) _ = do
-      trace ["TableSource(" <> showTopic topic <> ")"]
-      KT.tableFromTopic b topic c m
-    go (GlobalSource topic c m) _ = do
-      trace ["GlobalSource(" <> showTopic topic <> ")"]
-      GT.globalTable b topic c m
-
-    -- Sinks
-    go (Sink topic p) s = do
-      trace ["Sink(" <> showTopic topic <> ")"]
-      KS.toTopic topic p s
-    go (SinkExtracted e p) s = do
-      trace ["SinkExtracted"]
-      KS.toExtracted e p s
-    go (Through topic p) s = do
-      trace ["Through(" <> showTopic topic <> ")"]
-      KS.throughTopic topic p s
-
-    -- Monad bind
-    go (Bind t' k) i = do
-      trace ["Bind<"]
-      !a <- go t' i
-      trace [">~>"]
-      !out <- go (k a) i
-      trace ["</Bind>"]
-      pure out
-
-    -- Stateless
-    go (MapValues f) s         = trace ["MapValues"] >> KS.mapValues f s
-    go (MapValuesM f) s        = trace ["MapValuesM"] >> KS.mapValuesM f s
-    go (MapKeyValue f) s       = trace ["MapKeyValue"] >> KS.mapKeyValue f s
-    go (MapKeyValueM f) s      = trace ["MapKeyValueM"] >> KS.mapKeyValueM f s
-    go (Filter p) s            = trace ["Filter"] >> KS.filterStream p s
-    go (FilterNot p) s         = trace ["FilterNot"] >> KS.filterNotStream p s
-    go (FlatMapValues f) s     = trace ["FlatMapValues"] >> KS.flatMapValues f s
-    go (FlatMapKeyValue f) s   = trace ["FlatMapKeyValue"]
-                                   >> KS.flatMapKeyValue f s
-    go (Peek f) s              = trace ["Peek"] >> KS.peekStream f s
-    go (Foreach f) s           = trace ["Foreach"] >> KS.foreachStream f s
-    go (SelectKey f) s         = trace ["SelectKey"] >> KS.selectKey f s
-    go Values s                = trace ["Values"] >> KS.valuesStream s
-    go (Print label putLine) s = trace ["Print(" <> label <> ")"]
-                                    >> KS.printToHandle label putLine s
-
-    -- Composition
-    go Merge (s1, s2)          = trace ["Merge"] >> KS.mergeStreams s1 s2
-    go MergeAll ss             = trace ["MergeAll"] >> KS.mergeStreamsN ss
-    go (Branch ps) s
-      = trace [ "Branch("
-              <> T.pack (show (length ps)) <> ")"
-              ]
-        >> KS.branchStream ps s
-
-    -- Conversions
-    go (ToTableT m) s          = trace ["ToTable"] >> KS.toTable m s
-    go ToStream s              = trace ["ToStream"] >> KS.toKStreamFromKTable s
-    go (Repartition prefix) s  = trace ["Repartition(" <> prefix <> ")"]
-                                    >> KS.repartition prefix s
-    go (RepartitionWith cfg) s = trace ["RepartitionWith"]
-                                    >> KS.repartitionWith cfg s
-
-    -- Grouping + aggregation
-    go (GroupByKey g) s        = trace ["GroupByKey"] >> pure (KGS.groupByKey g s)
-    go (GroupBy f g) s         = trace ["GroupBy"] >> KGS.groupByStream f g s
-    go (Count m) g             = do
-      trace ["Count"]
-      h <- KGS.countStream m g
-      pure (handleToKTable m h)
-    go (Reduce f m) g          = do
-      trace ["Reduce"]
-      h <- KGS.reduceStream f m g
-      pure (handleToKTable m h)
-    go (Aggregate seed step m) g = do
-      trace ["Aggregate"]
-      h <- KGS.aggregateStream seed step m g
-      pure (handleToKTable m h)
-
-    -- Windowed aggregation
-    go (WindowedByTime ws) kg    = trace ["WindowedByTime"]
-                                    >> pure (KGS.windowedByTime ws kg)
-    go (WindowedBySession sw) kg = trace ["WindowedBySession"]
-                                    >> pure (KGS.windowedBySession sw kg)
-    go (CountWindowed m) twks    = trace ["CountWindowed"]
-                                    >> TWKS.countWindowed m twks
-    go (ReduceWindowed f m) twks = trace ["ReduceWindowed"]
-                                    >> TWKS.reduceWindowed f m twks
-    go (AggregateWindowed seed step m) twks
-      = trace ["AggregateWindowed"]
-        >> TWKS.aggregateWindowed seed step m twks
-    go (CountSessionWindowed m) swks
-      = trace ["CountSessionWindowed"]
-        >> SWKS.countSessionWindowed m swks
-    go (AggregateSessionWindowed seed step merger m) swks
-      = trace ["AggregateSessionWindowed"]
-        >> SWKS.aggregateSessionWindowed seed step merger m swks
-
-    -- KGroupedTable
-    go (GroupTableBy f g) kt   = trace ["GroupTableBy"]
-                                  >> pure (KGT.groupTableBy f g kt)
-    go (CountKGroupedTable m) kgt = do
-      trace ["CountKGroupedTable"]
-      h <- KGT.countKGroupedTable m kgt
-      pure (handleToKTable m h)
-    go (ReduceKGroupedTable add sub m) kgt = do
-      trace ["ReduceKGroupedTable"]
-      h <- KGT.reduceKGroupedTable add sub m kgt
-      pure (handleToKTable m h)
-    go (AggregateKGroupedTable seed add sub m) kgt = do
-      trace ["AggregateKGroupedTable"]
-      h <- KGT.aggregateKGroupedTable seed add sub m kgt
-      pure (handleToKTable m h)
-
-    -- Cogroup
-    go (Cogroup step) kgs      = trace ["Cogroup"]
-                                  >> pure (Cog.cogroup kgs step)
-    go (AddCogrouped step) (cs, kgs)
-      = trace ["AddCogrouped"]
-        >> pure (Cog.addCogrouped cs kgs step)
-    go (AggregateCogrouped seed m) cs = do
-      trace ["AggregateCogrouped"]
-      h <- Cog.aggregateCogrouped seed m cs
-      pure (handleToKTable m h)
-
-    -- Joins
-    go (StreamTableJoin j jo) (s, t')
-      = trace ["StreamTableJoin"]
-        >> KS.joinKStreamKTable j jo s t'
-    go (StreamTableLeftJoin j jo) (s, t')
-      = trace ["StreamTableLeftJoin"]
-        >> KS.leftJoinKStreamKTable j jo s t'
-    go (StreamStreamJoin j w jo) (s1, s2)
-      = trace ["StreamStreamJoin"]
-        >> KS.joinKStreamKStream j w jo s1 s2
-    go (StreamStreamLeftJoin j w jo) (s1, s2)
-      = trace ["StreamStreamLeftJoin"]
-        >> KS.leftJoinKStreamKStream j w jo s1 s2
-    go (StreamStreamOuterJoin j w jo) (s1, s2)
-      = trace ["StreamStreamOuterJoin"]
-        >> KS.outerJoinKStreamKStream j w jo s1 s2
-    go (TableTableJoin j m) (t1, t2)
-      = trace ["TableTableJoin"]
-        >> KT.joinKTableKTable j m t1 t2
-    go (TableTableLeftJoin j m) (t1, t2)
-      = trace ["TableTableLeftJoin"]
-        >> KT.leftJoinKTableKTable j m t1 t2
-    go (TableTableOuterJoin j m) (t1, t2)
-      = trace ["TableTableOuterJoin"]
-        >> KT.outerJoinKTableKTable j m t1 t2
-    go (ForeignKeyJoin ext j m) (t1, t2)
-      = trace ["ForeignKeyJoin"]
-        >> FK.foreignKeyJoinKTable ext j m t1 t2
-    go (LeftForeignKeyJoin ext j m) (t1, t2)
-      = trace ["LeftForeignKeyJoin"]
-        >> FK.leftForeignKeyJoinKTable ext j m t1 t2
-    go (StreamGlobalTableJoin km j) (s, g)
-      = trace ["StreamGlobalTableJoin"]
-        >> GT.joinKStreamGlobalKTable km j s g
-    go (StreamGlobalTableLeftJoin km j) (s, g)
-      = trace ["StreamGlobalTableLeftJoin"]
-        >> GT.leftJoinKStreamGlobalKTable km j s g
-
-    -- KTable surface
-    go (FilterTable p m) kt    = trace ["FilterTable"] >> KT.filterTable p m kt
-    go (FilterNotTable p m) kt = trace ["FilterNotTable"]
-                                  >> KT.filterNotTable p m kt
-    go (MapValuesTable f m) kt = trace ["MapValuesTable"]
-                                  >> KT.mapValuesTable f m kt
-    go (TransformValuesTable nm sup stores m) kt
-      = trace ["TransformValuesTable(" <> nm <> ")"]
-        >> KT.transformValuesTable sup stores m kt
-
-    -- Suppress
-    go (SuppressUntilTimeLimit lim) s
-      = trace ["SuppressUntilTimeLimit"]
-        >> Suppress.suppressUntilTimeLimit lim s
-    go (SuppressWindowedKS grace sz) s
-      = trace ["SuppressWindowed"]
-        >> Suppress.suppressWindowed grace sz s
-
-    -- Processor API
-    go (ProcessStream nm stores sup) s
-      = trace ["ProcessStream(" <> nm <> ")"]
-        >> KS.processStream nm stores sup s
-    go (ProcessValuesStream nm stores sup vs) s
-      = trace ["ProcessValuesStream(" <> nm <> ")"]
-        >> KS.processValuesStream nm stores sup vs s
-    go (TransformValuesStreamT nm stores sup vs) s
-      = trace ["TransformValuesStream(" <> nm <> ")"]
-        >> KS.transformValuesStream nm stores sup vs s
-    go (WithStateStoreKV builder owners) x = do
-      trace ["WithStateStoreKV(" <> Store.unStoreName (Store.sbKvName builder)
-              <> ")"]
-      withTopology_ b (Topo.addStateStoreKV builder owners)
-      pure x
-    go (WithStateStoreW builder owners) x = do
-      trace ["WithStateStoreW(" <> Store.unStoreName (Store.sbWName builder)
-              <> ")"]
-      withTopology_ b (Topo.addStateStoreW builder owners)
-      pure x
-    go (WithStateStoreS builder owners) x = do
-      trace ["WithStateStoreS(" <> Store.unStoreName (Store.sbSName builder)
-              <> ")"]
-      withTopology_ b (Topo.addStateStoreS builder owners)
-      pure x
-
-    go (ProcessWithStateStoreKV prefix builder supplier) s = do
-      trace ["ProcessWithStateStoreKV(" <> prefix <> ","
-              <> Store.unStoreName (Store.sbKvName builder) <> ")"]
-      attachProcessorWithStore
-        b s prefix supplier
-        (Store.sbKvName builder)
-        (Topo.addStateStoreKV builder)
-    go (ProcessWithStateStoreW prefix builder supplier) s = do
-      trace ["ProcessWithStateStoreW(" <> prefix <> ","
-              <> Store.unStoreName (Store.sbWName builder) <> ")"]
-      attachProcessorWithStore
-        b s prefix supplier
-        (Store.sbWName builder)
-        (Topo.addStateStoreW builder)
-    go (ProcessWithStateStoreS prefix builder supplier) s = do
-      trace ["ProcessWithStateStoreS(" <> prefix <> ","
-              <> Store.unStoreName (Store.sbSName builder) <> ")"]
-      attachProcessorWithStore
-        b s prefix supplier
-        (Store.sbSName builder)
-        (Topo.addStateStoreS builder)
-
-    -- Escape
-    go (Lifted nm act) i = do
-      trace ["Lifted(" <> nm <> ")"]
-      act b i
-
-    showTopic :: TopicName -> Text
-    showTopic = T.pack . show
--}
 
 -- | Render an AST as a single-line whitespace-separated
 -- description. Built by 'T.intercalate'-ing the output of
