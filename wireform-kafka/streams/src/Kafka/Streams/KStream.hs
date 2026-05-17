@@ -49,6 +49,7 @@ module Kafka.Streams.KStream
   , kstreamValueSerde
     -- * Sources
   , streamFromTopic
+  , streamFromPattern
     -- * Stateless transforms
   , filterStream
   , filterStreamNamed
@@ -222,6 +223,44 @@ streamFromTopic b topic c = do
         , Topo.sourceValueSerde  = Topo.AnySerde (consumedValueSerde c)
         , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
         , Topo.sourceOffsetReset = consumedOffsetReset c
+        , Topo.sourcePattern     = Nothing
+        }
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nm
+    , kstreamKeySerde   = consumedKeySerde c
+    , kstreamValueSerde = consumedValueSerde c
+    }
+
+-- | Subscribe to every broker topic matching the supplied
+-- regex pattern (JVM @StreamsBuilder.stream(Pattern)@).
+--
+-- The @Text@ is interpreted as a Java-style regex on the
+-- broker. The in-process 'TopologyTestDriver' doesn't enumerate
+-- broker topics, so within the driver this is equivalent to a
+-- source with /no/ explicit topics — pipe in records via
+-- 'pipeInput' with topics that match downstream consumers'
+-- expectations. Against a real broker, the runtime resolves
+-- topics matching the pattern at subscribe time.
+streamFromPattern
+  :: StreamsBuilder
+  -> T.Text
+  -> Consumed k v
+  -> IO (KStream k v)
+streamFromPattern b pattern c = do
+  nm <- maybe (freshNodeName b "KSTREAM-SOURCE-PATTERN")
+              (pure . Topo.NodeName)
+              (consumedNodeName c)
+  withTopology_ b $
+    Topo.addSourceWith
+      Topo.SourceSpec
+        { Topo.sourceName        = nm
+        , Topo.sourceTopics      = []
+        , Topo.sourceKeySerde    = Topo.AnySerde (consumedKeySerde c)
+        , Topo.sourceValueSerde  = Topo.AnySerde (consumedValueSerde c)
+        , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
+        , Topo.sourceOffsetReset = consumedOffsetReset c
+        , Topo.sourcePattern     = Just pattern
         }
   pure KStream
     { kstreamBuilder    = b

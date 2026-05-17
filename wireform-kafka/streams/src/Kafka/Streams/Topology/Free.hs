@@ -282,6 +282,8 @@ module Kafka.Streams.Topology.Free
   , sourceWith
   , sources
   , sourcesWith
+  , sourcePattern
+  , sourcePatternWith
   , tableSource
   , globalTableSource
   , mergeSourced
@@ -326,6 +328,9 @@ module Kafka.Streams.Topology.Free
     -- ** TableJoined-aware FK joins (KIP-545)
   , foreignKeyJoinWith
   , leftForeignKeyJoinWith
+    -- ** Time-windowed cogroup
+  , windowedByCogroup
+  , aggregateWindowedCogrouped
   , filter
   , filterNot
   , flatMapValues
@@ -1170,6 +1175,7 @@ sourceMultiCompile b ts c = do
         , Topo.sourceValueSerde  = Topo.AnySerde (consumedValueSerde c)
         , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
         , Topo.sourceOffsetReset = consumedOffsetReset c
+        , Topo.sourcePattern     = Nothing
         }
   pure (KS.KStream
           { KS.kstreamBuilder    = b
@@ -1462,6 +1468,31 @@ sources ts ks vs = liftPrim (SourceMulti (fmap topicName ts) (consumed ks vs))
 sourcesWith
   :: NonEmpty TopicName -> Consumed k v -> Topology Void (KStream k v)
 sourcesWith ts c = liftPrim (SourceMulti ts c)
+
+-- | Regex pattern source: subscribe to every broker topic
+-- matching the supplied regex (JVM @StreamsBuilder.stream(Pattern)@).
+--
+-- Useful for fan-in across a dynamic set of topics that share a
+-- naming convention (e.g. @per-tenant-*@). The in-process
+-- 'TopologyTestDriver' doesn't enumerate broker topics, so
+-- within the driver the pattern source is equivalent to a
+-- no-topic source — pipe records in via the explicit
+-- 'pipeInput' interface. Against a real broker the runtime
+-- resolves topics at subscribe time.
+sourcePattern
+  :: Text -> Serde k -> Serde v -> Topology Void (KStream k v)
+sourcePattern pat ks vs =
+  liftIO_ "sourcePattern" $ \b _void -> do
+    KS.streamFromPattern b pat (consumed ks vs)
+
+-- | 'sourcePattern' with a fully-specified 'Consumed' (custom
+-- offset-reset policy, named source node, custom timestamp
+-- extractor).
+sourcePatternWith
+  :: Text -> Consumed k v -> Topology Void (KStream k v)
+sourcePatternWith pat c =
+  liftIO_ "sourcePattern-with" $ \b _void ->
+    KS.streamFromPattern b pat c
 
 -- | Subscribe to a Kafka topic and materialise it as a
 -- 'KTable' (latest-value-per-key) backed by an in-memory
@@ -3204,6 +3235,26 @@ leftForeignKeyJoinWith
 leftForeignKeyJoinWith tj ext j m =
   liftIO_ "leftForeignKeyJoinWith" $ \_b (t1, t2) ->
     FK.leftForeignKeyJoinKTableWith tj ext j m t1 t2
+
+----------------------------------------------------------------------
+-- Time-windowed cogroup
+----------------------------------------------------------------------
+
+-- | Re-export: bucket a 'CogroupedStream' into time windows.
+windowedByCogroup
+  :: Win.Windows
+  -> Topology (Cog.CogroupedStream k a) (Cog.TimeWindowedCogroupedStream k a)
+windowedByCogroup ws = FA.Arr (Cog.windowedByCogroup ws)
+
+-- | Close out a time-windowed cogroup builder and emit the
+-- result as a windowed table.
+aggregateWindowedCogrouped
+  :: Ord k
+  => IO a -> Materialized k a
+  -> Topology (Cog.TimeWindowedCogroupedStream k a) (TWKS.WindowedTableHandle k a)
+aggregateWindowedCogrouped seed m =
+  liftIO_ "aggregateWindowedCogrouped" $ \_b twcg ->
+    Cog.aggregateWindowedCogrouped seed m twcg
 
 -- | Walk the AST and collect a per-node textual label
 -- listing.

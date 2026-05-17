@@ -176,6 +176,15 @@ data SourceSpec = SourceSpec
     -- @Consumed.withOffsetResetPolicy@. The default 'addSource'
     -- entry point initialises this to 'OffsetEarliest';
     -- 'addSourceWith' lets callers override.
+  , sourcePattern     :: !(Maybe Text)
+    -- ^ Optional regex pattern. When 'Just', the source
+    -- subscribes to every broker topic matching the regex
+    -- (JVM @StreamsBuilder.stream(Pattern)@). 'sourceTopics' is
+    -- treated as informational when a pattern is set — the
+    -- runtime resolves topics at subscription time. 'Nothing'
+    -- means "subscribe to the explicit 'sourceTopics' list",
+    -- which is the only mode the in-process driver supports
+    -- today.
   }
 
 -- | Processor node specification.
@@ -320,6 +329,7 @@ addSource nm ts ks vs ex t =
     , sourceValueSerde  = AnySerde vs
     , sourceExtractor   = AnyTimestampExtractor ex
     , sourceOffsetReset = Consumed.OffsetEarliest
+    , sourcePattern     = Nothing
     }
 
 -- | 'addSource' that lets the caller install a custom 'TopologyError'
@@ -906,6 +916,7 @@ addGlobalStore builder sourceNm procNm topic ks vs ex updater t0 =
       , sourceValueSerde  = AnySerde vs
       , sourceExtractor   = AnyTimestampExtractor ex
       , sourceOffsetReset = Consumed.OffsetEarliest
+      , sourcePattern     = Nothing
       }
 
 attachToProcessor
