@@ -1259,10 +1259,20 @@ compileWithOptimization cfg t = do
   -- operators in the 'Topology' GADT, hand the resulting Kafka
   -- 'Topo.Topology' graph to the graph-level optimiser. Today
   -- 'Topo.optimizeTopology' is a no-op placeholder (it returns
-  -- its input unchanged), but wiring it here means future
-  -- KIP-295-style topic-level rewrites (repartition-topic
-  -- merging, source-KTable reuse) become available without
-  -- callers changing their compile call.
+  -- its input unchanged), but as of the KIP-295 implementation
+  -- it now performs:
+  --
+  --   * 'optReuseSourceKTable' — for table-source-style
+  --     processors (one source parent + one owned store), point
+  --     the store's changelog at the source topic.
+  --   * 'optMergeRepartitionTopics' — collapse sibling
+  --     @KSTREAM-REPARTITION-\<prefix\>-…@ processors sharing
+  --     a single parent and prefix into one shared node.
+  --
+  -- Both rewrites are toggleable via 'Topo.OptimizationConfig';
+  -- the default config enables both. Callers that want the
+  -- un-optimised graph can substitute @'Topo.optimizeTopology'
+  -- 'Topo.noOptimisations'@ here.
   let !topo' = Topo.optimizeTopology Topo.defaultOptimizationConfig topo
   pure (o, topo')
   where
@@ -3007,18 +3017,30 @@ prettyPrintDeep = T.intercalate " " . inspectDeep
 -- == Relationship to Java's @topology.optimization@ knob
 --
 -- Java's Kafka Streams ships two formal optimisations, both at the
--- /topic/ level (see "Kafka.Streams.Topology.Optimization"):
+-- /topic/ level. As of the KIP-295 implementation in
+-- 'Kafka.Streams.Topology.optimizeTopology' (run automatically by
+-- 'compile' after the AST-level rewrites), both are now active:
 --
---   * @REUSE_KTABLE_SOURCE_TOPICS@ — reuse a 'TableSource' topic as
---     its KTable's changelog instead of an internal one. /Not yet
---     implemented here/ — it's a flag on the materialised store's
---     changelog config, not an AST rewrite.
---   * @MERGE_REPARTITION_TOPICS@ — collapse repartition topics that
---     descend from the same key-changing operation via multiple
---     downstream stateful ops. /Not yet implemented here/ — needs
---     the runtime to auto-insert repartitions on stateful ops,
---     which we don't currently do (callers insert 'Repartition'
---     explicitly).
+--   * @REUSE_KTABLE_SOURCE_TOPICS@ — every 'TableSource' (or any
+--     processor that owns a single store and has a single
+--     single-topic source parent) has its store's logging config
+--     rewritten to reuse the source topic as its changelog
+--     instead of creating a separate internal one. See
+--     'Kafka.Streams.Topology.optReuseSourceKTable' /
+--     'Kafka.Streams.State.Store.loggingSourceTopic'.
+--   * @MERGE_REPARTITION_TOPICS@ — sibling
+--     @KSTREAM-REPARTITION-\<prefix\>-…@ processors that share
+--     the same single parent /and/ the same repartition prefix
+--     are merged into one. Two downstream stateful ops that both
+--     called 'repartition' on the same upstream therefore share
+--     one physical repartition node instead of duplicating the
+--     shuffle. See 'Kafka.Streams.Topology.optMergeRepartitionTopics'.
+--
+-- The chained AST-level rewrites this module ships are /additional/
+-- to those: they fuse adjacent operators (saving processor nodes /
+-- record-forwarding hops) and collapse Cat\/Arrow identity
+-- combinators /inside/ the AST, before the graph-level
+-- 'optimizeTopology' sweeps the compiled 'Topo.Topology'.
 --
 -- The GADT-level rewrites this module ships are /additional/ to
 -- those: they fuse adjacent operators (saving processor nodes /

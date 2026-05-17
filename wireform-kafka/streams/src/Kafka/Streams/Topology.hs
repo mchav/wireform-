@@ -59,6 +59,8 @@ module Kafka.Streams.Topology
     -- * Optimisations (KIP-295)
   , OptimizationConfig (..)
   , defaultOptimizationConfig
+  , noOptimisations
+  , fromOptimizationFlags
   , optimizeTopology
     -- * Validation
   , validateTopology
@@ -120,6 +122,7 @@ import Kafka.Streams.State.Store
   )
 import qualified Kafka.Streams.State.Store
 import qualified Kafka.Streams.Time
+import qualified Kafka.Streams.Topology.Optimization
 import Kafka.Streams.Time (TimestampExtractor)
 import Kafka.Streams.Types (NodeName (..), TopicName, nodeName, unNodeName)
 
@@ -377,6 +380,30 @@ defaultOptimizationConfig :: OptimizationConfig
 defaultOptimizationConfig = OptimizationConfig
   { optMergeRepartitionTopics = True
   , optReuseSourceKTable      = True
+  }
+
+-- | Every toggle disabled — 'optimizeTopology' becomes the
+-- identity. Useful for golden-file tests and for callers that
+-- want to inspect the un-rewritten 'Topology' shape.
+noOptimisations :: OptimizationConfig
+noOptimisations = OptimizationConfig
+  { optMergeRepartitionTopics = False
+  , optReuseSourceKTable      = False
+  }
+
+-- | Lift a JVM-style 'OptimizationFlags' (from
+-- "Kafka.Streams.Topology.Optimization") into the local
+-- 'OptimizationConfig'. The third Java flag
+-- (@flagSingleStoreSelfJoin@) currently has no Haskell-side
+-- rewrite and is ignored.
+fromOptimizationFlags
+  :: Kafka.Streams.Topology.Optimization.OptimizationFlags
+  -> OptimizationConfig
+fromOptimizationFlags f = OptimizationConfig
+  { optMergeRepartitionTopics =
+      Kafka.Streams.Topology.Optimization.flagMergeRepartitionTopics f
+  , optReuseSourceKTable      =
+      Kafka.Streams.Topology.Optimization.flagReuseSourceTopics f
   }
 
 -- | Mirrors @Topology.optimize(StreamsConfig)@. Applies the
