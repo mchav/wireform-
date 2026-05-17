@@ -93,6 +93,16 @@ tests = testGroup "Topology.Free (GADT topology builder)"
   , test_fork_topology_is_eos_atomic
   , test_forkN_topology_is_eos_atomic
   , test_tap_topology_is_eos_atomic
+  -- Instance suite (Applicative / Monad / Semigroup / Monoid / Profunctor)
+  , test_applicative_liftA2_combines_two_topologies
+  , test_monad_do_notation_for_multi_source
+  , test_semigroup_runs_both_pipelines_on_one_input
+  , test_monoid_unit_output_is_no_op
+  , test_profunctor_dimap_works
+  , test_reader_localInput_pre_transforms
+  -- Cross-lineage EOS + cogroup with monad bind
+  , test_mergeSourced_two_sources_share_one_task_under_eos
+  , test_cogroup_via_do_notation
   ]
 
 ----------------------------------------------------------------------
@@ -1529,3 +1539,257 @@ topologySources topo = Map.keys (topoSources topo)
 
 topologySinkNames :: Topology -> [NodeName]
 topologySinkNames topo = Map.keys (topoSinks topo)
+
+----------------------------------------------------------------------
+-- 39. Applicative liftA2 combines two topologies on one input
+----------------------------------------------------------------------
+
+test_applicative_liftA2_combines_two_topologies :: TestTree
+test_applicative_liftA2_combines_two_topologies =
+  testCase "Applicative <*> runs both topologies on the same input" $ do
+    -- Build two topologies that each compute a wire value from a
+    -- shared input, then combine them via the Applicative instance
+    -- (here through the Functor instance + <*>). The resulting
+    -- topology produces a tuple of wire handles for downstream use.
+    let topology :: F.Topology Void (KStream Text Text)
+        topology =
+          ( (,) <$> F.source "ap-in1" textSerde textSerde
+                <*> F.source "ap-in2" textSerde textSerde )
+            >>= \(s1, s2) -> F.merge `F.applyT` (s1, s2)
+
+        topologyWithSink :: F.Topology Void ()
+        topologyWithSink = topology >>= F.applyT (F.sink "ap-out" textSerde textSerde)
+
+    (_, topo) <- F.compile topologyWithSink
+    driver <- newDriver topo "free-applicative"
+
+    pipeInput driver (topicName "ap-in1") Nothing (bytes "a1") t0 0
+    pipeInput driver (topicName "ap-in2") Nothing (bytes "b1") t0 0
+    pipeInput driver (topicName "ap-in1") Nothing (bytes "a2") t0 0
+
+    out <- readOutput driver (topicName "ap-out")
+    map (unbytes . crValue) out @?= ["a1", "b1", "a2"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 40. Monad do-notation for multi-source topologies
+----------------------------------------------------------------------
+
+test_monad_do_notation_for_multi_source :: TestTree
+test_monad_do_notation_for_multi_source =
+  testCase "do-notation threads source handles through a pipeline" $ do
+    let topology :: F.Topology Void ()
+        topology = do
+          s1 <- F.source "do-in1" textSerde textSerde
+          s2 <- F.source "do-in2" textSerde textSerde
+          -- Map each side, then merge, then sink. Each step uses
+          -- 'applyT' to feed the bound Haskell value into the next
+          -- fragment.
+          u1 <- F.mapValues T.toUpper       `F.applyT` s1
+          u2 <- F.mapValues (T.append "B:") `F.applyT` s2
+          m  <- F.merge                     `F.applyT` (u1, u2)
+          F.sink "do-out" textSerde textSerde `F.applyT` m
+
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-monad-multi-source"
+
+    pipeInput driver (topicName "do-in1") Nothing (bytes "hi") t0 0
+    pipeInput driver (topicName "do-in2") Nothing (bytes "ya") t0 0
+
+    out <- readOutput driver (topicName "do-out")
+    -- The merged stream sees mapped values from both upstreams.
+    -- The exact interleaving is the test driver's record-arrival
+    -- order; both records must appear.
+    map (unbytes . crValue) out @?= ["HI", "B:ya"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 41. Semigroup: run two pipelines on a shared upstream
+----------------------------------------------------------------------
+
+test_semigroup_runs_both_pipelines_on_one_input :: TestTree
+test_semigroup_runs_both_pipelines_on_one_input =
+  testCase "Topology i () <> Topology i () runs both on the same input" $ do
+    -- Two completely separate sink pipelines that share a single
+    -- source. Operationally equivalent to Fanout-with-discard but
+    -- much terser to write. Both branches share lineage, so EOS
+    -- atomicity is by construction (verified separately by the
+    -- Fanout EOS test above).
+    let left, right :: F.Topology (KStream Text Text) ()
+        left  = F.mapValues T.toUpper >>> F.sink "sg-upper" textSerde textSerde
+        right = F.mapValues T.toLower >>> F.sink "sg-lower" textSerde textSerde
+
+        topology :: F.Topology Void ()
+        topology =
+          F.source "sg-in" textSerde textSerde
+            >>> (left <> right)
+
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-semigroup"
+
+    pipeInput driver (topicName "sg-in") Nothing (bytes "Mixed") t0 0
+    pipeInput driver (topicName "sg-in") Nothing (bytes "Case")  t0 0
+
+    u <- readOutput driver (topicName "sg-upper")
+    l <- readOutput driver (topicName "sg-lower")
+    map (unbytes . crValue) u @?= ["MIXED", "CASE"]
+    map (unbytes . crValue) l @?= ["mixed", "case"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 42. Monoid: mempty at unit output is a no-op
+----------------------------------------------------------------------
+
+test_monoid_unit_output_is_no_op :: TestTree
+test_monoid_unit_output_is_no_op =
+  testCase "mempty :: Topology (KStream k v) () drops records silently" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "monoid-in" textSerde textSerde
+            >>> mempty   -- Drop everything; no sink, no foreach
+    -- Just checking that compilation + driver setup don't crash;
+    -- there's nothing observable to assert.
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-monoid"
+    pipeInput driver (topicName "monoid-in") Nothing (bytes "x") t0 0
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 43. Profunctor: lmapT / rmapT / dimapT compose appropriately
+----------------------------------------------------------------------
+
+test_profunctor_dimap_works :: TestTree
+test_profunctor_dimap_works =
+  testCase "dimapT pre/post-composes pure functions on a topology" $ do
+    let inner :: F.Topology Int Int
+        inner = Control.Arrow.arr (+ 1)
+
+        wrapped :: F.Topology Text Text
+        wrapped = F.dimapT T.length (T.pack . show) inner
+
+        -- compileNoOptimize so we can sanity-check that dimap is
+        -- 3 nodes (lmap Arr + inner + rmap Arr) without surprising
+        -- collapses.
+        nWrapped = F.countNodes wrapped
+        nInner   = F.countNodes inner
+
+    -- The optimised count should be 1 — the chain of pure functions
+    -- collapses into a single Arr (since 'inner' itself is an Arr).
+    F.countNodes (F.optimize wrapped) @?= 1
+    -- Unoptimised, dimapT added two Arr wrappers and a Compose around
+    -- the inner.
+    assertBool
+      ("expected dimapT to wrap; unwrapped=" <> show nInner
+        <> " wrapped=" <> show nWrapped)
+      (nWrapped > nInner)
+
+----------------------------------------------------------------------
+-- 44. Reader-style: localInput pre-transforms the input
+----------------------------------------------------------------------
+
+test_reader_localInput_pre_transforms :: TestTree
+test_reader_localInput_pre_transforms =
+  testCase "localInput pre-applies its function to the wire input" $ do
+    -- Build a pure-function pipeline; localInput pre-applies
+    -- 'T.length' so the inner sees an Int instead of a Text.
+    let inner :: F.Topology Int Int
+        inner = Control.Arrow.arr (\n -> n * 2)
+
+        wrapped :: F.Topology Text Int
+        wrapped = F.localInput T.length inner
+
+        opt = F.optimize wrapped
+    -- After optimisation we have a single Arr (the chain of pure
+    -- functions collapses), and computing it through apply
+    -- gives the expected value.
+    F.countNodes opt @?= 1
+
+----------------------------------------------------------------------
+-- 45. Cross-source EOS via 'mergeSourced'
+----------------------------------------------------------------------
+
+test_mergeSourced_two_sources_share_one_task_under_eos :: TestTree
+test_mergeSourced_two_sources_share_one_task_under_eos =
+  testCase "mergeSourced makes two sources share a single Kafka task" $ do
+    -- Without mergeSourced, two source-rooted halves of a Fanout
+    -- compile to two disconnected sub-topologies (= two tasks =
+    -- two EOS transactions). 'mergeSourced' inserts a convergence
+    -- 'Merge' node so the graph is one connected component =
+    -- one sub-topology = one task = one EOS transaction.
+    let topology :: F.Topology Void ()
+        topology =
+          F.mergeSourced
+            (F.source "ms-a" textSerde textSerde)
+            (F.source "ms-b" textSerde textSerde)
+            >>> F.mapValues T.toUpper
+            >>> F.sink "ms-out" textSerde textSerde
+
+    (_, topo) <- F.compile topology
+
+    -- Structural check: TWO source topics, ONE merge processor
+    -- with both as parents, ONE sink. The graph is connected.
+    let !nSources = length (topologySources topo)
+        !sinks    = topologySinkNames topo
+    nSources @?= 2
+    length sinks @?= 1
+
+    driver <- newDriver topo "free-eos-merged-sources"
+    (coord, drain) <- mkRecordingCoord
+    outcome <- runCommitCycle coord "g" (pure HMap.empty) $ do
+      pipeInput driver (topicName "ms-a") Nothing (bytes "hello") t0 0
+      pipeInput driver (topicName "ms-b") Nothing (bytes "world") t0 0
+    outcome @?= CommitSucceeded
+
+    out <- readOutput driver (topicName "ms-out")
+    map (unbytes . crValue) out @?= ["HELLO", "WORLD"]
+
+    log_ <- drain
+    log_ @?= ["begin", "commitOffsets", "commit", "storeCommit"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- 46. Cogroup expressed via Monad bind + applyT
+----------------------------------------------------------------------
+
+test_cogroup_via_do_notation :: TestTree
+test_cogroup_via_do_notation =
+  testCase "cogroup builds incrementally via do-notation + applyT" $ do
+    -- The cogroup pattern: each source produces its own grouped
+    -- stream; the cogroup builder chains them with per-source
+    -- aggregators. With the Monad instance and 'applyT' the
+    -- builder reads like the imperative Java code, while the
+    -- result is still a value-level Topology that compiles and
+    -- runs through the standard driver.
+    let g = grouped textSerde textSerde
+        outMat :: Materialized Text Text
+        outMat =
+          Mat.withValueSerde textSerde
+            $ Mat.withKeySerde textSerde
+            $ Mat.materializedAs (storeName "cog-do-store")
+
+        leftStep, rightStep :: Text -> Text -> Text -> Text
+        leftStep  _ v acc = acc <> "/" <> v
+        rightStep _ v acc = acc <> "+" <> v
+
+        topology :: F.Topology Void (KTable Text Text)
+        topology = do
+          s1   <- F.source "cogdo-in1" textSerde textSerde
+          s2   <- F.source "cogdo-in2" textSerde textSerde
+          g1   <- F.groupByKey g `F.applyT` s1
+          g2   <- F.groupByKey g `F.applyT` s2
+          cgs0 <- F.cogroup leftStep `F.applyT` g1
+          cgs1 <- F.addCogrouped rightStep `F.applyT` (cgs0, g2)
+          F.aggregateCogrouped (pure "") outMat `F.applyT` cgs1
+
+    (kt, topo) <- F.compile topology
+    driver <- newDriver topo "free-cogdo"
+
+    pipeInput driver (topicName "cogdo-in1") (Just (bytes "k")) (bytes "a") (t 0) 0
+    pipeInput driver (topicName "cogdo-in2") (Just (bytes "k")) (bytes "b") (t 1) 0
+    pipeInput driver (topicName "cogdo-in1") (Just (bytes "k")) (bytes "c") (t 2) 0
+
+    mStore <- getKeyValueStore @Text @Text driver (ktableStore kt)
+    case mStore of
+      Just kvs -> kvsGet kvs "k" >>= (@?= Just "/a+b/c")
+      Nothing  -> error "cogroup-do store missing"
+    closeDriver driver

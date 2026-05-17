@@ -129,6 +129,62 @@
 --     '>>>' F.mapValues normalise
 --     '>>>' F.sink \"out\" ks vs
 -- @
+--
+-- == Lineage and exactly-once semantics
+--
+-- Kafka Streams partitions a topology into /sub-topologies/ — the
+-- connected components of the graph — and assigns one task per
+-- sub-topology per partition. EOS-v2 commits transactionally
+-- /per task/, so two processors share an EOS transaction iff
+-- they're in the same sub-topology.
+--
+-- That has implications for how our lineage combinators interact
+-- with EOS:
+--
+--   * 'Fanout' / 'Fork' / 'ForkN' / 'Tap' / 'Split' all branch
+--     from /one/ upstream, so every branch lands in the
+--     /same/ sub-topology as that upstream. EOS atomicity
+--     extends to every sink in every branch.
+--   * 'Parallel' over two source-rooted halves (the typical
+--     "two unrelated pipelines combined into one
+--     @Topology Void ()@") /does not/ share lineage: the two
+--     halves compile to two disconnected sub-topologies and
+--     therefore run as two tasks with independent EOS
+--     transactions.
+--   * Use 'mergeSourced' (or any other convergence point —
+--     stream-stream join, shared 'Merge', etc.) to make two
+--     source-rooted halves share a task.
+--   * Alternative cross-task lineage: register the same state
+--     store against both halves via 'withStateStoreKV' — the
+--     task assigner treats co-owned state stores as a shared
+--     lineage edge.
+--
+-- The 'Semigroup' / 'Monoid' instances over @'Topology' i ()@
+-- run two pipelines on the /same/ upstream input, so they
+-- share lineage by construction (single-source, multi-sink) —
+-- another way to build EOS-atomic multi-output topologies.
+--
+-- == Monad bind for incrementally-built topologies
+--
+-- The 'Monad' instance lets you bind a wire value to a
+-- Haskell-level name and use it across multiple downstream
+-- fragments. This is especially handy for the
+-- /cogroup-shaped/ Kafka Streams operations where the JVM
+-- API is incremental (each @addCogrouped@ call extends a
+-- builder). 'applyT' threads a bound value into a downstream
+-- fragment:
+--
+-- @
+-- topology :: F.Topology Void (KTable Text Text)
+-- topology = do
+--   s1  <- F.source \"in1\" textSerde textSerde
+--   s2  <- F.source \"in2\" textSerde textSerde
+--   g1  <- F.groupByKey grp   \`F.applyT\` s1
+--   g2  <- F.groupByKey grp   \`F.applyT\` s2
+--   cg0 <- F.cogroup adder1   \`F.applyT\` g1
+--   cg1 <- F.addCogrouped a2  \`F.applyT\` (cg0, g2)
+--   F.aggregateCogrouped (pure \"\") mat \`F.applyT\` cg1
+-- @
 module Kafka.Streams.Topology.Free
   ( -- * The 'Topology' GADT
     Topology (..)
@@ -174,6 +230,7 @@ module Kafka.Streams.Topology.Free
   , sources
   , tableSource
   , globalTableSource
+  , mergeSourced
 
     -- * Sinks
   , sink
@@ -279,6 +336,21 @@ module Kafka.Streams.Topology.Free
   , liftIO_
   , inspect
   , prettyPrint
+
+    -- * Profunctor- and Reader-shaped helpers
+    --
+    -- 'Topology' is a profunctor (contravariant in the input,
+    -- covariant in the output). The methods are exposed as
+    -- standalone functions rather than 'Data.Profunctor.Profunctor'
+    -- typeclass instances to keep this package's dependency
+    -- closure minimal. Users who want the typeclasses can write
+    -- orphan instances in their own modules.
+  , lmapT
+  , rmapT
+  , dimapT
+  , askInput
+  , localInput
+  , applyT
 
     -- * Errors
   --
@@ -414,15 +486,31 @@ data Topology i o where
   Second  :: Topology a b -> Topology (c, a) (c, b)
 
   -- | 'Control.Arrow.***': two independent sub-fragments in parallel
-  -- on a tuple input. /Independent/ in the topology graph — there
-  -- are no edges between the two subgraphs except the tuple shape
-  -- at the call site. See the module-level note on lineage.
+  -- on a tuple input.
+  --
+  -- /Independent/ at the topology graph level — there are no edges
+  -- between the two subgraphs except the tuple shape at the call
+  -- site. If both subgraphs are source-rooted (each compiles its
+  -- own source node), the runtime task assigner will see two
+  -- disconnected sub-topologies and assign them to /separate
+  -- Kafka tasks/ — each with its own EOS transaction. To get
+  -- cross-source EOS atomicity, use 'mergeSourced' (or insert a
+  -- convergence node yourself with 'Merge') so both halves end
+  -- up in one connected sub-topology.
+  --
+  -- See the module-level "Lineage" note for the full story.
   Parallel :: Topology a b -> Topology c d -> Topology (a, c) (b, d)
 
   -- | 'Control.Arrow.&&&': feed one upstream into two sub-fragments
   -- and pair the outputs. The compiler reuses the same upstream
   -- node as parent for both sub-graphs — this is the "one node,
   -- two children" pattern that fans a single lineage into two.
+  --
+  -- /Both children share the same Kafka task as the upstream/, so
+  -- 'Fanout' on a single source is EOS-atomic across both
+  -- branches by construction. (Contrast with 'Parallel' over two
+  -- /different/ sources, which the runtime treats as two
+  -- separate sub-topologies.)
   Fanout  :: Topology a b -> Topology a c -> Topology a (b, c)
 
   -- | 'Control.Arrow.left' for sum-typed wires.
@@ -517,6 +605,23 @@ data Topology i o where
   -- | Sink + immediate re-subscribe; mirrors @KStream.through@.
   Through      :: !TopicName -> !(Produced k v)
                -> Topology (KStream k v) (KStream k v)
+
+  -- ------------------------------------------------------------------
+  -- Monad bind
+  --
+  -- @'Bind' t k@ runs @t@ on the input to get a wire value, then
+  -- invokes @k@ on that value to produce the continuation
+  -- topology, which is then run on /the same/ input. Powers the
+  -- 'Monad' instance for @'Topology' i@.
+  --
+  -- Unlike the rest of the GADT, @Bind@ has an /opaque/
+  -- continuation function: the optimiser and 'inspect' can see
+  -- the left side but not into @k@. Use applicative-style
+  -- combinators ('Fanout', 'Parallel', '<*>') when you want a
+  -- fully-static AST; reach for @Bind@ / do-notation when the
+  -- ergonomic win justifies losing inspectability past the bind.
+  -- ------------------------------------------------------------------
+  Bind :: Topology i a -> (a -> Topology i b) -> Topology i b
 
   -- ------------------------------------------------------------------
   -- Stateless 'KStream' transforms
@@ -918,6 +1023,135 @@ instance ArrowChoice Topology where
 instance Functor (Topology a) where
   fmap f t = Arr f `Compose` t
 
+-- | A 'Topology' is an 'Applicative' over its output type:
+--
+-- [@pure x@]
+--   @'Arr' ('const' x)@ — a topology that ignores its input and
+--   produces @x@.
+-- [@tf '<*>' tx@]
+--   Run both @tf@ and @tx@ on the same input via 'Fanout', then
+--   apply. The resulting AST is entirely static — every node is
+--   visible to 'inspect' and the optimiser.
+--
+-- Used internally by the 'Monoid'\/'Semigroup' instances below
+-- and by 'liftA2' / 'liftA3' from "Control.Applicative".
+instance Applicative (Topology i) where
+  pure x = Arr (const x)
+  tf <*> tx = Compose (Arr (uncurry ($))) (Fanout tf tx)
+
+-- | A 'Topology' is a /reader/ 'Monad' over its input type: the
+-- input is the environment threaded into every bind.
+--
+-- @t '>>=' k@ runs @t@ on the input to obtain a value @a@, then
+-- runs @k a@ on the /same/ input. This is the same shape as
+-- @ReaderT i (Topology i)@ collapsed into the GADT itself.
+--
+-- The bind continuation is /opaque/: 'inspect' and the optimiser
+-- see the left side of the bind but not into the function.
+-- Prefer applicative-style combinators ('Fanout', '<*>',
+-- 'Parallel', 'Fork') when full inspectability matters. Reach
+-- for the monad when the do-notation ergonomics outweigh the
+-- inspectability loss — typically when assembling a topology
+-- from several upstream sources whose handles you want to bind
+-- as Haskell-level names:
+--
+-- @
+-- combined :: F.Topology Void ()
+-- combined = do
+--   s1 <- F.source \"in1\" textSerde textSerde
+--   s2 <- F.source \"in2\" textSerde textSerde
+--   pure (s1, s2)
+--   '>>>' F.merge
+--   '>>>' F.sink  \"out\" textSerde textSerde
+-- @
+instance Monad (Topology i) where
+  return = pure
+  (>>=) = Bind
+
+-- | Pointwise 'Semigroup' over the output. @t1 '<>' t2@ runs both
+-- topologies on the same input via 'Fanout' and combines their
+-- outputs with @('<>')@. Especially useful at @o = ()@ where it
+-- gives a natural \"run several closed pipelines on one input\"
+-- combinator — but works for any 'Semigroup' output (e.g. lists
+-- of records, maps of named branches).
+instance Semigroup o => Semigroup (Topology i o) where
+  t1 <> t2 = Compose (Arr (uncurry (<>))) (Fanout t1 t2)
+
+-- | 'mempty' is the topology that ignores its input and produces
+-- 'mempty'. At @o = ()@ this is the no-op pipeline; at
+-- @o = [a]@ it's the empty-record stream; etc.
+instance Monoid o => Monoid (Topology i o) where
+  mempty = Arr (const mempty)
+
+----------------------------------------------------------------------
+-- Profunctor- and Reader-shaped helpers
+----------------------------------------------------------------------
+--
+-- 'Topology' is a 'Data.Profunctor.Profunctor', a
+-- 'Data.Profunctor.Strong' profunctor (via 'First' / 'Second'),
+-- and a 'Data.Profunctor.Choice' profunctor (via 'LeftT' /
+-- 'RightT'). Rather than depending on the @profunctors@ package
+-- for a one-line instance, we expose the methods as standalone
+-- functions. Users who want the typeclasses can write orphan
+-- instances in their own modules.
+
+-- | Pre-compose with a pure function (contravariant in the input).
+-- Equivalent to 'Data.Profunctor.lmap'.
+lmapT :: (a -> b) -> Topology b c -> Topology a c
+lmapT f t = Compose t (Arr f)
+
+-- | Post-compose with a pure function (covariant in the output).
+-- Equivalent to 'Data.Profunctor.rmap' and to 'fmap' for the
+-- 'Functor' instance.
+rmapT :: (c -> d) -> Topology b c -> Topology b d
+rmapT g t = Compose (Arr g) t
+
+-- | Pre- and post-compose with pure functions. Equivalent to
+-- 'Data.Profunctor.dimap'.
+dimapT :: (a -> b) -> (c -> d) -> Topology b c -> Topology a d
+dimapT f g t = rmapT g (lmapT f t)
+
+-- | The input wire is the \"environment\" of the 'Topology'
+-- reader. @askInput@ is just 'Cat.id'; the alias exists so
+-- do-notation reads naturally:
+--
+-- @
+-- duplicate :: F.Topology a (a, a)
+-- duplicate = do
+--   x \<- askInput
+--   pure (x, x)
+-- @
+askInput :: Topology i i
+askInput = Id
+
+-- | Run a topology with the input transformed by @f@. The
+-- profunctor analogue of @MonadReader@'s 'Control.Monad.Reader.local'.
+-- Slightly more general than the @mtl@ shape: @f@'s codomain
+-- doesn't have to match the original input type — the
+-- transformed-input value just has to fit the topology being run.
+localInput :: (i' -> i) -> Topology i a -> Topology i' a
+localInput f t = Compose t (Arr f)
+
+-- | Pre-feed a fixed value into a topology, producing a
+-- 'Topology i b' from a 'Topology a b' regardless of the
+-- outer input type @i@. Useful inside do-notation: you've
+-- bound a wire value as a Haskell name and want to thread it
+-- into a downstream operator that expects an @a@ input.
+--
+-- @
+-- combinedSources :: F.Topology Void (KStream Text Text)
+-- combinedSources = do
+--   s1 <- F.source "in1" textSerde textSerde
+--   s2 <- F.source "in2" textSerde textSerde
+--   -- 'merge' expects @(KStream, KStream)@ as its input.
+--   F.merge \`F.applyT\` (s1, s2)
+-- @
+--
+-- Operationally identical to @'Compose' t ('Arr' ('const' a))@,
+-- which is also @'pure' a '>>>' t@ via the 'Applicative' instance.
+applyT :: Topology a b -> a -> Topology i b
+applyT t a = Compose t (Arr (const a))
+
 ----------------------------------------------------------------------
 -- Compilation
 ----------------------------------------------------------------------
@@ -986,6 +1220,15 @@ apply t b = go t
     go (Sink topic p)        = KS.toTopic topic p
     go (SinkExtracted e p)   = KS.toExtracted e p
     go (Through topic p)     = KS.throughTopic topic p
+
+    -- Monad bind: run @t@ to get the wire value, then run the
+    -- continuation @k a@ on the /same/ input. Both sub-topologies
+    -- compile against the shared builder, so any source / sink /
+    -- store registration each one performs lands in the same
+    -- graph.
+    go (Bind t k)            = \i -> do
+      !a <- go t i
+      go (k a) i
 
     -- Stateless
     go (MapValues f)         = KS.mapValues f
@@ -1370,6 +1613,48 @@ globalTableSource
 globalTableSource t ks vs =
   GlobalSource (topicName t) (consumed ks vs)
     (Mat.withValueSerde vs (Mat.withKeySerde ks Mat.materialized))
+
+-- | Merge two source-rooted streams into a single downstream lineage
+-- so they share a Kafka task (and therefore an EOS transaction).
+--
+-- Operationally identical to:
+--
+-- @
+-- (left '&&&' right) '>>>' 'merge'
+-- @
+--
+-- but named for the use case it enables: cross-source
+-- exactly-once atomicity. Without the convergence at 'merge',
+-- the Kafka task assigner sees two disconnected sub-topologies
+-- and groups them into /separate/ tasks — each with its own EOS
+-- coordinator and its own commit cycle.
+--
+-- == When to use this
+--
+-- Use 'mergeSourced' whenever you want two independent source
+-- topics to be processed in a single transaction. The merged
+-- output is a single 'KStream' carrying records from both — feed
+-- it into your downstream pipeline as usual.
+--
+-- For sources with /different/ value types, merge after a value
+-- map that brings them to a common shape, e.g.:
+--
+-- @
+-- mergeSourced
+--   (F.source "a" ks vsA '>>>' F.mapValues 'Left')
+--   (F.source "b" ks vsB '>>>' F.mapValues 'Right')
+-- @
+--
+-- For shared-state EOS without value merging (each source still
+-- writes to its own output topic but they share an EOS
+-- transaction because they share a state store), use
+-- 'withStateStoreKV' with the same store registered against
+-- both subgraphs' processors.
+mergeSourced
+  :: Topology Void (KStream k v)
+  -> Topology Void (KStream k v)
+  -> Topology Void (KStream k v)
+mergeSourced left right = Compose Merge (Fanout left right)
 
 -- * Sinks ----------------------------------------------------------
 
@@ -1871,6 +2156,8 @@ inspect = go
     go (Sink t _)           = ["Sink(" <> showTopic t <> ")"]
     go (SinkExtracted _ _)  = ["SinkExtracted"]
     go (Through t _)        = ["Through(" <> showTopic t <> ")"]
+    -- Monad bind — opaque continuation
+    go (Bind t _)           = "Bind<" : go t ++ ["…>"]
     -- Stateless
     go (MapValues _)        = ["MapValues"]
     go (MapValuesM _)       = ["MapValuesM"]
@@ -2163,6 +2450,11 @@ optimizePass cfg = go
     go (Fanin p q)   = Fanin (go p) (go q)
     go (ForkN ts)    = ForkN (NE.map go ts)
     go (Tap t)       = collapseTap cfg (go t)
+    -- Optimise the LHS of a 'Bind'; the continuation is opaque so
+    -- we leave it untouched. Branches threaded out of @k@ will
+    -- still be re-optimised by the recursive 'apply' walk at
+    -- interpretation time.
+    go (Bind t k)    = Bind (go t) k
     -- Leaf operators are unchanged; nothing to recurse into.
     go x             = x
 
@@ -2430,6 +2722,9 @@ countNodes = go
     go (ForkN ts)      = 1 + sum (NE.map go ts)
     go (Tap t)         = 1 + go t
     go (Split _ _)     = 1
+    -- Monad bind: the left side is visible, the continuation is
+    -- opaque (we count it as 1 placeholder node).
+    go (Bind t _)      = 1 + go t
     -- All remaining leaves: source/sink/transform/aggregator etc.
     go _               = 1
 
