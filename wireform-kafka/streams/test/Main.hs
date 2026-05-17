@@ -72,6 +72,8 @@ import qualified Streams.SdkParitySpec
 import qualified Streams.MultiInstanceHarnessSpec
 import qualified Streams.SchemaRegistryHttpSpec
 import qualified Streams.SchemaRegistryFormatsSpec
+import qualified Streams.TopologyFreeSpec
+import qualified Streams.TopologyFreeArrowSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -145,4 +147,6 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.MultiInstanceHarnessSpec.tests
   , Streams.SchemaRegistryHttpSpec.tests
   , Streams.SchemaRegistryFormatsSpec.tests
+  , Streams.TopologyFreeSpec.tests
+  , Streams.TopologyFreeArrowSpec.tests
   ]

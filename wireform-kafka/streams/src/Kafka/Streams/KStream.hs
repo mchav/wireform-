@@ -49,6 +49,7 @@ module Kafka.Streams.KStream
   , kstreamValueSerde
     -- * Sources
   , streamFromTopic
+  , streamFromPattern
     -- * Stateless transforms
   , filterStream
   , filterStreamNamed
@@ -59,6 +60,8 @@ module Kafka.Streams.KStream
   , mapKeyValue
   , mapKeyValueNamed
   , mapKeyValueM
+  , mapRecord
+  , mapRecordM
   , flatMapValues
   , flatMapKeyValue
   , peekStream
@@ -212,11 +215,53 @@ streamFromTopic b topic c = do
               (pure . Topo.NodeName)
               (consumedNodeName c)
   withTopology_ b $
-    Topo.addSource nm
-                   [topic]
-                   (consumedKeySerde c)
-                   (consumedValueSerde c)
-                   (consumedExtractor c)
+    Topo.addSourceWith
+      Topo.SourceSpec
+        { Topo.sourceName        = nm
+        , Topo.sourceTopics      = [topic]
+        , Topo.sourceKeySerde    = Topo.AnySerde (consumedKeySerde c)
+        , Topo.sourceValueSerde  = Topo.AnySerde (consumedValueSerde c)
+        , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
+        , Topo.sourceOffsetReset = consumedOffsetReset c
+        , Topo.sourcePattern     = Nothing
+        }
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nm
+    , kstreamKeySerde   = consumedKeySerde c
+    , kstreamValueSerde = consumedValueSerde c
+    }
+
+-- | Subscribe to every broker topic matching the supplied
+-- regex pattern (JVM @StreamsBuilder.stream(Pattern)@).
+--
+-- The @Text@ is interpreted as a Java-style regex on the
+-- broker. The in-process 'TopologyTestDriver' doesn't enumerate
+-- broker topics, so within the driver this is equivalent to a
+-- source with /no/ explicit topics — pipe in records via
+-- 'pipeInput' with topics that match downstream consumers'
+-- expectations. Against a real broker, the runtime resolves
+-- topics matching the pattern at subscribe time.
+streamFromPattern
+  :: StreamsBuilder
+  -> T.Text
+  -> Consumed k v
+  -> IO (KStream k v)
+streamFromPattern b pattern c = do
+  nm <- maybe (freshNodeName b "KSTREAM-SOURCE-PATTERN")
+              (pure . Topo.NodeName)
+              (consumedNodeName c)
+  withTopology_ b $
+    Topo.addSourceWith
+      Topo.SourceSpec
+        { Topo.sourceName        = nm
+        , Topo.sourceTopics      = []
+        , Topo.sourceKeySerde    = Topo.AnySerde (consumedKeySerde c)
+        , Topo.sourceValueSerde  = Topo.AnySerde (consumedValueSerde c)
+        , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
+        , Topo.sourceOffsetReset = consumedOffsetReset c
+        , Topo.sourcePattern     = Just pattern
+        }
   pure KStream
     { kstreamBuilder    = b
     , kstreamParent     = nm
@@ -403,6 +448,54 @@ mapKVProc f = do
                   } :: Record k' v'
             forwardRecord ctx out
           _ -> pure ()
+    }
+
+-- | Apply a pure transform to the entire 'Record' — key, value,
+-- timestamp, and headers all in scope. Useful when you need to
+-- mutate metadata (e.g. propagate a trace header) alongside the
+-- key/value transform that 'mapKeyValue' covers.
+--
+-- /JVM equivalent:/ no single direct match — closest is
+-- @KStream.transform@ with a stateless transformer. The Java
+-- DSL forces callers through the Processor API; we expose the
+-- common stateless shape as a smart constructor.
+mapRecord
+  :: forall k v k' v'
+   . (Record k v -> Record k' v')
+  -> KStream k v
+  -> IO (KStream k' v')
+mapRecord f = mapRecordM (pure . f)
+
+-- | Effectful 'mapRecord'. The 'IO' runs once per record on the
+-- stream thread — same backpressure caveat as 'mapValuesM'.
+mapRecordM
+  :: forall k v k' v'
+   . (Record k v -> IO (Record k' v'))
+  -> KStream k v
+  -> IO (KStream k' v')
+mapRecordM f s =
+  attachProcessor s "KSTREAM-MAPRECORD"
+    (mapRecordProc f)
+    (error "KStream.mapRecord: downstream key Serde unset")
+    (error "KStream.mapRecord: downstream value Serde unset")
+
+mapRecordProc
+  :: forall k v k' v'
+   . (Record k v -> IO (Record k' v'))
+  -> IO (Processor k v)
+mapRecordProc f = do
+  ctxRef <- newIORef Nothing
+  pure Processor
+    { procName    = processorName "KSTREAM-MAPRECORD"
+    , procInit    = \ctx -> writeIORef ctxRef (Just ctx)
+    , procClose   = pure ()
+    , procProcess = \r -> do
+        mctx <- readIORef ctxRef
+        case mctx of
+          Nothing  -> pure ()
+          Just ctx -> do
+            !r' <- f r
+            forwardRecord ctx (r' :: Record k' v')
     }
 
 -- | Expand each record into zero or more output records,
@@ -1076,9 +1169,16 @@ mkSideProc
   -> StoreName -> StoreName -> Topo.NodeName
   -> IO (Processor k vSelf)
 mkSideProc jw joiner mode selfStoreNm otherStoreNm mergeNm = do
-  ctxRef   <- newIORef Nothing
-  selfRef  <- newIORef (Nothing :: Maybe (WindowStore k vSelf))
-  otherRef <- newIORef (Nothing :: Maybe (WindowStore k vOther))
+  ctxRef    <- newIORef Nothing
+  selfRef   <- newIORef (Nothing :: Maybe (WindowStore k vSelf))
+  otherRef  <- newIORef (Nothing :: Maybe (WindowStore k vOther))
+  -- Track the max timestamp observed across both join inputs so
+  -- we can drop late records past the configured grace period.
+  -- JVM semantics: a record at @t@ joins a window
+  -- @[t - beforeMs, t + afterMs]@; it's considered too late
+  -- once @streamTime > t + afterMs + gracePeriodMs@ and is
+  -- dropped at the input.
+  streamTime <- newIORef (Timestamp 0)
   pure Processor
     { procName = processorName "WINDOW-JOIN-SIDE"
     , procInit = \ctx -> do
@@ -1102,32 +1202,48 @@ mkSideProc jw joiner mode selfStoreNm otherStoreNm mergeNm = do
             case (mctx, mself, mother) of
               (Just ctx, Just self_, Just other_) -> do
                 let !ts@(Timestamp tsMs) = recordTimestamp r
-                wsPut self_ k (recordValue r) ts
-                let !lo = Timestamp (tsMs - jw.beforeMs)
-                    !hi = Timestamp (tsMs + jw.afterMs)
-                it <- wsFetchRange other_ k lo hi
-                matches <- kvIteratorToList it
-                if null matches
-                  then case mode of
-                    Inner -> pure ()
-                    LeftEmitNothing f ->
-                      forwardTo ctx mergeNm
-                        (Record
-                          { recordKey       = Just k
-                          , recordValue     = f (recordValue r)
-                          , recordTimestamp = ts
-                          , recordHeaders   = recordHeaders r
-                          } :: Record k vOut)
-                  else mapM_
-                         (\(_otherTs, otherV) ->
-                            forwardTo ctx mergeNm
-                              (Record
-                                { recordKey       = Just k
-                                , recordValue     = joiner (recordValue r) otherV
-                                , recordTimestamp = ts
-                                , recordHeaders   = recordHeaders r
-                                } :: Record k vOut))
-                         matches
+                -- Late-record drop (KIP-633 / JoinWindows.grace).
+                -- If the record's window has already closed past
+                -- the configured grace period, skip the join
+                -- entirely — it doesn't contribute to any open
+                -- window's matches.
+                Timestamp streamMs <- readIORef streamTime
+                let !grace         = jw.gracePeriodMs
+                    !windowCloseMs = tsMs + jw.afterMs
+                    !pastGrace     = streamMs > windowCloseMs + grace
+                if pastGrace
+                  then pure ()
+                  else do
+                    -- Advance stream-time monotonically.
+                    if tsMs > streamMs
+                      then writeIORef streamTime ts
+                      else pure ()
+                    wsPut self_ k (recordValue r) ts
+                    let !lo = Timestamp (tsMs - jw.beforeMs)
+                        !hi = Timestamp (tsMs + jw.afterMs)
+                    it <- wsFetchRange other_ k lo hi
+                    matches <- kvIteratorToList it
+                    if null matches
+                      then case mode of
+                        Inner -> pure ()
+                        LeftEmitNothing f ->
+                          forwardTo ctx mergeNm
+                            (Record
+                              { recordKey       = Just k
+                              , recordValue     = f (recordValue r)
+                              , recordTimestamp = ts
+                              , recordHeaders   = recordHeaders r
+                              } :: Record k vOut)
+                      else mapM_
+                             (\(_otherTs, otherV) ->
+                                forwardTo ctx mergeNm
+                                  (Record
+                                    { recordKey       = Just k
+                                    , recordValue     = joiner (recordValue r) otherV
+                                    , recordTimestamp = ts
+                                    , recordHeaders   = recordHeaders r
+                                    } :: Record k vOut))
+                             matches
               _ -> pure ()
     }
 

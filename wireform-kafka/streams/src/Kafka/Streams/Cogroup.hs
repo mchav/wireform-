@@ -29,6 +29,7 @@ module Kafka.Streams.Cogroup
     -- * Windowed cogroup
   , TimeWindowedCogroupedStream (..)
   , windowedByCogroup
+  , aggregateWindowedCogrouped
   ) where
 
 import Data.IORef
@@ -56,15 +57,23 @@ import Kafka.Streams.Processor
   , getStateStore
   , processorName
   )
+import Data.Int (Int64)
 import Kafka.Streams.State.KeyValue.InMemory
   ( inMemoryKeyValueStoreBuilder
+  )
+import Kafka.Streams.State.Window.InMemory
+  ( inMemoryWindowStoreBuilder
   )
 import Kafka.Streams.State.Store
   ( AnyStateStore (..)
   , KeyValueStore (..)
   , StoreBuilderKV
+  , StoreBuilderW
   , StoreName
+  , WindowStore (..)
   )
+import qualified Kafka.Streams.TimeWindowedKStream
+import Kafka.Streams.Time (Timestamp (..))
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Types (Record (..))
 
@@ -225,3 +234,113 @@ windowedByCogroup ws cg = TimeWindowedCogroupedStream
   { inner   = cg
   , windows = ws
   }
+
+-- | Close out a time-windowed cogroup builder and emit its
+-- result as a windowed table. Mirrors JVM
+-- @TimeWindowedCogroupedKStream.aggregate(Initializer, Materialized)@.
+--
+-- Each side's processor walks the windows the record belongs to
+-- and applies the side's aggregator to the per-window
+-- accumulator stored in a shared 'WindowStore'.
+aggregateWindowedCogrouped
+  :: forall k a
+   . Ord k
+  => IO a
+  -> Materialized k a
+  -> TimeWindowedCogroupedStream k a
+  -> IO (Kafka.Streams.TimeWindowedKStream.WindowedTableHandle k a)
+aggregateWindowedCogrouped initial m twcg = do
+  let cgs   = twcg.inner
+      ws    = twcg.windows
+      b     = cgs.builder
+      sz    = Kafka.Streams.Window.windowsSize ws
+      ret   = max sz (Kafka.Streams.Window.windowsRetention ws)
+  storeNm <- maybe (freshStoreName b "KSTREAM-COGROUP-WIN-STORE")
+                   pure
+                   (matName m)
+  let supplier = inMemoryWindowStoreBuilder storeNm sz ret
+                   :: StoreBuilderW k a
+  ownerNms <- traverse
+    (\src -> do
+        nm <- freshNodeName b "KSTREAM-COGROUP-WIN-SIDE"
+        addCogroupWindowedSide b nm storeNm sz initial src
+        pure nm)
+    cgs.sources
+  withTopology_ b $ \t ->
+    Topo.addStateStoreW supplier ownerNms t
+  pure Kafka.Streams.TimeWindowedKStream.WindowedTableHandle
+    { Kafka.Streams.TimeWindowedKStream.wthNode    =
+        case ownerNms of
+          []       -> error "aggregateWindowedCogrouped: no sources"
+          (nm : _) -> nm
+    , Kafka.Streams.TimeWindowedKStream.wthStore   = storeNm
+    , Kafka.Streams.TimeWindowedKStream.wthBuilder = b
+    , Kafka.Streams.TimeWindowedKStream.wthWindows = ws
+    , Kafka.Streams.TimeWindowedKStream.wthEmit    =
+        Kafka.Streams.TimeWindowedKStream.emitOnWindowUpdate
+    }
+
+addCogroupWindowedSide
+  :: forall k a
+   . Ord k
+  => StreamsBuilder
+  -> Topo.NodeName              -- side processor name
+  -> StoreName
+  -> Int64                      -- window size (ms)
+  -> IO a
+  -> CogroupSource k a
+  -> IO ()
+addCogroupWindowedSide b nm storeNm sz initial (CogroupSource kgs agg) =
+  withTopology_ b $
+    Topo.addProcessorWith
+      Topo.ProcessorSpec
+        { Topo.processorSpecName     = nm
+        , Topo.processorSpecParents  = [kgsParent kgs]
+        , Topo.processorSpecSupplier =
+            Topo.AnyProcessor
+              (cogroupWindowedSideProc @k storeNm sz initial agg)
+        , Topo.processorSpecStores   = [storeNm]
+        }
+
+-- | The processor body for a single side of a windowed cogroup.
+-- For each incoming record, computes the window the record's
+-- timestamp falls into, fetches the per-window accumulator,
+-- applies the side's aggregator, writes back.
+cogroupWindowedSideProc
+  :: forall k v a
+   . Ord k
+  => StoreName
+  -> Int64            -- window size (ms)
+  -> IO a
+  -> (k -> v -> a -> a)
+  -> IO (Processor k v)
+cogroupWindowedSideProc sn sz initial agg = do
+  ctxRef   <- newIORef Nothing
+  storeRef <- newIORef (Nothing :: Maybe (WindowStore k a))
+  pure Processor
+    { procName = processorName "KSTREAM-COGROUP-WIN-SIDE"
+    , procInit = \ctx -> do
+        writeIORef ctxRef (Just ctx)
+        getStateStore ctx sn >>= \case
+          Just (AnyWindowStore wsv) ->
+            writeIORef storeRef (Just (Unsafe.unsafeCoerce wsv))
+          _ -> error $ "cogroup-windowed: store missing: " <> show sn
+    , procClose = pure ()
+    , procProcess = \r -> case recordKey r of
+        Nothing -> pure ()
+        Just k  -> do
+          mctx <- readIORef ctxRef
+          mst  <- readIORef storeRef
+          case (mctx, mst) of
+            (Just ctx, Just wsv) -> do
+              -- Bucket the record's timestamp into its window
+              -- start (tumbling-style: floor to window-size).
+              let Timestamp tsMs = recordTimestamp r
+                  !windowStart  = Timestamp ((tsMs `div` sz) * sz)
+              mPrev <- wsFetch wsv k windowStart
+              !cur  <- maybe initial pure mPrev
+              let !next = agg k (recordValue r) cur
+              wsPut wsv k next windowStart
+              forwardRecord ctx r { recordValue = next }
+            _ -> pure ()
+    }
