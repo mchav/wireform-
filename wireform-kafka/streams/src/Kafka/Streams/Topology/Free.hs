@@ -300,6 +300,23 @@ module Kafka.Streams.Topology.Free
   , mapRecord
   , mapRecordM
   , noFuse
+    -- ** Named operator variants (KIP-307)
+  , filterNamed
+  , mapValuesNamed
+  , mapKeyValueNamed
+  , peekNamed
+  , selectKeyNamed
+  , sinkNamed
+    -- ** Windowed emit strategy (KIP-825)
+  , withEmitStrategy
+  , TWKS.EmitStrategy (..)
+  , TWKS.emitOnWindowUpdate
+  , TWKS.emitOnWindowClose
+    -- ** Configurable suppression buffers (KIP-328)
+  , suppressWindowedWith
+  , BufferConfig
+  , maxRecordsBufferConfig
+  , maxBytesBufferConfig
   , filter
   , filterNot
   , flatMapValues
@@ -447,6 +464,7 @@ import Kafka.Streams.Consumed
   , consumedOffsetReset
   , consumedValueSerde
   )
+import qualified Kafka.Streams.Named as Named
 import qualified Kafka.Streams.ForeignKeyJoin as FK
 import Kafka.Streams.GlobalKTable (GlobalKTable)
 import qualified Kafka.Streams.GlobalKTable as GT
@@ -2906,6 +2924,128 @@ liftIO_
   -> (StreamsBuilder -> i -> IO o)
   -> Topology i o
 liftIO_ nm act = liftPrim (Lifted nm act)
+
+----------------------------------------------------------------------
+-- KIP-307: Named operator variants
+--
+-- Mirror the imperative @*Named@ entry points so callers can pin
+-- a topology node name on a per-operator basis. Stable node names
+-- matter for stateful application upgrades — re-deploying with a
+-- different node name regenerates the changelog / repartition
+-- topic, which generally invalidates the existing state.
+--
+-- Each helper delegates to the corresponding imperative @*Named@
+-- function via 'liftIO_'. The Named-vs-default split mirrors the
+-- imperative API exactly; we don't push Named through the GADT
+-- primitives to avoid duplicating every constructor.
+----------------------------------------------------------------------
+
+-- | 'filter' with an explicit topology node name.
+filterNamed
+  :: Named.Named -> (Record k v -> Bool)
+  -> Topology (KStream k v) (KStream k v)
+filterNamed nm p =
+  liftIO_ "filter-named" (\_b s -> KS.filterStreamNamed nm p s)
+
+-- | 'mapValues' with an explicit topology node name.
+mapValuesNamed
+  :: Named.Named -> (v -> v')
+  -> Topology (KStream k v) (KStream k v')
+mapValuesNamed nm f =
+  liftIO_ "mapValues-named" (\_b s -> KS.mapValuesNamed nm f s)
+
+-- | 'mapKeyValue' with an explicit topology node name.
+mapKeyValueNamed
+  :: Named.Named -> (k -> v -> (k', v'))
+  -> Topology (KStream k v) (KStream k' v')
+mapKeyValueNamed nm f =
+  liftIO_ "mapKeyValue-named" (\_b s -> KS.mapKeyValueNamed nm f s)
+
+-- | 'peek' with an explicit topology node name.
+peekNamed
+  :: Named.Named -> (Record k v -> IO ())
+  -> Topology (KStream k v) (KStream k v)
+peekNamed nm act =
+  liftIO_ "peek-named" (\_b s -> KS.peekStreamNamed nm act s)
+
+-- | 'selectKey' with an explicit topology node name.
+selectKeyNamed
+  :: Named.Named -> (Record k v -> k')
+  -> Topology (KStream k v) (KStream k' v)
+selectKeyNamed nm f =
+  liftIO_ "selectKey-named" (\_b s -> KS.selectKeyNamed nm f s)
+
+-- | 'sinkWith' with an explicit topology node name.
+sinkNamed
+  :: Named.Named -> TopicName -> Produced k v
+  -> Topology (KStream k v) ()
+sinkNamed nm tp p =
+  liftIO_ "sink-named" (\_b s -> KS.toTopicNamed nm tp p s)
+
+----------------------------------------------------------------------
+-- KIP-825: configurable windowed emit strategy
+----------------------------------------------------------------------
+
+-- | Configure the emit strategy on a topology fragment that
+-- produces a 'TWKS.WindowedTableHandle'. The default emit
+-- strategy is 'TWKS.emitOnWindowUpdate' (every update
+-- forwards downstream); use 'TWKS.emitOnWindowClose' to defer
+-- emission until the window has closed past its grace period.
+--
+-- Operates on the /handle/ after the windowed aggregation has
+-- been built, so it composes cleanly with 'aggregateWindowed',
+-- 'countWindowed', and 'reduceWindowed':
+--
+-- @
+-- F.aggregateWindowed seed step m
+--   '>>>' F.withEmitStrategy F.emitOnWindowClose
+-- @
+withEmitStrategy
+  :: TWKS.EmitStrategy
+  -> Topology a (TWKS.WindowedTableHandle k v)
+  -> Topology a (TWKS.WindowedTableHandle k v)
+withEmitStrategy e = rmapT (TWKS.withEmitStrategy e)
+
+----------------------------------------------------------------------
+-- Configurable suppression (JVM @Suppressed@ buffer config)
+----------------------------------------------------------------------
+
+-- | Re-export of 'Kafka.Streams.Suppress.BufferConfig'.
+type BufferConfig = Suppress.BufferConfig
+
+-- | 'suppressWindowed' with an explicit 'BufferConfig'. Mirrors
+-- the JVM @Suppressed.untilWindowCloses(BufferConfig)@ surface:
+-- the buffer can be sized by record count
+-- ('Suppress.maxRecordsBufferConfig'), approximate byte budget
+-- ('Suppress.maxBytesBufferConfig'), or set to overflow-emit
+-- (early-emit when full) versus overflow-shutdown via the
+-- 'Suppress.BufferConfig' constructor.
+--
+-- Use this instead of 'suppressWindowed' when you need bounded
+-- memory under load — the default 'suppressWindowed' uses an
+-- unbounded buffer that will keep growing until either the
+-- window closes or the JVM runs out of memory.
+suppressWindowedWith
+  :: Ord k
+  => Duration             -- ^ grace period
+  -> Int64                -- ^ window size (ms)
+  -> BufferConfig
+  -> Topology (KStream (WindowedKey k) v) (KStream (WindowedKey k) v)
+suppressWindowedWith grace sz cfg =
+  liftIO_ "suppressWindowed-with"
+    (\_b s -> Suppress.suppressWindowedWith grace sz cfg s)
+
+-- | Re-export: bounded-by-record-count buffer config. Cap is a
+-- soft limit on the number of buffered windowed keys before the
+-- overflow policy kicks in.
+maxRecordsBufferConfig :: Int -> BufferConfig
+maxRecordsBufferConfig = Suppress.maxRecordsBufferConfig
+
+-- | Re-export: bounded-by-bytes buffer config. The byte count
+-- is approximate — the processor sees the unserialised value,
+-- so we treat the cap as a record-count surrogate.
+maxBytesBufferConfig :: Int -> BufferConfig
+maxBytesBufferConfig = Suppress.maxBytesBufferConfig
 
 -- | Walk the AST and collect a per-node textual label
 -- listing.
