@@ -55,6 +55,7 @@ module Kafka.Streams.Topology
   , addStateStoreS
   , addGlobalStore
   , topoGlobalStores
+  , topoChangelogPlan
   , connectProcessorAndStateStores
     -- * Optimisations (KIP-295)
   , OptimizationConfig (..)
@@ -62,8 +63,10 @@ module Kafka.Streams.Topology
   , noOptimisations
   , fromOptimizationFlags
   , optimizeTopology
+  , effectiveChangelogReuse
     -- * Validation
   , validateTopology
+  , validateChangelogPlan
   , TopologyValid
   , unsafeAssumeValid
   , topologyNodes
@@ -88,6 +91,7 @@ module Kafka.Streams.Topology
   , childrenOf
     -- * Topology-level errors
   , TopologyError (..)
+  , ChangelogPlanProblem (..)
   ) where
 
 import Control.Exception (Exception, throwIO)
@@ -203,6 +207,25 @@ data Topology = Topology
     -- ^ Stores registered via 'addGlobalStore'. The runtime treats
     -- these as cluster-wide replicas and bypasses partition
     -- assignment for their source topics.
+  , topoChangelogPlan :: !(Map StoreName TopicName)
+    -- ^ /Optimiser-derived/ KIP-295 @REUSE_KTABLE_SOURCE_TOPICS@
+    -- decisions. Each entry @(store, topic)@ says \"the runtime
+    -- should reuse @topic@ as the changelog for @store@ instead
+    -- of creating a separate internal one\".
+    --
+    -- This map is /wiped and re-derived/ on every call to
+    -- 'optimizeTopology' (with the toggle enabled), so it always
+    -- reflects the current topology shape. Subsequent
+    -- modifications via 'addSink' / 'addProcessor' / 'addSource' /
+    -- 'addStateStore*' invalidate prior optimisation decisions;
+    -- re-running 'optimizeTopology' restores correctness.
+    --
+    -- Distinct from 'Kafka.Streams.State.Store.loggingSourceTopic',
+    -- which is the /user-explicit/ declaration set via
+    -- 'Kafka.Streams.State.Store.withSourceTopicChangelogKV'. The
+    -- optimiser never touches that field; it's preserved across
+    -- optimisation runs. Use 'effectiveChangelogReuse' to look up
+    -- the combined effective changelog target for a store.
   }
 
 emptyTopology :: Topology
@@ -216,6 +239,7 @@ emptyTopology = Topology
   , topoSourceOrder   = Seq.empty
   , topoChildrenIndex = Map.empty
   , topoGlobalStores  = Set.empty
+  , topoChangelogPlan = Map.empty
   }
 
 -- | Distinct error categories surfaced by 'validateTopology'.
@@ -227,8 +251,46 @@ data TopologyError
   | EmptySourceTopics !NodeName
   | TopologyCycle ![NodeName]
   | NoSources
+  | StaleChangelogPlan !StoreName !TopicName !ChangelogPlanProblem
+    -- ^ 'topoChangelogPlan' or 'loggingSourceTopic' claims @store@
+    -- can reuse @topic@ as its changelog, but the current graph
+    -- doesn't actually support that. Typically caused by
+    -- post-compile modifications (a new sink on the topic, a
+    -- new co-owner of the store) that the optimiser hasn't
+    -- been re-run over. Calling
+    -- @'optimizeTopology' 'defaultOptimizationConfig'@ will
+    -- repair the plan; alternatively, the caller can update the
+    -- topology to restore the invariant.
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Exception)
+
+-- | Why a changelog-plan entry is no longer valid against the
+-- current graph state.
+data ChangelogPlanProblem
+  = StaleNoSuchStore
+    -- ^ The store has been removed from 'topoStores'.
+  | StaleNoOwners
+    -- ^ The store has no owner processor.
+  | StaleMultipleOwners
+    -- ^ The store now has more than one owner processor — the
+    -- changelog source can no longer be uniquely attributed.
+  | StaleOwnerHasMultipleParents
+    -- ^ The owner processor now has more than one parent — the
+    -- changelog source is ambiguous.
+  | StaleParentNotASource
+    -- ^ The owner's parent is no longer a 'SourceSpec' (perhaps
+    -- it was replaced by a processor or removed).
+  | StaleSourceMultipleTopics
+    -- ^ The source now subscribes to more than one topic.
+  | StaleWrongTopic !TopicName
+    -- ^ The source subscribes to a different topic than the plan
+    -- claims; the actual topic is supplied.
+  | StaleTopicHasSink
+    -- ^ Another sink now writes to the source topic, so it isn't
+    -- a clean source-only changelog target anymore.
+  | StaleLoggingDisabled
+    -- ^ The store's logging was turned off; reuse is moot.
+  deriving stock (Eq, Show, Generic)
 
 ----------------------------------------------------------------------
 -- Builders
@@ -470,9 +532,16 @@ fromOptimizationFlags f = OptimizationConfig
 -- applying it once. The rewrites are not iterative — each one
 -- sweeps the graph in a single pass.
 optimizeTopology :: OptimizationConfig -> Topology -> Topology
-optimizeTopology cfg = mergeRepartitions . reuseSourceKTable
+optimizeTopology cfg = mergeRepartitions . reuseStep . wipePlan
   where
-    reuseSourceKTable
+    -- Reset every optimiser-derived decision before re-deriving.
+    -- This is what makes 'optimizeTopology' reflective: subsequent
+    -- modifications to the topology invalidate prior decisions,
+    -- and re-running the optimiser produces a fresh plan from
+    -- the current graph state.
+    wipePlan t = t { topoChangelogPlan = Map.empty }
+
+    reuseStep
       | optReuseSourceKTable cfg      = applyReuseSourceKTable
       | otherwise                     = Prelude.id
     mergeRepartitions
@@ -483,20 +552,28 @@ optimizeTopology cfg = mergeRepartitions . reuseSourceKTable
 -- KIP-295 #1 — REUSE_KTABLE_SOURCE_TOPICS
 ----------------------------------------------------------------------
 
--- | Find every processor that fits the "source-table" shape
--- (one source parent with a single topic; one owned store with
--- logging enabled; no competing sinks on the source topic) and
--- rewrite the store's 'LoggingConfig' to point its changelog at
--- the source topic.
+-- | Identify every processor that fits the "source-table" shape
+-- and populate 'topoChangelogPlan' with the resulting
+-- @(store, source-topic)@ pairs.
+--
+-- The map is /wiped first/ — entries that no longer correspond
+-- to valid candidates after dynamic modifications are
+-- discarded. The optimiser is fully /reflective/: its output is
+-- a pure function of the current graph state, independent of
+-- prior optimisation history.
+--
+-- User-explicit 'loggingSourceTopic' declarations (set via
+-- 'Kafka.Streams.State.Store.withSourceTopicChangelogKV') are
+-- never written to the side-table — they live in
+-- 'LoggingConfig' and the optimiser respects them as
+-- already-decided. The 'effectiveChangelogReuse' accessor
+-- consults both sources and returns the user declaration first,
+-- falling back to the side-table.
 applyReuseSourceKTable :: Topology -> Topology
-applyReuseSourceKTable t =
-  let candidates = collectReuseCandidates t
-   in foldl' applyOne t candidates
-  where
-    applyOne topo (storeName_, topic) =
-      topo { topoStores = Map.adjust (setLoggingSourceTopic topic)
-                                     storeName_
-                                     (topoStores topo) }
+applyReuseSourceKTable t0 =
+  let !t       = t0 { topoChangelogPlan = Map.empty }
+      !plan    = Map.fromList (collectReuseCandidates t)
+   in t { topoChangelogPlan = plan }
 
 -- | Pairs of @(store, sourceTopic)@ where the store's changelog
 -- can be redirected to the source topic.
@@ -519,6 +596,8 @@ collectReuseCandidates t =
       , Just builder   <- pure (Map.lookup storeNm (topoStores t))
       , Just logCfg    <- pure (storeBuilderLogging builder)
       , loggingEnabled logCfg
+      -- A user-explicit 'loggingSourceTopic' wins; the optimiser
+      -- doesn't duplicate / fight the user's declaration.
       , Nothing        <- pure (loggingSourceTopic logCfg)
       ]
 
@@ -532,19 +611,22 @@ storeBuilderLogging = \case
   AsSessionBuilder  b -> Just (sbSLogging b)
   AsRawBuilder      b -> Just (sbLogging  b)
 
--- | Mark an 'AnyStoreBuilder' as having the supplied source topic
--- as its changelog. Pass-through on any builder type that doesn't
--- have a logging field.
-setLoggingSourceTopic :: TopicName -> AnyStoreBuilder -> AnyStoreBuilder
-setLoggingSourceTopic topic = \case
-  AsKeyValueBuilder b -> AsKeyValueBuilder b
-    { sbKvLogging = (sbKvLogging b) { loggingSourceTopic = Just topic } }
-  AsWindowBuilder   b -> AsWindowBuilder   b
-    { sbWLogging  = (sbWLogging  b) { loggingSourceTopic = Just topic } }
-  AsSessionBuilder  b -> AsSessionBuilder  b
-    { sbSLogging  = (sbSLogging  b) { loggingSourceTopic = Just topic } }
-  AsRawBuilder      b -> AsRawBuilder      b
-    { sbLogging   = (sbLogging   b) { loggingSourceTopic = Just topic } }
+-- | The effective KIP-295 changelog-reuse target for @store@, if
+-- any. Consults both the /user-explicit/ declaration
+-- ('LoggingConfig.loggingSourceTopic') and the
+-- /optimiser-derived/ 'topoChangelogPlan'. The user-explicit
+-- declaration wins when both are set.
+--
+-- Returns 'Nothing' when the store has its own internal
+-- changelog (the default).
+effectiveChangelogReuse :: Topology -> StoreName -> Maybe TopicName
+effectiveChangelogReuse t sn =
+  case Map.lookup sn (topoStores t) of
+    Just b
+      | Just lc <- storeBuilderLogging b
+      , Just tp <- loggingSourceTopic lc
+      -> Just tp
+    _ -> Map.lookup sn (topoChangelogPlan t)
 
 ----------------------------------------------------------------------
 -- KIP-295 #2 — MERGE_REPARTITION_TOPICS
@@ -854,11 +936,81 @@ validateTopology t = do
     (Right ()) (topoStoreOwners t)
   -- 4. acyclicity (the children index is a DAG iff a topo-sort exists).
   case detectCycle t of
-    Nothing      -> Right (TopologyValid t)
     Just chain   -> Left (TopologyCycle chain)
+    Nothing      -> do
+      -- 5. changelog-plan consistency. Catches stale entries left
+      -- over from post-optimisation modifications that the user
+      -- forgot to re-optimise.
+      validateChangelogPlan t
+      Right (TopologyValid t)
   where
     when_ :: Bool -> TopologyError -> Either TopologyError ()
     when_ b e = if b then Left e else Right ()
+
+-- | Validate every changelog-reuse declaration against the
+-- current graph. Both 'topoChangelogPlan' (optimiser-derived)
+-- and 'loggingSourceTopic' (user-explicit) are checked using
+-- the same eligibility rules 'optimizeTopology' applies.
+--
+-- The check is conservative: a plan entry is accepted only when
+-- the graph independently agrees that the store is in a
+-- single-parent / single-source-topic / single-owner shape with
+-- logging enabled and no competing sink. Anything else returns
+-- 'StaleChangelogPlan' with a 'ChangelogPlanProblem' explaining
+-- which precondition was violated.
+--
+-- Run as part of 'validateTopology'; also exported for callers
+-- who want to spot-check after a sequence of modifications.
+validateChangelogPlan :: Topology -> Either TopologyError ()
+validateChangelogPlan t = do
+  -- Plan-derived claims.
+  Map.foldlWithKey'
+    (\acc sn topic -> acc >> checkOne sn topic)
+    (Right ())
+    (topoChangelogPlan t)
+  -- User-declared claims via 'withSourceTopicChangelogKV'. We
+  -- treat them with the same eligibility rules: a user who
+  -- declares "reuse topic X as changelog" must still have the
+  -- graph shape that backs the claim.
+  Map.foldlWithKey'
+    (\acc sn ab -> acc >>
+       case storeBuilderLogging ab of
+         Just lc
+           | Just topic <- loggingSourceTopic lc -> checkOne sn topic
+         _ -> Right ())
+    (Right ())
+    (topoStores t)
+  where
+    sinkTopicSet :: Set TopicName
+    sinkTopicSet = Set.fromList [ sinkTopic s | s <- Map.elems (topoSinks t) ]
+
+    checkOne :: StoreName -> TopicName -> Either TopologyError ()
+    checkOne sn topic = case Map.lookup sn (topoStores t) of
+      Nothing -> bad sn topic StaleNoSuchStore
+      Just builder -> case Map.lookup sn (topoStoreOwners t) of
+        Nothing      -> bad sn topic StaleNoOwners
+        Just []      -> bad sn topic StaleNoOwners
+        Just (_:_:_) -> bad sn topic StaleMultipleOwners
+        Just [owner] -> case Map.lookup owner (topoProcessors t) of
+          Nothing -> bad sn topic StaleNoOwners
+          Just spec -> case processorSpecParents spec of
+            []       -> bad sn topic StaleParentNotASource
+            (_:_:_)  -> bad sn topic StaleOwnerHasMultipleParents
+            [parent] -> case Map.lookup parent (topoSources t) of
+              Nothing  -> bad sn topic StaleParentNotASource
+              Just src -> case sourceTopics src of
+                []        -> bad sn topic StaleSourceMultipleTopics
+                (_:_:_)   -> bad sn topic StaleSourceMultipleTopics
+                [actual]
+                  | actual /= topic     -> bad sn topic (StaleWrongTopic actual)
+                  | Set.member topic sinkTopicSet
+                                        -> bad sn topic StaleTopicHasSink
+                  | not (maybe False loggingEnabled
+                          (storeBuilderLogging builder))
+                                        -> bad sn topic StaleLoggingDisabled
+                  | otherwise           -> Right ()
+
+    bad sn topic prob = Left (StaleChangelogPlan sn topic prob)
 
 -- | Cycle detector via DFS. Returns one offending chain if any.
 detectCycle :: Topology -> Maybe [NodeName]
