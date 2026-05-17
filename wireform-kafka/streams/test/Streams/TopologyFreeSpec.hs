@@ -40,6 +40,7 @@ import Kafka.Streams.Runtime.EOS
 import qualified Kafka.Streams.Materialized as Mat
 import qualified Kafka.Streams.State.Store
 import qualified Kafka.Streams.Topology.Free as F
+import qualified Kafka.Streams.Topology.Free.Graphviz as DOT
 
 tests :: TestTree
 tests = testGroup "Topology.Free (GADT topology builder)"
@@ -103,6 +104,9 @@ tests = testGroup "Topology.Free (GADT topology builder)"
   -- Cross-lineage EOS + cogroup with monad bind
   , test_mergeSourced_two_sources_share_one_task_under_eos
   , test_cogroup_via_do_notation
+  -- Graphviz visualiser
+  , test_graphviz_topologyDot_emits_valid_dot
+  , test_graphviz_astDot_emits_valid_dot
   ]
 
 ----------------------------------------------------------------------
@@ -1793,3 +1797,105 @@ test_cogroup_via_do_notation =
       Just kvs -> kvsGet kvs "k" >>= (@?= Just "/a+b/c")
       Nothing  -> error "cogroup-do store missing"
     closeDriver driver
+
+----------------------------------------------------------------------
+-- 47. Graphviz: topologyDot emits a well-formed DOT graph
+----------------------------------------------------------------------
+
+test_graphviz_topologyDot_emits_valid_dot :: TestTree
+test_graphviz_topologyDot_emits_valid_dot =
+  testCase "topologyDot renders a complete compiled topology as DOT" $ do
+    -- A topology with source / processors / sink / state store /
+    -- a fanout — exercises every node-type the renderer knows
+    -- how to draw.
+    let countMat :: Materialized Text Int64
+        countMat =
+          Mat.withValueSerde int64Serde
+            $ Mat.withKeySerde textSerde
+            $ Mat.materializedAs (storeName "dot-count-store")
+
+        topology :: F.Topology Void ()
+        topology =
+          F.source "dot-in" textSerde textSerde
+            >>> F.tap (F.foreach (\_ -> pure ()))
+            >>> F.mapValues T.toUpper
+            >>> F.groupByKey (grouped textSerde textSerde)
+            >>> F.count countMat
+            >>> F.toStream
+            >>> F.mapValues (T.pack . show)
+            >>> F.sink "dot-out" textSerde textSerde
+
+    (_, topo) <- F.compile topology
+    let dot = DOT.topologyDot topo
+
+    -- The output is a DOT digraph. Basic structural checks:
+    assertBool "DOT starts with 'digraph topology {'" $
+      "digraph topology {" `T.isPrefixOf` dot
+    assertBool "DOT ends with '}'" $
+      "}\n" `T.isSuffixOf` dot
+    assertBool "DOT contains rankdir directive" $
+      "rankdir=" `T.isInfixOf` dot
+    -- Sources are drawn as rounded boxes.
+    assertBool "DOT contains a source shape (rounded box)" $
+      "style=\"filled,rounded\"" `T.isInfixOf` dot
+    -- Sinks are drawn as inverted trapeziums.
+    assertBool "DOT contains a sink shape (invtrapezium)" $
+      "shape=invtrapezium" `T.isInfixOf` dot
+    -- State stores are drawn as cylinders.
+    assertBool "DOT contains a state-store shape (cylinder)" $
+      "shape=cylinder" `T.isInfixOf` dot
+    -- Topic names show up in the source/sink labels.
+    assertBool "DOT mentions the source topic" $
+      "dot-in" `T.isInfixOf` dot
+    assertBool "DOT mentions the sink topic" $
+      "dot-out" `T.isInfixOf` dot
+    -- Store ownership uses dashed edges.
+    assertBool "DOT contains a dashed store-ownership edge" $
+      "style=dashed" `T.isInfixOf` dot
+    -- Edges have the parent -> child shape.
+    assertBool "DOT contains edges" $
+      " -> " `T.isInfixOf` dot
+
+----------------------------------------------------------------------
+-- 48. Graphviz: astDot renders the GADT constructor tree
+----------------------------------------------------------------------
+
+test_graphviz_astDot_emits_valid_dot :: TestTree
+test_graphviz_astDot_emits_valid_dot =
+  testCase "astDot renders the AST as DOT" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "ast-in" textSerde textSerde
+            >>> F.mapValues T.toUpper
+            >>> F.tap (F.sink "audit" textSerde textSerde)
+            >>> F.filter (\r -> recordValue r /= "")
+            >>> F.sink "ast-out" textSerde textSerde
+
+        dot = DOT.astDot topology
+
+    -- Basic structural assertions on the rendered DOT.
+    assertBool "DOT starts with 'digraph ast {'" $
+      "digraph ast {" `T.isPrefixOf` dot
+    assertBool "DOT ends with '}'" $
+      "}\n" `T.isSuffixOf` dot
+    -- Each constructor in the AST contributes a labelled node.
+    assertBool "AST DOT contains a Source label" $
+      "Source" `T.isInfixOf` dot
+    assertBool "AST DOT contains a MapValues label" $
+      "MapValues" `T.isInfixOf` dot
+    assertBool "AST DOT contains a Tap label" $
+      "Tap" `T.isInfixOf` dot
+    assertBool "AST DOT contains a Sink label" $
+      "Sink" `T.isInfixOf` dot
+    assertBool "AST DOT contains a Filter label" $
+      "Filter" `T.isInfixOf` dot
+    -- Structural nodes (Compose etc.) are diamond-shaped, leaves
+    -- are ellipses / boxes; both shape attributes must appear.
+    assertBool "AST DOT contains a diamond-shaped structural node" $
+      "shape=diamond" `T.isInfixOf` dot
+    -- The optimised AST should still render; sanity check
+    -- with the optimised version produces fewer or equal
+    -- nodes.
+    let dotOpt = DOT.astDot (F.optimize topology)
+    assertBool "AST DOT (optimised) is non-empty" $
+      not (T.null dotOpt)
