@@ -1210,10 +1210,34 @@ applyT t a = Compose t (Arr (const a))
 -- | Type alias just to make signatures shorter at call sites.
 type TBuilder = StreamsBuilder
 
--- | Apply a topology to an input wire value against a builder. This
--- is the open-ended interpreter — the same function the
--- closed-input 'compile' uses internally, exposed so users can
--- splice a 'Topology' into a hand-rolled imperative builder.
+-- | The open-ended AST interpreter. Walks a 'Topology' bottom-up,
+-- compiling each leaf primitive against the shared
+-- 'StreamsBuilder' (which holds the in-progress
+-- 'Topo.Topology' graph) and threading the wire value @i@ down
+-- the chain.
+--
+-- This is the function 'compile' uses internally after running
+-- the optimiser. Exposed publicly so users can splice a
+-- 'Topology' fragment into a hand-rolled imperative builder
+-- chain — e.g. when migrating from the imperative DSL to the
+-- typed GADT incrementally.
+--
+-- == Contract
+--
+--   * The 'StreamsBuilder' is the shared builder state — every
+--     leaf primitive registers nodes / sinks / stores against
+--     it via 'withTopology_'.
+--   * The wire value @i@ is what feeds the AST. For
+--     @Topology Void o@, @i@ is 'Data.Void.Void' and the
+--     interpreter discharges it with a thunk that aborts
+--     ('TopologyFreeError' / 'VoidInputForced') if any
+--     Source primitive tries to inspect it — which by
+--     construction they don't.
+--   * The result @o@ is whatever the AST produces — a
+--     'KStream', a 'KTable', a tuple, '()', etc.
+--
+-- /Does not/ run the optimiser. Apply 'optimize' yourself
+-- before calling 'apply' if you want the rewrites.
 apply :: forall i o. Topology i o -> TBuilder -> i -> IO o
 apply t b = go t
   where
@@ -1564,30 +1588,71 @@ data TopologyFreeError
 -- | Compile a closed-input topology into the existing
 -- 'Kafka.Streams.Topology.Topology' graph.
 --
--- The AST is first run through the default rewrite passes
--- ('defaultOptimizeConfig'). The result is a topology with fused
--- adjacent operators, collapsed identity nodes, and right-associated
--- 'Compose' chains — fewer processor nodes, identical observable
--- behaviour. Use 'compileNoOptimize' to bypass.
+-- 'compile' is the canonical "AST → runnable topology" entry
+-- point. It:
 --
--- The output @o@ is whatever the AST says — typically @()@ for a
--- sink-closed pipeline, but a freshly-compiled 'KStream' / 'KTable'
--- is also fine if the caller wants to keep wiring around the
--- imperative DSL.
+--   1. Runs the supplied AST through the default rewrite passes
+--      ('defaultOptimizeConfig') — see "Kafka.Streams.Topology.Free.Optimize"
+--      for the full list. The rewrites are semantics-preserving;
+--      the result has fewer processor nodes but identical
+--      observable behaviour.
+--   2. Creates a fresh 'StreamsBuilder' and walks the optimised
+--      AST, registering each leaf primitive (sources, sinks,
+--      transforms, joins, aggregators, state stores) against
+--      the builder.
+--   3. Snapshots the builder into a 'Topo.Topology' graph and
+--      returns it alongside the AST's output wire value.
+--
+-- The output @o@ is whatever the AST says it is — typically @()@
+-- for a sink-closed pipeline, but a freshly-compiled 'KStream'
+-- / 'KTable' / 'CogroupedStream' is also valid (useful when
+-- you want to splice the resulting wire value into a
+-- hand-rolled imperative chain afterwards).
+--
+-- == Variants
+--
+--   * 'compileNoOptimize' — same shape but skips the rewrite
+--     passes. Use for golden-file tests where you need
+--     node-for-node correspondence between the AST and the
+--     compiled graph.
+--   * 'compileWithOptimization' — explicit 'OptimizeConfig' for
+--     per-pass control (toggle individual rewrite families).
+--   * 'compileInBuilder' — compile against a pre-existing
+--     'StreamsBuilder' for splicing into an imperative
+--     pipeline.
 compile :: Topology Void o -> IO (o, Topo.Topology)
 compile = compileWithOptimization defaultOptimizeConfig
 
--- | Like 'compile' but skips the rewrite passes. Use this when
--- you /need/ the AST and the compiled topology graph to line up
--- node-for-node (golden-file tests, rewrite debugging,
--- benchmarking the un-optimised path).
+-- | Like 'compile' but skips the rewrite passes entirely
+-- (applies 'noOptimization'). Use when:
+--
+--   * You need node-for-node correspondence between the
+--     'Topology' AST and the compiled 'Topo.Topology' graph
+--     (golden-file tests).
+--   * You're debugging an unexpected optimiser interaction
+--     and want to confirm the un-optimised path behaves
+--     correctly.
+--   * You're benchmarking the un-optimised path to
+--     quantify the optimiser's win.
+--
+-- The /default/ should be 'compile'. Reach for
+-- 'compileNoOptimize' only when one of the above applies.
 compileNoOptimize :: Topology Void o -> IO (o, Topo.Topology)
 compileNoOptimize = compileWithOptimization noOptimization
 
--- | 'compile' with an explicit 'OptimizeConfig'. Use this to
--- enable a single rewrite family for an A\/B comparison or to
--- skip a class of rewrites that's interacting with caller-side
--- assumptions.
+-- | 'compile' with an explicit 'OptimizeConfig'. Use when:
+--
+--   * You want to enable /one/ rewrite family for an A\/B
+--     comparison (toggle individual @optFuse*@ flags).
+--   * You want to /disable/ a specific rewrite family that's
+--     interacting with caller-side assumptions (e.g. a
+--     bespoke optimiser pass downstream that wants
+--     un-fused @Filter@ nodes).
+--   * You want to extend 'optMaxPasses' for an unusually
+--     deep AST.
+--
+-- For the default everything-enabled or everything-disabled
+-- cases, use 'compile' or 'compileNoOptimize'.
 compileWithOptimization
   :: OptimizeConfig -> Topology Void o -> IO (o, Topo.Topology)
 compileWithOptimization cfg t = do
@@ -1608,25 +1673,40 @@ compileWithOptimization cfg t = do
     voidInput :: Void
     voidInput = Exception.throw (VoidInputForced "compileWithOptimization")
 
--- | 'compile' against a pre-existing 'StreamsBuilder'. Useful when
--- splicing a 'Topology' into a topology being built imperatively
--- through "Kafka.Streams.StreamsBuilder". /Does not/ run the
--- optimiser — when splicing into an existing imperative graph
--- you usually want node-for-node correspondence between the
--- 'Topology' AST and the resulting builder nodes.
+-- | Compile a closed-input 'Topology' against a pre-existing
+-- 'StreamsBuilder'. Useful when splicing a 'Topology' into a
+-- pipeline being built imperatively through
+-- "Kafka.Streams.StreamsBuilder" — the imperative chain holds
+-- the builder, and 'compileInBuilder' adds the AST's nodes to
+-- the same builder.
+--
+-- /Does not/ run the optimiser — when splicing into an
+-- existing imperative graph callers usually want node-for-node
+-- correspondence between the 'Topology' AST and the resulting
+-- builder nodes (the imperative graph has its own naming
+-- conventions; fusion would change those).
+--
+-- Returns just the AST output value (not the topology graph)
+-- because the caller is managing the builder externally.
 compileInBuilder :: TBuilder -> Topology Void o -> IO o
 compileInBuilder b t = apply t b voidInput
   where
     voidInput :: Void
     voidInput = Exception.throw (VoidInputForced "compileInBuilder")
 
--- | Deprecated name for 'compileInBuilder'. Kept as an alias so
--- existing call sites don't break.
+-- | Deprecated alias for 'compileInBuilder'. Kept so existing
+-- call sites don't break; new code should use
+-- 'compileInBuilder' directly.
 compileWith :: TBuilder -> Topology Void o -> IO o
 compileWith = compileInBuilder
 
--- | Compile a closed topology and return only the resulting
--- 'Topo.Topology'. Convenience wrapper around 'compile'.
+-- | Compile a closed-output topology and return only the
+-- resulting 'Topo.Topology' graph, discarding the AST output
+-- (which is @()@ for sink-closed pipelines).
+--
+-- Convenience wrapper around 'compile' for the common case of
+-- "I just want the topology graph, ready to feed into a
+-- 'newDriver' or 'KafkaStreams' runtime."
 buildTopologyFrom :: Topology Void () -> IO Topo.Topology
 buildTopologyFrom = fmap snd . compile
 
@@ -1635,29 +1715,102 @@ buildTopologyFrom = fmap snd . compile
 ----------------------------------------------------------------------
 
 -- * Sources --------------------------------------------------------
+--
+-- Every closed 'Topology' starts with at least one source: a
+-- pipeline that doesn't start with a 'Source' (or one of the
+-- table / global variants) can't be closed on the input side,
+-- because all source primitives have @'Void'@ as their input
+-- type — the only way to discharge the open @Void@ slot is to
+-- pin a source there. (Composing a source on the right
+-- automatically lifts the whole pipeline to @Topology Void o@.)
 
--- | Subscribe to a topic with the default 'Consumed' (record
--- timestamp, earliest offset reset, no explicit node name).
+-- | Subscribe to a Kafka topic and emit records as a
+-- 'KStream'. Uses the default 'Consumed' configuration:
+-- /record-timestamp/ timestamp extractor, /earliest/
+-- offset-reset, no explicit node name.
+--
+-- /JVM equivalent:/ @StreamsBuilder.stream(topic)@.
+--
+-- The 'Serde's deserialise records as the runtime polls
+-- them; downstream operators see the typed @'KStream' k v@.
+-- For non-default 'Consumed' (e.g. custom timestamp
+-- extractor, latest offset reset) use 'sourceWith'. For
+-- multi-topic sources, see 'sources'.
 source :: Text -> Serde k -> Serde v -> Topology Void (KStream k v)
 source t ks vs = sourceWith (topicName t) (consumed ks vs)
 
--- | Subscribe to a topic with a fully-specified 'Consumed'.
+-- | Subscribe to a Kafka topic with a fully-specified
+-- 'Consumed'.
+--
+-- /JVM equivalent:/ @StreamsBuilder.stream(topic, Consumed)@.
+--
+-- The 'Consumed' carries the key and value serdes, the
+-- timestamp extractor (use 'Consumed.withTimestampExtractor'
+-- to override), and the offset-reset policy. The default
+-- 'Consumed' (via 'source') uses record-timestamp +
+-- earliest-offset; reach for 'sourceWith' when you need to
+-- override either of those, or to pin an explicit
+-- source-node name via 'Consumed.withName'.
 sourceWith :: TopicName -> Consumed k v -> Topology Void (KStream k v)
 sourceWith = Source
 
--- | Subscribe to N topics, fanning them into a single 'KStream'.
+-- | Subscribe to N topics simultaneously, fanning them into
+-- a single 'KStream'. All topics must use the same key and
+-- value serdes (records from different topics are
+-- indistinguishable downstream — use 'tap' / 'peek' on
+-- 'recordHeaders' if you need to track which topic a record
+-- came from).
+--
+-- /JVM equivalent:/ @StreamsBuilder.stream(Collection<String>)@.
+--
+-- Use this for fan-in patterns where multiple upstream
+-- producers feed a single logical topic — e.g. per-region
+-- topics merged into one regionless pipeline. For two
+-- /different/ source-rooted pipelines that should share EOS,
+-- use 'mergeSourced' instead (which keeps the value types
+-- separate up to the merge point).
 sources
   :: NonEmpty Text -> Serde k -> Serde v -> Topology Void (KStream k v)
 sources ts ks vs = SourceMulti (fmap topicName ts) (consumed ks vs)
 
--- | Materialise a topic as a 'KTable' (default in-memory store).
+-- | Subscribe to a Kafka topic and materialise it as a
+-- 'KTable' (latest-value-per-key) backed by an in-memory
+-- state store.
+--
+-- /JVM equivalent:/ @StreamsBuilder.table(topic)@.
+--
+-- Tombstone records (records with null value) delete the
+-- key from the store; non-tombstones insert or update. The
+-- resulting 'KTable' can be queried via the standard
+-- Interactive Queries API, joined against, or converted
+-- back into a 'KStream' via 'toStream'.
+--
+-- For finer control over the materialised store (named
+-- store, custom serdes, RocksDB backend, etc.) call the
+-- 'TableSource' constructor directly or fall back to
+-- 'liftIO_' with the imperative @tableFromTopic@.
 tableSource
   :: Ord k => Text -> Serde k -> Serde v -> Topology Void (KTable k v)
 tableSource t ks vs =
   TableSource (topicName t) (consumed ks vs)
     (Mat.withValueSerde vs (Mat.withKeySerde ks Mat.materialized))
 
--- | Cluster-replicated 'GlobalKTable'.
+-- | Subscribe to a Kafka topic and materialise it as a
+-- /global/ 'GlobalKTable' — a cluster-wide replicated table.
+--
+-- /JVM equivalent:/ @StreamsBuilder.globalTable(topic)@.
+--
+-- Unlike 'tableSource', a 'GlobalKTable' is /not/
+-- partitioned: every Kafka Streams instance maintains its
+-- own full copy of the table. That makes it ideal for
+-- "lookup table" patterns — see 'streamGlobalTableJoin' /
+-- 'streamGlobalTableLeftJoin' for the join shape, which
+-- /doesn't/ require co-partitioning.
+--
+-- The memory cost is proportional to the full table size on
+-- every instance; use only for small-to-moderate reference
+-- data (customer details, product catalogs, feature flags)
+-- rather than high-volume transactional data.
 globalTableSource
   :: Ord k => Text -> Serde k -> Serde v -> Topology Void (GlobalKTable k v)
 globalTableSource t ks vs =
@@ -1707,74 +1860,266 @@ mergeSourced
 mergeSourced left right = Compose Merge (Fanout left right)
 
 -- * Sinks ----------------------------------------------------------
+--
+-- A sink closes off a 'KStream' lineage by sending its records
+-- to a Kafka topic. The output wire is @()@ — there's no
+-- downstream continuation. If you need to /both/ sink the
+-- records and continue processing them, use 'through' (which
+-- sinks and re-subscribes from the broker) or 'tap' (which
+-- runs the sink as a side pipeline without leaving the
+-- in-process lineage).
 
--- | Publish records to a topic.
+-- | Publish every record on the stream to the given topic.
+-- The 'Serde's serialise the key and value as records are
+-- produced.
+--
+-- /JVM equivalent:/ @KStream.to(topic, Produced.with(ks, vs))@.
+--
+-- This is the canonical pipeline-closing operation. Under
+-- EOS the writes go through the bound transactional
+-- producer and commit atomically with the task's offset
+-- commit. Use 'sinkWith' if you need to override the
+-- partitioner or the auto-generated sink-node name.
 sink :: Text -> Serde k -> Serde v -> Topology (KStream k v) ()
 sink t ks vs = sinkWith (topicName t) (produced ks vs)
 
--- | 'sink' with a fully-specified 'Produced'.
+-- | 'sink' with a fully-specified 'Produced'. Use this when you
+-- need to override the default sink-node name, supply a custom
+-- partitioner, or otherwise reach into the lower-level
+-- @Produced@ configuration. For the common case of "publish
+-- with these serdes", prefer 'sink'.
 sinkWith :: TopicName -> Produced k v -> Topology (KStream k v) ()
 sinkWith = Sink
 
--- | Per-record dynamic-topic sink.
+-- | Per-record dynamic-topic sink (KIP-303). The supplied
+-- 'KS.TopicNameExtractor' is consulted for every record and
+-- decides which topic that record lands in. The wire is closed
+-- ('()' output).
+--
+-- /JVM equivalent:/ @KStream.to(TopicNameExtractor, Produced)@.
+--
+-- Use when you're routing records to one of many topics based
+-- on record content — e.g. per-tenant topics, per-region topics
+-- — without enumerating them in the topology itself.
 sinkExtracted
   :: KS.TopicNameExtractor k v -> Produced k v -> Topology (KStream k v) ()
 sinkExtracted = SinkExtracted
 
--- | Sink to a topic and re-subscribe from it. Mirrors
--- @KStream.through@.
+-- | Publish to a topic /and/ immediately re-subscribe from it,
+-- returning a fresh upstream-equivalent 'KStream' that flows
+-- through the broker. Mirrors @KStream.through@.
+--
+-- == When to use
+--
+-- 'through' is the canonical way to introduce a /task boundary/:
+-- the records get serialised into the topic, durably stored on
+-- the broker, and re-fetched on the downstream side. Use it
+-- when you want:
+--
+--   * a re-partition with explicit broker storage in between,
+--   * a fault-tolerance boundary between expensive upstream and
+--     downstream work,
+--   * to expose an intermediate result as a real Kafka topic
+--     that other consumers can observe.
+--
+-- Note that 'through' is a /sink + source pair/, so it costs
+-- one round-trip through the broker. If you don't need the
+-- durability, use 'repartition' (logical re-partition, broker
+-- still involved but no extra read) or stay in-process.
 through :: Text -> Serde k -> Serde v -> Topology (KStream k v) (KStream k v)
 through t ks vs = Through (topicName t) (produced ks vs)
 
 -- * Stateless 'KStream' transforms --------------------------------
+--
+-- The stateless transforms apply a pure (or @IO@) function to
+-- every record and produce a fresh 'KStream' downstream. None of
+-- them require a state store, none of them block on broker
+-- I/O, and all are individually exposed as their own processor
+-- nodes in the compiled topology (subject to the optimiser
+-- fusing adjacent same-shape transforms — see
+-- 'OptimizeConfig').
+--
+-- == Repartition implications
+--
+-- Transforms that change the /key/ ('mapKeyValue', 'mapKeyValueM',
+-- 'flatMapKeyValue', 'selectKey') mark the stream as
+-- /needing repartition/ for any subsequent stateful operation
+-- (groupBy, join, aggregate). Use 'repartition' explicitly when
+-- you want to force the shuffle at a particular point — Kafka's
+-- broker-side partitioning is what guarantees per-key ordering,
+-- so re-keying without repartitioning would put records for the
+-- same key on different tasks.
 
+-- | Apply a pure function to the value side of every record,
+-- preserving the key, timestamp, and headers.
+--
+-- /JVM equivalent:/ @KStream.mapValues(ValueMapper)@.
+--
+-- Use 'mapValues' over 'mapKeyValue' whenever you don't need to
+-- change the key — keeping the key stable means downstream
+-- stateful operations don't trigger a repartition.
+--
+-- The optimiser fuses chains of 'mapValues' into one
+-- @MapValues (compose ...)@ node, so writing small,
+-- single-responsibility maps is cheap at run time.
 mapValues :: (v -> v') -> Topology (KStream k v) (KStream k v')
 mapValues = MapValues
 
+-- | Effectful 'mapValues': the value-transform runs in 'IO',
+-- so it can read from external resources, emit metrics, or
+-- otherwise side-effect per record. The 'IO' action runs
+-- /synchronously on the stream thread/ — slow handlers
+-- backpressure the broker poll loop.
+--
+-- /JVM equivalent:/ no direct match; closest is
+-- @ValueMapper@ + an out-of-band side channel. We model the
+-- @IO@ in the type so the cost is visible at the call site.
+--
+-- For purely-stateless effects (logging, metrics) prefer
+-- 'peek' (which doesn't mutate the value). For effects that
+-- need exactly-once semantics, route through a state store
+-- and gate on an idempotency token (the same caveat applies
+-- to JVM @transformValues@).
 mapValuesM :: (v -> IO v') -> Topology (KStream k v) (KStream k v')
 mapValuesM = MapValuesM
 
+-- | Re-key /and/ re-value every record with a pure function.
+--
+-- /JVM equivalent:/ @KStream.map(KeyValueMapper)@.
+--
+-- == Repartition warning
+--
+-- 'mapKeyValue' changes the record key, which means downstream
+-- stateful operations (groupBy, join, aggregate) need a
+-- 'repartition' to re-shuffle records onto the correct
+-- partitions. The runtime doesn't auto-insert this — call
+-- 'repartition' explicitly when the next stage is stateful,
+-- /unless/ you've maintained the partition assignment (i.e.
+-- the new key has the same hash as the old).
+--
+-- If you only need to change the /key/ and not the value,
+-- prefer 'selectKey'. If you only need to change the value,
+-- prefer 'mapValues' (avoids the repartition flag).
 mapKeyValue
   :: (k -> v -> (k', v')) -> Topology (KStream k v) (KStream k' v')
 mapKeyValue = MapKeyValue
 
+-- | Effectful 'mapKeyValue'. Same trade-offs as 'mapValuesM'
+-- (synchronous on the stream thread, slow handlers
+-- backpressure) plus the repartition implications of
+-- 'mapKeyValue'.
 mapKeyValueM
   :: (k -> v -> IO (k', v')) -> Topology (KStream k v) (KStream k' v')
 mapKeyValueM = MapKeyValueM
 
+-- | Keep records for which the predicate returns 'True'; drop
+-- the rest.
+--
+-- /JVM equivalent:/ @KStream.filter(Predicate)@.
+--
+-- The predicate sees the entire 'Record', not just the value,
+-- so you can filter on key, timestamp, or headers as well.
+-- Chains of 'filter' fuse into a single @Filter (conj ...)@
+-- node automatically.
 filter :: (Record k v -> Bool) -> Topology (KStream k v) (KStream k v)
 filter = Filter
 
+-- | Inverse of 'filter': drop records for which the predicate
+-- returns 'True'. Same fusion characteristics as 'filter'
+-- (chains collapse via de Morgan).
+--
+-- /JVM equivalent:/ @KStream.filterNot(Predicate)@.
 filterNot :: (Record k v -> Bool) -> Topology (KStream k v) (KStream k v)
 filterNot = FilterNot
 
+-- | Expand each record into zero or more output records,
+-- changing only the value (key + timestamp + headers all
+-- inherited from the input record).
+--
+-- /JVM equivalent:/ @KStream.flatMapValues(ValueMapper)@.
+--
+-- Useful for record-splitting (e.g. line → words) and
+-- conditional emission (e.g. @Just x -> [x]; Nothing -> []@).
+-- An empty list drops the input record entirely.
 flatMapValues :: (v -> [v']) -> Topology (KStream k v) (KStream k v')
 flatMapValues = FlatMapValues
 
+-- | Expand each record into zero or more output records,
+-- potentially changing both key and value.
+--
+-- /JVM equivalent:/ @KStream.flatMap(KeyValueMapper)@.
+--
+-- Like 'mapKeyValue', this marks the stream as needing a
+-- repartition for downstream stateful ops; insert
+-- 'repartition' before any stateful stage if you're changing
+-- the partitioning.
 flatMapKeyValue
   :: (k -> v -> [(k', v')]) -> Topology (KStream k v) (KStream k' v')
 flatMapKeyValue = FlatMapKeyValue
 
+-- | Run a side-effecting observer per record and pass the
+-- record through unchanged. Useful for metrics, logging, or
+-- debug taps that shouldn't alter the data path.
+--
+-- /JVM equivalent:/ @KStream.peek(ForeachAction)@.
+--
+-- 'peek' runs synchronously on the stream thread — same
+-- backpressure caveat as 'mapValuesM' / 'foreach'. For a
+-- non-data-altering "tap to a side topic", use 'tap' with a
+-- sink as the side pipeline.
 peek :: (Record k v -> IO ()) -> Topology (KStream k v) (KStream k v)
 peek = Peek
 
 -- | Terminal side-effect sink. The callback runs /synchronously/
--- on the stream-processing thread for every record. There is no
--- @foreachAsync@ in this module on purpose — see the module-level
--- note "On side effects" below.
+-- on the stream-processing thread for every record. The wire
+-- is closed (@()@ output) — there's no downstream
+-- continuation.
+--
+-- /JVM equivalent:/ @KStream.foreach(ForeachAction)@.
+--
+-- There is /no/ @foreachAsync@ in this module on purpose. See
+-- the module-level note "On side effects" for the rationale
+-- and the recommended patterns for non-blocking work.
 foreach :: (Record k v -> IO ()) -> Topology (KStream k v) ()
 foreach = Foreach
 
+-- | Re-key the stream using a function of the full 'Record'.
+-- The value is preserved unchanged.
+--
+-- /JVM equivalent:/ @KStream.selectKey(KeyValueMapper)@.
+--
+-- 'selectKey' marks the stream as needing a repartition for
+-- downstream stateful operations. Prefer it over
+-- 'mapKeyValue' when you don't need to change the value —
+-- the optimiser pairs @selectKey >>> groupByKey@ into a
+-- single @groupBy@ node which matches the Apache docs'
+-- recommended pattern.
 selectKey :: (Record k v -> k') -> Topology (KStream k v) (KStream k' v)
 selectKey = SelectKey
 
+-- | Drop the key — the resulting stream is keyed by @()@.
+--
+-- /JVM equivalent:/ @KStream.values()@.
+--
+-- Idempotent — chained 'values' calls collapse into one. Use
+-- when you want to disable per-key partitioning for a
+-- subsequent operation that doesn't need the key (e.g. a
+-- global counter via 'count').
 values :: Topology (KStream k v) (KStream () v)
 values = Values
 
--- | Show-debugging sink. The 'Text' label is prepended to every
--- printed line; the @line writer@ is typically 'putStrLn' or a
--- logger callback. Named 'prints' (with an @s@) to avoid clashing
--- with @Prelude.print@.
+-- | Show-debugging sink: pretty-print each record via the
+-- supplied line writer. The 'Text' label is prepended to
+-- every printed line; @line writer@ is typically 'putStrLn',
+-- 'hPutStrLn' against an open file handle, or a structured
+-- logger callback.
+--
+-- /JVM equivalent:/ @KStream.print(Printed)@.
+--
+-- Named 'prints' (with an @s@) to avoid clashing with
+-- 'Prelude.print'. For production-grade structured logging,
+-- use 'peek' / 'foreach' against your logger; 'prints' is
+-- optimised for REPL exploration and ad-hoc debugging.
 prints
   :: (Show k, Show v)
   => Text -> (String -> IO ()) -> Topology (KStream k v) ()
@@ -1782,79 +2127,318 @@ prints = Print
 
 -- * 'KStream' composition + branching -----------------------------
 
+-- | Binary merge of two streams of the same shape into one. The
+-- output stream interleaves records from both inputs in
+-- per-partition arrival order; per-key ordering is preserved
+-- /within/ each input but the relative order across inputs is
+-- not specified.
+--
+-- /JVM equivalent:/ @KStream.merge(KStream)@.
+--
+-- The input is a tuple, so chain with 'Fanout' / @'&&&'@ /
+-- 'mergeSourced' to get the two streams in place. For more
+-- than two streams use 'mergeAll'.
 merge :: Topology (KStream k v, KStream k v) (KStream k v)
 merge = Merge
 
+-- | N-ary merge: a list of streams collapses to one. The list
+-- is consumed at AST-application time, so the count is
+-- bounded at compile time per call site. An empty list is a
+-- run-time error (matches the imperative
+-- 'Kafka.Streams.KStream.mergeStreamsN' semantics).
+--
+-- /JVM equivalent:/ chained @merge@ calls.
 mergeAll :: Topology [KStream k v] (KStream k v)
 mergeAll = MergeAll
 
+-- | Predicate-routed split into N sub-streams.
+--
+-- Each input record is routed to the first sub-stream whose
+-- predicate returns 'True'. Records that match no predicate
+-- are dropped. The output is a /list/ of streams, one per
+-- predicate, in the order the predicates were supplied.
+--
+-- /JVM equivalent:/ the pre-KIP-418 @KStream.branch(Predicate...)@.
+--
+-- For KIP-418 /named/ branches (returning a 'Data.Map.Strict.Map'
+-- keyed by branch name) use 'split' instead — it's the
+-- recommended modern API.
 branch :: [Record k v -> Bool] -> Topology (KStream k v) [KStream k v]
 branch = Branch
 
--- | KIP-418 named branches. Each branch routes records matching its
--- predicate; the optional default branch catches the rest.
+-- | KIP-418 named-branch split. Each input record is routed to
+-- the first branch whose predicate matches; records that
+-- match no branch go to the optional default-branch name (or
+-- are dropped if 'Nothing'). The output is a 'Map' from
+-- branch name to its sub-stream, so downstream code can
+-- destructure by name rather than by list position.
+--
+-- /JVM equivalent:/ @KStream.split().branch(Branched.as("name").withPredicate(...))@.
+--
+-- @
+-- F.source \"in\" ks vs
+--   '>>>' F.split
+--           [ F.splitBranch \"errors\"   (\\r -> recordValue r > threshold)
+--           , F.splitBranch \"warnings\" (\\r -> recordValue r > 0)
+--           ]
+--           ('Just' \"info\")
+--   '>>>' F.liftIO_ \"route-branches\" (\\b m -> do
+--           let Just errs = Map.lookup \"errors\"   m
+--               Just wrns = Map.lookup \"warnings\" m
+--               Just info = Map.lookup \"info\"     m
+--           -- ... sink each branch to a different topic ...
+--           pure ())
+-- @
 split
   :: [SplitBranch k v]
   -> Maybe Text
   -> Topology (KStream k v) (Map Text (KStream k v))
 split = Split
 
--- | Helper for assembling a 'SplitBranch'. Reads as
--- @F.splitBranch \"low\" (\\r -> recordValue r < 10)@.
+-- | Helper for assembling a 'SplitBranch'. The 'Text' is the
+-- branch name (appears as the result-'Map' key); the function
+-- is the predicate.
+--
+-- @
+-- F.splitBranch \"low\" (\\r -> recordValue r < 10)
+-- @
 splitBranch :: Text -> (Record k v -> Bool) -> SplitBranch k v
 splitBranch = SplitBranch
 
--- | Explicit wire duplicator. Same as @id '&&&' id@ but reads better.
+-- | Explicit wire duplicator: @a -> (a, a)@.
+--
+-- Equivalent to @'Cat.id' '&&&' 'Cat.id'@, but named for the
+-- common use case where you want to thread the same wire
+-- value into two downstream paths. The optimiser pushes
+-- adjacent pure functions ('Arr') through 'fork' so
+-- @fork >>> arr f@ collapses to @Arr (\\a -> f (a, a))@.
+--
+-- See also 'forkN' for N-way duplication.
 fork :: Topology a (a, a)
 fork = Fork
 
--- | N-way fan-out: apply each sub-fragment to the same upstream and
--- collect the results in input order.
+-- | N-way fan-out: apply each sub-fragment to the /same/
+-- upstream value and collect the results in input order.
+-- Generalises 'fork' / @'&&&'@ to any positive arity.
+--
+-- All sub-fragments share the upstream node in the compiled
+-- topology — every branch's lineage descends from the same
+-- source, so the EOS task assigner groups them together
+-- (every branch's sinks commit in one transaction).
+--
+-- @
+-- forkN ( mkSink \"upper\" T.toUpper
+--      'NE.:|' [ mkSink \"lower\" T.toLower
+--           , mkSink \"len\"   (T.pack . show . T.length)
+--           ])
+-- @
 forkN :: NonEmpty (Topology a b) -> Topology a (NonEmpty b)
 forkN = ForkN
 
--- | Run a side-effecting sub-pipeline (typically ending in a 'Sink'
--- or 'Foreach') and pass the upstream wire through unchanged.
+-- | Run a side-effecting sub-pipeline and pass the upstream
+-- wire through unchanged.
+--
+-- Operationally equivalent to @'Cat.id' '&&&' t '>>>' 'arr'
+-- 'fst'@ but reads better at the call site and lets the
+-- optimiser apply @Tap-specific@ rewrites (e.g.
+-- @'Tap' ('Foreach' f) === 'Peek' f@).
+--
+-- The side pipeline @t@ must be closed (return @()@) — it's
+-- typically a 'Sink', 'Foreach', or a small chain ending in
+-- one. Use 'tap' for "audit-log this stream without
+-- disturbing the main path" patterns:
+--
+-- @
+-- F.source \"in\" ks vs
+--   '>>>' F.tap (F.filter isUrgent '>>>' F.sink \"alerts\" ks vs)
+--   '>>>' F.mapValues normalise
+--   '>>>' F.sink \"out\" ks vs
+-- @
 tap :: Topology a () -> Topology a a
 tap = Tap
 
 -- * Conversions ---------------------------------------------------
 
+-- | Materialise the latest value-per-key into a state-backed
+-- 'KTable'. Every input record either inserts or updates the
+-- store; tombstones (records with @Nothing@-typed value
+-- representations) are still inserted as such — apply
+-- 'mapValues' to drop them upstream if you want delete
+-- semantics.
+--
+-- /JVM equivalent:/ @KStream.toTable(Materialized)@.
+--
+-- The 'Materialized' carries the store name, optional key /
+-- value serdes (downstream operations that need them will
+-- raise 'MissingMaterializedSerde' if absent), and the
+-- changelog config. The resulting 'KTable' shares its state
+-- store with any other operation referencing the same
+-- 'StoreName'.
 toTable :: Ord k => Materialized k v -> Topology (KStream k v) (KTable k v)
 toTable = ToTableT
 
+-- | Convert a 'KTable' back to a 'KStream' carrying every
+-- changelog event. The output stream emits one record for
+-- every update (including tombstones) that flowed into the
+-- table.
+--
+-- /JVM equivalent:/ @KTable.toStream@.
+--
+-- 'toStream' is /not/ idempotent — feeding the same KTable
+-- twice produces two separate change-emitting processors and
+-- the records appear on the resulting streams in (the same)
+-- per-table order, but each invocation is its own node.
 toStream :: Topology (KTable k v) (KStream k v)
 toStream = ToStream
 
+-- | Force a repartition through an internal topic, using the
+-- supplied prefix to name the topic. The topic is created
+-- with the same partition count as the upstream and the
+-- records re-keyed by the current 'KStream' key.
+--
+-- /JVM equivalent:/ @KStream.repartition(name)@.
+--
+-- == When to call this
+--
+-- Insert 'repartition' between a key-changing op (a
+-- 'selectKey' / 'mapKeyValue' / 'flatMapKeyValue') and a
+-- subsequent stateful op (a 'groupBy' / 'aggregate' / 'join')
+-- to make the broker re-shuffle records so per-key ordering
+-- holds.
+--
+-- Chained 'repartition' calls collapse to one shuffle via
+-- the 'optCollapseRepartition' optimisation — the broker
+-- would otherwise pay for the extra topic round-trip with
+-- no benefit.
 repartition :: Text -> Topology (KStream k v) (KStream k v)
 repartition = Repartition
 
+-- | 'repartition' with a fully-specified 'Rep.Repartitioned'
+-- config: caller controls the partition count, custom
+-- partitioner, and override serdes. Use this when the
+-- default partition count doesn't match what downstream
+-- joins or external consumers need.
+--
+-- /JVM equivalent:/ @KStream.repartition(Repartitioned)@.
 repartitionWith
   :: Rep.Repartitioned k v -> Topology (KStream k v) (KStream k v)
 repartitionWith = RepartitionWith
 
 -- * Grouping + aggregation ----------------------------------------
+--
+-- Aggregation in Kafka Streams is a /per-key/ reduction that runs
+-- inside a stateful processor backed by a state store. The
+-- pattern is always three stages:
+--
+--   1. /Group/ the stream by some key (this stage is pure — no
+--      processor node is added; it just changes the wire type to
+--      'KGroupedStream' so the type system enforces that the
+--      next stage is an aggregation).
+--   2. /Aggregate/ via 'count', 'reduce', or 'aggregate' — this
+--      adds the processor + state store and produces a 'KTable'.
+--   3. Optionally consume the resulting 'KTable' downstream
+--      ('toStream', joins, sinks, …).
+--
+-- For session-windowed or time-windowed aggregations insert a
+-- 'windowedByTime' / 'windowedBySession' step between the
+-- grouping and the aggregation, and use the @*Windowed@
+-- aggregators that consume 'TimeWindowedKStream' /
+-- 'SessionWindowedKStream'.
 
+-- | Group records by their existing key. The wire becomes a
+-- 'KGroupedStream'; the next stage must be a 'count' /
+-- 'reduce' / 'aggregate' / 'windowedByTime' / 'windowedBySession'.
+--
+-- /JVM equivalent:/ @KStream.groupByKey(Grouped)@.
+--
+-- 'groupByKey' is /pure/: no processor node, no repartition
+-- needed if the upstream key hasn't been altered. The
+-- 'Grouped' carries the serdes the downstream aggregator
+-- needs to read/write the state store.
+--
+-- If the upstream had a key-changing op ('selectKey',
+-- 'mapKeyValue', 'flatMapKeyValue') without an explicit
+-- 'repartition' in between, the broker partition layout no
+-- longer matches the new key and the aggregation will silently
+-- produce wrong results. Either insert 'repartition' or use
+-- 'groupBy' (which the optimiser fuses with an upstream
+-- 'selectKey').
 groupByKey :: Grouped k v -> Topology (KStream k v) (KGroupedStream k v)
 groupByKey = GroupByKey
 
+-- | Group by a derived key. The supplied function picks a new
+-- key per 'Record'; the upstream value is preserved.
+--
+-- /JVM equivalent:/ @KStream.groupBy(KeyValueMapper, Grouped)@.
+--
+-- Prefer 'groupBy' over @selectKey >>> groupByKey@ —
+-- the optimiser collapses the latter pair into the former, but
+-- writing it directly is clearer and skips a node.
+--
+-- Like any key-changing op, 'groupBy' marks the stream as
+-- needing a repartition for downstream stateful operations.
+-- Callers usually want a 'repartition' between 'groupBy' and
+-- the aggregation if the partition layout matters; in the
+-- in-process test driver this is a no-op, but against a real
+-- broker it's what guarantees per-key ordering.
 groupBy
   :: (Record k v -> k') -> Grouped k' v
   -> Topology (KStream k v) (KGroupedStream k' v)
 groupBy = GroupBy
 
+-- | Count records per key. The resulting 'KTable' maps each
+-- key to the number of records seen for it.
+--
+-- /JVM equivalent:/ @KGroupedStream.count(Materialized)@.
+--
+-- The 'Materialized' names the state store and carries the
+-- key serde (the value serde is implicit — counts are
+-- 'Int64'). Pass 'Mat.materializedAs' for a named store, or
+-- 'Mat.materialized' for an auto-named one.
 count
   :: Ord k
   => Materialized k Int64
   -> Topology (KGroupedStream k v) (KTable k Int64)
 count = Count
 
+-- | Combine values per key with a binary reducer of the same
+-- shape. The accumulator is initialised with the first value
+-- seen for each key; subsequent values are combined via the
+-- supplied function.
+--
+-- /JVM equivalent:/ @KGroupedStream.reduce(Reducer, Materialized)@.
+--
+-- The reducer must be associative for the result to be
+-- deterministic across replays / failovers — Kafka may
+-- replay records on restart, and a non-associative reducer
+-- would produce different results.
+--
+-- For aggregations whose accumulator type differs from the
+-- input value type, use 'aggregate'.
 reduce
   :: Ord k
   => (v -> v -> v) -> Materialized k v
   -> Topology (KGroupedStream k v) (KTable k v)
 reduce = Reduce
 
+-- | General-shape per-key aggregator: the accumulator can be a
+-- different type from the value, the initialiser runs once
+-- per key (lazily, on first record), and the step function
+-- folds in each new value.
+--
+-- /JVM equivalent:/ @KGroupedStream.aggregate(Initializer, Aggregator, Materialized)@.
+--
+-- The initialiser is an 'IO' to mirror Java's
+-- @Initializer<A>@: callers who want a pure seed pass
+-- @'pure' x@. Stateful initialisers (e.g. allocating a
+-- mutable buffer) are also valid.
+--
+-- == Determinism note
+--
+-- As with 'reduce', the @(k -> v -> agg -> agg)@ step must be
+-- associative if Kafka may replay records on failover —
+-- otherwise different replay orderings produce different
+-- final values.
 aggregate
   :: Ord k
   => IO agg
@@ -1864,41 +2448,113 @@ aggregate
 aggregate = Aggregate
 
 -- * Windowed aggregation ------------------------------------------
+--
+-- Windowed aggregations bucket records by /time/ before
+-- aggregating, so the output is one value per (key, window)
+-- pair instead of one value per key. There are two windowing
+-- shapes:
+--
+--   * Time windows ('Win.Windows' / 'windowedByTime'): fixed-size
+--     buckets — tumbling (no overlap), hopping (advance < size,
+--     overlapping), sliding. Records fall into one or more
+--     windows based on their timestamp.
+--
+--   * Session windows ('Win.SessionWindows' / 'windowedBySession'):
+--     gap-based — a window stays open as long as records keep
+--     arriving within the gap; a long enough silence closes the
+--     window. Useful for activity-style aggregations.
+--
+-- After windowing, the wire becomes 'TimeWindowedKStream' /
+-- 'SessionWindowedKStream' and the only legal next stage is one
+-- of the @*Windowed@ aggregators. The result is a
+-- 'TWKS.WindowedTableHandle' / 'SWKS.SessionWindowedTableHandle'
+-- which downstream can read directly (via Interactive Queries)
+-- or convert into a 'KStream' via the windowed-key suppress
+-- machinery.
 
+-- | Bucket the grouped stream into time windows. The 'Win.Windows'
+-- carries the window size, advance interval (for hopping),
+-- and retention. Used immediately upstream of 'countWindowed' /
+-- 'reduceWindowed' / 'aggregateWindowed'.
+--
+-- /JVM equivalent:/ @KGroupedStream.windowedBy(TimeWindows)@.
+--
+-- Pure — no processor node, just a wire-type change.
 windowedByTime
   :: Win.Windows
   -> Topology (KGroupedStream k v) (TimeWindowedKStream k v)
 windowedByTime = WindowedByTime
 
+-- | Bucket the grouped stream by /session/: a window stays open
+-- as long as new records arrive within the configured gap.
+-- When a record arrives more than the gap after the previous
+-- record (for the same key), a new session window starts.
+-- Adjacent sessions whose records' timestamps overlap (after
+-- a late record arrives) are /merged/.
+--
+-- /JVM equivalent:/ @KGroupedStream.windowedBy(SessionWindows)@.
+--
+-- Use immediately upstream of 'countSessionWindowed' /
+-- 'aggregateSessionWindowed' — the session aggregator takes a
+-- /merger/ in addition to the step function, used when two
+-- sessions get merged into one.
 windowedBySession
   :: Win.SessionWindows
   -> Topology (KGroupedStream k v) (SessionWindowedKStream k v)
 windowedBySession = WindowedBySession
 
+-- | Count records per (key, window) pair. Mirrors 'count' for
+-- the time-windowed case.
+--
+-- /JVM equivalent:/ @TimeWindowedKStream.count(Materialized)@.
 countWindowed
   :: Ord k
   => Materialized k Int64
   -> Topology (TimeWindowedKStream k v) (TWKS.WindowedTableHandle k Int64)
 countWindowed = CountWindowed
 
+-- | Per-(key, window) reducer; the value type is unchanged.
+-- See 'reduce' for the associativity caveat.
+--
+-- /JVM equivalent:/ @TimeWindowedKStream.reduce(Reducer, Materialized)@.
 reduceWindowed
   :: Ord k
   => (v -> v -> v) -> Materialized k v
   -> Topology (TimeWindowedKStream k v) (TWKS.WindowedTableHandle k v)
 reduceWindowed = ReduceWindowed
 
+-- | General-shape per-(key, window) aggregator with an
+-- accumulator type that may differ from the input value.
+-- Mirrors 'aggregate' for the time-windowed case.
+--
+-- /JVM equivalent:/ @TimeWindowedKStream.aggregate(Initializer, Aggregator, Materialized)@.
 aggregateWindowed
   :: Ord k
   => IO agg -> (k -> v -> agg -> agg) -> Materialized k agg
   -> Topology (TimeWindowedKStream k v) (TWKS.WindowedTableHandle k agg)
 aggregateWindowed = AggregateWindowed
 
+-- | Count records per (key, session). Mirrors 'count' for the
+-- session-windowed case; no merger needed since the
+-- accumulator is just @Int64@.
+--
+-- /JVM equivalent:/ @SessionWindowedKStream.count(Materialized)@.
 countSessionWindowed
   :: Ord k
   => Materialized k Int64
   -> Topology (SessionWindowedKStream k v) (SWKS.SessionWindowedTableHandle k Int64)
 countSessionWindowed = CountSessionWindowed
 
+-- | Session-windowed aggregator with an explicit merger.
+-- When two adjacent sessions are merged (because a late
+-- record bridged them), the merger combines their two
+-- accumulators into one — this is the extra argument
+-- compared to the time-windowed 'aggregateWindowed'.
+--
+-- /JVM equivalent:/ @SessionWindowedKStream.aggregate(Initializer, Aggregator, Merger, Materialized)@.
+--
+-- The merger must be associative + commutative if Kafka may
+-- replay records on failover.
 aggregateSessionWindowed
   :: Ord k
   => IO agg
@@ -1909,25 +2565,66 @@ aggregateSessionWindowed
 aggregateSessionWindowed = AggregateSessionWindowed
 
 -- * KGroupedTable -------------------------------------------------
+--
+-- A 'KGroupedTable' aggregates a /changelog/ — the input is a
+-- 'KTable' whose records are inserts/updates/deletes per key,
+-- and we want to aggregate them under a derived key.
+--
+-- Unlike 'KGroupedStream' aggregations, a 'KGroupedTable'
+-- aggregator needs BOTH an /adder/ (combine the new value
+-- into the accumulator) AND a /subtractor/ (remove the
+-- previous value's contribution before adding the new one).
+-- Without the subtractor, every update would double-count the
+-- previous contribution.
+--
+-- See 'groupTableBy' to enter this regime from a 'KTable'.
 
+-- | Re-key a 'KTable' and group the resulting changelog for
+-- subtractor-aware aggregation. The function picks a new
+-- (key, value) per record; downstream aggregators see that
+-- new key.
+--
+-- /JVM equivalent:/ @KTable.groupBy(KeyValueMapper, Grouped)@.
 groupTableBy
   :: (Ord k, Ord k')
   => (k -> v -> (k', v')) -> Grouped k' v'
   -> Topology (KTable k v) (KGroupedTable k' v')
 groupTableBy = GroupTableBy
 
+-- | Count grouped-table records per derived key. The
+-- subtractor is implicit (decrement) and the adder is
+-- implicit (increment), so no functions are needed beyond
+-- the materialised result.
+--
+-- /JVM equivalent:/ @KGroupedTable.count(Materialized)@.
 countKGroupedTable
   :: Ord k
   => Materialized k Int64
   -> Topology (KGroupedTable k v) (KTable k Int64)
 countKGroupedTable = CountKGroupedTable
 
+-- | Reduce grouped-table records per derived key with explicit
+-- adder + subtractor functions. The subtractor is applied
+-- first (to remove the previous value's contribution) and
+-- then the adder is applied (to fold in the new value);
+-- inserts skip the subtractor, deletes skip the adder.
+--
+-- /JVM equivalent:/ @KGroupedTable.reduce(Adder, Subtractor, Materialized)@.
+--
+-- Both adder and subtractor must be associative for the
+-- result to be deterministic across replays.
 reduceKGroupedTable
   :: Ord k
   => (v -> v -> v) -> (v -> v -> v) -> Materialized k v
   -> Topology (KGroupedTable k v) (KTable k v)
 reduceKGroupedTable = ReduceKGroupedTable
 
+-- | General-shape subtractor-aware aggregator. The
+-- accumulator may differ from the input value; both adder
+-- and subtractor take the current accumulator, the value
+-- being added/removed, and the key.
+--
+-- /JVM equivalent:/ @KGroupedTable.aggregate(Initializer, Adder, Subtractor, Materialized)@.
 aggregateKGroupedTable
   :: Ord k
   => IO agg
@@ -1938,17 +2635,45 @@ aggregateKGroupedTable
 aggregateKGroupedTable = AggregateKGroupedTable
 
 -- * Cogroup -------------------------------------------------------
+--
+-- Cogroup aggregates N /independent/ grouped streams that share
+-- the same key type and accumulator type. Each grouped stream
+-- contributes records via its own per-source aggregator; all
+-- of them update the same shared state.
+--
+-- The natural way to build a cogroup is /incrementally/, one
+-- source at a time. With the 'Monad' instance + 'applyT' this
+-- maps onto do-notation cleanly — see the module-level
+-- "Monad bind for incrementally-built topologies" example.
 
+-- | Start a cogroup with one grouped-stream source plus its
+-- per-source aggregator. The resulting wire is a
+-- 'CogroupedStream' that further sources can be added to via
+-- 'addCogrouped'.
+--
+-- /JVM equivalent:/ @KGroupedStream.cogroup(Aggregator)@.
 cogroup
   :: (k -> v -> a -> a)
   -> Topology (KGroupedStream k v) (CogroupedStream k a)
 cogroup = Cogroup
 
+-- | Extend a cogroup with another grouped-stream source. The
+-- input is a tuple: bring the existing cogroup builder and
+-- the new grouped stream together via 'Fanout' / @'&&&'@ /
+-- 'applyT'.
+--
+-- /JVM equivalent:/ @CogroupedKStream.cogroup(KGroupedStream, Aggregator)@.
 addCogrouped
   :: (k -> v -> a -> a)
   -> Topology (CogroupedStream k a, KGroupedStream k v) (CogroupedStream k a)
 addCogrouped = AddCogrouped
 
+-- | Close out a cogroup builder and emit its result as a
+-- 'KTable'. The initialiser allocates the accumulator (once
+-- per key, lazily); the 'Materialized' names the resulting
+-- store.
+--
+-- /JVM equivalent:/ @CogroupedKStream.aggregate(Initializer, Materialized)@.
 aggregateCogrouped
   :: Ord k
   => IO a -> Materialized k a
@@ -1956,19 +2681,56 @@ aggregateCogrouped
 aggregateCogrouped = AggregateCogrouped
 
 -- * Joins ---------------------------------------------------------
+--
+-- All join constructors take their two participants as a /tuple/
+-- on the input side; bring two streams / tables together with
+-- 'Fanout' / @'&&&'@ / 'mergeSourced' / @'applyT'@ so they
+-- land in the tuple shape.
+--
+-- == Co-partitioning requirement
+--
+-- Kafka Streams joins require the two input topics to be
+-- /co-partitioned/: same partition count, same partitioning
+-- function. If you've re-keyed an input via 'selectKey' /
+-- 'mapKeyValue' upstream of a join, you'll need a 'repartition'
+-- before the join so the broker's partition layout matches.
+-- (For stream-table joins of a 'globalTableSource', the
+-- co-partitioning requirement is relaxed — the global table is
+-- replicated across all tasks.)
 
+-- | Stream-table /inner/ join: emit @joiner v vt@ whenever a
+-- stream record's key matches a table entry. Stream records
+-- whose key has no table match are dropped.
+--
+-- /JVM equivalent:/ @KStream.join(KTable, ValueJoiner, Joined)@.
 streamTableJoin
   :: Ord k
   => (v -> vt -> v') -> Joined k v vt
   -> Topology (KStream k v, KTable k vt) (KStream k v')
 streamTableJoin = StreamTableJoin
 
+-- | Stream-table /left/ join: emit @joiner v (Just vt)@ when
+-- the key matches, @joiner v Nothing@ when it doesn't. Every
+-- stream record produces exactly one output; the join
+-- function decides what to do with the @Nothing@ case.
+--
+-- /JVM equivalent:/ @KStream.leftJoin(KTable, ValueJoiner, Joined)@.
 streamTableLeftJoin
   :: Ord k
   => (v -> Maybe vt -> v') -> Joined k v vt
   -> Topology (KStream k v, KTable k vt) (KStream k v')
 streamTableLeftJoin = StreamTableLeftJoin
 
+-- | Stream-stream /windowed inner/ join. Two stream records
+-- match if their keys are equal and their timestamps are
+-- within the 'JoinWindows' (asymmetric before/after offsets,
+-- plus an optional grace period for late arrivals).
+--
+-- /JVM equivalent:/ @KStream.join(KStream, ValueJoiner, JoinWindows, StreamJoined)@.
+--
+-- Both sides are buffered in per-side window stores for the
+-- 'JoinWindows' duration; downstream emission happens
+-- per match.
 streamStreamJoin
   :: Ord k
   => (v1 -> v2 -> v')
@@ -1976,6 +2738,13 @@ streamStreamJoin
   -> Topology (KStream k v1, KStream k v2) (KStream k v')
 streamStreamJoin = StreamStreamJoin
 
+-- | Stream-stream /windowed left/ join. Every left record
+-- emits at least once: with @'Just' v2@ for each match, or
+-- with @'Nothing'@ if no match is found within the join
+-- window before its grace period expires. Right records
+-- only contribute matches.
+--
+-- /JVM equivalent:/ @KStream.leftJoin(KStream, ValueJoiner, JoinWindows, StreamJoined)@.
 streamStreamLeftJoin
   :: Ord k
   => (v1 -> Maybe v2 -> v')
@@ -1983,6 +2752,11 @@ streamStreamLeftJoin
   -> Topology (KStream k v1, KStream k v2) (KStream k v')
 streamStreamLeftJoin = StreamStreamLeftJoin
 
+-- | Stream-stream /windowed outer/ join. Both sides emit at
+-- least once; the joiner takes 'Maybe' on both sides because
+-- either may be absent.
+--
+-- /JVM equivalent:/ @KStream.outerJoin(KStream, ValueJoiner, JoinWindows, StreamJoined)@.
 streamStreamOuterJoin
   :: Ord k
   => (Maybe v1 -> Maybe v2 -> v')
@@ -1990,24 +2764,49 @@ streamStreamOuterJoin
   -> Topology (KStream k v1, KStream k v2) (KStream k v')
 streamStreamOuterJoin = StreamStreamOuterJoin
 
+-- | Table-table /inner/ join. The output is a 'KTable' that
+-- updates whenever either side updates. Materialised via the
+-- supplied 'Materialized'.
+--
+-- /JVM equivalent:/ @KTable.join(KTable, ValueJoiner, Materialized)@.
 tableTableJoin
   :: Ord k
   => (v1 -> v2 -> v') -> Materialized k v'
   -> Topology (KTable k v1, KTable k v2) (KTable k v')
 tableTableJoin = TableTableJoin
 
+-- | Table-table /left/ join: emit even when the right side
+-- has no value (joiner sees 'Nothing').
+--
+-- /JVM equivalent:/ @KTable.leftJoin(KTable, ValueJoiner, Materialized)@.
 tableTableLeftJoin
   :: Ord k
   => (v1 -> Maybe v2 -> v') -> Materialized k v'
   -> Topology (KTable k v1, KTable k v2) (KTable k v')
 tableTableLeftJoin = TableTableLeftJoin
 
+-- | Table-table /outer/ join: emit whenever either side has a
+-- value (joiner sees 'Maybe' on both sides).
+--
+-- /JVM equivalent:/ @KTable.outerJoin(KTable, ValueJoiner, Materialized)@.
 tableTableOuterJoin
   :: Ord k
   => (Maybe v1 -> Maybe v2 -> v') -> Materialized k v'
   -> Topology (KTable k v1, KTable k v2) (KTable k v')
 tableTableOuterJoin = TableTableOuterJoin
 
+-- | Foreign-key KTable-KTable /inner/ join (KIP-213). The
+-- /left/ table is keyed by @k@; the /right/ table is keyed by
+-- @fk@. The foreign-key extractor pulls an @fk@ out of each
+-- left value, used to look up the right table. Records on
+-- the left whose extracted foreign key has no right entry
+-- are dropped.
+--
+-- /JVM equivalent:/ @KTable.join(KTable, fkExtractor, ValueJoiner, Materialized)@.
+--
+-- The 'Hashable' constraint on @v@ is the foreign-key
+-- subscription token mechanism used by the implementation to
+-- detect which left rows are affected by a right update.
 foreignKeyJoin
   :: (Ord k, Ord fk, Hashable v)
   => (v -> fk)
@@ -2016,6 +2815,11 @@ foreignKeyJoin
   -> Topology (KTable k v, KTable fk vr) (KTable k v')
 foreignKeyJoin = ForeignKeyJoin
 
+-- | Foreign-key KTable-KTable /left/ join: emit even when the
+-- right table has no entry for the extracted foreign key
+-- (joiner sees 'Nothing').
+--
+-- /JVM equivalent:/ @KTable.leftJoin(KTable, fkExtractor, ValueJoiner, Materialized)@.
 leftForeignKeyJoin
   :: (Ord k, Ord fk, Hashable v)
   => (v -> fk)
@@ -2024,6 +2828,16 @@ leftForeignKeyJoin
   -> Topology (KTable k v, KTable fk vr) (KTable k v')
 leftForeignKeyJoin = LeftForeignKeyJoin
 
+-- | Stream-globalTable /inner/ join. The key-mapper picks a
+-- foreign key out of each stream record; the global table is
+-- looked up by that foreign key; the joiner produces the
+-- result.
+--
+-- /JVM equivalent:/ @KStream.join(GlobalKTable, KeyValueMapper, ValueJoiner)@.
+--
+-- Unlike stream-table joins, /no co-partitioning is
+-- required/: a 'GlobalKTable' is cluster-replicated, so
+-- every task has the full table available locally.
 streamGlobalTableJoin
   :: Ord kg
   => (k -> v -> kg)
@@ -2031,6 +2845,10 @@ streamGlobalTableJoin
   -> Topology (KStream k v, GlobalKTable kg vg) (KStream k v')
 streamGlobalTableJoin = StreamGlobalTableJoin
 
+-- | Stream-globalTable /left/ join: emit even when the
+-- global-table lookup misses (joiner sees 'Nothing').
+--
+-- /JVM equivalent:/ @KStream.leftJoin(GlobalKTable, KeyValueMapper, ValueJoiner)@.
 streamGlobalTableLeftJoin
   :: Ord kg
   => (k -> v -> kg)
@@ -2039,25 +2857,54 @@ streamGlobalTableLeftJoin
 streamGlobalTableLeftJoin = StreamGlobalTableLeftJoin
 
 -- * KTable surface ------------------------------------------------
+--
+-- These mirror the stream-side 'filter' / 'mapValues' family but
+-- operate on a changelog table — the implementation maintains
+-- a new materialised store of the filtered / transformed view.
+-- That's why every constructor here takes a 'Materialized': the
+-- output 'KTable' is its own state store.
 
+-- | Filter a 'KTable'. Records where the predicate returns
+-- 'False' are stored as tombstones (deletes) in the output
+-- table — so the output is the @True@-subset view.
+--
+-- /JVM equivalent:/ @KTable.filter(Predicate, Materialized)@.
 filterTable
   :: Ord k
   => (Record k v -> Bool) -> Materialized k v
   -> Topology (KTable k v) (KTable k v)
 filterTable = FilterTable
 
+-- | Inverse of 'filterTable': records matching the predicate
+-- are tombstoned out. Implemented as
+-- @'filterTable' (not . p)@ but exposed as its own
+-- constructor for parity with the JVM API.
+--
+-- /JVM equivalent:/ @KTable.filterNot(Predicate, Materialized)@.
 filterNotTable
   :: Ord k
   => (Record k v -> Bool) -> Materialized k v
   -> Topology (KTable k v) (KTable k v)
 filterNotTable = FilterNotTable
 
+-- | Map values in a 'KTable'. The key is preserved; the value
+-- type may change. A new state store is created for the
+-- mapped view.
+--
+-- /JVM equivalent:/ @KTable.mapValues(ValueMapper, Materialized)@.
 mapValuesTable
   :: Ord k
   => (v -> v') -> Materialized k v'
   -> Topology (KTable k v) (KTable k v')
 mapValuesTable = MapValuesTable
 
+-- | Custom-processor transform of a 'KTable'. The processor
+-- receives table-update records and can read/write the
+-- declared 'StoreName's. Useful when 'mapValuesTable' isn't
+-- enough — e.g. you need access to other state stores during
+-- the value transformation.
+--
+-- /JVM equivalent:/ @KTable.transformValues(TransformerSupplier, Materialized, storeNames)@.
 transformValuesTable
   :: Ord k
   => Text
@@ -2069,10 +2916,33 @@ transformValuesTable = TransformValuesTable
 
 -- * Suppress ------------------------------------------------------
 
+-- | Debounce-style suppression: hold the latest value per key
+-- in a buffer for up to the supplied 'Duration' before
+-- emitting. Successive updates within the time limit
+-- overwrite the buffered value; the buffered value is
+-- emitted once the time limit has elapsed since the first
+-- record of the current window.
+--
+-- /JVM equivalent:/ @Suppressed.untilTimeLimit(Duration, BufferConfig)@.
+--
+-- Useful for reducing downstream noise from rapid updates on
+-- the same key — only the latest value lands after the
+-- quiet period.
 suppressUntilTimeLimit
   :: Ord k => Duration -> Topology (KStream k v) (KStream k v)
 suppressUntilTimeLimit = SuppressUntilTimeLimit
 
+-- | Suppress all updates to a windowed key until the window
+-- has closed (i.e. stream time has advanced past
+-- @windowEnd + gracePeriod@). Each (window, key) pair emits
+-- exactly once with its final value.
+--
+-- /JVM equivalent:/ @Suppressed.untilWindowCloses(BufferConfig)@.
+--
+-- Operates on streams keyed by 'WindowedKey' — typically the
+-- output of @streamFromWindowedHandle@ or a similar windowed
+-- conversion. The 'Int64' is the window size in milliseconds;
+-- the 'Duration' is the grace period for late records.
 suppressWindowed
   :: Ord k
   => Duration -> Int64
@@ -2080,17 +2950,61 @@ suppressWindowed
 suppressWindowed = SuppressWindowedKS
 
 -- * Processor API -------------------------------------------------
+--
+-- The Processor API gives the most flexibility (and the most
+-- responsibility): you supply a full 'Processor' value with
+-- 'procInit' / 'procProcess' / 'procClose' callbacks. The
+-- callbacks have full 'IO' and can interact with declared
+-- state stores via 'getStateStore'.
+--
+-- For the common pattern of "one processor with one state store
+-- it owns exclusively" reach for 'processWithStateStoreKV' /
+-- 'processWithStateStoreW' / 'processWithStateStoreS' — they
+-- atomically register the processor and the store with the
+-- right owner-node wiring. The lower-level 'processStream' +
+-- 'withStateStoreKV' pair is for multi-owner stores and other
+-- advanced cases.
 
+-- | Attach a custom processor as a terminal sink. The processor
+-- consumes records and writes only to declared stores or out
+-- of band; it doesn't forward downstream (the @()@ output
+-- reflects that). For a processor that DOES produce a
+-- downstream value, use 'processValuesStream' or
+-- 'transformValuesStream'.
+--
+-- /JVM equivalent:/ @KStream.process(ProcessorSupplier, storeNames)@.
+--
+-- The 'Text' prefix names the processor in the topology
+-- graph (with a fresh suffix appended). The @['StoreName']@
+-- list declares which state stores the processor will access
+-- — you must separately register each named store via
+-- 'withStateStoreKV' / @W@ / @S@, with this processor's
+-- generated 'NodeName' as an owner. /Because the generated
+-- name isn't visible/, the common case of "one processor +
+-- one store" is much easier with 'processWithStateStoreKV'.
 processStream
   :: Text -> [StoreName] -> IO (Processor k v)
   -> Topology (KStream k v) ()
 processStream = ProcessStream
 
+-- | Attach a custom processor that produces a typed
+-- downstream 'KStream'. The output value type and serde
+-- come from the explicit 'Serde' argument.
+--
+-- /JVM equivalent:/ @KStream.processValues(ProcessorSupplier, storeNames)@.
+--
+-- Same store-ownership caveat as 'processStream'; for the
+-- single-store common case use 'processWithStateStoreKV' or
+-- its windowed / session counterparts.
 processValuesStream
   :: Text -> [StoreName] -> IO (Processor k v) -> Serde v'
   -> Topology (KStream k v) (KStream k v')
 processValuesStream = ProcessValuesStream
 
+-- | Legacy /transformValues/ wiring: same as
+-- 'processValuesStream' but the store list is typed as
+-- @['Topo.NodeName']@ for compatibility with the original
+-- imperative DSL. Prefer 'processValuesStream' for new code.
 transformValuesStream
   :: Text
   -> [Topo.NodeName]
@@ -2099,17 +3013,35 @@ transformValuesStream
   -> Topology (KStream k v) (KStream k v')
 transformValuesStream = TransformValuesStreamT
 
--- | Register a 'StoreBuilderKV' against the topology graph and
--- attach it to the named owner processors. Pass-through on the
--- wire — composes cleanly anywhere via '>>>'.
+-- | Register a 'StoreBuilderKV' against the topology graph
+-- and grant access to the named owner processors. Wire is
+-- unchanged — compose anywhere via @'>>>'@.
+--
+-- The @['Topo.NodeName']@ list is the set of processors that
+-- can read/write the store. Auto-generated names from
+-- 'processStream' aren't easy to predict, so for the common
+-- single-owner case use 'processWithStateStoreKV' instead
+-- (it generates the name and registers the store atomically).
+--
+-- == Use cases for the standalone form
+--
+--   * Multi-owner stores shared across N processors (rare).
+--   * Stores attached after-the-fact via
+--     @connectProcessorAndStateStores@.
+--   * Hand-rolled imperative wiring spliced in via
+--     'liftIO_' with known node names.
 withStateStoreKV
   :: StoreBuilderKV k v -> [Topo.NodeName] -> Topology x x
 withStateStoreKV = WithStateStoreKV
 
+-- | 'withStateStoreKV' for a /window/ state store. Same
+-- semantics: register the store, grant access to the named
+-- owner processors, wire passes through unchanged.
 withStateStoreW
   :: StoreBuilderW k v -> [Topo.NodeName] -> Topology x x
 withStateStoreW = WithStateStoreW
 
+-- | 'withStateStoreKV' for a /session/ state store.
 withStateStoreS
   :: StoreBuilderS k v -> [Topo.NodeName] -> Topology x x
 withStateStoreS = WithStateStoreS
@@ -2154,18 +3086,91 @@ processWithStateStoreS = ProcessWithStateStoreS
 -- Escape hatch + introspection
 ----------------------------------------------------------------------
 
--- | Splice in a hand-rolled builder action. Use when an operator
--- isn't yet a dedicated constructor.
+-- | Escape hatch: splice in a hand-rolled
+-- 'StreamsBuilder'-mutating action as a topology fragment.
+--
+-- The supplied function receives the shared 'StreamsBuilder'
+-- and the upstream wire value, performs whatever imperative
+-- operations it likes (registering nodes, attaching stores,
+-- calling into the original DSL), and returns the downstream
+-- wire value.
+--
+-- == When to use
+--
+-- 'liftIO_' is the catch-all for operations that aren't yet
+-- a dedicated GADT constructor. Typical cases:
+--
+--   * Calling into the imperative @Kafka.Streams.KStream@ /
+--     @Kafka.Streams.KTable@ DSL for an operator we haven't
+--     promoted yet.
+--   * One-off custom processors that don't fit
+--     'processStream' (e.g. needing explicit node-name
+--     control).
+--   * Bridging Layer-4 ('Topology') and Layer-1 ('StreamsBuilder')
+--     during a gradual migration.
+--
+-- The supplied 'Text' is the label used by 'inspect' /
+-- 'prettyPrint' so the AST remains legible. Keep it
+-- descriptive (e.g. @\"custom-windowed-suppress\"@ rather
+-- than @\"helper\"@); the optimiser and inspection passes
+-- can't see past 'liftIO_', so the label is your only
+-- breadcrumb.
+--
+-- == Implications
+--
+--   * The optimiser cannot rewrite across or into a
+--     'liftIO_' boundary. If you have repeated
+--     'liftIO_'-wrapped fragments, fusion opportunities are
+--     lost.
+--   * Whatever the action does at run time is opaque to
+--     'compile' — caller-asserted correctness.
+--   * EOS atomicity still holds /if/ the action only mutates
+--     the shared topology graph: any processors / sinks it
+--     registers go through the same transactional producer.
+--     Out-of-band side channels (e.g. an action that
+--     writes to a database) are NOT part of the EOS
+--     transaction.
 liftIO_
   :: Text
   -> (StreamsBuilder -> i -> IO o)
   -> Topology i o
 liftIO_ = Lifted
 
--- | Walk the AST and collect a top-level operator-name listing.
--- This is the same shape Java's
--- @org.apache.kafka.streams.TopologyDescription@ surfaces — useful
--- for tests and golden-file comparisons.
+-- | Walk the AST and collect a per-node textual label
+-- listing.
+--
+-- The output is a list of operator-shape tokens in roughly
+-- the order they'd appear in a topology-description string —
+-- compose two via @'>>>'@ and the resulting 'inspect' has
+-- the left side's tokens followed by the right side's
+-- tokens.
+--
+-- /Comparable to:/ Java's
+-- @org.apache.kafka.streams.TopologyDescription@. Our output
+-- is a simpler tokenised form, not the full graph
+-- description; it's intended for tests, golden-file
+-- comparisons, and assertions on AST shape.
+--
+-- == What you can rely on
+--
+--   * Every constructor produces at least one token.
+--   * Structural constructors ('Compose', 'First', 'Parallel',
+--     etc.) bracket their children with angle-bracket tokens
+--     so nesting is visible.
+--   * The labels are stable for any given operator name in
+--     the AST; 'inspect' is the basis of the introspection
+--     tests in @Streams.TopologyFreeSpec@.
+--
+-- == What you should NOT rely on
+--
+--   * The exact token format is /not/ a stable public API —
+--     use 'inspect' for debugging and golden-file tests, not
+--     for parsing.
+--   * The token list is /not/ a topological order of the
+--     compiled-graph nodes; it follows the AST structure,
+--     not the runtime processor graph.
+--   * The continuation of a 'Bind' is opaque — 'inspect'
+--     shows the left side and a single @"…>"@ marker.
 inspect :: Topology i o -> [Text]
 inspect = go
   where
@@ -2300,9 +3305,25 @@ inspect = go
     showTopic :: TopicName -> Text
     showTopic = T.pack . show
 
--- | Render an AST as a single-line description. Useful at the REPL
--- and in test failure messages. The output is /not/ a stable
--- format — use it for debugging, not for parsing.
+-- | Render an AST as a single-line whitespace-separated
+-- description. Built by 'T.intercalate'-ing the output of
+-- 'inspect'.
+--
+-- Useful for REPL exploration, error messages, and at-a-glance
+-- comparison of AST shapes. The output is /not/ a stable
+-- format — use it for debugging, not for parsing or contract
+-- tests.
+--
+-- @
+-- ghci> F.prettyPrint (F.source \"in\" textSerde textSerde
+--                       '>>>' F.mapValues T.toUpper
+--                       '>>>' F.sink \"out\" textSerde textSerde)
+-- "Source(...) MapValues Sink(...)"
+-- @
+--
+-- For more structured introspection (e.g. counting operator
+-- occurrences, walking the AST) use 'inspect' directly — it
+-- returns a list of tokens you can pattern-match on.
 prettyPrint :: Topology i o -> Text
 prettyPrint = T.intercalate " " . inspect
 
@@ -2463,12 +3484,49 @@ noOptimization = OptimizeConfig
   , optMaxPasses                = 0
   }
 
--- | Apply the default optimisation passes until a fixed point on
--- node count, or 'optMaxPasses' is exhausted.
+-- | Apply the default rewrite passes ('defaultOptimizeConfig') to
+-- a 'Topology' AST, returning a semantically-equivalent but
+-- structurally-minimal version.
+--
+-- The default config enables every rewrite family in the
+-- module (operator fusion, identity collapse, right-associate
+-- Compose, push pure functions through Fanout/Parallel/Fork,
+-- Java-aligned rewrites like @selectKey >>> groupByKey =>
+-- groupBy@). Run-time semantics are preserved by construction;
+-- only the node count and AST shape change.
+--
+-- This is the function 'compile' applies automatically before
+-- walking the AST — calling 'optimize' yourself is useful when:
+--
+--   * comparing the pre- and post-optimisation shape via
+--     'inspect' / 'countNodes' / 'optimizationStats',
+--   * running the optimiser separately from compilation,
+--   * caching an optimised AST for repeated compilation.
 optimize :: Topology i o -> Topology i o
 optimize = optimizeWith defaultOptimizeConfig
 
--- | 'optimize' with an explicit 'OptimizeConfig'.
+-- | 'optimize' with a custom 'OptimizeConfig'. Use to enable a
+-- subset of the rewrite families (e.g. only collapse identity
+-- without fusing maps), to disable all rewrites
+-- ('noOptimization'), or to bump 'optMaxPasses' for
+-- pathological inputs.
+--
+-- == Fixed-point semantics
+--
+-- The optimiser runs rewrite passes in a loop, each pass a
+-- bottom-up traversal that applies all enabled rewrite
+-- families. The loop terminates when:
+--
+--   * a pass produces strictly fewer nodes than the previous
+--     (continue), /or/
+--   * a pass produces the same (or more) nodes (stop — we've
+--     reached a fixed point), /or/
+--   * 'optMaxPasses' has been exhausted (stop — belt-and-
+--     braces against pathological loops).
+--
+-- All rewrites are strictly node-count-reducing or
+-- node-count-preserving, so the fixed point exists and is
+-- reached in linearly-many passes.
 optimizeWith :: OptimizeConfig -> Topology i o -> Topology i o
 optimizeWith cfg = loop (optMaxPasses cfg)
   where
@@ -2749,6 +3807,31 @@ tapForeachToPeek cfg g f
 ----------------------------------------------------------------------
 
 -- | Count the constructors in a 'Topology' AST.
+--
+-- Every leaf (sources / sinks / transforms / aggregators /
+-- 'Arr' / 'Id' / 'Lifted' / etc.) counts as 1; every structural
+-- combinator ('Compose', 'First', 'Second', 'Parallel',
+-- 'Fanout', 'LeftT', 'RightT', 'Plus', 'Fanin', 'Tap',
+-- 'ForkN', 'Bind') also counts 1 and adds the counts of its
+-- children.
+--
+-- This is the basis of the optimiser's fixed-point criterion
+-- ('optimizeWith' loops until 'countNodes' stops decreasing)
+-- and of 'optimizationStats' for visibility into how much
+-- the rewriter shrank a topology.
+--
+-- == What it doesn't count
+--
+--   * The compiled Kafka 'Topo.Topology' graph nodes. AST
+--     nodes and Kafka processor nodes don't have a 1:1
+--     mapping — pure 'Arr' nodes compile to nothing, several
+--     leaf constructors compile to multiple processors, and
+--     the optimiser collapses Arr chains into one 'Arr'
+--     constructor. Use 'topologyNodes' on the compiled graph
+--     to count run-time nodes.
+--   * The /continuation/ of a 'Bind' — the function returning
+--     a continuation 'Topology' is opaque, so we count it as
+--     a single placeholder.
 countNodes :: Topology i o -> Int
 countNodes = go
   where
@@ -2774,9 +3857,23 @@ countNodes = go
     -- All remaining leaves: source/sink/transform/aggregator etc.
     go _               = 1
 
--- | Before \/ after node counts plus the absolute and relative
--- reduction the default rewrite passes achieve. Useful in tests
--- and benchmarks as a sanity check on the optimiser.
+-- | Before / after node counts plus the absolute and relative
+-- reduction the default rewrite passes achieve on a given AST.
+--
+-- Useful in tests, benchmarks, and golden-file outputs as a
+-- sanity check on the optimiser — assert
+-- @osNodesSaved > 0@ to confirm a representative pipeline is
+-- actually being shrunk.
+--
+-- The fields:
+--
+--   * 'osBefore' — node count of the input AST (via
+--     'countNodes' before rewriting).
+--   * 'osAfter'  — node count after applying 'optimize'.
+--   * 'osNodesSaved' — the difference, never negative
+--     because every rewrite is strictly non-expanding.
+--   * 'osPercent' — @100 * osNodesSaved / osBefore@; @0@ for
+--     the (degenerate) empty-AST case.
 data OptimizationStats = OptimizationStats
   { osBefore     :: !Int
   , osAfter      :: !Int
@@ -2785,7 +3882,18 @@ data OptimizationStats = OptimizationStats
   }
   deriving stock (Eq, Show)
 
--- | 'OptimizationStats' for applying the default 'optimize' to @t@.
+-- | Compute 'OptimizationStats' for applying the default
+-- 'optimize' to @t@. Equivalent to
+--
+-- @
+-- let before = 'countNodes' t
+--     after  = 'countNodes' ('optimize' t)
+-- in OptimizationStats before after (before - after) percent
+-- @
+--
+-- but bundled into one call for ergonomics. Useful as the
+-- @<>@-side of a 'show' / 'putStrLn' for quick optimiser
+-- inspection at the REPL.
 optimizationStats :: Topology i o -> OptimizationStats
 optimizationStats t =
   let !before = countNodes t
