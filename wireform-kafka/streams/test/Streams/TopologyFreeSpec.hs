@@ -107,6 +107,9 @@ tests = testGroup "Topology.Free (GADT topology builder)"
   -- Graphviz visualiser
   , test_graphviz_topologyDot_emits_valid_dot
   , test_graphviz_astDot_emits_valid_dot
+  -- inspectDeep: full static analysis past Bind
+  , test_inspectDeep_walks_through_bind_continuations
+  , test_inspect_vs_inspectDeep
   ]
 
 ----------------------------------------------------------------------
@@ -1899,3 +1902,77 @@ test_graphviz_astDot_emits_valid_dot =
     let dotOpt = DOT.astDot (F.optimize topology)
     assertBool "AST DOT (optimised) is non-empty" $
       not (T.null dotOpt)
+
+----------------------------------------------------------------------
+-- 49. inspectDeep walks through Bind continuations
+----------------------------------------------------------------------
+
+test_inspectDeep_walks_through_bind_continuations :: TestTree
+test_inspectDeep_walks_through_bind_continuations =
+  testCase "inspectDeep emits tokens for every constructor past a Bind" $ do
+    -- A monadic topology with do-notation. The binds are
+    -- genuine — each line uses the previously-bound wire
+    -- value. 'inspect' alone would render the binds as
+    -- opaque; 'inspectDeep' actually runs apply on each
+    -- bind's left side to extract the wire value, hands it
+    -- to the continuation, and walks the result.
+    let topology :: F.Topology Void ()
+        topology = do
+          s1 <- F.source "deep-in1" textSerde textSerde
+          s2 <- F.source "deep-in2" textSerde textSerde
+          u1 <- F.mapValues T.toUpper       `F.applyT` s1
+          u2 <- F.mapValues (T.append "B:") `F.applyT` s2
+          m  <- F.merge                     `F.applyT` (u1, u2)
+          F.sink "deep-out" textSerde textSerde `F.applyT` m
+
+        shallowToks = F.inspect topology
+        deepToks    = F.inspectDeep topology
+
+    -- 'inspect' shows the outermost Bind as an opaque marker and
+    -- doesn't recurse into its continuation.
+    assertBool "inspect surfaces a Bind marker" $
+      any ("Bind" `T.isPrefixOf`) shallowToks
+
+    -- 'inspectDeep' walks through the binds and emits tokens for
+    -- every operator down to the sink.
+    assertBool "inspectDeep emits a Source token for source 1" $
+      any (\t -> "Source" `T.isPrefixOf` t && "deep-in1" `T.isInfixOf` t) deepToks
+    assertBool "inspectDeep emits a Source token for source 2" $
+      any (\t -> "Source" `T.isPrefixOf` t && "deep-in2" `T.isInfixOf` t) deepToks
+    assertBool "inspectDeep emits MapValues tokens for both upstreams" $
+      length (Prelude.filter (== "MapValues") deepToks) >= 2
+    assertBool "inspectDeep emits a Merge token" $
+      "Merge" `elem` deepToks
+    assertBool "inspectDeep emits a Sink token for the output" $
+      any (\t -> "Sink" `T.isPrefixOf` t && "deep-out" `T.isInfixOf` t) deepToks
+    -- Bind markers are present and properly bracketed.
+    assertBool "inspectDeep shows the bind start" $
+      "Bind<" `elem` deepToks
+    assertBool "inspectDeep shows the bind transition" $
+      ">~>" `elem` deepToks
+    assertBool "inspectDeep shows the bind end" $
+      "</Bind>" `elem` deepToks
+
+----------------------------------------------------------------------
+-- 50. inspect vs inspectDeep: applicative-shaped topology is the same
+----------------------------------------------------------------------
+
+test_inspect_vs_inspectDeep :: TestTree
+test_inspect_vs_inspectDeep =
+  testCase "inspect = inspectDeep on bind-free topologies" $ do
+    -- A purely applicative-shaped topology (no Bind). Both
+    -- inspectors must see the same tokens, since there's
+    -- nothing for inspectDeep to do beyond what inspect does.
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "ivd-in" textSerde textSerde
+            >>> F.mapValues T.toUpper
+            >>> F.filter (\r -> recordValue r /= "")
+            >>> F.sink "ivd-out" textSerde textSerde
+
+        shallow = F.inspect topology
+        deep    = F.inspectDeep topology
+
+    -- The deep walk emits the same tokens (the binds it
+    -- doesn't encounter add no markers).
+    shallow @?= deep

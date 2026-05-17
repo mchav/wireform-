@@ -383,7 +383,9 @@ module Kafka.Streams.Topology.Free
     -- * Escape hatch + introspection
   , liftIO_
   , inspect
+  , inspectDeep
   , prettyPrint
+  , prettyPrintDeep
 
     -- * Profunctor- and Reader-shaped helpers
     --
@@ -419,6 +421,7 @@ import qualified Control.Exception as Exception
 import Control.Monad ((>=>))
 import Data.Hashable (Hashable)
 import Data.Int (Int64)
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
@@ -426,6 +429,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
 import GHC.Generics (Generic)
+import qualified System.IO.Unsafe as IOUnsafe
 
 import Kafka.Streams.Cogroup (CogroupedStream)
 import qualified Kafka.Streams.Cogroup as Cog
@@ -1097,14 +1101,41 @@ instance Applicative (Topology i) where
 -- runs @k a@ on the /same/ input. This is the same shape as
 -- @ReaderT i (Topology i)@ collapsed into the GADT itself.
 --
--- The bind continuation is /opaque/: 'inspect' and the optimiser
--- see the left side of the bind but not into the function.
--- Prefer applicative-style combinators ('Fanout', '<*>',
--- 'Parallel', 'Fork') when full inspectability matters. Reach
--- for the monad when the do-notation ergonomics outweigh the
--- inspectability loss — typically when assembling a topology
--- from several upstream sources whose handles you want to bind
--- as Haskell-level names:
+-- == Static analysis past a 'Bind'
+--
+-- The bind continuation is a /Haskell closure/, so 'inspect' /
+-- 'prettyPrint' / 'astDot' / 'optimize' can't see its body
+-- directly. There are three ways to get more analysability:
+--
+-- [1. Use 'ApplicativeDo'@]
+--   With @{-\# LANGUAGE ApplicativeDo \#-}@, GHC desugars
+--   /applicative-shaped/ @do@ blocks (no data dependency
+--   across binds) into '<*>' chains using our fully-static
+--   'Applicative' instance instead of 'Bind'. Just turning
+--   on the extension is usually enough to get static AST
+--   for the typical "thread several sources into a downstream
+--   combinator" pattern.
+--
+-- [2. Phantom inspection ('inspectDeep' \/ 'astDotDeep')]
+--   For binds that GHC couldn't desugar applicatively, the
+--   deep-inspection variants walk into the continuation
+--   using a placeholder wire value. Most continuations
+--   (those that just thread the wire through 'applyT' or
+--   capture it for a downstream operator) don't force the
+--   placeholder's record fields and inspect fine; the few
+--   that do force something fall back to an "opaque"
+--   marker.
+--
+-- [3. Manual Applicative composition]
+--   Reach for '<*>', 'liftA2', or @'Fanout' '>>>' 'Arr' ...@
+--   when you want the AST to be statically minimal at a
+--   particular call site.
+--
+-- == When to reach for the monad
+--
+-- Use 'Bind' when the do-notation ergonomics win out — typically
+-- when assembling a topology from several upstream sources
+-- whose handles you want to bind as Haskell-level names:
 --
 -- @
 -- combined :: F.Topology Void ()
@@ -1115,6 +1146,11 @@ instance Applicative (Topology i) where
 --   '>>>' F.merge
 --   '>>>' F.sink  \"out\" textSerde textSerde
 -- @
+--
+-- With @ApplicativeDo@ on, the above desugars to
+-- 'Applicative' '<*>' calls and stays fully statically
+-- analysable. Without it, the binds are opaque to
+-- 'inspect' but readable by 'inspectDeep'.
 instance Monad (Topology i) where
   return = pure
   (>>=) = Bind
@@ -3305,6 +3341,395 @@ inspect = go
     showTopic :: TopicName -> Text
     showTopic = T.pack . show
 
+-- | Like 'inspect', but walks /through/ 'Bind' continuations by
+-- actually running 'apply' on the left side to get the real wire
+-- value, then handing it to the continuation. The continuation
+-- sees a genuine 'KStream' / 'KTable' / etc. (with real
+-- auto-generated node names, real serdes, real builder
+-- handles) — so /any/ continuation is faithfully inspected,
+-- including ones that read record fields.
+--
+-- == How it works
+--
+-- 'inspectDeep' spins up a throwaway 'StreamsBuilder' and walks
+-- the topology in the same order 'apply' does: each leaf
+-- registers its node(s) in the builder (with auto-generated
+-- names) and produces a real wire value; each 'Bind' uses that
+-- wire value to construct its continuation's topology, which
+-- is then walked recursively. Along the way, every constructor
+-- emits its 'inspect'-style token via a tracer.
+--
+-- The builder accumulates a fully-compiled 'Topo.Topology' as a
+-- side effect — but it's discarded when 'inspectDeep' returns.
+-- The only thing we keep is the token list.
+--
+-- /Only works for closed-input topologies/ ('Topology Void o').
+-- Inspecting an open-input fragment past a Bind would need an
+-- actual @i@ to feed in, which the caller hasn't supplied.
+-- For open fragments, fall back to plain 'inspect' (which is
+-- opaque past Bind but works for any input type).
+--
+-- == Cost
+--
+-- 'inspectDeep' /does the same work as 'compile'/ — it builds
+-- a throwaway compiled topology to extract the wire values
+-- past each bind. For trivial topologies this is cheap; for
+-- large topologies with many sources / state stores it can
+-- take real time. Prefer 'inspect' for the common case where
+-- you don't have binds (or don't need to see past them).
+--
+-- == Tokens
+--
+-- The format matches 'inspect' for non-'Bind' constructors. A
+-- 'Bind' is rendered as
+-- @\"Bind<\" : leftTokens ++ \">~>\" : rightTokens ++ [\"\</Bind\>\"]@,
+-- making the bind boundary visible in the output.
+inspectDeep :: Topology Void o -> [Text]
+inspectDeep t = IOUnsafe.unsafePerformIO $ do
+  b <- newStreamsBuilder
+  ref <- newIORef ([] :: [[Text]])
+  _ <- applyTraced (\tok -> modifyIORef' ref (tok :)) b t voidInput
+  collected <- readIORef ref
+  pure (concat (reverse collected))
+  where
+    voidInput :: Void
+    voidInput = Exception.throw (VoidInputForced "inspectDeep")
+
+-- | 'apply' with a tracer callback invoked at every leaf and
+-- structural-bracket point. Used internally by 'inspectDeep'.
+-- The tracer receives token batches in the same order they'd
+-- appear in 'inspect''s output.
+applyTraced
+  :: forall i o
+   . ([Text] -> IO ())
+  -> TBuilder
+  -> Topology i o
+  -> i
+  -> IO o
+applyTraced tracer b = go
+  where
+    trace :: [Text] -> IO ()
+    trace = tracer
+
+    go :: forall x y. Topology x y -> x -> IO y
+    -- Category / Arrow
+    go Id i              = trace ["Id"] >> pure i
+    go (Compose g f) i   = do
+      -- Compose itself contributes no token; the children's
+      -- tokens are emitted in their own walks. (Matches 'inspect'.)
+      !mid <- go f i
+      go g mid
+    go (Arr fn) i        = trace ["Arr"] >> pure (fn i)
+    go (First t')  (a, c) = do
+      trace ["First<"]
+      !b' <- go t' a
+      trace [">"]
+      pure (b', c)
+    go (Second t') (c, a) = do
+      trace ["Second<"]
+      !b' <- go t' a
+      trace [">"]
+      pure (c, b')
+    go (Parallel p q) (a, c) = do
+      trace ["Parallel<"]
+      !x <- go p a
+      trace ["|"]
+      !y <- go q c
+      trace [">"]
+      pure (x, y)
+    go (Fanout p q) a = do
+      trace ["Fanout<"]
+      !x <- go p a
+      trace ["|"]
+      !y <- go q a
+      trace [">"]
+      pure (x, y)
+    go (LeftT t')  e = case e of
+      Left a  -> do
+        trace ["Left<"]; !x <- go t' a; trace [">"]; pure (Left x)
+      Right c -> trace ["Left<", ">"] >> pure (Right c)
+    go (RightT t') e = case e of
+      Left c  -> trace ["Right<", ">"] >> pure (Left c)
+      Right a -> do
+        trace ["Right<"]; !x <- go t' a; trace [">"]; pure (Right x)
+    go (Plus p q) e = case e of
+      Left a  -> do
+        trace ["Plus<"]; !x <- go p a; trace ["|", ">"]; pure (Left x)
+      Right c -> do
+        trace ["Plus<", "|"]; !y <- go q c; trace [">"]; pure (Right y)
+    go (Fanin p q) e = case e of
+      Left a  -> do
+        trace ["Fanin<"]; !x <- go p a; trace ["|", ">"]; pure x
+      Right c -> do
+        trace ["Fanin<", "|"]; !y <- go q c; trace [">"]; pure y
+
+    -- Lineage
+    go Fork a            = trace ["Fork"] >> pure (a, a)
+    go (ForkN ts) a      = do
+      trace ["ForkN<"]
+      !ys <- traverse (`go` a) ts
+      trace [">"]
+      pure ys
+    go (Tap t') a        = do
+      trace ["Tap<"]
+      !_ <- go t' a
+      trace [">"]
+      pure a
+    go (Split branches mDefault) s = do
+      trace [ "Split("
+            <> T.intercalate "|" (map sbName branches)
+            <> maybe "" (\d -> "+default=" <> d) mDefault
+            <> ")"
+            ]
+      let toBranched (SplitBranch nm p) = KS.branchedFrom nm p
+      KS.splitStream (Prelude.map toBranched branches) mDefault s
+
+    -- Sources
+    go (Source topic c) _ = do
+      trace ["Source(" <> showTopic topic <> ")"]
+      KS.streamFromTopic b topic c
+    go (SourceMulti topics c) _ = do
+      trace [ "SourceMulti("
+            <> T.intercalate ","
+                 (Prelude.map showTopic (NE.toList topics))
+            <> ")"
+            ]
+      sourceMultiCompile b topics c
+    go (TableSource topic c m) _ = do
+      trace ["TableSource(" <> showTopic topic <> ")"]
+      KT.tableFromTopic b topic c m
+    go (GlobalSource topic c m) _ = do
+      trace ["GlobalSource(" <> showTopic topic <> ")"]
+      GT.globalTable b topic c m
+
+    -- Sinks
+    go (Sink topic p) s = do
+      trace ["Sink(" <> showTopic topic <> ")"]
+      KS.toTopic topic p s
+    go (SinkExtracted e p) s = do
+      trace ["SinkExtracted"]
+      KS.toExtracted e p s
+    go (Through topic p) s = do
+      trace ["Through(" <> showTopic topic <> ")"]
+      KS.throughTopic topic p s
+
+    -- Monad bind
+    go (Bind t' k) i = do
+      trace ["Bind<"]
+      !a <- go t' i
+      trace [">~>"]
+      !out <- go (k a) i
+      trace ["</Bind>"]
+      pure out
+
+    -- Stateless
+    go (MapValues f) s         = trace ["MapValues"] >> KS.mapValues f s
+    go (MapValuesM f) s        = trace ["MapValuesM"] >> KS.mapValuesM f s
+    go (MapKeyValue f) s       = trace ["MapKeyValue"] >> KS.mapKeyValue f s
+    go (MapKeyValueM f) s      = trace ["MapKeyValueM"] >> KS.mapKeyValueM f s
+    go (Filter p) s            = trace ["Filter"] >> KS.filterStream p s
+    go (FilterNot p) s         = trace ["FilterNot"] >> KS.filterNotStream p s
+    go (FlatMapValues f) s     = trace ["FlatMapValues"] >> KS.flatMapValues f s
+    go (FlatMapKeyValue f) s   = trace ["FlatMapKeyValue"]
+                                   >> KS.flatMapKeyValue f s
+    go (Peek f) s              = trace ["Peek"] >> KS.peekStream f s
+    go (Foreach f) s           = trace ["Foreach"] >> KS.foreachStream f s
+    go (SelectKey f) s         = trace ["SelectKey"] >> KS.selectKey f s
+    go Values s                = trace ["Values"] >> KS.valuesStream s
+    go (Print label putLine) s = trace ["Print(" <> label <> ")"]
+                                    >> KS.printToHandle label putLine s
+
+    -- Composition
+    go Merge (s1, s2)          = trace ["Merge"] >> KS.mergeStreams s1 s2
+    go MergeAll ss             = trace ["MergeAll"] >> KS.mergeStreamsN ss
+    go (Branch ps) s
+      = trace [ "Branch("
+              <> T.pack (show (length ps)) <> ")"
+              ]
+        >> KS.branchStream ps s
+
+    -- Conversions
+    go (ToTableT m) s          = trace ["ToTable"] >> KS.toTable m s
+    go ToStream s              = trace ["ToStream"] >> KS.toKStreamFromKTable s
+    go (Repartition prefix) s  = trace ["Repartition(" <> prefix <> ")"]
+                                    >> KS.repartition prefix s
+    go (RepartitionWith cfg) s = trace ["RepartitionWith"]
+                                    >> KS.repartitionWith cfg s
+
+    -- Grouping + aggregation
+    go (GroupByKey g) s        = trace ["GroupByKey"] >> pure (KGS.groupByKey g s)
+    go (GroupBy f g) s         = trace ["GroupBy"] >> KGS.groupByStream f g s
+    go (Count m) g             = do
+      trace ["Count"]
+      h <- KGS.countStream m g
+      pure (handleToKTable m h)
+    go (Reduce f m) g          = do
+      trace ["Reduce"]
+      h <- KGS.reduceStream f m g
+      pure (handleToKTable m h)
+    go (Aggregate seed step m) g = do
+      trace ["Aggregate"]
+      h <- KGS.aggregateStream seed step m g
+      pure (handleToKTable m h)
+
+    -- Windowed aggregation
+    go (WindowedByTime ws) kg    = trace ["WindowedByTime"]
+                                    >> pure (KGS.windowedByTime ws kg)
+    go (WindowedBySession sw) kg = trace ["WindowedBySession"]
+                                    >> pure (KGS.windowedBySession sw kg)
+    go (CountWindowed m) twks    = trace ["CountWindowed"]
+                                    >> TWKS.countWindowed m twks
+    go (ReduceWindowed f m) twks = trace ["ReduceWindowed"]
+                                    >> TWKS.reduceWindowed f m twks
+    go (AggregateWindowed seed step m) twks
+      = trace ["AggregateWindowed"]
+        >> TWKS.aggregateWindowed seed step m twks
+    go (CountSessionWindowed m) swks
+      = trace ["CountSessionWindowed"]
+        >> SWKS.countSessionWindowed m swks
+    go (AggregateSessionWindowed seed step merger m) swks
+      = trace ["AggregateSessionWindowed"]
+        >> SWKS.aggregateSessionWindowed seed step merger m swks
+
+    -- KGroupedTable
+    go (GroupTableBy f g) kt   = trace ["GroupTableBy"]
+                                  >> pure (KGT.groupTableBy f g kt)
+    go (CountKGroupedTable m) kgt = do
+      trace ["CountKGroupedTable"]
+      h <- KGT.countKGroupedTable m kgt
+      pure (handleToKTable m h)
+    go (ReduceKGroupedTable add sub m) kgt = do
+      trace ["ReduceKGroupedTable"]
+      h <- KGT.reduceKGroupedTable add sub m kgt
+      pure (handleToKTable m h)
+    go (AggregateKGroupedTable seed add sub m) kgt = do
+      trace ["AggregateKGroupedTable"]
+      h <- KGT.aggregateKGroupedTable seed add sub m kgt
+      pure (handleToKTable m h)
+
+    -- Cogroup
+    go (Cogroup step) kgs      = trace ["Cogroup"]
+                                  >> pure (Cog.cogroup kgs step)
+    go (AddCogrouped step) (cs, kgs)
+      = trace ["AddCogrouped"]
+        >> pure (Cog.addCogrouped cs kgs step)
+    go (AggregateCogrouped seed m) cs = do
+      trace ["AggregateCogrouped"]
+      h <- Cog.aggregateCogrouped seed m cs
+      pure (handleToKTable m h)
+
+    -- Joins
+    go (StreamTableJoin j jo) (s, t')
+      = trace ["StreamTableJoin"]
+        >> KS.joinKStreamKTable j jo s t'
+    go (StreamTableLeftJoin j jo) (s, t')
+      = trace ["StreamTableLeftJoin"]
+        >> KS.leftJoinKStreamKTable j jo s t'
+    go (StreamStreamJoin j w jo) (s1, s2)
+      = trace ["StreamStreamJoin"]
+        >> KS.joinKStreamKStream j w jo s1 s2
+    go (StreamStreamLeftJoin j w jo) (s1, s2)
+      = trace ["StreamStreamLeftJoin"]
+        >> KS.leftJoinKStreamKStream j w jo s1 s2
+    go (StreamStreamOuterJoin j w jo) (s1, s2)
+      = trace ["StreamStreamOuterJoin"]
+        >> KS.outerJoinKStreamKStream j w jo s1 s2
+    go (TableTableJoin j m) (t1, t2)
+      = trace ["TableTableJoin"]
+        >> KT.joinKTableKTable j m t1 t2
+    go (TableTableLeftJoin j m) (t1, t2)
+      = trace ["TableTableLeftJoin"]
+        >> KT.leftJoinKTableKTable j m t1 t2
+    go (TableTableOuterJoin j m) (t1, t2)
+      = trace ["TableTableOuterJoin"]
+        >> KT.outerJoinKTableKTable j m t1 t2
+    go (ForeignKeyJoin ext j m) (t1, t2)
+      = trace ["ForeignKeyJoin"]
+        >> FK.foreignKeyJoinKTable ext j m t1 t2
+    go (LeftForeignKeyJoin ext j m) (t1, t2)
+      = trace ["LeftForeignKeyJoin"]
+        >> FK.leftForeignKeyJoinKTable ext j m t1 t2
+    go (StreamGlobalTableJoin km j) (s, g)
+      = trace ["StreamGlobalTableJoin"]
+        >> GT.joinKStreamGlobalKTable km j s g
+    go (StreamGlobalTableLeftJoin km j) (s, g)
+      = trace ["StreamGlobalTableLeftJoin"]
+        >> GT.leftJoinKStreamGlobalKTable km j s g
+
+    -- KTable surface
+    go (FilterTable p m) kt    = trace ["FilterTable"] >> KT.filterTable p m kt
+    go (FilterNotTable p m) kt = trace ["FilterNotTable"]
+                                  >> KT.filterNotTable p m kt
+    go (MapValuesTable f m) kt = trace ["MapValuesTable"]
+                                  >> KT.mapValuesTable f m kt
+    go (TransformValuesTable nm sup stores m) kt
+      = trace ["TransformValuesTable(" <> nm <> ")"]
+        >> KT.transformValuesTable sup stores m kt
+
+    -- Suppress
+    go (SuppressUntilTimeLimit lim) s
+      = trace ["SuppressUntilTimeLimit"]
+        >> Suppress.suppressUntilTimeLimit lim s
+    go (SuppressWindowedKS grace sz) s
+      = trace ["SuppressWindowed"]
+        >> Suppress.suppressWindowed grace sz s
+
+    -- Processor API
+    go (ProcessStream nm stores sup) s
+      = trace ["ProcessStream(" <> nm <> ")"]
+        >> KS.processStream nm stores sup s
+    go (ProcessValuesStream nm stores sup vs) s
+      = trace ["ProcessValuesStream(" <> nm <> ")"]
+        >> KS.processValuesStream nm stores sup vs s
+    go (TransformValuesStreamT nm stores sup vs) s
+      = trace ["TransformValuesStream(" <> nm <> ")"]
+        >> KS.transformValuesStream nm stores sup vs s
+    go (WithStateStoreKV builder owners) x = do
+      trace ["WithStateStoreKV(" <> Store.unStoreName (Store.sbKvName builder)
+              <> ")"]
+      withTopology_ b (Topo.addStateStoreKV builder owners)
+      pure x
+    go (WithStateStoreW builder owners) x = do
+      trace ["WithStateStoreW(" <> Store.unStoreName (Store.sbWName builder)
+              <> ")"]
+      withTopology_ b (Topo.addStateStoreW builder owners)
+      pure x
+    go (WithStateStoreS builder owners) x = do
+      trace ["WithStateStoreS(" <> Store.unStoreName (Store.sbSName builder)
+              <> ")"]
+      withTopology_ b (Topo.addStateStoreS builder owners)
+      pure x
+
+    go (ProcessWithStateStoreKV prefix builder supplier) s = do
+      trace ["ProcessWithStateStoreKV(" <> prefix <> ","
+              <> Store.unStoreName (Store.sbKvName builder) <> ")"]
+      attachProcessorWithStore
+        b s prefix supplier
+        (Store.sbKvName builder)
+        (Topo.addStateStoreKV builder)
+    go (ProcessWithStateStoreW prefix builder supplier) s = do
+      trace ["ProcessWithStateStoreW(" <> prefix <> ","
+              <> Store.unStoreName (Store.sbWName builder) <> ")"]
+      attachProcessorWithStore
+        b s prefix supplier
+        (Store.sbWName builder)
+        (Topo.addStateStoreW builder)
+    go (ProcessWithStateStoreS prefix builder supplier) s = do
+      trace ["ProcessWithStateStoreS(" <> prefix <> ","
+              <> Store.unStoreName (Store.sbSName builder) <> ")"]
+      attachProcessorWithStore
+        b s prefix supplier
+        (Store.sbSName builder)
+        (Topo.addStateStoreS builder)
+
+    -- Escape
+    go (Lifted nm act) i = do
+      trace ["Lifted(" <> nm <> ")"]
+      act b i
+
+    showTopic :: TopicName -> Text
+    showTopic = T.pack . show
+
 -- | Render an AST as a single-line whitespace-separated
 -- description. Built by 'T.intercalate'-ing the output of
 -- 'inspect'.
@@ -3326,6 +3751,14 @@ inspect = go
 -- returns a list of tokens you can pattern-match on.
 prettyPrint :: Topology i o -> Text
 prettyPrint = T.intercalate " " . inspect
+
+-- | 'prettyPrint' that uses 'inspectDeep' instead of 'inspect',
+-- so 'Bind' continuations are walked into by actually running
+-- 'apply' to extract real wire values. Only available on
+-- closed-input topologies — see 'inspectDeep' for the full
+-- contract.
+prettyPrintDeep :: Topology Void o -> Text
+prettyPrintDeep = T.intercalate " " . inspectDeep
 
 ----------------------------------------------------------------------
 -- Optimisation

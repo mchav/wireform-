@@ -51,10 +51,23 @@
 -- script in your tooling if you need rendering stability.
 module Kafka.Streams.Topology.Free.Graphviz
   ( -- * Compiled topology
+    --
+    -- The 'topologyDot' / 'topologyDotWith' functions render the
+    -- compiled imperative graph — the same shape the Kafka
+    -- runtime sees. This view is /always/ fully resolved, so
+    -- it's the right pick when you want to see /past/ 'Bind'
+    -- continuations: just 'Kafka.Streams.Topology.Free.compile'
+    -- the AST first and feed the resulting topology in.
     topologyDot
   , topologyDotWith
 
     -- * AST
+    --
+    -- 'astDot' / 'astDotWith' render the GADT constructor tree.
+    -- 'Bind' continuations are rendered as opaque octagonal
+    -- markers — to see past them, use
+    -- @'topologyDot' . 'snd' '<$>'
+    -- 'Kafka.Streams.Topology.Free.compileNoOptimize'@.
   , astDot
   , astDotWith
 
@@ -275,7 +288,8 @@ type WalkResult = (Int, TB.Builder)
 -- | Walk the AST starting at the supplied ID and emit the
 -- corresponding DOT fragment. Returns the next-free ID and
 -- the fragment.
-walkTopAst :: forall i o. DotConfig -> Int -> Topology i o -> WalkResult
+walkTopAst
+  :: forall i o. DotConfig -> Int -> Topology i o -> WalkResult
 walkTopAst cfg = go
   where
     go :: forall a b. Int -> Topology a b -> WalkResult
@@ -330,8 +344,12 @@ walkTopAst cfg = go
     go i (Sink tn _)           = leaf i ("Sink\n" <> showTopic tn) "invtrapezium"
     go i (SinkExtracted _ _)   = leaf i "SinkExtracted" "invtrapezium"
     go i (Through tn _)        = leaf i ("Through\n" <> showTopic tn) "box"
-    -- Monad bind
-    go i (Bind t _)            =
+    -- Monad bind. In 'WalkShallow' mode we render it as an
+    -- opaque octagon with one edge to the left side. The
+    -- 'WalkDeep' rendering is dispatched in 'astDotDeepWith'
+    -- below — it actually compiles the topology to get real
+    -- wire values and walks the full AST.
+    go i (Bind t _) =
       let !me = i
           (i1, b1) = go (i + 1) t
           !meDef  = leafNode cfg me "Bind\n(opaque continuation)" "octagon"
