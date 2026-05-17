@@ -86,9 +86,11 @@ import qualified Data.Text.Lazy.Builder as TB
 import qualified Kafka.Streams.State.Store as Store
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Topology.Free
-  ( SplitBranch (..)
-  , Topology (..)
+  ( Prim (..)
+  , SplitBranch (..)
+  , Topology
   )
+import Kafka.Streams.Topology.Free.Arrow (FreeArrow (..))
 import Kafka.Streams.Types (NodeName, TopicName, unNodeName, unTopicName)
 
 ----------------------------------------------------------------------
@@ -324,31 +326,9 @@ walkTopAst cfg = go
           !meDef = leafNode cfg me "ForkN" "diamond"
        in (iN, meDef <> bN)
     go i (Tap t)         = oneChild i "Tap" t
-    go i (Split bs md)   =
-      let !lab = "Split\n["
-            <> T.intercalate "," (map sbName bs)
-            <> maybe "" (\d -> "+default=" <> d) md
-            <> "]"
-       in leaf i lab "diamond"
-    -- Sources
-    go i (Source tn _)         = leaf i ("Source\n" <> showTopic tn) "box"
-    go i (SourceMulti tns _)
-      = leaf i
-          ("SourceMulti\n" <>
-             T.intercalate ","
-               (map showTopic (NE.toList tns)))
-          "box"
-    go i (TableSource tn _ _)  = leaf i ("TableSource\n"  <> showTopic tn) "box"
-    go i (GlobalSource tn _ _) = leaf i ("GlobalSource\n" <> showTopic tn) "box"
-    -- Sinks
-    go i (Sink tn _)           = leaf i ("Sink\n" <> showTopic tn) "invtrapezium"
-    go i (SinkExtracted _ _)   = leaf i "SinkExtracted" "invtrapezium"
-    go i (Through tn _)        = leaf i ("Through\n" <> showTopic tn) "box"
-    -- Monad bind. In 'WalkShallow' mode we render it as an
-    -- opaque octagon with one edge to the left side. The
-    -- 'WalkDeep' rendering is dispatched in 'astDotDeepWith'
-    -- below — it actually compiles the topology to get real
-    -- wire values and walks the full AST.
+    -- Monad bind. Rendered as an opaque octagon with one edge to
+    -- the left side. (For a fully-walked rendering of binds,
+    -- compose with 'topologyDot' against the compiled topology.)
     go i (Bind t _) =
       let !me = i
           (i1, b1) = go (i + 1) t
@@ -356,104 +336,11 @@ walkTopAst cfg = go
           !ed     = "  " <> nodeIdInt me <> " -> "
                       <> nodeIdInt (i + 1) <> " [label=\"\\>\\>=\"];\n"
        in (i1, meDef <> b1 <> ed)
-    -- Stateless
-    go i (MapValues _)         = leaf i "MapValues"         "ellipse"
-    go i (MapValuesM _)        = leaf i "MapValuesM"        "ellipse"
-    go i (MapKeyValue _)       = leaf i "MapKeyValue"       "ellipse"
-    go i (MapKeyValueM _)      = leaf i "MapKeyValueM"      "ellipse"
-    go i (Filter _)            = leaf i "Filter"            "ellipse"
-    go i (FilterNot _)         = leaf i "FilterNot"         "ellipse"
-    go i (FlatMapValues _)     = leaf i "FlatMapValues"     "ellipse"
-    go i (FlatMapKeyValue _)   = leaf i "FlatMapKeyValue"   "ellipse"
-    go i (Peek _)              = leaf i "Peek"              "ellipse"
-    go i (Foreach _)           = leaf i "Foreach"           "invtrapezium"
-    go i (SelectKey _)         = leaf i "SelectKey"         "ellipse"
-    go i Values                = leaf i "Values"            "ellipse"
-    go i (Print nm _)          = leaf i ("Print\n" <> nm)   "invtrapezium"
-    -- Composition
-    go i Merge                 = leaf i "Merge"             "ellipse"
-    go i MergeAll              = leaf i "MergeAll"          "ellipse"
-    go i (Branch ps)
-      = leaf i ("Branch\n" <> T.pack (show (length ps)) <> " ways") "diamond"
-    -- Conversions
-    go i (ToTableT _)          = leaf i "ToTable"           "box"
-    go i ToStream              = leaf i "ToStream"          "ellipse"
-    go i (Repartition pfx)     = leaf i ("Repartition\n" <> pfx) "box"
-    go i (RepartitionWith _)   = leaf i "RepartitionWith"   "box"
-    -- Aggregation
-    go i (GroupByKey _)        = leaf i "GroupByKey"        "ellipse"
-    go i (GroupBy _ _)         = leaf i "GroupBy"           "ellipse"
-    go i (Count _)             = leaf i "Count"             "box3d"
-    go i (Reduce _ _)          = leaf i "Reduce"            "box3d"
-    go i (Aggregate _ _ _)     = leaf i "Aggregate"         "box3d"
-    -- Windowed
-    go i (WindowedByTime _)        = leaf i "WindowedByTime"    "ellipse"
-    go i (WindowedBySession _)     = leaf i "WindowedBySession" "ellipse"
-    go i (CountWindowed _)         = leaf i "CountWindowed"     "box3d"
-    go i (ReduceWindowed _ _)      = leaf i "ReduceWindowed"    "box3d"
-    go i (AggregateWindowed _ _ _) = leaf i "AggregateWindowed" "box3d"
-    go i (CountSessionWindowed _)  = leaf i "CountSessionWindowed" "box3d"
-    go i (AggregateSessionWindowed _ _ _ _)
-                                  = leaf i "AggregateSessionWindowed" "box3d"
-    -- KGroupedTable
-    go i (GroupTableBy _ _)        = leaf i "GroupTableBy"        "ellipse"
-    go i (CountKGroupedTable _)    = leaf i "CountKGroupedTable"  "box3d"
-    go i (ReduceKGroupedTable _ _ _) = leaf i "ReduceKGroupedTable" "box3d"
-    go i (AggregateKGroupedTable _ _ _ _)
-                                  = leaf i "AggregateKGroupedTable" "box3d"
-    -- Cogroup
-    go i (Cogroup _)               = leaf i "Cogroup"             "ellipse"
-    go i (AddCogrouped _)          = leaf i "AddCogrouped"        "ellipse"
-    go i (AggregateCogrouped _ _)  = leaf i "AggregateCogrouped"  "box3d"
-    -- Joins
-    go i (StreamTableJoin _ _)        = leaf i "StreamTableJoin"        "hexagon"
-    go i (StreamTableLeftJoin _ _)    = leaf i "StreamTableLeftJoin"    "hexagon"
-    go i (StreamStreamJoin _ _ _)     = leaf i "StreamStreamJoin"       "hexagon"
-    go i (StreamStreamLeftJoin _ _ _) = leaf i "StreamStreamLeftJoin"   "hexagon"
-    go i (StreamStreamOuterJoin _ _ _) = leaf i "StreamStreamOuterJoin"  "hexagon"
-    go i (TableTableJoin _ _)         = leaf i "TableTableJoin"         "hexagon"
-    go i (TableTableLeftJoin _ _)     = leaf i "TableTableLeftJoin"     "hexagon"
-    go i (TableTableOuterJoin _ _)    = leaf i "TableTableOuterJoin"    "hexagon"
-    go i (ForeignKeyJoin _ _ _)       = leaf i "ForeignKeyJoin"         "hexagon"
-    go i (LeftForeignKeyJoin _ _ _)   = leaf i "LeftForeignKeyJoin"     "hexagon"
-    go i (StreamGlobalTableJoin _ _)  = leaf i "StreamGlobalTableJoin"  "hexagon"
-    go i (StreamGlobalTableLeftJoin _ _) = leaf i "StreamGlobalTableLeftJoin" "hexagon"
-    -- KTable
-    go i (FilterTable _ _)             = leaf i "FilterTable"           "ellipse"
-    go i (FilterNotTable _ _)          = leaf i "FilterNotTable"        "ellipse"
-    go i (MapValuesTable _ _)          = leaf i "MapValuesTable"        "ellipse"
-    go i (TransformValuesTable nm _ _ _)
-      = leaf i ("TransformValuesTable\n" <> nm) "box"
-    -- Suppress
-    go i (SuppressUntilTimeLimit _)    = leaf i "SuppressUntilTimeLimit" "ellipse"
-    go i (SuppressWindowedKS _ _)      = leaf i "SuppressWindowed"       "ellipse"
-    -- Processor API
-    go i (ProcessStream nm _ _)        = leaf i ("ProcessStream\n" <> nm) "box"
-    go i (ProcessValuesStream nm _ _ _)
-      = leaf i ("ProcessValuesStream\n" <> nm) "box"
-    go i (TransformValuesStreamT nm _ _ _)
-      = leaf i ("TransformValuesStream\n" <> nm) "box"
-    go i (WithStateStoreKV b _)
-      = leaf i ("WithStateStoreKV\n" <> Store.unStoreName (Store.sbKvName b))
-              "cylinder"
-    go i (WithStateStoreW b _)
-      = leaf i ("WithStateStoreW\n" <> Store.unStoreName (Store.sbWName b))
-              "cylinder"
-    go i (WithStateStoreS b _)
-      = leaf i ("WithStateStoreS\n" <> Store.unStoreName (Store.sbSName b))
-              "cylinder"
-    go i (ProcessWithStateStoreKV nm b _)
-      = leaf i ("ProcessWithStateStoreKV\n" <> nm <> "\n"
-                  <> Store.unStoreName (Store.sbKvName b)) "box"
-    go i (ProcessWithStateStoreW nm b _)
-      = leaf i ("ProcessWithStateStoreW\n" <> nm <> "\n"
-                  <> Store.unStoreName (Store.sbWName b)) "box"
-    go i (ProcessWithStateStoreS nm b _)
-      = leaf i ("ProcessWithStateStoreS\n" <> nm <> "\n"
-                  <> Store.unStoreName (Store.sbSName b)) "box"
-    -- Escape
-    go i (Lifted nm _)
-      = leaf i ("Lifted\n" <> nm) "octagon"
+    -- The Kafka primitives — dispatch via 'primNode' which returns
+    -- a (label, shape) pair.
+    go i (Lift p) =
+      let (lab, shape) = primNode p
+       in leaf i lab shape
 
     -- Helpers (closed over cfg).
     leaf :: Int -> Text -> Text -> WalkResult
@@ -482,6 +369,103 @@ walkTopAst cfg = go
           !ed2    = "  " <> nodeIdInt me <> " -> "
                       <> nodeIdInt i1 <> ";\n"
        in (i2, meDef <> b1 <> b2 <> ed1 <> ed2)
+
+-- | Pick a (label, Graphviz shape) pair for a 'Prim'. Used by
+-- 'walkTopAst' to render the Kafka-specific primitives; the
+-- framework constructors are handled in line.
+primNode :: forall i o. Prim i o -> (Text, Text)
+primNode p0 = case p0 of
+  Split bs md ->
+    ( "Split\n[" <> T.intercalate "," (map sbName bs)
+        <> maybe "" (\d -> "+default=" <> d) md <> "]"
+    , "diamond")
+  Source tn _              -> ("Source\n"       <> showTopic tn, "box")
+  SourceMulti tns _        ->
+    ( "SourceMulti\n" <>
+        T.intercalate "," (map showTopic (NE.toList tns))
+    , "box" )
+  TableSource tn _ _       -> ("TableSource\n"  <> showTopic tn, "box")
+  GlobalSource tn _ _      -> ("GlobalSource\n" <> showTopic tn, "box")
+  Sink tn _                -> ("Sink\n" <> showTopic tn, "invtrapezium")
+  SinkExtracted _ _        -> ("SinkExtracted", "invtrapezium")
+  Through tn _             -> ("Through\n" <> showTopic tn, "box")
+  MapValues _              -> ("MapValues",         "ellipse")
+  MapValuesM _             -> ("MapValuesM",        "ellipse")
+  MapKeyValue _            -> ("MapKeyValue",       "ellipse")
+  MapKeyValueM _           -> ("MapKeyValueM",      "ellipse")
+  Filter _                 -> ("Filter",            "ellipse")
+  FilterNot _              -> ("FilterNot",         "ellipse")
+  FlatMapValues _          -> ("FlatMapValues",     "ellipse")
+  FlatMapKeyValue _        -> ("FlatMapKeyValue",   "ellipse")
+  Peek _                   -> ("Peek",              "ellipse")
+  Foreach _                -> ("Foreach",           "invtrapezium")
+  SelectKey _              -> ("SelectKey",         "ellipse")
+  Values                   -> ("Values",            "ellipse")
+  Print nm _               -> ("Print\n" <> nm,     "invtrapezium")
+  Merge                    -> ("Merge",             "ellipse")
+  MergeAll                 -> ("MergeAll",          "ellipse")
+  Branch ps                ->
+    ("Branch\n" <> T.pack (show (length ps)) <> " ways", "diamond")
+  ToTableT _               -> ("ToTable",           "box")
+  ToStream                 -> ("ToStream",          "ellipse")
+  Repartition pfx          -> ("Repartition\n" <> pfx, "box")
+  RepartitionWith _        -> ("RepartitionWith",   "box")
+  GroupByKey _             -> ("GroupByKey",        "ellipse")
+  GroupBy _ _              -> ("GroupBy",           "ellipse")
+  Count _                  -> ("Count",             "box3d")
+  Reduce _ _               -> ("Reduce",            "box3d")
+  Aggregate _ _ _          -> ("Aggregate",         "box3d")
+  WindowedByTime _         -> ("WindowedByTime",    "ellipse")
+  WindowedBySession _      -> ("WindowedBySession", "ellipse")
+  CountWindowed _          -> ("CountWindowed",     "box3d")
+  ReduceWindowed _ _       -> ("ReduceWindowed",    "box3d")
+  AggregateWindowed _ _ _  -> ("AggregateWindowed", "box3d")
+  CountSessionWindowed _   -> ("CountSessionWindowed", "box3d")
+  AggregateSessionWindowed _ _ _ _ -> ("AggregateSessionWindowed", "box3d")
+  GroupTableBy _ _         -> ("GroupTableBy",        "ellipse")
+  CountKGroupedTable _     -> ("CountKGroupedTable",  "box3d")
+  ReduceKGroupedTable _ _ _ -> ("ReduceKGroupedTable", "box3d")
+  AggregateKGroupedTable _ _ _ _ -> ("AggregateKGroupedTable", "box3d")
+  Cogroup _                -> ("Cogroup",             "ellipse")
+  AddCogrouped _           -> ("AddCogrouped",        "ellipse")
+  AggregateCogrouped _ _   -> ("AggregateCogrouped",  "box3d")
+  StreamTableJoin _ _              -> ("StreamTableJoin",        "hexagon")
+  StreamTableLeftJoin _ _          -> ("StreamTableLeftJoin",    "hexagon")
+  StreamStreamJoin _ _ _           -> ("StreamStreamJoin",       "hexagon")
+  StreamStreamLeftJoin _ _ _       -> ("StreamStreamLeftJoin",   "hexagon")
+  StreamStreamOuterJoin _ _ _      -> ("StreamStreamOuterJoin",  "hexagon")
+  TableTableJoin _ _               -> ("TableTableJoin",         "hexagon")
+  TableTableLeftJoin _ _           -> ("TableTableLeftJoin",     "hexagon")
+  TableTableOuterJoin _ _          -> ("TableTableOuterJoin",    "hexagon")
+  ForeignKeyJoin _ _ _             -> ("ForeignKeyJoin",         "hexagon")
+  LeftForeignKeyJoin _ _ _         -> ("LeftForeignKeyJoin",     "hexagon")
+  StreamGlobalTableJoin _ _        -> ("StreamGlobalTableJoin",  "hexagon")
+  StreamGlobalTableLeftJoin _ _    -> ("StreamGlobalTableLeftJoin", "hexagon")
+  FilterTable _ _                  -> ("FilterTable",            "ellipse")
+  FilterNotTable _ _               -> ("FilterNotTable",         "ellipse")
+  MapValuesTable _ _               -> ("MapValuesTable",         "ellipse")
+  TransformValuesTable nm _ _ _    -> ("TransformValuesTable\n" <> nm, "box")
+  SuppressUntilTimeLimit _         -> ("SuppressUntilTimeLimit", "ellipse")
+  SuppressWindowedKS _ _           -> ("SuppressWindowed",       "ellipse")
+  ProcessStream nm _ _             -> ("ProcessStream\n" <> nm, "box")
+  ProcessValuesStream nm _ _ _     -> ("ProcessValuesStream\n" <> nm, "box")
+  TransformValuesStreamT nm _ _ _  -> ("TransformValuesStream\n" <> nm, "box")
+  WithStateStoreKV b _ ->
+    ("WithStateStoreKV\n" <> Store.unStoreName (Store.sbKvName b), "cylinder")
+  WithStateStoreW b _ ->
+    ("WithStateStoreW\n"  <> Store.unStoreName (Store.sbWName  b), "cylinder")
+  WithStateStoreS b _ ->
+    ("WithStateStoreS\n"  <> Store.unStoreName (Store.sbSName  b), "cylinder")
+  ProcessWithStateStoreKV nm b _ ->
+    ("ProcessWithStateStoreKV\n" <> nm <> "\n"
+       <> Store.unStoreName (Store.sbKvName b), "box")
+  ProcessWithStateStoreW nm b _ ->
+    ("ProcessWithStateStoreW\n" <> nm <> "\n"
+       <> Store.unStoreName (Store.sbWName b), "box")
+  ProcessWithStateStoreS nm b _ ->
+    ("ProcessWithStateStoreS\n" <> nm <> "\n"
+       <> Store.unStoreName (Store.sbSName b), "box")
+  Lifted nm _                      -> ("Lifted\n" <> nm, "octagon")
 
 leafNode :: DotConfig -> Int -> Text -> Text -> TB.Builder
 leafNode cfg i lab shape =

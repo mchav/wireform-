@@ -96,6 +96,7 @@ module Kafka.Streams.Topology.Free.Arrow
     -- * Generic interpreter
   , interpret
   , interpretIO
+  , interpretTraced
 
     -- * Generic introspection
   , inspectFA

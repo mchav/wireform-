@@ -235,8 +235,12 @@
 --   F.aggregateCogrouped (pure \"\") mat \`F.applyT\` cg1
 -- @
 module Kafka.Streams.Topology.Free
-  ( -- * The 'Topology' GADT
-    Topology (..)
+  ( -- * The 'Topology' free arrow
+    Topology
+  , Prim (..)
+  , liftPrim
+  , labelPrim
+  , runPrim
   , SplitBranch (..)
 
     -- * Compilation
@@ -483,6 +487,8 @@ import qualified Kafka.Streams.Suppress as Suppress
 import qualified Kafka.Streams.TimeWindowedKStream as TWKS
 import Kafka.Streams.Time (Duration)
 import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.Topology.Free.Arrow as FA
+import Kafka.Streams.Topology.Free.Arrow (FreeArrow (..))
 import Kafka.Streams.Types (Record (..), TopicName, topicName)
 import qualified Kafka.Streams.Window as Win
 
@@ -499,745 +505,342 @@ data SplitBranch k v = SplitBranch
   }
 
 ----------------------------------------------------------------------
--- The GADT
+-- 'Topology' = 'FreeArrow' over the Kafka 'Prim' GADT
 ----------------------------------------------------------------------
 
--- | A composable topology fragment from input wire type @i@ to output
--- wire type @o@.
+-- | A composable Kafka Streams topology fragment from input wire
+-- type @i@ to output wire type @o@.
 --
--- The first group of constructors are the category- and arrow-style
--- combinators; the rest are the reified DSL primitives. Each
--- constructor has a precise type that prevents nonsense
--- compositions like piping a 'KStream' into a 'KTable'-shaped
--- operation.
-data Topology i o where
+-- 'Topology' is built on top of the reusable 'FreeArrow'
+-- framework in "Kafka.Streams.Topology.Free.Arrow":
+--
+-- @
+-- type 'Topology' = 'FreeArrow' 'Prim'
+-- @
+--
+-- The /framework/ supplies all the algebraic structure —
+-- 'Category', 'Arrow', 'ArrowChoice', 'Applicative', 'Monad',
+-- 'Semigroup', 'Monoid', plus lineage extras ('Fork', 'ForkN',
+-- 'Tap') and the bind constructor. The Kafka-specific bits live
+-- in the 'Prim' GADT below: sources, sinks, joins, aggregations,
+-- the Processor API, etc.
+type Topology i o = FreeArrow Prim i o
+
+-- | The Kafka Streams /primitives/: one constructor per
+-- DSL operation that compiles to a node in the topology graph.
+-- These are the operations specific to Kafka Streams; the
+-- algebraic combinators that connect them are provided once by
+-- 'FreeArrow' and reused here.
+--
+-- Constructors are grouped by category. Each carries enough
+-- arguments to feed the corresponding imperative-DSL call when
+-- the topology is compiled.
+data Prim i o where
   -- ------------------------------------------------------------------
-  -- Category / Arrow combinators
-  --
-  -- These cover the laws-respecting combinators of 'Category',
-  -- 'Arrow', and 'ArrowChoice'.
+  -- KIP-418 named branches
   -- ------------------------------------------------------------------
-
-  -- | 'Control.Category.id'
-  Id      :: Topology a a
-
-  -- | 'Control.Category.>>>' / '.' (right-to-left composition).
-  -- @'Compose' g f@ runs @f@ then @g@.
-  Compose :: Topology b c -> Topology a b -> Topology a c
-
-  -- | 'Control.Arrow.arr': lift a pure function. The function runs
-  -- /at compile time/ — it doesn't add a node to the topology.
-  -- Useful for plumbing tuples around the AST.
-  Arr     :: (a -> b) -> Topology a b
-
-  -- | 'Control.Arrow.first': run a sub-fragment on the left of a
-  -- pair, leaving the right untouched.
-  First   :: Topology a b -> Topology (a, c) (b, c)
-
-  -- | 'Control.Arrow.second': mirror of 'First'.
-  Second  :: Topology a b -> Topology (c, a) (c, b)
-
-  -- | 'Control.Arrow.***': two independent sub-fragments in parallel
-  -- on a tuple input.
-  --
-  -- /Independent/ at the topology graph level — there are no edges
-  -- between the two subgraphs except the tuple shape at the call
-  -- site. If both subgraphs are source-rooted (each compiles its
-  -- own source node), the runtime task assigner will see two
-  -- disconnected sub-topologies and assign them to /separate
-  -- Kafka tasks/ — each with its own EOS transaction. To get
-  -- cross-source EOS atomicity, use 'mergeSourced' (or insert a
-  -- convergence node yourself with 'Merge') so both halves end
-  -- up in one connected sub-topology.
-  --
-  -- See the module-level "Lineage" note for the full story.
-  Parallel :: Topology a b -> Topology c d -> Topology (a, c) (b, d)
-
-  -- | 'Control.Arrow.&&&': feed one upstream into two sub-fragments
-  -- and pair the outputs. The compiler reuses the same upstream
-  -- node as parent for both sub-graphs — this is the "one node,
-  -- two children" pattern that fans a single lineage into two.
-  --
-  -- /Both children share the same Kafka task as the upstream/, so
-  -- 'Fanout' on a single source is EOS-atomic across both
-  -- branches by construction. (Contrast with 'Parallel' over two
-  -- /different/ sources, which the runtime treats as two
-  -- separate sub-topologies.)
-  Fanout  :: Topology a b -> Topology a c -> Topology a (b, c)
-
-  -- | 'Control.Arrow.left' for sum-typed wires.
-  LeftT   :: Topology a b -> Topology (Either a c) (Either b c)
-
-  -- | 'Control.Arrow.right'.
-  RightT  :: Topology a b -> Topology (Either c a) (Either c b)
-
-  -- | 'Control.Arrow.+++'.
-  Plus    :: Topology a b -> Topology c d -> Topology (Either a c) (Either b d)
-
-  -- | 'Control.Arrow.|||': collapse a sum into a single output.
-  Fanin   :: Topology a c -> Topology b c -> Topology (Either a b) c
-
-  -- ------------------------------------------------------------------
-  -- Lineage combinators
-  --
-  -- These cover the topology-graph "one source, many children"
-  -- patterns that come up so often in Kafka Streams. They're all
-  -- expressible as a combination of 'Fanout' and 'Arr', but having
-  -- them as first-class constructors keeps the AST legible and
-  -- makes optimization passes easier.
-  -- ------------------------------------------------------------------
-
-  -- | Explicit duplicator. Equivalent to @'Id' '&&&' 'Id'@ but
-  -- compiles to a single AST node and reads cleaner at call sites.
-  Fork    :: Topology a (a, a)
-
-  -- | Apply N sub-fragments to the same upstream and collect the
-  -- results in order. Better than chained '&&&' once you have more
-  -- than two branches — the resulting topology has one upstream
-  -- node with N children.
-  ForkN   :: !(NonEmpty (Topology a b)) -> Topology a (NonEmpty b)
-
-  -- | Run a side-effecting sub-pipeline (typically ending in a
-  -- 'Sink' or 'Foreach') and pass the upstream wire through
-  -- unchanged. Mirrors how the JVM @KStream.peek@ + @KStream.to@
-  -- pair is often used: tap a stream into an audit log without
-  -- changing the main pipeline.
-  Tap     :: Topology a () -> Topology a a
 
   -- | KIP-418 named branches. Each input record routes to the first
   -- branch whose predicate matches. Records that match none go to
   -- the default branch if supplied, otherwise are dropped. The
-  -- output is a 'Map' from branch name to its 'KStream', which
-  -- downstream 'Arr' calls can destructure.
+  -- output is a 'Map' from branch name to its 'KStream'.
   Split   :: ![SplitBranch k v]
           -> !(Maybe Text)
-          -> Topology (KStream k v) (Map Text (KStream k v))
+          -> Prim (KStream k v) (Map Text (KStream k v))
 
   -- ------------------------------------------------------------------
   -- Sources
-  --
-  -- Sources have 'Void' on the input side. Composing anything to the
-  -- left of a 'Source' is statically impossible; the only way to
-  -- close the input is to put a source there.
   -- ------------------------------------------------------------------
 
   Source       :: !TopicName -> !(Consumed k v)
-               -> Topology Void (KStream k v)
-
-  -- | Multi-topic source: subscribe to several topics, fan-in into
-  -- a single 'KStream'. Mirrors @StreamsBuilder.stream(Collection<String>)@.
+               -> Prim Void (KStream k v)
   SourceMulti  :: !(NonEmpty TopicName) -> !(Consumed k v)
-               -> Topology Void (KStream k v)
-
-  -- | Source materialised straight into a 'KTable'.
+               -> Prim Void (KStream k v)
   TableSource  :: Ord k
                => !TopicName -> !(Consumed k v) -> !(Materialized k v)
-               -> Topology Void (KTable k v)
-
-  -- | Source materialised into a 'GlobalKTable'.
+               -> Prim Void (KTable k v)
   GlobalSource :: Ord k
                => !TopicName -> !(Consumed k v) -> !(Materialized k v)
-               -> Topology Void (GlobalKTable k v)
+               -> Prim Void (GlobalKTable k v)
 
   -- ------------------------------------------------------------------
   -- Sinks
   -- ------------------------------------------------------------------
 
-  -- | Publish the stream to a topic. The result wire is @()@ — the
-  -- pipeline is closed on this branch.
   Sink         :: !TopicName -> !(Produced k v)
-               -> Topology (KStream k v) ()
-
-  -- | Per-record dynamic-topic sink. Mirrors
-  -- @KStream.to(TopicNameExtractor, Produced)@.
+               -> Prim (KStream k v) ()
   SinkExtracted
                :: !(KS.TopicNameExtractor k v) -> !(Produced k v)
-               -> Topology (KStream k v) ()
-
-  -- | Sink + immediate re-subscribe; mirrors @KStream.through@.
+               -> Prim (KStream k v) ()
   Through      :: !TopicName -> !(Produced k v)
-               -> Topology (KStream k v) (KStream k v)
-
-  -- ------------------------------------------------------------------
-  -- Monad bind
-  --
-  -- @'Bind' t k@ runs @t@ on the input to get a wire value, then
-  -- invokes @k@ on that value to produce the continuation
-  -- topology, which is then run on /the same/ input. Powers the
-  -- 'Monad' instance for @'Topology' i@.
-  --
-  -- Unlike the rest of the GADT, @Bind@ has an /opaque/
-  -- continuation function: the optimiser and 'inspect' can see
-  -- the left side but not into @k@. Use applicative-style
-  -- combinators ('Fanout', 'Parallel', '<*>') when you want a
-  -- fully-static AST; reach for @Bind@ / do-notation when the
-  -- ergonomic win justifies losing inspectability past the bind.
-  -- ------------------------------------------------------------------
-  Bind :: Topology i a -> (a -> Topology i b) -> Topology i b
+               -> Prim (KStream k v) (KStream k v)
 
   -- ------------------------------------------------------------------
   -- Stateless 'KStream' transforms
   -- ------------------------------------------------------------------
 
-  MapValues       :: (v -> v')
-                  -> Topology (KStream k v) (KStream k v')
-  MapValuesM      :: (v -> IO v')
-                  -> Topology (KStream k v) (KStream k v')
+  MapValues       :: (v -> v')         -> Prim (KStream k v) (KStream k v')
+  MapValuesM      :: (v -> IO v')      -> Prim (KStream k v) (KStream k v')
   MapKeyValue     :: (k -> v -> (k', v'))
-                  -> Topology (KStream k v) (KStream k' v')
+                  -> Prim (KStream k v) (KStream k' v')
   MapKeyValueM    :: (k -> v -> IO (k', v'))
-                  -> Topology (KStream k v) (KStream k' v')
-  Filter          :: (Record k v -> Bool)
-                  -> Topology (KStream k v) (KStream k v)
-  FilterNot       :: (Record k v -> Bool)
-                  -> Topology (KStream k v) (KStream k v)
-  FlatMapValues   :: (v -> [v'])
-                  -> Topology (KStream k v) (KStream k v')
+                  -> Prim (KStream k v) (KStream k' v')
+  Filter          :: (Record k v -> Bool) -> Prim (KStream k v) (KStream k v)
+  FilterNot       :: (Record k v -> Bool) -> Prim (KStream k v) (KStream k v)
+  FlatMapValues   :: (v -> [v'])       -> Prim (KStream k v) (KStream k v')
   FlatMapKeyValue :: (k -> v -> [(k', v')])
-                  -> Topology (KStream k v) (KStream k' v')
-  Peek            :: (Record k v -> IO ())
-                  -> Topology (KStream k v) (KStream k v)
-  -- | Terminal side-effect sink. The callback runs synchronously
-  -- on the stream-processing thread for every record. /No
-  -- async variant is exposed/ — see the module-level note on
-  -- side effects below for the rationale and the recommended
-  -- patterns for non-blocking work.
-  Foreach         :: (Record k v -> IO ())
-                  -> Topology (KStream k v) ()
-  SelectKey       :: (Record k v -> k')
-                  -> Topology (KStream k v) (KStream k' v)
-  Values          :: Topology (KStream k v) (KStream () v)
+                  -> Prim (KStream k v) (KStream k' v')
+  Peek            :: (Record k v -> IO ()) -> Prim (KStream k v) (KStream k v)
+  Foreach         :: (Record k v -> IO ()) -> Prim (KStream k v) ()
+  SelectKey       :: (Record k v -> k')    -> Prim (KStream k v) (KStream k' v)
+  Values          :: Prim (KStream k v) (KStream () v)
   Print           :: (Show k, Show v)
-                  => !Text                  -- ^ label
-                  -> !(String -> IO ())     -- ^ line writer
-                  -> Topology (KStream k v) ()
+                  => !Text -> !(String -> IO ())
+                  -> Prim (KStream k v) ()
 
   -- ------------------------------------------------------------------
-  -- 'KStream' composition
+  -- 'KStream' composition / branching
   -- ------------------------------------------------------------------
 
-  -- | Binary 'KStream.merge'. Use 'Fanout' or 'Parallel' to bring
-  -- two streams into the tuple-shape this constructor consumes.
-  Merge    :: Topology (KStream k v, KStream k v) (KStream k v)
-  -- | N-ary merge.
-  MergeAll :: Topology [KStream k v] (KStream k v)
-
-  -- | Predicate-routed split (pre-KIP-418 shape). Records that
-  -- match no predicate are dropped. Mirrors @KStream.branch@.
+  Merge    :: Prim (KStream k v, KStream k v) (KStream k v)
+  MergeAll :: Prim [KStream k v] (KStream k v)
   Branch   :: ![Record k v -> Bool]
-           -> Topology (KStream k v) [KStream k v]
+           -> Prim (KStream k v) [KStream k v]
 
   -- ------------------------------------------------------------------
   -- Conversions
   -- ------------------------------------------------------------------
 
-  ToTableT        :: Ord k
-                  => !(Materialized k v)
-                  -> Topology (KStream k v) (KTable k v)
-  ToStream        :: Topology (KTable k v) (KStream k v)
-  Repartition     :: !Text
-                  -> Topology (KStream k v) (KStream k v)
-  RepartitionWith :: !(Rep.Repartitioned k v)
-                  -> Topology (KStream k v) (KStream k v)
+  ToTableT        :: Ord k => !(Materialized k v) -> Prim (KStream k v) (KTable k v)
+  ToStream        :: Prim (KTable k v) (KStream k v)
+  Repartition     :: !Text                  -> Prim (KStream k v) (KStream k v)
+  RepartitionWith :: !(Rep.Repartitioned k v) -> Prim (KStream k v) (KStream k v)
 
   -- ------------------------------------------------------------------
   -- Grouping + aggregation
   -- ------------------------------------------------------------------
 
-  GroupByKey   :: !(Grouped k v)
-               -> Topology (KStream k v) (KGroupedStream k v)
-  GroupBy      :: (Record k v -> k') -> !(Grouped k' v)
-               -> Topology (KStream k v) (KGroupedStream k' v)
-  Count        :: Ord k
-               => !(Materialized k Int64)
-               -> Topology (KGroupedStream k v) (KTable k Int64)
-  Reduce       :: Ord k
-               => (v -> v -> v) -> !(Materialized k v)
-               -> Topology (KGroupedStream k v) (KTable k v)
-  Aggregate    :: Ord k
-               => !(IO agg)
-               -> (k -> v -> agg -> agg)
-               -> !(Materialized k agg)
-               -> Topology (KGroupedStream k v) (KTable k agg)
+  GroupByKey :: !(Grouped k v) -> Prim (KStream k v) (KGroupedStream k v)
+  GroupBy    :: (Record k v -> k') -> !(Grouped k' v)
+             -> Prim (KStream k v) (KGroupedStream k' v)
+  Count      :: Ord k => !(Materialized k Int64)
+             -> Prim (KGroupedStream k v) (KTable k Int64)
+  Reduce     :: Ord k => (v -> v -> v) -> !(Materialized k v)
+             -> Prim (KGroupedStream k v) (KTable k v)
+  Aggregate  :: Ord k => !(IO agg) -> (k -> v -> agg -> agg)
+             -> !(Materialized k agg)
+             -> Prim (KGroupedStream k v) (KTable k agg)
 
   -- ------------------------------------------------------------------
   -- Windowed aggregation
   -- ------------------------------------------------------------------
 
   WindowedByTime
-    :: !Win.Windows
-    -> Topology (KGroupedStream k v) (TimeWindowedKStream k v)
+    :: !Win.Windows -> Prim (KGroupedStream k v) (TimeWindowedKStream k v)
   WindowedBySession
     :: !Win.SessionWindows
-    -> Topology (KGroupedStream k v) (SessionWindowedKStream k v)
-
+    -> Prim (KGroupedStream k v) (SessionWindowedKStream k v)
   CountWindowed
-    :: Ord k
-    => !(Materialized k Int64)
-    -> Topology (TimeWindowedKStream k v) (TWKS.WindowedTableHandle k Int64)
+    :: Ord k => !(Materialized k Int64)
+    -> Prim (TimeWindowedKStream k v) (TWKS.WindowedTableHandle k Int64)
   ReduceWindowed
-    :: Ord k
-    => (v -> v -> v) -> !(Materialized k v)
-    -> Topology (TimeWindowedKStream k v) (TWKS.WindowedTableHandle k v)
+    :: Ord k => (v -> v -> v) -> !(Materialized k v)
+    -> Prim (TimeWindowedKStream k v) (TWKS.WindowedTableHandle k v)
   AggregateWindowed
-    :: Ord k
-    => !(IO agg) -> (k -> v -> agg -> agg) -> !(Materialized k agg)
-    -> Topology (TimeWindowedKStream k v) (TWKS.WindowedTableHandle k agg)
-
+    :: Ord k => !(IO agg) -> (k -> v -> agg -> agg) -> !(Materialized k agg)
+    -> Prim (TimeWindowedKStream k v) (TWKS.WindowedTableHandle k agg)
   CountSessionWindowed
-    :: Ord k
-    => !(Materialized k Int64)
-    -> Topology (SessionWindowedKStream k v) (SWKS.SessionWindowedTableHandle k Int64)
+    :: Ord k => !(Materialized k Int64)
+    -> Prim (SessionWindowedKStream k v) (SWKS.SessionWindowedTableHandle k Int64)
   AggregateSessionWindowed
     :: Ord k
-    => !(IO agg)
-    -> (k -> v -> agg -> agg)
-    -> (k -> agg -> agg -> agg)            -- ^ session-merger
+    => !(IO agg) -> (k -> v -> agg -> agg) -> (k -> agg -> agg -> agg)
     -> !(Materialized k agg)
-    -> Topology (SessionWindowedKStream k v) (SWKS.SessionWindowedTableHandle k agg)
+    -> Prim (SessionWindowedKStream k v) (SWKS.SessionWindowedTableHandle k agg)
 
   -- ------------------------------------------------------------------
   -- KGroupedTable (subtractor-aware aggregation)
   -- ------------------------------------------------------------------
 
   GroupTableBy
-    :: (Ord k, Ord k')
-    => (k -> v -> (k', v')) -> !(Grouped k' v')
-    -> Topology (KTable k v) (KGroupedTable k' v')
+    :: (Ord k, Ord k') => (k -> v -> (k', v')) -> !(Grouped k' v')
+    -> Prim (KTable k v) (KGroupedTable k' v')
   CountKGroupedTable
-    :: Ord k
-    => !(Materialized k Int64)
-    -> Topology (KGroupedTable k v) (KTable k Int64)
+    :: Ord k => !(Materialized k Int64)
+    -> Prim (KGroupedTable k v) (KTable k Int64)
   ReduceKGroupedTable
-    :: Ord k
-    => (v -> v -> v)                          -- ^ adder
-    -> (v -> v -> v)                          -- ^ subtractor
-    -> !(Materialized k v)
-    -> Topology (KGroupedTable k v) (KTable k v)
+    :: Ord k => (v -> v -> v) -> (v -> v -> v) -> !(Materialized k v)
+    -> Prim (KGroupedTable k v) (KTable k v)
   AggregateKGroupedTable
-    :: Ord k
-    => !(IO agg)
-    -> (k -> v -> agg -> agg)                 -- ^ adder
-    -> (k -> v -> agg -> agg)                 -- ^ subtractor
+    :: Ord k => !(IO agg) -> (k -> v -> agg -> agg) -> (k -> v -> agg -> agg)
     -> !(Materialized k agg)
-    -> Topology (KGroupedTable k v) (KTable k agg)
+    -> Prim (KGroupedTable k v) (KTable k agg)
 
   -- ------------------------------------------------------------------
   -- Cogroup
   -- ------------------------------------------------------------------
 
-  -- | Start a cogroup from one source.
-  Cogroup
-    :: (k -> v -> a -> a)
-    -> Topology (KGroupedStream k v) (CogroupedStream k a)
-  -- | Add another source to an in-progress cogroup. Bring the
-  -- second source in via 'Fanout' / 'Parallel'.
-  AddCogrouped
-    :: (k -> v -> a -> a)
-    -> Topology (CogroupedStream k a, KGroupedStream k v) (CogroupedStream k a)
-  AggregateCogrouped
-    :: Ord k
-    => !(IO a) -> !(Materialized k a)
-    -> Topology (CogroupedStream k a) (KTable k a)
+  Cogroup            :: (k -> v -> a -> a)
+                     -> Prim (KGroupedStream k v) (CogroupedStream k a)
+  AddCogrouped       :: (k -> v -> a -> a)
+                     -> Prim (CogroupedStream k a, KGroupedStream k v) (CogroupedStream k a)
+  AggregateCogrouped :: Ord k => !(IO a) -> !(Materialized k a)
+                     -> Prim (CogroupedStream k a) (KTable k a)
 
   -- ------------------------------------------------------------------
   -- Joins
-  --
-  -- Joins take the two participants on the input side as a tuple. To
-  -- thread two named upstream sources into a join, build them with
-  -- 'Parallel' / 'Fanout' so they land in the same pair.
   -- ------------------------------------------------------------------
 
   StreamTableJoin
-    :: Ord k
-    => (v -> vt -> v') -> !(Joined k v vt)
-    -> Topology (KStream k v, KTable k vt) (KStream k v')
+    :: Ord k => (v -> vt -> v') -> !(Joined k v vt)
+    -> Prim (KStream k v, KTable k vt) (KStream k v')
   StreamTableLeftJoin
-    :: Ord k
-    => (v -> Maybe vt -> v') -> !(Joined k v vt)
-    -> Topology (KStream k v, KTable k vt) (KStream k v')
+    :: Ord k => (v -> Maybe vt -> v') -> !(Joined k v vt)
+    -> Prim (KStream k v, KTable k vt) (KStream k v')
 
   StreamStreamJoin
-    :: Ord k
-    => (v1 -> v2 -> v')
-    -> !JoinWindows -> !(Joined k v1 v2)
-    -> Topology (KStream k v1, KStream k v2) (KStream k v')
+    :: Ord k => (v1 -> v2 -> v') -> !JoinWindows -> !(Joined k v1 v2)
+    -> Prim (KStream k v1, KStream k v2) (KStream k v')
   StreamStreamLeftJoin
-    :: Ord k
-    => (v1 -> Maybe v2 -> v')
-    -> !JoinWindows -> !(Joined k v1 v2)
-    -> Topology (KStream k v1, KStream k v2) (KStream k v')
+    :: Ord k => (v1 -> Maybe v2 -> v') -> !JoinWindows -> !(Joined k v1 v2)
+    -> Prim (KStream k v1, KStream k v2) (KStream k v')
   StreamStreamOuterJoin
-    :: Ord k
-    => (Maybe v1 -> Maybe v2 -> v')
-    -> !JoinWindows -> !(Joined k v1 v2)
-    -> Topology (KStream k v1, KStream k v2) (KStream k v')
+    :: Ord k => (Maybe v1 -> Maybe v2 -> v') -> !JoinWindows -> !(Joined k v1 v2)
+    -> Prim (KStream k v1, KStream k v2) (KStream k v')
 
   TableTableJoin
-    :: Ord k
-    => (v1 -> v2 -> v') -> !(Materialized k v')
-    -> Topology (KTable k v1, KTable k v2) (KTable k v')
+    :: Ord k => (v1 -> v2 -> v') -> !(Materialized k v')
+    -> Prim (KTable k v1, KTable k v2) (KTable k v')
   TableTableLeftJoin
-    :: Ord k
-    => (v1 -> Maybe v2 -> v') -> !(Materialized k v')
-    -> Topology (KTable k v1, KTable k v2) (KTable k v')
+    :: Ord k => (v1 -> Maybe v2 -> v') -> !(Materialized k v')
+    -> Prim (KTable k v1, KTable k v2) (KTable k v')
   TableTableOuterJoin
-    :: Ord k
-    => (Maybe v1 -> Maybe v2 -> v') -> !(Materialized k v')
-    -> Topology (KTable k v1, KTable k v2) (KTable k v')
+    :: Ord k => (Maybe v1 -> Maybe v2 -> v') -> !(Materialized k v')
+    -> Prim (KTable k v1, KTable k v2) (KTable k v')
 
   ForeignKeyJoin
     :: (Ord k, Ord fk, Hashable v)
-    => (v -> fk)                             -- ^ FK extractor
-    -> (v -> vr -> v')                       -- ^ joiner
-    -> !(Materialized k v')
-    -> Topology (KTable k v, KTable fk vr) (KTable k v')
+    => (v -> fk) -> (v -> vr -> v') -> !(Materialized k v')
+    -> Prim (KTable k v, KTable fk vr) (KTable k v')
   LeftForeignKeyJoin
     :: (Ord k, Ord fk, Hashable v)
-    => (v -> fk)
-    -> (v -> Maybe vr -> v')
-    -> !(Materialized k v')
-    -> Topology (KTable k v, KTable fk vr) (KTable k v')
+    => (v -> fk) -> (v -> Maybe vr -> v') -> !(Materialized k v')
+    -> Prim (KTable k v, KTable fk vr) (KTable k v')
 
   StreamGlobalTableJoin
-    :: Ord kg
-    => (k -> v -> kg)                        -- ^ key mapper
-    -> (v -> vg -> v')                       -- ^ joiner
-    -> Topology (KStream k v, GlobalKTable kg vg) (KStream k v')
+    :: Ord kg => (k -> v -> kg) -> (v -> vg -> v')
+    -> Prim (KStream k v, GlobalKTable kg vg) (KStream k v')
   StreamGlobalTableLeftJoin
-    :: Ord kg
-    => (k -> v -> kg)
-    -> (v -> Maybe vg -> v')
-    -> Topology (KStream k v, GlobalKTable kg vg) (KStream k v')
+    :: Ord kg => (k -> v -> kg) -> (v -> Maybe vg -> v')
+    -> Prim (KStream k v, GlobalKTable kg vg) (KStream k v')
 
   -- ------------------------------------------------------------------
   -- KTable surface
   -- ------------------------------------------------------------------
 
   FilterTable
-    :: Ord k
-    => (Record k v -> Bool) -> !(Materialized k v)
-    -> Topology (KTable k v) (KTable k v)
+    :: Ord k => (Record k v -> Bool) -> !(Materialized k v)
+    -> Prim (KTable k v) (KTable k v)
   FilterNotTable
-    :: Ord k
-    => (Record k v -> Bool) -> !(Materialized k v)
-    -> Topology (KTable k v) (KTable k v)
+    :: Ord k => (Record k v -> Bool) -> !(Materialized k v)
+    -> Prim (KTable k v) (KTable k v)
   MapValuesTable
-    :: Ord k
-    => (v -> v') -> !(Materialized k v')
-    -> Topology (KTable k v) (KTable k v')
+    :: Ord k => (v -> v') -> !(Materialized k v')
+    -> Prim (KTable k v) (KTable k v')
   TransformValuesTable
-    :: Ord k
-    => !Text                                  -- ^ name prefix
-    -> !(IO (Processor k v))                  -- ^ processor supplier
-    -> ![StoreName]                           -- ^ external stores
+    :: Ord k => !Text -> !(IO (Processor k v)) -> ![StoreName]
     -> !(Materialized k v')
-    -> Topology (KTable k v) (KTable k v')
+    -> Prim (KTable k v) (KTable k v')
 
   -- ------------------------------------------------------------------
   -- Suppress
   -- ------------------------------------------------------------------
 
   SuppressUntilTimeLimit
-    :: Ord k
-    => !Duration
-    -> Topology (KStream k v) (KStream k v)
+    :: Ord k => !Duration -> Prim (KStream k v) (KStream k v)
   SuppressWindowedKS
-    :: Ord k
-    => !Duration                              -- ^ grace
-    -> !Int64                                 -- ^ window size (ms)
-    -> Topology (KStream (WindowedKey k) v) (KStream (WindowedKey k) v)
+    :: Ord k => !Duration -> !Int64
+    -> Prim (KStream (WindowedKey k) v) (KStream (WindowedKey k) v)
 
   -- ------------------------------------------------------------------
   -- Processor API
   -- ------------------------------------------------------------------
 
   ProcessStream
-    :: !Text                                  -- ^ name prefix
-    -> ![StoreName]                           -- ^ attached stores
-    -> !(IO (Processor k v))
-    -> Topology (KStream k v) ()
+    :: !Text -> ![StoreName] -> !(IO (Processor k v))
+    -> Prim (KStream k v) ()
   ProcessValuesStream
-    :: !Text
-    -> ![StoreName]
-    -> !(IO (Processor k v))
-    -> !(Serde v')
-    -> Topology (KStream k v) (KStream k v')
+    :: !Text -> ![StoreName] -> !(IO (Processor k v)) -> !(Serde v')
+    -> Prim (KStream k v) (KStream k v')
   TransformValuesStreamT
-    :: !Text
-    -> ![Topo.NodeName]                       -- ^ store names as NodeNames
-                                              -- (matches existing imperative
-                                              -- 'transformValuesStream')
-    -> !(IO (Processor k v))
-    -> !(Serde v')
-    -> Topology (KStream k v) (KStream k v')
+    :: !Text -> ![Topo.NodeName] -> !(IO (Processor k v)) -> !(Serde v')
+    -> Prim (KStream k v) (KStream k v')
 
-  -- | Register a 'StoreBuilderKV' against the topology graph. The
-  -- 'NodeName' list is the set of processors granted read/write
-  -- access; the constructor is a pass-through on the wire (it
-  -- doesn't change the @i ~ o@ shape).
-  WithStateStoreKV
-    :: !(StoreBuilderKV k v)
-    -> ![Topo.NodeName]
-    -> Topology x x
-  WithStateStoreW
-    :: !(StoreBuilderW k v)
-    -> ![Topo.NodeName]
-    -> Topology x x
-  WithStateStoreS
-    :: !(StoreBuilderS k v)
-    -> ![Topo.NodeName]
-    -> Topology x x
+  WithStateStoreKV :: !(StoreBuilderKV k v) -> ![Topo.NodeName] -> Prim x x
+  WithStateStoreW  :: !(StoreBuilderW  k v) -> ![Topo.NodeName] -> Prim x x
+  WithStateStoreS  :: !(StoreBuilderS  k v) -> ![Topo.NodeName] -> Prim x x
 
-  -- | Atomically register a processor /and/ a 'StoreBuilderKV' the
-  -- processor depends on. The compiler generates one fresh
-  -- 'Topo.NodeName' from the prefix, attaches the processor with
-  -- the store's name in its @processorSpecStores@ list, and
-  -- registers the store with that generated node as its owner —
-  -- so the user doesn't need to (and can't predict the generated
-  -- name). This is the recommended way to combine 'processStream'
-  -- with 'withStateStoreKV' for typical custom-processor use.
   ProcessWithStateStoreKV
-    :: !Text                                  -- ^ prefix
-    -> !(StoreBuilderKV stk stv)
-    -> !(IO (Processor k v))
-    -> Topology (KStream k v) ()
-  -- | 'ProcessWithStateStoreKV' for a window store.
+    :: !Text -> !(StoreBuilderKV stk stv) -> !(IO (Processor k v))
+    -> Prim (KStream k v) ()
   ProcessWithStateStoreW
-    :: !Text
-    -> !(StoreBuilderW stk stv)
-    -> !(IO (Processor k v))
-    -> Topology (KStream k v) ()
-  -- | 'ProcessWithStateStoreKV' for a session store.
+    :: !Text -> !(StoreBuilderW stk stv) -> !(IO (Processor k v))
+    -> Prim (KStream k v) ()
   ProcessWithStateStoreS
-    :: !Text
-    -> !(StoreBuilderS stk stv)
-    -> !(IO (Processor k v))
-    -> Topology (KStream k v) ()
+    :: !Text -> !(StoreBuilderS stk stv) -> !(IO (Processor k v))
+    -> Prim (KStream k v) ()
 
-  -- ------------------------------------------------------------------
-  -- Escape hatch
-  --
-  -- Lets callers splice in any topology-mutating IO action. Use
-  -- whenever a custom processor or upstream-library operation
-  -- isn't reachable through the dedicated constructors above. The
-  -- escape is typed: the caller still has to declare the input /
-  -- output wire types.
-  -- ------------------------------------------------------------------
-  Lifted
-    :: !Text                                  -- ^ pretty name for traces
-    -> (StreamsBuilder -> i -> IO o)
-    -> Topology i o
+  -- | Escape hatch — splice in a hand-rolled builder action.
+  Lifted :: !Text -> (StreamsBuilder -> i -> IO o) -> Prim i o
 
 ----------------------------------------------------------------------
--- Category / Arrow / ArrowChoice instances
+-- Algebraic structure
+--
+-- 'Topology' is a type alias for @'FreeArrow' 'Prim'@, so every
+-- 'Category', 'Arrow', 'ArrowChoice', 'Functor', 'Applicative',
+-- 'Monad', 'Semigroup', and 'Monoid' instance comes from
+-- "Kafka.Streams.Topology.Free.Arrow" for free. The combinators
+-- below are convenience re-exports under topology-friendly
+-- names.
 ----------------------------------------------------------------------
 
-instance Category Topology where
-  id :: Topology a a
-  id = Id
-
-  (.) :: Topology b c -> Topology a b -> Topology a c
-  -- Local Cat-law simplifications: cancel 'Id' on either side so
-  -- iterated composition doesn't accumulate identity noise.
-  Id . f  = f
-  g  . Id = g
-  g  . f  = Compose g f
-
-instance Arrow Topology where
-  arr :: (a -> b) -> Topology a b
-  arr = Arr
-
-  first :: Topology a b -> Topology (a, c) (b, c)
-  first = First
-
-  second :: Topology a b -> Topology (c, a) (c, b)
-  second = Second
-
-  (***) :: Topology a b -> Topology c d -> Topology (a, c) (b, d)
-  (***) = Parallel
-
-  (&&&) :: Topology a b -> Topology a c -> Topology a (b, c)
-  (&&&) = Fanout
-
-instance ArrowChoice Topology where
-  left :: Topology a b -> Topology (Either a c) (Either b c)
-  left = LeftT
-
-  right :: Topology a b -> Topology (Either c a) (Either c b)
-  right = RightT
-
-  (+++) :: Topology a b -> Topology c d -> Topology (Either a c) (Either b d)
-  (+++) = Plus
-
-  (|||) :: Topology a c -> Topology b c -> Topology (Either a b) c
-  (|||) = Fanin
-
--- | A 'Topology' is a 'Functor' over its output type via
--- post-composition with 'arr'.
-instance Functor (Topology a) where
-  fmap f t = Arr f `Compose` t
-
--- | A 'Topology' is an 'Applicative' over its output type:
---
--- [@pure x@]
---   @'Arr' ('const' x)@ — a topology that ignores its input and
---   produces @x@.
--- [@tf '<*>' tx@]
---   Run both @tf@ and @tx@ on the same input via 'Fanout', then
---   apply. The resulting AST is entirely static — every node is
---   visible to 'inspect' and the optimiser.
---
--- Used internally by the 'Monoid'\/'Semigroup' instances below
--- and by 'liftA2' / 'liftA3' from "Control.Applicative".
-instance Applicative (Topology i) where
-  pure x = Arr (const x)
-  tf <*> tx = Compose (Arr (uncurry ($))) (Fanout tf tx)
-
--- | A 'Topology' is a /reader/ 'Monad' over its input type: the
--- input is the environment threaded into every bind.
---
--- @t '>>=' k@ runs @t@ on the input to obtain a value @a@, then
--- runs @k a@ on the /same/ input. This is the same shape as
--- @ReaderT i (Topology i)@ collapsed into the GADT itself.
---
--- == Static analysis past a 'Bind'
---
--- The bind continuation is a /Haskell closure/, so 'inspect' /
--- 'prettyPrint' / 'astDot' / 'optimize' can't see its body
--- directly. There are three ways to get more analysability:
---
--- [1. Use 'ApplicativeDo'@]
---   With @{-\# LANGUAGE ApplicativeDo \#-}@, GHC desugars
---   /applicative-shaped/ @do@ blocks (no data dependency
---   across binds) into '<*>' chains using our fully-static
---   'Applicative' instance instead of 'Bind'. Just turning
---   on the extension is usually enough to get static AST
---   for the typical "thread several sources into a downstream
---   combinator" pattern.
---
--- [2. Phantom inspection ('inspectDeep' \/ 'astDotDeep')]
---   For binds that GHC couldn't desugar applicatively, the
---   deep-inspection variants walk into the continuation
---   using a placeholder wire value. Most continuations
---   (those that just thread the wire through 'applyT' or
---   capture it for a downstream operator) don't force the
---   placeholder's record fields and inspect fine; the few
---   that do force something fall back to an "opaque"
---   marker.
---
--- [3. Manual Applicative composition]
---   Reach for '<*>', 'liftA2', or @'Fanout' '>>>' 'Arr' ...@
---   when you want the AST to be statically minimal at a
---   particular call site.
---
--- == When to reach for the monad
---
--- Use 'Bind' when the do-notation ergonomics win out — typically
--- when assembling a topology from several upstream sources
--- whose handles you want to bind as Haskell-level names:
---
--- @
--- combined :: F.Topology Void ()
--- combined = do
---   s1 <- F.source \"in1\" textSerde textSerde
---   s2 <- F.source \"in2\" textSerde textSerde
---   pure (s1, s2)
---   '>>>' F.merge
---   '>>>' F.sink  \"out\" textSerde textSerde
--- @
---
--- With @ApplicativeDo@ on, the above desugars to
--- 'Applicative' '<*>' calls and stays fully statically
--- analysable. Without it, the binds are opaque to
--- 'inspect' but readable by 'inspectDeep'.
-instance Monad (Topology i) where
-  return = pure
-  (>>=) = Bind
-
--- | Pointwise 'Semigroup' over the output. @t1 '<>' t2@ runs both
--- topologies on the same input via 'Fanout' and combines their
--- outputs with @('<>')@. Especially useful at @o = ()@ where it
--- gives a natural \"run several closed pipelines on one input\"
--- combinator — but works for any 'Semigroup' output (e.g. lists
--- of records, maps of named branches).
-instance Semigroup o => Semigroup (Topology i o) where
-  t1 <> t2 = Compose (Arr (uncurry (<>))) (Fanout t1 t2)
-
--- | 'mempty' is the topology that ignores its input and produces
--- 'mempty'. At @o = ()@ this is the no-op pipeline; at
--- @o = [a]@ it's the empty-record stream; etc.
-instance Monoid o => Monoid (Topology i o) where
-  mempty = Arr (const mempty)
-
-----------------------------------------------------------------------
--- Profunctor- and Reader-shaped helpers
-----------------------------------------------------------------------
---
--- 'Topology' is a 'Data.Profunctor.Profunctor', a
--- 'Data.Profunctor.Strong' profunctor (via 'First' / 'Second'),
--- and a 'Data.Profunctor.Choice' profunctor (via 'LeftT' /
--- 'RightT'). Rather than depending on the @profunctors@ package
--- for a one-line instance, we expose the methods as standalone
--- functions. Users who want the typeclasses can write orphan
--- instances in their own modules.
+-- | Lift a 'Prim' constructor into a 'Topology' node.
+liftPrim :: Prim i o -> Topology i o
+liftPrim = FA.lift
+{-# INLINE liftPrim #-}
 
 -- | Pre-compose with a pure function (contravariant in the input).
 -- Equivalent to 'Data.Profunctor.lmap'.
 lmapT :: (a -> b) -> Topology b c -> Topology a c
-lmapT f t = Compose t (Arr f)
+lmapT = FA.lmapFA
 
 -- | Post-compose with a pure function (covariant in the output).
--- Equivalent to 'Data.Profunctor.rmap' and to 'fmap' for the
--- 'Functor' instance.
+-- Equivalent to 'Data.Profunctor.rmap' and to 'fmap' on the
+-- 'FreeArrow' 'Functor' instance.
 rmapT :: (c -> d) -> Topology b c -> Topology b d
-rmapT g t = Compose (Arr g) t
+rmapT = FA.rmapFA
 
 -- | Pre- and post-compose with pure functions. Equivalent to
 -- 'Data.Profunctor.dimap'.
 dimapT :: (a -> b) -> (c -> d) -> Topology b c -> Topology a d
-dimapT f g t = rmapT g (lmapT f t)
+dimapT = FA.dimapFA
 
--- | The input wire is the \"environment\" of the 'Topology'
--- reader. @askInput@ is just 'Cat.id'; the alias exists so
--- do-notation reads naturally:
---
--- @
--- duplicate :: F.Topology a (a, a)
--- duplicate = do
---   x \<- askInput
---   pure (x, x)
--- @
+-- | The input wire is the \"environment\" of the topology reader
+-- monad. @askInput@ is just 'Cat.id'; the alias exists so
+-- do-notation reads naturally.
 askInput :: Topology i i
-askInput = Id
+askInput = FA.askInputFA
 
 -- | Run a topology with the input transformed by @f@. The
 -- profunctor analogue of @MonadReader@'s 'Control.Monad.Reader.local'.
--- Slightly more general than the @mtl@ shape: @f@'s codomain
--- doesn't have to match the original input type — the
--- transformed-input value just has to fit the topology being run.
 localInput :: (i' -> i) -> Topology i a -> Topology i' a
-localInput f t = Compose t (Arr f)
+localInput = FA.localInputFA
 
 -- | Pre-feed a fixed value into a topology, producing a
--- 'Topology i b' from a 'Topology a b' regardless of the
--- outer input type @i@. Useful inside do-notation: you've
--- bound a wire value as a Haskell name and want to thread it
--- into a downstream operator that expects an @a@ input.
---
--- @
--- combinedSources :: F.Topology Void (KStream Text Text)
--- combinedSources = do
---   s1 <- F.source "in1" textSerde textSerde
---   s2 <- F.source "in2" textSerde textSerde
---   -- 'merge' expects @(KStream, KStream)@ as its input.
---   F.merge \`F.applyT\` (s1, s2)
--- @
---
--- Operationally identical to @'Compose' t ('Arr' ('const' a))@,
--- which is also @'pure' a '>>>' t@ via the 'Applicative' instance.
+-- @'Topology' i b@ from a @'Topology' a b@ regardless of the
+-- outer input type @i@.
 applyT :: Topology a b -> a -> Topology i b
-applyT t a = Compose t (Arr (const a))
+applyT = FA.applyValueFA
 
 ----------------------------------------------------------------------
 -- Compilation
@@ -1275,53 +878,20 @@ type TBuilder = StreamsBuilder
 -- /Does not/ run the optimiser. Apply 'optimize' yourself
 -- before calling 'apply' if you want the rewrites.
 apply :: forall i o. Topology i o -> TBuilder -> i -> IO o
-apply t b = go t
-  where
-    go :: forall x y. Topology x y -> x -> IO y
-    -- Category / Arrow
-    go Id            = pure
-    go (Compose g f) = go f >=> go g
-    go (Arr f)       = pure . f
-    go (First t')    = \(a, c) -> do
-      !x <- go t' a
-      pure (x, c)
-    go (Second t')   = \(c, a) -> do
-      !x <- go t' a
-      pure (c, x)
-    go (Parallel p q) = \(a, c) -> do
-      !x <- go p a
-      !y <- go q c
-      pure (x, y)
-    go (Fanout p q)   = \a -> do
-      !x <- go p a
-      !y <- go q a
-      pure (x, y)
-    go (LeftT t')    = \case
-      Left a  -> Left  <$> go t' a
-      Right c -> pure (Right c)
-    go (RightT t')   = \case
-      Left c  -> pure (Left c)
-      Right a -> Right <$> go t' a
-    go (Plus p q)    = \case
-      Left a  -> Left  <$> go p a
-      Right c -> Right <$> go q c
-    go (Fanin p q)   = \case
-      Left a  -> go p a
-      Right c -> go q c
+apply t b = FA.interpretIO (runPrim b) t
 
-    -- Lineage combinators
-    go Fork          = \a -> pure (a, a)
-    go (ForkN ts)    = \a -> traverse (`go` a) ts
-    go (Tap t')      = \a -> do
-      !() <- go t' a
-      pure a
+-- | Interpret a single 'Prim' against the shared 'StreamsBuilder'.
+-- This is the Kafka-specific half of 'apply'; the framework
+-- half (composition, parallel, fanout, lineage, monad bind) is
+-- handled by 'FA.interpretIO' for free.
+runPrim :: TBuilder -> Prim i o -> i -> IO o
+runPrim b = go
+  where
+    go :: forall x y. Prim x y -> x -> IO y
+    -- Split / sources (Void input never inspected by sources).
     go (Split branches mDefault) = \s -> do
       let toBranched (SplitBranch nm p) = KS.branchedFrom nm p
       KS.splitStream (Prelude.map toBranched branches) mDefault s
-
-    -- Sources (the Void input is never inspected — neither the
-    -- 'Source', 'SourceMulti', 'TableSource', nor 'GlobalSource'
-    -- pattern-match on it).
     go (Source topic c)         = \_void -> KS.streamFromTopic b topic c
     go (SourceMulti topics c)   = \_void -> sourceMultiCompile b topics c
     go (TableSource topic c m)  = \_void -> KT.tableFromTopic b topic c m
@@ -1331,15 +901,6 @@ apply t b = go t
     go (Sink topic p)        = KS.toTopic topic p
     go (SinkExtracted e p)   = KS.toExtracted e p
     go (Through topic p)     = KS.throughTopic topic p
-
-    -- Monad bind: run @t@ to get the wire value, then run the
-    -- continuation @k a@ on the /same/ input. Both sub-topologies
-    -- compile against the shared builder, so any source / sink /
-    -- store registration each one performs lands in the same
-    -- graph.
-    go (Bind t k)            = \i -> do
-      !a <- go t i
-      go (k a) i
 
     -- Stateless
     go (MapValues f)         = KS.mapValues f
@@ -1356,7 +917,7 @@ apply t b = go t
     go Values                = KS.valuesStream
     go (Print label putLine) = KS.printToHandle label putLine
 
-    -- Composition
+    -- Composition / branching
     go Merge                 = \(s1, s2) -> KS.mergeStreams s1 s2
     go MergeAll              = KS.mergeStreamsN
     go (Branch ps)           = KS.branchStream ps
@@ -1788,7 +1349,7 @@ source t ks vs = sourceWith (topicName t) (consumed ks vs)
 -- override either of those, or to pin an explicit
 -- source-node name via 'Consumed.withName'.
 sourceWith :: TopicName -> Consumed k v -> Topology Void (KStream k v)
-sourceWith = Source
+sourceWith t c = liftPrim (Source t c)
 
 -- | Subscribe to N topics simultaneously, fanning them into
 -- a single 'KStream'. All topics must use the same key and
@@ -1807,7 +1368,7 @@ sourceWith = Source
 -- separate up to the merge point).
 sources
   :: NonEmpty Text -> Serde k -> Serde v -> Topology Void (KStream k v)
-sources ts ks vs = SourceMulti (fmap topicName ts) (consumed ks vs)
+sources ts ks vs = liftPrim (SourceMulti (fmap topicName ts) (consumed ks vs))
 
 -- | Subscribe to a Kafka topic and materialise it as a
 -- 'KTable' (latest-value-per-key) backed by an in-memory
@@ -1828,8 +1389,8 @@ sources ts ks vs = SourceMulti (fmap topicName ts) (consumed ks vs)
 tableSource
   :: Ord k => Text -> Serde k -> Serde v -> Topology Void (KTable k v)
 tableSource t ks vs =
-  TableSource (topicName t) (consumed ks vs)
-    (Mat.withValueSerde vs (Mat.withKeySerde ks Mat.materialized))
+  liftPrim (TableSource (topicName t) (consumed ks vs)
+    (Mat.withValueSerde vs (Mat.withKeySerde ks Mat.materialized)))
 
 -- | Subscribe to a Kafka topic and materialise it as a
 -- /global/ 'GlobalKTable' — a cluster-wide replicated table.
@@ -1850,8 +1411,8 @@ tableSource t ks vs =
 globalTableSource
   :: Ord k => Text -> Serde k -> Serde v -> Topology Void (GlobalKTable k v)
 globalTableSource t ks vs =
-  GlobalSource (topicName t) (consumed ks vs)
-    (Mat.withValueSerde vs (Mat.withKeySerde ks Mat.materialized))
+  liftPrim (GlobalSource (topicName t) (consumed ks vs)
+    (Mat.withValueSerde vs (Mat.withKeySerde ks Mat.materialized)))
 
 -- | Merge two source-rooted streams into a single downstream lineage
 -- so they share a Kafka task (and therefore an EOS transaction).
@@ -1893,7 +1454,7 @@ mergeSourced
   :: Topology Void (KStream k v)
   -> Topology Void (KStream k v)
   -> Topology Void (KStream k v)
-mergeSourced left right = Compose Merge (Fanout left right)
+mergeSourced left right = Compose (liftPrim Merge) (Fanout left right)
 
 -- * Sinks ----------------------------------------------------------
 --
@@ -1925,7 +1486,7 @@ sink t ks vs = sinkWith (topicName t) (produced ks vs)
 -- @Produced@ configuration. For the common case of "publish
 -- with these serdes", prefer 'sink'.
 sinkWith :: TopicName -> Produced k v -> Topology (KStream k v) ()
-sinkWith = Sink
+sinkWith t p = liftPrim (Sink t p)
 
 -- | Per-record dynamic-topic sink (KIP-303). The supplied
 -- 'KS.TopicNameExtractor' is consulted for every record and
@@ -1939,7 +1500,7 @@ sinkWith = Sink
 -- — without enumerating them in the topology itself.
 sinkExtracted
   :: KS.TopicNameExtractor k v -> Produced k v -> Topology (KStream k v) ()
-sinkExtracted = SinkExtracted
+sinkExtracted e p = liftPrim (SinkExtracted e p)
 
 -- | Publish to a topic /and/ immediately re-subscribe from it,
 -- returning a fresh upstream-equivalent 'KStream' that flows
@@ -1963,7 +1524,7 @@ sinkExtracted = SinkExtracted
 -- durability, use 'repartition' (logical re-partition, broker
 -- still involved but no extra read) or stay in-process.
 through :: Text -> Serde k -> Serde v -> Topology (KStream k v) (KStream k v)
-through t ks vs = Through (topicName t) (produced ks vs)
+through t ks vs = liftPrim (Through (topicName t) (produced ks vs))
 
 -- * Stateless 'KStream' transforms --------------------------------
 --
@@ -1999,7 +1560,7 @@ through t ks vs = Through (topicName t) (produced ks vs)
 -- @MapValues (compose ...)@ node, so writing small,
 -- single-responsibility maps is cheap at run time.
 mapValues :: (v -> v') -> Topology (KStream k v) (KStream k v')
-mapValues = MapValues
+mapValues = liftPrim . MapValues
 
 -- | Effectful 'mapValues': the value-transform runs in 'IO',
 -- so it can read from external resources, emit metrics, or
@@ -2017,7 +1578,7 @@ mapValues = MapValues
 -- and gate on an idempotency token (the same caveat applies
 -- to JVM @transformValues@).
 mapValuesM :: (v -> IO v') -> Topology (KStream k v) (KStream k v')
-mapValuesM = MapValuesM
+mapValuesM = liftPrim . MapValuesM
 
 -- | Re-key /and/ re-value every record with a pure function.
 --
@@ -2038,7 +1599,7 @@ mapValuesM = MapValuesM
 -- prefer 'mapValues' (avoids the repartition flag).
 mapKeyValue
   :: (k -> v -> (k', v')) -> Topology (KStream k v) (KStream k' v')
-mapKeyValue = MapKeyValue
+mapKeyValue = liftPrim . MapKeyValue
 
 -- | Effectful 'mapKeyValue'. Same trade-offs as 'mapValuesM'
 -- (synchronous on the stream thread, slow handlers
@@ -2046,7 +1607,7 @@ mapKeyValue = MapKeyValue
 -- 'mapKeyValue'.
 mapKeyValueM
   :: (k -> v -> IO (k', v')) -> Topology (KStream k v) (KStream k' v')
-mapKeyValueM = MapKeyValueM
+mapKeyValueM = liftPrim . MapKeyValueM
 
 -- | Keep records for which the predicate returns 'True'; drop
 -- the rest.
@@ -2058,7 +1619,7 @@ mapKeyValueM = MapKeyValueM
 -- Chains of 'filter' fuse into a single @Filter (conj ...)@
 -- node automatically.
 filter :: (Record k v -> Bool) -> Topology (KStream k v) (KStream k v)
-filter = Filter
+filter = liftPrim . Filter
 
 -- | Inverse of 'filter': drop records for which the predicate
 -- returns 'True'. Same fusion characteristics as 'filter'
@@ -2066,7 +1627,7 @@ filter = Filter
 --
 -- /JVM equivalent:/ @KStream.filterNot(Predicate)@.
 filterNot :: (Record k v -> Bool) -> Topology (KStream k v) (KStream k v)
-filterNot = FilterNot
+filterNot = liftPrim . FilterNot
 
 -- | Expand each record into zero or more output records,
 -- changing only the value (key + timestamp + headers all
@@ -2078,7 +1639,7 @@ filterNot = FilterNot
 -- conditional emission (e.g. @Just x -> [x]; Nothing -> []@).
 -- An empty list drops the input record entirely.
 flatMapValues :: (v -> [v']) -> Topology (KStream k v) (KStream k v')
-flatMapValues = FlatMapValues
+flatMapValues = liftPrim . FlatMapValues
 
 -- | Expand each record into zero or more output records,
 -- potentially changing both key and value.
@@ -2091,7 +1652,7 @@ flatMapValues = FlatMapValues
 -- the partitioning.
 flatMapKeyValue
   :: (k -> v -> [(k', v')]) -> Topology (KStream k v) (KStream k' v')
-flatMapKeyValue = FlatMapKeyValue
+flatMapKeyValue = liftPrim . FlatMapKeyValue
 
 -- | Run a side-effecting observer per record and pass the
 -- record through unchanged. Useful for metrics, logging, or
@@ -2104,7 +1665,7 @@ flatMapKeyValue = FlatMapKeyValue
 -- non-data-altering "tap to a side topic", use 'tap' with a
 -- sink as the side pipeline.
 peek :: (Record k v -> IO ()) -> Topology (KStream k v) (KStream k v)
-peek = Peek
+peek = liftPrim . Peek
 
 -- | Terminal side-effect sink. The callback runs /synchronously/
 -- on the stream-processing thread for every record. The wire
@@ -2117,7 +1678,7 @@ peek = Peek
 -- the module-level note "On side effects" for the rationale
 -- and the recommended patterns for non-blocking work.
 foreach :: (Record k v -> IO ()) -> Topology (KStream k v) ()
-foreach = Foreach
+foreach = liftPrim . Foreach
 
 -- | Re-key the stream using a function of the full 'Record'.
 -- The value is preserved unchanged.
@@ -2131,7 +1692,7 @@ foreach = Foreach
 -- single @groupBy@ node which matches the Apache docs'
 -- recommended pattern.
 selectKey :: (Record k v -> k') -> Topology (KStream k v) (KStream k' v)
-selectKey = SelectKey
+selectKey = liftPrim . SelectKey
 
 -- | Drop the key — the resulting stream is keyed by @()@.
 --
@@ -2142,7 +1703,7 @@ selectKey = SelectKey
 -- subsequent operation that doesn't need the key (e.g. a
 -- global counter via 'count').
 values :: Topology (KStream k v) (KStream () v)
-values = Values
+values = liftPrim Values
 
 -- | Show-debugging sink: pretty-print each record via the
 -- supplied line writer. The 'Text' label is prepended to
@@ -2159,7 +1720,7 @@ values = Values
 prints
   :: (Show k, Show v)
   => Text -> (String -> IO ()) -> Topology (KStream k v) ()
-prints = Print
+prints lbl putLine = liftPrim (Print lbl putLine)
 
 -- * 'KStream' composition + branching -----------------------------
 
@@ -2175,7 +1736,7 @@ prints = Print
 -- 'mergeSourced' to get the two streams in place. For more
 -- than two streams use 'mergeAll'.
 merge :: Topology (KStream k v, KStream k v) (KStream k v)
-merge = Merge
+merge = liftPrim Merge
 
 -- | N-ary merge: a list of streams collapses to one. The list
 -- is consumed at AST-application time, so the count is
@@ -2185,7 +1746,7 @@ merge = Merge
 --
 -- /JVM equivalent:/ chained @merge@ calls.
 mergeAll :: Topology [KStream k v] (KStream k v)
-mergeAll = MergeAll
+mergeAll = liftPrim MergeAll
 
 -- | Predicate-routed split into N sub-streams.
 --
@@ -2200,7 +1761,7 @@ mergeAll = MergeAll
 -- keyed by branch name) use 'split' instead — it's the
 -- recommended modern API.
 branch :: [Record k v -> Bool] -> Topology (KStream k v) [KStream k v]
-branch = Branch
+branch = liftPrim . Branch
 
 -- | KIP-418 named-branch split. Each input record is routed to
 -- the first branch whose predicate matches; records that
@@ -2229,7 +1790,7 @@ split
   :: [SplitBranch k v]
   -> Maybe Text
   -> Topology (KStream k v) (Map Text (KStream k v))
-split = Split
+split bs mDef = liftPrim (Split bs mDef)
 
 -- | Helper for assembling a 'SplitBranch'. The 'Text' is the
 -- branch name (appears as the result-'Map' key); the function
@@ -2251,7 +1812,7 @@ splitBranch = SplitBranch
 --
 -- See also 'forkN' for N-way duplication.
 fork :: Topology a (a, a)
-fork = Fork
+fork = FA.fork
 
 -- | N-way fan-out: apply each sub-fragment to the /same/
 -- upstream value and collect the results in input order.
@@ -2269,7 +1830,7 @@ fork = Fork
 --           ])
 -- @
 forkN :: NonEmpty (Topology a b) -> Topology a (NonEmpty b)
-forkN = ForkN
+forkN = FA.forkN
 
 -- | Run a side-effecting sub-pipeline and pass the upstream
 -- wire through unchanged.
@@ -2291,7 +1852,7 @@ forkN = ForkN
 --   '>>>' F.sink \"out\" ks vs
 -- @
 tap :: Topology a () -> Topology a a
-tap = Tap
+tap = FA.tap
 
 -- * Conversions ---------------------------------------------------
 
@@ -2311,7 +1872,7 @@ tap = Tap
 -- store with any other operation referencing the same
 -- 'StoreName'.
 toTable :: Ord k => Materialized k v -> Topology (KStream k v) (KTable k v)
-toTable = ToTableT
+toTable = liftPrim . ToTableT
 
 -- | Convert a 'KTable' back to a 'KStream' carrying every
 -- changelog event. The output stream emits one record for
@@ -2325,7 +1886,7 @@ toTable = ToTableT
 -- the records appear on the resulting streams in (the same)
 -- per-table order, but each invocation is its own node.
 toStream :: Topology (KTable k v) (KStream k v)
-toStream = ToStream
+toStream = liftPrim ToStream
 
 -- | Force a repartition through an internal topic, using the
 -- supplied prefix to name the topic. The topic is created
@@ -2347,7 +1908,7 @@ toStream = ToStream
 -- would otherwise pay for the extra topic round-trip with
 -- no benefit.
 repartition :: Text -> Topology (KStream k v) (KStream k v)
-repartition = Repartition
+repartition = liftPrim . Repartition
 
 -- | 'repartition' with a fully-specified 'Rep.Repartitioned'
 -- config: caller controls the partition count, custom
@@ -2358,7 +1919,7 @@ repartition = Repartition
 -- /JVM equivalent:/ @KStream.repartition(Repartitioned)@.
 repartitionWith
   :: Rep.Repartitioned k v -> Topology (KStream k v) (KStream k v)
-repartitionWith = RepartitionWith
+repartitionWith = liftPrim . RepartitionWith
 
 -- * Grouping + aggregation ----------------------------------------
 --
@@ -2400,7 +1961,7 @@ repartitionWith = RepartitionWith
 -- 'groupBy' (which the optimiser fuses with an upstream
 -- 'selectKey').
 groupByKey :: Grouped k v -> Topology (KStream k v) (KGroupedStream k v)
-groupByKey = GroupByKey
+groupByKey = liftPrim . GroupByKey
 
 -- | Group by a derived key. The supplied function picks a new
 -- key per 'Record'; the upstream value is preserved.
@@ -2420,7 +1981,7 @@ groupByKey = GroupByKey
 groupBy
   :: (Record k v -> k') -> Grouped k' v
   -> Topology (KStream k v) (KGroupedStream k' v)
-groupBy = GroupBy
+groupBy f g = liftPrim (GroupBy f g)
 
 -- | Count records per key. The resulting 'KTable' maps each
 -- key to the number of records seen for it.
@@ -2435,7 +1996,7 @@ count
   :: Ord k
   => Materialized k Int64
   -> Topology (KGroupedStream k v) (KTable k Int64)
-count = Count
+count = liftPrim . Count
 
 -- | Combine values per key with a binary reducer of the same
 -- shape. The accumulator is initialised with the first value
@@ -2455,7 +2016,7 @@ reduce
   :: Ord k
   => (v -> v -> v) -> Materialized k v
   -> Topology (KGroupedStream k v) (KTable k v)
-reduce = Reduce
+reduce f m = liftPrim (Reduce f m)
 
 -- | General-shape per-key aggregator: the accumulator can be a
 -- different type from the value, the initialiser runs once
@@ -2481,7 +2042,7 @@ aggregate
   -> (k -> v -> agg -> agg)
   -> Materialized k agg
   -> Topology (KGroupedStream k v) (KTable k agg)
-aggregate = Aggregate
+aggregate seed step m = liftPrim (Aggregate seed step m)
 
 -- * Windowed aggregation ------------------------------------------
 --
@@ -2519,7 +2080,7 @@ aggregate = Aggregate
 windowedByTime
   :: Win.Windows
   -> Topology (KGroupedStream k v) (TimeWindowedKStream k v)
-windowedByTime = WindowedByTime
+windowedByTime = liftPrim . WindowedByTime
 
 -- | Bucket the grouped stream by /session/: a window stays open
 -- as long as new records arrive within the configured gap.
@@ -2537,7 +2098,7 @@ windowedByTime = WindowedByTime
 windowedBySession
   :: Win.SessionWindows
   -> Topology (KGroupedStream k v) (SessionWindowedKStream k v)
-windowedBySession = WindowedBySession
+windowedBySession = liftPrim . WindowedBySession
 
 -- | Count records per (key, window) pair. Mirrors 'count' for
 -- the time-windowed case.
@@ -2547,7 +2108,7 @@ countWindowed
   :: Ord k
   => Materialized k Int64
   -> Topology (TimeWindowedKStream k v) (TWKS.WindowedTableHandle k Int64)
-countWindowed = CountWindowed
+countWindowed = liftPrim . CountWindowed
 
 -- | Per-(key, window) reducer; the value type is unchanged.
 -- See 'reduce' for the associativity caveat.
@@ -2557,7 +2118,7 @@ reduceWindowed
   :: Ord k
   => (v -> v -> v) -> Materialized k v
   -> Topology (TimeWindowedKStream k v) (TWKS.WindowedTableHandle k v)
-reduceWindowed = ReduceWindowed
+reduceWindowed f m = liftPrim (ReduceWindowed f m)
 
 -- | General-shape per-(key, window) aggregator with an
 -- accumulator type that may differ from the input value.
@@ -2568,7 +2129,7 @@ aggregateWindowed
   :: Ord k
   => IO agg -> (k -> v -> agg -> agg) -> Materialized k agg
   -> Topology (TimeWindowedKStream k v) (TWKS.WindowedTableHandle k agg)
-aggregateWindowed = AggregateWindowed
+aggregateWindowed seed step m = liftPrim (AggregateWindowed seed step m)
 
 -- | Count records per (key, session). Mirrors 'count' for the
 -- session-windowed case; no merger needed since the
@@ -2579,7 +2140,7 @@ countSessionWindowed
   :: Ord k
   => Materialized k Int64
   -> Topology (SessionWindowedKStream k v) (SWKS.SessionWindowedTableHandle k Int64)
-countSessionWindowed = CountSessionWindowed
+countSessionWindowed = liftPrim . CountSessionWindowed
 
 -- | Session-windowed aggregator with an explicit merger.
 -- When two adjacent sessions are merged (because a late
@@ -2598,7 +2159,8 @@ aggregateSessionWindowed
   -> (k -> agg -> agg -> agg)
   -> Materialized k agg
   -> Topology (SessionWindowedKStream k v) (SWKS.SessionWindowedTableHandle k agg)
-aggregateSessionWindowed = AggregateSessionWindowed
+aggregateSessionWindowed seed step merger m =
+  liftPrim (AggregateSessionWindowed seed step merger m)
 
 -- * KGroupedTable -------------------------------------------------
 --
@@ -2625,7 +2187,7 @@ groupTableBy
   :: (Ord k, Ord k')
   => (k -> v -> (k', v')) -> Grouped k' v'
   -> Topology (KTable k v) (KGroupedTable k' v')
-groupTableBy = GroupTableBy
+groupTableBy f g = liftPrim (GroupTableBy f g)
 
 -- | Count grouped-table records per derived key. The
 -- subtractor is implicit (decrement) and the adder is
@@ -2637,7 +2199,7 @@ countKGroupedTable
   :: Ord k
   => Materialized k Int64
   -> Topology (KGroupedTable k v) (KTable k Int64)
-countKGroupedTable = CountKGroupedTable
+countKGroupedTable = liftPrim . CountKGroupedTable
 
 -- | Reduce grouped-table records per derived key with explicit
 -- adder + subtractor functions. The subtractor is applied
@@ -2653,7 +2215,7 @@ reduceKGroupedTable
   :: Ord k
   => (v -> v -> v) -> (v -> v -> v) -> Materialized k v
   -> Topology (KGroupedTable k v) (KTable k v)
-reduceKGroupedTable = ReduceKGroupedTable
+reduceKGroupedTable add sub m = liftPrim (ReduceKGroupedTable add sub m)
 
 -- | General-shape subtractor-aware aggregator. The
 -- accumulator may differ from the input value; both adder
@@ -2668,7 +2230,8 @@ aggregateKGroupedTable
   -> (k -> v -> agg -> agg)
   -> Materialized k agg
   -> Topology (KGroupedTable k v) (KTable k agg)
-aggregateKGroupedTable = AggregateKGroupedTable
+aggregateKGroupedTable seed add sub m =
+  liftPrim (AggregateKGroupedTable seed add sub m)
 
 -- * Cogroup -------------------------------------------------------
 --
@@ -2691,7 +2254,7 @@ aggregateKGroupedTable = AggregateKGroupedTable
 cogroup
   :: (k -> v -> a -> a)
   -> Topology (KGroupedStream k v) (CogroupedStream k a)
-cogroup = Cogroup
+cogroup = liftPrim . Cogroup
 
 -- | Extend a cogroup with another grouped-stream source. The
 -- input is a tuple: bring the existing cogroup builder and
@@ -2702,7 +2265,7 @@ cogroup = Cogroup
 addCogrouped
   :: (k -> v -> a -> a)
   -> Topology (CogroupedStream k a, KGroupedStream k v) (CogroupedStream k a)
-addCogrouped = AddCogrouped
+addCogrouped = liftPrim . AddCogrouped
 
 -- | Close out a cogroup builder and emit its result as a
 -- 'KTable'. The initialiser allocates the accumulator (once
@@ -2714,7 +2277,7 @@ aggregateCogrouped
   :: Ord k
   => IO a -> Materialized k a
   -> Topology (CogroupedStream k a) (KTable k a)
-aggregateCogrouped = AggregateCogrouped
+aggregateCogrouped seed m = liftPrim (AggregateCogrouped seed m)
 
 -- * Joins ---------------------------------------------------------
 --
@@ -2743,7 +2306,7 @@ streamTableJoin
   :: Ord k
   => (v -> vt -> v') -> Joined k v vt
   -> Topology (KStream k v, KTable k vt) (KStream k v')
-streamTableJoin = StreamTableJoin
+streamTableJoin j jo = liftPrim (StreamTableJoin j jo)
 
 -- | Stream-table /left/ join: emit @joiner v (Just vt)@ when
 -- the key matches, @joiner v Nothing@ when it doesn't. Every
@@ -2755,7 +2318,7 @@ streamTableLeftJoin
   :: Ord k
   => (v -> Maybe vt -> v') -> Joined k v vt
   -> Topology (KStream k v, KTable k vt) (KStream k v')
-streamTableLeftJoin = StreamTableLeftJoin
+streamTableLeftJoin j jo = liftPrim (StreamTableLeftJoin j jo)
 
 -- | Stream-stream /windowed inner/ join. Two stream records
 -- match if their keys are equal and their timestamps are
@@ -2772,7 +2335,7 @@ streamStreamJoin
   => (v1 -> v2 -> v')
   -> JoinWindows -> Joined k v1 v2
   -> Topology (KStream k v1, KStream k v2) (KStream k v')
-streamStreamJoin = StreamStreamJoin
+streamStreamJoin j w jo = liftPrim (StreamStreamJoin j w jo)
 
 -- | Stream-stream /windowed left/ join. Every left record
 -- emits at least once: with @'Just' v2@ for each match, or
@@ -2786,7 +2349,7 @@ streamStreamLeftJoin
   => (v1 -> Maybe v2 -> v')
   -> JoinWindows -> Joined k v1 v2
   -> Topology (KStream k v1, KStream k v2) (KStream k v')
-streamStreamLeftJoin = StreamStreamLeftJoin
+streamStreamLeftJoin j w jo = liftPrim (StreamStreamLeftJoin j w jo)
 
 -- | Stream-stream /windowed outer/ join. Both sides emit at
 -- least once; the joiner takes 'Maybe' on both sides because
@@ -2798,7 +2361,7 @@ streamStreamOuterJoin
   => (Maybe v1 -> Maybe v2 -> v')
   -> JoinWindows -> Joined k v1 v2
   -> Topology (KStream k v1, KStream k v2) (KStream k v')
-streamStreamOuterJoin = StreamStreamOuterJoin
+streamStreamOuterJoin j w jo = liftPrim (StreamStreamOuterJoin j w jo)
 
 -- | Table-table /inner/ join. The output is a 'KTable' that
 -- updates whenever either side updates. Materialised via the
@@ -2809,7 +2372,7 @@ tableTableJoin
   :: Ord k
   => (v1 -> v2 -> v') -> Materialized k v'
   -> Topology (KTable k v1, KTable k v2) (KTable k v')
-tableTableJoin = TableTableJoin
+tableTableJoin j m = liftPrim (TableTableJoin j m)
 
 -- | Table-table /left/ join: emit even when the right side
 -- has no value (joiner sees 'Nothing').
@@ -2819,7 +2382,7 @@ tableTableLeftJoin
   :: Ord k
   => (v1 -> Maybe v2 -> v') -> Materialized k v'
   -> Topology (KTable k v1, KTable k v2) (KTable k v')
-tableTableLeftJoin = TableTableLeftJoin
+tableTableLeftJoin j m = liftPrim (TableTableLeftJoin j m)
 
 -- | Table-table /outer/ join: emit whenever either side has a
 -- value (joiner sees 'Maybe' on both sides).
@@ -2829,7 +2392,7 @@ tableTableOuterJoin
   :: Ord k
   => (Maybe v1 -> Maybe v2 -> v') -> Materialized k v'
   -> Topology (KTable k v1, KTable k v2) (KTable k v')
-tableTableOuterJoin = TableTableOuterJoin
+tableTableOuterJoin j m = liftPrim (TableTableOuterJoin j m)
 
 -- | Foreign-key KTable-KTable /inner/ join (KIP-213). The
 -- /left/ table is keyed by @k@; the /right/ table is keyed by
@@ -2849,7 +2412,7 @@ foreignKeyJoin
   -> (v -> vr -> v')
   -> Materialized k v'
   -> Topology (KTable k v, KTable fk vr) (KTable k v')
-foreignKeyJoin = ForeignKeyJoin
+foreignKeyJoin ext j m = liftPrim (ForeignKeyJoin ext j m)
 
 -- | Foreign-key KTable-KTable /left/ join: emit even when the
 -- right table has no entry for the extracted foreign key
@@ -2862,7 +2425,7 @@ leftForeignKeyJoin
   -> (v -> Maybe vr -> v')
   -> Materialized k v'
   -> Topology (KTable k v, KTable fk vr) (KTable k v')
-leftForeignKeyJoin = LeftForeignKeyJoin
+leftForeignKeyJoin ext j m = liftPrim (LeftForeignKeyJoin ext j m)
 
 -- | Stream-globalTable /inner/ join. The key-mapper picks a
 -- foreign key out of each stream record; the global table is
@@ -2879,7 +2442,7 @@ streamGlobalTableJoin
   => (k -> v -> kg)
   -> (v -> vg -> v')
   -> Topology (KStream k v, GlobalKTable kg vg) (KStream k v')
-streamGlobalTableJoin = StreamGlobalTableJoin
+streamGlobalTableJoin km j = liftPrim (StreamGlobalTableJoin km j)
 
 -- | Stream-globalTable /left/ join: emit even when the
 -- global-table lookup misses (joiner sees 'Nothing').
@@ -2890,7 +2453,7 @@ streamGlobalTableLeftJoin
   => (k -> v -> kg)
   -> (v -> Maybe vg -> v')
   -> Topology (KStream k v, GlobalKTable kg vg) (KStream k v')
-streamGlobalTableLeftJoin = StreamGlobalTableLeftJoin
+streamGlobalTableLeftJoin km j = liftPrim (StreamGlobalTableLeftJoin km j)
 
 -- * KTable surface ------------------------------------------------
 --
@@ -2909,7 +2472,7 @@ filterTable
   :: Ord k
   => (Record k v -> Bool) -> Materialized k v
   -> Topology (KTable k v) (KTable k v)
-filterTable = FilterTable
+filterTable p m = liftPrim (FilterTable p m)
 
 -- | Inverse of 'filterTable': records matching the predicate
 -- are tombstoned out. Implemented as
@@ -2921,7 +2484,7 @@ filterNotTable
   :: Ord k
   => (Record k v -> Bool) -> Materialized k v
   -> Topology (KTable k v) (KTable k v)
-filterNotTable = FilterNotTable
+filterNotTable p m = liftPrim (FilterNotTable p m)
 
 -- | Map values in a 'KTable'. The key is preserved; the value
 -- type may change. A new state store is created for the
@@ -2932,7 +2495,7 @@ mapValuesTable
   :: Ord k
   => (v -> v') -> Materialized k v'
   -> Topology (KTable k v) (KTable k v')
-mapValuesTable = MapValuesTable
+mapValuesTable f m = liftPrim (MapValuesTable f m)
 
 -- | Custom-processor transform of a 'KTable'. The processor
 -- receives table-update records and can read/write the
@@ -2948,7 +2511,8 @@ transformValuesTable
   -> [StoreName]
   -> Materialized k v'
   -> Topology (KTable k v) (KTable k v')
-transformValuesTable = TransformValuesTable
+transformValuesTable nm sup stores m =
+  liftPrim (TransformValuesTable nm sup stores m)
 
 -- * Suppress ------------------------------------------------------
 
@@ -2966,7 +2530,7 @@ transformValuesTable = TransformValuesTable
 -- quiet period.
 suppressUntilTimeLimit
   :: Ord k => Duration -> Topology (KStream k v) (KStream k v)
-suppressUntilTimeLimit = SuppressUntilTimeLimit
+suppressUntilTimeLimit = liftPrim . SuppressUntilTimeLimit
 
 -- | Suppress all updates to a windowed key until the window
 -- has closed (i.e. stream time has advanced past
@@ -2983,7 +2547,7 @@ suppressWindowed
   :: Ord k
   => Duration -> Int64
   -> Topology (KStream (WindowedKey k) v) (KStream (WindowedKey k) v)
-suppressWindowed = SuppressWindowedKS
+suppressWindowed g sz = liftPrim (SuppressWindowedKS g sz)
 
 -- * Processor API -------------------------------------------------
 --
@@ -3021,7 +2585,7 @@ suppressWindowed = SuppressWindowedKS
 processStream
   :: Text -> [StoreName] -> IO (Processor k v)
   -> Topology (KStream k v) ()
-processStream = ProcessStream
+processStream nm stores sup = liftPrim (ProcessStream nm stores sup)
 
 -- | Attach a custom processor that produces a typed
 -- downstream 'KStream'. The output value type and serde
@@ -3035,7 +2599,8 @@ processStream = ProcessStream
 processValuesStream
   :: Text -> [StoreName] -> IO (Processor k v) -> Serde v'
   -> Topology (KStream k v) (KStream k v')
-processValuesStream = ProcessValuesStream
+processValuesStream nm stores sup vs =
+  liftPrim (ProcessValuesStream nm stores sup vs)
 
 -- | Legacy /transformValues/ wiring: same as
 -- 'processValuesStream' but the store list is typed as
@@ -3047,7 +2612,8 @@ transformValuesStream
   -> IO (Processor k v)
   -> Serde v'
   -> Topology (KStream k v) (KStream k v')
-transformValuesStream = TransformValuesStreamT
+transformValuesStream nm stores sup vs =
+  liftPrim (TransformValuesStreamT nm stores sup vs)
 
 -- | Register a 'StoreBuilderKV' against the topology graph
 -- and grant access to the named owner processors. Wire is
@@ -3068,19 +2634,19 @@ transformValuesStream = TransformValuesStreamT
 --     'liftIO_' with known node names.
 withStateStoreKV
   :: StoreBuilderKV k v -> [Topo.NodeName] -> Topology x x
-withStateStoreKV = WithStateStoreKV
+withStateStoreKV b owners = liftPrim (WithStateStoreKV b owners)
 
 -- | 'withStateStoreKV' for a /window/ state store. Same
 -- semantics: register the store, grant access to the named
 -- owner processors, wire passes through unchanged.
 withStateStoreW
   :: StoreBuilderW k v -> [Topo.NodeName] -> Topology x x
-withStateStoreW = WithStateStoreW
+withStateStoreW b owners = liftPrim (WithStateStoreW b owners)
 
 -- | 'withStateStoreKV' for a /session/ state store.
 withStateStoreS
   :: StoreBuilderS k v -> [Topo.NodeName] -> Topology x x
-withStateStoreS = WithStateStoreS
+withStateStoreS b owners = liftPrim (WithStateStoreS b owners)
 
 -- | Atomically attach a custom 'Processor' /and/ its
 -- 'StoreBuilderKV' to the upstream 'KStream'. The compiler
@@ -3102,21 +2668,24 @@ processWithStateStoreKV
   -> StoreBuilderKV stk stv
   -> IO (Processor k v)
   -> Topology (KStream k v) ()
-processWithStateStoreKV = ProcessWithStateStoreKV
+processWithStateStoreKV prefix builder sup =
+  liftPrim (ProcessWithStateStoreKV prefix builder sup)
 
 processWithStateStoreW
   :: Text
   -> StoreBuilderW stk stv
   -> IO (Processor k v)
   -> Topology (KStream k v) ()
-processWithStateStoreW = ProcessWithStateStoreW
+processWithStateStoreW prefix builder sup =
+  liftPrim (ProcessWithStateStoreW prefix builder sup)
 
 processWithStateStoreS
   :: Text
   -> StoreBuilderS stk stv
   -> IO (Processor k v)
   -> Topology (KStream k v) ()
-processWithStateStoreS = ProcessWithStateStoreS
+processWithStateStoreS prefix builder sup =
+  liftPrim (ProcessWithStateStoreS prefix builder sup)
 
 ----------------------------------------------------------------------
 -- Escape hatch + introspection
@@ -3170,7 +2739,7 @@ liftIO_
   :: Text
   -> (StreamsBuilder -> i -> IO o)
   -> Topology i o
-liftIO_ = Lifted
+liftIO_ nm act = liftPrim (Lifted nm act)
 
 -- | Walk the AST and collect a per-node textual label
 -- listing.
@@ -3208,136 +2777,102 @@ liftIO_ = Lifted
 --   * The continuation of a 'Bind' is opaque — 'inspect'
 --     shows the left side and a single @"…>"@ marker.
 inspect :: Topology i o -> [Text]
-inspect = go
-  where
-    go :: Topology x y -> [Text]
-    -- Category / Arrow
-    go Id              = ["Id"]
-    go (Compose g f)   = go f ++ go g
-    go (Arr _)         = ["Arr"]
-    go (First t)       = "First<" : go t ++ [">"]
-    go (Second t)      = "Second<" : go t ++ [">"]
-    go (Parallel p q)  = "Parallel<" : go p ++ "|" : go q ++ [">"]
-    go (Fanout p q)    = "Fanout<"   : go p ++ "|" : go q ++ [">"]
-    go (LeftT t)       = "Left<"     : go t ++ [">"]
-    go (RightT t)      = "Right<"    : go t ++ [">"]
-    go (Plus p q)      = "Plus<"     : go p ++ "|" : go q ++ [">"]
-    go (Fanin p q)     = "Fanin<"    : go p ++ "|" : go q ++ [">"]
-    -- Lineage
-    go Fork            = ["Fork"]
-    go (ForkN ts)      =
-      "ForkN<" : concatMap go (NE.toList ts) ++ [">"]
-    go (Tap t)         = "Tap<" : go t ++ [">"]
-    go (Split bs md)
-      = [ "Split(" <> T.intercalate "|" (Prelude.map sbName bs)
-        <> maybe "" (\d -> "+default=" <> d) md
-        <> ")" ]
-    -- Sources
-    go (Source t _)         = ["Source(" <> showTopic t <> ")"]
-    go (SourceMulti ts _)
-      = [ "SourceMulti("
-          <> T.intercalate "," (Prelude.map showTopic (NE.toList ts))
-          <> ")" ]
-    go (TableSource t _ _)  = ["TableSource(" <> showTopic t <> ")"]
-    go (GlobalSource t _ _) = ["GlobalSource(" <> showTopic t <> ")"]
-    -- Sinks
-    go (Sink t _)           = ["Sink(" <> showTopic t <> ")"]
-    go (SinkExtracted _ _)  = ["SinkExtracted"]
-    go (Through t _)        = ["Through(" <> showTopic t <> ")"]
-    -- Monad bind — opaque continuation
-    go (Bind t _)           = "Bind<" : go t ++ ["…>"]
-    -- Stateless
-    go (MapValues _)        = ["MapValues"]
-    go (MapValuesM _)       = ["MapValuesM"]
-    go (MapKeyValue _)      = ["MapKeyValue"]
-    go (MapKeyValueM _)     = ["MapKeyValueM"]
-    go (Filter _)           = ["Filter"]
-    go (FilterNot _)        = ["FilterNot"]
-    go (FlatMapValues _)    = ["FlatMapValues"]
-    go (FlatMapKeyValue _)  = ["FlatMapKeyValue"]
-    go (Peek _)             = ["Peek"]
-    go (Foreach _)          = ["Foreach"]
-    go (SelectKey _)        = ["SelectKey"]
-    go Values               = ["Values"]
-    go (Print nm _)         = ["Print(" <> nm <> ")"]
-    -- Composition
-    go Merge                = ["Merge"]
-    go MergeAll             = ["MergeAll"]
-    go (Branch ps)
-      = ["Branch(" <> T.pack (show (length ps)) <> ")"]
-    -- Conversions
-    go (ToTableT _)         = ["ToTable"]
-    go ToStream             = ["ToStream"]
-    go (Repartition pfx)    = ["Repartition(" <> pfx <> ")"]
-    go (RepartitionWith _)  = ["RepartitionWith"]
-    -- Aggregation
-    go (GroupByKey _)       = ["GroupByKey"]
-    go (GroupBy _ _)        = ["GroupBy"]
-    go (Count _)            = ["Count"]
-    go (Reduce _ _)         = ["Reduce"]
-    go (Aggregate _ _ _)    = ["Aggregate"]
-    -- Windowed
-    go (WindowedByTime _)        = ["WindowedByTime"]
-    go (WindowedBySession _)     = ["WindowedBySession"]
-    go (CountWindowed _)         = ["CountWindowed"]
-    go (ReduceWindowed _ _)      = ["ReduceWindowed"]
-    go (AggregateWindowed _ _ _) = ["AggregateWindowed"]
-    go (CountSessionWindowed _)  = ["CountSessionWindowed"]
-    go (AggregateSessionWindowed _ _ _ _) = ["AggregateSessionWindowed"]
-    -- KGroupedTable
-    go (GroupTableBy _ _)             = ["GroupTableBy"]
-    go (CountKGroupedTable _)         = ["CountKGroupedTable"]
-    go (ReduceKGroupedTable _ _ _)    = ["ReduceKGroupedTable"]
-    go (AggregateKGroupedTable _ _ _ _) = ["AggregateKGroupedTable"]
-    -- Cogroup
-    go (Cogroup _)                    = ["Cogroup"]
-    go (AddCogrouped _)               = ["AddCogrouped"]
-    go (AggregateCogrouped _ _)       = ["AggregateCogrouped"]
-    -- Joins
-    go (StreamTableJoin _ _)          = ["StreamTableJoin"]
-    go (StreamTableLeftJoin _ _)      = ["StreamTableLeftJoin"]
-    go (StreamStreamJoin _ _ _)       = ["StreamStreamJoin"]
-    go (StreamStreamLeftJoin _ _ _)   = ["StreamStreamLeftJoin"]
-    go (StreamStreamOuterJoin _ _ _)  = ["StreamStreamOuterJoin"]
-    go (TableTableJoin _ _)           = ["TableTableJoin"]
-    go (TableTableLeftJoin _ _)       = ["TableTableLeftJoin"]
-    go (TableTableOuterJoin _ _)      = ["TableTableOuterJoin"]
-    go (ForeignKeyJoin _ _ _)         = ["ForeignKeyJoin"]
-    go (LeftForeignKeyJoin _ _ _)     = ["LeftForeignKeyJoin"]
-    go (StreamGlobalTableJoin _ _)    = ["StreamGlobalTableJoin"]
-    go (StreamGlobalTableLeftJoin _ _) = ["StreamGlobalTableLeftJoin"]
-    -- KTable
-    go (FilterTable _ _)              = ["FilterTable"]
-    go (FilterNotTable _ _)           = ["FilterNotTable"]
-    go (MapValuesTable _ _)           = ["MapValuesTable"]
-    go (TransformValuesTable nm _ _ _)
-      = ["TransformValuesTable(" <> nm <> ")"]
-    -- Suppress
-    go (SuppressUntilTimeLimit _)     = ["SuppressUntilTimeLimit"]
-    go (SuppressWindowedKS _ _)       = ["SuppressWindowed"]
-    -- Processor API
-    go (ProcessStream nm _ _)         = ["ProcessStream(" <> nm <> ")"]
-    go (ProcessValuesStream nm _ _ _) = ["ProcessValuesStream(" <> nm <> ")"]
-    go (TransformValuesStreamT nm _ _ _)
-      = ["TransformValuesStream(" <> nm <> ")"]
-    go (WithStateStoreKV b _)
-      = ["WithStateStoreKV(" <> Store.unStoreName (Store.sbKvName b) <> ")"]
-    go (WithStateStoreW b _)
-      = ["WithStateStoreW("  <> Store.unStoreName (Store.sbWName  b) <> ")"]
-    go (WithStateStoreS b _)
-      = ["WithStateStoreS("  <> Store.unStoreName (Store.sbSName  b) <> ")"]
-    go (ProcessWithStateStoreKV nm b _)
-      = [ "ProcessWithStateStoreKV(" <> nm <> "," <>
-            Store.unStoreName (Store.sbKvName b) <> ")" ]
-    go (ProcessWithStateStoreW nm b _)
-      = [ "ProcessWithStateStoreW(" <> nm <> "," <>
-            Store.unStoreName (Store.sbWName b) <> ")" ]
-    go (ProcessWithStateStoreS nm b _)
-      = [ "ProcessWithStateStoreS(" <> nm <> "," <>
-            Store.unStoreName (Store.sbSName b) <> ")" ]
-    -- Escape
-    go (Lifted nm _)                  = ["Lifted(" <> nm <> ")"]
+inspect = FA.inspectFA labelPrim
 
+-- | A single textual token for a 'Prim' constructor. Used by
+-- 'inspect', 'applyTraced', 'inspectDeep', 'prettyPrint', and
+-- the Graphviz renderer.
+labelPrim :: forall i o. Prim i o -> Text
+labelPrim p0 = case p0 of
+  Split bs md ->
+    "Split(" <> T.intercalate "|" (Prelude.map sbName bs)
+      <> maybe "" (\d -> "+default=" <> d) md <> ")"
+  Source t _         -> "Source(" <> showTopic t <> ")"
+  SourceMulti ts _   ->
+    "SourceMulti(" <> T.intercalate "," (Prelude.map showTopic (NE.toList ts))
+      <> ")"
+  TableSource t _ _  -> "TableSource("  <> showTopic t <> ")"
+  GlobalSource t _ _ -> "GlobalSource(" <> showTopic t <> ")"
+  Sink t _           -> "Sink("         <> showTopic t <> ")"
+  SinkExtracted _ _  -> "SinkExtracted"
+  Through t _        -> "Through("      <> showTopic t <> ")"
+  MapValues _        -> "MapValues"
+  MapValuesM _       -> "MapValuesM"
+  MapKeyValue _      -> "MapKeyValue"
+  MapKeyValueM _     -> "MapKeyValueM"
+  Filter _           -> "Filter"
+  FilterNot _        -> "FilterNot"
+  FlatMapValues _    -> "FlatMapValues"
+  FlatMapKeyValue _  -> "FlatMapKeyValue"
+  Peek _             -> "Peek"
+  Foreach _          -> "Foreach"
+  SelectKey _        -> "SelectKey"
+  Values             -> "Values"
+  Print nm _         -> "Print(" <> nm <> ")"
+  Merge              -> "Merge"
+  MergeAll           -> "MergeAll"
+  Branch ps          -> "Branch(" <> T.pack (show (length ps)) <> ")"
+  ToTableT _         -> "ToTable"
+  ToStream           -> "ToStream"
+  Repartition pfx    -> "Repartition(" <> pfx <> ")"
+  RepartitionWith _  -> "RepartitionWith"
+  GroupByKey _       -> "GroupByKey"
+  GroupBy _ _        -> "GroupBy"
+  Count _            -> "Count"
+  Reduce _ _         -> "Reduce"
+  Aggregate _ _ _    -> "Aggregate"
+  WindowedByTime _   -> "WindowedByTime"
+  WindowedBySession _ -> "WindowedBySession"
+  CountWindowed _    -> "CountWindowed"
+  ReduceWindowed _ _ -> "ReduceWindowed"
+  AggregateWindowed _ _ _ -> "AggregateWindowed"
+  CountSessionWindowed _  -> "CountSessionWindowed"
+  AggregateSessionWindowed _ _ _ _ -> "AggregateSessionWindowed"
+  GroupTableBy _ _                 -> "GroupTableBy"
+  CountKGroupedTable _             -> "CountKGroupedTable"
+  ReduceKGroupedTable _ _ _        -> "ReduceKGroupedTable"
+  AggregateKGroupedTable _ _ _ _   -> "AggregateKGroupedTable"
+  Cogroup _                        -> "Cogroup"
+  AddCogrouped _                   -> "AddCogrouped"
+  AggregateCogrouped _ _           -> "AggregateCogrouped"
+  StreamTableJoin _ _              -> "StreamTableJoin"
+  StreamTableLeftJoin _ _          -> "StreamTableLeftJoin"
+  StreamStreamJoin _ _ _           -> "StreamStreamJoin"
+  StreamStreamLeftJoin _ _ _       -> "StreamStreamLeftJoin"
+  StreamStreamOuterJoin _ _ _      -> "StreamStreamOuterJoin"
+  TableTableJoin _ _               -> "TableTableJoin"
+  TableTableLeftJoin _ _           -> "TableTableLeftJoin"
+  TableTableOuterJoin _ _          -> "TableTableOuterJoin"
+  ForeignKeyJoin _ _ _             -> "ForeignKeyJoin"
+  LeftForeignKeyJoin _ _ _         -> "LeftForeignKeyJoin"
+  StreamGlobalTableJoin _ _        -> "StreamGlobalTableJoin"
+  StreamGlobalTableLeftJoin _ _    -> "StreamGlobalTableLeftJoin"
+  FilterTable _ _                  -> "FilterTable"
+  FilterNotTable _ _               -> "FilterNotTable"
+  MapValuesTable _ _               -> "MapValuesTable"
+  TransformValuesTable nm _ _ _    -> "TransformValuesTable(" <> nm <> ")"
+  SuppressUntilTimeLimit _         -> "SuppressUntilTimeLimit"
+  SuppressWindowedKS _ _           -> "SuppressWindowed"
+  ProcessStream nm _ _             -> "ProcessStream(" <> nm <> ")"
+  ProcessValuesStream nm _ _ _     -> "ProcessValuesStream(" <> nm <> ")"
+  TransformValuesStreamT nm _ _ _  -> "TransformValuesStream(" <> nm <> ")"
+  WithStateStoreKV b _             ->
+    "WithStateStoreKV(" <> Store.unStoreName (Store.sbKvName b) <> ")"
+  WithStateStoreW b _              ->
+    "WithStateStoreW("  <> Store.unStoreName (Store.sbWName  b) <> ")"
+  WithStateStoreS b _              ->
+    "WithStateStoreS("  <> Store.unStoreName (Store.sbSName  b) <> ")"
+  ProcessWithStateStoreKV nm b _   ->
+    "ProcessWithStateStoreKV(" <> nm <> ","
+      <> Store.unStoreName (Store.sbKvName b) <> ")"
+  ProcessWithStateStoreW nm b _    ->
+    "ProcessWithStateStoreW(" <> nm <> ","
+      <> Store.unStoreName (Store.sbWName b) <> ")"
+  ProcessWithStateStoreS nm b _    ->
+    "ProcessWithStateStoreS(" <> nm <> ","
+      <> Store.unStoreName (Store.sbSName b) <> ")"
+  Lifted nm _                      -> "Lifted(" <> nm <> ")"
+  where
     showTopic :: TopicName -> Text
     showTopic = T.pack . show
 
@@ -3387,10 +2922,7 @@ inspect = go
 inspectDeep :: Topology Void o -> [Text]
 inspectDeep t = IOUnsafe.unsafePerformIO $ do
   b <- newStreamsBuilder
-  ref <- newIORef ([] :: [[Text]])
-  _ <- applyTraced (\tok -> modifyIORef' ref (tok :)) b t voidInput
-  collected <- readIORef ref
-  pure (concat (reverse collected))
+  FA.inspectFADeep labelPrim (runPrim b) t voidInput
   where
     voidInput :: Void
     voidInput = Exception.throw (VoidInputForced "inspectDeep")
@@ -3406,19 +2938,12 @@ applyTraced
   -> Topology i o
   -> i
   -> IO o
-applyTraced tracer b = go
-  where
-    trace :: [Text] -> IO ()
-    trace = tracer
+applyTraced tracer b = FA.interpretTraced tracer labelPrim (runPrim b)
 
-    go :: forall x y. Topology x y -> x -> IO y
-    -- Category / Arrow
-    go Id i              = trace ["Id"] >> pure i
-    go (Compose g f) i   = do
-      -- Compose itself contributes no token; the children's
-      -- tokens are emitted in their own walks. (Matches 'inspect'.)
-      !mid <- go f i
-      go g mid
+{-
+    -- Dead code below — kept here only because deleting via the
+    -- string-replace tool is awkward. Will be removed in a
+    -- follow-up commit.
     go (Arr fn) i        = trace ["Arr"] >> pure (fn i)
     go (First t')  (a, c) = do
       trace ["First<"]
@@ -3729,6 +3254,7 @@ applyTraced tracer b = go
 
     showTopic :: TopicName -> Text
     showTopic = T.pack . show
+-}
 
 -- | Render an AST as a single-line whitespace-separated
 -- description. Built by 'T.intercalate'-ing the output of
@@ -3972,6 +3498,12 @@ optimizeWith cfg = loop (optMaxPasses cfg)
        in if after < before then loop (n - 1) t' else t'
 
 -- | One bottom-up rewrite pass.
+--
+-- The framework cases ('Compose', 'First', 'Second', etc.) are
+-- handled in the same shape they were before the migration; the
+-- primitive matches in 'fuseStep' / 'collapseTap' now reach
+-- through the 'Lift' wrapper that 'FreeArrow' uses to embed
+-- 'Prim' nodes.
 optimizePass :: OptimizeConfig -> Topology i o -> Topology i o
 optimizePass cfg = go
   where
@@ -3987,12 +3519,7 @@ optimizePass cfg = go
     go (Fanin p q)   = Fanin (go p) (go q)
     go (ForkN ts)    = ForkN (NE.map go ts)
     go (Tap t)       = collapseTap cfg (go t)
-    -- Optimise the LHS of a 'Bind'; the continuation is opaque so
-    -- we leave it untouched. Branches threaded out of @k@ will
-    -- still be re-optimised by the recursive 'apply' walk at
-    -- interpretation time.
     go (Bind t k)    = Bind (go t) k
-    -- Leaf operators are unchanged; nothing to recurse into.
     go x             = x
 
 ----------------------------------------------------------------------
@@ -4045,13 +3572,13 @@ collapsePlus cfg Id Id | optCollapseIdentity cfg = Id
 collapsePlus _ p q = Plus p q
 
 collapseTap :: OptimizeConfig -> Topology a () -> Topology a a
-collapseTap cfg Id                | optCollapseIdentity cfg = Id
+collapseTap cfg Id                       | optCollapseIdentity cfg = Id
 -- 'Tap (Foreach f)' is exactly 'Peek f' — both run an effect on
 -- every record and pass the wire through. We recognise this
 -- standalone form here in addition to the @Compose@ boundary
 -- form in 'fuseStep' so single-node @Tap (Foreach f)@ also
 -- collapses.
-collapseTap cfg (Foreach act)     | optFusePeeks cfg = Peek act
+collapseTap cfg (Lift (Foreach act))     | optFusePeeks cfg = liftPrim (Peek act)
 collapseTap _ t = Tap t
 
 ----------------------------------------------------------------------
@@ -4100,110 +3627,100 @@ fuseStep cfg g f = case (g, f) of
   (Arr g', Arr f') | optFusePureFunctions cfg -> Just (Arr (g' . f'))
 
   -- MapValues family
-  (MapValues g', MapValues f') | optFuseMaps cfg ->
-    Just (MapValues (g' . f'))
-  (MapValuesM g', MapValues f') | optFuseMaps cfg ->
-    Just (MapValuesM (g' . f'))
-  (MapValues g', MapValuesM f') | optFuseMaps cfg ->
-    Just (MapValuesM (\v -> g' <$> f' v))
-  (MapValuesM g', MapValuesM f') | optFuseMaps cfg ->
-    Just (MapValuesM (\v -> f' v >>= g'))
+  (Lift (MapValues g'), Lift (MapValues f')) | optFuseMaps cfg ->
+    Just (liftPrim (MapValues (g' . f')))
+  (Lift (MapValuesM g'), Lift (MapValues f')) | optFuseMaps cfg ->
+    Just (liftPrim (MapValuesM (g' . f')))
+  (Lift (MapValues g'), Lift (MapValuesM f')) | optFuseMaps cfg ->
+    Just (liftPrim (MapValuesM (\v -> g' <$> f' v)))
+  (Lift (MapValuesM g'), Lift (MapValuesM f')) | optFuseMaps cfg ->
+    Just (liftPrim (MapValuesM (\v -> f' v >>= g')))
 
   -- MapKeyValue family
-  (MapKeyValue g', MapKeyValue f') | optFuseMaps cfg ->
-    Just (MapKeyValue (\k v ->
-                         let (!k', !v') = f' k v
-                          in g' k' v'))
-  (MapKeyValueM g', MapKeyValue f') | optFuseMaps cfg ->
-    Just (MapKeyValueM (\k v ->
-                           let (!k', !v') = f' k v
-                            in g' k' v'))
-  (MapKeyValue g', MapKeyValueM f') | optFuseMaps cfg ->
-    Just (MapKeyValueM (\k v -> do
-                           (!k', !v') <- f' k v
-                           pure (g' k' v')))
-  (MapKeyValueM g', MapKeyValueM f') | optFuseMaps cfg ->
-    Just (MapKeyValueM (\k v -> do
-                            (!k', !v') <- f' k v
-                            g' k' v'))
+  (Lift (MapKeyValue g'), Lift (MapKeyValue f')) | optFuseMaps cfg ->
+    Just (liftPrim (MapKeyValue (\k v ->
+                                   let (!k', !v') = f' k v
+                                    in g' k' v')))
+  (Lift (MapKeyValueM g'), Lift (MapKeyValue f')) | optFuseMaps cfg ->
+    Just (liftPrim (MapKeyValueM (\k v ->
+                                     let (!k', !v') = f' k v
+                                      in g' k' v')))
+  (Lift (MapKeyValue g'), Lift (MapKeyValueM f')) | optFuseMaps cfg ->
+    Just (liftPrim (MapKeyValueM (\k v -> do
+                                     (!k', !v') <- f' k v
+                                     pure (g' k' v'))))
+  (Lift (MapKeyValueM g'), Lift (MapKeyValueM f')) | optFuseMaps cfg ->
+    Just (liftPrim (MapKeyValueM (\k v -> do
+                                      (!k', !v') <- f' k v
+                                      g' k' v')))
 
   -- FlatMap fusion
-  (FlatMapValues g', MapValues f') | optFuseFlatMaps cfg ->
-    Just (FlatMapValues (g' . f'))
-  (MapValues g', FlatMapValues f') | optFuseFlatMaps cfg ->
-    Just (FlatMapValues (fmap g' . f'))
-  (FlatMapValues g', FlatMapValues f') | optFuseFlatMaps cfg ->
-    Just (FlatMapValues (\v -> concatMap g' (f' v)))
+  (Lift (FlatMapValues g'), Lift (MapValues f')) | optFuseFlatMaps cfg ->
+    Just (liftPrim (FlatMapValues (g' . f')))
+  (Lift (MapValues g'), Lift (FlatMapValues f')) | optFuseFlatMaps cfg ->
+    Just (liftPrim (FlatMapValues (fmap g' . f')))
+  (Lift (FlatMapValues g'), Lift (FlatMapValues f')) | optFuseFlatMaps cfg ->
+    Just (liftPrim (FlatMapValues (\v -> concatMap g' (f' v))))
 
   -- Filter / FilterNot fusion. 'f' runs first, so the conjunction's
   -- left-hand side is the inner predicate.
-  (Filter p2, Filter p1) | optFuseFilters cfg ->
-    Just (Filter (\r -> p1 r && p2 r))
-  (FilterNot p2, FilterNot p1) | optFuseFilters cfg ->
-    Just (FilterNot (\r -> p1 r || p2 r))
-  (Filter p, FilterNot q) | optFuseFilters cfg ->
-    Just (Filter (\r -> not (q r) && p r))
-  (FilterNot q, Filter p) | optFuseFilters cfg ->
-    Just (Filter (\r -> p r && not (q r)))
+  (Lift (Filter p2), Lift (Filter p1)) | optFuseFilters cfg ->
+    Just (liftPrim (Filter (\r -> p1 r && p2 r)))
+  (Lift (FilterNot p2), Lift (FilterNot p1)) | optFuseFilters cfg ->
+    Just (liftPrim (FilterNot (\r -> p1 r || p2 r)))
+  (Lift (Filter p), Lift (FilterNot q)) | optFuseFilters cfg ->
+    Just (liftPrim (Filter (\r -> not (q r) && p r)))
+  (Lift (FilterNot q), Lift (Filter p)) | optFuseFilters cfg ->
+    Just (liftPrim (Filter (\r -> p r && not (q r))))
 
   -- SelectKey fusion. The outer 'SelectKey' sees the re-keyed
   -- record; we synthesise the intermediate 'Record k' v' for it.
-  (SelectKey g', SelectKey f') | optFuseSelectKeys cfg ->
-    Just (SelectKey (\r ->
+  (Lift (SelectKey g'), Lift (SelectKey f')) | optFuseSelectKeys cfg ->
+    Just (liftPrim (SelectKey (\r ->
             let !k' = f' r
                 !r' = r { recordKey = Just k' }
-             in g' r'))
+             in g' r')))
 
   -- Peek fusion. 'inner' runs first, then 'outer' — both observe
   -- the same record, no order change.
-  (Peek g', Peek f') | optFusePeeks cfg ->
-    Just (Peek (\r -> f' r >> g' r))
+  (Lift (Peek g'), Lift (Peek f')) | optFusePeeks cfg ->
+    Just (liftPrim (Peek (\r -> f' r >> g' r)))
 
   -- Foreach after Peek: the peek's side-effect ran, then the
   -- foreach's side effect runs on the same record and drops the
   -- wire. Fuse into a single 'Foreach' that runs both in order.
-  (Foreach g', Peek f') | optFusePeeks cfg ->
-    Just (Foreach (\r -> f' r >> g' r))
+  (Lift (Foreach g'), Lift (Peek f')) | optFusePeeks cfg ->
+    Just (liftPrim (Foreach (\r -> f' r >> g' r)))
 
   -- 'GroupBy' subsumes 'SelectKey >>> GroupByKey': re-key + group
   -- in a single processor. Mirrors Java's guidance to prefer
   -- @groupBy@ over @selectKey + groupByKey@. The 'Grouped' carries
   -- the new key serde so it stays on 'GroupBy'.
-  (GroupByKey g', SelectKey f') | optFuseSelectKeyIntoGroupBy cfg ->
-    Just (GroupBy f' g')
+  (Lift (GroupByKey g'), Lift (SelectKey f')) | optFuseSelectKeyIntoGroupBy cfg ->
+    Just (liftPrim (GroupBy f' g'))
 
-  -- Repartition idempotence: a second 'Repartition' with no
-  -- key-change between it and the first is a redundant shuffle.
-  -- The outer wins because its prefix is the one the broker
-  -- topic will be named after.
-  (Repartition pfx2, Repartition _pfx1) | optCollapseRepartition cfg ->
-    Just (Repartition pfx2)
-  (RepartitionWith cfg2, Repartition _) | optCollapseRepartition cfg ->
-    Just (RepartitionWith cfg2)
-  (Repartition pfx, RepartitionWith _) | optCollapseRepartition cfg ->
-    Just (Repartition pfx)
-  (RepartitionWith cfg2, RepartitionWith _) | optCollapseRepartition cfg ->
-    Just (RepartitionWith cfg2)
+  -- Repartition idempotence
+  (Lift (Repartition pfx2), Lift (Repartition _)) | optCollapseRepartition cfg ->
+    Just (liftPrim (Repartition pfx2))
+  (Lift (RepartitionWith cfg2), Lift (Repartition _)) | optCollapseRepartition cfg ->
+    Just (liftPrim (RepartitionWith cfg2))
+  (Lift (Repartition pfx), Lift (RepartitionWith _)) | optCollapseRepartition cfg ->
+    Just (liftPrim (Repartition pfx))
+  (Lift (RepartitionWith cfg2), Lift (RepartitionWith _)) | optCollapseRepartition cfg ->
+    Just (liftPrim (RepartitionWith cfg2))
 
   -- 'Values' is idempotent on a key-less stream.
-  (Values, Values) | optCollapseValues cfg -> Just Values
+  (Lift Values, Lift Values) | optCollapseValues cfg -> Just (liftPrim Values)
 
   -- Adjacent 'Tap's combine into one by Fanout-ing the side
-  -- pipelines. Side effects of both still run on each record;
-  -- the wire still passes through unchanged. Saves a constructor
-  -- but more importantly keeps the AST flat for downstream
-  -- inspection. 'inner' runs first then 'outer'.
+  -- pipelines.
   (Tap t1, Tap t2) | optFuseTaps cfg ->
     Just (Tap (Compose (Arr (const ())) (Fanout t2 t1)))
 
-  -- 'Tap (Foreach f)' is exactly 'Peek f' — both run an effect
-  -- on each record and pass the wire through. Collapses one
-  -- 'Tap' node into a 'Peek'.
+  -- 'Tap (Foreach f)' is exactly 'Peek f'.
   (_, _) | Just t <- tapForeachToPeek cfg g f -> Just t
 
-  -- Push pure functions through 'Fork' so the resulting 'Arr'
-  -- can fuse with adjacent 'Arr's. @'Arr' f '.' 'Fork'@ is just
-  -- the pure function applied to the duplicated input.
+  -- Push pure functions through 'Fork'.
   (Arr g', Fork) | optFusePureFunctions cfg ->
     Just (Arr (\a -> g' (a, a)))
 
@@ -4227,12 +3744,12 @@ tapForeachToPeek
 tapForeachToPeek cfg g f
   | optFusePeeks cfg
   , Tap inner <- f
-  , Foreach act <- inner
+  , Lift (Foreach act) <- inner
   -- Re-fuse 'g' on top of the new 'Peek' so this rewrite plays
   -- well with the surrounding pass.
-  = case fuseStep cfg g (Peek act) of
+  = case fuseStep cfg g (liftPrim (Peek act)) of
       Just t  -> Just t
-      Nothing -> Just (Compose g (Peek act))
+      Nothing -> Just (Compose g (liftPrim (Peek act)))
   | otherwise = Nothing
 
 ----------------------------------------------------------------------
@@ -4266,29 +3783,7 @@ tapForeachToPeek cfg g f
 --     a continuation 'Topology' is opaque, so we count it as
 --     a single placeholder.
 countNodes :: Topology i o -> Int
-countNodes = go
-  where
-    go :: forall a b. Topology a b -> Int
-    go Id              = 1
-    go (Compose g f)   = 1 + go g + go f
-    go (Arr _)         = 1
-    go (First t)       = 1 + go t
-    go (Second t)      = 1 + go t
-    go (Parallel p q)  = 1 + go p + go q
-    go (Fanout p q)    = 1 + go p + go q
-    go (LeftT t)       = 1 + go t
-    go (RightT t)      = 1 + go t
-    go (Plus p q)      = 1 + go p + go q
-    go (Fanin p q)     = 1 + go p + go q
-    go Fork            = 1
-    go (ForkN ts)      = 1 + sum (NE.map go ts)
-    go (Tap t)         = 1 + go t
-    go (Split _ _)     = 1
-    -- Monad bind: the left side is visible, the continuation is
-    -- opaque (we count it as 1 placeholder node).
-    go (Bind t _)      = 1 + go t
-    -- All remaining leaves: source/sink/transform/aggregator etc.
-    go _               = 1
+countNodes = FA.countNodesFA
 
 -- | Before / after node counts plus the absolute and relative
 -- reduction the default rewrite passes achieve on a given AST.
