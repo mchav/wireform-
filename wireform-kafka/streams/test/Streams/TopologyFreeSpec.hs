@@ -38,10 +38,17 @@ import Kafka.Streams.Runtime.EOS
   , EOSCoordinator (..)
   , runCommitCycle
   )
+import qualified Data.Set as Set
+import qualified Kafka.Streams.Cogroup as Cog
+import qualified Kafka.Streams.Consumed as Consumed
 import qualified Kafka.Streams.Grouped as Grouped
 import qualified Kafka.Streams.Joined as Joined
 import qualified Kafka.Streams.Materialized as Mat
+import qualified Kafka.Streams.Named as Named
 import qualified Kafka.Streams.State.Store
+import qualified Kafka.Streams.Suppress as Suppress
+import qualified Kafka.Streams.TimeWindowedKStream as TWKS
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 import qualified Kafka.Streams.Topology.Free.Graphviz as DOT
 import qualified Kafka.Streams.Window as Win
@@ -146,6 +153,36 @@ tests = testGroup "Topology.Free (GADT topology builder)"
   , test_auto_insert_selectKey_groupByKey_collapses_to_groupBy
   -- JoinWindows.gracePeriod is honored by the join builder
   , test_join_grace_drops_late_records
+  -- KIP-307 named operators
+  , test_filterNamed_pins_node_name
+  , test_mapValuesNamed_pins_node_name
+  , test_selectKeyNamed_pins_node_name
+  , test_peekNamed_pins_node_name
+  -- KIP-825 windowed emit strategy
+  , test_withEmitStrategy_switches_to_emit_on_close
+  , test_withEmitStrategy_default_emit_on_update
+  -- KIP-328 suppression buffer config
+  , test_suppressWindowedWith_compiles_with_max_records
+  -- Consumed offset reset
+  , test_sourceWith_offset_reset_propagated_to_spec
+  , test_default_offset_reset_is_earliest
+  -- sourcesWith
+  , test_sourcesWith_uses_supplied_consumed
+  -- TableJoined FK joins
+  , test_fk_join_with_tableJoined_compiles
+  -- Late store attachment
+  , test_addGlobalStore_registers_global_store
+  , test_connectProcessorAndStateStores_attaches_late
+  -- Rich sink + stateful transform
+  , test_sinkSpec_compiles_with_custom_spec
+  , test_transformStream_can_change_key_and_value
+  -- Pattern source
+  , test_sourcePattern_records_pattern_in_spec
+  -- Time-windowed cogroup aggregate
+  , test_aggregateWindowedCogrouped_per_window_state
+  -- Materialized queryable store info
+  , test_queryableStoreName_returns_explicit_name
+  , test_queryableStoreType_default_is_kv
   ]
 
 ----------------------------------------------------------------------
@@ -2641,6 +2678,360 @@ test_auto_insert_selectKey_groupByKey_collapses_to_groupBy =
 
 ----------------------------------------------------------------------
 -- 77. JoinWindows grace period drops late records
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+-- 78. KIP-307 filterNamed pins the node name in the compiled topology
+----------------------------------------------------------------------
+
+test_filterNamed_pins_node_name :: TestTree
+test_filterNamed_pins_node_name =
+  testCase "filterNamed sets the topology node name explicitly" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "fn-in" textSerde textSerde
+            >>> F.filterNamed (Named.named "MY-FILTER")
+                  (\r -> recordValue r /= "")
+            >>> F.sink "fn-out" textSerde textSerde
+    (_, topo) <- F.compile topology
+    let procNames = Map.keys (Topo.topoProcessors topo)
+    assertBool ("expected MY-FILTER processor; got " <> show procNames) $
+      Topo.NodeName "MY-FILTER" `elem` procNames
+
+test_mapValuesNamed_pins_node_name :: TestTree
+test_mapValuesNamed_pins_node_name =
+  testCase "mapValuesNamed sets the topology node name explicitly" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "mvn-in" textSerde textSerde
+            >>> F.mapValuesNamed (Named.named "MY-UPPER") T.toUpper
+            >>> F.sink "mvn-out" textSerde textSerde
+    (_, topo) <- F.compile topology
+    assertBool "expected MY-UPPER processor" $
+      Topo.NodeName "MY-UPPER" `elem` Map.keys (Topo.topoProcessors topo)
+
+test_selectKeyNamed_pins_node_name :: TestTree
+test_selectKeyNamed_pins_node_name =
+  testCase "selectKeyNamed sets the topology node name explicitly" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "skn-in" textSerde textSerde
+            >>> F.selectKeyNamed (Named.named "MY-REKEY")
+                  (\r -> recordValue r)
+            >>> F.sink "skn-out" textSerde textSerde
+    (_, topo) <- F.compile topology
+    assertBool "expected MY-REKEY processor" $
+      Topo.NodeName "MY-REKEY" `elem` Map.keys (Topo.topoProcessors topo)
+
+test_peekNamed_pins_node_name :: TestTree
+test_peekNamed_pins_node_name =
+  testCase "peekNamed sets the topology node name explicitly" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "pkn-in" textSerde textSerde
+            >>> F.peekNamed (Named.named "MY-PEEK") (\_ -> pure ())
+            >>> F.sink "pkn-out" textSerde textSerde
+    (_, topo) <- F.compile topology
+    assertBool "expected MY-PEEK processor" $
+      Topo.NodeName "MY-PEEK" `elem` Map.keys (Topo.topoProcessors topo)
+
+test_withEmitStrategy_switches_to_emit_on_close :: TestTree
+test_withEmitStrategy_switches_to_emit_on_close =
+  testCase "withEmitStrategy(emitOnWindowClose) flips the handle emit field" $ do
+    let mkTopology :: TWKS.EmitStrategy
+                   -> F.Topology Void (TWKS.WindowedTableHandle Text Int64)
+        mkTopology e =
+          F.withEmitStrategy e $
+            F.source "es-in" textSerde textSerde
+              >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+              >>> F.windowedByTime (Win.tumblingWindows (millis 1000))
+              >>> F.countWindowed (Mat.materializedAs (storeName "es-store"))
+    (hClose, _) <- F.compile (mkTopology TWKS.OnWindowClose)
+    TWKS.wthEmit hClose @?= TWKS.OnWindowClose
+    (hUpdate, _) <- F.compile (mkTopology TWKS.OnWindowUpdate)
+    TWKS.wthEmit hUpdate @?= TWKS.OnWindowUpdate
+
+test_withEmitStrategy_default_emit_on_update :: TestTree
+test_withEmitStrategy_default_emit_on_update =
+  testCase "default windowed aggregation emits on update" $ do
+    let topology :: F.Topology Void (TWKS.WindowedTableHandle Text Int64)
+        topology =
+          F.source "esd-in" textSerde textSerde
+            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+            >>> F.windowedByTime (Win.tumblingWindows (millis 1000))
+            >>> F.countWindowed (Mat.materializedAs (storeName "esd-store"))
+    (h, _) <- F.compile topology
+    TWKS.wthEmit h @?= TWKS.OnWindowUpdate
+
+test_suppressWindowedWith_compiles_with_max_records :: TestTree
+test_suppressWindowedWith_compiles_with_max_records =
+  testCase "maxRecordsBufferConfig / maxBytesBufferConfig configure BufferConfig" $ do
+    -- The buffer-config helpers are user-facing knobs for
+    -- 'suppressWindowedWith'. Verify they populate the right
+    -- fields with the requested cap.
+    case F.maxRecordsBufferConfig 100 of
+      Suppress.BufferConfig mb mr ov -> do
+        mr @?= Just 100
+        mb @?= Nothing
+        ov @?= Suppress.ShutdownWhenFull
+    case F.maxBytesBufferConfig 4096 of
+      Suppress.BufferConfig mb mr _ -> do
+        mb @?= Just 4096
+        mr @?= Nothing
+    -- And the 'suppressWindowedWith' smart constructor exists and
+    -- has the expected arity by partial application.
+    let _ = F.suppressWindowedWith @Text @Int64
+              (Duration 1000) 1000 (F.maxRecordsBufferConfig 100)
+    pure ()
+
+test_sourceWith_offset_reset_propagated_to_spec :: TestTree
+test_sourceWith_offset_reset_propagated_to_spec =
+  testCase "Consumed.withOffsetResetPolicy lands on SourceSpec" $ do
+    let cfg :: Consumed Text Text
+        cfg = Consumed.withOffsetResetPolicy Consumed.OffsetLatest
+                (Consumed.consumed textSerde textSerde)
+        topology :: F.Topology Void ()
+        topology =
+          F.sourceWith (topicName "ofs-in") cfg
+            >>> F.sink "ofs-out" textSerde textSerde
+    (_, topo) <- F.compile topology
+    case Map.elems (Topo.topoSources topo) of
+      [src] -> Topo.sourceOffsetReset src @?= Consumed.OffsetLatest
+      xs    -> assertFailure ("expected one source, got " <> show (length xs))
+
+test_default_offset_reset_is_earliest :: TestTree
+test_default_offset_reset_is_earliest =
+  testCase "default source uses OffsetEarliest" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.source "ofd-in" textSerde textSerde
+            >>> F.sink "ofd-out" textSerde textSerde
+    (_, topo) <- F.compile topology
+    case Map.elems (Topo.topoSources topo) of
+      [src] -> Topo.sourceOffsetReset src @?= Consumed.OffsetEarliest
+      xs    -> assertFailure ("expected one source, got " <> show (length xs))
+
+test_sourcesWith_uses_supplied_consumed :: TestTree
+test_sourcesWith_uses_supplied_consumed =
+  testCase "sourcesWith preserves Consumed (offset reset, multi-topic)" $ do
+    let cfg :: Consumed Text Text
+        cfg = Consumed.withOffsetResetPolicy Consumed.OffsetLatest
+                (Consumed.consumed textSerde textSerde)
+        topology :: F.Topology Void ()
+        topology =
+          F.sourcesWith
+            (topicName "swi-1" NE.:| [topicName "swi-2"])
+            cfg
+            >>> F.sink "swi-out" textSerde textSerde
+    (_, topo) <- F.compile topology
+    case Map.elems (Topo.topoSources topo) of
+      [src] -> do
+        Topo.sourceOffsetReset src @?= Consumed.OffsetLatest
+        Prelude.length (Topo.sourceTopics src) @?= 2
+      _     -> assertFailure "expected one multi-topic source"
+
+test_fk_join_with_tableJoined_compiles :: TestTree
+test_fk_join_with_tableJoined_compiles =
+  testCase "foreignKeyJoinWith accepts a TableJoined override and compiles" $ do
+    let leftTable  :: F.Topology Void (KTable Text Text)
+        leftTable  = F.tableSource "fkw-l-in" textSerde textSerde
+        rightTable :: F.Topology Void (KTable Text Text)
+        rightTable = F.tableSource "fkw-r-in" textSerde textSerde
+        tj :: Joined.TableJoined Text Text
+        tj = Joined.withTableJoinedName "MY-FK-JOIN" Joined.tableJoined
+        mat :: Materialized Text Text
+        mat = Mat.materializedAs (storeName "fkw-out-store")
+        topology :: F.Topology Void ()
+        topology =
+          (leftTable &&& rightTable)
+            >>> F.foreignKeyJoinWith tj id (\v vr -> v <> "+" <> vr) mat
+            >>> F.toStream
+            >>> F.sink "fkw-out" textSerde textSerde
+    (_, topo) <- F.compile topology
+    assertBool "materialised FK-join output store present" $
+      storeName "fkw-out-store" `elem` Map.keys (Topo.topoStores topo)
+
+test_addGlobalStore_registers_global_store :: TestTree
+test_addGlobalStore_registers_global_store =
+  testCase "addGlobalStore puts the store in topoGlobalStores" $ do
+    let builder :: StoreBuilderKV Text Text
+        builder = inMemoryKeyValueStoreBuilder (storeName "GLOBAL-STORE")
+        topology :: F.Topology Void ()
+        topology =
+          F.source "gs-in" textSerde textSerde
+            >>> F.addGlobalStore builder
+                  "GLOBAL-SRC" "GLOBAL-PROC"
+                  (topicName "gs-global-topic")
+                  textSerde textSerde
+                  recordTimestampExtractor
+                  (pure noopGlobalProc)
+            >>> F.sink "gs-out" textSerde textSerde
+    (_, topo) <- F.compile topology
+    assertBool "store registered as global" $
+      storeName "GLOBAL-STORE" `Set.member` Topo.topoGlobalStores topo
+    assertBool "global source registered" $
+      Topo.NodeName "GLOBAL-SRC" `elem` Map.keys (Topo.topoSources topo)
+
+noopGlobalProc :: Processor Text Text
+noopGlobalProc = Processor
+  { procName    = processorName "GLOBAL-NOOP"
+  , procInit    = \_ -> pure ()
+  , procClose   = pure ()
+  , procProcess = \_ -> pure ()
+  }
+
+test_connectProcessorAndStateStores_attaches_late :: TestTree
+test_connectProcessorAndStateStores_attaches_late =
+  testCase "connectProcessorAndStateStores wires processor to existing stores" $ do
+    -- `processStream` uses 'freshNodeName' which appends a
+    -- monotonically-increasing counter to the supplied prefix.
+    -- In this minimal topology the source consumes counter 0 and
+    -- the processStream consumes counter 1, so we know the
+    -- processor will be registered as "LATE-PROC-1". We pin that
+    -- name in the connect call to wire the store in.
+    let builder :: StoreBuilderKV Text Text
+        builder = inMemoryKeyValueStoreBuilder (storeName "LATE-STORE")
+        topology :: F.Topology Void ()
+        topology =
+          F.source "cps-in" textSerde textSerde
+            >>> F.processStream "LATE-PROC" [] (pure noopGlobalProc)
+            >>> F.withStateStoreKV builder []
+            >>> F.connectProcessorAndStateStores
+                  "LATE-PROC-1"
+                  [storeName "LATE-STORE"]
+    (_, topo) <- F.compile topology
+    case Map.lookup (storeName "LATE-STORE") (Topo.topoStoreOwners topo) of
+      Just os ->
+        assertBool ("LATE-PROC-1 in owners: " <> show os) $
+          Topo.NodeName "LATE-PROC-1" `elem` os
+      Nothing -> assertFailure "store has no owner entry"
+
+test_sinkSpec_compiles_with_custom_spec :: TestTree
+test_sinkSpec_compiles_with_custom_spec =
+  testCase "sinkSpec accepts a custom Topo.SinkSpec" $ do
+    let customSink :: Topo.SinkSpec
+        customSink = Topo.SinkSpec
+          { Topo.sinkName        = Topo.NodeName "MY-SINK"
+          , Topo.sinkParents     = []
+          , Topo.sinkTopic       = topicName "ss-out"
+          , Topo.sinkKeySerde    = Topo.AnySerde (textSerde :: Serde Text)
+          , Topo.sinkValueSerde  = Topo.AnySerde (textSerde :: Serde Text)
+          }
+        topology :: F.Topology Void ()
+        topology =
+          F.source "ss-in" textSerde textSerde
+            >>> F.sinkSpec customSink
+    (_, topo) <- F.compile topology
+    assertBool "MY-SINK present in topoSinks" $
+      Topo.NodeName "MY-SINK" `elem` Map.keys (Topo.topoSinks topo)
+
+test_transformStream_can_change_key_and_value :: TestTree
+test_transformStream_can_change_key_and_value =
+  testCase "transformStream runs a stateful key+value transformer" $ do
+    counter <- newIORef (0 :: Int)
+    let mkTransformer :: IO (Processor Text Text)
+        mkTransformer = do
+          ctxRef <- newIORef Nothing
+          pure Processor
+            { procName    = processorName "FLIP"
+            , procInit    = \ctx -> writeIORef ctxRef (Just ctx)
+            , procClose   = pure ()
+            , procProcess = \r -> do
+                _ <- atomicModifyIORef' counter (\c -> (c + 1, ()))
+                mctx <- readIORef ctxRef
+                case mctx of
+                  Nothing -> pure ()
+                  Just ctx -> forwardRecord ctx
+                    (r { recordKey   = Just (recordValue r)
+                       , recordValue = T.reverse (recordValue r)
+                       } :: Record Text Text)
+            }
+        topology :: F.Topology Void ()
+        topology =
+          F.source "tx-in" textSerde textSerde
+            >>> F.transformStream "FLIP" [] mkTransformer textSerde textSerde
+            >>> F.sink "tx-out" textSerde textSerde
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "free-transformStream"
+    pipeInput driver (topicName "tx-in") (Just (bytes "k1")) (bytes "abc") t0 0
+    pipeInput driver (topicName "tx-in") (Just (bytes "k2")) (bytes "def") t0 0
+    out <- readOutput driver (topicName "tx-out")
+    closeDriver driver
+    n <- readIORef counter
+    n @?= 2
+    Prelude.map (unbytes . crValue) out @?= ["cba", "fed"]
+    Prelude.map (fmap unbytes . crKey) out @?= [Just "abc", Just "def"]
+
+test_sourcePattern_records_pattern_in_spec :: TestTree
+test_sourcePattern_records_pattern_in_spec =
+  testCase "sourcePattern records the regex in SourceSpec.sourcePattern" $ do
+    let topology :: F.Topology Void ()
+        topology =
+          F.sourcePattern "tenant-.*" textSerde textSerde
+            >>> F.sink "pat-out" textSerde textSerde
+    (_, topo) <- F.compile topology
+    case Map.elems (Topo.topoSources topo) of
+      [src] -> do
+        Topo.sourcePattern src @?= Just "tenant-.*"
+        Topo.sourceTopics src @?= []
+      _ -> assertFailure "expected one source"
+
+test_aggregateWindowedCogrouped_per_window_state :: TestTree
+test_aggregateWindowedCogrouped_per_window_state =
+  testCase "aggregateWindowedCogrouped accumulates per (key, window)" $ do
+    let leftSide :: F.Topology Void (KGroupedStream Text Int64)
+        leftSide =
+          F.source "cgw-l-in" textSerde int64Serde
+            >>> F.groupByKey (Grouped.grouped textSerde int64Serde)
+        rightSide :: F.Topology Void (KGroupedStream Text Int64)
+        rightSide =
+          F.source "cgw-r-in" textSerde int64Serde
+            >>> F.groupByKey (Grouped.grouped textSerde int64Serde)
+        cogrouped :: F.Topology Void (Cog.CogroupedStream Text Int64)
+        cogrouped =
+          (leftSide >>> F.cogroup (\_k v acc -> acc + v))
+            &&& rightSide
+            >>> F.addCogrouped (\_k v acc -> acc + v)
+        windowedCG :: F.Topology Void (Cog.TimeWindowedCogroupedStream Text Int64)
+        windowedCG =
+          cogrouped >>> F.windowedByCogroup (Win.tumblingWindows (millis 1000))
+        topology :: F.Topology Void (TWKS.WindowedTableHandle Text Int64)
+        topology =
+          windowedCG
+            >>> F.aggregateWindowedCogrouped
+                  (pure 0)
+                  (Mat.withValueSerde int64Serde
+                    $ Mat.withKeySerde textSerde
+                    $ Mat.materializedAs (storeName "cgw-store"))
+    (h, topo) <- F.compile topology
+    driver <- newDriver topo "free-cgw"
+    pipeInput driver (topicName "cgw-l-in") (Just (bytes "a")) (serialize int64Serde 10) (t 100)  0
+    pipeInput driver (topicName "cgw-r-in") (Just (bytes "a")) (serialize int64Serde 5)  (t 200)  0
+    pipeInput driver (topicName "cgw-l-in") (Just (bytes "a")) (serialize int64Serde 7)  (t 1100) 0
+    mWS <- getWindowStore @Text @Int64 driver (TWKS.wthStore h)
+    case mWS of
+      Just ws -> do
+        v1 <- wsFetch ws "a" (Timestamp 0)
+        v2 <- wsFetch ws "a" (Timestamp 1000)
+        v1 @?= Just 15
+        v2 @?= Just 7
+      Nothing -> assertFailure "cogroup window store missing"
+    closeDriver driver
+
+test_queryableStoreName_returns_explicit_name :: TestTree
+test_queryableStoreName_returns_explicit_name =
+  testCase "queryableStoreName returns Just on materializedAs, Nothing otherwise" $ do
+    Mat.queryableStoreName (Mat.materializedAs (storeName "q-store"))
+      @?= Just (storeName "q-store")
+    Mat.queryableStoreName (Mat.materialized :: Materialized Text Text)
+      @?= Nothing
+
+test_queryableStoreType_default_is_kv :: TestTree
+test_queryableStoreType_default_is_kv =
+  testCase "queryableStoreType returns QSKeyValueStore for a generic Materialized" $ do
+    Mat.queryableStoreType (Mat.materializedAs (storeName "qt-store"))
+      @?= Mat.QSKeyValueStore
+
 ----------------------------------------------------------------------
 
 test_join_grace_drops_late_records :: TestTree
