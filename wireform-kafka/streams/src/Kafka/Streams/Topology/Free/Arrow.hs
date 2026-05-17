@@ -63,16 +63,12 @@
 --
 -- == Migration status
 --
--- "Kafka.Streams.Topology.Free" /uses/ exactly this shape today
--- but as one big GADT rather than a 'FreeArrow' + 'Prim'
--- split. The split is purely organisational — the resulting
--- public API for 'Topology' is identical. Migration is a
--- mechanical rewrite of ~3000 lines; it hasn't been done yet
--- because the existing monolithic GADT is working well and the
--- only direct beneficiary of the split is /future/ DSLs that
--- want to reuse the framework. This module documents the
--- intended shape and provides a usable framework for those
--- future DSLs.
+-- "Kafka.Streams.Topology.Free" now /is/ a consumer of this
+-- framework: @type 'Topology' = 'FreeArrow' 'Prim'@. The
+-- ~80 GADT constructors that used to live in @Topology@ have
+-- been split — 15 framework constructors moved here, the
+-- remaining 63 Kafka-specific ones became @Prim@. The public
+-- API for 'Topology' is unchanged.
 module Kafka.Streams.Topology.Free.Arrow
   ( -- * The free arrow
     FreeArrow (..)
