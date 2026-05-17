@@ -526,11 +526,38 @@ fromOptimizationFlags f = OptimizationConfig
 -- observable against a real broker, where the changelog/topic
 -- count drops.
 --
--- == Idempotence
+-- == Idempotence + dynamic modification
 --
--- Applying 'optimizeTopology' twice produces the same result as
--- applying it once. The rewrites are not iterative — each one
--- sweeps the graph in a single pass.
+-- 'optimizeTopology' is /reflective/: every call wipes the
+-- optimiser's prior decisions (the 'topoChangelogPlan' map) and
+-- re-derives them from the current graph state. This means:
+--
+--   * @'optimizeTopology' cfg . 'optimizeTopology' cfg = 'optimizeTopology' cfg@
+--     (idempotent).
+--   * Subsequent modifications via 'addSink' / 'addProcessor' /
+--     'addSource' / 'addStateStore*' invalidate prior optimisation
+--     decisions; calling 'optimizeTopology' again restores
+--     correctness. Specifically, after adding a sink to a source
+--     topic that was being reused as a changelog, re-running the
+--     optimiser /clears/ the stale plan entry (the topic is no
+--     longer a clean source-only changelog).
+--   * 'validateChangelogPlan' (also run as part of
+--     'validateTopology') catches the case where the user
+--     modified the graph and /forgot/ to re-optimise. Stale
+--     entries are reported as 'StaleChangelogPlan' errors.
+--
+-- For 'optReuseSourceKTable' the reflective behaviour applies
+-- cleanly: clear + re-derive on every call. For
+-- 'optMergeRepartitionTopics' the rewrite is destructive
+-- (duplicate nodes are removed) — re-running picks up newly-added
+-- siblings but cannot recover removed ones. See
+-- 'applyMergeRepartitionTopics' for the full contract.
+--
+-- User-explicit declarations via
+-- 'Kafka.Streams.State.Store.withSourceTopicChangelogKV' are
+-- /never/ touched by the optimiser; they live in
+-- 'LoggingConfig.loggingSourceTopic' and are consulted by
+-- 'effectiveChangelogReuse' in addition to the side-table.
 optimizeTopology :: OptimizationConfig -> Topology -> Topology
 optimizeTopology cfg = mergeRepartitions . reuseStep . wipePlan
   where
@@ -636,6 +663,30 @@ effectiveChangelogReuse t sn =
 -- share a single parent and the same @KSTREAM-REPARTITION-\<prefix\>@
 -- name prefix into one. Downstream consumers are rewired to the
 -- survivor; 'topoChildrenIndex' is rebuilt at the end.
+--
+-- == Dynamic-modification contract
+--
+-- The rewrite is /destructive/ on the topology — losing
+-- repartition nodes are removed entirely from 'topoProcessors',
+-- 'topoOrder', and 'topoChildrenIndex'. Subsequent modifications
+-- are still safe and correct: re-running 'applyMergeRepartitionTopics'
+-- (via 'optimizeTopology') on the modified graph picks up the new
+-- state. Specifically:
+--
+--   * Adding a new sibling with the same prefix gets absorbed
+--     into the existing survivor.
+--   * Adding a new sibling with a /smaller/ node name swaps the
+--     survivor — the new node becomes the merged target, the
+--     old survivor folds in.
+--   * Adding a sibling under a different parent leaves both
+--     alone (different parents = different merge group).
+--
+-- Unlike 'applyReuseSourceKTable', this rewrite cannot be
+-- /reverted/ — once the duplicate nodes are gone, you'd have to
+-- rebuild the graph from the AST to recover them. That's by
+-- design: the merge is semantically equivalent (pass-throughs
+-- don't observe records) and the broker resource savings are the
+-- whole point.
 applyMergeRepartitionTopics :: Topology -> Topology
 applyMergeRepartitionTopics t =
   let !groups = repartitionSiblingGroups t
