@@ -50,7 +50,7 @@ uuid_serde_round_trip =
     let u = UUID.fromWords 0xdeadbeef 0x12345678 0x9abcdef0 0x12345678
     case deserialize uuidSerde (serialize uuidSerde u) of
       Right u' -> u' @?= u
-      Left  e  -> error e
+      Left  e  -> error (T.unpack e)
 
 long_serde_alias :: TestTree
 long_serde_alias =

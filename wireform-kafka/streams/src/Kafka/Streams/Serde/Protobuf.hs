@@ -32,6 +32,7 @@ module Kafka.Streams.Serde.Protobuf
   ) where
 
 import qualified Data.ByteString as BS
+import qualified Data.Text as T
 import Data.ByteString (ByteString)
 import Data.Bits (shiftL, shiftR, (.&.), (.|.), xor)
 import Data.Word (Word8, Word64)
@@ -73,9 +74,11 @@ protobufSerde ProtobufSerdeConfig{..} =
             encodeMessageIndex pscMessageIndex
             <> runProtobufEncoder pscEncoder v
         , deserialize = \bs -> case decodeMessageIndex bs of
-            Left  err           -> Left err
+            Left  err           -> Left (T.pack err)
             Right (_idx, payload) ->
-              runProtobufDecoder pscDecoder payload
+              case runProtobufDecoder pscDecoder payload of
+                Left e  -> Left (T.pack e)
+                Right a -> Right a
         }
     }
 

@@ -25,46 +25,46 @@ tests = testGroup "Serde"
           bs <- forAll (Gen.bytes (Range.linear 0 256))
           case deserialize byteStringSerde (serialize byteStringSerde bs) of
             Right bs' -> bs === bs'
-            Left e    -> fail e
+            Left e    -> fail (T.unpack e)
       , testProperty "textSerde" $ property $ do
           t <- forAll (Gen.text (Range.linear 0 64) Gen.unicode)
           case deserialize textSerde (serialize textSerde t) of
             Right t' -> t === t'
-            Left e   -> fail e
+            Left e    -> fail (T.unpack e)
       , testProperty "int32Serde" $ property $ do
           n <- forAll (Gen.int32 Range.constantBounded)
           case deserialize int32Serde (serialize int32Serde n) of
             Right n' -> n === n'
-            Left e   -> fail e
+            Left e    -> fail (T.unpack e)
       , testProperty "int64Serde" $ property $ do
           n <- forAll (Gen.int64 Range.constantBounded)
           case deserialize int64Serde (serialize int64Serde n) of
             Right n' -> n === n'
-            Left e   -> fail e
+            Left e    -> fail (T.unpack e)
       , testProperty "doubleSerde" $ property $ do
           d <- forAll (Gen.double (Range.linearFracFrom 0 (-1e9) 1e9))
           case deserialize doubleSerde (serialize doubleSerde d) of
             Right d' -> d === d'
-            Left e   -> fail e
+            Left e    -> fail (T.unpack e)
       , testProperty "lengthPrefixedSerde" $ property $ do
           t <- forAll (Gen.text (Range.linear 0 32) Gen.unicode)
           let s = lengthPrefixedSerde textSerde
           case deserialize s (serialize s t) of
             Right t' -> t === t'
-            Left e   -> fail e
+            Left e    -> fail (T.unpack e)
       , testProperty "prefixedSerde" $ property $ do
           t <- forAll (Gen.text (Range.linear 0 32) Gen.unicode)
           let s = prefixedSerde 0x42 textSerde
           case deserialize s (serialize s t) of
             Right t' -> t === t'
-            Left e   -> fail e
+            Left e    -> fail (T.unpack e)
       , testProperty "imap of int32 over string-of-digits" $ property $ do
           n <- forAll (Gen.int32 (Range.constantFrom 0 0 1000))
           let textOfInt :: Serde Int32
               textOfInt = imap (T.pack . show) (read . T.unpack) textSerde
           case deserialize textOfInt (serialize textOfInt n) of
             Right n' -> n === n'
-            Left e   -> fail e
+            Left e    -> fail (T.unpack e)
       ]
   , testGroup "specific encodings"
       [ testCase "int32 BE wire format" $
@@ -106,11 +106,11 @@ tests = testGroup "Serde"
 -- A serde that fails to decode anything that isn't the literal
 -- @\"good\"@ and otherwise returns the original text.
 strictGoodSerde :: Serde T.Text
-strictGoodSerde = unsafeSerde
+strictGoodSerde = mkSerde
   (\t -> serialize textSerde t)
   (\b -> case deserialize textSerde b of
            Right t | t == "good" -> Right t
-           Right t -> Left ("rejected: " <> T.unpack t)
+           Right t -> Left ("rejected: " <> t)
            Left e  -> Left e)
 
 deser_log_and_continue :: TestTree

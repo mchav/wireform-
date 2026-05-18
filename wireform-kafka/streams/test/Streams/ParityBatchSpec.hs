@@ -40,7 +40,7 @@ windowed_serde_round_trip =
         wk = WindowedKey "alpha" (Timestamp 12345)
     case deserialize s (serialize s wk) of
       Right wk' -> wk' @?= wk
-      Left  e   -> error e
+      Left  e   -> error (T.unpack e)
 
 windowed_serde_rejects_short_input :: TestTree
 windowed_serde_rejects_short_input =
@@ -91,7 +91,7 @@ test_record_round_trip =
       Right tr -> do
         trKey   tr @?= Just "k"
         trValue tr @?= "v"
-      Left e -> error e
+      Left e   -> error (T.unpack e)
     closeDriver driver
 
 record_headers_visible_in_context :: TestTree

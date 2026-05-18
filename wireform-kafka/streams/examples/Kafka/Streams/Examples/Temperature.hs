@@ -102,5 +102,5 @@ runDemo = do
             Nothing -> "<no-key>"
           v = case deserialize doubleSerde (crValue cr) of
             Right d  -> show d
-            Left err -> "?(" <> err <> ")"
+            Left err -> "?(" <> T.unpack err <> ")"
       in putStrLn ("  " <> k <> " = " <> v)

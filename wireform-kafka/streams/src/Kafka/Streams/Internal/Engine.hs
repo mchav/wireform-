@@ -478,7 +478,7 @@ handleSource engine spec children si = do
 -- topology builder paired this 'Serde' with the same 'k' that
 -- downstream processors will receive.
 decodeKeyErased
-  :: Topo.AnySerde -> Maybe ByteString -> Either String (Maybe Erased)
+  :: Topo.AnySerde -> Maybe ByteString -> Either Text (Maybe Erased)
 decodeKeyErased _ Nothing = Right Nothing
 decodeKeyErased (Topo.AnySerde s) (Just kb) =
   case deserialize s kb of
@@ -486,7 +486,7 @@ decodeKeyErased (Topo.AnySerde s) (Just kb) =
     Right k -> Right (Just (erase k))
 
 decodeValErased
-  :: Topo.AnySerde -> ByteString -> Either String Erased
+  :: Topo.AnySerde -> ByteString -> Either Text Erased
 decodeValErased (Topo.AnySerde s) bs =
   fmap erase (deserialize s bs)
 
@@ -512,13 +512,13 @@ handleDeserError
   :: forall a b
    . Engine
   -> SourceInput
-  -> Either String a
-  -> Either String b
+  -> Either Text a
+  -> Either Text b
   -> IO ()
 handleDeserError engine si keyR valR = do
   let reason = case (keyR, valR) of
-        (Left e, _) -> "key: " <> T.pack e
-        (_, Left e) -> "value: " <> T.pack e
+        (Left e, _) -> "key: " <> e
+        (_, Left e) -> "value: " <> e
         _           -> "unknown"
       ex = DeserializationException
         { topic     = unTopicName (siTopic si)

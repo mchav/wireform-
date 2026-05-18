@@ -96,7 +96,7 @@ runDemo = do
       let wd = case crKey cr of
             Just k  -> BSC.unpack k
             Nothing -> "<no-key>"
-          cnt = case deserialize int64Serde (crValue cr) :: Either String Int64 of
+          cnt = case deserialize int64Serde (crValue cr) :: Either Text Int64 of
             Right n  -> show n
-            Left err -> "?(" <> err <> ")"
+            Left err -> "?(" <> T.unpack err <> ")"
       in putStrLn ("  " <> wd <> " = " <> cnt)
