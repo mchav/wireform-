@@ -98,6 +98,8 @@ import qualified Streams.Properties.StoreRefSpec
 import qualified Streams.Properties.KeyGroupDispatchSpec
 import qualified Streams.Properties.WatermarkWiringSpec
 import qualified Streams.Properties.SnapshotSpec
+import qualified Streams.Properties.OperatorWatermarkSpec
+import qualified Streams.Properties.RebalanceBridgeSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -198,5 +200,7 @@ main = defaultMain $ testGroup "kafka-streams"
       , Streams.Properties.KeyGroupDispatchSpec.tests
       , Streams.Properties.WatermarkWiringSpec.tests
       , Streams.Properties.SnapshotSpec.tests
+      , Streams.Properties.OperatorWatermarkSpec.tests
+      , Streams.Properties.RebalanceBridgeSpec.tests
       ]
   ]

@@ -46,6 +46,7 @@ module Kafka.Streams.Processor
   , streamTimeC
   , wallClockTimeC
   , getStateStore
+  , effectiveTime
   , SinkEmit (..)
   , currentHeaders
   , appendHeader
@@ -224,6 +225,19 @@ data ProcessorContext = ProcessorContext
     -- field. Drains run in registration order; an exception
     -- from any drain propagates back to 'commitEngine'
     -- (matching the JVM 'StateStore.flush' contract).
+  , ctxCoordinatedWatermark :: !(IO (Maybe Timestamp))
+    -- ^ Riffle \xc2\xa75: read the engine's cross-source effective
+    -- watermark (min of every live source's per-source
+    -- watermark, with idle-timeout skipping). Returns 'Nothing'
+    -- when no coordinator is wired — the operator should fall
+    -- back to 'ctxStreamTime' in that case. Operators that
+    -- close windows or expire state (suppress, time-windowed
+    -- aggregates) should prefer this when it's set so a
+    -- per-task stream-time spike from one fast source doesn't
+    -- close windows that the slow side hasn't reached yet.
+    --
+    -- See 'effectiveTime' for the helper that combines this
+    -- with 'ctxStreamTime'.
   }
 
 -- | Bytes-already-serialised emission record. Defined here (rather
@@ -240,6 +254,21 @@ data SinkEmit = SinkEmit
 -- | Convenience access to the lookup function.
 getStateStore :: ProcessorContext -> StoreName -> IO (Maybe AnyStateStore)
 getStateStore = ctxGetStore
+
+-- | Riffle \xc2\xa75: read the operator's effective event-time clock.
+-- Returns the cross-source coordinated watermark when one is
+-- wired (via 'Kafka.Streams.Internal.Engine.attachWatermarkCoordinator'),
+-- falling back to the per-task 'ctxStreamTime' otherwise. This
+-- is the recommended call for operators that close windows or
+-- expire state — it makes them behave correctly under
+-- mixed-rate sources without breaking single-source topologies
+-- that don't wire a coordinator.
+effectiveTime :: ProcessorContext -> IO Timestamp
+effectiveTime ctx = do
+  mCoord <- ctxCoordinatedWatermark ctx
+  case mCoord of
+    Just t  -> pure t
+    Nothing -> ctxStreamTime ctx
 
 currentRecordMetadata :: ProcessorContext -> IO (Maybe RecordMetadata)
 currentRecordMetadata = ctxRecordMetadata

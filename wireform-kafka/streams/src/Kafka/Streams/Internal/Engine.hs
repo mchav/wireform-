@@ -621,6 +621,11 @@ makeContext engine selfNm = ProcessorContext
   , ctxRegisterPreCommitDrain = \action ->
       atomicModifyIORef' (engineAsyncDrains engine)
         (\xs -> (action : xs, ()))
+  , ctxCoordinatedWatermark = do
+      mCoord <- readIORef (engineWatermarkCoord engine)
+      case mCoord of
+        Nothing -> pure Nothing
+        Just wc -> Just <$> Watermark.currentEffectiveWatermark wc
   }
 
 eraseRecord :: Record k v -> Record Erased Erased

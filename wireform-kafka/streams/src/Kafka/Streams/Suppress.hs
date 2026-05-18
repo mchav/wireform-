@@ -99,6 +99,7 @@ import qualified Kafka.Streams.Processor
 import Kafka.Streams.Processor
   ( Processor (..)
   , ProcessorContext (..)
+  , effectiveTime
   , forwardRecord
   , getStateStore
   , processorName
@@ -431,7 +432,7 @@ suppressWindowedShedProc sn graceMs winMs shelf = do
     }
   where
     flushDueShed ctx buf_ sizeRef = do
-      Timestamp now <- ctxStreamTime ctx
+      Timestamp now <- effectiveTime ctx
       it <- kvsAll buf_
       entries <- kvIteratorToList it
       mapM_
@@ -526,7 +527,7 @@ suppressWindowedProc sn graceMs winMs bufCfg = do
     }
   where
     flushDue ctx buf_ sizeRef = do
-      Timestamp now <- ctxStreamTime ctx
+      Timestamp now <- effectiveTime ctx
       it <- kvsAll buf_
       entries <- kvIteratorToList it
       mapM_
@@ -663,7 +664,7 @@ suppressTimeLimitProc sn limitMs = do
           mbuf <- readIORef bufRef
           case (mctx, mbuf) of
             (Just ctx, Just buf_) -> do
-              Timestamp now <- ctxStreamTime ctx
+              Timestamp now <- effectiveTime ctx
               -- Step 1: flush any expired buffered entries (the
               -- existing buffered value, NOT the just-arrived one).
               flushExpired ctx buf_ now

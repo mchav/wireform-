@@ -171,6 +171,7 @@ newMockProcessorContext appId tid = do
             atomicModifyIORef' hdrsRef (\hs -> (addHeader h hs, ()))
         , ctxRequestCommit  = writeIORef commitRef True
         , ctxRegisterPreCommitDrain = \_ -> pure ()
+        , ctxCoordinatedWatermark = pure Nothing
           -- Mock context: pre-commit drains aren't exercised in
           -- unit tests of individual processors. The registry is
           -- a no-op so the mock has the same record shape as
