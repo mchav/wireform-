@@ -50,11 +50,19 @@
 -- That wiring is deferred to a follow-up PR; the contract is in
 -- place here.
 module Kafka.Streams.Watermark
-  ( -- * Strategies
+  ( -- * Strategy
     WatermarkStrategy (..)
+  , WatermarkGenerator (..)
+  , IdlenessConfig (..)
+  , AlignmentGroupId (..)
+    -- ** Smart constructors
+  , defaultWatermarkStrategy
   , monotonicAscending
   , boundedOutOfOrderness
   , noWatermark
+  , withIdleness
+  , withAlignment
+  , runGenerator
   , runStrategy
     -- * Coordinator
   , WatermarkCoordinator
@@ -97,49 +105,115 @@ import Kafka.Streams.Time
 -- Strategies
 ----------------------------------------------------------------------
 
--- | How a source derives the watermark a record contributes.
+-- | A watermark /strategy/ combines a generator (how the
+-- watermark is derived from record timestamps), an idleness
+-- policy, and optional alignment-group membership. The Riffle
+-- runtime registers one of these per source via
+-- 'Kafka.Streams.Topology.Free.withWatermarkStrategy'.
 data WatermarkStrategy = WatermarkStrategy
-  { wsName    :: !Text
-  , wsExtract :: !(Timestamp -> Timestamp -> Timestamp)
-    -- ^ @prev recordTs -> watermark@. Receives the previous
-    -- watermark (so monotonic strategies can ratchet) and the
-    -- current record timestamp.
+  { wsName      :: !Text
+  , wsGenerator :: !WatermarkGenerator
+  , wsIdleness  :: !IdlenessConfig
+  , wsAlignment :: !(Maybe AlignmentGroupId)
   } deriving stock (Generic)
 
--- | Watermark equals the record timestamp; never lags. Use when
--- you trust the source to deliver in order (e.g. a CDC source
--- with a single writer).
+-- | How the watermark advances per record. Mirrors Flink's
+-- 'WatermarkGenerator' interface.
+data WatermarkGenerator
+  = MonotonicTimestamps
+    -- ^ Watermark equals the maximum record timestamp seen.
+    -- Use when the source is in-order (e.g. CDC with a single
+    -- writer).
+  | BoundedOutOfOrderness !Duration
+    -- ^ Watermark equals @max(prev, recordTs - lag)@. The
+    -- standard general-purpose generator for sources with
+    -- bounded out-of-orderness.
+  | NoWatermarkGen
+    -- ^ Never emit a real watermark. The coordinator returns
+    -- 'noTimestamp' for this source. Use for sources that
+    -- don't carry meaningful event-time.
+  | CustomGenerator !Text !(Timestamp -> Timestamp -> Timestamp)
+    -- ^ Caller-supplied @(prevWatermark, recordTs) ->
+    -- newWatermark@. The label is for diagnostics.
+  deriving stock (Generic)
+
+-- | Per-source idleness handling: once a source has been silent
+-- for @IdleAfter d@ wall-clock, the coordinator excludes it
+-- from the min-watermark computation so downstream windows can
+-- close.
+data IdlenessConfig
+  = NeverIdle
+  | IdleAfter !Duration
+  deriving stock (Eq, Show, Generic)
+
+-- | Identifier of an alignment group (a set of sources whose
+-- watermarks are bounded to stay within a configured spread).
+-- Multiple sources can share the same group; the coordinator
+-- backpressures any that out-pace the group's slowest member
+-- by more than 'agBound'.
+newtype AlignmentGroupId = AlignmentGroupId
+  { unAlignmentGroupId :: Text
+  }
+  deriving stock (Eq, Ord, Show, Generic)
+
+-- | Build a strategy with the given generator, 'NeverIdle', and
+-- no alignment. The starting point most users want; further
+-- 'withIdleness' \/ 'withAlignment' refines.
+defaultWatermarkStrategy :: Text -> WatermarkGenerator -> WatermarkStrategy
+defaultWatermarkStrategy nm gen = WatermarkStrategy
+  { wsName      = nm
+  , wsGenerator = gen
+  , wsIdleness  = NeverIdle
+  , wsAlignment = Nothing
+  }
+
+-- | Pure /monotonic ascending/ strategy. Equivalent to
+-- @defaultWatermarkStrategy \"monotonic-ascending\" MonotonicTimestamps@.
 monotonicAscending :: WatermarkStrategy
-monotonicAscending = WatermarkStrategy
-  { wsName    = "monotonic-ascending"
-  , wsExtract = \prev t ->
-      if t > prev then t else prev
-  }
+monotonicAscending =
+  defaultWatermarkStrategy "monotonic-ascending" MonotonicTimestamps
 
--- | Watermark equals @recordTimestamp - lag@, ratcheted to be
--- monotonic non-decreasing. Mirrors Flink's
--- @BoundedOutOfOrdernessWatermarks@.
+-- | Pure /bounded out-of-orderness/ strategy.
 boundedOutOfOrderness :: Duration -> WatermarkStrategy
-boundedOutOfOrderness lag = WatermarkStrategy
-  { wsName    = "bounded-out-of-orderness"
-  , wsExtract = \prev (Timestamp t) ->
-      let !lagMs = durationMillis lag
-          !cand  = Timestamp (t - lagMs)
-      in if cand > prev then cand else prev
-  }
+boundedOutOfOrderness lag =
+  defaultWatermarkStrategy "bounded-out-of-orderness"
+    (BoundedOutOfOrderness lag)
 
--- | Always emit 'noTimestamp'. Useful for sources whose records
--- carry no timestamp and that don't drive downstream windowing.
+-- | Pure /no watermark/ strategy.
 noWatermark :: WatermarkStrategy
-noWatermark = WatermarkStrategy
-  { wsName    = "none"
-  , wsExtract = \_ _ -> noTimestamp
-  }
+noWatermark =
+  defaultWatermarkStrategy "no-watermark" NoWatermarkGen
 
--- | Apply a strategy. Pure function over @(previousWatermark,
--- recordTimestamp)@.
+-- | Attach an idleness policy.
+withIdleness :: IdlenessConfig -> WatermarkStrategy -> WatermarkStrategy
+withIdleness i s = s { wsIdleness = i }
+
+-- | Attach the strategy to an alignment group.
+withAlignment :: AlignmentGroupId -> WatermarkStrategy -> WatermarkStrategy
+withAlignment a s = s { wsAlignment = Just a }
+
+-- | Run a 'WatermarkGenerator' against the previous watermark
+-- and the new record timestamp.
+runGenerator
+  :: WatermarkGenerator
+  -> Timestamp                   -- ^ previous watermark
+  -> Timestamp                   -- ^ record timestamp
+  -> Timestamp
+runGenerator gen !prev !t = case gen of
+  MonotonicTimestamps      -> if t > prev then t else prev
+  BoundedOutOfOrderness lag ->
+    let Timestamp ms = t
+        !lagMs       = durationMillis lag
+        !cand        = Timestamp (ms - lagMs)
+    in if cand > prev then cand else prev
+  NoWatermarkGen           -> noTimestamp
+  CustomGenerator _ f      -> f prev t
+
+-- | Apply a full strategy. Convenience wrapper around
+-- 'runGenerator' for callers that already hold a
+-- 'WatermarkStrategy' (e.g. the coordinator's hot path).
 runStrategy :: WatermarkStrategy -> Timestamp -> Timestamp -> Timestamp
-runStrategy = wsExtract
+runStrategy = runGenerator . wsGenerator
 
 ----------------------------------------------------------------------
 -- Per-source state
