@@ -92,6 +92,7 @@ import qualified Streams.Antithesis.TTLSpec
 import qualified Streams.Antithesis.SchemaVersionedSpec
 import qualified Streams.Antithesis.CDCSourceSpec
 import qualified Streams.Antithesis.KeyGroupAssignorSpec
+import qualified Streams.Antithesis.TieredStoreSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -186,5 +187,6 @@ main = defaultMain $ testGroup "kafka-streams"
       , Streams.Antithesis.SchemaVersionedSpec.tests
       , Streams.Antithesis.CDCSourceSpec.tests
       , Streams.Antithesis.KeyGroupAssignorSpec.tests
+      , Streams.Antithesis.TieredStoreSpec.tests
       ]
   ]
