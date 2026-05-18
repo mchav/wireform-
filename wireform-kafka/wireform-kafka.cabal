@@ -454,6 +454,7 @@ library wireform-kafka-streams
         Kafka.Streams.Watermark
         Kafka.Streams.State.KeyValue.TTL
         Kafka.Streams.State.KeyValue.SchemaVersioned
+        Kafka.Streams.Sources.CDC
         Kafka.Streams.Query
         Kafka.Streams.Mock.Cluster
         Kafka.Streams.Mock.Fault
@@ -645,6 +646,7 @@ test-suite wireform-kafka-streams-test
         Streams.Antithesis.WatermarkCoordSpec
         Streams.Antithesis.TTLSpec
         Streams.Antithesis.SchemaVersionedSpec
+        Streams.Antithesis.CDCSourceSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

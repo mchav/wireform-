@@ -90,6 +90,7 @@ import qualified Streams.Antithesis.TwoPhaseSinkSpec
 import qualified Streams.Antithesis.WatermarkCoordSpec
 import qualified Streams.Antithesis.TTLSpec
 import qualified Streams.Antithesis.SchemaVersionedSpec
+import qualified Streams.Antithesis.CDCSourceSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -182,5 +183,6 @@ main = defaultMain $ testGroup "kafka-streams"
       , Streams.Antithesis.WatermarkCoordSpec.tests
       , Streams.Antithesis.TTLSpec.tests
       , Streams.Antithesis.SchemaVersionedSpec.tests
+      , Streams.Antithesis.CDCSourceSpec.tests
       ]
   ]
