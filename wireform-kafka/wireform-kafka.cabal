@@ -455,6 +455,8 @@ library wireform-kafka-streams
         Kafka.Streams.State.KeyValue.TTL
         Kafka.Streams.State.KeyValue.SchemaVersioned
         Kafka.Streams.Sources.CDC
+        Kafka.Streams.Runtime.KeyGroup
+        Kafka.Streams.Runtime.RebalanceProtocol
         Kafka.Streams.Query
         Kafka.Streams.Mock.Cluster
         Kafka.Streams.Mock.Fault
@@ -647,6 +649,7 @@ test-suite wireform-kafka-streams-test
         Streams.Antithesis.TTLSpec
         Streams.Antithesis.SchemaVersionedSpec
         Streams.Antithesis.CDCSourceSpec
+        Streams.Antithesis.KeyGroupAssignorSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
