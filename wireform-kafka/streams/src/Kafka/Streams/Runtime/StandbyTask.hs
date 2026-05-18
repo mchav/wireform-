@@ -43,7 +43,9 @@
 module Kafka.Streams.Runtime.StandbyTask
   ( -- * Tasks
     StandbyTask (..)
+  , StandbyMode (..)
   , newStandbyTask
+  , newSnapshotPointerStandby
     -- * Manager
   , StandbyManager
   , newStandbyManager
@@ -53,6 +55,10 @@ module Kafka.Streams.Runtime.StandbyTask
     -- * Replay
   , ChangelogRecord (..)
   , standbyReplay
+    -- * Snapshot-pointer mode (Riffle \xc2\xa71)
+  , standbyAdvancedTo
+  , standbyLagSnapshotMode
+  , bumpSnapshotPointer
   ) where
 
 import Control.Concurrent.STM
@@ -73,37 +79,92 @@ import Kafka.Streams.State.Store
 -- Tasks
 ----------------------------------------------------------------------
 
+-- | What replication model a 'StandbyTask' is running in.
+data StandbyMode
+  = ReplayBytes
+    -- ^ Original mode: mirror every changelog record into a
+    -- local copy of the state store. The active is promoted by
+    -- swapping pointers; the standby's local bytes are the new
+    -- source of truth.
+  | SnapshotPointer
+    -- ^ Riffle \xc2\xa71 mode: don't mirror bytes at all. The standby
+    -- only tracks @(latestSnapshotId, advancedToOffset)@ as it
+    -- observes the active publishing snapshots. Promotion = the
+    -- new owner fetches the snapshot from the object store and
+    -- replays the changelog tail. Storage cost is O(1) per
+    -- standby; warmup latency is O(snapshot size) at promotion
+    -- time, which is the trade-off the snapshot machinery
+    -- explicitly bounds.
+  deriving stock (Eq, Show, Generic)
+
 -- | One standby task. Holds the metadata the runtime needs to
--- pull from the changelog topic and apply each record to the
--- local store.
+-- track replication for one (taskId, changelog-topic, partition)
+-- triple.
 data StandbyTask = StandbyTask
   { taskId         :: !TaskId
   , changelogTopic :: !Text
   , partition      :: !Int32
   , storeName      :: !StoreName
+  , mode           :: !StandbyMode
+    -- ^ Riffle \xc2\xa71: which replication model this standby uses.
+    -- Defaults to 'ReplayBytes' for back-compat;
+    -- 'SnapshotPointer' is built via 'newSnapshotPointerStandby'.
   , replayOffset   :: !(TVar Int64)
-    -- ^ Next changelog offset to read.
+    -- ^ /Bytes mode:/ next changelog offset to read.
+    -- /Pointer mode:/ the changelog offset baked into the
+    -- most recently observed snapshot (i.e. @advancedTo@).
   , endOffset      :: !(TVar Int64)
     -- ^ Last-seen high-water mark for the changelog
     --   partition. Updated by the changelog consumer (mock
     --   harness or native driver). @endOffset - replayOffset@
     --   is the current lag.
+  , snapshotPtr    :: !(TVar (Maybe Int64))
+    -- ^ Riffle \xc2\xa71: in 'SnapshotPointer' mode, the latest
+    -- snapshot id this standby has observed. 'Nothing' until
+    -- the first 'bumpSnapshotPointer'. 'ReplayBytes' standbys
+    -- leave this 'Nothing' for ever.
   }
 
--- | Allocate a fresh 'StandbyTask' with replay offset 0 and
--- end-offset 0.
+-- | Allocate a fresh 'StandbyTask' in the bytes-replication
+-- mode. Replay offset starts at 0; the runtime advances it as
+-- it consumes the changelog.
 newStandbyTask
   :: TaskId -> Text -> Int32 -> StoreName -> IO StandbyTask
 newStandbyTask tid topic part sn = do
   replay <- newTVarIO 0
   endOff <- newTVarIO 0
+  snapPtr <- newTVarIO Nothing
   pure StandbyTask
     { taskId         = tid
     , changelogTopic = topic
     , partition      = part
     , storeName      = sn
+    , mode           = ReplayBytes
     , replayOffset   = replay
     , endOffset      = endOff
+    , snapshotPtr    = snapPtr
+    }
+
+-- | Allocate a 'StandbyTask' in the Riffle \xc2\xa71
+-- 'SnapshotPointer' mode. Holds no local replica; only tracks
+-- the snapshot pointer + changelog offset. The runtime calls
+-- 'bumpSnapshotPointer' each time it observes a new snapshot
+-- being published.
+newSnapshotPointerStandby
+  :: TaskId -> Text -> Int32 -> StoreName -> IO StandbyTask
+newSnapshotPointerStandby tid topic part sn = do
+  replay <- newTVarIO 0
+  endOff <- newTVarIO 0
+  snapPtr <- newTVarIO Nothing
+  pure StandbyTask
+    { taskId         = tid
+    , changelogTopic = topic
+    , partition      = part
+    , storeName      = sn
+    , mode           = SnapshotPointer
+    , replayOffset   = replay
+    , endOffset      = endOff
+    , snapshotPtr    = snapPtr
     }
 
 ----------------------------------------------------------------------
@@ -193,3 +254,49 @@ standbyReplay st kvs batch = do
       next <- readTVarIO st.replayOffset
       e    <- readTVarIO st.endOffset
       pure (max 0 (e - next))
+
+----------------------------------------------------------------------
+-- Snapshot-pointer mode (Riffle \xc2\xa71)
+----------------------------------------------------------------------
+
+-- | In 'SnapshotPointer' mode, the active task publishes
+-- snapshots with a known @advancedTo@ changelog offset; each
+-- such publish should be reflected on every standby via this
+-- call. The standby's 'replayOffset' jumps to the new
+-- @advancedTo@, the snapshot pointer is updated, and the lag
+-- shrinks accordingly.
+--
+-- In 'ReplayBytes' mode this is a no-op; the standby continues
+-- consuming the changelog normally.
+bumpSnapshotPointer
+  :: StandbyTask
+  -> Int64      -- ^ snapshot id
+  -> Int64      -- ^ advancedTo (changelog offset the snapshot
+                --   was taken at)
+  -> Int64      -- ^ current end-of-changelog
+  -> IO ()
+bumpSnapshotPointer st sid advTo endOff_ = atomically $ case st.mode of
+  ReplayBytes      -> pure ()
+  SnapshotPointer -> do
+    writeTVar st.snapshotPtr (Just sid)
+    writeTVar st.replayOffset advTo
+    writeTVar st.endOffset (max endOff_ advTo)
+
+-- | The most recently snapshotted offset the standby has caught
+-- up to. For a 'ReplayBytes' standby this is identical to its
+-- 'replayOffset' (the next-to-replay marker). For a
+-- 'SnapshotPointer' standby this is the @advancedTo@ baked into
+-- the latest snapshot it has observed.
+standbyAdvancedTo :: StandbyTask -> IO Int64
+standbyAdvancedTo st = readTVarIO st.replayOffset
+
+-- | Current snapshot-mode lag: @endOffset - replayOffset@.
+-- Identical to what 'standbyReplay' returns for the bytes
+-- variant, but exposed as a separate name so the runtime's
+-- KIP-441 probing-rebalance logic can read it without
+-- triggering a replay call.
+standbyLagSnapshotMode :: StandbyTask -> IO Int64
+standbyLagSnapshotMode st = do
+  next <- readTVarIO st.replayOffset
+  e    <- readTVarIO st.endOffset
+  pure (max 0 (e - next))

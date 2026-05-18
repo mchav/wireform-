@@ -170,4 +170,65 @@ tests = testGroup "CDC source"
       H.withTests 150 prop_apply_matches_projection
   , testProperty "polling in chunks does not change the final state" $
       H.withTests 100 prop_drain_in_chunks
+  , unit_compaction_keeps_last_per_key
+  , unit_phase_round_trip
+  , unit_schema_changes_surfaced
+  , testProperty "compactCDCBatch is idempotent" $
+      H.withTests 100 prop_compaction_idempotent
   ]
+
+----------------------------------------------------------------------
+-- Compaction
+----------------------------------------------------------------------
+
+unit_compaction_keeps_last_per_key :: TestTree
+unit_compaction_keeps_last_per_key =
+  testCase "compactCDCBatch keeps only the last event per key" $ do
+    let evs =
+          [ CDCEvent CDCInsert 1 Nothing (Just 10) 0 (Timestamp 0)
+          , CDCEvent CDCUpdate 1 (Just 10) (Just 20) 1 (Timestamp 1)
+          , CDCEvent CDCInsert 2 Nothing (Just 99) 2 (Timestamp 2)
+          , CDCEvent CDCUpdate 1 (Just 20) (Just 30) 3 (Timestamp 3)
+          , CDCEvent CDCDelete 2 (Just 99) Nothing 4 (Timestamp 4)
+          ]
+        out = compactCDCBatch evs
+    map cdcAfter out @?= [Just 30, Nothing]
+
+prop_compaction_idempotent :: H.Property
+prop_compaction_idempotent = H.property $ do
+  events <- H.forAll (Gen.list (Range.linear 1 40) genEvent)
+  let once = compactCDCBatch events
+      twice = compactCDCBatch once
+  twice H.=== once
+
+----------------------------------------------------------------------
+-- Phase
+----------------------------------------------------------------------
+
+unit_phase_round_trip :: TestTree
+unit_phase_round_trip =
+  testCase "setPhase + cdcPoll surface the latest phase" $ do
+    (src, h) <- inMemoryCDCSource @K @V "p"
+    -- Initial: SnapshotPhase.
+    p0 <- cdcPollPhase <$> cdcPoll src
+    p0 @?= SnapshotPhase
+    setPhase h StreamingPhase
+    p1 <- cdcPollPhase <$> cdcPoll src
+    p1 @?= StreamingPhase
+
+----------------------------------------------------------------------
+-- Schema changes
+----------------------------------------------------------------------
+
+unit_schema_changes_surfaced :: TestTree
+unit_schema_changes_surfaced =
+  testCase "pushSchemaChange events are surfaced through cdcPoll" $ do
+    (src, h) <- inMemoryCDCSource @K @V "s"
+    pushSchemaChange h SchemaChange
+      { scTable = "orders"
+      , scVersion = 2
+      , scStmt    = "ALTER TABLE orders ADD COLUMN ts TIMESTAMP"
+      , scAt      = Timestamp 0
+      }
+    poll <- cdcPoll src
+    map scTable (cdcPollSchema poll) @?= ["orders"]

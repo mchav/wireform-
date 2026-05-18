@@ -36,6 +36,8 @@ module Kafka.Streams.State.KeyValue.TTL
   , ttlKeyValueStore
   , expireBefore
   , ttlEntryCount
+    -- * Clock helpers
+  , ttlClockFromCoordinator
   ) where
 
 import Data.Int (Int64)
@@ -51,6 +53,7 @@ import Kafka.Streams.Time
   , Timestamp (..)
   , addDuration
   )
+import qualified Kafka.Streams.Watermark as Watermark
 
 ----------------------------------------------------------------------
 -- Config
@@ -247,3 +250,18 @@ ttlEntryCount kvs = do
   it <- kvsAll kvs
   pairs <- kvIteratorToList it
   pure (fromIntegral (length pairs))
+
+----------------------------------------------------------------------
+-- Clock helpers
+----------------------------------------------------------------------
+
+-- | Build a 'ttlClock' callback that reads the
+-- 'Kafka.Streams.Watermark.WatermarkCoordinator' 's effective
+-- (min-of-live-sources) watermark. This is the Riffle \xc2\xa76 default
+-- — TTL on a state store is driven by the cross-source
+-- coordinated watermark, not by the per-task 'StreamTime' or
+-- the wall clock. The TTL wrapper still accepts any
+-- @IO Timestamp@, so callers can substitute a wall-clock or
+-- fixed-test clock when appropriate.
+ttlClockFromCoordinator :: Watermark.WatermarkCoordinator -> IO Timestamp
+ttlClockFromCoordinator = Watermark.currentEffectiveWatermark

@@ -463,6 +463,7 @@ library wireform-kafka-streams
         Kafka.Streams.State.KeyValue.Tiered
         Kafka.Streams.State.KeyValue.Remote
         Kafka.Streams.State.Ref
+        Kafka.Streams.EmitPolicy
         Kafka.Streams.Query
         Kafka.Streams.Mock.Cluster
         Kafka.Streams.Mock.Fault
