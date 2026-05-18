@@ -95,6 +95,7 @@ tests = testGroup "AsyncIO"
   , fail_task_surfaces_exception
   , unordered_emits_in_completion_order
   , topology_free_async_map_values_smoke
+  , fusion_hoists_pure_into_async
   ]
 
 ----------------------------------------------------------------------
@@ -324,4 +325,52 @@ topology_free_async_map_values_smoke =
 
     out <- readOutput driver (topicName "out")
     map (unbytes . crValue) out @?= ["X", "Y", "Z"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- AST fusion: a pure MapValues feeding an AsyncMapValues collapses
+-- into a single AsyncMapValues with the composed function.
+----------------------------------------------------------------------
+
+fusion_hoists_pure_into_async :: TestTree
+fusion_hoists_pure_into_async =
+  testCase "optFuseSyncIntoAsync collapses MapValues >>> AsyncMapValues" $ do
+    deposits <- newTVarIO (0 :: Int)
+    let cfg = defaultAsyncIOConfig
+          { aioBufferCapacity = 4
+          , aioWorkers        = 2
+          , aioOutputMode     = OrderedOutput
+          , aioOnDeposit      = atomically (modifyTVar' deposits (+ 1))
+          }
+        topology :: F.Topology Void ()
+        topology =
+          F.source "in" textSerde textSerde
+            Cat.>>> F.mapValues T.toUpper          -- pure prefix
+            Cat.>>> F.asyncMapValues cfg pure       -- async tail
+            Cat.>>> F.sink "out" textSerde textSerde
+
+    -- With the rule enabled the optimiser should drop one node
+    -- (the pure 'MapValues' folds into the async). We assert on
+    -- the node-count delta to make the fusion observable
+    -- without parsing the AST structure.
+    let optimised   = F.optimize topology
+        unoptimised = F.optimizeWith F.noOptimization topology
+        nFused      = F.countNodes optimised
+        nRaw        = F.countNodes unoptimised
+    assertBool
+      ("expected fused topology to have fewer nodes; raw="
+         <> show nRaw <> " fused=" <> show nFused)
+      (nFused < nRaw)
+
+    -- And the fused topology still runs to the same output.
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "asyncio-fusion"
+    mapM_ (\v -> pipeInput driver (topicName "in")
+                  Nothing (bytes v) t0 0) ["alpha", "bravo"]
+    atomically $ do
+      n <- readTVar deposits
+      if n >= 2 then pure () else retry
+    advanceWallClockTime driver 250
+    out <- readOutput driver (topicName "out")
+    map (unbytes . crValue) out @?= ["ALPHA", "BRAVO"]
     closeDriver driver

@@ -3770,6 +3770,27 @@ data OptimizeConfig = OptimizeConfig
     -- @'Tap' t1 '.' 'Tap' t2 = 'Tap' ('Fanout' t2 t1 '>>>' Arr (const ()))@.
   , optFuseTaps            :: !Bool
 
+    -- | Riffle rule: lift an adjacent pure 'MapValues' /
+    -- 'MapKeyValue' into an immediately-following
+    -- 'AsyncMapValues' / 'AsyncMapKeyValue' so the pure part
+    -- runs on the async worker instead of the stream thread.
+    --
+    -- The fusion is /one-sided/: a pure op /before/ an async op
+    -- is hoisted into the async worker (correct because the
+    -- worker still observes records in the same logical order
+    -- the stream thread enqueued them). A pure op /after/ an
+    -- async op is /not/ fused — the post-async forward happens
+    -- on the stream thread, so leaving the pure op as a
+    -- distinct sync node is fine and keeps the AsyncIO
+    -- bookkeeping focused on the actually-async work.
+    --
+    -- Adjacent async-async fusion is /not/ performed: two
+    -- async ops carry independent 'AsyncIOConfig' instances
+    -- (different buffer budgets, retry policies, ordering
+    -- modes). Collapsing them would silently change the
+    -- backpressure profile.
+  , optFuseSyncIntoAsync   :: !Bool
+
     -- | Upper bound on rewrite passes. Each iteration must reduce
     -- node count or termination is forced; this is a belt-and-
     -- braces guard against pathological inputs.
@@ -3794,6 +3815,7 @@ defaultOptimizeConfig = OptimizeConfig
   , optAutoInsertRepartition        = True
   , optCollapseValues               = True
   , optFuseTaps                     = True
+  , optFuseSyncIntoAsync            = True
   , optMaxPasses                    = 12
   }
 
@@ -3816,6 +3838,7 @@ noOptimization = OptimizeConfig
   , optAutoInsertRepartition        = False
   , optCollapseValues               = False
   , optFuseTaps                     = False
+  , optFuseSyncIntoAsync            = False
   , optMaxPasses                    = 0
   }
 
@@ -4223,6 +4246,23 @@ fuseStep cfg g f = case (g, f) of
     Just (liftPrim (MapKeyValueM (\k v -> do
                                       (!k', !v') <- f' k v
                                       g' k' v')))
+
+  -- Riffle: hoist a pure pre-async op into the async worker.
+  --
+  -- The downstream is async; the upstream is a pure
+  -- 'MapValues' / 'MapKeyValue'. The worker pool will compute
+  -- the composed function instead of the stream thread doing
+  -- the pure half; the bookkeeping (ordering, retry, drain)
+  -- is unchanged because we keep the async constructor and
+  -- its 'AsyncIOConfig'.
+  (Lift (AsyncMapValues aioCfg g'), Lift (MapValues f')) | optFuseSyncIntoAsync cfg ->
+    Just (liftPrim (AsyncMapValues aioCfg (\v -> g' (f' v))))
+  (Lift (AsyncMapKeyValue aioCfg g'), Lift (MapKeyValue f')) | optFuseSyncIntoAsync cfg ->
+    Just (liftPrim (AsyncMapKeyValue aioCfg (\k v ->
+      let (!k', !v') = f' k v
+      in g' k' v')))
+  (Lift (AsyncFlatMapValues aioCfg g'), Lift (MapValues f')) | optFuseSyncIntoAsync cfg ->
+    Just (liftPrim (AsyncFlatMapValues aioCfg (\v -> g' (f' v))))
 
   -- MapRecord family — full-record transforms compose just like
   -- their value-only counterparts.
