@@ -453,6 +453,7 @@ library wireform-kafka-streams
         Kafka.Streams.Sinks.TwoPhase
         Kafka.Streams.Watermark
         Kafka.Streams.State.KeyValue.TTL
+        Kafka.Streams.State.KeyValue.SchemaVersioned
         Kafka.Streams.Query
         Kafka.Streams.Mock.Cluster
         Kafka.Streams.Mock.Fault
@@ -643,6 +644,7 @@ test-suite wireform-kafka-streams-test
         Streams.Antithesis.TwoPhaseSinkSpec
         Streams.Antithesis.WatermarkCoordSpec
         Streams.Antithesis.TTLSpec
+        Streams.Antithesis.SchemaVersionedSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
