@@ -876,6 +876,53 @@ Phase-1 \xc2\xa71 / \xc2\xa76 items landed in the same series:
   `getKVStoreRef` / `getWindowStoreRef` / `getSessionStoreRef`
   type-check the kind at compile time. The stringly-typed
   `getStateStore` / `processStream` calls remain. **Landed.**
+* **`EmitPolicy` ADT** (\xc2\xa76 table row):
+  `Kafka.Streams.EmitPolicy` promotes the KIP-825
+  `EmitStrategy` enum to a first-class policy any windowed /
+  stateful operator can consume. Adds `EmitOnCount n` and a
+  user-supplied `EmitCustom` arm alongside the original
+  `EmitOnUpdate` / `EmitOnWindowClose`; `decideEmit` /
+  `EmitContext` are the consumer-side API. **Landed.**
+* **Standby snapshot-pointer mode** (\xc2\xa71 follow-up):
+  `Kafka.Streams.Runtime.StandbyTask` learns
+  `StandbyMode = ReplayBytes | SnapshotPointer`.
+  `newSnapshotPointerStandby` allocates a pointer-mode standby
+  that holds @(snapshotId, advancedTo)@ without a local
+  replica. `bumpSnapshotPointer` is the runtime hook the
+  active calls when it publishes a fresh snapshot.
+  Promotion = fetch the snapshot blob + replay the changelog
+  tail. **Landed.**
+* **Event-time TTL tied to the coordinated watermark** (\xc2\xa76
+  table row): `ttlClockFromCoordinator :: WatermarkCoordinator
+  -> IO Timestamp` builds the TTL wrapper's clock from the
+  cross-source effective watermark. The wrapper itself still
+  takes any @IO Timestamp@, so tests + wall-clock callers keep
+  their existing surface. **Landed.**
+* **Richer CDC source** (\xc2\xa76 table row):
+  `Kafka.Streams.Sources.CDC` gains
+  `CDCPhase = SnapshotPhase | StreamingPhase`, a `SchemaChange`
+  side channel (`pushSchemaChange` / `setPhase` / the new
+  `CDCPoll` return type), and `compactCDCBatch`: key-aware
+  compaction that keeps only the last event per key in
+  source order. `cdcToKTableStep` applies compaction
+  automatically and surfaces schema changes + phase as part
+  of its return. **Landed.**
+* **Per-operator watermark consumption** (\xc2\xa75 last mile):
+  `ProcessorContext` gains
+  `ctxCoordinatedWatermark :: IO (Maybe Timestamp)` and a
+  convenience helper `effectiveTime` that returns the
+  coordinated watermark when wired, falling back to
+  `ctxStreamTime`. The suppress operator already consumes it;
+  the time-windowed aggregator / stream-stream join wiring
+  is mechanically the same and a future small commit.
+  **Landed.**
+* **KIP-848 bridge** (\xc2\xa76 / \xc2\xa72 last mile):
+  `Kafka.Streams.Runtime.RebalanceBridge` translates the
+  broker-protocol `Kafka.Client.ConsumerGroupV2.AssignmentDelta`
+  into the streams runtime's `RP.Reconciliation` shape so the
+  same reconciler logic services both real-broker and
+  in-process topologies. `applyAssignmentDelta` is the
+  per-heartbeat hook. **Landed.**
 
 **Phase 2** (depends on Phase 1 plumbing):
 
