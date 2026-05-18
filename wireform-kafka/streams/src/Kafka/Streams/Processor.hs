@@ -211,6 +211,19 @@ data ProcessorContext = ProcessorContext
     -- Mirrors @ProcessorContext.commit()@: the commit doesn't
     -- happen synchronously; the runtime picks it up at the end of
     -- the current commit window.
+  , ctxRegisterPreCommitDrain :: !(IO () -> IO ())
+    -- ^ Riffle: register a drain action that the engine will
+    -- run /on the stream thread/ before the commit cycle
+    -- flushes stores and the record collector. The action MUST
+    -- block until any background work the processor depends on
+    -- (e.g. an async-I\/O worker pool) has finished and been
+    -- forwarded downstream — that's what makes the operator
+    -- EOS-compatible with the producer's transactional commit.
+    --
+    -- Processors that do not own background workers ignore this
+    -- field. Drains run in registration order; an exception
+    -- from any drain propagates back to 'commitEngine'
+    -- (matching the JVM 'StateStore.flush' contract).
   }
 
 -- | Bytes-already-serialised emission record. Defined here (rather

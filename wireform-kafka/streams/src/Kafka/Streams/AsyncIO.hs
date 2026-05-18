@@ -241,16 +241,17 @@ buildAsyncProcessor
   -> IO (Processor k v)
 buildAsyncProcessor cfg0 work = do
   let cfg = sanitiseConfig cfg0
-  ctxRef     <- newIORef Nothing
-  inFlight   <- newTBQueueIO (fromIntegral (aioBufferCapacity cfg))
-  reorderRef <- newTVarIO Map.empty
-  unorderedQ <- newTQueueIO
-  nextInRef  <- newTVarIO 0
-  nextOutRef <- newTVarIO 0
-  failureRef <- newTVarIO Nothing
-  shutdownVar <- newTVarIO False
-  workersRef  <- newIORef ([] :: [Async ()])
-  punCancel   <- newIORef Nothing
+  ctxRef       <- newIORef Nothing
+  inFlight     <- newTBQueueIO (fromIntegral (aioBufferCapacity cfg))
+  reorderRef   <- newTVarIO Map.empty
+  unorderedQ   <- newTQueueIO
+  nextInRef    <- newTVarIO 0
+  nextOutRef   <- newTVarIO 0
+  depositedRef <- newTVarIO 0
+  failureRef   <- newTVarIO Nothing
+  shutdownVar  <- newTVarIO False
+  workersRef   <- newIORef ([] :: [Async ()])
+  punCancel    <- newIORef Nothing
 
   let st = AsyncProcState
         { apsCfg         = cfg
@@ -259,6 +260,7 @@ buildAsyncProcessor cfg0 work = do
         , apsUnordered   = unorderedQ
         , apsNextIn      = nextInRef
         , apsNextOut     = nextOutRef
+        , apsDeposited   = depositedRef
         , apsFailure     = failureRef
         , apsShutdown    = shutdownVar
         , apsWorkersRef  = workersRef
@@ -283,6 +285,12 @@ buildAsyncProcessor cfg0 work = do
                     Just c2  -> drainAndCheck st c2
             c <- ctxSchedule ctx intervalMs WallClockTimePunctuation pun
             writeIORef punCancel (Just c)
+        -- Riffle: register the EOS pre-commit drain. The engine
+        -- calls this on the stream thread before flushing stores
+        -- and the record collector, so every in-flight async
+        -- result lands in the same commit transaction as the
+        -- source offsets it was produced from.
+        ctxRegisterPreCommitDrain ctx (preCommitDrainAction st ctxRef)
     , procProcess = \r -> do
         mctx <- readIORef ctxRef
         case mctx of
@@ -319,7 +327,15 @@ data AsyncProcState k v k' v' = AsyncProcState
     -- ^ For 'UnorderedOutput': completed batches in completion
     --   order. Skipped failures contribute nothing.
   , apsNextIn      :: !(TVar SeqNo)
+    -- ^ Next sequence number to assign on enqueue. Equal to the
+    --   total number of records submitted so far.
   , apsNextOut     :: !(TVar SeqNo)
+  , apsDeposited   :: !(TVar SeqNo)
+    -- ^ Total number of records the worker pool has deposited
+    --   (success or skip) — used by 'preCommitDrain' to wait
+    --   until every in-flight request has been resolved, so the
+    --   EOS pre-commit hook can guarantee no async work is
+    --   stranded across a commit boundary.
   , apsFailure     :: !(TVar (Maybe SomeException))
   , apsShutdown    :: !(TVar Bool)
   , apsWorkersRef  :: !(IORef [Async ()])
@@ -467,20 +483,21 @@ depositSuccess
   -> SeqNo
   -> Seq (Record k' v')
   -> IO ()
-depositSuccess st cfg sn batch = atomically $
+depositSuccess st cfg sn batch = atomically $ do
   case aioOutputMode cfg of
     OrderedOutput   ->
       modifyTVar' (apsReorder st) (Map.insert sn (Just batch))
     UnorderedOutput ->
       unless (Seq.null batch) $
         writeTQueue (apsUnordered st) batch
+  modifyTVar' (apsDeposited st) (+ 1)
 
 depositSkip
   :: AsyncProcState k v k' v'
   -> AsyncIOConfig
   -> SeqNo
   -> IO ()
-depositSkip st cfg sn = atomically $
+depositSkip st cfg sn = atomically $ do
   case aioOutputMode cfg of
     OrderedOutput   ->
       modifyTVar' (apsReorder st) (Map.insert sn Nothing)
@@ -488,6 +505,7 @@ depositSkip st cfg sn = atomically $
       -- Unordered: nothing to deposit. The seqNo is irrelevant
       -- because completion order drives output.
       pure ()
+  modifyTVar' (apsDeposited st) (+ 1)
 
 -- | Apply the failure policy. Returns 'True' when the failure is
 -- non-fatal (downstream-skipped) and 'False' when the task should
@@ -510,6 +528,38 @@ applyFailurePolicy p e = case p of
 ----------------------------------------------------------------------
 -- Drain
 ----------------------------------------------------------------------
+
+-- | EOS pre-commit drain: block on the stream thread until every
+-- submitted request has been deposited by the worker pool, then
+-- forward whatever's ready downstream.
+--
+-- Invoked by the engine's 'drainPreCommit' / 'commitEngine' just
+-- before stores and the record collector are flushed. The
+-- producer-side transaction therefore captures every async
+-- output that corresponds to a source offset committed by the
+-- same cycle.
+--
+-- Blocks indefinitely if the user IO hangs — that's the correct
+-- EOS behaviour: the commit should not finalise while there is
+-- still work that might be lost on a crash.
+preCommitDrainAction
+  :: AsyncProcState k v k' v'
+  -> IORef (Maybe ProcessorContext)
+  -> IO ()
+preCommitDrainAction st ctxRef = do
+  -- Wait for every in-flight request to be resolved (success or
+  -- skip). After this barrier the reorder / unordered buffers
+  -- hold everything the workers produced for in-flight work.
+  atomically $ do
+    submitted <- readTVar (apsNextIn st)
+    deposited <- readTVar (apsDeposited st)
+    unless (deposited >= submitted) retry
+  -- Now drain on the stream thread — same path the periodic
+  -- punctuator uses, including the failure-TVar re-throw.
+  mctx <- readIORef ctxRef
+  case mctx of
+    Nothing  -> pure ()
+    Just ctx -> drainAndCheck st ctx
 
 drainAndCheck
   :: AsyncProcState k v k' v'

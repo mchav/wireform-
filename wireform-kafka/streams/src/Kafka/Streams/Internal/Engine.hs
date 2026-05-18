@@ -46,6 +46,7 @@ module Kafka.Streams.Internal.Engine
   , triggerStreamTimePunctuators
   , triggerWallClockPunctuators
   , commitEngine
+  , drainPreCommit
   , closeEngine
   , storeByName
   , streamTimeOfEngine
@@ -58,7 +59,7 @@ module Kafka.Streams.Internal.Engine
   , unsafeUnerase
   ) where
 
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, throwIO, try)
 import Control.Monad (forM, forM_)
 import Data.ByteString (ByteString)
 import Data.IORef
@@ -209,6 +210,22 @@ data Engine = Engine
   , engineDeserHandler :: !DeserializationHandler
   , engineMetrics      :: !MetricsRegistry
   , engineCommitRequested :: !(IORef Bool)
+  , engineAsyncDrains  :: !(IORef [IO ()])
+    -- ^ Riffle: pre-commit drain registry. Processors that own
+    -- background workers (today: 'Kafka.Streams.AsyncIO') register
+    -- a drain action via 'ctxRegisterPreCommitDrain' during
+    -- 'procInit'. 'commitEngine' runs every registered drain
+    -- /before/ flushing stores and the record collector so that:
+    --
+    --   * In-flight async results are forwarded downstream and
+    --     captured by the same commit transaction that captures
+    --     the source-record offsets.
+    --   * The producer's 'TxnOffsetCommit' is consistent with
+    --     what the operator has emitted (the EOS contract).
+    --
+    -- Drains run synchronously on the stream thread in
+    -- registration order. An exception from any drain
+    -- propagates as a 'commitEngine' failure.
   }
 
 ----------------------------------------------------------------------
@@ -244,6 +261,7 @@ buildEngine validated tid appId collector deserHandler = do
   pesRef        <- newIORef []
   metrics       <- noopMetricsRegistry
   commitReqRef  <- newIORef False
+  drainsRef     <- newIORef []
 
   let engine = Engine
         { engineTopology     = topo
@@ -262,6 +280,7 @@ buildEngine validated tid appId collector deserHandler = do
         , engineDeserHandler = deserHandler
         , engineMetrics      = metrics
         , engineCommitRequested = commitReqRef
+        , engineAsyncDrains  = drainsRef
         }
 
   -- Wire processors first so children-of references resolve.
@@ -575,6 +594,9 @@ makeContext engine selfNm = ProcessorContext
           Just hs -> (Just (Kafka.Streams.Types.addHeader h hs), ())
   , ctxRequestCommit =
       writeIORef (engineCommitRequested engine) True
+  , ctxRegisterPreCommitDrain = \action ->
+      atomicModifyIORef' (engineAsyncDrains engine)
+        (\xs -> (action : xs, ()))
   }
 
 eraseRecord :: Record k v -> Record Erased Erased
@@ -697,6 +719,12 @@ takeCommitRequested engine =
 
 commitEngine :: Engine -> IO ()
 commitEngine engine = do
+  -- Riffle: pre-commit drain runs FIRST. Any in-flight async work
+  -- that completed after the last drain — or that's still in
+  -- flight — is forwarded downstream now, so the records land in
+  -- the collector and become part of the same commit transaction
+  -- as the source offsets they were produced from.
+  drainPreCommit engine
   m <- readIORef (engineStores engine)
   forM_ (Map.elems m) $ \se -> do
     eflush <- try (storeEntryFlush se) :: IO (Either SomeException ())
@@ -705,6 +733,37 @@ commitEngine engine = do
       _      -> pure ()
   collectorFlush (engineCollector engine)
   Met.incCounter (engineMetrics engine) Met.commitTotal
+
+-- | Run every registered pre-commit drain in /registration order/.
+--
+-- Drains run synchronously on the stream thread because the
+-- forwarding they perform (via 'ProcessorContext.ctxForward') is
+-- not thread-safe. Each drain blocks until its background workers
+-- have caught up, then forwards any pending output downstream.
+--
+-- Called automatically as the first step of 'commitEngine'.
+-- Exposed publicly for callers (and tests) that need an explicit
+-- drain boundary outside of a full commit cycle — e.g. the
+-- 'Kafka.Streams.Runtime.EOS.EOSCoordinator' production runtime
+-- can invoke this directly between @beginTxn@ and @commitOffsets@.
+drainPreCommit :: Engine -> IO ()
+drainPreCommit engine = do
+  drains <- readIORef (engineAsyncDrains engine)
+  -- Drains were prepended at registration time; reverse so they
+  -- run in registration order.
+  mapM_ runOne (reverse drains)
+  where
+    runOne action = do
+      r <- try action :: IO (Either SomeException ())
+      case r of
+        Right () -> pure ()
+        Left e   -> do
+          putStrLn ("[streams] pre-commit drain failed: " <> show e)
+          -- Re-throw so 'commitEngine' surfaces the failure to
+          -- the runtime; EOS-mode runtimes will abort the
+          -- transaction rather than commit an inconsistent
+          -- state.
+          throwIO e
 
 closeEngine :: Engine -> IO ()
 closeEngine engine = do

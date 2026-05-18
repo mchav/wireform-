@@ -359,14 +359,19 @@ Concrete changes:
    case.
 
 5. **Offset commit semantics.** The async operator integrates with
-   the existing `EOSCoordinator` cycle. `runCommitCycle` (existing
-   function in `Kafka.Streams.Runtime.EOS`) is extended with a
-   pre-commit drain hook: every async operator drains its
-   in-flight queue to either *complete* or *fail* before
-   `commitOffsets` runs. Offsets are committed only past the last
-   record whose async result has been emitted downstream
-   (`ordered` mode) or whose downstream forwarding has been
-   acknowledged (`unordered` mode).
+   the existing `EOSCoordinator` cycle through a new
+   `ProcessorContext.ctxRegisterPreCommitDrain` hook + an
+   engine-level registry (`engineAsyncDrains`) + a public
+   `drainPreCommit :: Engine -> IO ()` invoked as the first step
+   of `commitEngine` (before stores and the record collector are
+   flushed). Every async operator registers in `procInit`; the
+   registered drain blocks on the stream thread until every
+   submitted request has been deposited by the worker pool and
+   then forwards everything downstream. Result: in the EOS-v2
+   commit cycle (`beginTxn → flushBody → commitOffsets → commitTxn`),
+   `flushBody` already includes the drain — async output and
+   source offsets land in the same transaction. **Landed in
+   Phase 1.**
 
 6. **AST-level fusion.** In `Kafka.Streams.Topology.Free.Optimize`:
 

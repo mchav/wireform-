@@ -11,13 +11,18 @@
 -- tests are deterministic against the bounded worker pool.
 module Streams.AsyncIOSpec (tests) where
 
+import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
   ( atomically
+  , isEmptyTMVar
   , modifyTVar'
+  , newEmptyTMVarIO
   , newTVarIO
+  , putTMVar
   , readTVar
   , retry
+  , takeTMVar
   )
 import qualified Control.Category as Cat
 import qualified Control.Exception as Exception
@@ -96,6 +101,9 @@ tests = testGroup "AsyncIO"
   , unordered_emits_in_completion_order
   , topology_free_async_map_values_smoke
   , fusion_hoists_pure_into_async
+  , commit_drains_in_flight_work
+  , commit_waits_for_slow_user_io
+  , commit_drains_unordered
   ]
 
 ----------------------------------------------------------------------
@@ -374,3 +382,137 @@ fusion_hoists_pure_into_async =
     out <- readOutput driver (topicName "out")
     map (unbytes . crValue) out @?= ["ALPHA", "BRAVO"]
     closeDriver driver
+
+----------------------------------------------------------------------
+-- EOS pre-commit drain: commitDriver drains in-flight work before
+-- it returns, without relying on the wall-clock punctuator.
+----------------------------------------------------------------------
+
+commit_drains_in_flight_work :: TestTree
+commit_drains_in_flight_work =
+  testCase "commitDriver drains async work even with no punctuator" $ do
+    let cfg = defaultAsyncIOConfig
+          { aioBufferCapacity = 4
+          , aioWorkers        = 2
+          , aioOutputMode     = OrderedOutput
+          , aioDrainTrigger   = DrainOnEntry
+            -- ^ Critical: no punctuator. The only mechanism that
+            -- can drain the reorder buffer is the pre-commit hook
+            -- the engine fires from commitEngine.
+          }
+        f v = pure (T.toUpper v)
+    (driver, _waitFor) <- buildAsyncDriver cfg f
+
+    let inputs = ["alpha", "bravo", "charlie"]
+    mapM_ (\v -> pipeInput driver (topicName "in")
+                  Nothing (bytes v) t0 0) inputs
+
+    -- Don't advance wall clock. commitDriver MUST drain on its
+    -- own via the engine's drainPreCommit hook.
+    commitDriver driver
+
+    out <- readOutput driver (topicName "out")
+    map (unbytes . crValue) out @?= map T.toUpper inputs
+    closeDriver driver
+
+-- | The user IO blocks until the test releases its MVar. Without
+-- the EOS drain, commitDriver would return immediately and the
+-- post-commit readOutput would miss records that the worker pool
+-- hasn't deposited yet. With the drain, commitDriver blocks
+-- until every in-flight result is deposited and forwarded.
+--
+-- Coordination is fully STM: a @started@ counter bumps /before/
+-- each worker blocks on its gate, so we can wait until both
+-- workers are parked before we schedule the background commit.
+-- That removes any race between the test thread and the runtime
+-- scheduler.
+commit_waits_for_slow_user_io :: TestTree
+commit_waits_for_slow_user_io =
+  testCase "commitDriver blocks until slow async IO has completed" $ do
+    gateA   <- newEmptyMVar
+    gateB   <- newEmptyMVar
+    started <- newTVarIO (0 :: Int)
+    let pickGate "a" = gateA
+        pickGate "b" = gateB
+        pickGate _   = error "unexpected input"
+        cfg = defaultAsyncIOConfig
+          { aioBufferCapacity = 4
+          , aioWorkers        = 2
+          , aioOutputMode     = OrderedOutput
+          , aioDrainTrigger   = DrainOnEntry
+          }
+        f v = do
+          atomically (modifyTVar' started (+ 1))
+          takeMVar (pickGate v)
+          pure (T.toUpper v)
+    (driver, _waitFor) <- buildAsyncDriver cfg f
+
+    pipeInput driver (topicName "in") Nothing (bytes "a") t0 0
+    pipeInput driver (topicName "in") Nothing (bytes "b") t0 0
+
+    -- Wait until both workers are parked on their gate. After
+    -- this barrier we know: submitted == 2, deposited == 0, two
+    -- workers are blocked. The drain MUST park.
+    atomically $ do
+      s <- readTVar started
+      if s == 2 then pure () else retry
+
+    -- Run commitDriver in the background; it must block until
+    -- both gates are released.
+    commitDone <- newEmptyTMVarIO
+    _ <- Async.async $ do
+      commitDriver driver
+      atomically (putTMVar commitDone ())
+
+    -- Confirm via STM that the commit hasn't completed: with
+    -- both workers parked, the EOS drain has to be parked too.
+    -- If the drain were skipped, commitDriver would return and
+    -- this snapshot would observe a filled TMVar.
+    notDoneYet <- atomically (isEmptyTMVar commitDone)
+    assertBool
+      "expected commitDriver to be blocked on in-flight IO"
+      notDoneYet
+
+    -- Releasing the gates lets the workers complete; commit
+    -- should now finish and forward both records.
+    putMVar gateA ()
+    putMVar gateB ()
+    atomically (takeTMVar commitDone)
+
+    out <- readOutput driver (topicName "out")
+    map (unbytes . crValue) out @?= ["A", "B"]
+    closeDriver driver
+
+-- | UnorderedOutput: the drain forwards the completed unordered
+-- queue regardless of input ordering.
+commit_drains_unordered :: TestTree
+commit_drains_unordered =
+  testCase "commit drains UnorderedOutput too" $ do
+    let cfg = defaultAsyncIOConfig
+          { aioBufferCapacity = 4
+          , aioWorkers        = 2
+          , aioOutputMode     = UnorderedOutput
+          , aioDrainTrigger   = DrainOnEntry
+          }
+        f v = pure (T.toUpper v)
+    (driver, _waitFor) <- buildAsyncDriver cfg f
+
+    let inputs = ["x", "y", "z"]
+    mapM_ (\v -> pipeInput driver (topicName "in")
+                  Nothing (bytes v) t0 0) inputs
+
+    commitDriver driver
+
+    out <- readOutput driver (topicName "out")
+    -- Unordered: assert membership, not order. The drain
+    -- guarantees all submitted records show up.
+    map (unbytes . crValue) out
+      `shouldContainAll` ["X", "Y", "Z"]
+    closeDriver driver
+  where
+    shouldContainAll got expected =
+      assertBool
+        ("expected " <> show expected
+           <> " to be a permutation of " <> show got)
+        (length got == length expected
+         && all (`elem` got) expected)
