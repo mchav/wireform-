@@ -515,6 +515,7 @@ library wireform-kafka-streams
         Kafka.Streams.AsyncIO
         Kafka.Streams.AsyncIO.Config
         Kafka.Streams.Observability.Topology
+        Kafka.Streams.Observability.OrphanTopics
     build-depends:
         base                      >= 4.16  && < 5,
         aeson                     >= 2.0   && < 2.3,
@@ -631,6 +632,7 @@ test-suite wireform-kafka-streams-test
         Streams.Antithesis.EOSChaosSpec
         Streams.Antithesis.WorkerPoolSMSpec
         Streams.Antithesis.ObservabilityTopologySpec
+        Streams.Antithesis.OrphanTopicsSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

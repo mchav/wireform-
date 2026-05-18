@@ -81,6 +81,7 @@ import qualified Streams.Antithesis.WindowMathSpec
 import qualified Streams.Antithesis.EOSChaosSpec
 import qualified Streams.Antithesis.WorkerPoolSMSpec
 import qualified Streams.Antithesis.ObservabilityTopologySpec
+import qualified Streams.Antithesis.OrphanTopicsSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -164,5 +165,6 @@ main = defaultMain $ testGroup "kafka-streams"
       , Streams.Antithesis.EOSChaosSpec.tests
       , Streams.Antithesis.WorkerPoolSMSpec.tests
       , Streams.Antithesis.ObservabilityTopologySpec.tests
+      , Streams.Antithesis.OrphanTopicsSpec.tests
       ]
   ]

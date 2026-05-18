@@ -771,6 +771,29 @@ explicitly opts in.
    Hedgehog-randomised executions across permutation,
    failure-injection, retry/timeout, concurrency, lifecycle,
    and stress groups). **Landed.**
+
+4. Bounded `suppressUntilWindowCloses` with overrun policies:
+   `DropOldestSilently` extends `BufferOverflowPolicy`;
+   `suppressWindowedShed` + `DeadLetterShelf` route over-cap
+   entries to a side topic. The four spec policies (fail / drop /
+   shed / spill) map to `ShutdownWhenFull` / `DropOldestSilently`
+   / `suppressWindowedShed` / *deferred until §2*. **Landed.**
+
+5. Orphan internal-topic detection: pure
+   `detectOrphans :: Topology -> Text -> [TopicName] ->
+   [OrphanInternalTopic]` in
+   `Kafka.Streams.Observability.OrphanTopics` plus the
+   conventional `changelogTopic` / `repartitionTopic` naming
+   helpers. The runtime can wire this into startup as a
+   diagnostic; the detector itself is pure and CI-friendly.
+   **Landed.**
+
+6. Topology DAG JSON observability: `topologyDescription` /
+   `topologyDescriptionWith` / `liveTopologyDescription` in
+   `Kafka.Streams.Observability.Topology` emit a versioned JSON
+   document suitable for a web-UI overlay; the live variant
+   layers in counter / gauge / DurationStats snapshots from the
+   engine's `MetricsRegistry`. **Landed.**
 2. Snapshot-aware `KeyValueStore` shape + the
    `Kafka.Streams.Runtime.Snapshot` module + an in-memory and an
    FS-backed `ObjectStoreClient` (S3 wire ships in Phase 2 once
