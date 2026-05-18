@@ -7,8 +7,7 @@
 --
 -- Mirror of @org.apache.kafka.streams.examples.pageview.PageViewTypedDemo@.
 -- The KTable holds @user -> region@; the KStream holds page views keyed
--- by user. Each view is enriched with the user's current region and
--- counted per region in a hopping window.
+-- by user. Each view is enriched with the user's current region.
 --
 -- Java (paraphrased):
 --
@@ -16,49 +15,45 @@
 -- KStream<String,PageView>  views   = builder.stream("PageViews");
 -- KTable <String,UserProfile> users = builder.table("UserProfiles");
 -- KStream<String,String> enriched =
---     views.leftJoin(users, (pv, up) ->
---         up == null ? pv.page + ",unknown" : pv.page + "," + up.region);
+--     views.join(users, (pv, up) -> pv.page + "," + up.region);
 -- enriched.to("EnrichedPageViews");
 -- @
 --
--- Haskell:
+-- Haskell (free-arrow): two source legs are brought together with
+-- '&&&', the join consumes the resulting @(KStream, KTable)@ tuple,
+-- and the result is sunk back to a topic.
 module Kafka.Streams.Examples.PageViewRegion
   ( runDemo
+  , pageViewRegionTopology
   , buildPageViewRegionTopology
   ) where
 
+import Control.Arrow ((&&&))
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology.Free as F
+
+pageViewRegionTopology :: F.Topology Void ()
+pageViewRegionTopology =
+  (views &&& users)
+    >>> F.streamTableJoin
+          (\page region -> page <> "," <> region)
+          (joined textSerde textSerde textSerde)
+    >>> F.sink "EnrichedPageViews" textSerde textSerde
+  where
+    views :: F.Topology Void (KStream Text Text)
+    views = F.source "PageViews" textSerde textSerde
+
+    users :: F.Topology Void (KTable Text Text)
+    users = F.tableSource "UserProfiles" textSerde textSerde
 
 buildPageViewRegionTopology :: IO Topology
-buildPageViewRegionTopology = do
-  b <- newStreamsBuilder
-  -- KStream of "user -> page" page views.
-  views <- streamFromTopic b
-              (topicName "PageViews")
-              (consumed textSerde textSerde)
-  -- KTable of "user -> region".
-  users <- tableFromTopic b
-              (topicName "UserProfiles")
-              (consumed textSerde textSerde)
-              (materializedAs (storeName "user-profiles"))
-  -- Inner join: each page view is enriched with the user's
-  -- current region. Records arriving for users not in the
-  -- KTable are dropped (use 'leftJoinKStreamKTable' to keep
-  -- them with a Nothing on the table side).
-  enriched <- joinKStreamKTable
-                (\page region -> page <> "," <> region)
-                (joined textSerde textSerde textSerde)
-                views
-                users
-  toTopic
-    (topicName "EnrichedPageViews")
-    (produced textSerde textSerde)
-    enriched
-  buildTopology b
+buildPageViewRegionTopology = F.buildTopologyFrom pageViewRegionTopology
 
 runDemo :: IO ()
 runDemo = do
@@ -66,7 +61,6 @@ runDemo = do
   topo <- buildPageViewRegionTopology
   driver <- newDriver topo "page-view-region-app"
 
-  -- Populate the KTable first.
   let user u r =
         pipeInput driver (topicName "UserProfiles")
           (Just (BSC.pack (T.unpack u)))
@@ -77,7 +71,6 @@ runDemo = do
   user "bob"   "eu-west"
   user "carol" "ap-south"
 
-  -- Stream a few page views.
   let view u page ts =
         pipeInput driver (topicName "PageViews")
           (Just (BSC.pack (T.unpack u)))
