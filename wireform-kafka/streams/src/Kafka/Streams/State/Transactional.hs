@@ -26,6 +26,11 @@ This module provides the wrapper. It works on any
   * falls back to the underlying store on 'kvsGet' so
     /reads see writes/ within the same transaction (matches
     the JVM EOS-V3 read-your-writes property);
+  * merges the buffer overlay into 'kvsRange' / 'kvsAll' /
+    'kvsReverseRange' / 'kvsReverseAll' so scans also see
+    in-transaction writes (extends read-your-writes from point
+    lookups to iterators — caught by the
+    'Streams.Antithesis.KVStoreSMSpec' state-machine test);
   * exposes 'commit' and 'abort' that the engine driver calls
     when the producer transaction commits / aborts.
 
@@ -43,7 +48,9 @@ module Kafka.Streams.State.Transactional
   ) where
 
 import Control.Concurrent.STM
+import Data.Foldable (foldl')
 import Data.Hashable (Hashable)
+import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified ListT
@@ -79,20 +86,39 @@ newTransactionalStore kvs = do
   pure TransactionalStore { tsUnderlying = kvs, tsBuffer = buf }
 
 -- | Project the transactional wrapper as a 'KeyValueStore' that
--- the engine can hand to processor code. Reads see /pending
--- writes/ first; writes are buffered.
+-- the engine can hand to processor code. Reads — both point
+-- lookups and range\/all iterators — see /pending writes/ first;
+-- writes are buffered.
+--
+-- An 'Ord' constraint on @k@ is required so the buffer overlay
+-- can be merged into the iterator results in key order. Every
+-- shipped backend already requires 'Ord' for its own range
+-- semantics, so this is not an additional caller obligation in
+-- practice.
 txnStore
   :: forall k v
-   . (Eq k, Hashable k)
+   . (Ord k, Hashable k)
   => TransactionalStore k v
   -> KeyValueStore k v
 txnStore ts@TransactionalStore{..} = KeyValueStore
   { kvsBase            = kvsBase tsUnderlying
-  , kvsApproxEntries   = kvsApproxEntries tsUnderlying
-  , kvsRange           = kvsRange tsUnderlying
-  , kvsAll             = kvsAll tsUnderlying
-  , kvsReverseRange    = kvsReverseRange tsUnderlying
-  , kvsReverseAll      = kvsReverseAll tsUnderlying
+  , kvsApproxEntries   = approxEntriesWithBuffer ts
+  , kvsRange           = \lo hi -> do
+      base   <- kvsRange tsUnderlying lo hi >>= drainIter
+      merged <- mergeBufferIntoList tsBuffer (Just (lo, hi)) base
+      kvIteratorFromList merged
+  , kvsAll             = do
+      base   <- kvsAll tsUnderlying >>= drainIter
+      merged <- mergeBufferIntoList tsBuffer Nothing base
+      kvIteratorFromList merged
+  , kvsReverseRange    = \lo hi -> do
+      base   <- kvsRange tsUnderlying lo hi >>= drainIter
+      merged <- mergeBufferIntoList tsBuffer (Just (lo, hi)) base
+      kvIteratorFromList (reverse merged)
+  , kvsReverseAll      = do
+      base   <- kvsAll tsUnderlying >>= drainIter
+      merged <- mergeBufferIntoList tsBuffer Nothing base
+      kvIteratorFromList (reverse merged)
   , kvsGet = \k -> do
       -- Read-your-writes: the buffer wins.
       mPending <- atomically $ StmMap.lookup k tsBuffer
@@ -116,6 +142,85 @@ txnStore ts@TransactionalStore{..} = KeyValueStore
       atomically (StmMap.insert BufDelete k tsBuffer)
       pure mExisting
   }
+
+-- | Drain an iterator into a list in iteration order. Closes
+-- the iterator as part of materialising it.
+drainIter :: KeyValueIterator k v -> IO [(k, v)]
+drainIter it = go []
+  where
+    go acc = do
+      mx <- kvIterNext it
+      case mx of
+        Nothing -> do
+          kvIterClose it
+          pure (reverse acc)
+        Just kv -> go (kv : acc)
+
+-- | Merge the in-buffer overlay onto an underlying-store
+-- ascending list. Optionally constrains the result to a
+-- @(lo, hi)@ range (inclusive). The buffer is consulted
+-- atomically and snapshot-read for the duration of the merge.
+--
+-- For a buffered key in range:
+--
+--   * 'BufPut' shadows the underlying value (and adds the key
+--     if absent).
+--   * 'BufDelete' removes the key.
+--
+-- Buffered keys outside the range are ignored.
+mergeBufferIntoList
+  :: forall k v
+   . Ord k
+  => StmMap.Map k (BufferedOp v)
+  -> Maybe (k, k)
+  -> [(k, v)]
+  -> IO [(k, v)]
+mergeBufferIntoList buf mRange underlying = do
+  bufPairs <- atomically $ ListT.toList (StmMap.listT buf)
+  let filt = case mRange of
+        Nothing       -> id
+        Just (lo, hi) -> filter (\(k, _) -> k >= lo && k <= hi)
+      base   = Map.fromList underlying
+      merged = foldl' applyOp base (filt bufPairs)
+      result = case mRange of
+        Nothing       -> Map.toAscList merged
+        Just (lo, hi) ->
+          Map.toAscList
+            (Map.takeWhileAntitone (<= hi)
+              (Map.dropWhileAntitone (<  lo) merged))
+  pure result
+  where
+    applyOp m (k, BufPut v)  = Map.insert k v m
+    applyOp m (k, BufDelete) = Map.delete k m
+
+-- | 'kvsApproxEntries' adjusted for the buffer overlay. Used
+-- by callers that consult 'approxEntries' to bound memory; an
+-- underlying-only count would mislead during a long-running
+-- transaction.
+approxEntriesWithBuffer
+  :: (Ord k, Hashable k)
+  => TransactionalStore k v
+  -> IO Int64
+approxEntriesWithBuffer TransactionalStore{..} = do
+  underN <- kvsApproxEntries tsUnderlying
+  bufPairs <- atomically $ ListT.toList (StmMap.listT tsBuffer)
+  -- Walk the buffer once: each 'BufPut' for a key not in the
+  -- underlying adds 1; each 'BufDelete' for a key /in/ the
+  -- underlying subtracts 1. We can't cheaply check
+  -- "underlying contains key" so we approximate using
+  -- 'kvsGet'; this is an approxEntries by design.
+  delta <- foldDelta bufPairs 0
+  pure (underN + delta)
+  where
+    foldDelta [] !acc = pure acc
+    foldDelta ((k, op) : rest) !acc = do
+      mExisting <- kvsGet tsUnderlying k
+      let !d = case (op, mExisting) of
+            (BufPut _,  Nothing) -> 1
+            (BufPut _,  Just _)  -> 0
+            (BufDelete, Nothing) -> 0
+            (BufDelete, Just _)  -> -1
+      foldDelta rest (acc + d)
 
 -- | Drain the buffer onto the underlying store.
 --
