@@ -1,4 +1,11 @@
-# wireform-kafka-streams Mk2 — Design Spec
+# wireform-kafka-streams Riffle — Design Spec
+
+> **Riffle** (n.) — a stretch of fast-flowing water in a stream;
+> here, the codename for the additive extension tier of
+> `wireform-kafka-streams` that sits beyond Apache Kafka Streams
+> parity. Riffle is not an Apache Kafka project; it's a
+> wireform-flavour roadmap layered on top of the parity port,
+> picked up at compile time per topology.
 
 Status: **draft / proposal**. This document is the design contract
 for the post-parity evolution of `wireform-kafka-streams`. It does
@@ -6,27 +13,27 @@ not change anything shipped today; it lays out the structural and
 breadth additions that would lift the library from "faithful KS
 port" to "KS-shape, Flink-class behaviour where it matters".
 
-The single overriding constraint is **additivity**: every Mk2 change
+The single overriding constraint is **additivity**: every Riffle change
 is opt-in, ships as a new module or a new constructor, and does not
 break the operator-for-operator parity claim that the README leads
 with. Existing topologies keep compiling unchanged. Existing runtime
-backends keep working. Wherever an Mk2 feature has a legacy
-equivalent, the legacy path stays — selecting Mk2 is a config
+backends keep working. Wherever a Riffle feature has a legacy
+equivalent, the legacy path stays — selecting Riffle is a config
 toggle, a different smart constructor, or a different builder shape,
 never a forced migration.
 
-Mk2 has no version bump until every section below has landed,
+Riffle has no version bump until every section below has landed,
 documented, and tested end-to-end. Sections marked **Phase 1** are
 the first wave; sections marked **Phase 2** depend on Phase 1
 plumbing.
 
 ---
 
-## 0. Where Mk2 plugs in
+## 0. Where Riffle plugs in
 
-The current code has two layers, and Mk2 respects both:
+The current code has two layers, and Riffle respects both:
 
-| Layer | Module | Mk2 changes integrate as… |
+| Layer | Module | Riffle changes integrate as… |
 | ----- | ------ | ------------------------- |
 | **Typed AST** | `Kafka.Streams.Topology.Free` (`FreeArrow Prim`) | new `Prim` constructors, new smart constructors, new fusion rules. |
 | **Imperative graph** | `Kafka.Streams.Topology` (`Topology` / `AnyStoreBuilder` / `SourceSpec` / `ProcessorSpec`) | new `AnyStoreBuilder` shapes, new `SourceSpec`/`ProcessorSpec` fields (kept `Maybe` for optionality), new `topo*` indices. |
@@ -34,7 +41,7 @@ The current code has two layers, and Mk2 respects both:
 
 The single `compile :: Topology Void o -> IO (o, Topo.Topology)`
 remains the bridge. New `Prim` constructors compile to either
-existing `ProcessorSpec` shapes (for Mk2 features that reuse the
+existing `ProcessorSpec` shapes (for Riffle features that reuse the
 single-task model — e.g. async I/O lives inside one task) or to new
 spec shapes added alongside the existing ones (for features that
 need a new runtime concept — e.g. snapshot-aware stores).
@@ -69,7 +76,7 @@ Concrete changes:
      AsWindowBuilder   :: !(StoreBuilderW   k v)    -> AnyStoreBuilder
      AsSessionBuilder  :: !(StoreBuilderS   k v)    -> AnyStoreBuilder
      AsRawBuilder      :: !StoreBuilder              -> AnyStoreBuilder
-     -- new in Mk2:
+     -- new in Riffle:
      AsSnapshotKV      :: !(StoreBuilderSnapKV k v) -> AnyStoreBuilder
      AsTieredKV        :: !(StoreBuilderTieredKV k v) -> AnyStoreBuilder
      AsRemoteKV        :: !(StoreBuilderRemoteKV k v) -> AnyStoreBuilder
@@ -125,7 +132,7 @@ Concrete changes:
    - Recovery time becomes `O(time-since-last-snapshot)`, not
      `O(state-size)`.
 
-4. **Standby tasks under Mk2 backends.** `StandbyTask` and
+4. **Standby tasks under Riffle backends.** `StandbyTask` and
    `StandbyManager` are unchanged for the legacy local-store path.
    For an `AsRemoteKV` store the runtime registers no standby — the
    "standby" is the remote KV cluster itself. For `AsSnapshotKV` /
@@ -137,7 +144,7 @@ Concrete changes:
 ### Optionality
 
 - Default backend stays the same (local in-memory or RocksDB-via-
-  `+rocksdb`). The Mk2 backends are picked explicitly via new
+  `+rocksdb`). The Riffle backends are picked explicitly via new
   smart constructors in `Kafka.Streams.State.KeyValue.Snapshot` /
   `Kafka.Streams.State.KeyValue.Tiered` /
   `Kafka.Streams.State.KeyValue.Remote`.
@@ -145,7 +152,7 @@ Concrete changes:
   changelog-only behaviour gets it by not selecting a snapshot-
   capable builder.
 - `EOSCoordinator.storeCommit` already exists as the integration
-  point; Mk2 wires the snapshot publisher into it via
+  point; Riffle wires the snapshot publisher into it via
   `withTransactionalStores` (existing function) so the noop path
   is unaffected.
 
@@ -238,7 +245,7 @@ Three coexisting dispatch modes, picked at runtime startup:
 
 - **`Partition`** — current behaviour, `newWorkerPool`.
 - **`Hashed`** — current behaviour, `newWorkerPoolHashed`.
-- **`KeyGroup`** — new Mk2 behaviour, `newWorkerPoolKeyGrouped`.
+- **`KeyGroup`** — new Riffle behaviour, `newWorkerPoolKeyGrouped`.
 
 `StreamsConfig` gains a `dispatchMode :: DispatchMode` field with a
 default that preserves today's behaviour.
@@ -347,7 +354,7 @@ Concrete changes:
    `TQueue`. The runtime's outer poll loop already pauses
    `submitRecord*` when the inbox can't accept more work
    (existing semantics — the `STM` retry on a full inbox is the
-   natural backpressure signal). Mk2 adds a metric and a
+   natural backpressure signal). Riffle adds a metric and a
    `pauseFetch` hint to the consumer for the chronic-backpressure
    case.
 
@@ -558,7 +565,7 @@ Concrete changes:
      , sourceWatermarkStrategy :: !(Maybe AnyWatermarkStrategy)
        -- ^ NEW. 'Nothing' (the default) means: legacy per-task
        -- 'StreamTime' behaviour, exactly as today. 'Just' opts
-       -- the source into the Mk2 watermark coordinator.
+       -- the source into the Riffle watermark coordinator.
      }
    ```
 
@@ -629,10 +636,10 @@ Concrete changes:
 Smaller-scope changes. Each is additive; each lists the existing
 behaviour that survives unchanged.
 
-| Pain | Mk2 fix | Phase | Optionality |
+| Pain | Riffle fix | Phase | Optionality |
 | ---- | ------- | ----- | ----------- |
 | `getStateStore "name"` is stringly-typed and returns `AnyStateStore` you cast. | Typed `StoreRef k v` with phantom types. `processStream` overload takes `[StoreRef]` instead of `[StoreName]`. Compile error if you reference a store you didn't declare. The current `Topic k v` machinery in this repo already proves the pattern works. | 1 | The stringly-typed `processStream` / `withStateStoreKV` calls remain. `StoreRef` is the new typed alternative. |
-| `suppress(untilWindowCloses)` has unbounded-buffer pathologies. | Mandatory explicit memory budget on `suppressUntilWindowCloses` Mk2 variant: `(BufferConfig, OverrunPolicy)`. Policies: `DropOldest` / `ShedToDLQ` / `Fail` / `SpillToSnapshotStore`. | 1 | Existing `suppressUntilTimeLimit` / `suppressWindowed` / `suppressWindowedWith` keep their current contracts. |
+| `suppress(untilWindowCloses)` has unbounded-buffer pathologies. | Mandatory explicit memory budget on `suppressUntilWindowCloses` Riffle variant: `(BufferConfig, OverrunPolicy)`. Policies: `DropOldest` / `ShedToDLQ` / `Fail` / `SpillToSnapshotStore`. | 1 | Existing `suppressUntilTimeLimit` / `suppressWindowed` / `suppressWindowedWith` keep their current contracts. |
 | State-store schema evolution is on the user. | Stores carry a `schemaVersion :: Int`. New `StoreBuilder*Versioned` writes both old and new during a configurable burn-in window. The runtime drains the old store after burn-in. | 2 | Existing builders are version-pinned; opting in is a different builder call. |
 | State TTL is wall-clock only. | Add `EventTimeTTL` to `StoreBuilderKV` / `StoreBuilderW` / `StoreBuilderS`. Expiry driven off the coordinated watermark (§5). | 2 | The wall-clock TTL is unchanged; `EventTimeTTL` is a new field with default `NoEventTimeTTL`. |
 | Trigger / emit policy is hard-coded per operator. | Promote the existing `EmitStrategy` (KIP-825) to a first-class `EmitPolicy` reused by every windowed / stateful operator. Plus `OnCount n` and a user-supplied `EmitPolicy`. | 2 | Existing `withEmitStrategy` calls are unchanged. |
@@ -733,17 +740,17 @@ This section is the contract for *what existing code keeps doing*.
 - `WorkerPool`'s `newWorkerPool` / `newWorkerPoolHashed` stay.
   `newWorkerPoolKeyGrouped` is additive.
 - `StandbyTask` / `StandbyManager` keep their current API. The
-  Mk2 backend wiring uses them through their existing surface;
+  Riffle backend wiring uses them through their existing surface;
   no struct changes are required.
 - `TimestampExtractor` and all five shipped extractors are
   unchanged. `WatermarkStrategy` is a wrapper around an extractor.
 - All KIP-295 / KIP-307 / KIP-825 / KIP-418 / KIP-892 work that
   recently landed is preserved as-is. None of it overlaps with
-  the Mk2 additions; both can coexist.
+  the Riffle additions; both can coexist.
 
-A topology that selects no Mk2 features should produce byte-for-
+A topology that selects no Riffle features should produce byte-for-
 byte identical compiled graphs to today's compiler, modulo
-diagnostics. Mk2 features only kick in when the topology
+diagnostics. Riffle features only kick in when the topology
 explicitly opts in.
 
 ---
@@ -784,7 +791,7 @@ explicitly opts in.
 ## 10. What this gets you
 
 Stacking everything above on top of today's library produces a
-"Kafka Streams Mk2" with:
+"Kafka Streams Riffle" with:
 
 - Flink-class state durability and recovery — bounded by
   `time-since-last-snapshot`, not by state size.
